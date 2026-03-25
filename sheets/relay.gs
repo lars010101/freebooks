@@ -183,42 +183,42 @@ function onRefreshBills() {
 function onRefreshTB() {
   var params = getReportParams_();
   var result = callSkuld_('report.refresh_tb', params);
-  if (result) writeReportToSheet_('TB', result);
+  if (result) { writeReportToSheet_('TB', result); activateSheet_('TB'); }
 }
 
 function onRefreshPL() {
   var params = getReportParams_();
   var result = callSkuld_('report.refresh_pl', params);
-  if (result) writeReportToSheet_('PL', result);
+  if (result) { writeReportToSheet_('PL', result); activateSheet_('PL'); }
 }
 
 function onRefreshBS() {
   var params = getReportParams_();
   var result = callSkuld_('report.refresh_bs', params);
-  if (result) writeReportToSheet_('BS', result);
+  if (result) { writeReportToSheet_('BS', result); activateSheet_('BS'); }
 }
 
 function onRefreshCF() {
   var params = getReportParams_();
   var result = callSkuld_('report.refresh_cf', params);
-  if (result) writeReportToSheet_('CF', result);
+  if (result) { writeReportToSheet_('CF', result); activateSheet_('CF'); }
 }
 
 function onRefreshDashboard() {
   var params = getReportParams_();
   var result = callSkuld_('report.refresh_dashboard', params);
-  if (result) writeReportToSheet_('Dashboard', result);
+  if (result) { writeReportToSheet_('Dashboard', result); activateSheet_('Dashboard'); }
 }
 
 function onRefreshAPAging() {
   var result = callSkuld_('report.refresh_ap_aging', {});
-  if (result) writeReportToSheet_('AP Aging', result);
+  if (result) { writeReportToSheet_('AP Aging', result); activateSheet_('AP Aging'); }
 }
 
 function onRefreshVATReturn() {
   var params = getVATReturnParams_();
   var result = callSkuld_('report.refresh_vat_return', params);
-  if (result) writeReportToSheet_('VAT Return', result);
+  if (result) { writeReportToSheet_('VAT Return', result); activateSheet_('VAT Return'); }
 }
 
 function onRefreshAllReports() {
@@ -227,7 +227,16 @@ function onRefreshAllReports() {
   onRefreshBS();
   onRefreshCF();
   onRefreshDashboard();
+  activateSheet_('Dashboard');
   SpreadsheetApp.getUi().alert('All reports refreshed.');
+}
+
+/**
+ * Activate (bring to front) a named sheet.
+ */
+function activateSheet_(name) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (sheet) sheet.activate();
 }
 
 // =============================================================================

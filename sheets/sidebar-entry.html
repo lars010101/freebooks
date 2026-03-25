@@ -278,9 +278,9 @@ function searchEntries() {
   if(!q){showStatus('entry','error','Enter a search term');return;}
   showStatus('entry','warning','Searching...');
   google.script.run.withSuccessHandler(function(results){
-    document.getElementById('status-entry').className='status';
     var el=document.getElementById('searchResults');
-    if(!results||results.length===0){el.innerHTML='<div class="help" style="padding:8px">No entries found.</div>';return;}
+    if(!results||results.length===0){el.innerHTML='';showStatus('entry','warning','No entries found for "'+q+'"');return;}
+    clearStatus();
     el.innerHTML='';
     // Group by batch_id
     var batches={};

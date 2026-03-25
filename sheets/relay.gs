@@ -89,6 +89,19 @@ function navigateToTab(name) {
     return;
   }
 
+  // Create FX Rates tab if needed
+  if (name === 'FX Rates') {
+    var fxSheet = ss.getSheetByName('FX Rates');
+    if (!fxSheet) {
+      fxSheet = ss.insertSheet('FX Rates');
+      fxSheet.setTabColor('#808080'); fxSheet.setFrozenRows(1);
+      var h = ['Date', 'From', 'To', 'Rate', 'Source'];
+      fxSheet.getRange(1,1,1,h.length).setValues([h]).setFontWeight('bold').setBackground('#e6e6e6');
+    }
+    fxSheet.showSheet(); fxSheet.activate();
+    return;
+  }
+
   var sheet = ss.getSheetByName(name);
   if (!sheet) throw new Error('Tab not found: ' + name);
   sheet.showSheet();
@@ -235,20 +248,30 @@ function getSettingsData() {
   var props = PropertiesService.getScriptProperties();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var settingsSheet = ss.getSheetByName('Settings');
-  var data = settingsSheet ? settingsSheet.getDataRange().getValues() : [];
   var settings = {};
-  for (var i = 0; i < data.length; i++) {
-    var k = String(data[i][0]).trim().toLowerCase().replace(/ /g, '_');
-    settings[k] = data[i][1];
+  if (settingsSheet) {
+    var data = settingsSheet.getDataRange().getValues();
+    for (var i = 0; i < data.length; i++) {
+      var k = String(data[i][0]).trim();
+      var v = data[i][1];
+      if (v instanceof Date) v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      if (k) settings[k] = v;
+    }
   }
   return {
     companyId: props.getProperty('COMPANY_ID') || '',
-    companyName: settings.company_name || '',
-    fyStart: settings.fy_start || '2025-01-01',
-    fyEnd: settings.fy_end || '2025-12-31',
-    periodFrom: settings.period_from || settings.fy_start || '2025-01-01',
-    periodTo: settings.period_to || settings.fy_end || '2025-12-31',
+    companyName: settings['Company Name'] || props.getProperty('COMPANY_ID') || '',
+    fyStart: formatSettingDate_(settings['FY Start']) || '2025-01-01',
+    fyEnd: formatSettingDate_(settings['FY End']) || '2025-12-31',
+    periodFrom: formatSettingDate_(settings['Period From'] || settings['FY Start']) || '2025-01-01',
+    periodTo: formatSettingDate_(settings['Period To'] || settings['FY End']) || '2025-12-31',
   };
+}
+
+function formatSettingDate_(v) {
+  if (!v) return '';
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return String(v);
 }
 
 function saveSettingsFromSidebar(data) {

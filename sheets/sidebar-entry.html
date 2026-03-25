@@ -84,6 +84,9 @@
   <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
 </div>
 
+<!-- Global status bar — right under tabs -->
+<div id="global-status" class="status" style="margin:0;border-radius:0;"></div>
+
 <!-- ============================================ -->
 <!-- ENTRY TAB -->
 <!-- ============================================ -->
@@ -159,6 +162,7 @@
   <button class="nav-item" onclick="goTo('Mappings')">🔗 Bank Mappings</button>
   <button class="nav-item" onclick="goTo('Centers')">🏢 Profit / Cost Centers</button>
   <button class="nav-item" onclick="goTo('VAT Codes')">🧾 VAT Codes</button>
+  <button class="nav-item" onclick="goTo('FX Rates')">💱 FX Rates</button>
 
   <div id="status-navigate" class="status"></div>
 </div>
@@ -357,7 +361,11 @@ function doSettingsAction(action) {
 }
 
 // ---- Util ----
-function showStatus(tab,type,msg){var e=document.getElementById('status-'+tab);if(!e)return;e.className='status '+type;e.textContent=msg;}
+function showStatus(tab,type,msg){
+  var e=document.getElementById('global-status');
+  e.className='status '+type;e.textContent=msg;
+  if(type==='success')setTimeout(function(){e.className='status';e.textContent='';},5000);
+}
 </script>
 </body>
 </html>

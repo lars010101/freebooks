@@ -72,7 +72,9 @@ function writeToSheet_(sheetName, data, columns) {
   var rows = data.map(function(item) {
     return columns.map(function(col) {
       var val = item[col];
-      return val !== undefined && val !== null ? val : '';
+      if (val === undefined || val === null) return '';
+      if (typeof val === 'object' && val.value !== undefined) return val.value;
+      return val;
     });
   });
 

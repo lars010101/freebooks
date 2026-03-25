@@ -35,6 +35,16 @@ function openSidebar() {
 // Sidebar: Entry tab helpers
 // =============================================================================
 
+function getSidebarInitData() {
+  var accts = callSkuld_('coa.list', {});
+  var vats = callSkuld_('vat.codes.list', {});
+  return {
+    accounts: (accts || []).map(function(a) { return { code: a.account_code, name: a.account_name, type: a.account_type }; }),
+    vatCodes: (vats || []).map(function(v) { return { code: v.vat_code, rate: v.rate, description: v.description }; }),
+    settings: getSettingsData()
+  };
+}
+
 function getAccountList() {
   var result = callSkuld_('coa.list', {});
   return (result || []).map(function(a) { return { code: a.account_code, name: a.account_name, type: a.account_type }; });

@@ -3,7 +3,7 @@
 <head>
   <base target="_top">
   <style>
-    * { box-sizing: border-box; font-family: Arial, sans-serif; font-size: 13px; margin: 0; padding: 0; }
+    * { box-sizing: border-box; font-family: Arial, sans-serif; font-size: 14px; margin: 0; padding: 0; }
     body { background: #fafafa; }
 
     /* Tabs */
@@ -38,11 +38,11 @@
     .btn-full { width: 100%; }
 
     /* Navigate */
-    .nav-group { margin: 10px 0 4px; font-weight: bold; color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .nav-item { display: block; width: 100%; padding: 9px 10px; margin: 2px 0; background: #fff; border: 1px solid #e8e8e8; border-radius: 5px; cursor: pointer; text-align: left; font-size: 13px; color: #333; }
+    .nav-group { margin: 10px 0 4px; font-weight: bold; color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .nav-item { display: block; width: 100%; padding: 9px 10px; margin: 2px 0; background: #fff; border: 1px solid #e8e8e8; border-radius: 5px; cursor: pointer; text-align: left; font-size: 14px; color: #333; }
     .nav-item:hover { background: #e8f0fe; border-color: #4285f4; }
     .nav-bar { display: flex; gap: 4px; margin: 10px 0; padding: 8px; background: #fff; border: 1px solid #ddd; border-radius: 6px; }
-    .nav-bar .btn { flex: 1; font-size: 11px; padding: 8px 4px; text-align: center; }
+    .nav-bar .btn { flex: 1; font-size: 14px; padding: 8px 4px; text-align: center; }
 
     /* Settings */
     .setting-group { margin: 12px 0 6px; font-weight: bold; color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -205,11 +205,18 @@
 var accounts = [], vatCodes = [], lineCount = 0;
 var fyStart = '2025-01-01', fyEnd = '2025-12-31';
 
-// ---- Init ----
-google.script.run.withSuccessHandler(function(d) { accounts = d || []; addLine(); addLine(); }).getAccountList();
-google.script.run.withSuccessHandler(function(d) { vatCodes = d || []; }).getVatCodeList();
-google.script.run.withSuccessHandler(function(s) { loadSettingsData(s); }).getSettingsData();
+// ---- Init (single call to reduce load time) ----
 document.getElementById('entryDate').valueAsDate = new Date();
+showStatus('entry','warning','Loading...');
+google.script.run.withSuccessHandler(function(d) {
+  accounts = d.accounts || [];
+  vatCodes = d.vatCodes || [];
+  loadSettingsData(d.settings || {});
+  addLine(); addLine();
+  clearStatus();
+}).withFailureHandler(function(e) {
+  showStatus('entry','error','Load failed: '+e.message);
+}).getSidebarInitData();
 
 // ---- Tabs ----
 function switchTab(name) {

@@ -4,38 +4,71 @@
   <base target="_top">
   <style>
     * { box-sizing: border-box; font-family: Arial, sans-serif; font-size: 13px; }
-    body { margin: 0; padding: 12px; background: #fafafa; }
-    h3 { margin: 0 0 12px 0; color: #333; font-size: 15px; }
+    body { margin: 0; padding: 0; background: #fafafa; }
+
+    /* Tabs */
+    .tabs { display: flex; background: #333; }
+    .tab { flex: 1; padding: 10px 4px; text-align: center; color: #aaa; cursor: pointer; font-weight: bold; font-size: 11px; border-bottom: 3px solid transparent; }
+    .tab:hover { color: #fff; }
+    .tab.active { color: #fff; border-bottom-color: #4285f4; }
+    .panel { display: none; padding: 12px; }
+    .panel.active { display: block; }
+
+    /* Forms */
     label { display: block; margin: 8px 0 3px; font-weight: bold; color: #555; }
     input, select, textarea { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; }
     input:focus, select:focus { border-color: #4285f4; outline: none; }
+
+    /* Lines */
     .line { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 8px 0; }
     .line-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    .line-header span { font-weight: bold; color: #666; }
-    .line-header button { background: #ff4444; color: white; border: none; border-radius: 3px; padding: 2px 8px; cursor: pointer; }
+    .line-header span { font-weight: bold; color: #666; font-size: 12px; }
+    .line-header button { background: #ff4444; color: white; border: none; border-radius: 3px; padding: 2px 8px; cursor: pointer; font-size: 11px; }
     .row { display: flex; gap: 8px; }
     .row > div { flex: 1; }
-    .btn { display: inline-block; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin: 4px; }
+
+    /* Buttons */
+    .btn { display: inline-block; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin: 4px 0; }
     .btn-primary { background: #4285f4; color: white; }
     .btn-primary:hover { background: #3367d6; }
     .btn-secondary { background: #e0e0e0; color: #333; }
     .btn-secondary:hover { background: #ccc; }
-    .btn-add { background: #34a853; color: white; width: 100%; margin: 8px 0; }
-    .btn-add:hover { background: #2d8e47; }
-    .totals { background: #e8f0fe; padding: 8px 12px; border-radius: 4px; margin: 8px 0; font-weight: bold; }
+    .btn-green { background: #34a853; color: white; }
+    .btn-green:hover { background: #2d8e47; }
+    .btn-full { width: 100%; }
+    .btn-action { width: 100%; padding: 12px; margin: 4px 0; text-align: left; background: #fff; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; }
+    .btn-action:hover { background: #f0f6ff; border-color: #4285f4; }
+    .btn-action .icon { font-size: 16px; margin-right: 8px; }
+
+    /* Status */
+    .totals { background: #e8f0fe; padding: 8px 12px; border-radius: 4px; margin: 8px 0; font-weight: bold; text-align: center; }
     .totals.balanced { background: #e6f4ea; }
     .totals.unbalanced { background: #fce8e6; }
-    .status { padding: 8px; margin: 8px 0; border-radius: 4px; display: none; }
+    .status { padding: 8px; margin: 8px 0; border-radius: 4px; display: none; font-size: 12px; }
     .status.error { background: #fce8e6; color: #c5221f; display: block; }
     .status.success { background: #e6f4ea; color: #137333; display: block; }
     .status.warning { background: #fef7e0; color: #ea8600; display: block; }
     hr { border: none; border-top: 1px solid #e0e0e0; margin: 12px 0; }
-    .help { color: #999; font-size: 11px; margin-top: 2px; }
+    .help { color: #999; font-size: 11px; }
+    .info-card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 6px 0; }
+    .info-row { display: flex; justify-content: space-between; padding: 3px 0; }
+    .info-row .label { color: #888; }
+    .info-row .value { font-weight: bold; }
   </style>
 </head>
 <body>
-  <h3>⚖️ Journal Entry</h3>
 
+<!-- Tab bar -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('entry')">📝 Entry</div>
+  <div class="tab" onclick="switchTab('actions')">⚡ Actions</div>
+  <div class="tab" onclick="switchTab('status')">📊 Status</div>
+</div>
+
+<!-- ============================================ -->
+<!-- ENTRY TAB -->
+<!-- ============================================ -->
+<div id="panel-entry" class="panel active">
   <label>Date</label>
   <input type="date" id="entryDate" />
 
@@ -53,186 +86,224 @@
 
   <div id="linesContainer"></div>
 
-  <button class="btn btn-add" onclick="addLine()">+ Add Line</button>
+  <button class="btn btn-green btn-full" onclick="addLine()">+ Add Line</button>
 
-  <div id="totals" class="totals">
-    DR: 0.00 | CR: 0.00
+  <div id="totals" class="totals">DR: 0.00 | CR: 0.00</div>
+
+  <div id="status-entry" class="status"></div>
+
+  <div style="display:flex; gap:8px; margin-top:8px;">
+    <button class="btn btn-secondary" style="flex:1" onclick="clearForm()">Clear</button>
+    <button class="btn btn-primary" style="flex:2" onclick="postEntry()">Post Entry</button>
   </div>
+</div>
 
-  <div id="status" class="status"></div>
+<!-- ============================================ -->
+<!-- ACTIONS TAB -->
+<!-- ============================================ -->
+<div id="panel-actions" class="panel">
+  <button class="btn-action" onclick="doAction('refreshAll')">
+    <span class="icon">📊</span> <strong>Refresh All Reports</strong>
+    <br><span class="help">Update TB, PL, BS, CF, Dashboard, AP Aging</span>
+  </button>
 
-  <div style="text-align:right; margin-top:8px;">
-    <button class="btn btn-secondary" onclick="clearForm()">Clear</button>
-    <button class="btn btn-primary" onclick="postEntry()">Post Entry</button>
+  <button class="btn-action" onclick="doAction('fetchFx')">
+    <span class="icon">💱</span> <strong>Fetch FX Rates</strong>
+    <br><span class="help">Latest rates from ECB</span>
+  </button>
+
+  <button class="btn-action" onclick="doAction('loadCoa')">
+    <span class="icon">📋</span> <strong>Load COA to Sheet</strong>
+    <br><span class="help">Pull chart of accounts from database</span>
+  </button>
+
+  <button class="btn-action" onclick="doAction('backup')">
+    <span class="icon">💾</span> <strong>Export Backup</strong>
+    <br><span class="help">Save all data to Google Drive</span>
+  </button>
+
+  <hr>
+
+  <button class="btn-action" onclick="doAction('processBankStatement')">
+    <span class="icon">🏦</span> <strong>Process Bank Statement</strong>
+    <br><span class="help">Categorise rows in Bank Processing tab</span>
+  </button>
+
+  <button class="btn-action" onclick="doAction('approveBankEntries')">
+    <span class="icon">✅</span> <strong>Approve & Post Bank Entries</strong>
+    <br><span class="help">Post approved bank rows to journal</span>
+  </button>
+
+  <div id="status-actions" class="status"></div>
+</div>
+
+<!-- ============================================ -->
+<!-- STATUS TAB -->
+<!-- ============================================ -->
+<div id="panel-status" class="panel">
+  <div id="statusContent">
+    <p class="help">Loading...</p>
   </div>
+</div>
 
-  <script>
-    var accounts = [];
-    var vatCodes = [];
-    var lineCount = 0;
+<script>
+  var accounts = [];
+  var vatCodes = [];
+  var lineCount = 0;
 
-    // Load accounts and VAT codes from BigQuery on sidebar open
-    google.script.run
-      .withSuccessHandler(function(data) {
-        accounts = data || [];
-        // Add initial 2 lines after accounts load
-        addLine();
-        addLine();
-      })
-      .getAccountList();
+  // ---- Tab switching ----
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+    document.getElementById('panel-' + name).classList.add('active');
+    // Find the tab
+    var tabs = document.querySelectorAll('.tab');
+    var names = ['entry', 'actions', 'status'];
+    tabs[names.indexOf(name)].classList.add('active');
 
-    google.script.run
-      .withSuccessHandler(function(data) {
-        vatCodes = data || [];
-      })
-      .getVatCodeList();
+    if (name === 'status') loadStatus();
+  }
 
-    // Set default date to today
-    document.getElementById('entryDate').valueAsDate = new Date();
+  // ---- Load data ----
+  google.script.run
+    .withSuccessHandler(function(data) {
+      accounts = data || [];
+      addLine(); addLine();
+    })
+    .getAccountList();
 
-    function addLine() {
-      lineCount++;
-      var n = lineCount;
-      var container = document.getElementById('linesContainer');
-      var div = document.createElement('div');
-      div.className = 'line';
-      div.id = 'line-' + n;
+  google.script.run
+    .withSuccessHandler(function(data) {
+      vatCodes = data || [];
+    })
+    .getVatCodeList();
 
-      var accountOptions = '<option value="">— Select Account —</option>';
-      for (var i = 0; i < accounts.length; i++) {
-        var a = accounts[i];
-        accountOptions += '<option value="' + a.code + '">' + a.code + ' — ' + a.name + '</option>';
+  document.getElementById('entryDate').valueAsDate = new Date();
+
+  // ---- Entry form ----
+  function addLine() {
+    lineCount++;
+    var n = lineCount;
+    var container = document.getElementById('linesContainer');
+    var div = document.createElement('div');
+    div.className = 'line';
+    div.id = 'line-' + n;
+
+    var acctOpts = '<option value="">— Select Account —</option>';
+    for (var i = 0; i < accounts.length; i++) {
+      acctOpts += '<option value="' + accounts[i].code + '">' + accounts[i].code + ' — ' + accounts[i].name + '</option>';
+    }
+    var vatOpts = '<option value="">None</option>';
+    for (var i = 0; i < vatCodes.length; i++) {
+      vatOpts += '<option value="' + vatCodes[i].code + '">' + vatCodes[i].code + ' (' + (vatCodes[i].rate * 100) + '%)</option>';
+    }
+
+    div.innerHTML =
+      '<div class="line-header"><span>Line ' + n + '</span><button onclick="removeLine(' + n + ')">✕</button></div>' +
+      '<select id="account-' + n + '" style="margin-bottom:6px">' + acctOpts + '</select>' +
+      '<div class="row">' +
+      '  <div><label>Debit</label><input type="number" id="debit-' + n + '" step="0.01" min="0" value="0" oninput="updateTotals()"></div>' +
+      '  <div><label>Credit</label><input type="number" id="credit-' + n + '" step="0.01" min="0" value="0" oninput="updateTotals()"></div>' +
+      '</div>' +
+      '<select id="vat-' + n + '" style="margin-top:6px">' + vatOpts + '</select>';
+
+    container.appendChild(div);
+    updateTotals();
+  }
+
+  function removeLine(n) {
+    var el = document.getElementById('line-' + n);
+    if (el) el.remove();
+    updateTotals();
+  }
+
+  function updateTotals() {
+    var dr = 0, cr = 0;
+    document.querySelectorAll('[id^="line-"]').forEach(function(line) {
+      var n = line.id.split('-')[1];
+      dr += parseFloat(document.getElementById('debit-' + n)?.value || 0);
+      cr += parseFloat(document.getElementById('credit-' + n)?.value || 0);
+    });
+    var diff = Math.abs(dr - cr);
+    var el = document.getElementById('totals');
+    el.textContent = 'DR: ' + dr.toFixed(2) + ' | CR: ' + cr.toFixed(2) + (diff > 0.01 ? ' | Diff: ' + diff.toFixed(2) : ' ✅');
+    el.className = 'totals ' + (diff <= 0.01 ? 'balanced' : 'unbalanced');
+  }
+
+  function postEntry() {
+    var lines = [];
+    var date = document.getElementById('entryDate').value;
+    var desc = document.getElementById('entryDesc').value;
+    var ref = document.getElementById('entryRef').value;
+
+    document.querySelectorAll('[id^="line-"]').forEach(function(line) {
+      var n = line.id.split('-')[1];
+      var account = document.getElementById('account-' + n)?.value;
+      var debit = parseFloat(document.getElementById('debit-' + n)?.value || 0);
+      var credit = parseFloat(document.getElementById('credit-' + n)?.value || 0);
+      var vat = document.getElementById('vat-' + n)?.value || '';
+      if (account && (debit > 0 || credit > 0)) {
+        lines.push({ date: date, account_code: account, debit: debit, credit: credit, description: desc, reference: ref, vat_code: vat || undefined });
       }
+    });
 
-      var vatOptions = '<option value="">None</option>';
-      for (var i = 0; i < vatCodes.length; i++) {
-        var v = vatCodes[i];
-        vatOptions += '<option value="' + v.code + '">' + v.code + ' (' + (v.rate * 100) + '%)</option>';
-      }
+    if (lines.length < 2) { showStatus('entry', 'error', 'Need at least 2 lines.'); return; }
+    var dr = 0, cr = 0;
+    lines.forEach(function(l) { dr += l.debit; cr += l.credit; });
+    if (Math.abs(dr - cr) > 0.01) { showStatus('entry', 'error', 'Not balanced. DR: ' + dr.toFixed(2) + ' ≠ CR: ' + cr.toFixed(2)); return; }
 
-      div.innerHTML = ''
-        + '<div class="line-header"><span>Line ' + n + '</span>'
-        + '<button onclick="removeLine(' + n + ')">✕</button></div>'
-        + '<label>Account</label>'
-        + '<select id="account-' + n + '">' + accountOptions + '</select>'
-        + '<div class="row">'
-        + '  <div><label>Debit</label><input type="number" id="debit-' + n + '" step="0.01" min="0" value="0" onchange="updateTotals()" oninput="updateTotals()"></div>'
-        + '  <div><label>Credit</label><input type="number" id="credit-' + n + '" step="0.01" min="0" value="0" onchange="updateTotals()" oninput="updateTotals()"></div>'
-        + '</div>'
-        + '<label>VAT Code</label>'
-        + '<select id="vat-' + n + '">' + vatOptions + '</select>'
-        + '<label>Line Description <span class="help">(optional — overrides header)</span></label>'
-        + '<input type="text" id="linedesc-' + n + '" placeholder="">';
-
-      container.appendChild(div);
-      updateTotals();
-    }
-
-    function removeLine(n) {
-      var el = document.getElementById('line-' + n);
-      if (el) el.remove();
-      updateTotals();
-    }
-
-    function updateTotals() {
-      var dr = 0, cr = 0;
-      var lines = document.querySelectorAll('[id^="line-"]');
-      lines.forEach(function(line) {
-        var n = line.id.split('-')[1];
-        dr += parseFloat(document.getElementById('debit-' + n)?.value || 0);
-        cr += parseFloat(document.getElementById('credit-' + n)?.value || 0);
-      });
-
-      var totalsEl = document.getElementById('totals');
-      var diff = Math.abs(dr - cr);
-      totalsEl.textContent = 'DR: ' + dr.toFixed(2) + ' | CR: ' + cr.toFixed(2)
-        + (diff > 0.01 ? ' | Diff: ' + diff.toFixed(2) : ' | ✅ Balanced');
-      totalsEl.className = 'totals ' + (diff <= 0.01 ? 'balanced' : 'unbalanced');
-    }
-
-    function getLines() {
-      var result = [];
-      var lines = document.querySelectorAll('[id^="line-"]');
-      var date = document.getElementById('entryDate').value;
-      var desc = document.getElementById('entryDesc').value;
-      var ref = document.getElementById('entryRef').value;
-
-      lines.forEach(function(line) {
-        var n = line.id.split('-')[1];
-        var account = document.getElementById('account-' + n)?.value;
-        var debit = parseFloat(document.getElementById('debit-' + n)?.value || 0);
-        var credit = parseFloat(document.getElementById('credit-' + n)?.value || 0);
-        var vat = document.getElementById('vat-' + n)?.value || '';
-        var lineDesc = document.getElementById('linedesc-' + n)?.value || '';
-
-        if (account && (debit > 0 || credit > 0)) {
-          result.push({
-            date: date,
-            account_code: account,
-            debit: debit,
-            credit: credit,
-            description: lineDesc || desc,
-            reference: ref,
-            vat_code: vat || undefined
-          });
+    showStatus('entry', 'warning', 'Posting...');
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.posted) {
+          showStatus('entry', 'success', '✅ Posted! Batch: ' + r.batchId.substring(0, 8) + ' (' + r.lineCount + ' lines)');
+          clearForm();
+        } else if (r && r.errors) {
+          showStatus('entry', 'error', '❌ ' + r.errors.join('\n'));
         }
-      });
-      return result;
-    }
+      })
+      .withFailureHandler(function(e) { showStatus('entry', 'error', '❌ ' + e.message); })
+      .postJournalFromSidebar(lines);
+  }
 
-    function postEntry() {
-      var lines = getLines();
-      if (lines.length < 2) {
-        showStatus('error', 'Need at least 2 lines.');
-        return;
-      }
+  function clearForm() {
+    document.getElementById('entryRef').value = '';
+    document.getElementById('entryDesc').value = '';
+    document.getElementById('entryDate').valueAsDate = new Date();
+    document.getElementById('linesContainer').innerHTML = '';
+    lineCount = 0;
+    addLine(); addLine();
+  }
 
-      // Check balance
-      var dr = 0, cr = 0;
-      lines.forEach(function(l) { dr += l.debit; cr += l.credit; });
-      if (Math.abs(dr - cr) > 0.01) {
-        showStatus('error', 'Entry does not balance. DR: ' + dr.toFixed(2) + ' ≠ CR: ' + cr.toFixed(2));
-        return;
-      }
+  // ---- Actions ----
+  function doAction(action) {
+    showStatus('actions', 'warning', 'Running...');
+    google.script.run
+      .withSuccessHandler(function(msg) {
+        showStatus('actions', 'success', msg || '✅ Done');
+      })
+      .withFailureHandler(function(e) {
+        showStatus('actions', 'error', '❌ ' + e.message);
+      })
+      .runSidebarAction(action);
+  }
 
-      showStatus('warning', 'Posting...');
+  // ---- Status ----
+  function loadStatus() {
+    google.script.run
+      .withSuccessHandler(function(html) {
+        document.getElementById('statusContent').innerHTML = html;
+      })
+      .getSidebarStatus();
+  }
 
-      google.script.run
-        .withSuccessHandler(function(result) {
-          if (result && result.posted) {
-            showStatus('success', '✅ Posted! Batch: ' + result.batchId.substring(0, 8)
-              + ' (' + result.lineCount + ' lines)'
-              + (result.warnings && result.warnings.length > 0 ? '\n⚠️ ' + result.warnings.join('\n') : ''));
-            clearForm();
-          } else if (result && result.errors) {
-            showStatus('error', '❌ ' + result.errors.join('\n'));
-          } else {
-            showStatus('error', '❌ Unknown error');
-          }
-        })
-        .withFailureHandler(function(err) {
-          showStatus('error', '❌ ' + err.message);
-        })
-        .postJournalFromSidebar(lines);
-    }
-
-    function clearForm() {
-      document.getElementById('entryRef').value = '';
-      document.getElementById('entryDesc').value = '';
-      document.getElementById('entryDate').valueAsDate = new Date();
-      document.getElementById('linesContainer').innerHTML = '';
-      document.getElementById('status').className = 'status';
-      document.getElementById('status').textContent = '';
-      lineCount = 0;
-      addLine();
-      addLine();
-    }
-
-    function showStatus(type, msg) {
-      var el = document.getElementById('status');
-      el.className = 'status ' + type;
-      el.textContent = msg;
-    }
-  </script>
+  // ---- Util ----
+  function showStatus(tab, type, msg) {
+    var el = document.getElementById('status-' + tab);
+    if (!el) return;
+    el.className = 'status ' + type;
+    el.textContent = msg;
+  }
+</script>
 </body>
 </html>

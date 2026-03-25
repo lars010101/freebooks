@@ -241,7 +241,70 @@ function onRefreshAllReports() {
   onRefreshCF();
   onRefreshDashboard();
   activateSheet_('Dashboard');
-  SpreadsheetApp.getUi().alert('All reports refreshed.');
+}
+
+/**
+ * Run an action from the sidebar Actions tab.
+ */
+function runSidebarAction(action) {
+  switch (action) {
+    case 'refreshAll':
+      onRefreshTB();
+      onRefreshPL();
+      onRefreshBS();
+      onRefreshCF();
+      onRefreshDashboard();
+      return '✅ All reports refreshed';
+    case 'fetchFx':
+      onFetchFXRates();
+      return '✅ FX rates fetched';
+    case 'loadCoa':
+      onRefreshCOA();
+      return '✅ COA loaded to sheet';
+    case 'backup':
+      onExportBackup();
+      return '✅ Backup exported to Drive';
+    case 'processBankStatement':
+      onProcessBankStatement();
+      return '✅ Bank statement processed';
+    case 'approveBankEntries':
+      onApproveBankEntries();
+      return '✅ Bank entries posted';
+    default:
+      return '❌ Unknown action: ' + action;
+  }
+}
+
+/**
+ * Get status info for the sidebar Status tab.
+ */
+function getSidebarStatus() {
+  var result = callSkuld_('report.refresh_dashboard', getReportParams_());
+  if (!result) return '<p>Could not load status.</p>';
+
+  var html = '<div class="info-card">'
+    + '<div class="info-row"><span class="label">Revenue</span><span class="value">' + (result.revenue || 0).toLocaleString() + '</span></div>'
+    + '<div class="info-row"><span class="label">Expenses</span><span class="value">' + (result.expenses || 0).toLocaleString() + '</span></div>'
+    + '<div class="info-row"><span class="label">Net Income</span><span class="value" style="color:' + (result.netIncome >= 0 ? '#137333' : '#c5221f') + '">' + (result.netIncome || 0).toLocaleString() + '</span></div>'
+    + '</div>'
+    + '<div class="info-card">'
+    + '<div class="info-row"><span class="label">Assets</span><span class="value">' + (result.totalAssets || 0).toLocaleString() + '</span></div>'
+    + '<div class="info-row"><span class="label">Liabilities</span><span class="value">' + (result.totalLiabilities || 0).toLocaleString() + '</span></div>'
+    + '<div class="info-row"><span class="label">Equity</span><span class="value">' + (result.totalEquity || 0).toLocaleString() + '</span></div>'
+    + '<div class="info-row"><span class="label">Balanced</span><span class="value">' + (result.balanced ? '✅' : '❌') + '</span></div>'
+    + '</div>'
+    + '<div class="info-card">'
+    + '<div class="info-row"><span class="label">Entries</span><span class="value">' + (result.entryCount || 0) + '</span></div>'
+    + '<div class="info-row"><span class="label">First</span><span class="value">' + formatVal_(result.firstDate) + '</span></div>'
+    + '<div class="info-row"><span class="label">Last</span><span class="value">' + formatVal_(result.lastDate) + '</span></div>'
+    + '</div>';
+  return html;
+}
+
+function formatVal_(v) {
+  if (!v) return '—';
+  if (typeof v === 'object' && v.value) return v.value;
+  return String(v);
 }
 
 /**
@@ -364,26 +427,22 @@ function onOpen() {
     .addItem('📬 Post Bill', 'onPostBill')
     .addItem('❌ Void Bill', 'onVoidBill')
     .addSeparator()
-    .addSubMenu(ui.createMenu('📊 Reports')
-      .addItem('Trial Balance', 'onRefreshTB')
-      .addItem('Profit & Loss', 'onRefreshPL')
-      .addItem('Balance Sheet', 'onRefreshBS')
-      .addItem('Cash Flow', 'onRefreshCF')
-      .addItem('Dashboard', 'onRefreshDashboard')
-      .addItem('AP Aging', 'onRefreshAPAging')
-      .addItem('VAT Return', 'onRefreshVATReturn')
-      .addItem('Refresh All', 'onRefreshAllReports'))
-    .addSeparator()
+    .addItem('📊 Refresh All Reports', 'onRefreshAllReports')
     .addItem('💱 Fetch FX Rates', 'onFetchFXRates')
     .addItem('💾 Export Backup', 'onExportBackup')
-    .addItem('📥 Import Journal Entries', 'onImportJournalEntries')
-    .addItem('📤 Export Journal Entries', 'onExportJournalEntries')
     .addSeparator()
-    .addSubMenu(ui.createMenu('⚙️ Save')
+    .addSubMenu(ui.createMenu('More')
+      .addItem('📥 Import Journal Entries', 'onImportJournalEntries')
+      .addItem('📤 Export Journal Entries', 'onExportJournalEntries')
+      .addItem('📋 Load COA from DB', 'onRefreshCOA')
+      .addSeparator()
       .addItem('Save COA', 'onSaveCOA')
       .addItem('Save Mappings', 'onSaveMappings')
       .addItem('Save Centers', 'onSaveCenters')
       .addItem('Save VAT Codes', 'onSaveVATCodes')
       .addItem('Save Settings', 'onSaveSettings'))
     .addToUi();
+
+  // Auto-open sidebar
+  onPostJournalEntry();
 }

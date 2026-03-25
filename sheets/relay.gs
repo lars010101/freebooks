@@ -78,12 +78,7 @@ function navigateToTab(name) {
       var headers = ['Date', 'Batch ID', 'Account Code', 'Debit', 'Credit', 'Currency', 'Description', 'Reference', 'Source', 'VAT Code'];
       jSheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
     }
-    // Load journal entries
-    var params = getReportParams_();
-    var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo, limit: 1000 });
-    if (entries && entries.length > 0) {
-      writeToSheet_('Journal', entries, ['date', 'batch_id', 'account_code', 'debit', 'credit', 'currency', 'description', 'reference', 'source', 'vat_code']);
-    }
+    // Just activate — data loads on Refresh Active, not on navigate
     jSheet.showSheet();
     jSheet.activate();
     return;

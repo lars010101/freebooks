@@ -84,8 +84,8 @@
   <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
 </div>
 
-<!-- Global status bar — right under tabs -->
-<div id="global-status" class="status" style="margin:0;border-radius:0;"></div>
+<!-- Global status bar — right under tabs, fixed height to prevent layout shift -->
+<div id="global-status" style="margin:0;border-radius:0;padding:6px 8px;font-size:12px;min-height:28px;background:#f0f0f0;color:#888;text-align:center;">&nbsp;</div>
 
 <!-- ============================================ -->
 <!-- ENTRY TAB -->
@@ -266,9 +266,10 @@ function postEntry() {
 function clearForm() {
   document.getElementById('entryRef').value='';document.getElementById('entryDesc').value='';
   document.getElementById('entryDate').valueAsDate=new Date();
+  document.getElementById('searchQuery').value='';
   document.getElementById('linesContainer').innerHTML='';document.getElementById('searchResults').innerHTML='';
   lineCount=0;addLine();addLine();
-  document.getElementById('status-entry').className='status';
+  clearStatus();
 }
 
 // ---- Entry: Search & Reverse ----
@@ -363,8 +364,16 @@ function doSettingsAction(action) {
 // ---- Util ----
 function showStatus(tab,type,msg){
   var e=document.getElementById('global-status');
-  e.className='status '+type;e.textContent=msg;
-  if(type==='success')setTimeout(function(){e.className='status';e.textContent='';},5000);
+  var colors={error:'#fce8e6',success:'#e6f4ea',warning:'#fef7e0'};
+  var textColors={error:'#c5221f',success:'#137333',warning:'#ea8600'};
+  e.style.background=colors[type]||'#f0f0f0';
+  e.style.color=textColors[type]||'#888';
+  e.textContent=msg||'\u00a0';
+  if(type==='success')setTimeout(function(){clearStatus();},4000);
+}
+function clearStatus(){
+  var e=document.getElementById('global-status');
+  e.style.background='#f0f0f0';e.style.color='#888';e.textContent='\u00a0';
 }
 </script>
 </body>

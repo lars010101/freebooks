@@ -3,11 +3,11 @@
 <head>
   <base target="_top">
   <style>
-    * { box-sizing: border-box; font-family: Arial, sans-serif; font-size: 13px; }
-    body { margin: 0; padding: 0; background: #fafafa; }
+    * { box-sizing: border-box; font-family: Arial, sans-serif; font-size: 13px; margin: 0; padding: 0; }
+    body { background: #fafafa; }
 
     /* Tabs */
-    .tabs { display: flex; background: #333; }
+    .tabs { display: flex; background: #2d2d2d; position: sticky; top: 0; z-index: 10; }
     .tab { flex: 1; padding: 10px 4px; text-align: center; color: #aaa; cursor: pointer; font-weight: bold; font-size: 11px; border-bottom: 3px solid transparent; }
     .tab:hover { color: #fff; }
     .tab.active { color: #fff; border-bottom-color: #4285f4; }
@@ -15,20 +15,20 @@
     .panel.active { display: block; }
 
     /* Forms */
-    label { display: block; margin: 8px 0 3px; font-weight: bold; color: #555; }
-    input, select, textarea { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; color: #555; font-size: 12px; }
+    input, select { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
     input:focus, select:focus { border-color: #4285f4; outline: none; }
 
-    /* Lines */
-    .line { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 8px 0; }
-    .line-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    .line-header span { font-weight: bold; color: #666; font-size: 12px; }
-    .line-header button { background: #ff4444; color: white; border: none; border-radius: 3px; padding: 2px 8px; cursor: pointer; font-size: 11px; }
-    .row { display: flex; gap: 8px; }
+    /* Journal entry lines */
+    .line { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin: 6px 0; }
+    .line-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .line-header span { font-weight: bold; color: #888; font-size: 11px; }
+    .line-header button { background: #e53935; color: white; border: none; border-radius: 3px; padding: 1px 7px; cursor: pointer; font-size: 11px; }
+    .row { display: flex; gap: 6px; }
     .row > div { flex: 1; }
 
     /* Buttons */
-    .btn { display: inline-block; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin: 4px 0; }
+    .btn { display: inline-block; padding: 8px 14px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; }
     .btn-primary { background: #4285f4; color: white; }
     .btn-primary:hover { background: #3367d6; }
     .btn-secondary { background: #e0e0e0; color: #333; }
@@ -36,274 +36,328 @@
     .btn-green { background: #34a853; color: white; }
     .btn-green:hover { background: #2d8e47; }
     .btn-full { width: 100%; }
-    .btn-action { width: 100%; padding: 12px; margin: 4px 0; text-align: left; background: #fff; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; }
-    .btn-action:hover { background: #f0f6ff; border-color: #4285f4; }
-    .btn-action .icon { font-size: 16px; margin-right: 8px; }
+
+    /* Navigate */
+    .nav-group { margin: 10px 0 4px; font-weight: bold; color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .nav-item { display: block; width: 100%; padding: 9px 10px; margin: 2px 0; background: #fff; border: 1px solid #e8e8e8; border-radius: 5px; cursor: pointer; text-align: left; font-size: 13px; color: #333; }
+    .nav-item:hover { background: #e8f0fe; border-color: #4285f4; }
+    .nav-bar { display: flex; gap: 4px; margin: 10px 0; padding: 8px; background: #fff; border: 1px solid #ddd; border-radius: 6px; }
+    .nav-bar .btn { flex: 1; font-size: 11px; padding: 8px 4px; text-align: center; }
+
+    /* Settings */
+    .setting-group { margin: 12px 0 6px; font-weight: bold; color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .setting-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .setting-row label { flex: 0 0 90px; margin: 0; font-size: 12px; }
+    .setting-row input, .setting-row select { flex: 1; }
+    .quick-btns { display: flex; gap: 4px; margin: 6px 0; flex-wrap: wrap; }
+    .quick-btn { padding: 4px 10px; background: #e8e8e8; border: 1px solid #ccc; border-radius: 12px; cursor: pointer; font-size: 11px; }
+    .quick-btn:hover { background: #4285f4; color: white; border-color: #4285f4; }
+
+    /* Reversal search */
+    .search-box { display: flex; gap: 4px; margin: 6px 0; }
+    .search-box input { flex: 1; }
+    .search-box button { flex: 0 0 36px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 15px; }
+    .search-results { max-height: 150px; overflow-y: auto; margin: 4px 0; }
+    .search-result { padding: 6px 8px; margin: 2px 0; background: #fff; border: 1px solid #e8e8e8; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .search-result:hover { background: #fff3cd; border-color: #ffc107; }
+    .search-result .sr-date { color: #888; }
+    .search-result .sr-amount { font-weight: bold; float: right; }
 
     /* Status */
-    .totals { background: #e8f0fe; padding: 8px 12px; border-radius: 4px; margin: 8px 0; font-weight: bold; text-align: center; }
+    .totals { background: #e8f0fe; padding: 6px 10px; border-radius: 4px; margin: 6px 0; font-weight: bold; text-align: center; font-size: 12px; }
     .totals.balanced { background: #e6f4ea; }
     .totals.unbalanced { background: #fce8e6; }
-    .status { padding: 8px; margin: 8px 0; border-radius: 4px; display: none; font-size: 12px; }
+    .status { padding: 6px 8px; margin: 6px 0; border-radius: 4px; display: none; font-size: 12px; }
     .status.error { background: #fce8e6; color: #c5221f; display: block; }
     .status.success { background: #e6f4ea; color: #137333; display: block; }
     .status.warning { background: #fef7e0; color: #ea8600; display: block; }
-    hr { border: none; border-top: 1px solid #e0e0e0; margin: 12px 0; }
+    hr { border: none; border-top: 1px solid #e0e0e0; margin: 10px 0; }
     .help { color: #999; font-size: 11px; }
-    .info-card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 6px 0; }
-    .info-row { display: flex; justify-content: space-between; padding: 3px 0; }
-    .info-row .label { color: #888; }
-    .info-row .value { font-weight: bold; }
+    .section-title { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; }
   </style>
 </head>
 <body>
 
-<!-- Tab bar -->
 <div class="tabs">
   <div class="tab active" onclick="switchTab('entry')">📝 Entry</div>
-  <div class="tab" onclick="switchTab('actions')">⚡ Actions</div>
-  <div class="tab" onclick="switchTab('status')">📊 Status</div>
+  <div class="tab" onclick="switchTab('navigate')">📋 Navigate</div>
+  <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
 </div>
 
 <!-- ============================================ -->
 <!-- ENTRY TAB -->
 <!-- ============================================ -->
 <div id="panel-entry" class="panel active">
+
+  <!-- Reverse search -->
+  <label>🔍 Find & Reverse</label>
+  <div class="search-box">
+    <input type="text" id="searchQuery" placeholder="Batch ID, reference, description, or amount" onkeydown="if(event.key==='Enter')searchEntries()">
+    <button onclick="searchEntries()">🔍</button>
+  </div>
+  <div id="searchResults" class="search-results"></div>
+
+  <hr>
+
+  <!-- Journal entry form -->
   <label>Date</label>
   <input type="date" id="entryDate" />
 
-  <label>Reference</label>
-  <input type="text" id="entryRef" placeholder="INV-001, receipt #, etc." />
+  <div class="row">
+    <div><label>Reference</label><input type="text" id="entryRef" placeholder="INV-001"></div>
+  </div>
 
   <label>Description</label>
   <input type="text" id="entryDesc" placeholder="What is this transaction?" />
 
-  <hr>
-  <div style="display:flex; justify-content:space-between; align-items:center;">
+  <div class="section-title">
     <strong>Lines</strong>
-    <span class="help">Min 2 lines, must balance</span>
+    <span class="help">Min 2, must balance</span>
   </div>
 
   <div id="linesContainer"></div>
 
-  <button class="btn btn-green btn-full" onclick="addLine()">+ Add Line</button>
+  <button class="btn btn-green btn-full" onclick="addLine()" style="margin:4px 0">+ Add Line</button>
 
   <div id="totals" class="totals">DR: 0.00 | CR: 0.00</div>
-
   <div id="status-entry" class="status"></div>
 
-  <div style="display:flex; gap:8px; margin-top:8px;">
+  <div style="display:flex; gap:6px; margin-top:6px;">
     <button class="btn btn-secondary" style="flex:1" onclick="clearForm()">Clear</button>
     <button class="btn btn-primary" style="flex:2" onclick="postEntry()">Post Entry</button>
   </div>
 </div>
 
 <!-- ============================================ -->
-<!-- ACTIONS TAB -->
+<!-- NAVIGATE TAB -->
 <!-- ============================================ -->
-<div id="panel-actions" class="panel">
-  <button class="btn-action" onclick="doAction('refreshAll')">
-    <span class="icon">📊</span> <strong>Refresh All Reports</strong>
-    <br><span class="help">Update TB, PL, BS, CF, Dashboard, AP Aging</span>
-  </button>
+<div id="panel-navigate" class="panel">
 
-  <button class="btn-action" onclick="doAction('fetchFx')">
-    <span class="icon">💱</span> <strong>Fetch FX Rates</strong>
-    <br><span class="help">Latest rates from ECB</span>
-  </button>
+  <div class="nav-bar">
+    <button class="btn btn-primary" onclick="doContextAction('refresh')">↻ Refresh Active</button>
+    <button class="btn btn-green" onclick="doContextAction('save')">💾 Save Active</button>
+  </div>
+  <button class="btn btn-secondary btn-full" onclick="doContextAction('refreshAll')" style="margin-bottom:10px">📊 Refresh All Reports</button>
 
-  <button class="btn-action" onclick="doAction('loadCoa')">
-    <span class="icon">📋</span> <strong>Load COA to Sheet</strong>
-    <br><span class="help">Pull chart of accounts from database</span>
-  </button>
+  <div class="nav-group">Reports</div>
+  <button class="nav-item" onclick="goTo('Journal')">📒 Journal</button>
+  <button class="nav-item" onclick="goTo('TB')">📊 Trial Balance</button>
+  <button class="nav-item" onclick="goTo('PL')">📈 Profit & Loss</button>
+  <button class="nav-item" onclick="goTo('BS')">📋 Balance Sheet</button>
+  <button class="nav-item" onclick="goTo('CF')">💰 Cash Flow</button>
+  <button class="nav-item" onclick="goTo('AP Aging')">📅 AP Aging</button>
+  <button class="nav-item" onclick="goTo('VAT Return')">🧾 VAT Return</button>
 
-  <button class="btn-action" onclick="doAction('backup')">
-    <span class="icon">💾</span> <strong>Export Backup</strong>
-    <br><span class="help">Save all data to Google Drive</span>
-  </button>
+  <div class="nav-group">Data Entry</div>
+  <button class="nav-item" onclick="goTo('Bank Processing')">🏦 Bank Processing</button>
+  <button class="nav-item" onclick="goTo('Bills')">📄 Bills</button>
+  <button class="nav-item" onclick="goTo('Import')">📥 Import</button>
+  <button class="nav-item" onclick="goTo('Export')">📤 Export</button>
 
-  <hr>
+  <div class="nav-group">Configuration</div>
+  <button class="nav-item" onclick="goTo('COA')">📋 Chart of Accounts</button>
+  <button class="nav-item" onclick="goTo('Mappings')">🔗 Bank Mappings</button>
+  <button class="nav-item" onclick="goTo('Centers')">🏢 Profit / Cost Centers</button>
+  <button class="nav-item" onclick="goTo('VAT Codes')">🧾 VAT Codes</button>
 
-  <button class="btn-action" onclick="doAction('processBankStatement')">
-    <span class="icon">🏦</span> <strong>Process Bank Statement</strong>
-    <br><span class="help">Categorise rows in Bank Processing tab</span>
-  </button>
-
-  <button class="btn-action" onclick="doAction('approveBankEntries')">
-    <span class="icon">✅</span> <strong>Approve & Post Bank Entries</strong>
-    <br><span class="help">Post approved bank rows to journal</span>
-  </button>
-
-  <div id="status-actions" class="status"></div>
+  <div id="status-navigate" class="status"></div>
 </div>
 
 <!-- ============================================ -->
-<!-- STATUS TAB -->
+<!-- SETTINGS TAB -->
 <!-- ============================================ -->
-<div id="panel-status" class="panel">
-  <div id="statusContent">
-    <p class="help">Loading...</p>
+<div id="panel-settings" class="panel">
+
+  <div class="setting-group">Company</div>
+  <div class="setting-row"><label>Name</label><input type="text" id="set-company-name" /></div>
+  <div class="setting-row"><label>Company ID</label><input type="text" id="set-company-id" disabled /></div>
+
+  <div class="setting-group">Report Period</div>
+  <div class="setting-row"><label>From</label><input type="date" id="set-period-from" /></div>
+  <div class="setting-row"><label>To</label><input type="date" id="set-period-to" /></div>
+  <div class="quick-btns">
+    <span class="quick-btn" onclick="setPeriod('q1')">Q1</span>
+    <span class="quick-btn" onclick="setPeriod('q2')">Q2</span>
+    <span class="quick-btn" onclick="setPeriod('q3')">Q3</span>
+    <span class="quick-btn" onclick="setPeriod('q4')">Q4</span>
+    <span class="quick-btn" onclick="setPeriod('ytd')">YTD</span>
+    <span class="quick-btn" onclick="setPeriod('fy')">Full Year</span>
   </div>
+
+  <div class="setting-group">Financial Year</div>
+  <div class="setting-row"><label>FY Start</label><input type="date" id="set-fy-start" /></div>
+  <div class="setting-row"><label>FY End</label><input type="date" id="set-fy-end" /></div>
+
+  <div class="setting-group">FX & Backup</div>
+  <button class="btn btn-secondary btn-full" onclick="doSettingsAction('fetchFx')" style="margin:4px 0">💱 Fetch FX Rates (ECB)</button>
+  <button class="btn btn-secondary btn-full" onclick="doSettingsAction('backup')" style="margin:4px 0">💾 Export Backup to Drive</button>
+
+  <div id="status-settings" class="status"></div>
+
+  <button class="btn btn-primary btn-full" onclick="saveSettings()" style="margin-top:10px">Save Settings</button>
 </div>
 
 <script>
-  var accounts = [];
-  var vatCodes = [];
-  var lineCount = 0;
+var accounts = [], vatCodes = [], lineCount = 0;
+var fyStart = '2025-01-01', fyEnd = '2025-12-31';
 
-  // ---- Tab switching ----
-  function switchTab(name) {
-    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-    document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
-    document.getElementById('panel-' + name).classList.add('active');
-    // Find the tab
-    var tabs = document.querySelectorAll('.tab');
-    var names = ['entry', 'actions', 'status'];
-    tabs[names.indexOf(name)].classList.add('active');
+// ---- Init ----
+google.script.run.withSuccessHandler(function(d) { accounts = d || []; addLine(); addLine(); }).getAccountList();
+google.script.run.withSuccessHandler(function(d) { vatCodes = d || []; }).getVatCodeList();
+google.script.run.withSuccessHandler(function(s) { loadSettingsData(s); }).getSettingsData();
+document.getElementById('entryDate').valueAsDate = new Date();
 
-    if (name === 'status') loadStatus();
-  }
+// ---- Tabs ----
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+  document.getElementById('panel-' + name).classList.add('active');
+  var tabs = ['entry','navigate','settings'];
+  document.querySelectorAll('.tab')[tabs.indexOf(name)].classList.add('active');
+}
 
-  // ---- Load data ----
-  google.script.run
-    .withSuccessHandler(function(data) {
-      accounts = data || [];
-      addLine(); addLine();
-    })
-    .getAccountList();
+// ---- Entry: Add/Remove Lines ----
+function addLine(acct, dr, cr, vat) {
+  lineCount++;
+  var n = lineCount;
+  var div = document.createElement('div');
+  div.className = 'line'; div.id = 'line-' + n;
+  var ao = '<option value="">— Account —</option>';
+  for (var i = 0; i < accounts.length; i++) ao += '<option value="'+accounts[i].code+'"'+(acct===accounts[i].code?' selected':'')+'>'+accounts[i].code+' — '+accounts[i].name+'</option>';
+  var vo = '<option value="">No VAT</option>';
+  for (var i = 0; i < vatCodes.length; i++) vo += '<option value="'+vatCodes[i].code+'"'+(vat===vatCodes[i].code?' selected':'')+'>'+vatCodes[i].code+' ('+Math.round(vatCodes[i].rate*100)+'%)</option>';
+  div.innerHTML = '<div class="line-header"><span>#'+n+'</span><button onclick="removeLine('+n+')">✕</button></div>'
+    +'<select id="account-'+n+'">'+ao+'</select>'
+    +'<div class="row" style="margin-top:4px"><div><label>DR</label><input type="number" id="debit-'+n+'" step="0.01" min="0" value="'+(dr||0)+'" oninput="updateTotals()"></div>'
+    +'<div><label>CR</label><input type="number" id="credit-'+n+'" step="0.01" min="0" value="'+(cr||0)+'" oninput="updateTotals()"></div></div>'
+    +'<select id="vat-'+n+'" style="margin-top:4px">'+vo+'</select>';
+  document.getElementById('linesContainer').appendChild(div);
+  updateTotals();
+}
+function removeLine(n) { var e=document.getElementById('line-'+n); if(e)e.remove(); updateTotals(); }
+function updateTotals() {
+  var dr=0,cr=0;
+  document.querySelectorAll('[id^="line-"]').forEach(function(l){var n=l.id.split('-')[1];dr+=parseFloat(document.getElementById('debit-'+n)?.value||0);cr+=parseFloat(document.getElementById('credit-'+n)?.value||0);});
+  var d=Math.abs(dr-cr),el=document.getElementById('totals');
+  el.textContent='DR: '+dr.toFixed(2)+' | CR: '+cr.toFixed(2)+(d>0.01?' | Diff: '+d.toFixed(2):' ✅');
+  el.className='totals '+(d<=0.01?'balanced':'unbalanced');
+}
 
-  google.script.run
-    .withSuccessHandler(function(data) {
-      vatCodes = data || [];
-    })
-    .getVatCodeList();
+// ---- Entry: Post ----
+function postEntry() {
+  var lines=[],date=document.getElementById('entryDate').value,desc=document.getElementById('entryDesc').value,ref=document.getElementById('entryRef').value;
+  document.querySelectorAll('[id^="line-"]').forEach(function(l){
+    var n=l.id.split('-')[1],a=document.getElementById('account-'+n)?.value,dr=parseFloat(document.getElementById('debit-'+n)?.value||0),cr=parseFloat(document.getElementById('credit-'+n)?.value||0),v=document.getElementById('vat-'+n)?.value||'';
+    if(a&&(dr>0||cr>0))lines.push({date:date,account_code:a,debit:dr,credit:cr,description:desc,reference:ref,vat_code:v||undefined});
+  });
+  if(lines.length<2){showStatus('entry','error','Need at least 2 lines.');return;}
+  var dr=0,cr=0;lines.forEach(function(l){dr+=l.debit;cr+=l.credit;});
+  if(Math.abs(dr-cr)>0.01){showStatus('entry','error','Not balanced.');return;}
+  showStatus('entry','warning','Posting...');
+  google.script.run.withSuccessHandler(function(r){
+    if(r&&r.posted){showStatus('entry','success','✅ Batch: '+r.batchId.substring(0,8)+' ('+r.lineCount+' lines)');clearForm();}
+    else if(r&&r.errors)showStatus('entry','error','❌ '+r.errors.join('\n'));
+  }).withFailureHandler(function(e){showStatus('entry','error','❌ '+e.message);}).postJournalFromSidebar(lines);
+}
+function clearForm() {
+  document.getElementById('entryRef').value='';document.getElementById('entryDesc').value='';
+  document.getElementById('entryDate').valueAsDate=new Date();
+  document.getElementById('linesContainer').innerHTML='';document.getElementById('searchResults').innerHTML='';
+  lineCount=0;addLine();addLine();
+  document.getElementById('status-entry').className='status';
+}
 
-  document.getElementById('entryDate').valueAsDate = new Date();
-
-  // ---- Entry form ----
-  function addLine() {
-    lineCount++;
-    var n = lineCount;
-    var container = document.getElementById('linesContainer');
-    var div = document.createElement('div');
-    div.className = 'line';
-    div.id = 'line-' + n;
-
-    var acctOpts = '<option value="">— Select Account —</option>';
-    for (var i = 0; i < accounts.length; i++) {
-      acctOpts += '<option value="' + accounts[i].code + '">' + accounts[i].code + ' — ' + accounts[i].name + '</option>';
-    }
-    var vatOpts = '<option value="">None</option>';
-    for (var i = 0; i < vatCodes.length; i++) {
-      vatOpts += '<option value="' + vatCodes[i].code + '">' + vatCodes[i].code + ' (' + (vatCodes[i].rate * 100) + '%)</option>';
-    }
-
-    div.innerHTML =
-      '<div class="line-header"><span>Line ' + n + '</span><button onclick="removeLine(' + n + ')">✕</button></div>' +
-      '<select id="account-' + n + '" style="margin-bottom:6px">' + acctOpts + '</select>' +
-      '<div class="row">' +
-      '  <div><label>Debit</label><input type="number" id="debit-' + n + '" step="0.01" min="0" value="0" oninput="updateTotals()"></div>' +
-      '  <div><label>Credit</label><input type="number" id="credit-' + n + '" step="0.01" min="0" value="0" oninput="updateTotals()"></div>' +
-      '</div>' +
-      '<select id="vat-' + n + '" style="margin-top:6px">' + vatOpts + '</select>';
-
-    container.appendChild(div);
-    updateTotals();
-  }
-
-  function removeLine(n) {
-    var el = document.getElementById('line-' + n);
-    if (el) el.remove();
-    updateTotals();
-  }
-
-  function updateTotals() {
-    var dr = 0, cr = 0;
-    document.querySelectorAll('[id^="line-"]').forEach(function(line) {
-      var n = line.id.split('-')[1];
-      dr += parseFloat(document.getElementById('debit-' + n)?.value || 0);
-      cr += parseFloat(document.getElementById('credit-' + n)?.value || 0);
+// ---- Entry: Search & Reverse ----
+function searchEntries() {
+  var q=document.getElementById('searchQuery').value.trim();
+  if(!q){showStatus('entry','error','Enter a search term');return;}
+  showStatus('entry','warning','Searching...');
+  google.script.run.withSuccessHandler(function(results){
+    document.getElementById('status-entry').className='status';
+    var el=document.getElementById('searchResults');
+    if(!results||results.length===0){el.innerHTML='<div class="help" style="padding:8px">No entries found.</div>';return;}
+    el.innerHTML='';
+    // Group by batch_id
+    var batches={};
+    results.forEach(function(r){
+      if(!batches[r.batch_id])batches[r.batch_id]={lines:[],date:r.date,desc:r.description,ref:r.reference};
+      batches[r.batch_id].lines.push(r);
     });
-    var diff = Math.abs(dr - cr);
-    var el = document.getElementById('totals');
-    el.textContent = 'DR: ' + dr.toFixed(2) + ' | CR: ' + cr.toFixed(2) + (diff > 0.01 ? ' | Diff: ' + diff.toFixed(2) : ' ✅');
-    el.className = 'totals ' + (diff <= 0.01 ? 'balanced' : 'unbalanced');
-  }
-
-  function postEntry() {
-    var lines = [];
-    var date = document.getElementById('entryDate').value;
-    var desc = document.getElementById('entryDesc').value;
-    var ref = document.getElementById('entryRef').value;
-
-    document.querySelectorAll('[id^="line-"]').forEach(function(line) {
-      var n = line.id.split('-')[1];
-      var account = document.getElementById('account-' + n)?.value;
-      var debit = parseFloat(document.getElementById('debit-' + n)?.value || 0);
-      var credit = parseFloat(document.getElementById('credit-' + n)?.value || 0);
-      var vat = document.getElementById('vat-' + n)?.value || '';
-      if (account && (debit > 0 || credit > 0)) {
-        lines.push({ date: date, account_code: account, debit: debit, credit: credit, description: desc, reference: ref, vat_code: vat || undefined });
-      }
+    Object.keys(batches).forEach(function(bid){
+      var b=batches[bid],dateStr=(b.date&&b.date.value)?b.date.value:b.date;
+      var totalDr=0,totalCr=0;
+      b.lines.forEach(function(l){totalDr+=Number(l.debit||0);totalCr+=Number(l.credit||0);});
+      var div=document.createElement('div');div.className='search-result';
+      div.innerHTML='<span class="sr-date">'+dateStr+'</span> <span class="sr-amount">'+totalDr.toFixed(0)+'</span><br>'
+        +'<small>'+(b.desc||b.ref||bid.substring(0,8))+'</small>';
+      div.onclick=function(){loadReversal(bid,b);};
+      el.appendChild(div);
     });
+  }).withFailureHandler(function(e){showStatus('entry','error','❌ '+e.message);}).searchJournalEntries(q);
+}
+function loadReversal(batchId,batch) {
+  document.getElementById('searchResults').innerHTML='';
+  document.getElementById('entryDate').valueAsDate=new Date();
+  document.getElementById('entryDesc').value='Reversal of '+(batch.ref||batch.desc||batchId.substring(0,8));
+  document.getElementById('entryRef').value='REV-'+(batch.ref||batchId.substring(0,8));
+  document.getElementById('linesContainer').innerHTML='';lineCount=0;
+  batch.lines.forEach(function(l){addLine(l.account_code,Number(l.credit||0),Number(l.debit||0),null);});
+  showStatus('entry','warning','Reversal pre-filled. Review and click Post.');
+}
 
-    if (lines.length < 2) { showStatus('entry', 'error', 'Need at least 2 lines.'); return; }
-    var dr = 0, cr = 0;
-    lines.forEach(function(l) { dr += l.debit; cr += l.credit; });
-    if (Math.abs(dr - cr) > 0.01) { showStatus('entry', 'error', 'Not balanced. DR: ' + dr.toFixed(2) + ' ≠ CR: ' + cr.toFixed(2)); return; }
+// ---- Navigate ----
+function goTo(name) {
+  showStatus('navigate','warning','Opening '+name+'...');
+  google.script.run.withSuccessHandler(function(){
+    showStatus('navigate','success','Opened: '+name);
+  }).withFailureHandler(function(e){showStatus('navigate','error','❌ '+e.message);}).navigateToTab(name);
+}
+function doContextAction(action) {
+  showStatus('navigate','warning','Running...');
+  google.script.run.withSuccessHandler(function(msg){
+    showStatus('navigate','success',msg||'✅ Done');
+  }).withFailureHandler(function(e){showStatus('navigate','error','❌ '+e.message);}).runContextAction(action);
+}
 
-    showStatus('entry', 'warning', 'Posting...');
-    google.script.run
-      .withSuccessHandler(function(r) {
-        if (r && r.posted) {
-          showStatus('entry', 'success', '✅ Posted! Batch: ' + r.batchId.substring(0, 8) + ' (' + r.lineCount + ' lines)');
-          clearForm();
-        } else if (r && r.errors) {
-          showStatus('entry', 'error', '❌ ' + r.errors.join('\n'));
-        }
-      })
-      .withFailureHandler(function(e) { showStatus('entry', 'error', '❌ ' + e.message); })
-      .postJournalFromSidebar(lines);
-  }
+// ---- Settings ----
+function loadSettingsData(s) {
+  if(!s)return;
+  document.getElementById('set-company-name').value=s.companyName||'';
+  document.getElementById('set-company-id').value=s.companyId||'';
+  document.getElementById('set-fy-start').value=s.fyStart||'2025-01-01';
+  document.getElementById('set-fy-end').value=s.fyEnd||'2025-12-31';
+  document.getElementById('set-period-from').value=s.periodFrom||s.fyStart||'2025-01-01';
+  document.getElementById('set-period-to').value=s.periodTo||s.fyEnd||'2025-12-31';
+  fyStart=s.fyStart||'2025-01-01';fyEnd=s.fyEnd||'2025-12-31';
+}
+function setPeriod(p) {
+  var y=fyStart.substring(0,4);
+  var map={q1:[y+'-01-01',y+'-03-31'],q2:[y+'-04-01',y+'-06-30'],q3:[y+'-07-01',y+'-09-30'],q4:[y+'-10-01',y+'-12-31'],fy:[fyStart,fyEnd]};
+  if(p==='ytd'){map.ytd=[fyStart,new Date().toISOString().substring(0,10)];}
+  var r=map[p];if(!r)return;
+  document.getElementById('set-period-from').value=r[0];
+  document.getElementById('set-period-to').value=r[1];
+}
+function saveSettings() {
+  var data={
+    companyName:document.getElementById('set-company-name').value,
+    fyStart:document.getElementById('set-fy-start').value,
+    fyEnd:document.getElementById('set-fy-end').value,
+    periodFrom:document.getElementById('set-period-from').value,
+    periodTo:document.getElementById('set-period-to').value
+  };
+  showStatus('settings','warning','Saving...');
+  google.script.run.withSuccessHandler(function(){showStatus('settings','success','✅ Settings saved');})
+    .withFailureHandler(function(e){showStatus('settings','error','❌ '+e.message);}).saveSettingsFromSidebar(data);
+}
+function doSettingsAction(action) {
+  showStatus('settings','warning','Running...');
+  google.script.run.withSuccessHandler(function(msg){showStatus('settings','success',msg||'✅ Done');})
+    .withFailureHandler(function(e){showStatus('settings','error','❌ '+e.message);}).runSettingsAction(action);
+}
 
-  function clearForm() {
-    document.getElementById('entryRef').value = '';
-    document.getElementById('entryDesc').value = '';
-    document.getElementById('entryDate').valueAsDate = new Date();
-    document.getElementById('linesContainer').innerHTML = '';
-    lineCount = 0;
-    addLine(); addLine();
-  }
-
-  // ---- Actions ----
-  function doAction(action) {
-    showStatus('actions', 'warning', 'Running...');
-    google.script.run
-      .withSuccessHandler(function(msg) {
-        showStatus('actions', 'success', msg || '✅ Done');
-      })
-      .withFailureHandler(function(e) {
-        showStatus('actions', 'error', '❌ ' + e.message);
-      })
-      .runSidebarAction(action);
-  }
-
-  // ---- Status ----
-  function loadStatus() {
-    google.script.run
-      .withSuccessHandler(function(html) {
-        document.getElementById('statusContent').innerHTML = html;
-      })
-      .getSidebarStatus();
-  }
-
-  // ---- Util ----
-  function showStatus(tab, type, msg) {
-    var el = document.getElementById('status-' + tab);
-    if (!el) return;
-    el.className = 'status ' + type;
-    el.textContent = msg;
-  }
+// ---- Util ----
+function showStatus(tab,type,msg){var e=document.getElementById('status-'+tab);if(!e)return;e.className='status '+type;e.textContent=msg;}
 </script>
 </body>
 </html>

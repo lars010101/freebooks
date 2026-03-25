@@ -1,504 +1,342 @@
 /**
  * Skuld — Apps Script Thin Relay
- *
- * This file contains NO business logic.
- * Every function: read from Sheet → call Cloud Function → write result to Sheet.
+ * All business logic lives in Cloud Functions. This file only relays.
  */
 
 // =============================================================================
-// Core relay function — all actions go through here
+// Core relay
 // =============================================================================
 
-/**
- * Call the Skuld Cloud Function with a payload.
- * @param {string} action - Action name (e.g., 'journal.post')
- * @param {object} payload - Additional data to send
- * @returns {object} - Response data from Cloud Function
- */
 function callSkuld_(action, payload) {
   var config = getConfig_();
-  var companyId = getActiveCompanyId_();
-  var userEmail = Session.getActiveUser().getEmail();
-
-  var body = {
-    action: action,
-    companyId: companyId,
-    userEmail: userEmail
-  };
-
-  // Merge payload
-  if (payload) {
-    for (var key in payload) {
-      body[key] = payload[key];
-    }
-  }
-
-  var options = {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify(body),
-    headers: {
-      'Authorization': 'Bearer ' + ScriptApp.getOAuthToken()
-    },
-    muteHttpExceptions: true
-  };
-
-  var response = UrlFetchApp.fetch(config.functionUrl, options);
-  var code = response.getResponseCode();
+  var body = { action: action, companyId: config.companyId, userEmail: Session.getActiveUser().getEmail() };
+  if (payload) { for (var k in payload) body[k] = payload[k]; }
+  var response = UrlFetchApp.fetch(config.functionUrl, {
+    method: 'post', contentType: 'application/json', payload: JSON.stringify(body),
+    headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true
+  });
   var result = JSON.parse(response.getContentText());
-
-  if (code !== 200) {
-    SpreadsheetApp.getUi().alert(
-      'Error: ' + (result.error || 'Unknown error')
-    );
-    return null;
+  if (response.getResponseCode() !== 200) {
+    throw new Error(result.error || 'Cloud Function error');
   }
-
   return result.data;
 }
 
 // =============================================================================
-// Journal Entry
+// Sidebar
 // =============================================================================
 
-function onPostJournalEntry() {
-  var html = HtmlService.createHtmlOutputFromFile('sidebar-entry')
-    .setTitle('⚖️ Journal Entry')
-    .setWidth(340);
+function openSidebar() {
+  var html = HtmlService.createHtmlOutputFromFile('sidebar-entry').setTitle('⚖️ Skuld').setWidth(340);
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
-/**
- * Get account list for sidebar dropdown.
- */
+// =============================================================================
+// Sidebar: Entry tab helpers
+// =============================================================================
+
 function getAccountList() {
   var result = callSkuld_('coa.list', {});
-  if (!result) return [];
-  return result.map(function(a) {
-    return { code: a.account_code, name: a.account_name, type: a.account_type };
-  });
+  return (result || []).map(function(a) { return { code: a.account_code, name: a.account_name, type: a.account_type }; });
 }
 
-/**
- * Get VAT code list for sidebar dropdown.
- */
 function getVatCodeList() {
   var result = callSkuld_('vat.codes.list', {});
-  if (!result) return [];
-  return result.map(function(v) {
-    return { code: v.vat_code, rate: v.rate, description: v.description };
-  });
+  return (result || []).map(function(v) { return { code: v.vat_code, rate: v.rate, description: v.description }; });
 }
 
-/**
- * Post journal entry from sidebar form.
- */
 function postJournalFromSidebar(lines) {
   return callSkuld_('journal.post', { lines: lines, source: 'manual' });
 }
 
-function onReverseEntry() {
-  var batchId = SpreadsheetApp.getUi().prompt('Enter the Batch ID to reverse:').getResponseText();
-  if (!batchId) return;
-
-  var result = callSkuld_('journal.reverse', { batchId: batchId.trim() });
-  if (result && result.reversed) {
-    SpreadsheetApp.getUi().alert('Reversed. New batch: ' + result.reversalBatchId.substring(0, 8));
-  }
+function searchJournalEntries(query) {
+  // Search by batch_id, reference, description, or amount
+  var result = callSkuld_('journal.list', { limit: 50 });
+  if (!result) return [];
+  var q = query.toLowerCase();
+  return result.filter(function(r) {
+    return (r.batch_id && r.batch_id.toLowerCase().indexOf(q) >= 0)
+      || (r.reference && r.reference.toLowerCase().indexOf(q) >= 0)
+      || (r.description && r.description.toLowerCase().indexOf(q) >= 0)
+      || (String(r.debit) === q || String(r.credit) === q);
+  });
 }
 
 // =============================================================================
-// Bank Processing
+// Sidebar: Navigate tab helpers
 // =============================================================================
 
-function onProcessBankStatement() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
-  var rows = readBankRows_(sheet);
-
-  if (rows.length === 0) {
-    SpreadsheetApp.getUi().alert('No bank statement rows found.');
+function navigateToTab(name) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Create Journal tab if it doesn't exist
+  if (name === 'Journal') {
+    var jSheet = ss.getSheetByName('Journal');
+    if (!jSheet) {
+      jSheet = ss.insertSheet('Journal', 0);
+      jSheet.setTabColor('#1a73e8');
+      jSheet.setFrozenRows(1);
+      var headers = ['Date', 'Batch ID', 'Account Code', 'Debit', 'Credit', 'Currency', 'Description', 'Reference', 'Source', 'VAT Code'];
+      jSheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
+    }
+    // Load journal entries
+    var params = getReportParams_();
+    var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo, limit: 1000 });
+    if (entries && entries.length > 0) {
+      writeToSheet_('Journal', entries, ['date', 'batch_id', 'account_code', 'debit', 'credit', 'currency', 'description', 'reference', 'source', 'vat_code']);
+    }
+    jSheet.showSheet();
+    jSheet.activate();
     return;
   }
 
-  var result = callSkuld_('bank.process', { rows: rows });
-  if (result) {
-    writeBankProcessingResults_(sheet, result.processed);
-    SpreadsheetApp.getUi().alert(
-      'Processed: ' + result.summary.total + ' rows\n'
-      + 'Rule matched: ' + result.summary.ruleMatched + '\n'
-      + 'Bill matched: ' + result.summary.billMatched + '\n'
-      + 'Unmatched: ' + result.summary.unmatched
-    );
-  }
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) throw new Error('Tab not found: ' + name);
+  sheet.showSheet();
+  sheet.activate();
 }
 
-function onApproveBankEntries() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
-  var entries = readApprovedBankEntries_(sheet);
-  var newMappings = readNewMappings_(sheet);
-
-  var result = callSkuld_('bank.approve', { entries: entries, newMappings: newMappings });
-  if (result) {
-    SpreadsheetApp.getUi().alert(
-      'Posted: ' + result.posted + ' entries\n'
-      + (result.failed > 0 ? 'Failed: ' + result.failed + '\n' : '')
-      + 'New mappings saved: ' + result.newMappings
-    );
+function runContextAction(action) {
+  if (action === 'refreshAll') {
+    refreshAllReports_();
+    return '✅ All reports refreshed';
   }
+
+  // Context-aware: what tab is active?
+  var activeSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet().getName();
+
+  if (action === 'refresh') {
+    return refreshTab_(activeSheet);
+  }
+  if (action === 'save') {
+    return saveTab_(activeSheet);
+  }
+  return '❌ Unknown action';
 }
 
-// =============================================================================
-// Bills (A/P)
-// =============================================================================
-
-function onCreateBill() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bills');
-  var bill = readBillForm_(sheet);
-  var result = callSkuld_('bill.create', { bill: bill });
-  if (result && result.created) {
-    SpreadsheetApp.getUi().alert('Bill created: ' + result.billId.substring(0, 8));
-    onRefreshBills();
-  }
-}
-
-function onPostBill() {
-  var billId = getSelectedBillId_();
-  if (!billId) return;
-  var result = callSkuld_('bill.post', { billId: billId });
-  if (result && result.posted) {
-    SpreadsheetApp.getUi().alert('Bill posted. Journal batch: ' + result.batchId.substring(0, 8));
-    onRefreshBills();
-  }
-}
-
-function onVoidBill() {
-  var billId = getSelectedBillId_();
-  if (!billId) return;
-  var result = callSkuld_('bill.void', { billId: billId });
-  if (result && result.voided) {
-    SpreadsheetApp.getUi().alert('Bill voided.');
-    onRefreshBills();
-  }
-}
-
-function onRefreshBills() {
-  var result = callSkuld_('bill.list', {});
-  if (result) {
-    writeToSheet_('Bills', result, ['bill_id', 'vendor', 'vendor_ref', 'date',
-      'due_date', 'amount', 'currency', 'status', 'amount_paid']);
-  }
-}
-
-// =============================================================================
-// Reports
-// =============================================================================
-
-function onRefreshTB() {
+function refreshTab_(name) {
   var params = getReportParams_();
-  var result = callSkuld_('report.refresh_tb', params);
-  if (result) { writeReportToSheet_('TB', result); activateSheet_('TB'); }
-}
-
-function onRefreshPL() {
-  var params = getReportParams_();
-  var result = callSkuld_('report.refresh_pl', params);
-  if (result) { writeReportToSheet_('PL', result); activateSheet_('PL'); }
-}
-
-function onRefreshBS() {
-  var params = getReportParams_();
-  var result = callSkuld_('report.refresh_bs', params);
-  if (result) { writeReportToSheet_('BS', result); activateSheet_('BS'); }
-}
-
-function onRefreshCF() {
-  var params = getReportParams_();
-  var result = callSkuld_('report.refresh_cf', params);
-  if (result) { writeReportToSheet_('CF', result); activateSheet_('CF'); }
-}
-
-function onRefreshDashboard() {
-  var params = getReportParams_();
-  var result = callSkuld_('report.refresh_dashboard', params);
-  if (result) { writeReportToSheet_('Dashboard', result); activateSheet_('Dashboard'); }
-}
-
-function onRefreshAPAging() {
-  var result = callSkuld_('report.refresh_ap_aging', {});
-  if (result) { writeReportToSheet_('AP Aging', result); activateSheet_('AP Aging'); }
-}
-
-function onRefreshVATReturn() {
-  var params = getVATReturnParams_();
-  var result = callSkuld_('report.refresh_vat_return', params);
-  if (result) { writeReportToSheet_('VAT Return', result); activateSheet_('VAT Return'); }
-}
-
-function onRefreshAllReports() {
-  onRefreshTB();
-  onRefreshPL();
-  onRefreshBS();
-  onRefreshCF();
-  onRefreshDashboard();
-  activateSheet_('Dashboard');
-}
-
-/**
- * Run an action from the sidebar Actions tab.
- */
-function runSidebarAction(action) {
-  switch (action) {
-    case 'refreshAll':
-      onRefreshTB();
-      onRefreshPL();
-      onRefreshBS();
-      onRefreshCF();
-      onRefreshDashboard();
-      return '✅ All reports refreshed';
-    case 'fetchFx':
-      onFetchFXRates();
-      return '✅ FX rates fetched';
-    case 'loadCoa':
-      onRefreshCOA();
-      return '✅ COA loaded to sheet';
-    case 'backup':
-      onExportBackup();
-      return '✅ Backup exported to Drive';
-    case 'processBankStatement':
-      onProcessBankStatement();
-      return '✅ Bank statement processed';
-    case 'approveBankEntries':
-      onApproveBankEntries();
-      return '✅ Bank entries posted';
+  switch (name) {
+    case 'Journal':
+      navigateToTab('Journal');
+      return '✅ Journal loaded';
+    case 'TB':
+      var r = callSkuld_('report.refresh_tb', params);
+      if (r) writeReportToSheet_('TB', r);
+      return '✅ Trial Balance refreshed';
+    case 'PL':
+      var r = callSkuld_('report.refresh_pl', params);
+      if (r) writeReportToSheet_('PL', r);
+      return '✅ P&L refreshed';
+    case 'BS':
+      var r = callSkuld_('report.refresh_bs', params);
+      if (r) writeReportToSheet_('BS', r);
+      return '✅ Balance Sheet refreshed';
+    case 'CF':
+      var r = callSkuld_('report.refresh_cf', params);
+      if (r) writeReportToSheet_('CF', r);
+      return '✅ Cash Flow refreshed';
+    case 'AP Aging':
+      var r = callSkuld_('report.refresh_ap_aging', {});
+      if (r) writeReportToSheet_('AP Aging', r);
+      return '✅ AP Aging refreshed';
+    case 'VAT Return':
+      var periodFrom = params.dateFrom || '2025-01-01';
+      var periodTo = params.dateTo || '2025-12-31';
+      var r = callSkuld_('report.refresh_vat_return', { periodFrom: periodFrom, periodTo: periodTo });
+      if (r) writeReportToSheet_('VAT Return', r);
+      return '✅ VAT Return refreshed';
+    case 'COA':
+      var r = callSkuld_('coa.list', {});
+      if (r) writeToSheet_('COA', r, ['account_code', 'account_name', 'account_type', 'account_subtype', 'pl_category', 'bs_category', 'cf_category', 'is_active', 'effective_from', 'effective_to']);
+      return '✅ COA loaded from database';
+    case 'Mappings':
+      var r = callSkuld_('mapping.list', {});
+      if (r) writeToSheet_('Mappings', r, ['pattern', 'match_type', 'debit_account', 'credit_account', 'description_override', 'vat_code', 'cost_center', 'profit_center', 'priority', 'is_active']);
+      return '✅ Mappings loaded from database';
+    case 'Bills':
+      var r = callSkuld_('bill.list', {});
+      if (r) writeToSheet_('Bills', r, ['bill_id', 'vendor', 'vendor_ref', 'date', 'due_date', 'amount', 'currency', 'status', 'amount_paid']);
+      return '✅ Bills refreshed';
+    case 'Bank Processing':
+      var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
+      var rows = readBankRows_(sheet);
+      if (rows.length === 0) return '⚠️ No bank rows to process. Paste data first.';
+      var r = callSkuld_('bank.process', { rows: rows });
+      if (r) writeBankProcessingResults_(sheet, r.processed);
+      return '✅ Processed: ' + r.summary.ruleMatched + ' matched, ' + r.summary.unmatched + ' unmatched';
     default:
-      return '❌ Unknown action: ' + action;
+      return '⚠️ No refresh action for tab: ' + name;
   }
 }
 
-/**
- * Get status info for the sidebar Status tab.
- */
-function getSidebarStatus() {
-  var result = callSkuld_('report.refresh_dashboard', getReportParams_());
-  if (!result) return '<p>Could not load status.</p>';
-
-  var html = '<div class="info-card">'
-    + '<div class="info-row"><span class="label">Revenue</span><span class="value">' + (result.revenue || 0).toLocaleString() + '</span></div>'
-    + '<div class="info-row"><span class="label">Expenses</span><span class="value">' + (result.expenses || 0).toLocaleString() + '</span></div>'
-    + '<div class="info-row"><span class="label">Net Income</span><span class="value" style="color:' + (result.netIncome >= 0 ? '#137333' : '#c5221f') + '">' + (result.netIncome || 0).toLocaleString() + '</span></div>'
-    + '</div>'
-    + '<div class="info-card">'
-    + '<div class="info-row"><span class="label">Assets</span><span class="value">' + (result.totalAssets || 0).toLocaleString() + '</span></div>'
-    + '<div class="info-row"><span class="label">Liabilities</span><span class="value">' + (result.totalLiabilities || 0).toLocaleString() + '</span></div>'
-    + '<div class="info-row"><span class="label">Equity</span><span class="value">' + (result.totalEquity || 0).toLocaleString() + '</span></div>'
-    + '<div class="info-row"><span class="label">Balanced</span><span class="value">' + (result.balanced ? '✅' : '❌') + '</span></div>'
-    + '</div>'
-    + '<div class="info-card">'
-    + '<div class="info-row"><span class="label">Entries</span><span class="value">' + (result.entryCount || 0) + '</span></div>'
-    + '<div class="info-row"><span class="label">First</span><span class="value">' + formatVal_(result.firstDate) + '</span></div>'
-    + '<div class="info-row"><span class="label">Last</span><span class="value">' + formatVal_(result.lastDate) + '</span></div>'
-    + '</div>';
-  return html;
-}
-
-function formatVal_(v) {
-  if (!v) return '—';
-  if (typeof v === 'object' && v.value) return v.value;
-  return String(v);
-}
-
-/**
- * Activate (bring to front) a named sheet.
- */
-function activateSheet_(name) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
-  if (sheet) {
-    sheet.showSheet();
-    sheet.activate();
+function saveTab_(name) {
+  switch (name) {
+    case 'COA':
+      var data = readSheetData_('COA');
+      callSkuld_('coa.save', { accounts: data });
+      return '✅ COA saved to database';
+    case 'Mappings':
+      var data = readSheetData_('Mappings');
+      callSkuld_('mapping.save', { mappings: data });
+      return '✅ Mappings saved to database';
+    case 'Centers':
+      var data = readSheetData_('Centers');
+      callSkuld_('center.save', { centers: data });
+      return '✅ Centers saved to database';
+    case 'VAT Codes':
+      var data = readSheetData_('VAT Codes');
+      callSkuld_('vat.codes.save', { vatCodes: data });
+      return '✅ VAT Codes saved to database';
+    case 'Bank Processing':
+      var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
+      var entries = readApprovedBankEntries_(sheet);
+      var mappings = readNewMappings_(sheet);
+      if (entries.length === 0) return '⚠️ No approved entries to post.';
+      var r = callSkuld_('bank.approve', { entries: entries, newMappings: mappings });
+      return '✅ Posted: ' + r.posted + ' entries' + (r.newMappings > 0 ? ', ' + r.newMappings + ' new mappings' : '');
+    case 'Bills':
+      // For bills, "save" creates a new bill from the last row
+      var bill = readBillForm_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bills'));
+      if (!bill) return '⚠️ No bill data found.';
+      var r = callSkuld_('bill.create', { bill: bill });
+      if (r && r.created) return '✅ Bill created: ' + r.billId.substring(0, 8);
+      return '❌ ' + (r && r.errors ? r.errors.join(', ') : 'Failed');
+    default:
+      return '⚠️ Tab "' + name + '" is read-only.';
   }
 }
 
-// =============================================================================
-// COA, Mappings, Centers, VAT Codes, Settings
-// =============================================================================
-
-function onSaveCOA() {
-  var accounts = readSheetData_('COA');
-  callSkuld_('coa.save', { accounts: accounts });
-}
-
-function onRefreshCOA() {
-  var result = callSkuld_('coa.list', {});
-  if (result) writeToSheet_('COA', result, ['account_code', 'account_name', 'account_type',
-    'account_subtype', 'pl_category', 'bs_category', 'cf_category', 'is_active',
-    'effective_from', 'effective_to']);
-}
-
-function onSaveMappings() {
-  var mappings = readSheetData_('Mappings');
-  callSkuld_('mapping.save', { mappings: mappings });
-}
-
-function onSaveCenters() {
-  var centers = readSheetData_('Centers');
-  callSkuld_('center.save', { centers: centers });
-}
-
-function onSaveVATCodes() {
-  var vatCodes = readSheetData_('VAT Codes');
-  callSkuld_('vat.codes.save', { vatCodes: vatCodes });
-}
-
-function onSaveSettings() {
-  var settings = readSettingsFromSheet_();
-  callSkuld_('settings.save', { settings: settings });
-}
-
-// =============================================================================
-// FX
-// =============================================================================
-
-function onFetchFXRates() {
-  var result = callSkuld_('fx.fetch_rates', {});
-  if (result) {
-    SpreadsheetApp.getUi().alert(
-      'Fetched ' + result.rateCount + ' rates for ' + result.date
-    );
-  }
-}
-
-// =============================================================================
-// Backup
-// =============================================================================
-
-function onExportBackup() {
-  var result = callSkuld_('backup.export', {});
-  if (result) {
-    // Save to Google Drive as JSON
-    var fileName = result.companyId + '_' + result.exportedAt.substring(0, 10) + '.json';
-    DriveApp.createFile(fileName, JSON.stringify(result, null, 2), 'application/json');
-    SpreadsheetApp.getUi().alert('Backup saved to Google Drive: ' + fileName);
-  }
-}
-
-// =============================================================================
-// Import
-// =============================================================================
-
-function onImportJournalEntries() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Import');
-  var entries = readImportData_(sheet);
-  var result = callSkuld_('journal.import', { entries: entries });
-  if (result) {
-    SpreadsheetApp.getUi().alert(
-      'Imported: ' + result.imported + '\n'
-      + 'Failed: ' + result.failed
-      + (result.errors.length > 0 ? '\n\nErrors:\n' + JSON.stringify(result.errors) : '')
-    );
-  }
-}
-
-// =============================================================================
-// Export
-// =============================================================================
-
-function onExportJournalEntries() {
+function refreshAllReports_() {
   var params = getReportParams_();
-  var result = callSkuld_('journal.export', params);
-  if (result) {
-    writeToSheet_('Export', result.entries, [
-      'date', 'batch_id', 'account_code', 'debit', 'credit',
-      'currency', 'description', 'reference', 'source'
-    ]);
+  var r;
+  r = callSkuld_('report.refresh_tb', params); if (r) writeReportToSheet_('TB', r);
+  r = callSkuld_('report.refresh_pl', params); if (r) writeReportToSheet_('PL', r);
+  r = callSkuld_('report.refresh_bs', params); if (r) writeReportToSheet_('BS', r);
+  r = callSkuld_('report.refresh_cf', params); if (r) writeReportToSheet_('CF', r);
+  // Load journal
+  var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo, limit: 1000 });
+  if (entries) {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var jSheet = ss.getSheetByName('Journal');
+    if (!jSheet) {
+      jSheet = ss.insertSheet('Journal', 0);
+      jSheet.setTabColor('#1a73e8'); jSheet.setFrozenRows(1);
+      jSheet.getRange(1,1,1,10).setValues([['Date','Batch ID','Account Code','Debit','Credit','Currency','Description','Reference','Source','VAT Code']]).setFontWeight('bold').setBackground('#e6e6e6');
+    }
+    writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code']);
   }
 }
 
 // =============================================================================
-// Menu
+// Sidebar: Settings tab helpers
+// =============================================================================
+
+function getSettingsData() {
+  var props = PropertiesService.getScriptProperties();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var settingsSheet = ss.getSheetByName('Settings');
+  var data = settingsSheet ? settingsSheet.getDataRange().getValues() : [];
+  var settings = {};
+  for (var i = 0; i < data.length; i++) {
+    var k = String(data[i][0]).trim().toLowerCase().replace(/ /g, '_');
+    settings[k] = data[i][1];
+  }
+  return {
+    companyId: props.getProperty('COMPANY_ID') || '',
+    companyName: settings.company_name || '',
+    fyStart: settings.fy_start || '2025-01-01',
+    fyEnd: settings.fy_end || '2025-12-31',
+    periodFrom: settings.period_from || settings.fy_start || '2025-01-01',
+    periodTo: settings.period_to || settings.fy_end || '2025-12-31',
+  };
+}
+
+function saveSettingsFromSidebar(data) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Settings');
+  if (!sheet) return;
+  var rows = [
+    ['Company ID', PropertiesService.getScriptProperties().getProperty('COMPANY_ID')],
+    ['Company Name', data.companyName],
+    ['Cloud Function URL', PropertiesService.getScriptProperties().getProperty('SKULD_FUNCTION_URL')],
+    ['', ''],
+    ['FY Start', data.fyStart],
+    ['FY End', data.fyEnd],
+    ['Period From', data.periodFrom],
+    ['Period To', data.periodTo],
+    ['Cost Center', ''],
+    ['Profit Center', ''],
+  ];
+  sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+}
+
+function runSettingsAction(action) {
+  switch (action) {
+    case 'fetchFx':
+      callSkuld_('fx.fetch_rates', {});
+      return '✅ FX rates fetched from ECB';
+    case 'backup':
+      var result = callSkuld_('backup.export', {});
+      if (result) {
+        var fileName = result.companyId + '_' + result.exportedAt.substring(0, 10) + '.json';
+        DriveApp.createFile(fileName, JSON.stringify(result, null, 2), 'application/json');
+        return '✅ Backup saved: ' + fileName;
+      }
+      return '❌ Backup failed';
+    default:
+      return '❌ Unknown action';
+  }
+}
+
+// =============================================================================
+// Menu (minimal — sidebar is the main UI)
 // =============================================================================
 
 function onOpen() {
-  var ui = SpreadsheetApp.getUi();
-  ui.createMenu('⚖️ Skuld')
-    .addItem('📝 New Journal Entry', 'onPostJournalEntry')
-    .addItem('↩️ Reverse Entry', 'onReverseEntry')
+  SpreadsheetApp.getUi().createMenu('⚖️ Skuld')
+    .addItem('Open Sidebar', 'openSidebar')
+    .addItem('Refresh All Reports', 'onRefreshAll')
     .addSeparator()
-    .addItem('🏦 Process Bank Statement', 'onProcessBankStatement')
-    .addItem('✅ Approve & Post Bank Entries', 'onApproveBankEntries')
-    .addSeparator()
-    .addItem('📄 Create Bill', 'onCreateBill')
-    .addItem('📬 Post Bill', 'onPostBill')
-    .addItem('❌ Void Bill', 'onVoidBill')
-    .addSeparator()
-    .addItem('📊 Refresh All Reports', 'onRefreshAllReports')
-    .addItem('💱 Fetch FX Rates', 'onFetchFXRates')
-    .addItem('💾 Export Backup', 'onExportBackup')
-    .addSeparator()
-    .addSubMenu(ui.createMenu('More')
-      .addItem('📥 Import Journal Entries', 'onImportJournalEntries')
-      .addItem('📤 Export Journal Entries', 'onExportJournalEntries')
-      .addItem('📋 Load COA from DB', 'onRefreshCOA')
-      .addSeparator()
-      .addItem('Save COA', 'onSaveCOA')
-      .addItem('Save Mappings', 'onSaveMappings')
-      .addItem('Save Centers', 'onSaveCenters')
-      .addItem('Save VAT Codes', 'onSaveVATCodes')
-      .addItem('Save Settings', 'onSaveSettings')
-      .addSeparator()
-      .addItem('Show All Tabs', 'showAllTabs')
-      .addItem('Setup Auto-Open', 'setupTrigger'))
+    .addItem('Show All Tabs', 'showAllTabs')
+    .addItem('Setup Auto-Open', 'setupTrigger')
     .addToUi();
 }
 
-/**
- * Installable trigger version of onOpen — can show sidebar.
- * Run setupTrigger() once to install it.
- */
+function onRefreshAll() {
+  refreshAllReports_();
+  SpreadsheetApp.getUi().alert('✅ All reports refreshed.');
+}
+
+// =============================================================================
+// Trigger setup
+// =============================================================================
+
 function onOpenInstallable() {
   onOpen();
-  onPostJournalEntry();
+  openSidebar();
   hideNonEssentialTabs_();
 }
 
-/**
- * Run this ONCE to install the auto-open trigger.
- */
 function setupTrigger() {
-  // Remove existing onOpen triggers to avoid duplicates
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'onOpenInstallable') {
-      ScriptApp.deleteTrigger(triggers[i]);
-    }
+    if (triggers[i].getHandlerFunction() === 'onOpenInstallable') ScriptApp.deleteTrigger(triggers[i]);
   }
-  // Create new installable trigger
-  ScriptApp.newTrigger('onOpenInstallable')
-    .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
-    .onOpen()
-    .create();
-  SpreadsheetApp.getUi().alert('✅ Auto-open trigger installed.\nThe sidebar will now open automatically when you open this spreadsheet.');
+  ScriptApp.newTrigger('onOpenInstallable').forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet()).onOpen().create();
+  SpreadsheetApp.getUi().alert('✅ Auto-open trigger installed.');
 }
 
-/**
- * Hide tabs that users don't need to see daily.
- * They're still accessible via the Skuld menu.
- */
 function hideNonEssentialTabs_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hideTabs = ['Import', 'Export', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'PL', 'BS', 'CF', 'AP Aging', 'VAT Return'];
-  for (var i = 0; i < hideTabs.length; i++) {
-    var sheet = ss.getSheetByName(hideTabs[i]);
-    if (sheet) sheet.hideSheet();
+  var hide = ['Import', 'Export', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'PL', 'BS', 'CF', 'AP Aging', 'VAT Return', 'Manual Entry', 'Dashboard', 'Settings'];
+  for (var i = 0; i < hide.length; i++) {
+    var s = ss.getSheetByName(hide[i]);
+    if (s) s.hideSheet();
   }
 }
 
-/**
- * Show all tabs (if user wants to see them).
- */
 function showAllTabs() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheets = ss.getSheets();
-  for (var i = 0; i < sheets.length; i++) {
-    sheets[i].showSheet();
-  }
+  for (var i = 0; i < sheets.length; i++) sheets[i].showSheet();
 }

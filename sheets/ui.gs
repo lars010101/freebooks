@@ -79,6 +79,11 @@ function writeToSheet_(sheetName, data, columns) {
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, columns.length).setValues(rows);
   }
+
+  // Auto-resize all used columns
+  for (var c = 1; c <= columns.length; c++) {
+    sheet.autoResizeColumn(c);
+  }
 }
 
 /**
@@ -196,6 +201,12 @@ function writeReportToSheet_(sheetName, reportData) {
     default:
       // Generic: dump as JSON
       sheet.getRange(2, 1).setValue(JSON.stringify(reportData, null, 2));
+  }
+
+  // Auto-resize all columns after writing any report
+  var lastCol = sheet.getLastColumn();
+  for (var c = 1; c <= Math.max(lastCol, 6); c++) {
+    sheet.autoResizeColumn(c);
   }
 }
 

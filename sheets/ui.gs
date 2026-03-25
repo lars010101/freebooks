@@ -160,14 +160,16 @@ function writeReportToSheet_(sheetName, reportData) {
         ['Balanced', reportData.balanced ? 'Yes' : 'No'],
         ['', ''],
         ['Journal Entries', reportData.entryCount],
-        ['First Entry', reportData.firstDate],
-        ['Last Entry', reportData.lastDate],
+        ['First Entry', unwrapValue_(reportData.firstDate)],
+        ['Last Entry', unwrapValue_(reportData.lastDate)],
       ];
       for (var m = 0; m < metrics.length; m++) {
         sheet.getRange(dRow + m, 1).setValue(metrics[m][0]);
         sheet.getRange(dRow + m, 2).setValue(metrics[m][1]);
         if (metrics[m][0]) sheet.getRange(dRow + m, 1).setFontWeight('bold');
       }
+      sheet.autoResizeColumn(1);
+      sheet.autoResizeColumn(2);
       break;
 
     case 'ap_aging':
@@ -437,4 +439,14 @@ function writeBankProcessingResults_(sheet, processed) {
     }
     sheet.getRange(row, 1, 1, startCol + headers.length - 1).setBackground(bg);
   }
+}
+
+/**
+ * Unwrap BigQuery value objects.
+ * BigQuery sometimes returns dates as {value: '2025-01-15'} — extract the string.
+ */
+function unwrapValue_(val) {
+  if (val === null || val === undefined) return '—';
+  if (typeof val === 'object' && val.value !== undefined) return val.value;
+  return val;
 }

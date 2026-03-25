@@ -80,7 +80,7 @@
 
 <div class="tabs">
   <div class="tab active" onclick="switchTab('entry')">📝 Entry</div>
-  <div class="tab" onclick="switchTab('navigate')">📋 Navigate</div>
+  <div class="tab" onclick="switchTab('navigate')">📋 Views</div>
   <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
 </div>
 
@@ -137,10 +137,10 @@
 <div id="panel-navigate" class="panel">
 
   <div class="nav-bar">
-    <button class="btn btn-primary" onclick="doContextAction('refresh')">↻ Refresh Active</button>
-    <button class="btn btn-green" onclick="doContextAction('save')">💾 Save Active</button>
+    <button class="btn btn-primary" onclick="doContextAction('refresh')">↻ Load</button>
+    <button class="btn btn-green" onclick="doContextAction('save')">💾 Save</button>
   </div>
-  <button class="btn btn-secondary btn-full" onclick="doContextAction('refreshAll')" style="margin-bottom:10px">📊 Refresh All Reports</button>
+  <button class="btn btn-secondary btn-full" onclick="doContextAction('refreshAll')" style="margin-bottom:10px">↻ Load All Reports</button>
 
   <div class="nav-group">Reports</div>
   <button class="nav-item" onclick="goTo('Journal')">📒 Journal</button>

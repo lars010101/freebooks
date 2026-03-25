@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; font-family: Arial, sans-serif; font-size: 13px; }
+    body { margin: 0; padding: 12px; background: #fafafa; }
+    h3 { margin: 0 0 12px 0; color: #333; font-size: 15px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; color: #555; }
+    input, select, textarea { width: 100%; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; }
+    input:focus, select:focus { border-color: #4285f4; outline: none; }
+    .line { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin: 8px 0; }
+    .line-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .line-header span { font-weight: bold; color: #666; }
+    .line-header button { background: #ff4444; color: white; border: none; border-radius: 3px; padding: 2px 8px; cursor: pointer; }
+    .row { display: flex; gap: 8px; }
+    .row > div { flex: 1; }
+    .btn { display: inline-block; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin: 4px; }
+    .btn-primary { background: #4285f4; color: white; }
+    .btn-primary:hover { background: #3367d6; }
+    .btn-secondary { background: #e0e0e0; color: #333; }
+    .btn-secondary:hover { background: #ccc; }
+    .btn-add { background: #34a853; color: white; width: 100%; margin: 8px 0; }
+    .btn-add:hover { background: #2d8e47; }
+    .totals { background: #e8f0fe; padding: 8px 12px; border-radius: 4px; margin: 8px 0; font-weight: bold; }
+    .totals.balanced { background: #e6f4ea; }
+    .totals.unbalanced { background: #fce8e6; }
+    .status { padding: 8px; margin: 8px 0; border-radius: 4px; display: none; }
+    .status.error { background: #fce8e6; color: #c5221f; display: block; }
+    .status.success { background: #e6f4ea; color: #137333; display: block; }
+    .status.warning { background: #fef7e0; color: #ea8600; display: block; }
+    hr { border: none; border-top: 1px solid #e0e0e0; margin: 12px 0; }
+    .help { color: #999; font-size: 11px; margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <h3>⚖️ Journal Entry</h3>
+
+  <label>Date</label>
+  <input type="date" id="entryDate" />
+
+  <label>Reference</label>
+  <input type="text" id="entryRef" placeholder="INV-001, receipt #, etc." />
+
+  <label>Description</label>
+  <input type="text" id="entryDesc" placeholder="What is this transaction?" />
+
+  <hr>
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <strong>Lines</strong>
+    <span class="help">Min 2 lines, must balance</span>
+  </div>
+
+  <div id="linesContainer"></div>
+
+  <button class="btn btn-add" onclick="addLine()">+ Add Line</button>
+
+  <div id="totals" class="totals">
+    DR: 0.00 | CR: 0.00
+  </div>
+
+  <div id="status" class="status"></div>
+
+  <div style="text-align:right; margin-top:8px;">
+    <button class="btn btn-secondary" onclick="clearForm()">Clear</button>
+    <button class="btn btn-primary" onclick="postEntry()">Post Entry</button>
+  </div>
+
+  <script>
+    var accounts = [];
+    var vatCodes = [];
+    var lineCount = 0;
+
+    // Load accounts and VAT codes from BigQuery on sidebar open
+    google.script.run
+      .withSuccessHandler(function(data) {
+        accounts = data || [];
+        // Add initial 2 lines after accounts load
+        addLine();
+        addLine();
+      })
+      .getAccountList();
+
+    google.script.run
+      .withSuccessHandler(function(data) {
+        vatCodes = data || [];
+      })
+      .getVatCodeList();
+
+    // Set default date to today
+    document.getElementById('entryDate').valueAsDate = new Date();
+
+    function addLine() {
+      lineCount++;
+      var n = lineCount;
+      var container = document.getElementById('linesContainer');
+      var div = document.createElement('div');
+      div.className = 'line';
+      div.id = 'line-' + n;
+
+      var accountOptions = '<option value="">— Select Account —</option>';
+      for (var i = 0; i < accounts.length; i++) {
+        var a = accounts[i];
+        accountOptions += '<option value="' + a.code + '">' + a.code + ' — ' + a.name + '</option>';
+      }
+
+      var vatOptions = '<option value="">None</option>';
+      for (var i = 0; i < vatCodes.length; i++) {
+        var v = vatCodes[i];
+        vatOptions += '<option value="' + v.code + '">' + v.code + ' (' + (v.rate * 100) + '%)</option>';
+      }
+
+      div.innerHTML = ''
+        + '<div class="line-header"><span>Line ' + n + '</span>'
+        + '<button onclick="removeLine(' + n + ')">✕</button></div>'
+        + '<label>Account</label>'
+        + '<select id="account-' + n + '">' + accountOptions + '</select>'
+        + '<div class="row">'
+        + '  <div><label>Debit</label><input type="number" id="debit-' + n + '" step="0.01" min="0" value="0" onchange="updateTotals()" oninput="updateTotals()"></div>'
+        + '  <div><label>Credit</label><input type="number" id="credit-' + n + '" step="0.01" min="0" value="0" onchange="updateTotals()" oninput="updateTotals()"></div>'
+        + '</div>'
+        + '<label>VAT Code</label>'
+        + '<select id="vat-' + n + '">' + vatOptions + '</select>'
+        + '<label>Line Description <span class="help">(optional — overrides header)</span></label>'
+        + '<input type="text" id="linedesc-' + n + '" placeholder="">';
+
+      container.appendChild(div);
+      updateTotals();
+    }
+
+    function removeLine(n) {
+      var el = document.getElementById('line-' + n);
+      if (el) el.remove();
+      updateTotals();
+    }
+
+    function updateTotals() {
+      var dr = 0, cr = 0;
+      var lines = document.querySelectorAll('[id^="line-"]');
+      lines.forEach(function(line) {
+        var n = line.id.split('-')[1];
+        dr += parseFloat(document.getElementById('debit-' + n)?.value || 0);
+        cr += parseFloat(document.getElementById('credit-' + n)?.value || 0);
+      });
+
+      var totalsEl = document.getElementById('totals');
+      var diff = Math.abs(dr - cr);
+      totalsEl.textContent = 'DR: ' + dr.toFixed(2) + ' | CR: ' + cr.toFixed(2)
+        + (diff > 0.01 ? ' | Diff: ' + diff.toFixed(2) : ' | ✅ Balanced');
+      totalsEl.className = 'totals ' + (diff <= 0.01 ? 'balanced' : 'unbalanced');
+    }
+
+    function getLines() {
+      var result = [];
+      var lines = document.querySelectorAll('[id^="line-"]');
+      var date = document.getElementById('entryDate').value;
+      var desc = document.getElementById('entryDesc').value;
+      var ref = document.getElementById('entryRef').value;
+
+      lines.forEach(function(line) {
+        var n = line.id.split('-')[1];
+        var account = document.getElementById('account-' + n)?.value;
+        var debit = parseFloat(document.getElementById('debit-' + n)?.value || 0);
+        var credit = parseFloat(document.getElementById('credit-' + n)?.value || 0);
+        var vat = document.getElementById('vat-' + n)?.value || '';
+        var lineDesc = document.getElementById('linedesc-' + n)?.value || '';
+
+        if (account && (debit > 0 || credit > 0)) {
+          result.push({
+            date: date,
+            account_code: account,
+            debit: debit,
+            credit: credit,
+            description: lineDesc || desc,
+            reference: ref,
+            vat_code: vat || undefined
+          });
+        }
+      });
+      return result;
+    }
+
+    function postEntry() {
+      var lines = getLines();
+      if (lines.length < 2) {
+        showStatus('error', 'Need at least 2 lines.');
+        return;
+      }
+
+      // Check balance
+      var dr = 0, cr = 0;
+      lines.forEach(function(l) { dr += l.debit; cr += l.credit; });
+      if (Math.abs(dr - cr) > 0.01) {
+        showStatus('error', 'Entry does not balance. DR: ' + dr.toFixed(2) + ' ≠ CR: ' + cr.toFixed(2));
+        return;
+      }
+
+      showStatus('warning', 'Posting...');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result && result.posted) {
+            showStatus('success', '✅ Posted! Batch: ' + result.batchId.substring(0, 8)
+              + ' (' + result.lineCount + ' lines)'
+              + (result.warnings && result.warnings.length > 0 ? '\n⚠️ ' + result.warnings.join('\n') : ''));
+            clearForm();
+          } else if (result && result.errors) {
+            showStatus('error', '❌ ' + result.errors.join('\n'));
+          } else {
+            showStatus('error', '❌ Unknown error');
+          }
+        })
+        .withFailureHandler(function(err) {
+          showStatus('error', '❌ ' + err.message);
+        })
+        .postJournalFromSidebar(lines);
+    }
+
+    function clearForm() {
+      document.getElementById('entryRef').value = '';
+      document.getElementById('entryDesc').value = '';
+      document.getElementById('entryDate').valueAsDate = new Date();
+      document.getElementById('linesContainer').innerHTML = '';
+      document.getElementById('status').className = 'status';
+      document.getElementById('status').textContent = '';
+      lineCount = 0;
+      addLine();
+      addLine();
+    }
+
+    function showStatus(type, msg) {
+      var el = document.getElementById('status');
+      el.className = 'status ' + type;
+      el.textContent = msg;
+    }
+  </script>
+</body>
+</html>

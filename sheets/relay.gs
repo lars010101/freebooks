@@ -62,26 +62,39 @@ function callSkuld_(action, payload) {
 // =============================================================================
 
 function onPostJournalEntry() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Manual Entry');
-  var lines = readEntryLines_(sheet);
+  var html = HtmlService.createHtmlOutputFromFile('sidebar-entry')
+    .setTitle('⚖️ Journal Entry')
+    .setWidth(340);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
 
-  if (lines.length === 0) {
-    SpreadsheetApp.getUi().alert('No entry lines found.');
-    return;
-  }
+/**
+ * Get account list for sidebar dropdown.
+ */
+function getAccountList() {
+  var result = callSkuld_('coa.list', {});
+  if (!result) return [];
+  return result.map(function(a) {
+    return { code: a.account_code, name: a.account_name, type: a.account_type };
+  });
+}
 
-  var result = callSkuld_('journal.post', { lines: lines, source: 'manual' });
-  if (result) {
-    if (result.posted) {
-      SpreadsheetApp.getUi().alert(
-        'Posted: ' + result.lineCount + ' lines (batch ' + result.batchId.substring(0, 8) + ')'
-        + (result.warnings.length > 0 ? '\n\nWarnings:\n' + result.warnings.join('\n') : '')
-      );
-      clearEntryForm_(sheet);
-    } else {
-      SpreadsheetApp.getUi().alert('Validation errors:\n' + result.errors.join('\n'));
-    }
-  }
+/**
+ * Get VAT code list for sidebar dropdown.
+ */
+function getVatCodeList() {
+  var result = callSkuld_('vat.codes.list', {});
+  if (!result) return [];
+  return result.map(function(v) {
+    return { code: v.vat_code, rate: v.rate, description: v.description };
+  });
+}
+
+/**
+ * Post journal entry from sidebar form.
+ */
+function postJournalFromSidebar(lines) {
+  return callSkuld_('journal.post', { lines: lines, source: 'manual' });
 }
 
 function onReverseEntry() {
@@ -341,7 +354,7 @@ function onExportJournalEntries() {
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('⚖️ Skuld')
-    .addItem('📝 Post Journal Entry', 'onPostJournalEntry')
+    .addItem('📝 New Journal Entry', 'onPostJournalEntry')
     .addItem('↩️ Reverse Entry', 'onReverseEntry')
     .addSeparator()
     .addItem('🏦 Process Bank Statement', 'onProcessBankStatement')

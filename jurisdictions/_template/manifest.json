@@ -1,0 +1,17 @@
+{
+  "jurisdiction": "XX",
+  "country_name": "Country Name",
+  "currency": "XXX",
+  "reporting_standards": ["STANDARD"],
+  "default_standard": "STANDARD",
+  "default_accounting_method": "accrual",
+  "vat_name": "VAT",
+  "vat_registration_threshold": 0,
+  "vat_periods": ["quarterly"],
+  "fiscal_year_default": "calendar",
+  "tax_authority": "Tax Authority Name",
+  "company_registry": "Registry Name",
+  "coa_standard": "Standard",
+  "maintainer": "your-github-username",
+  "last_verified": "YYYY-MM-DD"
+}

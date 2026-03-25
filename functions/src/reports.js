@@ -255,6 +255,43 @@ async function refreshBS(ctx) {
     totals[type] += balance;
   }
 
+  // Calculate current year net income (P&L accounts) for the balanced check
+  const plParams = { companyId };
+  let plDateFilter = '';
+  if (dateTo) {
+    plDateFilter = ` AND je.date <= @dateTo`;
+    plParams.dateTo = dateTo;
+  }
+
+  const [plRows] = await dataset.query({
+    query: `
+      SELECT COALESCE(SUM(je.credit_home - je.debit_home), 0) AS net_income
+      FROM finance.journal_entries je
+      JOIN finance.accounts a
+        ON je.company_id = a.company_id AND je.account_code = a.account_code
+      WHERE je.company_id = @companyId
+        AND a.account_type IN ('Revenue', 'Expense')
+        ${plDateFilter}
+    `,
+    params: plParams,
+  });
+  const netIncome = Number(plRows[0]?.net_income || 0);
+
+  // Add net income as a virtual equity line
+  if (Math.abs(netIncome) > 0.01) {
+    const cat = 'Current Year Earnings';
+    if (!sections.Equity[cat]) {
+      sections.Equity[cat] = { category: cat, accounts: [], total: 0 };
+    }
+    sections.Equity[cat].accounts.push({
+      accountCode: '—',
+      accountName: 'Net Income (Current Year)',
+      balance: netIncome,
+    });
+    sections.Equity[cat].total += netIncome;
+    totals.Equity += netIncome;
+  }
+
   return {
     report: 'balance_sheet',
     asAt: dateTo || 'all time',
@@ -264,6 +301,7 @@ async function refreshBS(ctx) {
     totalAssets: totals.Asset,
     totalLiabilities: totals.Liability,
     totalEquity: totals.Equity,
+    netIncome,
     balanced: Math.abs(totals.Asset - (totals.Liability + totals.Equity)) < 0.01,
   };
 }

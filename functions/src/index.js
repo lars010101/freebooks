@@ -126,7 +126,8 @@ async function handler(req, res) {
       return;
     }
 
-    if (userEmail) {
+    // Skip permission check for setup actions (no data exists yet)
+    if (userEmail && !action.startsWith('setup.')) {
       const allowed = await checkPermission(dataset, userEmail, companyId, requiredRole);
       if (!allowed) {
         res.status(403).json({ error: 'Insufficient permissions' });

@@ -312,7 +312,10 @@ function formatVal_(v) {
  */
 function activateSheet_(name) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
-  if (sheet) sheet.activate();
+  if (sheet) {
+    sheet.showSheet();
+    sheet.activate();
+  }
 }
 
 // =============================================================================
@@ -440,9 +443,62 @@ function onOpen() {
       .addItem('Save Mappings', 'onSaveMappings')
       .addItem('Save Centers', 'onSaveCenters')
       .addItem('Save VAT Codes', 'onSaveVATCodes')
-      .addItem('Save Settings', 'onSaveSettings'))
+      .addItem('Save Settings', 'onSaveSettings')
+      .addSeparator()
+      .addItem('Show All Tabs', 'showAllTabs')
+      .addItem('Setup Auto-Open', 'setupTrigger'))
     .addToUi();
+}
 
-  // Auto-open sidebar
+/**
+ * Installable trigger version of onOpen — can show sidebar.
+ * Run setupTrigger() once to install it.
+ */
+function onOpenInstallable() {
+  onOpen();
   onPostJournalEntry();
+  hideNonEssentialTabs_();
+}
+
+/**
+ * Run this ONCE to install the auto-open trigger.
+ */
+function setupTrigger() {
+  // Remove existing onOpen triggers to avoid duplicates
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'onOpenInstallable') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  // Create new installable trigger
+  ScriptApp.newTrigger('onOpenInstallable')
+    .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
+    .onOpen()
+    .create();
+  SpreadsheetApp.getUi().alert('✅ Auto-open trigger installed.\nThe sidebar will now open automatically when you open this spreadsheet.');
+}
+
+/**
+ * Hide tabs that users don't need to see daily.
+ * They're still accessible via the Skuld menu.
+ */
+function hideNonEssentialTabs_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hideTabs = ['Import', 'Export', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'PL', 'BS', 'CF', 'AP Aging', 'VAT Return'];
+  for (var i = 0; i < hideTabs.length; i++) {
+    var sheet = ss.getSheetByName(hideTabs[i]);
+    if (sheet) sheet.hideSheet();
+  }
+}
+
+/**
+ * Show all tabs (if user wants to see them).
+ */
+function showAllTabs() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    sheets[i].showSheet();
+  }
 }

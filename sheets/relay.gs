@@ -61,7 +61,7 @@ function postJournalFromSidebar(lines) {
 
 function searchJournalEntries(query) {
   // Search by batch_id, reference, description, or amount
-  var result = callSkuld_('journal.list', { limit: 50 });
+  var result = callSkuld_('journal.list', {});
   if (!result) return [];
   var q = query.toLowerCase();
   return result.filter(function(r) {
@@ -261,7 +261,7 @@ function refreshAllReports_() {
   r = callSkuld_('report.refresh_bs', params); if (r) writeReportToSheet_('BS', r);
   r = callSkuld_('report.refresh_cf', params); if (r) writeReportToSheet_('CF', r);
   // Load journal
-  var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo, limit: 1000 });
+  var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo });
   if (entries) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var jSheet = ss.getSheetByName('Journal');

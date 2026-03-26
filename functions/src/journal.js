@@ -240,7 +240,7 @@ async function reverseEntry(ctx) {
  */
 async function listEntries(ctx) {
   const { dataset, companyId, body } = ctx;
-  const { dateFrom, dateTo, accountCode, source, limit = 500, offset = 0 } = body;
+  const { dateFrom, dateTo, accountCode, source } = body;
 
   let query = `SELECT * FROM finance.journal_entries WHERE company_id = @companyId`;
   const params = { companyId };
@@ -262,9 +262,9 @@ async function listEntries(ctx) {
     params.source = source;
   }
 
-  query += ` ORDER BY date DESC, created_at DESC LIMIT @limit OFFSET @offset`;
-  params.limit = limit;
-  params.offset = offset;
+  // No arbitrary row limit — date filters are the right way to scope.
+  // Ordering by date + batch_id keeps journal entries intact.
+  query += ` ORDER BY date DESC, batch_id, account_code`;
 
   const [rows] = await dataset.query({ query, params });
   return rows;

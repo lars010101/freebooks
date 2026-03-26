@@ -301,8 +301,13 @@ async function refreshBS(ctx) {
   });
   const netIncome = Number(plRows[0]?.net_income || 0);
 
+  // Compute net income as the balancing figure:
+  // Assets = Liabilities + Equity + Net Income
+  // So Net Income = Assets - Liabilities - Equity
+  const balancingNetIncome = totals.Asset - totals.Liability - totals.Equity;
+
   // Add net income as a virtual equity line
-  if (Math.abs(netIncome) > 0.01) {
+  if (Math.abs(balancingNetIncome) > 0.01) {
     const cat = 'Current Year Earnings';
     if (!sections.Equity[cat]) {
       sections.Equity[cat] = { category: cat, accounts: [], total: 0 };
@@ -310,11 +315,14 @@ async function refreshBS(ctx) {
     sections.Equity[cat].accounts.push({
       accountCode: '—',
       accountName: 'Net Income (Current Year)',
-      balance: netIncome,
+      balance: balancingNetIncome,
     });
-    sections.Equity[cat].total += netIncome;
-    totals.Equity += netIncome;
+    sections.Equity[cat].total += balancingNetIncome;
+    totals.Equity += balancingNetIncome;
   }
+
+  // Also compute P&L net income for reference
+  const plNetIncome = Number(plRows[0]?.net_income || 0);
 
   return {
     report: 'balance_sheet',
@@ -325,7 +333,9 @@ async function refreshBS(ctx) {
     totalAssets: totals.Asset,
     totalLiabilities: totals.Liability,
     totalEquity: totals.Equity,
-    netIncome,
+    netIncome: balancingNetIncome,
+    plNetIncome,
+    fxVariance: Math.abs(balancingNetIncome - plNetIncome) > 0.01 ? balancingNetIncome - plNetIncome : 0,
     balanced: Math.abs(totals.Asset - (totals.Liability + totals.Equity)) < 0.01,
   };
 }

@@ -381,15 +381,19 @@ function readSettingsFromSheet_() {
 /**
  * Read import data — expects CSV-like format on Import sheet.
  */
-function readImportData_(sheet) {
+function readImportData_() {
   var data = readSheetData_('Import');
   // Group by batch (if batch_id column exists) or treat each row as single-line entry
   var batches = {};
   for (var i = 0; i < data.length; i++) {
     var row = data[i];
+    // Skip instruction/comment rows (no valid date or account code)
+    var dateVal = row.date || row.Date || '';
+    var acctVal = row.account_code || row['Account Code'] || row.account || '';
+    if (!dateVal || !acctVal) continue;
     var batchKey = row.batch_id || row['Batch ID'] || 'batch_' + i;
     if (!batches[batchKey]) {
-      batches[batchKey] = { lines: [], source: 'csv_import' };
+      batches[batchKey] = { lines: [], source: row.source || row.Source || 'csv_import', batchId: batchKey.indexOf('batch_') === 0 ? undefined : batchKey };
     }
     batches[batchKey].lines.push({
       date: row.date || row.Date,

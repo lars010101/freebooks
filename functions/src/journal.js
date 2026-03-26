@@ -271,46 +271,157 @@ async function listEntries(ctx) {
 }
 
 /**
- * Import multiple journal entries (batch of batches).
+ * Import multiple journal entries — bulk mode.
  *
- * Input body.entries: [{ lines: [...], source }]
- * Validates all, posts all or none.
+ * Input body.entries: [{ lines: [...], source?, batchId? }]
+ *   Each entry is one balanced journal entry (2+ lines).
+ *   If batchId is provided, it's preserved (for migrations).
+ *
+ * Performs a single validation pass, then bulk-inserts all rows.
+ * Much faster than the per-entry postEntry loop for large imports.
  */
 async function importEntries(ctx) {
-  const { body } = ctx;
+  const { dataset, companyId, userEmail, body } = ctx;
   const { entries } = body;
 
   if (!entries || !Array.isArray(entries) || entries.length === 0) {
     throw Object.assign(new Error('entries array required'), { code: 'INVALID_INPUT' });
   }
 
-  const results = [];
+  // Load reference data once (not per-entry)
+  const [companies] = await dataset.query({
+    query: `SELECT currency, vat_registered FROM finance.companies WHERE company_id = @companyId`,
+    params: { companyId },
+  });
+  if (companies.length === 0) {
+    throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
+  }
+  const company = companies[0];
+
+  const [accounts] = await dataset.query({
+    query: `SELECT account_code, is_active FROM finance.accounts WHERE company_id = @companyId`,
+    params: { companyId },
+  });
+  const accountSet = new Set(accounts.filter((a) => a.is_active).map((a) => a.account_code));
+
+  const [settingsRows] = await dataset.query({
+    query: `SELECT value FROM finance.settings WHERE company_id = @companyId AND key = 'locked_periods'`,
+    params: { companyId },
+  });
+  const lockedPeriods = settingsRows.length > 0 ? JSON.parse(settingsRows[0].value || '[]') : [];
+
+  // Validate and build all rows
+  const allRows = [];
   const allErrors = [];
+  const now = new Date().toISOString();
 
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    const entryCtx = {
-      ...ctx,
-      body: { lines: entry.lines, source: entry.source || 'csv_import' },
-    };
+    const { lines, source = 'csv_import' } = entry;
+    const batchId = entry.batchId || uuid();
+    const entryErrors = [];
 
-    try {
-      const result = await postEntry(entryCtx);
-      if (!result.posted) {
-        allErrors.push({ entry: i + 1, errors: result.errors });
-      } else {
-        results.push(result);
+    if (!lines || lines.length === 0) {
+      allErrors.push({ entry: i + 1, errors: ['Empty entry'] });
+      continue;
+    }
+
+    // Validate: all accounts must exist
+    for (const line of lines) {
+      if (!accountSet.has(line.account_code)) {
+        entryErrors.push(`Unknown account: ${line.account_code}`);
       }
-    } catch (err) {
-      allErrors.push({ entry: i + 1, errors: [err.message] });
+      if (!line.date) {
+        entryErrors.push('Missing date');
+      }
+    }
+
+    // Validate: debits = credits
+    const totalDebit = lines.reduce((s, l) => s + (l.debit || 0), 0);
+    const totalCredit = lines.reduce((s, l) => s + (l.credit || 0), 0);
+    if (Math.abs(totalDebit - totalCredit) > 0.005) {
+      entryErrors.push(`Unbalanced: DR ${totalDebit.toFixed(2)} ≠ CR ${totalCredit.toFixed(2)}`);
+    }
+
+    // Check locked periods
+    for (const line of lines) {
+      if (line.date && lockedPeriods.includes(line.date.substring(0, 7))) {
+        entryErrors.push(`Period locked: ${line.date.substring(0, 7)}`);
+        break;
+      }
+    }
+
+    if (entryErrors.length > 0) {
+      allErrors.push({ entry: i + 1, batchId, errors: entryErrors });
+      continue;
+    }
+
+    // Build rows
+    for (const line of lines) {
+      const currency = line.currency || company.currency;
+      const fxRate = currency === company.currency ? 1.0 : (line.fx_rate || 1.0);
+      const debit = line.debit || 0;
+      const credit = line.credit || 0;
+
+      allRows.push({
+        company_id: companyId,
+        entry_id: uuid(),
+        batch_id: batchId,
+        date: line.date,
+        account_code: line.account_code,
+        debit,
+        credit,
+        currency,
+        fx_rate: fxRate,
+        debit_home: debit * fxRate,
+        credit_home: credit * fxRate,
+        vat_code: line.vat_code || null,
+        vat_amount: 0,
+        vat_amount_home: 0,
+        net_amount: 0,
+        net_amount_home: 0,
+        description: line.description || null,
+        reference: line.reference || null,
+        source,
+        cost_center: line.cost_center || null,
+        profit_center: line.profit_center || null,
+        reverses: null,
+        reversed_by: null,
+        bill_id: line.bill_id || null,
+        created_by: userEmail || 'import',
+        created_at: now,
+      });
     }
   }
 
+  // If any errors, return them without inserting
+  if (allErrors.length > 0) {
+    return {
+      imported: 0,
+      failed: allErrors.length,
+      totalEntries: entries.length,
+      errors: allErrors,
+    };
+  }
+
+  // Bulk insert (BigQuery streaming insert handles up to 10K rows per call)
+  const CHUNK = 5000;
+  for (let i = 0; i < allRows.length; i += CHUNK) {
+    const chunk = allRows.slice(i, i + CHUNK);
+    await dataset.table('journal_entries').insert(chunk);
+  }
+
+  await auditLog(dataset, companyId, 'journal.import', userEmail, {
+    entriesImported: entries.length,
+    rowsInserted: allRows.length,
+  });
+
   return {
-    imported: results.length,
+    imported: entries.length - allErrors.length,
     failed: allErrors.length,
+    totalEntries: entries.length,
+    rowsInserted: allRows.length,
     errors: allErrors,
-    results,
   };
 }
 

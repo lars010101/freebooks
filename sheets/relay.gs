@@ -107,6 +107,22 @@ function navigateToTab(name) {
     return;
   }
 
+  // Create Import tab if needed
+  if (name === 'Import') {
+    var impSheet = ss.getSheetByName('Import');
+    if (!impSheet) {
+      impSheet = ss.insertSheet('Import');
+      impSheet.setTabColor('#e8710a'); impSheet.setFrozenRows(1);
+      var h = ['Batch ID', 'Date', 'Account Code', 'Debit', 'Credit', 'Currency', 'FX Rate', 'Description', 'Reference', 'Source'];
+      impSheet.getRange(1,1,1,h.length).setValues([h]).setFontWeight('bold').setBackground('#fce8b2');
+      // Add instruction note
+      impSheet.getRange(2,1).setValue('Paste journal data below. Group lines by Batch ID. Hit Save to import.');
+      impSheet.getRange(2,1,1,h.length).merge().setFontStyle('italic').setFontColor('#666666');
+    }
+    impSheet.showSheet(); impSheet.activate();
+    return;
+  }
+
   var sheet = ss.getSheetByName(name);
   if (!sheet) throw new Error('Tab not found: ' + name);
   sheet.showSheet();
@@ -205,6 +221,19 @@ function saveTab_(name) {
       var data = readSheetData_('VAT Codes');
       callSkuld_('vat.codes.save', { vatCodes: data });
       return '✅ VAT Codes saved to database';
+    case 'Import':
+      var importData = readImportData_();
+      if (!importData || importData.length === 0) return '⚠️ No data found on Import sheet (need rows below header).';
+      var r = callSkuld_('journal.import', { entries: importData });
+      if (r && r.imported > 0) {
+        return '✅ Imported ' + r.imported + ' entries (' + r.rowsInserted + ' lines)' +
+               (r.failed > 0 ? ' — ⚠️ ' + r.failed + ' failed' : '');
+      }
+      if (r && r.errors && r.errors.length > 0) {
+        var errMsg = r.errors.slice(0, 5).map(function(e) { return 'Entry ' + e.entry + ': ' + e.errors.join(', '); }).join('\n');
+        return '❌ Import failed:\n' + errMsg;
+      }
+      return '❌ Import failed (unknown error)';
     case 'Bank Processing':
       var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
       var entries = readApprovedBankEntries_(sheet);

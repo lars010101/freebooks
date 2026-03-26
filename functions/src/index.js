@@ -223,6 +223,22 @@ async function handleCoa(ctx, action) {
       throw Object.assign(new Error(`Duplicate account codes: ${dupes.join(', ')}`), { code: 'DUPLICATE_CODE' });
     }
 
+    // Check for accounts being removed that have journal entries
+    const incomingCodes = new Set(codes);
+    const [usedAccounts] = await dataset.query({
+      query: `SELECT DISTINCT account_code FROM finance.journal_entries WHERE company_id = @companyId`,
+      params: { companyId },
+    });
+    const blocked = usedAccounts
+      .filter((a) => !incomingCodes.has(a.account_code))
+      .map((a) => a.account_code);
+    if (blocked.length > 0) {
+      throw Object.assign(
+        new Error(`Cannot remove accounts with existing transactions: ${blocked.join(', ')}`),
+        { code: 'REFERENTIAL_INTEGRITY' }
+      );
+    }
+
     // Delete existing + re-insert (full replace for COA saves)
     await dataset.query({
       query: `DELETE FROM finance.accounts WHERE company_id = @companyId`,

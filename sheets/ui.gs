@@ -20,7 +20,9 @@ function readSheetData_(sheetName) {
   var data = sheet.getDataRange().getValues();
   if (data.length < 2) return [];
 
-  var headers = data[0].map(function(h) { return String(h).trim(); });
+  var headers = data[0].map(function(h) {
+    return String(h).trim().toLowerCase().replace(/\s+/g, '_');
+  });
   var rows = [];
 
   for (var i = 1; i < data.length; i++) {

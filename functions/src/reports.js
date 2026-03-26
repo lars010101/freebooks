@@ -1025,11 +1025,14 @@ async function refreshIntegrity(ctx) {
     }
     return fys;
   }
-  const allFYs = fyRange();
+  const rawFYs = fyRange();
 
   // Use supplied dateTo or latest FY end
-  const effectiveDateTo = dateTo || allFYs[allFYs.length - 1].dateTo;
-  const effectiveDateFrom = dateFrom || allFYs[allFYs.length - 1].dateFrom;
+  const effectiveDateTo = dateTo || rawFYs[rawFYs.length - 1].dateTo;
+  const effectiveDateFrom = dateFrom || rawFYs[rawFYs.length - 1].dateFrom;
+
+  // Filter FYs to only include those that start on or before effectiveDateTo
+  const allFYs = rawFYs.filter(f => f.dateFrom <= effectiveDateTo);
 
   // ── Check 1: Trial Balance ─────────────────────────────────────────
   const [tbRows] = await dataset.query({
@@ -1208,7 +1211,7 @@ async function refreshIntegrity(ctx) {
   // ── Assemble output ────────────────────────────────────────────────
   const checks = [
     {
-      name: '1. Trial Balance',
+      name: `1. Trial Balance (as at ${effectiveDateTo})`,
       items: [
         { label: 'Total Debits', value: totalDebits, status: '' },
         { label: 'Total Credits', value: totalCredits, status: '' },
@@ -1238,18 +1241,6 @@ async function refreshIntegrity(ctx) {
             value: Number(r.imbalance),
             status: '❌ FAIL',
           })),
-    },
-    {
-      name: '5. Cash Flow vs Balance Sheet',
-      items: [{ label: 'Skipped (placeholder)', value: 0, status: '—' }],
-    },
-    {
-      name: '6. Uncategorised CF Accounts',
-      items: [{ label: 'Skipped (placeholder)', value: 0, status: '—' }],
-    },
-    {
-      name: '7. Equity Statement vs Balance Sheet',
-      items: [{ label: 'Skipped (placeholder)', value: 0, status: '—' }],
     },
   ];
 

@@ -100,12 +100,14 @@ function writeReportToSheet_(sheetName, reportData) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return;
 
-  // Clear existing data AND formatting (keep header row)
+  // Clear existing data, formatting, AND merges (keep header row)
   if (sheet.getLastRow() > 1) {
-    var cr = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), Math.max(sheet.getLastColumn(), 1));
+    var cr = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), Math.max(sheet.getLastColumn(), 10));
+    cr.breakApart();
     cr.clearContent();
     cr.setFontWeight('normal');
     cr.setBackground(null);
+    cr.setBorder(false, false, false, false, false, false);
   }
 
   switch (reportData.report) {

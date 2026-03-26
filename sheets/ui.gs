@@ -54,9 +54,12 @@ function writeToSheet_(sheetName, data, columns) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return;
 
-  // Don't clear header row — just data rows
+  // Don't clear header row — just data rows (clear content AND formatting)
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).clearContent();
+    var clearRange = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn());
+    clearRange.clearContent();
+    clearRange.setFontWeight('normal');
+    clearRange.setBackground(null);
   }
 
   if (!data || data.length === 0) return;
@@ -281,6 +284,12 @@ function writeBSSection_(sheet, title, categories, startRow) {
  * Columns: Account Code | Account Name | Period1 | Period2 | ...
  */
 function writeMultiPeriodPL_(sheet, data) {
+  // Clear all data rows and formatting
+  if (sheet.getLastRow() > 1) {
+    var cr = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn());
+    cr.clearContent(); cr.setFontWeight('normal'); cr.setBackground(null);
+  }
+
   var periods = data.periods;
   var numPeriods = periods.length;
 
@@ -341,6 +350,12 @@ function writeMultiPeriodPL_(sheet, data) {
  * Columns: Section | Category | Account Code | Account Name | Period1 | Period2 | ...
  */
 function writeMultiPeriodBS_(sheet, data) {
+  // Clear all data rows and formatting
+  if (sheet.getLastRow() > 1) {
+    var cr = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn());
+    cr.clearContent(); cr.setFontWeight('normal'); cr.setBackground(null);
+  }
+
   var periods = data.periods;
   var numPeriods = periods.length;
 

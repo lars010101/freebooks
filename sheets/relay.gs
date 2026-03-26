@@ -192,7 +192,7 @@ function refreshTab_(name, period) {
       if (r) writeReportToSheet_('SCE', r);
       return '✅ Statement of Changes in Equity refreshed';
     case 'Integrity':
-      var r = callSkuld_('report.refresh_integrity', {});
+      var r = callSkuld_('report.refresh_integrity', params);
       if (r) writeReportToSheet_('Integrity', r);
       var failCount = 0;
       if (r && r.checks) { for (var ci = 0; ci < r.checks.length; ci++) { for (var ii = 0; ii < (r.checks[ci].items||[]).length; ii++) { if ((r.checks[ci].items[ii].status||'').indexOf('❌') >= 0) failCount++; }}}
@@ -323,10 +323,10 @@ function getSettingsData() {
   return {
     companyId: props.getProperty('COMPANY_ID') || '',
     companyName: settings['Company Name'] || props.getProperty('COMPANY_ID') || '',
-    fyStart: formatSettingDate_(settings['FY Start']) || fyFromBQ.fyStart || '2025-01-01',
-    fyEnd: formatSettingDate_(settings['FY End']) || fyFromBQ.fyEnd || '2025-12-31',
-    periodFrom: formatSettingDate_(settings['Period From'] || settings['FY Start']) || fyFromBQ.fyStart || '2025-01-01',
-    periodTo: formatSettingDate_(settings['Period To'] || settings['FY End']) || fyFromBQ.fyEnd || '2025-12-31',
+    fyStart: fyFromBQ.fyStart || formatSettingDate_(settings['FY Start']) || '2025-01-01',
+    fyEnd: fyFromBQ.fyEnd || formatSettingDate_(settings['FY End']) || '2025-12-31',
+    periodFrom: formatSettingDate_(settings['Period From']) || fyFromBQ.fyStart || formatSettingDate_(settings['FY Start']) || '2025-01-01',
+    periodTo: formatSettingDate_(settings['Period To']) || fyFromBQ.fyEnd || formatSettingDate_(settings['FY End']) || '2025-12-31',
   };
 }
 

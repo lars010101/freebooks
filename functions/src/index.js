@@ -211,13 +211,20 @@ async function handleCoa(ctx, action) {
   }
 
   if (action === 'coa.save') {
-    const { accounts } = body; // array of account objects
+    let { accounts } = body; // array of account objects
     if (!accounts || !Array.isArray(accounts)) {
       throw Object.assign(new Error('accounts array required'), { code: 'INVALID_INPUT' });
     }
 
+    // Filter out empty rows (blank account_code from trailing sheet rows)
+    accounts = accounts.filter((a) => a.account_code && String(a.account_code).trim() !== '');
+
+    if (accounts.length === 0) {
+      throw Object.assign(new Error('No valid accounts found'), { code: 'INVALID_INPUT' });
+    }
+
     // Validate no duplicate codes
-    const codes = accounts.map((a) => a.account_code);
+    const codes = accounts.map((a) => String(a.account_code).trim());
     const dupes = codes.filter((c, i) => codes.indexOf(c) !== i);
     if (dupes.length > 0) {
       throw Object.assign(new Error(`Duplicate account codes: ${dupes.join(', ')}`), { code: 'DUPLICATE_CODE' });

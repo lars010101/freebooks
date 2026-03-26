@@ -196,7 +196,7 @@
 
 <script>
 var accounts = [], vatCodes = [], lineCount = 0;
-var fyStart = '2025-01-01', fyEnd = '2025-12-31';
+var fyStart = '', fyEnd = '';
 
 // ---- Init: Views tab shows instantly, data loads in background ----
 document.getElementById('entryDate').valueAsDate = new Date();
@@ -334,12 +334,12 @@ function loadSettingsData(s) {
   if(!s)return;
   document.getElementById('set-company-name').value=s.companyName||'';
   document.getElementById('set-company-id').value=s.companyId||'';
-  document.getElementById('set-fy-start').value=s.fyStart||'2025-01-01';
-  document.getElementById('set-fy-end').value=s.fyEnd||'2025-12-31';
-  fyStart=s.fyStart||'2025-01-01';fyEnd=s.fyEnd||'2025-12-31';
-  // Init Views period from FY (or saved report period)
-  document.getElementById('nav-period-from').value=s.periodFrom||s.fyStart||'2025-01-01';
-  document.getElementById('nav-period-to').value=s.periodTo||s.fyEnd||'2025-12-31';
+  fyStart=s.fyStart||'';fyEnd=s.fyEnd||'';
+  document.getElementById('set-fy-start').value=fyStart;
+  document.getElementById('set-fy-end').value=fyEnd;
+  // Report period always defaults to FY
+  document.getElementById('nav-period-from').value=fyStart;
+  document.getElementById('nav-period-to').value=fyEnd;
 }
 function setNavPeriod(p) {
   var y=fyStart.substring(0,4);

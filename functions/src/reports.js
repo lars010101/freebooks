@@ -831,8 +831,12 @@ async function refreshAPAging(ctx) {
 
 /**
  * Statement of Changes in Equity (SCE).
- * Shows opening balance, net income, dividends, share capital changes,
- * other equity movements, and closing balance for the period.
+ *
+ * Columnar layout: Share Capital | Retained Earnings | Dividends | Total
+ * Equity account classification by account_code prefix:
+ *   - Share Capital:      203080*
+ *   - Retained Earnings:  203070* (also 999999* for closing entries)
+ *   - Dividends:          203040*
  */
 async function refreshSCE(ctx) {
   const { dataset, companyId, body } = ctx;
@@ -842,57 +846,58 @@ async function refreshSCE(ctx) {
     throw Object.assign(new Error('SCE requires both dateFrom and dateTo'), { code: 'INVALID_INPUT' });
   }
 
-  // Opening balance: equity account balances before dateFrom
+  // Helper: classify an equity account_code into a column
+  function classifyEquity(code) {
+    const c = String(code);
+    if (c.startsWith('203080') || c.startsWith('2081')) return 'shareCapital';
+    if (c.startsWith('203070') || c.startsWith('999999')) return 'retainedEarnings';
+    if (c.startsWith('203040') || c.startsWith('2898')) return 'dividends';
+    return 'retainedEarnings'; // default bucket
+  }
+
+  // 1. Opening balances: cumulative credit-debit before dateFrom for equity accounts
   const [openingRows] = await dataset.query({
     query: `
       SELECT
-        a.account_code,
-        a.account_name,
-        a.account_subtype,
-        a.bs_category,
+        je.account_code,
         COALESCE(SUM(je.credit - je.debit), 0) AS balance
-      FROM finance.accounts a
-      LEFT JOIN finance.journal_entries je
-        ON a.company_id = je.company_id
-        AND a.account_code = je.account_code
+      FROM finance.journal_entries je
+      WHERE je.company_id = @companyId
         AND je.date < @dateFrom
-      WHERE a.company_id = @companyId
-        AND a.account_type = 'Equity'
-        AND a.is_active = TRUE
-      GROUP BY a.account_code, a.account_name, a.account_subtype, a.bs_category
-      ORDER BY a.account_code
+        AND je.account_code IN (
+          SELECT account_code FROM finance.accounts
+          WHERE company_id = @companyId AND account_type = 'Equity'
+        )
+      GROUP BY je.account_code
     `,
     params: { companyId, dateFrom },
   });
 
-  // Movements during the period for equity accounts
+  // 2. Period movements for equity accounts
   const [movementRows] = await dataset.query({
     query: `
       SELECT
-        a.account_code,
-        a.account_name,
-        a.account_subtype,
-        a.bs_category,
+        je.account_code,
         COALESCE(SUM(je.credit - je.debit), 0) AS movement
-      FROM finance.accounts a
-      LEFT JOIN finance.journal_entries je
-        ON a.company_id = je.company_id
-        AND a.account_code = je.account_code
+      FROM finance.journal_entries je
+      WHERE je.company_id = @companyId
         AND je.date >= @dateFrom AND je.date <= @dateTo
-      WHERE a.company_id = @companyId
-        AND a.account_type = 'Equity'
-        AND a.is_active = TRUE
-      GROUP BY a.account_code, a.account_name, a.account_subtype, a.bs_category
-      HAVING movement != 0
-      ORDER BY a.account_code
+        AND je.account_code IN (
+          SELECT account_code FROM finance.accounts
+          WHERE company_id = @companyId AND account_type = 'Equity'
+        )
+      GROUP BY je.account_code
+      HAVING ABS(movement) > 0.005
     `,
     params: { companyId, dateFrom, dateTo },
   });
 
-  // Net income for the period (P&L accounts)
+  // 3. Net income for the period (revenue cr-db minus expense db-cr)
   const [plRows] = await dataset.query({
     query: `
-      SELECT COALESCE(SUM(je.credit - je.debit), 0) AS net_income
+      SELECT
+        COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0)
+        - COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) AS net_income
       FROM finance.journal_entries je
       JOIN finance.accounts a
         ON je.company_id = a.company_id AND je.account_code = a.account_code
@@ -904,241 +909,345 @@ async function refreshSCE(ctx) {
   });
   const netIncome = Number(plRows[0]?.net_income || 0);
 
-  // Build equity components
-  const equityAccounts = {};
+  // Aggregate opening by column
+  const opening = { shareCapital: 0, retainedEarnings: 0, dividends: 0 };
   for (const row of openingRows) {
-    equityAccounts[row.account_code] = {
-      accountCode: row.account_code,
-      accountName: row.account_name,
-      subtype: row.account_subtype || row.bs_category || 'Other',
-      opening: Number(row.balance),
-      movement: 0,
-      closing: Number(row.balance),
-    };
+    const col = classifyEquity(row.account_code);
+    opening[col] += Number(row.balance);
   }
 
+  // Aggregate period movements by column
+  const movements = { shareCapital: 0, retainedEarnings: 0, dividends: 0 };
   for (const row of movementRows) {
-    if (!equityAccounts[row.account_code]) {
-      equityAccounts[row.account_code] = {
-        accountCode: row.account_code,
-        accountName: row.account_name,
-        subtype: row.account_subtype || row.bs_category || 'Other',
-        opening: 0,
-        movement: 0,
-        closing: 0,
-      };
-    }
-    equityAccounts[row.account_code].movement = Number(row.movement);
-    equityAccounts[row.account_code].closing = equityAccounts[row.account_code].opening + Number(row.movement);
+    const col = classifyEquity(row.account_code);
+    movements[col] += Number(row.movement);
   }
 
-  // Classify movements
-  const components = [];
-  let totalOpening = 0, totalMovement = 0, totalClosing = 0;
+  // Dividends: shown as negative (debit-normal, so credit-debit is negative when declared)
+  // Share capital movements: credit-debit during period
+  // RE other movements: total RE movement minus netIncome (netIncome flows via closing entry)
+  const reOtherMovement = movements.retainedEarnings - netIncome;
 
-  for (const acc of Object.values(equityAccounts)) {
-    if (Math.abs(acc.opening) < 0.01 && Math.abs(acc.movement) < 0.01) continue;
-    components.push(acc);
-    totalOpening += acc.opening;
-    totalMovement += acc.movement;
-    totalClosing += acc.closing;
-  }
+  // Build period label
+  const period = periodLabel(dateFrom, dateTo);
+
+  // Build rows
+  const openingTotal = opening.shareCapital + opening.retainedEarnings + opening.dividends;
+  const closingSC = opening.shareCapital + movements.shareCapital;
+  const closingRE = opening.retainedEarnings + netIncome + reOtherMovement;
+  const closingDiv = opening.dividends + movements.dividends;
+  const closingTotal = closingSC + closingRE + closingDiv;
+
+  const rows = [
+    {
+      label: 'Opening Balance',
+      shareCapital: opening.shareCapital,
+      retainedEarnings: opening.retainedEarnings,
+      dividends: opening.dividends,
+      total: openingTotal,
+    },
+    {
+      label: 'Net Profit / (Loss)',
+      shareCapital: 0,
+      retainedEarnings: netIncome,
+      dividends: 0,
+      total: netIncome,
+    },
+    {
+      label: 'Dividends declared',
+      shareCapital: 0,
+      retainedEarnings: 0,
+      dividends: movements.dividends,
+      total: movements.dividends,
+    },
+    {
+      label: 'Share capital movements',
+      shareCapital: movements.shareCapital,
+      retainedEarnings: 0,
+      dividends: 0,
+      total: movements.shareCapital,
+    },
+    {
+      label: 'Other RE movements',
+      shareCapital: 0,
+      retainedEarnings: reOtherMovement,
+      dividends: 0,
+      total: reOtherMovement,
+    },
+    {
+      label: 'Closing Balance',
+      shareCapital: closingSC,
+      retainedEarnings: closingRE,
+      dividends: closingDiv,
+      total: closingTotal,
+    },
+  ];
 
   return {
-    report: 'statement_of_changes_in_equity',
+    report: 'sce',
     dateFrom,
     dateTo,
-    components,
+    period,
     netIncome,
-    totalOpening,
-    totalMovement,
-    totalClosing: totalClosing + netIncome,
-    rows: [
-      { label: 'Opening Equity', amount: totalOpening },
-      ...components.filter((c) => Math.abs(c.movement) >= 0.01).map((c) => ({
-        label: `${c.accountName} (movement)`,
-        amount: c.movement,
-      })),
-      { label: 'Net Income for Period', amount: netIncome },
-      { label: 'Closing Equity', amount: totalClosing + netIncome },
-    ],
+    rows,
   };
 }
 
 /**
- * Integrity Check — validates journal data consistency.
- * Checks: batch balance, orphan accounts, locked period violations, FX home balance.
+ * Integrity Check — mirrors the original createIntegrityChecksV5().
+ *
+ * Returns structured data for 7 checks + RE Roll-Forward + P&L vs Closing tables.
+ * All queries use debit/credit (NOT debit_home/credit_home).
  */
 async function refreshIntegrity(ctx) {
-  const { dataset, companyId } = ctx;
+  const { dataset, companyId, body } = ctx;
+  const { dateFrom, dateTo } = body || {};
 
-  // 1. Summary counts
-  const [summary] = await dataset.query({
+  // ── Determine FY range ─────────────────────────────────────────────
+  const fy = await getCompanyFY(dataset, companyId);
+
+  // Build list of FYs from 2018 to 2027 (matching original range)
+  function fyRange() {
+    const fys = [];
+    for (let year = 2018; year <= 2027; year++) {
+      let startYear, endYear;
+      if (fy.fyStartMonth === 1) {
+        startYear = year - (fy.fyStartDay > 1 ? 1 : 0);  // calendar year FY
+        endYear = year;
+      } else {
+        startYear = year - 1;
+        endYear = (fy.fyEndMonth < fy.fyStartMonth) ? year : year - 1;
+      }
+      const pFrom = `${startYear}-${String(fy.fyStartMonth).padStart(2,'0')}-${String(fy.fyStartDay).padStart(2,'0')}`;
+      const pToDay = lastDayOfMonth(endYear, fy.fyEndMonth);
+      const pTo = `${endYear}-${String(fy.fyEndMonth).padStart(2,'0')}-${String(pToDay).padStart(2,'0')}`;
+      fys.push({ fy: year, dateFrom: pFrom, dateTo: pTo, label: periodLabel(pFrom, pTo) });
+    }
+    return fys;
+  }
+  const allFYs = fyRange();
+
+  // Use supplied dateTo or latest FY end
+  const effectiveDateTo = dateTo || allFYs[allFYs.length - 1].dateTo;
+  const effectiveDateFrom = dateFrom || allFYs[allFYs.length - 1].dateFrom;
+
+  // ── Check 1: Trial Balance ─────────────────────────────────────────
+  const [tbRows] = await dataset.query({
     query: `
       SELECT
-        COUNT(*) AS total_entries,
-        COUNT(DISTINCT batch_id) AS total_batches,
-        MIN(date) AS first_date,
-        MAX(date) AS last_date
+        COALESCE(SUM(debit), 0) AS total_debits,
+        COALESCE(SUM(credit), 0) AS total_credits
       FROM finance.journal_entries
-      WHERE company_id = @companyId
+      WHERE company_id = @companyId AND date <= @dateTo
     `,
-    params: { companyId },
+    params: { companyId, dateTo: effectiveDateTo },
   });
-  const totalEntries = Number(summary[0]?.total_entries || 0);
-  const totalBatches = Number(summary[0]?.total_batches || 0);
+  const totalDebits = Number(tbRows[0]?.total_debits || 0);
+  const totalCredits = Number(tbRows[0]?.total_credits || 0);
+  const tbDiff = totalDebits - totalCredits;
+  const tbPass = Math.abs(tbDiff) < 0.01;
 
-  // 2. Unbalanced batches (debit_home ≠ credit_home per batch)
-  const [unbalancedBatches] = await dataset.query({
+  // ── Check 2: Balance Sheet Equation ────────────────────────────────
+  const [bsRows] = await dataset.query({
     query: `
       SELECT
-        batch_id,
-        SUM(debit_home) AS total_debit,
-        SUM(credit_home) AS total_credit,
-        ABS(SUM(debit_home) - SUM(credit_home)) AS variance,
-        MIN(date) AS date,
-        COUNT(*) AS line_count
-      FROM finance.journal_entries
-      WHERE company_id = @companyId
-      GROUP BY batch_id
-      HAVING ABS(SUM(debit_home) - SUM(credit_home)) > 0.01
-      ORDER BY variance DESC
-      LIMIT 50
-    `,
-    params: { companyId },
-  });
-
-  // 3. Orphan account codes (in journal_entries but not in accounts)
-  const [orphanAccounts] = await dataset.query({
-    query: `
-      SELECT DISTINCT je.account_code, COUNT(*) AS entry_count
+        a.account_type,
+        COALESCE(SUM(je.debit - je.credit), 0) AS balance
       FROM finance.journal_entries je
-      LEFT JOIN finance.accounts a
+      JOIN finance.accounts a
         ON je.company_id = a.company_id AND je.account_code = a.account_code
       WHERE je.company_id = @companyId
-        AND a.account_code IS NULL
-      GROUP BY je.account_code
-      ORDER BY je.account_code
+        AND je.date <= @dateTo
+        AND a.account_type IN ('Asset', 'Liability', 'Equity')
+      GROUP BY a.account_type
     `,
-    params: { companyId },
+    params: { companyId, dateTo: effectiveDateTo },
   });
-
-  // 4. Entries in locked periods
-  // Check if there's a lock_date setting
-  const [lockRows] = await dataset.query({
-    query: `
-      SELECT value FROM finance.settings
-      WHERE company_id = @companyId AND key = 'lock_date'
-    `,
-    params: { companyId },
-  });
-  const lockDate = lockRows.length > 0 ? lockRows[0].value : null;
-  let lockedPeriodEntries = [];
-  if (lockDate) {
-    const [locked] = await dataset.query({
-      query: `
-        SELECT batch_id, date, account_code, description,
-               debit_home, credit_home
-        FROM finance.journal_entries
-        WHERE company_id = @companyId AND date <= @lockDate
-          AND created_at > (
-            SELECT COALESCE(MAX(created_at), TIMESTAMP('1970-01-01'))
-            FROM finance.journal_entries
-            WHERE company_id = @companyId AND date <= @lockDate
-              AND source = 'lock'
-          )
-        ORDER BY date
-        LIMIT 50
-      `,
-      params: { companyId, lockDate },
-    });
-    lockedPeriodEntries = locked;
+  let bsAssets = 0, bsLiabilities = 0, bsEquity = 0;
+  for (const r of bsRows) {
+    if (r.account_type === 'Asset') bsAssets = Number(r.balance);
+    if (r.account_type === 'Liability') bsLiabilities = -Number(r.balance); // flip sign
+    if (r.account_type === 'Equity') bsEquity = -Number(r.balance);
   }
+  const bsCheck = bsAssets - bsLiabilities - bsEquity;
+  const bsPass = Math.abs(bsCheck) < 0.01;
 
-  // 5. FX home currency imbalance per batch (different from #2, this flags
-  //    batches that have foreign currency lines where home amounts don't net)
-  const [fxImbalance] = await dataset.query({
+  // ── Check 3: P&L vs Closing Entry (current period) ────────────────
+  const [plCloseRows] = await dataset.query({
     query: `
       SELECT
-        batch_id,
-        SUM(debit_home) AS total_debit_home,
-        SUM(credit_home) AS total_credit_home,
-        ABS(SUM(debit_home) - SUM(credit_home)) AS home_variance,
-        MIN(date) AS date
+        COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) AS revenue,
+        COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) AS expense,
+        COALESCE(SUM(CASE WHEN a.account_type = 'Closing' THEN je.debit - je.credit ELSE 0 END), 0) AS closing
+      FROM finance.journal_entries je
+      JOIN finance.accounts a
+        ON je.company_id = a.company_id AND je.account_code = a.account_code
+      WHERE je.company_id = @companyId
+        AND je.date >= @dateFrom AND je.date <= @dateTo
+        AND a.account_type IN ('Revenue', 'Expense', 'Closing')
+    `,
+    params: { companyId, dateFrom: effectiveDateFrom, dateTo: effectiveDateTo },
+  });
+  const plNet = Number(plCloseRows[0]?.revenue || 0) - Number(plCloseRows[0]?.expense || 0);
+  const closingEntry = Number(plCloseRows[0]?.closing || 0);
+  const plDiff = plNet - closingEntry;
+  let plStatus;
+  if (closingEntry === 0) plStatus = '⚠️ Not closed';
+  else if (Math.abs(plDiff) < 0.01) plStatus = '✅ PASS';
+  else plStatus = '❌ FAIL';
+
+  // ── Check 4: Unbalanced Journal Entries ────────────────────────────
+  const [unbalancedRows] = await dataset.query({
+    query: `
+      SELECT
+        entry_id,
+        SUM(debit) AS total_debit,
+        SUM(credit) AS total_credit,
+        ABS(SUM(debit) - SUM(credit)) AS imbalance
       FROM finance.journal_entries
       WHERE company_id = @companyId
-        AND currency IS NOT NULL AND currency != ''
-      GROUP BY batch_id
-      HAVING ABS(SUM(debit_home) - SUM(credit_home)) > 0.01
-      ORDER BY home_variance DESC
+      GROUP BY entry_id
+      HAVING ABS(SUM(debit) - SUM(credit)) > 0.01
+      ORDER BY imbalance DESC
       LIMIT 50
     `,
     params: { companyId },
   });
+  const unbalancedPass = unbalancedRows.length === 0;
 
-  // Compute pass/fail
+  // ── Checks 5-7: Placeholders ───────────────────────────────────────
+  // (Cash Flow vs BS, Uncategorised CF, Equity vs BS — skipped for now)
+
+  // ── RE Roll-Forward ────────────────────────────────────────────────
+  // For each FY: opening RE balance before FY start, RE movement during FY, closing
+  // RE accounts: 203070* and 999999*
+  const reRollForward = [];
+  for (const fyPeriod of allFYs) {
+    const [reRows] = await dataset.query({
+      query: `
+        SELECT
+          COALESCE(SUM(CASE WHEN je.date < @fyStart THEN je.credit - je.debit ELSE 0 END), 0) AS opening_re,
+          COALESCE(SUM(CASE WHEN je.date >= @fyStart AND je.date <= @fyEnd THEN je.credit - je.debit ELSE 0 END), 0) AS re_movement
+        FROM finance.journal_entries je
+        WHERE je.company_id = @companyId
+          AND (je.account_code LIKE '203070%' OR je.account_code LIKE '999999%')
+      `,
+      params: { companyId, fyStart: fyPeriod.dateFrom, fyEnd: fyPeriod.dateTo },
+    });
+    const openingRE = Number(reRows[0]?.opening_re || 0);
+    const reMovement = Number(reRows[0]?.re_movement || 0);
+    const closingRE = openingRE + reMovement;
+    reRollForward.push({
+      fy: fyPeriod.fy,
+      period: fyPeriod.label,
+      openingRE,
+      reMovement,
+      closingRE,
+      continuity: null, // filled below
+    });
+  }
+  // Compute continuity: opening of current FY should equal closing of previous
+  for (let i = 0; i < reRollForward.length; i++) {
+    if (i === 0) {
+      reRollForward[i].continuity = '—';
+    } else {
+      const diff = reRollForward[i].openingRE - reRollForward[i - 1].closingRE;
+      reRollForward[i].continuity = Math.abs(diff) < 0.01
+        ? '✅'
+        : `❌ ${diff.toFixed(2)}`;
+    }
+  }
+
+  // ── P&L vs Closing — All Years ─────────────────────────────────────
+  const plVsClosing = [];
+  for (const fyPeriod of allFYs) {
+    const [rows] = await dataset.query({
+      query: `
+        SELECT
+          COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) AS revenue,
+          COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) AS expense,
+          COALESCE(SUM(CASE WHEN a.account_type = 'Closing' THEN je.debit - je.credit ELSE 0 END), 0) AS closing
+        FROM finance.journal_entries je
+        JOIN finance.accounts a
+          ON je.company_id = a.company_id AND je.account_code = a.account_code
+        WHERE je.company_id = @companyId
+          AND je.date >= @fyStart AND je.date <= @fyEnd
+          AND a.account_type IN ('Revenue', 'Expense', 'Closing')
+      `,
+      params: { companyId, fyStart: fyPeriod.dateFrom, fyEnd: fyPeriod.dateTo },
+    });
+    const fyPlNet = Number(rows[0]?.revenue || 0) - Number(rows[0]?.expense || 0);
+    const fyClosing = Number(rows[0]?.closing || 0);
+    const fyDiff = fyPlNet - fyClosing;
+    let fyStatus;
+    if (fyPlNet === 0 && fyClosing === 0) fyStatus = '—';
+    else if (fyClosing === 0) fyStatus = '⚠️ Not closed';
+    else if (Math.abs(fyDiff) < 0.01) fyStatus = '✅';
+    else fyStatus = `❌ Δ=${fyDiff.toFixed(2)}`;
+
+    plVsClosing.push({
+      fy: fyPeriod.fy,
+      period: fyPeriod.label,
+      plNet: fyPlNet,
+      closing: fyClosing,
+      diff: fyDiff,
+      status: fyStatus,
+    });
+  }
+
+  // ── Assemble output ────────────────────────────────────────────────
   const checks = [
     {
-      check: 'Batch Balance',
-      description: 'Every batch_id should have equal debits and credits',
-      passed: unbalancedBatches.length === 0,
-      failCount: unbalancedBatches.length,
-      details: unbalancedBatches.map((b) => ({
-        batchId: b.batch_id,
-        date: b.date,
-        totalDebit: Number(b.total_debit),
-        totalCredit: Number(b.total_credit),
-        variance: Number(b.variance),
-        lineCount: Number(b.line_count),
-      })),
+      name: '1. Trial Balance',
+      items: [
+        { label: 'Total Debits', value: totalDebits, status: '' },
+        { label: 'Total Credits', value: totalCredits, status: '' },
+        { label: 'Difference', value: tbDiff, status: tbPass ? '✅ PASS' : '❌ FAIL' },
+      ],
     },
     {
-      check: 'Orphan Accounts',
-      description: 'All account_codes in journal_entries should exist in accounts table',
-      passed: orphanAccounts.length === 0,
-      failCount: orphanAccounts.length,
-      details: orphanAccounts.map((a) => ({
-        accountCode: a.account_code,
-        entryCount: Number(a.entry_count),
-      })),
+      name: '2. Balance Sheet Equation',
+      items: [
+        { label: 'Assets − (L+E)', value: bsCheck, status: bsPass ? '✅ PASS' : '❌ FAIL' },
+      ],
     },
     {
-      check: 'Locked Period',
-      description: lockDate ? `No new entries on or before lock date ${lockDate}` : 'No lock date configured',
-      passed: lockedPeriodEntries.length === 0,
-      failCount: lockedPeriodEntries.length,
-      details: lockedPeriodEntries.slice(0, 20).map((e) => ({
-        batchId: e.batch_id,
-        date: e.date,
-        accountCode: e.account_code,
-      })),
+      name: '3. P&L vs Closing Entry',
+      items: [
+        { label: 'P&L Net Income', value: plNet, status: '' },
+        { label: 'Closing Entry', value: closingEntry, status: '' },
+        { label: 'Difference', value: plDiff, status: plStatus },
+      ],
     },
     {
-      check: 'FX Home Balance',
-      description: 'Multi-currency batches should balance in home currency',
-      passed: fxImbalance.length === 0,
-      failCount: fxImbalance.length,
-      details: fxImbalance.map((b) => ({
-        batchId: b.batch_id,
-        date: b.date,
-        homeVariance: Number(b.home_variance),
-      })),
+      name: '4. Unbalanced Journal Entries',
+      items: unbalancedPass
+        ? [{ label: 'All entries balanced', value: 0, status: '✅ PASS' }]
+        : unbalancedRows.map((r) => ({
+            label: `Entry ${r.entry_id}`,
+            value: Number(r.imbalance),
+            status: '❌ FAIL',
+          })),
+    },
+    {
+      name: '5. Cash Flow vs Balance Sheet',
+      items: [{ label: 'Skipped (placeholder)', value: 0, status: '—' }],
+    },
+    {
+      name: '6. Uncategorised CF Accounts',
+      items: [{ label: 'Skipped (placeholder)', value: 0, status: '—' }],
+    },
+    {
+      name: '7. Equity Statement vs Balance Sheet',
+      items: [{ label: 'Skipped (placeholder)', value: 0, status: '—' }],
     },
   ];
 
-  const passCount = checks.filter((c) => c.passed).length;
-  const failCount = checks.filter((c) => !c.passed).length;
-
   return {
-    report: 'integrity_check',
-    totalEntries,
-    totalBatches,
-    firstDate: summary[0]?.first_date || null,
-    lastDate: summary[0]?.last_date || null,
-    lockDate: lockDate || null,
+    report: 'integrity',
     checks,
-    summary: { total: checks.length, passed: passCount, failed: failCount },
-    overallPass: failCount === 0,
+    reRollForward,
+    plVsClosing,
   };
 }
 

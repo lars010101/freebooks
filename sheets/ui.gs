@@ -215,11 +215,11 @@ function writeReportToSheet_(sheetName, reportData) {
       sheet.getRange(aRow, 4).setValue(reportData.totalOutstanding);
       break;
 
-    case 'statement_of_changes_in_equity':
+    case 'sce':
       writeSCEReport_(sheet, reportData);
       break;
 
-    case 'integrity_check':
+    case 'integrity':
       writeIntegrityReport_(sheet, reportData);
       break;
 
@@ -428,109 +428,187 @@ function writeMultiPeriodBS_(sheet, data) {
 
 /**
  * Write Statement of Changes in Equity report.
+ * Columnar layout: blank | Share Capital | Retained Earnings | Dividends | Total
  */
 function writeSCEReport_(sheet, data) {
-  // Headers
-  sheet.getRange(1, 1, 1, 4).setValues([['', 'Description', 'Amount', '']])
-    .setFontWeight('bold').setBackground('#e6e6e6');
+  var numFmt = '#,##0.00;(#,##0.00)';
 
-  var row = 2;
-  sheet.getRange(row, 1).setValue('Period: ' + data.dateFrom + ' to ' + data.dateTo);
-  sheet.getRange(row, 1).setFontStyle('italic');
-  row += 2;
+  // Column widths
+  sheet.setColumnWidth(1, 250);
+  sheet.setColumnWidth(2, 140);
+  sheet.setColumnWidth(3, 160);
+  sheet.setColumnWidth(4, 140);
+  sheet.setColumnWidth(5, 140);
 
+  // Title
+  sheet.getRange(1, 1).setValue('STATEMENT OF CHANGES IN EQUITY').setFontWeight('bold').setFontSize(12);
+  sheet.getRange(2, 1).setValue('Period: ' + (data.period || data.dateFrom + ' – ' + data.dateTo)).setFontStyle('italic');
+  sheet.getRange(3, 1, 1, 5).setBackground('#d9d9d9'); // separator
+
+  // Column headers
+  var row = 4;
+  sheet.getRange(row, 2).setValue('Share Capital').setFontWeight('bold');
+  sheet.getRange(row, 3).setValue('Retained Earnings').setFontWeight('bold');
+  sheet.getRange(row, 4).setValue('Dividends').setFontWeight('bold');
+  sheet.getRange(row, 5).setValue('Total').setFontWeight('bold');
+  row++;
+
+  // Data rows
   for (var i = 0; i < data.rows.length; i++) {
-    var item = data.rows[i];
-    var isSummary = (item.label === 'Opening Equity' || item.label === 'Closing Equity' || item.label === 'Net Income for Period');
-    sheet.getRange(row, 2).setValue(item.label);
-    sheet.getRange(row, 3).setValue(item.amount);
-    if (isSummary) {
-      sheet.getRange(row, 2).setFontWeight('bold');
-      if (item.label === 'Closing Equity') {
-        sheet.getRange(row, 2, 1, 2).setBackground('#e8f0fe');
-      }
+    var r = data.rows[i];
+    var isClosing = (r.label === 'Closing Balance');
+    var isOpening = (r.label === 'Opening Balance');
+
+    sheet.getRange(row, 1).setValue(r.label);
+    if (isOpening || isClosing) {
+      sheet.getRange(row, 1).setFontWeight('bold');
     }
+
+    // Write values — only show non-zero in appropriate columns
+    sheet.getRange(row, 2).setValue(r.shareCapital || 0);
+    sheet.getRange(row, 3).setValue(r.retainedEarnings || 0);
+    sheet.getRange(row, 4).setValue(r.dividends || 0);
+    sheet.getRange(row, 5).setValue(r.total || 0).setFontWeight('bold');
+
+    if (isClosing) {
+      // Separator before closing
+      sheet.getRange(row - 1, 1, 1, 5).setBackground('#eeeeee');
+      // Closing row highlight
+      sheet.getRange(row, 1, 1, 5).setBackground('#e8f0fe');
+      sheet.getRange(row, 1).setFontWeight('bold');
+    }
+
     row++;
   }
 
-  // Component detail
-  row += 2;
-  sheet.getRange(row, 1).setValue('Equity Account Detail').setFontWeight('bold');
-  row++;
-  sheet.getRange(row, 1, 1, 4).setValues([['Account Code', 'Account Name', 'Opening', 'Movement']])
-    .setFontWeight('bold');
-  row++;
-
-  for (var i = 0; i < data.components.length; i++) {
-    var c = data.components[i];
-    sheet.getRange(row, 1, 1, 4).setValues([[c.accountCode, c.accountName, c.opening, c.movement]]);
-    row++;
-  }
+  // Number format for all value cells
+  sheet.getRange(5, 2, row - 5, 4).setNumberFormat(numFmt);
 }
 
 /**
  * Write Integrity Check report.
+ * Matches the original createIntegrityChecksV5() formatting:
+ *   Section A: 7 single-year checks
+ *   Section B: RE Roll-Forward table
+ *   Section C: P&L vs Closing — All Years table
  */
 function writeIntegrityReport_(sheet, data) {
-  // Headers
-  sheet.getRange(1, 1, 1, 6).setValues([['Check', 'Status', 'Fail Count', 'Description', '', '']])
-    .setFontWeight('bold').setBackground('#e6e6e6');
+  var numFmt = '#,##0.00;(#,##0.00)';
 
+  // Column widths
+  sheet.setColumnWidth(1, 280);
+  sheet.setColumnWidth(2, 120);
+  sheet.setColumnWidth(3, 140);
+  sheet.setColumnWidth(4, 140);
+  sheet.setColumnWidth(5, 130);
+  sheet.setColumnWidth(6, 160);
+
+  // ── Section A: Single-Year Checks ──────────────────────────────────
+  sheet.getRange(1, 1, 1, 6).setBackground('#d9d9d9'); // separator
   var row = 2;
-
-  // Summary
-  sheet.getRange(row, 1).setValue('Summary').setFontWeight('bold');
-  row++;
-  sheet.getRange(row, 1, 1, 3).setValues([['Total Entries', data.totalEntries, '']]);
-  row++;
-  sheet.getRange(row, 1, 1, 3).setValues([['Total Batches', data.totalBatches, '']]);
-  row++;
-  sheet.getRange(row, 1, 1, 3).setValues([['Lock Date', data.lockDate || 'Not set', '']]);
-  row++;
-  sheet.getRange(row, 1).setValue(data.overallPass ? '✅ ALL CHECKS PASSED' : '❌ ' + data.summary.failed + ' CHECK(S) FAILED');
-  sheet.getRange(row, 1).setFontWeight('bold');
-  if (data.overallPass) {
-    sheet.getRange(row, 1).setBackground('#e6f4ea');
-  } else {
-    sheet.getRange(row, 1).setBackground('#fce8e6');
-  }
+  sheet.getRange(row, 1).setValue('SINGLE-YEAR CHECKS').setFontWeight('bold').setFontSize(12);
+  sheet.getRange(row, 3).setValue('Value').setFontWeight('bold');
+  sheet.getRange(row, 4).setValue('Status').setFontWeight('bold');
   row += 2;
 
-  // Individual checks
-  for (var i = 0; i < data.checks.length; i++) {
-    var check = data.checks[i];
-    sheet.getRange(row, 1).setValue(check.check).setFontWeight('bold');
-    sheet.getRange(row, 2).setValue(check.passed ? '✅ PASS' : '❌ FAIL');
-    sheet.getRange(row, 3).setValue(check.failCount);
-    sheet.getRange(row, 4).setValue(check.description);
-    if (!check.passed) {
-      sheet.getRange(row, 1, 1, 4).setBackground('#fce8e6');
-    } else {
-      sheet.getRange(row, 1, 1, 4).setBackground('#e6f4ea');
-    }
+  // Write each check section
+  for (var c = 0; c < data.checks.length; c++) {
+    var check = data.checks[c];
+    sheet.getRange(row, 1).setValue(check.name).setFontWeight('bold');
     row++;
 
-    // Detail rows for failures
-    if (!check.passed && check.details && check.details.length > 0) {
-      for (var j = 0; j < Math.min(check.details.length, 20); j++) {
-        var d = check.details[j];
-        var detailStr = '';
-        for (var k in d) {
-          if (d.hasOwnProperty(k)) {
-            var v = d[k];
-            if (typeof v === 'object' && v !== null && v.value !== undefined) v = v.value;
-            detailStr += k + ': ' + v + '  |  ';
-          }
+    for (var it = 0; it < check.items.length; it++) {
+      var item = check.items[it];
+      sheet.getRange(row, 1).setValue('   ' + item.label);
+      if (item.value !== null && item.value !== undefined) {
+        sheet.getRange(row, 3).setValue(item.value).setNumberFormat(numFmt);
+      }
+      if (item.status) {
+        sheet.getRange(row, 4).setValue(item.status);
+        // Colour the status
+        if (item.status.indexOf('✅') >= 0) {
+          sheet.getRange(row, 4).setBackground('#e6f4ea');
+        } else if (item.status.indexOf('❌') >= 0) {
+          sheet.getRange(row, 4).setBackground('#fce8e6');
+        } else if (item.status.indexOf('⚠️') >= 0) {
+          sheet.getRange(row, 4).setBackground('#fff3cd');
         }
-        sheet.getRange(row, 2, 1, 4).merge().setValue(detailStr).setFontSize(10).setFontColor('#666666');
-        row++;
       }
-      if (check.details.length > 20) {
-        sheet.getRange(row, 2).setValue('... and ' + (check.details.length - 20) + ' more');
-        row++;
-      }
+      row++;
     }
-    row++;
+    row++; // blank row between checks
+  }
+
+  // ── Section B: RE Roll-Forward ─────────────────────────────────────
+  row++;
+  sheet.getRange(row, 1, 1, 6).setBackground('#d9d9d9'); // separator
+  row++;
+  sheet.getRange(row, 1).setValue('RETAINED EARNINGS ROLL-FORWARD').setFontWeight('bold').setFontSize(12);
+  row += 2;
+
+  // Table headers
+  var reHeaders = ['FY', 'Period', 'Opening RE', 'RE Movement', 'Closing RE', 'Continuity'];
+  for (var h = 0; h < reHeaders.length; h++) {
+    sheet.getRange(row, h + 1).setValue(reHeaders[h]).setFontWeight('bold');
+  }
+  row++;
+
+  // Table data
+  if (data.reRollForward) {
+    for (var r = 0; r < data.reRollForward.length; r++) {
+      var re = data.reRollForward[r];
+      // Skip FYs with no data (all zeros)
+      if (re.openingRE === 0 && re.reMovement === 0 && re.closingRE === 0 && r > 0) continue;
+      sheet.getRange(row, 1).setValue(re.fy).setNumberFormat('0');
+      sheet.getRange(row, 2).setValue(re.period);
+      sheet.getRange(row, 3).setValue(re.openingRE).setNumberFormat(numFmt);
+      sheet.getRange(row, 4).setValue(re.reMovement).setNumberFormat(numFmt);
+      sheet.getRange(row, 5).setValue(re.closingRE).setNumberFormat(numFmt);
+      sheet.getRange(row, 6).setValue(re.continuity);
+      // Colour continuity
+      if (re.continuity && re.continuity.indexOf('❌') >= 0) {
+        sheet.getRange(row, 6).setBackground('#fce8e6');
+      }
+      row++;
+    }
+  }
+
+  // ── Section C: P&L vs Closing — All Years ──────────────────────────
+  row += 2;
+  sheet.getRange(row, 1, 1, 6).setBackground('#d9d9d9'); // separator
+  row++;
+  sheet.getRange(row, 1).setValue('P&L vs CLOSING ENTRY — ALL YEARS').setFontWeight('bold').setFontSize(12);
+  row += 2;
+
+  // Table headers
+  var plHeaders = ['FY', 'Period', 'P&L Net', 'Closing', 'Diff', 'Status'];
+  for (var h = 0; h < plHeaders.length; h++) {
+    sheet.getRange(row, h + 1).setValue(plHeaders[h]).setFontWeight('bold');
+  }
+  row++;
+
+  // Table data
+  if (data.plVsClosing) {
+    for (var p = 0; p < data.plVsClosing.length; p++) {
+      var pl = data.plVsClosing[p];
+      // Skip FYs with no data
+      if (pl.plNet === 0 && pl.closing === 0 && pl.status === '—') continue;
+      sheet.getRange(row, 1).setValue(pl.fy).setNumberFormat('0');
+      sheet.getRange(row, 2).setValue(pl.period);
+      sheet.getRange(row, 3).setValue(pl.plNet).setNumberFormat(numFmt);
+      sheet.getRange(row, 4).setValue(pl.closing).setNumberFormat(numFmt);
+      sheet.getRange(row, 5).setValue(pl.diff).setNumberFormat(numFmt);
+      sheet.getRange(row, 6).setValue(pl.status);
+      // Colour status
+      if (pl.status.indexOf('❌') >= 0) {
+        sheet.getRange(row, 6).setBackground('#fce8e6');
+      } else if (pl.status.indexOf('⚠️') >= 0) {
+        sheet.getRange(row, 6).setBackground('#fff3cd');
+      } else if (pl.status.indexOf('✅') >= 0) {
+        sheet.getRange(row, 6).setBackground('#e6f4ea');
+      }
+      row++;
+    }
   }
 }
 

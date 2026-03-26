@@ -250,7 +250,7 @@ async function refreshTrialBalance(ctx) {
 
   return {
     report: 'trial_balance',
-    dateFrom: dateFrom || null,
+    dateFrom: null,
     dateTo: dateTo || null,
     rows: rows.map((r) => ({
       accountCode: r.account_code,

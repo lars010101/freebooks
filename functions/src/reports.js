@@ -231,9 +231,9 @@ async function refreshTrialBalance(ctx) {
         a.pl_category,
         a.bs_category,
         a.cf_category,
-        COALESCE(SUM(je.debit_home), 0) AS total_debit,
-        COALESCE(SUM(je.credit_home), 0) AS total_credit,
-        COALESCE(SUM(je.debit_home), 0) - COALESCE(SUM(je.credit_home), 0) AS balance
+        COALESCE(SUM(je.debit), 0) AS total_debit,
+        COALESCE(SUM(je.credit), 0) AS total_credit,
+        COALESCE(SUM(je.debit), 0) - COALESCE(SUM(je.credit), 0) AS balance
       FROM finance.accounts a
       LEFT JOIN finance.journal_entries je
         ON a.company_id = je.company_id
@@ -285,7 +285,7 @@ async function queryPLPeriod(dataset, companyId, dateFrom, dateTo, centerFilter,
         a.account_name,
         a.account_type,
         a.pl_category,
-        COALESCE(SUM(je.credit_home - je.debit_home), 0) AS amount
+        COALESCE(SUM(je.credit - je.debit), 0) AS amount
       FROM finance.accounts a
       LEFT JOIN finance.journal_entries je
         ON a.company_id = je.company_id
@@ -424,7 +424,7 @@ async function queryBSPeriod(dataset, companyId, dateTo) {
         a.account_name,
         a.account_type,
         a.bs_category,
-        COALESCE(SUM(je.debit_home - je.credit_home), 0) AS balance
+        COALESCE(SUM(je.debit - je.credit), 0) AS balance
       FROM finance.accounts a
       LEFT JOIN finance.journal_entries je
         ON a.company_id = je.company_id
@@ -627,7 +627,7 @@ async function refreshCF(ctx) {
   // Get net income (P&L accounts)
   const [plRows] = await dataset.query({
     query: `
-      SELECT COALESCE(SUM(je.credit_home - je.debit_home), 0) AS net_income
+      SELECT COALESCE(SUM(je.credit - je.debit), 0) AS net_income
       FROM finance.journal_entries je
       JOIN finance.accounts a
         ON je.company_id = a.company_id AND je.account_code = a.account_code
@@ -646,7 +646,7 @@ async function refreshCF(ctx) {
         a.cf_category,
         a.account_code,
         a.account_name,
-        COALESCE(SUM(je.debit_home - je.credit_home), 0) AS movement
+        COALESCE(SUM(je.debit - je.credit), 0) AS movement
       FROM finance.journal_entries je
       JOIN finance.accounts a
         ON je.company_id = a.company_id AND je.account_code = a.account_code
@@ -681,7 +681,7 @@ async function refreshCF(ctx) {
   const [uncategorised] = await dataset.query({
     query: `
       SELECT a.account_code, a.account_name,
-        COALESCE(SUM(je.debit_home - je.credit_home), 0) AS movement
+        COALESCE(SUM(je.debit - je.credit), 0) AS movement
       FROM finance.journal_entries je
       JOIN finance.accounts a
         ON je.company_id = a.company_id AND je.account_code = a.account_code
@@ -850,7 +850,7 @@ async function refreshSCE(ctx) {
         a.account_name,
         a.account_subtype,
         a.bs_category,
-        COALESCE(SUM(je.credit_home - je.debit_home), 0) AS balance
+        COALESCE(SUM(je.credit - je.debit), 0) AS balance
       FROM finance.accounts a
       LEFT JOIN finance.journal_entries je
         ON a.company_id = je.company_id
@@ -873,7 +873,7 @@ async function refreshSCE(ctx) {
         a.account_name,
         a.account_subtype,
         a.bs_category,
-        COALESCE(SUM(je.credit_home - je.debit_home), 0) AS movement
+        COALESCE(SUM(je.credit - je.debit), 0) AS movement
       FROM finance.accounts a
       LEFT JOIN finance.journal_entries je
         ON a.company_id = je.company_id
@@ -892,7 +892,7 @@ async function refreshSCE(ctx) {
   // Net income for the period (P&L accounts)
   const [plRows] = await dataset.query({
     query: `
-      SELECT COALESCE(SUM(je.credit_home - je.debit_home), 0) AS net_income
+      SELECT COALESCE(SUM(je.credit - je.debit), 0) AS net_income
       FROM finance.journal_entries je
       JOIN finance.accounts a
         ON je.company_id = a.company_id AND je.account_code = a.account_code

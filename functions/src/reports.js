@@ -202,15 +202,12 @@ function detectPeriods(dateFrom, dateTo, fy) {
  */
 async function refreshTrialBalance(ctx) {
   const { dataset, companyId, body } = ctx;
-  const { dateFrom, dateTo, costCenter, profitCenter } = body;
+  const { dateTo, costCenter, profitCenter } = body;
 
+  // TB is always cumulative from inception to dateTo (no dateFrom)
   let whereClause = `je.company_id = @companyId`;
   const params = { companyId };
 
-  if (dateFrom) {
-    whereClause += ` AND je.date >= @dateFrom`;
-    params.dateFrom = dateFrom;
-  }
   if (dateTo) {
     whereClause += ` AND je.date <= @dateTo`;
     params.dateTo = dateTo;

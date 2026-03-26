@@ -129,17 +129,12 @@ function navigateToTab(name) {
   sheet.activate();
 }
 
-function runContextAction(action) {
-  if (action === 'refreshAll') {
-    refreshAllReports_();
-    return '✅ All reports refreshed';
-  }
-
+function runContextAction(action, period) {
   // Context-aware: what tab is active?
   var activeSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet().getName();
 
   if (action === 'refresh') {
-    return refreshTab_(activeSheet);
+    return refreshTab_(activeSheet, period);
   }
   if (action === 'save') {
     return saveTab_(activeSheet);
@@ -147,8 +142,8 @@ function runContextAction(action) {
   return '❌ Unknown action';
 }
 
-function refreshTab_(name) {
-  var params = getReportParams_();
+function refreshTab_(name, period) {
+  var params = period || getReportParams_();
   switch (name) {
     case 'Journal':
       navigateToTab('Journal');

@@ -136,11 +136,23 @@
 <!-- ============================================ -->
 <div id="panel-navigate" class="panel active">
 
-  <div class="nav-bar">
+  <div class="setting-group">Report Period</div>
+  <div class="setting-row"><label>From</label><input type="date" id="nav-period-from" /></div>
+  <div class="setting-row"><label>To</label><input type="date" id="nav-period-to" /></div>
+  <div class="quick-btns">
+    <span class="quick-btn" onclick="setNavPeriod('q1')">Q1</span>
+    <span class="quick-btn" onclick="setNavPeriod('q2')">Q2</span>
+    <span class="quick-btn" onclick="setNavPeriod('q3')">Q3</span>
+    <span class="quick-btn" onclick="setNavPeriod('q4')">Q4</span>
+    <span class="quick-btn" onclick="setNavPeriod('ytd')">YTD</span>
+    <span class="quick-btn" onclick="setNavPeriod('fy')">Full FY</span>
+    <span class="quick-btn" onclick="setNavPeriod('all')">All</span>
+  </div>
+
+  <div class="nav-bar" style="margin-top:8px">
     <button class="btn btn-primary" onclick="doContextAction('refresh')">↻ Load</button>
     <button class="btn btn-green" onclick="doContextAction('save')">💾 Save</button>
   </div>
-  <button class="btn btn-secondary btn-full" onclick="doContextAction('refreshAll')" style="margin-bottom:10px">↻ Load All Reports</button>
 
   <div class="nav-group">Reports</div>
   <button class="nav-item" onclick="goTo('Journal')">📒 Journal</button>
@@ -175,18 +187,6 @@
   <div class="setting-group">Company</div>
   <div class="setting-row"><label>Name</label><input type="text" id="set-company-name" /></div>
   <div class="setting-row"><label>Company ID</label><input type="text" id="set-company-id" disabled /></div>
-
-  <div class="setting-group">Report Period</div>
-  <div class="setting-row"><label>From</label><input type="date" id="set-period-from" /></div>
-  <div class="setting-row"><label>To</label><input type="date" id="set-period-to" /></div>
-  <div class="quick-btns">
-    <span class="quick-btn" onclick="setPeriod('q1')">Q1</span>
-    <span class="quick-btn" onclick="setPeriod('q2')">Q2</span>
-    <span class="quick-btn" onclick="setPeriod('q3')">Q3</span>
-    <span class="quick-btn" onclick="setPeriod('q4')">Q4</span>
-    <span class="quick-btn" onclick="setPeriod('ytd')">YTD</span>
-    <span class="quick-btn" onclick="setPeriod('fy')">Full Year</span>
-  </div>
 
   <div class="setting-group">Financial Year</div>
   <div class="setting-row"><label>FY Start</label><input type="date" id="set-fy-start" /></div>
@@ -327,9 +327,13 @@ function goTo(name) {
 }
 function doContextAction(action) {
   showStatus('navigate','warning','Running...');
+  var period = {
+    dateFrom: document.getElementById('nav-period-from').value || undefined,
+    dateTo: document.getElementById('nav-period-to').value || undefined
+  };
   google.script.run.withSuccessHandler(function(msg){
     showStatus('navigate','success',msg||'✅ Done');
-  }).withFailureHandler(function(e){showStatus('navigate','error','❌ '+e.message);}).runContextAction(action);
+  }).withFailureHandler(function(e){showStatus('navigate','error','❌ '+e.message);}).runContextAction(action, period);
 }
 
 // ---- Settings ----
@@ -339,25 +343,26 @@ function loadSettingsData(s) {
   document.getElementById('set-company-id').value=s.companyId||'';
   document.getElementById('set-fy-start').value=s.fyStart||'2025-01-01';
   document.getElementById('set-fy-end').value=s.fyEnd||'2025-12-31';
-  document.getElementById('set-period-from').value=s.periodFrom||s.fyStart||'2025-01-01';
-  document.getElementById('set-period-to').value=s.periodTo||s.fyEnd||'2025-12-31';
   fyStart=s.fyStart||'2025-01-01';fyEnd=s.fyEnd||'2025-12-31';
+  // Init Views period from FY (or saved report period)
+  document.getElementById('nav-period-from').value=s.periodFrom||s.fyStart||'2025-01-01';
+  document.getElementById('nav-period-to').value=s.periodTo||s.fyEnd||'2025-12-31';
 }
-function setPeriod(p) {
+function setNavPeriod(p) {
   var y=fyStart.substring(0,4);
-  var map={q1:[y+'-01-01',y+'-03-31'],q2:[y+'-04-01',y+'-06-30'],q3:[y+'-07-01',y+'-09-30'],q4:[y+'-10-01',y+'-12-31'],fy:[fyStart,fyEnd]};
+  var map={q1:[y+'-01-01',y+'-03-31'],q2:[y+'-04-01',y+'-06-30'],q3:[y+'-07-01',y+'-09-30'],q4:[y+'-10-01',y+'-12-31'],fy:[fyStart,fyEnd],all:['','']};
   if(p==='ytd'){map.ytd=[fyStart,new Date().toISOString().substring(0,10)];}
   var r=map[p];if(!r)return;
-  document.getElementById('set-period-from').value=r[0];
-  document.getElementById('set-period-to').value=r[1];
+  document.getElementById('nav-period-from').value=r[0];
+  document.getElementById('nav-period-to').value=r[1];
 }
 function saveSettings() {
   var data={
     companyName:document.getElementById('set-company-name').value,
     fyStart:document.getElementById('set-fy-start').value,
     fyEnd:document.getElementById('set-fy-end').value,
-    periodFrom:document.getElementById('set-period-from').value,
-    periodTo:document.getElementById('set-period-to').value
+    periodFrom:document.getElementById('nav-period-from').value,
+    periodTo:document.getElementById('nav-period-to').value
   };
   showStatus('settings','warning','Saving...');
   google.script.run.withSuccessHandler(function(){showStatus('settings','success','✅ Settings saved');})

@@ -100,9 +100,12 @@ function writeReportToSheet_(sheetName, reportData) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return;
 
-  // Clear existing data (keep header row)
+  // Clear existing data AND formatting (keep header row)
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), Math.max(sheet.getLastColumn(), 1)).clearContent();
+    var cr = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), Math.max(sheet.getLastColumn(), 1));
+    cr.clearContent();
+    cr.setFontWeight('normal');
+    cr.setBackground(null);
   }
 
   switch (reportData.report) {

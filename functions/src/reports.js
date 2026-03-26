@@ -255,11 +255,35 @@ async function refreshBS(ctx) {
     totals[type] += balance;
   }
 
-  // Calculate current year net income (P&L accounts) for the balanced check
+  // Calculate current year net income (unclosed P&L) for balanced BS.
+  // Find the date of the last closing entry (account 999999) on or before dateTo.
+  // Net income = P&L from day after last close to dateTo.
+  const closingParams = { companyId };
+  let closingDateFilter = '';
+  if (dateTo) {
+    closingDateFilter = ` AND date <= @dateTo`;
+    closingParams.dateTo = dateTo;
+  }
+  const [closingRows] = await dataset.query({
+    query: `
+      SELECT MAX(date) AS last_close
+      FROM finance.journal_entries
+      WHERE company_id = @companyId AND account_code = '999999'
+        ${closingDateFilter}
+    `,
+    params: closingParams,
+  });
+  const lastClose = closingRows[0]?.last_close?.value || closingRows[0]?.last_close || null;
+
   const plParams = { companyId };
   let plDateFilter = '';
+  if (lastClose) {
+    // P&L from day after last closing entry
+    plDateFilter += ` AND je.date > @plDateFrom`;
+    plParams.plDateFrom = lastClose;
+  }
   if (dateTo) {
-    plDateFilter = ` AND je.date <= @dateTo`;
+    plDateFilter += ` AND je.date <= @dateTo`;
     plParams.dateTo = dateTo;
   }
 

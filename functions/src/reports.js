@@ -54,10 +54,16 @@ async function getCompanyFY(dataset, companyId) {
     return { fyStartMonth: 1, fyStartDay: 1, fyEndMonth: 12, fyEndDay: 31 };
   }
   const fy = rows[0];
-  const fyStart = String(fy.fy_start || '01-01');
-  const fyEnd = String(fy.fy_end || '12-31');
-  const [sm, sd] = fyStart.split('-').map(Number);
-  const [em, ed] = fyEnd.split('-').map(Number);
+  // fy_start/fy_end may be DATE objects ({value:'2025-02-01'}) or strings
+  const fyStartStr = String(fy.fy_start?.value || fy.fy_start || '2025-01-01');
+  const fyEndStr = String(fy.fy_end?.value || fy.fy_end || '2025-12-31');
+  // Parse YYYY-MM-DD — extract month and day
+  const fsParts = fyStartStr.split('-').map(Number);
+  const feParts = fyEndStr.split('-').map(Number);
+  const sm = fsParts.length === 3 ? fsParts[1] : fsParts[0];
+  const sd = fsParts.length === 3 ? fsParts[2] : fsParts[1];
+  const em = feParts.length === 3 ? feParts[1] : feParts[0];
+  const ed = feParts.length === 3 ? feParts[2] : feParts[1];
   return { fyStartMonth: sm, fyStartDay: sd, fyEndMonth: em, fyEndDay: ed };
 }
 

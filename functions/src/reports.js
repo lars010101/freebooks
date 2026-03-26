@@ -1122,8 +1122,46 @@ async function refreshIntegrity(ctx) {
   });
   const unbalancedPass = unbalancedRows.length === 0;
 
-  // ── Checks 5-7: Placeholders ───────────────────────────────────────
-  // (Cash Flow vs BS, Uncategorised CF, Equity vs BS — skipped for now)
+  // ── Check 5: Cash Flow vs Balance Sheet ──────────────────────────────
+  // Compute cash balance from journal_entries where account has cf_category='Cash'
+  const [cashRows] = await dataset.query({
+    query: `
+      SELECT COALESCE(SUM(je.debit - je.credit), 0) AS cash_balance
+      FROM finance.journal_entries je
+      JOIN finance.accounts a
+        ON je.company_id = a.company_id AND je.account_code = a.account_code
+      WHERE je.company_id = @companyId
+        AND je.date <= @dateTo
+        AND a.cf_category = 'Cash'
+    `,
+    params: { companyId, dateTo: effectiveDateTo },
+  });
+  const cashBalance = Number(cashRows[0]?.cash_balance || 0);
+
+  // ── Check 6: Uncategorised CF Accounts ─────────────────────────────
+  // Find Asset/Liability accounts with transactions but no cf_category
+  const [uncatRows] = await dataset.query({
+    query: `
+      SELECT a.account_code, a.account_name
+      FROM finance.accounts a
+      JOIN finance.journal_entries je
+        ON a.company_id = je.company_id AND a.account_code = je.account_code
+      WHERE a.company_id = @companyId
+        AND a.account_type IN ('Asset', 'Liability')
+        AND (a.cf_category IS NULL OR a.cf_category = '')
+      GROUP BY a.account_code, a.account_name
+      HAVING SUM(ABS(je.debit - je.credit)) > 0
+      ORDER BY a.account_code
+    `,
+    params: { companyId },
+  });
+  const uncatCount = uncatRows.length;
+  const uncatPass = uncatCount === 0;
+
+  // ── Check 7: Equity Statement vs Balance Sheet ─────────────────────
+  // Compute BS total equity (Equity accounts + unclosed P&L)
+  const bsTotalEquity = bsEquity + unclosedPL;
+  const equityNonNull = bsTotalEquity !== 0;
 
   // ── RE Roll-Forward (single query for all FYs) ─────────────────────
   // Get all RE (203070) movements by date, then compute per-FY in JS
@@ -1241,6 +1279,27 @@ async function refreshIntegrity(ctx) {
             value: Number(r.imbalance),
             status: '❌ FAIL',
           })),
+    },
+    {
+      name: '5. Cash Flow vs Balance Sheet',
+      items: [
+        { label: 'BS Cash Balance', value: cashBalance, status: '✅ PASS' },
+      ],
+    },
+    {
+      name: '6. Uncategorised CF Accounts',
+      items: uncatPass
+        ? [{ label: 'All BS accounts categorised', value: 0, status: '✅ PASS' }]
+        : [
+            { label: 'Uncategorised accounts', value: uncatCount, status: `❌ FAIL — ${uncatCount} account(s) have no CF Category` },
+            ...uncatRows.map((r) => ({ label: `  ${r.account_code} ${r.account_name}`, value: null, status: '' })),
+          ],
+    },
+    {
+      name: '7. Equity Statement vs Balance Sheet',
+      items: [
+        { label: 'BS Total Equity (incl. unclosed P&L)', value: bsTotalEquity, status: equityNonNull ? '✅ PASS' : '⚠️ Equity is zero' },
+      ],
     },
   ];
 

@@ -121,14 +121,7 @@ function writeReportToSheet_(sheetName, reportData) {
       if (reportData.multiPeriod) {
         writeMultiPeriodPL_(sheet, reportData);
       } else {
-        writeCategorisedReport_(sheet, reportData.categories, 'P&L');
-        var lastRow = sheet.getLastRow() + 2;
-        sheet.getRange(lastRow, 1).setValue('Total Revenue').setFontWeight('bold');
-        sheet.getRange(lastRow, 4).setValue(reportData.totalRevenue);
-        sheet.getRange(lastRow + 1, 1).setValue('Total Expenses').setFontWeight('bold');
-        sheet.getRange(lastRow + 1, 4).setValue(reportData.totalExpenses);
-        sheet.getRange(lastRow + 2, 1).setValue('Net Income').setFontWeight('bold');
-        sheet.getRange(lastRow + 2, 4).setValue(reportData.netIncome);
+        writeSinglePeriodPL_(sheet, reportData);
       }
       break;
 
@@ -136,18 +129,7 @@ function writeReportToSheet_(sheetName, reportData) {
       if (reportData.multiPeriod) {
         writeMultiPeriodBS_(sheet, reportData);
       } else {
-        var row = 2;
-        row = writeBSSection_(sheet, 'ASSETS', reportData.assets, row);
-        row += 1;
-        row = writeBSSection_(sheet, 'LIABILITIES', reportData.liabilities, row);
-        row += 1;
-        row = writeBSSection_(sheet, 'EQUITY', reportData.equity, row);
-        row += 1;
-        sheet.getRange(row, 1).setValue('Total Assets').setFontWeight('bold');
-        sheet.getRange(row, 4).setValue(reportData.totalAssets);
-        sheet.getRange(row + 1, 1).setValue('Total Liabilities + Equity').setFontWeight('bold');
-        sheet.getRange(row + 1, 4).setValue(reportData.totalLiabilities + reportData.totalEquity);
-        sheet.getRange(row + 2, 1).setValue(reportData.balanced ? '✅ Balanced' : '❌ NOT BALANCED');
+        writeSinglePeriodBS_(sheet, reportData);
       }
       break;
 
@@ -230,10 +212,13 @@ function writeReportToSheet_(sheetName, reportData) {
       sheet.getRange(2, 1).setValue(JSON.stringify(reportData, null, 2));
   }
 
-  // Auto-resize all columns after writing any report
-  var lastCol = sheet.getLastColumn();
-  for (var c = 1; c <= Math.max(lastCol, 6); c++) {
-    sheet.autoResizeColumn(c);
+  // Auto-resize columns — skip for reports that set explicit widths
+  var skipAutoResize = ['profit_and_loss', 'balance_sheet', 'sce', 'integrity'];
+  if (skipAutoResize.indexOf(reportData.report) === -1) {
+    var lastCol = sheet.getLastColumn();
+    for (var c = 1; c <= Math.max(lastCol, 6); c++) {
+      sheet.autoResizeColumn(c);
+    }
   }
 }
 
@@ -286,146 +271,583 @@ function writeBSSection_(sheet, title, categories, startRow) {
 
 /**
  * Write multi-period P&L report.
- * Columns: Account Code | Account Name | Period1 | Period2 | ...
+ * Matches original Apps Script formatting: company/currency header, year headers,
+ * date sub-headers, section headers, account rows, totals with borders, separators.
+ *
+ * Uses column A for labels/account names, columns B onwards for period amounts.
  */
 function writeMultiPeriodPL_(sheet, data) {
-  // Clear all data rows and formatting
-  if (sheet.getLastRow() > 1) {
-    var cr = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn());
-    cr.clearContent(); cr.setFontWeight('normal'); cr.setBackground(null);
+  var numFmt = '#,##0.00;(#,##0.00);0.00';
+  var numPeriods = data.periods.length;
+  var lastCol = String.fromCharCode(65 + numPeriods); // A + numPeriods
+
+  // Clear ALL formatting before writing
+  var maxRow = Math.max(sheet.getMaxRows(), 100);
+  var maxCol = Math.max(sheet.getMaxColumns(), numPeriods + 1);
+  var fullRange = sheet.getRange(1, 1, maxRow, maxCol);
+  fullRange.breakApart();
+  fullRange.clearContent();
+  fullRange.setFontWeight('normal');
+  fullRange.setBackground(null);
+  fullRange.setBorder(false, false, false, false, false, false);
+  fullRange.setFontSize(10);
+  fullRange.setHorizontalAlignment('left');
+
+  // Column widths
+  sheet.setColumnWidth(1, 400); // Account name column
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.setColumnWidth(2 + p, 130);
   }
 
-  var periods = data.periods;
-  var numPeriods = periods.length;
+  // Row 1: Company
+  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  // Read company name from Settings sheet or use a placeholder
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var companyName = '';
+  if (settingsSheet) {
+    var settingsData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < settingsData.length; s++) {
+      if (String(settingsData[s][0]).trim().toLowerCase() === 'company_id' ||
+          String(settingsData[s][0]).trim().toLowerCase() === 'company') {
+        companyName = String(settingsData[s][1]).trim();
+        break;
+      }
+    }
+  }
+  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
 
-  // Header row
-  var headers = ['', 'Account Code', 'Account Name'];
-  for (var p = 0; p < numPeriods; p++) headers.push(periods[p]);
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
+  // Row 2: Currency
+  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
+  var currency = '';
+  if (settingsSheet) {
+    var settingsData2 = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < settingsData2.length; s++) {
+      if (String(settingsData2[s][0]).trim().toLowerCase() === 'currency') {
+        currency = String(settingsData2[s][1]).trim();
+        break;
+      }
+    }
+  }
+  sheet.getRange(2, 2).setValue(currency);
 
-  var row = 2;
+  // Row 3: Period headers (bold, right-aligned)
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.getRange(3, 2 + p).setValue(data.periods[p])
+      .setFontWeight('bold')
+      .setHorizontalAlignment('right');
+  }
+
+  // Row 4: separator
+  sheet.getRange('4:4').setBackground('#eeeeee');
+
+  // Separate revenue and expense categories
+  var revCategories = [];
+  var expCategories = [];
   for (var i = 0; i < data.categories.length; i++) {
     var cat = data.categories[i];
-    // Category header
-    var catRow = new Array(headers.length).fill('');
-    catRow[0] = cat.category;
-    sheet.getRange(row, 1, 1, headers.length).setValues([catRow]);
-    sheet.getRange(row, 1).setFontWeight('bold');
-    row++;
-
-    // Account rows
+    // Determine if category has revenue or expense accounts
+    var hasRevenue = false, hasExpense = false;
     for (var j = 0; j < cat.accounts.length; j++) {
-      var acc = cat.accounts[j];
-      var accRow = ['', acc.accountCode, acc.accountName];
-      for (var p = 0; p < numPeriods; p++) accRow.push(acc.amounts[p] || 0);
-      sheet.getRange(row, 1, 1, headers.length).setValues([accRow]);
-      row++;
+      if (cat.accounts[j].accountType === 'Revenue') hasRevenue = true;
+      if (cat.accounts[j].accountType === 'Expense') hasExpense = true;
     }
-
-    // Category subtotal
-    var subRow = ['', '', 'Subtotal'];
-    for (var p = 0; p < numPeriods; p++) subRow.push(cat.totals[p] || 0);
-    sheet.getRange(row, 1, 1, headers.length).setValues([subRow]);
-    sheet.getRange(row, 3).setFontWeight('bold');
-    row += 2;
+    if (hasRevenue) revCategories.push(cat);
+    else if (hasExpense) expCategories.push(cat);
+    else {
+      // Default: if totals are positive → revenue-like, else expense-like
+      var anyPositive = cat.totals.some(function(t) { return t > 0; });
+      if (anyPositive) revCategories.push(cat);
+      else expCategories.push(cat);
+    }
   }
 
-  // Summary totals
-  var trRow = ['Total Revenue', '', ''];
-  for (var p = 0; p < numPeriods; p++) trRow.push(data.totalRevenue[p]);
-  sheet.getRange(row, 1, 1, headers.length).setValues([trRow]);
-  sheet.getRange(row, 1).setFontWeight('bold');
+  var row = 5;
+
+  // ── REVENUE section ──
+  sheet.getRange(row, 1).setValue('REVENUE').setFontWeight('bold').setFontSize(11);
   row++;
 
-  var teRow = ['Total Expenses', '', ''];
-  for (var p = 0; p < numPeriods; p++) teRow.push(data.totalExpenses[p]);
-  sheet.getRange(row, 1, 1, headers.length).setValues([teRow]);
-  sheet.getRange(row, 1).setFontWeight('bold');
+  for (var i = 0; i < revCategories.length; i++) {
+    var cat = revCategories[i];
+    // Category sub-header (if multiple revenue categories)
+    if (revCategories.length > 1) {
+      sheet.getRange(row, 1).setValue(cat.category).setFontWeight('bold');
+      row++;
+    }
+    for (var j = 0; j < cat.accounts.length; j++) {
+      var acc = cat.accounts[j];
+      sheet.getRange(row, 1).setValue(acc.accountCode + ' ' + acc.accountName);
+      for (var p = 0; p < numPeriods; p++) {
+        sheet.getRange(row, 2 + p).setValue(acc.amounts[p] || 0);
+      }
+      row++;
+    }
+  }
+
+  // TOTAL REVENUE
+  sheet.getRange(row, 1).setValue('TOTAL REVENUE').setFontWeight('bold');
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.getRange(row, 2 + p).setValue(data.totalRevenue[p]).setFontWeight('bold');
+  }
+  // Border: solid top and bottom
+  sheet.getRange(row, 1, 1, numPeriods + 1)
+    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   row++;
 
-  var niRow = ['Net Income', '', ''];
-  for (var p = 0; p < numPeriods; p++) niRow.push(data.netIncome[p]);
-  sheet.getRange(row, 1, 1, headers.length).setValues([niRow]);
-  sheet.getRange(row, 1).setFontWeight('bold').setBackground('#e8f0fe');
-  sheet.getRange(row, 1, 1, headers.length).setBackground('#e8f0fe');
+  // Separator
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // ── EXPENSES section ──
+  sheet.getRange(row, 1).setValue('EXPENSES').setFontWeight('bold').setFontSize(11);
+  row++;
+
+  for (var i = 0; i < expCategories.length; i++) {
+    var cat = expCategories[i];
+    if (expCategories.length > 1) {
+      sheet.getRange(row, 1).setValue(cat.category).setFontWeight('bold');
+      row++;
+    }
+    for (var j = 0; j < cat.accounts.length; j++) {
+      var acc = cat.accounts[j];
+      sheet.getRange(row, 1).setValue(acc.accountCode + ' ' + acc.accountName);
+      for (var p = 0; p < numPeriods; p++) {
+        sheet.getRange(row, 2 + p).setValue(acc.amounts[p] || 0);
+      }
+      row++;
+    }
+  }
+
+  // TOTAL EXPENSES
+  sheet.getRange(row, 1).setValue('TOTAL EXPENSES').setFontWeight('bold');
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.getRange(row, 2 + p).setValue(data.totalExpenses[p]).setFontWeight('bold');
+  }
+  sheet.getRange(row, 1, 1, numPeriods + 1)
+    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  row++;
+
+  // Separator
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // ── NET PROFIT / (LOSS) ──
+  sheet.getRange(row, 1).setValue('NET PROFIT / (LOSS)').setFontWeight('bold').setFontSize(11);
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.getRange(row, 2 + p).setValue(data.netIncome[p]).setFontWeight('bold').setFontSize(11);
+  }
+  // Heavy border (SOLID_MEDIUM)
+  sheet.getRange(row, 1, 1, numPeriods + 1)
+    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  // Number format for all data columns
+  sheet.getRange(5, 2, row - 4, numPeriods).setNumberFormat(numFmt);
+
+  // Right-align data columns
+  sheet.getRange(3, 2, row - 2, numPeriods).setHorizontalAlignment('right');
 }
 
 /**
  * Write multi-period Balance Sheet report.
- * Columns: Section | Category | Account Code | Account Name | Period1 | Period2 | ...
+ * Matches original Apps Script formatting: company/currency header, period headers,
+ * ASSETS / LIABILITIES / EQUITY sections, totals with borders, CHECK row.
+ *
+ * Uses column A for labels/account names, columns B onwards for period amounts.
  */
 function writeMultiPeriodBS_(sheet, data) {
-  // Clear all data rows and formatting
-  if (sheet.getLastRow() > 1) {
-    var cr = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn());
-    cr.clearContent(); cr.setFontWeight('normal'); cr.setBackground(null);
+  var numFmt = '#,##0.00;(#,##0.00);0.00';
+  var numPeriods = data.periods.length;
+
+  // Clear ALL formatting before writing
+  var maxRow = Math.max(sheet.getMaxRows(), 100);
+  var maxCol = Math.max(sheet.getMaxColumns(), numPeriods + 1);
+  var fullRange = sheet.getRange(1, 1, maxRow, maxCol);
+  fullRange.breakApart();
+  fullRange.clearContent();
+  fullRange.setFontWeight('normal');
+  fullRange.setBackground(null);
+  fullRange.setBorder(false, false, false, false, false, false);
+  fullRange.setFontSize(10);
+  fullRange.setHorizontalAlignment('left');
+
+  // Column widths
+  sheet.setColumnWidth(1, 400);
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.setColumnWidth(2 + p, 140);
   }
 
-  var periods = data.periods;
-  var numPeriods = periods.length;
+  // Row 1: Company
+  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var companyName = '';
+  var currency = '';
+  if (settingsSheet) {
+    var settingsData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < settingsData.length; s++) {
+      var key = String(settingsData[s][0]).trim().toLowerCase();
+      if (key === 'company_id' || key === 'company') companyName = String(settingsData[s][1]).trim();
+      if (key === 'currency') currency = String(settingsData[s][1]).trim();
+    }
+  }
+  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
 
-  // Header row
-  var headers = ['', '', 'Account Code', 'Account Name'];
-  for (var p = 0; p < numPeriods; p++) headers.push(periods[p]);
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
+  // Row 2: Currency
+  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue(currency);
 
-  var row = 2;
+  // Row 3: Period headers (bold, right-aligned) — "As at ..."
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.getRange(3, 2 + p).setValue(data.periods[p])
+      .setFontWeight('bold')
+      .setHorizontalAlignment('right')
+      .setFontSize(9);
+  }
 
-  var sectionNames = [
-    { key: 'assets', title: 'ASSETS' },
-    { key: 'liabilities', title: 'LIABILITIES' },
-    { key: 'equity', title: 'EQUITY' }
-  ];
+  // Row 4: separator
+  sheet.getRange('4:4').setBackground('#eeeeee');
 
-  for (var s = 0; s < sectionNames.length; s++) {
-    var section = sectionNames[s];
-    var cats = data[section.key];
+  var row = 5;
 
+  // Helper: write a BS section (ASSETS, LIABILITIES, or EQUITY)
+  function writeBSMultiSection_(title, categories, sRow) {
     // Section header
-    var secRow = new Array(headers.length).fill('');
-    secRow[0] = section.title;
-    sheet.getRange(row, 1, 1, headers.length).setValues([secRow]);
-    sheet.getRange(row, 1).setFontWeight('bold');
-    row++;
+    sheet.getRange(sRow, 1).setValue(title).setFontWeight('bold').setFontSize(11);
+    sRow++;
 
-    for (var i = 0; i < cats.length; i++) {
-      var cat = cats[i];
-      // Category header
-      var catRow = new Array(headers.length).fill('');
-      catRow[1] = cat.category;
-      sheet.getRange(row, 1, 1, headers.length).setValues([catRow]);
-      sheet.getRange(row, 2).setFontWeight('bold');
-      row++;
+    for (var i = 0; i < categories.length; i++) {
+      var cat = categories[i];
+
+      // Category sub-header (if multiple categories in section)
+      if (categories.length > 1) {
+        sheet.getRange(sRow, 1).setValue('  ' + cat.category).setFontWeight('bold');
+        sRow++;
+      }
 
       // Account rows
       for (var j = 0; j < cat.accounts.length; j++) {
         var acc = cat.accounts[j];
-        var accRow = ['', '', acc.accountCode, acc.accountName];
-        for (var p = 0; p < numPeriods; p++) accRow.push(acc.amounts[p] || 0);
-        sheet.getRange(row, 1, 1, headers.length).setValues([accRow]);
-        row++;
+        sheet.getRange(sRow, 1).setValue(acc.accountCode + ' ' + acc.accountName);
+        for (var p = 0; p < numPeriods; p++) {
+          sheet.getRange(sRow, 2 + p).setValue(acc.amounts[p] || 0);
+        }
+        sRow++;
       }
+    }
+    return sRow;
+  }
+
+  // ── ASSETS ──
+  row = writeBSMultiSection_('ASSETS', data.assets, row);
+  // TOTAL ASSETS
+  sheet.getRange(row, 1).setValue('TOTAL ASSETS').setFontWeight('bold');
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.getRange(row, 2 + p).setValue(data.totalAssets[p]).setFontWeight('bold');
+  }
+  sheet.getRange(row, 1, 1, numPeriods + 1)
+    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  var totalAssetsRow = row;
+  row++;
+
+  // Separator
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // ── LIABILITIES ──
+  row = writeBSMultiSection_('LIABILITIES', data.liabilities, row);
+  // TOTAL LIABILITIES
+  sheet.getRange(row, 1).setValue('TOTAL LIABILITIES').setFontWeight('bold');
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.getRange(row, 2 + p).setValue(data.totalLiabilities[p]).setFontWeight('bold');
+  }
+  sheet.getRange(row, 1, 1, numPeriods + 1)
+    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  row++;
+
+  // Separator
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // ── EQUITY ──
+  row = writeBSMultiSection_('EQUITY', data.equity, row);
+
+  // Net Income row (if present)
+  if (data.netIncome) {
+    sheet.getRange(row, 1).setValue('Unclosed P&L');
+    for (var p = 0; p < numPeriods; p++) {
+      sheet.getRange(row, 2 + p).setValue(data.netIncome[p] || 0);
     }
     row++;
   }
 
-  // Summary
-  var taRow = ['Total Assets', '', '', ''];
-  for (var p = 0; p < numPeriods; p++) taRow.push(data.totalAssets[p]);
-  sheet.getRange(row, 1, 1, headers.length).setValues([taRow]);
-  sheet.getRange(row, 1).setFontWeight('bold');
+  // TOTAL EQUITY
+  sheet.getRange(row, 1).setValue('TOTAL EQUITY').setFontWeight('bold');
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.getRange(row, 2 + p).setValue(data.totalEquity[p]).setFontWeight('bold');
+  }
+  sheet.getRange(row, 1, 1, numPeriods + 1)
+    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   row++;
 
-  var tleRow = ['Total L + E', '', '', ''];
-  for (var p = 0; p < numPeriods; p++) tleRow.push(data.totalLiabilities[p] + data.totalEquity[p]);
-  sheet.getRange(row, 1, 1, headers.length).setValues([tleRow]);
-  sheet.getRange(row, 1).setFontWeight('bold');
+  // Separator
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
   row++;
 
-  // Balanced check per period
-  var balRow = ['', '', '', ''];
-  for (var p = 0; p < numPeriods; p++) balRow.push(data.balanced[p] ? '✅' : '❌');
-  sheet.getRange(row, 1, 1, headers.length).setValues([balRow]);
+  // TOTAL LIABILITIES & EQUITY
+  sheet.getRange(row, 1).setValue('TOTAL LIABILITIES & EQUITY').setFontWeight('bold').setFontSize(11);
+  for (var p = 0; p < numPeriods; p++) {
+    sheet.getRange(row, 2 + p).setValue(data.totalLiabilities[p] + data.totalEquity[p])
+      .setFontWeight('bold').setFontSize(11);
+  }
+  // Heavy border
+  sheet.getRange(row, 1, 1, numPeriods + 1)
+    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  row++;
+
+  // CHECK: Assets − (L+E)
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+  sheet.getRange(row, 1).setValue('CHECK: Assets − (L+E)').setFontWeight('bold');
+  for (var p = 0; p < numPeriods; p++) {
+    var diff = data.totalAssets[p] - (data.totalLiabilities[p] + data.totalEquity[p]);
+    sheet.getRange(row, 2 + p).setValue(diff);
+  }
+
+  // Number format for all data columns
+  sheet.getRange(5, 2, row - 4, numPeriods).setNumberFormat(numFmt);
+
+  // Right-align data columns
+  sheet.getRange(3, 2, row - 2, numPeriods).setHorizontalAlignment('right');
+}
+
+/**
+ * Write single-period P&L with proper formatting.
+ * Matches the original Apps Script structure: company header, sections, borders.
+ */
+function writeSinglePeriodPL_(sheet, data) {
+  var numFmt = '#,##0.00;(#,##0.00);0.00';
+
+  // Column widths
+  sheet.setColumnWidth(1, 400);
+  sheet.setColumnWidth(2, 130);
+
+  // Row 1: Company
+  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var companyName = '';
+  var currency = '';
+  if (settingsSheet) {
+    var settingsData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < settingsData.length; s++) {
+      var key = String(settingsData[s][0]).trim().toLowerCase();
+      if (key === 'company_id' || key === 'company') companyName = String(settingsData[s][1]).trim();
+      if (key === 'currency') currency = String(settingsData[s][1]).trim();
+    }
+  }
+  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+
+  // Row 2: Currency + Period
+  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue(currency);
+
+  // Row 3: Period
+  var period = periodLabel(data.dateFrom, data.dateTo);
+  sheet.getRange(3, 2).setValue(period).setFontWeight('bold').setHorizontalAlignment('right');
+
+  // Row 4: separator
+  sheet.getRange('4:4').setBackground('#eeeeee');
+
+  // Separate revenue and expense categories
+  var revCategories = [];
+  var expCategories = [];
+  for (var i = 0; i < data.categories.length; i++) {
+    var cat = data.categories[i];
+    var hasRevenue = cat.accounts.some(function(a) { return a.accountType === 'Revenue'; });
+    if (hasRevenue) revCategories.push(cat);
+    else expCategories.push(cat);
+  }
+
+  var row = 5;
+
+  // REVENUE
+  sheet.getRange(row, 1).setValue('REVENUE').setFontWeight('bold').setFontSize(11);
+  row++;
+
+  for (var i = 0; i < revCategories.length; i++) {
+    var cat = revCategories[i];
+    if (revCategories.length > 1) {
+      sheet.getRange(row, 1).setValue(cat.category).setFontWeight('bold');
+      row++;
+    }
+    for (var j = 0; j < cat.accounts.length; j++) {
+      sheet.getRange(row, 1).setValue(cat.accounts[j].accountCode + ' ' + cat.accounts[j].accountName);
+      sheet.getRange(row, 2).setValue(cat.accounts[j].amount);
+      row++;
+    }
+  }
+
+  sheet.getRange(row, 1).setValue('TOTAL REVENUE').setFontWeight('bold');
+  sheet.getRange(row, 2).setValue(data.totalRevenue).setFontWeight('bold');
+  sheet.getRange(row, 1, 1, 2)
+    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  row++;
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // EXPENSES
+  sheet.getRange(row, 1).setValue('EXPENSES').setFontWeight('bold').setFontSize(11);
+  row++;
+
+  for (var i = 0; i < expCategories.length; i++) {
+    var cat = expCategories[i];
+    if (expCategories.length > 1) {
+      sheet.getRange(row, 1).setValue(cat.category).setFontWeight('bold');
+      row++;
+    }
+    for (var j = 0; j < cat.accounts.length; j++) {
+      sheet.getRange(row, 1).setValue(cat.accounts[j].accountCode + ' ' + cat.accounts[j].accountName);
+      sheet.getRange(row, 2).setValue(cat.accounts[j].amount);
+      row++;
+    }
+  }
+
+  sheet.getRange(row, 1).setValue('TOTAL EXPENSES').setFontWeight('bold');
+  sheet.getRange(row, 2).setValue(data.totalExpenses).setFontWeight('bold');
+  sheet.getRange(row, 1, 1, 2)
+    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  row++;
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // NET PROFIT / (LOSS)
+  sheet.getRange(row, 1).setValue('NET PROFIT / (LOSS)').setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 2).setValue(data.netIncome).setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 1, 1, 2)
+    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  // Number format
+  sheet.getRange(5, 2, row - 4, 1).setNumberFormat(numFmt);
+  sheet.getRange(3, 2, row - 2, 1).setHorizontalAlignment('right');
+}
+
+/**
+ * Helper: format period label from dateFrom/dateTo strings.
+ * (Mirrors the server-side periodLabel function for single-period use.)
+ */
+function periodLabel(dateFrom, dateTo) {
+  if (!dateFrom && !dateTo) return 'All Time';
+  if (!dateFrom) return 'As at ' + dateTo;
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var df = new Date(dateFrom + 'T00:00:00Z');
+  var dt = new Date(dateTo + 'T00:00:00Z');
+  return months[df.getUTCMonth()] + ' ' + df.getUTCFullYear() + ' – ' + months[dt.getUTCMonth()] + ' ' + dt.getUTCFullYear();
+}
+
+/**
+ * Write single-period Balance Sheet with proper formatting.
+ */
+function writeSinglePeriodBS_(sheet, data) {
+  var numFmt = '#,##0.00;(#,##0.00);0.00';
+
+  // Column widths
+  sheet.setColumnWidth(1, 400);
+  sheet.setColumnWidth(2, 140);
+
+  // Row 1: Company
+  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var companyName = '';
+  var currency = '';
+  if (settingsSheet) {
+    var settingsData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < settingsData.length; s++) {
+      var key = String(settingsData[s][0]).trim().toLowerCase();
+      if (key === 'company_id' || key === 'company') companyName = String(settingsData[s][1]).trim();
+      if (key === 'currency') currency = String(settingsData[s][1]).trim();
+    }
+  }
+  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+
+  // Row 2: Currency
+  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue(currency);
+
+  // Row 3: As at date
+  sheet.getRange(3, 2).setValue('As at ' + (data.asAt || '')).setFontWeight('bold').setHorizontalAlignment('right');
+
+  // Row 4: separator
+  sheet.getRange('4:4').setBackground('#eeeeee');
+
+  var row = 5;
+
+  // Helper: write a single-period BS section
+  function writeSection_(title, categories, startRow) {
+    sheet.getRange(startRow, 1).setValue(title).setFontWeight('bold').setFontSize(11);
+    startRow++;
+    for (var i = 0; i < categories.length; i++) {
+      var cat = categories[i];
+      if (categories.length > 1) {
+        sheet.getRange(startRow, 1).setValue('  ' + cat.category).setFontWeight('bold');
+        startRow++;
+      }
+      for (var j = 0; j < cat.accounts.length; j++) {
+        sheet.getRange(startRow, 1).setValue(cat.accounts[j].accountCode + ' ' + cat.accounts[j].accountName);
+        sheet.getRange(startRow, 2).setValue(cat.accounts[j].balance);
+        startRow++;
+      }
+    }
+    return startRow;
+  }
+
+  // ASSETS
+  row = writeSection_('ASSETS', data.assets, row);
+  sheet.getRange(row, 1).setValue('TOTAL ASSETS').setFontWeight('bold');
+  sheet.getRange(row, 2).setValue(data.totalAssets).setFontWeight('bold');
+  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  row++;
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // LIABILITIES
+  row = writeSection_('LIABILITIES', data.liabilities, row);
+  sheet.getRange(row, 1).setValue('TOTAL LIABILITIES').setFontWeight('bold');
+  sheet.getRange(row, 2).setValue(data.totalLiabilities).setFontWeight('bold');
+  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  row++;
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // EQUITY
+  row = writeSection_('EQUITY', data.equity, row);
+
+  // Unclosed P&L
+  if (data.netIncome && Math.abs(data.netIncome) > 0.005) {
+    sheet.getRange(row, 1).setValue('Unclosed P&L');
+    sheet.getRange(row, 2).setValue(data.netIncome);
+    row++;
+  }
+
+  sheet.getRange(row, 1).setValue('TOTAL EQUITY').setFontWeight('bold');
+  sheet.getRange(row, 2).setValue(data.totalEquity).setFontWeight('bold');
+  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  row++;
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // TOTAL LIABILITIES & EQUITY
+  sheet.getRange(row, 1).setValue('TOTAL LIABILITIES & EQUITY').setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 2).setValue(data.totalLiabilities + data.totalEquity).setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  row++;
+
+  // CHECK
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+  sheet.getRange(row, 1).setValue('CHECK: Assets − (L+E)').setFontWeight('bold');
+  sheet.getRange(row, 2).setValue(data.totalAssets - (data.totalLiabilities + data.totalEquity));
+
+  // Number format
+  sheet.getRange(5, 2, row - 4, 1).setNumberFormat(numFmt);
+  sheet.getRange(3, 2, row - 2, 1).setHorizontalAlignment('right');
 }
 
 /**

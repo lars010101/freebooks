@@ -1058,18 +1058,22 @@ async function refreshIntegrity(ctx) {
         ON je.company_id = a.company_id AND je.account_code = a.account_code
       WHERE je.company_id = @companyId
         AND je.date <= @dateTo
-        AND a.account_type IN ('Asset', 'Liability', 'Equity')
+        AND a.account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')
       GROUP BY a.account_type
     `,
     params: { companyId, dateTo: effectiveDateTo },
   });
-  let bsAssets = 0, bsLiabilities = 0, bsEquity = 0;
+  let bsAssets = 0, bsLiabilities = 0, bsEquity = 0, bsRevenue = 0, bsExpense = 0;
   for (const r of bsRows) {
     if (r.account_type === 'Asset') bsAssets = Number(r.balance);
     if (r.account_type === 'Liability') bsLiabilities = -Number(r.balance); // flip sign
     if (r.account_type === 'Equity') bsEquity = -Number(r.balance);
+    if (r.account_type === 'Revenue') bsRevenue = -Number(r.balance); // credit-normal
+    if (r.account_type === 'Expense') bsExpense = Number(r.balance); // debit-normal
   }
-  const bsCheck = bsAssets - bsLiabilities - bsEquity;
+  // A = L + E + unclosed P&L (Rev - Exp)
+  const unclosedPL = bsRevenue - bsExpense;
+  const bsCheck = bsAssets - bsLiabilities - bsEquity - unclosedPL;
   const bsPass = Math.abs(bsCheck) < 0.01;
 
   // ── Check 3: P&L vs Closing Entry (current period) ────────────────
@@ -1078,13 +1082,13 @@ async function refreshIntegrity(ctx) {
       SELECT
         COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) AS revenue,
         COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) AS expense,
-        COALESCE(SUM(CASE WHEN a.account_type = 'Closing' THEN je.debit - je.credit ELSE 0 END), 0) AS closing
+        COALESCE(SUM(CASE WHEN je.account_code LIKE '999999%' OR je.account_code LIKE '8999%' THEN je.debit - je.credit ELSE 0 END), 0) AS closing
       FROM finance.journal_entries je
       JOIN finance.accounts a
         ON je.company_id = a.company_id AND je.account_code = a.account_code
       WHERE je.company_id = @companyId
         AND je.date >= @dateFrom AND je.date <= @dateTo
-        AND a.account_type IN ('Revenue', 'Expense', 'Closing')
+        AND (a.account_type IN ('Revenue', 'Expense') OR je.account_code LIKE '999999%' OR je.account_code LIKE '8999%')
     `,
     params: { companyId, dateFrom: effectiveDateFrom, dateTo: effectiveDateTo },
   });
@@ -1166,13 +1170,13 @@ async function refreshIntegrity(ctx) {
         SELECT
           COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) AS revenue,
           COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) AS expense,
-          COALESCE(SUM(CASE WHEN a.account_type = 'Closing' THEN je.debit - je.credit ELSE 0 END), 0) AS closing
+          COALESCE(SUM(CASE WHEN je.account_code LIKE '999999%' OR je.account_code LIKE '8999%' THEN je.debit - je.credit ELSE 0 END), 0) AS closing
         FROM finance.journal_entries je
         JOIN finance.accounts a
           ON je.company_id = a.company_id AND je.account_code = a.account_code
         WHERE je.company_id = @companyId
           AND je.date >= @fyStart AND je.date <= @fyEnd
-          AND a.account_type IN ('Revenue', 'Expense', 'Closing')
+          AND (a.account_type IN ('Revenue', 'Expense') OR je.account_code LIKE '999999%' OR je.account_code LIKE '8999%')
       `,
       params: { companyId, fyStart: fyPeriod.dateFrom, fyEnd: fyPeriod.dateTo },
     });

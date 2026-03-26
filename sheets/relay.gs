@@ -194,7 +194,9 @@ function refreshTab_(name, period) {
     case 'Integrity':
       var r = callSkuld_('report.refresh_integrity', {});
       if (r) writeReportToSheet_('Integrity', r);
-      return '✅ Integrity Check complete — ' + (r.overallPass ? 'ALL PASSED ✅' : r.summary.failed + ' check(s) FAILED ❌');
+      var failCount = 0;
+      if (r && r.checks) { for (var ci = 0; ci < r.checks.length; ci++) { for (var ii = 0; ii < (r.checks[ci].items||[]).length; ii++) { if ((r.checks[ci].items[ii].status||'').indexOf('❌') >= 0) failCount++; }}}
+      return '✅ Integrity Check complete — ' + (failCount === 0 ? 'ALL PASSED ✅' : failCount + ' issue(s) found ❌');
     case 'COA':
       var r = callSkuld_('coa.list', {});
       if (r) writeToSheet_('COA', r, ['account_code', 'account_name', 'account_type', 'account_subtype', 'pl_category', 'bs_category', 'cf_category', 'is_active', 'effective_from', 'effective_to']);

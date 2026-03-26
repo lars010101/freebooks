@@ -1073,7 +1073,7 @@ async function refreshIntegrity(ctx) {
   }
   // A = L + E + unclosed P&L (Rev - Exp)
   const unclosedPL = bsRevenue - bsExpense;
-  const bsCheck = bsAssets - bsLiabilities - bsEquity - unclosedPL;
+  const bsCheck = Math.round((bsAssets - bsLiabilities - bsEquity - unclosedPL) * 100) / 100;
   const bsPass = Math.abs(bsCheck) < 0.01;
 
   // ── Check 3: P&L vs Closing Entry (current period) ────────────────
@@ -1134,7 +1134,7 @@ async function refreshIntegrity(ctx) {
           COALESCE(SUM(CASE WHEN je.date >= @fyStart AND je.date <= @fyEnd THEN je.credit - je.debit ELSE 0 END), 0) AS re_movement
         FROM finance.journal_entries je
         WHERE je.company_id = @companyId
-          AND (je.account_code LIKE '203070%' OR je.account_code LIKE '999999%')
+          AND je.account_code LIKE '203070%'
       `,
       params: { companyId, fyStart: fyPeriod.dateFrom, fyEnd: fyPeriod.dateTo },
     });

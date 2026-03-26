@@ -431,7 +431,7 @@ function writeMultiPeriodBS_(sheet, data) {
  * Columnar layout: blank | Share Capital | Retained Earnings | Dividends | Total
  */
 function writeSCEReport_(sheet, data) {
-  var numFmt = '#,##0.00;(#,##0.00)';
+  var numFmt = '#,##0.00;(#,##0.00);0.00';
 
   // Column widths
   sheet.setColumnWidth(1, 250);
@@ -493,7 +493,7 @@ function writeSCEReport_(sheet, data) {
  *   Section C: P&L vs Closing — All Years table
  */
 function writeIntegrityReport_(sheet, data) {
-  var numFmt = '#,##0.00;(#,##0.00)';
+  var numFmt = '#,##0.00;(#,##0.00);0.00';
 
   // Column widths
   sheet.setColumnWidth(1, 280);

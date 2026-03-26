@@ -110,30 +110,37 @@ function writeReportToSheet_(sheetName, reportData) {
       break;
 
     case 'profit_and_loss':
-      writeCategorisedReport_(sheet, reportData.categories, 'P&L');
-      // Write totals
-      var lastRow = sheet.getLastRow() + 2;
-      sheet.getRange(lastRow, 1).setValue('Total Revenue').setFontWeight('bold');
-      sheet.getRange(lastRow, 4).setValue(reportData.totalRevenue);
-      sheet.getRange(lastRow + 1, 1).setValue('Total Expenses').setFontWeight('bold');
-      sheet.getRange(lastRow + 1, 4).setValue(reportData.totalExpenses);
-      sheet.getRange(lastRow + 2, 1).setValue('Net Income').setFontWeight('bold');
-      sheet.getRange(lastRow + 2, 4).setValue(reportData.netIncome);
+      if (reportData.multiPeriod) {
+        writeMultiPeriodPL_(sheet, reportData);
+      } else {
+        writeCategorisedReport_(sheet, reportData.categories, 'P&L');
+        var lastRow = sheet.getLastRow() + 2;
+        sheet.getRange(lastRow, 1).setValue('Total Revenue').setFontWeight('bold');
+        sheet.getRange(lastRow, 4).setValue(reportData.totalRevenue);
+        sheet.getRange(lastRow + 1, 1).setValue('Total Expenses').setFontWeight('bold');
+        sheet.getRange(lastRow + 1, 4).setValue(reportData.totalExpenses);
+        sheet.getRange(lastRow + 2, 1).setValue('Net Income').setFontWeight('bold');
+        sheet.getRange(lastRow + 2, 4).setValue(reportData.netIncome);
+      }
       break;
 
     case 'balance_sheet':
-      var row = 2;
-      row = writeBSSection_(sheet, 'ASSETS', reportData.assets, row);
-      row += 1;
-      row = writeBSSection_(sheet, 'LIABILITIES', reportData.liabilities, row);
-      row += 1;
-      row = writeBSSection_(sheet, 'EQUITY', reportData.equity, row);
-      row += 1;
-      sheet.getRange(row, 1).setValue('Total Assets').setFontWeight('bold');
-      sheet.getRange(row, 4).setValue(reportData.totalAssets);
-      sheet.getRange(row + 1, 1).setValue('Total Liabilities + Equity').setFontWeight('bold');
-      sheet.getRange(row + 1, 4).setValue(reportData.totalLiabilities + reportData.totalEquity);
-      sheet.getRange(row + 2, 1).setValue(reportData.balanced ? '✅ Balanced' : '❌ NOT BALANCED');
+      if (reportData.multiPeriod) {
+        writeMultiPeriodBS_(sheet, reportData);
+      } else {
+        var row = 2;
+        row = writeBSSection_(sheet, 'ASSETS', reportData.assets, row);
+        row += 1;
+        row = writeBSSection_(sheet, 'LIABILITIES', reportData.liabilities, row);
+        row += 1;
+        row = writeBSSection_(sheet, 'EQUITY', reportData.equity, row);
+        row += 1;
+        sheet.getRange(row, 1).setValue('Total Assets').setFontWeight('bold');
+        sheet.getRange(row, 4).setValue(reportData.totalAssets);
+        sheet.getRange(row + 1, 1).setValue('Total Liabilities + Equity').setFontWeight('bold');
+        sheet.getRange(row + 1, 4).setValue(reportData.totalLiabilities + reportData.totalEquity);
+        sheet.getRange(row + 2, 1).setValue(reportData.balanced ? '✅ Balanced' : '❌ NOT BALANCED');
+      }
       break;
 
     case 'cash_flow':
@@ -202,6 +209,14 @@ function writeReportToSheet_(sheetName, reportData) {
       sheet.getRange(aRow, 4).setValue(reportData.totalOutstanding);
       break;
 
+    case 'statement_of_changes_in_equity':
+      writeSCEReport_(sheet, reportData);
+      break;
+
+    case 'integrity_check':
+      writeIntegrityReport_(sheet, reportData);
+      break;
+
     default:
       // Generic: dump as JSON
       sheet.getRange(2, 1).setValue(JSON.stringify(reportData, null, 2));
@@ -255,6 +270,250 @@ function writeBSSection_(sheet, title, categories, startRow) {
     }
   }
   return row;
+}
+
+// =============================================================================
+// Multi-period report writers
+// =============================================================================
+
+/**
+ * Write multi-period P&L report.
+ * Columns: Account Code | Account Name | Period1 | Period2 | ...
+ */
+function writeMultiPeriodPL_(sheet, data) {
+  var periods = data.periods;
+  var numPeriods = periods.length;
+
+  // Header row
+  var headers = ['', 'Account Code', 'Account Name'];
+  for (var p = 0; p < numPeriods; p++) headers.push(periods[p]);
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
+
+  var row = 2;
+  for (var i = 0; i < data.categories.length; i++) {
+    var cat = data.categories[i];
+    // Category header
+    var catRow = new Array(headers.length).fill('');
+    catRow[0] = cat.category;
+    sheet.getRange(row, 1, 1, headers.length).setValues([catRow]);
+    sheet.getRange(row, 1).setFontWeight('bold');
+    row++;
+
+    // Account rows
+    for (var j = 0; j < cat.accounts.length; j++) {
+      var acc = cat.accounts[j];
+      var accRow = ['', acc.accountCode, acc.accountName];
+      for (var p = 0; p < numPeriods; p++) accRow.push(acc.amounts[p] || 0);
+      sheet.getRange(row, 1, 1, headers.length).setValues([accRow]);
+      row++;
+    }
+
+    // Category subtotal
+    var subRow = ['', '', 'Subtotal'];
+    for (var p = 0; p < numPeriods; p++) subRow.push(cat.totals[p] || 0);
+    sheet.getRange(row, 1, 1, headers.length).setValues([subRow]);
+    sheet.getRange(row, 3).setFontWeight('bold');
+    row += 2;
+  }
+
+  // Summary totals
+  var trRow = ['Total Revenue', '', ''];
+  for (var p = 0; p < numPeriods; p++) trRow.push(data.totalRevenue[p]);
+  sheet.getRange(row, 1, 1, headers.length).setValues([trRow]);
+  sheet.getRange(row, 1).setFontWeight('bold');
+  row++;
+
+  var teRow = ['Total Expenses', '', ''];
+  for (var p = 0; p < numPeriods; p++) teRow.push(data.totalExpenses[p]);
+  sheet.getRange(row, 1, 1, headers.length).setValues([teRow]);
+  sheet.getRange(row, 1).setFontWeight('bold');
+  row++;
+
+  var niRow = ['Net Income', '', ''];
+  for (var p = 0; p < numPeriods; p++) niRow.push(data.netIncome[p]);
+  sheet.getRange(row, 1, 1, headers.length).setValues([niRow]);
+  sheet.getRange(row, 1).setFontWeight('bold').setBackground('#e8f0fe');
+  sheet.getRange(row, 1, 1, headers.length).setBackground('#e8f0fe');
+}
+
+/**
+ * Write multi-period Balance Sheet report.
+ * Columns: Section | Category | Account Code | Account Name | Period1 | Period2 | ...
+ */
+function writeMultiPeriodBS_(sheet, data) {
+  var periods = data.periods;
+  var numPeriods = periods.length;
+
+  // Header row
+  var headers = ['', '', 'Account Code', 'Account Name'];
+  for (var p = 0; p < numPeriods; p++) headers.push(periods[p]);
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
+
+  var row = 2;
+
+  var sectionNames = [
+    { key: 'assets', title: 'ASSETS' },
+    { key: 'liabilities', title: 'LIABILITIES' },
+    { key: 'equity', title: 'EQUITY' }
+  ];
+
+  for (var s = 0; s < sectionNames.length; s++) {
+    var section = sectionNames[s];
+    var cats = data[section.key];
+
+    // Section header
+    var secRow = new Array(headers.length).fill('');
+    secRow[0] = section.title;
+    sheet.getRange(row, 1, 1, headers.length).setValues([secRow]);
+    sheet.getRange(row, 1).setFontWeight('bold');
+    row++;
+
+    for (var i = 0; i < cats.length; i++) {
+      var cat = cats[i];
+      // Category header
+      var catRow = new Array(headers.length).fill('');
+      catRow[1] = cat.category;
+      sheet.getRange(row, 1, 1, headers.length).setValues([catRow]);
+      sheet.getRange(row, 2).setFontWeight('bold');
+      row++;
+
+      // Account rows
+      for (var j = 0; j < cat.accounts.length; j++) {
+        var acc = cat.accounts[j];
+        var accRow = ['', '', acc.accountCode, acc.accountName];
+        for (var p = 0; p < numPeriods; p++) accRow.push(acc.amounts[p] || 0);
+        sheet.getRange(row, 1, 1, headers.length).setValues([accRow]);
+        row++;
+      }
+    }
+    row++;
+  }
+
+  // Summary
+  var taRow = ['Total Assets', '', '', ''];
+  for (var p = 0; p < numPeriods; p++) taRow.push(data.totalAssets[p]);
+  sheet.getRange(row, 1, 1, headers.length).setValues([taRow]);
+  sheet.getRange(row, 1).setFontWeight('bold');
+  row++;
+
+  var tleRow = ['Total L + E', '', '', ''];
+  for (var p = 0; p < numPeriods; p++) tleRow.push(data.totalLiabilities[p] + data.totalEquity[p]);
+  sheet.getRange(row, 1, 1, headers.length).setValues([tleRow]);
+  sheet.getRange(row, 1).setFontWeight('bold');
+  row++;
+
+  // Balanced check per period
+  var balRow = ['', '', '', ''];
+  for (var p = 0; p < numPeriods; p++) balRow.push(data.balanced[p] ? '✅' : '❌');
+  sheet.getRange(row, 1, 1, headers.length).setValues([balRow]);
+}
+
+/**
+ * Write Statement of Changes in Equity report.
+ */
+function writeSCEReport_(sheet, data) {
+  // Headers
+  sheet.getRange(1, 1, 1, 4).setValues([['', 'Description', 'Amount', '']])
+    .setFontWeight('bold').setBackground('#e6e6e6');
+
+  var row = 2;
+  sheet.getRange(row, 1).setValue('Period: ' + data.dateFrom + ' to ' + data.dateTo);
+  sheet.getRange(row, 1).setFontStyle('italic');
+  row += 2;
+
+  for (var i = 0; i < data.rows.length; i++) {
+    var item = data.rows[i];
+    var isSummary = (item.label === 'Opening Equity' || item.label === 'Closing Equity' || item.label === 'Net Income for Period');
+    sheet.getRange(row, 2).setValue(item.label);
+    sheet.getRange(row, 3).setValue(item.amount);
+    if (isSummary) {
+      sheet.getRange(row, 2).setFontWeight('bold');
+      if (item.label === 'Closing Equity') {
+        sheet.getRange(row, 2, 1, 2).setBackground('#e8f0fe');
+      }
+    }
+    row++;
+  }
+
+  // Component detail
+  row += 2;
+  sheet.getRange(row, 1).setValue('Equity Account Detail').setFontWeight('bold');
+  row++;
+  sheet.getRange(row, 1, 1, 4).setValues([['Account Code', 'Account Name', 'Opening', 'Movement']])
+    .setFontWeight('bold');
+  row++;
+
+  for (var i = 0; i < data.components.length; i++) {
+    var c = data.components[i];
+    sheet.getRange(row, 1, 1, 4).setValues([[c.accountCode, c.accountName, c.opening, c.movement]]);
+    row++;
+  }
+}
+
+/**
+ * Write Integrity Check report.
+ */
+function writeIntegrityReport_(sheet, data) {
+  // Headers
+  sheet.getRange(1, 1, 1, 6).setValues([['Check', 'Status', 'Fail Count', 'Description', '', '']])
+    .setFontWeight('bold').setBackground('#e6e6e6');
+
+  var row = 2;
+
+  // Summary
+  sheet.getRange(row, 1).setValue('Summary').setFontWeight('bold');
+  row++;
+  sheet.getRange(row, 1, 1, 3).setValues([['Total Entries', data.totalEntries, '']]);
+  row++;
+  sheet.getRange(row, 1, 1, 3).setValues([['Total Batches', data.totalBatches, '']]);
+  row++;
+  sheet.getRange(row, 1, 1, 3).setValues([['Lock Date', data.lockDate || 'Not set', '']]);
+  row++;
+  sheet.getRange(row, 1).setValue(data.overallPass ? '✅ ALL CHECKS PASSED' : '❌ ' + data.summary.failed + ' CHECK(S) FAILED');
+  sheet.getRange(row, 1).setFontWeight('bold');
+  if (data.overallPass) {
+    sheet.getRange(row, 1).setBackground('#e6f4ea');
+  } else {
+    sheet.getRange(row, 1).setBackground('#fce8e6');
+  }
+  row += 2;
+
+  // Individual checks
+  for (var i = 0; i < data.checks.length; i++) {
+    var check = data.checks[i];
+    sheet.getRange(row, 1).setValue(check.check).setFontWeight('bold');
+    sheet.getRange(row, 2).setValue(check.passed ? '✅ PASS' : '❌ FAIL');
+    sheet.getRange(row, 3).setValue(check.failCount);
+    sheet.getRange(row, 4).setValue(check.description);
+    if (!check.passed) {
+      sheet.getRange(row, 1, 1, 4).setBackground('#fce8e6');
+    } else {
+      sheet.getRange(row, 1, 1, 4).setBackground('#e6f4ea');
+    }
+    row++;
+
+    // Detail rows for failures
+    if (!check.passed && check.details && check.details.length > 0) {
+      for (var j = 0; j < Math.min(check.details.length, 20); j++) {
+        var d = check.details[j];
+        var detailStr = '';
+        for (var k in d) {
+          if (d.hasOwnProperty(k)) {
+            var v = d[k];
+            if (typeof v === 'object' && v !== null && v.value !== undefined) v = v.value;
+            detailStr += k + ': ' + v + '  |  ';
+          }
+        }
+        sheet.getRange(row, 2, 1, 4).merge().setValue(detailStr).setFontSize(10).setFontColor('#666666');
+        row++;
+      }
+      if (check.details.length > 20) {
+        sheet.getRange(row, 2).setValue('... and ' + (check.details.length - 20) + ' more');
+        row++;
+      }
+    }
+    row++;
+  }
 }
 
 // =============================================================================

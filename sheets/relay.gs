@@ -124,7 +124,16 @@ function navigateToTab(name) {
   }
 
   var sheet = ss.getSheetByName(name);
-  if (!sheet) throw new Error('Tab not found: ' + name);
+  if (!sheet) {
+    // Auto-create report tabs that may not exist yet
+    var autoCreate = ['SCE', 'Integrity', 'TB', 'PL', 'BS', 'CF', 'AP Aging', 'VAT Return', 'Dashboard'];
+    if (autoCreate.indexOf(name) >= 0) {
+      sheet = ss.insertSheet(name);
+      sheet.setFrozenRows(1);
+    } else {
+      throw new Error('Tab not found: ' + name);
+    }
+  }
   sheet.showSheet();
   sheet.activate();
 }
@@ -178,6 +187,14 @@ function refreshTab_(name, period) {
       var r = callSkuld_('report.refresh_vat_return', { periodFrom: periodFrom, periodTo: periodTo });
       if (r) writeReportToSheet_('VAT Return', r);
       return '✅ VAT Return refreshed';
+    case 'SCE':
+      var r = callSkuld_('report.refresh_sce', params);
+      if (r) writeReportToSheet_('SCE', r);
+      return '✅ Statement of Changes in Equity refreshed';
+    case 'Integrity':
+      var r = callSkuld_('report.refresh_integrity', {});
+      if (r) writeReportToSheet_('Integrity', r);
+      return '✅ Integrity Check complete — ' + (r.overallPass ? 'ALL PASSED ✅' : r.summary.failed + ' check(s) FAILED ❌');
     case 'COA':
       var r = callSkuld_('coa.list', {});
       if (r) writeToSheet_('COA', r, ['account_code', 'account_name', 'account_type', 'account_subtype', 'pl_category', 'bs_category', 'cf_category', 'is_active', 'effective_from', 'effective_to']);
@@ -384,7 +401,7 @@ function setupTrigger() {
 
 function hideNonEssentialTabs_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hide = ['Import', 'Export', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'PL', 'BS', 'CF', 'AP Aging', 'VAT Return', 'Manual Entry', 'Dashboard', 'Settings'];
+  var hide = ['Import', 'Export', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'PL', 'BS', 'CF', 'AP Aging', 'VAT Return', 'SCE', 'Integrity', 'Manual Entry', 'Dashboard', 'Settings'];
   for (var i = 0; i < hide.length; i++) {
     var s = ss.getSheetByName(hide[i]);
     if (s) s.hideSheet();

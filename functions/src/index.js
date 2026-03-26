@@ -47,6 +47,8 @@ const ACTION_ROLES = {
   'report.refresh_dashboard': 'viewer',
   'report.refresh_ap_aging': 'viewer',
   'report.refresh_vat_return': 'viewer',
+  'report.refresh_sce': 'viewer',
+  'report.refresh_integrity': 'viewer',
 
   // COA
   'coa.list': 'viewer',

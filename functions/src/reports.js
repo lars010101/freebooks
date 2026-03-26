@@ -1122,66 +1122,72 @@ async function refreshIntegrity(ctx) {
   // ── Checks 5-7: Placeholders ───────────────────────────────────────
   // (Cash Flow vs BS, Uncategorised CF, Equity vs BS — skipped for now)
 
-  // ── RE Roll-Forward ────────────────────────────────────────────────
-  // For each FY: opening RE balance before FY start, RE movement during FY, closing
-  // RE accounts: 203070* and 999999*
+  // ── RE Roll-Forward (single query for all FYs) ─────────────────────
+  // Get all RE (203070) movements by date, then compute per-FY in JS
+  const [allRERows] = await dataset.query({
+    query: `
+      SELECT je.date, COALESCE(SUM(je.credit - je.debit), 0) AS re_net
+      FROM finance.journal_entries je
+      WHERE je.company_id = @companyId AND je.account_code LIKE '203070%'
+      GROUP BY je.date ORDER BY je.date
+    `,
+    params: { companyId },
+  });
+
   const reRollForward = [];
   for (const fyPeriod of allFYs) {
-    const [reRows] = await dataset.query({
-      query: `
-        SELECT
-          COALESCE(SUM(CASE WHEN je.date < @fyStart THEN je.credit - je.debit ELSE 0 END), 0) AS opening_re,
-          COALESCE(SUM(CASE WHEN je.date >= @fyStart AND je.date <= @fyEnd THEN je.credit - je.debit ELSE 0 END), 0) AS re_movement
-        FROM finance.journal_entries je
-        WHERE je.company_id = @companyId
-          AND je.account_code LIKE '203070%'
-      `,
-      params: { companyId, fyStart: fyPeriod.dateFrom, fyEnd: fyPeriod.dateTo },
-    });
-    const openingRE = Number(reRows[0]?.opening_re || 0);
-    const reMovement = Number(reRows[0]?.re_movement || 0);
-    const closingRE = openingRE + reMovement;
+    let openingRE = 0, reMovement = 0;
+    for (const r of allRERows) {
+      const d = r.date?.value || String(r.date);
+      const net = Number(r.re_net);
+      if (d < fyPeriod.dateFrom) openingRE += net;
+      else if (d >= fyPeriod.dateFrom && d <= fyPeriod.dateTo) reMovement += net;
+    }
     reRollForward.push({
-      fy: fyPeriod.fy,
-      period: fyPeriod.label,
-      openingRE,
-      reMovement,
-      closingRE,
-      continuity: null, // filled below
+      fy: fyPeriod.fy, period: fyPeriod.label,
+      openingRE: Math.round(openingRE * 100) / 100,
+      reMovement: Math.round(reMovement * 100) / 100,
+      closingRE: Math.round((openingRE + reMovement) * 100) / 100,
+      continuity: null,
     });
   }
-  // Compute continuity: opening of current FY should equal closing of previous
   for (let i = 0; i < reRollForward.length; i++) {
-    if (i === 0) {
-      reRollForward[i].continuity = '—';
-    } else {
+    if (i === 0) { reRollForward[i].continuity = '—'; }
+    else {
       const diff = reRollForward[i].openingRE - reRollForward[i - 1].closingRE;
-      reRollForward[i].continuity = Math.abs(diff) < 0.01
-        ? '✅'
-        : `❌ ${diff.toFixed(2)}`;
+      reRollForward[i].continuity = Math.abs(diff) < 0.01 ? '✅' : `❌ ${diff.toFixed(2)}`;
     }
   }
 
-  // ── P&L vs Closing — All Years ─────────────────────────────────────
+  // ── P&L vs Closing — All Years (single query) ─────────────────────
+  const [allPLCloseRows] = await dataset.query({
+    query: `
+      SELECT je.date,
+        COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) AS revenue,
+        COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) AS expense,
+        COALESCE(SUM(CASE WHEN je.account_code LIKE '999999%' OR je.account_code LIKE '8999%' THEN je.debit - je.credit ELSE 0 END), 0) AS closing
+      FROM finance.journal_entries je
+      JOIN finance.accounts a ON je.company_id = a.company_id AND je.account_code = a.account_code
+      WHERE je.company_id = @companyId
+        AND (a.account_type IN ('Revenue', 'Expense') OR je.account_code LIKE '999999%' OR je.account_code LIKE '8999%')
+      GROUP BY je.date ORDER BY je.date
+    `,
+    params: { companyId },
+  });
+
   const plVsClosing = [];
   for (const fyPeriod of allFYs) {
-    const [rows] = await dataset.query({
-      query: `
-        SELECT
-          COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) AS revenue,
-          COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) AS expense,
-          COALESCE(SUM(CASE WHEN je.account_code LIKE '999999%' OR je.account_code LIKE '8999%' THEN je.debit - je.credit ELSE 0 END), 0) AS closing
-        FROM finance.journal_entries je
-        JOIN finance.accounts a
-          ON je.company_id = a.company_id AND je.account_code = a.account_code
-        WHERE je.company_id = @companyId
-          AND je.date >= @fyStart AND je.date <= @fyEnd
-          AND (a.account_type IN ('Revenue', 'Expense') OR je.account_code LIKE '999999%' OR je.account_code LIKE '8999%')
-      `,
-      params: { companyId, fyStart: fyPeriod.dateFrom, fyEnd: fyPeriod.dateTo },
-    });
-    const fyPlNet = Number(rows[0]?.revenue || 0) - Number(rows[0]?.expense || 0);
-    const fyClosing = Number(rows[0]?.closing || 0);
+    let fyRev = 0, fyExp = 0, fyClose = 0;
+    for (const r of allPLCloseRows) {
+      const d = r.date?.value || String(r.date);
+      if (d >= fyPeriod.dateFrom && d <= fyPeriod.dateTo) {
+        fyRev += Number(r.revenue);
+        fyExp += Number(r.expense);
+        fyClose += Number(r.closing);
+      }
+    }
+    const fyPlNet = Math.round((fyRev - fyExp) * 100) / 100;
+    const fyClosing = Math.round(fyClose * 100) / 100;
     const fyDiff = fyPlNet - fyClosing;
     let fyStatus;
     if (fyPlNet === 0 && fyClosing === 0) fyStatus = '—';

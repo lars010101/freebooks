@@ -310,13 +310,23 @@ function getSettingsData() {
       if (k) settings[k] = v;
     }
   }
+  // Fetch FY dates from BigQuery (companies table) as fallback
+  var fyFromBQ = { fyStart: '', fyEnd: '' };
+  try {
+    var companyData = callSkuld_('settings.get', {});
+    if (companyData && companyData.fyStart) {
+      fyFromBQ.fyStart = companyData.fyStart;
+      fyFromBQ.fyEnd = companyData.fyEnd;
+    }
+  } catch (e) { /* ignore — use fallbacks */ }
+
   return {
     companyId: props.getProperty('COMPANY_ID') || '',
     companyName: settings['Company Name'] || props.getProperty('COMPANY_ID') || '',
-    fyStart: formatSettingDate_(settings['FY Start']) || '2025-01-01',
-    fyEnd: formatSettingDate_(settings['FY End']) || '2025-12-31',
-    periodFrom: formatSettingDate_(settings['Period From'] || settings['FY Start']) || '2025-01-01',
-    periodTo: formatSettingDate_(settings['Period To'] || settings['FY End']) || '2025-12-31',
+    fyStart: formatSettingDate_(settings['FY Start']) || fyFromBQ.fyStart || '2025-01-01',
+    fyEnd: formatSettingDate_(settings['FY End']) || fyFromBQ.fyEnd || '2025-12-31',
+    periodFrom: formatSettingDate_(settings['Period From'] || settings['FY Start']) || fyFromBQ.fyStart || '2025-01-01',
+    periodTo: formatSettingDate_(settings['Period To'] || settings['FY End']) || fyFromBQ.fyEnd || '2025-12-31',
   };
 }
 

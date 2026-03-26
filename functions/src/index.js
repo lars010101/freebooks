@@ -363,10 +363,19 @@ async function handleSettings(ctx, action) {
       query: `SELECT key, value FROM finance.settings WHERE company_id = @companyId`,
       params: { companyId },
     });
-    // Return as key-value object
     const settings = {};
     for (const row of rows) {
       settings[row.key] = row.value;
+    }
+    // Also include company FY dates from companies table
+    const [coRows] = await dataset.query({
+      query: `SELECT company_name, fy_start, fy_end FROM finance.companies WHERE company_id = @companyId LIMIT 1`,
+      params: { companyId },
+    });
+    if (coRows.length > 0) {
+      settings.companyName = coRows[0].company_name;
+      settings.fyStart = coRows[0].fy_start?.value || String(coRows[0].fy_start || '');
+      settings.fyEnd = coRows[0].fy_end?.value || String(coRows[0].fy_end || '');
     }
     return settings;
   }

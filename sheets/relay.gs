@@ -147,7 +147,11 @@ function refreshTab_(name, period) {
   switch (name) {
     case 'Journal':
       navigateToTab('Journal');
-      return '✅ Journal loaded';
+      var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo });
+      if (entries) {
+        writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code']);
+      }
+      return '✅ Journal loaded (' + (entries ? entries.length : 0) + ' rows)';
     case 'TB':
       var r = callSkuld_('report.refresh_tb', params);
       if (r) writeReportToSheet_('TB', r);

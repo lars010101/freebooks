@@ -589,110 +589,188 @@ async function refreshBS(ctx) {
 }
 
 /**
- * Cash Flow Statement — journal entries grouped by cf_category.
+ * Cash Flow Statement — indirect method.
  *
- * Uses the indirect method: starts from net income, adjusts for working capital,
- * then shows investing and financing activities.
+ * Structure matches the original Google Sheet report:
+ *   Operating Activities → Cash from operations (net income + WC changes + non-cash)
+ *   Investing Activities → Cash from investing
+ *   Financing Activities → Cash from financing
+ *   + Cash at beginning / end of period + CHECK vs BS cash balance
+ *
+ * cf_category mapping:
+ *   'Cash'       → Cash accounts (not a CF section — used for opening/closing balance)
+ *   'Op-WC'      → Operating — working capital
+ *   'Op-NonCash' → Operating — non-cash adjustments
+ *   'Investing'  → Investing activities
+ *   'Financing'  → Financing activities
+ *   Equity/999999 accounts are excluded.
  */
 async function refreshCF(ctx) {
   const { dataset, companyId, body } = ctx;
   const { dateFrom, dateTo } = body;
 
   const params = { companyId };
-  let dateFilter = '';
+  let periodFilter = '';
+  if (dateFrom) { periodFilter += ` AND je.date >= @dateFrom`; params.dateFrom = dateFrom; }
+  if (dateTo) { periodFilter += ` AND je.date <= @dateTo`; params.dateTo = dateTo; }
 
-  if (dateFrom) {
-    dateFilter += ` AND je.date >= @dateFrom`;
-    params.dateFrom = dateFrom;
-  }
-  if (dateTo) {
-    dateFilter += ` AND je.date <= @dateTo`;
-    params.dateTo = dateTo;
-  }
-
-  // Get net income (P&L accounts)
+  // 1. Net income for the period
   const [plRows] = await dataset.query({
     query: `
       SELECT COALESCE(SUM(je.credit - je.debit), 0) AS net_income
       FROM finance.journal_entries je
-      JOIN finance.accounts a
-        ON je.company_id = a.company_id AND je.account_code = a.account_code
-      WHERE je.company_id = @companyId
-        AND a.account_type IN ('Revenue', 'Expense')
-        ${dateFilter}
+      JOIN finance.accounts a ON je.company_id = a.company_id AND je.account_code = a.account_code
+      WHERE je.company_id = @companyId AND a.account_type IN ('Revenue', 'Expense')
+        ${periodFilter}
     `,
     params,
   });
   const netIncome = Number(plRows[0]?.net_income || 0);
 
-  // Get CF movements by category (for BS accounts)
+  // 2. Period movements by cf_category (exclude Cash, Equity, 999999)
   const [cfRows] = await dataset.query({
+    query: `
+      SELECT
+        a.cf_category,
+        COALESCE(SUM(je.debit - je.credit), 0) AS movement
+      FROM finance.journal_entries je
+      JOIN finance.accounts a ON je.company_id = a.company_id AND je.account_code = a.account_code
+      WHERE je.company_id = @companyId
+        AND a.account_type IN ('Asset', 'Liability')
+        AND a.cf_category IS NOT NULL
+        AND a.cf_category != 'Cash'
+        AND a.account_code NOT LIKE '999999%'
+        ${periodFilter}
+      GROUP BY a.cf_category
+    `,
+    params,
+  });
+
+  // Build section totals. Sign convention: for the CF statement,
+  // Asset increases (debit) = cash outflow (negative), Liability increases (credit) = cash inflow (positive).
+  // Movement is debit-credit, so for assets it's positive when increasing (cash used) → negate.
+  // But cf_category groups mix assets and liabilities, so we query with sign flip per account_type.
+  // Actually, let's re-query with proper sign handling:
+  const [cfDetailRows] = await dataset.query({
     query: `
       SELECT
         a.cf_category,
         a.account_code,
         a.account_name,
-        COALESCE(SUM(je.debit - je.credit), 0) AS movement
+        a.account_type,
+        COALESCE(SUM(je.debit - je.credit), 0) AS raw_movement
       FROM finance.journal_entries je
-      JOIN finance.accounts a
-        ON je.company_id = a.company_id AND je.account_code = a.account_code
+      JOIN finance.accounts a ON je.company_id = a.company_id AND je.account_code = a.account_code
       WHERE je.company_id = @companyId
-        AND a.account_type IN ('Asset', 'Liability', 'Equity')
+        AND a.account_type IN ('Asset', 'Liability')
         AND a.cf_category IS NOT NULL
-        ${dateFilter}
-      GROUP BY a.cf_category, a.account_code, a.account_name
-      HAVING movement != 0
+        AND a.cf_category != 'Cash'
+        AND a.account_code NOT LIKE '999999%'
+        ${periodFilter}
+      GROUP BY a.cf_category, a.account_code, a.account_name, a.account_type
+      HAVING ABS(raw_movement) > 0.005
       ORDER BY a.cf_category, a.account_code
     `,
     params,
   });
 
-  // Group by cf_category
-  const categories = {};
-  for (const row of cfRows) {
-    const cat = row.cf_category;
-    if (!categories[cat]) {
-      categories[cat] = { category: cat, items: [], total: 0 };
+  // Map cf_category to standard sections
+  // Op-WC and Op-NonCash → Operating; Investing → Investing; Financing → Financing
+  const sectionMap = {
+    'Op-WC': 'Operating',
+    'Op-NonCash': 'Operating',
+    'Investing': 'Investing',
+    'Financing': 'Financing',
+  };
+
+  const sections = {
+    Operating: { label: 'Operating Activities', total: 0 },
+    Investing: { label: 'Investing Activities', total: 0 },
+    Financing: { label: 'Financing Activities', total: 0 },
+  };
+
+  let unclassifiedTotal = 0;
+
+  for (const row of cfDetailRows) {
+    const rawMov = Number(row.raw_movement);
+    // Sign: Asset increase (positive debit-credit) = cash used = negative CF
+    // Liability increase (negative debit-credit) = cash received = positive CF
+    // So: CF impact = -rawMovement for assets, +(-rawMovement) for liabilities... 
+    // Actually: for assets, increase = cash out → negate. For liabilities, increase = cash in.
+    // raw_movement = debit-credit. Liability increase → credit > debit → raw_movement negative.
+    // CF impact for liability: -(raw_movement) = positive. Same for asset: -(raw_movement).
+    // So CF impact = -raw_movement for ALL BS accounts.
+    const cfImpact = -rawMov;
+
+    const section = sectionMap[row.cf_category];
+    if (section) {
+      sections[section].total += cfImpact;
+    } else {
+      unclassifiedTotal += cfImpact;
     }
-    const movement = Number(row.movement);
-    categories[cat].items.push({
-      accountCode: row.account_code,
-      accountName: row.account_name,
-      movement,
-    });
-    categories[cat].total += movement;
   }
 
-  // Check for uncategorised accounts
-  const [uncategorised] = await dataset.query({
+  // Cash from operations = net income + operating adjustments
+  const cashFromOperations = netIncome + sections.Operating.total;
+  // Override operating total to be the full "cash from operations"
+  sections.Operating.total = cashFromOperations;
+
+  const netChangeCash = cashFromOperations + sections.Investing.total + sections.Financing.total + unclassifiedTotal;
+
+  // 3. Cash balances — opening and closing
+  const cashParams = { companyId };
+  let openingCash = 0;
+  let closingCash = 0;
+
+  // Opening: cumulative cash balance before dateFrom
+  if (dateFrom) {
+    const [openRows] = await dataset.query({
+      query: `
+        SELECT COALESCE(SUM(je.debit - je.credit), 0) AS balance
+        FROM finance.journal_entries je
+        JOIN finance.accounts a ON je.company_id = a.company_id AND je.account_code = a.account_code
+        WHERE je.company_id = @companyId AND a.cf_category = 'Cash' AND je.date < @dateFrom
+      `,
+      params: { companyId, dateFrom },
+    });
+    openingCash = Number(openRows[0]?.balance || 0);
+  }
+
+  // Closing: cumulative cash balance up to dateTo
+  const closeFilter = dateTo ? ` AND je.date <= @dateTo` : '';
+  const closeParams = { companyId };
+  if (dateTo) closeParams.dateTo = dateTo;
+  const [closeRows] = await dataset.query({
     query: `
-      SELECT a.account_code, a.account_name,
-        COALESCE(SUM(je.debit - je.credit), 0) AS movement
+      SELECT COALESCE(SUM(je.debit - je.credit), 0) AS balance
       FROM finance.journal_entries je
-      JOIN finance.accounts a
-        ON je.company_id = a.company_id AND je.account_code = a.account_code
-      WHERE je.company_id = @companyId
-        AND a.account_type IN ('Asset', 'Liability', 'Equity')
-        AND a.cf_category IS NULL
-        ${dateFilter}
-      GROUP BY a.account_code, a.account_name
-      HAVING movement != 0
+      JOIN finance.accounts a ON je.company_id = a.company_id AND je.account_code = a.account_code
+      WHERE je.company_id = @companyId AND a.cf_category = 'Cash' ${closeFilter}
     `,
-    params,
+    params: closeParams,
   });
+  closingCash = Number(closeRows[0]?.balance || 0);
+
+  // BS cash balance for CHECK
+  const bsCashBalance = closingCash;
+  const checkDiff = closingCash - (openingCash + netChangeCash);
 
   return {
     report: 'cash_flow',
     dateFrom: dateFrom || null,
     dateTo: dateTo || null,
     netIncome,
-    categories: Object.values(categories),
-    uncategorised: uncategorised.map((r) => ({
-      accountCode: r.account_code,
-      accountName: r.account_name,
-      movement: Number(r.movement),
-    })),
-    uncategorisedTotal: uncategorised.reduce((s, r) => s + Number(r.movement), 0),
+    sections: {
+      operating: { label: 'Operating Activities', cashFromOperations },
+      investing: { label: 'Investing Activities', total: sections.Investing.total },
+      financing: { label: 'Financing Activities', total: sections.Financing.total },
+    },
+    unclassifiedTotal,
+    netChangeCash,
+    openingCash,
+    closingCash,
+    bsCashBalance,
+    checkDiff,
   };
 }
 

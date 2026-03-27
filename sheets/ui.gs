@@ -895,7 +895,15 @@ function writeSCEReport_(sheet, data) {
 
 /**
  * Write Cash Flow Statement report.
- * Matches original formatting: Company header, Period, indirect method layout.
+ * Matches original Google Sheet format exactly:
+ *   Company / Period / Currency header
+ *   Operating Activities → Cash from operations
+ *   Investing Activities → Cash from investing
+ *   Financing Activities → Cash from financing
+ *   Unclassified
+ *   Net change in cash
+ *   Cash at beginning / end of period
+ *   CHECK: BS cash balance / Difference
  */
 function writeCashFlowReport_(sheet, data) {
   var numFmt = '#,##0.00;(#,##0.00);0.00';
@@ -913,138 +921,93 @@ function writeCashFlowReport_(sheet, data) {
   fullRange.setHorizontalAlignment('left');
 
   // Column widths
-  sheet.setColumnWidth(1, 400);
+  sheet.setColumnWidth(1, 350);
   sheet.setColumnWidth(2, 140);
 
-  // Row 1: Company
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  // Read company/currency from Settings
   var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
-  var companyName = '';
-  var currency = '';
+  var companyName = '', currency = '';
   if (settingsSheet) {
     var settingsData = settingsSheet.getDataRange().getValues();
     for (var s = 0; s < settingsData.length; s++) {
       var key = String(settingsData[s][0]).trim().toLowerCase();
-      if (key === 'company_id' || key === 'company') companyName = String(settingsData[s][1]).trim();
+      if (key === 'company_id' || key === 'company' || key === 'company name') companyName = String(settingsData[s][1]).trim();
       if (key === 'currency') currency = String(settingsData[s][1]).trim();
     }
   }
+
+  // Header
+  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
   sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
-
-  // Row 2: Currency
-  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue(currency);
-
-  // Row 3: Period
-  var period = periodLabel(data.dateFrom, data.dateTo);
-  sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 2).setValue(period).setFontWeight('bold').setHorizontalAlignment('right');
+  sheet.getRange(2, 1).setValue('Period').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue(periodLabel(data.dateFrom, data.dateTo));
+  sheet.getRange(3, 1).setValue('Currency').setFontWeight('bold');
+  sheet.getRange(3, 2).setValue(currency);
 
   // Row 4: separator
   sheet.getRange('4:4').setBackground('#eeeeee');
 
-  // Row 5: CASH FLOW STATEMENT title
-  sheet.getRange(5, 1).setValue('CASH FLOW STATEMENT (Indirect Method)').setFontWeight('bold').setFontSize(12);
+  // Title
+  var row = 5;
+  sheet.getRange(row, 1).setValue('CASH FLOW STATEMENT').setFontWeight('bold').setFontSize(12);
+  sheet.getRange(row, 2).setValue('Amount').setFontWeight('bold').setHorizontalAlignment('right');
+  row += 2;
 
-  var row = 7;
+  // Helper: write a section
+  function writeSection_(label, sublabel, amount, sRow) {
+    sheet.getRange(sRow, 1).setValue(label).setFontWeight('bold').setFontSize(11);
+    sRow++;
+    sheet.getRange(sRow, 1).setValue('  ' + sublabel);
+    sheet.getRange(sRow, 2).setValue(amount);
+    sRow++;
+    sRow++; // blank
+    sheet.getRange(sRow, 1).setValue('Net cash from ' + label.toLowerCase().replace(' activities', '')).setFontWeight('bold');
+    sheet.getRange(sRow, 2).setValue(amount).setFontWeight('bold');
+    sheet.getRange(sRow, 1, 1, 2).setBorder(null, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+    sRow++;
+    sRow++; // blank
+    return sRow;
+  }
 
-  // Net Income
-  sheet.getRange(row, 1).setValue('Net Income').setFontWeight('bold');
-  sheet.getRange(row, 2).setValue(data.netIncome).setFontWeight('bold');
+  // Operating Activities
+  row = writeSection_('Operating Activities', 'Cash from operations', data.sections.operating.cashFromOperations, row);
+
+  // Investing Activities
+  row = writeSection_('Investing Activities', 'Cash from investing', data.sections.investing.total, row);
+
+  // Financing Activities
+  row = writeSection_('Financing Activities', 'Cash from financing', data.sections.financing.total, row);
+
+  // Unclassified (if any)
+  sheet.getRange(row, 1).setValue('  Unclassified');
+  sheet.getRange(row, 2).setValue(data.unclassifiedTotal || 0);
+  row += 2;
+
+  // Net change in cash
+  sheet.getRange(row, 1).setValue('Net change in cash').setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 2).setValue(data.netChangeCash).setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  row += 2;
+
+  // Cash at beginning / end of period
+  sheet.getRange(row, 1).setValue('Cash at beginning of period');
+  sheet.getRange(row, 2).setValue(data.openingCash);
   row++;
-  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  sheet.getRange(row, 1).setValue('Cash at end of period');
+  sheet.getRange(row, 2).setValue(data.closingCash);
+  row += 2;
+
+  // CHECK
+  sheet.getRange(row, 1).setValue('CHECK: BS cash balance').setFontWeight('bold');
+  sheet.getRange(row, 2).setValue(data.bsCashBalance);
   row++;
-
-  // CF categories — group by standard ordering
-  var catOrder = ['Cash', 'Op-WC', 'Op-NonCash', 'Investing', 'Financing'];
-  var catLabels = {
-    'Cash': 'Cash & Cash Equivalents',
-    'Op-WC': 'Operating — Working Capital Changes',
-    'Op-NonCash': 'Operating — Non-Cash Adjustments',
-    'Investing': 'Investing Activities',
-    'Financing': 'Financing Activities'
-  };
-
-  // Build category map from data
-  var catMap = {};
-  for (var i = 0; i < data.categories.length; i++) {
-    catMap[data.categories[i].category] = data.categories[i];
+  sheet.getRange(row, 1).setValue('Difference').setFontWeight('bold');
+  sheet.getRange(row, 2).setValue(data.checkDiff);
+  if (Math.abs(data.checkDiff) < 0.01) {
+    sheet.getRange(row, 2).setBackground('#e6f4ea');
+  } else {
+    sheet.getRange(row, 2).setBackground('#fce8e6');
   }
-
-  // Write in standard order, then any remaining
-  var written = {};
-  for (var ci = 0; ci < catOrder.length; ci++) {
-    var catKey = catOrder[ci];
-    var cat = catMap[catKey];
-    if (!cat) continue;
-    written[catKey] = true;
-
-    sheet.getRange(row, 1).setValue(catLabels[catKey] || catKey).setFontWeight('bold').setFontSize(11);
-    row++;
-
-    for (var j = 0; j < cat.items.length; j++) {
-      sheet.getRange(row, 1).setValue('   ' + cat.items[j].accountCode + ' ' + cat.items[j].accountName);
-      sheet.getRange(row, 2).setValue(cat.items[j].movement);
-      row++;
-    }
-    // Subtotal
-    sheet.getRange(row, 1).setValue('   Subtotal').setFontWeight('bold');
-    sheet.getRange(row, 2).setValue(cat.total).setFontWeight('bold');
-    sheet.getRange(row, 1, 1, 2)
-      .setBorder(true, null, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
-    row++;
-    sheet.getRange(row + ':' + row).setBackground('#eeeeee');
-    row++;
-  }
-
-  // Write any remaining categories not in the standard order
-  for (var i = 0; i < data.categories.length; i++) {
-    var cat = data.categories[i];
-    if (written[cat.category]) continue;
-
-    sheet.getRange(row, 1).setValue(cat.category).setFontWeight('bold').setFontSize(11);
-    row++;
-
-    for (var j = 0; j < cat.items.length; j++) {
-      sheet.getRange(row, 1).setValue('   ' + cat.items[j].accountCode + ' ' + cat.items[j].accountName);
-      sheet.getRange(row, 2).setValue(cat.items[j].movement);
-      row++;
-    }
-    sheet.getRange(row, 1).setValue('   Subtotal').setFontWeight('bold');
-    sheet.getRange(row, 2).setValue(cat.total).setFontWeight('bold');
-    sheet.getRange(row, 1, 1, 2)
-      .setBorder(true, null, null, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
-    row++;
-    sheet.getRange(row + ':' + row).setBackground('#eeeeee');
-    row++;
-  }
-
-  // Uncategorised accounts (if any)
-  if (data.uncategorised && data.uncategorised.length > 0) {
-    sheet.getRange(row, 1).setValue('Uncategorised (needs CF category)').setFontWeight('bold').setBackground('#fff3cd');
-    row++;
-    for (var j = 0; j < data.uncategorised.length; j++) {
-      sheet.getRange(row, 1).setValue('   ' + data.uncategorised[j].accountCode + ' ' + data.uncategorised[j].accountName);
-      sheet.getRange(row, 2).setValue(data.uncategorised[j].movement);
-      row++;
-    }
-    sheet.getRange(row, 1).setValue('   Subtotal').setFontWeight('bold');
-    sheet.getRange(row, 2).setValue(data.uncategorisedTotal).setFontWeight('bold');
-    row++;
-    sheet.getRange(row + ':' + row).setBackground('#eeeeee');
-    row++;
-  }
-
-  // Net Change in Cash
-  var netChange = data.netIncome;
-  for (var i = 0; i < data.categories.length; i++) {
-    netChange += data.categories[i].total;
-  }
-
-  sheet.getRange(row, 1).setValue('NET CHANGE IN CASH').setFontWeight('bold').setFontSize(11);
-  sheet.getRange(row, 2).setValue(netChange).setFontWeight('bold').setFontSize(11);
-  sheet.getRange(row, 1, 1, 2)
-    .setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
   // Number format for all data column
   sheet.getRange(5, 2, row - 4, 1).setNumberFormat(numFmt);

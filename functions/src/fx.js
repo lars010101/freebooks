@@ -98,6 +98,7 @@ async function fetchRates(ctx) {
     baseCurrency,
     rateCount: rows.length,
     currencies: Object.keys(rates),
+    rates: allRows,  // Return for display in sheet
   };
 }
 

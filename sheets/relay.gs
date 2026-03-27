@@ -91,62 +91,68 @@ function searchJournalEntries(query) {
 // Sidebar: Navigate tab helpers
 // =============================================================================
 
+// Tab configuration: name, color, category (reports/data/config)
+var TAB_CONFIG = {
+  // REPORTS (blue)
+  'Journal':        { color: '#1a73e8', category: 'reports', label: 'Journal' },
+  'PL':             { color: '#1a73e8', category: 'reports', label: 'Profit & Loss' },
+  'BS':             { color: '#1a73e8', category: 'reports', label: 'Balance Sheet' },
+  'COA':            { color: '#1a73e8', category: 'reports', label: 'COA' },
+  'Bank':           { color: '#1a73e8', category: 'reports', label: 'Bank' },
+  'CF':             { color: '#1a73e8', category: 'reports', label: 'Cash Flow' },
+  'SCE':            { color: '#1a73e8', category: 'reports', label: 'Changes in Equity' },
+  'TB':             { color: '#1a73e8', category: 'reports', label: 'Trial Balance' },
+  'AP Aging':       { color: '#1a73e8', category: 'reports', label: 'AP Aging' },
+  'VAT Return':     { color: '#1a73e8', category: 'reports', label: 'VAT Return' },
+  'Integrity':      { color: '#1a73e8', category: 'reports', label: 'Integrity Check' },
+  'Dashboard':      { color: '#1a73e8', category: 'reports', label: 'Dashboard' },
+
+  // DATA ENTRY (green)
+  'Bank Processing': { color: '#34a853', category: 'data', label: 'Bank Processing' },
+  'Bills':          { color: '#34a853', category: 'data', label: 'Bills' },
+  'Import':         { color: '#34a853', category: 'data', label: 'Import' },
+
+  // CONFIGURATION (gray)
+  'Mappings':      { color: '#808080', category: 'config', label: 'Bank Mappings' },
+  'Centers':        { color: '#808080', category: 'config', label: 'Profit / Cost Centers' },
+  'VAT Codes':      { color: '#808080', category: 'config', label: 'VAT Codes' },
+  'FX Rates':       { color: '#808080', category: 'config', label: 'FX Rates' },
+  'Settings':       { color: '#808080', category: 'config', label: 'Settings' },
+};
+
+// Tab creation order (most frequent first within each category)
+var TAB_ORDER = [
+  // Reports - most frequent
+  'Journal', 'PL', 'BS', 'Bank', 'CF', 'SCE', 'TB', 'AP Aging', 'VAT Return', 'Integrity', 'Dashboard',
+  // Data Entry
+  'Bank Processing', 'Bills', 'Import',
+  // Configuration
+  'Mappings', 'Centers', 'VAT Codes', 'FX Rates', 'Settings'
+];
+
 function navigateToTab(name) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  // Create Journal tab if it doesn't exist
-  if (name === 'Journal') {
-    var jSheet = ss.getSheetByName('Journal');
-    if (!jSheet) {
-      jSheet = ss.insertSheet('Journal', 0);
-      jSheet.setTabColor('#1a73e8');
-      jSheet.setFrozenRows(1);
-      var headers = ['Date', 'Batch ID', 'Account Code', 'Debit', 'Credit', 'Currency', 'Description', 'Reference', 'Source', 'VAT Code'];
-      jSheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
-    }
-    // Just activate — data loads on Refresh Active, not on navigate
-    jSheet.showSheet();
-    jSheet.activate();
-    return;
-  }
-
-  // Create FX Rates tab if needed
-  if (name === 'FX Rates') {
-    var fxSheet = ss.getSheetByName('FX Rates');
-    if (!fxSheet) {
-      fxSheet = ss.insertSheet('FX Rates');
-      fxSheet.setTabColor('#808080'); fxSheet.setFrozenRows(1);
-      var h = ['Date', 'From', 'To', 'Rate', 'Source'];
-      fxSheet.getRange(1,1,1,h.length).setValues([h]).setFontWeight('bold').setBackground('#e6e6e6');
-    }
-    fxSheet.showSheet(); fxSheet.activate();
-    return;
-  }
-
-  // Create Import tab if needed
-  if (name === 'Import') {
-    var impSheet = ss.getSheetByName('Import');
-    if (!impSheet) {
-      impSheet = ss.insertSheet('Import');
-      impSheet.setTabColor('#e8710a'); impSheet.setFrozenRows(1);
-      var h = ['Batch ID', 'Date', 'Account Code', 'Debit', 'Credit', 'Currency', 'FX Rate', 'Description', 'Reference', 'Source'];
-      impSheet.getRange(1,1,1,h.length).setValues([h]).setFontWeight('bold').setBackground('#fce8b2');
-      // Add instruction note
-      impSheet.getRange(2,1).setValue('Paste journal data below. Group lines by Batch ID. Hit Save to import.');
-      impSheet.getRange(2,1,1,h.length).merge().setFontStyle('italic').setFontColor('#666666');
-    }
-    impSheet.showSheet(); impSheet.activate();
-    return;
-  }
-
+  var config = TAB_CONFIG[name] || { color: '#5f6368', category: 'reports' };
+  
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
-    // Auto-create report tabs that may not exist yet
-    var autoCreate = ['SCE', 'Integrity', 'TB', 'PL', 'BS', 'CF', 'AP Aging', 'VAT Return', 'Dashboard'];
-    if (autoCreate.indexOf(name) >= 0) {
-      sheet = ss.insertSheet(name);
-      sheet.setFrozenRows(1);
-    } else {
-      throw new Error('Tab not found: ' + name);
+    // Create new sheet with appropriate color
+    sheet = ss.insertSheet(name);
+    sheet.setTabColor(config.color);
+    sheet.setFrozenRows(1);
+    
+    // Add default headers for known sheets
+    if (name === 'Journal') {
+      var headers = ['Date', 'Batch ID', 'Account Code', 'Debit', 'Credit', 'Currency', 'Description', 'Reference', 'Source', 'VAT Code'];
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
+    } else if (name === 'FX Rates') {
+      var h = ['Date', 'From', 'To', 'Rate', 'Source'];
+      sheet.getRange(1,1,1,h.length).setValues([h]).setFontWeight('bold').setBackground('#e6e6e6');
+    } else if (name === 'Import') {
+      var h = ['Batch ID', 'Date', 'Account Code', 'Debit', 'Credit', 'Currency', 'FX Rate', 'Description', 'Reference', 'Source'];
+      sheet.getRange(1,1,1,h.length).setValues([h]).setFontWeight('bold').setBackground('#fce8b2');
+      sheet.getRange(2,1).setValue('Paste journal data below. Group lines by Batch ID. Hit Save to import.');
+      sheet.getRange(2,1,1,h.length).merge().setFontStyle('italic').setFontColor('#666666');
     }
   }
   sheet.showSheet();
@@ -377,8 +383,24 @@ function saveSettingsFromSidebar(data) {
 function runSettingsAction(action) {
   switch (action) {
     case 'fetchFx':
-      callSkuld_('fx.fetch_rates', {});
-      return '✅ FX rates fetched from ECB';
+      var fxResult = callSkuld_('fx.fetch_rates', {});
+      if (fxResult && fxResult.rates) {
+        // Write rates to FX Rates sheet
+        var fxSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('FX Rates');
+        if (!fxSheet) {
+          fxSheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet('FX Rates');
+          fxSheet.setTabColor('#808080');
+          fxSheet.setFrozenRows(1);
+          fxSheet.getRange(1,1,1,5).setValues([['Date','From','To','Rate','Source']]).setFontWeight('bold').setBackground('#e6e6e6');
+        }
+        var rateData = fxResult.rates.map(function(r) {
+          return [r.date, r.from_currency, r.to_currency, r.rate, r.source];
+        });
+        fxSheet.getRange(2, 1, rateData.length, 5).setValues(rateData);
+        fxSheet.getRange(2, 1, rateData.length, 5).setNumberFormat('0.000000');
+        fxSheet.autoResizeColumns();
+      }
+      return '✅ FX rates fetched: ' + (fxResult ? fxResult.rateCount + ' rates' : 'none');
     case 'backup':
       var result = callSkuld_('backup.export', {});
       if (result) {

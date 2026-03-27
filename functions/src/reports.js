@@ -129,9 +129,9 @@ function detectPeriods(dateFrom, dateTo, fy) {
   // Check FY match: from = FY start, to = FY end
   if (fromMonth === fy.fyStartMonth && fromDay === fy.fyStartDay &&
       toMonth === fy.fyEndMonth && toDay === fy.fyEndDay) {
-    // Generate 3 FY periods rolling back
+    // Generate 5 FY periods rolling back
     const periods = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       const fyFromYear = fromYear - i;
       let fyToYear;
       // Handle FY that spans calendar years (e.g. Feb 2025 - Jan 2026)
@@ -850,12 +850,15 @@ async function refreshSCE(ctx) {
   function classifyEquity(code) {
     const c = String(code);
     if (c.startsWith('203080') || c.startsWith('2081')) return 'shareCapital';
-    if (c.startsWith('203070') || c.startsWith('999999')) return 'retainedEarnings';
+    if (c.startsWith('203070')) return 'retainedEarnings';
+    if (c.startsWith('999999')) return 'retainedEarnings'; // closing account — normally excluded from SCE queries
     if (c.startsWith('203040') || c.startsWith('2898')) return 'dividends';
     return 'retainedEarnings'; // default bucket
   }
 
   // 1. Opening balances: cumulative credit-debit before dateFrom for equity accounts
+  //    EXCLUDE 999999 (closing/clearing account) — it nets to zero over closed FYs
+  //    and its inclusion distorts RE opening balance.
   const [openingRows] = await dataset.query({
     query: `
       SELECT
@@ -867,13 +870,14 @@ async function refreshSCE(ctx) {
         AND je.account_code IN (
           SELECT account_code FROM finance.accounts
           WHERE company_id = @companyId AND account_type = 'Equity'
+            AND account_code NOT LIKE '999999%'
         )
       GROUP BY je.account_code
     `,
     params: { companyId, dateFrom },
   });
 
-  // 2. Period movements for equity accounts
+  // 2. Period movements for equity accounts (exclude 999999)
   const [movementRows] = await dataset.query({
     query: `
       SELECT
@@ -885,6 +889,7 @@ async function refreshSCE(ctx) {
         AND je.account_code IN (
           SELECT account_code FROM finance.accounts
           WHERE company_id = @companyId AND account_type = 'Equity'
+            AND account_code NOT LIKE '999999%'
         )
       GROUP BY je.account_code
       HAVING ABS(movement) > 0.005

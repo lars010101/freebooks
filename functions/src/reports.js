@@ -488,16 +488,10 @@ async function refreshBS(ctx) {
       }
     }
 
-    // Balancing net income
+    // Balancing net income (unclosed P&L) — passed to UI as netIncome field,
+    // UI writes a single "Unclosed P&L" row. Don't inject a category here.
     const balancingNetIncome = totals.Asset - totals.Liability - totals.Equity;
-    if (Math.abs(balancingNetIncome) > 0.01) {
-      const cat = 'Current Year Earnings';
-      const existing = flatSections.Equity.find((c) => c.category === cat);
-      const entry = { accountCode: '—', accountName: 'Net Income (Current Year)', balance: balancingNetIncome };
-      if (existing) { existing.accounts.push(entry); existing.total += balancingNetIncome; }
-      else flatSections.Equity.push({ category: cat, accounts: [entry], total: balancingNetIncome });
-      totals.Equity += balancingNetIncome;
-    }
+    totals.Equity += balancingNetIncome;
 
     return {
       report: 'balance_sheet',
@@ -546,24 +540,15 @@ async function refreshBS(ctx) {
     }
   }
 
-  // Compute balancing net income for each period
+  // Compute balancing net income for each period (unclosed P&L)
   const balancingNetIncome = detected.periods.map((_, pi) =>
     periodTotals.Asset[pi] - periodTotals.Liability[pi] - periodTotals.Equity[pi]
   );
 
-  // Add net income row to Equity
-  const hasNetIncome = balancingNetIncome.some((ni) => Math.abs(ni) > 0.01);
-  if (hasNetIncome) {
-    const cat = 'Current Year Earnings';
-    if (!allAccounts.Equity[cat]) allAccounts.Equity[cat] = {};
-    allAccounts.Equity[cat]['—'] = {
-      accountCode: '—',
-      accountName: 'Net Income (Current Year)',
-      amounts: balancingNetIncome,
-    };
-    for (let pi = 0; pi < detected.periods.length; pi++) {
-      periodTotals.Equity[pi] += balancingNetIncome[pi];
-    }
+  // Adjust equity totals to include unclosed P&L (but don't inject a category —
+  // the UI writer handles the single "Unclosed P&L" row from data.netIncome)
+  for (let pi = 0; pi < detected.periods.length; pi++) {
+    periodTotals.Equity[pi] += balancingNetIncome[pi];
   }
 
   // Build output sections

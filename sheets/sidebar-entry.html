@@ -219,18 +219,62 @@ function switchTab(name) {
   document.getElementById('panel-' + name).classList.add('active');
   var tabs = ['entry','navigate','settings'];
   document.querySelectorAll('.tab')[tabs.indexOf(name)].classList.add('active');
+
+  // Lazy-load COA/VAT only when user switches to Entry tab
+  if (name === 'entry' && accounts.length === 0) {
+    var statusEl = document.getElementById('global-status');
+    statusEl.style.background = '#fef7e0';
+    statusEl.style.color = '#ea8600';
+    statusEl.textContent = 'Loading accounts...';
+    google.script.run.withSuccessHandler(function(data) {
+      accounts = data.accounts || [];
+      vatCodes = data.vatCodes || [];
+      // Re-render any existing lines with the new account/VAT options
+      var existingLines = document.querySelectorAll('[id^="line-"]');
+      if (existingLines.length > 0) {
+        var lineIds = [];
+        existingLines.forEach(function(l) { lineIds.push(l.id.split('-')[1]); });
+        document.getElementById('linesContainer').innerHTML = '';
+        lineCount = 0;
+        lineIds.forEach(function(n) { addLineWithValues(n); });
+      }
+      statusEl.style.background = '#e6f4ea';
+      statusEl.style.color = '#137333';
+      statusEl.textContent = '✅ Ready';
+    }).withFailureHandler(function(e) {
+      statusEl.style.background = '#fce8e6';
+      statusEl.style.color = '#c5221f';
+      statusEl.textContent = '❌ Failed to load: ' + e.message;
+    }).getSidebarInitDataWithAccounts();
+  }
 }
 
 // ---- Entry: Add/Remove Lines ----
 function addLine(acct, dr, cr, vat) {
-  lineCount++;
-  var n = lineCount;
+  addLineWithValues(lineCount + 1, acct, dr, cr, vat);
+}
+
+function addLineWithValues(n, acct, dr, cr, vat) {
+  lineCount = n;
   var div = document.createElement('div');
   div.className = 'line'; div.id = 'line-' + n;
+
+  // Build account options - show placeholder if not loaded yet
   var ao = '<option value="">— Account —</option>';
-  for (var i = 0; i < accounts.length; i++) ao += '<option value="'+accounts[i].code+'"'+(acct===accounts[i].code?' selected':'')+'>'+accounts[i].code+' — '+accounts[i].name+'</option>';
+  if (accounts.length === 0) {
+    ao += '<option value="" disabled>Loading accounts...</option>';
+  } else {
+    for (var i = 0; i < accounts.length; i++) ao += '<option value="'+accounts[i].code+'"'+(acct===accounts[i].code?' selected':'')+'>'+accounts[i].code+' — '+accounts[i].name+'</option>';
+  }
+
+  // Build VAT options
   var vo = '<option value="">No VAT</option>';
-  for (var i = 0; i < vatCodes.length; i++) vo += '<option value="'+vatCodes[i].code+'"'+(vat===vatCodes[i].code?' selected':'')+'>'+vatCodes[i].code+' ('+Math.round(vatCodes[i].rate*100)+'%)</option>';
+  if (vatCodes.length === 0) {
+    vo += '<option value="" disabled>Loading...</option>';
+  } else {
+    for (var i = 0; i < vatCodes.length; i++) vo += '<option value="'+vatCodes[i].code+'"'+(vat===vatCodes[i].code?' selected':'')+'>'+vatCodes[i].code+' ('+Math.round(vatCodes[i].rate*100)+'%)</option>';
+  }
+
   div.innerHTML = '<div class="line-header"><span>#'+n+'</span><button onclick="removeLine('+n+')">✕</button></div>'
     +'<select id="account-'+n+'">'+ao+'</select>'
     +'<div class="row" style="margin-top:4px"><div><label>DR</label><input type="number" id="debit-'+n+'" step="0.01" min="0" value="'+(dr||0)+'" oninput="updateTotals()"></div>'

@@ -11,15 +11,19 @@ function callSkuld_(action, payload) {
   var config = getConfig_();
   var body = { action: action, companyId: config.companyId, userEmail: Session.getActiveUser().getEmail() };
   if (payload) { for (var k in payload) body[k] = payload[k]; }
-  var response = UrlFetchApp.fetch(config.functionUrl, {
-    method: 'post', contentType: 'application/json', payload: JSON.stringify(body),
-    headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true
-  });
-  var result = JSON.parse(response.getContentText());
-  if (response.getResponseCode() !== 200) {
-    throw new Error(result.error || 'Cloud Function error');
+  try {
+    var response = UrlFetchApp.fetch(config.functionUrl, {
+      method: 'post', contentType: 'application/json', payload: JSON.stringify(body),
+      headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true
+    });
+    var result = JSON.parse(response.getContentText());
+    if (response.getResponseCode() !== 200) {
+      throw new Error(result.error || 'Cloud Function error: ' + response.getResponseCode());
+    }
+    return result.data;
+  } catch (e) {
+    throw new Error('Failed to call Skuld: ' + e.message);
   }
-  return result.data;
 }
 
 // =============================================================================
@@ -36,6 +40,17 @@ function openSidebar() {
 // =============================================================================
 
 function getSidebarInitData() {
+  // Lazy-load accounts/VAT only when user switches to Entry tab
+  // This avoids blocking sidebar open with 8s of BigQuery calls
+  return {
+    accounts: [],
+    vatCodes: [],
+    settings: getSettingsData()
+  };
+}
+
+// Called from sidebar when user switches to Entry tab (lazy load)
+function getSidebarInitDataWithAccounts() {
   var accts = callSkuld_('coa.list', {});
   var vats = callSkuld_('vat.codes.list', {});
   return {
@@ -153,7 +168,7 @@ function runContextAction(action, period) {
 
 function refreshTab_(name, period) {
   var params = period || getReportParams_();
-  switch (name) {
+  try {
     case 'Journal':
       navigateToTab('Journal');
       var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo });
@@ -218,6 +233,9 @@ function refreshTab_(name, period) {
       return '✅ Processed: ' + r.summary.ruleMatched + ' matched, ' + r.summary.unmatched + ' unmatched';
     default:
       return '⚠️ No refresh action for tab: ' + name;
+  }
+  } catch (e) {
+    return '❌ Error: ' + e.message;
   }
 }
 

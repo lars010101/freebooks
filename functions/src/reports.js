@@ -433,6 +433,7 @@ async function queryBSPeriod(dataset, companyId, dateTo) {
       WHERE a.company_id = @companyId
         AND a.account_type IN ('Asset', 'Liability', 'Equity')
         AND a.is_active = TRUE
+        AND a.account_code NOT LIKE '999999%'
       GROUP BY a.account_code, a.account_name, a.account_type, a.bs_category
       HAVING balance != 0
       ORDER BY a.account_code

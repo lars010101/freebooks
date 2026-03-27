@@ -169,6 +169,7 @@ function runContextAction(action, period) {
 function refreshTab_(name, period) {
   var params = period || getReportParams_();
   try {
+    switch (name) {
     case 'Journal':
       navigateToTab('Journal');
       var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo });
@@ -431,7 +432,7 @@ function setupTrigger() {
 
 function hideNonEssentialTabs_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hide = ['Import', 'Export', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'PL', 'BS', 'CF', 'AP Aging', 'VAT Return', 'SCE', 'Integrity', 'Manual Entry', 'Dashboard', 'Settings'];
+  var hide = ['Import', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'PL', 'BS', 'CF', 'AP Aging', 'VAT Return', 'SCE', 'Integrity', 'Manual Entry', 'Dashboard', 'Settings'];
   for (var i = 0; i < hide.length; i++) {
     var s = ss.getSheetByName(hide[i]);
     if (s) s.hideSheet();

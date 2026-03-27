@@ -27,7 +27,6 @@ const ACTION_ROLES = {
   'journal.reverse': 'data_entry',
   'journal.list': 'viewer',
   'journal.import': 'data_entry',
-  'journal.export': 'viewer',
 
   // Bank processing
   'bank.process': 'data_entry',

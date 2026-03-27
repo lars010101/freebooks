@@ -22,8 +22,6 @@ async function handleJournal(ctx, action) {
       return listEntries(ctx);
     case 'journal.import':
       return importEntries(ctx);
-    case 'journal.export':
-      return exportEntries(ctx);
     default:
       throw Object.assign(new Error(`Unknown journal action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }

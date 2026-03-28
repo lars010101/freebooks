@@ -261,14 +261,14 @@ function refreshTab_(name, period) {
     case '_CACHE_BALANCES':
       var r = callSkuld_('report.cache_balances', {});
       if (r && r.rows) writeToSheet_('_CACHE_BALANCES', r.rows, r.columns);
-      var cacheSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('_CACHE_BALANCES');
-      if (cacheSheet) {
-        // Dynamically find the column just beyond the last data column for the trigger cell
-        var triggerCol = cacheSheet.getLastColumn() + 1;
+      if (r && r.columns) {
+        // Timestamp goes in the column just beyond the last data column
+        // Use r.columns.length (not getLastColumn which resets to 0 after sheet.clear())
+        var triggerCol = r.columns.length + 1;
         var colLetter = colNumToLetter_(triggerCol);
+        var cacheSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('_CACHE_BALANCES');
         var triggerRange = cacheSheet.getRange(colLetter + '1');
         triggerRange.setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
-        // Ensure timestamp named range always points to this trigger cell
         var ss = SpreadsheetApp.getActiveSpreadsheet();
         ss.setNamedRange('timestamp', triggerRange);
       }

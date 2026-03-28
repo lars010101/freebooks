@@ -587,9 +587,9 @@ function buildSkuldPL_(sheet, ss) {
 
   // Clear and prepare sheet
   sheet.clear();
-  sheet.setColumnWidth(1, 400);
-  sheet.setColumnWidth(2, 160);
-  sheet.setColumnWidth(3, 160);
+  sheet.setColumnWidth(1, 100);  // Account code (pure, for skuld lookup)
+  sheet.setColumnWidth(2, 300);  // Account name (VLOOKUP from COA)
+  sheet.setColumnWidth(3, 160);  // Balance (skuld formula)
 
   // Row 1: Company header
   sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
@@ -600,9 +600,9 @@ function buildSkuldPL_(sheet, ss) {
   sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
   sheet.getRange(2, 2).setValue(currency);
 
-  // Row 3: Period selector label + cell (C3 = period input)
+  // Row 3: Period selector
   sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 2).setValue('FY2025').setFontWeight('bold'); // default
+  sheet.getRange(3, 2).setValue('FY2025').setFontWeight('bold');
   sheet.getRange(3, 2).setBackground('#e8f0fe');
 
   // Row 4: Separator
@@ -619,10 +619,13 @@ function buildSkuldPL_(sheet, ss) {
   for (var i = 0; i < plAccounts.length; i++) {
     var acct = plAccounts[i];
     if (acct.type !== 'Revenue') continue;
-    sheet.getRange(row, 1).setValue(acct.code + '  ' + acct.name);
-    // skuld formula: =skuld(timestamp, period, accountCode)
-    sheet.getRange(row, 2).setFormula("=skuld(timestamp,B3,A" + row + ")");
-    sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    // Col A: pure account code
+    sheet.getRange(row, 1).setValue(acct.code);
+    // Col B: VLOOKUP name from COA
+    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
+    // Col C: skuld balance — period from B$3, account code from col A
+    sheet.getRange(row, 3).setFormula('=skuld(timestamp,B$3,A' + row + ')');
+    sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
   var revEnd = row - 1;
@@ -630,9 +633,9 @@ function buildSkuldPL_(sheet, ss) {
   // TOTAL REVENUE row
   if (revEnd >= revStart) {
     sheet.getRange(row, 1).setValue('TOTAL REVENUE').setFontWeight('bold');
-    sheet.getRange(row, 2).setFormula('=SUMIF(A' + revStart + ':A' + revEnd + ',"3*",B' + revStart + ':B' + revEnd + ')').setFontWeight('bold');
-    sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-    sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+    sheet.getRange(row, 3).setFormula('=SUMIF(A' + revStart + ':A' + revEnd + ',"3*",C' + revStart + ':C' + revEnd + ')').setFontWeight('bold');
+    sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   }
   row++;
   sheet.getRange(row + ':' + row).setBackground('#eeeeee');
@@ -647,9 +650,13 @@ function buildSkuldPL_(sheet, ss) {
   for (var i = 0; i < plAccounts.length; i++) {
     var acct = plAccounts[i];
     if (acct.type !== 'Expense') continue;
-    sheet.getRange(row, 1).setValue(acct.code + '  ' + acct.name);
-    sheet.getRange(row, 2).setFormula("=skuld(timestamp,B3,A" + row + ")");
-    sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    // Col A: pure account code
+    sheet.getRange(row, 1).setValue(acct.code);
+    // Col B: VLOOKUP name from COA
+    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
+    // Col C: skuld balance
+    sheet.getRange(row, 3).setFormula('=skuld(timestamp,B$3,A' + row + ')');
+    sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
   var expEnd = row - 1;
@@ -657,9 +664,9 @@ function buildSkuldPL_(sheet, ss) {
   // TOTAL EXPENSES row
   if (expEnd >= expStart) {
     sheet.getRange(row, 1).setValue('TOTAL EXPENSES').setFontWeight('bold');
-    sheet.getRange(row, 2).setFormula('=SUMIF(A' + expStart + ':A' + expEnd + ',"4*",B' + expStart + ':B' + expEnd + ')').setFontWeight('bold');
+    sheet.getRange(row, 3).setFormula('=SUMIF(A' + expStart + ':A' + expEnd + ',"4*",C' + expStart + ':C' + expEnd + ')').setFontWeight('bold');
     sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-    sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+    sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   }
   row++;
   sheet.getRange(row + ':' + row).setBackground('#eeeeee');
@@ -671,9 +678,9 @@ function buildSkuldPL_(sheet, ss) {
   var totRevRow = revEnd + 1;
   var totExpRow = expEnd + 1;
   sheet.getRange(row, 1).setValue('NET PROFIT / (LOSS)').setFontWeight('bold').setFontSize(11);
-  sheet.getRange(row, 2).setFormula('=B' + totRevRow + '-B' + totExpRow).setFontWeight('bold').setFontSize(11);
-  sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  sheet.getRange(row, 3).setFormula('=C' + totRevRow + '-C' + totExpRow).setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   sheet.setFrozenRows(4);
 }
 

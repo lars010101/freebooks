@@ -2,23 +2,23 @@
  * Query account balances from the _CACHE_BALANCES tab.
  *
  * Usage:
- * =skuld("FY2025")               -> Returns 2D array: [account_code, balance] for all accounts
- * =skuld("FY2025", "all")        -> Same as above
- * =skuld("FY2025", "pnl")        -> Returns 2D array of P&L accounts: [account_code, balance] 
- * =skuld("FY2025", "bs")         -> Returns 2D array of BS accounts: [account_code, balance]
- * =skuld("FY2025", "3000")       -> Returns single balance for account 3000
- * =skuld("FY2025", A1:A10)       -> Returns array of balances for given accounts
- * =skuld("FY2025", "pnl", A1)    -> Returns filtered results; reads A1 as recalc trigger
+ * =skuld("FY2025", timer)         -> All accounts
+ * =skuld("FY2025", timer, "pnl")  -> P&L accounts only
+ * =skuld("FY2025", timer, "bs")   -> Balance Sheet accounts only
+ * =skuld("FY2025", timer, 3000)   -> Single account balance
+ * =skuld("FY2025", timer, A1:A10) -> Array of balances for given account codes
  *
  * @param {string} period - The period column to query (e.g., "FY2025", "2025-01")
- * @param {string|Array} [accountFilter] - Optional. "all", "pnl", "bs", or specific account code(s). Defaults to "all".
- * @param {*} [recalcTrigger] - Optional. If provided, the function reads this value so Sheets auto-recalculates when it changes.
+ * @param {*} timer - Must be the `timer` named range (forces auto-recalculate on cache rebuild)
+ * @param {string|Array} filter - "pnl", "bs", or specific account code(s). Defaults to all accounts.
  * @return {Array|number|string}
  * @customfunction
  */
-function skuld(period, accountFilter, recalcTrigger) {
-  // Access recalcTrigger to mark it as a dependency (prevents "unnecessary recalculation" optimization)
-  if (recalcTrigger !== undefined) { void recalcTrigger; }
+function skuld(period, timer, filter) {
+  // Access timer to mark it as a dependency
+  if (timer !== undefined) { void timer; }
+  
+  if (!period) return "Error: Missing period";
   
   if (!period) return "Error: Missing period";
   
@@ -42,12 +42,12 @@ function skuld(period, accountFilter, recalcTrigger) {
   if (acctIndex === -1) return "Error: Cache missing 'Account Code'";
 
   // Default to 'all' if omitted
-  if (accountFilter === undefined || accountFilter === null || accountFilter === '') {
-    accountFilter = 'all';
+  if (filter === undefined || filter === null || filter === '') {
+    filter = 'all';
   }
 
-  var isPrimitive = typeof accountFilter === 'string' || typeof accountFilter === 'number';
-  var queryStr = isPrimitive ? String(accountFilter).trim() : null;
+  var isPrimitive = typeof filter === 'string' || typeof filter === 'number';
+  var queryStr = isPrimitive ? String(filter).trim() : null;
   var queryType = isPrimitive ? queryStr.toLowerCase() : null;
 
   // Handle standard query types returning 2D array [code, balance]
@@ -94,12 +94,12 @@ function skuld(period, accountFilter, recalcTrigger) {
   }
   
   // Handle array/range of accounts
-  if (Array.isArray(accountFilter)) {
+  if (Array.isArray(filter)) {
     var resultArr = [];
-    for (var r = 0; r < accountFilter.length; r++) {
+    for (var r = 0; r < filter.length; r++) {
       var rowResult = [];
-      for (var c = 0; c < accountFilter[r].length; c++) {
-        var reqCode = String(accountFilter[r][c]).trim();
+      for (var c = 0; c < filter[r].length; c++) {
+        var reqCode = String(filter[r][c]).trim();
         if (!reqCode) {
           rowResult.push('');
         } else {

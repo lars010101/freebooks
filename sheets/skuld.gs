@@ -35,8 +35,9 @@ function SKULD(accountOrQuery, period) {
   
   if (acctIndex === -1) return "Error: Cache missing 'Account Code'";
 
-  var isString = typeof accountOrQuery === 'string';
-  var queryType = isString ? String(accountOrQuery).toLowerCase().trim() : null;
+  var isPrimitive = typeof accountOrQuery === 'string' || typeof accountOrQuery === 'number';
+  var queryStr = isPrimitive ? String(accountOrQuery).trim() : null;
+  var queryType = isPrimitive ? queryStr.toLowerCase() : null;
 
   // Handle standard query types returning 2D array [code, balance]
   if (queryType === 'account_balances' || queryType === 'account_balances_pl' || queryType === 'account_balances_bs') {
@@ -76,9 +77,9 @@ function SKULD(accountOrQuery, period) {
     }
   }
 
-  // Handle single account string
-  if (isString) {
-    return balanceMap[queryType] || 0;
+  // Handle single account primitive
+  if (isPrimitive) {
+    return balanceMap[queryStr] || 0;
   }
   
   // Handle array/range of accounts

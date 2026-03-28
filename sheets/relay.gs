@@ -196,9 +196,12 @@ function refreshTab_(name, period) {
       return '✅ P&L refreshed';
     case 'PL-skuld':
       var ss = SpreadsheetApp.getActiveSpreadsheet();
-      var tsRange = ss.getRangeByName('timestamp');
-      var sheet = navigateToTab('PL-skuld');
-      buildSkuldPL_(sheet, ss, tsRange);
+      var coaSheet = ss.getSheetByName('COA');
+      var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
+      if (!coaSheet) return '❌ COA sheet not found — please refresh COA first';
+      if (!cacheSheet) return '❌ _CACHE_BALANCES not found — please rebuild cache first';
+      var plSkuldSheet = navigateToTab('PL-skuld');
+      buildSkuldPL_(plSkuldSheet, ss);
       return '✅ P&L (skuld) built — change period in B3';
     case 'BS':
       var r = callSkuld_('report.refresh_bs', params);
@@ -206,9 +209,12 @@ function refreshTab_(name, period) {
       return '✅ Balance Sheet refreshed';
     case 'BS-skuld':
       var ss2 = SpreadsheetApp.getActiveSpreadsheet();
-      var tsRange2 = ss2.getRangeByName('timestamp');
-      var sheet2 = navigateToTab('BS-skuld');
-      buildSkuldBS_(sheet2, ss2, tsRange2);
+      var coaSheet2 = ss2.getSheetByName('COA');
+      var cacheSheet2 = ss2.getSheetByName('_CACHE_BALANCES');
+      if (!coaSheet2) return '❌ COA sheet not found — please refresh COA first';
+      if (!cacheSheet2) return '❌ _CACHE_BALANCES not found — please rebuild cache first';
+      var bsSkuldSheet = navigateToTab('BS-skuld');
+      buildSkuldBS_(bsSkuldSheet, ss2);
       return '✅ BS (skuld) built — change period in B3';
     case 'CF':
       var r = callSkuld_('report.refresh_cf', params);
@@ -516,7 +522,7 @@ function colNumToLetter_(n) {
  * Build or refresh the PL-skuld tab using skuld() formulas.
  * Reads P&L accounts from the COA tab and creates a formatted P&L report.
  */
-function buildSkuldPL_(sheet, ss, timestampRange) {
+function buildSkuldPL_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
   var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
   if (!coaSheet) { Logger.log('PL-skuld error: COA sheet not found'); return; }
@@ -656,7 +662,7 @@ function buildSkuldPL_(sheet, ss, timestampRange) {
 /**
  * Build or refresh the BS-skuld tab using skuld() formulas.
  */
-function buildSkuldBS_(sheet, ss, timestampRange) {
+function buildSkuldBS_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
   if (!coaSheet) { Logger.log('BS-skuld error: COA sheet not found'); return; }
 

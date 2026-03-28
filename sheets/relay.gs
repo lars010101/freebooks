@@ -633,7 +633,7 @@ function buildSkuldPL_(sheet, ss) {
   // TOTAL REVENUE row
   if (revEnd >= revStart) {
     sheet.getRange(row, 1).setValue('TOTAL REVENUE').setFontWeight('bold');
-    sheet.getRange(row, 3).setFormula('=SUMIF(A' + revStart + ':A' + revEnd + ',"3*",C' + revStart + ':C' + revEnd + ')').setFontWeight('bold');
+    sheet.getRange(row, 3).setFormula('=SUM(C' + str(revStart) + ':C' + str(revEnd) + ')').setFontWeight('bold');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   }
@@ -664,7 +664,7 @@ function buildSkuldPL_(sheet, ss) {
   // TOTAL EXPENSES row
   if (expEnd >= expStart) {
     sheet.getRange(row, 1).setValue('TOTAL EXPENSES').setFontWeight('bold');
-    sheet.getRange(row, 3).setFormula('=SUMIF(A' + expStart + ':A' + expEnd + ',"4*",C' + expStart + ':C' + expEnd + ')').setFontWeight('bold');
+    sheet.getRange(row, 3).setFormula('=SUM(C' + str(expStart) + ':C' + str(expEnd) + ')').setFontWeight('bold');
     sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   }

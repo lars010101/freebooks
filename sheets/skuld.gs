@@ -88,7 +88,11 @@ function skuld(timestamp, period, filter) {
 
   // Handle single account primitive
   if (isPrimitive) {
-    return balanceMap[queryStr] || 0;
+    // Try direct lookup first, then try extracting numeric/code prefix from "3000  Name" format
+    if (balanceMap[queryStr] !== undefined) return balanceMap[queryStr];
+    var match = String(queryStr).match(/^(\d+)/);
+    if (match && balanceMap[match[1]] !== undefined) return balanceMap[match[1]];
+    return 0;
   }
 
   // Handle array/range of accounts
@@ -100,8 +104,12 @@ function skuld(timestamp, period, filter) {
         var reqCode = String(filter[r][c]).trim();
         if (!reqCode) {
           rowResult.push('');
+        } else if (balanceMap[reqCode] !== undefined) {
+          rowResult.push(balanceMap[reqCode]);
         } else {
-          rowResult.push(balanceMap[reqCode] || 0);
+          // Try extracting numeric/code prefix from "3000  Name" format
+          var m = reqCode.match(/^(\d+)/);
+          rowResult.push((m && balanceMap[m[1]] !== undefined) ? balanceMap[m[1]] : 0);
         }
       }
       resultArr.push(rowResult);

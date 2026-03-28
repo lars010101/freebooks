@@ -621,7 +621,7 @@ function buildSkuldPL_(sheet, ss) {
     if (acct.type !== 'Revenue') continue;
     sheet.getRange(row, 1).setValue(acct.code + '  ' + acct.name);
     // skuld formula: =skuld(timestamp, period, accountCode)
-    sheet.getRange(row, 2).setFormula("=skuld('_CACHE_BALANCES'!ZZ1,B3,A" + row + ")");
+    sheet.getRange(row, 2).setFormula("=skuld(timestamp,B3,A" + row + ")");
     sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -648,7 +648,7 @@ function buildSkuldPL_(sheet, ss) {
     var acct = plAccounts[i];
     if (acct.type !== 'Expense') continue;
     sheet.getRange(row, 1).setValue(acct.code + '  ' + acct.name);
-    sheet.getRange(row, 2).setFormula("=skuld('_CACHE_BALANCES'!ZZ1,B3,A" + row + ")");
+    sheet.getRange(row, 2).setFormula("=skuld(timestamp,B3,A" + row + ")");
     sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -753,7 +753,7 @@ function buildSkuldBS_(sheet, ss) {
       row++;
     }
     sheet.getRange(row, 1).setValue(acct.code + '  ' + acct.name);
-    sheet.getRange(row, 2).setFormula("=skuld('_CACHE_BALANCES'!ZZ1,B3,A" + row + ")");
+    sheet.getRange(row, 2).setFormula("=skuld(timestamp,B3,A" + row + ")");
     sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }

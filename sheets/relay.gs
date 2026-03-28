@@ -224,16 +224,15 @@ function refreshTab_(name, period) {
       if (r && r.rows) writeToSheet_('_CACHE_BALANCES', r.rows, r.columns);
       var cacheSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('_CACHE_BALANCES');
       if (cacheSheet) {
-        // Write recalc trigger timestamp to A1 so SKULD() formulas auto-recalculate
+        // Write recalc trigger timestamp to ZZ1 so skuld() formulas auto-recalculate
         cacheSheet.getRange('ZZ1').setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
-        // Ensure timer named range always points to A1
+        // Ensure timer named range always points to ZZ1
         var ss = SpreadsheetApp.getActiveSpreadsheet();
         var existing = ss.getNamedRanges().filter(function(nr) { return nr.getName() === 'timer'; });
         if (existing.length > 0) {
-          existing[0].setRange(cacheSheet.getRange('ZZ1'));
-        } else {
-          ss.createNamedRange('timer', cacheSheet.getRange('ZZ1'));
+          ss.deleteNamedRange('timer');
         }
+        ss.createNamedRange('timer', cacheSheet.getRange('ZZ1'));
       }
       return '✅ Cache built with ' + (r.columns ? r.columns.length : 0) + ' periods';
     case 'COA':

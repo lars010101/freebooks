@@ -2,43 +2,41 @@
  * Query account balances from the _CACHE_BALANCES tab.
  *
  * Usage:
- * =skuld("FY2025", timer)         -> All accounts
- * =skuld("FY2025", timer, "pnl")  -> P&L accounts only
- * =skuld("FY2025", timer, "bs")   -> Balance Sheet accounts only
- * =skuld("FY2025", timer, 3000)   -> Single account balance
- * =skuld("FY2025", timer, A1:A10) -> Array of balances for given account codes
+ * =skuld(timer, "FY2025")          -> All accounts
+ * =skuld(timer, "FY2025", "pnl")  -> P&L accounts only
+ * =skuld(timer, "FY2025", "bs")   -> Balance Sheet accounts only
+ * =skuld(timer, "FY2025", 3000)   -> Single account balance
+ * =skuld(timer, "FY2025", A1:A10) -> Array of balances for given account codes
  *
- * @param {string} period - The period column to query (e.g., "FY2025", "2025-01")
  * @param {*} timer - Must be the `timer` named range (forces auto-recalculate on cache rebuild)
+ * @param {string} period - The period column to query (e.g., "FY2025", "2025-01")
  * @param {string|Array} filter - "pnl", "bs", or specific account code(s). Defaults to all accounts.
  * @return {Array|number|string}
  * @customfunction
  */
-function skuld(period, timer, filter) {
+function skuld(timer, period, filter) {
   // Access timer to mark it as a dependency
   if (timer !== undefined) { void timer; }
-  
+
   if (!period) return "Error: Missing period";
-  
-  if (!period) return "Error: Missing period";
-  
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
   if (!cacheSheet) return "Error: _CACHE_BALANCES not found";
-  
+
   // Get data as an array (reading entire sheet is fast)
   var data = cacheSheet.getDataRange().getValues();
   if (data.length < 2) return "Error: Cache empty";
-  
+
   var headers = data[0];
   var periodIndex = headers.indexOf(String(period).trim());
   if (periodIndex === -1) return "Error: Period not found";
-  
+
   var acctIndex = headers.indexOf('Account Code');
   var typeIndex = headers.indexOf('Type');
   var plCatIndex = headers.indexOf('PL Category');
   var bsCatIndex = headers.indexOf('BS Category');
-  
+
   if (acctIndex === -1) return "Error: Cache missing 'Account Code'";
 
   // Default to 'all' if omitted
@@ -56,11 +54,11 @@ function skuld(period, timer, filter) {
     for (var i = 1; i < data.length; i++) {
       var code = String(data[i][acctIndex]).trim();
       if (!code) continue;
-      
+
       var type = String(data[i][typeIndex]).trim();
       var bal = Number(data[i][periodIndex]) || 0;
       var include = false;
-      
+
       if (queryType === 'all' || queryType === 'account_balances') {
         include = true;
       } else if (queryType === 'pnl' || queryType === 'pl') {
@@ -70,7 +68,7 @@ function skuld(period, timer, filter) {
         var bsCat = String(data[i][bsCatIndex]).trim();
         include = (type === 'Asset' || type === 'Liability' || type === 'Equity' || bsCat !== '');
       }
-      
+
       if (include) {
         result.push([code, bal]);
       }
@@ -78,7 +76,7 @@ function skuld(period, timer, filter) {
     if (result.length === 0) return [["No data", 0]];
     return result;
   }
-  
+
   // Build lookup map for account-specific queries
   var balanceMap = {};
   for (var i = 1; i < data.length; i++) {
@@ -92,7 +90,7 @@ function skuld(period, timer, filter) {
   if (isPrimitive) {
     return balanceMap[queryStr] || 0;
   }
-  
+
   // Handle array/range of accounts
   if (Array.isArray(filter)) {
     var resultArr = [];
@@ -110,6 +108,6 @@ function skuld(period, timer, filter) {
     }
     return resultArr;
   }
-  
+
   return "Error: Invalid query";
 }

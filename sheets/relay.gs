@@ -159,6 +159,12 @@ function navigateToTab(name) {
   }
   sheet.showSheet();
   sheet.activate();
+
+  // Auto-build formula-driven skuld tabs when navigated to
+  if (name === 'PL-skuld' || name === 'BS-skuld') {
+    refreshTab_(name);
+  }
+
   return sheet;
 }
 

@@ -2,18 +2,18 @@
  * Query account balances from the _CACHE_BALANCES tab.
  *
  * Usage:
- * =xlqy("account_balances", "FY2025")       -> Returns 2D array: [account_code, balance]
- * =xlqy("account_balances_pl", "FY2025")    -> Returns 2D array of P&L accounts: [account_code, balance] 
- * =xlqy("account_balances_bs", "FY2025")    -> Returns 2D array of BS accounts: [account_code, balance]
- * =xlqy("3000", "FY2025")                   -> Returns single balance for account 3000
- * =xlqy(A1:A10, "FY2025")                   -> Returns array of balances for given accounts
+ * =SKULD("account_balances", "FY2025")       -> Returns 2D array: [account_code, balance]
+ * =SKULD("account_balances_pl", "FY2025")    -> Returns 2D array of P&L accounts: [account_code, balance] 
+ * =SKULD("account_balances_bs", "FY2025")    -> Returns 2D array of BS accounts: [account_code, balance]
+ * =SKULD("3000", "FY2025")                   -> Returns single balance for account 3000
+ * =SKULD(A1:A10, "FY2025")                   -> Returns array of balances for given accounts
  *
  * @param {string|Array} accountOrQuery - Query type OR account code(s)
  * @param {string} period - The period column to query (e.g., "FY2025", "2025-01")
  * @return {Array|number|string}
  * @customfunction
  */
-function xlqy(accountOrQuery, period) {
+function SKULD(accountOrQuery, period) {
   if (!accountOrQuery || !period) return "Error: Missing params";
   
   var ss = SpreadsheetApp.getActiveSpreadsheet();

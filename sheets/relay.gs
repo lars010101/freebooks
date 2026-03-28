@@ -96,7 +96,9 @@ var TAB_CONFIG = {
   // REPORTS (blue)
   'Journal':        { color: '#1a73e8', category: 'reports', label: 'Journal' },
   'PL':             { color: '#1a73e8', category: 'reports', label: 'Profit & Loss' },
+  'PL-skuld':       { color: '#1a73e8', category: 'reports', label: 'P&L (skuld)' },
   'BS':             { color: '#1a73e8', category: 'reports', label: 'Balance Sheet' },
+  'BS-skuld':       { color: '#1a73e8', category: 'reports', label: 'BS (skuld)' },
   'COA':            { color: '#1a73e8', category: 'reports', label: 'COA' },
   'Bank':           { color: '#1a73e8', category: 'reports', label: 'Bank' },
   'CF':             { color: '#1a73e8', category: 'reports', label: 'Cash Flow' },
@@ -157,6 +159,7 @@ function navigateToTab(name) {
   }
   sheet.showSheet();
   sheet.activate();
+  return sheet;
 }
 
 function runContextAction(action, period) {
@@ -191,10 +194,22 @@ function refreshTab_(name, period) {
       var r = callSkuld_('report.refresh_pl', params);
       if (r) writeReportToSheet_('PL', r);
       return '✅ P&L refreshed';
+    case 'PL-skuld':
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var tsRange = ss.getRangeByName('timestamp');
+      navigateToTab('PL-skuld');
+      buildSkuldPL_(ss.getSheetByName('PL-skuld'), tsRange);
+      return '✅ P&L (skuld) built — change period in B3';
     case 'BS':
       var r = callSkuld_('report.refresh_bs', params);
       if (r) writeReportToSheet_('BS', r);
       return '✅ Balance Sheet refreshed';
+    case 'BS-skuld':
+      var ss2 = SpreadsheetApp.getActiveSpreadsheet();
+      var tsRange2 = ss2.getRangeByName('timestamp');
+      navigateToTab('BS-skuld');
+      buildSkuldBS_(ss2.getSheetByName('BS-skuld'), tsRange2);
+      return '✅ BS (skuld) built — change period in B3';
     case 'CF':
       var r = callSkuld_('report.refresh_cf', params);
       if (r) writeReportToSheet_('CF', r);
@@ -491,4 +506,257 @@ function colNumToLetter_(n) {
     n = Math.floor((n - 1) / 26);
   }
   return letter;
+}
+
+// =============================================================================
+// skuld-based report tabs (formula-driven, reads from _CACHE_BALANCES)
+// =============================================================================
+
+/**
+ * Build or refresh the PL-skuld tab using skuld() formulas.
+ * Reads P&L accounts from the COA tab and creates a formatted P&L report.
+ */
+function buildSkuldPL_(sheet, timestampRange) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var coaSheet = ss.getSheetByName('COA');
+  var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
+  if (!coaSheet || !cacheSheet) return;
+
+  // Get COA data
+  var coaData = coaSheet.getDataRange().getValues();
+  var headers = coaData[0];
+  var acctCodeIdx = headers.indexOf('account_code');
+  var acctNameIdx = headers.indexOf('account_name');
+  var acctTypeIdx = headers.indexOf('account_type');
+  var plCatIdx = headers.indexOf('pl_category');
+
+  // Collect P&L accounts (Revenue + Expense), sorted by type then code
+  var plAccounts = [];
+  for (var i = 1; i < coaData.length; i++) {
+    var row = coaData[i];
+    var type = String(row[acctTypeIdx] || '').trim();
+    if (type === 'Revenue' || type === 'Expense') {
+      plAccounts.push({
+        code: String(row[acctCodeIdx] || '').trim(),
+        name: String(row[acctNameIdx] || '').trim(),
+        type: type,
+        plCategory: String(row[plCatIdx] || '').trim()
+      });
+    }
+  }
+  plAccounts.sort(function(a, b) {
+    if (a.type !== b.type) return a.type === 'Revenue' ? -1 : 1;
+    return a.code.localeCompare(b.code, undefined, {numeric: true});
+  });
+
+  // Get company name and currency from Settings
+  var companyName = '', currency = '';
+  var settingsSheet = ss.getSheetByName('Settings');
+  if (settingsSheet) {
+    var sData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < sData.length; s++) {
+      var k = String(sData[s][0] || '').trim().toLowerCase();
+      if (k === 'company') companyName = String(sData[s][1] || '').trim();
+      if (k === 'currency') currency = String(sData[s][1] || '').trim();
+    }
+  }
+
+  // Clear and prepare sheet
+  sheet.clear();
+  sheet.setColumnWidth(1, 400);
+  sheet.setColumnWidth(2, 160);
+  sheet.setColumnWidth(3, 160);
+
+  // Row 1: Company header
+  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(1, 3).setValue('');
+
+  // Row 2: Currency
+  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue(currency);
+
+  // Row 3: Period selector label + cell (C3 = period input)
+  sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
+  sheet.getRange(3, 2).setValue('FY2025').setFontWeight('bold'); // default
+  sheet.getRange(3, 2).setBackground('#e8f0fe');
+
+  // Row 4: Separator
+  sheet.getRange('4:4').setBackground('#eeeeee');
+
+  var row = 5;
+
+  // REVENUE section
+  sheet.getRange(row, 1).setValue('REVENUE').setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 1, 1, 3).setBackground('#f0f0f0');
+  row++;
+
+  var revStart = row;
+  for (var i = 0; i < plAccounts.length; i++) {
+    var acct = plAccounts[i];
+    if (acct.type !== 'Revenue') continue;
+    sheet.getRange(row, 1).setValue(acct.code + '  ' + acct.name);
+    // skuld formula: =skuld(timestamp, period, accountCode)
+    sheet.getRange(row, 2).setFormula("=skuld('_CACHE_BALANCES'!ZZ1,B3,A" + row + ")");
+    sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    row++;
+  }
+  var revEnd = row - 1;
+
+  // TOTAL REVENUE row
+  if (revEnd >= revStart) {
+    sheet.getRange(row, 1).setValue('TOTAL REVENUE').setFontWeight('bold');
+    sheet.getRange(row, 2).setFormula('=SUMIF(A' + revStart + ':A' + revEnd + ',"3*",B' + revStart + ':B' + revEnd + ')').setFontWeight('bold');
+    sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  }
+  row++;
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // EXPENSES section
+  sheet.getRange(row, 1).setValue('EXPENSES').setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 1, 1, 3).setBackground('#f0f0f0');
+  row++;
+
+  var expStart = row;
+  for (var i = 0; i < plAccounts.length; i++) {
+    var acct = plAccounts[i];
+    if (acct.type !== 'Expense') continue;
+    sheet.getRange(row, 1).setValue(acct.code + '  ' + acct.name);
+    sheet.getRange(row, 2).setFormula("=skuld('_CACHE_BALANCES'!ZZ1,B3,A" + row + ")");
+    sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    row++;
+  }
+  var expEnd = row - 1;
+
+  // TOTAL EXPENSES row
+  if (expEnd >= expStart) {
+    sheet.getRange(row, 1).setValue('TOTAL EXPENSES').setFontWeight('bold');
+    sheet.getRange(row, 2).setFormula('=SUMIF(A' + expStart + ':A' + expEnd + ',"4*",B' + expStart + ':B' + expEnd + ')').setFontWeight('bold');
+    sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  }
+  row++;
+  sheet.getRange(row + ':' + row).setBackground('#eeeeee');
+  row++;
+
+  // NET PROFIT / (LOSS) — depends on rev total at row-6 and exp total at row-3
+  // Find the TOTAL REVENUE and TOTAL EXPENSES row indices
+  // (we'll just use absolute references once we know them)
+  var totRevRow = revEnd + 1;
+  var totExpRow = expEnd + 1;
+  sheet.getRange(row, 1).setValue('NET PROFIT / (LOSS)').setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 2).setFormula('=B' + totRevRow + '-B' + totExpRow).setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  sheet.setFrozenRows(4);
+}
+
+/**
+ * Build or refresh the BS-skuld tab using skuld() formulas.
+ */
+function buildSkuldBS_(sheet, timestampRange) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var coaSheet = ss.getSheetByName('COA');
+  if (!coaSheet) return;
+
+  var coaData = coaSheet.getDataRange().getValues();
+  var headers = coaData[0];
+  var acctCodeIdx = headers.indexOf('account_code');
+  var acctNameIdx = headers.indexOf('account_name');
+  var acctTypeIdx = headers.indexOf('account_type');
+  var bsCatIdx = headers.indexOf('bs_category');
+
+  var bsAccounts = [];
+  for (var i = 1; i < coaData.length; i++) {
+    var row = coaData[i];
+    var type = String(row[acctTypeIdx] || '').trim();
+    if (type === 'Asset' || type === 'Liability' || type === 'Equity') {
+      bsAccounts.push({
+        code: String(row[acctCodeIdx] || '').trim(),
+        name: String(row[acctNameIdx] || '').trim(),
+        type: type,
+        bsCategory: String(row[bsCatIdx] || '').trim()
+      });
+    }
+  }
+  // Sort: Asset, Liability, Equity, then by code
+  bsAccounts.sort(function(a, b) {
+    var order = {Asset: 1, Liability: 2, Equity: 3};
+    var oa = order[a.type] || 4, ob = order[b.type] || 4;
+    if (oa !== ob) return oa - ob;
+    return a.code.localeCompare(b.code, undefined, {numeric: true});
+  });
+
+  var companyName = '', currency = '';
+  var settingsSheet = ss.getSheetByName('Settings');
+  if (settingsSheet) {
+    var sData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < sData.length; s++) {
+      var k = String(sData[s][0] || '').trim().toLowerCase();
+      if (k === 'company') companyName = String(sData[s][1] || '').trim();
+      if (k === 'currency') currency = String(sData[s][1] || '').trim();
+    }
+  }
+
+  sheet.clear();
+  sheet.setColumnWidth(1, 400);
+  sheet.setColumnWidth(2, 160);
+
+  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
+  sheet.getRange(3, 2).setValue('FY2025').setFontWeight('bold');
+  sheet.getRange(3, 2).setBackground('#e8f0fe');
+  sheet.getRange('4:4').setBackground('#eeeeee');
+
+  var row = 5;
+  var sections = {Asset: {start: null, end: null}, Liability: {start: null, end: null}, Equity: {start: null, end: null}};
+  var currentSection = null;
+
+  for (var i = 0; i < bsAccounts.length; i++) {
+    var acct = bsAccounts[i];
+    if (acct.type !== currentSection) {
+      if (currentSection !== null) {
+        sections[currentSection].end = row - 1;
+      }
+      currentSection = acct.type;
+      sections[currentSection].start = row;
+      sheet.getRange(row, 1).setValue(currentSection.toUpperCase()).setFontWeight('bold').setFontSize(11);
+      sheet.getRange(row, 1, 1, 2).setBackground('#f0f0f0');
+      row++;
+    }
+    sheet.getRange(row, 1).setValue(acct.code + '  ' + acct.name);
+    sheet.getRange(row, 2).setFormula("=skuld('_CACHE_BALANCES'!ZZ1,B3,A" + row + ")");
+    sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    row++;
+  }
+  if (currentSection !== null) sections[currentSection].end = row - 1;
+
+  // Write section totals
+  var startRow = 5;
+  sheet.getRange(row, 1).setValue('TOTAL ASSETS').setFontWeight('bold');
+  if (sections.Asset.start && sections.Asset.end) {
+    sheet.getRange(row, 2).setFormula('=SUMIF(A' + sections.Asset.start + ':A' + sections.Asset.end + ',"1*",B' + sections.Asset.start + ':B' + sections.Asset.end + ')').setFontWeight('bold');
+  }
+  sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  row++;
+  sheet.getRange(row, 1).setValue('TOTAL LIABILITIES').setFontWeight('bold');
+  if (sections.Liability.start && sections.Liability.end) {
+    sheet.getRange(row, 2).setFormula('=SUMIF(A' + sections.Liability.start + ':A' + sections.Liability.end + ',"2*",B' + sections.Liability.start + ':B' + sections.Liability.end + ')').setFontWeight('bold');
+  }
+  sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  row++;
+  sheet.getRange(row, 1).setValue('TOTAL EQUITY').setFontWeight('bold');
+  if (sections.Equity.start && sections.Equity.end) {
+    sheet.getRange(row, 2).setFormula('=SUMIF(A' + sections.Equity.start + ':A' + sections.Equity.end + ',"3*",B' + sections.Equity.start + ':B' + sections.Equity.end + ')').setFontWeight('bold');
+  }
+  sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  sheet.setFrozenRows(4);
 }

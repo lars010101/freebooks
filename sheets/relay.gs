@@ -222,10 +222,18 @@ function refreshTab_(name, period) {
     case '_CACHE_BALANCES':
       var r = callSkuld_('report.cache_balances', {});
       if (r && r.rows) writeToSheet_('_CACHE_BALANCES', r.rows, r.columns);
-      // Write recalc trigger timestamp to ZZ1 so SKULD() formulas referencing it auto-recalculate
       var cacheSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('_CACHE_BALANCES');
       if (cacheSheet) {
+        // Write recalc trigger timestamp to ZZ1 so SKULD() formulas auto-recalculate
         cacheSheet.getRange('ZZ1').setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
+        // Ensure SKULD_RECALC named range always points to ZZ1
+        var ss = SpreadsheetApp.getActiveSpreadsheet();
+        try {
+          ss.setNamedRange('SKULD_RECALC', cacheSheet.getRange('ZZ1'));
+        } catch (e) {
+          // Named range may not exist yet — create it
+          ss.createNamedRange('SKULD_RECALC', cacheSheet.getRange('ZZ1'));
+        }
       }
       return '✅ Cache built with ' + (r.columns ? r.columns.length : 0) + ' periods';
     case 'COA':

@@ -3,16 +3,17 @@
  *
  * Usage:
  * =SKULD("FY2025")               -> Returns 2D array: [account_code, balance] for all accounts
+ * =SKULD("FY2025")               -> Returns 2D array: [account_code, balance] for all accounts
  * =SKULD("FY2025", "all")        -> Same as above
  * =SKULD("FY2025", "pnl")        -> Returns 2D array of P&L accounts: [account_code, balance] 
  * =SKULD("FY2025", "bs")         -> Returns 2D array of BS accounts: [account_code, balance]
  * =SKULD("FY2025", "3000")       -> Returns single balance for account 3000
  * =SKULD("FY2025", A1:A10)       -> Returns array of balances for given accounts
- * =SKULD("FY2025", "3000", A1)   -> Same as above but also reads A1 as a recalc trigger
+ * =SKULD("FY2025", "pnl", A1)    -> Returns filtered results; reads A1 as recalc trigger
  *
  * @param {string} period - The period column to query (e.g., "FY2025", "2025-01")
  * @param {string|Array} [accountFilter] - Optional. "all", "pnl", "bs", or specific account code(s). Defaults to "all".
- * @param {*} [recalcTrigger] - Optional. If provided, the function reads this value so Sheets knows to recalculate when it changes.
+ * @param {*} [recalcTrigger] - Optional. If provided, the function reads this value so Sheets auto-recalculates when it changes.
  * @return {Array|number|string}
  * @customfunction
  */

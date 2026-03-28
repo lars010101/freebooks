@@ -197,8 +197,8 @@ function refreshTab_(name, period) {
     case 'PL-skuld':
       var ss = SpreadsheetApp.getActiveSpreadsheet();
       var tsRange = ss.getRangeByName('timestamp');
-      navigateToTab('PL-skuld');
-      buildSkuldPL_(ss.getSheetByName('PL-skuld'), tsRange);
+      var sheet = navigateToTab('PL-skuld');
+      buildSkuldPL_(sheet, ss, tsRange);
       return '✅ P&L (skuld) built — change period in B3';
     case 'BS':
       var r = callSkuld_('report.refresh_bs', params);
@@ -207,8 +207,8 @@ function refreshTab_(name, period) {
     case 'BS-skuld':
       var ss2 = SpreadsheetApp.getActiveSpreadsheet();
       var tsRange2 = ss2.getRangeByName('timestamp');
-      navigateToTab('BS-skuld');
-      buildSkuldBS_(ss2.getSheetByName('BS-skuld'), tsRange2);
+      var sheet2 = navigateToTab('BS-skuld');
+      buildSkuldBS_(sheet2, ss2, tsRange2);
       return '✅ BS (skuld) built — change period in B3';
     case 'CF':
       var r = callSkuld_('report.refresh_cf', params);
@@ -516,11 +516,11 @@ function colNumToLetter_(n) {
  * Build or refresh the PL-skuld tab using skuld() formulas.
  * Reads P&L accounts from the COA tab and creates a formatted P&L report.
  */
-function buildSkuldPL_(sheet, timestampRange) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+function buildSkuldPL_(sheet, ss, timestampRange) {
   var coaSheet = ss.getSheetByName('COA');
   var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
-  if (!coaSheet || !cacheSheet) return;
+  if (!coaSheet) { Logger.log('PL-skuld error: COA sheet not found'); return; }
+  if (!cacheSheet) { Logger.log('PL-skuld error: _CACHE_BALANCES sheet not found'); return; }
 
   // Get COA data
   var coaData = coaSheet.getDataRange().getValues();
@@ -656,10 +656,9 @@ function buildSkuldPL_(sheet, timestampRange) {
 /**
  * Build or refresh the BS-skuld tab using skuld() formulas.
  */
-function buildSkuldBS_(sheet, timestampRange) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+function buildSkuldBS_(sheet, ss, timestampRange) {
   var coaSheet = ss.getSheetByName('COA');
-  if (!coaSheet) return;
+  if (!coaSheet) { Logger.log('BS-skuld error: COA sheet not found'); return; }
 
   var coaData = coaSheet.getDataRange().getValues();
   var headers = coaData[0];

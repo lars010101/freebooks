@@ -70,14 +70,19 @@ async function buildAccountBalancesCache(ctx) {
   accounts.forEach(a => {
     const acctCode = a.account_code;
     const bals = balancesByAccount[acctCode] || {};
-    const rowData = [
-      a.account_code, a.account_name, a.account_type, a.account_subtype, 
-      a.pl_category, a.bs_category, a.cf_category
-    ];
+    const rowObj = {
+      'Account Code': a.account_code, 
+      'Account Name': a.account_name, 
+      'Type': a.account_type, 
+      'Subtype': a.account_subtype, 
+      'PL Category': a.pl_category, 
+      'BS Category': a.bs_category, 
+      'CF Category': a.cf_category
+    };
 
-    sortedFYs.forEach(fy => rowData.push(bals[fy] || 0));
-    sortedMonths.forEach(m => rowData.push(bals[m] || 0));
-    rows.push(rowData);
+    sortedFYs.forEach(fy => { rowObj[fy] = bals[fy] || 0; });
+    sortedMonths.forEach(m => { rowObj[m] = bals[m] || 0; });
+    rows.push(rowObj);
   });
 
   return {

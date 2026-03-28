@@ -221,8 +221,8 @@ function refreshTab_(name, period) {
       return '✅ Integrity Check complete — ' + (failCount === 0 ? 'ALL PASSED ✅' : failCount + ' issue(s) found ❌');
     case '_CACHE_BALANCES':
       var r = callSkuld_('report.cache_balances', {});
-      if (r) writeToSheet_('_CACHE_BALANCES', r, r.columns);
-      return '✅ Cache built with ' + r.columns.length + ' periods';
+      if (r && r.rows) writeToSheet_('_CACHE_BALANCES', r.rows, r.columns);
+      return '✅ Cache built with ' + (r.columns ? r.columns.length : 0) + ' periods';
     case 'COA':
       var r = callSkuld_('coa.list', {});
       if (r) writeToSheet_('COA', r, ['account_code', 'account_name', 'account_type', 'account_subtype', 'pl_category', 'bs_category', 'cf_category', 'is_active', 'effective_from', 'effective_to']);

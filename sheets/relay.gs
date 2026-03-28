@@ -226,7 +226,7 @@ function refreshTab_(name, period) {
       if (cacheSheet) {
         // Write recalc trigger timestamp to ZZ1 so skuld() formulas auto-recalculate
         cacheSheet.getRange('ZZ1').setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
-        // Ensure timer named range always points to ZZ1 (setNamedRange auto-updates if exists)
+        // Ensure timestamp named range always points to ZZ1 (setNamedRange auto-updates if exists)
         var ss = SpreadsheetApp.getActiveSpreadsheet();
         ss.setNamedRange('timestamp', cacheSheet.getRange('ZZ1'));
       }

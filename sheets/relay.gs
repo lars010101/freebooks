@@ -226,13 +226,13 @@ function refreshTab_(name, period) {
       if (cacheSheet) {
         // Write recalc trigger timestamp to ZZ1 so SKULD() formulas auto-recalculate
         cacheSheet.getRange('ZZ1').setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
-        // Ensure SKULD_RECALC named range always points to ZZ1
+        // Ensure skuldR named range always points to ZZ1
         var ss = SpreadsheetApp.getActiveSpreadsheet();
         try {
-          ss.setNamedRange('SKULD_RECALC', cacheSheet.getRange('ZZ1'));
+          ss.setNamedRange('skuldR', cacheSheet.getRange('ZZ1'));
         } catch (e) {
           // Named range may not exist yet — create it
-          ss.createNamedRange('SKULD_RECALC', cacheSheet.getRange('ZZ1'));
+          ss.createNamedRange('skuldR', cacheSheet.getRange('ZZ1'));
         }
       }
       return '✅ Cache built with ' + (r.columns ? r.columns.length : 0) + ' periods';

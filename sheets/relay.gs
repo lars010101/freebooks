@@ -200,8 +200,16 @@ function refreshTab_(name, period) {
       var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
       if (!coaSheet) return '❌ COA sheet not found — please refresh COA first';
       if (!cacheSheet) return '❌ _CACHE_BALANCES not found — please rebuild cache first';
-      var plSkuldSheet = navigateToTab('PL-skuld');
-      buildSkuldPL_(plSkuldSheet, ss);
+      var plSkuldSheet = ss.getSheetByName('PL-skuld');
+      if (!plSkuldSheet) {
+        plSkuldSheet = ss.insertSheet('PL-skuld');
+        plSkuldSheet.setTabColor('#1a73e8');
+      }
+      try {
+        buildSkuldPL_(plSkuldSheet, ss);
+      } catch (e) {
+        return '❌ Error: ' + e.message;
+      }
       return '✅ P&L (skuld) built — change period in B3';
     case 'BS':
       var r = callSkuld_('report.refresh_bs', params);
@@ -213,8 +221,16 @@ function refreshTab_(name, period) {
       var cacheSheet2 = ss2.getSheetByName('_CACHE_BALANCES');
       if (!coaSheet2) return '❌ COA sheet not found — please refresh COA first';
       if (!cacheSheet2) return '❌ _CACHE_BALANCES not found — please rebuild cache first';
-      var bsSkuldSheet = navigateToTab('BS-skuld');
-      buildSkuldBS_(bsSkuldSheet, ss2);
+      var bsSkuldSheet = ss2.getSheetByName('BS-skuld');
+      if (!bsSkuldSheet) {
+        bsSkuldSheet = ss2.insertSheet('BS-skuld');
+        bsSkuldSheet.setTabColor('#1a73e8');
+      }
+      try {
+        buildSkuldBS_(bsSkuldSheet, ss2);
+      } catch (e) {
+        return '❌ Error: ' + e.message;
+      }
       return '✅ BS (skuld) built — change period in B3';
     case 'CF':
       var r = callSkuld_('report.refresh_cf', params);
@@ -764,4 +780,17 @@ function buildSkuldBS_(sheet, ss) {
   sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
   sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   sheet.setFrozenRows(4);
+}
+
+function testSkuldPL_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var coa = ss.getSheetByName('COA');
+  var cache = ss.getSheetByName('_CACHE_BALANCES');
+  var sheet = ss.getSheetByName('PL-skuld') || ss.insertSheet('PL-skuld');
+  return 'COA: ' + (coa ? 'found' : 'MISSING') 
+    + ', Cache: ' + (cache ? 'found' : 'MISSING')
+    + ', PL-skuld: ' + (sheet ? sheet.getName() : 'none')
+    + ', COA rows: ' + (coa ? coa.getLastRow() : 0)
+    + ', Cache rows: ' + (cache ? cache.getLastRow() : 0)
+    + ', Cache cols: ' + (cache ? cache.getLastColumn() : 0);
 }

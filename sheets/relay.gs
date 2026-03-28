@@ -219,6 +219,10 @@ function refreshTab_(name, period) {
       var failCount = 0;
       if (r && r.checks) { for (var ci = 0; ci < r.checks.length; ci++) { for (var ii = 0; ii < (r.checks[ci].items||[]).length; ii++) { if ((r.checks[ci].items[ii].status||'').indexOf('❌') >= 0) failCount++; }}}
       return '✅ Integrity Check complete — ' + (failCount === 0 ? 'ALL PASSED ✅' : failCount + ' issue(s) found ❌');
+    case '_CACHE_BALANCES':
+      var r = callSkuld_('report.cache_balances', {});
+      if (r) writeToSheet_('_CACHE_BALANCES', r, r.columns);
+      return '✅ Cache built with ' + r.columns.length + ' periods';
     case 'COA':
       var r = callSkuld_('coa.list', {});
       if (r) writeToSheet_('COA', r, ['account_code', 'account_name', 'account_type', 'account_subtype', 'pl_category', 'bs_category', 'cf_category', 'is_active', 'effective_from', 'effective_to']);

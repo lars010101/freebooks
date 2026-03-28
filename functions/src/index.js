@@ -48,6 +48,7 @@ const ACTION_ROLES = {
   'report.refresh_vat_return': 'viewer',
   'report.refresh_sce': 'viewer',
   'report.refresh_integrity': 'viewer',
+  'report.cache_balances': 'viewer',
 
   // COA
   'coa.list': 'viewer',

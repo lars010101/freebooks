@@ -7,6 +7,7 @@
  */
 
 const { generateVatReturn } = require('./vat');
+const { buildAccountBalancesCache } = require('./reports_cache');
 
 /**
  * Route report actions.
@@ -29,6 +30,8 @@ async function handleReports(ctx, action) {
       return generateVatReturn(ctx);
     case 'report.refresh_sce':
       return refreshSCE(ctx);
+    case 'report.cache_balances':
+      return buildAccountBalancesCache(ctx);
     case 'report.refresh_integrity':
       return refreshIntegrity(ctx);
     default:

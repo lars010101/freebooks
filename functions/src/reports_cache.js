@@ -38,25 +38,27 @@ async function buildAccountBalancesCache(ctx) {
     const acct = row.account_code;
     if (!balancesByAccount[acct]) balancesByAccount[acct] = {};
 
-    const monthStr = row.yyyy_mm;
     const d = new Date(row.date.value);
-    
-    let fyStr;
+    const month = d.getMonth() + 1; // 1-12
     const year = d.getFullYear();
-    const month = d.getMonth() + 1;
-    const day = d.getDate();
-    if (month > startMonth || (month === startMonth && day >= startDay)) {
-      fyStr = `FY${year}`;
-    } else {
-      fyStr = `FY${year - 1}`;
-    }
 
-    periods.add(monthStr);
+    // Period number within FY: P01 = first month of FY
+    // ((month - startMonth + 12) % 12) + 1
+    const periodNum = ((month - startMonth + 12) % 12) + 1;
+
+    // FY end year: the year when this FY ends
+    const fyEndYear = (month >= startMonth) ? year + 1 : year;
+    const fyStr = `FY${fyEndYear}`;
+
+    // Month label in YYYYPnn format — year is the FY end year
+    const periodStr = `${fyEndYear}P${String(periodNum).padStart(2, '0')}`;
+
+    periods.add(periodStr);
     fyPeriods.add(fyStr);
 
     const bal = Number(row.balance?.value !== undefined ? row.balance.value : row.balance) || 0;
 
-    balancesByAccount[acct][monthStr] = (balancesByAccount[acct][monthStr] || 0) + bal;
+    balancesByAccount[acct][periodStr] = (balancesByAccount[acct][periodStr] || 0) + bal;
     balancesByAccount[acct][fyStr] = (balancesByAccount[acct][fyStr] || 0) + bal;
   });
 

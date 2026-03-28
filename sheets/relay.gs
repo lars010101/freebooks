@@ -633,7 +633,7 @@ function buildSkuldPL_(sheet, ss) {
   // TOTAL REVENUE row
   if (revEnd >= revStart) {
     sheet.getRange(row, 1).setValue('TOTAL REVENUE').setFontWeight('bold');
-    sheet.getRange(row, 3).setFormula('=SUM(C' + str(revStart) + ':C' + str(revEnd) + ')').setFontWeight('bold');
+    sheet.getRange(row, 3).setFormula('=SUM(C' + String(revStart) + ':C' + String(revEnd) + ')').setFontWeight('bold');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   }
@@ -664,7 +664,7 @@ function buildSkuldPL_(sheet, ss) {
   // TOTAL EXPENSES row
   if (expEnd >= expStart) {
     sheet.getRange(row, 1).setValue('TOTAL EXPENSES').setFontWeight('bold');
-    sheet.getRange(row, 3).setFormula('=SUM(C' + str(expStart) + ':C' + str(expEnd) + ')').setFontWeight('bold');
+    sheet.getRange(row, 3).setFormula('=SUM(C' + String(expStart) + ':C' + String(expEnd) + ')').setFontWeight('bold');
     sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   }
@@ -770,21 +770,21 @@ function buildSkuldBS_(sheet, ss) {
   var startRow = 5;
   sheet.getRange(row, 1).setValue('TOTAL ASSETS').setFontWeight('bold');
   if (sections.Asset.start && sections.Asset.end) {
-    sheet.getRange(row, 2).setFormula('=SUMIF(A' + sections.Asset.start + ':A' + sections.Asset.end + ',"1*",B' + sections.Asset.start + ':B' + sections.Asset.end + ')').setFontWeight('bold');
+    sheet.getRange(row, 2).setFormula('=SUM(B' + sections.Asset.start + ':B' + sections.Asset.end + ')').setFontWeight('bold');
   }
   sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
   sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   row++;
   sheet.getRange(row, 1).setValue('TOTAL LIABILITIES').setFontWeight('bold');
   if (sections.Liability.start && sections.Liability.end) {
-    sheet.getRange(row, 2).setFormula('=SUMIF(A' + sections.Liability.start + ':A' + sections.Liability.end + ',"2*",B' + sections.Liability.start + ':B' + sections.Liability.end + ')').setFontWeight('bold');
+    sheet.getRange(row, 2).setFormula('=SUM(B' + sections.Liability.start + ':B' + sections.Liability.end + ')').setFontWeight('bold');
   }
   sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
   sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   row++;
   sheet.getRange(row, 1).setValue('TOTAL EQUITY').setFontWeight('bold');
   if (sections.Equity.start && sections.Equity.end) {
-    sheet.getRange(row, 2).setFormula('=SUMIF(A' + sections.Equity.start + ':A' + sections.Equity.end + ',"3*",B' + sections.Equity.start + ':B' + sections.Equity.end + ')').setFontWeight('bold');
+    sheet.getRange(row, 2).setFormula('=SUM(B' + sections.Equity.start + ':B' + sections.Equity.end + ')').setFontWeight('bold');
   }
   sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
   sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);

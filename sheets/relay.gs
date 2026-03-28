@@ -224,11 +224,14 @@ function refreshTab_(name, period) {
       if (r && r.rows) writeToSheet_('_CACHE_BALANCES', r.rows, r.columns);
       var cacheSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('_CACHE_BALANCES');
       if (cacheSheet) {
-        // Write recalc trigger timestamp to ZZ1 so skuld() formulas auto-recalculate
-        cacheSheet.getRange('ZZ1').setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
-        // Ensure timestamp named range always points to ZZ1 (setNamedRange auto-updates if exists)
+        // Dynamically find the column just beyond the last data column for the trigger cell
+        var triggerCol = cacheSheet.getLastColumn() + 1;
+        var colLetter = colNumToLetter_(triggerCol);
+        var triggerRange = cacheSheet.getRange(colLetter + '1');
+        triggerRange.setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
+        // Ensure timestamp named range always points to this trigger cell
         var ss = SpreadsheetApp.getActiveSpreadsheet();
-        ss.setNamedRange('timestamp', cacheSheet.getRange('ZZ1'));
+        ss.setNamedRange('timestamp', triggerRange);
       }
       return '✅ Cache built with ' + (r.columns ? r.columns.length : 0) + ' periods';
     case 'COA':
@@ -477,4 +480,15 @@ function showAllTabs() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheets = ss.getSheets();
   for (var i = 0; i < sheets.length; i++) sheets[i].showSheet();
+}
+
+// Helper: Convert 1-based column number to Excel-style letter (1->A, 27->AA, etc.)
+function colNumToLetter_(n) {
+  var letter = '';
+  while (n > 0) {
+    var mod = (n - 1) % 26;
+    letter = String.fromCharCode(65 + mod) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
 }

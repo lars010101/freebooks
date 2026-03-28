@@ -11,9 +11,11 @@ async function buildAccountBalancesCache(ctx) {
     query: `SELECT fy_start FROM finance.companies WHERE company_id = @companyId LIMIT 1`,
     params: { companyId }
   });
-  const fyStart = (fyRows[0] && fyRows[0].fy_start) ? fyRows[0].fy_start : '01-01';
-  const startMonth = parseInt(fyStart.split('-')[0], 10);
-  const startDay = parseInt(fyStart.split('-')[1], 10);
+  const fy_start_raw = fyRows[0]?.fy_start;
+  const fyStartStr = String(fy_start_raw?.value || fy_start_raw || '2025-01-01');
+  const fsParts = fyStartStr.split('-').map(Number);
+  const startMonth = fsParts.length === 3 ? fsParts[1] : fsParts[0];
+  const startDay = fsParts.length === 3 ? fsParts[2] : fsParts[1];
 
   const [entries] = await dataset.query({
     query: `

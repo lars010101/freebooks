@@ -226,13 +226,9 @@ function refreshTab_(name, period) {
       if (cacheSheet) {
         // Write recalc trigger timestamp to ZZ1 so skuld() formulas auto-recalculate
         cacheSheet.getRange('ZZ1').setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
-        // Ensure timer named range always points to ZZ1
+        // Ensure timer named range always points to ZZ1 (setNamedRange auto-updates if exists)
         var ss = SpreadsheetApp.getActiveSpreadsheet();
-        var existing = ss.getNamedRanges();
-        for (var i = 0; i < existing.length; i++) {
-          if (existing[i].getName() === 'timer') existing[i].remove();
-        }
-        ss.createNamedRange('timer', cacheSheet.getRange('ZZ1'));
+        ss.setNamedRange('timer', cacheSheet.getRange('ZZ1'));
       }
       return '✅ Cache built with ' + (r.columns ? r.columns.length : 0) + ' periods';
     case 'COA':

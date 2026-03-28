@@ -96,9 +96,7 @@ var TAB_CONFIG = {
   // REPORTS (blue)
   'Journal':        { color: '#1a73e8', category: 'reports', label: 'Journal' },
   'PL':             { color: '#1a73e8', category: 'reports', label: 'Profit & Loss' },
-  'PL-skuld':       { color: '#1a73e8', category: 'reports', label: 'P&L (skuld)' },
   'BS':             { color: '#1a73e8', category: 'reports', label: 'Balance Sheet' },
-  'BS-skuld':       { color: '#1a73e8', category: 'reports', label: 'BS (skuld)' },
   'COA':            { color: '#1a73e8', category: 'reports', label: 'COA' },
   'Bank':           { color: '#1a73e8', category: 'reports', label: 'Bank' },
   'CF':             { color: '#1a73e8', category: 'reports', label: 'Cash Flow' },
@@ -161,7 +159,7 @@ function navigateToTab(name) {
   sheet.activate();
 
   // Auto-build formula-driven skuld tabs when navigated to
-  if (name === 'PL-skuld' || name === 'BS-skuld') {
+  if (name === 'PL' || name === 'BS') {
     refreshTab_(name);
   }
 
@@ -197,43 +195,29 @@ function refreshTab_(name, period) {
       if (r) writeReportToSheet_('TB', r);
       return '✅ Trial Balance refreshed';
     case 'PL':
-      var r = callSkuld_('report.refresh_pl', params);
-      if (r) writeReportToSheet_('PL', r);
-      return '✅ P&L refreshed';
-    case 'PL-skuld':
       var ss = SpreadsheetApp.getActiveSpreadsheet();
       var coaSheet = ss.getSheetByName('COA');
       var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
-      var plSkuldSheet = ss.getSheetByName('PL-skuld') || ss.insertSheet('PL-skuld');
-      plSkuldSheet.setTabColor('#1a73e8');
-      var msg = 'COA: ' + (coaSheet?'found':'MISSING') + ', Cache: ' + (cacheSheet?'found':'MISSING') + ', PL-skuld: ' + plSkuldSheet.getName();
-      SpreadsheetApp.getUi().alert(msg);
-      if (!coaSheet || !cacheSheet) return '❌ ' + msg;
+      if (!coaSheet) return '❌ COA sheet not found';
+      if (!cacheSheet) return '❌ _CACHE_BALANCES not found';
       try {
-        buildSkuldPL_(plSkuldSheet, ss);
+        buildPL_(ss.getSheetByName('PL'), ss);
       } catch (e) {
         return '❌ Error: ' + e.message;
       }
-      return '✅ P&L (skuld) built — change period in B3';
+      return '✅ P&L rebuilt — change period in B3';
     case 'BS':
-      var r = callSkuld_('report.refresh_bs', params);
-      if (r) writeReportToSheet_('BS', r);
-      return '✅ Balance Sheet refreshed';
-    case 'BS-skuld':
       var ss2 = SpreadsheetApp.getActiveSpreadsheet();
       var coaSheet2 = ss2.getSheetByName('COA');
       var cacheSheet2 = ss2.getSheetByName('_CACHE_BALANCES');
-      var bsSkuldSheet = ss2.getSheetByName('BS-skuld') || ss2.insertSheet('BS-skuld');
-      bsSkuldSheet.setTabColor('#1a73e8');
-      var msg2 = 'COA: ' + (coaSheet2?'found':'MISSING') + ', Cache: ' + (cacheSheet2?'found':'MISSING') + ', BS-skuld: ' + bsSkuldSheet.getName();
-      SpreadsheetApp.getUi().alert(msg2);
-      if (!coaSheet2 || !cacheSheet2) return '❌ ' + msg2;
+      if (!coaSheet2) return '❌ COA sheet not found';
+      if (!cacheSheet2) return '❌ _CACHE_BALANCES not found';
       try {
-        buildSkuldBS_(bsSkuldSheet, ss2);
+        buildBS_(ss2.getSheetByName('BS'), ss2);
       } catch (e) {
         return '❌ Error: ' + e.message;
       }
-      return '✅ BS (skuld) built — change period in B3';
+      return '✅ Balance Sheet rebuilt — change period in B3';
     case 'CF':
       var r = callSkuld_('report.refresh_cf', params);
       if (r) writeReportToSheet_('CF', r);
@@ -354,8 +338,6 @@ function refreshAllReports_() {
   var params = getReportParams_();
   var r;
   r = callSkuld_('report.refresh_tb', params); if (r) writeReportToSheet_('TB', r);
-  r = callSkuld_('report.refresh_pl', params); if (r) writeReportToSheet_('PL', r);
-  r = callSkuld_('report.refresh_bs', params); if (r) writeReportToSheet_('BS', r);
   r = callSkuld_('report.refresh_cf', params); if (r) writeReportToSheet_('CF', r);
   // Load journal
   var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo });
@@ -508,7 +490,7 @@ function setupTrigger() {
 
 function hideNonEssentialTabs_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hide = ['Import', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'PL', 'BS', 'CF', 'AP Aging', 'VAT Return', 'SCE', 'Integrity', 'Manual Entry', 'Dashboard', 'Settings'];
+  var hide = ['Import', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'CF', 'AP Aging', 'VAT Return', 'SCE', 'Integrity', 'Manual Entry', 'Dashboard', 'Settings'];
   for (var i = 0; i < hide.length; i++) {
     var s = ss.getSheetByName(hide[i]);
     if (s) s.hideSheet();
@@ -537,14 +519,14 @@ function colNumToLetter_(n) {
 // =============================================================================
 
 /**
- * Build or refresh the PL-skuld tab using skuld() formulas.
+ * Build or refresh the PL tab using skuld() formulas.
  * Reads P&L accounts from the COA tab and creates a formatted P&L report.
  */
-function buildSkuldPL_(sheet, ss) {
+function buildPL_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
   var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
-  if (!coaSheet) { Logger.log('PL-skuld error: COA sheet not found'); return; }
-  if (!cacheSheet) { Logger.log('PL-skuld error: _CACHE_BALANCES sheet not found'); return; }
+  if (!coaSheet) { Logger.log('PL error: COA sheet not found'); return; }
+  if (!cacheSheet) { Logger.log('PL error: _CACHE_BALANCES sheet not found'); return; }
 
   // Get COA data
   var coaData = coaSheet.getDataRange().getValues();
@@ -685,11 +667,11 @@ function buildSkuldPL_(sheet, ss) {
 }
 
 /**
- * Build or refresh the BS-skuld tab using skuld() formulas.
+ * Build or refresh the BS tab using skuld() formulas.
  */
-function buildSkuldBS_(sheet, ss) {
+function buildBS_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
-  if (!coaSheet) { Logger.log('BS-skuld error: COA sheet not found'); return; }
+  if (!coaSheet) { Logger.log('BS error: COA sheet not found'); return; }
 
   var coaData = coaSheet.getDataRange().getValues();
   var headers = coaData[0];
@@ -791,28 +773,3 @@ function buildSkuldBS_(sheet, ss) {
   sheet.setFrozenRows(4);
 }
 
-function testSkuldPL_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var coa = ss.getSheetByName('COA');
-  var cache = ss.getSheetByName('_CACHE_BALANCES');
-  var sheet = ss.getSheetByName('PL-skuld') || ss.insertSheet('PL-skuld');
-  return 'COA: ' + (coa ? 'found' : 'MISSING') 
-    + ', Cache: ' + (cache ? 'found' : 'MISSING')
-    + ', PL-skuld: ' + (sheet ? sheet.getName() : 'none')
-    + ', COA rows: ' + (coa ? coa.getLastRow() : 0)
-    + ', Cache rows: ' + (cache ? cache.getLastRow() : 0)
-    + ', Cache cols: ' + (cache ? cache.getLastColumn() : 0);
-}
-
-function testBuild_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var coa = ss.getSheetByName('COA');
-  var cache = ss.getSheetByName('_CACHE_BALANCES');
-  var pl = ss.getSheetByName('PL-skuld') || ss.insertSheet('PL-skuld');
-  try {
-    buildSkuldPL_(pl, ss);
-    return 'OK - PL-skuld built. Rows: ' + pl.getLastRow() + ', Cols: ' + pl.getLastColumn();
-  } catch(e) {
-    return 'ERROR: ' + e.message + ' at ' + e.lineNumber;
-  }
-}

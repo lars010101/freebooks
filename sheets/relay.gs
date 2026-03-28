@@ -198,13 +198,11 @@ function refreshTab_(name, period) {
       var ss = SpreadsheetApp.getActiveSpreadsheet();
       var coaSheet = ss.getSheetByName('COA');
       var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
-      if (!coaSheet) return '❌ COA sheet not found — please refresh COA first';
-      if (!cacheSheet) return '❌ _CACHE_BALANCES not found — please rebuild cache first';
-      var plSkuldSheet = ss.getSheetByName('PL-skuld');
-      if (!plSkuldSheet) {
-        plSkuldSheet = ss.insertSheet('PL-skuld');
-        plSkuldSheet.setTabColor('#1a73e8');
-      }
+      var plSkuldSheet = ss.getSheetByName('PL-skuld') || ss.insertSheet('PL-skuld');
+      plSkuldSheet.setTabColor('#1a73e8');
+      var msg = 'COA: ' + (coaSheet?'found':'MISSING') + ', Cache: ' + (cacheSheet?'found':'MISSING') + ', PL-skuld: ' + plSkuldSheet.getName();
+      SpreadsheetApp.getUi().alert(msg);
+      if (!coaSheet || !cacheSheet) return '❌ ' + msg;
       try {
         buildSkuldPL_(plSkuldSheet, ss);
       } catch (e) {
@@ -219,13 +217,11 @@ function refreshTab_(name, period) {
       var ss2 = SpreadsheetApp.getActiveSpreadsheet();
       var coaSheet2 = ss2.getSheetByName('COA');
       var cacheSheet2 = ss2.getSheetByName('_CACHE_BALANCES');
-      if (!coaSheet2) return '❌ COA sheet not found — please refresh COA first';
-      if (!cacheSheet2) return '❌ _CACHE_BALANCES not found — please rebuild cache first';
-      var bsSkuldSheet = ss2.getSheetByName('BS-skuld');
-      if (!bsSkuldSheet) {
-        bsSkuldSheet = ss2.insertSheet('BS-skuld');
-        bsSkuldSheet.setTabColor('#1a73e8');
-      }
+      var bsSkuldSheet = ss2.getSheetByName('BS-skuld') || ss2.insertSheet('BS-skuld');
+      bsSkuldSheet.setTabColor('#1a73e8');
+      var msg2 = 'COA: ' + (coaSheet2?'found':'MISSING') + ', Cache: ' + (cacheSheet2?'found':'MISSING') + ', BS-skuld: ' + bsSkuldSheet.getName();
+      SpreadsheetApp.getUi().alert(msg2);
+      if (!coaSheet2 || !cacheSheet2) return '❌ ' + msg2;
       try {
         buildSkuldBS_(bsSkuldSheet, ss2);
       } catch (e) {
@@ -793,4 +789,17 @@ function testSkuldPL_() {
     + ', COA rows: ' + (coa ? coa.getLastRow() : 0)
     + ', Cache rows: ' + (cache ? cache.getLastRow() : 0)
     + ', Cache cols: ' + (cache ? cache.getLastColumn() : 0);
+}
+
+function testBuild_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var coa = ss.getSheetByName('COA');
+  var cache = ss.getSheetByName('_CACHE_BALANCES');
+  var pl = ss.getSheetByName('PL-skuld') || ss.insertSheet('PL-skuld');
+  try {
+    buildSkuldPL_(pl, ss);
+    return 'OK - PL-skuld built. Rows: ' + pl.getLastRow() + ', Cols: ' + pl.getLastColumn();
+  } catch(e) {
+    return 'ERROR: ' + e.message + ' at ' + e.lineNumber;
+  }
 }

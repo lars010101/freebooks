@@ -54,24 +54,18 @@ function writeToSheet_(sheetName, data, columns) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return;
 
-  // Don't clear header row — just data rows (clear content AND formatting)
-  if (sheet.getLastRow() > 1) {
-    var clearRange = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn());
-    clearRange.clearContent();
-    clearRange.setFontWeight('normal');
-    clearRange.setBackground(null);
-  }
+  // Always clear the entire sheet first so old column headers are replaced
+  sheet.clear();
 
   if (!data || data.length === 0) return;
 
-  // Write headers if sheet is empty
-  if (sheet.getLastRow() === 0 || !sheet.getRange(1, 1).getValue()) {
-    var headerRow = columns.map(function(c) {
-      return c.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
-    });
-    sheet.getRange(1, 1, 1, columns.length).setValues([headerRow]);
-    sheet.getRange(1, 1, 1, columns.length).setFontWeight('bold');
-  }
+  // Write headers
+  var headerRow = columns.map(function(c) {
+    return c.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+  });
+  sheet.getRange(1, 1, 1, columns.length).setValues([headerRow]);
+  sheet.getRange(1, 1, 1, columns.length).setFontWeight('bold');
+  sheet.setFrozenRows(1);
 
   // Write data
   var rows = data.map(function(item) {

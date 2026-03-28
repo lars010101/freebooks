@@ -2,21 +2,21 @@
  * Query account balances from the _CACHE_BALANCES tab.
  *
  * Usage:
- * =skuld(timer, "FY2025")          -> All accounts
- * =skuld(timer, "FY2025", "pnl")  -> P&L accounts only
- * =skuld(timer, "FY2025", "bs")   -> Balance Sheet accounts only
- * =skuld(timer, "FY2025", 3000)   -> Single account balance
- * =skuld(timer, "FY2025", A1:A10) -> Array of balances for given account codes
+ * =skuld(ts, "FY2025")          -> All accounts
+ * =skuld(ts, "FY2025", "pnl")  -> P&L accounts only
+ * =skuld(ts, "FY2025", "bs")   -> Balance Sheet accounts only
+ * =skuld(ts, "FY2025", 3000)   -> Single account balance
+ * =skuld(ts, "FY2025", A1:A10) -> Array of balances for given account codes
  *
- * @param {*} timer - Must be the `timer` named range (forces auto-recalculate on cache rebuild)
+ * @param {*} ts - Must be the `ts` named range (forces auto-recalculate on cache rebuild)
  * @param {string} period - The period column to query (e.g., "FY2025", "2025-01")
  * @param {string|Array} filter - "pnl", "bs", or specific account code(s). Defaults to all accounts.
  * @return {Array|number|string}
  * @customfunction
  */
-function skuld(timer, period, filter) {
-  // Access timer to mark it as a dependency
-  if (timer !== undefined) { void timer; }
+function skuld(ts, period, filter) {
+  // Access ts to mark it as a dependency
+  if (ts !== undefined) { void ts; }
 
   if (!period) return "Error: Missing period";
 

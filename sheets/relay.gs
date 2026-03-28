@@ -531,10 +531,10 @@ function buildSkuldPL_(sheet, ss) {
   // Get COA data
   var coaData = coaSheet.getDataRange().getValues();
   var headers = coaData[0];
-  var acctCodeIdx = headers.indexOf('account_code');
-  var acctNameIdx = headers.indexOf('account_name');
-  var acctTypeIdx = headers.indexOf('account_type');
-  var plCatIdx = headers.indexOf('pl_category');
+  var acctCodeIdx = headers.indexOf('Account Code');
+  var acctNameIdx = headers.indexOf('Account Name');
+  var acctTypeIdx = headers.indexOf('Account Type');
+  var plCatIdx = headers.indexOf('PL Category');
 
   // Collect P&L accounts (Revenue + Expense), sorted by type then code
   var plAccounts = [];
@@ -668,10 +668,10 @@ function buildSkuldBS_(sheet, ss) {
 
   var coaData = coaSheet.getDataRange().getValues();
   var headers = coaData[0];
-  var acctCodeIdx = headers.indexOf('account_code');
-  var acctNameIdx = headers.indexOf('account_name');
-  var acctTypeIdx = headers.indexOf('account_type');
-  var bsCatIdx = headers.indexOf('bs_category');
+  var acctCodeIdx = headers.indexOf('Account Code');
+  var acctNameIdx = headers.indexOf('Account Name');
+  var acctTypeIdx = headers.indexOf('Account Type');
+  var bsCatIdx = headers.indexOf('BS Category');
 
   var bsAccounts = [];
   for (var i = 1; i < coaData.length; i++) {

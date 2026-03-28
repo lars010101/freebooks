@@ -54,8 +54,10 @@ async function buildAccountBalancesCache(ctx) {
     periods.add(monthStr);
     fyPeriods.add(fyStr);
 
-    balancesByAccount[acct][monthStr] = (balancesByAccount[acct][monthStr] || 0) + row.balance;
-    balancesByAccount[acct][fyStr] = (balancesByAccount[acct][fyStr] || 0) + row.balance;
+    const bal = Number(row.balance?.value !== undefined ? row.balance.value : row.balance) || 0;
+
+    balancesByAccount[acct][monthStr] = (balancesByAccount[acct][monthStr] || 0) + bal;
+    balancesByAccount[acct][fyStr] = (balancesByAccount[acct][fyStr] || 0) + bal;
   });
 
   const sortedMonths = Array.from(periods).sort();

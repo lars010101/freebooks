@@ -228,7 +228,7 @@ function refreshTab_(name, period) {
         cacheSheet.getRange('ZZ1').setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
         // Ensure timer named range always points to ZZ1 (setNamedRange auto-updates if exists)
         var ss = SpreadsheetApp.getActiveSpreadsheet();
-        ss.setNamedRange('ts', cacheSheet.getRange('ZZ1'));
+        ss.setNamedRange('timestamp', cacheSheet.getRange('ZZ1'));
       }
       return '✅ Cache built with ' + (r.columns ? r.columns.length : 0) + ' periods';
     case 'COA':

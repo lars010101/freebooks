@@ -228,9 +228,9 @@ function refreshTab_(name, period) {
         cacheSheet.getRange('ZZ1').setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
         // Ensure timer named range always points to ZZ1
         var ss = SpreadsheetApp.getActiveSpreadsheet();
-        var existing = ss.getNamedRanges().filter(function(nr) { return nr.getName() === 'timer'; });
-        if (existing.length > 0) {
-          ss.deleteNamedRange('timer');
+        var existing = ss.getNamedRanges();
+        for (var i = 0; i < existing.length; i++) {
+          if (existing[i].getName() === 'timer') existing[i].remove();
         }
         ss.createNamedRange('timer', cacheSheet.getRange('ZZ1'));
       }

@@ -2,19 +2,25 @@
  * Query account balances from the _CACHE_BALANCES tab.
  *
  * Usage:
- * =SKULD("account_balances", "FY2025")       -> Returns 2D array: [account_code, balance]
- * =SKULD("account_balances_pl", "FY2025")    -> Returns 2D array of P&L accounts: [account_code, balance] 
- * =SKULD("account_balances_bs", "FY2025")    -> Returns 2D array of BS accounts: [account_code, balance]
- * =SKULD("3000", "FY2025")                   -> Returns single balance for account 3000
- * =SKULD(A1:A10, "FY2025")                   -> Returns array of balances for given accounts
+ * =SKULD("FY2025")               -> Returns 2D array: [account_code, balance] for all accounts
+ * =SKULD("FY2025", "all")        -> Same as above
+ * =SKULD("FY2025", "pnl")        -> Returns 2D array of P&L accounts: [account_code, balance] 
+ * =SKULD("FY2025", "bs")         -> Returns 2D array of BS accounts: [account_code, balance]
+ * =SKULD("FY2025", "3000")       -> Returns single balance for account 3000
+ * =SKULD("FY2025", A1:A10)       -> Returns array of balances for given accounts
+ * =SKULD("FY2025", "3000", A1)   -> Same as above but also reads A1 as a recalc trigger
  *
- * @param {string|Array} accountOrQuery - Query type OR account code(s)
  * @param {string} period - The period column to query (e.g., "FY2025", "2025-01")
+ * @param {string|Array} [accountFilter] - Optional. "all", "pnl", "bs", or specific account code(s). Defaults to "all".
+ * @param {*} [recalcTrigger] - Optional. If provided, the function reads this value so Sheets knows to recalculate when it changes.
  * @return {Array|number|string}
  * @customfunction
  */
-function SKULD(accountOrQuery, period) {
-  if (!accountOrQuery || !period) return "Error: Missing params";
+function SKULD(period, accountFilter, recalcTrigger) {
+  // Access recalcTrigger to mark it as a dependency (prevents "unnecessary recalculation" optimization)
+  if (recalcTrigger !== undefined) { void recalcTrigger; }
+  
+  if (!period) return "Error: Missing period";
   
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
@@ -35,12 +41,17 @@ function SKULD(accountOrQuery, period) {
   
   if (acctIndex === -1) return "Error: Cache missing 'Account Code'";
 
-  var isPrimitive = typeof accountOrQuery === 'string' || typeof accountOrQuery === 'number';
-  var queryStr = isPrimitive ? String(accountOrQuery).trim() : null;
+  // Default to 'all' if omitted
+  if (accountFilter === undefined || accountFilter === null || accountFilter === '') {
+    accountFilter = 'all';
+  }
+
+  var isPrimitive = typeof accountFilter === 'string' || typeof accountFilter === 'number';
+  var queryStr = isPrimitive ? String(accountFilter).trim() : null;
   var queryType = isPrimitive ? queryStr.toLowerCase() : null;
 
   // Handle standard query types returning 2D array [code, balance]
-  if (queryType === 'account_balances' || queryType === 'account_balances_pl' || queryType === 'account_balances_bs') {
+  if (queryType === 'all' || queryType === 'account_balances' || queryType === 'pnl' || queryType === 'pl' || queryType === 'bs') {
     var result = [];
     for (var i = 1; i < data.length; i++) {
       var code = String(data[i][acctIndex]).trim();
@@ -50,12 +61,12 @@ function SKULD(accountOrQuery, period) {
       var bal = Number(data[i][periodIndex]) || 0;
       var include = false;
       
-      if (queryType === 'account_balances') {
+      if (queryType === 'all' || queryType === 'account_balances') {
         include = true;
-      } else if (queryType === 'account_balances_pl') {
+      } else if (queryType === 'pnl' || queryType === 'pl') {
         var plCat = String(data[i][plCatIndex]).trim();
         include = (type === 'Revenue' || type === 'Expense' || plCat !== '');
-      } else if (queryType === 'account_balances_bs') {
+      } else if (queryType === 'bs') {
         var bsCat = String(data[i][bsCatIndex]).trim();
         include = (type === 'Asset' || type === 'Liability' || type === 'Equity' || bsCat !== '');
       }
@@ -83,12 +94,12 @@ function SKULD(accountOrQuery, period) {
   }
   
   // Handle array/range of accounts
-  if (Array.isArray(accountOrQuery)) {
+  if (Array.isArray(accountFilter)) {
     var resultArr = [];
-    for (var r = 0; r < accountOrQuery.length; r++) {
+    for (var r = 0; r < accountFilter.length; r++) {
       var rowResult = [];
-      for (var c = 0; c < accountOrQuery[r].length; c++) {
-        var reqCode = String(accountOrQuery[r][c]).trim();
+      for (var c = 0; c < accountFilter[r].length; c++) {
+        var reqCode = String(accountFilter[r][c]).trim();
         if (!reqCode) {
           rowResult.push('');
         } else {

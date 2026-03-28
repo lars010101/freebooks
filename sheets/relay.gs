@@ -222,6 +222,11 @@ function refreshTab_(name, period) {
     case '_CACHE_BALANCES':
       var r = callSkuld_('report.cache_balances', {});
       if (r && r.rows) writeToSheet_('_CACHE_BALANCES', r.rows, r.columns);
+      // Write recalc trigger timestamp to ZZ1 so SKULD() formulas referencing it auto-recalculate
+      var cacheSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('_CACHE_BALANCES');
+      if (cacheSheet) {
+        cacheSheet.getRange('ZZ1').setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
+      }
       return '✅ Cache built with ' + (r.columns ? r.columns.length : 0) + ' periods';
     case 'COA':
       var r = callSkuld_('coa.list', {});

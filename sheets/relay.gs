@@ -567,9 +567,11 @@ function buildPL_(sheet, ss) {
   for (var i = 1; i < coaData.length; i++) {
     var row = coaData[i];
     var type = String(row[acctTypeIdx] || '').trim();
+    var code = String(row[acctCodeIdx] || '').trim();
+    if (!code || code.length < 6) continue; // Exclude calculated parent accounts
     if (type === 'Revenue' || type === 'Expense') {
       plAccounts.push({
-        code: String(row[acctCodeIdx] || '').trim(),
+        code: code,
         name: String(row[acctNameIdx] || '').trim(),
         type: type,
         plCategory: String(row[plCatIdx] || '').trim()
@@ -712,8 +714,8 @@ function buildBS_(sheet, ss) {
     var row = coaData[i];
     var type = String(row[acctTypeIdx] || '').trim();
     var code = String(row[acctCodeIdx] || '').trim();
-    // Exclude 999999 closing/clearing account
-    if (code.indexOf('999999') === 0) continue;
+    // Exclude 999999 closing/clearing account and calculated parent accounts
+    if (code.indexOf('999999') === 0 || code.length < 6) continue;
     if (type === 'Asset' || type === 'Liability' || type === 'Equity') {
       bsAccounts.push({
         code: code,
@@ -1087,7 +1089,8 @@ function buildTB_(sheet, ss) {
     var code = String(coaData[i][cCode] || '').trim();
     var type = String(coaData[i][cType] || '').trim();
     if (!code) continue;
-    // TB includes ALL accounts (including 999999) — must balance
+    if (code.length < 6) continue; // Exclude calculated parent accounts to prevent double-counting
+    // TB includes ALL leaf accounts (including 999999) — must balance
     accounts.push({ code: code, type: type });
   }
   accounts.sort(function(a, b) { return a.code.localeCompare(b.code, undefined, { numeric: true }); });

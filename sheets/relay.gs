@@ -632,7 +632,8 @@ function buildPL_(sheet, ss) {
     // Col B: VLOOKUP name from COA
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
     // Col C: skuld P&L movement — delta=true for period movement from cumulative cache
-    sheet.getRange(row, 3).setFormula('=skuld(timestamp,B$3,A' + row + ',true)');
+    // Revenue is credit-normal, negate so it shows as positive in P&L
+    sheet.getRange(row, 3).setFormula('=-skuld(timestamp,B$3,A' + row + ',true)');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }

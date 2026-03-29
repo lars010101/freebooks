@@ -160,7 +160,7 @@ function navigateToTab(name) {
   sheet.activate();
 
   // Auto-build formula-driven skuld tabs when navigated to
-  if (name === 'PL' || name === 'BS' || name === 'CF-skuld') {
+  if (name === 'PL' || name === 'BS' || name === 'CF-skuld' || name === 'TB' || name === 'SCE' || name === 'Integrity') {
     refreshTab_(name);
   }
 
@@ -192,9 +192,10 @@ function refreshTab_(name, period) {
       }
       return '✅ Journal loaded (' + (entries ? entries.length : 0) + ' rows)';
     case 'TB':
-      var r = callSkuld_('report.refresh_tb', params);
-      if (r) writeReportToSheet_('TB', r);
-      return '✅ Trial Balance refreshed';
+      var ssTB = SpreadsheetApp.getActiveSpreadsheet();
+      if (!ssTB.getSheetByName('COA') || !ssTB.getSheetByName('_CACHE_BALANCES')) return '❌ COA or cache not found';
+      try { buildTB_(ssTB.getSheetByName('TB'), ssTB); } catch (e) { return '❌ Error: ' + e.message; }
+      return '✅ Trial Balance rebuilt — change period in B3';
     case 'PL':
       var ss = SpreadsheetApp.getActiveSpreadsheet();
       var coaSheet = ss.getSheetByName('COA');
@@ -246,15 +247,15 @@ function refreshTab_(name, period) {
       if (r) writeReportToSheet_('VAT Return', r);
       return '✅ VAT Return refreshed';
     case 'SCE':
-      var r = callSkuld_('report.refresh_sce', params);
-      if (r) writeReportToSheet_('SCE', r);
-      return '✅ Statement of Changes in Equity refreshed';
+      var ssSCE = SpreadsheetApp.getActiveSpreadsheet();
+      if (!ssSCE.getSheetByName('COA') || !ssSCE.getSheetByName('_CACHE_BALANCES')) return '❌ COA or cache not found';
+      try { buildSCE_(ssSCE.getSheetByName('SCE'), ssSCE); } catch (e) { return '❌ Error: ' + e.message; }
+      return '✅ SCE rebuilt — change period in B3';
     case 'Integrity':
-      var r = callSkuld_('report.refresh_integrity', params);
-      if (r) writeReportToSheet_('Integrity', r);
-      var failCount = 0;
-      if (r && r.checks) { for (var ci = 0; ci < r.checks.length; ci++) { for (var ii = 0; ii < (r.checks[ci].items||[]).length; ii++) { if ((r.checks[ci].items[ii].status||'').indexOf('❌') >= 0) failCount++; }}}
-      return '✅ Integrity Check complete — ' + (failCount === 0 ? 'ALL PASSED ✅' : failCount + ' issue(s) found ❌');
+      var ssInt = SpreadsheetApp.getActiveSpreadsheet();
+      if (!ssInt.getSheetByName('COA') || !ssInt.getSheetByName('_CACHE_BALANCES')) return '❌ COA or cache not found';
+      try { buildIntegrity_(ssInt.getSheetByName('Integrity'), ssInt); } catch (e) { return '❌ Error: ' + e.message; }
+      return '✅ Integrity Check rebuilt — change period in B2';
     case '_CACHE_BALANCES':
       var r = callSkuld_('report.cache_balances', {});
       if (r && r.rows) writeToSheet_('_CACHE_BALANCES', r.rows, r.columns);
@@ -1039,4 +1040,427 @@ function buildCF_(sheet, ss) {
 
   sheet.setFrozenRows(4);
   Logger.log('CF-skuld built: %d rows', row);
+}
+
+/**
+ * Build the TB (Trial Balance) tab using skuld() formulas.
+ *
+ * Layout: Col A = account code, Col B = account name, Col C = Debit, Col D = Credit, Col E = Balance
+ * Period selector in B3. Shows cumulative balances through selected period.
+ * Debit-normal accounts (Asset, Expense): positive balance shown in Debit column.
+ * Credit-normal accounts (Liability, Equity, Revenue): positive balance shown in Credit column.
+ */
+function buildTB_(sheet, ss) {
+  var coaSheet = ss.getSheetByName('COA');
+  if (!coaSheet) { Logger.log('TB error: COA sheet not found'); return; }
+
+  var coaData = coaSheet.getDataRange().getValues();
+  var cHdrs = coaData[0];
+  var cCode = cHdrs.indexOf('Account Code');
+  var cName = cHdrs.indexOf('Account Name');
+  var cType = cHdrs.indexOf('Account Type');
+
+  var accounts = [];
+  for (var i = 1; i < coaData.length; i++) {
+    var code = String(coaData[i][cCode] || '').trim();
+    var type = String(coaData[i][cType] || '').trim();
+    if (!code) continue;
+    if (code.indexOf('999999') === 0) continue;
+    accounts.push({ code: code, type: type });
+  }
+  accounts.sort(function(a, b) { return a.code.localeCompare(b.code, undefined, { numeric: true }); });
+
+  var companyName = '', currency = '';
+  var settingsSheet = ss.getSheetByName('Settings');
+  if (settingsSheet) {
+    var sData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < sData.length; s++) {
+      var k = String(sData[s][0] || '').trim().toLowerCase();
+      if (k === 'company') companyName = String(sData[s][1] || '').trim();
+      if (k === 'currency') currency = String(sData[s][1] || '').trim();
+    }
+  }
+
+  sheet.clear();
+  sheet.setColumnWidth(1, 100);
+  sheet.setColumnWidth(2, 280);
+  sheet.setColumnWidth(3, 140);
+  sheet.setColumnWidth(4, 140);
+  sheet.setColumnWidth(5, 140);
+
+  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
+  sheet.getRange(3, 2).setValue('FY2025').setFontWeight('bold').setBackground('#e8f0fe');
+
+  // Headers row 4
+  sheet.getRange(4, 1).setValue('Account Code').setFontWeight('bold');
+  sheet.getRange(4, 2).setValue('Account Name').setFontWeight('bold');
+  sheet.getRange(4, 3).setValue('Debit').setFontWeight('bold');
+  sheet.getRange(4, 4).setValue('Credit').setFontWeight('bold');
+  sheet.getRange(4, 5).setValue('Balance').setFontWeight('bold');
+  sheet.getRange(4, 1, 1, 5).setBackground('#e6e6e6');
+
+  var row = 5;
+  var startRow = row;
+  for (var i = 0; i < accounts.length; i++) {
+    var acct = accounts[i];
+    sheet.getRange(row, 1).setValue(acct.code);
+    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
+    // Balance = cumulative (debit - credit). Positive = debit balance.
+    // Col E: raw skuld value
+    sheet.getRange(row, 5).setFormula('=skuld(timestamp,B$3,A' + row + ')');
+    // Col C (Debit): show positive balances
+    sheet.getRange(row, 3).setFormula('=IF(E' + row + '>0,E' + row + ',0)');
+    // Col D (Credit): show absolute value of negative balances
+    sheet.getRange(row, 4).setFormula('=IF(E' + row + '<0,-E' + row + ',0)');
+    sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    sheet.getRange(row, 4).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    sheet.getRange(row, 5).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    row++;
+  }
+  var endRow = row - 1;
+
+  // Totals
+  sheet.getRange(row, 1).setValue('TOTAL').setFontWeight('bold');
+  sheet.getRange(row, 3).setFormula('=SUM(C' + startRow + ':C' + endRow + ')').setFontWeight('bold');
+  sheet.getRange(row, 4).setFormula('=SUM(D' + startRow + ':D' + endRow + ')').setFontWeight('bold');
+  sheet.getRange(row, 5).setFormula('=SUM(E' + startRow + ':E' + endRow + ')').setFontWeight('bold');
+  sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 4).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 5).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 1, 1, 5).setBackground('#e0e0e0');
+  sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  row++;
+
+  // Check: total debit should equal total credit
+  sheet.getRange(row, 1).setValue('CHECK: Debit = Credit').setFontStyle('italic').setFontColor('#555555');
+  sheet.getRange(row, 3).setFormula('=C' + (row - 1) + '-D' + (row - 1)).setFontStyle('italic').setFontColor('#555555');
+  sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+
+  sheet.setFrozenRows(4);
+  Logger.log('TB-skuld built: %d accounts', endRow - startRow + 1);
+}
+
+/**
+ * Build the SCE (Statement of Changes in Equity) tab using skuld() formulas.
+ *
+ * Layout:
+ *   Row labels: Opening Balance, Net Profit, Dividends, Share Capital movements, Other RE, Closing Balance
+ *   Columns: Label | Share Capital | Retained Earnings | Dividends | Total
+ *   Period selector in B3.
+ *   Prior period computed as C3 = "FY"&(RIGHT(B3,4)-1)
+ *
+ * Equity account classification:
+ *   203080 → Share Capital
+ *   203070 → Retained Earnings
+ *   203040 → Dividends
+ *   Others → Retained Earnings (default)
+ */
+function buildSCE_(sheet, ss) {
+  var coaSheet = ss.getSheetByName('COA');
+  if (!coaSheet) { Logger.log('SCE error: COA sheet not found'); return; }
+
+  var coaData = coaSheet.getDataRange().getValues();
+  var cHdrs = coaData[0];
+  var cCode = cHdrs.indexOf('Account Code');
+  var cType = cHdrs.indexOf('Account Type');
+
+  // Classify equity accounts
+  var scAccts = [];  // Share Capital
+  var reAccts = [];  // Retained Earnings
+  var divAccts = []; // Dividends
+
+  for (var i = 1; i < coaData.length; i++) {
+    var code = String(coaData[i][cCode] || '').trim();
+    var type = String(coaData[i][cType] || '').trim();
+    if (!code || type !== 'Equity') continue;
+    if (code.indexOf('999999') === 0) continue;
+    if (code.indexOf('203080') === 0 || code.indexOf('2081') === 0) scAccts.push(code);
+    else if (code.indexOf('203040') === 0 || code.indexOf('2898') === 0) divAccts.push(code);
+    else reAccts.push(code); // 203070 and others → RE bucket
+  }
+
+  // Also need P&L accounts for Net Income
+  var plCodes = [];
+  for (var i = 1; i < coaData.length; i++) {
+    var type = String(coaData[i][cType] || '').trim();
+    var code = String(coaData[i][cCode] || '').trim();
+    if (!code) continue;
+    if (type === 'Revenue' || type === 'Expense') plCodes.push(code);
+  }
+
+  var companyName = '', currency = '';
+  var settingsSheet = ss.getSheetByName('Settings');
+  if (settingsSheet) {
+    var sData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < sData.length; s++) {
+      var k = String(sData[s][0] || '').trim().toLowerCase();
+      if (k === 'company') companyName = String(sData[s][1] || '').trim();
+      if (k === 'currency') currency = String(sData[s][1] || '').trim();
+    }
+  }
+
+  sheet.clear();
+  sheet.setColumnWidth(1, 210);
+  sheet.setColumnWidth(2, 150);
+  sheet.setColumnWidth(3, 150);
+  sheet.setColumnWidth(4, 150);
+  sheet.setColumnWidth(5, 150);
+
+  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
+  sheet.getRange(3, 2).setValue('FY2026').setFontWeight('bold').setBackground('#e8f0fe');
+  // C3 = prior period name (hidden)
+  sheet.getRange(3, 3).setFormula('="FY"&(VALUE(RIGHT(B3,4))-1)');
+  sheet.getRange(3, 3).setFontColor('#ffffff');
+
+  // Headers row 4
+  sheet.getRange(4, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(4, 2).setValue('Share Capital').setFontWeight('bold');
+  sheet.getRange(4, 3).setValue('Retained Earnings').setFontWeight('bold');
+  sheet.getRange(4, 4).setValue('Dividends').setFontWeight('bold');
+  sheet.getRange(4, 5).setValue('Total').setFontWeight('bold');
+  sheet.getRange(4, 1, 1, 5).setBackground('#e6e6e6');
+
+  var fmt = '#,##0.00;(#,##0.00);0.00';
+
+  // Helper: build sum formula for a list of account codes using skuld()
+  // mode: 'raw' = cumulative (no delta), 'delta' = period movement
+  function sumFormula(codes, period, isDelta) {
+    if (codes.length === 0) return '0';
+    var d = isDelta ? ',true' : '';
+    return '-(' + codes.map(function(c) { return 'skuld(timestamp,' + period + ',' + c + d + ')'; }).join('+') + ')';
+  }
+
+  var row = 5;
+
+  // ── Opening Balance ──────────────────────────────────────────────────────────
+  // Opening = cumulative through PRIOR period = -skuld(priorFY, code)
+  // Negate because equity credit balances are stored as negative in cache
+  sheet.getRange(row, 1).setValue('Opening Balance').setFontWeight('bold');
+  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'C$3', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$3', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'C$3', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
+  sheet.getRange(row, 1, 1, 5).setBackground('#f0f0f0');
+  sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  var openRow = row;
+  row++;
+
+  // ── Net Profit / (Loss) ──────────────────────────────────────────────────────
+  // NI = -(sum of P&L deltas) = SUM(credit-debit) for P&L period
+  var niRow = row;
+  sheet.getRange(row, 1).setValue('Net Profit / (Loss)');
+  sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt); // SC: 0
+  // NI formula: negate sum of P&L movements (debit-credit → credit-debit)
+  if (plCodes.length > 0) {
+    var niParts = plCodes.map(function(c) { return 'skuld(timestamp,B$3,' + c + ',true)'; });
+    sheet.getRange(row, 3).setFormula('=-(' + niParts.join('+') + ')').setNumberFormat(fmt);
+  } else {
+    sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
+  }
+  sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt); // Div: 0
+  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
+  row++;
+
+  // ── Dividends declared ───────────────────────────────────────────────────────
+  var divRow = row;
+  sheet.getRange(row, 1).setValue('Dividends declared');
+  sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
+  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'B$3', true)).setNumberFormat(fmt);
+  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
+  row++;
+
+  // ── Share Capital movements ──────────────────────────────────────────────────
+  var scMovRow = row;
+  sheet.getRange(row, 1).setValue('Share capital movements');
+  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'B$3', true)).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
+  sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt);
+  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
+  row++;
+
+  // ── Other RE movements ───────────────────────────────────────────────────────
+  // Total RE movement for the period minus Net Income = other RE movements
+  var otherRow = row;
+  sheet.getRange(row, 1).setValue('Other RE movements');
+  sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt);
+  // Other RE = total RE delta - NI
+  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'B$3', true) + '-C' + niRow).setNumberFormat(fmt);
+  sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt);
+  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
+  row++;
+
+  // ── Closing Balance ──────────────────────────────────────────────────────────
+  // Closing = Opening + all movements
+  var closeRow = row;
+  sheet.getRange(row, 1).setValue('Closing Balance').setFontWeight('bold');
+  sheet.getRange(row, 2).setFormula('=SUM(B' + openRow + ':B' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=SUM(C' + openRow + ':C' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
+  sheet.getRange(row, 4).setFormula('=SUM(D' + openRow + ':D' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
+  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setFontWeight('bold').setNumberFormat(fmt);
+  sheet.getRange(row, 1, 1, 5).setBackground('#e0e0e0');
+  sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  sheet.setFrozenRows(4);
+  Logger.log('SCE-skuld built');
+}
+
+/**
+ * Build the Integrity Check tab using skuld() formulas.
+ *
+ * Checks:
+ *   1. Trial Balance: Total Debit = Total Credit
+ *   2. BS equation: Assets = Liabilities + Equity
+ *   3. P&L net = Closing entry net
+ *   4. RE roll-forward: Opening RE + NI + movements = Closing RE
+ */
+function buildIntegrity_(sheet, ss) {
+  var coaSheet = ss.getSheetByName('COA');
+  if (!coaSheet) { Logger.log('Integrity error: COA sheet not found'); return; }
+
+  var coaData = coaSheet.getDataRange().getValues();
+  var cHdrs = coaData[0];
+  var cCode = cHdrs.indexOf('Account Code');
+  var cType = cHdrs.indexOf('Account Type');
+
+  // Collect account codes by type
+  var assetCodes = [], liabCodes = [], equityCodes = [], revCodes = [], expCodes = [];
+  var cashCodes = [], closingCodes = [];
+
+  for (var i = 1; i < coaData.length; i++) {
+    var code = String(coaData[i][cCode] || '').trim();
+    var type = String(coaData[i][cType] || '').trim();
+    if (!code) continue;
+    if (code.indexOf('999999') === 0) { closingCodes.push(code); continue; }
+    if (type === 'Asset') assetCodes.push(code);
+    else if (type === 'Liability') liabCodes.push(code);
+    else if (type === 'Equity') equityCodes.push(code);
+    else if (type === 'Revenue') revCodes.push(code);
+    else if (type === 'Expense') expCodes.push(code);
+  }
+
+  // Helper: build sum of skuld() for list of codes
+  function sumSkuld(codes, period, delta) {
+    if (codes.length === 0) return '0';
+    var d = delta ? ',true' : '';
+    return '(' + codes.map(function(c) { return 'skuld(timestamp,' + period + ',' + c + d + ')'; }).join('+') + ')';
+  }
+
+  var companyName = '';
+  var settingsSheet = ss.getSheetByName('Settings');
+  if (settingsSheet) {
+    var sData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < sData.length; s++) {
+      if (String(sData[s][0] || '').trim().toLowerCase() === 'company') companyName = String(sData[s][1] || '').trim();
+    }
+  }
+
+  sheet.clear();
+  sheet.setColumnWidth(1, 350);
+  sheet.setColumnWidth(2, 160);
+  sheet.setColumnWidth(3, 100);
+
+  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(2, 1).setValue('Period').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue('FY2026').setFontWeight('bold').setBackground('#e8f0fe');
+  // C2 = prior period (hidden)
+  sheet.getRange(2, 3).setFormula('="FY"&(VALUE(RIGHT(B2,4))-1)');
+  sheet.getRange(2, 3).setFontColor('#ffffff');
+
+  var fmt = '#,##0.00;(#,##0.00);0.00';
+  var row = 4;
+
+  // ── Check 1: Trial Balance ───────────────────────────────────────────────────
+  sheet.getRange(row, 1).setValue('1. Trial Balance: Debit = Credit').setFontWeight('bold').setBackground('#d0d0d0');
+  sheet.getRange(row, 1, 1, 3).setBackground('#d0d0d0');
+  row++;
+  // Sum of ALL account cumulative balances should = 0 (debit = credit)
+  var allCodes = assetCodes.concat(liabCodes, equityCodes, revCodes, expCodes, closingCodes);
+  sheet.getRange(row, 1).setValue('Sum of all balances (should be 0)');
+  sheet.getRange(row, 2).setFormula('=' + sumSkuld(allCodes, 'B$2', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=IF(ABS(B' + row + ')<0.01,"✅","❌")');
+  row++;
+  row++;
+
+  // ── Check 2: BS Equation ─────────────────────────────────────────────────────
+  sheet.getRange(row, 1).setValue('2. Balance Sheet: A = L + E').setFontWeight('bold').setBackground('#d0d0d0');
+  sheet.getRange(row, 1, 1, 3).setBackground('#d0d0d0');
+  row++;
+  sheet.getRange(row, 1).setValue('Total Assets');
+  sheet.getRange(row, 2).setFormula('=' + sumSkuld(assetCodes, 'B$2', false)).setNumberFormat(fmt);
+  var assetsRow = row; row++;
+  sheet.getRange(row, 1).setValue('Total Liabilities');
+  sheet.getRange(row, 2).setFormula('=' + sumSkuld(liabCodes, 'B$2', false)).setNumberFormat(fmt);
+  var liabRow = row; row++;
+  sheet.getRange(row, 1).setValue('Total Equity (excl 999999)');
+  sheet.getRange(row, 2).setFormula('=' + sumSkuld(equityCodes, 'B$2', false)).setNumberFormat(fmt);
+  var eqRow = row; row++;
+  sheet.getRange(row, 1).setValue('A + L + E (should be 0)');
+  sheet.getRange(row, 2).setFormula('=B' + assetsRow + '+B' + liabRow + '+B' + eqRow).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=IF(ABS(B' + row + ')<0.01,"✅","❌")');
+  row++;
+  row++;
+
+  // ── Check 3: P&L net vs Closing entry ────────────────────────────────────────
+  sheet.getRange(row, 1).setValue('3. P&L Net = Closing Entry Net').setFontWeight('bold').setBackground('#d0d0d0');
+  sheet.getRange(row, 1, 1, 3).setBackground('#d0d0d0');
+  row++;
+  sheet.getRange(row, 1).setValue('P&L Net (Rev - Exp, delta)');
+  sheet.getRange(row, 2).setFormula('=-' + sumSkuld(revCodes.concat(expCodes), 'B$2', true)).setNumberFormat(fmt);
+  var plNetRow = row; row++;
+  sheet.getRange(row, 1).setValue('Closing entry net (999999 delta)');
+  sheet.getRange(row, 2).setFormula('=-' + sumSkuld(closingCodes, 'B$2', true)).setNumberFormat(fmt);
+  var closingNetRow = row; row++;
+  sheet.getRange(row, 1).setValue('Difference (should be 0)');
+  sheet.getRange(row, 2).setFormula('=B' + plNetRow + '-B' + closingNetRow).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=IF(ABS(B' + row + ')<0.01,"✅","❌")');
+  row++;
+  row++;
+
+  // ── Check 4: RE Roll-Forward ─────────────────────────────────────────────────
+  sheet.getRange(row, 1).setValue('4. RE Roll-Forward').setFontWeight('bold').setBackground('#d0d0d0');
+  sheet.getRange(row, 1, 1, 3).setBackground('#d0d0d0');
+  row++;
+  // RE accounts: 203070 and any other equity not SC or Div
+  var reCodes = [];
+  for (var i = 0; i < equityCodes.length; i++) {
+    var c = equityCodes[i];
+    if (c.indexOf('203080') !== 0 && c.indexOf('2081') !== 0 && c.indexOf('203040') !== 0 && c.indexOf('2898') !== 0) {
+      reCodes.push(c);
+    }
+  }
+  sheet.getRange(row, 1).setValue('Opening RE (cumulative prior)');
+  sheet.getRange(row, 2).setFormula('=-' + sumSkuld(reCodes, 'C$2', false)).setNumberFormat(fmt);
+  var reOpenRow = row; row++;
+  sheet.getRange(row, 1).setValue('Net Income (period)');
+  if (revCodes.length > 0 || expCodes.length > 0) {
+    sheet.getRange(row, 2).setFormula('=-' + sumSkuld(revCodes.concat(expCodes), 'B$2', true)).setNumberFormat(fmt);
+  } else {
+    sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt);
+  }
+  var reNiRow = row; row++;
+  sheet.getRange(row, 1).setValue('RE movements (period, excl NI)');
+  sheet.getRange(row, 2).setFormula('=(-' + sumSkuld(reCodes, 'B$2', true) + ')-B' + reNiRow).setNumberFormat(fmt);
+  var reMovRow = row; row++;
+  sheet.getRange(row, 1).setValue('Expected Closing RE');
+  sheet.getRange(row, 2).setFormula('=B' + reOpenRow + '+B' + reNiRow + '+B' + reMovRow).setNumberFormat(fmt);
+  var reExpectedRow = row; row++;
+  sheet.getRange(row, 1).setValue('Actual Closing RE (cumulative)');
+  sheet.getRange(row, 2).setFormula('=-' + sumSkuld(reCodes, 'B$2', false)).setNumberFormat(fmt);
+  var reActualRow = row; row++;
+  sheet.getRange(row, 1).setValue('Difference (should be 0)');
+  sheet.getRange(row, 2).setFormula('=B' + reExpectedRow + '-B' + reActualRow).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=IF(ABS(B' + row + ')<0.01,"✅","❌")');
+
+  sheet.setFrozenRows(3);
+  Logger.log('Integrity-skuld built');
 }

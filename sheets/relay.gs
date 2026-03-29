@@ -726,8 +726,9 @@ function buildBS_(sheet, ss) {
   }
 
   sheet.clear();
-  sheet.setColumnWidth(1, 400);
-  sheet.setColumnWidth(2, 160);
+  sheet.setColumnWidth(1, 100);
+  sheet.setColumnWidth(2, 300);
+  sheet.setColumnWidth(3, 160);
 
   sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
   sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
@@ -751,12 +752,13 @@ function buildBS_(sheet, ss) {
       currentSection = acct.type;
       sections[currentSection].start = row;
       sheet.getRange(row, 1).setValue(currentSection.toUpperCase()).setFontWeight('bold').setFontSize(11);
-      sheet.getRange(row, 1, 1, 2).setBackground('#f0f0f0');
+      sheet.getRange(row, 1, 1, 3).setBackground('#f0f0f0');
       row++;
     }
-    sheet.getRange(row, 1).setValue(acct.code + '  ' + acct.name);
-    sheet.getRange(row, 2).setFormula("=skuld(timestamp,B3,A" + row + ")");
-    sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    sheet.getRange(row, 1).setValue(acct.code);
+    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
+    sheet.getRange(row, 3).setFormula('=skuld(timestamp,B$3,A' + row + ')');
+    sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
   if (currentSection !== null) sections[currentSection].end = row - 1;
@@ -765,24 +767,24 @@ function buildBS_(sheet, ss) {
   var startRow = 5;
   sheet.getRange(row, 1).setValue('TOTAL ASSETS').setFontWeight('bold');
   if (sections.Asset.start && sections.Asset.end) {
-    sheet.getRange(row, 2).setFormula('=SUM(B' + sections.Asset.start + ':B' + sections.Asset.end + ')').setFontWeight('bold');
+    sheet.getRange(row, 3).setFormula('=SUM(C' + sections.Asset.start + ':C' + sections.Asset.end + ')').setFontWeight('bold');
   }
-  sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   row++;
   sheet.getRange(row, 1).setValue('TOTAL LIABILITIES').setFontWeight('bold');
   if (sections.Liability.start && sections.Liability.end) {
-    sheet.getRange(row, 2).setFormula('=SUM(B' + sections.Liability.start + ':B' + sections.Liability.end + ')').setFontWeight('bold');
+    sheet.getRange(row, 3).setFormula('=SUM(C' + sections.Liability.start + ':C' + sections.Liability.end + ')').setFontWeight('bold');
   }
-  sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   row++;
   sheet.getRange(row, 1).setValue('TOTAL EQUITY').setFontWeight('bold');
   if (sections.Equity.start && sections.Equity.end) {
-    sheet.getRange(row, 2).setFormula('=SUM(B' + sections.Equity.start + ':B' + sections.Equity.end + ')').setFontWeight('bold');
+    sheet.getRange(row, 3).setFormula('=SUM(C' + sections.Equity.start + ':C' + sections.Equity.end + ')').setFontWeight('bold');
   }
-  sheet.getRange(row, 2).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-  sheet.getRange(row, 1, 1, 2).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+  sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   sheet.setFrozenRows(4);
 }
 

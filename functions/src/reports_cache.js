@@ -1,3 +1,17 @@
+/**
+ * Build the _CACHE_BALANCES sheet data.
+ *
+ * Values are CUMULATIVE: SUM(debit - credit) from inception through end of each period.
+ * This means:
+ *   - BS accounts: direct read = balance at period end
+ *   - P&L accounts: skuld(FY2026) - skuld(FY2025) = period movement
+ *   - CF: same delta approach for movements; direct read for cash positions
+ *   - TB: direct read = cumulative balance
+ *
+ * Period columns:
+ *   FY columns (FY2018, FY2019, ...) — cumulative through FY end
+ *   Monthly columns (2018P01, 2018P02, ...) — cumulative through month end
+ */
 async function buildAccountBalancesCache(ctx) {
   const { dataset, companyId } = ctx;
 
@@ -15,7 +29,6 @@ async function buildAccountBalancesCache(ctx) {
   const fyStartStr = String(fy_start_raw?.value || fy_start_raw || '2025-01-01');
   const fsParts = fyStartStr.split('-').map(Number);
   const startMonth = fsParts.length === 3 ? fsParts[1] : fsParts[0];
-  const startDay = fsParts.length === 3 ? fsParts[2] : fsParts[1];
 
   const [entries] = await dataset.query({
     query: `
@@ -30,27 +43,22 @@ async function buildAccountBalancesCache(ctx) {
     params: { companyId }
   });
 
+  // Step 1: Collect per-period MOVEMENTS (same as before)
   const periods = new Set();
   const fyPeriods = new Set();
-  const balancesByAccount = {};
+  const movementsByAccount = {};  // account -> { period -> movement }
 
   entries.forEach(row => {
     const acct = row.account_code;
-    if (!balancesByAccount[acct]) balancesByAccount[acct] = {};
+    if (!movementsByAccount[acct]) movementsByAccount[acct] = {};
 
     const d = new Date(row.date.value);
-    const month = d.getMonth() + 1; // 1-12
+    const month = d.getMonth() + 1;
     const year = d.getFullYear();
 
-    // Period number within FY: P01 = first month of FY
-    // ((month - startMonth + 12) % 12) + 1
     const periodNum = ((month - startMonth + 12) % 12) + 1;
-
-    // FY end year: the year when this FY ends
     const fyEndYear = (month >= startMonth) ? year + 1 : year;
     const fyStr = `FY${fyEndYear}`;
-
-    // Month label in YYYYPnn format — year is the FY end year
     const periodStr = `${fyEndYear}P${String(periodNum).padStart(2, '0')}`;
 
     periods.add(periodStr);
@@ -58,13 +66,39 @@ async function buildAccountBalancesCache(ctx) {
 
     const bal = Number(row.balance?.value !== undefined ? row.balance.value : row.balance) || 0;
 
-    balancesByAccount[acct][periodStr] = (balancesByAccount[acct][periodStr] || 0) + bal;
-    balancesByAccount[acct][fyStr] = (balancesByAccount[acct][fyStr] || 0) + bal;
+    movementsByAccount[acct][periodStr] = (movementsByAccount[acct][periodStr] || 0) + bal;
+    movementsByAccount[acct][fyStr] = (movementsByAccount[acct][fyStr] || 0) + bal;
   });
 
   const sortedMonths = Array.from(periods).sort();
   const sortedFYs = Array.from(fyPeriods).sort();
 
+  // Step 2: Convert movements to CUMULATIVE balances
+  // For each account, walk through sorted periods and accumulate
+  const cumulativeByAccount = {};
+
+  for (const acct of Object.keys(movementsByAccount)) {
+    const movements = movementsByAccount[acct];
+    const cumulative = {};
+
+    // FY cumulative
+    let fyRunning = 0;
+    for (const fy of sortedFYs) {
+      fyRunning += movements[fy] || 0;
+      cumulative[fy] = fyRunning;
+    }
+
+    // Monthly cumulative
+    let monthRunning = 0;
+    for (const m of sortedMonths) {
+      monthRunning += movements[m] || 0;
+      cumulative[m] = monthRunning;
+    }
+
+    cumulativeByAccount[acct] = cumulative;
+  }
+
+  // Step 3: Build output
   const headers = [
     'Account Code', 'Account Name', 'Type', 'Subtype', 'PL Category', 'BS Category', 'CF Category',
     ...sortedFYs, ...sortedMonths
@@ -73,7 +107,7 @@ async function buildAccountBalancesCache(ctx) {
   const rows = [];
   accounts.forEach(a => {
     const acctCode = a.account_code;
-    const bals = balancesByAccount[acctCode] || {};
+    const cum = cumulativeByAccount[acctCode] || {};
     const rowObj = {
       'Account Code': a.account_code, 
       'Account Name': a.account_name, 
@@ -84,8 +118,8 @@ async function buildAccountBalancesCache(ctx) {
       'CF Category': a.cf_category
     };
 
-    sortedFYs.forEach(fy => { rowObj[fy] = bals[fy] || 0; });
-    sortedMonths.forEach(m => { rowObj[m] = bals[m] || 0; });
+    sortedFYs.forEach(fy => { rowObj[fy] = cum[fy] || 0; });
+    sortedMonths.forEach(m => { rowObj[m] = cum[m] || 0; });
     rows.push(rowObj);
   });
 

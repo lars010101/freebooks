@@ -618,8 +618,8 @@ function buildPL_(sheet, ss) {
     sheet.getRange(row, 1).setValue(acct.code);
     // Col B: VLOOKUP name from COA
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
-    // Col C: skuld balance — period from B$3, account code from col A
-    sheet.getRange(row, 3).setFormula('=skuld(timestamp,B$3,A' + row + ')');
+    // Col C: skuld P&L movement — delta=true for period movement from cumulative cache
+    sheet.getRange(row, 3).setFormula('=skuld(timestamp,B$3,A' + row + ',true)');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -649,8 +649,8 @@ function buildPL_(sheet, ss) {
     sheet.getRange(row, 1).setValue(acct.code);
     // Col B: VLOOKUP name from COA
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
-    // Col C: skuld balance
-    sheet.getRange(row, 3).setFormula('=skuld(timestamp,B$3,A' + row + ')');
+    // Col C: skuld expense movement — delta=true for period movement
+    sheet.getRange(row, 3).setFormula('=skuld(timestamp,B$3,A' + row + ',true)');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -796,8 +796,8 @@ function buildBS_(sheet, ss) {
  *   Cache value = SUM(debit - credit)
  *   CF impact = -(debit - credit) = credit - debit for ALL BS accounts
  *   Net Income = SUM(credit - debit) for P&L = -SUM(debit - credit) = negate cache
- *   Opening Cash = cumulative cash balance before period = skuld("cum") for prior FY
- *   CHECK = cumulative cash balance through period = skuld("cum") for selected FY
+ *   Opening Cash = skuld(priorFY, cashCode) = cumulative balance (direct read)
+ *   CHECK = skuld(B3, cashCode) = cumulative balance (direct read)
  */
 function buildCF_(sheet, ss) {
   var coaSheet    = ss.getSheetByName('COA');
@@ -890,7 +890,7 @@ function buildCF_(sheet, ss) {
   function cfAcctRow(code) {
     sheet.getRange(row, 1).setValue(code);
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
-    sheet.getRange(row, 3).setFormula('=-skuld(timestamp,B$3,A' + row + ')');
+    sheet.getRange(row, 3).setFormula('=-skuld(timestamp,B$3,A' + row + ',true)');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -931,7 +931,7 @@ function buildCF_(sheet, ss) {
     if (type === 'Revenue' || type === 'Expense') plCodes.push(code);
   }
   if (plCodes.length > 0) {
-    var plParts = plCodes.map(function(c) { return 'skuld(timestamp,B$3,' + c + ')'; });
+    var plParts = plCodes.map(function(c) { return 'skuld(timestamp,B$3,' + c + ',true)'; });
     sheet.getRange(row, 3).setFormula('=-(' + plParts.join('+') + ')');
   } else {
     sheet.getRange(row, 3).setValue(0);
@@ -994,7 +994,7 @@ function buildCF_(sheet, ss) {
   var openRow = row;
   if (cashAccts.length > 0) {
     var openParts = cashAccts.map(function(a) {
-      return 'skuld(timestamp,C$3,' + a.code + ',"cum")';
+      return 'skuld(timestamp,C$3,' + a.code + ')';
     }).join('+');
     sheet.getRange(row, 2).setValue('Cash at beginning of period');
     sheet.getRange(row, 3).setFormula('=' + openParts);
@@ -1018,7 +1018,7 @@ function buildCF_(sheet, ss) {
   // BS cash balance = cumulative sum of cash accounts through selected period
   if (cashAccts.length > 0) {
     var bsParts = cashAccts.map(function(a) {
-      return 'skuld(timestamp,B$3,' + a.code + ',"cum")';
+      return 'skuld(timestamp,B$3,' + a.code + ')';
     }).join('+');
     var checkRow = row;
     sheet.getRange(row, 2).setValue('CHECK: BS cash balance').setFontStyle('italic').setFontColor('#555555');

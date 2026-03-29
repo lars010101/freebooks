@@ -2,21 +2,19 @@
  * Build the _CACHE_BALANCES sheet data.
  *
  * Values are CUMULATIVE: SUM(debit - credit) from inception through end of each period.
- * This means:
- *   - BS accounts: direct read = balance at period end
- *   - P&L accounts: skuld(FY2026) - skuld(FY2025) = period movement
- *   - CF: same delta approach for movements; direct read for cash positions
- *   - TB: direct read = cumulative balance
  *
- * Period columns:
- *   FY columns (FY2018, FY2019, ...) — cumulative through FY end
- *   Monthly columns (2018P01, 2018P02, ...) — cumulative through month end
+ * Calculated (parent/sum) accounts:
+ *   Auto-detected by convention: if an account code is a prefix of any longer account code
+ *   AND has no journal entries of its own, it is treated as a calculated parent account.
+ *   Its value = SUM of all leaf accounts whose code starts with the parent code.
+ *   E.g. account "1" = SUM of all accounts starting with "1" (100010, 101220, etc.)
  */
 async function buildAccountBalancesCache(ctx) {
   const { dataset, companyId } = ctx;
 
   const [accounts] = await dataset.query({
-    query: `SELECT account_code, account_name, account_type, account_subtype, pl_category, bs_category, cf_category 
+    query: `SELECT account_code, account_name, account_type, account_subtype, 
+                   pl_category, bs_category, cf_category
             FROM finance.accounts WHERE company_id = @companyId ORDER BY account_code`,
     params: { companyId }
   });
@@ -43,10 +41,10 @@ async function buildAccountBalancesCache(ctx) {
     params: { companyId }
   });
 
-  // Step 1: Collect per-period MOVEMENTS (same as before)
+  // Step 1: Collect per-period MOVEMENTS
   const periods = new Set();
   const fyPeriods = new Set();
-  const movementsByAccount = {};  // account -> { period -> movement }
+  const movementsByAccount = {};
 
   entries.forEach(row => {
     const acct = row.account_code;
@@ -73,22 +71,19 @@ async function buildAccountBalancesCache(ctx) {
   const sortedMonths = Array.from(periods).sort();
   const sortedFYs = Array.from(fyPeriods).sort();
 
-  // Step 2: Convert movements to CUMULATIVE balances
-  // For each account, walk through sorted periods and accumulate
+  // Step 2: Convert movements to CUMULATIVE balances for leaf accounts
   const cumulativeByAccount = {};
 
   for (const acct of Object.keys(movementsByAccount)) {
     const movements = movementsByAccount[acct];
     const cumulative = {};
 
-    // FY cumulative
     let fyRunning = 0;
     for (const fy of sortedFYs) {
       fyRunning += movements[fy] || 0;
       cumulative[fy] = fyRunning;
     }
 
-    // Monthly cumulative
     let monthRunning = 0;
     for (const m of sortedMonths) {
       monthRunning += movements[m] || 0;
@@ -98,7 +93,48 @@ async function buildAccountBalancesCache(ctx) {
     cumulativeByAccount[acct] = cumulative;
   }
 
-  // Step 3: Build output
+  // Step 3: Auto-detect and resolve calculated (parent) accounts
+  // A calculated account is one where:
+  //   1. Its code is a prefix of at least one other account's code
+  //   2. It has NO journal entries of its own
+  const allCodes = accounts.map(a => a.account_code);
+
+  for (const acct of accounts) {
+    const code = acct.account_code;
+    const hasOwnEntries = movementsByAccount[code] !== undefined;
+    const hasChildren = allCodes.some(c => c.startsWith(code) && c !== code);
+
+    if (hasChildren && !hasOwnEntries) {
+      // This is a calculated parent — sum all leaf children
+      const cumulative = {};
+
+      for (const fy of sortedFYs) {
+        let sum = 0;
+        for (const childCode of allCodes) {
+          if (childCode.startsWith(code) && childCode !== code) {
+            const childCum = cumulativeByAccount[childCode];
+            if (childCum) sum += childCum[fy] || 0;
+          }
+        }
+        cumulative[fy] = sum;
+      }
+
+      for (const m of sortedMonths) {
+        let sum = 0;
+        for (const childCode of allCodes) {
+          if (childCode.startsWith(code) && childCode !== code) {
+            const childCum = cumulativeByAccount[childCode];
+            if (childCum) sum += childCum[m] || 0;
+          }
+        }
+        cumulative[m] = sum;
+      }
+
+      cumulativeByAccount[code] = cumulative;
+    }
+  }
+
+  // Step 4: Build output
   const headers = [
     'Account Code', 'Account Name', 'Type', 'Subtype', 'PL Category', 'BS Category', 'CF Category',
     ...sortedFYs, ...sortedMonths

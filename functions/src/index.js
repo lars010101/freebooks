@@ -232,6 +232,24 @@ async function handleCoa(ctx, action) {
       throw Object.assign(new Error(`Duplicate account codes: ${dupes.join(', ')}`), { code: 'DUPLICATE_CODE' });
     }
 
+    // Check min_account_length setting — short codes are only allowed as parent/sum accounts
+    const [minLenRows] = await dataset.query({
+      query: `SELECT value FROM finance.settings WHERE company_id = @companyId AND key = 'min_account_length' LIMIT 1`,
+      params: { companyId },
+    });
+    const minLen = minLenRows.length > 0 ? parseInt(minLenRows[0].value, 10) : 0;
+    if (minLen > 0) {
+      // Short codes are allowed only if they are a prefix of a longer code (parent accounts)
+      const shortCodes = codes.filter(c => c.length < minLen);
+      const invalidShort = shortCodes.filter(sc => !codes.some(c => c.startsWith(sc) && c !== sc));
+      if (invalidShort.length > 0) {
+        throw Object.assign(
+          new Error(`Account codes too short (min ${minLen} digits): ${invalidShort.join(', ')}. Short codes are only allowed as parent/sum accounts (must be a prefix of existing longer codes).`),
+          { code: 'INVALID_CODE_LENGTH' }
+        );
+      }
+    }
+
     // Check for accounts being removed that have journal entries
     const incomingCodes = new Set(codes);
     const [usedAccounts] = await dataset.query({

@@ -609,9 +609,9 @@ function buildPL_(sheet, ss) {
   sheet.getRange(2, 2).setValue(currency);
 
   // Row 3: Period selector
-  sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 2).setValue('FY2025').setFontWeight('bold');
-  sheet.getRange(3, 2).setBackground('#e8f0fe');
+  sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
+  sheet.getRange(3, 3).setValue('FY2025').setFontWeight('bold');
+  sheet.getRange(3, 3).setBackground('#e8f0fe');
 
   // Row 4: Separator
   sheet.getRange('4:4').setBackground('#eeeeee');
@@ -630,10 +630,10 @@ function buildPL_(sheet, ss) {
     // Col A: pure account code
     sheet.getRange(row, 1).setValue(acct.code);
     // Col B: VLOOKUP name from COA
-    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
+    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Col C: skuld P&L movement — delta=true for period movement from cumulative cache
     // Revenue is credit-normal, negate so it shows as positive in P&L
-    sheet.getRange(row, 3).setFormula('=-skuld(timestamp,B$3,A' + row + ',true)');
+    sheet.getRange(row, 3).setFormula('=-skuld(timestamp,C$3,$A' + row + ',true)');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -662,9 +662,9 @@ function buildPL_(sheet, ss) {
     // Col A: pure account code
     sheet.getRange(row, 1).setValue(acct.code);
     // Col B: VLOOKUP name from COA
-    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
+    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Col C: skuld expense movement — delta=true for period movement
-    sheet.getRange(row, 3).setFormula('=skuld(timestamp,B$3,A' + row + ',true)');
+    sheet.getRange(row, 3).setFormula('=skuld(timestamp,C$3,$A' + row + ',true)');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -751,9 +751,9 @@ function buildBS_(sheet, ss) {
   sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
   sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
   sheet.getRange(2, 2).setValue(currency);
-  sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 2).setValue('FY2025').setFontWeight('bold');
-  sheet.getRange(3, 2).setBackground('#e8f0fe');
+  sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
+  sheet.getRange(3, 3).setValue('FY2025').setFontWeight('bold');
+  sheet.getRange(3, 3).setBackground('#e8f0fe');
   sheet.getRange('4:4').setBackground('#eeeeee');
 
   var row = 5;
@@ -773,10 +773,10 @@ function buildBS_(sheet, ss) {
       row++;
     }
     sheet.getRange(row, 1).setValue(acct.code);
-    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
+    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Assets: raw (positive debit balance). L+E: negate (credit balance shown as positive).
     var sign = (acct.type === 'Liability' || acct.type === 'Equity') ? '=-' : '=';
-    sheet.getRange(row, 3).setFormula(sign + 'skuld(timestamp,B$3,A' + row + ')');
+    sheet.getRange(row, 3).setFormula(sign + 'skuld(timestamp,C$3,$A' + row + ')');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -884,14 +884,14 @@ function buildCF_(sheet, ss) {
   sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
   sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
   sheet.getRange(2, 2).setValue(currency);
-  sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 2).setValue('FY2026').setFontWeight('bold');
-  sheet.getRange(3, 2).setBackground('#e8f0fe');
+  sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
+  sheet.getRange(3, 3).setValue('FY2026').setFontWeight('bold');
+  sheet.getRange(3, 3).setBackground('#e8f0fe');
 
   // Row 3, Col C: compute prior period name dynamically
   // ="FY"&(VALUE(RIGHT(B3,4))-1) → e.g. "FY2025" when B3="FY2026"
-  sheet.getRange(3, 3).setFormula('="FY"&(VALUE(RIGHT(B3,4))-1)');
-  sheet.getRange(3, 3).setFontColor('#ffffff');  // hide it
+  sheet.getRange(2, 3).setFormula('="FY"&(VALUE(RIGHT(C3,4))-1)');
+  sheet.getRange(2, 3).setFontColor('#ffffff');  // hide it
 
   sheet.getRange('4:4').setBackground('#eeeeee');
 
@@ -910,8 +910,8 @@ function buildCF_(sheet, ss) {
   // So every row is: =-skuld(timestamp, B$3, code, false)
   function cfAcctRow(code) {
     sheet.getRange(row, 1).setValue(code);
-    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
-    sheet.getRange(row, 3).setFormula('=-skuld(timestamp,B$3,A' + row + ',true)');
+    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
+    sheet.getRange(row, 3).setFormula('=-skuld(timestamp,C$3,$A' + row + ',true)');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -952,7 +952,7 @@ function buildCF_(sheet, ss) {
     if (type === 'Revenue' || type === 'Expense') plCodes.push(code);
   }
   if (plCodes.length > 0) {
-    var plParts = plCodes.map(function(c) { return 'skuld(timestamp,B$3,' + c + ',true)'; });
+    var plParts = plCodes.map(function(c) { return 'skuld(timestamp,C$3,' + c + ',true)'; });
     sheet.getRange(row, 3).setFormula('=-(' + plParts.join('+') + ')');
   } else {
     sheet.getRange(row, 3).setValue(0);
@@ -1015,7 +1015,7 @@ function buildCF_(sheet, ss) {
   var openRow = row;
   if (cashAccts.length > 0) {
     var openParts = cashAccts.map(function(a) {
-      return 'skuld(timestamp,C$3,' + a.code + ')';
+      return 'skuld(timestamp,C$2,' + a.code + ')';
     }).join('+');
     sheet.getRange(row, 2).setValue('Cash at beginning of period');
     sheet.getRange(row, 3).setFormula('=' + openParts);
@@ -1039,7 +1039,7 @@ function buildCF_(sheet, ss) {
   // BS cash balance = cumulative sum of cash accounts through selected period
   if (cashAccts.length > 0) {
     var bsParts = cashAccts.map(function(a) {
-      return 'skuld(timestamp,B$3,' + a.code + ')';
+      return 'skuld(timestamp,C$3,' + a.code + ')';
     }).join('+');
     var checkRow = row;
     sheet.getRange(row, 2).setValue('CHECK: BS cash balance').setFontStyle('italic').setFontColor('#555555');
@@ -1105,8 +1105,8 @@ function buildTB_(sheet, ss) {
   sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
   sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
   sheet.getRange(2, 2).setValue(currency);
-  sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 2).setValue('FY2025').setFontWeight('bold').setBackground('#e8f0fe');
+  sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
+  sheet.getRange(3, 3).setValue('FY2025').setFontWeight('bold').setBackground('#e8f0fe');
 
   // Headers row 4
   sheet.getRange(4, 1).setValue('Account Code').setFontWeight('bold');
@@ -1121,10 +1121,10 @@ function buildTB_(sheet, ss) {
   for (var i = 0; i < accounts.length; i++) {
     var acct = accounts[i];
     sheet.getRange(row, 1).setValue(acct.code);
-    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
+    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Balance = cumulative (debit - credit). Positive = debit balance.
     // Col E: raw skuld value
-    sheet.getRange(row, 5).setFormula('=skuld(timestamp,B$3,A' + row + ')');
+    sheet.getRange(row, 5).setFormula('=skuld(timestamp,C$3,$A' + row + ')');
     // Col C (Debit): show positive balances
     sheet.getRange(row, 3).setFormula('=IF(E' + row + '>0,E' + row + ',0)');
     // Col D (Credit): show absolute value of negative balances
@@ -1227,11 +1227,11 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
   sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
   sheet.getRange(2, 2).setValue(currency);
-  sheet.getRange(3, 1).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 2).setValue('FY2026').setFontWeight('bold').setBackground('#e8f0fe');
+  sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
+  sheet.getRange(3, 3).setValue('FY2026').setFontWeight('bold').setBackground('#e8f0fe');
   // C3 = prior period name (hidden)
-  sheet.getRange(3, 3).setFormula('="FY"&(VALUE(RIGHT(B3,4))-1)');
-  sheet.getRange(3, 3).setFontColor('#ffffff');
+  sheet.getRange(2, 3).setFormula('="FY"&(VALUE(RIGHT(C3,4))-1)');
+  sheet.getRange(2, 3).setFontColor('#ffffff');
 
   // Headers row 4
   sheet.getRange(4, 1).setValue('').setFontWeight('bold');
@@ -1257,9 +1257,9 @@ function buildSCE_(sheet, ss) {
   // Opening = cumulative through PRIOR period = -skuld(priorFY, code)
   // Negate because equity credit balances are stored as negative in cache
   sheet.getRange(row, 1).setValue('Opening Balance').setFontWeight('bold');
-  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'C$3', false)).setNumberFormat(fmt);
-  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$3', false)).setNumberFormat(fmt);
-  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'C$3', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'C$2', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$2', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'C$2', false)).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   sheet.getRange(row, 1, 1, 5).setBackground('#f0f0f0');
   sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
@@ -1273,7 +1273,7 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt); // SC: 0
   // NI formula: negate sum of P&L movements (debit-credit → credit-debit)
   if (plCodes.length > 0) {
-    var niParts = plCodes.map(function(c) { return 'skuld(timestamp,B$3,' + c + ',true)'; });
+    var niParts = plCodes.map(function(c) { return 'skuld(timestamp,C$3,' + c + ',true)'; });
     sheet.getRange(row, 3).setFormula('=-(' + niParts.join('+') + ')').setNumberFormat(fmt);
   } else {
     sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
@@ -1287,14 +1287,14 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 1).setValue('Dividends declared');
   sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt);
   sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
-  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'B$3', true)).setNumberFormat(fmt);
+  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'C$3', true)).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   row++;
 
   // ── Share Capital movements ──────────────────────────────────────────────────
   var scMovRow = row;
   sheet.getRange(row, 1).setValue('Share capital movements');
-  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'B$3', true)).setNumberFormat(fmt);
+  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'C$3', true)).setNumberFormat(fmt);
   sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
   sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
@@ -1306,7 +1306,7 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 1).setValue('Other RE movements');
   sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt);
   // Other RE = total RE delta - NI
-  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'B$3', true) + '-C' + niRow).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$3', true) + '-C' + niRow).setNumberFormat(fmt);
   sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   row++;

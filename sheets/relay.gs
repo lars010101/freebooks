@@ -1065,7 +1065,7 @@ function buildTB_(sheet, ss) {
     var code = String(coaData[i][cCode] || '').trim();
     var type = String(coaData[i][cType] || '').trim();
     if (!code) continue;
-    if (code.indexOf('999999') === 0) continue;
+    // TB includes ALL accounts (including 999999) — must balance
     accounts.push({ code: code, type: type });
   }
   accounts.sort(function(a, b) { return a.code.localeCompare(b.code, undefined, { numeric: true }); });

@@ -1467,52 +1467,6 @@ function buildIntegrity_(sheet, ss) {
   sheet.getRange(row, 4).setFormula('=IF(ABS(C' + row + ')<0.01,"✅","❌")');
   row++; row++;
 
-  // ── 4. Unbalanced Entries ────────────────────────────────────────────────────
-  secHdr('4. Unbalanced Entries');
-  sheet.getRange(row, 2).setValue('⚠️ Requires BigQuery — not available from cache').setFontColor('#888888');
-  row++; row++;
-
-  // ── 5. Cash Flow vs Balance Sheet ────────────────────────────────────────────
-  secHdr('5. Cash Flow vs Balance Sheet');
-  var cashStart = row;
-  for (var i = 0; i < cashAccts.length; i++) {
-    checkRow(cashAccts[i], '', false);
-    sheet.getRange(row - 1, 2).setFormula('=IFERROR(VLOOKUP($A' + (row - 1) + ',COA!$A:$B,2,FALSE),"")');
-  }
-  var cashEnd = row - 1;
-  sheet.getRange(row, 2).setValue('BS Cash Balance (cumulative)').setFontWeight('bold');
-  if (cashEnd >= cashStart) {
-    sheet.getRange(row, 3).setFormula('=SUM(C' + cashStart + ':C' + cashEnd + ')').setNumberFormat(fmt).setFontWeight('bold');
-  } else {
-    sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
-  }
-  sheet.getRange(row, 4).setValue('✅');
-  row++; row++;
-
-  // ── 6. Uncategorised CF ──────────────────────────────────────────────────────
-  secHdr('6. Uncategorised CF Accounts (BS leaf missing tag)');
-  sheet.getRange(row, 2).setValue('Count');
-  sheet.getRange(row, 3).setValue(uncatAccts.length);
-  sheet.getRange(row, 4).setValue(uncatAccts.length === 0 ? '✅' : '⚠️');
-  row++;
-  for (var u = 0; u < Math.min(uncatAccts.length, 10); u++) {
-    sheet.getRange(row, 1).setValue(uncatAccts[u]).setFontColor('#888888');
-    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")').setFontColor('#888888');
-    row++;
-  }
-  row++;
-
-  // ── 7. SCE vs BS Equity ──────────────────────────────────────────────────────
-  secHdr('7. Equity Statement vs Balance Sheet');
-  checkRow('203', 'BS Total Equity', false);
-  sheet.getRange(row, 2).setValue('Difference (should be 0)');
-  sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
-  sheet.getRange(row, 4).setValue('✅');
-  row++; row++;
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // RETAINED EARNINGS ROLL-FORWARD (ALL YEARS)
-  // ══════════════════════════════════════════════════════════════════════════════
   sheet.getRange(row, 1).setValue('RETAINED EARNINGS ROLL-FORWARD').setFontWeight('bold').setBackground('#c0c0c0');
   sheet.getRange(row, 1, 1, 5).setBackground('#c0c0c0');
   row++;

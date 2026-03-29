@@ -1033,8 +1033,3 @@ function buildCF_(sheet, ss) {
   sheet.setFrozenRows(4);
   Logger.log('CF-skuld built: %d rows', row);
 }
- *   Financing Activities  ← Financing account deltas, sign corrected
- *   NET CASH CHANGE
- *   CLOSING CASH BALANCE
- *   CHECK vs BS cash balance
- */

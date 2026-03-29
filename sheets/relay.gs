@@ -787,22 +787,23 @@ function buildBS_(sheet, ss) {
 }
 
 /**
- * Build or refresh the CF-skuld tab using skuld() formulas.
- * Single-period layout matching PL-skuld:
- *   Col A = pure account code
- *   Col B = VLOOKUP name from COA
- *   Col C = skuld(timestamp, B$3, accountCode, delta)
- *   Period selector in B3 (e.g. "FY2025")
+ * Build the CF-skuld tab.
  *
- * CF structure (matches original Google Sheet):
- *   Opening Cash Balance  ← prior period closing cash (or hardcoded 0 for period 1)
- *   NET INCOME           ← P&L raw balances for period (NOT delta)
- *   Operating Activities  ← Op-WC / Op-NonCash BS account deltas
- *   Investing Activities  ← Investing BS account deltas
- *   Financing Activities ← Financing BS account deltas
- *   NET CASH CHANGE      ← NI + Op + Inv + Fin
- *   CLOSING CASH BALANCE ← Opening + Net Cash Change
- *   CHECK vs BS          ← Closing vs BS cash balance
+ * Layout (matches original Google Sheet CF):
+ *   Col A = pure account code (hidden via font color)
+ *   Col B = account name
+ *   Col C = formula result
+ *   Period in B3 (e.g. "FY2026")
+ *
+ * CF structure:
+ *   Opening Cash Balance
+ *   NET INCOME  ← one row, computed as -(SUM Revenue) - (SUM Expenses)
+ *   Operating Activities  ← Op-WC account deltas, sign corrected
+ *   Investing Activities   ← Investing account deltas, sign corrected
+ *   Financing Activities  ← Financing account deltas, sign corrected
+ *   NET CASH CHANGE
+ *   CLOSING CASH BALANCE
+ *   CHECK vs BS cash balance
  */
 function buildCF_(sheet, ss) {
   var coaSheet    = ss.getSheetByName('COA');
@@ -811,41 +812,36 @@ function buildCF_(sheet, ss) {
   if (!cacheSheet) { Logger.log('CF error: _CACHE_BALANCES not found');   return; }
 
   // ── Read COA ─────────────────────────────────────────────────────────────────
-  var coaData  = coaSheet.getDataRange().getValues();
-  var cHdrs   = coaData[0];
-  var cCode   = cHdrs.indexOf('Account Code');
-  var cName   = cHdrs.indexOf('Account Name');
-  var cType   = cHdrs.indexOf('Account Type');
-  var cCFCat  = cHdrs.indexOf('CF Category');
+  var coaData = coaSheet.getDataRange().getValues();
+  var cHdrs  = coaData[0];
+  var cCode  = cHdrs.indexOf('Account Code');
+  var cName  = cHdrs.indexOf('Account Name');
+  var cType  = cHdrs.indexOf('Account Type');
+  var cCFCat = cHdrs.indexOf('CF Category');
 
-  var opAccounts   = [];
-  var invAccounts  = [];
-  var finAccounts  = [];
-  var cashAccounts = [];
-  var plRevAccts   = [];
-  var plExpAccts   = [];
+  var opAccts = [], invAccts = [], finAccts = [], cashAccts = [];
+  var plRev = [], plExp = [];
 
   for (var i = 1; i < coaData.length; i++) {
-    var row2  = coaData[i];
+    var row2 = coaData[i];
     var type  = String(row2[cType]  || '').trim();
     var code  = String(row2[cCode]  || '').trim();
     var name  = String(row2[cName]  || '').trim();
     var cfCat = String(row2[cCFCat] || '').trim();
     if (!code) continue;
-    if (type === 'Revenue')     { plRevAccts.push({ code: code, name: name }); }
-    else if (type === 'Expense') { plExpAccts.push({ code: code, name: name }); }
+    if (type === 'Revenue')  { plRev.push({ code: code }); }
+    else if (type === 'Expense') { plExp.push({ code: code }); }
     else if (type === 'Asset' || type === 'Liability' || type === 'Equity') {
-      if      (cfCat === 'Cash')                            cashAccounts.push({ code: code, name: name, type: type });
-      else if (cfCat === 'Op-WC' || cfCat === 'Op-NonCash') opAccounts.push({ code: code, name: name, type: type });
-      else if (cfCat === 'Investing')                      invAccounts.push({ code: code, name: name, type: type });
-      else if (cfCat === 'Financing')                      finAccounts.push({ code: code, name: name, type: type });
+      if      (cfCat === 'Cash')                           cashAccts.push({ code: code });
+      else if (cfCat === 'Op-WC' || cfCat === 'Op-NonCash') opAccts.push({ code: code });
+      else if (cfCat === 'Investing')                      invAccts.push({ code: code });
+      else if (cfCat === 'Financing')                      finAccts.push({ code: code });
     }
   }
 
-  function sortByCode(a, b) { return a.code.localeCompare(b.code, undefined, { numeric: true }); }
-  opAccounts.sort(sortByCode);  invAccounts.sort(sortByCode);
-  finAccounts.sort(sortByCode); cashAccounts.sort(sortByCode);
-  plRevAccts.sort(sortByCode);  plExpAccts.sort(sortByCode);
+  function byCode(a, b) { return a.code.localeCompare(b.code, undefined, { numeric: true }); }
+  opAccts.sort(byCode); invAccts.sort(byCode); finAccts.sort(byCode); cashAccts.sort(byCode);
+  plRev.sort(byCode);   plExp.sort(byCode);
 
   // ── Company / Currency ───────────────────────────────────────────────────────
   var companyName = '', currency = '';
@@ -859,24 +855,11 @@ function buildCF_(sheet, ss) {
     }
   }
 
-  // ── Read cache period columns ─────────────────────────────────────────────────
-  // We need to find the prior period column to compute opening cash correctly
-  var cacheData  = cacheSheet.getDataRange().getValues();
-  if (cacheData.length < 2) { Logger.log('CF error: cache empty'); return; }
-  var cacheHdrs  = cacheData[0];
-  var periodCols = [];  // { period: string, colIdx: number }
-  for (var ci = 0; ci < cacheHdrs.length; ci++) {
-    var h = String(cacheHdrs[ci] || '').trim();
-    if (!h || !/^FY\d{4}$/.test(h)) continue;
-    periodCols.push({ period: h, colIdx: ci });
-  }
-  periodCols.sort(function(a, b) { return a.period.localeCompare(b.period, undefined, { numeric: true }); });
-
-  // ── Prepare sheet ─────────────────────────────────────────────────────────────
+  // ── Sheet setup ─────────────────────────────────────────────────────────────
   sheet.clear();
   sheet.setColumnWidth(1, 110);
-  sheet.setColumnWidth(2, 290);
-  sheet.setColumnWidth(3, 165);
+  sheet.setColumnWidth(2, 295);
+  sheet.setColumnWidth(3, 168);
 
   sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
   sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
@@ -890,194 +873,162 @@ function buildCF_(sheet, ss) {
   var row = 5;
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
-  function sectionHdr(label) {
+  function secHdr(label) {
     sheet.getRange(row, 1).setValue(label).setFontWeight('bold').setFontSize(11);
     sheet.getRange(row, 1, 1, 3).setBackground('#d0d0d0');
     sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
     row++;
   }
 
-  // acctRow: writes one account row with optional sign flip
-  // delta: true = period delta (current - prior), false = raw balance
-  // signFlip: true = negate (for Asset accounts)
-  function acctRow(acct, delta, signFlip) {
-    sheet.getRange(row, 1).setValue(acct.code);
-    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
-    var sign = signFlip ? '-' : '';
+  // Write a CF account row
+  // delta: true = delta (current - prior), false = raw balance
+  // flip:   true = negate (for Asset accounts in CF)
+  function cfRow(code, delta, flip) {
+    var sign = flip ? '-' : '';
     var mode = delta ? 'true' : 'false';
+    sheet.getRange(row, 1).setValue(code).setFontColor('#ffffff');  // hide code
+    sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP(A' + row + ',COA!A:B,2,FALSE),"")');
     sheet.getRange(row, 3).setFormula('=' + sign + 'skuld(timestamp,B$3,A' + row + ',' + mode + ')');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
 
-  function totalRow(label, startRow, endRow, isBold, bgColor) {
+  // SUM range for section total
+  function secTotal(label, startRow, endRow, bg) {
     if (endRow < startRow) { row++; return null; }
+    var isBold = !!bg;
     sheet.getRange(row, 1).setValue(label).setFontWeight(isBold ? 'bold' : 'normal');
     sheet.getRange(row, 3).setFormula('=SUM(C' + startRow + ':C' + endRow + ')').setFontWeight(isBold ? 'bold' : 'normal');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-    if (bgColor) {
-      sheet.getRange(row, 1, 1, 3).setBackground(bgColor);
-      sheet.getRange(row, 3).setBackground(bgColor);
-    }
+    if (bg) sheet.getRange(row, 1, 1, 3).setBackground(bg);
     sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', isBold ? SpreadsheetApp.BorderStyle.SOLID_MEDIUM : SpreadsheetApp.BorderStyle.SOLID);
     var r = row; row++;
     return r;
   }
 
-  // netCashRowRef formula: sum of cell refs
-  function sumRefs(refs) {
-    return '=(' + refs.join('+') + ')';
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // CASH FLOW STATEMENT
-  // ─────────────────────────────────────────────────────────────────────────────
-  sectionHdr('CASH FLOW STATEMENT');
-
   // ── OPENING CASH ──────────────────────────────────────────────────────────────
-  // We need the cash balance at START of the selected period.
-  // If period = FY2026, we need the sum of Cash account balances at end of FY2025.
-  // The "prior period" is one column to the left in the cache.
-  // We encode the prior period name explicitly using a lookup approach:
-  // Build a small lookup: for each FY column in cache, find its index.
-  // Then use skuld(timestamp, priorPeriod, code, false) to get the prior closing balance.
-  // ── OPENING CASH ──────────────────────────────────────────────────────────────
-  // Opening = sum of Cash account BALANCES at end of PRIOR period.
-  // Correct formula: sum of skuld(priorPeriod, code, false) for each Cash account.
-  // priorPeriod = the FY period immediately before B3 in the cache.
-  // If B3 is the first cached period: Opening = 0 (no prior data).
-  // We dynamically look up priorPeriod by scanning periodCols.
+  // Formula: sum of Cash account raw balances for PRIOR period
+  //   skuld(prior, code, false) for each Cash account
+  // Prior period = the FY column immediately before B3 in the cache.
+  // We implement this via: skuld(B3, code, false) - skuld(B3, code, true)
+  //   = raw(current) - delta = raw(prior) = closing of prior period.
+  // For the first period (no prior): delta=0, so opening=raw=FY2018 cash (initial position = 0).
   var openingCashRow = row;
-  var priorPeriod = null;
-  // Find B3's index in sorted periodCols
-  var selectedPeriod = 'FY2025';  // will be read from sheet at runtime via B3
-  // Build a JS map: periodName -> priorPeriodName
-  var priorMap = {};
-  for (var pmi = 1; pmi < periodCols.length; pmi++) {
-    priorMap[periodCols[pmi].period] = periodCols[pmi - 1].period;
-  }
-  // We need to look up the prior period name at formula time.
-  // Use the skuld delta trick: raw(B3) - delta(B3) = raw(prior period) = closing of prior.
-  // This works IF prior period exists in cache. If not, delta = raw => raw - delta = 0 = Opening.
-  // For accounts where prior period exists: skuld(B3,false) - skuld(B3,true) = raw(prior).
-  // Formula: skuld(B3, code, false) - skuld(B3, code, true)
-  if (cashAccounts.length > 0) {
-    var cashParts = cashAccounts.map(function(a) {
+  if (cashAccts.length > 0) {
+    var parts = cashAccts.map(function(a) {
       return 'skuld(timestamp,B$3,' + a.code + ',false)-skuld(timestamp,B$3,' + a.code + ',true)';
     }).join('+');
-    sheet.getRange(row, 1).setValue('Opening Cash Balance').setFontStyle('italic').setFontColor('#555555');
-    sheet.getRange(row, 3).setFormula('=' + cashParts).setFontStyle('italic').setFontColor('#555555');
+    sheet.getRange(row, 1).setValue('Cash at beginning of period').setFontStyle('italic').setFontColor('#555555');
+    sheet.getRange(row, 2).setFontStyle('italic').setFontColor('#555555');
+    sheet.getRange(row, 3).setFormula('=' + parts).setFontStyle('italic').setFontColor('#555555');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
   } else {
-    sheet.getRange(row, 1).setValue('Opening Cash Balance').setFontStyle('italic').setFontColor('#555555');
+    sheet.getRange(row, 1).setValue('Cash at beginning of period').setFontStyle('italic').setFontColor('#555555');
+    sheet.getRange(row, 2).setFontStyle('italic').setFontColor('#555555');
     sheet.getRange(row, 3).setValue(0).setFontStyle('italic').setFontColor('#555555');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
   }
   row++;
 
-  // ── REVENUE ─────────────────────────────────────────────────────────────────
-  sectionHdr('REVENUE');
-  var revS = row;
-  for (var i = 0; i < plRevAccts.length; i++) {
-    // P&L accounts: use RAW balance, not delta (they reset each period)
-    acctRow(plRevAccts[i], false, false);
-  }
-  var revE = row - 1;
-  var revTot = totalRow('TOTAL REVENUE', revS, revE, true, '#f0f0f0');
-  row++;
+  // ── NET INCOME ───────────────────────────────────────────────────────────────
+  // Indirect method: negate the P&L net.
+  // NET INCOME = -(SUM Revenue) - (SUM Expenses)   [both P&L deltas]
+  // For P&L accounts: delta=true gives the period movement, but since P&L
+  // accounts reset to 0 each period, delta = raw balance for the current period.
+  // Revenue balance (credit>debit): +ve. Negate for indirect CF = -Revenue.
+  // Expense balance (debit>credit): -ve. Negate = +Expense ... wait no.
+  //
+  // In indirect CF: starts with Net Income (positive = profit).
+  //   For Revenue (positive = credit net): subtract = negative CF.
+  //   For Expense (negative = debit net): add back = positive CF.
+  // So NET INCOME in CF = -(SUM Revenue) - (SUM Expenses)
+  //   = -(rev_raw) - (-exp_raw) = -rev_raw + exp_raw = -(rev_raw - exp_raw).
+  var revCodes = plRev.map(function(a) { return a.code; });
+  var expCodes = plExp.map(function(a) { return a.code; });
+  var revSum = revCodes.map(function(c) { return 'skuld(timestamp,B$3,' + c + ',true)'; }).join('+');
+  var expSum = expCodes.map(function(c) { return 'skuld(timestamp,B$3,' + c + ',true)'; }).join('+');
+  if (!revSum) revSum = '0';
+  if (!expSum) expSum = '0';
 
-  // ── EXPENSES ─────────────────────────────────────────────────────────────────
-  sectionHdr('EXPENSES');
-  var expS = row;
-  for (var i = 0; i < plExpAccts.length; i++) {
-    // P&L accounts: use RAW balance, not delta
-    acctRow(plExpAccts[i], false, false);
-  }
-  var expE = row - 1;
-  var expTot = totalRow('TOTAL EXPENSES', expS, expE, true, '#f0f0f0');
-  row++;
-
-  // ── NET INCOME ────────────────────────────────────────────────────────────────
-  // NET INCOME = TOTAL REVENUE - TOTAL EXPENSES
   var niRow = row;
-  sheet.getRange(row, 1).setValue('NET INCOME').setFontWeight('bold').setFontSize(11);
-  if (revTot && expTot) {
-    sheet.getRange(row, 3).setFormula('=C' + revTot + '-C' + expTot).setFontWeight('bold').setFontSize(11);
-  } else {
-    sheet.getRange(row, 3).setValue(0).setFontWeight('bold').setFontSize(11);
-  }
+  sheet.getRange(row, 1).setValue('Cash from operations (P&L)').setFontColor('#ffffff');
+  sheet.getRange(row, 2).setFormula('=IFERROR(-(' + revSum + ')-(' + expSum + '),0)');
+  sheet.getRange(row, 3).setFormula('=IFERROR(-(' + revSum + ')-(' + expSum + '),0)');
   sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-  sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
-  row++;
   row++;
 
   // ── OPERATING ACTIVITIES ─────────────────────────────────────────────────────
-  sectionHdr('Operating Activities');
+  secHdr('Operating Activities');
   var opS = row;
-  for (var i = 0; i < opAccounts.length; i++) {
-    var acct = opAccounts[i];
-    // Op accounts: use delta; signFlip for Assets (increase = cash outflow)
-    acctRow(acct, true, acct.type === 'Asset');
+  for (var i = 0; i < opAccts.length; i++) {
+    var acct = opAccts[i];
+    // delta = true; sign flip for Asset (increase = cash outflow)
+    cfRow(acct.code, true, acct.type === 'Asset');
   }
   var opE = row - 1;
-  var opTot = totalRow('Total Operating', opS, opE, true, '#e0e0e0');
+  var opTot = secTotal('Net cash from operating', opS, opE, '#e0e0e0');
 
-  // ── INVESTING ACTIVITIES ─────────────────────────────────────────────────────
-  sectionHdr('Investing Activities');
+  // ── INVESTING ────────────────────────────────────────────────────────────────
+  secHdr('Investing Activities');
   var invS = row;
-  for (var i = 0; i < invAccounts.length; i++) {
-    acctRow(invAccounts[i], true, invAccounts[i].type === 'Asset');
+  for (var i = 0; i < invAccts.length; i++) {
+    cfRow(invAccts[i].code, true, invAccts[i].type === 'Asset');
   }
   var invE = row - 1;
-  var invTot = totalRow('Total Investing', invS, invE, true, '#e0e0e0');
+  var invTot = secTotal('Net cash from investing', invS, invE, '#e0e0e0');
 
-  // ── FINANCING ACTIVITIES ─────────────────────────────────────────────────────
-  sectionHdr('Financing Activities');
+  // ── FINANCING ────────────────────────────────────────────────────────────────
+  secHdr('Financing Activities');
   var finS = row;
-  for (var i = 0; i < finAccounts.length; i++) {
-    acctRow(finAccounts[i], true, finAccounts[i].type === 'Asset');
+  for (var i = 0; i < finAccts.length; i++) {
+    cfRow(finAccts[i].code, true, finAccts[i].type === 'Asset');
   }
   var finE = row - 1;
-  var finTot = totalRow('Total Financing', finS, finE, true, '#e0e0e0');
+  var finTot = secTotal('Net cash from financing', finS, finE, '#e0e0e0');
+
+  // ── UNCLASSIFIED ────────────────────────────────────────────────────────────
+  secHdr('');
+  sheet.getRange(row, 1).setValue('Unclassified').setFontColor('#ffffff');
+  sheet.getRange(row, 2).setFontColor('#ffffff');
+  sheet.getRange(row, 3).setValue(0).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  row++;
 
   // ── NET CASH CHANGE ──────────────────────────────────────────────────────────
-  row++;
   var netCashRow = row;
-  sheet.getRange(row, 1).setValue('NET CASH CHANGE').setFontWeight('bold');
+  sheet.getRange(row, 1).setValue('Net change in cash').setFontWeight('bold');
+  sheet.getRange(row, 1, 1, 3).setBackground('#c8c8c8');
   var ncParts = ['C' + niRow];
   if (opTot)  ncParts.push('C' + opTot);
   if (invTot) ncParts.push('C' + invTot);
   if (finTot) ncParts.push('C' + finTot);
-  sheet.getRange(row, 3).setFormula(sumRefs(ncParts)).setFontWeight('bold');
+  sheet.getRange(row, 3).setFormula('=(' + ncParts.join('+') + ')').setFontWeight('bold');
   sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-  sheet.getRange(row, 1, 1, 3).setBackground('#c8c8c8');
   sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   row++;
 
   // ── CLOSING CASH ─────────────────────────────────────────────────────────────
-  var closingCashRow = row;
-  sheet.getRange(row, 1).setValue('CLOSING CASH BALANCE').setFontWeight('bold').setFontSize(11);
+  var closingRow = row;
+  sheet.getRange(row, 1).setValue('Cash at end of period').setFontWeight('bold').setFontSize(11);
+  sheet.getRange(row, 1, 1, 3).setBackground('#c0c0c0');
   sheet.getRange(row, 3).setFormula('=C' + openingCashRow + '+C' + netCashRow).setFontWeight('bold').setFontSize(11);
   sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-  sheet.getRange(row, 1, 1, 3).setBackground('#c0c0c0');
   sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   row++;
 
   // ── CHECK vs BS ──────────────────────────────────────────────────────────────
-  // Closing Cash from CF should equal sum of Cash account raw balances for the same period
-  if (cashAccounts.length > 0) {
-    var bsParts = cashAccounts.map(function(a) {
+  if (cashAccts.length > 0) {
+    var bsParts = cashAccts.map(function(a) {
       return 'skuld(timestamp,B$3,' + a.code + ',false)';
     }).join('+');
     sheet.getRange(row, 1).setValue('CHECK: BS cash balance').setFontStyle('italic').setFontColor('#555555');
+    sheet.getRange(row, 2).setFontStyle('italic').setFontColor('#555555');
     sheet.getRange(row, 3).setFormula('=' + bsParts).setFontStyle('italic').setFontColor('#555555');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
     // Difference
     sheet.getRange(row, 1).setValue('Difference').setFontStyle('italic').setFontColor('#555555');
-    sheet.getRange(row, 3).setFormula('=C' + closingCashRow + '-C' + row).setFontStyle('italic').setFontColor('#555555');
+    sheet.getRange(row, 3).setFormula('=C' + closingRow + '-C' + (row - 1)).setFontStyle('italic').setFontColor('#555555');
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-    row++;
   }
 
   sheet.setFrozenRows(4);

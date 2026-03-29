@@ -1642,6 +1642,3 @@ function buildIntegrity_(sheet, ss) {
   sheet.setFrozenRows(3);
   Logger.log('Integrity built: %d rows, %d FY periods', row, fyPeriods.length);
 }
- *   3. P&L net = Closing entry net
- *   4. RE roll-forward: Opening RE + NI + movements = Closing RE
- */

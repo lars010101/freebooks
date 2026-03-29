@@ -266,29 +266,47 @@ async function handleCoa(ctx, action) {
       );
     }
 
-    // Delete existing + re-insert (full replace for COA saves)
+    // Use DML MERGE to avoid streaming buffer conflicts (DELETE blocked while buffer active)
+    // Build a VALUES clause for the incoming accounts
+    const now = new Date().toISOString();
+    const valueParts = accounts.map((a) => {
+      const esc = (v) => v === null || v === undefined ? 'NULL' : `'${String(v).replace(/'/g, "\\'")}'`;
+      return `(${esc(companyId)}, ${esc(a.account_code)}, ${esc(a.account_name)}, ${esc(a.account_type)}, ${esc(a.account_subtype || null)}, ${esc(a.pl_category || null)}, ${esc(a.bs_category || null)}, ${esc(a.cf_category || null)}, ${a.is_active !== false}, ${esc(a.effective_from)}, ${esc(a.effective_to || null)}, TIMESTAMP('${now}'))`;
+    });
+
+    // Delete accounts not in the incoming set (unless blocked above)
+    const incomingCodesStr = codes.map(c => `'${c.replace(/'/g, "\\'")}'`).join(',');
     await dataset.query({
-      query: `DELETE FROM finance.accounts WHERE company_id = @companyId`,
+      query: `DELETE FROM finance.accounts WHERE company_id = @companyId AND account_code NOT IN (${incomingCodesStr})`,
       params: { companyId },
     });
 
-    const rows = accounts.map((a) => ({
-      company_id: companyId,
-      account_code: a.account_code,
-      account_name: a.account_name,
-      account_type: a.account_type,
-      account_subtype: a.account_subtype || null,
-      pl_category: a.pl_category || null,
-      bs_category: a.bs_category || null,
-      cf_category: a.cf_category || null,
-      is_active: a.is_active !== false,
-      effective_from: a.effective_from,
-      effective_to: a.effective_to || null,
-      created_at: new Date().toISOString(),
-    }));
+    // MERGE: update existing, insert new
+    await dataset.query({
+      query: `
+        MERGE finance.accounts AS T
+        USING (
+          SELECT * FROM UNNEST([
+            ${valueParts.map(v => `STRUCT<company_id STRING, account_code STRING, account_name STRING, account_type STRING, account_subtype STRING, pl_category STRING, bs_category STRING, cf_category STRING, is_active BOOL, effective_from DATE, effective_to DATE, created_at TIMESTAMP>${v}`).join(',\n            ')}
+          ])
+        ) AS S
+        ON T.company_id = S.company_id AND T.account_code = S.account_code
+        WHEN MATCHED THEN UPDATE SET
+          account_name = S.account_name,
+          account_type = S.account_type,
+          account_subtype = S.account_subtype,
+          pl_category = S.pl_category,
+          bs_category = S.bs_category,
+          cf_category = S.cf_category,
+          is_active = S.is_active,
+          effective_from = S.effective_from,
+          effective_to = S.effective_to,
+          created_at = S.created_at
+        WHEN NOT MATCHED THEN INSERT ROW
+      `,
+    });
 
-    await table.insert(rows);
-    return { saved: rows.length };
+    return { saved: accounts.length };
   }
 }
 

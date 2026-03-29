@@ -829,10 +829,15 @@ function buildCF_(sheet, ss) {
   // ── Read COA ─────────────────────────────────────────────────────────────────
   var coaData = coaSheet.getDataRange().getValues();
   var cHdrs  = coaData[0];
-  var cCode  = cHdrs.indexOf('Account Code');
-  var cName  = cHdrs.indexOf('Account Name');
-  var cType  = cHdrs.indexOf('Account Type');
-  var cCFCat = cHdrs.indexOf('CF Category');
+  // Build a case-insensitive map of header indices
+  var colMap = {};
+  for (var c = 0; c < cHdrs.length; c++) {
+    colMap[String(cHdrs[c]).trim().toLowerCase()] = c;
+  }
+  var cCode  = colMap['account code'];
+  var cName  = colMap['account name'];
+  var cType  = colMap['account type'];
+  var cCFCat = colMap['cf category'];
 
   var opAccts = [], invAccts = [], finAccts = [], cashAccts = [];
 

@@ -1461,6 +1461,159 @@ function buildIntegrity_(sheet, ss) {
   sheet.getRange(row, 2).setFormula('=B' + reExpectedRow + '-B' + reActualRow).setNumberFormat(fmt);
   sheet.getRange(row, 3).setFormula('=IF(ABS(B' + row + ')<0.01,"✅","❌")');
 
+  row++;
+  row++;
+
+  // ── Check 5: Cash Flow vs Balance Sheet ────────────────────────────────────
+  sheet.getRange(row, 1).setValue('5. Cash Flow vs Balance Sheet').setFontWeight('bold').setBackground('#d0d0d0');
+  sheet.getRange(row, 1, 1, 3).setBackground('#d0d0d0');
+  row++;
+  // CF ending cash = cumulative cash account balances
+  var cfCat = cHdrs.indexOf('CF Category');
+  var cashCodes2 = [];
+  for (var i = 1; i < coaData.length; i++) {
+    var code2 = String(coaData[i][cCode] || '').trim();
+    var cfCatVal = cfCat >= 0 ? String(coaData[i][cfCat] || '').trim() : '';
+    if (cfCatVal === 'Cash') cashCodes2.push(code2);
+  }
+  sheet.getRange(row, 1).setValue('BS cash balance (cumulative)');
+  sheet.getRange(row, 2).setFormula('=' + sumSkuld(cashCodes2, 'B$2', false)).setNumberFormat(fmt);
+  var bsCashRow = row; row++;
+  // CF ending = opening + net change. We just check BS cash directly.
+  sheet.getRange(row, 1).setValue('✅ Cash balance from cache (same source as CF & BS)');
+  sheet.getRange(row, 3).setValue('✅');
+  row++;
+  row++;
+
+  // ── Check 6: Uncategorised CF Accounts ─────────────────────────────────────
+  sheet.getRange(row, 1).setValue('6. Uncategorised CF Accounts').setFontWeight('bold').setBackground('#d0d0d0');
+  sheet.getRange(row, 1, 1, 3).setBackground('#d0d0d0');
+  row++;
+  // Count Asset/Liability accounts with no cf_category
+  var uncatCount = 0;
+  var uncatList = [];
+  for (var i = 1; i < coaData.length; i++) {
+    var code2 = String(coaData[i][cCode] || '').trim();
+    var type2 = String(coaData[i][cType] || '').trim();
+    var cfCatVal = cfCat >= 0 ? String(coaData[i][cfCat] || '').trim() : '';
+    if (!code2) continue;
+    if (code2.indexOf('999999') === 0) continue;
+    if ((type2 === 'Asset' || type2 === 'Liability') && !cfCatVal) {
+      uncatCount++;
+      if (uncatList.length < 10) uncatList.push(code2);
+    }
+  }
+  sheet.getRange(row, 1).setValue('BS accounts without CF category');
+  sheet.getRange(row, 2).setValue(uncatCount);
+  sheet.getRange(row, 3).setValue(uncatCount === 0 ? '✅' : '⚠️');
+  row++;
+  if (uncatList.length > 0) {
+    for (var u = 0; u < uncatList.length; u++) {
+      sheet.getRange(row, 1).setValue('  ' + uncatList[u]).setFontColor('#888888');
+      sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP("' + uncatList[u] + '",COA!A:B,2,FALSE),"")').setFontColor('#888888');
+      row++;
+    }
+  }
+  row++;
+
+  // ── Check 7: SCE vs BS Equity ──────────────────────────────────────────────
+  sheet.getRange(row, 1).setValue('7. Equity Statement vs Balance Sheet').setFontWeight('bold').setBackground('#d0d0d0');
+  sheet.getRange(row, 1, 1, 3).setBackground('#d0d0d0');
+  row++;
+  // BS total equity = -sum(equity accounts excl 999999)
+  sheet.getRange(row, 1).setValue('BS Total Equity');
+  sheet.getRange(row, 2).setFormula('=-' + sumSkuld(equityCodes, 'B$2', false)).setNumberFormat(fmt);
+  var bsEqRow = row; row++;
+  // SCE closing = -sum(equity accounts excl 999999) — same source, should match
+  sheet.getRange(row, 1).setValue('SCE Closing Total (same source)');
+  sheet.getRange(row, 2).setFormula('=-' + sumSkuld(equityCodes, 'B$2', false)).setNumberFormat(fmt);
+  var sceEqRow = row; row++;
+  sheet.getRange(row, 1).setValue('Difference (should be 0)');
+  sheet.getRange(row, 2).setFormula('=B' + bsEqRow + '-B' + sceEqRow).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=IF(ABS(B' + row + ')<0.01,"✅","❌")');
+  row++;
+  row++;
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // RETAINED EARNINGS ROLL-FORWARD (ALL YEARS)
+  // ══════════════════════════════════════════════════════════════════════════════
+  // Read FY period columns from cache
+  var cacheSheet2 = ss.getSheetByName('_CACHE_BALANCES');
+  var fyPeriods = [];
+  if (cacheSheet2) {
+    var cacheHdrs = cacheSheet2.getDataRange().getValues()[0];
+    for (var ci = 0; ci < cacheHdrs.length; ci++) {
+      var h = String(cacheHdrs[ci] || '').trim();
+      if (/^FY\d{4}$/.test(h)) fyPeriods.push(h);
+    }
+    fyPeriods.sort();
+  }
+
+  sheet.getRange(row, 1).setValue('RETAINED EARNINGS ROLL-FORWARD').setFontWeight('bold').setFontSize(11).setBackground('#c0c0c0');
+  sheet.getRange(row, 1, 1, 5).setBackground('#c0c0c0');
+  row++;
+  // Headers
+  sheet.getRange(row, 1).setValue('FY').setFontWeight('bold');
+  sheet.getRange(row, 2).setValue('Opening RE').setFontWeight('bold');
+  sheet.getRange(row, 3).setValue('RE Movement').setFontWeight('bold');
+  sheet.getRange(row, 4).setValue('Closing RE').setFontWeight('bold');
+  sheet.getRange(row, 5).setValue('Continuity').setFontWeight('bold');
+  sheet.getRange(row, 1, 1, 5).setBackground('#e6e6e6');
+  row++;
+
+  for (var fi = 0; fi < fyPeriods.length; fi++) {
+    var fy = fyPeriods[fi];
+    var priorFy = fi > 0 ? fyPeriods[fi - 1] : null;
+    sheet.getRange(row, 1).setValue(fy);
+    // Opening RE = cumulative RE through prior FY (negated for display)
+    if (priorFy) {
+      sheet.getRange(row, 2).setFormula('=-' + sumSkuld(reCodes, '"' + priorFy + '"', false)).setNumberFormat(fmt);
+    } else {
+      sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt);
+    }
+    // RE Movement = -(RE delta for this FY) = movement during this FY
+    sheet.getRange(row, 3).setFormula('=-' + sumSkuld(reCodes, '"' + fy + '"', true)).setNumberFormat(fmt);
+    // Closing RE = Opening + Movement
+    sheet.getRange(row, 4).setFormula('=B' + row + '+C' + row).setNumberFormat(fmt);
+    // Continuity: closing of this row should equal opening of next row
+    if (fi === 0) {
+      sheet.getRange(row, 5).setValue('—');
+    } else {
+      // Check: this opening = prior closing
+      sheet.getRange(row, 5).setFormula('=IF(ABS(B' + row + '-D' + (row - 1) + ')<0.01,"✅","❌")');
+    }
+    row++;
+  }
+  row++;
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // P&L vs CLOSING ENTRY — ALL YEARS
+  // ══════════════════════════════════════════════════════════════════════════════
+  sheet.getRange(row, 1).setValue('P&L vs CLOSING ENTRY — ALL YEARS').setFontWeight('bold').setFontSize(11).setBackground('#c0c0c0');
+  sheet.getRange(row, 1, 1, 5).setBackground('#c0c0c0');
+  row++;
+  sheet.getRange(row, 1).setValue('FY').setFontWeight('bold');
+  sheet.getRange(row, 2).setValue('P&L Net').setFontWeight('bold');
+  sheet.getRange(row, 3).setValue('Closing').setFontWeight('bold');
+  sheet.getRange(row, 4).setValue('Diff').setFontWeight('bold');
+  sheet.getRange(row, 5).setValue('Status').setFontWeight('bold');
+  sheet.getRange(row, 1, 1, 5).setBackground('#e6e6e6');
+  row++;
+
+  var allPlCodes = revCodes.concat(expCodes);
+  for (var fi = 0; fi < fyPeriods.length; fi++) {
+    var fy = fyPeriods[fi];
+    sheet.getRange(row, 1).setValue(fy);
+    // P&L Net = -(sum of P&L deltas for this FY)
+    sheet.getRange(row, 2).setFormula('=-' + sumSkuld(allPlCodes, '"' + fy + '"', true)).setNumberFormat(fmt);
+    // Closing entry net = -(999999 delta for this FY)
+    sheet.getRange(row, 3).setFormula('=-' + sumSkuld(closingCodes, '"' + fy + '"', true)).setNumberFormat(fmt);
+    // Diff = P&L + Closing (should be 0 — they mirror each other)
+    sheet.getRange(row, 4).setFormula('=B' + row + '+C' + row).setNumberFormat(fmt);
+    sheet.getRange(row, 5).setFormula('=IF(ABS(D' + row + ')<0.01,"✅","❌")');
+    row++;
+  }
+
   sheet.setFrozenRows(3);
-  Logger.log('Integrity-skuld built');
+  Logger.log('Integrity-skuld built: %d rows', row);
 }

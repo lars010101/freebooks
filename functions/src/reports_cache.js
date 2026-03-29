@@ -13,9 +13,12 @@ async function buildAccountBalancesCache(ctx) {
   const { dataset, companyId } = ctx;
 
   const [accounts] = await dataset.query({
-    query: `SELECT account_code, account_name, account_type, account_subtype, 
-                   pl_category, bs_category, cf_category
-            FROM finance.accounts WHERE company_id = @companyId ORDER BY account_code`,
+    query: `SELECT * FROM (
+              SELECT account_code, account_name, account_type, account_subtype, 
+                     pl_category, bs_category, cf_category,
+                     ROW_NUMBER() OVER(PARTITION BY account_code ORDER BY created_at DESC) as rn
+              FROM finance.accounts WHERE company_id = @companyId
+            ) WHERE rn = 1 ORDER BY account_code`,
     params: { companyId }
   });
 

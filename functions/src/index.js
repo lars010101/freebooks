@@ -206,7 +206,10 @@ async function handleCoa(ctx, action) {
 
   if (action === 'coa.list') {
     const [rows] = await dataset.query({
-      query: `SELECT * FROM finance.accounts WHERE company_id = @companyId ORDER BY account_code`,
+      query: `SELECT * FROM (
+                SELECT *, ROW_NUMBER() OVER(PARTITION BY account_code ORDER BY created_at DESC) as rn
+                FROM finance.accounts WHERE company_id = @companyId
+              ) WHERE rn = 1 ORDER BY account_code`,
       params: { companyId },
     });
     return rows;

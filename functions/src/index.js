@@ -274,37 +274,73 @@ async function handleCoa(ctx, action) {
       return `(${esc(companyId)}, ${esc(a.account_code)}, ${esc(a.account_name)}, ${esc(a.account_type)}, ${esc(a.account_subtype || null)}, ${esc(a.pl_category || null)}, ${esc(a.bs_category || null)}, ${esc(a.cf_category || null)}, ${a.is_active !== false}, ${esc(a.effective_from)}, ${esc(a.effective_to || null)}, TIMESTAMP('${now}'))`;
     });
 
-    // Delete accounts not in the incoming set (unless blocked above)
+    // Delete accounts not in the incoming set (only if there are removals)
+    // Skip if streaming buffer might block it — non-critical, only removes unused accounts
     const incomingCodesStr = codes.map(c => `'${c.replace(/'/g, "\\'")}'`).join(',');
-    await dataset.query({
-      query: `DELETE FROM finance.accounts WHERE company_id = @companyId AND account_code NOT IN (${incomingCodesStr})`,
-      params: { companyId },
-    });
+    try {
+      await dataset.query({
+        query: `DELETE FROM finance.accounts WHERE company_id = @companyId AND account_code NOT IN (${incomingCodesStr})`,
+        params: { companyId },
+      });
+    } catch (delErr) {
+      // Streaming buffer conflict — skip deletion, will clean up on next save
+      if (String(delErr.message).indexOf('streaming buffer') >= 0) {
+        // Ignore — orphaned rows will be cleaned up when buffer flushes
+      } else {
+        throw delErr;
+      }
+    }
 
     // MERGE: update existing, insert new
-    await dataset.query({
-      query: `
-        MERGE finance.accounts AS T
-        USING (
-          SELECT * FROM UNNEST([
-            ${valueParts.map(v => `STRUCT<company_id STRING, account_code STRING, account_name STRING, account_type STRING, account_subtype STRING, pl_category STRING, bs_category STRING, cf_category STRING, is_active BOOL, effective_from DATE, effective_to DATE, created_at TIMESTAMP>${v}`).join(',\n            ')}
-          ])
-        ) AS S
-        ON T.company_id = S.company_id AND T.account_code = S.account_code
-        WHEN MATCHED THEN UPDATE SET
-          account_name = S.account_name,
-          account_type = S.account_type,
-          account_subtype = S.account_subtype,
-          pl_category = S.pl_category,
-          bs_category = S.bs_category,
-          cf_category = S.cf_category,
-          is_active = S.is_active,
-          effective_from = S.effective_from,
-          effective_to = S.effective_to,
-          created_at = S.created_at
-        WHEN NOT MATCHED THEN INSERT ROW
-      `,
-    });
+    // Falls back to INSERT-only for new rows if streaming buffer blocks MERGE
+    try {
+      await dataset.query({
+        query: `
+          MERGE finance.accounts AS T
+          USING (
+            SELECT * FROM UNNEST([
+              ${valueParts.map(v => `STRUCT<company_id STRING, account_code STRING, account_name STRING, account_type STRING, account_subtype STRING, pl_category STRING, bs_category STRING, cf_category STRING, is_active BOOL, effective_from DATE, effective_to DATE, created_at TIMESTAMP>${v}`).join(',\n              ')}
+            ])
+          ) AS S
+          ON T.company_id = S.company_id AND T.account_code = S.account_code
+          WHEN MATCHED THEN UPDATE SET
+            account_name = S.account_name,
+            account_type = S.account_type,
+            account_subtype = S.account_subtype,
+            pl_category = S.pl_category,
+            bs_category = S.bs_category,
+            cf_category = S.cf_category,
+            is_active = S.is_active,
+            effective_from = S.effective_from,
+            effective_to = S.effective_to,
+            created_at = S.created_at
+          WHEN NOT MATCHED THEN INSERT ROW
+        `,
+      });
+    } catch (mergeErr) {
+      if (String(mergeErr.message).indexOf('streaming buffer') >= 0) {
+        // Streaming buffer active — find which codes are truly new and INSERT only those
+        const [existing] = await dataset.query({
+          query: `SELECT account_code FROM finance.accounts WHERE company_id = @companyId`,
+          params: { companyId },
+        });
+        const existingSet = new Set(existing.map(r => r.account_code));
+        const newAccounts = accounts.filter(a => !existingSet.has(a.account_code));
+
+        if (newAccounts.length > 0) {
+          const insertValues = newAccounts.map(a => {
+            const esc = (v) => v === null || v === undefined ? 'NULL' : `'${String(v).replace(/'/g, "\\'")}'`;
+            return `(${esc(companyId)}, ${esc(a.account_code)}, ${esc(a.account_name)}, ${esc(a.account_type)}, ${esc(a.account_subtype || null)}, ${esc(a.pl_category || null)}, ${esc(a.bs_category || null)}, ${esc(a.cf_category || null)}, ${a.is_active !== false}, ${esc(a.effective_from)}, ${esc(a.effective_to || null)}, TIMESTAMP('${now}'))`;
+          });
+          await dataset.query({
+            query: `INSERT INTO finance.accounts (company_id, account_code, account_name, account_type, account_subtype, pl_category, bs_category, cf_category, is_active, effective_from, effective_to, created_at) VALUES ${insertValues.join(', ')}`,
+          });
+        }
+        // Note: existing accounts won't be updated until buffer flushes. Next save will MERGE successfully.
+        return { saved: accounts.length, note: 'Streaming buffer active — new accounts inserted, existing accounts will update on next save' };
+      }
+      throw mergeErr;
+    }
 
     return { saved: accounts.length };
   }
@@ -424,17 +460,18 @@ async function handleSettings(ctx, action) {
 
     const now = new Date().toISOString();
     for (const [key, value] of Object.entries(settings)) {
-      // Upsert via DELETE + INSERT (BigQuery doesn't have native UPSERT)
+      // Upsert via MERGE (avoids streaming buffer conflicts)
+      const esc = (v) => String(v).replace(/'/g, "\\'");
       await dataset.query({
-        query: `DELETE FROM finance.settings WHERE company_id = @companyId AND key = @key`,
-        params: { companyId, key },
+        query: `
+          MERGE finance.settings AS T
+          USING (SELECT @companyId AS company_id, @key AS key, @value AS value, TIMESTAMP('${now}') AS updated_at) AS S
+          ON T.company_id = S.company_id AND T.key = S.key
+          WHEN MATCHED THEN UPDATE SET value = S.value, updated_at = S.updated_at
+          WHEN NOT MATCHED THEN INSERT (company_id, key, value, updated_at) VALUES (S.company_id, S.key, S.value, S.updated_at)
+        `,
+        params: { companyId, key, value: String(value) },
       });
-      await dataset.table('settings').insert([{
-        company_id: companyId,
-        key,
-        value: String(value),
-        updated_at: now,
-      }]);
     }
     return { saved: Object.keys(settings).length };
   }

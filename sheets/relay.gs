@@ -847,6 +847,8 @@ function buildCF_(sheet, ss) {
     var code  = String(row2[cCode]  || '').trim();
     var cfCat = String(row2[cCFCat] || '').trim();
     if (!code) continue;
+    // Exclude calculated parent accounts
+    if (code.length < 6) continue;
     if (type === 'Asset' || type === 'Liability' || type === 'Equity') {
       if      (cfCat === 'Cash')                           cashAccts.push({ code: code, type: type });
       else if (cfCat === 'Op-WC' || cfCat === 'Op-NonCash') opAccts.push({ code: code, type: type });
@@ -954,6 +956,8 @@ function buildCF_(sheet, ss) {
     var type = String(coaData[i][cType] || '').trim();
     var code = String(coaData[i][cCode] || '').trim();
     if (!code) continue;
+    // Exclude calculated parent accounts (length < 6) from explicit arrays to avoid double counting
+    if (code.length < 6) continue;
     if (type === 'Revenue' || type === 'Expense') plCodes.push(code);
   }
   if (plCodes.length > 0) {
@@ -1196,6 +1200,7 @@ function buildSCE_(sheet, ss) {
     var type = String(coaData[i][cType] || '').trim();
     if (!code || type !== 'Equity') continue;
     if (code.indexOf('999999') === 0) continue;
+    if (code.length < 6) continue; // Exclude calculated parent accounts
     if (code.indexOf('203080') === 0 || code.indexOf('2081') === 0) scAccts.push(code);
     else if (code.indexOf('203040') === 0 || code.indexOf('2898') === 0) divAccts.push(code);
     else reAccts.push(code); // 203070 and others → RE bucket
@@ -1207,6 +1212,8 @@ function buildSCE_(sheet, ss) {
     var type = String(coaData[i][cType] || '').trim();
     var code = String(coaData[i][cCode] || '').trim();
     if (!code) continue;
+    // Exclude calculated parent accounts (length < 6) from explicit arrays to avoid double counting
+    if (code.length < 6) continue;
     if (type === 'Revenue' || type === 'Expense') plCodes.push(code);
   }
 

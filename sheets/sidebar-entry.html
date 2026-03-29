@@ -185,6 +185,9 @@
   <div class="setting-row"><label>FY Start</label><input type="date" id="set-fy-start" /></div>
   <div class="setting-row"><label>FY End</label><input type="date" id="set-fy-end" /></div>
 
+  <div class="setting-group">Chart of Accounts</div>
+  <div class="setting-row"><label>Min Account Length</label><input type="number" id="set-min-acct-len" min="0" max="20" style="width:60px" /></div>
+
   <div class="setting-group">FX & Backup</div>
   <button class="btn btn-secondary btn-full" onclick="doSettingsAction('fetchFx')" style="margin:4px 0">💱 Fetch FX Rates (ECB)</button>
   <button class="btn btn-secondary btn-full" onclick="doSettingsAction('backup')" style="margin:4px 0">💾 Export Backup to Drive</button>
@@ -381,6 +384,7 @@ function loadSettingsData(s) {
   fyStart=s.fyStart||'';fyEnd=s.fyEnd||'';
   document.getElementById('set-fy-start').value=fyStart;
   document.getElementById('set-fy-end').value=fyEnd;
+  document.getElementById('set-min-acct-len').value=s.minAccountLength||'';
   // Report period always defaults to FY
   document.getElementById('nav-period-from').value=fyStart;
   document.getElementById('nav-period-to').value=fyEnd;
@@ -399,7 +403,8 @@ function saveSettings() {
     fyStart:document.getElementById('set-fy-start').value,
     fyEnd:document.getElementById('set-fy-end').value,
     periodFrom:document.getElementById('nav-period-from').value,
-    periodTo:document.getElementById('nav-period-to').value
+    periodTo:document.getElementById('nav-period-to').value,
+    minAccountLength:document.getElementById('set-min-acct-len').value
   };
   showStatus('settings','warning','Saving...');
   google.script.run.withSuccessHandler(function(){showStatus('settings','success','✅ Settings saved');})

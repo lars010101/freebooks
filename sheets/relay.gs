@@ -402,6 +402,7 @@ function getSettingsData() {
     fyEnd: fyFromBQ.fyEnd || formatSettingDate_(settings['FY End']) || '2025-12-31',
     periodFrom: formatSettingDate_(settings['Period From']) || fyFromBQ.fyStart || formatSettingDate_(settings['FY Start']) || '2025-01-01',
     periodTo: formatSettingDate_(settings['Period To']) || fyFromBQ.fyEnd || formatSettingDate_(settings['FY End']) || '2025-12-31',
+    minAccountLength: settings['Min Account Length'] || '',
   };
 }
 
@@ -426,8 +427,19 @@ function saveSettingsFromSidebar(data) {
     ['Period To', data.periodTo],
     ['Cost Center', ''],
     ['Profit Center', ''],
+    ['', ''],
+    ['Min Account Length', data.minAccountLength || ''],
   ];
   sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+
+  // Also save min_account_length to BQ settings table
+  if (data.minAccountLength) {
+    try {
+      callSkuld_('settings.save', { settings: { 'min_account_length': String(data.minAccountLength) } });
+    } catch (e) {
+      Logger.log('Failed to save min_account_length to BQ: ' + e.message);
+    }
+  }
 }
 
 function runSettingsAction(action) {

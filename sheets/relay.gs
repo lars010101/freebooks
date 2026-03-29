@@ -1421,7 +1421,7 @@ function buildIntegrity_(sheet, ss) {
   sheet.getRange(row, 2).setFormula('=-' + sumSkuld(closingCodes, 'B$2', true)).setNumberFormat(fmt);
   var closingNetRow = row; row++;
   sheet.getRange(row, 1).setValue('Difference (should be 0)');
-  sheet.getRange(row, 2).setFormula('=B' + plNetRow + '-B' + closingNetRow).setNumberFormat(fmt);
+  sheet.getRange(row, 2).setFormula('=B' + plNetRow + '+B' + closingNetRow).setNumberFormat(fmt);
   sheet.getRange(row, 3).setFormula('=IF(ABS(B' + row + ')<0.01,"✅","❌")');
   row++;
   row++;

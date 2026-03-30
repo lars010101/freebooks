@@ -481,17 +481,33 @@ function runSettingsAction(action) {
 // =============================================================================
 
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('⚖️ Skuld')
-    .addItem('Open Sidebar', 'openSidebar')
-    .addItem('Refresh All Reports', 'onRefreshAll')
-    .addSeparator()
-    .addSubMenu(SpreadsheetApp.getUi().createMenu('Generate Report')
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('⚖️ Skuld')
+    .addSubMenu(ui.createMenu('New')
+      .addItem('Journal Entry', 'newJournalEntry')
+      .addItem('Bank Statement', 'newBankStatement')
+      .addItem('Transaction Import', 'newTransactionImport'))
+    .addSubMenu(ui.createMenu('Load')
+      .addItem('Journal', 'loadJournal')
+      .addItem('Tax Report', 'loadTaxReport')
+      .addItem('AP Aging', 'loadAPAging')
+      .addSeparator()
+      .addItem('Chart of Accounts', 'loadCOA')
+      .addItem('Bank Mappings', 'loadMappings')
+      .addItem('Tax Codes', 'loadTaxCodes')
+      .addItem('Profit / Cost Centers', 'loadCenters')
+      .addSeparator()
+      .addItem('Cache: Balances', 'loadCacheBalances'))
+    .addSubMenu(ui.createMenu('Template')
       .addItem('Profit & Loss', 'generatePL')
       .addItem('Balance Sheet', 'generateBS')
       .addItem('Cash Flow', 'generateCF')
       .addItem('Trial Balance', 'generateTB')
       .addItem('Changes in Equity', 'generateSCE')
       .addItem('Integrity Check', 'generateIntegrity'))
+    .addSubMenu(ui.createMenu('Refresh')
+      .addItem('Active Sheet', 'refreshActiveSheet')
+      .addItem('All', 'onRefreshAll'))
     .addSeparator()
     .addItem('Show All Tabs', 'showAllTabs')
     .addItem('Setup Auto-Open', 'setupTrigger')
@@ -586,12 +602,140 @@ function generateIntegrity() {
 }
 
 // =============================================================================
+// New — input sheets
+// =============================================================================
+
+function newJournalEntry() {
+  openSidebar();
+}
+
+function newBankStatement() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = requireBlankSheet_();
+  if (!sheet) return;
+  var headers = ['Date', 'Description', 'Amount', 'Currency'];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
+  sheet.setFrozenRows(1);
+  sheet.getRange(2, 1).activate();
+  SpreadsheetApp.getUi().alert('Paste your bank statement data below the headers.\nUse Refresh → Active Sheet to process when ready.');
+}
+
+function newTransactionImport() {
+  var sheet = requireBlankSheet_();
+  if (!sheet) return;
+  var headers = ['Batch ID', 'Date', 'Account Code', 'Debit', 'Credit', 'Currency', 'FX Rate', 'Description', 'Reference', 'Source'];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#fce8b2');
+  sheet.setFrozenRows(1);
+  sheet.getRange(2, 1).activate();
+  SpreadsheetApp.getUi().alert('Paste journal data below. Group lines by Batch ID.\nUse Refresh → Active Sheet to import when ready.');
+}
+
+// =============================================================================
+// Load — fetch data from backend
+// =============================================================================
+
+function loadJournal() {
+  navigateToTab('Journal');
+  var result = refreshTab_('Journal');
+  SpreadsheetApp.getUi().alert(result);
+}
+
+function loadTaxReport() {
+  navigateToTab('VAT Return');
+  var result = refreshTab_('VAT Return');
+  SpreadsheetApp.getUi().alert(result);
+}
+
+function loadAPAging() {
+  navigateToTab('AP Aging');
+  var result = refreshTab_('AP Aging');
+  SpreadsheetApp.getUi().alert(result);
+}
+
+function loadCOA() {
+  navigateToTab('COA');
+  var result = refreshTab_('COA');
+  protectPermanentSheets_();
+  SpreadsheetApp.getUi().alert(result);
+}
+
+function loadMappings() {
+  navigateToTab('Mappings');
+  var result = refreshTab_('Mappings');
+  SpreadsheetApp.getUi().alert(result);
+}
+
+function loadTaxCodes() {
+  navigateToTab('VAT Codes');
+  var result = refreshTab_('VAT Codes');
+  SpreadsheetApp.getUi().alert(result);
+}
+
+function loadCenters() {
+  navigateToTab('Centers');
+  var result = refreshTab_('Centers');
+  SpreadsheetApp.getUi().alert(result);
+}
+
+function loadCacheBalances() {
+  navigateToTab('_CACHE_BALANCES');
+  var result = refreshTab_('_CACHE_BALANCES');
+  protectPermanentSheets_();
+  SpreadsheetApp.getUi().alert(result);
+}
+
+// =============================================================================
+// Refresh — reload data for existing sheets
+// =============================================================================
+
+function refreshActiveSheet() {
+  var name = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet().getName();
+  var result = refreshTab_(name);
+  SpreadsheetApp.getUi().alert(result);
+}
+
+// =============================================================================
+// Sheet protection — permanent sheets cannot be deleted
+// =============================================================================
+
+/**
+ * Protect COA, _CACHE_BALANCES, and Settings so they cannot be deleted.
+ * Called after Load operations that create/update these sheets.
+ * Uses editor-only protection (the owner can still edit content).
+ */
+function protectPermanentSheets_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var permanentTabs = ['COA', '_CACHE_BALANCES', 'Settings'];
+
+  for (var i = 0; i < permanentTabs.length; i++) {
+    var sheet = ss.getSheetByName(permanentTabs[i]);
+    if (!sheet) continue;
+
+    // Check if already protected (avoid duplicating protections)
+    var protections = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+    var alreadyProtected = false;
+    for (var p = 0; p < protections.length; p++) {
+      if (protections[p].getDescription() === 'Skuld permanent sheet') {
+        alreadyProtected = true;
+        break;
+      }
+    }
+    if (alreadyProtected) continue;
+
+    var protection = sheet.protect().setDescription('Skuld permanent sheet');
+    // Allow the current user to edit content (protection prevents deletion, not editing)
+    protection.setWarningOnly(true);
+  }
+}
+
+// =============================================================================
 // Trigger setup
 // =============================================================================
 
 function onOpenInstallable() {
   onOpen();
   openSidebar();
+  protectPermanentSheets_();
   hideNonEssentialTabs_();
 }
 

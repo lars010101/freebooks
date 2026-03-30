@@ -6,13 +6,12 @@
     * { box-sizing: border-box; font-family: Arial, sans-serif; font-size: 14px; margin: 0; padding: 0; }
     body { background: #fafafa; }
 
-    /* Tabs */
-    .tabs { display: flex; background: #2d2d2d; position: sticky; top: 0; z-index: 10; }
-    .tab { flex: 1; padding: 10px 4px; text-align: center; color: #aaa; cursor: pointer; font-weight: bold; font-size: 11px; border-bottom: 3px solid transparent; }
-    .tab:hover { color: #fff; }
-    .tab.active { color: #fff; border-bottom-color: #4285f4; }
-    .panel { display: none; padding: 12px; }
-    .panel.active { display: block; }
+    /* Header */
+    .header { background: #2d2d2d; color: #fff; padding: 10px 12px; font-weight: bold; font-size: 13px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; }
+    .header span { font-size: 15px; }
+
+    /* Content */
+    .content { padding: 12px; }
 
     /* Forms */
     label { display: block; margin: 8px 0 3px; font-weight: bold; color: #555; font-size: 12px; }
@@ -37,22 +36,6 @@
     .btn-green:hover { background: #2d8e47; }
     .btn-full { width: 100%; }
 
-    /* Navigate */
-    .nav-group { margin: 10px 0 4px; font-weight: bold; color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .nav-item { display: block; width: 100%; padding: 9px 10px; margin: 2px 0; background: #fff; border: 1px solid #e8e8e8; border-radius: 5px; cursor: pointer; text-align: left; font-size: 14px; color: #333; }
-    .nav-item:hover { background: #e8f0fe; border-color: #4285f4; }
-    .nav-bar { display: flex; gap: 4px; margin: 10px 0; padding: 8px; background: #fff; border: 1px solid #ddd; border-radius: 6px; }
-    .nav-bar .btn { flex: 1; font-size: 14px; padding: 8px 4px; text-align: center; }
-
-    /* Settings */
-    .setting-group { margin: 12px 0 6px; font-weight: bold; color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .setting-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-    .setting-row label { flex: 0 0 90px; margin: 0; font-size: 12px; }
-    .setting-row input, .setting-row select { flex: 1; }
-    .quick-btns { display: flex; gap: 4px; margin: 6px 0; flex-wrap: wrap; }
-    .quick-btn { padding: 4px 10px; background: #e8e8e8; border: 1px solid #ccc; border-radius: 12px; cursor: pointer; font-size: 11px; }
-    .quick-btn:hover { background: #4285f4; color: white; border-color: #4285f4; }
-
     /* Reversal search */
     .search-box { display: flex; gap: 4px; margin: 6px 0; }
     .search-box input { flex: 1; }
@@ -67,30 +50,26 @@
     .totals { background: #e8f0fe; padding: 6px 10px; border-radius: 4px; margin: 6px 0; font-weight: bold; text-align: center; font-size: 12px; }
     .totals.balanced { background: #e6f4ea; }
     .totals.unbalanced { background: #fce8e6; }
-    .status { padding: 6px 8px; margin: 6px 0; border-radius: 4px; display: none; font-size: 12px; }
-    .status.error { background: #fce8e6; color: #c5221f; display: block; }
-    .status.success { background: #e6f4ea; color: #137333; display: block; }
-    .status.warning { background: #fef7e0; color: #ea8600; display: block; }
+    #global-status { position: sticky; top: 36px; z-index: 9; margin: 0; border-radius: 0; padding: 6px 8px; font-size: 12px; min-height: 28px; background: #f0f0f0; color: #888; text-align: center; }
     hr { border: none; border-top: 1px solid #e0e0e0; margin: 10px 0; }
     .help { color: #999; font-size: 11px; }
     .section-title { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; }
+
+    /* Auto-open toggle */
+    .auto-open { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #f5f5f5; border-top: 1px solid #e0e0e0; font-size: 12px; color: #666; position: fixed; bottom: 0; left: 0; right: 0; }
+    .auto-open input[type="checkbox"] { width: auto; margin: 0; }
+    .auto-open label { margin: 0; font-weight: normal; font-size: 12px; color: #666; cursor: pointer; }
   </style>
 </head>
 <body>
 
-<div class="tabs">
-  <div class="tab" onclick="switchTab('entry')">📝 Entry</div>
-  <div class="tab active" onclick="switchTab('navigate')">📋 Views</div>
-  <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
+<div class="header">
+  <span>⚖️ Journal Entry</span>
 </div>
 
-<!-- Global status bar — sticky right under tabs -->
-<div id="global-status" style="position:sticky;top:32px;z-index:9;margin:0;border-radius:0;padding:6px 8px;font-size:12px;min-height:28px;background:#f0f0f0;color:#888;text-align:center;">&nbsp;</div>
+<div id="global-status">&nbsp;</div>
 
-<!-- ============================================ -->
-<!-- ENTRY TAB -->
-<!-- ============================================ -->
-<div id="panel-entry" class="panel">
+<div class="content" style="padding-bottom: 44px;">
 
   <!-- Reverse search -->
   <label>🔍 Find & Reverse</label>
@@ -123,7 +102,6 @@
   <button class="btn btn-green btn-full" onclick="addLine()" style="margin:4px 0">+ Add Line</button>
 
   <div id="totals" class="totals">DR: 0.00 | CR: 0.00</div>
-  <div id="status-entry" class="status"></div>
 
   <div style="display:flex; gap:6px; margin-top:6px;">
     <button class="btn btn-secondary" style="flex:1" onclick="clearForm()">Clear</button>
@@ -131,304 +109,195 @@
   </div>
 </div>
 
-<!-- ============================================ -->
-<!-- NAVIGATE TAB -->
-<!-- ============================================ -->
-<div id="panel-navigate" class="panel active">
-
-  <div class="setting-row"><label>From</label><input type="date" id="nav-period-from" /></div>
-  <div class="setting-row"><label>To</label><input type="date" id="nav-period-to" /></div>
-
-
-  <div class="nav-bar" style="margin-top:8px">
-    <button class="btn btn-primary" onclick="doContextAction('refresh')">↻ Load</button>
-    <button class="btn btn-green" onclick="doContextAction('save')">💾 Save</button>
-  </div>
-
-  <div class="nav-group">Reports</div>
-  <button class="nav-item" onclick="goTo('Journal')">📒 Journal</button>
-  <button class="nav-item" onclick="goTo('_CACHE_BALANCES')">⚡ Cache Balances</button>
-  <button class="nav-item" onclick="goTo('TB')">📊 Trial Balance</button>
-  <button class="nav-item" onclick="goTo('PL')">📈 Profit & Loss</button>
-  <button class="nav-item" onclick="goTo('BS')">📋 Balance Sheet</button>
-  <button class="nav-item" onclick="goTo('CF-skuld')">💰 Cash Flow</button>
-  <button class="nav-item" onclick="goTo('AP Aging')">📅 AP Aging</button>
-  <button class="nav-item" onclick="goTo('VAT Return')">🧾 VAT Return</button>
-  <button class="nav-item" onclick="goTo('SCE')">📊 Changes in Equity</button>
-  <button class="nav-item" onclick="goTo('Integrity')">🔍 Integrity Check</button>
-
-  <div class="nav-group">Data Entry</div>
-  <button class="nav-item" onclick="goTo('Bank Processing')">🏦 Bank Processing</button>
-  <button class="nav-item" onclick="goTo('Bills')">📄 Bills</button>
-  <button class="nav-item" onclick="goTo('Import')">📥 Import</button>
-
-  <div class="nav-group">Configuration</div>
-  <button class="nav-item" onclick="goTo('COA')">📋 Chart of Accounts</button>
-  <button class="nav-item" onclick="goTo('Mappings')">🔗 Bank Mappings</button>
-  <button class="nav-item" onclick="goTo('Centers')">🏢 Profit / Cost Centers</button>
-  <button class="nav-item" onclick="goTo('VAT Codes')">🧾 VAT Codes</button>
-  <button class="nav-item" onclick="goTo('FX Rates')">💱 FX Rates</button>
-
-  <div id="status-navigate" class="status"></div>
-</div>
-
-<!-- ============================================ -->
-<!-- SETTINGS TAB -->
-<!-- ============================================ -->
-<div id="panel-settings" class="panel">
-
-  <div class="setting-group">Company</div>
-  <div class="setting-row"><label>Name</label><input type="text" id="set-company-name" /></div>
-  <div class="setting-row"><label>Company ID</label><input type="text" id="set-company-id" disabled /></div>
-
-  <div class="setting-group">Financial Year</div>
-  <div class="setting-row"><label>FY Start</label><input type="date" id="set-fy-start" /></div>
-  <div class="setting-row"><label>FY End</label><input type="date" id="set-fy-end" /></div>
-
-  <div class="setting-group">Chart of Accounts</div>
-  <div class="setting-row"><label>Min Account Length</label><input type="number" id="set-min-acct-len" min="0" max="20" style="width:60px" /></div>
-
-  <div class="setting-group">FX & Backup</div>
-  <button class="btn btn-secondary btn-full" onclick="doSettingsAction('fetchFx')" style="margin:4px 0">💱 Fetch FX Rates (ECB)</button>
-  <button class="btn btn-secondary btn-full" onclick="doSettingsAction('backup')" style="margin:4px 0">💾 Export Backup to Drive</button>
-
-  <div id="status-settings" class="status"></div>
-
-  <button class="btn btn-primary btn-full" onclick="saveSettings()" style="margin-top:10px">Save Settings</button>
+<!-- Auto-open toggle pinned to bottom -->
+<div class="auto-open">
+  <input type="checkbox" id="autoOpenCheck" onchange="toggleAutoOpen(this.checked)">
+  <label for="autoOpenCheck">Keep sidebar always visible</label>
 </div>
 
 <script>
 var accounts = [], vatCodes = [], lineCount = 0;
-var fyStart = '', fyEnd = '';
 
-// ---- Init: Views tab shows instantly, data loads in background ----
+// ---- Init ----
 document.getElementById('entryDate').valueAsDate = new Date();
-var dataReady = false;
-google.script.run.withSuccessHandler(function(d) {
-  accounts = d.accounts || [];
-  vatCodes = d.vatCodes || [];
-  loadSettingsData(d.settings || {});
-  dataReady = true;
-  // Pre-build entry lines so they're ready when user switches to Entry tab
-  if (document.getElementById('linesContainer').children.length === 0) { addLine(); addLine(); }
-}).withFailureHandler(function(e) {
-  showStatus('entry','error','Load failed: '+e.message);
-}).getSidebarInitData();
 
-// ---- Tabs ----
-function switchTab(name) {
-  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
-  document.getElementById('panel-' + name).classList.add('active');
-  var tabs = ['entry','navigate','settings'];
-  document.querySelectorAll('.tab')[tabs.indexOf(name)].classList.add('active');
+// Load auto-open state
+google.script.run.withSuccessHandler(function(isOn) {
+  document.getElementById('autoOpenCheck').checked = !!isOn;
+}).getAutoOpenState();
 
-  // Lazy-load COA/VAT only when user switches to Entry tab
-  if (name === 'entry' && accounts.length === 0) {
-    var statusEl = document.getElementById('global-status');
-    statusEl.style.background = '#fef7e0';
-    statusEl.style.color = '#ea8600';
-    statusEl.textContent = 'Loading accounts...';
-    google.script.run.withSuccessHandler(function(data) {
-      accounts = data.accounts || [];
-      vatCodes = data.vatCodes || [];
-      // Re-render any existing lines with the new account/VAT options
-      var existingLines = document.querySelectorAll('[id^="line-"]');
-      if (existingLines.length > 0) {
-        var lineIds = [];
-        existingLines.forEach(function(l) { lineIds.push(l.id.split('-')[1]); });
-        document.getElementById('linesContainer').innerHTML = '';
-        lineCount = 0;
-        lineIds.forEach(function(n) { addLineWithValues(n); });
-      }
-      statusEl.style.background = '#e6f4ea';
-      statusEl.style.color = '#137333';
-      statusEl.textContent = '✅ Ready';
-    }).withFailureHandler(function(e) {
-      statusEl.style.background = '#fce8e6';
-      statusEl.style.color = '#c5221f';
-      statusEl.textContent = '❌ Failed to load: ' + e.message;
-    }).getSidebarInitDataWithAccounts();
-  }
+// Lazy-load accounts: show loading state, fetch in background
+(function() {
+  var statusEl = document.getElementById('global-status');
+  statusEl.style.background = '#fef7e0';
+  statusEl.style.color = '#ea8600';
+  statusEl.textContent = 'Loading accounts...';
+
+  google.script.run.withSuccessHandler(function(data) {
+    accounts = data.accounts || [];
+    vatCodes = data.vatCodes || [];
+    // Rebuild lines with loaded data
+    var container = document.getElementById('linesContainer');
+    container.innerHTML = '';
+    lineCount = 0;
+    addLine(); addLine();
+    statusEl.style.background = '#e6f4ea';
+    statusEl.style.color = '#137333';
+    statusEl.textContent = '✅ Ready — ' + accounts.length + ' accounts loaded';
+    setTimeout(function() { clearStatus(); }, 3000);
+  }).withFailureHandler(function(e) {
+    statusEl.style.background = '#fce8e6';
+    statusEl.style.color = '#c5221f';
+    statusEl.textContent = '❌ Failed to load: ' + e.message;
+    // Still add empty lines so form is usable
+    addLine(); addLine();
+  }).getSidebarInitDataWithAccounts();
+})();
+
+// ---- Auto-open toggle ----
+function toggleAutoOpen(checked) {
+  google.script.run.withSuccessHandler(function(msg) {
+    showStatus('success', msg);
+  }).withFailureHandler(function(e) {
+    showStatus('error', '❌ ' + e.message);
+  }).setAutoOpen(checked);
 }
 
 // ---- Entry: Add/Remove Lines ----
 function addLine(acct, dr, cr, vat) {
-  addLineWithValues(lineCount + 1, acct, dr, cr, vat);
-}
-
-function addLineWithValues(n, acct, dr, cr, vat) {
-  lineCount = n;
+  lineCount++;
+  var n = lineCount;
   var div = document.createElement('div');
   div.className = 'line'; div.id = 'line-' + n;
 
-  // Build account options - show placeholder if not loaded yet
   var ao = '<option value="">— Account —</option>';
   if (accounts.length === 0) {
     ao += '<option value="" disabled>Loading accounts...</option>';
   } else {
-    for (var i = 0; i < accounts.length; i++) ao += '<option value="'+accounts[i].code+'"'+(acct===accounts[i].code?' selected':'')+'>'+accounts[i].code+' — '+accounts[i].name+'</option>';
+    for (var i = 0; i < accounts.length; i++) {
+      ao += '<option value="' + accounts[i].code + '"' + (acct === accounts[i].code ? ' selected' : '') + '>' + accounts[i].code + ' — ' + accounts[i].name + '</option>';
+    }
   }
 
-  // Build VAT options
   var vo = '<option value="">No VAT</option>';
-  if (vatCodes.length === 0) {
-    vo += '<option value="" disabled>Loading...</option>';
-  } else {
-    for (var i = 0; i < vatCodes.length; i++) vo += '<option value="'+vatCodes[i].code+'"'+(vat===vatCodes[i].code?' selected':'')+'>'+vatCodes[i].code+' ('+Math.round(vatCodes[i].rate*100)+'%)</option>';
+  for (var i = 0; i < vatCodes.length; i++) {
+    vo += '<option value="' + vatCodes[i].code + '"' + (vat === vatCodes[i].code ? ' selected' : '') + '>' + vatCodes[i].code + ' (' + Math.round(vatCodes[i].rate * 100) + '%)</option>';
   }
 
-  div.innerHTML = '<div class="line-header"><span>#'+n+'</span><button onclick="removeLine('+n+')">✕</button></div>'
-    +'<select id="account-'+n+'">'+ao+'</select>'
-    +'<div class="row" style="margin-top:4px"><div><label>DR</label><input type="number" id="debit-'+n+'" step="0.01" min="0" value="'+(dr||0)+'" oninput="updateTotals()"></div>'
-    +'<div><label>CR</label><input type="number" id="credit-'+n+'" step="0.01" min="0" value="'+(cr||0)+'" oninput="updateTotals()"></div></div>'
-    +'<select id="vat-'+n+'" style="margin-top:4px">'+vo+'</select>';
+  div.innerHTML = '<div class="line-header"><span>#' + n + '</span><button onclick="removeLine(' + n + ')">✕</button></div>'
+    + '<select id="account-' + n + '">' + ao + '</select>'
+    + '<div class="row" style="margin-top:4px"><div><label>DR</label><input type="number" id="debit-' + n + '" step="0.01" min="0" value="' + (dr || 0) + '" oninput="updateTotals()"></div>'
+    + '<div><label>CR</label><input type="number" id="credit-' + n + '" step="0.01" min="0" value="' + (cr || 0) + '" oninput="updateTotals()"></div></div>'
+    + '<select id="vat-' + n + '" style="margin-top:4px">' + vo + '</select>';
   document.getElementById('linesContainer').appendChild(div);
   updateTotals();
 }
-function removeLine(n) { var e=document.getElementById('line-'+n); if(e)e.remove(); updateTotals(); }
+
+function removeLine(n) {
+  var e = document.getElementById('line-' + n);
+  if (e) e.remove();
+  updateTotals();
+}
+
 function updateTotals() {
-  var dr=0,cr=0;
-  document.querySelectorAll('[id^="line-"]').forEach(function(l){var n=l.id.split('-')[1];dr+=parseFloat(document.getElementById('debit-'+n)?.value||0);cr+=parseFloat(document.getElementById('credit-'+n)?.value||0);});
-  var d=Math.abs(dr-cr),el=document.getElementById('totals');
-  el.textContent='DR: '+dr.toFixed(2)+' | CR: '+cr.toFixed(2)+(d>0.01?' | Diff: '+d.toFixed(2):' ✅');
-  el.className='totals '+(d<=0.01?'balanced':'unbalanced');
+  var dr = 0, cr = 0;
+  document.querySelectorAll('[id^="line-"]').forEach(function(l) {
+    var n = l.id.split('-')[1];
+    dr += parseFloat(document.getElementById('debit-' + n)?.value || 0);
+    cr += parseFloat(document.getElementById('credit-' + n)?.value || 0);
+  });
+  var d = Math.abs(dr - cr), el = document.getElementById('totals');
+  el.textContent = 'DR: ' + dr.toFixed(2) + ' | CR: ' + cr.toFixed(2) + (d > 0.01 ? ' | Diff: ' + d.toFixed(2) : ' ✅');
+  el.className = 'totals ' + (d <= 0.01 ? 'balanced' : 'unbalanced');
 }
 
 // ---- Entry: Post ----
 function postEntry() {
-  var lines=[],date=document.getElementById('entryDate').value,desc=document.getElementById('entryDesc').value,ref=document.getElementById('entryRef').value;
-  document.querySelectorAll('[id^="line-"]').forEach(function(l){
-    var n=l.id.split('-')[1],a=document.getElementById('account-'+n)?.value,dr=parseFloat(document.getElementById('debit-'+n)?.value||0),cr=parseFloat(document.getElementById('credit-'+n)?.value||0),v=document.getElementById('vat-'+n)?.value||'';
-    if(a&&(dr>0||cr>0))lines.push({date:date,account_code:a,debit:dr,credit:cr,description:desc,reference:ref,vat_code:v||undefined});
+  var lines = [], date = document.getElementById('entryDate').value,
+      desc = document.getElementById('entryDesc').value, ref = document.getElementById('entryRef').value;
+  document.querySelectorAll('[id^="line-"]').forEach(function(l) {
+    var n = l.id.split('-')[1],
+        a = document.getElementById('account-' + n)?.value,
+        dr = parseFloat(document.getElementById('debit-' + n)?.value || 0),
+        cr = parseFloat(document.getElementById('credit-' + n)?.value || 0),
+        v = document.getElementById('vat-' + n)?.value || '';
+    if (a && (dr > 0 || cr > 0)) lines.push({ date: date, account_code: a, debit: dr, credit: cr, description: desc, reference: ref, vat_code: v || undefined });
   });
-  if(lines.length<2){showStatus('entry','error','Need at least 2 lines.');return;}
-  var dr=0,cr=0;lines.forEach(function(l){dr+=l.debit;cr+=l.credit;});
-  if(Math.abs(dr-cr)>0.01){showStatus('entry','error','Not balanced.');return;}
-  showStatus('entry','warning','Posting...');
-  google.script.run.withSuccessHandler(function(r){
-    if(r&&r.posted){showStatus('entry','success','✅ Batch: '+r.batchId.substring(0,8)+' ('+r.lineCount+' lines)');clearForm();}
-    else if(r&&r.errors)showStatus('entry','error','❌ '+r.errors.join('\n'));
-  }).withFailureHandler(function(e){showStatus('entry','error','❌ '+e.message);}).postJournalFromSidebar(lines);
+  if (lines.length < 2) { showStatus('error', 'Need at least 2 lines.'); return; }
+  var dr = 0, cr = 0;
+  lines.forEach(function(l) { dr += l.debit; cr += l.credit; });
+  if (Math.abs(dr - cr) > 0.01) { showStatus('error', 'Not balanced.'); return; }
+  showStatus('warning', 'Posting...');
+  google.script.run.withSuccessHandler(function(r) {
+    if (r && r.posted) { showStatus('success', '✅ Batch: ' + r.batchId.substring(0, 8) + ' (' + r.lineCount + ' lines)'); clearForm(); }
+    else if (r && r.errors) showStatus('error', '❌ ' + r.errors.join('\n'));
+  }).withFailureHandler(function(e) { showStatus('error', '❌ ' + e.message); }).postJournalFromSidebar(lines);
 }
+
 function clearForm() {
-  document.getElementById('entryRef').value='';document.getElementById('entryDesc').value='';
-  document.getElementById('entryDate').valueAsDate=new Date();
-  document.getElementById('searchQuery').value='';
-  document.getElementById('linesContainer').innerHTML='';document.getElementById('searchResults').innerHTML='';
-  lineCount=0;addLine();addLine();
+  document.getElementById('entryRef').value = '';
+  document.getElementById('entryDesc').value = '';
+  document.getElementById('entryDate').valueAsDate = new Date();
+  document.getElementById('searchQuery').value = '';
+  document.getElementById('linesContainer').innerHTML = '';
+  document.getElementById('searchResults').innerHTML = '';
+  lineCount = 0;
+  addLine(); addLine();
   clearStatus();
 }
 
 // ---- Entry: Search & Reverse ----
 function searchEntries() {
-  var q=document.getElementById('searchQuery').value.trim();
-  if(!q){showStatus('entry','error','Enter a search term');return;}
-  showStatus('entry','warning','Searching...');
-  google.script.run.withSuccessHandler(function(results){
-    var el=document.getElementById('searchResults');
-    if(!results||results.length===0){el.innerHTML='';showStatus('entry','warning','No entries found for "'+q+'"');return;}
+  var q = document.getElementById('searchQuery').value.trim();
+  if (!q) { showStatus('error', 'Enter a search term'); return; }
+  showStatus('warning', 'Searching...');
+  google.script.run.withSuccessHandler(function(results) {
+    var el = document.getElementById('searchResults');
+    if (!results || results.length === 0) { el.innerHTML = ''; showStatus('warning', 'No entries found for "' + q + '"'); return; }
     clearStatus();
-    el.innerHTML='';
-    // Group by batch_id
-    var batches={};
-    results.forEach(function(r){
-      if(!batches[r.batch_id])batches[r.batch_id]={lines:[],date:r.date,desc:r.description,ref:r.reference};
+    el.innerHTML = '';
+    var batches = {};
+    results.forEach(function(r) {
+      if (!batches[r.batch_id]) batches[r.batch_id] = { lines: [], date: r.date, desc: r.description, ref: r.reference };
       batches[r.batch_id].lines.push(r);
     });
-    Object.keys(batches).forEach(function(bid){
-      var b=batches[bid],dateStr=(b.date&&b.date.value)?b.date.value:b.date;
-      var totalDr=0,totalCr=0;
-      b.lines.forEach(function(l){totalDr+=Number(l.debit||0);totalCr+=Number(l.credit||0);});
-      var div=document.createElement('div');div.className='search-result';
-      div.innerHTML='<span class="sr-date">'+dateStr+'</span> <span class="sr-amount">'+totalDr.toFixed(0)+'</span><br>'
-        +'<small>'+(b.desc||b.ref||bid.substring(0,8))+'</small>';
-      div.onclick=function(){loadReversal(bid,b);};
+    Object.keys(batches).forEach(function(bid) {
+      var b = batches[bid], dateStr = (b.date && b.date.value) ? b.date.value : b.date;
+      var totalDr = 0, totalCr = 0;
+      b.lines.forEach(function(l) { totalDr += Number(l.debit || 0); totalCr += Number(l.credit || 0); });
+      var div = document.createElement('div'); div.className = 'search-result';
+      div.innerHTML = '<span class="sr-date">' + dateStr + '</span> <span class="sr-amount">' + totalDr.toFixed(0) + '</span><br>'
+        + '<small>' + (b.desc || b.ref || bid.substring(0, 8)) + '</small>';
+      div.onclick = function() { loadReversal(bid, b); };
       el.appendChild(div);
     });
-  }).withFailureHandler(function(e){showStatus('entry','error','❌ '+e.message);}).searchJournalEntries(q);
-}
-function loadReversal(batchId,batch) {
-  document.getElementById('searchResults').innerHTML='';
-  document.getElementById('entryDate').valueAsDate=new Date();
-  document.getElementById('entryDesc').value='Reversal of '+(batch.ref||batch.desc||batchId.substring(0,8));
-  document.getElementById('entryRef').value='REV-'+(batch.ref||batchId.substring(0,8));
-  document.getElementById('linesContainer').innerHTML='';lineCount=0;
-  batch.lines.forEach(function(l){addLine(l.account_code,Number(l.credit||0),Number(l.debit||0),null);});
-  showStatus('entry','warning','Reversal pre-filled. Review and click Post.');
+  }).withFailureHandler(function(e) { showStatus('error', '❌ ' + e.message); }).searchJournalEntries(q);
 }
 
-// ---- Navigate ----
-function goTo(name) {
-  showStatus('navigate','warning','Opening '+name+'...');
-  google.script.run.withSuccessHandler(function(){
-    showStatus('navigate','success','Opened: '+name);
-  }).withFailureHandler(function(e){showStatus('navigate','error','❌ '+e.message);}).navigateToTab(name);
-}
-function doContextAction(action) {
-  showStatus('navigate','warning','Running...');
-  var period = {
-    dateFrom: document.getElementById('nav-period-from').value || undefined,
-    dateTo: document.getElementById('nav-period-to').value || undefined
-  };
-  google.script.run.withSuccessHandler(function(msg){
-    showStatus('navigate','success',msg||'✅ Done');
-  }).withFailureHandler(function(e){showStatus('navigate','error','❌ '+e.message);}).runContextAction(action, period);
-}
-
-// ---- Settings ----
-function loadSettingsData(s) {
-  if(!s)return;
-  document.getElementById('set-company-name').value=s.companyName||'';
-  document.getElementById('set-company-id').value=s.companyId||'';
-  fyStart=s.fyStart||'';fyEnd=s.fyEnd||'';
-  document.getElementById('set-fy-start').value=fyStart;
-  document.getElementById('set-fy-end').value=fyEnd;
-  document.getElementById('set-min-acct-len').value=s.minAccountLength||'';
-  // Report period always defaults to FY
-  document.getElementById('nav-period-from').value=fyStart;
-  document.getElementById('nav-period-to').value=fyEnd;
-}
-function setNavPeriod(p) {
-  var y=fyStart.substring(0,4);
-  var map={q1:[y+'-01-01',y+'-03-31'],q2:[y+'-04-01',y+'-06-30'],q3:[y+'-07-01',y+'-09-30'],q4:[y+'-10-01',y+'-12-31'],fy:[fyStart,fyEnd],all:['','']};
-  if(p==='ytd'){map.ytd=[fyStart,new Date().toISOString().substring(0,10)];}
-  var r=map[p];if(!r)return;
-  document.getElementById('nav-period-from').value=r[0];
-  document.getElementById('nav-period-to').value=r[1];
-}
-function saveSettings() {
-  var data={
-    companyName:document.getElementById('set-company-name').value,
-    fyStart:document.getElementById('set-fy-start').value,
-    fyEnd:document.getElementById('set-fy-end').value,
-    periodFrom:document.getElementById('nav-period-from').value,
-    periodTo:document.getElementById('nav-period-to').value,
-    minAccountLength:document.getElementById('set-min-acct-len').value
-  };
-  showStatus('settings','warning','Saving...');
-  google.script.run.withSuccessHandler(function(){showStatus('settings','success','✅ Settings saved');})
-    .withFailureHandler(function(e){showStatus('settings','error','❌ '+e.message);}).saveSettingsFromSidebar(data);
-}
-function doSettingsAction(action) {
-  showStatus('settings','warning','Running...');
-  google.script.run.withSuccessHandler(function(msg){showStatus('settings','success',msg||'✅ Done');})
-    .withFailureHandler(function(e){showStatus('settings','error','❌ '+e.message);}).runSettingsAction(action);
+function loadReversal(batchId, batch) {
+  document.getElementById('searchResults').innerHTML = '';
+  document.getElementById('entryDate').valueAsDate = new Date();
+  document.getElementById('entryDesc').value = 'Reversal of ' + (batch.ref || batch.desc || batchId.substring(0, 8));
+  document.getElementById('entryRef').value = 'REV-' + (batch.ref || batchId.substring(0, 8));
+  document.getElementById('linesContainer').innerHTML = ''; lineCount = 0;
+  batch.lines.forEach(function(l) { addLine(l.account_code, Number(l.credit || 0), Number(l.debit || 0), null); });
+  showStatus('warning', 'Reversal pre-filled. Review and click Post.');
 }
 
 // ---- Util ----
-function showStatus(tab,type,msg){
-  var e=document.getElementById('global-status');
-  var colors={error:'#fce8e6',success:'#e6f4ea',warning:'#fef7e0'};
-  var textColors={error:'#c5221f',success:'#137333',warning:'#ea8600'};
-  e.style.background=colors[type]||'#f0f0f0';
-  e.style.color=textColors[type]||'#888';
-  e.textContent=msg||'\u00a0';
-  if(type==='success')setTimeout(function(){clearStatus();},4000);
+function showStatus(type, msg) {
+  var e = document.getElementById('global-status');
+  var colors = { error: '#fce8e6', success: '#e6f4ea', warning: '#fef7e0' };
+  var textColors = { error: '#c5221f', success: '#137333', warning: '#ea8600' };
+  e.style.background = colors[type] || '#f0f0f0';
+  e.style.color = textColors[type] || '#888';
+  e.textContent = msg || '\u00a0';
+  if (type === 'success') setTimeout(function() { clearStatus(); }, 4000);
 }
-function clearStatus(){
-  var e=document.getElementById('global-status');
-  e.style.background='#f0f0f0';e.style.color='#888';e.textContent='\u00a0';
+
+function clearStatus() {
+  var e = document.getElementById('global-status');
+  e.style.background = '#f0f0f0'; e.style.color = '#888'; e.textContent = '\u00a0';
 }
 </script>
 </body>

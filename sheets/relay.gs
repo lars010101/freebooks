@@ -734,9 +734,11 @@ function protectPermanentSheets_() {
 
 function onOpenInstallable() {
   onOpen();
-  openSidebar();
   protectPermanentSheets_();
-  hideNonEssentialTabs_();
+  // Only open sidebar if user opted in
+  if (getAutoOpenState()) {
+    openSidebar();
+  }
 }
 
 function setupTrigger() {
@@ -746,6 +748,35 @@ function setupTrigger() {
   }
   ScriptApp.newTrigger('onOpenInstallable').forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet()).onOpen().create();
   SpreadsheetApp.getUi().alert('✅ Auto-open trigger installed.');
+}
+
+function removeTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'onOpenInstallable') ScriptApp.deleteTrigger(triggers[i]);
+  }
+}
+
+// =============================================================================
+// Sidebar auto-open preference
+// =============================================================================
+
+function getAutoOpenState() {
+  var props = PropertiesService.getUserProperties();
+  return props.getProperty('SIDEBAR_AUTO_OPEN') === 'true';
+}
+
+function setAutoOpen(enabled) {
+  var props = PropertiesService.getUserProperties();
+  if (enabled) {
+    props.setProperty('SIDEBAR_AUTO_OPEN', 'true');
+    setupTrigger();
+    return '✅ Sidebar will open automatically on every load.';
+  } else {
+    props.deleteProperty('SIDEBAR_AUTO_OPEN');
+    removeTrigger();
+    return '✅ Auto-open disabled.';
+  }
 }
 
 function hideNonEssentialTabs_() {

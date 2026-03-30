@@ -485,6 +485,14 @@ function onOpen() {
     .addItem('Open Sidebar', 'openSidebar')
     .addItem('Refresh All Reports', 'onRefreshAll')
     .addSeparator()
+    .addSubMenu(SpreadsheetApp.getUi().createMenu('Generate Report')
+      .addItem('Profit & Loss', 'generatePL')
+      .addItem('Balance Sheet', 'generateBS')
+      .addItem('Cash Flow', 'generateCF')
+      .addItem('Trial Balance', 'generateTB')
+      .addItem('Changes in Equity', 'generateSCE')
+      .addItem('Integrity Check', 'generateIntegrity'))
+    .addSeparator()
     .addItem('Show All Tabs', 'showAllTabs')
     .addItem('Setup Auto-Open', 'setupTrigger')
     .addToUi();
@@ -493,6 +501,88 @@ function onOpen() {
 function onRefreshAll() {
   refreshAllReports_();
   SpreadsheetApp.getUi().alert('✅ All reports refreshed.');
+}
+
+// =============================================================================
+// Generate Report — writes formulas into the ACTIVE (blank) sheet
+// =============================================================================
+
+/**
+ * Guard: checks the active sheet is completely blank.
+ * Returns the sheet if blank, or null (with alert) if not.
+ */
+function requireBlankSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getActiveSheet();
+  var ui = SpreadsheetApp.getUi();
+
+  if (sheet.getLastRow() > 0 || sheet.getLastColumn() > 0) {
+    ui.alert('Sheet not blank',
+      'The active sheet must be completely empty to generate a report.\n' +
+      'Create a new sheet or clear this one first.',
+      ui.ButtonSet.OK);
+    return null;
+  }
+
+  // Pre-flight: COA and cache must exist
+  if (!ss.getSheetByName('COA')) {
+    ui.alert('Missing data', 'COA sheet not found. Load it first from the sidebar.', ui.ButtonSet.OK);
+    return null;
+  }
+  if (!ss.getSheetByName('_CACHE_BALANCES')) {
+    ui.alert('Missing data', '_CACHE_BALANCES not found. Run "Cache Balances" from the sidebar first.', ui.ButtonSet.OK);
+    return null;
+  }
+
+  return sheet;
+}
+
+function generatePL() {
+  var sheet = requireBlankSheet_();
+  if (!sheet) return;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  buildPL_(sheet, ss);
+  SpreadsheetApp.getUi().alert('✅ P&L generated on "' + sheet.getName() + '".\nChange period in C3.');
+}
+
+function generateBS() {
+  var sheet = requireBlankSheet_();
+  if (!sheet) return;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  buildBS_(sheet, ss);
+  SpreadsheetApp.getUi().alert('✅ Balance Sheet generated on "' + sheet.getName() + '".\nChange period in C3.');
+}
+
+function generateCF() {
+  var sheet = requireBlankSheet_();
+  if (!sheet) return;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  buildCF_(sheet, ss);
+  SpreadsheetApp.getUi().alert('✅ Cash Flow generated on "' + sheet.getName() + '".\nChange period in C3.');
+}
+
+function generateTB() {
+  var sheet = requireBlankSheet_();
+  if (!sheet) return;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  buildTB_(sheet, ss);
+  SpreadsheetApp.getUi().alert('✅ Trial Balance generated on "' + sheet.getName() + '".\nChange period in C3.');
+}
+
+function generateSCE() {
+  var sheet = requireBlankSheet_();
+  if (!sheet) return;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  buildSCE_(sheet, ss);
+  SpreadsheetApp.getUi().alert('✅ Statement of Changes in Equity generated on "' + sheet.getName() + '".\nChange period in C3.');
+}
+
+function generateIntegrity() {
+  var sheet = requireBlankSheet_();
+  if (!sheet) return;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  buildIntegrity_(sheet, ss);
+  SpreadsheetApp.getUi().alert('✅ Integrity Check generated on "' + sheet.getName() + '".\nChange period in C2.');
 }
 
 // =============================================================================

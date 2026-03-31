@@ -50,14 +50,40 @@ function getSidebarInitData() {
 }
 
 // Called from sidebar when user switches to Entry tab (lazy load)
+// Uses CacheService to avoid BigQuery round-trips on every sidebar open.
 function getSidebarInitDataWithAccounts() {
-  var accts = callSkuld_('coa.list', {});
-  var vats = callSkuld_('vat.codes.list', {});
-  return {
-    accounts: (accts || []).map(function(a) { return { code: a.account_code, name: a.account_name, type: a.account_type }; }),
-    vatCodes: (vats || []).map(function(v) { return { code: v.vat_code, rate: v.rate, description: v.description }; }),
-    settings: getSettingsData()
-  };
+  var cache = CacheService.getDocumentCache();
+  var cachedAccts = cache.get('skuld_accounts');
+  var cachedVats = cache.get('skuld_vat_codes');
+
+  var accounts, vatCodes;
+
+  if (cachedAccts) {
+    accounts = JSON.parse(cachedAccts);
+  } else {
+    var accts = callSkuld_('coa.list', {});
+    accounts = (accts || []).map(function(a) { return { code: a.account_code, name: a.account_name, type: a.account_type }; });
+    try { cache.put('skuld_accounts', JSON.stringify(accounts), 21600); } catch (e) { /* cache too large, skip */ }
+  }
+
+  if (cachedVats) {
+    vatCodes = JSON.parse(cachedVats);
+  } else {
+    var vats = callSkuld_('vat.codes.list', {});
+    vatCodes = (vats || []).map(function(v) { return { code: v.vat_code, rate: v.rate, description: v.description }; });
+    try { cache.put('skuld_vat_codes', JSON.stringify(vatCodes), 21600); } catch (e) { /* cache too large, skip */ }
+  }
+
+  return { accounts: accounts, vatCodes: vatCodes, settings: getSettingsData() };
+}
+
+/**
+ * Invalidate cached accounts and/or VAT codes.
+ * Called after Pull COA, Pull Tax Codes, or Save COA/VAT operations.
+ */
+function invalidateAccountCache_() {
+  var cache = CacheService.getDocumentCache();
+  cache.removeAll(['skuld_accounts', 'skuld_vat_codes']);
 }
 
 function getAccountList() {
@@ -303,6 +329,7 @@ function saveTab_(name) {
     case 'COA':
       var data = readSheetData_('COA');
       callSkuld_('coa.save', { accounts: data });
+      invalidateAccountCache_();
       return '✅ COA saved to database';
     case 'Mappings':
       var data = readSheetData_('Mappings');
@@ -315,6 +342,7 @@ function saveTab_(name) {
     case 'VAT Codes':
       var data = readSheetData_('VAT Codes');
       callSkuld_('vat.codes.save', { vatCodes: data });
+      invalidateAccountCache_();
       return '✅ VAT Codes saved to database';
     case 'Import':
       var importData = readImportData_();
@@ -510,7 +538,6 @@ function onOpen() {
       .addItem('Integrity Check', 'generateIntegrity'))
     .addSeparator()
     .addItem('Show All Tabs', 'showAllTabs')
-    .addItem('Setup Auto-Open', 'setupTrigger')
     .addToUi();
 }
 
@@ -655,6 +682,7 @@ function pullAPAging() {
 function pullCOA() {
   navigateToTab('COA');
   var result = refreshTab_('COA');
+  invalidateAccountCache_();
   protectPermanentSheets_();
   SpreadsheetApp.getUi().alert(result);
 }
@@ -668,6 +696,7 @@ function pullMappings() {
 function pullTaxCodes() {
   navigateToTab('VAT Codes');
   var result = refreshTab_('VAT Codes');
+  invalidateAccountCache_();
   SpreadsheetApp.getUi().alert(result);
 }
 

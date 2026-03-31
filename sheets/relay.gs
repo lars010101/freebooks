@@ -487,17 +487,20 @@ function onOpen() {
       .addItem('Journal Entry', 'newJournalEntry')
       .addItem('Bank Statement', 'newBankStatement')
       .addItem('Transaction Import', 'newTransactionImport'))
-    .addSubMenu(ui.createMenu('Load')
-      .addItem('Journal', 'loadJournal')
-      .addItem('Tax Report', 'loadTaxReport')
-      .addItem('AP Aging', 'loadAPAging')
+    .addSubMenu(ui.createMenu('Pull')
+      .addItem('Active Sheet', 'pullActiveSheet')
+      .addItem('All', 'pullAll')
       .addSeparator()
-      .addItem('Chart of Accounts', 'loadCOA')
-      .addItem('Bank Mappings', 'loadMappings')
-      .addItem('Tax Codes', 'loadTaxCodes')
-      .addItem('Profit / Cost Centers', 'loadCenters')
+      .addItem('Journal', 'pullJournal')
+      .addItem('Tax Report', 'pullTaxReport')
+      .addItem('AP Aging', 'pullAPAging')
       .addSeparator()
-      .addItem('Cache: Balances', 'loadCacheBalances'))
+      .addItem('Chart of Accounts', 'pullCOA')
+      .addItem('Bank Mappings', 'pullMappings')
+      .addItem('Tax Codes', 'pullTaxCodes')
+      .addItem('Profit / Cost Centers', 'pullCenters')
+      .addSeparator()
+      .addItem('Cache: Balances', 'pullCacheBalances'))
     .addSubMenu(ui.createMenu('Template')
       .addItem('Profit & Loss', 'generatePL')
       .addItem('Balance Sheet', 'generateBS')
@@ -505,18 +508,15 @@ function onOpen() {
       .addItem('Trial Balance', 'generateTB')
       .addItem('Changes in Equity', 'generateSCE')
       .addItem('Integrity Check', 'generateIntegrity'))
-    .addSubMenu(ui.createMenu('Refresh')
-      .addItem('Active Sheet', 'refreshActiveSheet')
-      .addItem('All', 'onRefreshAll'))
     .addSeparator()
     .addItem('Show All Tabs', 'showAllTabs')
     .addItem('Setup Auto-Open', 'setupTrigger')
     .addToUi();
 }
 
-function onRefreshAll() {
+function pullAll() {
   refreshAllReports_();
-  SpreadsheetApp.getUi().alert('✅ All reports refreshed.');
+  SpreadsheetApp.getUi().alert('✅ All sheets pulled.');
 }
 
 // =============================================================================
@@ -617,7 +617,7 @@ function newBankStatement() {
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
   sheet.setFrozenRows(1);
   sheet.getRange(2, 1).activate();
-  SpreadsheetApp.getUi().alert('Paste your bank statement data below the headers.\nUse Refresh → Active Sheet to process when ready.');
+  SpreadsheetApp.getUi().alert('Paste your bank statement data below the headers.\nUse Pull → Active Sheet to process when ready.');
 }
 
 function newTransactionImport() {
@@ -627,68 +627,64 @@ function newTransactionImport() {
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#fce8b2');
   sheet.setFrozenRows(1);
   sheet.getRange(2, 1).activate();
-  SpreadsheetApp.getUi().alert('Paste journal data below. Group lines by Batch ID.\nUse Refresh → Active Sheet to import when ready.');
+  SpreadsheetApp.getUi().alert('Paste journal data below. Group lines by Batch ID.\nUse Pull → Active Sheet to import when ready.');
 }
 
 // =============================================================================
-// Load — fetch data from backend
+// Pull — fetch data from backend into sheets
 // =============================================================================
 
-function loadJournal() {
+function pullJournal() {
   navigateToTab('Journal');
   var result = refreshTab_('Journal');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function loadTaxReport() {
+function pullTaxReport() {
   navigateToTab('VAT Return');
   var result = refreshTab_('VAT Return');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function loadAPAging() {
+function pullAPAging() {
   navigateToTab('AP Aging');
   var result = refreshTab_('AP Aging');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function loadCOA() {
+function pullCOA() {
   navigateToTab('COA');
   var result = refreshTab_('COA');
   protectPermanentSheets_();
   SpreadsheetApp.getUi().alert(result);
 }
 
-function loadMappings() {
+function pullMappings() {
   navigateToTab('Mappings');
   var result = refreshTab_('Mappings');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function loadTaxCodes() {
+function pullTaxCodes() {
   navigateToTab('VAT Codes');
   var result = refreshTab_('VAT Codes');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function loadCenters() {
+function pullCenters() {
   navigateToTab('Centers');
   var result = refreshTab_('Centers');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function loadCacheBalances() {
+function pullCacheBalances() {
   navigateToTab('_CACHE_BALANCES');
   var result = refreshTab_('_CACHE_BALANCES');
   protectPermanentSheets_();
   SpreadsheetApp.getUi().alert(result);
 }
 
-// =============================================================================
-// Refresh — reload data for existing sheets
-// =============================================================================
-
-function refreshActiveSheet() {
+function pullActiveSheet() {
   var name = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet().getName();
   var result = refreshTab_(name);
   SpreadsheetApp.getUi().alert(result);

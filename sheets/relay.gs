@@ -79,7 +79,7 @@ function getSidebarInitDataWithAccounts() {
 
 /**
  * Invalidate cached accounts and/or VAT codes.
- * Called after Pull COA, Pull Tax Codes, or Save COA/VAT operations.
+ * Called after Show COA, Show Tax Codes, or Save COA/VAT operations.
  */
 function invalidateAccountCache_() {
   var cache = CacheService.getDocumentCache();
@@ -185,7 +185,7 @@ function navigateToTab(name) {
   sheet.showSheet();
   sheet.activate();
 
-  // Auto-build formula-driven skuld tabs when navigated to
+  // Auto-build formula-driven tabs when navigated to
   if (name === 'PL' || name === 'BS' || name === 'CF-skuld' || name === 'TB' || name === 'SCE' || name === 'Integrity') {
     refreshTab_(name);
   }
@@ -219,15 +219,15 @@ function refreshTab_(name, period) {
       return '✅ Journal loaded (' + (entries ? entries.length : 0) + ' rows)';
     case 'TB':
       var ssTB = SpreadsheetApp.getActiveSpreadsheet();
-      if (!ssTB.getSheetByName('COA') || !ssTB.getSheetByName('_CACHE_BALANCES')) return '❌ COA or cache not found';
+      if (!ssTB.getSheetByName('COA') || !ssTB.getSheetByName('Period Balances')) return '❌ COA or cache not found';
       try { buildTB_(ssTB.getSheetByName('TB'), ssTB); } catch (e) { return '❌ Error: ' + e.message; }
       return '✅ Trial Balance rebuilt — change period in B3';
     case 'PL':
       var ss = SpreadsheetApp.getActiveSpreadsheet();
       var coaSheet = ss.getSheetByName('COA');
-      var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
+      var cacheSheet = ss.getSheetByName('Period Balances');
       if (!coaSheet) return '❌ COA sheet not found';
-      if (!cacheSheet) return '❌ _CACHE_BALANCES not found';
+      if (!cacheSheet) return '❌ Period Balances not found';
       try {
         buildPL_(ss.getSheetByName('PL'), ss);
       } catch (e) {
@@ -237,9 +237,9 @@ function refreshTab_(name, period) {
     case 'BS':
       var ss2 = SpreadsheetApp.getActiveSpreadsheet();
       var coaSheet2 = ss2.getSheetByName('COA');
-      var cacheSheet2 = ss2.getSheetByName('_CACHE_BALANCES');
+      var cacheSheet2 = ss2.getSheetByName('Period Balances');
       if (!coaSheet2) return '❌ COA sheet not found';
-      if (!cacheSheet2) return '❌ _CACHE_BALANCES not found';
+      if (!cacheSheet2) return '❌ Period Balances not found';
       try {
         buildBS_(ss2.getSheetByName('BS'), ss2);
       } catch (e) {
@@ -253,9 +253,9 @@ function refreshTab_(name, period) {
     case 'CF-skuld':
       var ss2 = SpreadsheetApp.getActiveSpreadsheet();
       var coaSheet2 = ss2.getSheetByName('COA');
-      var cacheSheet2 = ss2.getSheetByName('_CACHE_BALANCES');
+      var cacheSheet2 = ss2.getSheetByName('Period Balances');
       if (!coaSheet2)   return '❌ COA sheet not found';
-      if (!cacheSheet2) return '❌ _CACHE_BALANCES not found';
+      if (!cacheSheet2) return '❌ Period Balances not found';
       try {
         buildCF_(ss2.getSheetByName('CF-skuld'), ss2);
       } catch (e) {
@@ -274,29 +274,18 @@ function refreshTab_(name, period) {
       return '✅ VAT Return refreshed';
     case 'SCE':
       var ssSCE = SpreadsheetApp.getActiveSpreadsheet();
-      if (!ssSCE.getSheetByName('COA') || !ssSCE.getSheetByName('_CACHE_BALANCES')) return '❌ COA or cache not found';
+      if (!ssSCE.getSheetByName('COA') || !ssSCE.getSheetByName('Period Balances')) return '❌ COA or cache not found';
       try { buildSCE_(ssSCE.getSheetByName('SCE'), ssSCE); } catch (e) { return '❌ Error: ' + e.message; }
       return '✅ SCE rebuilt — change period in B3';
     case 'Integrity':
       var ssInt = SpreadsheetApp.getActiveSpreadsheet();
-      if (!ssInt.getSheetByName('COA') || !ssInt.getSheetByName('_CACHE_BALANCES')) return '❌ COA or cache not found';
+      if (!ssInt.getSheetByName('COA') || !ssInt.getSheetByName('Period Balances')) return '❌ COA or cache not found';
       try { buildIntegrity_(ssInt.getSheetByName('Integrity'), ssInt); } catch (e) { return '❌ Error: ' + e.message; }
       return '✅ Integrity Check rebuilt — change period in B2';
-    case '_CACHE_BALANCES':
+    case 'Period Balances':
       var r = callSkuld_('report.cache_balances', {});
-      if (r && r.rows) writeToSheet_('_CACHE_BALANCES', r.rows, r.columns);
-      if (r && r.columns) {
-        // Timestamp goes in the column just beyond the last data column
-        // Use r.columns.length (not getLastColumn which resets to 0 after sheet.clear())
-        var triggerCol = r.columns.length + 1;
-        var colLetter = colNumToLetter_(triggerCol);
-        var cacheSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('_CACHE_BALANCES');
-        var triggerRange = cacheSheet.getRange(colLetter + '1');
-        triggerRange.setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
-        var ss = SpreadsheetApp.getActiveSpreadsheet();
-        ss.setNamedRange('timestamp', triggerRange);
-      }
-      return '✅ Cache built with ' + (r.columns ? r.columns.length : 0) + ' periods';
+      if (r && r.rows) writeToSheet_('Period Balances', r.rows, r.columns);
+      return '✅ Period Balances refreshed (' + (r && r.columns ? r.columns.length : 0) + ' periods)';
     case 'COA':
       var r = callSkuld_('coa.list', {});
       if (r) writeToSheet_('COA', r, ['account_code', 'account_name', 'account_type', 'account_subtype', 'pl_category', 'bs_category', 'cf_category', 'is_active', 'effective_from', 'effective_to']);
@@ -515,20 +504,17 @@ function onOpen() {
       .addItem('Journal Entry', 'newJournalEntry')
       .addItem('Bank Statement', 'newBankStatement')
       .addItem('Transaction Import', 'newTransactionImport'))
-    .addSubMenu(ui.createMenu('Pull')
-      .addItem('Active Sheet', 'pullActiveSheet')
-      .addItem('All', 'pullAll')
+    .addSubMenu(ui.createMenu('Show')
+      .addItem('Journal', 'showJournal')
+      .addItem('Tax Report', 'showTaxReport')
+      .addItem('AP Aging', 'showAPAging')
       .addSeparator()
-      .addItem('Journal', 'pullJournal')
-      .addItem('Tax Report', 'pullTaxReport')
-      .addItem('AP Aging', 'pullAPAging')
+      .addItem('Chart of Accounts', 'showCOA')
+      .addItem('Bank Mappings', 'showMappings')
+      .addItem('Tax Codes', 'showTaxCodes')
+      .addItem('Profit / Cost Centers', 'showCenters')
       .addSeparator()
-      .addItem('Chart of Accounts', 'pullCOA')
-      .addItem('Bank Mappings', 'pullMappings')
-      .addItem('Tax Codes', 'pullTaxCodes')
-      .addItem('Profit / Cost Centers', 'pullCenters')
-      .addSeparator()
-      .addItem('Cache: Balances', 'pullCacheBalances'))
+      .addItem('Period Balances', 'showPeriodBalances'))
     .addSubMenu(ui.createMenu('Template')
       .addItem('Profit & Loss', 'generatePL')
       .addItem('Balance Sheet', 'generateBS')
@@ -537,13 +523,16 @@ function onOpen() {
       .addItem('Changes in Equity', 'generateSCE')
       .addItem('Integrity Check', 'generateIntegrity'))
     .addSeparator()
+    .addItem('Refresh Active Sheet', 'refreshActiveSheet')
+    .addItem('Refresh All', 'refreshAll')
+    .addSeparator()
     .addItem('Show All Tabs', 'showAllTabs')
     .addToUi();
 }
 
-function pullAll() {
+function refreshAll() {
   refreshAllReports_();
-  SpreadsheetApp.getUi().alert('✅ All sheets pulled.');
+  SpreadsheetApp.getUi().alert('✅ All sheets refreshed.');
 }
 
 // =============================================================================
@@ -572,8 +561,8 @@ function requireBlankSheet_() {
     ui.alert('Missing data', 'COA sheet not found. Load it first from the sidebar.', ui.ButtonSet.OK);
     return null;
   }
-  if (!ss.getSheetByName('_CACHE_BALANCES')) {
-    ui.alert('Missing data', '_CACHE_BALANCES not found. Run "Cache Balances" from the sidebar first.', ui.ButtonSet.OK);
+  if (!ss.getSheetByName('Period Balances')) {
+    ui.alert('Missing data', 'Period Balances not found. Use Show → Period Balances first.', ui.ButtonSet.OK);
     return null;
   }
 
@@ -644,7 +633,7 @@ function newBankStatement() {
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
   sheet.setFrozenRows(1);
   sheet.getRange(2, 1).activate();
-  SpreadsheetApp.getUi().alert('Paste your bank statement data below the headers.\nUse Pull → Active Sheet to process when ready.');
+  SpreadsheetApp.getUi().alert('Paste your bank statement data below the headers.\nUse Refresh Active Sheet to process when ready.');
 }
 
 function newTransactionImport() {
@@ -654,32 +643,32 @@ function newTransactionImport() {
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#fce8b2');
   sheet.setFrozenRows(1);
   sheet.getRange(2, 1).activate();
-  SpreadsheetApp.getUi().alert('Paste journal data below. Group lines by Batch ID.\nUse Pull → Active Sheet to import when ready.');
+  SpreadsheetApp.getUi().alert('Paste journal data below. Group lines by Batch ID.\nUse Refresh Active Sheet to import when ready.');
 }
 
 // =============================================================================
-// Pull — fetch data from backend into sheets
+// Show — fetch data from backend into sheets
 // =============================================================================
 
-function pullJournal() {
+function showJournal() {
   navigateToTab('Journal');
   var result = refreshTab_('Journal');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function pullTaxReport() {
+function showTaxReport() {
   navigateToTab('VAT Return');
   var result = refreshTab_('VAT Return');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function pullAPAging() {
+function showAPAging() {
   navigateToTab('AP Aging');
   var result = refreshTab_('AP Aging');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function pullCOA() {
+function showCOA() {
   navigateToTab('COA');
   var result = refreshTab_('COA');
   invalidateAccountCache_();
@@ -687,33 +676,33 @@ function pullCOA() {
   SpreadsheetApp.getUi().alert(result);
 }
 
-function pullMappings() {
+function showMappings() {
   navigateToTab('Mappings');
   var result = refreshTab_('Mappings');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function pullTaxCodes() {
+function showTaxCodes() {
   navigateToTab('VAT Codes');
   var result = refreshTab_('VAT Codes');
   invalidateAccountCache_();
   SpreadsheetApp.getUi().alert(result);
 }
 
-function pullCenters() {
+function showCenters() {
   navigateToTab('Centers');
   var result = refreshTab_('Centers');
   SpreadsheetApp.getUi().alert(result);
 }
 
-function pullCacheBalances() {
-  navigateToTab('_CACHE_BALANCES');
-  var result = refreshTab_('_CACHE_BALANCES');
+function showPeriodBalances() {
+  navigateToTab('Period Balances');
+  var result = refreshTab_('Period Balances');
   protectPermanentSheets_();
   SpreadsheetApp.getUi().alert(result);
 }
 
-function pullActiveSheet() {
+function refreshActiveSheet() {
   var name = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet().getName();
   var result = refreshTab_(name);
   SpreadsheetApp.getUi().alert(result);
@@ -724,13 +713,13 @@ function pullActiveSheet() {
 // =============================================================================
 
 /**
- * Protect COA, _CACHE_BALANCES, and Settings so they cannot be deleted.
+ * Protect COA, Period Balances, and Settings so they cannot be deleted.
  * Called after Load operations that create/update these sheets.
  * Uses editor-only protection (the owner can still edit content).
  */
 function protectPermanentSheets_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var permanentTabs = ['COA', '_CACHE_BALANCES', 'Settings'];
+  var permanentTabs = ['COA', 'Period Balances', 'Settings'];
 
   for (var i = 0; i < permanentTabs.length; i++) {
     var sheet = ss.getSheetByName(permanentTabs[i]);
@@ -831,18 +820,35 @@ function colNumToLetter_(n) {
 }
 
 // =============================================================================
-// skuld-based report tabs (formula-driven, reads from _CACHE_BALANCES)
+// Report tabs (formula-driven, reads from Period Balances via INDEX/MATCH)
 // =============================================================================
 
+// Formula helpers — return spreadsheet formula strings for Period Balances lookups.
+// acctRef: cell ref for account code (e.g. '$A5')
+// periodRef: cell ref for period header (e.g. 'C$3')
+// For literal account codes or periods, wrap in quotes before calling.
+
+var PB = "'Period Balances'";
+
+/** Cumulative balance: INDEX/MATCH lookup from Period Balances. */
+function pbCum_(acctRef, periodRef) {
+  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,MATCH(' + acctRef + ',' + PB + '!$A:$A,0),MATCH(' + periodRef + ',' + PB + '!$1:$1,0)),0)';
+}
+
+/** Period movement (delta): current period value minus prior period column. */
+function pbDelta_(acctRef, periodRef) {
+  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,MATCH(' + acctRef + ',' + PB + '!$A:$A,0),MATCH(' + periodRef + ',' + PB + '!$1:$1,0))-INDEX(' + PB + '!$A:$ZZ,MATCH(' + acctRef + ',' + PB + '!$A:$A,0),MATCH(' + periodRef + ',' + PB + '!$1:$1,0)-1),0)';
+}
+
 /**
- * Build or refresh the PL tab using skuld() formulas.
+ * Build or refresh the PL tab using INDEX/MATCH formulas against Period Balances.
  * Reads P&L accounts from the COA tab and creates a formatted P&L report.
  */
 function buildPL_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
-  var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
+  var cacheSheet = ss.getSheetByName('Period Balances');
   if (!coaSheet) { Logger.log('PL error: COA sheet not found'); return; }
-  if (!cacheSheet) { Logger.log('PL error: _CACHE_BALANCES sheet not found'); return; }
+  if (!cacheSheet) { Logger.log('PL error: Period Balances sheet not found'); return; }
 
   // Get COA data
   var coaData = coaSheet.getDataRange().getValues();
@@ -887,9 +893,9 @@ function buildPL_(sheet, ss) {
 
   // Clear and prepare sheet
   sheet.clear();
-  sheet.setColumnWidth(1, 100);  // Account code (pure, for skuld lookup)
+  sheet.setColumnWidth(1, 100);  // Account code
   sheet.setColumnWidth(2, 300);  // Account name (VLOOKUP from COA)
-  sheet.setColumnWidth(3, 160);  // Balance (skuld formula)
+  sheet.setColumnWidth(3, 160);  // Balance
 
   // Row 1: Company header
   sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
@@ -923,9 +929,8 @@ function buildPL_(sheet, ss) {
     sheet.getRange(row, 1).setValue(acct.code);
     // Col B: VLOOKUP name from COA
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
-    // Col C: skuld P&L movement — delta=true for period movement from cumulative cache
-    // Revenue is credit-normal, negate so it shows as positive in P&L
-    sheet.getRange(row, 3).setFormula('=-skuld(timestamp,C$3,$A' + row + ',true)');
+    // Col C: period movement, negated (revenue is credit-normal, show positive)
+    sheet.getRange(row, 3).setFormula('=-' + pbDelta_('$A' + row, 'C$3'));
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -955,8 +960,8 @@ function buildPL_(sheet, ss) {
     sheet.getRange(row, 1).setValue(acct.code);
     // Col B: VLOOKUP name from COA
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
-    // Col C: skuld expense movement — delta=true for period movement
-    sheet.getRange(row, 3).setFormula('=skuld(timestamp,C$3,$A' + row + ',true)');
+    // Col C: period movement (expenses are debit-normal, positive = spent)
+    sheet.getRange(row, 3).setFormula('=' + pbDelta_('$A' + row, 'C$3'));
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -986,7 +991,7 @@ function buildPL_(sheet, ss) {
 }
 
 /**
- * Build or refresh the BS tab using skuld() formulas.
+ * Build or refresh the BS tab using INDEX/MATCH formulas against Period Balances.
  */
 function buildBS_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
@@ -1068,7 +1073,7 @@ function buildBS_(sheet, ss) {
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Assets: raw (positive debit balance). L+E: negate (credit balance shown as positive).
     var sign = (acct.type === 'Liability' || acct.type === 'Equity') ? '=-' : '=';
-    sheet.getRange(row, 3).setFormula(sign + 'skuld(timestamp,C$3,$A' + row + ')');
+    sheet.getRange(row, 3).setFormula(sign + pbCum_('$A' + row, 'C$3'));
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -1109,14 +1114,14 @@ function buildBS_(sheet, ss) {
  *   Cache value = SUM(debit - credit)
  *   CF impact = -(debit - credit) = credit - debit for ALL BS accounts
  *   Net Income = SUM(credit - debit) for P&L = -SUM(debit - credit) = negate cache
- *   Opening Cash = skuld(priorFY, cashCode) = cumulative balance (direct read)
- *   CHECK = skuld(B3, cashCode) = cumulative balance (direct read)
+ *   Opening Cash = cumulative balance through prior period
+ *   CHECK = cumulative balance through selected period
  */
 function buildCF_(sheet, ss) {
   var coaSheet    = ss.getSheetByName('COA');
-  var cacheSheet  = ss.getSheetByName('_CACHE_BALANCES');
+  var cacheSheet  = ss.getSheetByName('Period Balances');
   if (!coaSheet)   { Logger.log('CF error: COA sheet not found');        return; }
-  if (!cacheSheet) { Logger.log('CF error: _CACHE_BALANCES not found');   return; }
+  if (!cacheSheet) { Logger.log('CF error: Period Balances not found');   return; }
 
   // ── Read COA ─────────────────────────────────────────────────────────────────
   var coaData = coaSheet.getDataRange().getValues();
@@ -1206,11 +1211,10 @@ function buildCF_(sheet, ss) {
 
   // Write a CF account row
   // The cache stores debit-credit. CF impact = -(debit-credit) for ALL BS accounts.
-  // So every row is: =-skuld(timestamp, B$3, code, false)
   function cfAcctRow(code) {
     sheet.getRange(row, 1).setValue(code);
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
-    sheet.getRange(row, 3).setFormula('=-skuld(timestamp,C$3,$A' + row + ',true)');
+    sheet.getRange(row, 3).setFormula('=-' + pbDelta_('$A' + row, 'C$3'));
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -1231,7 +1235,7 @@ function buildCF_(sheet, ss) {
   // In indirect method: starts with "Cash from operations" which includes Net Income
   // Net Income = -(sum of all P&L account movements) = SUM(credit-debit) for P&L
   // Since cache stores debit-credit, Net Income = -SUM(cache P&L values for period)
-  // We use: =-skuld(timestamp, B$3, "pnl") ... but skuld("pnl") returns array, not scalar.
+  // Sum all P&L account deltas inline.
   // Instead, compute inline: Net Income is implicit in "Cash from operations" line.
   // The original report shows one line "Cash from operations" = NI + WC adjustments.
   // We replicate that: NI row + individual WC rows, then "Net cash from operating" = sum.
@@ -1240,9 +1244,9 @@ function buildCF_(sheet, ss) {
   // Net Income row (label: Cash from operations (NI))
   var niRow = row;
   sheet.getRange(row, 2).setValue('Cash from operations (Net Income)');
-  // =-skuld(timestamp, B$3, "pnl") won't work (returns array). Sum individual P&L accounts.
+  // Each P&L code gets its own INDEX/MATCH delta lookup.
   // Use SUMPRODUCT or build inline: need all P&L account codes.
-  // Build formula: -(skuld(B3,code1)+skuld(B3,code2)+...)
+  
   var plCodes = [];
   for (var i = 1; i < coaData.length; i++) {
     var type = String(coaData[i][cType] || '').trim();
@@ -1253,7 +1257,7 @@ function buildCF_(sheet, ss) {
     if (type === 'Revenue' || type === 'Expense') plCodes.push(code);
   }
   if (plCodes.length > 0) {
-    var plParts = plCodes.map(function(c) { return 'skuld(timestamp,C$3,' + c + ',true)'; });
+    var plParts = plCodes.map(function(c) { return pbDelta_('"' + c + '"', 'C$3'); });
     sheet.getRange(row, 3).setFormula('=-(' + plParts.join('+') + ')');
   } else {
     sheet.getRange(row, 3).setValue(0);
@@ -1312,11 +1316,11 @@ function buildCF_(sheet, ss) {
 
   // ── CASH AT BEGINNING OF PERIOD ──────────────────────────────────────────────
   // Cumulative cash balance for all periods BEFORE selected period.
-  // Use skuld("cum") with the prior period (C3 holds prior FY name).
+  // Cumulative cash balance for all periods BEFORE selected period.
   var openRow = row;
   if (cashAccts.length > 0) {
     var openParts = cashAccts.map(function(a) {
-      return 'skuld(timestamp,C$2,' + a.code + ')';
+      return pbCum_('"' + a.code + '"', 'C$2');
     }).join('+');
     sheet.getRange(row, 2).setValue('Cash at beginning of period');
     sheet.getRange(row, 3).setFormula('=' + openParts);
@@ -1340,7 +1344,7 @@ function buildCF_(sheet, ss) {
   // BS cash balance = cumulative sum of cash accounts through selected period
   if (cashAccts.length > 0) {
     var bsParts = cashAccts.map(function(a) {
-      return 'skuld(timestamp,C$3,' + a.code + ')';
+      return pbCum_('"' + a.code + '"', 'C$3');
     }).join('+');
     var checkRow = row;
     sheet.getRange(row, 2).setValue('CHECK: BS cash balance').setFontStyle('italic').setFontColor('#555555');
@@ -1357,7 +1361,7 @@ function buildCF_(sheet, ss) {
 }
 
 /**
- * Build the TB (Trial Balance) tab using skuld() formulas.
+ * Build the TB (Trial Balance) tab using INDEX/MATCH formulas against Period Balances.
  *
  * Layout: Col A = account code, Col B = account name, Col C = Debit, Col D = Credit, Col E = Balance
  * Period selector in B3. Shows cumulative balances through selected period.
@@ -1425,8 +1429,8 @@ function buildTB_(sheet, ss) {
     sheet.getRange(row, 1).setValue(acct.code);
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Balance = cumulative (debit - credit). Positive = debit balance.
-    // Col E: raw skuld value
-    sheet.getRange(row, 5).setFormula('=skuld(timestamp,C$3,$A' + row + ')');
+    // Col E: cumulative balance from Period Balances
+    sheet.getRange(row, 5).setFormula('=' + pbCum_('$A' + row, 'C$3'));
     // Col C (Debit): show positive balances
     sheet.getRange(row, 3).setFormula('=IF(E' + row + '>0,E' + row + ',0)');
     // Col D (Credit): show absolute value of negative balances
@@ -1456,11 +1460,11 @@ function buildTB_(sheet, ss) {
   sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
 
   sheet.setFrozenRows(4);
-  Logger.log('TB-skuld built: %d accounts', endRow - startRow + 1);
+  Logger.log('TB built: %d accounts', endRow - startRow + 1);
 }
 
 /**
- * Build the SCE (Statement of Changes in Equity) tab using skuld() formulas.
+ * Build the SCE (Statement of Changes in Equity) tab using INDEX/MATCH formulas against Period Balances.
  *
  * Layout:
  *   Row labels: Opening Balance, Net Profit, Dividends, Share Capital movements, Other RE, Closing Balance
@@ -1548,18 +1552,18 @@ function buildSCE_(sheet, ss) {
 
   var fmt = '#,##0.00;(#,##0.00);0.00';
 
-  // Helper: build sum formula for a list of account codes using skuld()
-  // mode: 'raw' = cumulative (no delta), 'delta' = period movement
+  // Helper: build sum formula for a list of account codes
+  // Negated because equity credit balances are stored as negative in cache
   function sumFormula(codes, period, isDelta) {
     if (codes.length === 0) return '0';
-    var d = isDelta ? ',true' : '';
-    return '-(' + codes.map(function(c) { return 'skuld(timestamp,' + period + ',' + c + d + ')'; }).join('+') + ')';
+    var fn = isDelta ? pbDelta_ : pbCum_;
+    return '-(' + codes.map(function(c) { return fn('"' + c + '"', period); }).join('+') + ')';
   }
 
   var row = 5;
 
   // ── Opening Balance ──────────────────────────────────────────────────────────
-  // Opening = cumulative through PRIOR period = -skuld(priorFY, code)
+  // Opening = cumulative through PRIOR period (negated for credit-normal equity)
   // Negate because equity credit balances are stored as negative in cache
   sheet.getRange(row, 1).setValue('Opening Balance').setFontWeight('bold');
   sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'C$2', false)).setNumberFormat(fmt);
@@ -1578,7 +1582,7 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt); // SC: 0
   // NI formula: negate sum of P&L movements (debit-credit → credit-debit)
   if (plCodes.length > 0) {
-    var niParts = plCodes.map(function(c) { return 'skuld(timestamp,C$3,' + c + ',true)'; });
+    var niParts = plCodes.map(function(c) { return pbDelta_('"' + c + '"', 'C$3'); });
     sheet.getRange(row, 3).setFormula('=-(' + niParts.join('+') + ')').setNumberFormat(fmt);
   } else {
     sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
@@ -1628,17 +1632,17 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
   sheet.setFrozenRows(4);
-  Logger.log('SCE-skuld built');
+  Logger.log('SCE built');
 }
 /**
  * Build the Integrity Check tab.
  * Transparent spreadsheet design: uses explicit account numbers in Col A, 
- * labels in Col B, skuld() formulas in Col C, and native SUM() for totals.
+ * labels in Col B, INDEX/MATCH formulas in Col C, and native SUM() for totals.
  * Users can easily drag periods or insert new accounts.
  */
 function buildIntegrity_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
-  var cacheSheet = ss.getSheetByName('_CACHE_BALANCES');
+  var cacheSheet = ss.getSheetByName('Period Balances');
   if (!coaSheet) { Logger.log('Integrity error: COA not found'); return; }
   if (!cacheSheet) { Logger.log('Integrity error: cache not found'); return; }
 
@@ -1710,11 +1714,11 @@ function buildIntegrity_(sheet, ss) {
     row++;
   }
 
-  function checkRow(code, label, delta) {
+  function checkRow(code, label, isDelta) {
     sheet.getRange(row, 1).setValue(code).setFontColor('#888888');
     sheet.getRange(row, 2).setValue(label);
-    var mode = delta ? ',true' : '';
-    sheet.getRange(row, 3).setFormula('=skuld(timestamp,C$2,$A' + row + mode + ')').setNumberFormat(fmt);
+    var formula = isDelta ? pbDelta_('$A' + row, 'C$2') : pbCum_('$A' + row, 'C$2');
+    sheet.getRange(row, 3).setFormula('=' + formula).setNumberFormat(fmt);
     row++;
   }
 
@@ -1780,10 +1784,10 @@ function buildIntegrity_(sheet, ss) {
     reCodes.push(code);
   }
 
-  function reSum(fy, delta) {
+  function reSum(fy, isDelta) {
     if (reCodes.length === 0) return '0';
-    var d = delta ? ',true' : '';
-    return '(' + reCodes.map(function(c) { return 'skuld(timestamp,"' + fy + '",' + c + d + ')'; }).join('+') + ')';
+    var fn = isDelta ? pbDelta_ : pbCum_;
+    return '(' + reCodes.map(function(c) { return fn('"' + c + '"', '"' + fy + '"'); }).join('+') + ')';
   }
 
   for (var fi = 0; fi < fyPeriods.length; fi++) {
@@ -1823,8 +1827,8 @@ function buildIntegrity_(sheet, ss) {
   for (var fi = 0; fi < fyPeriods.length; fi++) {
     var fy = fyPeriods[fi];
     sheet.getRange(row, 1).setValue(fy);
-    sheet.getRange(row, 2).setFormula('=skuld(timestamp,"' + fy + '","3",true)+skuld(timestamp,"' + fy + '","5",true)+skuld(timestamp,"' + fy + '","6",true)').setNumberFormat(fmt);
-    sheet.getRange(row, 3).setFormula('=skuld(timestamp,"' + fy + '","999999",true)').setNumberFormat(fmt);
+    sheet.getRange(row, 2).setFormula('=' + pbDelta_('"3"', '"' + fy + '"') + '+' + pbDelta_('"5"', '"' + fy + '"') + '+' + pbDelta_('"6"', '"' + fy + '"')).setNumberFormat(fmt);
+    sheet.getRange(row, 3).setFormula('=' + pbDelta_('"999999"', '"' + fy + '"')).setNumberFormat(fmt);
     sheet.getRange(row, 4).setFormula('=B' + row + '+C' + row).setNumberFormat(fmt);
     sheet.getRange(row, 5).setFormula('=IF(ABS(D' + row + ')<0.01,"✅","❌")');
     row++;

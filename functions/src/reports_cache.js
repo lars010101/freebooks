@@ -71,8 +71,21 @@ async function buildAccountBalancesCache(ctx) {
     movementsByAccount[acct][fyStr] = (movementsByAccount[acct][fyStr] || 0) + bal;
   });
 
-  const sortedMonths = Array.from(periods).sort();
+  const sortedMonthsAll = Array.from(periods).sort();
   const sortedFYs = Array.from(fyPeriods).sort();
+
+  // Enforce bounding: all FYxxxx, but limit YYYYP# to trailing 3 full years + current year
+  let maxYear = 0;
+  sortedFYs.forEach(fy => {
+    const y = parseInt(fy.replace('FY', ''), 10);
+    if (!isNaN(y) && y > maxYear) maxYear = y;
+  });
+  
+  const cutoffYear = maxYear > 0 ? maxYear - 3 : 0;
+  const sortedMonths = sortedMonthsAll.filter(m => {
+    const mYear = parseInt(m.substring(0, 4), 10);
+    return mYear >= cutoffYear;
+  });
 
   // Step 2: Convert movements to CUMULATIVE balances for leaf accounts
   const cumulativeByAccount = {};
@@ -88,9 +101,11 @@ async function buildAccountBalancesCache(ctx) {
     }
 
     let monthRunning = 0;
-    for (const m of sortedMonths) {
+    for (const m of sortedMonthsAll) {
       monthRunning += movements[m] || 0;
-      cumulative[m] = monthRunning;
+      if (sortedMonths.includes(m)) {
+        cumulative[m] = monthRunning;
+      }
     }
 
     cumulativeByAccount[acct] = cumulative;

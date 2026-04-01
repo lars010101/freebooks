@@ -20,12 +20,24 @@ function readSheetData_(sheetName) {
   var data = sheet.getDataRange().getValues();
   if (data.length < 2) return [];
 
-  var headers = data[0].map(function(h) {
+  // Find the header row: first row that looks like column headers (skip metadata row 1)
+  var headerRowIdx = 0;
+  for (var h = 0; h < Math.min(data.length, 5); h++) {
+    var firstCell = String(data[h][0] || '').trim().toLowerCase();
+    // Row 1 metadata starts with 'period:' or 'refresh' or is empty — skip it
+    if (firstCell === 'period:' || firstCell === 'refresh sheet to populate with data' || firstCell === '') {
+      continue;
+    }
+    headerRowIdx = h;
+    break;
+  }
+
+  var headers = data[headerRowIdx].map(function(h) {
     return String(h).trim().toLowerCase().replace(/\s+/g, '_');
   });
   var rows = [];
 
-  for (var i = 1; i < data.length; i++) {
+  for (var i = headerRowIdx + 1; i < data.length; i++) {
     var row = data[i];
     // Skip empty rows
     if (!row[0] && !row[1]) continue;
@@ -54,8 +66,21 @@ function writeToSheet_(sheetName, data, columns) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return;
 
-  // Always clear the entire sheet first so old column headers are replaced
-  sheet.clear();
+  // Internal/cache sheets: write headers at row 1, data at row 2 (no metadata row)
+  var internalSheets = ['COA', 'Mappings', 'VAT Codes', 'Centers', 'Bills'];
+  var isInternal = internalSheets.indexOf(sheetName) !== -1;
+  var headerRowNum = isInternal ? 1 : 2;
+  var dataStartRow = isInternal ? 2 : 3;
+
+  // Clear appropriately
+  if (isInternal) {
+    sheet.clear();
+  } else {
+    // Preserve row 1 metadata
+    if (sheet.getLastRow() > 1) {
+      sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), Math.max(sheet.getLastColumn(), columns.length)).clear();
+    }
+  }
 
   if (!data || data.length === 0) return;
 
@@ -63,9 +88,9 @@ function writeToSheet_(sheetName, data, columns) {
   var headerRow = columns.map(function(c) {
     return c.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
   });
-  sheet.getRange(1, 1, 1, columns.length).setValues([headerRow]);
-  sheet.getRange(1, 1, 1, columns.length).setFontWeight('bold');
-  sheet.setFrozenRows(1);
+  sheet.getRange(headerRowNum, 1, 1, columns.length).setValues([headerRow]);
+  sheet.getRange(headerRowNum, 1, 1, columns.length).setFontWeight('bold').setBackground('#e6e6e6');
+  sheet.setFrozenRows(headerRowNum);
 
   // Write data
   var rows = data.map(function(item) {
@@ -78,7 +103,7 @@ function writeToSheet_(sheetName, data, columns) {
   });
 
   if (rows.length > 0) {
-    sheet.getRange(2, 1, rows.length, columns.length).setValues(rows);
+    sheet.getRange(dataStartRow, 1, rows.length, columns.length).setValues(rows);
   }
 
   // Auto-resize all used columns
@@ -278,7 +303,7 @@ function writeMultiPeriodPL_(sheet, data) {
   }
 
   // Row 1: Company
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
   // Read company name from Settings sheet or use a placeholder
   var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
   var companyName = '';
@@ -292,10 +317,10 @@ function writeMultiPeriodPL_(sheet, data) {
       }
     }
   }
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
 
   // Row 2: Currency
-  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
+  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
   var currency = '';
   if (settingsSheet) {
     var settingsData2 = settingsSheet.getDataRange().getValues();
@@ -306,7 +331,7 @@ function writeMultiPeriodPL_(sheet, data) {
       }
     }
   }
-  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(2, 2).setValue('');
 
   // Row 3: Period headers (bold, right-aligned)
   for (var p = 0; p < numPeriods; p++) {
@@ -455,7 +480,7 @@ function writeMultiPeriodBS_(sheet, data) {
   }
 
   // Row 1: Company
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
   var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
   var companyName = '';
   var currency = '';
@@ -467,11 +492,11 @@ function writeMultiPeriodBS_(sheet, data) {
       if (key === 'currency') currency = String(settingsData[s][1]).trim();
     }
   }
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
 
   // Row 2: Currency
-  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue('');
 
   // Row 3: Period headers (bold, right-aligned) — "As at ..."
   for (var p = 0; p < numPeriods; p++) {
@@ -609,7 +634,7 @@ function writeSinglePeriodPL_(sheet, data) {
   sheet.setColumnWidth(2, 130);
 
   // Row 1: Company
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
   var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
   var companyName = '';
   var currency = '';
@@ -621,11 +646,11 @@ function writeSinglePeriodPL_(sheet, data) {
       if (key === 'currency') currency = String(settingsData[s][1]).trim();
     }
   }
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
 
   // Row 2: Currency + Period
-  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue('');
 
   // Row 3: Period
   var period = periodLabel(data.dateFrom, data.dateTo);
@@ -731,7 +756,7 @@ function writeSinglePeriodBS_(sheet, data) {
   sheet.setColumnWidth(2, 140);
 
   // Row 1: Company
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
   var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
   var companyName = '';
   var currency = '';
@@ -743,11 +768,11 @@ function writeSinglePeriodBS_(sheet, data) {
       if (key === 'currency') currency = String(settingsData[s][1]).trim();
     }
   }
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
 
   // Row 2: Currency
-  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue('');
 
   // Row 3: As at date
   sheet.getRange(3, 2).setValue('As at ' + (data.asAt || '')).setFontWeight('bold').setHorizontalAlignment('right');
@@ -931,12 +956,12 @@ function writeCashFlowReport_(sheet, data) {
   }
 
   // Header
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
   sheet.getRange(2, 1).setValue('Period').setFontWeight('bold');
   sheet.getRange(2, 2).setValue(periodLabel(data.dateFrom, data.dateTo));
-  sheet.getRange(3, 1).setValue('Currency').setFontWeight('bold');
-  sheet.getRange(3, 2).setValue(currency);
+  sheet.getRange(3, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(3, 2).setValue('');
 
   // Row 4: separator
   sheet.getRange('4:4').setBackground('#eeeeee');

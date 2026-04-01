@@ -20,6 +20,19 @@ function callSkuld_(action, payload) {
     if (response.getResponseCode() !== 200) {
       throw new Error(result.error || 'Cloud Function error: ' + response.getResponseCode());
     }
+    
+    // State Engine: Track global DB post for relevant write actions
+    var writeActions = [
+      'journal.post', 'coa.save', 'mapping.save', 'center.save', 
+      'vat.codes.save', 'journal.import', 'bank.approve', 'bill.create', 
+      'settings.save'
+    ];
+    if (writeActions.indexOf(action) !== -1) {
+      try {
+        if (typeof markGlobalDatabasePost === 'function') markGlobalDatabasePost();
+      } catch(e) {}
+    }
+
     return result.data;
   } catch (e) {
     throw new Error('Failed to call Skuld: ' + e.message);
@@ -119,43 +132,44 @@ function searchJournalEntries(query) {
 
 // Tab configuration: name, color, category (reports/data/config)
 var TAB_CONFIG = {
-  // REPORTS (blue)
-  'Journal':        { color: '#1a73e8', category: 'reports', label: 'Journal' },
-  'PL':             { color: '#1a73e8', category: 'reports', label: 'Profit & Loss' },
-  'BS':             { color: '#1a73e8', category: 'reports', label: 'Balance Sheet' },
-  'COA':            { color: '#1a73e8', category: 'reports', label: 'COA' },
-  'Bank':           { color: '#1a73e8', category: 'reports', label: 'Bank' },
-  'CF':             { color: '#1a73e8', category: 'reports', label: 'Cash Flow' },
-  'CF-skuld':       { color: '#1a73e8', category: 'reports', label: 'Cash Flow (skuld)' },
-  'SCE':            { color: '#1a73e8', category: 'reports', label: 'Changes in Equity' },
-  'TB':             { color: '#1a73e8', category: 'reports', label: 'Trial Balance' },
-  'AP Aging':       { color: '#1a73e8', category: 'reports', label: 'AP Aging' },
-  'VAT Return':     { color: '#1a73e8', category: 'reports', label: 'VAT Return' },
-  'Integrity':      { color: '#1a73e8', category: 'reports', label: 'Integrity Check' },
-  'Dashboard':      { color: '#1a73e8', category: 'reports', label: 'Dashboard' },
+  // NEW / ENTRY (Green)
+  'New Journal entry':   { color: '#34a853', category: 'new' },
+  'Bank statement':      { color: '#34a853', category: 'new' },
+  'Bank Processing':     { color: '#34a853', category: 'new' },
+  'Transaction import':  { color: '#34a853', category: 'new' },
+  'Import':              { color: '#34a853', category: 'new' },
 
-  // DATA ENTRY (green)
-  'Bank Processing': { color: '#34a853', category: 'data', label: 'Bank Processing' },
-  'Bills':          { color: '#34a853', category: 'data', label: 'Bills' },
-  'Import':         { color: '#34a853', category: 'data', label: 'Import' },
+  // ACCOUNTING RECORDS (Blue)
+  'Journal':             { color: '#4285f4', category: 'records' },
+  'GL':                  { color: '#4285f4', category: 'records' },
+  'General Ledger':      { color: '#4285f4', category: 'records' },
+  'TB':                  { color: '#4285f4', category: 'records' },
+  'Period Balances':     { color: '#4285f4', category: 'records' },
 
-  // CONFIGURATION (gray)
-  'Mappings':      { color: '#808080', category: 'config', label: 'Bank Mappings' },
-  'Centers':        { color: '#808080', category: 'config', label: 'Profit / Cost Centers' },
-  'VAT Codes':      { color: '#808080', category: 'config', label: 'VAT Codes' },
-  'FX Rates':       { color: '#808080', category: 'config', label: 'FX Rates' },
-  'Settings':       { color: '#808080', category: 'config', label: 'Settings' },
+  // FINANCIAL STATEMENTS (Purple)
+  'PL':                  { color: '#9c27b0', category: 'statements' },
+  'BS':                  { color: '#9c27b0', category: 'statements' },
+  'CF':                  { color: '#9c27b0', category: 'statements' },
+  'SCE':                 { color: '#9c27b0', category: 'statements' },
+
+  // MANAGEMENT / TAX REPORTS (Orange)
+  'AP Aging':            { color: '#ff9800', category: 'reports' },
+  'Tax Report':          { color: '#ff9800', category: 'reports' },
+  'VAT Return':          { color: '#ff9800', category: 'reports' },
+  'Integrity Check':     { color: '#ff9800', category: 'reports' },
+  'Integrity':           { color: '#ff9800', category: 'reports' },
+
+  // SETTINGS (Gray)
+  'Settings':            { color: '#9e9e9e', category: 'settings' },
+  'General':             { color: '#9e9e9e', category: 'settings' },
+  'Bank map':            { color: '#9e9e9e', category: 'settings' },
+  'Mappings':            { color: '#9e9e9e', category: 'settings' },
+  'Tax codes':           { color: '#9e9e9e', category: 'settings' },
+  'VAT Codes':           { color: '#9e9e9e', category: 'settings' },
+  'Profit/cost centers': { color: '#9e9e9e', category: 'settings' },
+  'Centers':             { color: '#9e9e9e', category: 'settings' },
+  'COA':                 { color: '#9e9e9e', category: 'settings' }
 };
-
-// Tab creation order (most frequent first within each category)
-var TAB_ORDER = [
-  // Reports - most frequent
-  'Journal', 'PL', 'BS', 'Bank', 'CF', 'CF-skuld', 'SCE', 'TB', 'AP Aging', 'VAT Return', 'Integrity', 'Dashboard',
-  // Data Entry
-  'Bank Processing', 'Bills', 'Import',
-  // Configuration
-  'Mappings', 'Centers', 'VAT Codes', 'FX Rates', 'Settings'
-];
 
 function navigateToTab(name) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -167,28 +181,28 @@ function navigateToTab(name) {
     sheet = ss.insertSheet(name);
     sheet.setTabColor(config.color);
     sheet.setFrozenRows(1);
+    var formulaTabs = ['PL', 'BS', 'CF', 'CF-skuld', 'SCE', 'TB', 'Integrity'];
+    if (formulaTabs.indexOf(name) !== -1) {
+      sheet.getRange('A1').setValue('Please wait while generating report...').setFontColor('#999999').setFontStyle('italic');
+    } else {
+      sheet.getRange('A1').setValue('Refresh sheet to populate with data').setFontColor('#999999').setFontStyle('italic');
+    }
     
-    // Add default headers for known sheets
-    if (name === 'Journal') {
-      var headers = ['Date', 'Batch ID', 'Account Code', 'Debit', 'Credit', 'Currency', 'Description', 'Reference', 'Source', 'VAT Code'];
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
-    } else if (name === 'FX Rates') {
-      var h = ['Date', 'From', 'To', 'Rate', 'Source'];
-      sheet.getRange(1,1,1,h.length).setValues([h]).setFontWeight('bold').setBackground('#e6e6e6');
-    } else if (name === 'Import') {
+    // No hardcoded headers — all headers load dynamically from database upon refresh.
+    // Exception: Import sheet needs paste instructions.
+    if (name === 'Import') {
       var h = ['Batch ID', 'Date', 'Account Code', 'Debit', 'Credit', 'Currency', 'FX Rate', 'Description', 'Reference', 'Source'];
       sheet.getRange(1,1,1,h.length).setValues([h]).setFontWeight('bold').setBackground('#fce8b2');
       sheet.getRange(2,1).setValue('Paste journal data below. Group lines by Batch ID. Hit Save to import.');
       sheet.getRange(2,1,1,h.length).merge().setFontStyle('italic').setFontColor('#666666');
     }
   }
+  // Always ensure correct taxonomy color
+  try { sheet.setTabColor(config.color); } catch(e) {}
   sheet.showSheet();
   sheet.activate();
 
-  // Auto-build formula-driven tabs when navigated to
-  if (name === 'PL' || name === 'BS' || name === 'CF-skuld' || name === 'TB' || name === 'SCE' || name === 'Integrity') {
-    refreshTab_(name);
-  }
+  // Formula-driven tabs are built by their generate* functions, not here.
 
   return sheet;
 }
@@ -206,17 +220,38 @@ function runContextAction(action, period) {
   return '❌ Unknown action';
 }
 
+
 function refreshTab_(name, period) {
+  var result = _refreshTabInternal_(name, period);
+  if (result && result.indexOf('✅') === 0) {
+    try {
+      if (typeof markSheetRefreshed === 'function') markSheetRefreshed(name);
+    } catch(e) {}
+  }
+  return result;
+}
+
+function _refreshTabInternal_(name, period) {
   var params = period || getReportParams_();
   try {
     switch (name) {
     case 'Journal':
-      navigateToTab('Journal');
       var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo });
       if (entries) {
         writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code']);
       }
       return '✅ Journal loaded (' + (entries ? entries.length : 0) + ' rows)';
+    case 'General Ledger':
+    case 'GL':
+      // GL is formula-driven — no Cloud Function call needed.
+      // It reads from Journal sheet and Period Balances.
+      // "Refresh" for GL means: rebuild the formula template for the current account/period.
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      if (!ss.getSheetByName('Journal') || ss.getSheetByName('Journal').getLastRow() < 3) return '❌ Journal sheet has no data. Load the Journal first.';
+      if (!ss.getSheetByName('Period Balances')) return '❌ Period Balances not found. Refresh the cache first.';
+      if (!ss.getSheetByName('COA')) return '❌ COA not found. Load it first.';
+      try { buildGL_(ss.getSheetByName(name), ss, params); } catch (e) { return '❌ GL Error: ' + e.message; }
+      return '✅ General Ledger built for account ' + (params.glAccount || 'all') + ', period ' + (params.period || '');
     case 'TB':
       var ssTB = SpreadsheetApp.getActiveSpreadsheet();
       if (!ssTB.getSheetByName('COA') || !ssTB.getSheetByName('Period Balances')) return '❌ COA or cache not found';
@@ -263,13 +298,19 @@ function refreshTab_(name, period) {
       }
       return '✅ Cash Flow (skuld) rebuilt — multi-period, all FY columns';
     case 'AP Aging':
-      var r = callSkuld_('report.refresh_ap_aging', {});
+      var r = callSkuld_('report.refresh_ap_aging', { period: params.period });
       if (r) writeReportToSheet_('AP Aging', r);
+      var apSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('AP Aging');
+      if (apSheet) {
+        apSheet.getRange('A1').setValue('Period:').setFontWeight('bold');
+        if (params.period) apSheet.getRange('B1').setValue(params.period).setFontWeight('bold');
+      }
       return '✅ AP Aging refreshed';
     case 'VAT Return':
+    case 'Tax Report':
       var periodFrom = params.dateFrom || '2025-01-01';
       var periodTo = params.dateTo || '2025-12-31';
-      var r = callSkuld_('report.refresh_vat_return', { periodFrom: periodFrom, periodTo: periodTo });
+      var r = callSkuld_('report.refresh_vat_return', { periodFrom: periodFrom, periodTo: periodTo, period: params.period });
       if (r) writeReportToSheet_('VAT Return', r);
       return '✅ VAT Return refreshed';
     case 'SCE':
@@ -291,6 +332,8 @@ function refreshTab_(name, period) {
       if (r) writeToSheet_('COA', r, ['account_code', 'account_name', 'account_type', 'account_subtype', 'pl_category', 'bs_category', 'cf_category', 'is_active', 'effective_from', 'effective_to']);
       return '✅ COA loaded from database';
     case 'Mappings':
+    case 'Bank map':
+    case 'Bank map':
       var r = callSkuld_('mapping.list', {});
       if (r) writeToSheet_('Mappings', r, ['pattern', 'match_type', 'debit_account', 'credit_account', 'description_override', 'vat_code', 'cost_center', 'profit_center', 'priority', 'is_active']);
       return '✅ Mappings loaded from database';
@@ -306,7 +349,7 @@ function refreshTab_(name, period) {
       if (r) writeBankProcessingResults_(sheet, r.processed);
       return '✅ Processed: ' + r.summary.ruleMatched + ' matched, ' + r.summary.unmatched + ' unmatched';
     default:
-      return '⚠️ No refresh action for tab: ' + name;
+      return '⚠️ Refresh to populate with database data.';
   }
   } catch (e) {
     return '❌ Error: ' + e.message;
@@ -314,6 +357,24 @@ function refreshTab_(name, period) {
 }
 
 function saveTab_(name) {
+  if (typeof validateBeforePost === 'function') {
+    // Only check tabs that support this logic
+    var isInput = [
+      'New Journal entry', 'Bank statement', 'Transaction import', 
+      'Settings', 'General', 'Bank map', 'Tax codes', 'Profit/cost centers',
+      'COA', 'Mappings', 'Centers', 'VAT Codes', 'Import', 'Bank Processing'
+    ].indexOf(name) !== -1;
+    
+    if (isInput) {
+      if (!validateBeforePost(name)) {
+        return '⚠️ Post aborted: No new edits detected.';
+      }
+    }
+  }
+  return _saveTabInternal_(name);
+}
+
+function _saveTabInternal_(name) {
   switch (name) {
     case 'COA':
       var data = readSheetData_('COA');
@@ -321,14 +382,17 @@ function saveTab_(name) {
       invalidateAccountCache_();
       return '✅ COA saved to database';
     case 'Mappings':
+    case 'Bank map':
       var data = readSheetData_('Mappings');
       callSkuld_('mapping.save', { mappings: data });
       return '✅ Mappings saved to database';
     case 'Centers':
+    case 'Profit/cost centers':
       var data = readSheetData_('Centers');
       callSkuld_('center.save', { centers: data });
       return '✅ Centers saved to database';
     case 'VAT Codes':
+    case 'Tax codes':
       var data = readSheetData_('VAT Codes');
       callSkuld_('vat.codes.save', { vatCodes: data });
       invalidateAccountCache_();
@@ -371,7 +435,7 @@ function refreshAllReports_() {
   r = callSkuld_('report.refresh_tb', params); if (r) writeReportToSheet_('TB', r);
   r = callSkuld_('report.refresh_cf', params); if (r) writeReportToSheet_('CF', r);
   // Load journal
-  var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo });
+  var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo, period: params.period });
   if (entries) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var jSheet = ss.getSheetByName('Journal');
@@ -501,32 +565,32 @@ function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('⚖️ Skuld')
     .addSubMenu(ui.createMenu('New')
-      .addItem('Journal Entry', 'newJournalEntry')
-      .addItem('Bank Statement', 'newBankStatement')
-      .addItem('Transaction Import', 'newTransactionImport'))
-    .addSubMenu(ui.createMenu('Show')
+      .addItem('Journal entry', 'newJournalEntry')
+      .addItem('Bank statement', 'newBankStatement')
+      .addItem('Transaction import', 'newTransactionImport'))
+    .addSubMenu(ui.createMenu('Accounting records')
       .addItem('Journal', 'showJournal')
-      .addItem('Tax Report', 'showTaxReport')
-      .addItem('AP Aging', 'showAPAging')
-      .addSeparator()
-      .addItem('Chart of Accounts', 'showCOA')
-      .addItem('Bank Mappings', 'showMappings')
-      .addItem('Tax Codes', 'showTaxCodes')
-      .addItem('Profit / Cost Centers', 'showCenters')
-      .addSeparator()
-      .addItem('Period Balances', 'showPeriodBalances'))
-    .addSubMenu(ui.createMenu('Template')
+      .addItem('General Ledger', 'showGL')
+      .addItem('Trial Balances', 'generateTB'))
+    .addSubMenu(ui.createMenu('Financial statements')
       .addItem('Profit & Loss', 'generatePL')
+      .addItem('Statement of Changes in Equity', 'generateSCE')
       .addItem('Balance Sheet', 'generateBS')
-      .addItem('Cash Flow', 'generateCF')
-      .addItem('Trial Balance', 'generateTB')
-      .addItem('Changes in Equity', 'generateSCE')
+      .addItem('Cash Flow', 'generateCF'))
+    .addSubMenu(ui.createMenu('Management/tax reports')
+      .addItem('AP Aging', 'showAPAging')
+      .addItem('Tax Report', 'showTaxReport')
       .addItem('Integrity Check', 'generateIntegrity'))
+    .addSubMenu(ui.createMenu('Settings')
+      .addItem('General', 'showSettings')
+      .addItem('Bank map', 'showMappings')
+      .addItem('Tax codes', 'showTaxCodes')
+      .addItem('Profit/cost centers', 'showCenters')
+      .addSeparator()
+      .addItem('Chart of Accounts', 'showCOA'))
     .addSeparator()
-    .addItem('Refresh Active Sheet', 'refreshActiveSheet')
-    .addItem('Refresh All', 'refreshAll')
-    .addSeparator()
-    .addItem('Show All Tabs', 'showAllTabs')
+    .addItem('Post to database', 'postActiveSheet')
+    .addItem('Refresh sheet', 'refreshActiveSheet')
     .addToUi();
 }
 
@@ -570,51 +634,51 @@ function requireBlankSheet_() {
 }
 
 function generatePL() {
-  var sheet = requireBlankSheet_();
-  if (!sheet) return;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  navigateToTab('PL');
+  var sheet = ss.getSheetByName('PL');
   buildPL_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ P&L generated on "' + sheet.getName() + '".\nChange period in C3.');
+  SpreadsheetApp.getUi().alert('✅ P&L generated.\nChange period in C3.');
 }
 
 function generateBS() {
-  var sheet = requireBlankSheet_();
-  if (!sheet) return;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  navigateToTab('BS');
+  var sheet = ss.getSheetByName('BS');
   buildBS_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Balance Sheet generated on "' + sheet.getName() + '".\nChange period in C3.');
+  SpreadsheetApp.getUi().alert('✅ Balance Sheet generated.\nChange period in C3.');
 }
 
 function generateCF() {
-  var sheet = requireBlankSheet_();
-  if (!sheet) return;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  navigateToTab('CF');
+  var sheet = ss.getSheetByName('CF');
   buildCF_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Cash Flow generated on "' + sheet.getName() + '".\nChange period in C3.');
+  SpreadsheetApp.getUi().alert('✅ Cash Flow generated.\nChange period in C3.');
 }
 
 function generateTB() {
-  var sheet = requireBlankSheet_();
-  if (!sheet) return;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  navigateToTab('TB');
+  var sheet = ss.getSheetByName('TB');
   buildTB_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Trial Balance generated on "' + sheet.getName() + '".\nChange period in C3.');
+  SpreadsheetApp.getUi().alert('✅ Trial Balance generated.\nChange period in C3.');
 }
 
 function generateSCE() {
-  var sheet = requireBlankSheet_();
-  if (!sheet) return;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  navigateToTab('SCE');
+  var sheet = ss.getSheetByName('SCE');
   buildSCE_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Statement of Changes in Equity generated on "' + sheet.getName() + '".\nChange period in C3.');
+  SpreadsheetApp.getUi().alert('✅ Statement of Changes in Equity generated.\nChange period in C3.');
 }
 
 function generateIntegrity() {
-  var sheet = requireBlankSheet_();
-  if (!sheet) return;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  navigateToTab('Integrity');
+  var sheet = ss.getSheetByName('Integrity');
   buildIntegrity_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Integrity Check generated on "' + sheet.getName() + '".\nChange period in C2.');
+  SpreadsheetApp.getUi().alert('✅ Integrity Check generated.\nChange period in C2.');
 }
 
 // =============================================================================
@@ -627,22 +691,13 @@ function newJournalEntry() {
 
 function newBankStatement() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = requireBlankSheet_();
-  if (!sheet) return;
-  var headers = ['Date', 'Description', 'Amount', 'Currency'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
-  sheet.setFrozenRows(1);
-  sheet.getRange(2, 1).activate();
+  navigateToTab('Bank statement');
   SpreadsheetApp.getUi().alert('Paste your bank statement data below the headers.\nUse Refresh Active Sheet to process when ready.');
 }
 
 function newTransactionImport() {
-  var sheet = requireBlankSheet_();
-  if (!sheet) return;
-  var headers = ['Batch ID', 'Date', 'Account Code', 'Debit', 'Credit', 'Currency', 'FX Rate', 'Description', 'Reference', 'Source'];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#fce8b2');
-  sheet.setFrozenRows(1);
-  sheet.getRange(2, 1).activate();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  navigateToTab('Transaction import');
   SpreadsheetApp.getUi().alert('Paste journal data below. Group lines by Batch ID.\nUse Refresh Active Sheet to import when ready.');
 }
 
@@ -652,60 +707,137 @@ function newTransactionImport() {
 
 function showJournal() {
   navigateToTab('Journal');
-  var result = refreshTab_('Journal');
-  SpreadsheetApp.getUi().alert(result);
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
 function showTaxReport() {
-  navigateToTab('VAT Return');
-  var result = refreshTab_('VAT Return');
-  SpreadsheetApp.getUi().alert(result);
+  navigateToTab('Tax Report');
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
 function showAPAging() {
   navigateToTab('AP Aging');
-  var result = refreshTab_('AP Aging');
-  SpreadsheetApp.getUi().alert(result);
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
 function showCOA() {
   navigateToTab('COA');
-  var result = refreshTab_('COA');
-  invalidateAccountCache_();
-  protectPermanentSheets_();
-  SpreadsheetApp.getUi().alert(result);
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
 function showMappings() {
-  navigateToTab('Mappings');
-  var result = refreshTab_('Mappings');
-  SpreadsheetApp.getUi().alert(result);
+  navigateToTab('Bank map');
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
 function showTaxCodes() {
-  navigateToTab('VAT Codes');
-  var result = refreshTab_('VAT Codes');
-  invalidateAccountCache_();
-  SpreadsheetApp.getUi().alert(result);
+  navigateToTab('Tax codes');
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
 function showCenters() {
-  navigateToTab('Centers');
-  var result = refreshTab_('Centers');
-  SpreadsheetApp.getUi().alert(result);
+  navigateToTab('Profit/cost centers');
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
 function showPeriodBalances() {
   navigateToTab('Period Balances');
-  var result = refreshTab_('Period Balances');
-  protectPermanentSheets_();
-  SpreadsheetApp.getUi().alert(result);
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
 function refreshActiveSheet() {
-  var name = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet().getName();
-  var result = refreshTab_(name);
-  SpreadsheetApp.getUi().alert(result);
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var name = sheet.getName();
+  
+  // 1. Route formula-based reports to Period Balances cache refresh
+  var formulaReports = ['PL', 'BS', 'CF', 'CF-skuld', 'SCE', 'Integrity', 'Integrity Check'];
+  if (formulaReports.indexOf(name) !== -1) {
+    var result = refreshTab_('Period Balances');
+    SpreadsheetApp.getUi().alert(result + '\n\n(Financial statements update automatically via formulas once the cache is refreshed)');
+    return;
+  }
+  
+  // 2. Handle direct pull reports that require a period
+  var params = getReportParams_();
+  
+  // 2a. General Ledger: needs period + account, formula-driven
+  var glSheets = ['General Ledger', 'GL'];
+  if (glSheets.indexOf(name) !== -1) {
+    var periodVal = String(sheet.getRange('B1').getValue()).trim();
+    if (!periodVal || periodVal === '') {
+      var ui = SpreadsheetApp.getUi();
+      var response = ui.prompt('Period', 'For which period? (e.g., FY2026 or 2026P4):', ui.ButtonSet.OK_CANCEL);
+      if (response.getSelectedButton() == ui.Button.CANCEL) return;
+      periodVal = response.getResponseText().trim();
+      if (!periodVal) return;
+    }
+    periodVal = normalizePeriod_(periodVal);
+    sheet.getRange('A1').setValue('Period:').setFontWeight('bold');
+    sheet.getRange('B1').setValue(periodVal).setFontWeight('bold');
+    params.period = periodVal;
+    var resolved = resolvePeriodToDates_(periodVal);
+    if (resolved) { params.dateFrom = resolved.dateFrom; params.dateTo = resolved.dateTo; }
+    
+    // Account is read from B2 dropdown (user sets it on the sheet)
+    var acctVal = String(sheet.getRange('B2').getValue()).trim();
+    params.glAccount = acctVal || '';
+    
+    var result = refreshTab_(name, params);
+    SpreadsheetApp.getUi().alert(result);
+    return;
+  }
+  
+  // 2b. Other direct pull reports
+  var directPulls = ['Journal', 'TB', 'Trial Balance', 'AP Aging', 'Tax Report', 'VAT Return'];
+  if (directPulls.indexOf(name) !== -1) {
+    // Try to read period from cell B1
+    var periodVal = String(sheet.getRange('B1').getValue()).trim();
+    
+    // If no valid period found on sheet, prompt the user
+    if (!periodVal || periodVal === '') {
+      var ui = SpreadsheetApp.getUi();
+      var response = ui.prompt('Missing Period', 'For which period should this data be loaded? (e.g., FY2026 or 2026P4):', ui.ButtonSet.OK_CANCEL);
+      if (response.getSelectedButton() == ui.Button.CANCEL) {
+        return; // User cancelled
+      }
+      periodVal = response.getResponseText().trim();
+      if (periodVal) {
+        periodVal = response.getResponseText().trim();
+      } else {
+        return; // User cancelled
+      }
+    }
+    // Write period metadata to row 1
+    periodVal = normalizePeriod_(periodVal);
+    sheet.getRange('A1').setValue('Period:').setFontWeight('bold');
+    sheet.getRange('B1').setValue(periodVal).setFontWeight('bold');
+    
+    // Resolve the period string to actual dateFrom/dateTo
+    params.period = periodVal;
+    var resolved = resolvePeriodToDates_(periodVal);
+    if (resolved) {
+      params.dateFrom = resolved.dateFrom;
+      params.dateTo = resolved.dateTo;
+    }
+  }
+  
+  // Direct pulls with period filtering
+  if (directPulls.indexOf(name) !== -1) {
+    var result = refreshTab_(name, params);
+    SpreadsheetApp.getUi().alert(result);
+    return;
+  }
+  
+  // Static full-load tabs (no period needed)
+  var staticTabs = ['COA', 'Mappings', 'Bank map', 'Tax codes', 'VAT Codes', 'Centers', 'Profit/cost centers', 'Period Balances', 'Bills', 'Settings', 'General'];
+  if (staticTabs.indexOf(name) !== -1) {
+    var result = refreshTab_(name, params);
+    SpreadsheetApp.getUi().alert(result);
+    return;
+  }
+  
+  // Unrecognized sheet type
+  SpreadsheetApp.getUi().alert('⚠️ No refresh action for this sheet type.');
 }
 
 // =============================================================================
@@ -830,20 +962,263 @@ function colNumToLetter_(n) {
 
 var PB = "'Period Balances'";
 
+/**
+ * Read sheet data skipping metadata row(s).
+ * Returns { headers: [...], data: [[...], ...], headerIdx: N }
+ * where headers is the header row values and data starts from the row after headers.
+ */
+function getSheetDataWithHeaders_(sheet) {
+  var allData = sheet.getDataRange().getValues();
+  if (allData.length === 0) return { headers: [], data: [], headerIdx: 0 };
+  
+  var headerIdx = 0;
+  for (var h = 0; h < Math.min(allData.length, 5); h++) {
+    var firstCell = String(allData[h][0] || '').trim().toLowerCase();
+    if (firstCell === 'period:' || firstCell === 'refresh sheet to populate with data' || firstCell === '' || firstCell === 'data as of:') {
+      continue;
+    }
+    headerIdx = h;
+    break;
+  }
+  
+  return {
+    headers: allData[headerIdx],
+    data: allData.slice(headerIdx + 1),
+    headerIdx: headerIdx
+  };
+}
+
+/**
+ * Stamp cache freshness timestamp on a financial statement sheet.
+ * Reads the Period Balances refresh time and displays it in E1.
+ * Uses a non-intrusive position that won't conflict with the report layout.
+ */
+function stampCacheFreshness_(sheet) {
+  sheet.getRange('E1').setFormula('=\'Period Balances\'!C1').setFontColor('#888888').setFontSize(9);
+}
+
 /** Cumulative balance: INDEX/MATCH lookup from Period Balances. */
+/**
+ * Wrap account ref to handle string/number type mismatch.
+ * If acctRef is a cell ref like '$A5', wrap with TEXT(...,"0") to force string.
+ * If acctRef is a literal like '"300002"', it's already a string.
+ */
+function acctMatch_(acctRef) {
+  // Use TEXT to coerce Period Balances column A to string for comparison
+  return 'MATCH(' + acctRef + '&"",' + PB + '!$A:$A&"",0)';
+}
+
 function pbCum_(acctRef, periodRef) {
-  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,MATCH(' + acctRef + ',' + PB + '!$A:$A,0),MATCH(' + periodRef + ',' + PB + '!$1:$1,0)),0)';
+  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$2:$2,0)),0)';
 }
 
 /** Period movement (delta): current period value minus prior period column. */
 function pbDelta_(acctRef, periodRef) {
-  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,MATCH(' + acctRef + ',' + PB + '!$A:$A,0),MATCH(' + periodRef + ',' + PB + '!$1:$1,0))-INDEX(' + PB + '!$A:$ZZ,MATCH(' + acctRef + ',' + PB + '!$A:$A,0),MATCH(' + periodRef + ',' + PB + '!$1:$1,0)-1),0)';
+  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$2:$2,0))-INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$2:$2,0)-1),0)';
+}
+
+/**
+ * Read period column headers from Period Balances row 2 and return as array.
+ * Filters to only FYxxxx and xxxxPxx entries.
+ */
+function getCachePeriods_(ss) {
+  var pbSheet = ss.getSheetByName('Period Balances');
+  if (!pbSheet || pbSheet.getLastColumn() < 2) return [];
+  var headers = pbSheet.getRange(2, 1, 1, pbSheet.getLastColumn()).getValues()[0];
+  var periods = [];
+  for (var i = 0; i < headers.length; i++) {
+    var h = String(headers[i] || '').trim();
+    if (/^FY\d{4}$/.test(h) || /^\d{4}P\d{2}$/.test(h)) periods.push(h);
+  }
+  return periods;
+}
+
+/**
+ * Apply a data validation dropdown of available periods to a cell.
+ */
+function setPeriodDropdown_(ss, cell) {
+  var periods = getCachePeriods_(ss);
+  if (periods.length === 0) return;
+  var rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(periods, true)
+    .setAllowInvalid(false)
+    .build();
+  cell.setDataValidation(rule);
 }
 
 /**
  * Build or refresh the PL tab using INDEX/MATCH formulas against Period Balances.
  * Reads P&L accounts from the COA tab and creates a formatted P&L report.
  */
+
+/**
+ * Build the General Ledger tab using formulas against Journal and Period Balances.
+ *
+ * Layout:
+ *   A1: Period:    B1: [period]    C1: Data as of timestamp
+ *   A2: Account:   B2: [account code dropdown]   C2: =VLOOKUP(B2,COA!A:B,2,FALSE)
+ *   A3: (blank)    B3: Opening Balance:    C3: =INDEX/MATCH from Period Balances (prior period)
+ *   Row 4: Headers (Date | Batch ID | Description | Debit | Credit | Running Balance)
+ *   Rows 5-34: INDEX/MATCH formulas pulling Nth matching transaction from Journal
+ *   Row 35: Closing Balance (from formulas) | Closing Balance (from Period Balances) | Check
+ *
+ * The user can insert rows and drag formulas to accommodate more than 30 transactions.
+ */
+function buildGL_(sheet, ss, params) {
+  var journalSheet = ss.getSheetByName('Journal');
+  var cacheSheet = ss.getSheetByName('Period Balances');
+  var coaSheet = ss.getSheetByName('COA');
+  if (!journalSheet) throw new Error('Journal sheet not found');
+  if (!cacheSheet) throw new Error('Period Balances not found');
+  if (!coaSheet) throw new Error('COA not found');
+
+  var period = params.period || '';
+  var account = params.glAccount || '';
+
+  // Resolve prior period column name for opening balance
+  var priorPeriod = '';
+  if (period) {
+    var fyMatch = period.match(/^FY(\d{4})$/i);
+    var pMatch = period.match(/^(\d{4})P(\d{1,2})$/i);
+    if (fyMatch) {
+      priorPeriod = 'FY' + (parseInt(fyMatch[1], 10) - 1);
+    } else if (pMatch) {
+      var yr = parseInt(pMatch[1], 10);
+      var pn = parseInt(pMatch[2], 10);
+      if (pn === 1) {
+        priorPeriod = 'FY' + (yr - 1);
+      } else {
+        priorPeriod = yr + 'P' + (pn - 1 < 10 ? '0' + (pn - 1) : (pn - 1));
+      }
+    }
+  }
+
+  // Clear everything below row 1 (preserve period metadata)
+  if (sheet.getLastRow() > 1 || sheet.getLastColumn() > 0) {
+    sheet.getRange(2, 1, Math.max(sheet.getLastRow(), 2), Math.max(sheet.getLastColumn(), 10)).clear();
+  }
+
+  // Column widths
+  sheet.setColumnWidth(1, 100);  // Date
+  sheet.setColumnWidth(2, 120);  // Batch ID
+  sheet.setColumnWidth(3, 280);  // Description
+  sheet.setColumnWidth(4, 120);  // Debit
+  sheet.setColumnWidth(5, 120);  // Credit
+  sheet.setColumnWidth(6, 140);  // Running Balance
+
+  // Row 2: Account selector
+  sheet.getRange('A2').setValue('Account:').setFontWeight('bold');
+  // Data validation dropdown from COA — only leaf accounts (length >= min account length)
+  var minLen = 6; // default
+  var settingsSheet = ss.getSheetByName('Settings');
+  if (settingsSheet) {
+    var sData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < sData.length; s++) {
+      var k = String(sData[s][0] || '').trim().toLowerCase();
+      if (k === 'min account length') {
+        var v = parseInt(sData[s][1], 10);
+        if (v > 0) minLen = v;
+        break;
+      }
+    }
+  }
+  var _coaGL = getSheetDataWithHeaders_(coaSheet);
+  var coaData = [_coaGL.headers].concat(_coaGL.data);
+  var leafAccounts = [];
+  for (var i = 1; i < coaData.length; i++) {
+    var code = String(coaData[i][0] || '').trim();
+    if (code.length >= minLen) leafAccounts.push(code);
+  }
+  var rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(leafAccounts, true)
+    .setAllowInvalid(false)
+    .build();
+  // Default to the user's chosen account, or first leaf account
+  var defaultAcct = account || (leafAccounts.length > 0 ? leafAccounts[0] : '');
+  sheet.getRange('B2').setValue(defaultAcct).setDataValidation(rule).setFontWeight('bold');
+  // Account name lookup
+  sheet.getRange('C2').setFormula('=IFERROR(VLOOKUP(B2,COA!A:B,2,FALSE),"")');
+
+  // Row 3: Opening balance
+  sheet.getRange('A3').setValue('');
+  sheet.getRange('B3').setValue('Opening Balance:').setFontWeight('bold');
+  if (priorPeriod) {
+    sheet.getRange('C3').setFormula('=' + pbCum_('B2', '"' + priorPeriod + '"'));
+  } else {
+    sheet.getRange('C3').setValue(0);
+  }
+  sheet.getRange('C3').setNumberFormat('#,##0.00;(#,##0.00);0.00').setFontWeight('bold');
+  sheet.getRange('A3:F3').setBackground('#f0f0f0');
+
+  // Row 4: Column headers
+  var headers = ['Date', 'Batch ID', 'Description', 'Debit', 'Credit', 'Running Balance'];
+  sheet.getRange(4, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
+  sheet.setFrozenRows(4);
+
+  // Rows 5-34: Transaction formulas (30 slots)
+  // Strategy: Use SMALL/IF array formulas to find the Nth row in Journal
+  // that matches the account code AND falls within the period date range.
+  // Journal layout (from row 3): A=Date, B=Batch ID, C=Account Code, D=Debit, E=Credit, F=Currency, G=Description
+  // Strategy: Use FILTER+SORT to extract matching rows, then INDEX by row number.
+  // Journal layout (writeToSheet_ puts headers at row 2, data from row 3):
+  //   A=Date, B=Batch ID, C=Account Code, D=Debit, E=Credit, F=Currency, G=Description
+  var NUM_SLOTS = 30;
+  var dateFrom = params.dateFrom || '1900-01-01';
+  var dateTo = params.dateTo || '2099-12-31';
+
+  // The FILTER expression that gets all matching rows sorted by date.
+  // Returns a multi-column array: Date, Batch ID, Description, Debit, Credit
+  var filterExpr = 'SORT(FILTER(Journal!A3:G,Journal!C3:C=$B$2,Journal!A3:A>=DATEVALUE("' + dateFrom + '"),Journal!A3:A<=DATEVALUE("' + dateTo + '")),1,TRUE)';
+
+  for (var i = 0; i < NUM_SLOTS; i++) {
+    var n = i + 1; // Nth row from filtered result
+    var row = 5 + i;
+
+    // Date (col 1 of filter)
+    sheet.getRange(row, 1).setFormula('=IFERROR(INDEX(' + filterExpr + ',' + n + ',1),"")').setNumberFormat('yyyy-mm-dd');
+    // Batch ID (col 2 of filter)
+    sheet.getRange(row, 2).setFormula('=IFERROR(INDEX(' + filterExpr + ',' + n + ',2),"")');
+    // Description (col 7 of filter)
+    sheet.getRange(row, 3).setFormula('=IFERROR(INDEX(' + filterExpr + ',' + n + ',7),"")');
+    // Debit (col 4 of filter)
+    sheet.getRange(row, 4).setFormula('=IFERROR(INDEX(' + filterExpr + ',' + n + ',4),"")');
+    sheet.getRange(row, 4).setNumberFormat('#,##0.00;(#,##0.00);""');
+    // Credit (col 5 of filter)
+    sheet.getRange(row, 5).setFormula('=IFERROR(INDEX(' + filterExpr + ',' + n + ',5),"")');
+    sheet.getRange(row, 5).setNumberFormat('#,##0.00;(#,##0.00);""');
+    // Running Balance = Opening + cumulative (Debit - Credit) through this row
+    sheet.getRange(row, 6).setFormula('=IF(A' + row + '="","",$C$3+SUM($D$5:D' + row + ')-SUM($E$5:E' + row + '))');
+    sheet.getRange(row, 6).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  }
+
+  // Row 35: Closing balance
+  var closeRow = 5 + NUM_SLOTS;
+  sheet.getRange(closeRow, 1, 1, 6).setBackground('#f0f0f0');
+  sheet.getRange(closeRow, 3).setValue('Closing Balance (calculated):').setFontWeight('bold');
+  sheet.getRange(closeRow, 6).setFormula('=IF(A' + (closeRow - 1) + '="",$C$3+SUM($D$5:$D$' + (closeRow - 1) + ')-SUM($E$5:$E$' + (closeRow - 1) + '),F' + (closeRow - 1) + ')');
+  sheet.getRange(closeRow, 6).setNumberFormat('#,##0.00;(#,##0.00);0.00').setFontWeight('bold');
+
+  // Row 36: Closing from Period Balances
+  var checkRow = closeRow + 1;
+  sheet.getRange(checkRow, 3).setValue('Closing Balance (Period Balances):').setFontWeight('bold');
+  if (period) {
+    sheet.getRange(checkRow, 6).setFormula('=' + pbCum_('B2', '"' + period + '"'));
+  } else {
+    sheet.getRange(checkRow, 6).setValue(0);
+  }
+  sheet.getRange(checkRow, 6).setNumberFormat('#,##0.00;(#,##0.00);0.00').setFontWeight('bold');
+
+  // Row 37: Check
+  var diffRow = checkRow + 1;
+  sheet.getRange(diffRow, 3).setValue('Difference:').setFontStyle('italic').setFontColor('#555555');
+  sheet.getRange(diffRow, 6).setFormula('=F' + closeRow + '-F' + checkRow);
+  sheet.getRange(diffRow, 6).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  sheet.getRange(diffRow + 1, 3).setValue('Status:').setFontStyle('italic');
+  sheet.getRange(diffRow + 1, 6).setFormula('=IF(ABS(F' + diffRow + ')<0.01,"\u2705 Balanced","\u274c Mismatch")');
+
+  Logger.log('GL built for account: ' + account + ', period: ' + period);
+}
+
 function buildPL_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
   var cacheSheet = ss.getSheetByName('Period Balances');
@@ -851,7 +1226,8 @@ function buildPL_(sheet, ss) {
   if (!cacheSheet) { Logger.log('PL error: Period Balances sheet not found'); return; }
 
   // Get COA data
-  var coaData = coaSheet.getDataRange().getValues();
+  var _coa = getSheetDataWithHeaders_(coaSheet);
+  var coaData = [_coa.headers].concat(_coa.data);
   var headers = coaData[0];
   var acctCodeIdx = headers.indexOf('Account Code');
   var acctNameIdx = headers.indexOf('Account Name');
@@ -898,17 +1274,18 @@ function buildPL_(sheet, ss) {
   sheet.setColumnWidth(3, 160);  // Balance
 
   // Row 1: Company header
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
   sheet.getRange(1, 3).setValue('');
 
   // Row 2: Currency
-  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue('');
 
   // Row 3: Period selector
   sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
   sheet.getRange(3, 3).setValue('FY2025').setFontWeight('bold');
+  setPeriodDropdown_(ss, sheet.getRange(3, 3));
   sheet.getRange(3, 3).setBackground('#e8f0fe');
 
   // Row 4: Separator
@@ -988,6 +1365,7 @@ function buildPL_(sheet, ss) {
   sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
   sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   sheet.setFrozenRows(4);
+  stampCacheFreshness_(sheet);
 }
 
 /**
@@ -997,7 +1375,8 @@ function buildBS_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
   if (!coaSheet) { Logger.log('BS error: COA sheet not found'); return; }
 
-  var coaData = coaSheet.getDataRange().getValues();
+  var _coa = getSheetDataWithHeaders_(coaSheet);
+  var coaData = [_coa.headers].concat(_coa.data);
   var headers = coaData[0];
   var acctCodeIdx = headers.indexOf('Account Code');
   var acctNameIdx = headers.indexOf('Account Name');
@@ -1044,12 +1423,13 @@ function buildBS_(sheet, ss) {
   sheet.setColumnWidth(2, 300);
   sheet.setColumnWidth(3, 160);
 
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
-  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue('');
   sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
   sheet.getRange(3, 3).setValue('FY2025').setFontWeight('bold');
+  setPeriodDropdown_(ss, sheet.getRange(3, 3));
   sheet.getRange(3, 3).setBackground('#e8f0fe');
   sheet.getRange('4:4').setBackground('#eeeeee');
 
@@ -1102,6 +1482,7 @@ function buildBS_(sheet, ss) {
   sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
   sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   sheet.setFrozenRows(4);
+  stampCacheFreshness_(sheet);
 }
 
 /**
@@ -1117,6 +1498,27 @@ function buildBS_(sheet, ss) {
  *   Opening Cash = cumulative balance through prior period
  *   CHECK = cumulative balance through selected period
  */
+/**
+ * Build or refresh the _CF_CACHE hidden sheet.
+ * Scans Journal for entries touching Cash accounts, classifies the contra side.
+ * 
+ * Output columns: Period | CfClass | Amount
+ * CfClass: Operating, Investing, Financing, Unclassified
+ *
+ * Logic per batch (group of journal lines with same Batch ID):
+ *   1. If batch contains a Cash account line → it's a cash transaction
+ *   2. For each NON-cash line in the batch:
+ *      - Look up the account's CF Category in COA
+ *      - P&L accounts (Revenue/Expense) or blank CF Category → Operating
+ *      - Op-WC or Op-NonCash → Operating
+ *      - Investing → Investing
+ *      - Financing → Financing
+ *      - Cash → skip (this is the cash side)
+ *      - Equity with no CF Category → Financing
+ *      - Otherwise → Unclassified
+ *   3. Amount = the cash impact (debit - credit on the Cash account line)
+ *      But we record the CONTRA side amounts with flipped sign for proper CF presentation
+ */
 function buildCF_(sheet, ss) {
   var coaSheet    = ss.getSheetByName('COA');
   var cacheSheet  = ss.getSheetByName('Period Balances');
@@ -1124,7 +1526,7 @@ function buildCF_(sheet, ss) {
   if (!cacheSheet) { Logger.log('CF error: Period Balances not found');   return; }
 
   // ── Read COA ─────────────────────────────────────────────────────────────────
-  var coaData = coaSheet.getDataRange().getValues();
+  var _coaCF = getSheetDataWithHeaders_(coaSheet); var coaData = [_coaCF.headers].concat(_coaCF.data);
   var cHdrs  = coaData[0];
   // Build a case-insensitive map of header indices
   var colMap = {};
@@ -1157,7 +1559,7 @@ function buildCF_(sheet, ss) {
   opAccts.sort(byCode); invAccts.sort(byCode); finAccts.sort(byCode); cashAccts.sort(byCode);
 
   // ── Read cache FY periods (for prior period lookup) ──────────────────────────
-  var cacheData = cacheSheet.getDataRange().getValues();
+  var _cache = getSheetDataWithHeaders_(cacheSheet); var cacheData = [_cache.headers].concat(_cache.data);
   var cacheHdrs = cacheData[0];
   var fyPeriods = [];
   for (var ci = 0; ci < cacheHdrs.length; ci++) {
@@ -1184,12 +1586,13 @@ function buildCF_(sheet, ss) {
   sheet.setColumnWidth(2, 295);
   sheet.setColumnWidth(3, 168);
 
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
-  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue('');
   sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
   sheet.getRange(3, 3).setValue('FY2026').setFontWeight('bold');
+  setPeriodDropdown_(ss, sheet.getRange(3, 3));
   sheet.getRange(3, 3).setBackground('#e8f0fe');
 
   // Row 3, Col C: compute prior period name dynamically
@@ -1298,8 +1701,9 @@ function buildCF_(sheet, ss) {
 
   // ── UNCLASSIFIED ─────────────────────────────────────────────────────────────
   row++;
-  sheet.getRange(row, 2).setValue('Unclassified');
-  sheet.getRange(row, 3).setValue(0).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  var adjRow = row;
+  sheet.getRange(row, 2).setValue('Non-cash adjustments (manual)');
+  sheet.getRange(row, 3).setValue(0).setNumberFormat('#,##0.00;(#,##0.00);0.00').setBackground('#fff2cc');
   row++;
 
   // ── NET CHANGE IN CASH ───────────────────────────────────────────────────────
@@ -1309,6 +1713,7 @@ function buildCF_(sheet, ss) {
   var ncParts = ['C' + opTotRow];
   if (invTot) ncParts.push('C' + invTot);
   if (finTot) ncParts.push('C' + finTot);
+  ncParts.push('C' + adjRow);
   sheet.getRange(row, 3).setFormula('=(' + ncParts.join('+') + ')').setFontWeight('bold');
   sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
   sheet.getRange(row, 1, 1, 3).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
@@ -1357,8 +1762,11 @@ function buildCF_(sheet, ss) {
   }
 
   sheet.setFrozenRows(4);
+  stampCacheFreshness_(sheet);
   Logger.log('CF-skuld built: %d rows', row);
 }
+
+
 
 /**
  * Build the TB (Trial Balance) tab using INDEX/MATCH formulas against Period Balances.
@@ -1372,7 +1780,8 @@ function buildTB_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
   if (!coaSheet) { Logger.log('TB error: COA sheet not found'); return; }
 
-  var coaData = coaSheet.getDataRange().getValues();
+  var _coa = getSheetDataWithHeaders_(coaSheet);
+  var coaData = [_coa.headers].concat(_coa.data);
   var cHdrs = coaData[0];
   var cCode = cHdrs.indexOf('Account Code');
   var cName = cHdrs.indexOf('Account Name');
@@ -1407,12 +1816,13 @@ function buildTB_(sheet, ss) {
   sheet.setColumnWidth(4, 140);
   sheet.setColumnWidth(5, 140);
 
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
-  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue('');
   sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
   sheet.getRange(3, 3).setValue('FY2025').setFontWeight('bold').setBackground('#e8f0fe');
+  setPeriodDropdown_(ss, sheet.getRange(3, 3));
 
   // Headers row 4
   sheet.getRange(4, 1).setValue('Account Code').setFontWeight('bold');
@@ -1460,6 +1870,7 @@ function buildTB_(sheet, ss) {
   sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
 
   sheet.setFrozenRows(4);
+  stampCacheFreshness_(sheet);
   Logger.log('TB built: %d accounts', endRow - startRow + 1);
 }
 
@@ -1482,7 +1893,8 @@ function buildSCE_(sheet, ss) {
   var coaSheet = ss.getSheetByName('COA');
   if (!coaSheet) { Logger.log('SCE error: COA sheet not found'); return; }
 
-  var coaData = coaSheet.getDataRange().getValues();
+  var _coa = getSheetDataWithHeaders_(coaSheet);
+  var coaData = [_coa.headers].concat(_coa.data);
   var cHdrs = coaData[0];
   var cCode = cHdrs.indexOf('Account Code');
   var cType = cHdrs.indexOf('Account Type');
@@ -1532,12 +1944,13 @@ function buildSCE_(sheet, ss) {
   sheet.setColumnWidth(4, 150);
   sheet.setColumnWidth(5, 150);
 
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
-  sheet.getRange(2, 1).setValue('Currency').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue(currency);
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(2, 2).setValue('');
   sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
   sheet.getRange(3, 3).setValue('FY2026').setFontWeight('bold').setBackground('#e8f0fe');
+  setPeriodDropdown_(ss, sheet.getRange(3, 3));
   // C3 = prior period name (hidden)
   sheet.getRange(2, 3).setFormula('="FY"&(VALUE(RIGHT(C3,4))-1)');
   sheet.getRange(2, 3).setFontColor('#ffffff');
@@ -1632,6 +2045,7 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
   sheet.setFrozenRows(4);
+  stampCacheFreshness_(sheet);
   Logger.log('SCE built');
 }
 /**
@@ -1646,7 +2060,8 @@ function buildIntegrity_(sheet, ss) {
   if (!coaSheet) { Logger.log('Integrity error: COA not found'); return; }
   if (!cacheSheet) { Logger.log('Integrity error: cache not found'); return; }
 
-  var coaData = coaSheet.getDataRange().getValues();
+  var _coa = getSheetDataWithHeaders_(coaSheet);
+  var coaData = [_coa.headers].concat(_coa.data);
   var cHdrs = coaData[0];
   
   // Case-insensitive header lookup
@@ -1673,7 +2088,8 @@ function buildIntegrity_(sheet, ss) {
   }
 
   // Read FY periods from cache
-  var cacheHdrs = cacheSheet.getDataRange().getValues()[0];
+  var _cacheInt = getSheetDataWithHeaders_(cacheSheet);
+  var cacheHdrs = _cacheInt.headers;
   var fyPeriods = [];
   for (var ci = 0; ci < cacheHdrs.length; ci++) {
     var h = String(cacheHdrs[ci] || '').trim();
@@ -1697,12 +2113,13 @@ function buildIntegrity_(sheet, ss) {
   sheet.setColumnWidth(4, 100);
   sheet.setColumnWidth(5, 120);
 
-  sheet.getRange(1, 1).setValue('Company').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue(companyName).setFontWeight('bold');
+  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
+  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
   
   sheet.getRange(2, 1).setValue(''); 
   sheet.getRange(2, 2).setValue('Period').setFontWeight('bold');
   sheet.getRange(2, 3).setValue('FY2026').setFontWeight('bold').setBackground('#e8f0fe');
+  setPeriodDropdown_(ss, sheet.getRange(2, 3));
   sheet.getRange(1, 3).setFormula('="FY"&(VALUE(RIGHT(C2,4))-1)').setFontColor('#ffffff'); // Prior period hidden
 
   var fmt = '#,##0.00;(#,##0.00);0.00';
@@ -1835,6 +2252,24 @@ function buildIntegrity_(sheet, ss) {
   }
 
   sheet.setFrozenRows(3);
+  stampCacheFreshness_(sheet);
   Logger.log('Integrity built');
 }
 
+
+function showGL() {
+  navigateToTab('General Ledger');
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+}
+
+function showSettings() {
+  navigateToTab('General');
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+}
+
+function postActiveSheet() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var name = sheet.getName();
+  var result = saveTab_(name);
+  SpreadsheetApp.getUi().alert(result);
+}

@@ -773,26 +773,8 @@ function restorePeriodBalances() {
   }
   var result = refreshTab_('Period Balances');
   protectPermanentSheets_();
-  
-  // Regenerate all formula-based reports that depend on Period Balances
-  var formulaTabs = ['PL', 'BS', 'CF', 'SCE', 'TB', 'Integrity'];
-  var rebuilt = [];
-  for (var i = 0; i < formulaTabs.length; i++) {
-    var tab = formulaTabs[i];
-    var sheet = ss.getSheetByName(tab);
-    if (!sheet) continue; // Only rebuild if the tab exists
-    try {
-      refreshTab_(tab);
-      rebuilt.push(tab);
-    } catch (e) { /* skip failures */ }
-  }
-  
   navigateToTab('Period Balances');
-  var msg = result;
-  if (rebuilt.length > 0) {
-    msg += '\n\nRebuilt dependent reports: ' + rebuilt.join(', ');
-  }
-  SpreadsheetApp.getUi().alert(msg);
+  SpreadsheetApp.getUi().alert(result + '\n\nPeriod Balances has been restored. If any financial statements show errors, regenerate them from the Financial statements menu.');
 }
 
 function refreshActiveSheet() {

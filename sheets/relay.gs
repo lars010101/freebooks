@@ -587,6 +587,8 @@ function onOpen() {
     .addSeparator()
     .addItem('Post to database', 'postActiveSheet')
     .addItem('Refresh sheet', 'refreshActiveSheet')
+    .addSeparator()
+    .addItem('Restore cache: Period Balances', 'restorePeriodBalances')
     .addToUi();
 }
 
@@ -758,6 +760,41 @@ function showPeriodBalances() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
+/**
+ * Restore the Period Balances cache sheet.
+ * Recreates the tab if missing, fetches fresh data from BigQuery, and rebuilds all formula-based reports.
+ */
+function restorePeriodBalances() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var pbSheet = ss.getSheetByName('Period Balances');
+  if (!pbSheet) {
+    pbSheet = ss.insertSheet('Period Balances');
+    pbSheet.setTabColor('#4285f4');
+  }
+  var result = refreshTab_('Period Balances');
+  protectPermanentSheets_();
+  
+  // Regenerate all formula-based reports that depend on Period Balances
+  var formulaTabs = ['PL', 'BS', 'CF', 'SCE', 'TB', 'Integrity'];
+  var rebuilt = [];
+  for (var i = 0; i < formulaTabs.length; i++) {
+    var tab = formulaTabs[i];
+    var sheet = ss.getSheetByName(tab);
+    if (!sheet) continue; // Only rebuild if the tab exists
+    try {
+      refreshTab_(tab);
+      rebuilt.push(tab);
+    } catch (e) { /* skip failures */ }
+  }
+  
+  navigateToTab('Period Balances');
+  var msg = result;
+  if (rebuilt.length > 0) {
+    msg += '\n\nRebuilt dependent reports: ' + rebuilt.join(', ');
+  }
+  SpreadsheetApp.getUi().alert(msg);
+}
+
 function refreshActiveSheet() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var name = sheet.getName();
@@ -865,27 +902,35 @@ function refreshActiveSheet() {
  */
 function protectPermanentSheets_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var permanentTabs = ['COA', 'Period Balances', 'Companies', 'Periods'];
+  var me = Session.getEffectiveUser();
+  
+  // Strict protection: COA and Period Balances (formula dependencies)
+  var strictTabs = ['COA', 'Period Balances'];
+  // Warning-only protection: Companies and Periods
+  var warningTabs = ['Companies', 'Periods'];
 
-  for (var i = 0; i < permanentTabs.length; i++) {
-    var sheet = ss.getSheetByName(permanentTabs[i]);
-    if (!sheet) continue;
-
-    // Check if already protected (avoid duplicating protections)
+  function applyProtection_(tabName, warningOnly) {
+    var sheet = ss.getSheetByName(tabName);
+    if (!sheet) return;
+    // Check if already protected
     var protections = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
-    var alreadyProtected = false;
     for (var p = 0; p < protections.length; p++) {
-      if (protections[p].getDescription() === 'Skuld permanent sheet') {
-        alreadyProtected = true;
-        break;
-      }
+      if (protections[p].getDescription() === 'Skuld permanent sheet') return;
     }
-    if (alreadyProtected) continue;
-
     var protection = sheet.protect().setDescription('Skuld permanent sheet');
-    // Allow the current user to edit content (protection prevents deletion, not editing)
-    protection.setWarningOnly(true);
+    if (warningOnly) {
+      protection.setWarningOnly(true);
+    } else {
+      // Strict: only the current user can edit
+      protection.addEditor(me);
+      protection.removeEditors(protection.getEditors());
+      if (protection.canDomainEdit()) protection.setDomainEdit(false);
+      protection.addEditor(me);
+    }
   }
+
+  for (var i = 0; i < strictTabs.length; i++) applyProtection_(strictTabs[i], false);
+  for (var i = 0; i < warningTabs.length; i++) applyProtection_(warningTabs[i], true);
 }
 
 // =============================================================================

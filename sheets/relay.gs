@@ -344,7 +344,7 @@ function _refreshTabInternal_(name, period) {
     case 'Settings':
     case 'General':
       var r = callSkuld_('period.list', {});
-      if (r) writeToSheet_('Settings', r, ['company_id', 'company_name', 'base_currency', 'fyxxxx', 'start_date', 'end_date', 'locked']);
+      if (r) writeToSheet_('Settings', r, ['company_id', 'company_name', 'base_currency', 'period_id', 'start_date', 'end_date', 'locked']);
       return '✅ Settings loaded from database';
     case 'Bank Processing':
       var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');

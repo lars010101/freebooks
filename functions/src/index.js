@@ -446,7 +446,7 @@ async function handleSettings(ctx, action) {
           c.company_id,
           c.company_name,
           c.currency,
-          p.period_name as fyxxxx,
+          p.period_name as period_id,
           p.start_date,
           p.end_date,
           p.locked
@@ -460,7 +460,7 @@ async function handleSettings(ctx, action) {
       company_id: r.company_id,
       company_name: r.company_name,
       base_currency: r.currency,
-      fyxxxx: r.fyxxxx || '',
+      period_id: r.period_id || '',
       start_date: r.start_date ? (r.start_date.value || String(r.start_date)) : '',
       end_date: r.end_date ? (r.end_date.value || String(r.end_date)) : '',
       locked: !!r.locked

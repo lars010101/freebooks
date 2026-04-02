@@ -104,8 +104,9 @@ function applyStaleIndicator_(sheet) {
     return;
   }
   
-  // Direct query reports: stale warning in C4
-  var cell = sheet.getRange('C4');
+  // Stale indicator disabled — B3 Refreshed timestamp is sufficient
+  // var cell = sheet.getRange('C4');
+  return;
   cell.setValue('⚠️ STALE — Refresh needed');
   cell.setFontColor('red');
   cell.setFontWeight('bold');
@@ -137,8 +138,9 @@ function clearStaleIndicator_(sheetName) {
     return;
   }
   
-  // Direct query reports: timestamp in C4
-  var cell = sheet.getRange('C4');
+  // Timestamp indicator disabled — B3 Refreshed timestamp is sufficient
+  // var cell = sheet.getRange('C4');
+  return;
   cell.setValue('Data as of: ' + refreshTimeStr);
   cell.setFontColor('#0f9d58'); // Google Green
   cell.setFontWeight('normal');

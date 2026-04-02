@@ -68,7 +68,19 @@ function writeToSheet_(sheetName, data, columns) {
 
   // Global Metadata block
   var companyId = PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '';
-  var currency = 'Base'; 
+  var currency = '';
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  if (settingsSheet && sheetName !== 'Settings') {
+    var sData = settingsSheet.getDataRange().getValues();
+    for (var s = 0; s < sData.length; s++) {
+      var label = String(sData[s][0]).toLowerCase().trim();
+      if (label === 'currency:') { currency = sData[s][1] || ''; break; }
+    }
+  }
+  if (!currency) {
+    // Fallback: read from the Period table data if Settings has base_currency column
+    currency = '';
+  }
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
   
   // Rows 1-3: metadata block on ALL tabs

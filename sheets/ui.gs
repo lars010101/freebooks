@@ -107,6 +107,17 @@ function writeToSheet_(sheetName, data, columns) {
   sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
   sheet.getRange('A1:A3').setFontWeight('bold');
 
+  // Row 4: Period selector for Journal tab
+  if (sheetName === 'Journal') {
+    var periodsList = getCachePeriods_(ss);
+    var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
+    sheet.getRange('A4').setValue('Period:').setFontWeight('bold');
+    sheet.getRange('B4').setValue(latestPeriod).setFontWeight('bold');
+    setPeriodDropdown_(ss, sheet.getRange('B4'));
+    sheet.getRange('B4').setBackground('#e8f0fe');
+    sheet.getRange('5:5').setBackground('#eeeeee');
+  }
+
   // Headers always start on row 6, data on row 7
   var headerRowNum = 6;
   var dataStartRow = 7;

@@ -461,24 +461,38 @@ async function handleSettings(ctx, action) {
     if (!companies || !Array.isArray(companies) || companies.length === 0) {
       throw Object.assign(new Error('companies array required'), { code: 'INVALID_INPUT' });
     }
-    const now = new Date().toISOString();
-    const rows = companies.filter(c => c.company_id && c.company_name).map(c => ({
-      company_id: String(c.company_id).trim(),
-      company_name: String(c.company_name).trim(),
-      jurisdiction: String(c.jurisdiction || 'SG').trim(),
-      currency: String(c.base_currency || c.currency || 'SGD').trim(),
-      reporting_standard: String(c.reporting_standard || 'IFRS').trim(),
-      accounting_method: String(c.accounting_method || 'accrual').trim(),
-      vat_registered: c.vat_registered === true || String(c.vat_registered || '').toUpperCase() === 'TRUE',
-      tax_id: String(c.tax_id || '').trim() || null,
-      fy_start: '2025-01-01',
-      fy_end: '2025-12-31',
-      created_at: now
-    }));
-    if (rows.length > 0) {
-      await dataset.table('companies').insert(rows);
+
+    let saved = 0;
+    for (const c of companies) {
+      if (!c.company_id || !c.company_name) continue;
+      const cid = String(c.company_id).trim();
+      const cname = String(c.company_name).trim();
+      const jurisdiction = String(c.jurisdiction || 'SG').trim();
+      const currency = String(c.base_currency || c.currency || 'SGD').trim();
+      const reportingStd = String(c.reporting_standard || 'IFRS').trim();
+      const acctMethod = String(c.accounting_method || 'accrual').trim();
+      const vatReg = c.vat_registered === true || String(c.vat_registered || '').toUpperCase() === 'TRUE';
+      const taxId = String(c.tax_id || '').trim() || null;
+
+      await dataset.query({
+        query: `
+          MERGE finance.companies T
+          USING (SELECT @cid AS company_id) S
+          ON T.company_id = S.company_id
+          WHEN MATCHED THEN
+            UPDATE SET company_name = @cname, jurisdiction = @jurisdiction, currency = @currency,
+                       reporting_standard = @reportingStd, accounting_method = @acctMethod,
+                       vat_registered = @vatReg, tax_id = @taxId
+          WHEN NOT MATCHED THEN
+            INSERT (company_id, company_name, jurisdiction, currency, reporting_standard, accounting_method, vat_registered, tax_id, fy_start, fy_end, created_at)
+            VALUES (@cid, @cname, @jurisdiction, @currency, @reportingStd, @acctMethod, @vatReg, @taxId, '2025-01-01', '2025-12-31', CURRENT_TIMESTAMP())
+        `,
+        params: { cid, cname, jurisdiction, currency, reportingStd, acctMethod, vatReg, taxId },
+        types: { cid: 'STRING', cname: 'STRING', jurisdiction: 'STRING', currency: 'STRING', reportingStd: 'STRING', acctMethod: 'STRING', vatReg: 'BOOL', taxId: 'STRING' }
+      });
+      saved++;
     }
-    return { saved: rows.length };
+    return { saved };
   }
 
   if (action === 'period.list') {

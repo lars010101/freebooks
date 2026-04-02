@@ -2089,7 +2089,24 @@ function buildSCE_(sheet, ss) {
   // Row 5: Separator
   sheet.getRange('5:5').setBackground('#eeeeee');
 
-  var row = 6;
+  // Row 6: Headers
+  sheet.getRange(6, 2).setValue('Share Capital').setFontWeight('bold');
+  sheet.getRange(6, 3).setValue('Retained Earnings').setFontWeight('bold');
+  sheet.getRange(6, 4).setValue('Dividends').setFontWeight('bold');
+  sheet.getRange(6, 5).setValue('Total').setFontWeight('bold');
+  sheet.getRange(6, 1, 1, 5).setBackground('#e6e6e6');
+
+  var fmt = '#,##0.00;(#,##0.00);0.00';
+
+  // Helper: build sum formula for a list of account codes
+  // Negated because equity credit balances are stored as negative in cache
+  function sumFormula(codes, period, isDelta) {
+    if (codes.length === 0) return '0';
+    var fn = isDelta ? pbDelta_ : pbCum_;
+    return '-(' + codes.map(function(c) { return fn('"' + c + '"', period); }).join('+') + ')';
+  }
+
+  var row = 7;
 
 
   // ── Opening Balance ──────────────────────────────────────────────────────────

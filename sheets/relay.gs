@@ -357,7 +357,7 @@ function _refreshTabInternal_(name, period) {
               .requireValueInList(companyIds, true)
               .setAllowInvalid(false)
               .build();
-            var currentCompany = PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || companyIds[0];
+            var currentCompany = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || companyIds[0]);
             cSheet.getRange('B1').setDataValidation(rule).setValue(currentCompany);
           }
           // B2: VLOOKUP currency from the table based on B1

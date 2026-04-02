@@ -12,16 +12,35 @@ function getConfig_() {
   return {
     functionUrl: props.getProperty('SKULD_FUNCTION_URL') || '',
     projectId: props.getProperty('GCP_PROJECT_ID') || '',
-    companyId: props.getProperty('COMPANY_ID') || '',
+    companyId: getActiveCompanyId_(),
   };
 }
 
 /**
  * Get the active company ID for this spreadsheet.
+ * Reads from Companies tab B1 if it exists, otherwise falls back to Script Properties.
+ * Updates Script Properties if the value on the sheet has changed.
  */
 function getActiveCompanyId_() {
-  var config = getConfig_();
-  return config.companyId;
+  var props = PropertiesService.getScriptProperties();
+  var storedCompany = props.getProperty('COMPANY_ID') || '';
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var companiesSheet = ss ? ss.getSheetByName('Companies') : null;
+  
+  if (companiesSheet) {
+    var sheetCompany = String(companiesSheet.getRange('B1').getValue() || '').trim();
+    if (sheetCompany && sheetCompany !== 'Company ID' && sheetCompany !== storedCompany) {
+      // User changed the dropdown. Save it to properties.
+      props.setProperty('COMPANY_ID', sheetCompany);
+      return sheetCompany;
+    }
+    if (sheetCompany && sheetCompany !== 'Company ID') {
+      return sheetCompany;
+    }
+  }
+  
+  return storedCompany;
 }
 
 /**

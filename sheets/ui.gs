@@ -69,7 +69,7 @@ function writeToSheet_(sheetName, data, columns) {
   if (!sheet) return;
 
   // Global Metadata block
-  var companyId = PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '';
+  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
   var currency = '';
   var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
   if (settingsSheet && sheetName !== 'Companies' && sheetName !== 'Periods') {

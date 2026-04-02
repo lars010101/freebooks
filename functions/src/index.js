@@ -474,34 +474,44 @@ async function handleSettings(ctx, action) {
       throw Object.assign(new Error('periods array required'), { code: 'INVALID_INPUT' });
     }
 
-    // Delete all existing periods for companies present in the input
-    const companyIds = [...new Set(periods.map(p => p.company_id))];
-    for (const cid of companyIds) {
+    const validPeriods = periods.filter(p => p.period_id && p.start_date && p.end_date);
+    if (validPeriods.length === 0) return { saved: 0, companies: [] };
+
+    const companyIds = [...new Set(validPeriods.map(p => p.company_id))];
+    let saved = 0;
+
+    for (const p of validPeriods) {
+      // MERGE: update if exists, insert if not. Avoids streaming buffer conflicts.
       await dataset.query({
-        query: `DELETE FROM finance.periods WHERE company_id = @cid`,
-        params: { cid }
+        query: `
+          MERGE finance.periods T
+          USING (SELECT @companyId AS company_id, @periodName AS period_name) S
+          ON T.company_id = S.company_id AND T.period_name = S.period_name
+          WHEN MATCHED THEN
+            UPDATE SET start_date = @startDate, end_date = @endDate, locked = @locked, updated_at = CURRENT_TIMESTAMP()
+          WHEN NOT MATCHED THEN
+            INSERT (company_id, period_name, start_date, end_date, locked, created_at, updated_at)
+            VALUES (@companyId, @periodName, @startDate, @endDate, @locked, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
+        `,
+        params: {
+          companyId: p.company_id,
+          periodName: p.period_id,
+          startDate: p.start_date,
+          endDate: p.end_date,
+          locked: !!p.locked
+        },
+        types: {
+          companyId: 'STRING',
+          periodName: 'STRING',
+          startDate: 'DATE',
+          endDate: 'DATE',
+          locked: 'BOOL'
+        }
       });
+      saved++;
     }
 
-    // Insert all period rows
-    const now = new Date().toISOString();
-    const rows = periods
-      .filter(p => p.period_id && p.start_date && p.end_date)
-      .map(p => ({
-        company_id: p.company_id,
-        period_name: p.period_id,
-        start_date: p.start_date,
-        end_date: p.end_date,
-        locked: !!p.locked,
-        created_at: now,
-        updated_at: now
-      }));
-
-    if (rows.length > 0) {
-      await dataset.table('periods').insert(rows);
-    }
-
-    return { saved: rows.length, companies: companyIds };
+    return { saved, companies: companyIds };
   }
 
   if (action === 'settings.get') {

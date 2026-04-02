@@ -84,8 +84,8 @@ function flagStaleSheets_() {
 function isInputOrSettingsSheet_(sheetName) {
   var inputSheets = [
     'New Journal entry', 'Bank statement', 'Transaction import', 
-    'Companies', 'Periods', 'Bank map', 'Tax codes', 'Profit/cost centers',
-    'COA', 'Mappings', 'VAT Codes', 'Centers', 'Import', 'Bank Processing', 'Bills'
+    'Companies', 'Periods', 'Bank map', 'Tax', 'Centers',
+    'COA', 'Mappings', 'Import', 'Bank Processing', 'Bills'
   ];
   return inputSheets.indexOf(sheetName) !== -1;
 }

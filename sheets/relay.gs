@@ -164,9 +164,9 @@ var TAB_CONFIG = {
   'Periods':             { color: '#9e9e9e', category: 'settings' },
   'Bank map':            { color: '#9e9e9e', category: 'settings' },
   'Mappings':            { color: '#9e9e9e', category: 'settings' },
-  'Tax codes':           { color: '#9e9e9e', category: 'settings' },
-  'VAT Codes':           { color: '#9e9e9e', category: 'settings' },
-  'Profit/cost centers': { color: '#9e9e9e', category: 'settings' },
+  'Tax':                 { color: '#9e9e9e', category: 'settings' },
+  
+  
   'Centers':             { color: '#9e9e9e', category: 'settings' },
   'COA':                 { color: '#9e9e9e', category: 'settings' }
 };
@@ -371,6 +371,16 @@ function _refreshTabInternal_(name, period) {
         writeToSheet_('Periods', r, ['company_id', 'company_name', 'base_currency', 'period_id', 'start_date', 'end_date', 'locked']);
       }
       return '✅ Periods loaded from database';
+    case 'Tax':
+      var r = callSkuld_('vat.codes.list', {});
+      if (r) writeToSheet_('Tax', r, ['vat_code', 'rate', 'description', 'account_code']);
+      if (!r || r.length === 0) writeToSheet_('Tax', [], ['vat_code', 'rate', 'description', 'account_code']);
+      return '✅ Tax codes loaded from database';
+    case 'Centers':
+      var r = callSkuld_('center.list', {});
+      if (r) writeToSheet_('Centers', r, ['center_type', 'code', 'name', 'is_active']);
+      if (!r || r.length === 0) writeToSheet_('Centers', [], ['center_type', 'code', 'name', 'is_active']);
+      return '✅ Centers loaded from database';
     case 'Bank Processing':
       var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
       var rows = readBankRows_(sheet);
@@ -391,8 +401,8 @@ function saveTab_(name) {
     // Only check tabs that support this logic
     var isInput = [
       'New Journal entry', 'Bank statement', 'Transaction import', 
-      'Companies', 'Periods', 'Bank map', 'Tax codes', 'Profit/cost centers',
-      'COA', 'Mappings', 'Centers', 'VAT Codes', 'Import', 'Bank Processing'
+      'Companies', 'Periods', 'Bank map', 'Tax', 'Centers',
+      'COA', 'Mappings', 'Import', 'Bank Processing'
     ].indexOf(name) !== -1;
     
     if (isInput) {
@@ -417,16 +427,14 @@ function _saveTabInternal_(name) {
       callSkuld_('mapping.save', { mappings: data });
       return '✅ Mappings saved to database';
     case 'Centers':
-    case 'Profit/cost centers':
       var data = readSheetData_('Centers');
       callSkuld_('center.save', { centers: data });
       return '✅ Centers saved to database';
-    case 'VAT Codes':
-    case 'Tax codes':
-      var data = readSheetData_('VAT Codes');
+    case 'Tax':
+      var data = readSheetData_('Tax');
       callSkuld_('vat.codes.save', { vatCodes: data });
       invalidateAccountCache_();
-      return '✅ VAT Codes saved to database';
+      return '✅ Tax codes saved to database';
     case 'Import':
       var importData = readImportData_();
       if (!importData || importData.length === 0) return '⚠️ No data found on Import sheet (need rows below header).';
@@ -636,8 +644,8 @@ function onOpen() {
       .addItem('Periods', 'showPeriods')
       .addSeparator()
       .addItem('Bank map', 'showMappings')
-      .addItem('Tax codes', 'showTaxCodes')
-      .addItem('Profit/cost centers', 'showCenters')
+      .addItem('Tax', 'showTaxCodes')
+      .addItem('Centers', 'showCenters')
       .addSeparator()
       .addItem('Chart of Accounts', 'showCOA'))
     .addSeparator()
@@ -783,12 +791,12 @@ function showMappings() {
 }
 
 function showTaxCodes() {
-  navigateToTab('Tax codes');
+  navigateToTab('Tax');
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
 function showCenters() {
-  navigateToTab('Profit/cost centers');
+  navigateToTab('Centers');
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
@@ -881,7 +889,7 @@ function refreshActiveSheet() {
   }
   
   // Static full-load tabs (no period needed)
-  var staticTabs = ['COA', 'Mappings', 'Bank map', 'Tax codes', 'VAT Codes', 'Centers', 'Profit/cost centers', 'Period Balances', 'Bills', 'Companies', 'Periods'];
+  var staticTabs = ['COA', 'Mappings', 'Bank map', 'Tax', 'Centers', 'Period Balances', 'Bills', 'Companies', 'Periods'];
   if (staticTabs.indexOf(name) !== -1) {
     var result = refreshTab_(name, params);
     SpreadsheetApp.getUi().alert(result);
@@ -979,7 +987,7 @@ function setAutoOpen(enabled) {
 
 function hideNonEssentialTabs_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hide = ['Import', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'CF', 'AP Aging', 'VAT Return', 'SCE', 'Integrity', 'Manual Entry', 'Dashboard', 'Companies', 'Periods'];
+  var hide = ['Import', 'Centers', 'Tax', 'Mappings', 'TB', 'CF', 'AP Aging', 'VAT Return', 'SCE', 'Integrity', 'Manual Entry', 'Dashboard', 'Companies', 'Periods'];
   for (var i = 0; i < hide.length; i++) {
     var s = ss.getSheetByName(hide[i]);
     if (s) s.hideSheet();

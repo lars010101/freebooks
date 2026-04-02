@@ -37,7 +37,7 @@ async function processBankStatement(ctx) {
 
   // Load company
   const [companies] = await dataset.query({
-    query: `SELECT currency, accounting_method, vat_registered FROM finance.companies WHERE company_id = @companyId`,
+    query: `SELECT currency, accounting_method, vat_registered FROM finance.companies WHERE company_id = @companyId QUALIFY ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) = 1`,
     params: { companyId },
   });
   if (companies.length === 0) {
@@ -241,7 +241,7 @@ async function approveBankEntries(ctx) {
 
   // Load company
   const [companies] = await dataset.query({
-    query: `SELECT currency FROM finance.companies WHERE company_id = @companyId`,
+    query: `SELECT currency FROM finance.companies WHERE company_id = @companyId QUALIFY ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) = 1`,
     params: { companyId },
   });
   const homeCurrency = companies[0]?.currency || 'USD';

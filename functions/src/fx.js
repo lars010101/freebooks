@@ -33,7 +33,7 @@ async function fetchRates(ctx) {
 
   // Get company's home currency
   const [companies] = await dataset.query({
-    query: `SELECT currency FROM finance.companies WHERE company_id = @companyId`,
+    query: `SELECT currency FROM finance.companies WHERE company_id = @companyId QUALIFY ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) = 1`,
     params: { companyId },
   });
   if (companies.length === 0) {
@@ -150,7 +150,7 @@ async function revaluationPreview(ctx) {
 
   // Get company
   const [companies] = await dataset.query({
-    query: `SELECT currency FROM finance.companies WHERE company_id = @companyId`,
+    query: `SELECT currency FROM finance.companies WHERE company_id = @companyId QUALIFY ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) = 1`,
     params: { companyId },
   });
   const homeCurrency = companies[0].currency;
@@ -237,7 +237,7 @@ async function revaluationPost(ctx) {
 
   // Get home currency
   const [companies] = await dataset.query({
-    query: `SELECT currency FROM finance.companies WHERE company_id = @companyId`,
+    query: `SELECT currency FROM finance.companies WHERE company_id = @companyId QUALIFY ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) = 1`,
     params: { companyId },
   });
   const homeCurrency = companies[0].currency;

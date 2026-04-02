@@ -564,7 +564,7 @@ async function handleSettings(ctx, action) {
     }
     // Also include company FY dates from companies table
     const [coRows] = await dataset.query({
-      query: `SELECT company_name, fy_start, fy_end FROM finance.companies WHERE company_id = @companyId LIMIT 1`,
+      query: `SELECT company_name, fy_start, fy_end FROM finance.companies WHERE company_id = @companyId QUALIFY ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) = 1`,
       params: { companyId },
     });
     if (coRows.length > 0) {

@@ -50,7 +50,7 @@ async function handleReports(ctx, action) {
  */
 async function getCompanyFY(dataset, companyId) {
   const [rows] = await dataset.query({
-    query: `SELECT fy_start, fy_end FROM finance.companies WHERE company_id = @companyId LIMIT 1`,
+    query: `SELECT fy_start, fy_end FROM finance.companies WHERE company_id = @companyId QUALIFY ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) = 1`,
     params: { companyId },
   });
   if (!rows || rows.length === 0) {

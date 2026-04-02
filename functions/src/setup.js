@@ -299,7 +299,7 @@ async function addCompany(ctx) {
 
   // Check company doesn't already exist
   const [existing] = await dataset.query({
-    query: `SELECT company_id FROM finance.companies WHERE company_id = @companyId`,
+    query: `SELECT company_id FROM finance.companies WHERE company_id = @companyId QUALIFY ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) = 1`,
     params: { companyId: company.company_id },
   });
   if (existing.length > 0) {

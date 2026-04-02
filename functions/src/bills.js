@@ -45,7 +45,7 @@ async function createBill(ctx) {
 
   // Load company for currency
   const [companies] = await dataset.query({
-    query: `SELECT currency, vat_registered FROM finance.companies WHERE company_id = @companyId`,
+    query: `SELECT currency, vat_registered FROM finance.companies WHERE company_id = @companyId QUALIFY ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) = 1`,
     params: { companyId },
   });
   const company = companies[0];

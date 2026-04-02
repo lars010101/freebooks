@@ -498,7 +498,11 @@ async function handleSettings(ctx, action) {
           p.start_date,
           p.end_date,
           p.locked
-        FROM finance.companies c
+        FROM (
+          SELECT * FROM (
+            SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) as rn FROM finance.companies
+          ) WHERE rn = 1
+        ) c
         LEFT JOIN (
           SELECT * FROM (
             SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id, period_name ORDER BY created_at DESC) as rn

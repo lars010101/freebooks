@@ -96,11 +96,11 @@ function isInputOrSettingsSheet_(sheetName) {
  */
 function applyStaleIndicator_(sheet) {
   var sheetName = sheet.getName();
-  
-  // Formula-driven reports and internal cache sheets: just flag tab color
-  var noOverwrite = ['PL', 'BS', 'CF', 'CF-skuld', 'SCE', 'Integrity', 'Integrity Check', 'Period Balances', 'COA'];
+  var noOverwrite = ['PL', 'BS', 'CF', 'SCE', 'Integrity', 'Period Balances', 'COA'];
   if (noOverwrite.indexOf(sheetName) !== -1) {
     try { sheet.setTabColor('red'); } catch(e) {}
+  }
+} catch(e) {}
     return;
   }
   
@@ -124,15 +124,11 @@ function clearStaleIndicator_(sheetName) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) return;
-  
-  var refreshTimeStr = getSheetLastRefreshedString(sheetName);
-  
-  // Formula-driven reports: show timestamp referencing cache freshness
-  var formulaReports = ['PL', 'BS', 'CF', 'CF-skuld', 'SCE', 'Integrity', 'Integrity Check'];
-  if (formulaReports.indexOf(sheetName) !== -1) {
-    // Don't overwrite the report layout. Just reset tab color.
-    try {
-      var config = TAB_CONFIG[sheetName] || { color: null };
+  try {
+    var config = TAB_CONFIG[sheetName] || { color: null };
+    sheet.setTabColor(config.color);
+  } catch(e) {}
+};
       sheet.setTabColor(config.color);
     } catch(e) {}
     return;

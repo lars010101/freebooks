@@ -39,15 +39,8 @@ const ACTION_ROLES = {
   'bill.list': 'viewer',
 
   // Reports
-  'report.refresh_tb': 'viewer',
-  'report.refresh_pl': 'viewer',
-  'report.refresh_bs': 'viewer',
-  'report.refresh_cf': 'viewer',
-  'report.refresh_dashboard': 'viewer',
   'report.refresh_ap_aging': 'viewer',
   'report.refresh_vat_return': 'viewer',
-  'report.refresh_sce': 'viewer',
-  'report.refresh_integrity': 'viewer',
   'report.cache_balances': 'viewer',
 
   // COA

@@ -156,7 +156,6 @@ var TAB_CONFIG = {
   'AP Aging':            { color: '#ff9800', category: 'reports' },
   'Tax Report':          { color: '#ff9800', category: 'reports' },
   'VAT Return':          { color: '#ff9800', category: 'reports' },
-  'Integrity Check':     { color: '#ff9800', category: 'reports' },
   'Integrity':           { color: '#ff9800', category: 'reports' },
 
   // SETTINGS (Gray)
@@ -181,7 +180,7 @@ function navigateToTab(name) {
     sheet = ss.insertSheet(name);
     sheet.setTabColor(config.color);
     sheet.setFrozenRows(6);
-    var formulaTabs = ['PL', 'BS', 'CF', 'CF-skuld', 'SCE', 'TB', 'Integrity'];
+    var formulaTabs = ['PL', 'BS', 'CF', 'SCE', 'TB', 'Integrity'];
     if (formulaTabs.indexOf(name) !== -1) {
       sheet.getRange('A1').setValue('Please wait while generating report...').setFontColor('#999999').setFontStyle('italic');
     } else {
@@ -234,7 +233,7 @@ function refreshTab_(name, period) {
 }
 
 function _refreshTabInternal_(name, period) {
-  var params = period || getReportParams_();
+  var params = period || {};
   try {
     switch (name) {
     case 'Journal':
@@ -283,22 +282,6 @@ function _refreshTabInternal_(name, period) {
         return '❌ Error: ' + e.message;
       }
       return '✅ Balance Sheet rebuilt — change period in B3';
-    case 'CF':
-      var r = callSkuld_('report.refresh_cf', params);
-      if (r) writeReportToSheet_('CF', r);
-      return '✅ Cash Flow refreshed';
-    case 'CF-skuld':
-      var ss2 = SpreadsheetApp.getActiveSpreadsheet();
-      var coaSheet2 = ss2.getSheetByName('COA');
-      var cacheSheet2 = ss2.getSheetByName('Period Balances');
-      if (!coaSheet2)   return '❌ COA sheet not found';
-      if (!cacheSheet2) return '❌ Period Balances not found';
-      try {
-        buildCF_(ss2.getSheetByName('CF-skuld'), ss2);
-      } catch (e) {
-        return '❌ Error: ' + e.message;
-      }
-      return '✅ Cash Flow (skuld) rebuilt — multi-period, all FY columns';
     case 'AP Aging':
       var r = callSkuld_('report.refresh_ap_aging', { period: params.period });
       if (r) writeReportToSheet_('AP Aging', r);
@@ -324,7 +307,7 @@ function _refreshTabInternal_(name, period) {
       var ssInt = SpreadsheetApp.getActiveSpreadsheet();
       if (!ssInt.getSheetByName('COA') || !ssInt.getSheetByName('Period Balances')) return '❌ COA or cache not found';
       try { buildIntegrity_(ssInt.getSheetByName('Integrity'), ssInt); } catch (e) { return '❌ Error: ' + e.message; }
-      return '✅ Integrity Check rebuilt — change period in B2';
+      return '✅ Integrity rebuilt — change period in B2';
     case 'Period Balances':
       var r = callSkuld_('report.cache_balances', {});
       if (r && r.rows) writeToSheet_('Period Balances', r.rows, r.columns);
@@ -487,24 +470,6 @@ function _saveTabInternal_(name) {
   }
 }
 
-function refreshAllReports_() {
-  var params = getReportParams_();
-  var r;
-  r = callSkuld_('report.refresh_tb', params); if (r) writeReportToSheet_('TB', r);
-  r = callSkuld_('report.refresh_cf', params); if (r) writeReportToSheet_('CF', r);
-  // Load journal
-  var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo, period: params.period });
-  if (entries) {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var jSheet = ss.getSheetByName('Journal');
-    if (!jSheet) {
-      jSheet = ss.insertSheet('Journal', 0);
-      jSheet.setTabColor('#1a73e8'); jSheet.setFrozenRows(6);
-      jSheet.getRange(1,1,1,10).setValues([['Date','Batch ID','Account Code','Debit','Credit','Currency','Description','Reference','Source','VAT Code']]).setFontWeight('bold').setBackground('#e6e6e6');
-    }
-    writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code']);
-  }
-}
 
 // =============================================================================
 // Sidebar: Settings tab helpers
@@ -551,35 +516,6 @@ function formatSettingDate_(v) {
   return String(v);
 }
 
-function saveSettingsFromSidebar(data) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName('Companies');
-  if (!sheet) return;
-  var rows = [
-    ['Company ID', PropertiesService.getScriptProperties().getProperty('COMPANY_ID')],
-    ['Company Name', data.companyName],
-    ['Cloud Function URL', PropertiesService.getScriptProperties().getProperty('SKULD_FUNCTION_URL')],
-    ['', ''],
-    ['FY Start', data.fyStart],
-    ['FY End', data.fyEnd],
-    ['Period From', data.periodFrom],
-    ['Period To', data.periodTo],
-    ['Cost Center', ''],
-    ['Profit Center', ''],
-    ['', ''],
-    ['Min Account Length', data.minAccountLength || ''],
-  ];
-  sheet.getRange(2, 1, rows.length, 2).setValues(rows);
-
-  // Also save min_account_length to BQ settings table
-  if (data.minAccountLength) {
-    try {
-      callSkuld_('settings.save', { settings: { 'min_account_length': String(data.minAccountLength) } });
-    } catch (e) {
-      Logger.log('Failed to save min_account_length to BQ: ' + e.message);
-    }
-  }
-}
 
 function runSettingsAction(action) {
   switch (action) {
@@ -638,7 +574,7 @@ function onOpen() {
     .addSubMenu(ui.createMenu('Management/tax reports')
       .addItem('AP Aging', 'showAPAging')
       .addItem('Tax Report', 'showTaxReport')
-      .addItem('Integrity Check', 'generateIntegrity'))
+      .addItem('Integrity', 'generateIntegrity'))
     .addSubMenu(ui.createMenu('Settings')
       .addItem('Companies', 'showCompanies')
       .addItem('Periods', 'showPeriods')
@@ -654,10 +590,6 @@ function onOpen() {
     .addToUi();
 }
 
-function refreshAll() {
-  refreshAllReports_();
-  SpreadsheetApp.getUi().alert('✅ All sheets refreshed.');
-}
 
 // =============================================================================
 // Generate Report — writes formulas into the ACTIVE (blank) sheet
@@ -738,7 +670,7 @@ function generateIntegrity() {
   navigateToTab('Integrity');
   var sheet = ss.getSheetByName('Integrity');
   buildIntegrity_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Integrity Check generated.\nChange period in C4.');
+  SpreadsheetApp.getUi().alert('✅ Integrity generated.\nChange period in C4.');
 }
 
 // =============================================================================
@@ -831,7 +763,7 @@ function refreshActiveSheet() {
   var name = sheet.getName();
   
   // 1. Route formula-based reports to Period Balances cache refresh
-  var formulaReports = ['PL', 'BS', 'CF', 'CF-skuld', 'SCE', 'Integrity', 'Integrity Check'];
+  var formulaReports = ['PL', 'BS', 'CF', 'SCE', 'Integrity'];
   if (formulaReports.indexOf(name) !== -1) {
     var result = refreshTab_('Period Balances');
     SpreadsheetApp.getUi().alert(result + '\n\n(Financial statements update automatically via formulas once the cache is refreshed)');
@@ -839,7 +771,7 @@ function refreshActiveSheet() {
   }
   
   // 2. Handle direct pull reports that require a period
-  var params = getReportParams_();
+  var params = {};
   
   // 2a. General Ledger: needs period + account, formula-driven
   var glSheets = ['General Ledger', 'GL'];
@@ -1613,7 +1545,7 @@ function buildBS_(sheet, ss) {
 }
 
 /**
- * Build the CF-skuld tab.
+ * Build the CF tab.
  *
  * Cache stores SUM(debit - credit) per account per period (movements).
  * CF needs: cumulative balances for cash, negated movements for everything.
@@ -1898,7 +1830,7 @@ function buildCF_(sheet, ss) {
 
   sheet.setFrozenRows(4);
   stampCacheFreshness_(sheet);
-  Logger.log('CF-skuld built: %d rows', row);
+  Logger.log('CF built: %d rows', row);
 }
 
 
@@ -2209,7 +2141,7 @@ function buildSCE_(sheet, ss) {
   Logger.log('SCE built');
 }
 /**
- * Build the Integrity Check tab.
+ * Build the Integrity tab.
  * Transparent spreadsheet design: uses explicit account numbers in Col A, 
  * labels in Col B, INDEX/MATCH formulas in Col C, and native SUM() for totals.
  * Users can easily drag periods or insert new accounts.

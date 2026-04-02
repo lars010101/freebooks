@@ -22,7 +22,7 @@ function readSheetData_(sheetName) {
 
   // Find the header row: first row that looks like column headers (skip metadata row 1)
   var headerRowIdx = 0;
-  for (var h = 0; h < Math.min(data.length, 5); h++) {
+  for (var h = 0; h < Math.min(data.length, 10); h++) {
     var firstCell = String(data[h][0] || '').trim().toLowerCase();
     // Row 1 metadata starts with 'period:' or 'refresh' or is empty — skip it
     if (firstCell === 'period:' || firstCell === 'refresh sheet to populate with data' || firstCell === '') {
@@ -66,20 +66,24 @@ function writeToSheet_(sheetName, data, columns) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return;
 
-  // Internal/cache sheets: write headers at row 1, data at row 2 (no metadata row)
-  var internalSheets = ['COA', 'Mappings', 'VAT Codes', 'Centers', 'Bills'];
-  var isInternal = internalSheets.indexOf(sheetName) !== -1;
-  var headerRowNum = isInternal ? 1 : 2;
-  var dataStartRow = isInternal ? 2 : 3;
+  // Global Metadata block
+  var companyId = PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '';
+  var currency = 'Base'; 
+  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  
+  // Rows 1-3: metadata block on ALL tabs
+  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
+  sheet.getRange('A1:A3').setFontWeight('bold');
 
-  // Clear appropriately
-  if (isInternal) {
-    sheet.clear();
-  } else {
-    // Preserve row 1 metadata
-    if (sheet.getLastRow() > 1) {
-      sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), Math.max(sheet.getLastColumn(), columns.length)).clear();
-    }
+  // Headers always start on row 6, data on row 7
+  var headerRowNum = 6;
+  var dataStartRow = 7;
+
+  // Clear from row 6 down
+  if (sheet.getLastRow() >= headerRowNum) {
+    sheet.getRange(headerRowNum, 1, Math.max(sheet.getLastRow() - headerRowNum + 1, 1), Math.max(sheet.getLastColumn(), columns.length)).clear();
   }
 
   if (!data || data.length === 0) return;

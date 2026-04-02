@@ -221,3 +221,13 @@ CREATE TABLE IF NOT EXISTS finance.audit_log (
   changed_by  STRING    NOT NULL,
   changed_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP()
 );
+
+CREATE TABLE IF NOT EXISTS finance.periods (
+  company_id  STRING    NOT NULL,
+  period_name STRING    NOT NULL,
+  start_date  DATE      NOT NULL,
+  end_date    DATE      NOT NULL,
+  locked      BOOL      DEFAULT FALSE,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+  updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP()
+);

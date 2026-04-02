@@ -341,6 +341,11 @@ function _refreshTabInternal_(name, period) {
       var r = callSkuld_('bill.list', {});
       if (r) writeToSheet_('Bills', r, ['bill_id', 'vendor', 'vendor_ref', 'date', 'due_date', 'amount', 'currency', 'status', 'amount_paid']);
       return '✅ Bills refreshed';
+    case 'Settings':
+    case 'General':
+      var r = callSkuld_('period.list', {});
+      if (r) writeToSheet_('Settings', r, ['company_id', 'company_name', 'base_currency', 'fyxxxx', 'start_date', 'end_date', 'locked']);
+      return '✅ Settings loaded from database';
     case 'Bank Processing':
       var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
       var rows = readBankRows_(sheet);
@@ -410,6 +415,10 @@ function _saveTabInternal_(name) {
         return '❌ Import failed:\n' + errMsg;
       }
       return '❌ Import failed (unknown error)';
+    case 'Settings':
+    case 'General':
+      var data = readSettingsFromSheet_();
+      return callSkuld_('settings.save', { settings: data }) ? '✅ Settings saved' : '❌ Failed to save';
     case 'Bank Processing':
       var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
       var entries = readApprovedBankEntries_(sheet);
@@ -994,7 +1003,7 @@ function getSheetDataWithHeaders_(sheet) {
  * Uses a non-intrusive position that won't conflict with the report layout.
  */
 function stampCacheFreshness_(sheet) {
-  sheet.getRange('E1').setFormula('=\'Period Balances\'!C1').setFontColor('#888888').setFontSize(9);
+  sheet.getRange('E4').setFormula('=\'Period Balances\'!C4').setFontColor('#888888').setFontSize(9);
 }
 
 /** Cumulative balance: INDEX/MATCH lookup from Period Balances. */
@@ -2263,7 +2272,7 @@ function showGL() {
 }
 
 function showSettings() {
-  navigateToTab('General');
+  navigateToTab('Settings');
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 

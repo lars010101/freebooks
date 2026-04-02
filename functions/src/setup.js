@@ -144,6 +144,18 @@ async function initSchema(ctx) {
       ],
     },
     {
+      id: 'periods',
+      schema: [
+        { name: 'company_id', type: 'STRING', mode: 'REQUIRED' },
+        { name: 'period_name', type: 'STRING', mode: 'REQUIRED' },
+        { name: 'start_date', type: 'DATE', mode: 'REQUIRED' },
+        { name: 'end_date', type: 'DATE', mode: 'REQUIRED' },
+        { name: 'locked', type: 'BOOL' },
+        { name: 'created_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+        { name: 'updated_at', type: 'TIMESTAMP', mode: 'REQUIRED' },
+      ],
+    },
+    {
       id: 'user_permissions',
       schema: [
         { name: 'email', type: 'STRING', mode: 'REQUIRED' },

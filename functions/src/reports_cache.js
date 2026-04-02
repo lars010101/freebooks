@@ -22,14 +22,15 @@ async function buildAccountBalancesCache(ctx) {
     params: { companyId }
   });
 
-  const [fyRows] = await dataset.query({
-    query: `SELECT fy_start FROM finance.companies WHERE company_id = @companyId LIMIT 1`,
+  const [periodsRows] = await dataset.query({
+    query: `SELECT period_name, start_date, end_date FROM finance.periods WHERE company_id = @companyId`,
     params: { companyId }
   });
-  const fy_start_raw = fyRows[0]?.fy_start;
-  const fyStartStr = String(fy_start_raw?.value || fy_start_raw || '2025-01-01');
-  const fsParts = fyStartStr.split('-').map(Number);
-  const startMonth = fsParts.length === 3 ? fsParts[1] : fsParts[0];
+  const periodsData = periodsRows.map(p => ({
+    period_name: p.period_name,
+    start: new Date(p.start_date.value || p.start_date).getTime(),
+    end: new Date(p.end_date.value || p.end_date).getTime()
+  }));
 
   const [entries] = await dataset.query({
     query: `
@@ -53,22 +54,38 @@ async function buildAccountBalancesCache(ctx) {
     const acct = row.account_code;
     if (!movementsByAccount[acct]) movementsByAccount[acct] = {};
 
-    const d = new Date(row.date.value);
-    const month = d.getMonth() + 1;
-    const year = d.getFullYear();
-
-    const periodNum = ((month - startMonth + 12) % 12) + 1;
-    const fyEndYear = (month >= startMonth) ? year + 1 : year;
-    const fyStr = `FY${fyEndYear}`;
-    const periodStr = `${fyEndYear}P${String(periodNum).padStart(2, '0')}`;
-
-    periods.add(periodStr);
-    fyPeriods.add(fyStr);
-
+    const rawDate = row.date.value || row.date;
+    const d = new Date(rawDate);
+    const dTime = d.getTime();
     const bal = Number(row.balance?.value !== undefined ? row.balance.value : row.balance) || 0;
 
-    movementsByAccount[acct][periodStr] = (movementsByAccount[acct][periodStr] || 0) + bal;
-    movementsByAccount[acct][fyStr] = (movementsByAccount[acct][fyStr] || 0) + bal;
+    let foundFy = false;
+    let periodName = null;
+
+    for (const p of periodsData) {
+      if (dTime >= p.start && dTime <= p.end) {
+        const pName = p.period_name;
+        if (pName.startsWith('FY')) {
+          fyPeriods.add(pName);
+          movementsByAccount[acct][pName] = (movementsByAccount[acct][pName] || 0) + bal;
+          foundFy = true;
+        } else {
+          periods.add(pName);
+          movementsByAccount[acct][pName] = (movementsByAccount[acct][pName] || 0) + bal;
+          if (!periodName) periodName = pName;
+        }
+      }
+    }
+
+    if (!foundFy && periodName) {
+      // Derive FY from period name if no explicit FY period was found
+      const year = periodName.substring(0, 4);
+      if (/^\d{4}/.test(year)) {
+        const fyStr = `FY${year}`;
+        fyPeriods.add(fyStr);
+        movementsByAccount[acct][fyStr] = (movementsByAccount[acct][fyStr] || 0) + bal;
+      }
+    }
   });
 
   const sortedMonthsAll = Array.from(periods).sort();

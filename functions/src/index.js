@@ -73,6 +73,8 @@ const ACTION_ROLES = {
 
   // Settings
   'settings.get': 'viewer',
+  'period.list': 'viewer',
+  'period.save': 'owner',
   'settings.save': 'owner',
 
   // Permissions
@@ -172,6 +174,7 @@ async function handler(req, res) {
         result = await handleCenter(ctx, action);
         break;
       case 'settings':
+      case 'period':
         result = await handleSettings(ctx, action);
         break;
       case 'permissions':
@@ -432,6 +435,38 @@ async function handleCenter(ctx, action) {
 
 async function handleSettings(ctx, action) {
   const { dataset, companyId, body } = ctx;
+
+  
+  if (action === 'period.list') {
+    // We want to return rows showing company_id, company_name, base_currency, period_name, start_date, end_date, locked
+    // Left join finance.periods with finance.companies
+    const [rows] = await dataset.query({
+      query: `
+        SELECT 
+          c.company_id,
+          c.company_name,
+          c.currency,
+          p.period_name as fyxxxx,
+          p.start_date,
+          p.end_date,
+          p.locked
+        FROM finance.companies c
+        LEFT JOIN finance.periods p ON c.company_id = p.company_id
+        ORDER BY c.company_id, p.start_date DESC
+      `
+    });
+    // Format dates cleanly
+    const formatted = rows.map(r => ({
+      company_id: r.company_id,
+      company_name: r.company_name,
+      base_currency: r.currency,
+      fyxxxx: r.fyxxxx || '',
+      start_date: r.start_date ? (r.start_date.value || String(r.start_date)) : '',
+      end_date: r.end_date ? (r.end_date.value || String(r.end_date)) : '',
+      locked: !!r.locked
+    }));
+    return formatted;
+  }
 
   if (action === 'settings.get') {
     const [rows] = await dataset.query({

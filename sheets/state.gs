@@ -104,8 +104,8 @@ function applyStaleIndicator_(sheet) {
     return;
   }
   
-  // Direct query reports: stale warning in C1
-  var cell = sheet.getRange('C1');
+  // Direct query reports: stale warning in C4
+  var cell = sheet.getRange('C4');
   cell.setValue('⚠️ STALE — Refresh needed');
   cell.setFontColor('red');
   cell.setFontWeight('bold');
@@ -137,8 +137,8 @@ function clearStaleIndicator_(sheetName) {
     return;
   }
   
-  // Direct query reports: timestamp in C1
-  var cell = sheet.getRange('C1');
+  // Direct query reports: timestamp in C4
+  var cell = sheet.getRange('C4');
   cell.setValue('Data as of: ' + refreshTimeStr);
   cell.setFontColor('#0f9d58'); // Google Green
   cell.setFontWeight('normal');

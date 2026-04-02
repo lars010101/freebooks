@@ -41,11 +41,12 @@ async function validateJournalBatch(dataset, companyId, lines) {
   });
   const accountMap = new Map(accounts.map((a) => [a.account_code, a]));
 
-  // Load periods
-  const [periods] = await dataset.query({
-    query: `SELECT period_name, start_date, end_date, locked FROM finance.periods WHERE company_id = @companyId`,
+  // Load locked periods
+  const [settingsRows] = await dataset.query({
+    query: `SELECT value FROM finance.settings WHERE company_id = @companyId AND key = 'locked_periods'`,
     params: { companyId },
   });
+  const lockedPeriods = settingsRows.length > 0 ? JSON.parse(settingsRows[0].value || '[]') : [];
 
   // Load valid VAT codes
   const [vatCodes] = await dataset.query({
@@ -89,18 +90,10 @@ async function validateJournalBatch(dataset, companyId, lines) {
       errors.push(`${lineLabel}: Account ${line.account_code} not active on ${line.date} (ended ${account.effective_to})`);
     }
 
-    // Find the period for the date (ignoring FY periods for basic check, or handling them)
-    // We need an open period covering this date. FY periods might cover the whole year, but we care about the specific transactional period (e.g. month).
-    // Let's just find ANY period that is not locked and covers the date. Actually, we should find the most specific period or all periods.
-    // The simplest rule: the date MUST fall within AT LEAST ONE unlocked period, AND MUST NOT fall into ONLY locked periods or no periods.
-    // Wait, the prompt says: "Reject entries that fall into locked or undefined periods."
-    // A date must fall within an existing period, and that period must not be locked.
-    const entryDateOnly = new Date(line.date.substring(0, 10));
-    const coveringPeriods = periods.filter(p => new Date(p.start_date.value || p.start_date) <= entryDateOnly && new Date(p.end_date.value || p.end_date) >= entryDateOnly);
-    if (coveringPeriods.length === 0) {
-      errors.push(`${lineLabel}: Date ${line.date} does not fall within any defined period`);
-    } else if (coveringPeriods.some(p => p.locked)) {
-      errors.push(`${lineLabel}: Date ${line.date} falls into a locked period`);
+    // Period not locked
+    const period = line.date.substring(0, 7); // YYYY-MM
+    if (lockedPeriods.includes(period)) {
+      errors.push(`${lineLabel}: Period ${period} is locked`);
     }
 
     // Date reasonable — not in future

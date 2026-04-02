@@ -168,16 +168,19 @@ async function reverseEntry(ctx) {
   }
 
   // Check original period not locked
-  const [settingsRows] = await dataset.query({
-    query: `SELECT value FROM finance.settings WHERE company_id = @companyId AND key = 'locked_periods'`,
+  const [periods] = await dataset.query({
+    query: `SELECT period_name, start_date, end_date, locked FROM finance.periods WHERE company_id = @companyId`,
     params: { companyId },
   });
-  const lockedPeriods = settingsRows.length > 0 ? JSON.parse(settingsRows[0].value || '[]') : [];
 
   const rDate = reversalDate || new Date().toISOString().substring(0, 10);
-  const rPeriod = rDate.substring(0, 7);
-  if (lockedPeriods.includes(rPeriod)) {
-    throw Object.assign(new Error(`Reversal period ${rPeriod} is locked`), { code: 'PERIOD_LOCKED' });
+  const rDateObj = new Date(rDate);
+  const coveringPeriods = periods.filter(p => new Date(p.start_date.value || p.start_date) <= rDateObj && new Date(p.end_date.value || p.end_date) >= rDateObj);
+  
+  if (coveringPeriods.length === 0) {
+    throw Object.assign(new Error(`Date ${rDate} does not fall within any defined period`), { code: 'PERIOD_UNDEFINED' });
+  } else if (coveringPeriods.some(p => p.locked)) {
+    throw Object.assign(new Error(`Date ${rDate} falls into a locked period`), { code: 'PERIOD_LOCKED' });
   }
 
   // Create reversed lines (swap debit/credit)
@@ -302,11 +305,10 @@ async function importEntries(ctx) {
   });
   const accountSet = new Set(accounts.filter((a) => a.is_active).map((a) => a.account_code));
 
-  const [settingsRows] = await dataset.query({
-    query: `SELECT value FROM finance.settings WHERE company_id = @companyId AND key = 'locked_periods'`,
+  const [periods] = await dataset.query({
+    query: `SELECT period_name, start_date, end_date, locked FROM finance.periods WHERE company_id = @companyId`,
     params: { companyId },
   });
-  const lockedPeriods = settingsRows.length > 0 ? JSON.parse(settingsRows[0].value || '[]') : [];
 
   // Validate and build all rows
   const allRows = [];
@@ -343,9 +345,16 @@ async function importEntries(ctx) {
 
     // Check locked periods
     for (const line of lines) {
-      if (line.date && lockedPeriods.includes(line.date.substring(0, 7))) {
-        entryErrors.push(`Period locked: ${line.date.substring(0, 7)}`);
-        break;
+      if (line.date) {
+        const entryDateObj = new Date(line.date.substring(0, 10));
+        const coveringPeriods = periods.filter(p => new Date(p.start_date.value || p.start_date) <= entryDateObj && new Date(p.end_date.value || p.end_date) >= entryDateObj);
+        if (coveringPeriods.length === 0) {
+          entryErrors.push(`Date ${line.date} does not fall within any defined period`);
+          break;
+        } else if (coveringPeriods.some(p => p.locked)) {
+          entryErrors.push(`Period locked for date: ${line.date}`);
+          break;
+        }
       }
     }
 

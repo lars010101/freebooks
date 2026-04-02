@@ -98,6 +98,9 @@ function writeToSheet_(sheetName, data, columns) {
 
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
   
+  // Read existing period if any
+  var currentPeriod = String(sheet.getRange('B4').getValue()).trim();
+
   // Clear the entire sheet to ensure no ghost data from old layouts remains
   sheet.clear();
 
@@ -111,8 +114,9 @@ function writeToSheet_(sheetName, data, columns) {
   if (sheetName === 'Journal') {
     var periodsList = getCachePeriods_(ss);
     var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
+    var displayPeriod = currentPeriod || latestPeriod;
     sheet.getRange('A4').setValue('Period:').setFontWeight('bold');
-    sheet.getRange('B4').setValue(latestPeriod).setFontWeight('bold');
+    sheet.getRange('B4').setValue(displayPeriod).setFontWeight('bold');
     setPeriodDropdown_(ss, sheet.getRange('B4'));
     sheet.getRange('B4').setBackground('#e8f0fe');
     sheet.getRange('5:5').setBackground('#eeeeee');

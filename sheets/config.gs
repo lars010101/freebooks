@@ -107,8 +107,26 @@ function resolvePeriodToDates_(periodStr) {
   if (!periodStr) return null;
   periodStr = String(periodStr).trim();
   
-  // Read FY start month from Settings
-  var fyStartMonth = 1; // Default: January
+  // Derive FY start month from the first available period's start_date in the cache.
+  // This avoids depending on a Settings/Companies cell.
+  var fyStartMonth = 2; // Default: February (most common for fiscal years)
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var pbSheet = ss.getSheetByName('Period Balances');
+    if (pbSheet && pbSheet.getLastColumn() > 1) {
+      // Read row 2 (period start dates) from Period Balances
+      var dateRow = pbSheet.getRange(2, 1, 1, pbSheet.getLastColumn()).getValues()[0];
+      for (var di = 0; di < dateRow.length; di++) {
+        var d = dateRow[di];
+        if (d instanceof Date) {
+          fyStartMonth = d.getMonth() + 1; // getMonth() is 0-based
+          break;
+        }
+      }
+    }
+  } catch (e) { /* keep default */ }
+  
+  // Override: check Companies sheet for explicit fy_start (if ever added)
   var settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
   if (settings) {
     var data = settings.getDataRange().getValues();
@@ -120,7 +138,7 @@ function resolvePeriodToDates_(periodStr) {
           fyStartMonth = val.getMonth() + 1;
         } else {
           var parts = String(val).split('-');
-          if (parts.length >= 2) fyStartMonth = parseInt(parts[1], 10) || 1;
+          if (parts.length >= 2) fyStartMonth = parseInt(parts[1], 10) || fyStartMonth;
         }
         break;
       }

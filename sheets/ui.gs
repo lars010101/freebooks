@@ -20,12 +20,14 @@ function readSheetData_(sheetName) {
   var data = sheet.getDataRange().getValues();
   if (data.length < 2) return [];
 
-  // Find the header row: first row that looks like column headers (skip metadata row 1)
+  // Find the header row: first row that looks like column headers (skip metadata rows)
   var headerRowIdx = 0;
   for (var h = 0; h < Math.min(data.length, 10); h++) {
     var firstCell = String(data[h][0] || '').trim().toLowerCase();
-    // Row 1 metadata starts with 'period:' or 'refresh' or is empty — skip it
-    if (firstCell === 'period:' || firstCell === 'refresh sheet to populate with data' || firstCell === '') {
+    // Skip known metadata prefixes or empty cells
+    if (firstCell === 'company:' || firstCell === 'currency:' || firstCell === 'refreshed:' || 
+        firstCell === 'data as of:' || firstCell === 'period:' || 
+        firstCell === 'refresh sheet to populate with data' || firstCell === '') {
       continue;
     }
     headerRowIdx = h;

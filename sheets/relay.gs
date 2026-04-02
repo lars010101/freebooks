@@ -442,12 +442,12 @@ function _saveTabInternal_(name) {
       return '❌ Import failed (unknown error)';
     case 'Companies':
       var cData = readSheetData_('Companies');
-      if (!cData || cData.length === 0) return '⚠️ No company data to save.';
+      if (!cData || cData.length === 0) return '⚠️ No company data to read (or headers misaligned).';
       var r = callSkuld_('company.save', { companies: cData });
-      return r ? '✅ Companies saved to database' : '❌ Failed to save companies';
+      return (r && r.saved !== undefined) ? '✅ Saved ' + r.saved + ' company records' : '❌ Failed to save companies';
     case 'Periods':
       var pData = readSheetData_('Periods');
-      if (!pData || pData.length === 0) return '⚠️ No period data to save.';
+      if (!pData || pData.length === 0) return '⚠️ No period data to read (or headers misaligned).';
       var periods = pData.map(function(row) {
         return {
           company_id: String(row.company_id || '').trim(),
@@ -459,7 +459,7 @@ function _saveTabInternal_(name) {
       }).filter(function(p) { return p.company_id && p.period_id; });
       if (periods.length === 0) return '⚠️ No valid period rows found.';
       var r = callSkuld_('period.save', { periods: periods });
-      return r ? '✅ Periods saved to database' : '❌ Failed to save periods';
+      return (r && r.saved !== undefined) ? '✅ Saved ' + r.saved + ' period records' : '❌ Failed to save periods';
     case 'Bank Processing':
       var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
       var entries = readApprovedBankEntries_(sheet);

@@ -228,6 +228,8 @@ function refreshTab_(name, period) {
       if (typeof markSheetRefreshed === 'function') markSheetRefreshed(name);
     } catch(e) {}
   }
+  // Flush so data is visible before any alert fires
+  SpreadsheetApp.flush();
   return result;
 }
 
@@ -344,7 +346,31 @@ function _refreshTabInternal_(name, period) {
     case 'Settings':
     case 'General':
       var r = callSkuld_('period.list', {});
-      if (r) writeToSheet_('Settings', r, ['company_id', 'company_name', 'base_currency', 'period_id', 'start_date', 'end_date', 'locked']);
+      if (r) {
+        writeToSheet_('Settings', r, ['company_id', 'company_name', 'base_currency', 'period_id', 'start_date', 'end_date', 'locked']);
+        // Build Data Validation dropdown for B1 (company selector)
+        var ss = SpreadsheetApp.getActiveSpreadsheet();
+        var sSheet = ss.getSheetByName('Settings');
+        if (sSheet) {
+          // Extract unique company IDs from the data
+          var companyIds = [];
+          var seen = {};
+          for (var i = 0; i < r.length; i++) {
+            var cid = r[i].company_id;
+            if (cid && !seen[cid]) { companyIds.push(cid); seen[cid] = true; }
+          }
+          if (companyIds.length > 0) {
+            var rule = SpreadsheetApp.newDataValidation()
+              .requireValueInList(companyIds, true)
+              .setAllowInvalid(false)
+              .build();
+            var currentCompany = PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || companyIds[0];
+            sSheet.getRange('B1').setDataValidation(rule).setValue(currentCompany);
+          }
+          // B2: VLOOKUP currency from the table based on B1 selection
+          sSheet.getRange('B2').setFormula('=IFERROR(VLOOKUP(B1,A7:C,3,FALSE),"")');
+        }
+      }
       return '✅ Settings loaded from database';
     case 'Bank Processing':
       var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');

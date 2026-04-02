@@ -468,6 +468,42 @@ async function handleSettings(ctx, action) {
     return formatted;
   }
 
+  if (action === 'period.save') {
+    const { periods } = body;
+    if (!periods || !Array.isArray(periods) || periods.length === 0) {
+      throw Object.assign(new Error('periods array required'), { code: 'INVALID_INPUT' });
+    }
+
+    // Delete all existing periods for companies present in the input
+    const companyIds = [...new Set(periods.map(p => p.company_id))];
+    for (const cid of companyIds) {
+      await dataset.query({
+        query: `DELETE FROM finance.periods WHERE company_id = @cid`,
+        params: { cid }
+      });
+    }
+
+    // Insert all period rows
+    const now = new Date().toISOString();
+    const rows = periods
+      .filter(p => p.period_id && p.start_date && p.end_date)
+      .map(p => ({
+        company_id: p.company_id,
+        period_name: p.period_id,
+        start_date: p.start_date,
+        end_date: p.end_date,
+        locked: !!p.locked,
+        created_at: now,
+        updated_at: now
+      }));
+
+    if (rows.length > 0) {
+      await dataset.table('periods').insert(rows);
+    }
+
+    return { saved: rows.length, companies: companyIds };
+  }
+
   if (action === 'settings.get') {
     const [rows] = await dataset.query({
       query: `SELECT key, value FROM finance.settings WHERE company_id = @companyId`,

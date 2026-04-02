@@ -443,8 +443,30 @@ function _saveTabInternal_(name) {
       return '❌ Import failed (unknown error)';
     case 'Settings':
     case 'General':
-      var data = readSettingsFromSheet_();
-      return callSkuld_('settings.save', { settings: data }) ? '✅ Settings saved' : '❌ Failed to save';
+      // Read the periods table from row 7 onward
+      var sSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+      if (!sSheet) return '❌ Settings tab not found';
+      var lastRow = sSheet.getLastRow();
+      if (lastRow < 7) return '⚠️ No period data to save.';
+      var tableData = sSheet.getRange(7, 1, lastRow - 6, 7).getValues();
+      var periods = [];
+      for (var i = 0; i < tableData.length; i++) {
+        var row = tableData[i];
+        var cid = String(row[0]).trim();
+        if (!cid) continue;
+        periods.push({
+          company_id: cid,
+          company_name: String(row[1]).trim(),
+          base_currency: String(row[2]).trim(),
+          period_id: String(row[3]).trim(),
+          start_date: row[4] instanceof Date ? Utilities.formatDate(row[4], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(row[4]).trim(),
+          end_date: row[5] instanceof Date ? Utilities.formatDate(row[5], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(row[5]).trim(),
+          locked: row[6] === true || String(row[6]).toUpperCase() === 'TRUE'
+        });
+      }
+      if (periods.length === 0) return '⚠️ No valid period rows found.';
+      var r = callSkuld_('period.save', { periods: periods });
+      return r ? '✅ Periods saved to database' : '❌ Failed to save periods';
     case 'Bank Processing':
       var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
       var entries = readApprovedBankEntries_(sheet);

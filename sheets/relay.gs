@@ -823,7 +823,7 @@ function refreshActiveSheet() {
   // 2a. General Ledger: needs period + account, formula-driven
   var glSheets = ['General Ledger', 'GL'];
   if (glSheets.indexOf(name) !== -1) {
-    var periodVal = String(sheet.getRange('B1').getValue()).trim();
+    var periodVal = String(sheet.getRange('B4').getValue()).trim();
     if (!periodVal || periodVal === '') {
       var periodsList = getCachePeriods_(SpreadsheetApp.getActiveSpreadsheet());
       periodVal = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
@@ -833,14 +833,16 @@ function refreshActiveSheet() {
       }
     }
     periodVal = normalizePeriod_(periodVal);
-    sheet.getRange('A1').setValue('Period:').setFontWeight('bold');
-    sheet.getRange('B1').setValue(periodVal).setFontWeight('bold');
+    sheet.getRange('A4').setValue('Period:').setFontWeight('bold');
+    sheet.getRange('B4').setValue(periodVal).setFontWeight('bold');
+    setPeriodDropdown_(SpreadsheetApp.getActiveSpreadsheet(), sheet.getRange('B4'));
+    sheet.getRange('B4').setBackground('#e8f0fe');
     params.period = periodVal;
     var resolved = resolvePeriodToDates_(periodVal);
     if (resolved) { params.dateFrom = resolved.dateFrom; params.dateTo = resolved.dateTo; }
     
-    // Account is read from B2 dropdown (user sets it on the sheet)
-    var acctVal = String(sheet.getRange('B2').getValue()).trim();
+    // Account is read from B6 dropdown (buildGL_ puts account selector at B6)
+    var acctVal = String(sheet.getRange('B6').getValue()).trim();
     params.glAccount = acctVal || '';
     
     var result = refreshTab_(name, params);
@@ -851,8 +853,8 @@ function refreshActiveSheet() {
   // 2b. Other direct pull reports
   var directPulls = ['Journal', 'TB', 'Trial Balance', 'AP Aging', 'Tax Report', 'VAT Return'];
   if (directPulls.indexOf(name) !== -1) {
-    // Try to read period from cell B1
-    var periodVal = String(sheet.getRange('B1').getValue()).trim();
+    // Try to read period from cell B4 (Period selector in new layout)
+    var periodVal = String(sheet.getRange('B4').getValue()).trim();
     
     // If no valid period found on sheet, default to the latest period
     if (!periodVal || periodVal === '') {
@@ -863,10 +865,12 @@ function refreshActiveSheet() {
         return;
       }
     }
-    // Write period metadata to row 1
+    // Write period to row 4 (matching writeToSheet_ layout)
     periodVal = normalizePeriod_(periodVal);
-    sheet.getRange('A1').setValue('Period:').setFontWeight('bold');
-    sheet.getRange('B1').setValue(periodVal).setFontWeight('bold');
+    sheet.getRange('A4').setValue('Period:').setFontWeight('bold');
+    sheet.getRange('B4').setValue(periodVal).setFontWeight('bold');
+    setPeriodDropdown_(SpreadsheetApp.getActiveSpreadsheet(), sheet.getRange('B4'));
+    sheet.getRange('B4').setBackground('#e8f0fe');
     
     // Resolve the period string to actual dateFrom/dateTo
     params.period = periodVal;
@@ -1180,9 +1184,9 @@ function buildGL_(sheet, ss, params) {
     }
   }
 
-  // Clear everything below row 1 (preserve period metadata)
-  if (sheet.getLastRow() > 1 || sheet.getLastColumn() > 0) {
-    sheet.getRange(2, 1, Math.max(sheet.getLastRow(), 2), Math.max(sheet.getLastColumn(), 10)).clear();
+  // Clear everything below row 5 (preserve metadata block at rows 1-4)
+  if (sheet.getLastRow() > 5 || sheet.getLastColumn() > 0) {
+    sheet.getRange(6, 1, Math.max(sheet.getLastRow() - 5, 1), Math.max(sheet.getLastColumn(), 10)).clear();
   }
 
   // Column widths
@@ -1193,8 +1197,8 @@ function buildGL_(sheet, ss, params) {
   sheet.setColumnWidth(5, 120);  // Credit
   sheet.setColumnWidth(6, 140);  // Running Balance
 
-  // Row 2: Account selector
-  sheet.getRange('A2').setValue('Account:').setFontWeight('bold');
+  // Row 6: Account selector (A6: "Account:", B6: dropdown, C6: account name)
+  sheet.getRange('A6').setValue('Account:').setFontWeight('bold');
   // Data validation dropdown from COA — only leaf accounts (length >= min account length)
   var minLen = 6; // default
   var settingsSheet = ss.getSheetByName('Companies');
@@ -1222,25 +1226,25 @@ function buildGL_(sheet, ss, params) {
     .build();
   // Default to the user's chosen account, or first leaf account
   var defaultAcct = account || (leafAccounts.length > 0 ? leafAccounts[0] : '');
-  sheet.getRange('B2').setValue(defaultAcct).setDataValidation(rule).setFontWeight('bold');
+  sheet.getRange('B6').setValue(defaultAcct).setDataValidation(rule).setFontWeight('bold');
   // Account name lookup
-  sheet.getRange('C2').setFormula('=IFERROR(VLOOKUP(B2,COA!A:B,2,FALSE),"")');
+  sheet.getRange('C6').setFormula('=IFERROR(VLOOKUP(B6,COA!A:B,2,FALSE),"")');
 
-  // Row 3: Opening balance
-  sheet.getRange('A3').setValue('');
-  sheet.getRange('B3').setValue('Opening Balance:').setFontWeight('bold');
+  // Row 7: Opening balance
+  sheet.getRange('A7').setValue('');
+  sheet.getRange('B7').setValue('Opening Balance:').setFontWeight('bold');
   if (priorPeriod) {
-    sheet.getRange('C3').setFormula('=' + pbCum_('B2', '"' + priorPeriod + '"'));
+    sheet.getRange('C7').setFormula('=' + pbCum_('B6', '"' + priorPeriod + '"'));
   } else {
-    sheet.getRange('C3').setValue(0);
+    sheet.getRange('C7').setValue(0);
   }
-  sheet.getRange('C3').setNumberFormat('#,##0.00;(#,##0.00);0.00').setFontWeight('bold');
-  sheet.getRange('A3:F3').setBackground('#f0f0f0');
+  sheet.getRange('C7').setNumberFormat('#,##0.00;(#,##0.00);0.00').setFontWeight('bold');
+  sheet.getRange('A7:F7').setBackground('#f0f0f0');
 
-  // Row 4: Column headers
+  // Row 8: Column headers
   var headers = ['Date', 'Batch ID', 'Description', 'Debit', 'Credit', 'Running Balance'];
-  sheet.getRange(4, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
-  sheet.setFrozenRows(4);
+  sheet.getRange(8, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e6e6e6');
+  sheet.setFrozenRows(6);
 
   // Rows 5-34: Transaction formulas (30 slots)
   // Strategy: Use SMALL/IF array formulas to find the Nth row in Journal
@@ -1255,11 +1259,11 @@ function buildGL_(sheet, ss, params) {
 
   // The FILTER expression that gets all matching rows sorted by date.
   // Returns a multi-column array: Date, Batch ID, Description, Debit, Credit
-  var filterExpr = 'SORT(FILTER(Journal!A3:G,Journal!C3:C=$B$2,Journal!A3:A>=DATEVALUE("' + dateFrom + '"),Journal!A3:A<=DATEVALUE("' + dateTo + '")),1,TRUE)';
+  var filterExpr = 'SORT(FILTER(Journal!A3:G,Journal!C3:C=$B$6,Journal!A3:A>=DATEVALUE("' + dateFrom + '"),Journal!A3:A<=DATEVALUE("' + dateTo + '")),1,TRUE)';
 
   for (var i = 0; i < NUM_SLOTS; i++) {
     var n = i + 1; // Nth row from filtered result
-    var row = 5 + i;
+    var row = 9 + i;
 
     // Date (col 1 of filter)
     sheet.getRange(row, 1).setFormula('=IFERROR(INDEX(' + filterExpr + ',' + n + ',1),"")').setNumberFormat('yyyy-mm-dd');
@@ -1274,22 +1278,22 @@ function buildGL_(sheet, ss, params) {
     sheet.getRange(row, 5).setFormula('=IFERROR(INDEX(' + filterExpr + ',' + n + ',5),"")');
     sheet.getRange(row, 5).setNumberFormat('#,##0.00;(#,##0.00);""');
     // Running Balance = Opening + cumulative (Debit - Credit) through this row
-    sheet.getRange(row, 6).setFormula('=IF(A' + row + '="","",$C$3+SUM($D$5:D' + row + ')-SUM($E$5:E' + row + '))');
+    sheet.getRange(row, 6).setFormula('=IF(A' + row + '="","",$C$7+SUM($D$9:D' + row + ')-SUM($E$9:E' + row + '))');
     sheet.getRange(row, 6).setNumberFormat('#,##0.00;(#,##0.00);0.00');
   }
 
-  // Row 35: Closing balance
-  var closeRow = 5 + NUM_SLOTS;
+  // Row 39: Closing balance
+  var closeRow = 9 + NUM_SLOTS;
   sheet.getRange(closeRow, 1, 1, 6).setBackground('#f0f0f0');
   sheet.getRange(closeRow, 3).setValue('Closing Balance (calculated):').setFontWeight('bold');
-  sheet.getRange(closeRow, 6).setFormula('=IF(A' + (closeRow - 1) + '="",$C$3+SUM($D$5:$D$' + (closeRow - 1) + ')-SUM($E$5:$E$' + (closeRow - 1) + '),F' + (closeRow - 1) + ')');
+  sheet.getRange(closeRow, 6).setFormula('=IF(A' + (closeRow - 1) + '="",$C$7+SUM($D$9:$D$' + (closeRow - 1) + ')-SUM($E$9:$E$' + (closeRow - 1) + '),F' + (closeRow - 1) + ')');
   sheet.getRange(closeRow, 6).setNumberFormat('#,##0.00;(#,##0.00);0.00').setFontWeight('bold');
 
   // Row 36: Closing from Period Balances
   var checkRow = closeRow + 1;
   sheet.getRange(checkRow, 3).setValue('Closing Balance (Period Balances):').setFontWeight('bold');
   if (period) {
-    sheet.getRange(checkRow, 6).setFormula('=' + pbCum_('B2', '"' + period + '"'));
+    sheet.getRange(checkRow, 6).setFormula('=' + pbCum_('B6', '"' + period + '"'));
   } else {
     sheet.getRange(checkRow, 6).setValue(0);
   }

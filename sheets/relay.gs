@@ -766,8 +766,29 @@ function newTransactionImport() {
 // =============================================================================
 
 function showJournal() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var jSheet = ss.getSheetByName('Journal');
+  if (!jSheet) {
+    jSheet = ss.insertSheet('Journal', 0);
+    jSheet.setTabColor('#1a73e8');
+    jSheet.setFrozenRows(6);
+  }
+  
+  // Load data directly — single fetch, no double-write
+  var params = {};
+  var periodsList = getCachePeriods_(ss);
+  var periodVal = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
+  if (periodVal) {
+    periodVal = normalizePeriod_(periodVal);
+    var resolved = resolvePeriodToDates_(periodVal);
+    if (resolved) { params.dateFrom = resolved.dateFrom; params.dateTo = resolved.dateTo; }
+  }
+  var entries = callSkuld_('journal.list', params);
+  if (entries) {
+    writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code']);
+  }
   navigateToTab('Journal');
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  SpreadsheetApp.getUi().alert('✅ Journal loaded (' + (entries ? entries.length : 0) + ' rows)\nChange period in B4 and click Refresh Sheet to reload.');
 }
 
 function showTaxReport() {

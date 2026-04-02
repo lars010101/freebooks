@@ -1028,7 +1028,7 @@ function getSheetDataWithHeaders_(sheet) {
   if (allData.length === 0) return { headers: [], data: [], headerIdx: 0 };
   
   var headerIdx = 0;
-  for (var h = 0; h < Math.min(allData.length, 5); h++) {
+  for (var h = 0; h < Math.min(allData.length, 10); h++) {
     var firstCell = String(allData[h][0] || '').trim().toLowerCase();
     if (firstCell === 'company:' || firstCell === 'currency:' || firstCell === 'refreshed:' || 
         firstCell === 'data as of:' || firstCell === 'period:' || 

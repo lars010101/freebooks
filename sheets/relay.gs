@@ -239,7 +239,7 @@ function _refreshTabInternal_(name, period) {
     case 'Journal':
       var entries = callSkuld_('journal.list', { dateFrom: params.dateFrom, dateTo: params.dateTo });
       if (entries) {
-        writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code']);
+        writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code'], { period: params.period || '' });
       }
       return '✅ Journal loaded (' + (entries ? entries.length : 0) + ' rows)';
     case 'General Ledger':
@@ -717,7 +717,7 @@ function showJournal() {
   }
   var entries = callSkuld_('journal.list', params);
   if (entries) {
-    writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code']);
+    writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code'], { period: periodVal });
   }
   navigateToTab('Journal');
   SpreadsheetApp.getUi().alert('✅ Journal loaded (' + (entries ? entries.length : 0) + ' rows)\nChange period in B4 and click Refresh Sheet to reload.');

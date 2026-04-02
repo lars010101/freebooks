@@ -64,7 +64,8 @@ function readSheetData_(sheetName) {
  * @param {object[]} data - Array of row objects
  * @param {string[]} columns - Column keys to write (in order)
  */
-function writeToSheet_(sheetName, data, columns) {
+function writeToSheet_(sheetName, data, columns, opts) {
+  opts = opts || {};
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return;
 
@@ -97,9 +98,6 @@ function writeToSheet_(sheetName, data, columns) {
   }
 
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-  
-  // Read existing period if any
-  var currentPeriod = String(sheet.getRange('B4').getValue()).trim();
 
   // Clear the entire sheet to ensure no ghost data from old layouts remains
   sheet.clear();
@@ -110,11 +108,12 @@ function writeToSheet_(sheetName, data, columns) {
   sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
   sheet.getRange('A1:A3').setFontWeight('bold');
 
-  // Row 4: Period selector for Journal tab
-  if (sheetName === 'Journal') {
+  // Row 4: Period selector for period-aware tabs
+  var periodAwareTabs = ['Journal'];
+  if (periodAwareTabs.indexOf(sheetName) !== -1) {
     var periodsList = getCachePeriods_(ss);
     var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
-    var displayPeriod = currentPeriod || latestPeriod;
+    var displayPeriod = opts.period || latestPeriod;
     sheet.getRange('A4').setValue('Period:').setFontWeight('bold');
     sheet.getRange('B4').setValue(displayPeriod).setFontWeight('bold');
     setPeriodDropdown_(ss, sheet.getRange('B4'));

@@ -1342,6 +1342,7 @@ function buildPL_(sheet, ss) {
   sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
   sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
   sheet.getRange('A1:A3').setFontWeight('bold');
+  sheet.getRange('A1:B3').setHorizontalAlignment('left');
 
   // Row 4: Period selector
   sheet.getRange(4, 1).setValue(''); 
@@ -1486,17 +1487,30 @@ function buildBS_(sheet, ss) {
   sheet.setColumnWidth(2, 300);
   sheet.setColumnWidth(3, 160);
 
-  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
-  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue('');
-  sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 3).setValue('FY2025').setFontWeight('bold');
-  setPeriodDropdown_(ss, sheet.getRange(3, 3));
-  sheet.getRange(3, 3).setBackground('#e8f0fe');
-  sheet.getRange('4:4').setBackground('#eeeeee');
+  var periodsList = getCachePeriods_(ss);
+  var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
-  var row = 5;
+  // Row 1-3: Global Metadata block
+  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
+  sheet.getRange('A1:A3').setFontWeight('bold');
+  sheet.getRange('A1:B3').setHorizontalAlignment('left');
+
+  // Row 4: Period selector
+  sheet.getRange(4, 1).setValue(''); 
+  sheet.getRange(4, 2).setValue('Period:').setFontWeight('bold');
+  sheet.getRange(4, 3).setValue(latestPeriod).setFontWeight('bold');
+  setPeriodDropdown_(ss, sheet.getRange(4, 3));
+  sheet.getRange(4, 3).setBackground('#e8f0fe');
+
+  // Row 5: Separator
+  sheet.getRange('5:5').setBackground('#eeeeee');
+
+  var row = 6;
+
   var sections = {Asset: {start: null, end: null}, Liability: {start: null, end: null}, Equity: {start: null, end: null}};
   var currentSection = null;
 
@@ -1649,23 +1663,30 @@ function buildCF_(sheet, ss) {
   sheet.setColumnWidth(2, 295);
   sheet.setColumnWidth(3, 168);
 
-  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
-  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue('');
-  sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 3).setValue('FY2026').setFontWeight('bold');
-  setPeriodDropdown_(ss, sheet.getRange(3, 3));
-  sheet.getRange(3, 3).setBackground('#e8f0fe');
+  var periodsList = getCachePeriods_(ss);
+  var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
-  // Row 3, Col C: compute prior period name dynamically
-  // ="FY"&(VALUE(RIGHT(B3,4))-1) → e.g. "FY2025" when B3="FY2026"
-  sheet.getRange(2, 3).setFormula('="FY"&(VALUE(RIGHT(C3,4))-1)');
-  sheet.getRange(2, 3).setFontColor('#ffffff');  // hide it
+  // Row 1-3: Global Metadata block
+  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
+  sheet.getRange('A1:A3').setFontWeight('bold');
+  sheet.getRange('A1:B3').setHorizontalAlignment('left');
 
-  sheet.getRange('4:4').setBackground('#eeeeee');
+  // Row 4: Period selector
+  sheet.getRange(4, 1).setValue(''); 
+  sheet.getRange(4, 2).setValue('Period:').setFontWeight('bold');
+  sheet.getRange(4, 3).setValue(latestPeriod).setFontWeight('bold');
+  setPeriodDropdown_(ss, sheet.getRange(4, 3));
+  sheet.getRange(4, 3).setBackground('#e8f0fe');
 
-  var row = 5;
+  // Row 5: Separator
+  sheet.getRange('5:5').setBackground('#eeeeee');
+
+  var row = 6;
+
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
   function secHdr(label) {
@@ -1879,23 +1900,35 @@ function buildTB_(sheet, ss) {
   sheet.setColumnWidth(4, 140);
   sheet.setColumnWidth(5, 140);
 
-  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
-  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue('');
-  sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 3).setValue('FY2025').setFontWeight('bold').setBackground('#e8f0fe');
-  setPeriodDropdown_(ss, sheet.getRange(3, 3));
+  var periodsList = getCachePeriods_(ss);
+  var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
-  // Headers row 4
-  sheet.getRange(4, 1).setValue('Account Code').setFontWeight('bold');
-  sheet.getRange(4, 2).setValue('Account Name').setFontWeight('bold');
-  sheet.getRange(4, 3).setValue('Debit').setFontWeight('bold');
-  sheet.getRange(4, 4).setValue('Credit').setFontWeight('bold');
-  sheet.getRange(4, 5).setValue('Balance').setFontWeight('bold');
-  sheet.getRange(4, 1, 1, 5).setBackground('#e6e6e6');
+  // Row 1-3: Global Metadata block
+  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
+  sheet.getRange('A1:A3').setFontWeight('bold');
+  sheet.getRange('A1:B3').setHorizontalAlignment('left');
 
-  var row = 5;
+  // Row 4: Period selector
+  sheet.getRange(4, 1).setValue(''); 
+  sheet.getRange(4, 2).setValue('Period:').setFontWeight('bold');
+  sheet.getRange(4, 3).setValue(latestPeriod).setFontWeight('bold');
+  setPeriodDropdown_(ss, sheet.getRange(4, 3));
+  sheet.getRange(4, 3).setBackground('#e8f0fe');
+
+  // Row 5: Separator
+  sheet.getRange('5:5').setBackground('#eeeeee');
+
+  var row = 6;
+
+  // Row 6: Column headers
+  sheet.getRange(row, 1, 1, 5).setValues([['Account Code', 'Account Name', 'Debit', 'Credit', 'Net Balance']]).setFontWeight('bold').setBackground('#e6e6e6');
+  sheet.setFrozenRows(row);
+  row++;
+
   var startRow = row;
   for (var i = 0; i < accounts.length; i++) {
     var acct = accounts[i];
@@ -2007,36 +2040,30 @@ function buildSCE_(sheet, ss) {
   sheet.setColumnWidth(4, 150);
   sheet.setColumnWidth(5, 150);
 
-  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
-  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue('');
-  sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 3).setValue('FY2026').setFontWeight('bold').setBackground('#e8f0fe');
-  setPeriodDropdown_(ss, sheet.getRange(3, 3));
-  // C3 = prior period name (hidden)
-  sheet.getRange(2, 3).setFormula('="FY"&(VALUE(RIGHT(C3,4))-1)');
-  sheet.getRange(2, 3).setFontColor('#ffffff');
+  var periodsList = getCachePeriods_(ss);
+  var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
-  // Headers row 4
-  sheet.getRange(4, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(4, 2).setValue('Share Capital').setFontWeight('bold');
-  sheet.getRange(4, 3).setValue('Retained Earnings').setFontWeight('bold');
-  sheet.getRange(4, 4).setValue('Dividends').setFontWeight('bold');
-  sheet.getRange(4, 5).setValue('Total').setFontWeight('bold');
-  sheet.getRange(4, 1, 1, 5).setBackground('#e6e6e6');
+  // Row 1-3: Global Metadata block
+  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
+  sheet.getRange('A1:A3').setFontWeight('bold');
+  sheet.getRange('A1:B3').setHorizontalAlignment('left');
 
-  var fmt = '#,##0.00;(#,##0.00);0.00';
+  // Row 4: Period selector
+  sheet.getRange(4, 1).setValue(''); 
+  sheet.getRange(4, 2).setValue('Period:').setFontWeight('bold');
+  sheet.getRange(4, 3).setValue(latestPeriod).setFontWeight('bold');
+  setPeriodDropdown_(ss, sheet.getRange(4, 3));
+  sheet.getRange(4, 3).setBackground('#e8f0fe');
 
-  // Helper: build sum formula for a list of account codes
-  // Negated because equity credit balances are stored as negative in cache
-  function sumFormula(codes, period, isDelta) {
-    if (codes.length === 0) return '0';
-    var fn = isDelta ? pbDelta_ : pbCum_;
-    return '-(' + codes.map(function(c) { return fn('"' + c + '"', period); }).join('+') + ')';
-  }
+  // Row 5: Separator
+  sheet.getRange('5:5').setBackground('#eeeeee');
 
-  var row = 5;
+  var row = 6;
+
 
   // ── Opening Balance ──────────────────────────────────────────────────────────
   // Opening = cumulative through PRIOR period (negated for credit-normal equity)
@@ -2176,17 +2203,30 @@ function buildIntegrity_(sheet, ss) {
   sheet.setColumnWidth(4, 100);
   sheet.setColumnWidth(5, 120);
 
-  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
-  
-  sheet.getRange(2, 1).setValue(''); 
-  sheet.getRange(2, 2).setValue('Period').setFontWeight('bold');
-  sheet.getRange(2, 3).setValue('FY2026').setFontWeight('bold').setBackground('#e8f0fe');
-  setPeriodDropdown_(ss, sheet.getRange(2, 3));
-  sheet.getRange(1, 3).setFormula('="FY"&(VALUE(RIGHT(C2,4))-1)').setFontColor('#ffffff'); // Prior period hidden
+  var periodsList = getCachePeriods_(ss);
+  var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
-  var fmt = '#,##0.00;(#,##0.00);0.00';
-  var row = 4;
+  // Row 1-3: Global Metadata block
+  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
+  sheet.getRange('A1:A3').setFontWeight('bold');
+  sheet.getRange('A1:B3').setHorizontalAlignment('left');
+
+  // Row 4: Period selector
+  sheet.getRange(4, 1).setValue(''); 
+  sheet.getRange(4, 2).setValue('Period:').setFontWeight('bold');
+  sheet.getRange(4, 3).setValue(latestPeriod).setFontWeight('bold');
+  setPeriodDropdown_(ss, sheet.getRange(4, 3));
+  sheet.getRange(4, 3).setBackground('#e8f0fe');
+
+  // Row 5: Separator
+  sheet.getRange('5:5').setBackground('#eeeeee');
+
+  var row = 6;
+
 
   function secHdr(title) {
     sheet.getRange(row, 1).setValue(title).setFontWeight('bold');

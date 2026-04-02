@@ -180,7 +180,7 @@ function navigateToTab(name) {
     // Create new sheet with appropriate color
     sheet = ss.insertSheet(name);
     sheet.setTabColor(config.color);
-    sheet.setFrozenRows(1);
+    sheet.setFrozenRows(6);
     var formulaTabs = ['PL', 'BS', 'CF', 'CF-skuld', 'SCE', 'TB', 'Integrity'];
     if (formulaTabs.indexOf(name) !== -1) {
       sheet.getRange('A1').setValue('Please wait while generating report...').setFontColor('#999999').setFontStyle('italic');
@@ -499,7 +499,7 @@ function refreshAllReports_() {
     var jSheet = ss.getSheetByName('Journal');
     if (!jSheet) {
       jSheet = ss.insertSheet('Journal', 0);
-      jSheet.setTabColor('#1a73e8'); jSheet.setFrozenRows(1);
+      jSheet.setTabColor('#1a73e8'); jSheet.setFrozenRows(6);
       jSheet.getRange(1,1,1,10).setValues([['Date','Batch ID','Account Code','Debit','Credit','Currency','Description','Reference','Source','VAT Code']]).setFontWeight('bold').setBackground('#e6e6e6');
     }
     writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code']);
@@ -879,6 +879,7 @@ function refreshActiveSheet() {
       params.dateFrom = resolved.dateFrom;
       params.dateTo = resolved.dateTo;
     }
+    
   }
   
   // Direct pulls with period filtering

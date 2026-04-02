@@ -73,6 +73,8 @@ const ACTION_ROLES = {
 
   // Settings
   'settings.get': 'viewer',
+  'company.list': 'viewer',
+  'company.save': 'owner',
   'period.list': 'viewer',
   'period.save': 'owner',
   'settings.save': 'owner',
@@ -174,6 +176,7 @@ async function handler(req, res) {
         result = await handleCenter(ctx, action);
         break;
       case 'settings':
+      case 'company':
       case 'period':
         result = await handleSettings(ctx, action);
         break;
@@ -437,6 +440,47 @@ async function handleSettings(ctx, action) {
   const { dataset, companyId, body } = ctx;
 
   
+  if (action === 'company.list') {
+    const [rows] = await dataset.query({
+      query: `SELECT company_id, company_name, jurisdiction, currency, reporting_standard, accounting_method, vat_registered, tax_id FROM finance.companies ORDER BY company_id`
+    });
+    return rows.map(r => ({
+      company_id: r.company_id,
+      company_name: r.company_name,
+      jurisdiction: r.jurisdiction,
+      base_currency: r.currency,
+      reporting_standard: r.reporting_standard,
+      accounting_method: r.accounting_method,
+      vat_registered: !!r.vat_registered,
+      tax_id: r.tax_id || ''
+    }));
+  }
+
+  if (action === 'company.save') {
+    const { companies } = body;
+    if (!companies || !Array.isArray(companies) || companies.length === 0) {
+      throw Object.assign(new Error('companies array required'), { code: 'INVALID_INPUT' });
+    }
+    const now = new Date().toISOString();
+    const rows = companies.filter(c => c.company_id && c.company_name).map(c => ({
+      company_id: String(c.company_id).trim(),
+      company_name: String(c.company_name).trim(),
+      jurisdiction: String(c.jurisdiction || 'SG').trim(),
+      currency: String(c.base_currency || c.currency || 'SGD').trim(),
+      reporting_standard: String(c.reporting_standard || 'IFRS').trim(),
+      accounting_method: String(c.accounting_method || 'accrual').trim(),
+      vat_registered: c.vat_registered === true || String(c.vat_registered || '').toUpperCase() === 'TRUE',
+      tax_id: String(c.tax_id || '').trim() || null,
+      fy_start: '2025-01-01',
+      fy_end: '2025-12-31',
+      created_at: now
+    }));
+    if (rows.length > 0) {
+      await dataset.table('companies').insert(rows);
+    }
+    return { saved: rows.length };
+  }
+
   if (action === 'period.list') {
     // Insert-only pattern: pick latest row per company+period using ROW_NUMBER
     const [rows] = await dataset.query({

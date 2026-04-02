@@ -29,7 +29,7 @@ function getActiveCompanyId_() {
  * Expects a "Parameters" area in the active report sheet or Settings.
  */
 function getReportParams_() {
-  var settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
   if (!settings) return {};
 
   // Read standard parameters from Settings sheet
@@ -90,7 +90,7 @@ function resolvePeriodToDates_(periodStr) {
   
   // Read FY start month from Settings
   var fyStartMonth = 1; // Default: January
-  var settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
   if (settings) {
     var data = settings.getDataRange().getValues();
     for (var i = 0; i < data.length; i++) {

@@ -69,8 +69,8 @@ function writeToSheet_(sheetName, data, columns) {
   // Global Metadata block
   var companyId = PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '';
   var currency = '';
-  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
-  if (settingsSheet && sheetName !== 'Settings') {
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
+  if (settingsSheet && sheetName !== 'Companies' && sheetName !== 'Periods') {
     var sData = settingsSheet.getDataRange().getValues();
     for (var s = 0; s < sData.length; s++) {
       var label = String(sData[s][0]).toLowerCase().trim();
@@ -321,7 +321,7 @@ function writeMultiPeriodPL_(sheet, data) {
   // Row 1: Company
   sheet.getRange(1, 1).setValue('').setFontWeight('bold');
   // Read company name from Settings sheet or use a placeholder
-  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
   var companyName = '';
   if (settingsSheet) {
     var settingsData = settingsSheet.getDataRange().getValues();
@@ -497,7 +497,7 @@ function writeMultiPeriodBS_(sheet, data) {
 
   // Row 1: Company
   sheet.getRange(1, 1).setValue('').setFontWeight('bold');
-  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
   var companyName = '';
   var currency = '';
   if (settingsSheet) {
@@ -651,7 +651,7 @@ function writeSinglePeriodPL_(sheet, data) {
 
   // Row 1: Company
   sheet.getRange(1, 1).setValue('').setFontWeight('bold');
-  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
   var companyName = '';
   var currency = '';
   if (settingsSheet) {
@@ -773,7 +773,7 @@ function writeSinglePeriodBS_(sheet, data) {
 
   // Row 1: Company
   sheet.getRange(1, 1).setValue('').setFontWeight('bold');
-  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
   var companyName = '';
   var currency = '';
   if (settingsSheet) {
@@ -960,7 +960,7 @@ function writeCashFlowReport_(sheet, data) {
   sheet.setColumnWidth(2, 140);
 
   // Read company/currency from Settings
-  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
   var companyName = '', currency = '';
   if (settingsSheet) {
     var settingsData = settingsSheet.getDataRange().getValues();
@@ -1283,7 +1283,7 @@ function getSelectedBillId_() {
  * Read settings as key-value object from the Settings sheet.
  */
 function readSettingsFromSheet_() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
   if (!sheet) return {};
   var data = sheet.getDataRange().getValues();
   var settings = {};

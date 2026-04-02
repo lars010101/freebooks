@@ -160,8 +160,8 @@ var TAB_CONFIG = {
   'Integrity':           { color: '#ff9800', category: 'reports' },
 
   // SETTINGS (Gray)
-  'Settings':            { color: '#9e9e9e', category: 'settings' },
-  'General':             { color: '#9e9e9e', category: 'settings' },
+  'Companies':           { color: '#9e9e9e', category: 'settings' },
+  'Periods':             { color: '#9e9e9e', category: 'settings' },
   'Bank map':            { color: '#9e9e9e', category: 'settings' },
   'Mappings':            { color: '#9e9e9e', category: 'settings' },
   'Tax codes':           { color: '#9e9e9e', category: 'settings' },
@@ -343,35 +343,34 @@ function _refreshTabInternal_(name, period) {
       var r = callSkuld_('bill.list', {});
       if (r) writeToSheet_('Bills', r, ['bill_id', 'vendor', 'vendor_ref', 'date', 'due_date', 'amount', 'currency', 'status', 'amount_paid']);
       return '✅ Bills refreshed';
-    case 'Settings':
-    case 'General':
-      var r = callSkuld_('period.list', {});
+    case 'Companies':
+      var r = callSkuld_('company.list', {});
       if (r) {
-        writeToSheet_('Settings', r, ['company_id', 'company_name', 'base_currency', 'period_id', 'start_date', 'end_date', 'locked']);
-        // Build Data Validation dropdown for B1 (company selector)
+        writeToSheet_('Companies', r, ['company_id', 'company_name', 'jurisdiction', 'base_currency', 'reporting_standard', 'accounting_method', 'vat_registered', 'tax_id']);
+        // Data Validation dropdown for B1 (active company selector)
         var ss = SpreadsheetApp.getActiveSpreadsheet();
-        var sSheet = ss.getSheetByName('Settings');
-        if (sSheet) {
-          // Extract unique company IDs from the data
-          var companyIds = [];
-          var seen = {};
-          for (var i = 0; i < r.length; i++) {
-            var cid = r[i].company_id;
-            if (cid && !seen[cid]) { companyIds.push(cid); seen[cid] = true; }
-          }
+        var cSheet = ss.getSheetByName('Companies');
+        if (cSheet) {
+          var companyIds = r.map(function(c) { return c.company_id; });
           if (companyIds.length > 0) {
             var rule = SpreadsheetApp.newDataValidation()
               .requireValueInList(companyIds, true)
               .setAllowInvalid(false)
               .build();
             var currentCompany = PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || companyIds[0];
-            sSheet.getRange('B1').setDataValidation(rule).setValue(currentCompany);
+            cSheet.getRange('B1').setDataValidation(rule).setValue(currentCompany);
           }
-          // B2: VLOOKUP currency from the table based on B1 selection
-          sSheet.getRange('B2').setFormula('=IFERROR(VLOOKUP(B1,A7:C,3,FALSE),"")');
+          // B2: VLOOKUP currency from the table based on B1
+          cSheet.getRange('B2').setFormula('=IFERROR(VLOOKUP(B1,A7:D,4,FALSE),"")');
         }
       }
-      return '✅ Settings loaded from database';
+      return '✅ Companies loaded from database';
+    case 'Periods':
+      var r = callSkuld_('period.list', {});
+      if (r) {
+        writeToSheet_('Periods', r, ['company_id', 'company_name', 'base_currency', 'period_id', 'start_date', 'end_date', 'locked']);
+      }
+      return '✅ Periods loaded from database';
     case 'Bank Processing':
       var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bank Processing');
       var rows = readBankRows_(sheet);
@@ -392,7 +391,7 @@ function saveTab_(name) {
     // Only check tabs that support this logic
     var isInput = [
       'New Journal entry', 'Bank statement', 'Transaction import', 
-      'Settings', 'General', 'Bank map', 'Tax codes', 'Profit/cost centers',
+      'Companies', 'Periods', 'Bank map', 'Tax codes', 'Profit/cost centers',
       'COA', 'Mappings', 'Centers', 'VAT Codes', 'Import', 'Bank Processing'
     ].indexOf(name) !== -1;
     
@@ -441,29 +440,23 @@ function _saveTabInternal_(name) {
         return '❌ Import failed:\n' + errMsg;
       }
       return '❌ Import failed (unknown error)';
-    case 'Settings':
-    case 'General':
-      // Read the periods table from row 7 onward
-      var sSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Settings');
-      if (!sSheet) return '❌ Settings tab not found';
-      var lastRow = sSheet.getLastRow();
-      if (lastRow < 7) return '⚠️ No period data to save.';
-      var tableData = sSheet.getRange(7, 1, lastRow - 6, 7).getValues();
-      var periods = [];
-      for (var i = 0; i < tableData.length; i++) {
-        var row = tableData[i];
-        var cid = String(row[0]).trim();
-        if (!cid) continue;
-        periods.push({
-          company_id: cid,
-          company_name: String(row[1]).trim(),
-          base_currency: String(row[2]).trim(),
-          period_id: String(row[3]).trim(),
-          start_date: row[4] instanceof Date ? Utilities.formatDate(row[4], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(row[4]).trim(),
-          end_date: row[5] instanceof Date ? Utilities.formatDate(row[5], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(row[5]).trim(),
-          locked: row[6] === true || String(row[6]).toUpperCase() === 'TRUE'
-        });
-      }
+    case 'Companies':
+      var cData = readSheetData_('Companies');
+      if (!cData || cData.length === 0) return '⚠️ No company data to save.';
+      var r = callSkuld_('company.save', { companies: cData });
+      return r ? '✅ Companies saved to database' : '❌ Failed to save companies';
+    case 'Periods':
+      var pData = readSheetData_('Periods');
+      if (!pData || pData.length === 0) return '⚠️ No period data to save.';
+      var periods = pData.map(function(row) {
+        return {
+          company_id: String(row.company_id || '').trim(),
+          period_id: String(row.period_id || '').trim(),
+          start_date: String(row.start_date || '').trim(),
+          end_date: String(row.end_date || '').trim(),
+          locked: row.locked === true || String(row.locked || '').toUpperCase() === 'TRUE'
+        };
+      }).filter(function(p) { return p.company_id && p.period_id; });
       if (periods.length === 0) return '⚠️ No valid period rows found.';
       var r = callSkuld_('period.save', { periods: periods });
       return r ? '✅ Periods saved to database' : '❌ Failed to save periods';
@@ -512,7 +505,7 @@ function refreshAllReports_() {
 function getSettingsData() {
   var props = PropertiesService.getScriptProperties();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var settingsSheet = ss.getSheetByName('Settings');
+  var settingsSheet = ss.getSheetByName('Companies');
   var settings = {};
   if (settingsSheet) {
     var data = settingsSheet.getDataRange().getValues();
@@ -552,7 +545,7 @@ function formatSettingDate_(v) {
 
 function saveSettingsFromSidebar(data) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName('Settings');
+  var sheet = ss.getSheetByName('Companies');
   if (!sheet) return;
   var rows = [
     ['Company ID', PropertiesService.getScriptProperties().getProperty('COMPANY_ID')],
@@ -639,7 +632,9 @@ function onOpen() {
       .addItem('Tax Report', 'showTaxReport')
       .addItem('Integrity Check', 'generateIntegrity'))
     .addSubMenu(ui.createMenu('Settings')
-      .addItem('General', 'showSettings')
+      .addItem('Companies', 'showCompanies')
+      .addItem('Periods', 'showPeriods')
+      .addSeparator()
       .addItem('Bank map', 'showMappings')
       .addItem('Tax codes', 'showTaxCodes')
       .addItem('Profit/cost centers', 'showCenters')
@@ -886,7 +881,7 @@ function refreshActiveSheet() {
   }
   
   // Static full-load tabs (no period needed)
-  var staticTabs = ['COA', 'Mappings', 'Bank map', 'Tax codes', 'VAT Codes', 'Centers', 'Profit/cost centers', 'Period Balances', 'Bills', 'Settings', 'General'];
+  var staticTabs = ['COA', 'Mappings', 'Bank map', 'Tax codes', 'VAT Codes', 'Centers', 'Profit/cost centers', 'Period Balances', 'Bills', 'Companies', 'Periods'];
   if (staticTabs.indexOf(name) !== -1) {
     var result = refreshTab_(name, params);
     SpreadsheetApp.getUi().alert(result);
@@ -908,7 +903,7 @@ function refreshActiveSheet() {
  */
 function protectPermanentSheets_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var permanentTabs = ['COA', 'Period Balances', 'Settings'];
+  var permanentTabs = ['COA', 'Period Balances', 'Companies', 'Periods'];
 
   for (var i = 0; i < permanentTabs.length; i++) {
     var sheet = ss.getSheetByName(permanentTabs[i]);
@@ -984,7 +979,7 @@ function setAutoOpen(enabled) {
 
 function hideNonEssentialTabs_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hide = ['Import', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'CF', 'AP Aging', 'VAT Return', 'SCE', 'Integrity', 'Manual Entry', 'Dashboard', 'Settings'];
+  var hide = ['Import', 'Centers', 'VAT Codes', 'Mappings', 'TB', 'CF', 'AP Aging', 'VAT Return', 'SCE', 'Integrity', 'Manual Entry', 'Dashboard', 'Companies', 'Periods'];
   for (var i = 0; i < hide.length; i++) {
     var s = ss.getSheetByName(hide[i]);
     if (s) s.hideSheet();
@@ -1167,7 +1162,7 @@ function buildGL_(sheet, ss, params) {
   sheet.getRange('A2').setValue('Account:').setFontWeight('bold');
   // Data validation dropdown from COA — only leaf accounts (length >= min account length)
   var minLen = 6; // default
-  var settingsSheet = ss.getSheetByName('Settings');
+  var settingsSheet = ss.getSheetByName('Companies');
   if (settingsSheet) {
     var sData = settingsSheet.getDataRange().getValues();
     for (var s = 0; s < sData.length; s++) {
@@ -1314,7 +1309,7 @@ function buildPL_(sheet, ss) {
 
   // Get company name and currency from Settings
   var companyName = '', currency = '';
-  var settingsSheet = ss.getSheetByName('Settings');
+  var settingsSheet = ss.getSheetByName('Companies');
   if (settingsSheet) {
     var sData = settingsSheet.getDataRange().getValues();
     for (var s = 0; s < sData.length; s++) {
@@ -1465,7 +1460,7 @@ function buildBS_(sheet, ss) {
   });
 
   var companyName = '', currency = '';
-  var settingsSheet = ss.getSheetByName('Settings');
+  var settingsSheet = ss.getSheetByName('Companies');
   if (settingsSheet) {
     var sData = settingsSheet.getDataRange().getValues();
     for (var s = 0; s < sData.length; s++) {
@@ -1627,7 +1622,7 @@ function buildCF_(sheet, ss) {
 
   // ── Company / Currency ───────────────────────────────────────────────────────
   var companyName = '', currency = '';
-  var settingsSheet = ss.getSheetByName('Settings');
+  var settingsSheet = ss.getSheetByName('Companies');
   if (settingsSheet) {
     var sData = settingsSheet.getDataRange().getValues();
     for (var s = 0; s < sData.length; s++) {
@@ -1856,7 +1851,7 @@ function buildTB_(sheet, ss) {
   accounts.sort(function(a, b) { return a.code.localeCompare(b.code, undefined, { numeric: true }); });
 
   var companyName = '', currency = '';
-  var settingsSheet = ss.getSheetByName('Settings');
+  var settingsSheet = ss.getSheetByName('Companies');
   if (settingsSheet) {
     var sData = settingsSheet.getDataRange().getValues();
     for (var s = 0; s < sData.length; s++) {
@@ -1984,7 +1979,7 @@ function buildSCE_(sheet, ss) {
   }
 
   var companyName = '', currency = '';
-  var settingsSheet = ss.getSheetByName('Settings');
+  var settingsSheet = ss.getSheetByName('Companies');
   if (settingsSheet) {
     var sData = settingsSheet.getDataRange().getValues();
     for (var s = 0; s < sData.length; s++) {
@@ -2155,7 +2150,7 @@ function buildIntegrity_(sheet, ss) {
   fyPeriods.sort();
 
   var companyName = '';
-  var settingsSheet = ss.getSheetByName('Settings');
+  var settingsSheet = ss.getSheetByName('Companies');
   if (settingsSheet) {
     var sData = settingsSheet.getDataRange().getValues();
     for (var s = 0; s < sData.length; s++) {
@@ -2319,9 +2314,16 @@ function showGL() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 }
 
+function showCompanies() {
+  navigateToTab('Companies');
+}
+
+function showPeriods() {
+  navigateToTab('Periods');
+}
+
 function showSettings() {
-  navigateToTab('Settings');
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  navigateToTab('Companies');
 }
 
 function postActiveSheet() {

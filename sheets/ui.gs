@@ -85,6 +85,9 @@ function writeToSheet_(sheetName, data, columns) {
   }
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
   
+  // Clear the entire sheet to ensure no ghost data from old layouts remains
+  sheet.clear();
+
   // Rows 1-3: metadata block on ALL tabs
   sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
   sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
@@ -95,13 +98,6 @@ function writeToSheet_(sheetName, data, columns) {
   var headerRowNum = 6;
   var dataStartRow = 7;
 
-  // Clear from row 6 down
-  if (sheet.getLastRow() >= headerRowNum) {
-    sheet.getRange(headerRowNum, 1, Math.max(sheet.getLastRow() - headerRowNum + 1, 1), Math.max(sheet.getLastColumn(), columns.length)).clear();
-  }
-
-  if (!data || data.length === 0) return;
-
   // Write headers
   var headerRow = columns.map(function(c) {
     return c.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
@@ -109,6 +105,11 @@ function writeToSheet_(sheetName, data, columns) {
   sheet.getRange(headerRowNum, 1, 1, columns.length).setValues([headerRow]);
   sheet.getRange(headerRowNum, 1, 1, columns.length).setFontWeight('bold').setBackground('#e6e6e6');
   sheet.setFrozenRows(headerRowNum);
+
+  if (!data || data.length === 0) {
+    for (var c = 1; c <= columns.length; c++) sheet.autoResizeColumn(c);
+    return;
+  }
 
   // Write data
   var rows = data.map(function(item) {

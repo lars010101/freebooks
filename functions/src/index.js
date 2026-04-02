@@ -438,8 +438,7 @@ async function handleSettings(ctx, action) {
 
   
   if (action === 'period.list') {
-    // We want to return rows showing company_id, company_name, base_currency, period_name, start_date, end_date, locked
-    // Left join finance.periods with finance.companies
+    // Insert-only pattern: pick latest row per company+period using ROW_NUMBER
     const [rows] = await dataset.query({
       query: `
         SELECT 
@@ -451,7 +450,12 @@ async function handleSettings(ctx, action) {
           p.end_date,
           p.locked
         FROM finance.companies c
-        LEFT JOIN finance.periods p ON c.company_id = p.company_id
+        LEFT JOIN (
+          SELECT * FROM (
+            SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id, period_name ORDER BY created_at DESC) as rn
+            FROM finance.periods
+          ) WHERE rn = 1
+        ) p ON c.company_id = p.company_id
         ORDER BY c.company_id, p.start_date DESC
       `
     });
@@ -478,40 +482,22 @@ async function handleSettings(ctx, action) {
     if (validPeriods.length === 0) return { saved: 0, companies: [] };
 
     const companyIds = [...new Set(validPeriods.map(p => p.company_id))];
-    let saved = 0;
+    const now = new Date().toISOString();
 
-    for (const p of validPeriods) {
-      // MERGE: update if exists, insert if not. Avoids streaming buffer conflicts.
-      await dataset.query({
-        query: `
-          MERGE finance.periods T
-          USING (SELECT @companyId AS company_id, @periodName AS period_name) S
-          ON T.company_id = S.company_id AND T.period_name = S.period_name
-          WHEN MATCHED THEN
-            UPDATE SET start_date = @startDate, end_date = @endDate, locked = @locked, updated_at = CURRENT_TIMESTAMP()
-          WHEN NOT MATCHED THEN
-            INSERT (company_id, period_name, start_date, end_date, locked, created_at, updated_at)
-            VALUES (@companyId, @periodName, @startDate, @endDate, @locked, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
-        `,
-        params: {
-          companyId: p.company_id,
-          periodName: p.period_id,
-          startDate: p.start_date,
-          endDate: p.end_date,
-          locked: !!p.locked
-        },
-        types: {
-          companyId: 'STRING',
-          periodName: 'STRING',
-          startDate: 'DATE',
-          endDate: 'DATE',
-          locked: 'BOOL'
-        }
-      });
-      saved++;
-    }
+    // Insert-only: always append. Reads use ROW_NUMBER to pick latest.
+    const rows = validPeriods.map(p => ({
+      company_id: p.company_id,
+      period_name: p.period_id,
+      start_date: p.start_date,
+      end_date: p.end_date,
+      locked: !!p.locked,
+      created_at: now,
+      updated_at: now
+    }));
 
-    return { saved, companies: companyIds };
+    await dataset.table('periods').insert(rows);
+
+    return { saved: rows.length, companies: companyIds };
   }
 
   if (action === 'settings.get') {

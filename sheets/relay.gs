@@ -698,7 +698,7 @@ function generatePL() {
   navigateToTab('PL');
   var sheet = ss.getSheetByName('PL');
   buildPL_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ P&L generated.\nChange period in C3.');
+  SpreadsheetApp.getUi().alert('✅ P&L generated.\nChange period in C4.');
 }
 
 function generateBS() {
@@ -706,7 +706,7 @@ function generateBS() {
   navigateToTab('BS');
   var sheet = ss.getSheetByName('BS');
   buildBS_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Balance Sheet generated.\nChange period in C3.');
+  SpreadsheetApp.getUi().alert('✅ Balance Sheet generated.\nChange period in C4.');
 }
 
 function generateCF() {
@@ -714,7 +714,7 @@ function generateCF() {
   navigateToTab('CF');
   var sheet = ss.getSheetByName('CF');
   buildCF_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Cash Flow generated.\nChange period in C3.');
+  SpreadsheetApp.getUi().alert('✅ Cash Flow generated.\nChange period in C4.');
 }
 
 function generateTB() {
@@ -722,7 +722,7 @@ function generateTB() {
   navigateToTab('TB');
   var sheet = ss.getSheetByName('TB');
   buildTB_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Trial Balance generated.\nChange period in C3.');
+  SpreadsheetApp.getUi().alert('✅ Trial Balance generated.\nChange period in C4.');
 }
 
 function generateSCE() {
@@ -730,7 +730,7 @@ function generateSCE() {
   navigateToTab('SCE');
   var sheet = ss.getSheetByName('SCE');
   buildSCE_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Statement of Changes in Equity generated.\nChange period in C3.');
+  SpreadsheetApp.getUi().alert('✅ Statement of Changes in Equity generated.\nChange period in C4.');
 }
 
 function generateIntegrity() {
@@ -738,7 +738,7 @@ function generateIntegrity() {
   navigateToTab('Integrity');
   var sheet = ss.getSheetByName('Integrity');
   buildIntegrity_(sheet, ss);
-  SpreadsheetApp.getUi().alert('✅ Integrity Check generated.\nChange period in C2.');
+  SpreadsheetApp.getUi().alert('✅ Integrity Check generated.\nChange period in C4.');
 }
 
 // =============================================================================
@@ -825,11 +825,12 @@ function refreshActiveSheet() {
   if (glSheets.indexOf(name) !== -1) {
     var periodVal = String(sheet.getRange('B1').getValue()).trim();
     if (!periodVal || periodVal === '') {
-      var ui = SpreadsheetApp.getUi();
-      var response = ui.prompt('Period', 'For which period? (e.g., FY2026 or 2026P4):', ui.ButtonSet.OK_CANCEL);
-      if (response.getSelectedButton() == ui.Button.CANCEL) return;
-      periodVal = response.getResponseText().trim();
-      if (!periodVal) return;
+      var periodsList = getCachePeriods_(SpreadsheetApp.getActiveSpreadsheet());
+      periodVal = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
+      if (!periodVal) {
+        SpreadsheetApp.getUi().alert('⚠️ No periods found in cache. Refresh Period Balances first.');
+        return;
+      }
     }
     periodVal = normalizePeriod_(periodVal);
     sheet.getRange('A1').setValue('Period:').setFontWeight('bold');
@@ -853,18 +854,13 @@ function refreshActiveSheet() {
     // Try to read period from cell B1
     var periodVal = String(sheet.getRange('B1').getValue()).trim();
     
-    // If no valid period found on sheet, prompt the user
+    // If no valid period found on sheet, default to the latest period
     if (!periodVal || periodVal === '') {
-      var ui = SpreadsheetApp.getUi();
-      var response = ui.prompt('Missing Period', 'For which period should this data be loaded? (e.g., FY2026 or 2026P4):', ui.ButtonSet.OK_CANCEL);
-      if (response.getSelectedButton() == ui.Button.CANCEL) {
-        return; // User cancelled
-      }
-      periodVal = response.getResponseText().trim();
-      if (periodVal) {
-        periodVal = response.getResponseText().trim();
-      } else {
-        return; // User cancelled
+      var periodsList = getCachePeriods_(SpreadsheetApp.getActiveSpreadsheet());
+      periodVal = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
+      if (!periodVal) {
+        SpreadsheetApp.getUi().alert('⚠️ No periods found in cache. Refresh Period Balances first.');
+        return;
       }
     }
     // Write period metadata to row 1
@@ -1034,7 +1030,9 @@ function getSheetDataWithHeaders_(sheet) {
   var headerIdx = 0;
   for (var h = 0; h < Math.min(allData.length, 5); h++) {
     var firstCell = String(allData[h][0] || '').trim().toLowerCase();
-    if (firstCell === 'period:' || firstCell === 'refresh sheet to populate with data' || firstCell === '' || firstCell === 'data as of:') {
+    if (firstCell === 'company:' || firstCell === 'currency:' || firstCell === 'refreshed:' || 
+        firstCell === 'data as of:' || firstCell === 'period:' || 
+        firstCell === 'refresh sheet to populate with data' || firstCell === '') {
       continue;
     }
     headerIdx = h;
@@ -1069,12 +1067,12 @@ function acctMatch_(acctRef) {
 }
 
 function pbCum_(acctRef, periodRef) {
-  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$2:$2,0)),0)';
+  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$6:$6,0)),0)';
 }
 
 /** Period movement (delta): current period value minus prior period column. */
 function pbDelta_(acctRef, periodRef) {
-  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$2:$2,0))-INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$2:$2,0)-1),0)';
+  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$6:$6,0))-INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$6:$6,0)-1),0)';
 }
 
 /**
@@ -1084,7 +1082,7 @@ function pbDelta_(acctRef, periodRef) {
 function getCachePeriods_(ss) {
   var pbSheet = ss.getSheetByName('Period Balances');
   if (!pbSheet || pbSheet.getLastColumn() < 2) return [];
-  var headers = pbSheet.getRange(2, 1, 1, pbSheet.getLastColumn()).getValues()[0];
+  var headers = pbSheet.getRange(6, 1, 1, pbSheet.getLastColumn()).getValues()[0];
   var periods = [];
   for (var i = 0; i < headers.length; i++) {
     var h = String(headers[i] || '').trim();
@@ -1333,25 +1331,30 @@ function buildPL_(sheet, ss) {
   sheet.setColumnWidth(2, 300);  // Account name (VLOOKUP from COA)
   sheet.setColumnWidth(3, 160);  // Balance
 
-  // Row 1: Company header
-  sheet.getRange(1, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(1, 2).setValue('').setFontWeight('bold');
-  sheet.getRange(1, 3).setValue('');
 
-  // Row 2: Currency
-  sheet.getRange(2, 1).setValue('').setFontWeight('bold');
-  sheet.getRange(2, 2).setValue('');
+  var periodsList = getCachePeriods_(ss);
+  var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
-  // Row 3: Period selector
-  sheet.getRange(3, 1).setValue(''); sheet.getRange(3, 2).setValue('Period').setFontWeight('bold');
-  sheet.getRange(3, 3).setValue('FY2025').setFontWeight('bold');
-  setPeriodDropdown_(ss, sheet.getRange(3, 3));
-  sheet.getRange(3, 3).setBackground('#e8f0fe');
+  // Row 1-3: Global Metadata block
+  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
+  sheet.getRange('A1:A3').setFontWeight('bold');
 
-  // Row 4: Separator
-  sheet.getRange('4:4').setBackground('#eeeeee');
+  // Row 4: Period selector
+  sheet.getRange(4, 1).setValue(''); 
+  sheet.getRange(4, 2).setValue('Period:').setFontWeight('bold');
+  sheet.getRange(4, 3).setValue(latestPeriod).setFontWeight('bold');
+  setPeriodDropdown_(ss, sheet.getRange(4, 3));
+  sheet.getRange(4, 3).setBackground('#e8f0fe');
 
-  var row = 5;
+  // Row 5: Separator
+  sheet.getRange('5:5').setBackground('#eeeeee');
+
+  var row = 6;
+
 
   // REVENUE section
   sheet.getRange(row, 1).setValue('REVENUE').setFontWeight('bold').setFontSize(11);
@@ -1367,7 +1370,7 @@ function buildPL_(sheet, ss) {
     // Col B: VLOOKUP name from COA
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Col C: period movement, negated (revenue is credit-normal, show positive)
-    sheet.getRange(row, 3).setFormula('=-' + pbDelta_('$A' + row, 'C$3'));
+    sheet.getRange(row, 3).setFormula('=-' + pbDelta_('$A' + row, 'C$4'));
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -1398,7 +1401,7 @@ function buildPL_(sheet, ss) {
     // Col B: VLOOKUP name from COA
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Col C: period movement (expenses are debit-normal, positive = spent)
-    sheet.getRange(row, 3).setFormula('=' + pbDelta_('$A' + row, 'C$3'));
+    sheet.getRange(row, 3).setFormula('=' + pbDelta_('$A' + row, 'C$4'));
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -1513,7 +1516,7 @@ function buildBS_(sheet, ss) {
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Assets: raw (positive debit balance). L+E: negate (credit balance shown as positive).
     var sign = (acct.type === 'Liability' || acct.type === 'Equity') ? '=-' : '=';
-    sheet.getRange(row, 3).setFormula(sign + pbCum_('$A' + row, 'C$3'));
+    sheet.getRange(row, 3).setFormula(sign + pbCum_('$A' + row, 'C$4'));
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -1677,7 +1680,7 @@ function buildCF_(sheet, ss) {
   function cfAcctRow(code) {
     sheet.getRange(row, 1).setValue(code);
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
-    sheet.getRange(row, 3).setFormula('=-' + pbDelta_('$A' + row, 'C$3'));
+    sheet.getRange(row, 3).setFormula('=-' + pbDelta_('$A' + row, 'C$4'));
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
@@ -1720,7 +1723,7 @@ function buildCF_(sheet, ss) {
     if (type === 'Revenue' || type === 'Expense') plCodes.push(code);
   }
   if (plCodes.length > 0) {
-    var plParts = plCodes.map(function(c) { return pbDelta_('"' + c + '"', 'C$3'); });
+    var plParts = plCodes.map(function(c) { return pbDelta_('"' + c + '"', 'C$4'); });
     sheet.getRange(row, 3).setFormula('=-(' + plParts.join('+') + ')');
   } else {
     sheet.getRange(row, 3).setValue(0);
@@ -1785,7 +1788,7 @@ function buildCF_(sheet, ss) {
   var openRow = row;
   if (cashAccts.length > 0) {
     var openParts = cashAccts.map(function(a) {
-      return pbCum_('"' + a.code + '"', 'C$2');
+      return pbCum_('"' + a.code + '"', 'C$4');
     }).join('+');
     sheet.getRange(row, 2).setValue('Cash at beginning of period');
     sheet.getRange(row, 3).setFormula('=' + openParts);
@@ -1809,7 +1812,7 @@ function buildCF_(sheet, ss) {
   // BS cash balance = cumulative sum of cash accounts through selected period
   if (cashAccts.length > 0) {
     var bsParts = cashAccts.map(function(a) {
-      return pbCum_('"' + a.code + '"', 'C$3');
+      return pbCum_('"' + a.code + '"', 'C$4');
     }).join('+');
     var checkRow = row;
     sheet.getRange(row, 2).setValue('CHECK: BS cash balance').setFontStyle('italic').setFontColor('#555555');
@@ -1900,7 +1903,7 @@ function buildTB_(sheet, ss) {
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Balance = cumulative (debit - credit). Positive = debit balance.
     // Col E: cumulative balance from Period Balances
-    sheet.getRange(row, 5).setFormula('=' + pbCum_('$A' + row, 'C$3'));
+    sheet.getRange(row, 5).setFormula('=' + pbCum_('$A' + row, 'C$4'));
     // Col C (Debit): show positive balances
     sheet.getRange(row, 3).setFormula('=IF(E' + row + '>0,E' + row + ',0)');
     // Col D (Credit): show absolute value of negative balances
@@ -2039,9 +2042,9 @@ function buildSCE_(sheet, ss) {
   // Opening = cumulative through PRIOR period (negated for credit-normal equity)
   // Negate because equity credit balances are stored as negative in cache
   sheet.getRange(row, 1).setValue('Opening Balance').setFontWeight('bold');
-  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'C$2', false)).setNumberFormat(fmt);
-  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$2', false)).setNumberFormat(fmt);
-  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'C$2', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'C$4', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$4', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'C$4', false)).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   sheet.getRange(row, 1, 1, 5).setBackground('#f0f0f0');
   sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);
@@ -2055,7 +2058,7 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt); // SC: 0
   // NI formula: negate sum of P&L movements (debit-credit → credit-debit)
   if (plCodes.length > 0) {
-    var niParts = plCodes.map(function(c) { return pbDelta_('"' + c + '"', 'C$3'); });
+    var niParts = plCodes.map(function(c) { return pbDelta_('"' + c + '"', 'C$4'); });
     sheet.getRange(row, 3).setFormula('=-(' + niParts.join('+') + ')').setNumberFormat(fmt);
   } else {
     sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
@@ -2069,14 +2072,14 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 1).setValue('Dividends declared');
   sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt);
   sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
-  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'C$3', true)).setNumberFormat(fmt);
+  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'C$4', true)).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   row++;
 
   // ── Share Capital movements ──────────────────────────────────────────────────
   var scMovRow = row;
   sheet.getRange(row, 1).setValue('Share capital movements');
-  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'C$3', true)).setNumberFormat(fmt);
+  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'C$4', true)).setNumberFormat(fmt);
   sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
   sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
@@ -2088,7 +2091,7 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 1).setValue('Other RE movements');
   sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt);
   // Other RE = total RE delta - NI
-  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$3', true) + '-C' + niRow).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$4', true) + '-C' + niRow).setNumberFormat(fmt);
   sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   row++;
@@ -2194,7 +2197,7 @@ function buildIntegrity_(sheet, ss) {
   function checkRow(code, label, isDelta) {
     sheet.getRange(row, 1).setValue(code).setFontColor('#888888');
     sheet.getRange(row, 2).setValue(label);
-    var formula = isDelta ? pbDelta_('$A' + row, 'C$2') : pbCum_('$A' + row, 'C$2');
+    var formula = isDelta ? pbDelta_('$A' + row, 'C$4') : pbCum_('$A' + row, 'C$4');
     sheet.getRange(row, 3).setFormula('=' + formula).setNumberFormat(fmt);
     row++;
   }

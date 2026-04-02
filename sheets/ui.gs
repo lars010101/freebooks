@@ -70,26 +70,39 @@ function writeToSheet_(sheetName, data, columns) {
 
   // Global Metadata block
   var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cName = companyId;
   var currency = '';
-  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
-  if (settingsSheet && sheetName !== 'Companies' && sheetName !== 'Periods') {
-    var sData = settingsSheet.getDataRange().getValues();
-    for (var s = 0; s < sData.length; s++) {
-      var label = String(sData[s][0]).toLowerCase().trim();
-      if (label === 'currency:') { currency = sData[s][1] || ''; break; }
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var cSheet = ss.getSheetByName('Companies');
+  if (cSheet) {
+    var cData = cSheet.getDataRange().getValues();
+    var hIdx = -1;
+    for (var i = 0; i < Math.min(cData.length, 10); i++) {
+      if (String(cData[i][0]).trim().toLowerCase() === 'company id') { hIdx = i; break; }
+    }
+    if (hIdx !== -1) {
+      var headers = cData[hIdx].map(function(h) { return String(h).trim().toLowerCase(); });
+      var idCol = headers.indexOf('company id');
+      var nameCol = headers.indexOf('company name');
+      var currCol = headers.indexOf('base currency');
+      for (var r = hIdx + 1; r < cData.length; r++) {
+        if (String(cData[r][idCol]).trim() === companyId) {
+          if (nameCol >= 0 && cData[r][nameCol]) cName = String(cData[r][nameCol]).trim();
+          if (currCol >= 0 && cData[r][currCol]) currency = String(cData[r][currCol]).trim();
+          break;
+        }
+      }
     }
   }
-  if (!currency) {
-    // Fallback: read from the Period table data if Settings has base_currency column
-    currency = '';
-  }
+
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
   
   // Clear the entire sheet to ensure no ghost data from old layouts remains
   sheet.clear();
 
   // Rows 1-3: metadata block on ALL tabs
-  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
+  sheet.getRange('A1:B1').setValues([['Company:', cName]]);
   sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
   sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
   sheet.getRange('A1:A3').setFontWeight('bold');

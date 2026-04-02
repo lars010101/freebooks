@@ -1079,6 +1079,35 @@ function pbDelta_(acctRef, periodRef) {
  * Read period column headers from Period Balances row 2 and return as array.
  * Filters to only FYxxxx and xxxxPxx entries.
  */
+
+function getCompanyInfo_(ss, companyId) {
+  var info = { name: companyId, currency: '' };
+  var cSheet = ss.getSheetByName('Companies');
+  if (!cSheet) return info;
+  
+  var data = cSheet.getDataRange().getValues();
+  // Find headers
+  var hIdx = -1;
+  for (var i = 0; i < Math.min(data.length, 10); i++) {
+    if (String(data[i][0]).trim().toLowerCase() === 'company id') { hIdx = i; break; }
+  }
+  if (hIdx === -1) return info;
+  
+  var headers = data[hIdx].map(function(h) { return String(h).trim().toLowerCase(); });
+  var idCol = headers.indexOf('company id');
+  var nameCol = headers.indexOf('company name');
+  var currCol = headers.indexOf('base currency');
+  
+  for (var r = hIdx + 1; r < data.length; r++) {
+    if (String(data[r][idCol]).trim() === companyId) {
+      if (nameCol >= 0 && data[r][nameCol]) info.name = String(data[r][nameCol]).trim();
+      if (currCol >= 0 && data[r][currCol]) info.currency = String(data[r][currCol]).trim();
+      break;
+    }
+  }
+  return info;
+}
+
 function getCachePeriods_(ss) {
   var pbSheet = ss.getSheetByName('Period Balances');
   if (!pbSheet || pbSheet.getLastColumn() < 2) return [];
@@ -1313,17 +1342,10 @@ function buildPL_(sheet, ss) {
     return a.code.localeCompare(b.code, undefined, {numeric: true});
   });
 
-  // Get company name and currency from Settings
-  var companyName = '', currency = '';
-  var settingsSheet = ss.getSheetByName('Companies');
-  if (settingsSheet) {
-    var sData = settingsSheet.getDataRange().getValues();
-    for (var s = 0; s < sData.length; s++) {
-      var k = String(sData[s][0] || '').trim().toLowerCase();
-      if (k === 'company') companyName = String(sData[s][1] || '').trim();
-      if (k === 'currency') currency = String(sData[s][1] || '').trim();
-    }
-  }
+  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cInfo = getCompanyInfo_(ss, companyId);
+  var companyName = cInfo.name;
+  var currency = cInfo.currency;
 
   // Clear and prepare sheet
   sheet.clear();
@@ -1336,10 +1358,11 @@ function buildPL_(sheet, ss) {
   var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
   // Row 1-3: Global Metadata block
-  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cInfo = getCompanyInfo_(ss, cId);
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
-  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A1:B1').setValues([['Company:', cInfo.name]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', cInfo.currency || currency]]);
   sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
   sheet.getRange('A1:A3').setFontWeight('bold');
   sheet.getRange('A1:B3').setHorizontalAlignment('left');
@@ -1491,10 +1514,11 @@ function buildBS_(sheet, ss) {
   var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
   // Row 1-3: Global Metadata block
-  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cInfo = getCompanyInfo_(ss, cId);
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
-  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A1:B1').setValues([['Company:', cInfo.name]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', cInfo.currency || currency]]);
   sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
   sheet.getRange('A1:A3').setFontWeight('bold');
   sheet.getRange('A1:B3').setHorizontalAlignment('left');
@@ -1667,10 +1691,11 @@ function buildCF_(sheet, ss) {
   var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
   // Row 1-3: Global Metadata block
-  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cInfo = getCompanyInfo_(ss, cId);
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
-  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A1:B1').setValues([['Company:', cInfo.name]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', cInfo.currency || currency]]);
   sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
   sheet.getRange('A1:A3').setFontWeight('bold');
   sheet.getRange('A1:B3').setHorizontalAlignment('left');
@@ -1904,10 +1929,11 @@ function buildTB_(sheet, ss) {
   var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
   // Row 1-3: Global Metadata block
-  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cInfo = getCompanyInfo_(ss, cId);
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
-  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A1:B1').setValues([['Company:', cInfo.name]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', cInfo.currency || currency]]);
   sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
   sheet.getRange('A1:A3').setFontWeight('bold');
   sheet.getRange('A1:B3').setHorizontalAlignment('left');
@@ -2044,10 +2070,11 @@ function buildSCE_(sheet, ss) {
   var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
   // Row 1-3: Global Metadata block
-  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cInfo = getCompanyInfo_(ss, cId);
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
-  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A1:B1').setValues([['Company:', cInfo.name]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', cInfo.currency || currency]]);
   sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
   sheet.getRange('A1:A3').setFontWeight('bold');
   sheet.getRange('A1:B3').setHorizontalAlignment('left');
@@ -2207,10 +2234,11 @@ function buildIntegrity_(sheet, ss) {
   var latestPeriod = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
 
   // Row 1-3: Global Metadata block
-  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : (PropertiesService.getScriptProperties().getProperty('COMPANY_ID') || '');
+  var cInfo = getCompanyInfo_(ss, cId);
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-  sheet.getRange('A1:B1').setValues([['Company:', companyId]]);
-  sheet.getRange('A2:B2').setValues([['Currency:', currency]]);
+  sheet.getRange('A1:B1').setValues([['Company:', cInfo.name]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', cInfo.currency || currency]]);
   sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
   sheet.getRange('A1:A3').setFontWeight('bold');
   sheet.getRange('A1:B3').setHorizontalAlignment('left');

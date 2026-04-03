@@ -78,72 +78,30 @@ function formatDate_(value) {
  */
 /**
  * Resolve a period string (e.g. "FY2026" or "2026P04") to { dateFrom, dateTo }.
- * Queries the periods table in BigQuery via the Cloud Function for authoritative dates.
- * Falls back to local cache (Period Balances sheet) if the call fails.
+ * Queries the periods table in BigQuery via the Cloud Function.
+ * No local fallback — fails loudly if the database doesn't have the period.
  */
 function resolvePeriodToDates_(periodStr) {
   if (!periodStr) return null;
   periodStr = String(periodStr).trim();
 
-  // Try: query the database for the exact period dates
-  try {
-    var periods = callSkuld_('period.list', {});
-    if (periods && periods.length > 0) {
-      for (var i = 0; i < periods.length; i++) {
-        var p = periods[i];
-        var pName = String(p.period_name || p.period_id || '').trim();
-        if (pName === periodStr) {
-          var sd = p.start_date && p.start_date.value ? p.start_date.value : String(p.start_date || '');
-          var ed = p.end_date && p.end_date.value ? p.end_date.value : String(p.end_date || '');
-          if (sd && ed) return { dateFrom: sd, dateTo: ed };
-        }
-      }
+  var periods = callSkuld_('period.list', {});
+  if (!periods || periods.length === 0) {
+    throw new Error('No periods found in database for this company. Load Periods first.');
+  }
+
+  for (var i = 0; i < periods.length; i++) {
+    var p = periods[i];
+    var pName = String(p.period_name || p.period_id || '').trim();
+    if (pName === periodStr) {
+      var sd = p.start_date && p.start_date.value ? p.start_date.value : String(p.start_date || '');
+      var ed = p.end_date && p.end_date.value ? p.end_date.value : String(p.end_date || '');
+      if (sd && ed) return { dateFrom: sd, dateTo: ed };
     }
-  } catch (e) {
-    // Fall through to local calculation
   }
 
-  // Fallback: calculate locally from FY start month
-  var fyStartMonth = 1; // default calendar year
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var pbSheet = ss.getSheetByName('Period Balances');
-    if (pbSheet && pbSheet.getLastColumn() > 1) {
-      var dateRow = pbSheet.getRange(2, 1, 1, pbSheet.getLastColumn()).getValues()[0];
-      for (var di = 0; di < dateRow.length; di++) {
-        var d = dateRow[di];
-        if (d instanceof Date) {
-          fyStartMonth = d.getMonth() + 1;
-          break;
-        }
-      }
-    }
-  } catch (e) { /* keep default */ }
-
-  var fyMatch = periodStr.match(/^FY(\d{4})$/i);
-  if (fyMatch) {
-    var fyEndYear = parseInt(fyMatch[1], 10);
-    var startYear = (fyStartMonth > 1) ? fyEndYear - 1 : fyEndYear;
-    var dateFrom = startYear + '-' + pad2_(fyStartMonth) + '-01';
-    var endMonth = (fyStartMonth === 1) ? 12 : fyStartMonth - 1;
-    var endYear = (fyStartMonth === 1) ? fyEndYear : fyEndYear;
-    var dateTo = endYear + '-' + pad2_(endMonth) + '-' + lastDay_(endYear, endMonth);
-    return { dateFrom: dateFrom, dateTo: dateTo };
-  }
-
-  var pMatch = periodStr.match(/^(\d{4})P(\d{1,2})$/i);
-  if (pMatch) {
-    var fyEndYear = parseInt(pMatch[1], 10);
-    var periodNum = parseInt(pMatch[2], 10);
-    if (periodNum < 1 || periodNum > 12) return null;
-    var calMonth = ((fyStartMonth - 1 + periodNum - 1) % 12) + 1;
-    var calYear = (fyStartMonth === 1) ? fyEndYear : (calMonth >= fyStartMonth ? fyEndYear - 1 : fyEndYear);
-    var dateFrom = calYear + '-' + pad2_(calMonth) + '-01';
-    var dateTo = calYear + '-' + pad2_(calMonth) + '-' + lastDay_(calYear, calMonth);
-    return { dateFrom: dateFrom, dateTo: dateTo };
-  }
-
-  return null;
+  throw new Error('Period "' + periodStr + '" not found in database. Available: ' +
+    periods.map(function(p) { return p.period_name || p.period_id || ''; }).filter(function(n) { return n; }).join(', '));
 }
 
 /** Zero-pad a number to 2 digits. */

@@ -715,21 +715,23 @@ function showJournal() {
     jSheet.setFrozenRows(6);
   }
   
-  // Load data directly — single fetch, no double-write
-  var params = {};
+  // Set up metadata + period selector only — no auto-load
+  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : '';
+  var cInfo = getCompanyInfo_(ss, companyId);
+  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  jSheet.getRange('A1:B1').setValues([['Company:', cInfo.name]]);
+  jSheet.getRange('A2:B2').setValues([['Currency:', cInfo.currency]]);
+  jSheet.getRange('A1:A2').setFontWeight('bold');
+  
+  // Period selector in B4
   var periodsList = getCachePeriods_(ss);
   var periodVal = periodsList.length > 0 ? periodsList[periodsList.length - 1] : '';
-  if (periodVal) {
-    periodVal = normalizePeriod_(periodVal);
-    var resolved = resolvePeriodToDates_(periodVal);
-    if (resolved) { params.dateFrom = resolved.dateFrom; params.dateTo = resolved.dateTo; }
-  }
-  var entries = callSkuld_('journal.list', params);
-  if (entries) {
-    writeToSheet_('Journal', entries, ['date','batch_id','account_code','debit','credit','currency','description','reference','source','vat_code'], { period: periodVal });
-  }
+  jSheet.getRange('A4').setValue('Period:').setFontWeight('bold');
+  jSheet.getRange('B4').setValue(periodVal).setFontWeight('bold');
+  setPeriodDropdown_(ss, jSheet.getRange('B4'));
+  jSheet.getRange('B4').setBackground('#e8f0fe');
+  
   navigateToTab('Journal');
-  SpreadsheetApp.getUi().alert('✅ Journal loaded (' + (entries ? entries.length : 0) + ' rows)\nChange period in B4 and click Refresh Sheet to reload.');
 }
 
 function showTaxReport() {

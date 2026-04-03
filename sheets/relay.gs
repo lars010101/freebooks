@@ -1131,7 +1131,7 @@ function pbCum_(acctRef, periodRef) {
 
 /** Period movement (delta): current period value minus prior period column. */
 function pbDelta_(acctRef, periodRef) {
-  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$6:$6,0))-INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$6:$6,0)-1),0)';
+  return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$6:$6,0))-IFERROR(N(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_(acctRef) + ',MATCH(' + periodRef + ',' + PB + '!$6:$6,0)-1)),0),0)';
 }
 
 /**
@@ -1896,7 +1896,7 @@ function buildCF_(sheet, ss) {
   var openRow = row;
   if (cashAccts.length > 0) {
     var openParts = cashAccts.map(function(a) {
-      return "IFERROR(INDEX(" + PB + "!$A:$ZZ," + acctMatch_('"' + a.code + '"') + ",MATCH(C$4," + PB + "!$6:$6,0)-1),0)";
+      return "IFERROR(N(INDEX(" + PB + "!$A:$ZZ," + acctMatch_('"' + a.code + '"') + ",MATCH(C$4," + PB + "!$6:$6,0)-1)),0)";
     }).join('+');
     sheet.getRange(row, 2).setValue('Cash at beginning of period');
     sheet.getRange(row, 3).setFormula('=' + openParts);
@@ -2173,7 +2173,7 @@ function buildSCE_(sheet, ss) {
   function sumFormulaPrior(codes, period) {
     if (codes.length === 0) return '0';
     return '-(' + codes.map(function(c) {
-      return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_('"' + c + '"') + ',MATCH(' + period + ',' + PB + '!$6:$6,0)-1),0)';
+      return 'IFERROR(N(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_('"' + c + '"') + ',MATCH(' + period + ',' + PB + '!$6:$6,0)-1)),0)';
     }).join('+') + ')';
   }
 

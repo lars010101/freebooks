@@ -161,6 +161,67 @@ def test_trial_balance(company_id, period, cum_balances, result):
     result.check(f"TB net balance (should be 0)", Decimal("0"), total)
 
 
+def test_integrity(company_id, periods, all_cum, all_deltas, accounts, result):
+    """Integrity checks matching the Integrity sheet in Sheets.
+    1. RE roll-forward: opening + movement = closing, and opening = prior closing
+    2. P&L vs Closing Entry: P&L net + 999999 delta = 0 per FY
+    3. CF category coverage: all A/L accounts have a CF category
+    """
+    # Classify accounts
+    re_codes = set()
+    uncat_al = []
+    for a in accounts:
+        code = a["account_code"]
+        atype = a["account_type"]
+        if atype == "Equity" and code != "999999" \
+           and not code.startswith("203080") and not code.startswith("2081") \
+           and not code.startswith("203040") and not code.startswith("2898"):
+            re_codes.add(code)
+        if atype in ("Asset", "Liability") and not (a.get("cf_category") or ""):
+            uncat_al.append(code)
+
+    # CF category coverage
+    if uncat_al:
+        result.fail(f"Integrity CF coverage: {len(uncat_al)} A/L accounts missing cf_category",
+                    f"Accounts: {', '.join(uncat_al[:10])}")
+    else:
+        result.ok(f"Integrity CF coverage: all A/L accounts have cf_category")
+
+    # RE roll-forward across FY periods
+    prev_closing_re = None
+    for i, period in enumerate(periods):
+        pname = period["period_name"]
+        cum = all_cum[pname]
+        deltas = all_deltas[pname]
+
+        # Closing RE = cumulative (negated)
+        closing_re = sum(-D(r["balance"]) for r in cum if r["account_code"] in re_codes)
+        # RE delta
+        delta_re = sum(-D(r["delta"]) for r in deltas if r["account_code"] in re_codes)
+
+        if prev_closing_re is not None:
+            # Opening should match prior closing
+            opening_re = closing_re - delta_re
+            result.check(f"Integrity RE continuity {pname}: opening = prior closing",
+                         prev_closing_re, opening_re)
+        prev_closing_re = closing_re
+
+    # P&L vs Closing Entry per FY
+    for i, period in enumerate(periods):
+        pname = period["period_name"]
+        deltas = all_deltas[pname]
+
+        pl_net = sum(D(r["delta"]) for r in deltas if r["account_type"] in ("Revenue", "Expense"))
+        closing_999 = sum(D(r["delta"]) for r in deltas if r["account_code"] == "999999")
+        total = pl_net + closing_999
+        is_last = (i == len(periods) - 1)
+        if abs(total) > TOLERANCE and is_last and closing_999 == 0:
+            # Last period with no closing entry — expected for unclosed years
+            result.ok(f"Integrity P&L+Closing {pname}: {total:,.2f} (unclosed year, no 999999 entry — expected)")
+        else:
+            result.check(f"Integrity P&L+Closing {pname} (should be 0)", Decimal("0"), total)
+
+
 def test_balance_sheet(company_id, period, cum_balances, result):
     """BS: Total Assets = Total Liabilities + Total Equity + Undistributed P/L."""
     assets = Decimal("0")
@@ -382,6 +443,9 @@ def run_tests(company_filter=None, period_filter=None):
             print(f"  ⚠️  No FY periods found, skipping")
             continue
 
+        all_cum = {}
+        all_deltas = {}
+
         for period in periods:
             pname = period["period_name"]
             if period_filter and pname != period_filter:
@@ -393,11 +457,20 @@ def run_tests(company_filter=None, period_filter=None):
             deltas = load_period_deltas(company_id, period["start_date"], period["end_date"], token)
             prior = load_prior_cumulative(company_id, periods, pname, token)
 
+            all_cum[pname] = cum
+            all_deltas[pname] = deltas
+
             test_trial_balance(company_id, period, cum, overall)
             test_balance_sheet(company_id, period, cum, overall)
             ni = test_pnl(company_id, period, deltas, overall)
             test_cashflow(company_id, period, periods, deltas, cum, prior, overall, token)
             test_sce(company_id, period, periods, deltas, cum, prior, overall, accounts)
+
+        # Cross-period integrity checks
+        if all_cum and not period_filter:
+            tested_periods = [p for p in periods if p["period_name"] in all_cum]
+            print(f"\n  ── Cross-period Integrity ──")
+            test_integrity(company_id, tested_periods, all_cum, all_deltas, accounts, overall)
 
     print(f"\n{'='*60}")
     print(f"SUMMARY: {overall.passed} passed, {overall.failed} failed")

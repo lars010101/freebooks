@@ -244,13 +244,18 @@ function _refreshTabInternal_(name, period) {
       return '✅ Journal loaded (' + (entries ? entries.length : 0) + ' rows)';
     case 'General Ledger':
     case 'GL':
-      // GL is formula-driven — no Cloud Function call needed.
-      // It reads from Journal sheet and Period Balances.
-      // "Refresh" for GL means: rebuild the formula template for the current account/period.
+      // GL is formula-driven — reads from Journal sheet and Period Balances.
       var ss = SpreadsheetApp.getActiveSpreadsheet();
-      if (!ss.getSheetByName('Journal') || ss.getSheetByName('Journal').getLastRow() < 3) return '❌ Journal sheet has no data. Load the Journal first.';
+      var jSheet = ss.getSheetByName('Journal');
+      if (!jSheet || jSheet.getLastRow() < 7) return '❌ Journal sheet has no data. Load the Journal first.';
       if (!ss.getSheetByName('Period Balances')) return '❌ Period Balances not found. Refresh the cache first.';
       if (!ss.getSheetByName('COA')) return '❌ COA not found. Load it first.';
+      // Check Journal period matches GL period
+      var journalPeriod = String(jSheet.getRange('B4').getValue() || '').trim();
+      var glPeriod = params.period || '';
+      if (glPeriod && journalPeriod && normalizePeriod_(journalPeriod) !== normalizePeriod_(glPeriod)) {
+        return '❌ Period mismatch: Journal is loaded for ' + journalPeriod + ' but GL is set to ' + glPeriod + '. Refresh the Journal for ' + glPeriod + ' first.';
+      }
       try { buildGL_(ss.getSheetByName(name), ss, params); } catch (e) { return '❌ GL Error: ' + e.message; }
       return '✅ General Ledger built for account ' + (params.glAccount || 'all') + ', period ' + (params.period || '');
     case 'TB':

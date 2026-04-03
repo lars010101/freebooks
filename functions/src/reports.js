@@ -185,4 +185,85 @@ function detectPeriods(dateFrom, dateTo, fy) {
 }
 
 
+// =============================================================================
+// AP Aging
+// =============================================================================
+
+/**
+ * Refresh AP Aging report.
+ * Groups unpaid bills into aging buckets based on days past due.
+ */
+async function refreshAPAging(ctx) {
+  const { dataset, companyId } = ctx;
+
+  const [rows] = await dataset.query({
+    query: `
+      SELECT
+        vendor,
+        vendor_ref,
+        due_date,
+        amount_home,
+        amount_paid
+      FROM finance.bills
+      WHERE company_id = @companyId
+        AND status != 'paid'
+        AND amount_paid < amount_home
+    `,
+    params: { companyId },
+  });
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const BUCKET_ORDER = ['Not Yet Due', '0-30 days', '31-60 days', '61-90 days', '91+ days'];
+
+  const bucketsMap = {};
+
+  for (const row of rows) {
+    const outstanding = (Number(row.amount_home) || 0) - (Number(row.amount_paid) || 0);
+
+    // due_date may be a BigQuery DATE object {value: 'YYYY-MM-DD'} or a string
+    const dueDateStr = String(row.due_date?.value || row.due_date || '');
+    const dueDate = new Date(dueDateStr + 'T00:00:00Z');
+    const daysPastDue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+
+    let label;
+    if (daysPastDue < 0) label = 'Not Yet Due';
+    else if (daysPastDue <= 30) label = '0-30 days';
+    else if (daysPastDue <= 60) label = '31-60 days';
+    else if (daysPastDue <= 90) label = '61-90 days';
+    else label = '91+ days';
+
+    if (!bucketsMap[label]) bucketsMap[label] = [];
+    bucketsMap[label].push({
+      vendor: row.vendor || '',
+      vendorRef: row.vendor_ref || '',
+      outstanding: Math.round(outstanding * 100) / 100,
+      daysPastDue,
+    });
+  }
+
+  // Sort bills within each bucket by daysPastDue descending
+  for (const bills of Object.values(bucketsMap)) {
+    bills.sort((a, b) => b.daysPastDue - a.daysPastDue);
+  }
+
+  // Build ordered buckets, only including non-empty ones
+  const buckets = BUCKET_ORDER
+    .filter(label => bucketsMap[label])
+    .map(label => {
+      const bills = bucketsMap[label];
+      const total = Math.round(bills.reduce((sum, b) => sum + b.outstanding, 0) * 100) / 100;
+      return { label, total, bills };
+    });
+
+  const totalOutstanding = Math.round(buckets.reduce((sum, b) => sum + b.total, 0) * 100) / 100;
+
+  return {
+    report: 'ap_aging',
+    buckets,
+    totalOutstanding,
+  };
+}
+
 module.exports = { handleReports };

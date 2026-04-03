@@ -289,12 +289,7 @@ function _refreshTabInternal_(name, period) {
       return '✅ Balance Sheet rebuilt — change period in B3';
     case 'AP Aging':
       var r = callSkuld_('report.refresh_ap_aging', { period: params.period });
-      if (r) writeReportToSheet_('AP Aging', r);
-      var apSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('AP Aging');
-      if (apSheet) {
-        apSheet.getRange('A1').setValue('Period:').setFontWeight('bold');
-        if (params.period) apSheet.getRange('B1').setValue(params.period).setFontWeight('bold');
-      }
+      if (r) writeReportToSheet_('AP Aging', r, { period: params.period });
       return '✅ AP Aging refreshed';
     case 'VAT Return':
     case 'Tax Report':

@@ -161,19 +161,12 @@ function writeToSheet_(sheetName, data, columns, opts) {
 /**
  * Write report data to sheet. Handles different report formats.
  */
-function writeReportToSheet_(sheetName, reportData) {
+function writeReportToSheet_(sheetName, reportData, opts) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return;
 
-  // Clear existing data, formatting, AND merges (keep header row)
-  if (sheet.getLastRow() > 1) {
-    var cr = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), Math.max(sheet.getLastColumn(), 10));
-    cr.breakApart();
-    cr.clearContent();
-    cr.setFontWeight('normal');
-    cr.setBackground(null);
-    cr.setBorder(false, false, false, false, false, false);
-  }
+  // Clear entire sheet before writing
+  sheet.clear();
 
   switch (reportData.report) {
     case 'trial_balance':
@@ -208,24 +201,57 @@ function writeReportToSheet_(sheetName, reportData) {
       break;
 
     case 'ap_aging':
-      var aRow = 2;
+      opts = opts || {};
+      var fmt = '#,##0.00;(#,##0.00);0.00';
+      var ss2 = SpreadsheetApp.getActiveSpreadsheet();
+      var companyId2 = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : '';
+      var cInfo2 = typeof getCompanyInfo_ === 'function' ? getCompanyInfo_(ss2, companyId2) : { name: '', currency: '' };
+      var now2 = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+
+      // Header block (rows 1-3)
+      sheet.getRange('A1:B1').setValues([['Company:', cInfo2.name]]);
+      sheet.getRange('A2:B2').setValues([['Currency:', cInfo2.currency || '']]);
+      sheet.getRange('A3:B3').setValues([['Refreshed:', now2]]);
+      sheet.getRange('A1:A3').setFontWeight('bold');
+      if (opts && opts.period) {
+        sheet.getRange('D1').setValue('Period:').setFontWeight('bold');
+        sheet.getRange('E1').setValue(opts.period).setFontWeight('bold');
+      }
+
+      // Column headers (row 4)
+      sheet.getRange(4, 1, 1, 5).setValues([['Bucket', 'Vendor', 'Ref', 'Outstanding', 'Days Past Due']]);
+      sheet.getRange(4, 1, 1, 5).setFontWeight('bold').setBackground('#e8eaf6');
+      sheet.setFrozenRows(4);
+
+      // Data rows starting at row 5
+      var aRow = 5;
       for (var b = 0; b < reportData.buckets.length; b++) {
         var bucket = reportData.buckets[b];
-        sheet.getRange(aRow, 1).setValue(bucket.label).setFontWeight('bold');
-        sheet.getRange(aRow, 4).setValue(bucket.total);
+        // Bucket header row
+        sheet.getRange(aRow, 1).setValue(bucket.label).setFontWeight('bold').setBackground('#f5f5f5');
+        sheet.getRange(aRow, 4).setValue(bucket.total).setNumberFormat(fmt).setFontWeight('bold').setBackground('#f5f5f5');
         aRow++;
         for (var bi = 0; bi < bucket.bills.length; bi++) {
           var bill = bucket.bills[bi];
           sheet.getRange(aRow, 2).setValue(bill.vendor);
-          sheet.getRange(aRow, 3).setValue(bill.vendorRef);
-          sheet.getRange(aRow, 4).setValue(bill.outstanding);
-          sheet.getRange(aRow, 5).setValue(bill.daysPastDue + ' days');
+          sheet.getRange(aRow, 3).setValue(bill.vendorRef || '');
+          sheet.getRange(aRow, 4).setValue(bill.outstanding).setNumberFormat(fmt);
+          sheet.getRange(aRow, 5).setValue(bill.daysPastDue >= 0 ? bill.daysPastDue + ' days' : 'due in ' + Math.abs(bill.daysPastDue) + ' days');
           aRow++;
         }
-        aRow++;
       }
-      sheet.getRange(aRow, 1).setValue('TOTAL').setFontWeight('bold');
-      sheet.getRange(aRow, 4).setValue(reportData.totalOutstanding);
+      // Total row
+      aRow++;
+      sheet.getRange(aRow, 1).setValue('TOTAL OUTSTANDING').setFontWeight('bold');
+      sheet.getRange(aRow, 4).setValue(reportData.totalOutstanding).setNumberFormat(fmt).setFontWeight('bold');
+      sheet.getRange(aRow, 1, 1, 5).setBackground('#e0e0e0').setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+      // Column widths
+      sheet.setColumnWidth(1, 120);
+      sheet.setColumnWidth(2, 180);
+      sheet.setColumnWidth(3, 120);
+      sheet.setColumnWidth(4, 130);
+      sheet.setColumnWidth(5, 120);
       break;
 
     default:

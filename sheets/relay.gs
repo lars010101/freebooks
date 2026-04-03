@@ -1598,31 +1598,25 @@ function buildBS_(sheet, ss) {
     sheet.getRange(row, 2).setFormula('=IFERROR(VLOOKUP($A' + row + ',COA!$A:$B,2,FALSE),"")');
     // Assets: raw (positive debit balance). L+E: negate (credit balance shown as positive).
     var sign = (acct.type === 'Liability' || acct.type === 'Equity') ? '=-' : '=';
-    sheet.getRange(row, 3).setFormula(sign + pbCum_('$A' + row, 'C$4'));
+    if (acct.code === '999999') {
+      // 999999 = posted balance + sum of all P&L cumulative balances (negated)
+      // For closed years: P&L net + posted 999999 = 0, shows just RE allocation
+      // For unclosed years: P&L net is non-zero, shows unallocated earnings
+      var bsPlCodes = [];
+      for (var bpi = 1; bpi < coaData.length; bpi++) {
+        var bpType = String(coaData[bpi][acctTypeIdx] || '').trim();
+        var bpCode = String(coaData[bpi][acctCodeIdx] || '').trim();
+        if (bpCode.length >= 6 && (bpType === 'Revenue' || bpType === 'Expense')) bsPlCodes.push(bpCode);
+      }
+      var plSum = bsPlCodes.length > 0 ? '+(-(' + bsPlCodes.map(function(c) { return pbCum_('"' + c + '"', 'C$4'); }).join('+') + '))' : '';
+      sheet.getRange(row, 3).setFormula('=-' + pbCum_('$A' + row, 'C$4') + plSum);
+    } else {
+      sheet.getRange(row, 3).setFormula(sign + pbCum_('$A' + row, 'C$4'));
+    }
     sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
     row++;
   }
   if (currentSection !== null) sections[currentSection].end = row - 1;
-
-  // Unclosed P&L row: sum of all Revenue + Expense cumulative balances, negated
-  // (Revenue is credit-normal = negative in cache; Expense is debit-normal = positive;
-  //  negating the sum gives: positive revenue - expenses = net income shown as positive equity)
-  var plCodes = [];
-  for (var pi = 1; pi < coaData.length; pi++) {
-    var pType = String(coaData[pi][acctTypeIdx] || '').trim();
-    var pCode = String(coaData[pi][acctCodeIdx] || '').trim();
-    if (pCode.length >= 6 && (pType === 'Revenue' || pType === 'Expense')) plCodes.push(pCode);
-  }
-  if (plCodes.length > 0) {
-    sheet.getRange(row, 1).setValue('');
-    sheet.getRange(row, 2).setValue('Unclosed P&L');
-    var plParts = plCodes.map(function(c) { return pbCum_('"' + c + '"', 'C$4'); });
-    sheet.getRange(row, 3).setFormula('=-(' + plParts.join('+') + ')');
-    sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-    // Extend equity section to include this row
-    if (sections.Equity.end) sections.Equity.end = row;
-    row++;
-  }
 
   // Write section totals
   var startRow = 5;

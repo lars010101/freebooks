@@ -2138,6 +2138,15 @@ function buildSCE_(sheet, ss) {
     return '-(' + codes.map(function(c) { return fn('"' + c + '"', period); }).join('+') + ')';
   }
 
+  // Helper: cumulative through the PRIOR period (for opening balances)
+  // Uses MATCH(period)-1 to find the column before the selected period
+  function sumFormulaPrior(codes, period) {
+    if (codes.length === 0) return '0';
+    return '-(' + codes.map(function(c) {
+      return 'IFERROR(INDEX(' + PB + '!$A:$ZZ,' + acctMatch_('"' + c + '"') + ',MATCH(' + period + ',' + PB + '!$6:$6,0)-1),0)';
+    }).join('+') + ')';
+  }
+
   var row = 7;
 
 
@@ -2145,9 +2154,9 @@ function buildSCE_(sheet, ss) {
   // Opening = cumulative through PRIOR period (negated for credit-normal equity)
   // Negate because equity credit balances are stored as negative in cache
   sheet.getRange(row, 1).setValue('Opening Balance').setFontWeight('bold');
-  sheet.getRange(row, 2).setFormula('=' + sumFormula(scAccts, 'C$4', false)).setNumberFormat(fmt);
-  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$4', false)).setNumberFormat(fmt);
-  sheet.getRange(row, 4).setFormula('=' + sumFormula(divAccts, 'C$4', false)).setNumberFormat(fmt);
+  sheet.getRange(row, 2).setFormula('=' + sumFormulaPrior(scAccts, 'C$4')).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=' + sumFormulaPrior(reAccts, 'C$4')).setNumberFormat(fmt);
+  sheet.getRange(row, 4).setFormula('=' + sumFormulaPrior(divAccts, 'C$4')).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   sheet.getRange(row, 1, 1, 5).setBackground('#f0f0f0');
   sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID);

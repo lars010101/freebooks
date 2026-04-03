@@ -76,86 +76,74 @@ function formatDate_(value) {
  * (or starts in 2025 if FY start month > 1).
  * Period numbering: P1 = first month of FY, P12 = last month of FY.
  */
+/**
+ * Resolve a period string (e.g. "FY2026" or "2026P04") to { dateFrom, dateTo }.
+ * Queries the periods table in BigQuery via the Cloud Function for authoritative dates.
+ * Falls back to local cache (Period Balances sheet) if the call fails.
+ */
 function resolvePeriodToDates_(periodStr) {
   if (!periodStr) return null;
   periodStr = String(periodStr).trim();
-  
-  // Derive FY start month from the first available period's start_date in the cache.
-  // This avoids depending on a Settings/Companies cell.
-  var fyStartMonth = 2; // Default: February (most common for fiscal years)
+
+  // Try: query the database for the exact period dates
+  try {
+    var periods = callSkuld_('period.list', {});
+    if (periods && periods.length > 0) {
+      for (var i = 0; i < periods.length; i++) {
+        var p = periods[i];
+        var pName = String(p.period_name || p.period_id || '').trim();
+        if (pName === periodStr) {
+          var sd = p.start_date && p.start_date.value ? p.start_date.value : String(p.start_date || '');
+          var ed = p.end_date && p.end_date.value ? p.end_date.value : String(p.end_date || '');
+          if (sd && ed) return { dateFrom: sd, dateTo: ed };
+        }
+      }
+    }
+  } catch (e) {
+    // Fall through to local calculation
+  }
+
+  // Fallback: calculate locally from FY start month
+  var fyStartMonth = 1; // default calendar year
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var pbSheet = ss.getSheetByName('Period Balances');
     if (pbSheet && pbSheet.getLastColumn() > 1) {
-      // Read row 2 (period start dates) from Period Balances
       var dateRow = pbSheet.getRange(2, 1, 1, pbSheet.getLastColumn()).getValues()[0];
       for (var di = 0; di < dateRow.length; di++) {
         var d = dateRow[di];
         if (d instanceof Date) {
-          fyStartMonth = d.getMonth() + 1; // getMonth() is 0-based
+          fyStartMonth = d.getMonth() + 1;
           break;
         }
       }
     }
   } catch (e) { /* keep default */ }
-  
-  // Override: check Companies sheet for explicit fy_start (if ever added)
-  var settings = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies');
-  if (settings) {
-    var data = settings.getDataRange().getValues();
-    for (var i = 0; i < data.length; i++) {
-      var label = String(data[i][0]).toLowerCase().trim();
-      if (label === 'fy start' || label === 'fy_start') {
-        var val = data[i][1];
-        if (val instanceof Date) {
-          fyStartMonth = val.getMonth() + 1;
-        } else {
-          var parts = String(val).split('-');
-          if (parts.length >= 2) fyStartMonth = parseInt(parts[1], 10) || fyStartMonth;
-        }
-        break;
-      }
-    }
-  }
-  
-  // Match FY2026 format
+
   var fyMatch = periodStr.match(/^FY(\d{4})$/i);
   if (fyMatch) {
     var fyEndYear = parseInt(fyMatch[1], 10);
-    // FY starts in (fyEndYear - 1) if fyStartMonth > 1, else fyEndYear
     var startYear = (fyStartMonth > 1) ? fyEndYear - 1 : fyEndYear;
     var dateFrom = startYear + '-' + pad2_(fyStartMonth) + '-01';
-    // FY ends one month before fyStartMonth in fyEndYear (or Dec of fyEndYear if Jan start)
     var endMonth = (fyStartMonth === 1) ? 12 : fyStartMonth - 1;
     var endYear = (fyStartMonth === 1) ? fyEndYear : fyEndYear;
     var dateTo = endYear + '-' + pad2_(endMonth) + '-' + lastDay_(endYear, endMonth);
     return { dateFrom: dateFrom, dateTo: dateTo };
   }
-  
-  // Match 2026P4 or 2026P04 format
+
   var pMatch = periodStr.match(/^(\d{4})P(\d{1,2})$/i);
   if (pMatch) {
     var fyEndYear = parseInt(pMatch[1], 10);
     var periodNum = parseInt(pMatch[2], 10);
     if (periodNum < 1 || periodNum > 12) return null;
-    
-    // Calculate calendar month: P1 = fyStartMonth
     var calMonth = ((fyStartMonth - 1 + periodNum - 1) % 12) + 1;
-    // Calculate calendar year
-    var calYear;
-    if (fyStartMonth === 1) {
-      calYear = fyEndYear;
-    } else {
-      // Periods before January are in (fyEndYear - 1)
-      calYear = (calMonth >= fyStartMonth) ? fyEndYear - 1 : fyEndYear;
-    }
-    
+    var calYear = (fyStartMonth === 1) ? fyEndYear : (calMonth >= fyStartMonth ? fyEndYear - 1 : fyEndYear);
     var dateFrom = calYear + '-' + pad2_(calMonth) + '-01';
     var dateTo = calYear + '-' + pad2_(calMonth) + '-' + lastDay_(calYear, calMonth);
     return { dateFrom: dateFrom, dateTo: dateTo };
   }
-  
-  return null; // Unrecognized format
+
+  return null;
 }
 
 /** Zero-pad a number to 2 digits. */

@@ -244,15 +244,142 @@ function _refreshTabInternal_(name, period) {
       return '✅ Journal loaded (' + (entries ? entries.length : 0) + ' rows)';
     case 'General Ledger':
     case 'GL':
-      // GL is formula-driven — no Cloud Function call needed.
-      // It reads from Journal sheet and Period Balances.
-      // "Refresh" for GL means: rebuild the formula template for the current account/period.
-      var ss = SpreadsheetApp.getActiveSpreadsheet();
-      if (!ss.getSheetByName('Journal') || ss.getSheetByName('Journal').getLastRow() < 3) return '❌ Journal sheet has no data. Load the Journal first.';
-      if (!ss.getSheetByName('Period Balances')) return '❌ Period Balances not found. Refresh the cache first.';
-      if (!ss.getSheetByName('COA')) return '❌ COA not found. Load it first.';
-      try { buildGL_(ss.getSheetByName(name), ss, params); } catch (e) { return '❌ GL Error: ' + e.message; }
-      return '✅ General Ledger built for account ' + (params.glAccount || 'all') + ', period ' + (params.period || '');
+      // GL is data-driven: fetches journal lines and period balances directly from backend.
+      // No dependency on Journal sheet contents.
+      var glAcct = params.glAccount || '';
+      var glPeriod = params.period || '';
+      if (!glAcct) return '❌ Select an account first (cell B6)';
+      if (!glPeriod) return '❌ Select a period first (cell B4)';
+      var glResolved = resolvePeriodToDates_(glPeriod);
+      if (!glResolved) return '❌ Cannot resolve period: ' + glPeriod;
+      try {
+        // 1. Fetch journal lines for this account + period
+        var glLines = callSkuld_('journal.list', {
+          accountCode: glAcct,
+          dateFrom: glResolved.dateFrom,
+          dateTo: glResolved.dateTo
+        });
+        // Sort ascending by date
+        glLines = (glLines || []).sort(function(a, b) {
+          var da = String(a.date && a.date.value ? a.date.value : a.date || '');
+          var db = String(b.date && b.date.value ? b.date.value : b.date || '');
+          return da < db ? -1 : da > db ? 1 : 0;
+        });
+
+        // 2. Get opening balance (cumulative through prior period) from Period Balances cache
+        var priorPeriod = '';
+        var fyMatchGL = glPeriod.match(/^FY(\d{4})$/i);
+        var pMatchGL = glPeriod.match(/^(\d{4})P(\d{1,2})$/i);
+        if (fyMatchGL) {
+          priorPeriod = 'FY' + (parseInt(fyMatchGL[1], 10) - 1);
+        } else if (pMatchGL) {
+          var yr = parseInt(pMatchGL[1], 10); var pn = parseInt(pMatchGL[2], 10);
+          priorPeriod = pn === 1 ? 'FY' + (yr - 1) : yr + 'P' + (pn - 1 < 10 ? '0' + (pn - 1) : (pn - 1));
+        }
+        var openingBal = 0;
+        var ssGL = SpreadsheetApp.getActiveSpreadsheet();
+        var pbSheetGL = ssGL.getSheetByName('Period Balances');
+        if (pbSheetGL && priorPeriod) {
+          var pbHdrs = pbSheetGL.getRange(6, 1, 1, pbSheetGL.getLastColumn()).getValues()[0];
+          var pbData = pbSheetGL.getDataRange().getValues();
+          var pbCol = pbHdrs.indexOf(priorPeriod);
+          if (pbCol >= 0) {
+            for (var ri = 6; ri < pbData.length; ri++) {
+              if (String(pbData[ri][0]).trim() === glAcct) {
+                openingBal = Number(pbData[ri][pbCol]) || 0;
+                break;
+              }
+            }
+          }
+        }
+
+        // 3. Write the GL sheet
+        var glSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+        glSheet.clear();
+        // Metadata rows 1-3
+        var companyId2 = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : '';
+        var cInfo2 = getCompanyInfo_(ssGL, companyId2);
+        var nowGL = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        glSheet.getRange('A1:B1').setValues([['Company:', cInfo2.name]]);
+        glSheet.getRange('A2:B2').setValues([['Currency:', cInfo2.currency]]);
+        glSheet.getRange('A3:B3').setValues([['Refreshed:', nowGL]]);
+        glSheet.getRange('A1:A3').setFontWeight('bold');
+        // Row 4: period
+        glSheet.getRange('A4').setValue('Period:').setFontWeight('bold');
+        glSheet.getRange('B4').setValue(glPeriod).setFontWeight('bold');
+        setPeriodDropdown_(ssGL, glSheet.getRange('B4'));
+        glSheet.getRange('B4').setBackground('#e8f0fe');
+        // Row 5: separator
+        glSheet.getRange('5:5').setBackground('#eeeeee');
+        // Row 6: account
+        glSheet.getRange('A6').setValue('Account:').setFontWeight('bold');
+        glSheet.getRange('B6').setValue(glAcct).setFontWeight('bold');
+        glSheet.getRange('C6').setFormula('=IFERROR(VLOOKUP(B6,COA!A:B,2,FALSE),"")');
+        // Row 7: opening balance
+        glSheet.getRange('A7:F7').setBackground('#f0f0f0');
+        glSheet.getRange('B7').setValue('Opening Balance:').setFontWeight('bold');
+        glSheet.getRange('C7').setValue(openingBal).setNumberFormat('#,##0.00;(#,##0.00);0.00').setFontWeight('bold');
+        // Row 8: headers
+        var glHdrs = ['Date','Batch ID','Description','Debit','Credit','Running Balance'];
+        glSheet.getRange(8, 1, 1, glHdrs.length).setValues([glHdrs]).setFontWeight('bold').setBackground('#e6e6e6');
+        glSheet.setFrozenRows(6);
+        glSheet.setColumnWidth(1, 100); glSheet.setColumnWidth(2, 120);
+        glSheet.setColumnWidth(3, 280); glSheet.setColumnWidth(4, 120);
+        glSheet.setColumnWidth(5, 120); glSheet.setColumnWidth(6, 140);
+
+        // Rows 9+: transaction data
+        var runBal = openingBal;
+        var dataRow = 9;
+        for (var li = 0; li < glLines.length; li++) {
+          var ln = glLines[li];
+          var dt = ln.date && ln.date.value ? ln.date.value : String(ln.date || '');
+          var dr = Number(ln.debit && ln.debit.value !== undefined ? ln.debit.value : ln.debit) || 0;
+          var cr = Number(ln.credit && ln.credit.value !== undefined ? ln.credit.value : ln.credit) || 0;
+          runBal += dr - cr;
+          glSheet.getRange(dataRow, 1).setValue(dt).setNumberFormat('yyyy-mm-dd');
+          glSheet.getRange(dataRow, 2).setValue(ln.batch_id || '');
+          glSheet.getRange(dataRow, 3).setValue(ln.description || '');
+          glSheet.getRange(dataRow, 4).setValue(dr || '').setNumberFormat('#,##0.00;(#,##0.00);""');
+          glSheet.getRange(dataRow, 5).setValue(cr || '').setNumberFormat('#,##0.00;(#,##0.00);""');
+          glSheet.getRange(dataRow, 6).setValue(runBal).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+          dataRow++;
+        }
+
+        // Closing balance row
+        var closingRow = dataRow;
+        glSheet.getRange(closingRow, 1, 1, 6).setBackground('#f0f0f0');
+        glSheet.getRange(closingRow, 3).setValue('Closing Balance').setFontWeight('bold');
+        glSheet.getRange(closingRow, 6).setValue(runBal).setNumberFormat('#,##0.00;(#,##0.00);0.00').setFontWeight('bold');
+
+        // Period Balances closing check
+        var pbClosingBal = 0;
+        if (pbSheetGL) {
+          var pbHdrs2 = pbSheetGL.getRange(6, 1, 1, pbSheetGL.getLastColumn()).getValues()[0];
+          var pbData2 = pbSheetGL.getDataRange().getValues();
+          var pbCol2 = pbHdrs2.indexOf(glPeriod);
+          if (pbCol2 >= 0) {
+            for (var ri2 = 6; ri2 < pbData2.length; ri2++) {
+              if (String(pbData2[ri2][0]).trim() === glAcct) {
+                pbClosingBal = Number(pbData2[ri2][pbCol2]) || 0;
+                break;
+              }
+            }
+          }
+        }
+        var checkRow2 = closingRow + 1;
+        glSheet.getRange(checkRow2, 3).setValue('Period Balances closing:').setFontWeight('bold');
+        glSheet.getRange(checkRow2, 6).setValue(pbClosingBal).setNumberFormat('#,##0.00;(#,##0.00);0.00').setFontWeight('bold');
+        var diffRow2 = closingRow + 2;
+        glSheet.getRange(diffRow2, 3).setValue('Difference:').setFontStyle('italic').setFontColor('#555555');
+        glSheet.getRange(diffRow2, 6).setValue(runBal - pbClosingBal).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+        var statusRow = closingRow + 3;
+        glSheet.getRange(statusRow, 3).setValue('Status:').setFontStyle('italic');
+        glSheet.getRange(statusRow, 6).setValue(Math.abs(runBal - pbClosingBal) < 0.01 ? '✅ Balanced' : '❌ Mismatch');
+        for (var ci = 1; ci <= 6; ci++) glSheet.autoResizeColumn(ci);
+        return '✅ GL loaded: ' + glLines.length + ' lines for ' + glAcct + ' in ' + glPeriod;
+      } catch (e) {
+        return '❌ GL Error: ' + e.message;
+      }
     case 'TB':
       var ssTB = SpreadsheetApp.getActiveSpreadsheet();
       if (!ssTB.getSheetByName('COA') || !ssTB.getSheetByName('Period Balances')) return '❌ COA or cache not found';

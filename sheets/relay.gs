@@ -2486,7 +2486,8 @@ function postActiveSheet() {
 
 /**
  * Diagnostic: dump raw journal lines + period balances for one account to a new sheet.
- * Call from menu or Apps Script editor: diagAccount('100010')
+ * Queries BigQuery directly via REST API — no Cloud Function needed.
+ * Call from Apps Script editor: diagAccount('100010')
  */
 function diagAccount(accountCode) {
   if (!accountCode) {
@@ -2494,8 +2495,71 @@ function diagAccount(accountCode) {
     if (!accountCode) return;
   }
 
-  var result = callSkuld_('diag.account', { accountCode: accountCode });
-  if (!result) { SpreadsheetApp.getUi().alert('No result returned.'); return; }
+  var config = getConfig_();
+  var projectId = config.projectId;
+  var companyId = config.companyId;
+  if (!projectId) { SpreadsheetApp.getUi().alert('GCP_PROJECT_ID not set in Script Properties.'); return; }
+
+  function bqQuery(sql, params) {
+    var token = ScriptApp.getOAuthToken();
+    var url = 'https://bigquery.googleapis.com/bigquery/v2/projects/' + projectId + '/queries';
+    var body = {
+      query: sql,
+      useLegacySql: false,
+      timeoutMs: 30000,
+      queryParameters: params || []
+    };
+    var resp = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + token },
+      payload: JSON.stringify(body),
+      muteHttpExceptions: true
+    });
+    var data = JSON.parse(resp.getContentText());
+    if (data.errors && data.errors.length > 0) throw new Error(data.errors[0].message);
+    if (!data.schema) return [];
+    var fields = data.schema.fields.map(function(f) { return f.name; });
+    return (data.rows || []).map(function(r) {
+      var obj = {};
+      fields.forEach(function(f, i) { obj[f] = r.f[i].v; });
+      return obj;
+    });
+  }
+
+  var paramCompany  = { name: 'companyId',    parameterType: { type: 'STRING' }, parameterValue: { value: companyId } };
+  var paramAccount  = { name: 'accountCode',  parameterType: { type: 'STRING' }, parameterValue: { value: accountCode } };
+
+  // 1. Summary totals
+  var sumRows = bqQuery(
+    'SELECT COUNT(*) AS line_count, SUM(debit) AS total_debit, SUM(credit) AS total_credit, SUM(debit-credit) AS net_balance ' +
+    'FROM `finance.journal_entries` ' +
+    'WHERE company_id = @companyId AND account_code = @accountCode',
+    [paramCompany, paramAccount]
+  );
+  var sum = sumRows[0] || {};
+
+  // 2. Per-period cumulative
+  var pb = bqQuery(
+    'SELECT p.period_name, p.end_date, COALESCE(SUM(j.debit - j.credit), 0) AS cumulative_balance ' +
+    'FROM `finance.periods` p ' +
+    'LEFT JOIN `finance.journal_entries` j ' +
+    '  ON j.company_id = @companyId AND j.account_code = @accountCode AND j.date <= p.end_date ' +
+    'WHERE p.company_id = @companyId ' +
+    'GROUP BY p.period_name, p.end_date ORDER BY p.end_date',
+    [paramCompany, paramAccount]
+  );
+
+  // 3. Raw lines
+  var lines = bqQuery(
+    'SELECT entry_id, batch_id, date, account_code, debit, credit, debit-credit AS net, description, reference, source, created_at ' +
+    'FROM `finance.journal_entries` ' +
+    'WHERE company_id = @companyId AND account_code = @accountCode ' +
+    'ORDER BY date, created_at',
+    [paramCompany, paramAccount]
+  );
+
+  var result = { accountCode: accountCode, summary: sum, periodBalances: pb, lines: lines };
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheetName = 'DIAG_' + accountCode;

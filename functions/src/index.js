@@ -508,8 +508,10 @@ async function handleSettings(ctx, action) {
             FROM finance.periods
           ) WHERE rn = 1
         ) p ON c.company_id = p.company_id
+        WHERE c.company_id = @companyId
         ORDER BY c.company_id, p.start_date DESC
-      `
+      `,
+      params: { companyId }
     });
     // Format dates cleanly
     const formatted = rows.map(r => ({

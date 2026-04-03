@@ -1238,6 +1238,15 @@ function buildGL_(sheet, ss, params) {
     }
   }
 
+  // Rows 1-3: Standard metadata block
+  var companyId = typeof getActiveCompanyId_ === 'function' ? getActiveCompanyId_() : '';
+  var cInfo = getCompanyInfo_(ss, companyId);
+  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  sheet.getRange('A1:B1').setValues([['Company:', cInfo.name]]);
+  sheet.getRange('A2:B2').setValues([['Currency:', cInfo.currency]]);
+  sheet.getRange('A3:B3').setValues([['Refreshed:', now]]);
+  sheet.getRange('A1:A3').setFontWeight('bold');
+
   // Clear sheet below row 5
   if (sheet.getLastRow() > 5 || sheet.getLastColumn() > 0) {
     sheet.getRange(6, 1, Math.max(sheet.getLastRow() - 5, 1), Math.max(sheet.getLastColumn(), 10)).clear();

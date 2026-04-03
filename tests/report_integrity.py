@@ -417,6 +417,88 @@ def test_sce(company_id, period, periods, deltas, cum_balances, prior_cum, resul
     result.check(f"SCE Closing Total vs BS Total Equity", bs_total_equity, close_total)
 
 
+# ─── Cache validation ────────────────────────────────────────────────────────
+
+CF_URL = "https://skuld-ujyp5qup5a-uc.a.run.app"
+
+def test_cache(company_id, periods, all_cum, accounts, result):
+    """Compare Cloud Function cache output against direct BigQuery balances.
+    This validates reports_cache.js produces correct numbers."""
+    try:
+        resp = requests.post(CF_URL, json={
+            "action": "report.cache_balances",
+            "companyId": company_id
+        }, timeout=30)
+        data = resp.json().get("data", resp.json())
+    except Exception as e:
+        result.fail(f"Cache fetch failed: {e}")
+        return
+
+    columns = data.get("columns", [])
+    rows = data.get("rows", [])
+
+    # Find period columns
+    period_cols = [c for c in columns if c.startswith("FY")]
+    if not period_cols:
+        result.fail("Cache has no FY period columns")
+        return
+
+    # Build cache lookup: account_code -> { period -> balance }
+    cache_map = {}
+    for row in rows:
+        code = str(row.get("Account Code", "")).strip()
+        if not code:
+            continue
+        cache_map[code] = {}
+        for pc in period_cols:
+            val = row.get(pc)
+            cache_map[code][pc] = D(val) if val is not None else Decimal("0")
+
+    # Compare each account's FY cumulative balance
+    mismatches = 0
+    checked = 0
+    for period in periods:
+        pname = period["period_name"]
+        if pname not in period_cols:
+            continue
+        if pname not in all_cum:
+            continue
+
+        cum = all_cum[pname]
+        for r in cum:
+            code = r["account_code"]
+            bq_bal = D(r["balance"])
+            cache_bal = cache_map.get(code, {}).get(pname, Decimal("0"))
+
+            checked += 1
+            if abs(bq_bal - cache_bal) > TOLERANCE:
+                mismatches += 1
+                if mismatches <= 5:  # limit output
+                    result.fail(f"Cache mismatch {code} {pname}",
+                                f"BQ={bq_bal:,.2f} vs Cache={cache_bal:,.2f}")
+
+    if mismatches == 0:
+        result.ok(f"Cache vs BQ: {checked} values match across {len(period_cols)} periods")
+    elif mismatches > 5:
+        result.fail(f"Cache vs BQ: {mismatches} total mismatches (showing first 5)")
+
+    # Also verify parent account roll-ups (codes like '1', '2', '3', '5')
+    parent_codes = [c for c in cache_map if len(c) < 6]
+    for pc_code in parent_codes:
+        for pname in period_cols:
+            if pname not in all_cum:
+                continue
+            # Sum all leaf accounts matching this parent prefix
+            expected = Decimal("0")
+            for r in all_cum[pname]:
+                if r["account_code"].startswith(pc_code) and len(r["account_code"]) >= 6:
+                    expected += D(r["balance"])
+            cache_val = cache_map.get(pc_code, {}).get(pname, Decimal("0"))
+            if abs(expected - cache_val) > TOLERANCE:
+                result.fail(f"Cache parent {pc_code} {pname}",
+                            f"expected={expected:,.2f} cache={cache_val:,.2f}")
+
+
 # ─── Main runner ─────────────────────────────────────────────────────────────
 
 def run_tests(company_filter=None, period_filter=None):
@@ -471,6 +553,11 @@ def run_tests(company_filter=None, period_filter=None):
             tested_periods = [p for p in periods if p["period_name"] in all_cum]
             print(f"\n  ── Cross-period Integrity ──")
             test_integrity(company_id, tested_periods, all_cum, all_deltas, accounts, overall)
+
+        # Cache validation: Cloud Function output vs BigQuery
+        if all_cum:
+            print(f"\n  ── Cache Validation (Cloud Function vs BigQuery) ──")
+            test_cache(company_id, periods, all_cum, accounts, overall)
 
     print(f"\n{'='*60}")
     print(f"SUMMARY: {overall.passed} passed, {overall.failed} failed")

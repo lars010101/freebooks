@@ -1519,8 +1519,8 @@ function buildBS_(sheet, ss) {
     var row = coaData[i];
     var type = String(row[acctTypeIdx] || '').trim();
     var code = String(row[acctCodeIdx] || '').trim();
-    // Exclude calculated parent accounts (short codes) but include 999999 (undistributed P/L)
-    if (code.length < 6) continue;
+    // Exclude calculated parent accounts (short codes) and 999999 (shown as computed line)
+    if (code.length < 6 || code.indexOf('999999') === 0) continue;
     if (type === 'Asset' || type === 'Liability' || type === 'Equity') {
       bsAccounts.push({
         code: code,
@@ -1604,23 +1604,23 @@ function buildBS_(sheet, ss) {
   }
   if (currentSection !== null) sections[currentSection].end = row - 1;
 
-  // Unclosed P&L row: sum of all Revenue + Expense cumulative balances, negated.
-  // This represents current-year earnings not yet closed to Retained Earnings.
-  // Combined with 999999 (which holds posted RE transfers), this makes the BS balance.
+  // Undistributed Profits/Losses: merged line replacing both 999999 and Unclosed P&L.
+  // = -(posted 999999 balance) + -(sum of all P&L cumulative balances)
+  // For closed years: P&L offsets 999999 → shows 0
+  // For unclosed years: shows current year unallocated net income
   var plCodes = [];
   for (var pi = 1; pi < coaData.length; pi++) {
     var pType = String(coaData[pi][acctTypeIdx] || '').trim();
     var pCode = String(coaData[pi][acctCodeIdx] || '').trim();
     if (pCode.length >= 6 && (pType === 'Revenue' || pType === 'Expense')) plCodes.push(pCode);
   }
-  if (plCodes.length > 0) {
-    sheet.getRange(row, 2).setValue('Unclosed P&L');
-    var plParts = plCodes.map(function(c) { return pbCum_('"' + c + '"', 'C$4'); });
-    sheet.getRange(row, 3).setFormula('=-(' + plParts.join('+') + ')');
-    sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
-    if (sections.Equity.end) sections.Equity.end = row;
-    row++;
-  }
+  sheet.getRange(row, 2).setValue('Undistributed Profits/Losses');
+  var e999Part = '(-' + pbCum_('"999999"', 'C$4') + ')';
+  var plPart = plCodes.length > 0 ? '+(-(' + plCodes.map(function(c) { return pbCum_('"' + c + '"', 'C$4'); }).join('+') + '))' : '';
+  sheet.getRange(row, 3).setFormula('=' + e999Part + plPart);
+  sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+  if (sections.Equity.end) sections.Equity.end = row;
+  row++;
 
   // Write section totals
   var startRow = 5;

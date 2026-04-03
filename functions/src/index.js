@@ -82,6 +82,9 @@ const ACTION_ROLES = {
   // Setup (initial deployment)
   'setup.init': 'owner',
   'setup.add_company': 'owner',
+
+  // Diagnostics
+  'diag.account': 'owner',
 };
 
 /**
@@ -181,6 +184,9 @@ async function handler(req, res) {
         break;
       case 'setup':
         result = await handleSetup(ctx, action);
+        break;
+      case 'diag':
+        result = await handleDiag(ctx, action);
         break;
       default:
         res.status(400).json({ error: `Unknown module: ${module}` });
@@ -628,6 +634,75 @@ async function handlePermissions(ctx, action) {
       await dataset.table('user_permissions').insert(rows);
     }
     return { saved: rows.length };
+  }
+}
+
+/**
+ * Diagnostic handler — runs raw queries against journal_entries for a given account.
+ * Returns every individual line for that account so data integrity can be verified.
+ */
+async function handleDiag(ctx, action) {
+  const { dataset, companyId, body } = ctx;
+
+  if (action === 'diag.account') {
+    const accountCode = body.accountCode || '';
+    if (!accountCode) throw Object.assign(new Error('accountCode required'), { code: 'INVALID_INPUT' });
+
+    // 1. Raw journal lines for this account
+    const [lines] = await dataset.query({
+      query: `
+        SELECT
+          entry_id, batch_id, date, account_code, debit, credit,
+          debit - credit AS net,
+          description, reference, source, created_at
+        FROM finance.journal_entries
+        WHERE company_id = @companyId
+          AND account_code = @accountCode
+        ORDER BY date, created_at
+      `,
+      params: { companyId, accountCode },
+    });
+
+    // 2. Cumulative total
+    const [totals] = await dataset.query({
+      query: `
+        SELECT
+          COUNT(*)          AS line_count,
+          SUM(debit)        AS total_debit,
+          SUM(credit)       AS total_credit,
+          SUM(debit-credit) AS net_balance
+        FROM finance.journal_entries
+        WHERE company_id = @companyId
+          AND account_code = @accountCode
+      `,
+      params: { companyId, accountCode },
+    });
+
+    // 3. Per-period cumulative (using defined periods)
+    const [byCum] = await dataset.query({
+      query: `
+        SELECT
+          p.period_name,
+          p.end_date,
+          COALESCE(SUM(j.debit - j.credit), 0) AS cumulative_balance
+        FROM finance.periods p
+        LEFT JOIN finance.journal_entries j
+          ON  j.company_id   = @companyId
+          AND j.account_code = @accountCode
+          AND j.date        <= p.end_date
+        WHERE p.company_id = @companyId
+        GROUP BY p.period_name, p.end_date
+        ORDER BY p.end_date
+      `,
+      params: { companyId, accountCode },
+    });
+
+    return {
+      accountCode,
+      summary: totals[0] || {},
+      periodBalances: byCum,
+      lines,
+    };
   }
 }
 

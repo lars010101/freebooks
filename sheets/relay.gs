@@ -2483,3 +2483,74 @@ function postActiveSheet() {
   var result = saveTab_(name);
   SpreadsheetApp.getUi().alert(result);
 }
+
+/**
+ * Diagnostic: dump raw journal lines + period balances for one account to a new sheet.
+ * Call from menu or Apps Script editor: diagAccount('100010')
+ */
+function diagAccount(accountCode) {
+  if (!accountCode) {
+    accountCode = SpreadsheetApp.getUi().prompt('Diagnose account', 'Enter account code:', SpreadsheetApp.getUi().ButtonSet.OK_CANCEL).getResponseText();
+    if (!accountCode) return;
+  }
+
+  var result = callSkuld_('diag.account', { accountCode: accountCode });
+  if (!result) { SpreadsheetApp.getUi().alert('No result returned.'); return; }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetName = 'DIAG_' + accountCode;
+  var s = ss.getSheetByName(sheetName);
+  if (s) ss.deleteSheet(s);
+  s = ss.insertSheet(sheetName);
+
+  // Summary
+  var sum = result.summary;
+  s.getRange(1,1).setValue('Account:').setFontWeight('bold');
+  s.getRange(1,2).setValue(result.accountCode);
+  s.getRange(2,1).setValue('Line count:').setFontWeight('bold');
+  s.getRange(2,2).setValue(sum.line_count || 0);
+  s.getRange(3,1).setValue('Total Debit:').setFontWeight('bold');
+  s.getRange(3,2).setValue(sum.total_debit || 0);
+  s.getRange(4,1).setValue('Total Credit:').setFontWeight('bold');
+  s.getRange(4,2).setValue(sum.total_credit || 0);
+  s.getRange(5,1).setValue('Net Balance:').setFontWeight('bold');
+  s.getRange(5,2).setValue(sum.net_balance || 0);
+
+  // Period balances
+  s.getRange(7,1).setValue('PERIOD BALANCES').setFontWeight('bold').setBackground('#e6e6e6');
+  s.getRange(8,1,1,3).setValues([['Period','End Date','Cumulative Balance']]).setFontWeight('bold');
+  var pb = result.periodBalances || [];
+  if (pb.length > 0) {
+    var pbVals = pb.map(function(r) {
+      return [
+        r.period_name,
+        r.end_date && r.end_date.value ? r.end_date.value : String(r.end_date || ''),
+        r.cumulative_balance && r.cumulative_balance.value !== undefined ? r.cumulative_balance.value : (r.cumulative_balance || 0)
+      ];
+    });
+    s.getRange(9, 1, pbVals.length, 3).setValues(pbVals);
+  }
+
+  // Raw lines
+  var lineStartRow = 10 + pb.length;
+  s.getRange(lineStartRow, 1).setValue('RAW JOURNAL LINES').setFontWeight('bold').setBackground('#fce8b2');
+  var lineHdrs = ['entry_id','batch_id','date','account_code','debit','credit','net','description','reference','source','created_at'];
+  s.getRange(lineStartRow+1, 1, 1, lineHdrs.length).setValues([lineHdrs]).setFontWeight('bold');
+  var lines = result.lines || [];
+  if (lines.length > 0) {
+    var lineVals = lines.map(function(r) {
+      return lineHdrs.map(function(h) {
+        var v = r[h];
+        if (v && typeof v === 'object' && v.value !== undefined) return v.value;
+        return v !== undefined ? v : '';
+      });
+    });
+    s.getRange(lineStartRow+2, 1, lineVals.length, lineHdrs.length).setValues(lineVals);
+  }
+
+  for (var c = 1; c <= 11; c++) s.autoResizeColumn(c);
+  s.activate();
+  SpreadsheetApp.getUi().alert('Diagnostic for ' + accountCode + ':\n' +
+    'Lines: ' + (lines.length) + '\n' +
+    'Net Balance: ' + (sum.net_balance || 0) + '\n\nSee DIAG_' + accountCode + ' sheet.');
+}

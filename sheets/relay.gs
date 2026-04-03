@@ -2197,15 +2197,15 @@ function buildSCE_(sheet, ss) {
   // NI = -(sum of P&L deltas). Goes to Total only — not allocated to any column
   // until closing entries move it to RE.
   var niRow = row;
-  sheet.getRange(row, 1).setValue('Net Profit / (Loss)');
-  sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt); // SC: 0
-  sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt); // RE: 0 (NI not yet in RE)
-  sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt); // Div: 0
+  sheet.getRange(row, 1).setValue('Net Profit / (Loss)').setFontStyle('italic');
+  sheet.getRange(row, 2).setValue('').setNumberFormat(fmt);
+  sheet.getRange(row, 3).setValue('').setNumberFormat(fmt);
+  sheet.getRange(row, 4).setValue('').setNumberFormat(fmt);
   if (plCodes.length > 0) {
     var niParts = plCodes.map(function(c) { return pbDelta_('"' + c + '"', 'C$4'); });
-    sheet.getRange(row, 5).setFormula('=-(' + niParts.join('+') + ')').setNumberFormat(fmt);
+    sheet.getRange(row, 5).setFormula('=-(' + niParts.join('+') + ')').setNumberFormat(fmt).setFontStyle('italic');
   } else {
-    sheet.getRange(row, 5).setValue(0).setNumberFormat(fmt);
+    sheet.getRange(row, 5).setValue(0).setNumberFormat(fmt).setFontStyle('italic');
   }
   row++;
 
@@ -2241,11 +2241,17 @@ function buildSCE_(sheet, ss) {
   // Closing = Opening + all movements
   var closeRow = row;
   sheet.getRange(row, 1).setValue('Closing Balance').setFontWeight('bold');
-  sheet.getRange(row, 2).setFormula('=SUM(B' + openRow + ':B' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
-  sheet.getRange(row, 3).setFormula('=SUM(C' + openRow + ':C' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
-  sheet.getRange(row, 4).setFormula('=SUM(D' + openRow + ':D' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
-  // Total = sum of all Total column values (captures NI which is Total-only)
-  sheet.getRange(row, 5).setFormula('=SUM(E' + openRow + ':E' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
+  // Column closings: Opening + SC + RE + Div
+  sheet.getRange(row, 2).setFormula('=B' + openRow + '+B' + scMovRow + '+B' + otherRow + '+B' + divRow).setFontWeight('bold').setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=C' + openRow + '+C' + scMovRow + '+C' + otherRow + '+C' + divRow).setFontWeight('bold').setNumberFormat(fmt);
+  sheet.getRange(row, 4).setFormula('=D' + openRow + '+D' + scMovRow + '+D' + otherRow + '+D' + divRow).setFontWeight('bold').setNumberFormat(fmt);
+  // Total = sum of columns + unallocated NI (same as BS Undistributed P/L concept)
+  // For closed years: NI is already in RE via closing entry, and the NI memo line
+  // equals the RE movement, so this double-counts. Fix: subtract RE movements from NI
+  // to get only the unallocated portion.
+  // Unallocated NI = NI (from P&L) - RE movements (which include the closing transfer)
+  // For closed year: 13,770 - 13,770 = 0. For unclosed: 13,300 - 0 = 13,300.
+  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')+(E' + niRow + '-E' + otherRow + ')').setFontWeight('bold').setNumberFormat(fmt);
   sheet.getRange(row, 1, 1, 5).setBackground('#e0e0e0');
   sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 

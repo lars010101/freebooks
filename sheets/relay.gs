@@ -1861,12 +1861,12 @@ function buildCF_(sheet, ss) {
   row++;
 
   // ── CASH AT BEGINNING OF PERIOD ──────────────────────────────────────────────
-  // Cumulative cash balance for all periods BEFORE selected period.
-  // Cumulative cash balance for all periods BEFORE selected period.
+  // Cumulative cash balance through the PRIOR period (= opening of selected period).
+  // Uses MATCH(C$4)-1 to get the column before the selected period in Period Balances.
   var openRow = row;
   if (cashAccts.length > 0) {
     var openParts = cashAccts.map(function(a) {
-      return pbCum_('"' + a.code + '"', 'C$4');
+      return "IFERROR(INDEX(" + PB + "!$A:$ZZ," + acctMatch_('"' + a.code + '"') + ",MATCH(C$4," + PB + "!$6:$6,0)-1),0)";
     }).join('+');
     sheet.getRange(row, 2).setValue('Cash at beginning of period');
     sheet.getRange(row, 3).setFormula('=' + openParts);

@@ -165,8 +165,10 @@ function writeReportToSheet_(sheetName, reportData, opts) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sheet) return;
 
-  // Clear entire sheet before writing
-  sheet.clear();
+  // Clear sheet content and formatting, but preserve data validation rules
+  // (sheet.clear() would wipe period dropdown validation on B4)
+  sheet.clearContents();
+  sheet.clearFormats();
 
   switch (reportData.report) {
     case 'trial_balance':
@@ -208,26 +210,30 @@ function writeReportToSheet_(sheetName, reportData, opts) {
       var cInfo2 = typeof getCompanyInfo_ === 'function' ? getCompanyInfo_(ss2, companyId2) : { name: '', currency: '' };
       var now2 = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 
-      // Header block (rows 1-3)
+      // Rows 1-3: standard header block
       sheet.getRange('A1:B1').setValues([['Company:', cInfo2.name]]);
       sheet.getRange('A2:B2').setValues([['Currency:', cInfo2.currency || '']]);
       sheet.getRange('A3:B3').setValues([['Refreshed:', now2]]);
       sheet.getRange('A1:A3').setFontWeight('bold');
-      if (opts && opts.period) {
-        sheet.getRange('D1').setValue('Period:').setFontWeight('bold');
-        sheet.getRange('E1').setValue(opts.period).setFontWeight('bold');
-      }
 
-      // Column headers (row 4)
-      sheet.getRange(4, 1, 1, 5).setValues([['Bucket', 'Vendor', 'Ref', 'Outstanding', 'Days Past Due']]);
-      sheet.getRange(4, 1, 1, 5).setFontWeight('bold').setBackground('#e8eaf6');
+      // Row 4: Period selector (A4 label, B4 dropdown — preserve validation, just set value)
+      sheet.getRange('A4').setValue('Period:').setFontWeight('bold');
+      if (opts && opts.period) {
+        sheet.getRange('B4').setValue(opts.period).setFontWeight('bold').setBackground('#e8f0fe');
+      }
+      if (typeof setPeriodDropdown_ === 'function') {
+        setPeriodDropdown_(ss2, sheet.getRange('B4'));
+      }
       sheet.setFrozenRows(4);
 
-      // Data rows starting at row 5
-      var aRow = 5;
+      // Row 5: Column headers
+      sheet.getRange(5, 1, 1, 5).setValues([['Bucket', 'Vendor', 'Ref', 'Outstanding', 'Days Past Due']]);
+      sheet.getRange(5, 1, 1, 5).setFontWeight('bold').setBackground('#e8eaf6');
+
+      // Data rows starting at row 6
+      var aRow = 6;
       for (var b = 0; b < reportData.buckets.length; b++) {
         var bucket = reportData.buckets[b];
-        // Bucket header row
         sheet.getRange(aRow, 1).setValue(bucket.label).setFontWeight('bold').setBackground('#f5f5f5');
         sheet.getRange(aRow, 4).setValue(bucket.total).setNumberFormat(fmt).setFontWeight('bold').setBackground('#f5f5f5');
         aRow++;

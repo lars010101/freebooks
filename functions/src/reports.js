@@ -208,6 +208,7 @@ async function refreshAPAging(ctx) {
       WHERE company_id = @companyId
         AND status != 'paid'
         AND amount_paid < amount_home
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY bill_id ORDER BY created_at DESC) = 1
     `,
     params: { companyId },
   });

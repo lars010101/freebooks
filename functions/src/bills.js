@@ -189,7 +189,8 @@ async function voidBill(ctx) {
   if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
 
   const [bills] = await dataset.query({
-    query: `SELECT * FROM finance.bills WHERE company_id = @companyId AND bill_id = @billId`,
+    query: `SELECT * FROM finance.bills WHERE company_id = @companyId AND bill_id = @billId
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY bill_id ORDER BY created_at DESC) = 1`,
     params: { companyId, billId },
   });
   if (bills.length === 0) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
@@ -209,14 +210,23 @@ async function voidBill(ctx) {
     }
   }
 
-  // MERGE avoids streaming buffer conflict on recently-inserted rows
-  await dataset.query({
-    query: `MERGE finance.bills T
-            USING (SELECT @companyId AS company_id, @billId AS bill_id) S
-            ON T.company_id = S.company_id AND T.bill_id = S.bill_id
-            WHEN MATCHED THEN UPDATE SET status = 'void'`,
+  // BigQuery blocks DML on streaming buffer rows (~90 min after insert).
+  // Workaround: insert a new void row and use QUALIFY to read latest status.
+  const [originalBill] = await dataset.query({
+    query: `SELECT * FROM finance.bills WHERE company_id = @companyId AND bill_id = @billId
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY bill_id ORDER BY created_at DESC) = 1 LIMIT 1`,
     params: { companyId, billId },
   });
+  const orig = originalBill[0];
+  const voidRow = Object.assign({}, orig, {
+    status: 'void',
+    created_at: new Date().toISOString(),
+  });
+  // Strip BigQuery date wrappers
+  ['date', 'due_date'].forEach(f => {
+    if (voidRow[f] && voidRow[f].value) voidRow[f] = voidRow[f].value;
+  });
+  await dataset.table('bills').insert([voidRow]);
 
   return { voided: true, billId };
 }
@@ -228,6 +238,7 @@ async function listBills(ctx) {
   const { dataset, companyId, body } = ctx;
   const { status, vendor, dateFrom, dateTo, limit = 200, offset = 0 } = body;
 
+  // QUALIFY ensures we read the latest version of each bill (handles void-by-insert pattern)
   let query = `SELECT * FROM finance.bills WHERE company_id = @companyId`;
   const params = { companyId };
 
@@ -236,6 +247,7 @@ async function listBills(ctx) {
   if (dateFrom) { query += ` AND date >= @dateFrom`; params.dateFrom = dateFrom; }
   if (dateTo) { query += ` AND date <= @dateTo`; params.dateTo = dateTo; }
 
+  query += ` QUALIFY ROW_NUMBER() OVER (PARTITION BY bill_id ORDER BY created_at DESC) = 1`;
   query += ` ORDER BY date DESC, created_at DESC LIMIT @limit OFFSET @offset`;
   params.limit = limit;
   params.offset = offset;
@@ -276,6 +288,7 @@ async function matchBill(ctx) {
               AND status IN ('posted', 'partial')
               AND ABS(amount - @amount) < 0.01
               ${clauses.join(' ')}
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY bill_id ORDER BY created_at DESC) = 1
             ORDER BY date DESC
             LIMIT 10`,
     params,

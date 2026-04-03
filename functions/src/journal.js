@@ -162,8 +162,13 @@ async function reverseEntry(ctx) {
     throw Object.assign(new Error('Entry not found'), { code: 'NOT_FOUND' });
   }
 
-  // Check not already reversed
-  if (original[0].reversed_by) {
+  // Check not already reversed — query for existing reversal rather than reading reversed_by
+  // (reversed_by UPDATE is blocked while rows are in BigQuery streaming buffer)
+  const [existingReversals] = await dataset.query({
+    query: `SELECT batch_id FROM finance.journal_entries WHERE company_id = @companyId AND reverses = @batchId LIMIT 1`,
+    params: { companyId, batchId },
+  });
+  if (existingReversals.length > 0) {
     throw Object.assign(new Error('Entry already reversed'), { code: 'ALREADY_REVERSED' });
   }
 
@@ -219,14 +224,9 @@ async function reverseEntry(ctx) {
   // Insert reversal
   await dataset.table('journal_entries').insert(reversalRows);
 
-  // Mark original as reversed (MERGE avoids streaming buffer conflict)
-  await dataset.query({
-    query: `MERGE finance.journal_entries T
-            USING (SELECT @companyId AS company_id, @batchId AS batch_id) S
-            ON T.company_id = S.company_id AND T.batch_id = S.batch_id
-            WHEN MATCHED THEN UPDATE SET reversed_by = @newBatchId`,
-    params: { companyId, batchId, newBatchId },
-  });
+  // Note: we do NOT update reversed_by on the original entry — BigQuery blocks all DML
+  // (UPDATE and MERGE) while rows are in the streaming buffer (~90 min after insert).
+  // Double-reversal is prevented by checking for existing reversals via reverses=batchId above.
 
   return {
     reversed: true,

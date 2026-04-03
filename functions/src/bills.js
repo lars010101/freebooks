@@ -209,8 +209,12 @@ async function voidBill(ctx) {
     }
   }
 
+  // MERGE avoids streaming buffer conflict on recently-inserted rows
   await dataset.query({
-    query: `UPDATE finance.bills SET status = 'void' WHERE company_id = @companyId AND bill_id = @billId`,
+    query: `MERGE finance.bills T
+            USING (SELECT @companyId AS company_id, @billId AS bill_id) S
+            ON T.company_id = S.company_id AND T.bill_id = S.bill_id
+            WHEN MATCHED THEN UPDATE SET status = 'void'`,
     params: { companyId, billId },
   });
 

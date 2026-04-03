@@ -219,10 +219,12 @@ async function reverseEntry(ctx) {
   // Insert reversal
   await dataset.table('journal_entries').insert(reversalRows);
 
-  // Mark original as reversed
+  // Mark original as reversed (MERGE avoids streaming buffer conflict)
   await dataset.query({
-    query: `UPDATE finance.journal_entries SET reversed_by = @newBatchId
-            WHERE company_id = @companyId AND batch_id = @batchId`,
+    query: `MERGE finance.journal_entries T
+            USING (SELECT @companyId AS company_id, @batchId AS batch_id) S
+            ON T.company_id = S.company_id AND T.batch_id = S.batch_id
+            WHEN MATCHED THEN UPDATE SET reversed_by = @newBatchId`,
     params: { companyId, batchId, newBatchId },
   });
 

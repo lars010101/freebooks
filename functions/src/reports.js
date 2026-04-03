@@ -184,3 +184,5 @@ function detectPeriods(dateFrom, dateTo, fy) {
   return { type: 'single', periods: [{ dateFrom, dateTo, label: periodLabel(dateFrom, dateTo) }] };
 }
 
+
+module.exports = { handleReports };

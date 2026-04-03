@@ -2194,19 +2194,19 @@ function buildSCE_(sheet, ss) {
   row++;
 
   // ── Net Profit / (Loss) ──────────────────────────────────────────────────────
-  // NI = -(sum of P&L deltas) = SUM(credit-debit) for P&L period
+  // NI = -(sum of P&L deltas). Goes to Total only — not allocated to any column
+  // until closing entries move it to RE.
   var niRow = row;
   sheet.getRange(row, 1).setValue('Net Profit / (Loss)');
   sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt); // SC: 0
-  // NI formula: negate sum of P&L movements (debit-credit → credit-debit)
+  sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt); // RE: 0 (NI not yet in RE)
+  sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt); // Div: 0
   if (plCodes.length > 0) {
     var niParts = plCodes.map(function(c) { return pbDelta_('"' + c + '"', 'C$4'); });
-    sheet.getRange(row, 3).setFormula('=-(' + niParts.join('+') + ')').setNumberFormat(fmt);
+    sheet.getRange(row, 5).setFormula('=-(' + niParts.join('+') + ')').setNumberFormat(fmt);
   } else {
-    sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
+    sheet.getRange(row, 5).setValue(0).setNumberFormat(fmt);
   }
-  sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt); // Div: 0
-  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   row++;
 
   // ── Dividends declared ───────────────────────────────────────────────────────
@@ -2227,13 +2227,12 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   row++;
 
-  // ── Other RE movements ───────────────────────────────────────────────────────
-  // Total RE movement for the period minus Net Income = other RE movements
+  // ── RE movements (transfers to/from Retained Earnings) ─────────────────────
+  // Shows actual movement on RE accounts (e.g. 999999→203070 closing transfers)
   var otherRow = row;
-  sheet.getRange(row, 1).setValue('Other RE movements');
+  sheet.getRange(row, 1).setValue('RE movements');
   sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt);
-  // Other RE = total RE delta - NI
-  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$4', true) + '-C' + niRow).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$4', true)).setNumberFormat(fmt);
   sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   row++;

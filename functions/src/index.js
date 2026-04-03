@@ -34,9 +34,9 @@ const ACTION_ROLES = {
 
   // Bills (A/P)
   'bill.create': 'data_entry',
-  'bill.post': 'data_entry',
   'bill.void': 'data_entry',
   'bill.list': 'viewer',
+  'bill.match': 'viewer',
 
   // Reports
   'report.refresh_ap_aging': 'viewer',

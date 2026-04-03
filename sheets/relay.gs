@@ -561,11 +561,13 @@ function onOpen() {
     .addSubMenu(ui.createMenu('New')
       .addItem('Journal entry', 'newJournalEntry')
       .addItem('Bank statement', 'newBankStatement')
-      .addItem('Transaction import', 'newTransactionImport'))
+      .addItem('Transaction import', 'newTransactionImport')
+      .addItem('Bill', 'openBillSidebar'))
     .addSubMenu(ui.createMenu('Accounting records')
       .addItem('Journal', 'showJournal')
       .addItem('General Ledger', 'showGL')
-      .addItem('Trial Balances', 'generateTB'))
+      .addItem('Trial Balances', 'generateTB')
+      .addItem('Bills', 'showBills'))
     .addSubMenu(ui.createMenu('Financial statements')
       .addItem('Profit & Loss', 'generatePL')
       .addItem('Statement of Changes in Equity', 'generateSCE')
@@ -753,6 +755,70 @@ function showTaxCodes() {
 function showCenters() {
   navigateToTab('Centers');
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+}
+
+// =============================================================================
+// Bills sidebar
+// =============================================================================
+
+function openBillSidebar() {
+  var html = HtmlService.createHtmlOutputFromFile('sidebar-bill').setTitle('🧾 Bills').setWidth(340);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function showBills() {
+  navigateToTab('Bills');
+  var result = refreshTab_('Bills');
+  if (result && result.indexOf('✅') !== 0) SpreadsheetApp.getUi().alert(result);
+}
+
+function getBillSidebarData() {
+  var cache = CacheService.getDocumentCache();
+  var cachedAccts = cache.get('skuld_accounts');
+  var cachedVats = cache.get('skuld_vat_codes');
+  var accounts, vatCodes;
+  if (cachedAccts) {
+    accounts = JSON.parse(cachedAccts);
+  } else {
+    var accts = callSkuld_('coa.list', {});
+    accounts = (accts || []).map(function(a) { return { code: a.account_code, name: a.account_name, type: a.account_type }; });
+    try { cache.put('skuld_accounts', JSON.stringify(accounts), 21600); } catch(e) {}
+  }
+  if (cachedVats) {
+    vatCodes = JSON.parse(cachedVats);
+  } else {
+    var vats = callSkuld_('vat.codes.list', {});
+    vatCodes = (vats || []).map(function(v) { return { code: v.vat_code, rate: v.rate, description: v.description }; });
+    try { cache.put('skuld_vat_codes', JSON.stringify(vatCodes), 21600); } catch(e) {}
+  }
+  return { accounts: accounts, vatCodes: vatCodes };
+}
+
+function postBillFromSidebar(bill) {
+  var result = callSkuld_('bill.create', { bill: bill });
+  if (result && result.created) {
+    if (typeof markGlobalDatabasePost === 'function') markGlobalDatabasePost();
+    // Refresh Bills tab if open
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss.getSheetByName('Bills')) refreshTab_('Bills');
+  }
+  return result;
+}
+
+function voidBillFromSidebar(billId) {
+  var result = callSkuld_('bill.void', { billId: billId });
+  if (result && result.voided) {
+    if (typeof markGlobalDatabasePost === 'function') markGlobalDatabasePost();
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss.getSheetByName('Bills')) refreshTab_('Bills');
+  }
+  return result;
+}
+
+function listBillsForSidebar(status) {
+  var params = {};
+  if (status) params.status = status;
+  return callSkuld_('bill.list', params);
 }
 
 function showPeriodBalances() {

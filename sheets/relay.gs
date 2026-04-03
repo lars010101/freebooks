@@ -2245,13 +2245,11 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 2).setFormula('=B' + openRow + '+B' + scMovRow + '+B' + otherRow + '+B' + divRow).setFontWeight('bold').setNumberFormat(fmt);
   sheet.getRange(row, 3).setFormula('=C' + openRow + '+C' + scMovRow + '+C' + otherRow + '+C' + divRow).setFontWeight('bold').setNumberFormat(fmt);
   sheet.getRange(row, 4).setFormula('=D' + openRow + '+D' + scMovRow + '+D' + otherRow + '+D' + divRow).setFontWeight('bold').setNumberFormat(fmt);
-  // Total = sum of columns + unallocated NI (same as BS Undistributed P/L concept)
-  // For closed years: NI is already in RE via closing entry, and the NI memo line
-  // equals the RE movement, so this double-counts. Fix: subtract RE movements from NI
-  // to get only the unallocated portion.
-  // Unallocated NI = NI (from P&L) - RE movements (which include the closing transfer)
-  // For closed year: 13,770 - 13,770 = 0. For unclosed: 13,300 - 0 = 13,300.
-  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')+(E' + niRow + '-E' + otherRow + ')').setFontWeight('bold').setNumberFormat(fmt);
+  // Total = sum of columns + Undistributed P/L (same formula as BS)
+  // Undistributed P/L = -(posted 999999 cum) + -(sum of all P&L cum)
+  var e999Part = '(-' + pbCum_('"999999"', 'C$4') + ')';
+  var plPartSCE = plCodes.length > 0 ? '+(-(' + plCodes.map(function(c) { return pbCum_('"' + c + '"', 'C$4'); }).join('+') + '))' : '';
+  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')+' + e999Part + plPartSCE).setFontWeight('bold').setNumberFormat(fmt);
   sheet.getRange(row, 1, 1, 5).setBackground('#e0e0e0');
   sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 

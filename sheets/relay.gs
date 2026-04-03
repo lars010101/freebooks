@@ -2282,12 +2282,16 @@ function buildIntegrity_(sheet, ss) {
   }
   fyPeriods.sort();
 
+  var fmt = '#,##0.00;(#,##0.00);0.00';
   var companyName = '';
+  var currency = '';
   var settingsSheet = ss.getSheetByName('Companies');
   if (settingsSheet) {
     var sData = settingsSheet.getDataRange().getValues();
     for (var s = 0; s < sData.length; s++) {
-      if (String(sData[s][0] || '').trim().toLowerCase() === 'company') companyName = String(sData[s][1] || '').trim();
+      var k = String(sData[s][0] || '').trim().toLowerCase();
+      if (k === 'company')  companyName = String(sData[s][1] || '').trim();
+      if (k === 'currency') currency     = String(sData[s][1] || '').trim();
     }
   }
 

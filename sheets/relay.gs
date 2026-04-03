@@ -316,7 +316,8 @@ function _refreshTabInternal_(name, period) {
     case 'Period Balances':
       var r = callSkuld_('report.cache_balances', {});
       if (r && r.rows) writeToSheet_('Period Balances', r.rows, r.columns);
-      return '✅ Period Balances refreshed (' + (r && r.columns ? r.columns.length : 0) + ' periods)';
+      var periodCount = r && r.columns ? r.columns.filter(function(c) { return /^FY\d{4}$/.test(c) || /^\d{4}P\d{2}$/.test(c); }).length : 0;
+      return '✅ Period Balances refreshed (' + periodCount + ' periods, ' + (r && r.rows ? r.rows.length : 0) + ' accounts)';
     case 'COA':
       var r = callSkuld_('coa.list', {});
       if (r) writeToSheet_('COA', r, ['account_code', 'account_name', 'account_type', 'account_subtype', 'pl_category', 'bs_category', 'cf_category', 'is_active', 'effective_from', 'effective_to']);

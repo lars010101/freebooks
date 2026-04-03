@@ -2194,19 +2194,18 @@ function buildSCE_(sheet, ss) {
   row++;
 
   // ── Net Profit / (Loss) ──────────────────────────────────────────────────────
-  // NI = -(sum of P&L deltas). Goes to Total only — not allocated to any column
-  // until closing entries move it to RE.
+  // NI = -(sum of P&L deltas), shown in RE column
   var niRow = row;
-  sheet.getRange(row, 1).setValue('Net Profit / (Loss)').setFontStyle('italic');
-  sheet.getRange(row, 2).setValue('').setNumberFormat(fmt);
-  sheet.getRange(row, 3).setValue('').setNumberFormat(fmt);
-  sheet.getRange(row, 4).setValue('').setNumberFormat(fmt);
+  sheet.getRange(row, 1).setValue('Net Profit / (Loss)');
+  sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt); // SC: 0
   if (plCodes.length > 0) {
     var niParts = plCodes.map(function(c) { return pbDelta_('"' + c + '"', 'C$4'); });
-    sheet.getRange(row, 5).setFormula('=-(' + niParts.join('+') + ')').setNumberFormat(fmt).setFontStyle('italic');
+    sheet.getRange(row, 3).setFormula('=-(' + niParts.join('+') + ')').setNumberFormat(fmt);
   } else {
-    sheet.getRange(row, 5).setValue(0).setNumberFormat(fmt).setFontStyle('italic');
+    sheet.getRange(row, 3).setValue(0).setNumberFormat(fmt);
   }
+  sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt); // Div: 0
+  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   row++;
 
   // ── Dividends declared ───────────────────────────────────────────────────────
@@ -2227,12 +2226,12 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   row++;
 
-  // ── RE movements (transfers to/from Retained Earnings) ─────────────────────
-  // Shows actual movement on RE accounts (e.g. 999999→203070 closing transfers)
+  // ── Other RE movements ─────────────────────────────────────────────────────
+  // RE account delta minus NI = non-NI movements (e.g. direct RE adjustments)
   var otherRow = row;
-  sheet.getRange(row, 1).setValue('RE movements');
+  sheet.getRange(row, 1).setValue('Other RE movements');
   sheet.getRange(row, 2).setValue(0).setNumberFormat(fmt);
-  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$4', true)).setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=' + sumFormula(reAccts, 'C$4', true) + '-C' + niRow).setNumberFormat(fmt);
   sheet.getRange(row, 4).setValue(0).setNumberFormat(fmt);
   sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setNumberFormat(fmt);
   row++;
@@ -2241,10 +2240,10 @@ function buildSCE_(sheet, ss) {
   // Closing = Opening + all movements
   var closeRow = row;
   sheet.getRange(row, 1).setValue('Closing Balance').setFontWeight('bold');
-  // Column closings: Opening + SC + RE + Div
-  sheet.getRange(row, 2).setFormula('=B' + openRow + '+B' + scMovRow + '+B' + otherRow + '+B' + divRow).setFontWeight('bold').setNumberFormat(fmt);
-  sheet.getRange(row, 3).setFormula('=C' + openRow + '+C' + scMovRow + '+C' + otherRow + '+C' + divRow).setFontWeight('bold').setNumberFormat(fmt);
-  sheet.getRange(row, 4).setFormula('=D' + openRow + '+D' + scMovRow + '+D' + otherRow + '+D' + divRow).setFontWeight('bold').setNumberFormat(fmt);
+  // Per-column: SUM down each column (Opening + NI + Div + SC + Other RE)
+  sheet.getRange(row, 2).setFormula('=SUM(B' + openRow + ':B' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
+  sheet.getRange(row, 3).setFormula('=SUM(C' + openRow + ':C' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
+  sheet.getRange(row, 4).setFormula('=SUM(D' + openRow + ':D' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
   // Total = sum of columns + Undistributed P/L (same formula as BS)
   // Undistributed P/L = -(posted 999999 cum) + -(sum of all P&L cum)
   var e999Part = '(-' + pbCum_('"999999"', 'C$4') + ')';

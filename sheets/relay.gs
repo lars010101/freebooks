@@ -2244,7 +2244,8 @@ function buildSCE_(sheet, ss) {
   sheet.getRange(row, 2).setFormula('=SUM(B' + openRow + ':B' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
   sheet.getRange(row, 3).setFormula('=SUM(C' + openRow + ':C' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
   sheet.getRange(row, 4).setFormula('=SUM(D' + openRow + ':D' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
-  sheet.getRange(row, 5).setFormula('=SUM(B' + row + ':D' + row + ')').setFontWeight('bold').setNumberFormat(fmt);
+  // Total = sum of all Total column values (captures NI which is Total-only)
+  sheet.getRange(row, 5).setFormula('=SUM(E' + openRow + ':E' + (row - 1) + ')').setFontWeight('bold').setNumberFormat(fmt);
   sheet.getRange(row, 1, 1, 5).setBackground('#e0e0e0');
   sheet.getRange(row, 1, 1, 5).setBorder(true, null, true, null, null, null, '#000000', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 

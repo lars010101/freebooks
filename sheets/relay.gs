@@ -1519,8 +1519,8 @@ function buildBS_(sheet, ss) {
     var row = coaData[i];
     var type = String(row[acctTypeIdx] || '').trim();
     var code = String(row[acctCodeIdx] || '').trim();
-    // Exclude 999999 closing/clearing account and calculated parent accounts
-    if (code.indexOf('999999') === 0 || code.length < 6) continue;
+    // Exclude calculated parent accounts (short codes) but include 999999 (undistributed P/L)
+    if (code.length < 6) continue;
     if (type === 'Asset' || type === 'Liability' || type === 'Equity') {
       bsAccounts.push({
         code: code,
@@ -1603,6 +1603,26 @@ function buildBS_(sheet, ss) {
     row++;
   }
   if (currentSection !== null) sections[currentSection].end = row - 1;
+
+  // Unclosed P&L row: sum of all Revenue + Expense cumulative balances, negated
+  // (Revenue is credit-normal = negative in cache; Expense is debit-normal = positive;
+  //  negating the sum gives: positive revenue - expenses = net income shown as positive equity)
+  var plCodes = [];
+  for (var pi = 1; pi < coaData.length; pi++) {
+    var pType = String(coaData[pi][acctTypeIdx] || '').trim();
+    var pCode = String(coaData[pi][acctCodeIdx] || '').trim();
+    if (pCode.length >= 6 && (pType === 'Revenue' || pType === 'Expense')) plCodes.push(pCode);
+  }
+  if (plCodes.length > 0) {
+    sheet.getRange(row, 1).setValue('');
+    sheet.getRange(row, 2).setValue('Unclosed P&L');
+    var plParts = plCodes.map(function(c) { return pbCum_('"' + c + '"', 'C$4'); });
+    sheet.getRange(row, 3).setFormula('=-(' + plParts.join('+') + ')');
+    sheet.getRange(row, 3).setNumberFormat('#,##0.00;(#,##0.00);0.00');
+    // Extend equity section to include this row
+    if (sections.Equity.end) sections.Equity.end = row;
+    row++;
+  }
 
   // Write section totals
   var startRow = 5;

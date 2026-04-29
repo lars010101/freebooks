@@ -3,12 +3,17 @@
  * freeBooks — Setup service
  * Ported from BigQuery Cloud Function to DuckDB/Express.
  *
- * DuckDB note: schema is created via db/migrate.js.
- * setup.init here just validates the connection.
+ * setup.init validates the schema and lists available jurisdictions.
+ * setup.add_company creates a new company, loading COA + VAT codes
+ * from db/jurisdictions/<jurisdiction>/ if coaTemplate is not supplied.
  */
 
+const path = require('path');
+const fs = require('fs');
 const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
+
+const JURISDICTIONS_DIR = path.resolve(__dirname, '../../db/jurisdictions');
 
 async function handleSetup(ctx, action) {
   switch (action) {
@@ -20,7 +25,7 @@ async function handleSetup(ctx, action) {
 }
 
 /**
- * Verify schema is in place. Run db/migrate.js first.
+ * Verify schema and list available jurisdictions.
  */
 async function initSchema(ctx) {
   const tables = await query(
@@ -31,11 +36,25 @@ async function initSchema(ctx) {
   const present = expected.filter((t) => names.includes(t));
   const missing = expected.filter((t) => !names.includes(t));
 
+  // List available jurisdictions
+  let jurisdictions = [];
+  try {
+    jurisdictions = fs.readdirSync(JURISDICTIONS_DIR)
+      .filter(d => !d.startsWith('_') && fs.statSync(path.join(JURISDICTIONS_DIR, d)).isDirectory())
+      .map(d => {
+        try {
+          const manifest = JSON.parse(fs.readFileSync(path.join(JURISDICTIONS_DIR, d, 'manifest.json'), 'utf8'));
+          return { code: d, ...manifest };
+        } catch { return { code: d }; }
+      });
+  } catch {}
+
   return {
     tablesPresent: present,
     tablesMissing: missing,
     ready: missing.length === 0,
     note: missing.length > 0 ? 'Run `node db/migrate.js` to create missing tables' : 'Schema OK',
+    jurisdictions,
   };
 }
 
@@ -81,9 +100,27 @@ async function addCompany(ctx) {
     }]);
   }
 
+  // Load COA from jurisdiction files if not supplied directly
+  let resolvedCoa = coaTemplate;
+  let resolvedVatCodes = vatCodesTemplate;
+  if (!resolvedCoa) {
+    const jurisdiction = company.jurisdiction || 'SE';
+    const coaPath = path.join(JURISDICTIONS_DIR, jurisdiction, 'coa.json');
+    if (fs.existsSync(coaPath)) {
+      resolvedCoa = JSON.parse(fs.readFileSync(coaPath, 'utf8'));
+    }
+  }
+  if (!resolvedVatCodes) {
+    const jurisdiction = company.jurisdiction || 'SE';
+    const vatPath = path.join(JURISDICTIONS_DIR, jurisdiction, 'vat_codes.json');
+    if (fs.existsSync(vatPath)) {
+      resolvedVatCodes = JSON.parse(fs.readFileSync(vatPath, 'utf8'));
+    }
+  }
+
   let accountsInserted = 0;
-  if (coaTemplate && Array.isArray(coaTemplate) && coaTemplate.length > 0) {
-    const accounts = coaTemplate.map((a) => ({
+  if (resolvedCoa && Array.isArray(resolvedCoa) && resolvedCoa.length > 0) {
+    const accounts = resolvedCoa.map((a) => ({
       company_id: company.company_id,
       account_code: a.account_code,
       account_name: a.account_name,
@@ -102,8 +139,8 @@ async function addCompany(ctx) {
   }
 
   let vatCodesInserted = 0;
-  if (company.vat_registered && vatCodesTemplate && Array.isArray(vatCodesTemplate)) {
-    const vatCodes = vatCodesTemplate.map((vc) => ({
+  if (company.vat_registered && resolvedVatCodes && Array.isArray(resolvedVatCodes)) {
+    const vatCodes = resolvedVatCodes.map((vc) => ({
       company_id: company.company_id,
       vat_code: vc.vat_code,
       description: vc.description,

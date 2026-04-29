@@ -1,0 +1,11 @@
+[
+  {
+    "vat_code": "XX_STD",
+    "description": "Standard rate",
+    "rate": 0.0,
+    "vat_account_input": null,
+    "vat_account_output": null,
+    "report_box": null,
+    "is_reverse_charge": false
+  }
+]

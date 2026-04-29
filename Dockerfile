@@ -21,6 +21,7 @@ RUN printf 'DB_PATH=%s/.freebooks/freebooks.duckdb\nPORT=3000\n' "$HOME" > /home
 
 # Auto-init DB on shell entry with status messages (system-wide, any user)
 RUN chmod +x /home/user/freebooks/db/start.sh && \
+    touch /etc/bashrc && \
     echo 'bash /home/user/freebooks/db/start.sh' >> /etc/bashrc
 
 WORKDIR /home/user/freebooks

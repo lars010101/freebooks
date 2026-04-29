@@ -1,5 +1,5 @@
 FROM cgr.dev/chainguard/wolfi-base:latest
-RUN apk update && apk add --no-cache nodejs npm duckdb git gh shadow sudo
+RUN apk update && apk add --no-cache nodejs npm duckdb git gh shadow sudo python3 make gcc g++
 RUN useradd -m -u 1000 user && echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
 USER user
 WORKDIR /home/user

@@ -6,8 +6,8 @@
  * Default DB path: ../data/freebooks.duckdb
  *
  * Usage:
- *   node db/migrate.js
- *   DB_PATH=/path/to/freebooks.duckdb node db/migrate.js
+ *   node db/init.js
+ *   DB_PATH=/path/to/freebooks.duckdb node db/init.js
  */
 
 'use strict';

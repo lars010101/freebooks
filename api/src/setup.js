@@ -53,7 +53,7 @@ async function initSchema(ctx) {
     tablesPresent: present,
     tablesMissing: missing,
     ready: missing.length === 0,
-    note: missing.length > 0 ? 'Run `node db/migrate.js` to create missing tables' : 'Schema OK',
+    note: missing.length > 0 ? 'Run `node db/init.js` to create missing tables' : 'Schema OK',
     jurisdictions,
   };
 }

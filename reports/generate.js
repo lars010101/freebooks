@@ -238,8 +238,12 @@ async function main() {
   const [co] = await dbAll(con, `SELECT company_name, fy_start, fy_end FROM companies WHERE company_id = ?`, [COMPANY]);
   if (!co) { console.error(`Company '${COMPANY}' not found.`); process.exit(1); }
 
-  const START = arg('start', String(co.fy_start).slice(0, 10));
-  const END   = arg('end',   String(co.fy_end).slice(0, 10));
+  function toISO(d) {
+    const dt = new Date(d);
+    return dt.toISOString().slice(0, 10);
+  }
+  const START = arg('start', toISO(co.fy_start));
+  const END   = arg('end',   toISO(co.fy_end));
   const period = `Period: ${START} to ${END}`;
 
   const reports = REPORT === 'all' ? ['pl', 'bs', 'tb', 'gl'] : [REPORT];

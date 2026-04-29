@@ -1,4 +1,4 @@
 name: freebooks
 type: duckdb
 options:
-  filename: ../../data/freebooks.duckdb
+  filename: ~/.freebooks/freebooks.duckdb

@@ -220,6 +220,19 @@ financing AS (
     AND a.cf_category = 'Financing'
   GROUP BY je.account_code, a.account_name
 ),
+-- Opening cash balance (before period)
+opening_cash AS (
+  SELECT
+    'Cash' AS section,
+    NULL AS account_code,
+    'Cash at Beginning of Period' AS account_name,
+    SUM(je.debit) - SUM(je.credit) AS amount
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date < CAST(start_date AS DATE)
+    AND a.cf_category = 'Cash'
+),
 -- All account lines
 all_lines AS (
   SELECT 'Net Income'  AS subsection, section, account_code, account_name, amount FROM net_income
@@ -274,6 +287,25 @@ SELECT
   5             AS sort1,
   3             AS sort2
 FROM net_change
+UNION ALL
+SELECT
+  'total'       AS row_type,
+  'Cash'        AS section,
+  NULL          AS account_code,
+  account_name,
+  amount,
+  6             AS sort1,
+  1             AS sort2
+FROM opening_cash
+UNION ALL
+SELECT
+  'total'       AS row_type,
+  'Cash'        AS section,
+  NULL          AS account_code,
+  'Cash at End of Period' AS account_name,
+  (SELECT amount FROM opening_cash) + (SELECT amount FROM net_change) AS amount,
+  6             AS sort1,
+  2             AS sort2
 ORDER BY sort1, sort2, account_code NULLS LAST;
 
 -- =============================================================================

@@ -16,7 +16,8 @@ COPY --from=build --chown=user:user /build/freebooks /home/user/freebooks
 
 # System-level setup — must run as root before USER switch
 RUN chmod +x /home/user/freebooks/db/start.sh && \
-    echo 'bash /home/user/freebooks/db/start.sh' >> /etc/profile
+    echo 'bash /home/user/freebooks/db/start.sh' > /etc/profile.d/freebooks.sh && \
+    chmod +x /etc/profile.d/freebooks.sh
 
 USER user
 

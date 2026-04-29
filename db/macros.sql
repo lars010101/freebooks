@@ -142,8 +142,282 @@ WHERE je.company_id = cid
 ORDER BY je.date, je.batch_id, je.account_code;
 
 -- =============================================================================
+-- CF — Cash Flow Statement (indirect method)
+-- Returns: row_type, section, account_code, account_name, amount, sort1, sort2
+-- =============================================================================
+CREATE OR REPLACE MACRO cf(cid, start_date, end_date) AS TABLE
+WITH
+-- Net Income from P&L accounts
+net_income AS (
+  SELECT
+    'Operating' AS section,
+    NULL AS account_code,
+    'Net Income' AS account_name,
+    SUM(CASE
+      WHEN a.account_type = 'Revenue' THEN SUM_credit - SUM_debit
+      WHEN a.account_type = 'Expense' THEN SUM_debit - SUM_credit
+      ELSE 0
+    END) AS amount
+  FROM (
+    SELECT a.account_type,
+      SUM(je.debit) AS SUM_debit, SUM(je.credit) AS SUM_credit
+    FROM journal_entries je
+    LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+    WHERE je.company_id = cid
+      AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+      AND a.account_type IN ('Revenue', 'Expense')
+    GROUP BY a.account_type
+  ) t
+  LEFT JOIN (SELECT 1) dummy ON 1=1
+),
+-- Working Capital movements (debit - credit)
+op_wc AS (
+  SELECT
+    'Operating' AS section,
+    je.account_code,
+    a.account_name,
+    SUM(je.debit) - SUM(je.credit) AS amount
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    AND a.cf_category = 'Op-WC'
+  GROUP BY je.account_code, a.account_name
+),
+-- Tax
+op_tax AS (
+  SELECT
+    'Operating' AS section,
+    je.account_code,
+    a.account_name,
+    SUM(je.debit) - SUM(je.credit) AS amount
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    AND a.cf_category = 'Tax'
+  GROUP BY je.account_code, a.account_name
+),
+-- Investing
+investing AS (
+  SELECT
+    'Investing' AS section,
+    je.account_code,
+    a.account_name,
+    SUM(je.debit) - SUM(je.credit) AS amount
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    AND a.cf_category = 'Investing'
+  GROUP BY je.account_code, a.account_name
+),
+-- Financing
+financing AS (
+  SELECT
+    'Financing' AS section,
+    je.account_code,
+    a.account_name,
+    SUM(je.debit) - SUM(je.credit) AS amount
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    AND a.cf_category = 'Financing'
+  GROUP BY je.account_code, a.account_name
+),
+-- All account lines
+all_lines AS (
+  SELECT 'Net Income'  AS subsection, section, account_code, account_name, amount FROM net_income
+  UNION ALL
+  SELECT 'Op-WC'       AS subsection, section, account_code, account_name, amount FROM op_wc
+  UNION ALL
+  SELECT 'Tax'         AS subsection, section, account_code, account_name, amount FROM op_tax
+  UNION ALL
+  SELECT 'Investing'   AS subsection, section, account_code, account_name, amount FROM investing
+  UNION ALL
+  SELECT 'Financing'   AS subsection, section, account_code, account_name, amount FROM financing
+),
+-- Subtotals per section
+section_totals AS (
+  SELECT section, NULL AS account_code,
+    'Total ' || section AS account_name,
+    SUM(amount) AS amount
+  FROM all_lines
+  GROUP BY section
+),
+-- Grand total
+net_change AS (
+  SELECT NULL AS account_code, 'Net Change in Cash' AS account_name, SUM(amount) AS amount
+  FROM section_totals
+)
+SELECT
+  'account'  AS row_type,
+  section,
+  account_code,
+  account_name,
+  amount,
+  CASE section WHEN 'Operating' THEN 1 WHEN 'Investing' THEN 2 WHEN 'Financing' THEN 3 ELSE 4 END AS sort1,
+  1 AS sort2
+FROM all_lines
+UNION ALL
+SELECT
+  'subtotal' AS row_type,
+  section,
+  NULL AS account_code,
+  account_name,
+  amount,
+  CASE section WHEN 'Operating' THEN 1 WHEN 'Investing' THEN 2 WHEN 'Financing' THEN 3 ELSE 4 END AS sort1,
+  2 AS sort2
+FROM section_totals
+UNION ALL
+SELECT
+  'total'       AS row_type,
+  'Net Change'  AS section,
+  NULL          AS account_code,
+  account_name,
+  amount,
+  5             AS sort1,
+  3             AS sort2
+FROM net_change
+ORDER BY sort1, sort2, account_code NULLS LAST;
+
+-- =============================================================================
+-- SCE — Statement of Changes in Equity
+-- Returns: account_code, account_name, opening_balance, movements, closing_balance
+-- =============================================================================
+CREATE OR REPLACE MACRO sce(cid, start_date, end_date) AS TABLE
+WITH
+opening AS (
+  SELECT
+    je.account_code,
+    a.account_name,
+    SUM(je.credit) - SUM(je.debit) AS opening_balance
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date < CAST(start_date AS DATE)
+    AND a.account_type = 'Equity'
+  GROUP BY je.account_code, a.account_name
+),
+period_mvt AS (
+  SELECT
+    je.account_code,
+    a.account_name,
+    SUM(je.credit) - SUM(je.debit) AS movements
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    AND a.account_type = 'Equity'
+  GROUP BY je.account_code, a.account_name
+),
+all_codes AS (
+  SELECT account_code, account_name FROM opening
+  UNION
+  SELECT account_code, account_name FROM period_mvt
+)
+SELECT
+  ac.account_code,
+  ac.account_name,
+  COALESCE(o.opening_balance, 0) AS opening_balance,
+  COALESCE(m.movements, 0)       AS movements,
+  COALESCE(o.opening_balance, 0) + COALESCE(m.movements, 0) AS closing_balance
+FROM all_codes ac
+LEFT JOIN opening    o ON o.account_code = ac.account_code
+LEFT JOIN period_mvt m ON m.account_code = ac.account_code
+ORDER BY ac.account_code;
+
+-- =============================================================================
+-- INTEGRITY — Integrity Checks
+-- Returns: check_name, status (OK/FAIL), detail
+-- =============================================================================
+CREATE OR REPLACE MACRO integrity(cid, start_date, end_date) AS TABLE
+WITH
+-- BS Balance check
+bs_check AS (
+  SELECT
+    'BS Balance' AS check_name,
+    CASE
+      WHEN ABS(
+        SUM(CASE WHEN a.account_type = 'Asset'     THEN SUM(je.debit) - SUM(je.credit) ELSE 0 END) -
+        SUM(CASE WHEN a.account_type = 'Liability' THEN SUM(je.credit) - SUM(je.debit) ELSE 0 END) -
+        SUM(CASE WHEN a.account_type = 'Equity'    THEN SUM(je.credit) - SUM(je.debit) ELSE 0 END)
+      ) <= 0.01 THEN 'OK' ELSE 'FAIL'
+    END AS status,
+    'Assets: ' || ROUND(SUM(CASE WHEN a.account_type='Asset' THEN SUM(je.debit)-SUM(je.credit) ELSE 0 END),2)
+    || ' | Liab+Equity: ' || ROUND(
+      SUM(CASE WHEN a.account_type='Liability' THEN SUM(je.credit)-SUM(je.debit) ELSE 0 END) +
+      SUM(CASE WHEN a.account_type='Equity'    THEN SUM(je.credit)-SUM(je.debit) ELSE 0 END)
+    ,2) AS detail
+  FROM (
+    SELECT a.account_type, je.debit, je.credit
+    FROM journal_entries je
+    LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+    WHERE je.company_id = cid
+      AND je.date <= CAST(end_date AS DATE)
+      AND a.account_type IN ('Asset', 'Liability', 'Equity')
+  ) t
+  LEFT JOIN (SELECT 1) dummy ON 1=1
+),
+-- Journal Balance: unbalanced batches
+batch_check AS (
+  SELECT
+    'Journal Balance' AS check_name,
+    CASE WHEN COUNT(*) = 0 THEN 'OK' ELSE 'FAIL' END AS status,
+    CASE WHEN COUNT(*) = 0 THEN 'All batches balance'
+      ELSE 'Unbalanced batches: ' || STRING_AGG(batch_id || ' (diff=' || ROUND(diff,2) || ')', ', ')
+    END AS detail
+  FROM (
+    SELECT batch_id, SUM(debit) - SUM(credit) AS diff
+    FROM journal_entries
+    WHERE company_id = cid
+      AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    GROUP BY batch_id
+    HAVING ABS(SUM(debit) - SUM(credit)) > 0.01
+  ) unbalanced
+),
+-- Orphan accounts
+orphan_check AS (
+  SELECT
+    'Orphan Accounts' AS check_name,
+    CASE WHEN COUNT(*) = 0 THEN 'OK' ELSE 'FAIL' END AS status,
+    CASE WHEN COUNT(*) = 0 THEN 'No orphan accounts'
+      ELSE COUNT(DISTINCT je.account_code) || ' orphan code(s): ' || STRING_AGG(DISTINCT je.account_code, ', ')
+    END AS detail
+  FROM journal_entries je
+  WHERE je.company_id = cid
+    AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    AND NOT EXISTS (
+      SELECT 1 FROM accounts a
+      WHERE a.company_id = je.company_id AND a.account_code = je.account_code
+    )
+),
+-- Zero lines
+zero_check AS (
+  SELECT
+    'Zero Lines' AS check_name,
+    CASE WHEN COUNT(*) = 0 THEN 'OK' ELSE 'FAIL' END AS status,
+    CASE WHEN COUNT(*) = 0 THEN 'No zero lines'
+      ELSE COUNT(*) || ' zero-line(s) found'
+    END AS detail
+  FROM journal_entries
+  WHERE company_id = cid
+    AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    AND debit = 0 AND credit = 0
+)
+SELECT * FROM bs_check
+UNION ALL
+SELECT * FROM batch_check
+UNION ALL
+SELECT * FROM orphan_check
+UNION ALL
+SELECT * FROM zero_check;
+
+-- =============================================================================
 -- GL — General Ledger
 -- =============================================================================
+
 CREATE OR REPLACE MACRO gl(cid, start_date, end_date) AS TABLE
 SELECT
   je.date,

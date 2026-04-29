@@ -282,6 +282,82 @@ async function genGL(con, company, start, end) {
   return { tableHtml, rows };
 }
 
+// ── CF ───────────────────────────────────────────────────────────────────────
+async function genCF(con, company, start, end) {
+  const rows = await dbAll(con, `SELECT * FROM cf(?, ?, ?)`, [company, start, end]);
+
+  let lastSection = null;
+  let tableRows = '';
+  for (const r of rows) {
+    if (r.row_type === 'account' && r.section !== lastSection) {
+      tableRows += `<tr class="section-header"><td colspan="3">${r.section}</td></tr>`;
+      lastSection = r.section;
+    }
+    const cls = r.row_type + (r.amount == 0 && r.row_type === 'account' ? ' zero' : '');
+    const code = r.account_code || '';
+    const name = r.row_type === 'total' ? `<strong>${r.account_name}</strong>` : r.account_name;
+    tableRows += `<tr class="${cls}"><td>${code}</td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
+  }
+
+  const tableHtml = `<table>
+    <thead><tr><th>Code</th><th>Description</th><th class="num">Amount</th></tr></thead>
+    <tbody>${tableRows}</tbody>
+  </table>`;
+
+  return { tableHtml, rows };
+}
+
+// ── SCE ──────────────────────────────────────────────────────────────────────
+async function genSCE(con, company, start, end) {
+  const rows = await dbAll(con, `SELECT * FROM sce(?, ?, ?)`, [company, start, end]);
+
+  let tableRows = rows.map(r => `<tr class="account">
+    <td>${r.account_code}</td><td>${r.account_name}</td>
+    <td class="num">${fmt(r.opening_balance)}</td>
+    <td class="num">${fmt(r.movements)}</td>
+    <td class="num">${fmt(r.closing_balance)}</td>
+  </tr>`).join('');
+
+  // Totals row
+  const totOpen = rows.reduce((s, r) => s + parseFloat(r.opening_balance || 0), 0);
+  const totMvt  = rows.reduce((s, r) => s + parseFloat(r.movements       || 0), 0);
+  const totClose = rows.reduce((s, r) => s + parseFloat(r.closing_balance || 0), 0);
+  tableRows += `<tr class="total"><td></td><td><strong>TOTAL</strong></td>
+    <td class="num">${fmt(totOpen)}</td>
+    <td class="num">${fmt(totMvt)}</td>
+    <td class="num">${fmt(totClose)}</td>
+  </tr>`;
+
+  const tableHtml = `<table>
+    <thead><tr><th>Code</th><th>Account</th>
+      <th class="num">Opening</th><th class="num">Movements</th><th class="num">Closing</th></tr></thead>
+    <tbody>${tableRows}</tbody>
+  </table>`;
+
+  return { tableHtml, rows };
+}
+
+// ── Integrity ─────────────────────────────────────────────────────────────────
+async function genIntegrity(con, company, start, end) {
+  const rows = await dbAll(con, `SELECT * FROM integrity(?, ?, ?)`, [company, start, end]);
+
+  let tableRows = rows.map(r => {
+    const color = r.status === 'OK' ? '#2d8a2d' : '#cc2222';
+    return `<tr class="account">
+      <td>${r.check_name}</td>
+      <td style="color:${color};font-weight:700">${r.status}</td>
+      <td>${r.detail}</td>
+    </tr>`;
+  }).join('');
+
+  const tableHtml = `<table>
+    <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+    <tbody>${tableRows}</tbody>
+  </table>`;
+
+  return { tableHtml, rows };
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
   const db  = new Database(DB_PATH, { access_mode: 'READ_ONLY' });
@@ -313,21 +389,29 @@ async function main() {
   }
   const period = `${periodLabel}  (${START} to ${END})`;
 
-  const reports = REPORT === 'all' ? ['pl', 'bs', 'tb', 'gl', 'journal'] : [REPORT];
+  const reports = REPORT === 'all' ? ['pl', 'bs', 'tb', 'gl', 'journal', 'cf', 'sce', 'integrity'] : [REPORT];
 
   for (const rep of reports) {
     console.log(`Generating ${rep.toUpperCase()}...`);
     let result;
 
-    if (rep === 'pl')      result = await genPL(con, COMPANY, START, END, co.company_name);
-    if (rep === 'bs')      result = await genBS(con, COMPANY, END,   co.company_name);
-    if (rep === 'tb')      result = await genTB(con, COMPANY, START, END);
-    if (rep === 'gl')      result = await genGL(con, COMPANY, START, END);
-    if (rep === 'journal') result = await genJournal(con, COMPANY, START, END);
+    if (rep === 'pl')        result = await genPL(con, COMPANY, START, END, co.company_name);
+    if (rep === 'bs')        result = await genBS(con, COMPANY, END,   co.company_name);
+    if (rep === 'tb')        result = await genTB(con, COMPANY, START, END);
+    if (rep === 'gl')        result = await genGL(con, COMPANY, START, END);
+    if (rep === 'journal')   result = await genJournal(con, COMPANY, START, END);
+    if (rep === 'cf')        result = await genCF(con, COMPANY, START, END);
+    if (rep === 'sce')       result = await genSCE(con, COMPANY, START, END);
+    if (rep === 'integrity') result = await genIntegrity(con, COMPANY, START, END);
 
     const safePeriod = periodLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
     const baseName   = `${COMPANY}_${rep}_${safePeriod}`;
-    const titles = { pl: 'Profit & Loss', bs: 'Balance Sheet', tb: 'Trial Balance', gl: 'General Ledger', journal: 'Journal' };
+    const titles = {
+      pl: 'Profit & Loss', bs: 'Balance Sheet', tb: 'Trial Balance',
+      gl: 'General Ledger', journal: 'Journal',
+      cf: 'Cash Flow Statement', sce: 'Statement of Changes in Equity',
+      integrity: 'Integrity Checks',
+    };
 
     // HTML
     const htmlOut = path.join(OUT_DIR, baseName + '.html');

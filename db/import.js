@@ -38,7 +38,7 @@ const COMPANIES = {
     currency:           'SGD',
     reporting_standard: 'SFRS',
     tax_id:             '201703022E',
-    fy_start:           '2024-02-01',
+    fy_start:           '2025-02-01',
     fy_end:             '2026-01-31',
   },
   'Example Company SE': {

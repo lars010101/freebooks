@@ -200,6 +200,47 @@ async function genTB(con, company, start, end) {
   return { tableHtml, rows };
 }
 
+// ── Journal ──────────────────────────────────────────────────────────────────
+async function genJournal(con, company, start, end) {
+  const rows = await dbAll(con, `SELECT * FROM journal(?, ?, ?)`, [company, start, end]);
+
+  let lastBatch = null;
+  let batchDebit = 0, batchCredit = 0;
+  let tableRows = '';
+
+  const flush = () => {
+    if (lastBatch !== null) {
+      tableRows += `<tr class="subtotal"><td></td><td></td><td></td><td class="num">${fmt(batchDebit)}</td><td class="num">${fmt(batchCredit)}</td></tr>
+      <tr><td colspan="5" style="padding:4px 0"></td></tr>`;
+      batchDebit = 0; batchCredit = 0;
+    }
+  };
+
+  for (const r of rows) {
+    if (r.batch_id !== lastBatch) {
+      flush();
+      const dateStr = new Date(r.date).toISOString().slice(0, 10);
+      tableRows += `<tr class="section-header"><td>${dateStr}</td><td colspan="4">${r.batch_id}${r.description ? ' — ' + r.description : ''}</td></tr>`;
+      lastBatch = r.batch_id;
+    }
+    batchDebit  += parseFloat(r.debit  || 0);
+    batchCredit += parseFloat(r.credit || 0);
+    tableRows += `<tr class="account">
+      <td></td><td>${r.account_code}</td><td>${r.account_name || ''}</td>
+      <td class="num">${fmt(r.debit)}</td><td class="num">${fmt(r.credit)}</td>
+    </tr>`;
+  }
+  flush();
+
+  const tableHtml = `<table>
+    <thead><tr><th>Date / Ref</th><th>Code</th><th>Account</th>
+      <th class="num">Debit</th><th class="num">Credit</th></tr></thead>
+    <tbody>${tableRows}</tbody>
+  </table>`;
+
+  return { tableHtml, rows };
+}
+
 // ── GL ───────────────────────────────────────────────────────────────────────
 async function genGL(con, company, start, end) {
   const rows = await dbAll(con, `SELECT * FROM gl(?, ?, ?)`, [company, start, end]);
@@ -272,20 +313,21 @@ async function main() {
   }
   const period = `${periodLabel}  (${START} to ${END})`;
 
-  const reports = REPORT === 'all' ? ['pl', 'bs', 'tb', 'gl'] : [REPORT];
+  const reports = REPORT === 'all' ? ['pl', 'bs', 'tb', 'gl', 'journal'] : [REPORT];
 
   for (const rep of reports) {
     console.log(`Generating ${rep.toUpperCase()}...`);
     let result;
 
-    if (rep === 'pl') result = await genPL(con, COMPANY, START, END, co.company_name);
-    if (rep === 'bs') result = await genBS(con, COMPANY, END,   co.company_name);
-    if (rep === 'tb') result = await genTB(con, COMPANY, START, END);
-    if (rep === 'gl') result = await genGL(con, COMPANY, START, END);
+    if (rep === 'pl')      result = await genPL(con, COMPANY, START, END, co.company_name);
+    if (rep === 'bs')      result = await genBS(con, COMPANY, END,   co.company_name);
+    if (rep === 'tb')      result = await genTB(con, COMPANY, START, END);
+    if (rep === 'gl')      result = await genGL(con, COMPANY, START, END);
+    if (rep === 'journal') result = await genJournal(con, COMPANY, START, END);
 
     const safePeriod = periodLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
     const baseName   = `${COMPANY}_${rep}_${safePeriod}`;
-    const titles   = { pl: 'Profit & Loss', bs: 'Balance Sheet', tb: 'Trial Balance', gl: 'General Ledger' };
+    const titles = { pl: 'Profit & Loss', bs: 'Balance Sheet', tb: 'Trial Balance', gl: 'General Ledger', journal: 'Journal' };
 
     // HTML
     const htmlOut = path.join(OUT_DIR, baseName + '.html');

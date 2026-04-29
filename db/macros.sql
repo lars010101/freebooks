@@ -121,6 +121,27 @@ GROUP BY je.account_code, a.account_name, a.account_type
 ORDER BY a.account_type, je.account_code;
 
 -- =============================================================================
+-- JOURNAL — Journal Entries (grouped by batch)
+-- =============================================================================
+CREATE OR REPLACE MACRO journal(cid, start_date, end_date) AS TABLE
+SELECT
+  je.date,
+  je.batch_id,
+  je.account_code,
+  a.account_name,
+  je.description,
+  je.reference,
+  je.debit,
+  je.credit,
+  je.currency,
+  je.source
+FROM journal_entries je
+LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+WHERE je.company_id = cid
+  AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+ORDER BY je.date, je.batch_id, je.account_code;
+
+-- =============================================================================
 -- GL — General Ledger
 -- =============================================================================
 CREATE OR REPLACE MACRO gl(cid, start_date, end_date) AS TABLE

@@ -1,26 +1,20 @@
-# Stage 1: build — Node 22 LTS has pre-built duckdb binaries, no compilation needed
-FROM node:22-alpine AS build
-RUN apk add --no-cache git
-RUN git clone https://github.com/lars010101/freebooks /build/freebooks && \
-    cd /build/freebooks/api && npm install --legacy-peer-deps && \
-    cd /build/freebooks/reports && npm install --legacy-peer-deps
-
-# Stage 2: runtime — lean image, no build tools
 FROM cgr.dev/chainguard/wolfi-base:latest
-RUN apk update && apk add --no-cache nodejs-22 npm duckdb git gh shadow sudo
+
+RUN apk update && apk add --no-cache nodejs-22 npm duckdb git gh shadow sudo python3 build-base
 
 RUN useradd -m -u 1000 user && echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
 
-# Copy compiled repo to system-wide location (distrobox enters as host user, not 'user')
-COPY --from=build /build/freebooks /opt/freebooks
-RUN chmod -R a+rX /opt/freebooks
+# Clone repo and install dependencies natively (correct platform/ABI)
+RUN git clone https://github.com/lars010101/freebooks /opt/freebooks && \
+    cd /opt/freebooks/api && npm install --legacy-peer-deps && \
+    cd /opt/freebooks/reports && npm install --legacy-peer-deps && \
+    chmod -R a+rX /opt/freebooks
 
-# Default env — DB in the entering user's home
+# Default env
 RUN printf 'DB_PATH=${HOME}/.freebooks/freebooks.duckdb\nPORT=3000\n' > /opt/freebooks/api/.env
 
-# Startup script — runs for any user on shell entry
+# Startup script
 RUN chmod +x /opt/freebooks/db/start.sh && \
-    sed -i 's|/home/user/freebooks|/opt/freebooks|g' /opt/freebooks/db/start.sh && \
     echo 'bash /opt/freebooks/db/start.sh' > /etc/profile.d/freebooks.sh && \
     chmod +x /etc/profile.d/freebooks.sh
 

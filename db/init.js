@@ -14,7 +14,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const Database = require('duckdb').Database;
+const Database = require(path.resolve(__dirname, '../api/node_modules/duckdb')).Database;
 
 const DB_PATH = process.env.DB_PATH || path.join(process.env.HOME || '/root', '.freebooks', 'freebooks.duckdb');
 const SCHEMA_FILE = path.join(__dirname, 'schema.sql');

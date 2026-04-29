@@ -38,8 +38,21 @@ const COMPANIES = {
     currency:           'SGD',
     reporting_standard: 'SFRS',
     tax_id:             '201703022E',
+    // fy_start/fy_end kept for schema compat but periods table is authoritative
     fy_start:           '2025-02-01',
     fy_end:             '2026-01-31',
+    // Fiscal years: ExampleSG FY ends Jan 31. FY2026 = Feb 2025 - Jan 2026.
+    periods: [
+      { name: 'FY2018', start: '2017-02-01', end: '2018-01-31' },
+      { name: 'FY2019', start: '2018-02-01', end: '2019-01-31' },
+      { name: 'FY2020', start: '2019-02-01', end: '2020-01-31' },
+      { name: 'FY2021', start: '2020-02-01', end: '2021-01-31' },
+      { name: 'FY2022', start: '2021-02-01', end: '2022-01-31' },
+      { name: 'FY2023', start: '2022-02-01', end: '2023-01-31' },
+      { name: 'FY2024', start: '2023-02-01', end: '2024-01-31' },
+      { name: 'FY2025', start: '2024-02-01', end: '2025-01-31' },
+      { name: 'FY2026', start: '2025-02-01', end: '2026-01-31', locked: true },
+    ],
   },
   'Example Company SE': {
     company_id:         'example_se',
@@ -50,6 +63,20 @@ const COMPANIES = {
     tax_id:             null,
     fy_start:           '2025-01-01',
     fy_end:             '2025-12-31',
+    // Calendar year FY
+    periods: [
+      { name: 'FY2015', start: '2015-01-01', end: '2015-12-31' },
+      { name: 'FY2016', start: '2016-01-01', end: '2016-12-31' },
+      { name: 'FY2017', start: '2017-01-01', end: '2017-12-31' },
+      { name: 'FY2018', start: '2018-01-01', end: '2018-12-31' },
+      { name: 'FY2019', start: '2019-01-01', end: '2019-12-31' },
+      { name: 'FY2020', start: '2020-01-01', end: '2020-12-31' },
+      { name: 'FY2021', start: '2021-01-01', end: '2021-12-31' },
+      { name: 'FY2022', start: '2022-01-01', end: '2022-12-31' },
+      { name: 'FY2023', start: '2023-01-01', end: '2023-12-31' },
+      { name: 'FY2024', start: '2024-01-01', end: '2024-12-31' },
+      { name: 'FY2025', start: '2025-01-01', end: '2025-12-31' },
+    ],
   },
 };
 
@@ -115,7 +142,19 @@ async function main() {
     `, [company_id, cfg.company_name, cfg.jurisdiction, cfg.currency,
         cfg.reporting_standard, cfg.tax_id, cfg.fy_start, cfg.fy_end, now]);
 
-    // 2. COA
+    // 2. Periods
+    await dbRun(db, `DELETE FROM periods WHERE company_id = ?`, [company_id]);
+    if (cfg.periods) {
+      for (const p of cfg.periods) {
+        await dbRun(db, `
+          INSERT INTO periods (company_id, period_name, start_date, end_date, locked, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [company_id, p.name, p.start, p.end, p.locked || false, now, now]);
+      }
+      console.log(`  Periods:       ${cfg.periods.length}`);
+    }
+
+    // 3. COA
     await dbRun(db, `DELETE FROM accounts WHERE company_id = ?`, [company_id]);
     const compCoa = coaRows.filter(r => r['Company'] === csvName);
     for (const row of compCoa) {

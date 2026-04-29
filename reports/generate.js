@@ -31,6 +31,7 @@ function arg(name, def) {
 }
 
 const COMPANY  = arg('company', 'example_sg');
+const PERIOD   = arg('period',  null);  // e.g. FY2026
 const REPORT   = arg('report',  'all');
 const OUT_DIR  = arg('out',     path.join(os.homedir(), 'freebooks-reports'));
 const DB_PATH  = arg('db',      path.join(os.homedir(), '.freebooks', 'freebooks.duckdb'));
@@ -235,16 +236,30 @@ async function main() {
   const con = db.connect();
 
   // Get company info
-  const [co] = await dbAll(con, `SELECT company_name, fy_start, fy_end FROM companies WHERE company_id = ?`, [COMPANY]);
+  const [co] = await dbAll(con, `SELECT company_name FROM companies WHERE company_id = ?`, [COMPANY]);
   if (!co) { console.error(`Company '${COMPANY}' not found.`); process.exit(1); }
 
-  function toISO(d) {
-    const dt = new Date(d);
-    return dt.toISOString().slice(0, 10);
+  // Resolve period: --period FY2026, or --start/--end, or latest unlocked period
+  let START, END, periodLabel;
+  if (PERIOD) {
+    const [p] = await dbAll(con, `SELECT start_date, end_date, period_name FROM periods WHERE company_id = ? AND period_name = ?`, [COMPANY, PERIOD]);
+    if (!p) { console.error(`Period '${PERIOD}' not found for '${COMPANY}'.`); process.exit(1); }
+    START = new Date(p.start_date).toISOString().slice(0, 10);
+    END   = new Date(p.end_date).toISOString().slice(0, 10);
+    periodLabel = p.period_name;
+  } else if (arg('start', null) && arg('end', null)) {
+    START = arg('start', null);
+    END   = arg('end', null);
+    periodLabel = `${START} to ${END}`;
+  } else {
+    // Default: latest period
+    const [p] = await dbAll(con, `SELECT start_date, end_date, period_name FROM periods WHERE company_id = ? ORDER BY end_date DESC LIMIT 1`, [COMPANY]);
+    if (!p) { console.error(`No periods found for '${COMPANY}'. Use --period or --start/--end.`); process.exit(1); }
+    START = new Date(p.start_date).toISOString().slice(0, 10);
+    END   = new Date(p.end_date).toISOString().slice(0, 10);
+    periodLabel = p.period_name;
   }
-  const START = arg('start', toISO(co.fy_start));
-  const END   = arg('end',   toISO(co.fy_end));
-  const period = `Period: ${START} to ${END}`;
+  const period = `${periodLabel}  (${START} to ${END})`;
 
   const reports = REPORT === 'all' ? ['pl', 'bs', 'tb', 'gl'] : [REPORT];
 
@@ -257,8 +272,8 @@ async function main() {
     if (rep === 'tb') result = await genTB(con, COMPANY, START, END);
     if (rep === 'gl') result = await genGL(con, COMPANY, START, END);
 
-    const year     = END.slice(0, 4);
-    const baseName = `${COMPANY}_${rep}_${year}`;
+    const safePeriod = periodLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const baseName   = `${COMPANY}_${rep}_${safePeriod}`;
     const titles   = { pl: 'Profit & Loss', bs: 'Balance Sheet', tb: 'Trial Balance', gl: 'General Ledger' };
 
     // HTML

@@ -1,2 +1,16 @@
+# Data — never commit financial data
+data/
+*.duckdb
+*.duckdb.wal
+
+# Node
 node_modules/
-.gcloudignore
+.env
+.env.*
+
+# Evidence build output
+reports/.evidence/
+reports/build/
+
+# OS
+.DS_Store

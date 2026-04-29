@@ -1,6 +1,9 @@
 #!/bin/bash
 # freeBooks startup — runs on every shell entry via /etc/profile.d/freebooks.sh
 
+# Prefer container's node/npm over host-injected versions
+export PATH="/usr/bin:/usr/sbin:$PATH"
+
 DB_PATH="${HOME}/.freebooks/freebooks.duckdb"
 
 echo ""

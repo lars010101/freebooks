@@ -332,18 +332,16 @@ WITH
 bs_check AS (
   SELECT
     'BS Balance' AS check_name,
-    CASE
-      WHEN ABS(
-        SUM(CASE WHEN a.account_type = 'Asset'     THEN SUM(je.debit) - SUM(je.credit) ELSE 0 END) -
-        SUM(CASE WHEN a.account_type = 'Liability' THEN SUM(je.credit) - SUM(je.debit) ELSE 0 END) -
-        SUM(CASE WHEN a.account_type = 'Equity'    THEN SUM(je.credit) - SUM(je.debit) ELSE 0 END)
-      ) <= 0.01 THEN 'OK' ELSE 'FAIL'
-    END AS status,
-    'Assets: ' || ROUND(SUM(CASE WHEN a.account_type='Asset' THEN SUM(je.debit)-SUM(je.credit) ELSE 0 END),2)
+    CASE WHEN ABS(
+      SUM(CASE WHEN account_type = 'Asset'     THEN debit - credit ELSE 0 END) -
+      SUM(CASE WHEN account_type = 'Liability' THEN credit - debit ELSE 0 END) -
+      SUM(CASE WHEN account_type = 'Equity'    THEN credit - debit ELSE 0 END)
+    ) <= 0.01 THEN 'OK' ELSE 'FAIL' END AS status,
+    'Assets: ' || ROUND(SUM(CASE WHEN account_type='Asset' THEN debit-credit ELSE 0 END), 2)
     || ' | Liab+Equity: ' || ROUND(
-      SUM(CASE WHEN a.account_type='Liability' THEN SUM(je.credit)-SUM(je.debit) ELSE 0 END) +
-      SUM(CASE WHEN a.account_type='Equity'    THEN SUM(je.credit)-SUM(je.debit) ELSE 0 END)
-    ,2) AS detail
+      SUM(CASE WHEN account_type='Liability' THEN credit-debit ELSE 0 END) +
+      SUM(CASE WHEN account_type='Equity'    THEN credit-debit ELSE 0 END), 2
+    ) AS detail
   FROM (
     SELECT a.account_type, je.debit, je.credit
     FROM journal_entries je
@@ -352,7 +350,6 @@ bs_check AS (
       AND je.date <= CAST(end_date AS DATE)
       AND a.account_type IN ('Asset', 'Liability', 'Equity')
   ) t
-  LEFT JOIN (SELECT 1) dummy ON 1=1
 ),
 -- Journal Balance: unbalanced batches
 batch_check AS (

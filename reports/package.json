@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "evidence dev",
     "build": "evidence build",
-    "preview": "evidence preview"
+    "preview": "evidence preview",
+    "sources": "evidence sources"
   },
   "dependencies": {
     "@evidence-dev/evidence": "^40.0.0",

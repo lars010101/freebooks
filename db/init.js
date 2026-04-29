@@ -16,17 +16,25 @@ const fs   = require('fs');
 const Database = require(path.resolve(__dirname, '../api/node_modules/duckdb')).Database;
 
 const DB_PATH     = process.env.DB_PATH || path.join(process.env.HOME || '/root', '.freebooks', 'freebooks.duckdb');
-const SCHEMA_FILE = path.join(__dirname, 'schema.sql');
+const SCHEMA_FILE  = path.join(__dirname, 'schema.sql');
+const MACROS_FILE  = path.join(__dirname, 'macros.sql');
 
 const dataDir = path.dirname(DB_PATH);
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-// Split schema into individual statements (skip blank lines and comments)
+// Split SQL file into individual statements (skip blank lines and comments)
+function loadStatements(file) {
+  return fs.readFileSync(file, 'utf8')
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && !s.startsWith('--'));
+}
+
 const raw = fs.readFileSync(SCHEMA_FILE, 'utf8');
-const statements = raw
-  .split(';')
-  .map(s => s.trim())
-  .filter(s => s.length > 0 && !s.startsWith('--'));
+const statements = [
+  ...loadStatements(SCHEMA_FILE),
+  ...loadStatements(MACROS_FILE),
+];
 
 console.log(`Opening DuckDB at: ${DB_PATH}`);
 const db = new Database(DB_PATH);

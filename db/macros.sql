@@ -154,21 +154,15 @@ net_income AS (
     NULL AS account_code,
     'Net Income' AS account_name,
     SUM(CASE
-      WHEN a.account_type = 'Revenue' THEN SUM_credit - SUM_debit
-      WHEN a.account_type = 'Expense' THEN SUM_debit - SUM_credit
+      WHEN a.account_type = 'Revenue' THEN je.credit - je.debit
+      WHEN a.account_type = 'Expense' THEN je.debit - je.credit
       ELSE 0
     END) AS amount
-  FROM (
-    SELECT a.account_type,
-      SUM(je.debit) AS SUM_debit, SUM(je.credit) AS SUM_credit
-    FROM journal_entries je
-    LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
-    WHERE je.company_id = cid
-      AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
-      AND a.account_type IN ('Revenue', 'Expense')
-    GROUP BY a.account_type
-  ) t
-  LEFT JOIN (SELECT 1) dummy ON 1=1
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    AND a.account_type IN ('Revenue', 'Expense')
 ),
 -- Working Capital movements (debit - credit)
 op_wc AS (

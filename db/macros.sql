@@ -456,3 +456,120 @@ LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.acc
 WHERE je.company_id = cid
   AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
 ORDER BY je.account_code, je.date, je.batch_id;
+
+-- =============================================================================
+-- RE_ROLLFORWARD — Retained Earnings Roll-Forward (all periods)
+-- Returns one row per period defined in the periods table
+-- =============================================================================
+CREATE OR REPLACE MACRO re_rollforward(cid) AS TABLE
+WITH
+-- Closing account: DR 999999 / CR 203070 (Retained Earnings)
+-- We identify closing entries as movements on account 203070 from MISC journals
+periods_data AS (
+  SELECT
+    p.period_name,
+    p.start_date,
+    p.end_date,
+    -- P&L net income for the period (credit - debit for all P&L accounts)
+    COALESCE((
+      SELECT SUM(je.credit - je.debit)
+      FROM journal_entries je
+      LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+      WHERE je.company_id = cid
+        AND je.date BETWEEN p.start_date AND p.end_date
+        AND a.account_type IN ('Revenue', 'Expense')
+    ), 0) AS pl_net,
+    -- Closing entry: credit to 203070 (Retained Earnings) from MISC journal
+    COALESCE((
+      SELECT SUM(je.credit - je.debit)
+      FROM journal_entries je
+      WHERE je.company_id = cid
+        AND je.date BETWEEN p.start_date AND p.end_date
+        AND je.account_code = '203070'
+        AND je.batch_id LIKE 'MISC%'
+    ), 0) AS closing_entry,
+    -- Opening RE: cumulative credit-debit on 203070 before period start
+    COALESCE((
+      SELECT SUM(je.credit - je.debit)
+      FROM journal_entries je
+      WHERE je.company_id = cid
+        AND je.date < p.start_date
+        AND je.account_code = '203070'
+    ), 0) AS opening_re
+  FROM periods p
+  WHERE p.company_id = cid
+)
+SELECT
+  period_name,
+  start_date,
+  end_date,
+  opening_re,
+  pl_net,
+  closing_entry,
+  opening_re + closing_entry AS closing_re,
+  ROUND(ABS(pl_net - closing_entry), 4) AS diff,
+  CASE WHEN ROUND(ABS(pl_net - closing_entry), 4) <= 0.01 THEN 'OK' ELSE 'FAIL' END AS pl_close_status
+FROM periods_data
+ORDER BY start_date;
+
+-- =============================================================================
+-- INTEGRITY_EXTENDED — Additional integrity checks
+-- Returns: check_name, status, detail
+-- =============================================================================
+CREATE OR REPLACE MACRO integrity_extended(cid, start_date, end_date) AS TABLE
+WITH
+-- Trial Balance check (debits = credits)
+tb_check AS (
+  SELECT
+    'Trial Balance' AS check_name,
+    CASE WHEN ROUND(ABS(SUM(debit) - SUM(credit)), 4) <= 0.01 THEN 'OK' ELSE 'FAIL' END AS status,
+    'Debits: ' || ROUND(SUM(debit), 2) || ' | Credits: ' || ROUND(SUM(credit), 2)
+      || ' | Diff: ' || ROUND(SUM(debit) - SUM(credit), 4) AS detail
+  FROM journal_entries
+  WHERE company_id = cid
+    AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+),
+-- Uncategorised CF accounts (BS accounts with NULL cf_category, excluding P&L)
+cf_uncat AS (
+  SELECT
+    'Uncategorised CF Accounts' AS check_name,
+    CASE WHEN COUNT(*) = 0 THEN 'OK' ELSE 'WARN' END AS status,
+    CASE WHEN COUNT(*) = 0 THEN 'All BS accounts have CF category'
+      ELSE COUNT(*) || ' account(s) missing CF category: '
+        || STRING_AGG(account_code || ' ' || account_name, ', ')
+    END AS detail
+  FROM accounts
+  WHERE company_id = cid
+    AND account_type IN ('Asset', 'Liability', 'Equity')
+    AND cf_category IS NULL
+    AND is_active = TRUE
+),
+-- P&L vs Closing Entry for the specified period
+pl_close AS (
+  SELECT
+    'P&L vs Closing Entry' AS check_name,
+    CASE WHEN ROUND(ABS(
+      COALESCE((SELECT SUM(credit-debit) FROM journal_entries je
+        LEFT JOIN accounts a ON a.company_id=je.company_id AND a.account_code=je.account_code
+        WHERE je.company_id=cid AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+        AND a.account_type IN ('Revenue','Expense')), 0)
+      -
+      COALESCE((SELECT SUM(credit-debit) FROM journal_entries
+        WHERE company_id=cid AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+        AND account_code='203070' AND batch_id LIKE 'MISC%'), 0)
+    ), 4) <= 0.01 THEN 'OK' ELSE 'FAIL' END AS status,
+    'P&L net: ' || ROUND(
+      COALESCE((SELECT SUM(credit-debit) FROM journal_entries je
+        LEFT JOIN accounts a ON a.company_id=je.company_id AND a.account_code=je.account_code
+        WHERE je.company_id=cid AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+        AND a.account_type IN ('Revenue','Expense')), 0), 2)
+    || ' | Closing entry: ' || ROUND(
+      COALESCE((SELECT SUM(credit-debit) FROM journal_entries
+        WHERE company_id=cid AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+        AND account_code='203070' AND batch_id LIKE 'MISC%'), 0), 2) AS detail
+)
+SELECT * FROM tb_check
+UNION ALL
+SELECT * FROM cf_uncat
+UNION ALL
+SELECT * FROM pl_close;

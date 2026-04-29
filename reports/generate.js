@@ -339,23 +339,56 @@ async function genSCE(con, company, start, end) {
 
 // ── Integrity ─────────────────────────────────────────────────────────────────
 async function genIntegrity(con, company, start, end) {
-  const rows = await dbAll(con, `SELECT * FROM integrity(?, ?, ?)`, [company, start, end]);
+  const rows1 = await dbAll(con, `SELECT * FROM integrity(?, ?, ?)`, [company, start, end]);
+  const rows2 = await dbAll(con, `SELECT * FROM integrity_extended(?, ?, ?)`, [company, start, end]);
+  const allChecks = [...rows1, ...rows2];
 
-  let tableRows = rows.map(r => {
-    const color = r.status === 'OK' ? '#2d8a2d' : '#cc2222';
-    return `<tr class="account">
+  const statusColor = s => s === 'OK' ? '#2d8a2d' : s === 'WARN' ? '#cc7700' : '#cc2222';
+
+  let tableRows = allChecks.map(r =>
+    `<tr class="account">
       <td>${r.check_name}</td>
-      <td style="color:${color};font-weight:700">${r.status}</td>
+      <td style="color:${statusColor(r.status)};font-weight:700">${r.status}</td>
       <td>${r.detail}</td>
-    </tr>`;
-  }).join('');
+    </tr>`
+  ).join('');
 
-  const tableHtml = `<table>
-    <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
-    <tbody>${tableRows}</tbody>
-  </table>`;
+  // RE Roll-forward table
+  const reRows = await dbAll(con, `SELECT * FROM re_rollforward(?)`, [company]);
+  let reTable = '';
+  if (reRows.length) {
+    const dateStr = d => new Date(d).toISOString().slice(0, 10);
+    const reHtml = reRows.map(r => {
+      const contColor = r.pl_close_status === 'OK' ? '#2d8a2d' : '#cc2222';
+      return `<tr class="account">
+        <td>${r.period_name}</td>
+        <td>${dateStr(r.start_date)} – ${dateStr(r.end_date)}</td>
+        <td class="num">${fmt(r.opening_re)}</td>
+        <td class="num">${fmt(r.pl_net)}</td>
+        <td class="num">${fmt(r.closing_entry)}</td>
+        <td class="num">${fmt(r.closing_re)}</td>
+        <td style="color:${contColor};font-weight:700;text-align:center">${r.pl_close_status}</td>
+      </tr>`;
+    }).join('');
+    reTable = `
+      <h3 style="margin:24px 0 8px;font-size:11pt">Retained Earnings Roll-Forward</h3>
+      <table>
+        <thead><tr><th>Period</th><th>Dates</th>
+          <th class="num">Opening RE</th><th class="num">P&amp;L Net</th>
+          <th class="num">Closing Entry</th><th class="num">Closing RE</th>
+          <th style="text-align:center">Status</th></tr></thead>
+        <tbody>${reHtml}</tbody>
+      </table>`;
+  }
 
-  return { tableHtml, rows };
+  const tableHtml = `
+    <table>
+      <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+    ${reTable}`;
+
+  return { tableHtml, rows: allChecks };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

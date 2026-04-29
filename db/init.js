@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * freeBooks — DuckDB migration script
- *
- * Runs db/schema.sql against a local DuckDB file.
- * Default DB path: ../data/freebooks.duckdb
+ * freeBooks — DB initializer
+ * Runs db/schema.sql against the local DuckDB file.
+ * Safe to run multiple times — tables use IF NOT EXISTS, views use OR REPLACE.
  *
  * Usage:
  *   node db/init.js
@@ -13,35 +12,40 @@
 'use strict';
 
 const path = require('path');
-const fs = require('fs');
+const fs   = require('fs');
 const Database = require(path.resolve(__dirname, '../api/node_modules/duckdb')).Database;
 
-const DB_PATH = process.env.DB_PATH || path.join(process.env.HOME || '/root', '.freebooks', 'freebooks.duckdb');
+const DB_PATH     = process.env.DB_PATH || path.join(process.env.HOME || '/root', '.freebooks', 'freebooks.duckdb');
 const SCHEMA_FILE = path.join(__dirname, 'schema.sql');
 
-// Ensure data directory exists
 const dataDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const schema = fs.readFileSync(SCHEMA_FILE, 'utf8');
+// Split schema into individual statements (skip blank lines and comments)
+const raw = fs.readFileSync(SCHEMA_FILE, 'utf8');
+const statements = raw
+  .split(';')
+  .map(s => s.trim())
+  .filter(s => s.length > 0 && !s.startsWith('--'));
 
 console.log(`Opening DuckDB at: ${DB_PATH}`);
 const db = new Database(DB_PATH);
+const con = db.connect();
 
-db.exec(schema, (err) => {
-  if (err) {
-    console.error('Migration failed:', err.message);
-    process.exit(1);
+function runNext(i) {
+  if (i >= statements.length) {
+    console.log(`Schema applied (${statements.length} statements).`);
+    con.close();
+    db.close(() => process.exit(0));
+    return;
   }
-  console.log('Migration complete — all tables created (or already exist).');
-
-  db.close((closeErr) => {
-    if (closeErr) {
-      console.error('Error closing DB:', closeErr.message);
+  con.exec(statements[i] + ';', (err) => {
+    if (err) {
+      console.error(`Failed on statement ${i + 1}:\n${statements[i].slice(0, 120)}\nError: ${err.message}`);
       process.exit(1);
     }
-    process.exit(0);
+    runNext(i + 1);
   });
-});
+}
+
+runNext(0);

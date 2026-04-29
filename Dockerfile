@@ -10,5 +10,8 @@ RUN git clone https://github.com/lars010101/freebooks /home/user/freebooks && \
     cd /home/user/freebooks/reports && npm install && \
     printf 'DB_PATH=%s/.freebooks/freebooks.duckdb\nPORT=3000\n' "$HOME" > /home/user/freebooks/api/.env
 
+# Auto-init DB on shell entry (silent if already initialized)
+RUN echo 'node /home/user/freebooks/db/init.js 2>/dev/null' >> /home/user/.bashrc
+
 WORKDIR /home/user/freebooks
 CMD ["/bin/bash"]

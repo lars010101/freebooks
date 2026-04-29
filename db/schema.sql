@@ -234,3 +234,83 @@ CREATE TABLE IF NOT EXISTS periods (
   created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- =============================================================================
+-- VIEWS
+-- =============================================================================
+
+-- Trial Balance
+-- Usage: SELECT * FROM v_trial_balance WHERE company_id = 'example_sg' AND date BETWEEN '2025-02-01' AND '2026-01-31';
+CREATE OR REPLACE VIEW v_trial_balance AS
+SELECT
+  je.company_id,
+  je.date,
+  a.account_code,
+  a.account_name,
+  a.account_type,
+  a.account_subtype,
+  SUM(je.debit)  AS total_debit,
+  SUM(je.credit) AS total_credit,
+  SUM(je.debit) - SUM(je.credit) AS net_balance
+FROM journal_entries je
+LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+GROUP BY je.company_id, je.date, a.account_code, a.account_name, a.account_type, a.account_subtype;
+
+-- Profit & Loss
+-- Usage: SELECT * FROM v_pl WHERE company_id = 'example_sg' AND date BETWEEN '2025-02-01' AND '2026-01-31';
+CREATE OR REPLACE VIEW v_pl AS
+SELECT
+  je.company_id,
+  je.date,
+  a.account_code,
+  a.account_name,
+  a.account_type,
+  a.pl_category,
+  -- Revenue: credit-normal (positive = credit balance)
+  -- Expense: debit-normal (positive = debit balance)
+  CASE
+    WHEN a.account_type = 'Revenue' THEN SUM(je.credit) - SUM(je.debit)
+    ELSE SUM(je.debit) - SUM(je.credit)
+  END AS amount
+FROM journal_entries je
+LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+WHERE a.account_type IN ('Revenue', 'Expense')
+GROUP BY je.company_id, je.date, a.account_code, a.account_name, a.account_type, a.pl_category;
+
+-- Balance Sheet
+-- Usage: SELECT * FROM v_bs WHERE company_id = 'example_sg' AND date <= '2026-01-31';
+CREATE OR REPLACE VIEW v_bs AS
+SELECT
+  je.company_id,
+  je.date,
+  a.account_code,
+  a.account_name,
+  a.account_type,
+  a.bs_category,
+  -- Assets: debit-normal. Liabilities/Equity: credit-normal
+  CASE
+    WHEN a.account_type = 'Asset' THEN SUM(je.debit) - SUM(je.credit)
+    ELSE SUM(je.credit) - SUM(je.debit)
+  END AS balance
+FROM journal_entries je
+LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+WHERE a.account_type IN ('Asset', 'Liability', 'Equity')
+GROUP BY je.company_id, je.date, a.account_code, a.account_name, a.account_type, a.bs_category;
+
+-- General Ledger
+-- Usage: SELECT * FROM v_gl WHERE company_id = 'example_sg' AND date BETWEEN '2025-02-01' AND '2026-01-31' ORDER BY account_code, date;
+CREATE OR REPLACE VIEW v_gl AS
+SELECT
+  je.company_id,
+  je.date,
+  je.batch_id,
+  je.account_code,
+  a.account_name,
+  je.description,
+  je.reference,
+  je.debit,
+  je.credit,
+  je.currency,
+  je.source
+FROM journal_entries je
+LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code;

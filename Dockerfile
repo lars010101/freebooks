@@ -1,6 +1,6 @@
-# Stage 1: build — compile native addons
-FROM cgr.dev/chainguard/wolfi-base:latest AS build
-RUN apk update && apk add --no-cache nodejs npm python3 build-base git
+# Stage 1: build — Node 22 LTS has pre-built duckdb binaries, no compilation needed
+FROM node:22-alpine AS build
+RUN apk add --no-cache git
 RUN git clone https://github.com/lars010101/freebooks /build/freebooks && \
     cd /build/freebooks/api && npm install && \
     cd /build/freebooks/reports && npm install

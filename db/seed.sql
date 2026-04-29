@@ -1,0 +1,31 @@
+-- freeBooks — Seed file
+-- Placeholder for company setup.
+-- Replace the values below and run after migrate.js to provision your first company.
+
+-- INSERT INTO companies (
+--   company_id, company_name, jurisdiction, currency,
+--   reporting_standard, accounting_method, vat_registered,
+--   tax_id, fy_start, fy_end
+-- ) VALUES (
+--   'COMPANY1', 'My Company Ltd', 'SG', 'SGD',
+--   'SFRS', 'accrual', FALSE,
+--   NULL, '2025-01-01', '2025-12-31'
+-- );
+
+-- INSERT INTO user_permissions (email, company_id, role, granted_by)
+-- VALUES ('owner@example.com', 'COMPANY1', 'owner', 'owner@example.com');
+
+-- INSERT INTO periods (company_id, period_name, start_date, end_date)
+-- VALUES
+--   ('COMPANY1', '2025-01', '2025-01-01', '2025-01-31'),
+--   ('COMPANY1', '2025-02', '2025-02-01', '2025-02-28'),
+--   ('COMPANY1', '2025-03', '2025-03-01', '2025-03-31'),
+--   ('COMPANY1', '2025-04', '2025-04-01', '2025-04-30'),
+--   ('COMPANY1', '2025-05', '2025-05-01', '2025-05-31'),
+--   ('COMPANY1', '2025-06', '2025-06-01', '2025-06-30'),
+--   ('COMPANY1', '2025-07', '2025-07-01', '2025-07-31'),
+--   ('COMPANY1', '2025-08', '2025-08-01', '2025-08-31'),
+--   ('COMPANY1', '2025-09', '2025-09-01', '2025-09-30'),
+--   ('COMPANY1', '2025-10', '2025-10-01', '2025-10-31'),
+--   ('COMPANY1', '2025-11', '2025-11-01', '2025-11-30'),
+--   ('COMPANY1', '2025-12', '2025-12-01', '2025-12-31');

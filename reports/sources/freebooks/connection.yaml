@@ -1,0 +1,4 @@
+name: freebooks
+type: duckdb
+options:
+  filename: ../../data/freebooks.duckdb

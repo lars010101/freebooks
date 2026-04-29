@@ -207,18 +207,29 @@ async function genGL(con, company, start, end) {
   let lastAcct = null;
   let runBal = 0;
   let tableRows = '';
-  for (const r of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
     if (r.account_code !== lastAcct) {
+      // Closing balance for previous account
+      if (lastAcct !== null) {
+        tableRows += `<tr class="subtotal"><td></td><td></td><td>Closing Balance</td><td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td></tr>
+        <tr><td colspan="6" style="padding:8px 0"></td></tr>`;
+      }
       runBal = 0;
-      tableRows += `<tr class="section-header"><td colspan="7">${r.account_code} — ${r.account_name || ''}</td></tr>`;
+      tableRows += `<tr class="section-header"><td colspan="6">${r.account_code} — ${r.account_name || ''}</td></tr>`;
       lastAcct = r.account_code;
     }
     runBal += parseFloat(r.debit || 0) - parseFloat(r.credit || 0);
+    const dateStr = new Date(r.date).toISOString().slice(0, 10);
     tableRows += `<tr class="account">
-      <td>${r.date}</td><td>${r.batch_id}</td><td>${r.description || ''}</td>
+      <td>${dateStr}</td><td>${r.batch_id}</td><td>${r.description || ''}</td>
       <td class="num">${fmt(r.debit)}</td><td class="num">${fmt(r.credit)}</td>
       <td class="num">${fmt(runBal)}</td>
     </tr>`;
+  }
+  // Closing balance for last account
+  if (lastAcct !== null) {
+    tableRows += `<tr class="subtotal"><td></td><td></td><td>Closing Balance</td><td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td></tr>`;
   }
 
   const tableHtml = `<table>

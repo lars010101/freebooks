@@ -1,6 +1,6 @@
 # Stage 1: build — compile native addons
 FROM cgr.dev/chainguard/wolfi-base:latest AS build
-RUN apk update && apk add --no-cache nodejs npm python3 make gcc g++ git
+RUN apk update && apk add --no-cache nodejs npm python3 build-base git
 RUN git clone https://github.com/lars010101/freebooks /build/freebooks && \
     cd /build/freebooks/api && npm install && \
     cd /build/freebooks/reports && npm install

@@ -30,7 +30,9 @@ fi
 if [ ! -d "$REPORTS_DIR" ]; then
   echo -n "Setting up reports directory... "
   cp -r /opt/freebooks/reports "$REPORTS_DIR"
-  echo "Done (~$REPORTS_DIR)"
+  # Inject actual DB path into Evidence connection config
+  sed -i "s|FREEBOOKS_DB_PATH|${DB_PATH}|g" "$REPORTS_DIR/sources/freebooks/connection.yaml"
+  echo "Done"
   echo "  Run: cd ~/freebooks-reports && npm run sources && npm run dev"
 fi
 

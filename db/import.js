@@ -132,6 +132,7 @@ async function main() {
   let count = 0;
 
   for (const row of journalRows) {
+    if (!row['Date'] || !row['Record ID']) continue; // skip blank/trailing rows
     const accountCode = (row['Account'] || '').split(' ')[0];
     const debit       = parseFloat(row['Debit'])    || 0;
     const credit      = parseFloat(row['Credit'])   || 0;

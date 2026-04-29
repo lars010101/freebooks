@@ -36,8 +36,13 @@ async function buildAccountBalancesCache(ctx) {
   const [periodsRows] = await dataset.query({
     query: `
       SELECT period_name, start_date, end_date
-      FROM finance.periods
-      WHERE company_id = @companyId
+      FROM (
+        SELECT period_name, start_date, end_date,
+               ROW_NUMBER() OVER (PARTITION BY period_name ORDER BY created_at DESC) AS rn
+        FROM finance.periods
+        WHERE company_id = @companyId
+      )
+      WHERE rn = 1
       ORDER BY end_date
     `,
     params: { companyId }
@@ -64,8 +69,13 @@ async function buildAccountBalancesCache(ctx) {
       ) a
       CROSS JOIN (
         SELECT period_name, end_date
-        FROM finance.periods
-        WHERE company_id = @companyId
+        FROM (
+          SELECT period_name, end_date,
+                 ROW_NUMBER() OVER (PARTITION BY period_name ORDER BY created_at DESC) AS rn
+          FROM finance.periods
+          WHERE company_id = @companyId
+        )
+        WHERE rn = 1
       ) p
       LEFT JOIN finance.journal_entries j
         ON  j.company_id   = @companyId
@@ -91,28 +101,9 @@ async function buildAccountBalancesCache(ctx) {
     leafBalances[acct][period] = bal;
   }
 
-  // ── 5. Determine column order: FYxxxx first, then sub-periods (recent 3+ yrs) ─
-  const fySet = new Set();
-  const subSet = new Set();
-  for (const p of periodsRows) {
-    const name = p.period_name;
-    if (/^FY\d{4}$/.test(name)) fySet.add(name);
-    else subSet.add(name);
-  }
-
-  const sortedFYs = Array.from(fySet).sort();
-  let maxYear = 0;
-  sortedFYs.forEach(fy => {
-    const y = parseInt(fy.replace('FY', ''), 10);
-    if (!isNaN(y) && y > maxYear) maxYear = y;
-  });
-  const cutoffYear = maxYear > 0 ? maxYear - 3 : 0;
-
-  const sortedSubs = Array.from(subSet)
-    .filter(m => parseInt(m.substring(0, 4), 10) >= cutoffYear)
-    .sort();
-
-  const allPeriodCols = [...sortedFYs, ...sortedSubs];
+  // ── 5. Column order: all periods sorted by end_date (chronological) ──────────
+  // periodsRows is already ORDER BY end_date from the query.
+  const allPeriodCols = periodsRows.map(p => p.period_name);
 
   // ── 6. Resolve calculated (parent) accounts ───────────────────────────────────
   const allCodes = accounts.map(a => a.account_code);

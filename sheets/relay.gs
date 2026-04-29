@@ -311,7 +311,7 @@ function _refreshTabInternal_(name, period) {
     case 'Period Balances':
       var r = callSkuld_('report.cache_balances', {});
       if (r && r.rows) writeToSheet_('Period Balances', r.rows, r.columns);
-      var periodCount = r && r.columns ? r.columns.filter(function(c) { return /^FY\d{4}$/.test(c) || /^\d{4}P\d{2}$/.test(c); }).length : 0;
+      var periodCount = r && r.columns ? r.columns.filter(function(c) { var nonPeriod = ['Account Code','Account Name','Type','Subtype','PL Category','BS Category','CF Category']; return nonPeriod.indexOf(c) === -1; }).length : 0;
       return '✅ Period Balances refreshed (' + periodCount + ' periods, ' + (r && r.rows ? r.rows.length : 0) + ' accounts)';
     case 'COA':
       var r = callSkuld_('coa.list', {});
@@ -1169,7 +1169,8 @@ function getCachePeriods_(ss) {
   var periods = [];
   for (var i = 0; i < headers.length; i++) {
     var h = String(headers[i] || '').trim();
-    if (/^FY\d{4}$/.test(h) || /^\d{4}P\d{2}$/.test(h)) periods.push(h);
+    var nonPeriod = ['Account Code','Account Name','Type','Subtype','PL Category','BS Category','CF Category'];
+    if (h && nonPeriod.indexOf(h) === -1) periods.push(h);
   }
   return periods;
 }

@@ -14,15 +14,14 @@ RUN useradd -m -u 1000 user && echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers
 # Copy compiled repo from build stage
 COPY --from=build --chown=user:user /build/freebooks /home/user/freebooks
 
+# System-level setup — must run as root before USER switch
+RUN chmod +x /home/user/freebooks/db/start.sh && \
+    echo 'bash /home/user/freebooks/db/start.sh' >> /etc/profile
+
 USER user
 
 # Set default env
 RUN printf 'DB_PATH=%s/.freebooks/freebooks.duckdb\nPORT=3000\n' "$HOME" > /home/user/freebooks/api/.env
-
-# Auto-init DB on shell entry with status messages (system-wide, any user)
-RUN chmod +x /home/user/freebooks/db/start.sh && \
-    touch /etc/bashrc && \
-    echo 'bash /home/user/freebooks/db/start.sh' >> /etc/bashrc
 
 WORKDIR /home/user/freebooks
 CMD ["/bin/bash"]

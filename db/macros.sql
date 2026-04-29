@@ -45,16 +45,17 @@ net AS (
     SUM(CASE WHEN account_type='Revenue' THEN amount ELSE -amount END) AS amount
   FROM base
 )
-SELECT 'account'  AS row_type, account_type, section, account_code, account_name, amount FROM base
+SELECT 'account'  AS row_type, account_type, section, account_code, account_name, amount,
+  CASE account_type WHEN 'Revenue' THEN 1 WHEN 'Expense' THEN 2 ELSE 3 END AS sort1,
+  1 AS sort2 FROM base
 UNION ALL
-SELECT 'subtotal' AS row_type, account_type, section, account_code, account_name, amount FROM subtotals
+SELECT 'subtotal' AS row_type, account_type, section, account_code, account_name, amount,
+  CASE account_type WHEN 'Revenue' THEN 1 WHEN 'Expense' THEN 2 ELSE 3 END AS sort1,
+  2 AS sort2 FROM subtotals
 UNION ALL
-SELECT 'total'    AS row_type, account_type, section, account_code, account_name, amount FROM net
-ORDER BY
-  CASE account_type WHEN 'Revenue' THEN 1 WHEN 'Expense' THEN 2 ELSE 3 END,
-  section,
-  CASE row_type WHEN 'account' THEN 1 WHEN 'subtotal' THEN 2 ELSE 3 END,
-  account_code NULLS LAST;
+SELECT 'total'    AS row_type, account_type, section, account_code, account_name, amount,
+  3 AS sort1, 3 AS sort2 FROM net
+ORDER BY sort1, section, sort2, account_code NULLS LAST;
 
 -- =============================================================================
 -- BS — Balance Sheet

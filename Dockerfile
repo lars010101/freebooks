@@ -7,7 +7,7 @@ RUN git clone https://github.com/lars010101/freebooks /build/freebooks && \
 
 # Stage 2: runtime — lean image, no build tools
 FROM cgr.dev/chainguard/wolfi-base:latest
-RUN apk update && apk add --no-cache nodejs npm duckdb git gh shadow sudo
+RUN apk update && apk add --no-cache nodejs-22 npm duckdb git gh shadow sudo
 
 RUN useradd -m -u 1000 user && echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
 

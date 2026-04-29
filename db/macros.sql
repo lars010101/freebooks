@@ -50,7 +50,11 @@ UNION ALL
 SELECT 'subtotal' AS row_type, account_type, section, account_code, account_name, amount FROM subtotals
 UNION ALL
 SELECT 'total'    AS row_type, account_type, section, account_code, account_name, amount FROM net
-ORDER BY account_type DESC, section, row_type, account_code NULLS LAST;
+ORDER BY
+  CASE account_type WHEN 'Revenue' THEN 1 WHEN 'Expense' THEN 2 ELSE 3 END,
+  section,
+  CASE row_type WHEN 'account' THEN 1 WHEN 'subtotal' THEN 2 ELSE 3 END,
+  account_code NULLS LAST;
 
 -- =============================================================================
 -- BS — Balance Sheet

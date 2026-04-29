@@ -11,18 +11,19 @@ RUN apk update && apk add --no-cache nodejs npm duckdb git gh shadow sudo
 
 RUN useradd -m -u 1000 user && echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/user
 
-# Copy compiled repo from build stage
-COPY --from=build --chown=user:user /build/freebooks /home/user/freebooks
+# Copy compiled repo to system-wide location (distrobox enters as host user, not 'user')
+COPY --from=build /build/freebooks /opt/freebooks
+RUN chmod -R a+rX /opt/freebooks
 
-# System-level setup — must run as root before USER switch
-RUN chmod +x /home/user/freebooks/db/start.sh && \
-    echo 'bash /home/user/freebooks/db/start.sh' > /etc/profile.d/freebooks.sh && \
+# Default env — DB in the entering user's home
+RUN printf 'DB_PATH=${HOME}/.freebooks/freebooks.duckdb\nPORT=3000\n' > /opt/freebooks/api/.env
+
+# Startup script — runs for any user on shell entry
+RUN chmod +x /opt/freebooks/db/start.sh && \
+    sed -i 's|/home/user/freebooks|/opt/freebooks|g' /opt/freebooks/db/start.sh && \
+    echo 'bash /opt/freebooks/db/start.sh' > /etc/profile.d/freebooks.sh && \
     chmod +x /etc/profile.d/freebooks.sh
 
 USER user
-
-# Set default env
-RUN printf 'DB_PATH=%s/.freebooks/freebooks.duckdb\nPORT=3000\n' "$HOME" > /home/user/freebooks/api/.env
-
-WORKDIR /home/user/freebooks
+WORKDIR /opt/freebooks
 CMD ["/bin/bash"]

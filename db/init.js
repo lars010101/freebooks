@@ -22,7 +22,7 @@ const MACROS_FILE  = path.join(__dirname, 'macros.sql');
 const dataDir = path.dirname(DB_PATH);
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-// Split SQL file into individual statements (skip blank lines and comments)
+// Split a SQL file into individual statements on semicolons
 function loadStatements(file) {
   return fs.readFileSync(file, 'utf8')
     .split(';')
@@ -30,10 +30,19 @@ function loadStatements(file) {
     .filter(s => s.length > 0 && !s.startsWith('--'));
 }
 
-const raw = fs.readFileSync(SCHEMA_FILE, 'utf8');
+// Macros contain semicolons inside AS TABLE bodies — run the whole file as one exec
+function loadMacroBlocks(file) {
+  const text = fs.readFileSync(file, 'utf8');
+  // Split on CREATE OR REPLACE MACRO boundaries
+  return text
+    .split(/(?=CREATE OR REPLACE MACRO)/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && !s.startsWith('--') && s.startsWith('CREATE'));
+}
+
 const statements = [
   ...loadStatements(SCHEMA_FILE),
-  ...loadStatements(MACROS_FILE),
+  ...loadMacroBlocks(MACROS_FILE),
 ];
 
 console.log(`Opening DuckDB at: ${DB_PATH}`);

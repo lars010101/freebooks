@@ -398,7 +398,7 @@ async function handleDiag(ctx, action) {
   }
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`freeBooks API listening on port ${PORT}`);
 });
 

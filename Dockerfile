@@ -2,8 +2,8 @@
 FROM node:22-alpine AS build
 RUN apk add --no-cache git
 RUN git clone https://github.com/lars010101/freebooks /build/freebooks && \
-    cd /build/freebooks/api && npm install && \
-    cd /build/freebooks/reports && npm install
+    cd /build/freebooks/api && npm install --legacy-peer-deps && \
+    cd /build/freebooks/reports && npm install --legacy-peer-deps
 
 # Stage 2: runtime — lean image, no build tools
 FROM cgr.dev/chainguard/wolfi-base:latest

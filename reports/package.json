@@ -8,10 +8,7 @@
     "preview": "evidence preview"
   },
   "dependencies": {
-    "@evidence-dev/evidence": "^35.0.0",
-    "@evidence-dev/duckdb": "^1.0.7"
-  },
-  "devDependencies": {
-    "@evidence-dev/preprocess": "^5.0.0"
+    "@evidence-dev/evidence": "^40.0.0",
+    "@evidence-dev/duckdb": "^2.0.0"
   }
 }

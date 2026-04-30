@@ -322,6 +322,7 @@ ${commonStyle()}
     stepType = (stepType === s) ? '' : s;
     document.getElementById('step-mom').classList.toggle('active', stepType === 'month');
     document.getElementById('step-yoy').classList.toggle('active', stepType === 'fy');
+    updateLink();
   }
 
   function onPeriodSelect() {

@@ -168,6 +168,9 @@ ${commonStyle()}
   <ul class="company-list">
     ${links || '<li><em>No companies found.</em></li>'}
   </ul>
+  <div style="margin-top:24px">
+    <a href="/setup/new-company" class="btn-primary" style="display:inline-block;text-decoration:none">+ New Company</a>
+  </div>
 </div>
 </body>
 </html>`;
@@ -241,7 +244,10 @@ ${commonStyle()}
 </head>
 <body>
 <div class="page">
-  <div class="back"><a href="/">← All companies</a></div>
+  <div class="back" style="display:flex;justify-content:space-between;align-items:center">
+    <a href="/">← All companies</a>
+    <a href="/${co.company_id}/settings">⚙ Settings</a>
+  </div>
   <div class="header">
     <h1>${co.company_name}</h1>
     <p class="sub">${co.company_id} · freeBooks Reports</p>
@@ -407,10 +413,366 @@ function commonStyle() {
  */
 function mountReportRoutes(app) {
   app.get('/', handleIndex);
+  app.get('/setup/new-company', handleNewCompanyPage);
   app.get('/api/:company/report', handleReport);
   app.get('/api/:company/periods', handlePeriods);
   app.get('/api/:company/accounts', handleAccounts);
+  app.get('/:company/settings', handleSettingsPage);
   app.get('/:company', handleCompanyPage);
+  app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);
+}
+
+// ── Route: GET /:company/settings ────────────────────────────────────────────
+async function handleSettingsPage(req, res) {
+  const { company } = req.params;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(buildSettingsPage(company));
+}
+
+// ── Route: GET /setup/new-company ─────────────────────────────────────────────
+async function handleNewCompanyPage(req, res) {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(buildNewCompanyPage());
+}
+
+// ── Route: POST /api/admin/query ──────────────────────────────────────────────
+async function handleAdminQuery(req, res) {
+  const { sql, params = [] } = req.body || {};
+  if (!sql) return res.status(400).json({ error: 'Missing sql' });
+  try {
+    const q = makeQuery();
+    const rows = await q(sql, params);
+    res.json({ rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── Settings page HTML ────────────────────────────────────────────────────────
+function buildSettingsPage(company) {
+  const cfOptions = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded']
+    .map(v => `<option value="${v}">${v || '— none —'}</option>`).join('');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Settings — freeBooks</title>
+${commonStyle()}
+<style>
+  .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
+  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:10pt; color:#555; border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+  table.edit-table { width:100%; border-collapse:collapse; font-size:10pt; }
+  table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
+  table.edit-table td { padding:4px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  table.edit-table .ro { background:#f5f5f5; color:#888; padding:4px 6px; border-radius:3px; display:block; }
+  .field-row { display:flex; flex-direction:column; gap:4px; margin-bottom:14px; }
+  .field-row label { font-weight:600; font-size:10pt; color:#555; }
+  .field-row input[type=text], .field-row select { padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; max-width:300px; }
+  .msg { margin-top:10px; font-size:10pt; }
+  .msg.ok { color:#2a8a2a; }
+  .msg.err { color:#cc2222; }
+  .search-bar { padding:6px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; margin-bottom:12px; width:260px; }
+  .btn-sm { padding:4px 10px; font-size:9pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm:hover { background:#e8e8e8; }
+  .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="back"><a href="/${company}">← Reports</a></div>
+  <div class="header">
+    <h1>⚙ Settings</h1>
+    <p class="sub">${company}</p>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('periods')">Periods</div>
+    <div class="tab" onclick="showTab('company')">Company</div>
+    <div class="tab" onclick="showTab('coa')">Chart of Accounts</div>
+  </div>
+
+  <!-- PERIODS TAB -->
+  <div id="tab-periods" class="tab-panel active">
+    <table class="edit-table" id="periods-table">
+      <thead><tr><th>Period Name</th><th>Start Date</th><th>End Date</th><th>Locked</th><th></th></tr></thead>
+      <tbody id="periods-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addPeriodRow()">+ Add Period</button>
+      <button class="btn-primary" onclick="savePeriods()">Save Periods</button>
+      <span id="msg-periods" class="msg"></span>
+    </div>
+  </div>
+
+  <!-- COMPANY TAB -->
+  <div id="tab-company" class="tab-panel">
+    <div class="field-row"><label>Company Name</label><input type="text" id="co-name"></div>
+    <div class="field-row"><label>Currency</label><input type="text" id="co-currency" maxlength="3" style="max-width:80px"></div>
+    <div class="field-row"><label>Jurisdiction</label><input type="text" id="co-jurisdiction" style="max-width:80px"></div>
+    <div class="field-row"><label>Tax ID</label><input type="text" id="co-taxid"></div>
+    <div class="field-row"><label>Reporting Standard</label><input type="text" id="co-standard"></div>
+    <div class="field-row"><label><input type="checkbox" id="co-vat"> VAT / GST Registered</label></div>
+    <button class="btn-primary" onclick="saveCompany()">Save</button>
+    <span id="msg-company" class="msg"></span>
+  </div>
+
+  <!-- COA TAB -->
+  <div id="tab-coa" class="tab-panel">
+    <input type="text" class="search-bar" id="coa-search" placeholder="Filter by code or name…" oninput="filterCoa()">
+    <table class="edit-table" id="coa-table">
+      <thead><tr><th>Code</th><th>Account Name</th><th>Type</th><th>Subtype</th><th>CF Category</th><th>BS Category</th><th>PL Category</th><th>Active</th></tr></thead>
+      <tbody id="coa-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-primary" onclick="saveCoa()">Save COA</button>
+      <span id="msg-coa" class="msg"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+var COMPANY = '${company}';
+var CF_OPTS = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded'];
+
+function showTab(t) {
+  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa'][i]===t));
+  document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-'+t).classList.add('active');
+}
+
+function showMsg(id, msg, isErr) {
+  var el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'msg ' + (isErr ? 'err' : 'ok');
+  if (!isErr) setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+// --- PERIODS ---
+function addPeriodRow(p) {
+  p = p || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" value="' + (p.period_id||'') + '" placeholder="FY2027"></td>'
+    + '<td><input type="date" value="' + (p.start_date ? p.start_date.slice(0,10) : '') + '"></td>'
+    + '<td><input type="date" value="' + (p.end_date ? p.end_date.slice(0,10) : '') + '"></td>'
+    + '<td style="text-align:center"><input type="checkbox"' + (p.locked ? ' checked' : '') + '>' + (p.locked ? ' 🔒' : '') + '</td>'
+    + '<td><button class="btn-sm danger" onclick="this.closest(\'tr\').remove()">✕</button></td>';
+  document.getElementById('periods-body').appendChild(tr);
+}
+
+function savePeriods() {
+  var rows = Array.from(document.querySelectorAll('#periods-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input');
+    return { company_id: COMPANY, period_id: inputs[0].value.trim(), start_date: inputs[1].value, end_date: inputs[2].value, locked: inputs[3].checked };
+  }).filter(p => p.period_id && p.start_date && p.end_date);
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'period.save', companyId: COMPANY, periods: rows }) })
+    .then(r => r.json()).then(d => showMsg('msg-periods', d.error || ('Saved ' + (d.saved||0) + ' periods'), !!d.error))
+    .catch(e => showMsg('msg-periods', e.message, true));
+}
+
+fetch('/api/' + COMPANY + '/periods').then(r => r.json()).then(rows => rows.forEach(addPeriodRow));
+
+// --- COMPANY ---
+fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
+  .then(r => r.json()).then(rows => {
+    var co = (rows || []).find(c => c.company_id === COMPANY);
+    if (!co) return;
+    document.getElementById('co-name').value = co.company_name || '';
+    document.getElementById('co-currency').value = co.base_currency || co.currency || '';
+    document.getElementById('co-jurisdiction').value = co.jurisdiction || '';
+    document.getElementById('co-taxid').value = co.tax_id || '';
+    document.getElementById('co-standard').value = co.reporting_standard || '';
+    document.getElementById('co-vat').checked = !!co.vat_registered;
+  });
+
+function saveCompany() {
+  var co = { company_id: COMPANY, company_name: document.getElementById('co-name').value,
+    base_currency: document.getElementById('co-currency').value, jurisdiction: document.getElementById('co-jurisdiction').value,
+    tax_id: document.getElementById('co-taxid').value, reporting_standard: document.getElementById('co-standard').value,
+    vat_registered: document.getElementById('co-vat').checked };
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.save', companyId: COMPANY, companies: [co] }) })
+    .then(r => r.json()).then(d => showMsg('msg-company', d.error || 'Saved', !!d.error))
+    .catch(e => showMsg('msg-company', e.message, true));
+}
+
+// --- COA ---
+var coaData = [];
+fetch('/api/' + COMPANY + '/accounts').then(r => r.json()).then(rows => {
+  coaData = rows;
+  renderCoa(rows);
+});
+
+function cfSelect(val) {
+  return '<select>' + CF_OPTS.map(o => '<option value="'+o+'"'+(o===val?' selected':'')+'>'+( o||'— none —')+'</option>').join('') + '</select>';
+}
+
+function renderCoa(rows) {
+  document.getElementById('coa-body').innerHTML = rows.map(a => '<tr data-code="'+a.account_code+'">'
+    + '<td><span class="ro">'+a.account_code+'</span></td>'
+    + '<td><input type="text" value="'+(a.account_name||'').replace(/"/g,'&quot;')+'"></td>'
+    + '<td><span class="ro">'+( a.account_type||'')+'</span></td>'
+    + '<td><input type="text" value="'+(a.account_subtype||'').replace(/"/g,'&quot;')+'"></td>'
+    + '<td>'+cfSelect(a.cf_category||'')+'</td>'
+    + '<td><input type="text" value="'+(a.bs_category||'').replace(/"/g,'&quot;')+'"></td>'
+    + '<td><input type="text" value="'+(a.pl_category||'').replace(/"/g,'&quot;')+'"></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(a.is_active!==false?' checked':'')+'></td>'
+    + '</tr>').join('');
+}
+
+function filterCoa() {
+  var q = document.getElementById('coa-search').value.toLowerCase();
+  var filtered = q ? coaData.filter(a => (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q)) : coaData;
+  renderCoa(filtered);
+}
+
+function saveCoa() {
+  var rows = Array.from(document.querySelectorAll('#coa-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input[type=text]');
+    var sel = tr.querySelector('select');
+    var chk = tr.querySelector('input[type=checkbox]');
+    return { account_code: tr.dataset.code, account_name: inputs[0].value, account_subtype: inputs[1].value,
+      cf_category: sel ? sel.value : '', bs_category: inputs[2].value, pl_category: inputs[3].value, is_active: chk ? chk.checked : true };
+  });
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'coa.save', companyId: COMPANY, accounts: rows }) })
+    .then(r => r.json()).then(d => showMsg('msg-coa', d.error || ('Saved ' + (d.saved||rows.length) + ' accounts'), !!d.error))
+    .catch(e => showMsg('msg-coa', e.message, true));
+}
+</script>
+</body>
+</html>`;
+}
+
+// ── New Company wizard ────────────────────────────────────────────────────────
+function buildNewCompanyPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>New Company — freeBooks</title>
+${commonStyle()}
+<style>
+  .field-row { display:flex; flex-direction:column; gap:4px; margin-bottom:14px; }
+  .field-row label { font-weight:600; font-size:10pt; color:#555; }
+  .field-row input, .field-row select { padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; max-width:320px; }
+  .section-title { font-weight:700; font-size:11pt; margin:20px 0 10px; border-bottom:1px solid #eee; padding-bottom:6px; }
+  table.edit-table { width:100%; border-collapse:collapse; font-size:10pt; margin-bottom:10px; }
+  table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px; }
+  table.edit-table td { padding:4px 6px; border-bottom:1px solid #f0f0f0; }
+  table.edit-table input { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  .btn-sm { padding:4px 10px; font-size:9pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
+  #review { display:none; margin-top:20px; padding:16px; background:#f8f8f8; border-radius:6px; border:1px solid #ddd; }
+  .msg { margin-top:10px; font-size:10pt; }
+  .msg.err { color:#cc2222; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="back"><a href="/">← All companies</a></div>
+  <div class="header"><h1>New Company</h1></div>
+
+  <div class="section-title">Company Details</div>
+  <div class="field-row"><label>Company ID <small style="color:#999">(lowercase, underscores only)</small></label><input type="text" id="co-id" placeholder="myco_sg" pattern="[a-z0-9_]+"></div>
+  <div class="field-row"><label>Company Name</label><input type="text" id="co-name"></div>
+  <div class="field-row"><label>Currency</label><input type="text" id="co-currency" value="SGD" maxlength="3" style="max-width:80px"></div>
+  <div class="field-row"><label>Jurisdiction</label>
+    <select id="co-jurisdiction" style="max-width:120px">
+      <option value="SG">SG — Singapore</option>
+      <option value="SE">SE — Sweden</option>
+    </select>
+  </div>
+  <div class="field-row"><label>Tax ID</label><input type="text" id="co-taxid" placeholder="e.g. 201703022E"></div>
+  <div class="field-row"><label>Reporting Standard</label><input type="text" id="co-standard" value="SFRS"></div>
+  <div class="field-row"><label><input type="checkbox" id="co-vat"> VAT / GST Registered</label></div>
+
+  <div class="section-title">Fiscal Periods</div>
+  <table class="edit-table">
+    <thead><tr><th>Period Name</th><th>Start Date</th><th>End Date</th><th></th></tr></thead>
+    <tbody id="periods-body"></tbody>
+  </table>
+  <button class="btn-sm" onclick="addRow()">+ Add Period</button>
+
+  <div style="margin-top:24px;display:flex;gap:12px;align-items:center">
+    <button class="btn-primary" onclick="showReview()">Review →</button>
+  </div>
+
+  <div id="review">
+    <div class="section-title" style="margin-top:0">Review</div>
+    <div id="review-content"></div>
+    <div style="margin-top:16px;display:flex;gap:12px;align-items:center">
+      <button class="btn-primary" onclick="createCompany()">Create Company</button>
+      <span id="msg" class="msg"></span>
+    </div>
+  </div>
+</div>
+<script>
+function addRow(p) {
+  p = p || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" value="'+(p.name||'')+'" placeholder="FY2026"></td>'
+    +'<td><input type="date" value="'+(p.start||'')+'" ></td>'
+    +'<td><input type="date" value="'+(p.end||'')+'" ></td>'
+    +'<td><button class="btn-sm danger" onclick="this.closest(\'tr\').remove()">✕</button></td>';
+  document.getElementById('periods-body').appendChild(tr);
+}
+addRow();
+
+function getFields() {
+  return {
+    company_id: document.getElementById('co-id').value.trim(),
+    company_name: document.getElementById('co-name').value.trim(),
+    currency: document.getElementById('co-currency').value.trim().toUpperCase(),
+    jurisdiction: document.getElementById('co-jurisdiction').value,
+    tax_id: document.getElementById('co-taxid').value.trim(),
+    reporting_standard: document.getElementById('co-standard').value.trim(),
+    vat_registered: document.getElementById('co-vat').checked,
+  };
+}
+
+function getPeriods() {
+  return Array.from(document.querySelectorAll('#periods-body tr')).map(tr => {
+    var ins = tr.querySelectorAll('input');
+    return { name: ins[0].value.trim(), start: ins[1].value, end: ins[2].value };
+  }).filter(p => p.name && p.start && p.end);
+}
+
+function showReview() {
+  var co = getFields();
+  var ps = getPeriods();
+  if (!co.company_id || !co.company_name) { alert('Company ID and Name are required'); return; }
+  document.getElementById('review-content').innerHTML =
+    '<p><strong>'+co.company_name+'</strong> ('+co.company_id+')</p>'
+    +'<p>'+co.jurisdiction+' · '+co.currency+' · '+co.reporting_standard+'</p>'
+    +(co.tax_id ? '<p>Tax ID: '+co.tax_id+'</p>' : '')
+    +'<p>'+ps.length+' fiscal period(s) defined</p>'
+    +'<p style="color:#555;font-size:9pt">COA and VAT codes will be loaded from the '+co.jurisdiction+' jurisdiction template.</p>';
+  document.getElementById('review').style.display = 'block';
+}
+
+function createCompany() {
+  var co = getFields();
+  var ps = getPeriods();
+  var msg = document.getElementById('msg');
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'setup.add_company', companyId: co.company_id,
+      body: { company: { ...co, fy_start: ps[0]&&ps[0].start, fy_end: ps[ps.length-1]&&ps[ps.length-1].end } } }) })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { msg.textContent = d.error; msg.className = 'msg err'; return; }
+      if (ps.length === 0) { window.location.href = '/'+co.company_id+'/settings'; return; }
+      var periods = ps.map(p => ({ company_id: co.company_id, period_id: p.name, start_date: p.start, end_date: p.end, locked: false }));
+      return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'period.save', companyId: co.company_id, periods }) })
+        .then(() => { window.location.href = '/'+co.company_id+'/settings'; });
+    })
+    .catch(e => { msg.textContent = e.message; msg.className = 'msg err'; });
+}
+</script>
+</body>
+</html>`;
 }
 
 // Keep existing action-based handler for backward compat

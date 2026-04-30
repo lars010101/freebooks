@@ -479,6 +479,8 @@ ${commonStyle()}
   .btn-sm { padding:4px 10px; font-size:9pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
   .btn-sm:hover { background:#e8e8e8; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
+  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
+  button.btn-primary:hover { background:#333; }
 </style>
 </head>
 <body>
@@ -573,7 +575,7 @@ function savePeriods() {
     .catch(e => showMsg('msg-periods', e.message, true));
 }
 
-fetch('/api/' + COMPANY + '/periods').then(r => r.json()).then(rows => rows.forEach(addPeriodRow));
+fetch('/api/' + COMPANY + '/periods').then(r => r.json()).then(rows => rows.forEach(r => addPeriodRow({ period_id: r.period_name, start_date: r.start_date ? String(r.start_date).slice(0,10) : '', end_date: r.end_date ? String(r.end_date).slice(0,10) : '', locked: r.locked })));
 
 // --- COMPANY ---
 fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
@@ -664,6 +666,8 @@ ${commonStyle()}
   table.edit-table input { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
   .btn-sm { padding:4px 10px; font-size:9pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
+  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
+  button.btn-primary:hover { background:#333; }
   #review { display:none; margin-top:20px; padding:16px; background:#f8f8f8; border-radius:6px; border:1px solid #ddd; }
   .msg { margin-top:10px; font-size:10pt; }
   .msg.err { color:#cc2222; }

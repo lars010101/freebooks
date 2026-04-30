@@ -417,12 +417,25 @@ function mountReportRoutes(app) {
   app.get('/api/:company/report', handleReport);
   app.get('/api/:company/periods', handlePeriods);
   app.get('/api/:company/accounts', handleAccounts);
+  app.get('/api/:company/vat-codes', handleVatCodes);
   app.get('/:company/settings', handleSettingsPage);
   app.get('/:company', handleCompanyPage);
   app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);
 }
 
-// ── Route: GET /:company/settings ────────────────────────────────────────────
+// ── Route: GET /api/:company/vat-codes ─────────────────────────────────────────────
+async function handleVatCodes(req, res) {
+  const { company } = req.params;
+  const q = makeQuery();
+  try {
+    const rows = await q(`SELECT * FROM vat_codes WHERE company_id = ? ORDER BY vat_code`, [company]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── Route: GET /:company/settings ──────────────────────────────────────────────
 async function handleSettingsPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -495,6 +508,7 @@ ${commonStyle()}
     <div class="tab active" onclick="showTab('periods')">Periods</div>
     <div class="tab" onclick="showTab('company')">Company</div>
     <div class="tab" onclick="showTab('coa')">Chart of Accounts</div>
+    <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes</div>
   </div>
 
   <!-- PERIODS TAB -->
@@ -534,14 +548,29 @@ ${commonStyle()}
       <span id="msg-coa" class="msg"></span>
     </div>
   </div>
+
+  <!-- VAT/GST CODES TAB -->
+  <div id="tab-vat" class="tab-panel">
+    <table class="edit-table" id="vat-table">
+      <thead><tr><th>Code</th><th>Description</th><th>Rate %</th><th>Input Acct</th><th>Output Acct</th><th>Report Box</th><th style="text-align:center">Rev.Chg</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="vat-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addVatRow()">+ Add Code</button>
+      <button class="btn-primary" onclick="saveVat()">Save</button>
+      <span id="msg-vat" class="msg"></span>
+    </div>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Saving replaces all codes. Existing journal entry tax tags on transactions are preserved.</p>
+  </div>
 </div>
 
 <script>
 var COMPANY = '${company}';
 var CF_OPTS = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded'];
 
+var VAT_NAMES = { SG:'GST', SE:'VAT' };
 function showTab(t) {
-  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa'][i]===t));
+  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa','vat'][i]===t));
   document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('active');
 }
@@ -582,6 +611,10 @@ fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'
   .then(r => r.json()).then(res => {
     var rows = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
     var co = rows.find(c => c.company_id === COMPANY);
+    if (co && co.jurisdiction) {
+      var vn = VAT_NAMES[co.jurisdiction] || 'Tax';
+      document.getElementById('tab-vat-label').textContent = vn + ' Codes';
+    }
     if (!co) return;
     document.getElementById('co-name').value = co.company_name || '';
     document.getElementById('co-currency').value = co.base_currency || co.currency || '';
@@ -641,6 +674,41 @@ function saveCoa() {
     .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-coa', r.error||d.error || ('Saved ' + (d.saved||0) + ' accounts'), !!(r.error||d.error)); })
     .catch(e => showMsg('msg-coa', e.message, true));
 }
+
+// --- VAT/GST CODES ---
+function addVatRow(v) {
+  v = v || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input type="text" value="'+(v.vat_code||'')+'" placeholder="SG9" style="width:70px"></td>'
+    +'<td><input type="text" value="'+(v.description||'').replace(/"/g,"&quot;")+'"></td>'
+    +'<td><input type="number" value="'+(v.rate!=null?(v.rate*100).toFixed(2):0)+'" step="0.01" min="0" max="100" style="width:65px"></td>'
+    +'<td><input type="text" value="'+(v.vat_account_input||'')+'" style="width:65px"></td>'
+    +'<td><input type="text" value="'+(v.vat_account_output||'')+'" style="width:65px"></td>'
+    +'<td><input type="text" value="'+(v.report_box||'')+'" style="width:55px"></td>'
+    +'<td style="text-align:center"><input type="checkbox"'+(v.is_reverse_charge?' checked':'')+' title="Reverse charge"></td>'
+    +'<td style="text-align:center"><input type="checkbox"'+(v.is_active!==false?' checked':'')+' title="Active"></td>'
+    +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
+  document.getElementById('vat-body').appendChild(tr);
+}
+
+function saveVat() {
+  var rows = Array.from(document.querySelectorAll('#vat-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input');
+    return { vat_code: inputs[0].value.trim(), description: inputs[1].value.trim(),
+      rate: parseFloat(inputs[2].value||0)/100, vat_account_input: inputs[3].value.trim()||null,
+      vat_account_output: inputs[4].value.trim()||null, report_box: inputs[5].value.trim()||null,
+      is_reverse_charge: inputs[6].checked, is_active: inputs[7].checked, effective_from: '2000-01-01' };
+  }).filter(v => v.vat_code);
+  if (rows.length === 0 && !confirm('No codes defined. This will delete all tax codes. Continue?')) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'vat.codes.save', companyId: COMPANY, vatCodes: rows }) })
+    .then(r => r.json())
+    .then(r => { var d=r.data||r; showMsg('msg-vat', r.error||d.error||('Saved '+(d.saved||0)+' codes'), !!(r.error||d.error)); })
+    .catch(e => showMsg('msg-vat', e.message, true));
+}
+
+fetch('/api/'+COMPANY+'/vat-codes').then(r=>r.json()).then(rows=>{ if(Array.isArray(rows)) rows.forEach(addVatRow); });
 </script>
 </body>
 </html>`;

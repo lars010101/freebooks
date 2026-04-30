@@ -512,6 +512,23 @@ async function renderComparative(query, company, reportType, periods) {
       return (a.meta.sort2 ?? 99) - (b.meta.sort2 ?? 99);
     });
   }
+  if (reportType === 'bs') {
+    const typeOrder = { Asset: 0, Equity: 1, Liability: 2 };
+    entries.sort(([, a], [, b]) => {
+      const tA = typeOrder[a.meta.account_type] ?? 99;
+      const tB = typeOrder[b.meta.account_type] ?? 99;
+      if (tA !== tB) return tA - tB;
+      const totA = a.meta.row_type === 'type_total' ? 1 : 0;
+      const totB = b.meta.row_type === 'type_total' ? 1 : 0;
+      if (totA !== totB) return totA - totB;
+      const catA = a.meta.bs_category || '';
+      const catB = b.meta.bs_category || '';
+      if (catA < catB) return -1;
+      if (catA > catB) return 1;
+      const rtOrder = { account: 0, subtotal: 1 };
+      return (rtOrder[a.meta.row_type] ?? 0) - (rtOrder[b.meta.row_type] ?? 0);
+    });
+  }
 
   for (const [, { meta: r, values }] of entries) {
     // Section header for PL
@@ -519,7 +536,7 @@ async function renderComparative(query, company, reportType, periods) {
       tableRows += `<tr class="section-header"><td></td><td colspan="${1 + periods.length}">${r.section}</td></tr>`;
       lastSection = r.section;
     }
-    if (reportType === 'bs' && r.row_type === 'account' && r.account_type !== lastSection) {
+    if (reportType === 'bs' && r.row_type !== 'type_total' && r.account_type !== lastSection) {
       tableRows += `<tr class="section-header"><td></td><td colspan="${1 + periods.length}">${r.account_type}</td></tr>`;
       lastSection = r.account_type;
     }
@@ -536,6 +553,17 @@ async function renderComparative(query, company, reportType, periods) {
 
     const valCells = values.map(v => `<td class="num">${fmt(v)}</td>`).join('');
     tableRows += `<tr class="${cls}"><td>${code}</td><td>${name}</td>${valCells}</tr>`;
+  }
+
+  // BS: append TOTAL EQUITY + LIABILITIES footer row
+  if (reportType === 'bs') {
+    const eqLiabEntries = entries.filter(([, { meta: r }]) =>
+      r.row_type === 'type_total' && /equity|liabilit/i.test(r.account_name));
+    const footerCells = periods.map((_, pi) => {
+      const sum = eqLiabEntries.reduce((s, [, { values }]) => s + parseFloat(values[pi] || 0), 0);
+      return `<td class="num">${fmt(sum)}</td>`;
+    }).join('');
+    tableRows += `<tr class="total"><td></td><td><strong>TOTAL EQUITY + LIABILITIES</strong></td>${footerCells}</tr>`;
   }
 
   const tableHtml = `<table>

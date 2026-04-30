@@ -19,7 +19,7 @@ function fmt(n) {
 }
 
 // ── HTML page wrapper ─────────────────────────────────────────────────────────
-function htmlPage(title, company, period, tableHtml) {
+function htmlPage(title, company, period, tableHtml, opts = {}) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -30,6 +30,10 @@ function htmlPage(title, company, period, tableHtml) {
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
   .page { max-width: 900px; margin: 0 auto; padding: 32px 40px; }
+  .page.wide { max-width: none; margin: 0; padding: 24px 32px; }
+  .page.wide .table-wrap { overflow-x: auto; }
+  .page.wide th { white-space: nowrap; }
+  .page.wide td:nth-child(2) { min-width: 160px; }
   .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
@@ -58,13 +62,13 @@ function htmlPage(title, company, period, tableHtml) {
 </style>
 </head>
 <body>
-<div class="page">
+<div class="page${opts.wide ? ' wide' : ''}">
   <div class="header">
     <div class="company">${company}</div>
     <div class="report-title">${title}</div>
     <div class="period">${period}</div>
   </div>
-  ${tableHtml}
+  ${opts.wide ? '<div class="table-wrap">' + tableHtml + '</div>' : tableHtml}
   <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks</div>
 </div>
 </body>
@@ -536,7 +540,7 @@ async function renderComparative(query, company, reportType, periods) {
   </table>`;
 
   const periodLabel = `${periods[0].start} to ${periods[periods.length - 1].end}`;
-  const html = htmlPage(title, companyName, periodLabel, tableHtml);
+  const html = htmlPage(title, companyName, periodLabel, tableHtml, { wide: true });
 
   // CSV: flatten with a Period column
   const csvRows = [];

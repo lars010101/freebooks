@@ -226,9 +226,10 @@ ${commonStyle()}
   button:hover:not(.active) { background: #e8e8e8; }
   input[type=date], select { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 10pt; min-height: 34px; }
   .actions { margin-top: 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-  .btn-primary { padding: 10px 24px; background: #1a1a1a; color: #fff; border: none;
-                 border-radius: 4px; font-size: 11pt; font-weight: 600; cursor: pointer; }
-  .btn-primary:hover { background: #333; }
+  a.btn-primary { display: inline-block; padding: 10px 24px; background: #1a1a1a; color: #fff;
+                   border-radius: 4px; font-size: 11pt; font-weight: 600; text-decoration: none; cursor: pointer; }
+  a.btn-primary:hover { background: #333; }
+  a.btn-primary[href=''] { pointer-events: none; opacity: 0.4; }
   .btn-secondary { padding: 10px 24px; background: #fff; color: #1a1a1a; border: 2px solid #1a1a1a;
                    border-radius: 4px; font-size: 11pt; font-weight: 600; cursor: pointer; }
   .btn-secondary:hover { background: #f5f5f5; }
@@ -288,7 +289,7 @@ ${commonStyle()}
   </div>
 
   <div class="actions">
-    <button class="btn-primary" onclick="openReport()">Open Report</button>
+    <a id="open-report" class="btn-primary" href="">Open Report</a>
   </div>
 </div>
 
@@ -352,13 +353,8 @@ ${commonStyle()}
   }
 
   function updateLink() {
-    // no-op: url built on demand by buildUrl()
-  }
-
-  function openReport() {
     var url = buildUrl();
-    if (!url) { alert('Please select a date range'); return; }
-    window.location.href = url;
+    document.getElementById('open-report').href = url || '';
   }
 
   // Pre-fill with most recent period

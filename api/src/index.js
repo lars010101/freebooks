@@ -170,10 +170,10 @@ async function handleCoa(ctx, action) {
       if (existing.length > 0) {
         await exec(
           `UPDATE accounts SET account_name = @name, account_type = @type, account_subtype = @subtype,
-           pl_category = @pl, bs_category = @bs, cf_category = @cf, is_active = @active,
+           cf_category = @cf, is_active = @active,
            effective_from = @from, effective_to = @to, created_at = @now
            WHERE company_id = @companyId AND account_code = @code`,
-          { companyId, code: a.account_code, name: a.account_name, type: a.account_type, subtype: a.account_subtype || null, pl: a.pl_category || null, bs: a.bs_category || null, cf: a.cf_category || null, active: a.is_active !== false, from: a.effective_from, to: a.effective_to || null, now }
+          { companyId, code: a.account_code, name: a.account_name, type: a.account_type, subtype: a.account_subtype || null, cf: a.cf_category || null, active: a.is_active !== false, from: a.effective_from, to: a.effective_to || null, now }
         );
       } else {
         await bulkInsert('accounts', [{
@@ -182,8 +182,6 @@ async function handleCoa(ctx, action) {
           account_name: a.account_name,
           account_type: a.account_type,
           account_subtype: a.account_subtype || null,
-          pl_category: a.pl_category || null,
-          bs_category: a.bs_category || null,
           cf_category: a.cf_category || null,
           is_active: a.is_active !== false,
           effective_from: a.effective_from,
@@ -202,8 +200,8 @@ async function handleCoa(ctx, action) {
     for (const a of accounts) {
       if (!a.account_code) continue;
       await exec(
-        `UPDATE accounts SET account_name = @name, account_subtype = @subtype, cf_category = @cf, bs_category = @bs, pl_category = @pl, is_active = @active WHERE company_id = @companyId AND account_code = @code`,
-        { companyId, code: a.account_code, name: a.account_name, subtype: a.account_subtype || null, cf: a.cf_category || null, bs: a.bs_category || null, pl: a.pl_category || null, active: a.is_active !== false }
+        `UPDATE accounts SET account_name = @name, account_subtype = @subtype, cf_category = @cf, is_active = @active WHERE company_id = @companyId AND account_code = @code`,
+        { companyId, code: a.account_code, name: a.account_name, subtype: a.account_subtype || null, cf: a.cf_category || null, active: a.is_active !== false }
       );
     }
     return { saved: accounts.length };

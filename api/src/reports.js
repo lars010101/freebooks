@@ -94,7 +94,7 @@ async function handleAccounts(req, res) {
   try {
     const rows = await query(
       `SELECT account_code, account_name, account_type, account_subtype,
-              pl_category, bs_category, cf_category, is_active
+              cf_category, is_active
        FROM accounts WHERE company_id = ?
        ORDER BY account_code`,
       [company]
@@ -526,7 +526,7 @@ ${commonStyle()}
   <div id="tab-coa" class="tab-panel">
     <input type="text" class="search-bar" id="coa-search" placeholder="Filter by code or name…" oninput="filterCoa()">
     <table class="edit-table" id="coa-table">
-      <thead><tr><th>Code</th><th>Account Name</th><th>Type</th><th>Subtype</th><th>CF Category</th><th>BS Category</th><th>PL Category</th><th>Active</th></tr></thead>
+      <thead><tr><th>Code</th><th>Account Name</th><th>Type</th><th>Subtype</th><th>CF Category</th><th>Active</th></tr></thead>
       <tbody id="coa-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
@@ -619,8 +619,6 @@ function renderCoa(rows) {
     + '<td><span class="ro">'+( a.account_type||'')+'</span></td>'
     + '<td><input type="text" value="'+(a.account_subtype||'').replace(/"/g,'&quot;')+'"></td>'
     + '<td>'+cfSelect(a.cf_category||'')+'</td>'
-    + '<td><input type="text" value="'+(a.bs_category||'').replace(/"/g,'&quot;')+'"></td>'
-    + '<td><input type="text" value="'+(a.pl_category||'').replace(/"/g,'&quot;')+'"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(a.is_active!==false?' checked':'')+'></td>'
     + '</tr>').join('');
 }
@@ -637,7 +635,7 @@ function saveCoa() {
     var sel = tr.querySelector('select');
     var chk = tr.querySelector('input[type=checkbox]');
     return { account_code: tr.dataset.code, account_name: inputs[0].value, account_subtype: inputs[1].value,
-      cf_category: sel ? sel.value : '', bs_category: inputs[2].value, pl_category: inputs[3].value, is_active: chk ? chk.checked : true };
+      cf_category: sel ? sel.value : '', is_active: chk ? chk.checked : true };
   });
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'coa.save', companyId: COMPANY, accounts: rows }) })
     .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-coa', r.error||d.error || ('Saved ' + (d.saved||0) + ' accounts'), !!(r.error||d.error)); })

@@ -11,7 +11,7 @@ CREATE OR REPLACE MACRO pl(cid, start_date, end_date) AS TABLE
 WITH base AS (
   SELECT
     a.account_type,
-    COALESCE(a.pl_category, a.account_type) AS section,
+    COALESCE(a.account_subtype, a.account_type) AS section,
     je.account_code,
     a.account_name,
     CASE
@@ -65,7 +65,7 @@ CREATE OR REPLACE MACRO bs(cid, as_of_date) AS TABLE
 WITH base AS (
   SELECT
     a.account_type,
-    COALESCE(a.bs_category, a.account_type) AS bs_category,
+    COALESCE(a.account_subtype, a.account_type) AS bs_category,
     je.account_code,
     a.account_name,
     CASE

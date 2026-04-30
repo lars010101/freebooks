@@ -28,8 +28,6 @@ CREATE TABLE IF NOT EXISTS accounts (
   account_name    VARCHAR   NOT NULL,
   account_type    VARCHAR   NOT NULL,
   account_subtype VARCHAR,
-  pl_category     VARCHAR,
-  bs_category     VARCHAR,
   cf_category     VARCHAR,
   is_active       BOOLEAN   NOT NULL DEFAULT TRUE,
   effective_from  DATE      NOT NULL,
@@ -265,7 +263,7 @@ SELECT
   a.account_code,
   a.account_name,
   a.account_type,
-  a.pl_category,
+  a.account_subtype,
   -- Revenue: credit-normal (positive = credit balance)
   -- Expense: debit-normal (positive = debit balance)
   CASE
@@ -275,7 +273,7 @@ SELECT
 FROM journal_entries je
 LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
 WHERE a.account_type IN ('Revenue', 'Expense')
-GROUP BY je.company_id, je.date, a.account_code, a.account_name, a.account_type, a.pl_category;
+GROUP BY je.company_id, je.date, a.account_code, a.account_name, a.account_type, a.account_subtype;
 
 -- Balance Sheet
 -- Usage: SELECT * FROM v_bs WHERE company_id = 'example_sg' AND date <= '2026-01-31';
@@ -286,7 +284,7 @@ SELECT
   a.account_code,
   a.account_name,
   a.account_type,
-  a.bs_category,
+  a.account_subtype,
   -- Assets: debit-normal. Liabilities/Equity: credit-normal
   CASE
     WHEN a.account_type = 'Asset' THEN SUM(je.debit) - SUM(je.credit)
@@ -295,7 +293,7 @@ SELECT
 FROM journal_entries je
 LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
 WHERE a.account_type IN ('Asset', 'Liability', 'Equity')
-GROUP BY je.company_id, je.date, a.account_code, a.account_name, a.account_type, a.bs_category;
+GROUP BY je.company_id, je.date, a.account_code, a.account_name, a.account_type, a.account_subtype;
 
 -- General Ledger
 -- Usage: SELECT * FROM v_gl WHERE company_id = 'example_sg' AND date BETWEEN '2025-02-01' AND '2026-01-31' ORDER BY account_code, date;
@@ -314,3 +312,12 @@ SELECT
   je.source
 FROM journal_entries je
 LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code;
+
+-- =============================================================================
+-- MIGRATION: consolidate bs_category + pl_category → account_subtype
+-- Run automatically by node db/init.js on existing databases.
+-- =============================================================================
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_subtype VARCHAR;
+UPDATE accounts SET account_subtype = COALESCE(bs_category, pl_category, account_subtype);
+ALTER TABLE accounts DROP COLUMN IF EXISTS bs_category;
+ALTER TABLE accounts DROP COLUMN IF EXISTS pl_category;

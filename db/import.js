@@ -161,11 +161,12 @@ async function main() {
       const type = row['Type'] || '';
       await dbRun(db, `
         INSERT INTO accounts (company_id, account_code, account_name, account_type,
-          account_subtype, pl_category, bs_category, cf_category, is_active,
+          account_subtype, cf_category, is_active,
           effective_from, effective_to, created_at)
-        VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, true, '2015-01-01', NULL, ?)
+        VALUES (?, ?, ?, ?, ?, ?, true, '2015-01-01', NULL, ?)
       `, [company_id, row['Code'], row['Name'], type,
-          typeToBS[type] || null, row['CF Category'] || null, now]);
+          row.account_subtype || row.bs_category || row.pl_category || typeToBS[type] || null,
+          row['CF Category'] || null, now]);
     }
     console.log(`  COA:          ${compCoa.length} accounts`);
 

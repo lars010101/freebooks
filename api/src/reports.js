@@ -561,7 +561,7 @@ function addPeriodRow(p) {
     + '<td><input type="date" value="' + (p.start_date ? p.start_date.slice(0,10) : '') + '"></td>'
     + '<td><input type="date" value="' + (p.end_date ? p.end_date.slice(0,10) : '') + '"></td>'
     + '<td style="text-align:center"><input type="checkbox"' + (p.locked ? ' checked' : '') + '>' + (p.locked ? ' 🔒' : '') + '</td>'
-    + '<td><button class="btn-sm danger" onclick="this.closest(\'tr\').remove()">✕</button></td>';
+    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
   document.getElementById('periods-body').appendChild(tr);
 }
 
@@ -571,7 +571,7 @@ function savePeriods() {
     return { company_id: COMPANY, period_id: inputs[0].value.trim(), start_date: inputs[1].value, end_date: inputs[2].value, locked: inputs[3].checked };
   }).filter(p => p.period_id && p.start_date && p.end_date);
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'period.save', companyId: COMPANY, periods: rows }) })
-    .then(r => r.json()).then(d => showMsg('msg-periods', d.error || ('Saved ' + (d.saved||0) + ' periods'), !!d.error))
+    .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-periods', r.error||d.error || ('Saved ' + (d.saved||0) + ' periods'), !!(r.error||d.error)); })
     .catch(e => showMsg('msg-periods', e.message, true));
 }
 
@@ -579,8 +579,9 @@ fetch('/api/' + COMPANY + '/periods').then(r => r.json()).then(rows => rows.forE
 
 // --- COMPANY ---
 fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
-  .then(r => r.json()).then(rows => {
-    var co = (rows || []).find(c => c.company_id === COMPANY);
+  .then(r => r.json()).then(res => {
+    var rows = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
+    var co = rows.find(c => c.company_id === COMPANY);
     if (!co) return;
     document.getElementById('co-name').value = co.company_name || '';
     document.getElementById('co-currency').value = co.base_currency || co.currency || '';
@@ -596,7 +597,7 @@ function saveCompany() {
     tax_id: document.getElementById('co-taxid').value, reporting_standard: document.getElementById('co-standard').value,
     vat_registered: document.getElementById('co-vat').checked };
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.save', companyId: COMPANY, companies: [co] }) })
-    .then(r => r.json()).then(d => showMsg('msg-company', d.error || 'Saved', !!d.error))
+    .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-company', r.error||d.error || 'Saved', !!(r.error||d.error)); })
     .catch(e => showMsg('msg-company', e.message, true));
 }
 
@@ -639,7 +640,7 @@ function saveCoa() {
       cf_category: sel ? sel.value : '', bs_category: inputs[2].value, pl_category: inputs[3].value, is_active: chk ? chk.checked : true };
   });
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'coa.save', companyId: COMPANY, accounts: rows }) })
-    .then(r => r.json()).then(d => showMsg('msg-coa', d.error || ('Saved ' + (d.saved||rows.length) + ' accounts'), !!d.error))
+    .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-coa', r.error||d.error || ('Saved ' + (d.saved||0) + ' accounts'), !!(r.error||d.error)); })
     .catch(e => showMsg('msg-coa', e.message, true));
 }
 </script>
@@ -719,7 +720,7 @@ function addRow(p) {
   tr.innerHTML = '<td><input type="text" value="'+(p.name||'')+'" placeholder="FY2026"></td>'
     +'<td><input type="date" value="'+(p.start||'')+'" ></td>'
     +'<td><input type="date" value="'+(p.end||'')+'" ></td>'
-    +'<td><button class="btn-sm danger" onclick="this.closest(\'tr\').remove()">✕</button></td>';
+    +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
   document.getElementById('periods-body').appendChild(tr);
 }
 addRow();

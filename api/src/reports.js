@@ -256,8 +256,10 @@ ${commonStyle()}
       <input type="date" id="startDate" oninput="onDateInput()">
       <span>to</span>
       <input type="date" id="endDate" oninput="onDateInput()">
-      <button id="step-mom" class="step-btn" onclick="toggleStep('month')">MoM</button>
-      <button id="step-yoy" class="step-btn" onclick="toggleStep('fy')">YoY</button>
+      <span id="step-buttons">
+        <button id="step-mom" class="step-btn" onclick="toggleStep('month')">MoM</button>
+        <button id="step-yoy" class="step-btn" onclick="toggleStep('fy')">YoY</button>
+      </span>
     </div>
 
     <div class="control-row">
@@ -301,6 +303,10 @@ ${commonStyle()}
     document.querySelectorAll('.report-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.report-btn').forEach(b => { if (b.textContent.trim() && b.getAttribute('onclick') === "setReport('" + t + "')") b.classList.add('active'); });
     document.getElementById('account-filter-row').style.display = t === 'journal' ? '' : 'none';
+    var noMulti = ['sce','tb','gl','journal','integrity'].includes(t);
+    var stepRow = document.getElementById('step-buttons');
+    if (stepRow) stepRow.style.display = noMulti ? 'none' : '';
+    if (noMulti && stepType) { stepType = ''; document.getElementById('step-mom').classList.remove('active'); document.getElementById('step-yoy').classList.remove('active'); }
     updateLink();
   }
 

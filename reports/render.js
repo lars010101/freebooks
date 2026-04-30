@@ -467,7 +467,7 @@ async function renderComparative(query, company, reportType, periods) {
   } catch (_) {}
 
   // Only PL, BS, TB support sensible comparative pivots; others fall back to single period
-  const PIVOT_SUPPORTED = ['pl', 'bs', 'tb'];
+  const PIVOT_SUPPORTED = ['pl', 'bs', 'cf'];
 
   if (!PIVOT_SUPPORTED.includes(reportType)) {
     // For GL, journal, cf, sce, integrity: just render the full range
@@ -522,6 +522,10 @@ async function renderComparative(query, company, reportType, periods) {
     if (reportType === 'bs' && r.row_type === 'account' && r.account_type !== lastSection) {
       tableRows += `<tr class="section-header"><td></td><td colspan="${1 + periods.length}">${r.account_type}</td></tr>`;
       lastSection = r.account_type;
+    }
+    if (reportType === 'cf' && r.row_type === 'account' && r.section !== lastSection) {
+      tableRows += `<tr class="section-header"><td></td><td colspan="${1 + periods.length}">${r.section}</td></tr>`;
+      lastSection = r.section;
     }
 
     const cls = r.row_type;

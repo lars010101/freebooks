@@ -109,10 +109,25 @@ async function buildPL(query, company, start, end) {
 async function buildBS(query, company, start, end) {
   // BS macro takes (company, end_date) — use end date
   const rows = await query(`SELECT * FROM bs(?, ?)`, [company, end]);
+  const sorted = [...rows].sort((a, b) => {
+    const typeOrder = { Asset: 0, Equity: 1, Liability: 2 };
+    const tA = typeOrder[a.account_type] ?? 99;
+    const tB = typeOrder[b.account_type] ?? 99;
+    if (tA !== tB) return tA - tB;
+    // type_total always last within its group
+    const totA = a.row_type === 'type_total' ? 1 : 0;
+    const totB = b.row_type === 'type_total' ? 1 : 0;
+    if (totA !== totB) return totA - totB;
+    // subtotal after account within same bs_category
+    if (a.bs_category < b.bs_category) return -1;
+    if (a.bs_category > b.bs_category) return 1;
+    const rtOrder = { account: 0, subtotal: 1 };
+    return (rtOrder[a.row_type] ?? 0) - (rtOrder[b.row_type] ?? 0);
+  });
   let lastType = null;
   let tableRows = '';
   const collectedTypeTotals = [];
-  for (const r of rows) {
+  for (const r of sorted) {
     if (r.row_type === 'type_total') {
       // Render inline (no new section header — same account_type as preceding accounts)
       collectedTypeTotals.push(r);
@@ -375,7 +390,7 @@ async function renderReport(query, company, reportType, startDate, endDate) {
     if (co) companyName = co.company_name;
   } catch (_) {}
 
-  const period = `${startDate} to ${endDate}`;
+  const period = reportType === 'bs' ? `As at ${endDate}` : `${startDate} to ${endDate}`;
   const htmlOut = htmlPage(title, companyName, period, tableHtml);
   const csvOut  = toCSV(rows);
   const filename = `${reportType}_${startDate}_${endDate}`;
@@ -485,7 +500,16 @@ async function renderComparative(query, company, reportType, periods) {
   let tableRows = '';
   let lastSection = null;
 
-  for (const [, { meta: r, values }] of rowMap) {
+  const entries = [...rowMap.entries()];
+  if (reportType === 'pl') {
+    entries.sort(([, a], [, b]) => {
+      const s1 = (a.meta.sort1 ?? 99) - (b.meta.sort1 ?? 99);
+      if (s1 !== 0) return s1;
+      return (a.meta.sort2 ?? 99) - (b.meta.sort2 ?? 99);
+    });
+  }
+
+  for (const [, { meta: r, values }] of entries) {
     // Section header for PL
     if (reportType === 'pl' && r.row_type === 'account' && r.section !== lastSection) {
       tableRows += `<tr class="section-header"><td></td><td colspan="${1 + periods.length}">${r.section}</td></tr>`;
@@ -512,7 +536,7 @@ async function renderComparative(query, company, reportType, periods) {
   </table>`;
 
   const periodLabel = `${periods[0].start} to ${periods[periods.length - 1].end}`;
-  const html = htmlPage(`${title} — Comparative`, companyName, periodLabel, tableHtml);
+  const html = htmlPage(title, companyName, periodLabel, tableHtml);
 
   // CSV: flatten with a Period column
   const csvRows = [];
@@ -535,4 +559,13 @@ async function renderComparative(query, company, reportType, periods) {
   return { html, csv, filename };
 }
 
-module.exports = { renderReport, renderComparative, generatePeriods, REPORT_TITLES, toCSV, htmlPage };
+async function generateFiscalPeriods(query, company) {
+  const rows = await query(
+    `SELECT period_name, start_date, end_date FROM periods WHERE company_id = ? ORDER BY start_date ASC`,
+    [company]
+  );
+  const toYMD = d => { if (!d) return ''; const dt = (d instanceof Date) ? d : new Date(d); return dt.toISOString().slice(0, 10); };
+  return rows.map(p => ({ start: toYMD(p.start_date), end: toYMD(p.end_date), label: p.period_name }));
+}
+
+module.exports = { renderReport, renderComparative, generatePeriods, generateFiscalPeriods, REPORT_TITLES, toCSV, htmlPage };

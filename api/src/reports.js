@@ -10,7 +10,7 @@
 
 const path = require('path');
 const { getDb } = require('./db');
-const { renderReport, renderComparative, generatePeriods } = require(
+const { renderReport, renderComparative, generatePeriods, generateFiscalPeriods } = require(
   path.resolve(__dirname, '../../reports/render.js')
 );
 
@@ -42,7 +42,11 @@ async function handleReport(req, res) {
   try {
     let result;
 
-    if (step === 'month' || step === 'year') {
+    if (step === 'fy') {
+      const fyPeriods = await generateFiscalPeriods(query, company);
+      if (!fyPeriods.length) return res.status(400).json({ error: 'No fiscal periods defined for this company' });
+      result = await renderComparative(query, company, type, fyPeriods);
+    } else if (step === 'month' || step === 'year') {
       const periods = generatePeriods(start, end, step);
       result = await renderComparative(query, company, type, periods);
     } else {
@@ -215,7 +219,7 @@ ${commonStyle()}
 <style>
   .controls { display: flex; flex-direction: column; gap: 16px; }
   .control-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .label { font-weight: 600; font-size: 10pt; min-width: 110px; color: #555; }
+  .label { font-weight: 600; font-size: 10pt; min-width: 155px; color: #555; }
   button { cursor: pointer; padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px;
            background: #f5f5f5; font-size: 10pt; }
   button.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
@@ -252,6 +256,8 @@ ${commonStyle()}
       <input type="date" id="startDate" oninput="onDateInput()">
       <span>to</span>
       <input type="date" id="endDate" oninput="onDateInput()">
+      <button id="step-mom" class="step-btn" onclick="toggleStep('month')">MoM</button>
+      <button id="step-yoy" class="step-btn" onclick="toggleStep('fy')">YoY</button>
     </div>
 
     <div class="control-row">
@@ -275,13 +281,6 @@ ${commonStyle()}
       <span class="label">Format</span>
       <button id="fmt-html" class="active" onclick="setFormat('html')">HTML</button>
       <button id="fmt-csv" onclick="setFormat('csv')">CSV</button>
-    </div>
-
-    <div class="control-row">
-      <span class="label">Multi-period</span>
-      <button id="step-none" class="active" onclick="setStep('')">None</button>
-      <button id="step-month" onclick="setStep('month')">By Month</button>
-      <button id="step-year" onclick="setStep('year')">By Year</button>
     </div>
 
   </div>
@@ -312,12 +311,10 @@ ${commonStyle()}
     updateLink();
   }
 
-  function setStep(s) {
-    stepType = s;
-    ['none','month','year'].forEach(id => {
-      document.getElementById('step-' + id).classList.toggle('active', (s || 'none') === id);
-    });
-    updateLink();
+  function toggleStep(s) {
+    stepType = (stepType === s) ? '' : s;
+    document.getElementById('step-mom').classList.toggle('active', stepType === 'month');
+    document.getElementById('step-yoy').classList.toggle('active', stepType === 'fy');
   }
 
   function onPeriodSelect() {

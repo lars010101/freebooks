@@ -363,7 +363,8 @@ ${commonStyle()}
     const e = toYMD(periods[0].end_date);
     return `document.getElementById('startDate').value = '${s}';
   document.getElementById('endDate').value   = '${e}';
-  document.getElementById('periodSelect').value = '${s}|${e}';`;
+  document.getElementById('periodSelect').value = '${s}|${e}';
+  updateLink();`;
   })() : ''}
 
   // Populate account filter

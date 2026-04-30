@@ -247,6 +247,7 @@ ${commonStyle()}
   <div class="back" style="display:flex;justify-content:space-between;align-items:center">
     <a href="/">← All companies</a>
     <a href="/${co.company_id}/settings">⚙ Settings</a>
+    <a href="/${co.company_id}/journal/new">✏ New Entry</a>
   </div>
   <div class="header">
     <h1>${co.company_name}</h1>
@@ -418,6 +419,7 @@ function mountReportRoutes(app) {
   app.get('/api/:company/periods', handlePeriods);
   app.get('/api/:company/accounts', handleAccounts);
   app.get('/api/:company/vat-codes', handleVatCodes);
+  app.get('/:company/journal/new', handleJournalNewPage);
   app.get('/:company/settings', handleSettingsPage);
   app.get('/:company', handleCompanyPage);
   app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);
@@ -436,6 +438,192 @@ async function handleVatCodes(req, res) {
 }
 
 // ── Route: GET /:company/settings ──────────────────────────────────────────────
+async function handleJournalNewPage(req, res) {
+  const { company } = req.params;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(buildJournalNewPage(company));
+}
+
+function buildJournalNewPage(company) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>New Journal Entry — freeBooks</title>
+${commonStyle()}
+<style>
+  table.jv-table { width:100%; border-collapse:collapse; font-size:10pt; }
+  table.jv-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
+  table.jv-table td { padding:3px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  table.jv-table input[type=text], table.jv-table input[type=number], table.jv-table select { padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  .header-fields { display:flex; gap:16px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap; }
+  .header-fields label { display:flex; flex-direction:column; gap:3px; font-weight:600; font-size:10pt; color:#555; }
+  .header-fields input { padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; }
+  .totals { display:flex; gap:24px; margin-top:12px; font-size:10pt; align-items:center; }
+  .totals span { font-weight:600; }
+  button.btn-primary:disabled { opacity:0.4; cursor:default; }
+  .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
+  .btn-sm { padding:4px 10px; font-size:9pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm:hover { background:#e8e8e8; }
+  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
+  button.btn-primary:hover:not(:disabled) { background:#333; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="back" style="display:flex;justify-content:space-between;align-items:center">
+    <a href="/${company}">← Reports</a>
+    <a href="/${company}/settings">⚙ Settings</a>
+  </div>
+  <div class="header">
+    <h1>New Journal Entry</h1>
+    <p class="sub">${company}</p>
+  </div>
+
+  <div class="header-fields">
+    <label>Date <input type="date" id="entry-date"></label>
+    <label>Reference <input type="text" id="entry-ref" placeholder="MISC/2025/0001" style="width:180px"></label>
+    <label>Description <input type="text" id="entry-desc" placeholder="e.g. Salary payment" style="width:240px"></label>
+  </div>
+
+  <table class="jv-table">
+    <thead>
+      <tr>
+        <th>Account</th><th>Account Name</th><th class="num">Debit</th><th class="num">Credit</th>
+        <th>Line Description</th><th>Tax Code</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="lines-body"></tbody>
+  </table>
+
+  <div class="totals">
+    <div>Debits: <span id="total-dr">0.00</span></div>
+    <div>Credits: <span id="total-cr">0.00</span></div>
+    <div>Diff: <span id="total-diff" style="color:#cc2222">0.00</span></div>
+  </div>
+
+  <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <button class="btn-sm" onclick="addLine()">+ Add Line</button>
+    <button class="btn-primary" id="btn-post" onclick="postEntry()">Post Entry</button>
+    <span id="status-msg" style="font-size:10pt"></span>
+  </div>
+</div>
+<script>
+  var COMPANY = '${company}';
+  var accountsMap = {};
+  var vatCodes = [];
+
+  fetch('/api/' + COMPANY + '/accounts')
+    .then(r => r.json())
+    .then(rows => { rows.forEach(a => { accountsMap[a.account_code] = a.account_name; }); });
+
+  fetch('/api/' + COMPANY + '/vat-codes')
+    .then(r => r.json())
+    .then(rows => {
+      if (!Array.isArray(rows)) return;
+      vatCodes = rows.filter(v => v.is_active !== false);
+      document.querySelectorAll('.tax-select').forEach(sel => populateTaxSelect(sel));
+    });
+
+  function populateTaxSelect(sel) {
+    var current = sel.value;
+    sel.innerHTML = '<option value="">\u2014 none \u2014</option>'
+      + vatCodes.map(v => '<option value="'+v.vat_code+'"'+(v.vat_code===current?' selected':'')+'>'+v.vat_code+' \u2014 '+v.description+'</option>').join('');
+  }
+
+  function addLine() {
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input type="text" class="acct-input" onblur="lookupAccount(this)" style="width:90px" placeholder="101414"></td>'
+      +'<td><span class="acct-name" style="color:#888;font-size:9pt"></span></td>'
+      +'<td><input type="number" class="debit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
+      +'<td><input type="number" class="credit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
+      +'<td><input type="text" class="desc-input" style="width:160px" placeholder="optional"></td>'
+      +'<td><select class="tax-select" style="width:120px"><option value="">\u2014 none \u2014</option></select></td>'
+      +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove(); updateTotals()">&times;</button></td>';
+    document.getElementById('lines-body').appendChild(tr);
+    populateTaxSelect(tr.querySelector('.tax-select'));
+    return tr;
+  }
+
+  function lookupAccount(input) {
+    var code = input.value.trim();
+    var nameSpan = input.parentElement.parentElement.querySelector('.acct-name');
+    nameSpan.textContent = code ? (accountsMap[code] || '?') : '';
+    nameSpan.style.color = (code && !accountsMap[code]) ? '#cc2222' : '#888';
+  }
+
+  function updateTotals() {
+    var dr = 0, cr = 0;
+    document.querySelectorAll('#lines-body tr').forEach(tr => {
+      dr += parseFloat(tr.querySelector('.debit-input').value || 0);
+      cr += parseFloat(tr.querySelector('.credit-input').value || 0);
+    });
+    document.getElementById('total-dr').textContent = dr.toFixed(2);
+    document.getElementById('total-cr').textContent = cr.toFixed(2);
+    var diff = Math.round((dr - cr) * 100) / 100;
+    var diffEl = document.getElementById('total-diff');
+    diffEl.textContent = diff.toFixed(2);
+    diffEl.style.color = diff === 0 ? '#2a8a2a' : '#cc2222';
+    document.getElementById('btn-post').disabled = diff !== 0;
+  }
+
+  function postEntry() {
+    var date = document.getElementById('entry-date').value;
+    var ref  = document.getElementById('entry-ref').value.trim();
+    var desc = document.getElementById('entry-desc').value.trim();
+    if (!date) { showStatus('Date is required', true); return; }
+
+    var lines = Array.from(document.querySelectorAll('#lines-body tr')).map(tr => ({
+      date,
+      account_code:  tr.querySelector('.acct-input').value.trim(),
+      debit:         parseFloat(tr.querySelector('.debit-input').value  || 0),
+      credit:        parseFloat(tr.querySelector('.credit-input').value || 0),
+      description:   tr.querySelector('.desc-input').value.trim() || desc || null,
+      reference:     ref || null,
+      vat_code:      tr.querySelector('.tax-select').value || null,
+    })).filter(l => l.account_code && (l.debit > 0 || l.credit > 0));
+
+    if (lines.length < 2) { showStatus('At least 2 lines required', true); return; }
+
+    document.getElementById('btn-post').disabled = true;
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'journal.post', companyId: COMPANY, lines }) })
+      .then(r => r.json())
+      .then(res => {
+        var d = res.data || res;
+        if (res.error || d.errors) {
+          showStatus((d.errors || [res.error]).join('; '), true);
+          document.getElementById('btn-post').disabled = false;
+        } else {
+          showStatus('Posted \u2713  Batch: ' + d.batchId, false);
+          setTimeout(() => {
+            document.getElementById('lines-body').innerHTML = '';
+            document.getElementById('entry-ref').value = '';
+            document.getElementById('entry-desc').value = '';
+            addLine(); addLine();
+            updateTotals();
+            document.getElementById('status-msg').textContent = '';
+          }, 2000);
+        }
+      })
+      .catch(e => { showStatus(e.message, true); document.getElementById('btn-post').disabled = false; });
+  }
+
+  function showStatus(msg, isErr) {
+    var el = document.getElementById('status-msg');
+    el.textContent = msg;
+    el.style.color = isErr ? '#cc2222' : '#2a8a2a';
+  }
+
+  document.getElementById('entry-date').value = new Date().toISOString().slice(0, 10);
+  addLine(); addLine();
+  updateTotals();
+<\/script>
+</body>
+</html>`;
+}
+
 async function handleSettingsPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');

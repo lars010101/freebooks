@@ -16,7 +16,7 @@ const { checkPermission } = require('./auth');
 const { handleJournal } = require('./journal');
 const { handleBank } = require('./bank');
 const { handleBills } = require('./bills');
-const { handleReports } = require('./reports');
+const { handleReports, mountReportRoutes } = require('./reports');
 const { handleVat } = require('./vat');
 const { handleFx } = require('./fx');
 const { handleSetup } = require('./setup');
@@ -66,6 +66,9 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'freebooks-api' }));
+
+// Mount HTML report routes (GET /  /:company  /api/:company/report  etc.)
+mountReportRoutes(app);
 
 app.post('/api', async (req, res) => {
   try {

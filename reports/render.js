@@ -256,7 +256,8 @@ async function buildCF(query, company, start, end) {
   let tableRows = '';
   for (const r of rows) {
     if (r.row_type === 'account' && r.section !== lastSection) {
-      tableRows += `<tr class="section-header"><td colspan="3">${r.section}</td></tr>`;
+      const sectionLabel = r.section === 'NonCash' ? 'Non-cash Activities (IAS 7.43)' : r.section;
+      tableRows += `<tr class="section-header"><td colspan="3">${sectionLabel}</td></tr>`;
       lastSection = r.section;
     }
     const cls = r.row_type + (r.amount == 0 && r.row_type === 'account' ? ' zero' : '');
@@ -541,7 +542,8 @@ async function renderComparative(query, company, reportType, periods) {
       lastSection = r.account_type;
     }
     if (reportType === 'cf' && r.row_type === 'account' && r.section !== lastSection && !['Net Change','Cash'].includes(r.section)) {
-      tableRows += `<tr class="section-header"><td></td><td colspan="${1 + periods.length}">${r.section}</td></tr>`;
+      const cfSecLabel = r.section === 'NonCash' ? 'Non-cash Activities (IAS 7.43)' : r.section;
+      tableRows += `<tr class="section-header"><td></td><td colspan="${1 + periods.length}">${cfSecLabel}</td></tr>`;
       lastSection = r.section;
     }
 

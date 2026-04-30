@@ -219,6 +219,24 @@ financing AS (
     AND a.cf_category = 'Financing'
   GROUP BY je.account_code, a.account_name
 ),
+-- Non-cash activities (IAS 7.43 — disclosed separately)
+-- Tag the RE/equity contra account as 'NonCash'. Both sides of a non-cash
+-- financing entry are then visible: the Financing side (e.g. 203080 Share Capital)
+-- shows a credit, and the NonCash side (e.g. 203070 RE) shows a debit.
+-- Both are included in net_change so they cancel exactly to zero.
+non_cash AS (
+  SELECT
+    'NonCash' AS section,
+    je.account_code,
+    a.account_name,
+    SUM(je.credit) - SUM(je.debit) AS amount
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    AND a.cf_category = 'NonCash'
+  GROUP BY je.account_code, a.account_name
+),
 -- Opening cash balance (before period)
 opening_cash AS (
   SELECT
@@ -243,6 +261,8 @@ all_lines AS (
   SELECT 'Investing'   AS subsection, section, account_code, account_name, amount FROM investing
   UNION ALL
   SELECT 'Financing'   AS subsection, section, account_code, account_name, amount FROM financing
+  UNION ALL
+  SELECT 'NonCash'     AS subsection, section, account_code, account_name, amount FROM non_cash
 ),
 -- Subtotals per section
 section_totals AS (
@@ -263,7 +283,7 @@ SELECT
   account_code,
   account_name,
   amount,
-  CASE section WHEN 'Operating' THEN 1 WHEN 'Investing' THEN 2 WHEN 'Financing' THEN 3 ELSE 4 END AS sort1,
+  CASE section WHEN 'Operating' THEN 1 WHEN 'Investing' THEN 2 WHEN 'Financing' THEN 3 WHEN 'NonCash' THEN 7 ELSE 4 END AS sort1,
   1 AS sort2
 FROM all_lines
 UNION ALL
@@ -273,7 +293,7 @@ SELECT
   NULL AS account_code,
   account_name,
   amount,
-  CASE section WHEN 'Operating' THEN 1 WHEN 'Investing' THEN 2 WHEN 'Financing' THEN 3 ELSE 4 END AS sort1,
+  CASE section WHEN 'Operating' THEN 1 WHEN 'Investing' THEN 2 WHEN 'Financing' THEN 3 WHEN 'NonCash' THEN 7 ELSE 4 END AS sort1,
   2 AS sort2
 FROM section_totals
 UNION ALL
@@ -302,7 +322,10 @@ SELECT
   'Cash'        AS section,
   NULL          AS account_code,
   'Cash at End of Period' AS account_name,
-  (SELECT amount FROM opening_cash) + (SELECT amount FROM net_change) AS amount,
+  (SELECT SUM(je2.debit) - SUM(je2.credit)
+   FROM journal_entries je2
+   LEFT JOIN accounts a2 ON a2.company_id = je2.company_id AND a2.account_code = je2.account_code
+   WHERE je2.company_id = cid AND je2.date <= CAST(end_date AS DATE) AND a2.cf_category = 'Cash') AS amount,
   6             AS sort1,
   2             AS sort2
 ORDER BY sort1, sort2, account_code NULLS LAST;

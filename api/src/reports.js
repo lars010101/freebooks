@@ -180,9 +180,10 @@ function buildCompanyPage(co, periods) {
     { id: 'integrity', label: 'Integrity Check' },
   ];
 
+  const toYMD = d => { if (!d) return ''; const dt = (d instanceof Date) ? d : new Date(d); return dt.toISOString().slice(0, 10); };
   const periodOptions = periods.map(p => {
-    const s = p.start_date ? String(p.start_date).slice(0, 10) : '';
-    const e = p.end_date   ? String(p.end_date).slice(0, 10)   : '';
+    const s = toYMD(p.start_date);
+    const e = toYMD(p.end_date);
     return `<option value="${s}|${e}">${p.period_name}</option>`;
   }).join('\n');
 
@@ -219,7 +220,7 @@ ${commonStyle()}
            background: #f5f5f5; font-size: 10pt; }
   button.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
   button:hover:not(.active) { background: #e8e8e8; }
-  input[type=date] { padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 10pt; }
+  input[type=date], select { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 10pt; min-height: 34px; }
   .actions { margin-top: 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   .btn-primary { padding: 10px 24px; background: #1a1a1a; color: #fff; border: none;
                  border-radius: 4px; font-size: 11pt; font-weight: 600; cursor: pointer; }
@@ -359,8 +360,8 @@ ${commonStyle()}
 
   // Pre-fill with most recent period
   ${periods.length > 0 ? (() => {
-    const s = String(periods[0].start_date || '').slice(0, 10);
-    const e = String(periods[0].end_date   || '').slice(0, 10);
+    const s = toYMD(periods[0].start_date);
+    const e = toYMD(periods[0].end_date);
     return `document.getElementById('startDate').value = '${s}';
   document.getElementById('endDate').value   = '${e}';
   document.getElementById('periodSelect').value = '${s}|${e}';`;

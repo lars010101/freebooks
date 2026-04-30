@@ -31,7 +31,7 @@ function makeQuery() {
 // ── Route: GET /api/:company/report ──────────────────────────────────────────
 async function handleReport(req, res) {
   const { company } = req.params;
-  const { type, start, end, format, step } = req.query;
+  const { type, start, end, format, step, account } = req.query;
 
   if (!type)  return res.status(400).json({ error: 'Missing ?type=' });
   if (!start) return res.status(400).json({ error: 'Missing ?start=' });
@@ -50,7 +50,7 @@ async function handleReport(req, res) {
       const periods = generatePeriods(start, end, step);
       result = await renderComparative(query, company, type, periods);
     } else {
-      result = await renderReport(query, company, type, start, end);
+      result = await renderReport(query, company, type, start, end, { account });
     }
 
     const isCsv = format === 'csv';
@@ -303,7 +303,7 @@ ${commonStyle()}
     reportType = t;
     document.querySelectorAll('.report-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.report-btn').forEach(b => { if (b.textContent.trim() && b.getAttribute('onclick') === "setReport('" + t + "')") b.classList.add('active'); });
-    document.getElementById('account-filter-row').style.display = t === 'journal' ? '' : 'none';
+    document.getElementById('account-filter-row').style.display = (t === 'journal' || t === 'gl') ? '' : 'none';
     var noMulti = ['sce','tb','gl','journal','integrity'].includes(t);
     var stepRow = document.getElementById('step-buttons');
     if (stepRow) stepRow.style.display = noMulti ? 'none' : '';
@@ -346,7 +346,7 @@ ${commonStyle()}
     var url = '/api/' + company + '/report?type=' + reportType + '&start=' + s + '&end=' + e;
     if (formatType === 'csv') url += '&format=csv';
     if (stepType) url += '&step=' + stepType;
-    if (reportType === 'journal') {
+    if (reportType === 'journal' || reportType === 'gl') {
       var acct = document.getElementById('accountFilter').value;
       if (acct) url += '&account=' + acct;
     }

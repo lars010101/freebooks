@@ -181,8 +181,9 @@ async function buildTB(query, company, start, end) {
   return { tableHtml, rows };
 }
 
-async function buildGL(query, company, start, end) {
-  const rows = await query(`SELECT * FROM gl(?, ?, ?)`, [company, start, end]);
+async function buildGL(query, company, start, end, account) {
+  let rows = await query(`SELECT * FROM gl(?, ?, ?)`, [company, start, end]);
+  if (account) rows = rows.filter(r => r.account_code === account);
   let lastAcct = null;
   let runBal = 0;
   let tableRows = '';
@@ -196,13 +197,22 @@ async function buildGL(query, company, start, end) {
       tableRows += `<tr class="section-header"><td colspan="6">${r.account_code} — ${r.account_name || ''}</td></tr>`;
       lastAcct = r.account_code;
     }
-    runBal += parseFloat(r.debit || 0) - parseFloat(r.credit || 0);
-    const dateStr = new Date(r.date).toISOString().slice(0, 10);
-    tableRows += `<tr class="account">
-      <td>${dateStr}</td><td>${r.batch_id}</td><td>${r.description || ''}</td>
-      <td class="num">${fmt(r.debit)}</td><td class="num">${fmt(r.credit)}</td>
-      <td class="num">${fmt(runBal)}</td>
-    </tr>`;
+    if (r.batch_id === 'Opening Balance') {
+      const obAmt = parseFloat(r.debit || 0) - parseFloat(r.credit || 0);
+      runBal = obAmt;
+      tableRows += `<tr class="subtotal">
+        <td></td><td colspan="2" style="font-style:italic">Opening Balance</td>
+        <td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td>
+      </tr>`;
+    } else {
+      runBal += parseFloat(r.debit || 0) - parseFloat(r.credit || 0);
+      const dateStr = new Date(r.date).toISOString().slice(0, 10);
+      tableRows += `<tr class="account">
+        <td>${dateStr}</td><td>${r.batch_id}</td><td>${r.description || ''}</td>
+        <td class="num">${fmt(r.debit)}</td><td class="num">${fmt(r.credit)}</td>
+        <td class="num">${fmt(runBal)}</td>
+      </tr>`;
+    }
   }
   if (lastAcct !== null) {
     tableRows += `<tr class="subtotal"><td></td><td></td><td>Closing Balance</td><td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td></tr>`;
@@ -360,12 +370,12 @@ const REPORT_TITLES = {
   integrity: 'Integrity Checks',
 };
 
-async function buildReport(query, company, reportType, startDate, endDate) {
+async function buildReport(query, company, reportType, startDate, endDate, opts = {}) {
   switch (reportType) {
     case 'pl':        return buildPL(query, company, startDate, endDate);
     case 'bs':        return buildBS(query, company, startDate, endDate);
     case 'tb':        return buildTB(query, company, startDate, endDate);
-    case 'gl':        return buildGL(query, company, startDate, endDate);
+    case 'gl':        return buildGL(query, company, startDate, endDate, opts.account);
     case 'journal':   return buildJournal(query, company, startDate, endDate);
     case 'cf':        return buildCF(query, company, startDate, endDate);
     case 'sce':       return buildSCE(query, company, startDate, endDate);
@@ -385,9 +395,9 @@ async function buildReport(query, company, reportType, startDate, endDate) {
  * @param {string}   endDate     YYYY-MM-DD
  * @returns {{ html: string, csv: string, filename: string }}
  */
-async function renderReport(query, company, reportType, startDate, endDate) {
+async function renderReport(query, company, reportType, startDate, endDate, opts = {}) {
   const title = REPORT_TITLES[reportType] || reportType;
-  const { tableHtml, rows } = await buildReport(query, company, reportType, startDate, endDate);
+  const { tableHtml, rows } = await buildReport(query, company, reportType, startDate, endDate, opts);
 
   // Get company name
   let companyName = company;

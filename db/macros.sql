@@ -464,6 +464,41 @@ SELECT * FROM zero_check;
 -- =============================================================================
 
 CREATE OR REPLACE MACRO gl(cid, start_date, end_date) AS TABLE
+WITH
+-- Accounts that have activity in the selected period
+active_accounts AS (
+  SELECT DISTINCT je.account_code, a.account_name
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+),
+-- Opening balance per account: net debit-credit before period start
+opening AS (
+  SELECT
+    aa.account_code,
+    aa.account_name,
+    COALESCE(SUM(je.debit) - SUM(je.credit), 0) AS opening_balance
+  FROM active_accounts aa
+  LEFT JOIN journal_entries je ON je.company_id = cid
+    AND je.account_code = aa.account_code
+    AND je.date < CAST(start_date AS DATE)
+  GROUP BY aa.account_code, aa.account_name
+)
+-- Opening balance pseudo-rows (sorted before period transactions via date trick)
+SELECT
+  CAST(start_date AS DATE) - 1 AS date,
+  'Opening Balance' AS batch_id,
+  o.account_code,
+  o.account_name,
+  NULL AS description,
+  NULL AS reference,
+  CASE WHEN o.opening_balance >= 0 THEN o.opening_balance ELSE 0 END AS debit,
+  CASE WHEN o.opening_balance < 0  THEN -o.opening_balance ELSE 0 END AS credit,
+  NULL AS currency
+FROM opening o
+UNION ALL
+-- Period transactions
 SELECT
   je.date,
   je.batch_id,
@@ -478,7 +513,7 @@ FROM journal_entries je
 LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
 WHERE je.company_id = cid
   AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
-ORDER BY je.account_code, je.date, je.batch_id;
+ORDER BY account_code, date, batch_id;
 
 -- =============================================================================
 -- RE_ROLLFORWARD — Retained Earnings Roll-Forward (all periods)

@@ -505,7 +505,7 @@ async function renderComparative(query, company, reportType, periods) {
   let lastSection = null;
 
   const entries = [...rowMap.entries()];
-  if (reportType === 'pl') {
+  if (reportType === 'pl' || reportType === 'cf') {
     entries.sort(([, a], [, b]) => {
       const s1 = (a.meta.sort1 ?? 99) - (b.meta.sort1 ?? 99);
       if (s1 !== 0) return s1;
@@ -523,7 +523,7 @@ async function renderComparative(query, company, reportType, periods) {
       tableRows += `<tr class="section-header"><td></td><td colspan="${1 + periods.length}">${r.account_type}</td></tr>`;
       lastSection = r.account_type;
     }
-    if (reportType === 'cf' && r.row_type === 'account' && r.section !== lastSection) {
+    if (reportType === 'cf' && r.row_type === 'account' && r.section !== lastSection && !['Net Change','Cash'].includes(r.section)) {
       tableRows += `<tr class="section-header"><td></td><td colspan="${1 + periods.length}">${r.section}</td></tr>`;
       lastSection = r.section;
     }

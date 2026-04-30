@@ -180,14 +180,29 @@ function buildCompanyPage(co, periods) {
     { id: 'integrity', label: 'Integrity Check' },
   ];
 
-  const fyLinks = periods.map(p => {
+  const periodOptions = periods.map(p => {
     const s = p.start_date ? String(p.start_date).slice(0, 10) : '';
     const e = p.end_date   ? String(p.end_date).slice(0, 10)   : '';
-    return `<button class="period-btn" onclick="setPeriod('${s}','${e}')">${p.period_name}</button>`;
+    return `<option value="${s}|${e}">${p.period_name}</option>`;
   }).join('\n');
 
-  const reportButtons = REPORT_TYPES.map(r =>
+  const FIN_REPORTS = [
+    { id: 'pl',  label: 'Profit & Loss' },
+    { id: 'bs',  label: 'Balance Sheet' },
+    { id: 'cf',  label: 'Cash Flow' },
+    { id: 'sce', label: 'Equity Changes' },
+  ];
+  const AUDIT_REPORTS = [
+    { id: 'tb',        label: 'Trial Balance' },
+    { id: 'gl',        label: 'General Ledger' },
+    { id: 'journal',   label: 'Journal' },
+    { id: 'integrity', label: 'Integrity Check' },
+  ];
+  const finButtons = FIN_REPORTS.map(r =>
     `<button class="report-btn${r.id === 'pl' ? ' active' : ''}" onclick="setReport('${r.id}')">${r.label}</button>`
+  ).join('\n');
+  const auditButtons = AUDIT_REPORTS.map(r =>
+    `<button class="report-btn" onclick="setReport('${r.id}')">${r.label}</button>`
   ).join('\n');
 
   return `<!DOCTYPE html>
@@ -212,7 +227,6 @@ ${commonStyle()}
   .btn-secondary { padding: 10px 24px; background: #fff; color: #1a1a1a; border: 2px solid #1a1a1a;
                    border-radius: 4px; font-size: 11pt; font-weight: 600; cursor: pointer; }
   .btn-secondary:hover { background: #f5f5f5; }
-  .report-link { font-size: 9pt; color: #555; word-break: break-all; }
   .back { margin-bottom: 16px; }
   .back a { color: #555; text-decoration: none; font-size: 10pt; }
   .back a:hover { text-decoration: underline; }
@@ -229,20 +243,31 @@ ${commonStyle()}
   <div class="controls">
 
     <div class="control-row">
-      <span class="label">Period shortcuts</span>
-      ${fyLinks || '<em>No periods defined</em>'}
-    </div>
-
-    <div class="control-row">
-      <span class="label">Date range</span>
-      <input type="date" id="startDate" oninput="updateLink()">
+      <span class="label">Period</span>
+      <select id="periodSelect" onchange="onPeriodSelect()">
+        <option value="">— custom —</option>
+        ${periodOptions}
+      </select>
+      <input type="date" id="startDate" oninput="onDateInput()">
       <span>to</span>
-      <input type="date" id="endDate" oninput="updateLink()">
+      <input type="date" id="endDate" oninput="onDateInput()">
     </div>
 
     <div class="control-row">
-      <span class="label">Report type</span>
-      ${reportButtons}
+      <span class="label">Financial Statements</span>
+      ${finButtons}
+    </div>
+
+    <div class="control-row">
+      <span class="label">Audit Reports</span>
+      ${auditButtons}
+    </div>
+
+    <div id="account-filter-row" class="control-row" style="display:none">
+      <span class="label">Account filter</span>
+      <select id="accountFilter" onchange="updateLink()">
+        <option value="">— all accounts —</option>
+      </select>
     </div>
 
     <div class="control-row">
@@ -262,8 +287,6 @@ ${commonStyle()}
 
   <div class="actions">
     <button class="btn-primary" onclick="openReport()">Open Report</button>
-    <button class="btn-secondary" onclick="copyLink()">Copy Link</button>
-    <div id="link-preview" class="report-link"></div>
   </div>
 </div>
 
@@ -277,6 +300,7 @@ ${commonStyle()}
     reportType = t;
     document.querySelectorAll('.report-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.report-btn').forEach(b => { if (b.textContent.trim() && b.getAttribute('onclick') === "setReport('" + t + "')") b.classList.add('active'); });
+    document.getElementById('account-filter-row').style.display = t === 'journal' ? '' : 'none';
     updateLink();
   }
 
@@ -295,9 +319,17 @@ ${commonStyle()}
     updateLink();
   }
 
-  function setPeriod(s, e) {
-    document.getElementById('startDate').value = s;
-    document.getElementById('endDate').value   = e;
+  function onPeriodSelect() {
+    var val = document.getElementById('periodSelect').value;
+    if (!val) return;
+    var parts = val.split('|');
+    document.getElementById('startDate').value = parts[0];
+    document.getElementById('endDate').value   = parts[1];
+    updateLink();
+  }
+
+  function onDateInput() {
+    document.getElementById('periodSelect').value = '';
     updateLink();
   }
 
@@ -308,33 +340,43 @@ ${commonStyle()}
     var url = '/api/' + company + '/report?type=' + reportType + '&start=' + s + '&end=' + e;
     if (formatType === 'csv') url += '&format=csv';
     if (stepType) url += '&step=' + stepType;
+    if (reportType === 'journal') {
+      var acct = document.getElementById('accountFilter').value;
+      if (acct) url += '&account=' + acct;
+    }
     return url;
   }
 
   function updateLink() {
-    var url = buildUrl();
-    document.getElementById('link-preview').textContent = url ? window.location.origin + url : '';
+    // no-op: url built on demand by buildUrl()
   }
 
   function openReport() {
     var url = buildUrl();
     if (!url) { alert('Please select a date range'); return; }
-    window.open(url, '_blank');
-  }
-
-  function copyLink() {
-    var url = buildUrl();
-    if (!url) { alert('Please select a date range'); return; }
-    navigator.clipboard.writeText(window.location.origin + url)
-      .then(() => alert('Link copied!'))
-      .catch(() => alert(window.location.origin + url));
+    window.location.href = url;
   }
 
   // Pre-fill with most recent period
-  ${periods.length > 0
-    ? `setPeriod('${String(periods[0].start_date || '').slice(0, 10)}', '${String(periods[0].end_date || '').slice(0, 10)}');`
-    : ''
-  }
+  ${periods.length > 0 ? (() => {
+    const s = String(periods[0].start_date || '').slice(0, 10);
+    const e = String(periods[0].end_date   || '').slice(0, 10);
+    return `document.getElementById('startDate').value = '${s}';
+  document.getElementById('endDate').value   = '${e}';
+  document.getElementById('periodSelect').value = '${s}|${e}';`;
+  })() : ''}
+
+  // Populate account filter
+  fetch('/api/${co.company_id}/accounts').then(r => r.json()).then(accounts => {
+    accounts.sort((a, b) => String(a.account_code).localeCompare(String(b.account_code)));
+    var sel = document.getElementById('accountFilter');
+    accounts.forEach(a => {
+      var opt = document.createElement('option');
+      opt.value = a.account_code;
+      opt.textContent = a.account_code + ' — ' + a.account_name;
+      sel.appendChild(opt);
+    });
+  }).catch(() => {});
 </script>
 </body>
 </html>`;

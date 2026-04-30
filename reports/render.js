@@ -111,8 +111,14 @@ async function buildBS(query, company, start, end) {
   const rows = await query(`SELECT * FROM bs(?, ?)`, [company, end]);
   let lastType = null;
   let tableRows = '';
+  const collectedTypeTotals = [];
   for (const r of rows) {
-    if (r.row_type === 'type_total') continue;
+    if (r.row_type === 'type_total') {
+      // Render inline (no new section header — same account_type as preceding accounts)
+      collectedTypeTotals.push(r);
+      tableRows += `<tr class="type_total"><td></td><td><strong>${r.account_name}</strong></td><td class="num">${fmt(r.balance)}</td></tr>`;
+      continue;
+    }
     if (r.account_type !== lastType) {
       tableRows += `<tr class="section-header"><td colspan="3">${r.account_type}</td></tr>`;
       lastType = r.account_type;
@@ -122,10 +128,11 @@ async function buildBS(query, company, start, end) {
     const name = r.row_type === 'subtotal' ? `<em>${r.account_name}</em>` : r.account_name;
     tableRows += `<tr class="${cls}"><td>${code}</td><td>${name}</td><td class="num">${fmt(r.balance)}</td></tr>`;
   }
-  const typeTotals = rows.filter(r => r.row_type === 'type_total');
-  for (const r of typeTotals) {
-    tableRows += `<tr class="type_total"><td></td><td>${r.account_name}</td><td class="num">${fmt(r.balance)}</td></tr>`;
-  }
+  // Compute TOTAL EQUITY + LIABILITIES
+  const eqLiabTotal = collectedTypeTotals
+    .filter(r => /equity|liabilit/i.test(r.account_name))
+    .reduce((sum, r) => sum + parseFloat(r.balance || 0), 0);
+  tableRows += `<tr class="total"><td></td><td><strong>TOTAL EQUITY + LIABILITIES</strong></td><td class="num">${fmt(eqLiabTotal)}</td></tr>`;
   const tableHtml = `<table>
     <thead><tr><th>Code</th><th>Description</th><th class="num">Balance</th></tr></thead>
     <tbody>${tableRows}</tbody>

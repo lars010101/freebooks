@@ -322,6 +322,7 @@ async function buildIntegrity(query, company, start, end) {
         <td class="num">${fmt(r.opening_re)}</td>
         <td class="num">${fmt(r.pl_net)}</td>
         <td class="num">${fmt(r.closing_entry)}</td>
+        <td class="num">${r.noncash_adj ? fmt(r.noncash_adj) : '—'}</td>
         <td class="num">${fmt(r.closing_re)}</td>
         <td style="color:${contColor};font-weight:700;text-align:center">${r.pl_close_status}</td>
       </tr>`;
@@ -331,7 +332,7 @@ async function buildIntegrity(query, company, start, end) {
       <table>
         <thead><tr><th>Period</th><th>Dates</th>
           <th class="num">Opening RE</th><th class="num">P&amp;L Net</th>
-          <th class="num">Closing Entry</th><th class="num">Closing RE</th>
+          <th class="num">Closing Entry</th><th class="num">Non-cash Adj</th><th class="num">Closing RE</th>
           <th style="text-align:center">Status</th></tr></thead>
         <tbody>${reHtml}</tbody>
       </table>`;

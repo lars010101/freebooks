@@ -502,15 +502,27 @@ periods_data AS (
         AND je.date BETWEEN p.start_date AND p.end_date
         AND a.account_type IN ('Revenue', 'Expense')
     ), 0) AS pl_net,
-    -- Closing entry: credit to 203070 (Retained Earnings) from MISC journal
+    -- Closing entry: movement on 203070 in batches that also involve 999999
     COALESCE((
       SELECT SUM(je.credit - je.debit)
       FROM journal_entries je
       WHERE je.company_id = cid
         AND je.date BETWEEN p.start_date AND p.end_date
         AND je.account_code = '203070'
-        AND je.batch_id LIKE 'MISC%'
+        AND je.batch_id IN (
+          SELECT DISTINCT batch_id FROM journal_entries
+          WHERE company_id = cid AND account_code = '999999'
+        )
     ), 0) AS closing_entry,
+    -- Non-cash equity adjustments (e.g. RE capitalisation, IAS 7.43)
+    COALESCE((
+      SELECT SUM(je.credit - je.debit)
+      FROM journal_entries je
+      LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+      WHERE je.company_id = cid
+        AND je.date BETWEEN p.start_date AND p.end_date
+        AND a.cf_category = 'NonCash'
+    ), 0) AS noncash_adj,
     -- Opening RE: cumulative credit-debit on 203070 before period start
     COALESCE((
       SELECT SUM(je.credit - je.debit)
@@ -529,7 +541,8 @@ SELECT
   opening_re,
   pl_net,
   closing_entry,
-  opening_re + closing_entry AS closing_re,
+  noncash_adj,
+  opening_re + closing_entry + noncash_adj AS closing_re,
   ROUND(ABS(pl_net - closing_entry), 4) AS diff,
   CASE WHEN ROUND(ABS(pl_net - closing_entry), 4) <= 0.01 THEN 'OK' ELSE 'FAIL' END AS pl_close_status
 FROM periods_data

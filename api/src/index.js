@@ -39,6 +39,7 @@ const ACTION_ROLES = {
   'report.refresh_vat_return': 'viewer',
   'coa.list': 'viewer',
   'coa.save': 'owner',
+  'coa.update': 'owner',
   'vat.codes.list': 'viewer',
   'vat.codes.save': 'owner',
   'fx.fetch_rates': 'data_entry',
@@ -70,7 +71,7 @@ app.get('/health', (_req, res) => res.json({ ok: true, service: 'freebooks-api' 
 // Mount HTML report routes (GET /  /:company  /api/:company/report  etc.)
 mountReportRoutes(app);
 
-app.post('/api', async (req, res) => {
+async function handleApiRequest(req, res) {
   try {
     const body = req.body;
     const { action, companyId, userEmail } = body;
@@ -115,7 +116,10 @@ app.post('/api', async (req, res) => {
     console.error('Handler error:', err);
     res.status(500).json({ error: err.message || 'Internal error', code: err.code || 'INTERNAL' });
   }
-});
+}
+
+app.post('/api', handleApiRequest);
+app.post('/api/action', handleApiRequest);
 
 // --- COA ---
 
@@ -189,6 +193,19 @@ async function handleCoa(ctx, action) {
       }
     }
 
+    return { saved: accounts.length };
+  }
+
+  if (action === 'coa.update') {
+    const { accounts } = body;
+    if (!accounts || !Array.isArray(accounts)) throw Object.assign(new Error('accounts array required'), { code: 'INVALID_INPUT' });
+    for (const a of accounts) {
+      if (!a.account_code) continue;
+      await exec(
+        `UPDATE accounts SET account_name = @name, account_subtype = @subtype, cf_category = @cf, bs_category = @bs, pl_category = @pl, is_active = @active WHERE company_id = @companyId AND account_code = @code`,
+        { companyId, code: a.account_code, name: a.account_name, subtype: a.account_subtype || null, cf: a.cf_category || null, bs: a.bs_category || null, pl: a.pl_category || null, active: a.is_active !== false }
+      );
+    }
     return { saved: accounts.length };
   }
 }

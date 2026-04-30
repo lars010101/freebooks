@@ -9,6 +9,7 @@
  */
 
 const path = require('path');
+const express = require('express');
 const { getDb } = require('./db');
 const { renderReport, renderComparative, generatePeriods, generateFiscalPeriods } = require(
   path.resolve(__dirname, '../../reports/render.js')

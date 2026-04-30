@@ -9,7 +9,7 @@
 const path = require('path');
 const Database = require('duckdb').Database;
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', '..', 'data', 'freebooks.duckdb');
+const DB_PATH = process.env.DB_PATH || path.join(require('os').homedir(), '.freebooks', 'freebooks.duckdb');
 
 let _db = null;
 

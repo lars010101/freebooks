@@ -515,6 +515,7 @@ periods_data AS (
         )
     ), 0) AS closing_entry,
     -- Non-cash equity adjustments (e.g. RE capitalisation, IAS 7.43)
+    -- Excludes closing batches (those involve account 999999)
     COALESCE((
       SELECT SUM(je.credit - je.debit)
       FROM journal_entries je
@@ -522,6 +523,10 @@ periods_data AS (
       WHERE je.company_id = cid
         AND je.date BETWEEN p.start_date AND p.end_date
         AND a.cf_category = 'NonCash'
+        AND je.batch_id NOT IN (
+          SELECT DISTINCT batch_id FROM journal_entries
+          WHERE company_id = cid AND account_code = '999999'
+        )
     ), 0) AS noncash_adj,
     -- Opening RE: cumulative credit-debit on 203070 before period start
     COALESCE((

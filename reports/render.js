@@ -318,7 +318,7 @@ async function buildIntegrity(query, company, start, end) {
       const contColor = r.pl_close_status === 'OK' ? '#2d8a2d' : '#cc2222';
       return `<tr class="account">
         <td>${r.period_name}</td>
-        <td>${dateStr(r.start_date)} – ${dateStr(r.end_date)}</td>
+        <td style="white-space:nowrap">${dateStr(r.start_date)} – ${dateStr(r.end_date)}</td>
         <td class="num">${fmt(r.opening_re)}</td>
         <td class="num">${fmt(r.pl_net)}</td>
         <td class="num">${fmt(r.closing_entry)}</td>
@@ -397,7 +397,7 @@ async function renderReport(query, company, reportType, startDate, endDate) {
   } catch (_) {}
 
   const period = reportType === 'bs' ? `As at ${endDate}` : `${startDate} to ${endDate}`;
-  const htmlOut = htmlPage(title, companyName, period, tableHtml);
+  const htmlOut = htmlPage(title, companyName, period, tableHtml, { wide: reportType === 'integrity' });
   const csvOut  = toCSV(rows);
   const filename = `${reportType}_${startDate}_${endDate}`;
 

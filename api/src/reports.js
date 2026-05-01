@@ -1553,14 +1553,49 @@ ${commonStyle()}
     return result;
   }
 
+  var STORAGE_KEY = 'freebooks_import_' + COMPANY;
+
+  function saveImportPrefs() {
+    try {
+      var prefs = {
+        amtType: document.getElementById('amt-type').value,
+        bankAcct: document.getElementById('bank-acct').value,
+        colDate: document.getElementById('col-date').selectedIndex,
+        colDesc: document.getElementById('col-desc').selectedIndex,
+        colAmt:  document.getElementById('col-amt').selectedIndex,
+        colDeb:  document.getElementById('col-deb').selectedIndex,
+        colCred: document.getElementById('col-cred').selectedIndex,
+        colHeaders: headers.join(',') // only restore if same headers
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    } catch(e) {}
+  }
+
+  function restoreImportPrefs() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      var prefs = JSON.parse(raw);
+      // Only restore column indices if headers match
+      if (prefs.colHeaders === headers.join(',')) {
+        var ids = ['col-date','col-desc','col-amt','col-deb','col-cred'];
+        var saved = [prefs.colDate, prefs.colDesc, prefs.colAmt, prefs.colDeb, prefs.colCred];
+        ids.forEach(function(id, i) { if (saved[i] != null) document.getElementById(id).selectedIndex = saved[i]; });
+      }
+      if (prefs.amtType) { document.getElementById('amt-type').value = prefs.amtType; toggleAmtCols(); }
+      if (prefs.bankAcct) document.getElementById('bank-acct').value = prefs.bankAcct;
+    } catch(e) {}
+  }
+
   function populateColDropdowns() {
     var ids = ['col-date','col-desc','col-amt','col-deb','col-cred'];
     var guesses = { 'col-date': /date/i, 'col-desc': /desc|narr|ref|detail|memo/i,
       'col-amt': /amount|amt/i, 'col-deb': /debit|dr|withdraw|out/i, 'col-cred': /credit|cr|deposit|in/i };
     ids.forEach(function(id) {
       var sel = document.getElementById(id);
-      sel.innerHTML = headers.map((h,i) => '<option value="'+i+'"'+(guesses[id]&&guesses[id].test(h)?' selected':'')+'>'+h+'</option>').join('');
+      sel.innerHTML = headers.map(function(h,i){ return '<option value="'+i+'"'+(guesses[id]&&guesses[id].test(h)?' selected':'')+'>'+h+'</option>'; }).join('');
     });
+    restoreImportPrefs();
   }
 
   function toggleAmtCols() {
@@ -1595,6 +1630,7 @@ ${commonStyle()}
       bankRows.push({ date, description: desc || '(no description)', amount, bankAccount: bankAcct });
     });
 
+    saveImportPrefs();
     var skipped = csvRows.length - bankRows.length;
     if (bankRows.length === 0) {
       document.getElementById('parse-status').textContent = 'No valid rows found (' + csvRows.length + ' rows read, all skipped). Check date column and amount columns.';

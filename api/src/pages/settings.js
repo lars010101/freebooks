@@ -398,6 +398,7 @@ function loadVendors() {
 function addVendorRow(v) {
   v = v || {};
   var tr = document.createElement('tr');
+  tr.dataset.vendorId = v.vendor_id || '';
   tr.innerHTML = 
     '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:220px"></td>' +
     '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:70px"></td>' +
@@ -405,8 +406,29 @@ function addVendorRow(v) {
     '<td><input type="text" value="' + (v.tax_id||'') + '" style="width:110px"></td>' +
     '<td><input type="text" value="' + (v.notes||'') + '" style="width:180px"></td>' +
     '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
-    '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
+    '<td><button class="btn-sm danger" onclick="deleteVendorRow(this)">✕</button></td>';
   document.getElementById('vendors-body').appendChild(tr);
+}
+
+function deleteVendorRow(btn) {
+  var tr = btn.parentElement.parentElement;
+  var vendorId = tr.dataset.vendorId;
+  if (!vendorId) {
+    tr.remove();
+    return;
+  }
+  if (!confirm('Delete this vendor?')) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.delete', companyId: COMPANY, vendorId: vendorId }) })
+    .then(r => r.json())
+    .then(res => {
+      var d = res.data || res;
+      if (d.error) {
+        alert('Delete failed: ' + d.error);
+        return;
+      }
+      tr.remove();
+    })
+    .catch(e => alert('Delete failed: ' + e.message));
 }
 
 function saveVendors() {

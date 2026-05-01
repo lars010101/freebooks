@@ -916,6 +916,7 @@ ${commonStyle()}
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes</div>
     <div class="tab" onclick="showTab('journals')">Journals</div>
     <div class="tab" onclick="showTab('mappings')">Bank Mappings</div>
+    <div class="tab" onclick="showTab('vendors')">Vendors</div>
   </div>
 
   <!-- PERIODS TAB -->
@@ -998,6 +999,20 @@ ${commonStyle()}
     </div>
     <p style="margin-top:8px;font-size:9pt;color:#888">Saving replaces all codes. Existing journal entry tax tags on transactions are preserved.</p>
   </div>
+
+  <!-- VENDORS TAB -->
+  <div id="tab-vendors" class="tab-panel">
+    <table class="edit-table" id="vendors-table">
+      <thead><tr><th>Name</th><th>Default Currency</th><th>Terms (days)</th><th>Tax ID</th><th>Notes</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="vendors-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addVendorRow()">+ Add Vendor</button>
+      <button class="btn-primary" onclick="saveVendors()">Save Vendors</button>
+      <span id="msg-vendors" class="msg"></span>
+    </div>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Vendors are used in the upcoming Bills module. Default currency and terms will auto-fill when creating bills.</p>
+  </div>
 </div>
 
 <script>
@@ -1006,9 +1021,10 @@ var CF_OPTS = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonC
 
 var VAT_NAMES = { SG:'GST', SE:'VAT' };
 function showTab(t) {
-  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa','vat','journals','mappings'][i]===t));
+  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa','vat','journals','mappings','vendors'][i]===t));
   document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('active');
+  if (t === 'vendors') loadVendors();
 }
 
 function showMsg(id, msg, isErr) {

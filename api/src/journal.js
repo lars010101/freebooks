@@ -53,7 +53,7 @@ async function getNextReference(companyId, journalId, year) {
   );
   if (rows.length === 0) throw new Error('Failed to generate reference');
   const { code, last_seq } = rows[0];
-  return `${code}/${year}/${String(last_seq).padStart(4, '0')}`;
+  return `${code}/${year}/${String(last_seq).padStart(5, '0')}`;
 }
 
 async function postEntry(ctx) {

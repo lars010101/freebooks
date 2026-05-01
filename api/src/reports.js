@@ -793,7 +793,15 @@ ${commonStyle()}
         var lines = resp.data || resp;
         if (!Array.isArray(lines) || !lines.length) { showStatus('Entry not found', true); return; }
         // Set date to today
-        document.getElementById('entry-date').value = new Date().toISOString().slice(0,10);
+        var today = new Date();
+        var todayStr = today.getFullYear() + '-'
+          + String(today.getMonth()+1).padStart(2,'0') + '-'
+          + String(today.getDate()).padStart(2,'0');
+        var dateEl = document.getElementById('entry-date');
+        dateEl.value = '';
+        dateEl.value = todayStr;
+        dateEl.dispatchEvent(new Event('input'));
+        dateEl.dispatchEvent(new Event('change'));
         // Set description
         document.getElementById('entry-desc').value = 'Reversal: ' + ref;
         // Match journal by reference prefix

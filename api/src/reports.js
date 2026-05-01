@@ -1478,6 +1478,11 @@ ${commonStyle()}
     <h3>③ Review &amp; Approve</h3>
     <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Green border = rule-matched. Orange = unmatched (fill in DR/CR accounts manually). Check <b>Skip</b> to exclude a row. Then click <b>Post to Bank Journal</b>.</p>
     <div id="import-summary" style="margin-bottom:10px;font-size:10pt"></div>
+    <div id="balance-bar" style="display:none;margin-bottom:12px;padding:10px 14px;background:#f0f4ff;border:1px solid #c0cfe8;border-radius:6px;font-size:10pt;display:flex;gap:28px;align-items:center">
+      <span>Book balance before: <b id="bal-before">—</b></span>
+      <span>→ net import: <b id="bal-net">—</b></span>
+      <span>Book balance after: <b id="bal-after">—</b></span>
+    </div>
     <table class="review-table">
       <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:80px">Debit</th><th style="width:80px">Credit</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
       <tbody id="review-body"></tbody>
@@ -1605,6 +1610,7 @@ ${commonStyle()}
         processedRows = d.processed || [];
         document.getElementById('parse-status').textContent = '';
         renderReview(d);
+        fetchAndShowBalance(bankAcct);
       })
       .catch(e => { document.getElementById('parse-status').textContent = e.message; });
   }
@@ -1661,10 +1667,40 @@ ${commonStyle()}
           +'<div style="font-size:8pt;color:#888;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></td>'
         +'<td style="width:90px"><input class="acct" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" oninput="updateAcctName(this)">'
           +'<div style="font-size:8pt;color:#888;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.creditAccount ? (accountsMap[r.creditAccount]||'?') : '')+'</div></td>'
-        +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'"></td>'
+        +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'" onchange="updateBalances()"></td>'
         +'</tr>';
     }).join('');
     document.getElementById('step-review').style.display = '';
+  }
+
+  var bookBalanceBefore = null;
+
+  function fetchAndShowBalance(bankAcct) {
+    fetch('/api/admin/query', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ sql: "SELECT COALESCE(SUM(debit)-SUM(credit),0) AS balance FROM journal_entries WHERE company_id='" + COMPANY + "' AND account_code='" + bankAcct.replace(/'/g,\'\') + "'" }) })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        var rows = res.data || res.rows || res;
+        if (Array.isArray(rows) && rows.length > 0) {
+          bookBalanceBefore = parseFloat(rows[0].balance || 0);
+          document.getElementById('balance-bar').style.display = 'flex';
+          updateBalances();
+        }
+      }).catch(function(){});
+  }
+
+  function updateBalances() {
+    if (bookBalanceBefore === null) return;
+    var net = 0;
+    document.querySelectorAll('#review-body tr').forEach(function(tr, i) {
+      var skip = tr.querySelector('[data-skip]').checked;
+      if (!skip && processedRows[i]) net += parseFloat(processedRows[i].original.amount || 0);
+    });
+    var after = bookBalanceBefore + net;
+    document.getElementById('bal-before').textContent = fmt(bookBalanceBefore);
+    document.getElementById('bal-net').textContent = (net >= 0 ? '+' : '') + fmt(net);
+    document.getElementById('bal-net').style.color = net >= 0 ? '#2a8a2a' : '#cc2222';
+    document.getElementById('bal-after').textContent = fmt(after);
   }
 
   function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }

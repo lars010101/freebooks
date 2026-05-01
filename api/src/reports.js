@@ -1611,6 +1611,8 @@ ${commonStyle()}
     s = s.trim();
     // Try YYYY-MM-DD
     if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s)) return s;
+    // Try YYYYMMDD (e.g. 20260326)
+    if (/^[0-9]{8}$/.test(s)) return s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8);
     // Try DD Mon YYYY or D Mon YYYY (e.g. 26 Mar 2026, 5 Jan 2026)
     var m = s.match(/^([0-9]{1,2})[ \-]([A-Za-z]{3})[ \-]([0-9]{2,4})$/);
     if (m) {

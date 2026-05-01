@@ -208,7 +208,7 @@ async function buildGL(query, company, start, end, account) {
       runBal += parseFloat(r.debit || 0) - parseFloat(r.credit || 0);
       const dateStr = new Date(r.date).toISOString().slice(0, 10);
       tableRows += `<tr class="account">
-        <td>${dateStr}</td><td>${r.batch_id}</td><td>${r.description || ''}</td>
+        <td>${dateStr}</td><td>${r.reference || r.batch_id}</td><td>${r.description || ''}</td>
         <td class="num">${fmt(r.debit)}</td><td class="num">${fmt(r.credit)}</td>
         <td class="num">${fmt(runBal)}</td>
       </tr>`;
@@ -241,7 +241,8 @@ async function buildJournal(query, company, start, end) {
     if (r.batch_id !== lastBatch) {
       flush();
       const dateStr = new Date(r.date).toISOString().slice(0, 10);
-      tableRows += `<tr class="section-header"><td>${dateStr}</td><td colspan="4">${r.batch_id}${r.description ? ' — ' + r.description : ''}</td></tr>`;
+      const ref = r.reference || r.batch_id;
+      tableRows += `<tr class="section-header"><td>${dateStr}</td><td colspan="4">${ref}${r.description ? ' — ' + r.description : ''}</td></tr>`;
       lastBatch = r.batch_id;
     }
     batchDebit  += parseFloat(r.debit  || 0);

@@ -1498,7 +1498,7 @@ ${commonStyle()}
   function processCSVText(text) {
     var statusEl = document.getElementById('file-status');
     try {
-      var lines = text.split(/\r?\n/).filter(function(l) { return l.trim().length > 0; });
+      var lines = text.split(String.fromCharCode(10)).filter(function(l) { return l.trim().length > 0; });
       if (lines.length < 2) { statusEl.style.color='#cc2222'; statusEl.textContent = 'Error: need at least a header row + 1 data row'; return; }
       var firstLine = lines[0];
       var sep = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';

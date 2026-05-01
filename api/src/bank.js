@@ -295,6 +295,19 @@ async function listReconcile(ctx) {
   const { companyId, body } = ctx;
   const { accountCode, dateFrom, dateTo } = body;
   if (!accountCode) throw Object.assign(new Error('accountCode required'), { code: 'INVALID_INPUT' });
+
+  // Fetch opening balance (all activity before dateFrom)
+  let openingBalance = 0;
+  if (dateFrom) {
+    const ob = await query(
+      `SELECT COALESCE(SUM(debit) - SUM(credit), 0) AS balance
+       FROM journal_entries
+       WHERE company_id = @companyId AND account_code = @accountCode AND date < @dateFrom`,
+      { companyId, accountCode, dateFrom }
+    );
+    openingBalance = ob.length > 0 ? parseFloat(ob[0].balance || 0) : 0;
+  }
+
   const rows = await query(
     `SELECT je.batch_id, je.date, je.reference, je.description,
             SUM(je.debit) AS debit, SUM(je.credit) AS credit,
@@ -308,7 +321,7 @@ async function listReconcile(ctx) {
      ORDER BY je.date, je.batch_id`,
     { companyId, accountCode, ...(dateFrom && { dateFrom }), ...(dateTo && { dateTo }) }
   );
-  return rows.map(r => ({ ...r, cleared: !!r.cleared_at }));
+  return { rows: rows.map(r => ({ ...r, cleared: !!r.cleared_at })), openingBalance };
 }
 
 async function clearReconcile(ctx) {

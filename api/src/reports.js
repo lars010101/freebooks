@@ -1920,11 +1920,12 @@ ${commonStyle()}
   </div>
 
   <div class="summary-bar" id="rec-summary" style="display:none">
-    <div><div class="lbl">Book Balance</div><div class="val" id="sum-book">0.00</div></div>
-    <div><div class="lbl">Cleared Balance</div><div class="val" id="sum-cleared">0.00</div></div>
+    <div><div class="lbl">Opening Balance</div><div class="val" id="sum-opening">0.00</div></div>
+    <div><div class="lbl">Period Net</div><div class="val" id="sum-net">0.00</div></div>
+    <div><div class="lbl">Closing Book Balance</div><div class="val" id="sum-book">0.00</div></div>
     <div><div class="lbl">Uncleared Items</div><div class="val" id="sum-uncleared">0</div></div>
-    <div><div class="lbl">Statement Balance</div><input type="number" id="stmt-balance" step="0.01" placeholder="Enter statement balance" style="width:160px;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:10pt"></div>
-    <div><div class="lbl">Difference</div><div class="val" id="sum-diff" style="color:#cc2222">—</div></div>
+    <div><div class="lbl">Statement Closing Balance</div><input type="number" id="stmt-balance" step="0.01" placeholder="from bank statement" style="width:140px;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:10pt"></div>
+    <div><div class="lbl">Difference</div><div class="val" id="sum-diff" style="color:#888">—</div></div>
   </div>
 
   <table class="rec-table" id="rec-table" style="display:none">
@@ -1943,6 +1944,8 @@ ${commonStyle()}
   document.getElementById('rec-to').value = now.toISOString().slice(0,10);
   document.getElementById('stmt-balance').addEventListener('input', updateSummary);
 
+  var openingBalance = 0;
+
   function loadReconcile() {
     var accountCode = document.getElementById('rec-account').value;
     var dateFrom = document.getElementById('rec-from').value;
@@ -1952,7 +1955,9 @@ ${commonStyle()}
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'bank.reconcile.list', companyId: COMPANY, accountCode, dateFrom, dateTo }) })
       .then(r => r.json()).then(res => {
-        recRows = res.data || res;
+        var d = res.data || res;
+        recRows = Array.isArray(d) ? d : (d.rows || []);
+        openingBalance = d.openingBalance || 0;
         document.getElementById('rec-status').textContent = '';
         renderReconcile();
       })
@@ -1998,21 +2003,25 @@ ${commonStyle()}
   }
 
   function updateSummary() {
-    var bookBal = 0, clearedBal = 0, unclearedCount = 0;
+    var periodNet = 0, unclearedCount = 0;
     recRows.forEach(function(r) {
       var net = parseFloat(r.debit||0) - parseFloat(r.credit||0);
-      bookBal += net;
-      if (r.cleared) clearedBal += net; else unclearedCount++;
+      periodNet += net;
+      if (!r.cleared) unclearedCount++;
     });
-    document.getElementById('sum-book').textContent = fmt(bookBal);
-    document.getElementById('sum-cleared').textContent = fmt(clearedBal);
+    var closingBook = openingBalance + periodNet;
+    document.getElementById('sum-opening').textContent = fmt(openingBalance);
+    document.getElementById('sum-net').textContent = (periodNet >= 0 ? '+' : '') + fmt(periodNet);
+    document.getElementById('sum-book').textContent = fmt(closingBook);
     document.getElementById('sum-uncleared').textContent = unclearedCount;
     var stmtVal = parseFloat(document.getElementById('stmt-balance').value);
     if (!isNaN(stmtVal)) {
-      var diff = stmtVal - clearedBal;
+      var diff = closingBook - stmtVal;
       var el = document.getElementById('sum-diff');
       el.textContent = fmt(diff);
       el.style.color = Math.abs(diff) < 0.01 ? '#2a8a2a' : '#cc2222';
+    } else {
+      document.getElementById('sum-diff').textContent = '—';
     }
   }
 

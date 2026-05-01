@@ -1440,9 +1440,8 @@ ${commonStyle()}
     <textarea id="csv-paste" rows="5" style="width:100%;font-family:monospace;font-size:9pt;padding:8px;border:1px solid #ccc;border-radius:4px;resize:vertical" placeholder="Paste CSV content here…"></textarea>
     <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
       <button class="btn-primary" onclick="onPasteLoad()">Load Pasted CSV →</button>
-      <span style="color:#888;font-size:9.5pt">or</span>
-      <input type="file" id="csv-file" accept=".csv,.txt">
-      <button class="btn-sm" onclick="onFileLoad()">Load File</button>
+      <span style="color:#888;font-size:9.5pt">or select file:</span>
+      <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()">
     </div>
     <div id="file-status" style="margin-top:8px;font-size:10pt"></div>
   </div>

@@ -467,7 +467,7 @@ ${commonStyle()}
   .totals span { font-weight:600; }
   button.btn-primary:disabled { opacity:0.4; cursor:default; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
-  .btn-sm { padding:6px 14px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm { padding:0 14px; height:32px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
   .btn-sm:hover { background:#e8e8e8; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
   button.btn-primary:hover:not(:disabled) { background:#333; }
@@ -894,7 +894,7 @@ ${commonStyle()}
   .msg.ok { color:#2a8a2a; }
   .msg.err { color:#cc2222; }
   .search-bar { padding:6px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; margin-bottom:12px; width:260px; }
-  .btn-sm { padding:6px 14px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm { padding:0 14px; height:32px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
   .btn-sm:hover { background:#e8e8e8; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
@@ -1229,7 +1229,7 @@ ${commonStyle()}
   table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px; }
   table.edit-table td { padding:4px 6px; border-bottom:1px solid #f0f0f0; }
   table.edit-table input { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  .btn-sm { padding:6px 14px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm { padding:0 14px; height:32px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
   button.btn-primary:hover { background:#333; }
@@ -1655,6 +1655,7 @@ ${commonStyle()}
         document.getElementById('parse-status').textContent = '';
         renderReview(d);
         fetchAndShowBalance(bankAcct);
+        checkDuplicates(bankAcct, bankRows);
       })
       .catch(e => { document.getElementById('parse-status').textContent = e.message; });
   }
@@ -1739,6 +1740,48 @@ ${commonStyle()}
         }
       }, 800);
     }
+  }
+
+  function checkDuplicates(bankAcct, bankRows) {
+    // Build a lookup of date+amount combos already in the ledger for this account
+    fetch('/api/admin/query', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ sql: "SELECT date, debit, credit FROM journal_entries WHERE company_id='" + COMPANY + "' AND account_code='" + bankAcct + "'" }) })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        var existing = res.data || res.rows || res;
+        if (!Array.isArray(existing)) return;
+        // Build set of 'date|amount' signatures already in the ledger
+        var sigs = new Set();
+        existing.forEach(function(e) {
+          var net = parseFloat(e.debit||0) - parseFloat(e.credit||0);
+          sigs.add(String(e.date).slice(0,10) + '|' + Math.abs(net).toFixed(2));
+        });
+        var dupCount = 0;
+        document.querySelectorAll('#review-body tr').forEach(function(tr, i) {
+          var r = processedRows[i];
+          if (!r) return;
+          var sig = r.original.date + '|' + Math.abs(parseFloat(r.original.amount)).toFixed(2);
+          if (sigs.has(sig)) {
+            tr.style.opacity = '0.55';
+            tr.querySelector('[data-skip]').checked = true;
+            var warn = tr.querySelector('.dup-warn');
+            if (!warn) {
+              var td = tr.querySelector('td');
+              var w = document.createElement('div');
+              w.className = 'dup-warn';
+              w.style.cssText = 'font-size:8pt;color:#856404;font-weight:600';
+              w.textContent = 'possible duplicate';
+              td.appendChild(w);
+            }
+            dupCount++;
+          }
+        });
+        if (dupCount > 0) {
+          var msg = document.getElementById('import-summary');
+          msg.innerHTML += ' &nbsp;<span style="color:#856404;font-weight:600">\u26a0 '+dupCount+' possible duplicate'+(dupCount>1?'s':'')+' pre-skipped — uncheck Skip to include</span>';
+          updateBalances();
+        }
+      }).catch(function(){});
   }
 
   var bookBalanceBefore = null;

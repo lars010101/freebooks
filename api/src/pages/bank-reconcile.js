@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle } = require('./common');
+const { commonStyle, makeQuery } = require('./common');
 
 async function handleBankReconcilePage(req, res) {
   const { company } = req.params;

@@ -33,6 +33,8 @@ const ACTION_ROLES = {
   'journal.get': 'viewer',
   'bank.process': 'data_entry',
   'bank.approve': 'data_entry',
+  'bank.reconcile.list': 'viewer',
+  'bank.reconcile.clear': 'data_entry',
   'bill.create': 'data_entry',
   'bill.void': 'data_entry',
   'bill.list': 'viewer',
@@ -97,7 +99,7 @@ async function handleApiRequest(req, res) {
 
     switch (module) {
       case 'journal':     result = await handleJournal(ctx, action); break;
-      case 'bank':        result = await handleBank(ctx, action); break;
+      case 'bank':        result = await handleBank(ctx, action); break; // bank.process, bank.approve, bank.reconcile.*
       case 'bill':        result = await handleBills(ctx, action); break;
       case 'report':      result = await handleReports(ctx, action); break;
       case 'vat':         result = await handleVat(ctx, action); break;

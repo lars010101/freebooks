@@ -248,6 +248,8 @@ ${commonStyle()}
     <a href="/">← All companies</a>
     <a href="/${co.company_id}/settings">⚙ Settings</a>
     <a href="/${co.company_id}/journal/new">✏ New Entry</a>
+    <a href="/${co.company_id}/bank/import">🏦 Bank Import</a>
+    <a href="/${co.company_id}/bank/reconcile">✓ Reconcile</a>
   </div>
   <div class="header">
     <h1>${co.company_name}</h1>
@@ -420,6 +422,8 @@ function mountReportRoutes(app) {
   app.get('/api/:company/accounts', handleAccounts);
   app.get('/api/:company/vat-codes', handleVatCodes);
   app.get('/:company/journal/new', handleJournalNewPage);
+  app.get('/:company/bank/import', handleBankImportPage);
+  app.get('/:company/bank/reconcile', handleBankReconcilePage);
   app.get('/:company/settings', handleSettingsPage);
   app.get('/:company', handleCompanyPage);
   app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);
@@ -911,6 +915,7 @@ ${commonStyle()}
     <div class="tab" onclick="showTab('coa')">Chart of Accounts</div>
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes</div>
     <div class="tab" onclick="showTab('journals')">Journals</div>
+    <div class="tab" onclick="showTab('mappings')">Bank Mappings</div>
   </div>
 
   <!-- PERIODS TAB -->
@@ -965,6 +970,20 @@ ${commonStyle()}
     <p style="margin-top:8px;font-size:9pt;color:#888">Journal codes appear in the reference sequence (e.g. MISC/2026/0001). Codes should be short uppercase strings.</p>
   </div>
 
+  <!-- BANK MAPPINGS TAB -->
+  <div id="tab-mappings" class="tab-panel">
+    <table class="edit-table" id="mappings-table">
+      <thead><tr><th>Pattern</th><th>Match</th><th>Debit Acct</th><th>Credit Acct</th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="mappings-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addMappingRow()">+ Add Rule</button>
+      <button class="btn-primary" onclick="saveMappings()">Save</button>
+      <span id="msg-mappings" class="msg"></span>
+    </div>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower number = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.</p>
+  </div>
+
   <!-- VAT/GST CODES TAB -->
   <div id="tab-vat" class="tab-panel">
     <table class="edit-table" id="vat-table">
@@ -986,7 +1005,7 @@ var CF_OPTS = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonC
 
 var VAT_NAMES = { SG:'GST', SE:'VAT' };
 function showTab(t) {
-  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa','vat','journals'][i]===t));
+  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa','vat','journals','mappings'][i]===t));
   document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('active');
 }
@@ -1153,6 +1172,41 @@ function saveJournals() {
 fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
   body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
   .then(r => r.json()).then(res => { var rows = res.data||res; if(Array.isArray(rows)) rows.forEach(addJournalRow); });
+
+// --- BANK MAPPINGS ---
+var MATCH_TYPES = ['contains','exact','starts_with','regex'];
+function addMappingRow(m) {
+  m = m || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:120px"></td>'
+    + '<td><select style="width:90px">' + MATCH_TYPES.map(t => '<option'+(t===(m.match_type||'contains')?' selected':'')+'>'+t+'</option>').join('') + '</select></td>'
+    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="101414" style="width:70px"></td>'
+    + '<td><input type="text" value="'+(m.credit_account||'')+'" placeholder="204000" style="width:70px"></td>'
+    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:140px"></td>'
+    + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
+    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">&times;</button></td>';
+  document.getElementById('mappings-body').appendChild(tr);
+}
+
+function saveMappings() {
+  var rows = Array.from(document.querySelectorAll('#mappings-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input');
+    var sel = tr.querySelector('select');
+    return { pattern: inputs[0].value.trim(), match_type: sel.value,
+      debit_account: inputs[1].value.trim(), credit_account: inputs[2].value.trim(),
+      description_override: inputs[3].value.trim() || null,
+      priority: parseInt(inputs[4].value||100), is_active: inputs[5].checked };
+  }).filter(m => m.pattern && m.debit_account && m.credit_account);
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'mapping.save', companyId: COMPANY, mappings: rows }) })
+    .then(r => r.json()).then(r => { var d=r.data||r; showMsg('msg-mappings', r.error||d.error||('Saved '+(d.saved||0)+' rules'), !!(r.error||d.error)); })
+    .catch(e => showMsg('msg-mappings', e.message, true));
+}
+
+fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify({ action:'mapping.list', companyId: COMPANY }) })
+  .then(r => r.json()).then(res => { var rows = res.data||res; if(Array.isArray(rows)) rows.forEach(addMappingRow); });
 </script>
 </body>
 </html>`;
@@ -1338,6 +1392,398 @@ async function refreshAPAging(ctx) {
     return { label: l, total, bills };
   });
   return { report: 'ap_aging', buckets, totalOutstanding: Math.round(buckets.reduce((s, b) => s + b.total, 0) * 100) / 100 };
+}
+
+// ── Bank Import page ─────────────────────────────────────────────────────────
+async function handleBankImportPage(req, res) {
+  const { company } = req.params;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(buildBankImportPage(company));
+}
+
+function buildBankImportPage(company) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bank Import — ${company}</title>
+${commonStyle()}
+<style>
+  .step { background:#f8f8f8; border:1px solid #e0e0e0; border-radius:6px; padding:14px 18px; margin-bottom:16px; }
+  .step h3 { margin:0 0 10px; font-size:11pt; color:#333; }
+  table.review-table { width:100%; border-collapse:collapse; font-size:9.5pt; }
+  table.review-table th { background:#f0f0f0; padding:5px 7px; text-align:left; font-size:9pt; border:1px solid #ddd; }
+  table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; }
+  table.review-table tr.matched td:first-child { border-left:3px solid #2a8a2a; }
+  table.review-table tr.unmatched td:first-child { border-left:3px solid #cc8800; }
+  table.review-table tr.skipped td { opacity:.5; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:8.5pt; font-weight:600; }
+  .tag.hi  { background:#d4edda; color:#155724; }
+  .tag.med { background:#fff3cd; color:#856404; }
+  .tag.lo  { background:#f8d7da; color:#721c24; }
+  input.acct { width:75px; padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
+  select.col-map { padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="back" style="display:flex;justify-content:space-between;align-items:center">
+    <a href="/${company}">← Reports</a>
+    <a href="/${company}/bank/reconcile">✓ Reconcile</a>
+  </div>
+  <div class="header"><h1>Bank Statement Import</h1><p class="sub">${company}</p></div>
+
+  <!-- Step 1: Upload -->
+  <div class="step">
+    <h3>1. Upload CSV</h3>
+    <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()">
+    <div id="col-map" style="display:none;margin-top:12px">
+      <table style="border-collapse:collapse;font-size:10pt">
+        <tr><td style="padding:4px 10px 4px 0"><b>Date column</b></td><td><select id="col-date" class="col-map"></select></td></tr>
+        <tr><td style="padding:4px 10px 4px 0"><b>Description column</b></td><td><select id="col-desc" class="col-map"></select></td></tr>
+        <tr><td style="padding:4px 10px 4px 0"><b>Amount type</b></td><td>
+          <select id="amt-type" class="col-map" onchange="toggleAmtCols()">
+            <option value="single">Single amount column</option>
+            <option value="split">Separate Debit / Credit columns</option>
+          </select>
+        </td></tr>
+        <tr id="row-single"><td style="padding:4px 10px 4px 0">Amount column</td><td><select id="col-amt" class="col-map"></select></td>
+          <td style="padding-left:10px;font-size:9pt;color:#888">positive=inflow, negative=outflow</td></tr>
+        <tr id="row-debit" style="display:none"><td style="padding:4px 10px 4px 0">Debit column (outflow)</td><td><select id="col-deb" class="col-map"></select></td></tr>
+        <tr id="row-credit" style="display:none"><td style="padding:4px 10px 4px 0">Credit column (inflow)</td><td><select id="col-cred" class="col-map"></select></td></tr>
+        <tr><td style="padding:4px 10px 4px 0"><b>Bank account</b></td><td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414"></td></tr>
+      </table>
+      <button class="btn-primary" style="margin-top:12px" onclick="parseAndProcess()">Process →</button>
+      <span id="parse-status" style="margin-left:10px;font-size:10pt"></span>
+    </div>
+  </div>
+
+  <!-- Step 2: Review -->
+  <div class="step" id="step-review" style="display:none">
+    <h3>2. Review &amp; Approve</h3>
+    <div id="import-summary" style="margin-bottom:10px;font-size:10pt"></div>
+    <table class="review-table">
+      <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:80px">Debit</th><th style="width:80px">Credit</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
+      <tbody id="review-body"></tbody>
+    </table>
+    <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
+      <button class="btn-primary" onclick="postApproved()">Post to Bank Journal</button>
+      <span id="post-status" style="font-size:10pt"></span>
+    </div>
+  </div>
+</div>
+<script>
+  var COMPANY = '${company}';
+  var csvRows = [];
+  var headers = [];
+  var processedRows = [];
+
+  function onFileLoad() {
+    var file = document.getElementById('csv-file').files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var text = e.target.result;
+      var lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) { alert('CSV too short'); return; }
+      headers = parseCSVRow(lines[0]);
+      csvRows = lines.slice(1).map(parseCSVRow).filter(r => r.some(c => c.trim()));
+      populateColDropdowns();
+      document.getElementById('col-map').style.display = '';
+    };
+    reader.readAsText(file);
+  }
+
+  function parseCSVRow(line) {
+    var result = [], cur = '', inQ = false;
+    for (var i = 0; i < line.length; i++) {
+      var c = line[i];
+      if (c === '"') { inQ = !inQ; }
+      else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+      else cur += c;
+    }
+    result.push(cur.trim());
+    return result;
+  }
+
+  function populateColDropdowns() {
+    var ids = ['col-date','col-desc','col-amt','col-deb','col-cred'];
+    var guesses = { 'col-date': /date/i, 'col-desc': /desc|narr|ref|detail|memo/i,
+      'col-amt': /amount|amt/i, 'col-deb': /debit|dr|withdraw|out/i, 'col-cred': /credit|cr|deposit|in/i };
+    ids.forEach(function(id) {
+      var sel = document.getElementById(id);
+      sel.innerHTML = headers.map((h,i) => '<option value="'+i+'"'+(guesses[id]&&guesses[id].test(h)?' selected':'')+'>'+h+'</option>').join('');
+    });
+  }
+
+  function toggleAmtCols() {
+    var split = document.getElementById('amt-type').value === 'split';
+    document.getElementById('row-single').style.display = split ? 'none' : '';
+    document.getElementById('row-debit').style.display = split ? '' : 'none';
+    document.getElementById('row-credit').style.display = split ? '' : 'none';
+  }
+
+  function parseAndProcess() {
+    var di = parseInt(document.getElementById('col-date').value);
+    var dsi = parseInt(document.getElementById('col-desc').value);
+    var bankAcct = document.getElementById('bank-acct').value.trim();
+    var split = document.getElementById('amt-type').value === 'split';
+    if (!bankAcct) { document.getElementById('parse-status').textContent = 'Bank account required'; return; }
+
+    var bankRows = [];
+    csvRows.forEach(function(row) {
+      var dateRaw = row[di] || '';
+      var desc = row[dsi] || '';
+      var amount;
+      if (split) {
+        var deb = parseFloat((row[parseInt(document.getElementById('col-deb').value)]||'').replace(/,/g,'')) || 0;
+        var cred = parseFloat((row[parseInt(document.getElementById('col-cred').value)]||'').replace(/,/g,'')) || 0;
+        amount = cred - deb;
+      } else {
+        amount = parseFloat((row[parseInt(document.getElementById('col-amt').value)]||'').replace(/,/g,'')) || 0;
+      }
+      if (!dateRaw || !desc || amount === 0) return;
+      var date = normalizeDate(dateRaw);
+      if (!date) return;
+      bankRows.push({ date, description: desc, amount, bankAccount: bankAcct });
+    });
+
+    document.getElementById('parse-status').textContent = 'Processing ' + bankRows.length + ' rows…';
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'bank.process', companyId: COMPANY, rows: bankRows }) })
+      .then(r => r.json()).then(res => {
+        var d = res.data || res;
+        if (res.error || d.error) { document.getElementById('parse-status').textContent = res.error || d.error; return; }
+        processedRows = d.processed || [];
+        document.getElementById('parse-status').textContent = '';
+        renderReview(d);
+      })
+      .catch(e => { document.getElementById('parse-status').textContent = e.message; });
+  }
+
+  function normalizeDate(s) {
+    s = s.trim().replace(/[\/\.]/g, '-');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    var p = s.split('-');
+    if (p.length === 3) {
+      if (p[0].length === 4) return s;
+      if (p[2].length === 4) return p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0');
+      if (parseInt(p[0]) > 12) return '20'+p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0');
+      return '20'+p[2]+'-'+p[0].padStart(2,'0')+'-'+p[1].padStart(2,'0');
+    }
+    return null;
+  }
+
+  function renderReview(d) {
+    var summary = d.summary || {};
+    document.getElementById('import-summary').innerHTML =
+      '<b>'+processedRows.length+'</b> rows: '
+      + '<span style="color:#2a8a2a">'+(summary.ruleMatched||0)+' rule-matched</span>, '
+      + '<span style="color:#856404">'+(summary.billMatched||0)+' bill-matched</span>, '
+      + '<span style="color:#cc8800">'+(summary.unmatched||0)+' unmatched</span>';
+    document.getElementById('review-body').innerHTML = processedRows.map(function(r, i) {
+      var orig = r.original;
+      var amt = parseFloat(orig.amount);
+      var matchTag = r.matchType === 'rule' ? '<span class="tag hi">rule</span>'
+        : r.matchType === 'bill' ? '<span class="tag med">bill</span>'
+        : '<span class="tag lo">manual</span>';
+      var cls = r.matchType ? 'matched' : 'unmatched';
+      return '<tr class="'+cls+'" data-i="'+i+'">'
+        +'<td>'+orig.date+'</td>'
+        +'<td>'+escHtml(orig.description)+'</td>'
+        +'<td class="num" style="color:'+(amt>=0?'#2a8a2a':'#cc2222')+'">'+(amt>=0?'+':'')+fmt(Math.abs(amt))+'</td>'
+        +'<td>'+matchTag+'</td>'
+        +'<td><input class="acct" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct"></td>'
+        +'<td><input class="acct" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct"></td>'
+        +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'"></td>'
+        +'</tr>';
+    }).join('');
+    document.getElementById('step-review').style.display = '';
+  }
+
+  function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function postApproved() {
+    var entries = [];
+    document.querySelectorAll('#review-body tr').forEach(function(tr, i) {
+      var skip = tr.querySelector('[data-skip]').checked;
+      if (skip) return;
+      var r = processedRows[i];
+      var dr = tr.querySelector('[data-field=dr]').value.trim();
+      var cr = tr.querySelector('[data-field=cr]').value.trim();
+      if (!dr || !cr) return;
+      entries.push({ date: r.original.date, description: r.description || r.original.description,
+        amount: r.original.amount, debitAccount: dr, creditAccount: cr,
+        vatCode: r.vatCode || null, billId: r.billId || null });
+    });
+    if (!entries.length) { document.getElementById('post-status').textContent = 'Nothing to post'; return; }
+    document.getElementById('post-status').textContent = 'Posting '+entries.length+' entries…';
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'bank.approve', companyId: COMPANY, entries }) })
+      .then(r => r.json()).then(res => {
+        var d = res.data || res;
+        if (res.error || d.error) { document.getElementById('post-status').textContent = res.error||d.error; return; }
+        document.getElementById('post-status').textContent = '\u2713 Posted '+(d.posted||0)+' entries'+(d.failed?' ('+ d.failed+' failed)':'');
+        document.getElementById('step-review').style.display = 'none';
+        document.getElementById('col-map').style.display = 'none';
+        document.getElementById('csv-file').value = '';
+      })
+      .catch(e => { document.getElementById('post-status').textContent = e.message; });
+  }
+<\/script>
+</body>
+</html>`;
+}
+
+// ── Bank Reconcile page ───────────────────────────────────────────────────────
+async function handleBankReconcilePage(req, res) {
+  const { company } = req.params;
+  const q = makeQuery();
+  const accounts = await q(
+    `SELECT account_code, account_name FROM accounts WHERE company_id = ? AND cf_category = 'Cash' ORDER BY account_code`,
+    [company]
+  );
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(buildBankReconcilePage(company, accounts));
+}
+
+function buildBankReconcilePage(company, cashAccounts) {
+  const acctOptions = cashAccounts.map(a =>
+    `<option value="${a.account_code}">${a.account_code} — ${a.account_name}</option>`
+  ).join('');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Reconciliation — ${company}</title>
+${commonStyle()}
+<style>
+  table.rec-table { width:100%; border-collapse:collapse; font-size:10pt; }
+  table.rec-table th { background:#f0f0f0; padding:6px 8px; text-align:left; font-size:9pt; border:1px solid #ddd; }
+  table.rec-table td { padding:5px 7px; border:1px solid #eee; vertical-align:middle; }
+  table.rec-table tr.cleared td { color:#888; }
+  table.rec-table tr.cleared td:first-child { text-decoration:line-through; }
+  .summary-bar { display:flex; gap:24px; padding:12px 16px; background:#f8f8f8; border:1px solid #e0e0e0; border-radius:6px; margin-bottom:16px; font-size:10pt; }
+  .summary-bar .lbl { color:#888; font-size:9pt; }
+  .summary-bar .val { font-weight:700; font-size:12pt; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="back" style="display:flex;justify-content:space-between;align-items:center">
+    <a href="/${company}">← Reports</a>
+    <a href="/${company}/bank/import">🏦 Bank Import</a>
+  </div>
+  <div class="header"><h1>Bank Reconciliation</h1><p class="sub">${company}</p></div>
+
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+    <label>Account <select id="rec-account" style="width:220px;height:32px;padding:4px 6px">
+      ${acctOptions || '<option>No cash accounts found</option>'}
+    </select></label>
+    <label>From <input type="date" id="rec-from"></label>
+    <label>To <input type="date" id="rec-to"></label>
+    <button class="btn-primary" onclick="loadReconcile()">Load</button>
+  </div>
+
+  <div class="summary-bar" id="rec-summary" style="display:none">
+    <div><div class="lbl">Book Balance</div><div class="val" id="sum-book">0.00</div></div>
+    <div><div class="lbl">Cleared Balance</div><div class="val" id="sum-cleared">0.00</div></div>
+    <div><div class="lbl">Uncleared Items</div><div class="val" id="sum-uncleared">0</div></div>
+    <div><div class="lbl">Statement Balance</div><input type="number" id="stmt-balance" step="0.01" placeholder="Enter statement balance" style="width:160px;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:10pt"></div>
+    <div><div class="lbl">Difference</div><div class="val" id="sum-diff" style="color:#cc2222">—</div></div>
+  </div>
+
+  <table class="rec-table" id="rec-table" style="display:none">
+    <thead><tr><th style="width:90px">Date</th><th>Reference</th><th>Description</th><th class="num" style="width:100px">Debit</th><th class="num" style="width:100px">Credit</th><th style="text-align:center;width:70px">Cleared</th></tr></thead>
+    <tbody id="rec-body"></tbody>
+  </table>
+  <div id="rec-status" style="margin-top:10px;font-size:10pt"></div>
+</div>
+<script>
+  var COMPANY = '${company}';
+  var recRows = [];
+
+  // Set default date range: current month
+  var now = new Date();
+  document.getElementById('rec-from').value = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+  document.getElementById('rec-to').value = now.toISOString().slice(0,10);
+  document.getElementById('stmt-balance').addEventListener('input', updateSummary);
+
+  function loadReconcile() {
+    var accountCode = document.getElementById('rec-account').value;
+    var dateFrom = document.getElementById('rec-from').value;
+    var dateTo = document.getElementById('rec-to').value;
+    if (!accountCode) return;
+    document.getElementById('rec-status').textContent = 'Loading…';
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'bank.reconcile.list', companyId: COMPANY, accountCode, dateFrom, dateTo }) })
+      .then(r => r.json()).then(res => {
+        recRows = res.data || res;
+        document.getElementById('rec-status').textContent = '';
+        renderReconcile();
+      })
+      .catch(e => { document.getElementById('rec-status').textContent = e.message; });
+  }
+
+  function renderReconcile() {
+    var acct = document.getElementById('rec-account').value;
+    document.getElementById('rec-summary').style.display = '';
+    document.getElementById('rec-table').style.display = '';
+    document.getElementById('rec-body').innerHTML = recRows.map(function(r, i) {
+      var cls = r.cleared ? 'cleared' : '';
+      return '<tr class="'+cls+'" data-i="'+i+'" data-batch="'+r.batch_id+'" data-acct="'+acct+'">'
+        +'<td>'+(r.date?String(r.date).slice(0,10):'')+'</td>'
+        +'<td>'+(r.reference||r.batch_id||'')+'</td>'
+        +'<td>'+(r.description||'')+'</td>'
+        +'<td class="num">'+(parseFloat(r.debit||0)?fmt(r.debit):'')+'</td>'
+        +'<td class="num">'+(parseFloat(r.credit||0)?fmt(r.credit):'')+'</td>'
+        +'<td style="text-align:center"><input type="checkbox"'+(r.cleared?' checked':'')+''
+          +' onchange="toggleCleared(this,\''+r.batch_id+'\',\''+acct+'\')" ></td>'
+        +'</tr>';
+    }).join('');
+    updateSummary();
+  }
+
+  function toggleCleared(cb, batchId, accountCode) {
+    var cleared = cb.checked;
+    cb.disabled = true;
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'bank.reconcile.clear', companyId: COMPANY, batchId, accountCode, cleared }) })
+      .then(r => r.json()).then(res => {
+        cb.disabled = false;
+        var tr = cb.closest('tr');
+        var i = parseInt(tr.dataset.i);
+        recRows[i].cleared = cleared;
+        tr.className = cleared ? 'cleared' : '';
+        updateSummary();
+      })
+      .catch(function() { cb.disabled = false; cb.checked = !cleared; });
+  }
+
+  function updateSummary() {
+    var bookBal = 0, clearedBal = 0, unclearedCount = 0;
+    recRows.forEach(function(r) {
+      var net = parseFloat(r.debit||0) - parseFloat(r.credit||0);
+      bookBal += net;
+      if (r.cleared) clearedBal += net; else unclearedCount++;
+    });
+    document.getElementById('sum-book').textContent = fmt(bookBal);
+    document.getElementById('sum-cleared').textContent = fmt(clearedBal);
+    document.getElementById('sum-uncleared').textContent = unclearedCount;
+    var stmtVal = parseFloat(document.getElementById('stmt-balance').value);
+    if (!isNaN(stmtVal)) {
+      var diff = stmtVal - clearedBal;
+      var el = document.getElementById('sum-diff');
+      el.textContent = fmt(diff);
+      el.style.color = Math.abs(diff) < 0.01 ? '#2a8a2a' : '#cc2222';
+    }
+  }
+
+  function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+<\/script>
+</body>
+</html>`;
 }
 
 module.exports = { handleReports, mountReportRoutes };

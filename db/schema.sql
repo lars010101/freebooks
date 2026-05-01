@@ -337,6 +337,18 @@ SELECT
 FROM journal_entries je
 LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code;
 
+-- =============================================================================
+-- reconciliations
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS reconciliations (
+  company_id   VARCHAR   NOT NULL,
+  batch_id     VARCHAR   NOT NULL,
+  account_code VARCHAR   NOT NULL,
+  cleared_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+  cleared_by   VARCHAR,
+  PRIMARY KEY (company_id, batch_id, account_code)
+);
+
 -- MIGRATION: add account_subtype, drop legacy bs_category and pl_category
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_subtype VARCHAR;
 ALTER TABLE accounts DROP COLUMN IF EXISTS bs_category;

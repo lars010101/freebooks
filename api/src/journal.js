@@ -369,4 +369,4 @@ async function importEntries(ctx) {
   return { imported: entries.length, failed: 0, totalEntries: entries.length, rowsInserted: allRows.length, errors: [] };
 }
 
-module.exports = { handleJournal };
+module.exports = { handleJournal, getNextReference };

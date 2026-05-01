@@ -7,11 +7,14 @@
 const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
 const { expandVatLines } = require('./vat');
+const { getNextReference } = require('./journal');
 
 async function handleBank(ctx, action) {
   switch (action) {
-    case 'bank.process': return processBankStatement(ctx);
-    case 'bank.approve': return approveBankEntries(ctx);
+    case 'bank.process':         return processBankStatement(ctx);
+    case 'bank.approve':         return approveBankEntries(ctx);
+    case 'bank.reconcile.list':  return listReconcile(ctx);
+    case 'bank.reconcile.clear': return clearReconcile(ctx);
     default:
       throw Object.assign(new Error(`Unknown bank action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -174,6 +177,15 @@ async function approveBankEntries(ctx) {
     const now = new Date().toISOString();
 
     try {
+      // Generate BANK journal reference
+      const bankJournals = await query(
+        `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'BANK' AND active = true LIMIT 1`,
+        { companyId }
+      );
+      const bankJournalId = bankJournals.length > 0 ? bankJournals[0].journal_id : null;
+      const year = parseInt(String(entry.date).substring(0, 4), 10);
+      const reference = bankJournalId ? await getNextReference(companyId, bankJournalId, year) : null;
+
       let lines = [
         { account_code: entry.debitAccount, debit: amount, credit: 0, date: entry.date, description: entry.description, vat_code: entry.vatCode || null, cost_center: entry.costCenter || null, profit_center: entry.profitCenter || null },
         { account_code: entry.creditAccount, debit: 0, credit: amount, date: entry.date, description: entry.description },
@@ -204,7 +216,7 @@ async function approveBankEntries(ctx) {
         net_amount: line.net_amount || 0,
         net_amount_home: (line.net_amount || 0) * (entry.fxRate || 1.0),
         description: line.description || entry.description,
-        reference: entry.reference || null,
+        reference,
         source: 'bank_import',
         cost_center: line.cost_center || null,
         profit_center: line.profit_center || null,
@@ -263,6 +275,46 @@ async function approveBankEntries(ctx) {
   }
 
   return { posted: results.length, failed: errors.length, newMappings: newMappings.length, results, errors };
+}
+
+async function listReconcile(ctx) {
+  const { companyId, body } = ctx;
+  const { accountCode, dateFrom, dateTo } = body;
+  if (!accountCode) throw Object.assign(new Error('accountCode required'), { code: 'INVALID_INPUT' });
+  const rows = await query(
+    `SELECT je.batch_id, je.date, je.reference, je.description,
+            SUM(je.debit) AS debit, SUM(je.credit) AS credit,
+            MAX(r.cleared_at) AS cleared_at
+     FROM journal_entries je
+     LEFT JOIN reconciliations r ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
+     WHERE je.company_id = @companyId AND je.account_code = @accountCode
+       ${dateFrom ? 'AND je.date >= @dateFrom' : ''}
+       ${dateTo   ? 'AND je.date <= @dateTo'   : ''}
+     GROUP BY je.batch_id, je.date, je.reference, je.description
+     ORDER BY je.date, je.batch_id`,
+    { companyId, accountCode, ...(dateFrom && { dateFrom }), ...(dateTo && { dateTo }) }
+  );
+  return rows.map(r => ({ ...r, cleared: !!r.cleared_at }));
+}
+
+async function clearReconcile(ctx) {
+  const { companyId, userEmail, body } = ctx;
+  const { batchId, accountCode, cleared } = body;
+  if (!batchId || !accountCode) throw Object.assign(new Error('batchId and accountCode required'), { code: 'INVALID_INPUT' });
+  if (cleared) {
+    await exec(
+      `INSERT INTO reconciliations (company_id, batch_id, account_code, cleared_at, cleared_by)
+       VALUES (@companyId, @batchId, @accountCode, NOW(), @clearedBy)
+       ON CONFLICT DO NOTHING`,
+      { companyId, batchId, accountCode, clearedBy: userEmail || 'user' }
+    );
+  } else {
+    await exec(
+      `DELETE FROM reconciliations WHERE company_id = @companyId AND batch_id = @batchId AND account_code = @accountCode`,
+      { companyId, batchId, accountCode }
+    );
+  }
+  return { ok: true };
 }
 
 module.exports = { handleBank };

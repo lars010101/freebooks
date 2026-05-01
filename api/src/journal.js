@@ -21,9 +21,39 @@ async function handleJournal(ctx, action) {
     case 'journal.reverse': return reverseEntry(ctx);
     case 'journal.list':    return listEntries(ctx);
     case 'journal.import':  return importEntries(ctx);
+    case 'journal.search':  return searchEntries(ctx);
+    case 'journal.get':     return getEntry(ctx);
     default:
       throw Object.assign(new Error(`Unknown journal action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
+}
+
+async function searchEntries(ctx) {
+  const { companyId, body } = ctx;
+  const { q } = body;
+  if (!q || q.trim().length < 2) return [];
+  const rows = await query(
+    `SELECT batch_id, MIN(date) AS date, MAX(reference) AS reference, MAX(description) AS description
+     FROM journal_entries
+     WHERE company_id = @companyId
+       AND reversed_by IS NULL
+       AND (reference ILIKE @q OR description ILIKE @q OR batch_id ILIKE @q)
+     GROUP BY batch_id
+     ORDER BY MIN(date) DESC
+     LIMIT 20`,
+    { companyId, q: `%${q.trim()}%` }
+  );
+  return rows;
+}
+
+async function getEntry(ctx) {
+  const { companyId, body } = ctx;
+  const { batchId } = body;
+  if (!batchId) throw Object.assign(new Error('batchId required'), { code: 'INVALID_INPUT' });
+  return query(
+    `SELECT * FROM journal_entries WHERE company_id = @companyId AND batch_id = @batchId ORDER BY account_code`,
+    { companyId, batchId }
+  );
 }
 
 /**

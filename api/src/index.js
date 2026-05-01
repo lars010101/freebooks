@@ -29,6 +29,8 @@ const ACTION_ROLES = {
   'journal.reverse': 'data_entry',
   'journal.list': 'viewer',
   'journal.import': 'data_entry',
+  'journal.search': 'viewer',
+  'journal.get': 'viewer',
   'bank.process': 'data_entry',
   'bank.approve': 'data_entry',
   'bill.create': 'data_entry',

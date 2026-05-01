@@ -475,9 +475,21 @@ ${commonStyle()}
     <a href="/${company}">← Reports</a>
     <a href="/${company}/settings">⚙ Settings</a>
   </div>
-  <div class="header">
-    <h1>New Journal Entry</h1>
-    <p class="sub">${company}</p>
+  <div class="header" style="display:flex;justify-content:space-between;align-items:flex-start">
+    <div>
+      <h1 id="jv-mode-title">New Journal Entry</h1>
+      <p class="sub">${company}</p>
+    </div>
+    <button class="btn-sm" id="btn-reversal-mode" onclick="toggleReversalMode()" style="margin-top:8px">⟲ Reversal</button>
+  </div>
+
+  <!-- Reversal search panel (hidden by default) -->
+  <div id="reversal-panel" style="display:none;margin-bottom:16px;padding:14px;background:#f8f4ff;border:1px solid #c9b8e8;border-radius:6px">
+    <div style="font-weight:600;margin-bottom:8px;color:#5a3ea0">Find entry to reverse</div>
+    <input type="text" id="reversal-search" placeholder="Search by reference or description…"
+      oninput="onReversalSearch(this.value)"
+      style="width:400px;padding:7px 10px;border:1px solid #c9b8e8;border-radius:4px;font-size:10pt">
+    <div id="reversal-results" style="margin-top:6px;max-height:200px;overflow-y:auto;background:#fff;border:1px solid #ddd;border-radius:4px;display:none"></div>
   </div>
 
   <div class="header-fields">
@@ -717,6 +729,101 @@ ${commonStyle()}
   document.getElementById('entry-date').value = new Date().toISOString().slice(0, 10);
   addLine(); addLine();
   updateTotals();
+
+  // ── Reversal mode ──────────────────────────────────────────────────
+  var reversalMode = false;
+  var reversalSearchTimer = null;
+
+  function toggleReversalMode() {
+    reversalMode = !reversalMode;
+    document.getElementById('reversal-panel').style.display = reversalMode ? '' : 'none';
+    document.getElementById('jv-mode-title').textContent = reversalMode ? 'Reversal Entry' : 'New Journal Entry';
+    document.getElementById('btn-reversal-mode').textContent = reversalMode ? '\u2715 Cancel Reversal' : '\u27f2 Reversal';
+    document.getElementById('btn-reversal-mode').style.background = reversalMode ? '#f0e8ff' : '';
+    if (!reversalMode) {
+      document.getElementById('reversal-search').value = '';
+      document.getElementById('reversal-results').style.display = 'none';
+      document.getElementById('entry-desc').value = '';
+      document.getElementById('lines-body').innerHTML = '';
+      addLine(); addLine();
+      updateTotals();
+    }
+  }
+
+  function onReversalSearch(q) {
+    clearTimeout(reversalSearchTimer);
+    var res = document.getElementById('reversal-results');
+    if (q.trim().length < 2) { res.style.display = 'none'; return; }
+    reversalSearchTimer = setTimeout(function() {
+      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'journal.search', companyId: COMPANY, q: q.trim() }) })
+        .then(r => r.json())
+        .then(function(resp) {
+          var rows = resp.data || resp;
+          res.innerHTML = '';
+          if (!Array.isArray(rows) || !rows.length) {
+            res.innerHTML = '<div style="padding:8px 12px;color:#888;font-size:10pt">No matching entries</div>';
+            res.style.display = '';
+            return;
+          }
+          rows.forEach(function(r) {
+            var d = document.createElement('div');
+            d.style.cssText = 'padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:10pt';
+            var ref = r.reference || r.batch_id;
+            var date = r.date ? String(r.date).slice(0,10) : '';
+            d.innerHTML = '<span style="font-weight:600">' + ref + '</span>'
+              + '<span style="color:#888;margin-left:10px">' + date + '</span>'
+              + (r.description ? '<span style="color:#555;margin-left:10px">' + r.description + '</span>' : '');
+            d.onmouseenter = function() { d.style.background='#f0f4ff'; };
+            d.onmouseleave = function() { d.style.background=''; };
+            d.onclick = function() { loadReversalEntry(r.batch_id, ref); };
+            res.appendChild(d);
+          });
+          res.style.display = '';
+        });
+    }, 300);
+  }
+
+  function loadReversalEntry(batchId, ref) {
+    document.getElementById('reversal-results').style.display = 'none';
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'journal.get', companyId: COMPANY, batchId: batchId }) })
+      .then(r => r.json())
+      .then(function(resp) {
+        var lines = resp.data || resp;
+        if (!Array.isArray(lines) || !lines.length) { showStatus('Entry not found', true); return; }
+        // Set date to today
+        document.getElementById('entry-date').value = new Date().toISOString().slice(0,10);
+        // Set description
+        document.getElementById('entry-desc').value = 'Reversal: ' + ref;
+        // Match journal by reference prefix
+        var code = ref && ref.includes('/') ? ref.split('/')[0] : '';
+        if (code) {
+          var jSel = document.getElementById('entry-journal');
+          var opt = Array.from(jSel.options).find(o => o.text.startsWith(code + ' '));
+          if (opt) jSel.value = opt.value;
+        }
+        // Clear existing lines and populate reversed
+        document.getElementById('lines-body').innerHTML = '';
+        lines.forEach(function(l) {
+          var tr = addLine();
+          var codeIn  = tr.querySelector('.acct-input');
+          var nameIn  = tr.querySelector('.acct-name-input');
+          var debitIn = tr.querySelector('.debit-input');
+          var creditIn = tr.querySelector('.credit-input');
+          codeIn.value  = l.account_code || '';
+          nameIn.value  = accountsMap[l.account_code] || '';
+          // Swap debit ↔ credit
+          debitIn.value  = parseFloat(l.credit || 0) || '';
+          creditIn.value = parseFloat(l.debit  || 0) || '';
+          var descIn = tr.querySelector('.desc-input');
+          descIn.value = l.description || '';
+        });
+        updateTotals();
+        showStatus('Reversal loaded — review and post', false);
+      })
+      .catch(function(e) { showStatus(e.message, true); });
+  }
 <\/script>
 </body>
 </html>`;

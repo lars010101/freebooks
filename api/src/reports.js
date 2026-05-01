@@ -467,7 +467,7 @@ ${commonStyle()}
   .totals span { font-weight:600; }
   button.btn-primary:disabled { opacity:0.4; cursor:default; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
-  .btn-sm { padding:4px 10px; font-size:9pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm { padding:6px 14px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
   .btn-sm:hover { background:#e8e8e8; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
   button.btn-primary:hover:not(:disabled) { background:#333; }
@@ -894,7 +894,7 @@ ${commonStyle()}
   .msg.ok { color:#2a8a2a; }
   .msg.err { color:#cc2222; }
   .search-bar { padding:6px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; margin-bottom:12px; width:260px; }
-  .btn-sm { padding:4px 10px; font-size:9pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm { padding:6px 14px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
   .btn-sm:hover { background:#e8e8e8; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
@@ -1229,7 +1229,7 @@ ${commonStyle()}
   table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px; }
   table.edit-table td { padding:4px 6px; border-bottom:1px solid #f0f0f0; }
   table.edit-table input { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  .btn-sm { padding:4px 10px; font-size:9pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm { padding:6px 14px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
   button.btn-primary:hover { background:#333; }
@@ -1803,10 +1803,21 @@ ${commonStyle()}
       .then(r => r.json()).then(res => {
         var d = res.data || res;
         if (res.error || d.error) { document.getElementById('post-status').textContent = res.error||d.error; return; }
-        document.getElementById('post-status').textContent = '\u2713 Posted '+(d.posted||0)+' entries'+(d.failed?' ('+ d.failed+' failed)':'');
-        document.getElementById('step-review').style.display = 'none';
-        document.getElementById('col-map').style.display = 'none';
-        document.getElementById('csv-file').value = '';
+        var n = d.posted || 0, failed = d.failed || 0;
+        var jName = document.getElementById('import-journal').options[document.getElementById('import-journal').selectedIndex];
+        var jLabel = jName ? jName.text : journalId;
+        document.getElementById('step-review').innerHTML =
+          '<div style="padding:28px;text-align:center">'
+          +'<div style="font-size:28pt;color:#2a8a2a;margin-bottom:10px">&#10003;</div>'
+          +'<div style="font-size:14pt;font-weight:700;margin-bottom:8px">Import complete</div>'
+          +'<div style="font-size:11pt;color:#555;margin-bottom:24px">'
+            +n+' entr'+(n===1?'y':'ies')+' posted to <b>'+escHtml(jLabel)+'</b>.'
+            +(failed ? ' <span style="color:#cc2222">'+failed+' failed.</span>' : '')
+          +'</div>'
+          +'<div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">'
+            +'<a href="/'+COMPANY+'" style="display:inline-block;padding:10px 22px;background:#1a1a1a;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">&larr; Back to Reports</a>'
+            +'<a href="/'+COMPANY+'/bank/import" style="display:inline-block;padding:10px 22px;background:#555;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">Import Another Statement</a>'
+          +'</div></div>';
       })
       .catch(e => { document.getElementById('post-status').textContent = e.message; });
   }

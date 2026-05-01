@@ -337,11 +337,7 @@ SELECT
 FROM journal_entries je
 LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code;
 
--- =============================================================================
--- MIGRATION: consolidate bs_category + pl_category → account_subtype
--- The UPDATE was a one-time migration; bs_category/pl_category are now gone.
--- These ALTER statements are safe no-ops if columns already exist/don't exist.
--- =============================================================================
+-- MIGRATION: add account_subtype, drop legacy bs_category and pl_category
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_subtype VARCHAR;
 ALTER TABLE accounts DROP COLUMN IF EXISTS bs_category;
 ALTER TABLE accounts DROP COLUMN IF EXISTS pl_category;

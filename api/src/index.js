@@ -328,16 +328,15 @@ async function handleSettings(ctx, action) {
 
   if (action === 'period.list') {
     const rows = await query(
-      `SELECT c.company_id, c.company_name, c.currency, p.period_name AS period_id,
-              p.start_date, p.end_date, p.locked
-       FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies) c
-       LEFT JOIN (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id, period_name ORDER BY created_at DESC) AS rn FROM periods) p
-         ON c.company_id = p.company_id AND p.rn = 1
-       WHERE c.rn = 1 AND c.company_id = @companyId
-       ORDER BY p.start_date DESC`,
+      `SELECT period_name, start_date, end_date, locked
+       FROM (
+         SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
+         FROM periods WHERE company_id = @companyId
+       ) WHERE rn = 1
+       ORDER BY start_date DESC`,
       { companyId }
     );
-    return rows.map((r) => ({ company_id: r.company_id, company_name: r.company_name, base_currency: r.currency, period_id: r.period_id || '', start_date: r.start_date || '', end_date: r.end_date || '', locked: !!r.locked }));
+    return rows.map((r) => ({ company_id: companyId, period_id: r.period_name || '', start_date: r.start_date || '', end_date: r.end_date || '', locked: !!r.locked }));
   }
 
   if (action === 'period.save') {
@@ -346,7 +345,9 @@ async function handleSettings(ctx, action) {
     const validPeriods = periods.filter((p) => p.period_id && p.start_date && p.end_date);
     if (validPeriods.length === 0) return { saved: 0 };
     const now = new Date().toISOString();
-    const rows = validPeriods.map((p) => ({ company_id: p.company_id || companyId, period_name: p.period_id, start_date: p.start_date, end_date: p.end_date, locked: !!p.locked, created_at: now, updated_at: now }));
+    const rows = validPeriods.map((p) => ({ company_id: companyId, period_name: p.period_id, start_date: p.start_date, end_date: p.end_date, locked: !!p.locked, created_at: now, updated_at: now }));
+    // DELETE + INSERT: clean replace (no row accumulation)
+    await exec(`DELETE FROM periods WHERE company_id = @companyId`, { companyId });
     await bulkInsert('periods', rows);
     return { saved: rows.length };
   }

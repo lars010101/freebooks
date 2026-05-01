@@ -1493,6 +1493,11 @@ ${commonStyle()}
   var csvRows = [];
   var headers = [];
   var processedRows = [];
+  var accountsMap = {};
+
+  fetch('/api/' + COMPANY + '/accounts')
+    .then(function(r){ return r.json(); })
+    .then(function(rows){ rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; }); });
 
   function processCSVText(text) {
     var statusEl = document.getElementById('file-status');
@@ -1652,8 +1657,10 @@ ${commonStyle()}
         +'<td>'+escHtml(orig.description)+'</td>'
         +'<td class="num" style="color:'+(amt>=0?'#2a8a2a':'#cc2222')+'">'+(amt>=0?'+':'')+fmt(Math.abs(amt))+'</td>'
         +'<td>'+matchTag+'</td>'
-        +'<td><input class="acct" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct"></td>'
-        +'<td><input class="acct" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct"></td>'
+        +'<td><input class="acct" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct" oninput="updateAcctName(this)">'
+          +'<div style="font-size:8.5pt;color:#888;margin-top:2px">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></td>'
+        +'<td><input class="acct" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" oninput="updateAcctName(this)">'
+          +'<div style="font-size:8.5pt;color:#888;margin-top:2px">'+(r.creditAccount ? (accountsMap[r.creditAccount]||'?') : '')+'</div></td>'
         +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'"></td>'
         +'</tr>';
     }).join('');
@@ -1662,6 +1669,13 @@ ${commonStyle()}
 
   function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function updateAcctName(input) {
+    var code = input.value.trim();
+    var nameDiv = input.nextElementSibling;
+    if (!nameDiv) return;
+    nameDiv.textContent = code ? (accountsMap[code] || (code.length >= 4 ? '?' : '')) : '';
+    nameDiv.style.color = (code && !accountsMap[code] && code.length >= 4) ? '#cc2222' : '#888';
+  }
 
   function postApproved() {
     var entries = [];

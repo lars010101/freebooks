@@ -349,6 +349,24 @@ CREATE TABLE IF NOT EXISTS reconciliations (
   PRIMARY KEY (company_id, batch_id, account_code)
 );
 
+-- =============================================================================
+-- vendors (master list for AP/AR)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS vendors (
+  vendor_id          VARCHAR PRIMARY KEY DEFAULT (uuid()),
+  company_id         VARCHAR NOT NULL,
+  name               VARCHAR NOT NULL,
+  default_currency   VARCHAR,
+  payment_terms_days INTEGER DEFAULT 30,
+  tax_id             VARCHAR,
+  notes              VARCHAR,
+  is_active          BOOLEAN DEFAULT TRUE,
+  created_at         TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendors_company ON vendors(company_id);
+CREATE INDEX IF NOT EXISTS idx_vendors_name ON vendors(name);
+
 -- MIGRATION: add account_subtype, drop legacy bs_category and pl_category
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_subtype VARCHAR;
 ALTER TABLE accounts DROP COLUMN IF EXISTS bs_category;

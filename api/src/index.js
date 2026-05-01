@@ -16,6 +16,7 @@ const { checkPermission } = require('./auth');
 const { handleJournal } = require('./journal');
 const { handleBank } = require('./bank');
 const { handleBills } = require('./bills');
+const { handleVendors } = require('./vendors');
 const { handleReports, mountReportRoutes } = require('./reports');
 const { handleVat } = require('./vat');
 const { handleFx } = require('./fx');
@@ -55,6 +56,9 @@ const ACTION_ROLES = {
   'center.save': 'owner',
   'journals.list': 'viewer',
   'journals.save': 'owner',
+  'vendor.list': 'viewer',
+  'vendor.save': 'owner',
+  'vendor.delete': 'owner',
   'settings.get': 'viewer',
   'settings.save': 'owner',
   'company.list': 'viewer',
@@ -101,6 +105,7 @@ async function handleApiRequest(req, res) {
       case 'journal':     result = await handleJournal(ctx, action); break;
       case 'bank':        result = await handleBank(ctx, action); break; // bank.process, bank.approve, bank.reconcile.*
       case 'bill':        result = await handleBills(ctx, action); break;
+      case 'vendor':      result = await handleVendors(ctx, action); break;
       case 'report':      result = await handleReports(ctx, action); break;
       case 'vat':         result = await handleVat(ctx, action); break;
       case 'fx':          result = await handleFx(ctx, action); break;

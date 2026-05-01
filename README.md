@@ -13,10 +13,13 @@ Open-source double-entry accounting for small companies.
 A self-hosted web application for bookkeeping and financial reporting. You run it locally; your data stays on your machine in a single DuckDB file. No cloud dependency, no subscription.
 
 Core capabilities:
-- Full double-entry bookkeeping (journal entries, bank imports)
+- Full double-entry bookkeeping (journal entries, account autocomplete, reversal UI)
+- Auto-generated journal references: `MISC/2026/00001`, `BANK/2026/00003` etc.
 - Financial statements: P&L, Balance Sheet, Cash Flow (indirect, IAS 7), SCE
 - Audit reports: Trial Balance, General Ledger, Journal, Integrity Check
 - Multi-period comparative reports (MoM, YoY by fiscal period)
+- Bank statement CSV import with rule-based auto-matching
+- Bank reconciliation with cleared/uncleared tracking
 - CSV import (COA + journal entries via CSV)
 - Multi-company support
 - Period lock enforcement
@@ -41,15 +44,16 @@ Key source files:
 | Path | Purpose |
 |---|---|
 | `api/src/index.js` | Express entry point, action routing, auth |
-| `api/src/reports.js` | Report selector UI, settings page, JV form, all HTML |
-| `api/src/journal.js` | Journal entry posting, reversal, import |
+| `api/src/reports.js` | All HTML pages: report selector, settings, JV form, bank import, reconcile |
+| `api/src/journal.js` | Journal entry posting, reversal, search, reference generation |
+| `api/src/bank.js` | Bank statement processing, approval, reconciliation |
 | `api/src/vat.js` | VAT/GST computation, VAT return |
 | `api/src/setup.js` | Company creation, COA + VAT template loading |
 | `api/src/validation.js` | Period lock + balance checks before posting |
 | `reports/render.js` | Report HTML generation (PL, BS, CF, SCE, TB, GL, etc.) |
 | `db/schema.sql` | DuckDB table definitions + migration statements |
-| `db/macros.sql` | DuckDB table macros: `pl()`, `bs()`, `cf()`, `sce()`, `tb()`, `gl()`, `journal()`, `integrity()`, `re_rollforward()` |
-| `db/init.js` | Loads schema + macros into DuckDB (run after pulling macro changes) |
+| `db/macros.sql` | DuckDB macros: `pl()`, `bs()`, `cf()`, `sce()`, `tb()`, `gl()`, `journal()`, `integrity()`, `re_rollforward()` |
+| `db/init.js` | Loads schema + macros into DuckDB; seeds default journals per company |
 | `db/import.js` | One-time CSV import (COA.csv, JOURNAL.csv, MAPPING.csv) |
 | `db/jurisdictions/` | COA + VAT code templates per jurisdiction (SG, SE) |
 
@@ -63,8 +67,8 @@ Key source files:
 git clone https://github.com/lars010101/freebooks /opt/freebooks
 cd /opt/freebooks
 npm install --prefix api
-node db/init.js          # creates ~/.freebooks/freebooks.duckdb
-node db/import.js <data-dir>   # import historical CSV data
+node db/init.js          # creates ~/.freebooks/freebooks.duckdb, seeds journals
+node db/import.js <data-dir>   # import historical CSV data (optional)
 node api/src/index.js    # start server on port 3000
 ```
 
@@ -76,7 +80,7 @@ Open http://localhost:3000
 cd /opt/freebooks && sudo git pull && node api/src/index.js
 ```
 
-### Updating (includes macro/schema changes)
+### Updating (includes schema changes)
 
 ```bash
 cd /opt/freebooks && sudo git pull && node db/init.js && node api/src/index.js
@@ -97,8 +101,10 @@ cd /opt/freebooks && sudo git pull && node db/init.js && node api/src/index.js
 |---|---|
 | `/` | Company list + New Company button |
 | `/:company` | Report selector |
-| `/:company/settings` | Settings (Periods, Company, COA, Tax Codes tabs) |
-| `/:company/journal/new` | New journal entry form |
+| `/:company/settings` | Settings (6 tabs: Periods, Company, COA, Tax Codes, Journals, Bank Mappings) |
+| `/:company/journal/new` | New journal entry form (with reversal mode) |
+| `/:company/bank/import` | Bank statement CSV import |
+| `/:company/bank/reconcile` | Bank reconciliation |
 | `/:company/report?type=...` | Rendered report |
 | `/setup/new-company` | New company wizard |
 | `/api/admin/query` | Debug SQL endpoint (POST) |
@@ -111,19 +117,29 @@ All actions use `{ action, companyId, ...body }` request format. Response: `{ ok
 
 | Action | Description |
 |---|---|
-| `journal.post` | Post a journal entry batch |
+| `journal.post` | Post a journal entry batch (accepts `journalId` for auto-reference) |
 | `journal.reverse` | Reverse a posted batch |
 | `journal.list` | List journal entries |
 | `journal.import` | Bulk import journal lines |
+| `journal.search` | Search batches by reference or description |
+| `journal.get` | Get all lines for a batch |
+| `journals.list` | List journals for a company |
+| `journals.save` | Upsert a journal |
+| `bank.process` | Apply mapping rules to bank rows, return matched/unmatched |
+| `bank.approve` | Post approved bank entries as journal entries |
+| `bank.reconcile.list` | Get journal entries for an account with cleared status + opening balance |
+| `bank.reconcile.clear` | Toggle cleared status for a batch |
 | `vat.codes.list` | List VAT/GST codes |
 | `vat.codes.save` | Replace all VAT/GST codes |
 | `vat.return` | Generate VAT return |
 | `company.list` | List companies |
 | `company.save` | Save/update company |
 | `period.list` | List fiscal periods |
-| `period.save` | Save/update fiscal periods |
+| `period.save` | Replace all fiscal periods (DELETE + INSERT) |
 | `coa.save` | Update chart of accounts |
 | `coa.update` | Update individual accounts |
+| `mapping.list` | List bank mapping rules |
+| `mapping.save` | Replace all bank mapping rules |
 | `setup.add_company` | Create company with COA + VAT template |
 | `settings.get` | Get company settings |
 | `settings.save` | Save company settings |
@@ -164,8 +180,21 @@ WHERE company_id = 'YOUR_COMPANY' AND account_code = '203070';
 ### Account Subtype
 `account_subtype` is the single field for section grouping in both BS and P&L reports (replaces the old `bs_category` / `pl_category` split). The macros use `COALESCE(a.account_subtype, a.account_type)` for section headers.
 
+### Journal Sequencing
+References auto-generated as `{CODE}/{YYYY}/{NNNNN}` (5-digit, per journal per year). Stored in `journals` and `journal_sequences` tables. Default journals seeded by `db/init.js`: MISC, BANK, ADJ. The JV form and bank import both let users select the journal; the server generates the next sequence number atomically.
+
+### Bank Mappings
+Each mapping rule stores one *offset account* (the non-bank side). At import time, the user provides the bank account code. Amount sign determines the entry:
+- Outflow (negative): DR offset / CR bank  
+- Inflow (positive): DR bank / CR offset
+
+Legacy rules with both debit_account and credit_account set explicitly are still honoured.
+
+### Bank Reconciliation
+Cleared entries stored in `reconciliations` table (company_id, batch_id, account_code, cleared_at). The reconcile page shows: Opening Balance (pre-period) + Period Net = Closing Book Balance, compared against the user-entered Statement Closing Balance.
+
 ### Period Locks
-The `periods.locked` boolean is enforced in `validation.js` on every journal entry post. Locked periods cannot be written to.
+The `periods.locked` boolean is enforced in `validation.js` on every journal entry post. Locked periods cannot be written to. `period.save` is a full DELETE + INSERT (no row accumulation).
 
 ### DuckDB File Lock
 DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly <file>` for read-only CLI access, or use `POST /api/admin/query` for ad-hoc queries without stopping the server.
@@ -200,14 +229,9 @@ DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly
 
 ## Remaining Work / Backlog
 
-### Input
-- [ ] Bank statement CSV import UI (upload + auto-match to bank_mappings)
-- [ ] Bank reconciliation view
-
 ### Settings & Admin
-- [ ] Bank mappings management tab in settings
 - [ ] Cost/profit centers management tab in settings
-- [ ] Period lock enforcement visible in JV form (warn when posting to a locked period before submit)
+- [ ] Period lock warning in JV form before submit
 - [ ] Simple auth (single password or token) for LAN/VPN exposure
 
 ### Reports
@@ -216,9 +240,7 @@ DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly
 - [ ] Bolagsverket / Skatteverket filing exports (SE)
 
 ### Journal Entry Form
-- [ ] Account autocomplete (type-ahead from COA)
 - [ ] Template entries (recurring journal presets)
-- [ ] Entry reversal UI (currently API-only)
 
 ### Infrastructure
 - [ ] Automatic `node db/init.js` on server start (detect schema changes)

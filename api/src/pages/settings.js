@@ -157,6 +157,103 @@ ${commonStyle()}
 </div>
 
 <script>
+// --- VENDORS ---
+function loadVendors() {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
+    .then(r => r.json())
+    .then(res => {
+      var rows = (res.data || res);
+      var tbody = document.getElementById('vendors-body');
+      tbody.innerHTML = '';
+      if (Array.isArray(rows)) rows.forEach(addVendorRow);
+    }).catch(() => {});
+}
+
+function addVendorRow(v) {
+  v = v || {};
+  var tr = document.createElement('tr');
+  tr.dataset.vendorId = v.vendor_id || '';
+  tr.innerHTML = 
+    '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:220px"></td>' +
+    '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:70px"></td>' +
+    '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:70px"></td>' +
+    '<td><input type="text" value="' + (v.tax_id||'') + '" style="width:110px"></td>' +
+    '<td><input type="text" value="' + (v.notes||'') + '" style="width:180px"></td>' +
+    '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
+    '<td><button class="btn-sm danger" onclick="deleteVendorRow(this)">✕</button></td>';
+  document.getElementById('vendors-body').appendChild(tr);
+}
+
+function deleteVendorRow(btn) {
+  var tr = btn.parentElement.parentElement;
+  var vendorId = tr.dataset.vendorId;
+  if (!vendorId) {
+    tr.remove();
+    return;
+  }
+  if (!confirm('Delete this vendor?')) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.delete', companyId: COMPANY, vendorId: vendorId }) })
+    .then(r => r.json())
+    .then(res => {
+      var d = res.data || res;
+      if (d.error) {
+        alert('Delete failed: ' + d.error);
+        return;
+      }
+      tr.remove();
+      showMsg('msg-vendors', 'Vendor deleted', false);
+    })
+    .catch(e => alert('Delete failed: ' + e.message));
+}
+
+function saveVendors() {
+// --- VENDORS TAB ---
+function loadVendors() {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
+    .then(r => r.json())
+    .then(res => {
+      var rows = (res.data || res);
+      var tbody = document.getElementById('vendors-body');
+      tbody.innerHTML = '';
+      if (Array.isArray(rows)) rows.forEach(addVendorRow);
+    }).catch(() => {});
+}
+
+function addVendorRow(v) {
+  v = v || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = 
+    '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:220px"></td>' +
+    '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:70px"></td>' +
+    '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:70px"></td>' +
+    '<td><input type="text" value="' + (v.tax_id||'') + '" style="width:110px"></td>' +
+    '<td><input type="text" value="' + (v.notes||'') + '" style="width:180px"></td>' +
+    '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
+    '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
+  document.getElementById('vendors-body').appendChild(tr);
+}
+
+function saveVendors() {
+  var rows = Array.from(document.querySelectorAll('#vendors-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input');
+    return {
+      name: inputs[0].value.trim(),
+      default_currency: inputs[1].value.trim() || null,
+      payment_terms_days: parseInt(inputs[2].value) || 30,
+      tax_id: inputs[3].value.trim() || null,
+      notes: inputs[4].value.trim() || null,
+      is_active: inputs[5].checked
+    };
+  }).filter(r => r.name);
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.save', companyId: COMPANY, vendors: rows }) })
+    .then(r => r.json())
+    .then(res => {
+      var d = res.data || res;
+      showMsg('msg-vendors', d.error || 'Saved ' + rows.length + ' vendors', !!d.error);
+      if (!d.error) loadVendors();
+    })
+    .catch(e => showMsg('msg-vendors', e.message, true));
+}
 var COMPANY = '${company}';
 var CF_OPTS = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded'];
 

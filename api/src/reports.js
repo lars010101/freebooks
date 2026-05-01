@@ -1490,29 +1490,43 @@ ${commonStyle()}
   var processedRows = [];
 
   function onFileLoad() {
+    var statusEl = document.getElementById('file-status');
+    statusEl.style.color = '#cc2222';
+    statusEl.textContent = 'Reading file…';
     var file = document.getElementById('csv-file').files[0];
-    if (!file) return;
+    if (!file) { statusEl.textContent = 'No file selected'; return; }
     var reader = new FileReader();
+    reader.onerror = function() { statusEl.textContent = 'Error reading file: ' + reader.error; };
     reader.onload = function(e) {
-      var text = e.target.result;
-      var lines = text.split(/\r?\n/).filter(l => l.trim());
-      if (lines.length < 2) { document.getElementById('file-status').textContent = 'Error: file too short or empty'; return; }
-      headers = parseCSVRow(lines[0]);
-      csvRows = lines.slice(1).map(parseCSVRow).filter(r => r.some(c => c.trim()));
-      document.getElementById('file-status').textContent = '\u2713 Loaded: ' + csvRows.length + ' rows, ' + headers.length + ' columns detected (' + headers.join(', ') + ')';
-      populateColDropdowns();
-      document.getElementById('step2').style.display = '';
-      document.getElementById('step2').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try {
+        var text = e.target.result;
+        // Try comma separator first, fall back to semicolon
+        var lines = text.split(/\r?\n/).filter(function(l) { return l.trim().length > 0; });
+        if (lines.length < 2) { statusEl.textContent = 'Error: file has fewer than 2 lines (need a header row + data)'; return; }
+        // Auto-detect delimiter: count commas vs semicolons in first line
+        var firstLine = lines[0];
+        var sep = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
+        headers = parseCSVRow(firstLine, sep);
+        csvRows = lines.slice(1).map(function(l) { return parseCSVRow(l, sep); }).filter(function(r) { return r.some(function(c) { return c.trim(); }); });
+        statusEl.style.color = '#2a8a2a';
+        statusEl.textContent = '\u2713 Loaded ' + csvRows.length + ' rows | Columns: ' + headers.join(', ');
+        populateColDropdowns();
+        document.getElementById('step2').style.display = '';
+        document.getElementById('step2').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch(err) {
+        statusEl.textContent = 'Parse error: ' + err.message;
+      }
     };
     reader.readAsText(file);
   }
 
-  function parseCSVRow(line) {
+  function parseCSVRow(line, sep) {
+    sep = sep || ',';
     var result = [], cur = '', inQ = false;
     for (var i = 0; i < line.length; i++) {
       var c = line[i];
       if (c === '"') { inQ = !inQ; }
-      else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+      else if (c === sep && !inQ) { result.push(cur.trim()); cur = ''; }
       else cur += c;
     }
     result.push(cur.trim());

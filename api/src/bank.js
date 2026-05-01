@@ -22,7 +22,7 @@ async function handleBank(ctx, action) {
 
 async function processBankStatement(ctx) {
   const { companyId, body } = ctx;
-  const { rows: bankRows } = body;
+  const { rows: bankRows, bankAccount: bodyBankAccount } = body;
 
   if (!bankRows || !Array.isArray(bankRows) || bankRows.length === 0) {
     throw Object.assign(new Error('rows array required'), { code: 'INVALID_INPUT' });
@@ -56,7 +56,7 @@ async function processBankStatement(ctx) {
     `SELECT value FROM settings WHERE company_id = @companyId AND key = 'default_bank_account'`,
     { companyId }
   );
-  const bankAccount = settingsRows.length > 0 ? settingsRows[0].value : null;
+  const bankAccount = settingsRows.length > 0 ? settingsRows[0].value : (bodyBankAccount || null);
 
   const processed = [];
   for (const row of bankRows) {

@@ -1581,15 +1581,20 @@ ${commonStyle()}
       } else {
         amount = parseFloat((row[parseInt(document.getElementById('col-amt').value)]||'').replace(/,/g,'')) || 0;
       }
-      if (!dateRaw || !desc || amount === 0) return;
+      if (deb === 0 && cred === 0 && amount === 0) return; // skip balance-only rows
       var date = normalizeDate(dateRaw);
       if (!date) return;
-      bankRows.push({ date, description: desc, amount, bankAccount: bankAcct });
+      bankRows.push({ date, description: desc || '(no description)', amount, bankAccount: bankAcct });
     });
 
-    document.getElementById('parse-status').textContent = 'Processing ' + bankRows.length + ' rows…';
+    var skipped = csvRows.length - bankRows.length;
+    if (bankRows.length === 0) {
+      document.getElementById('parse-status').textContent = 'No valid rows found (' + csvRows.length + ' rows read, all skipped). Check date column and amount columns.';
+      return;
+    }
+    document.getElementById('parse-status').textContent = 'Processing ' + bankRows.length + ' rows (' + skipped + ' skipped)…';
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'bank.process', companyId: COMPANY, rows: bankRows }) })
+      body: JSON.stringify({ action:'bank.process', companyId: COMPANY, bankAccount: bankAcct, rows: bankRows }) })
       .then(r => r.json()).then(res => {
         var d = res.data || res;
         if (res.error || d.error) { document.getElementById('parse-status').textContent = res.error || d.error; return; }
@@ -1600,15 +1605,29 @@ ${commonStyle()}
       .catch(e => { document.getElementById('parse-status').textContent = e.message; });
   }
 
+  var MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
   function normalizeDate(s) {
-    s = s.trim().replace(/[\/\.]/g, '-');
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if (!s) return null;
+    s = s.trim();
+    // Try YYYY-MM-DD
+    if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s)) return s;
+    // Try DD Mon YYYY or D Mon YYYY (e.g. 26 Mar 2026, 5 Jan 2026)
+    var m = s.match(/^([0-9]{1,2})[ \-]([A-Za-z]{3})[ \-]([0-9]{2,4})$/);
+    if (m) {
+      var mon = MONTHS[m[2].toLowerCase()];
+      if (mon) {
+        var yr = m[3].length === 2 ? '20' + m[3] : m[3];
+        return yr + '-' + String(mon).padStart(2,'0') + '-' + m[1].padStart(2,'0');
+      }
+    }
+    // Replace slashes/dots with dashes then parse
+    s = s.replace(/[\/.]/g, '-');
     var p = s.split('-');
     if (p.length === 3) {
-      if (p[0].length === 4) return s;
-      if (p[2].length === 4) return p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0');
-      if (parseInt(p[0]) > 12) return '20'+p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0');
-      return '20'+p[2]+'-'+p[0].padStart(2,'0')+'-'+p[1].padStart(2,'0');
+      if (p[0].length === 4) return s; // YYYY-MM-DD
+      if (p[2].length === 4) return p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0'); // DD-MM-YYYY
+      if (parseInt(p[0]) > 12) return '20'+p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0'); // DD-MM-YY
+      return '20'+p[2]+'-'+p[0].padStart(2,'0')+'-'+p[1].padStart(2,'0'); // MM-DD-YY
     }
     return null;
   }

@@ -80,8 +80,19 @@ async function processBankStatement(ctx) {
     if (mapping) {
       result.matchType = 'rule';
       result.matchConfidence = 'high';
-      result.debitAccount = mapping.debit_account;
-      result.creditAccount = mapping.credit_account;
+      // offset_account (stored in debit_account) is the non-bank side.
+      // Bank side is determined by amount sign.
+      const offsetAccount = mapping.debit_account;
+      const hasExplicitCredit = mapping.credit_account && mapping.credit_account !== mapping.debit_account;
+      if (hasExplicitCredit) {
+        // Legacy explicit DR/CR mapping
+        result.debitAccount = mapping.debit_account;
+        result.creditAccount = mapping.credit_account;
+      } else {
+        // Auto-assign bank side based on amount sign
+        result.debitAccount = isInflow ? bankAccount : offsetAccount;
+        result.creditAccount = isInflow ? offsetAccount : bankAccount;
+      }
       result.vatCode = mapping.vat_code;
       result.costCenter = mapping.cost_center;
       result.profitCenter = mapping.profit_center;

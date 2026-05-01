@@ -973,7 +973,7 @@ ${commonStyle()}
   <!-- BANK MAPPINGS TAB -->
   <div id="tab-mappings" class="tab-panel">
     <table class="edit-table" id="mappings-table">
-      <thead><tr><th>Pattern</th><th>Match</th><th>DR Account <small style="font-weight:400;color:#888">(outflow: expense; inflow: bank)</small></th><th>CR Account <small style="font-weight:400;color:#888">(outflow: bank; inflow: income)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <thead><tr><th>Pattern</th><th>Match</th><th>Offset Account <small style="font-weight:400;color:#888">(expense/income — bank side auto-assigned)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="mappings-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
@@ -981,8 +981,8 @@ ${commonStyle()}
       <button class="btn-primary" onclick="saveMappings()">Save</button>
       <span id="msg-mappings" class="msg"></span>
     </div>
-    <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower number = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.<br>
-    Convention: for <b>outflow</b> (payment) — DR = expense account, CR = bank account. For <b>inflow</b> (receipt) — DR = bank account, CR = income account.</p>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.<br>
+    Set the <b>offset account</b> (expense for outflows, income for inflows). The bank account is supplied at import time and assigned automatically based on the amount sign.</p>
   </div>
 
   <!-- VAT/GST CODES TAB -->
@@ -1179,11 +1179,10 @@ var MATCH_TYPES = ['contains','exact','starts_with','regex'];
 function addMappingRow(m) {
   m = m || {};
   var tr = document.createElement('tr');
-  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:120px"></td>'
+  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:140px"></td>'
     + '<td><select style="width:90px">' + MATCH_TYPES.map(t => '<option'+(t===(m.match_type||'contains')?' selected':'')+'>'+t+'</option>').join('') + '</select></td>'
-    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="101414" style="width:70px"></td>'
-    + '<td><input type="text" value="'+(m.credit_account||'')+'" placeholder="204000" style="width:70px"></td>'
-    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:140px"></td>'
+    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="600001" style="width:80px"></td>'
+    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
     + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
     + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">&times;</button></td>';
@@ -1195,10 +1194,10 @@ function saveMappings() {
     var inputs = tr.querySelectorAll('input');
     var sel = tr.querySelector('select');
     return { pattern: inputs[0].value.trim(), match_type: sel.value,
-      debit_account: inputs[1].value.trim(), credit_account: inputs[2].value.trim(),
-      description_override: inputs[3].value.trim() || null,
-      priority: parseInt(inputs[4].value||100), is_active: inputs[5].checked };
-  }).filter(m => m.pattern && m.debit_account && m.credit_account);
+      debit_account: inputs[1].value.trim(), credit_account: null,
+      description_override: inputs[2].value.trim() || null,
+      priority: parseInt(inputs[3].value||100), is_active: inputs[4].checked };
+  }).filter(m => m.pattern && m.debit_account);
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'mapping.save', companyId: COMPANY, mappings: rows }) })
     .then(r => r.json()).then(r => { var d=r.data||r; showMsg('msg-mappings', r.error||d.error||('Saved '+(d.saved||0)+' rules'), !!(r.error||d.error)); })

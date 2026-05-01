@@ -1436,11 +1436,14 @@ ${commonStyle()}
 
   <!-- Step 1: Upload -->
   <div class="step" id="step1">
-    <h3>① Select your bank statement CSV file</h3>
-    <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Most bank statement exports work. The file must have a header row with column names.</p>
-    <div style="display:flex;gap:10px;align-items:center">
-      <input type="file" id="csv-file" accept=".csv,.txt,.xls,.xlsx">
-      <button class="btn-primary" onclick="onFileLoad()">Load File →</button>
+    <h3>① Load your bank statement CSV</h3>
+    <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Open the CSV in a text editor, select all (Ctrl+A), copy (Ctrl+C), then paste below. Or use the file picker.</p>
+    <textarea id="csv-paste" rows="5" style="width:100%;font-family:monospace;font-size:9pt;padding:8px;border:1px solid #ccc;border-radius:4px;resize:vertical" placeholder="Paste CSV content here…"></textarea>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+      <button class="btn-primary" onclick="onPasteLoad()">Load Pasted CSV →</button>
+      <span style="color:#888;font-size:9.5pt">or</span>
+      <input type="file" id="csv-file" accept=".csv,.txt">
+      <button class="btn-sm" onclick="onFileLoad()">Load File</button>
     </div>
     <div id="file-status" style="margin-top:8px;font-size:10pt"></div>
   </div>
@@ -1492,34 +1495,40 @@ ${commonStyle()}
   var headers = [];
   var processedRows = [];
 
+  function processCSVText(text) {
+    var statusEl = document.getElementById('file-status');
+    try {
+      var lines = text.split(/\r?\n/).filter(function(l) { return l.trim().length > 0; });
+      if (lines.length < 2) { statusEl.style.color='#cc2222'; statusEl.textContent = 'Error: need at least a header row + 1 data row'; return; }
+      var firstLine = lines[0];
+      var sep = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
+      headers = parseCSVRow(firstLine, sep);
+      csvRows = lines.slice(1).map(function(l) { return parseCSVRow(l, sep); }).filter(function(r) { return r.some(function(c) { return c.trim(); }); });
+      statusEl.style.color = '#2a8a2a';
+      statusEl.textContent = '\u2713 Loaded ' + csvRows.length + ' rows | Columns: ' + headers.join(', ');
+      populateColDropdowns();
+      document.getElementById('step2').style.display = '';
+      document.getElementById('step2').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch(err) {
+      statusEl.style.color = '#cc2222';
+      statusEl.textContent = 'Error: ' + err.message;
+    }
+  }
+
+  function onPasteLoad() {
+    var text = document.getElementById('csv-paste').value.trim();
+    if (!text) { document.getElementById('file-status').textContent = 'Nothing pasted yet'; return; }
+    processCSVText(text);
+  }
+
   function onFileLoad() {
     var statusEl = document.getElementById('file-status');
-    statusEl.style.color = '#cc2222';
-    statusEl.textContent = 'Reading file…';
     var file = document.getElementById('csv-file').files[0];
-    if (!file) { statusEl.textContent = 'No file selected'; return; }
+    if (!file) { statusEl.style.color='#cc2222'; statusEl.textContent = 'No file selected'; return; }
+    statusEl.style.color = '#888'; statusEl.textContent = 'Reading…';
     var reader = new FileReader();
-    reader.onerror = function() { statusEl.textContent = 'Error reading file: ' + reader.error; };
-    reader.onload = function(e) {
-      try {
-        var text = e.target.result;
-        // Try comma separator first, fall back to semicolon
-        var lines = text.split(/\r?\n/).filter(function(l) { return l.trim().length > 0; });
-        if (lines.length < 2) { statusEl.textContent = 'Error: file has fewer than 2 lines (need a header row + data)'; return; }
-        // Auto-detect delimiter: count commas vs semicolons in first line
-        var firstLine = lines[0];
-        var sep = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
-        headers = parseCSVRow(firstLine, sep);
-        csvRows = lines.slice(1).map(function(l) { return parseCSVRow(l, sep); }).filter(function(r) { return r.some(function(c) { return c.trim(); }); });
-        statusEl.style.color = '#2a8a2a';
-        statusEl.textContent = '\u2713 Loaded ' + csvRows.length + ' rows | Columns: ' + headers.join(', ');
-        populateColDropdowns();
-        document.getElementById('step2').style.display = '';
-        document.getElementById('step2').scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } catch(err) {
-        statusEl.textContent = 'Parse error: ' + err.message;
-      }
-    };
+    reader.onerror = function() { statusEl.style.color='#cc2222'; statusEl.textContent = 'File read error'; };
+    reader.onload = function(e) { processCSVText(e.target.result); };
     reader.readAsText(file);
   }
 

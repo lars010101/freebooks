@@ -27,7 +27,12 @@ function loadStatements(file) {
   return fs.readFileSync(file, 'utf8')
     .split(';')
     .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('--'));
+    .filter(s => {
+      if (!s.length) return false;
+      // Strip comment lines — check if any actual SQL remains
+      const sql = s.split('\n').filter(l => !l.trim().startsWith('--')).join('\n').trim();
+      return sql.length > 0;
+    });
 }
 
 // Macros contain semicolons inside AS TABLE bodies — run the whole file as one exec

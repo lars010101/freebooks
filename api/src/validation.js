@@ -32,7 +32,9 @@ async function validateJournalBatch(companyId, lines) {
   const accountMap = new Map(accounts.map((a) => [a.account_code, a]));
 
   const periods = await query(
-    `SELECT period_name, start_date, end_date, locked FROM periods WHERE company_id = @companyId`,
+    `SELECT period_name, start_date, end_date, locked
+     FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
+           FROM periods WHERE company_id = @companyId) WHERE rn = 1`,
     { companyId }
   );
 

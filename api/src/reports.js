@@ -482,7 +482,7 @@ ${commonStyle()}
 
   <div class="header-fields">
     <label>Date <input type="date" id="entry-date"></label>
-    <label>Journal <select id="entry-journal" style="width:180px"><option value="">— loading —</option></select></label>
+    <label>Journal <select id="entry-journal" style="width:180px;height:32px;padding:4px 6px"><option value="">— loading —</option></select></label>
     <label>Description <input type="text" id="entry-desc" placeholder="e.g. Salary payment" style="width:240px"></label>
   </div>
 
@@ -717,6 +717,7 @@ ${commonStyle()}
     <div class="tab" onclick="showTab('company')">Company</div>
     <div class="tab" onclick="showTab('coa')">Chart of Accounts</div>
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes</div>
+    <div class="tab" onclick="showTab('journals')">Journals</div>
   </div>
 
   <!-- PERIODS TAB -->
@@ -757,6 +758,20 @@ ${commonStyle()}
     </div>
   </div>
 
+  <!-- JOURNALS TAB -->
+  <div id="tab-journals" class="tab-panel">
+    <table class="edit-table" id="journals-table">
+      <thead><tr><th>Code</th><th>Name</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="journals-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addJournalRow()">+ Add Journal</button>
+      <button class="btn-primary" onclick="saveJournals()">Save</button>
+      <span id="msg-journals" class="msg"></span>
+    </div>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Journal codes appear in the reference sequence (e.g. MISC/2026/0001). Codes should be short uppercase strings.</p>
+  </div>
+
   <!-- VAT/GST CODES TAB -->
   <div id="tab-vat" class="tab-panel">
     <table class="edit-table" id="vat-table">
@@ -778,7 +793,7 @@ var CF_OPTS = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonC
 
 var VAT_NAMES = { SG:'GST', SE:'VAT' };
 function showTab(t) {
-  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa','vat'][i]===t));
+  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa','vat','journals'][i]===t));
   document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('active');
 }
@@ -917,6 +932,34 @@ function saveVat() {
 }
 
 fetch('/api/'+COMPANY+'/vat-codes').then(r=>r.json()).then(rows=>{ if(Array.isArray(rows)) rows.forEach(addVatRow); });
+
+// --- JOURNALS ---
+function addJournalRow(j) {
+  j = j || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" value="'+(j.code||'')+'" placeholder="MISC" style="width:80px;text-transform:uppercase"></td>'
+    + '<td><input type="text" value="'+(j.name||'')+'" placeholder="Miscellaneous"></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(j.active!==false?' checked':'')+' ></td>'
+    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">&times;</button></td>';
+  document.getElementById('journals-body').appendChild(tr);
+}
+
+function saveJournals() {
+  var rows = Array.from(document.querySelectorAll('#journals-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input');
+    var code = inputs[0].value.trim().toUpperCase();
+    return { journal_id: COMPANY+'_'+code.toLowerCase(), code: code, name: inputs[1].value.trim(), active: inputs[2].checked };
+  }).filter(j => j.code && j.name);
+  var saves = rows.map(j => fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'journals.save', companyId: COMPANY, journal: j }) }).then(r => r.json()));
+  Promise.all(saves)
+    .then(() => showMsg('msg-journals', 'Saved '+rows.length+' journal'+(rows.length===1?'':'s'), false))
+    .catch(e => showMsg('msg-journals', e.message, true));
+}
+
+fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
+  .then(r => r.json()).then(res => { var rows = res.data||res; if(Array.isArray(rows)) rows.forEach(addJournalRow); });
 </script>
 </body>
 </html>`;

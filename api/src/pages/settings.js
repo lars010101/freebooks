@@ -1,0 +1,420 @@
+'use strict';
+const { commonStyle } = require('./common');
+
+async function handleSettingsPage(req, res) {
+  const { company } = req.params;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(buildSettingsPage(company));
+}
+
+
+function buildSettingsPage(company) {
+  const cfOptions = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded']
+    .map(v => `<option value="${v}">${v || '— none —'}</option>`).join('');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Settings — freeBooks</title>
+${commonStyle()}
+<style>
+  .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
+  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:10pt; color:#555; border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+  table.edit-table { width:100%; border-collapse:collapse; font-size:10pt; }
+  table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
+  table.edit-table td { padding:4px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  table.edit-table .ro { background:#f5f5f5; color:#888; padding:4px 6px; border-radius:3px; display:block; }
+  .field-row { display:flex; flex-direction:column; gap:4px; margin-bottom:14px; }
+  .field-row label { font-weight:600; font-size:10pt; color:#555; }
+  .field-row input[type=text], .field-row select { padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; max-width:300px; }
+  .msg { margin-top:10px; font-size:10pt; }
+  .msg.ok { color:#2a8a2a; }
+  .msg.err { color:#cc2222; }
+  .search-bar { padding:6px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; margin-bottom:12px; width:260px; }
+  .btn-sm { padding:0 14px; height:32px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm:hover { background:#e8e8e8; }
+  .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
+  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
+  button.btn-primary:hover { background:#333; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="back"><a href="/${company}">← Reports</a></div>
+  <div class="header">
+    <h1>⚙ Settings</h1>
+    <p class="sub">${company}</p>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('periods')">Periods</div>
+    <div class="tab" onclick="showTab('company')">Company</div>
+    <div class="tab" onclick="showTab('coa')">Chart of Accounts</div>
+    <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes</div>
+    <div class="tab" onclick="showTab('journals')">Journals</div>
+    <div class="tab" onclick="showTab('mappings')">Bank Mappings</div>
+    <div class="tab" onclick="showTab('vendors')">Vendors</div>
+  </div>
+
+  <!-- PERIODS TAB -->
+  <div id="tab-periods" class="tab-panel active">
+    <table class="edit-table" id="periods-table">
+      <thead><tr><th>Period Name</th><th>Start Date</th><th>End Date</th><th>Locked</th><th></th></tr></thead>
+      <tbody id="periods-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addPeriodRow()">+ Add Period</button>
+      <button class="btn-primary" onclick="savePeriods()">Save Periods</button>
+      <span id="msg-periods" class="msg"></span>
+    </div>
+  </div>
+
+  <!-- COMPANY TAB -->
+  <div id="tab-company" class="tab-panel">
+    <div class="field-row"><label>Company Name</label><input type="text" id="co-name"></div>
+    <div class="field-row"><label>Currency</label><input type="text" id="co-currency" maxlength="3" style="max-width:80px"></div>
+    <div class="field-row"><label>Jurisdiction</label><input type="text" id="co-jurisdiction" style="max-width:80px"></div>
+    <div class="field-row"><label>Tax ID</label><input type="text" id="co-taxid"></div>
+    <div class="field-row"><label>Reporting Standard</label><input type="text" id="co-standard"></div>
+    <div class="field-row"><label><input type="checkbox" id="co-vat"> VAT / GST Registered</label></div>
+    <button class="btn-primary" onclick="saveCompany()">Save</button>
+    <span id="msg-company" class="msg"></span>
+  </div>
+
+  <!-- COA TAB -->
+  <div id="tab-coa" class="tab-panel">
+    <input type="text" class="search-bar" id="coa-search" placeholder="Filter by code or name…" oninput="filterCoa()">
+    <table class="edit-table" id="coa-table">
+      <thead><tr><th>Code</th><th>Account Name</th><th>Type</th><th>Subtype</th><th>CF Category</th><th>Active</th></tr></thead>
+      <tbody id="coa-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-primary" onclick="saveCoa()">Save COA</button>
+      <span id="msg-coa" class="msg"></span>
+    </div>
+  </div>
+
+  <!-- JOURNALS TAB -->
+  <div id="tab-journals" class="tab-panel">
+    <table class="edit-table" id="journals-table">
+      <thead><tr><th>Code</th><th>Name</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="journals-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addJournalRow()">+ Add Journal</button>
+      <button class="btn-primary" onclick="saveJournals()">Save</button>
+      <span id="msg-journals" class="msg"></span>
+    </div>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Journal codes appear in the reference sequence (e.g. MISC/2026/0001). Codes should be short uppercase strings.</p>
+  </div>
+
+  <!-- BANK MAPPINGS TAB -->
+  <div id="tab-mappings" class="tab-panel">
+    <table class="edit-table" id="mappings-table">
+      <thead><tr><th>Pattern</th><th>Match</th><th>Offset Account <small style="font-weight:400;color:#888">(expense/income — bank side auto-assigned)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="mappings-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addMappingRow()">+ Add Rule</button>
+      <button class="btn-primary" onclick="saveMappings()">Save</button>
+      <span id="msg-mappings" class="msg"></span>
+    </div>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.<br>
+    Set the <b>offset account</b> (expense for outflows, income for inflows). The bank account is supplied at import time and assigned automatically based on the amount sign.</p>
+  </div>
+
+  <!-- VAT/GST CODES TAB -->
+  <div id="tab-vat" class="tab-panel">
+    <table class="edit-table" id="vat-table">
+      <thead><tr><th>Code</th><th>Description</th><th>Rate %</th><th>Input Acct</th><th>Output Acct</th><th>Report Box</th><th style="text-align:center">Rev.Chg</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="vat-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addVatRow()">+ Add Code</button>
+      <button class="btn-primary" onclick="saveVat()">Save</button>
+      <span id="msg-vat" class="msg"></span>
+    </div>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Saving replaces all codes. Existing journal entry tax tags on transactions are preserved.</p>
+  </div>
+
+  <!-- VENDORS TAB -->
+  <div id="tab-vendors" class="tab-panel">
+    <table class="edit-table" id="vendors-table">
+      <thead><tr><th>Name</th><th>Default Currency</th><th>Terms (days)</th><th>Tax ID</th><th>Notes</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="vendors-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addVendorRow()">+ Add Vendor</button>
+      <button class="btn-primary" onclick="saveVendors()">Save Vendors</button>
+      <span id="msg-vendors" class="msg"></span>
+    </div>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Vendors are used in the upcoming Bills module. Default currency and terms will auto-fill when creating bills.</p>
+  </div>
+</div>
+
+<script>
+var COMPANY = '${company}';
+var CF_OPTS = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded'];
+
+var VAT_NAMES = { SG:'GST', SE:'VAT' };
+function showTab(t) {
+  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa','vat','journals','mappings','vendors'][i]===t));
+  document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-'+t).classList.add('active');
+  if (t === 'vendors') loadVendors();
+}
+
+function showMsg(id, msg, isErr) {
+  var el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'msg ' + (isErr ? 'err' : 'ok');
+  if (!isErr) setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+// --- PERIODS ---
+function addPeriodRow(p) {
+  p = p || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" value="' + (p.period_id||'') + '" placeholder="FY2027"></td>'
+    + '<td><input type="date" value="' + (p.start_date ? p.start_date.slice(0,10) : '') + '"></td>'
+    + '<td><input type="date" value="' + (p.end_date ? p.end_date.slice(0,10) : '') + '"></td>'
+    + '<td style="text-align:center"><input type="checkbox"' + (p.locked ? ' checked' : '') + '>' + (p.locked ? ' 🔒' : '') + '</td>'
+    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
+  document.getElementById('periods-body').appendChild(tr);
+}
+
+function savePeriods() {
+  var rows = Array.from(document.querySelectorAll('#periods-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input');
+    return { company_id: COMPANY, period_id: inputs[0].value.trim(), start_date: inputs[1].value, end_date: inputs[2].value, locked: inputs[3].checked };
+  }).filter(p => p.period_id && p.start_date && p.end_date);
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'period.save', companyId: COMPANY, periods: rows }) })
+    .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-periods', r.error||d.error || ('Saved ' + (d.saved||0) + ' periods'), !!(r.error||d.error)); })
+    .catch(e => showMsg('msg-periods', e.message, true));
+}
+
+fetch('/api/' + COMPANY + '/periods').then(r => r.json()).then(rows => rows.forEach(r => addPeriodRow({ period_id: r.period_name, start_date: r.start_date ? String(r.start_date).slice(0,10) : '', end_date: r.end_date ? String(r.end_date).slice(0,10) : '', locked: r.locked })));
+
+// --- COMPANY ---
+fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
+  .then(r => r.json()).then(res => {
+    var rows = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
+    var co = rows.find(c => c.company_id === COMPANY);
+    if (co && co.jurisdiction) {
+      var vn = VAT_NAMES[co.jurisdiction] || 'Tax';
+      document.getElementById('tab-vat-label').textContent = vn + ' Codes';
+    }
+    if (!co) return;
+    document.getElementById('co-name').value = co.company_name || '';
+    document.getElementById('co-currency').value = co.base_currency || co.currency || '';
+    document.getElementById('co-jurisdiction').value = co.jurisdiction || '';
+    document.getElementById('co-taxid').value = co.tax_id || '';
+    document.getElementById('co-standard').value = co.reporting_standard || '';
+    document.getElementById('co-vat').checked = !!co.vat_registered;
+  });
+
+function saveCompany() {
+  var co = { company_id: COMPANY, company_name: document.getElementById('co-name').value,
+    base_currency: document.getElementById('co-currency').value, jurisdiction: document.getElementById('co-jurisdiction').value,
+    tax_id: document.getElementById('co-taxid').value, reporting_standard: document.getElementById('co-standard').value,
+    vat_registered: document.getElementById('co-vat').checked };
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.save', companyId: COMPANY, companies: [co] }) })
+    .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-company', r.error||d.error || 'Saved', !!(r.error||d.error)); })
+    .catch(e => showMsg('msg-company', e.message, true));
+}
+
+// --- COA ---
+var coaData = [];
+fetch('/api/' + COMPANY + '/accounts').then(r => r.json()).then(rows => {
+  coaData = rows;
+  renderCoa(rows);
+});
+
+function cfSelect(val) {
+  return '<select>' + CF_OPTS.map(o => '<option value="'+o+'"'+(o===val?' selected':'')+'>'+( o||'— none —')+'</option>').join('') + '</select>';
+}
+
+function renderCoa(rows) {
+  document.getElementById('coa-body').innerHTML = rows.map(a => '<tr data-code="'+a.account_code+'">'
+    + '<td><span class="ro">'+a.account_code+'</span></td>'
+    + '<td><input type="text" value="'+(a.account_name||'').replace(/"/g,'&quot;')+'"></td>'
+    + '<td><span class="ro">'+( a.account_type||'')+'</span></td>'
+    + '<td><input type="text" value="'+(a.account_subtype||'').replace(/"/g,'&quot;')+'"></td>'
+    + '<td>'+cfSelect(a.cf_category||'')+'</td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(a.is_active!==false?' checked':'')+'></td>'
+    + '</tr>').join('');
+}
+
+function filterCoa() {
+  var q = document.getElementById('coa-search').value.toLowerCase();
+  var filtered = q ? coaData.filter(a => (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q)) : coaData;
+  renderCoa(filtered);
+}
+
+function saveCoa() {
+  var rows = Array.from(document.querySelectorAll('#coa-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input[type=text]');
+    var sel = tr.querySelector('select');
+    var chk = tr.querySelector('input[type=checkbox]');
+    return { account_code: tr.dataset.code, account_name: inputs[0].value, account_subtype: inputs[1].value,
+      cf_category: sel ? sel.value : '', is_active: chk ? chk.checked : true };
+  });
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'coa.save', companyId: COMPANY, accounts: rows }) })
+    .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-coa', r.error||d.error || ('Saved ' + (d.saved||0) + ' accounts'), !!(r.error||d.error)); })
+    .catch(e => showMsg('msg-coa', e.message, true));
+}
+
+// --- VAT/GST CODES ---
+function addVatRow(v) {
+  v = v || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input type="text" value="'+(v.vat_code||'')+'" placeholder="SG9" style="width:70px"></td>'
+    +'<td><input type="text" value="'+(v.description||'').replace(/"/g,"&quot;")+'"></td>'
+    +'<td><input type="number" value="'+(v.rate!=null?(v.rate*100).toFixed(2):0)+'" step="0.01" min="0" max="100" style="width:65px"></td>'
+    +'<td><input type="text" value="'+(v.vat_account_input||'')+'" style="width:65px"></td>'
+    +'<td><input type="text" value="'+(v.vat_account_output||'')+'" style="width:65px"></td>'
+    +'<td><input type="text" value="'+(v.report_box||'')+'" style="width:55px"></td>'
+    +'<td style="text-align:center"><input type="checkbox"'+(v.is_reverse_charge?' checked':'')+' title="Reverse charge"></td>'
+    +'<td style="text-align:center"><input type="checkbox"'+(v.is_active!==false?' checked':'')+' title="Active"></td>'
+    +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
+  document.getElementById('vat-body').appendChild(tr);
+}
+
+function saveVat() {
+  var rows = Array.from(document.querySelectorAll('#vat-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input');
+    return { vat_code: inputs[0].value.trim(), description: inputs[1].value.trim(),
+      rate: parseFloat(inputs[2].value||0)/100, vat_account_input: inputs[3].value.trim()||null,
+      vat_account_output: inputs[4].value.trim()||null, report_box: inputs[5].value.trim()||null,
+      is_reverse_charge: inputs[6].checked, is_active: inputs[7].checked, effective_from: '2000-01-01' };
+  }).filter(v => v.vat_code);
+  if (rows.length === 0 && !confirm('No codes defined. This will delete all tax codes. Continue?')) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'vat.codes.save', companyId: COMPANY, vatCodes: rows }) })
+    .then(r => r.json())
+    .then(r => { var d=r.data||r; showMsg('msg-vat', r.error||d.error||('Saved '+(d.saved||0)+' codes'), !!(r.error||d.error)); })
+    .catch(e => showMsg('msg-vat', e.message, true));
+}
+
+fetch('/api/'+COMPANY+'/vat-codes').then(r=>r.json()).then(rows=>{ if(Array.isArray(rows)) rows.forEach(addVatRow); });
+
+// --- JOURNALS ---
+function addJournalRow(j) {
+  j = j || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" value="'+(j.code||'')+'" placeholder="MISC" style="width:80px;text-transform:uppercase"></td>'
+    + '<td><input type="text" value="'+(j.name||'')+'" placeholder="Miscellaneous"></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(j.active!==false?' checked':'')+' ></td>'
+    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">&times;</button></td>';
+  document.getElementById('journals-body').appendChild(tr);
+}
+
+function saveJournals() {
+  var rows = Array.from(document.querySelectorAll('#journals-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input');
+    var code = inputs[0].value.trim().toUpperCase();
+    return { journal_id: COMPANY+'_'+code.toLowerCase(), code: code, name: inputs[1].value.trim(), active: inputs[2].checked };
+  }).filter(j => j.code && j.name);
+  var saves = rows.map(j => fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'journals.save', companyId: COMPANY, journal: j }) }).then(r => r.json()));
+  Promise.all(saves)
+    .then(() => showMsg('msg-journals', 'Saved '+rows.length+' journal'+(rows.length===1?'':'s'), false))
+    .catch(e => showMsg('msg-journals', e.message, true));
+}
+
+fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
+  .then(r => r.json()).then(res => { var rows = res.data||res; if(Array.isArray(rows)) rows.forEach(addJournalRow); });
+
+// --- BANK MAPPINGS ---
+var MATCH_TYPES = ['contains','exact','starts_with','regex'];
+function addMappingRow(m) {
+
+// --- VENDORS ---
+function loadVendors() {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
+    .then(r => r.json())
+    .then(res => {
+      var rows = (res.data || res);
+      var tbody = document.getElementById('vendors-body');
+      tbody.innerHTML = '';
+      if (Array.isArray(rows)) rows.forEach(addVendorRow);
+    }).catch(() => {});
+}
+
+function addVendorRow(v) {
+  v = v || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = 
+    '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:220px"></td>' +
+    '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:70px"></td>' +
+    '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:70px"></td>' +
+    '<td><input type="text" value="' + (v.tax_id||'') + '" style="width:110px"></td>' +
+    '<td><input type="text" value="' + (v.notes||'') + '" style="width:180px"></td>' +
+    '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
+    '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
+  document.getElementById('vendors-body').appendChild(tr);
+}
+
+function saveVendors() {
+  var rows = Array.from(document.querySelectorAll('#vendors-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input');
+    return {
+      name: inputs[0].value.trim(),
+      default_currency: inputs[1].value.trim() || null,
+      payment_terms_days: parseInt(inputs[2].value) || 30,
+      tax_id: inputs[3].value.trim() || null,
+      notes: inputs[4].value.trim() || null,
+      is_active: inputs[5].checked
+    };
+  }).filter(r => r.name);
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.save', companyId: COMPANY, vendors: rows }) })
+    .then(r => r.json())
+    .then(res => {
+      var d = res.data || res;
+      showMsg('msg-vendors', d.error || 'Saved ' + rows.length + ' vendors', !!d.error);
+      if (!d.error) loadVendors();
+    })
+    .catch(e => showMsg('msg-vendors', e.message, true));
+}
+  m = m || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:140px"></td>'
+    + '<td><select style="width:90px">' + MATCH_TYPES.map(t => '<option'+(t===(m.match_type||'contains')?' selected':'')+'>'+t+'</option>').join('') + '</select></td>'
+    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="600001" style="width:80px"></td>'
+    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
+    + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
+    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">&times;</button></td>';
+  document.getElementById('mappings-body').appendChild(tr);
+}
+
+function saveMappings() {
+  var rows = Array.from(document.querySelectorAll('#mappings-body tr')).map(tr => {
+    var inputs = tr.querySelectorAll('input');
+    var sel = tr.querySelector('select');
+    return { pattern: inputs[0].value.trim(), match_type: sel.value,
+      debit_account: inputs[1].value.trim(), credit_account: null,
+      description_override: inputs[2].value.trim() || null,
+      priority: parseInt(inputs[3].value||100), is_active: inputs[4].checked };
+  }).filter(m => m.pattern && m.debit_account);
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'mapping.save', companyId: COMPANY, mappings: rows }) })
+    .then(r => r.json()).then(r => { var d=r.data||r; showMsg('msg-mappings', r.error||d.error||('Saved '+(d.saved||0)+' rules'), !!(r.error||d.error)); })
+    .catch(e => showMsg('msg-mappings', e.message, true));
+}
+
+fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify({ action:'mapping.list', companyId: COMPANY }) })
+  .then(r => r.json()).then(res => { var rows = res.data||res; if(Array.isArray(rows)) rows.forEach(addMappingRow); });
+</script>
+</body>
+</html>`;
+}
+
+module.exports = { handleSettingsPage };

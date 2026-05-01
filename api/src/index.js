@@ -49,6 +49,8 @@ const ACTION_ROLES = {
   'mapping.save': 'data_entry',
   'center.list': 'viewer',
   'center.save': 'owner',
+  'journals.list': 'viewer',
+  'journals.save': 'owner',
   'settings.get': 'viewer',
   'settings.save': 'owner',
   'company.list': 'viewer',
@@ -101,6 +103,7 @@ async function handleApiRequest(req, res) {
       case 'coa':         result = await handleCoa(ctx, action); break;
       case 'mapping':     result = await handleMapping(ctx, action); break;
       case 'center':      result = await handleCenter(ctx, action); break;
+      case 'journals':   result = await handleJournals(ctx, action); break;
       case 'settings':
       case 'company':
       case 'period':      result = await handleSettings(ctx, action); break;
@@ -259,6 +262,32 @@ async function handleCenter(ctx, action) {
     const rows = centers.map((c) => ({ company_id: companyId, center_id: c.center_id, center_type: c.center_type, name: c.name, is_active: c.is_active !== false }));
     if (rows.length > 0) await bulkInsert('centers', rows);
     return { saved: rows.length };
+  }
+}
+
+// --- Journals ---
+
+async function handleJournals(ctx, action) {
+  const { companyId, body } = ctx;
+
+  if (action === 'journals.list') {
+    return query(
+      `SELECT * FROM journals WHERE company_id = @companyId AND active = true ORDER BY code`,
+      { companyId }
+    );
+  }
+
+  if (action === 'journals.save') {
+    const { journal } = body;
+    if (!journal || !journal.code || !journal.name) throw Object.assign(new Error('journal.code and journal.name required'), { code: 'INVALID_INPUT' });
+    const journalId = journal.journal_id || `${companyId}_${journal.code.toLowerCase()}`;
+    await exec(
+      `INSERT INTO journals (journal_id, company_id, code, name, active)
+       VALUES (@journalId, @companyId, @code, @name, @active)
+       ON CONFLICT (journal_id) DO UPDATE SET name = @name, active = @active`,
+      { journalId, companyId, code: journal.code, name: journal.name, active: journal.active !== false }
+    );
+    return { saved: true, journalId };
   }
 }
 

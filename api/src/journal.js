@@ -17,18 +17,48 @@ const { auditLog } = require('./audit');
 
 async function handleJournal(ctx, action) {
   switch (action) {
-    case 'journal.post':   return postEntry(ctx);
+    case 'journal.post':    return postEntry(ctx);
     case 'journal.reverse': return reverseEntry(ctx);
-    case 'journal.list':   return listEntries(ctx);
-    case 'journal.import': return importEntries(ctx);
+    case 'journal.list':    return listEntries(ctx);
+    case 'journal.import':  return importEntries(ctx);
     default:
       throw Object.assign(new Error(`Unknown journal action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
 }
 
+/**
+ * Generate the next sequential reference for a journal.
+ * Format: {CODE}/{YYYY}/{NNNN}
+ * Atomically increments journal_sequences.last_seq and returns the new reference.
+ */
+async function getNextReference(companyId, journalId, year) {
+  // Upsert: insert row if missing, then increment
+  await exec(
+    `INSERT INTO journal_sequences (company_id, journal_id, year, last_seq)
+     VALUES (@companyId, @journalId, @year, 0)
+     ON CONFLICT DO NOTHING`,
+    { companyId, journalId, year }
+  );
+  await exec(
+    `UPDATE journal_sequences SET last_seq = last_seq + 1
+     WHERE company_id = @companyId AND journal_id = @journalId AND year = @year`,
+    { companyId, journalId, year }
+  );
+  const rows = await query(
+    `SELECT j.code, s.last_seq
+     FROM journal_sequences s
+     JOIN journals j ON j.journal_id = s.journal_id
+     WHERE s.company_id = @companyId AND s.journal_id = @journalId AND s.year = @year`,
+    { companyId, journalId, year }
+  );
+  if (rows.length === 0) throw new Error('Failed to generate reference');
+  const { code, last_seq } = rows[0];
+  return `${code}/${year}/${String(last_seq).padStart(4, '0')}`;
+}
+
 async function postEntry(ctx) {
   const { companyId, userEmail, body } = ctx;
-  const { lines, source = 'manual' } = body;
+  const { lines, source = 'manual', journalId } = body;
 
   if (!lines || !Array.isArray(lines) || lines.length === 0) {
     throw Object.assign(new Error('lines array required'), { code: 'INVALID_INPUT' });
@@ -66,6 +96,14 @@ async function postEntry(ctx) {
   const batchId = uuid();
   const now = new Date().toISOString();
 
+  // Generate sequential reference if a journalId was provided
+  let autoReference = null;
+  if (journalId) {
+    const entryDate = enrichedLines[0].date;
+    const year = parseInt(String(entryDate).substring(0, 4), 10);
+    autoReference = await getNextReference(companyId, journalId, year);
+  }
+
   const rows = enrichedLines.map((line) => ({
     company_id: companyId,
     entry_id: uuid(),
@@ -84,7 +122,7 @@ async function postEntry(ctx) {
     net_amount: line.net_amount,
     net_amount_home: line.net_amount_home,
     description: line.description || null,
-    reference: line.reference || null,
+    reference: autoReference || line.reference || null,
     source,
     cost_center: line.cost_center || null,
     profit_center: line.profit_center || null,
@@ -97,7 +135,7 @@ async function postEntry(ctx) {
 
   await bulkInsert('journal_entries', rows);
 
-  return { posted: true, batchId, lineCount: rows.length, warnings: validation.warnings };
+  return { posted: true, batchId, reference: autoReference, lineCount: rows.length, warnings: validation.warnings };
 }
 
 async function reverseEntry(ctx) {

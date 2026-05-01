@@ -482,7 +482,7 @@ ${commonStyle()}
 
   <div class="header-fields">
     <label>Date <input type="date" id="entry-date"></label>
-    <label>Reference <input type="text" id="entry-ref" placeholder="MISC/2025/0001" style="width:180px"></label>
+    <label>Journal <select id="entry-journal" style="width:180px"><option value="">— loading —</option></select></label>
     <label>Description <input type="text" id="entry-desc" placeholder="e.g. Salary payment" style="width:240px"></label>
   </div>
 
@@ -523,6 +523,27 @@ ${commonStyle()}
       if (!Array.isArray(rows)) return;
       vatCodes = rows.filter(v => v.is_active !== false);
       document.querySelectorAll('.tax-select').forEach(sel => populateTaxSelect(sel));
+    });
+
+  // Load journals into dropdown
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
+    .then(r => r.json())
+    .then(res => {
+      var journals = res.data || res;
+      var sel = document.getElementById('entry-journal');
+      if (!Array.isArray(journals) || journals.length === 0) {
+        sel.innerHTML = '<option value="">— no journals —</option>';
+        return;
+      }
+      sel.innerHTML = '<option value="">— select journal —</option>'
+        + journals.map(j => '<option value="'+j.journal_id+'">'+j.code+' — '+j.name+'</option>').join('');
+      // Default to MISC if available
+      var miscOpt = Array.from(sel.options).find(o => o.text.startsWith('MISC'));
+      if (miscOpt) sel.value = miscOpt.value;
+    })
+    .catch(() => {
+      document.getElementById('entry-journal').innerHTML = '<option value="">— unavailable —</option>';
     });
 
   function populateTaxSelect(sel) {
@@ -569,10 +590,11 @@ ${commonStyle()}
   }
 
   function postEntry() {
-    var date = document.getElementById('entry-date').value;
-    var ref  = document.getElementById('entry-ref').value.trim();
-    var desc = document.getElementById('entry-desc').value.trim();
+    var date      = document.getElementById('entry-date').value;
+    var journalId = document.getElementById('entry-journal').value;
+    var desc      = document.getElementById('entry-desc').value.trim();
     if (!date) { showStatus('Date is required', true); return; }
+    if (!journalId) { showStatus('Select a journal', true); return; }
 
     var lines = Array.from(document.querySelectorAll('#lines-body tr')).map(tr => ({
       date,
@@ -580,7 +602,6 @@ ${commonStyle()}
       debit:         parseFloat(tr.querySelector('.debit-input').value  || 0),
       credit:        parseFloat(tr.querySelector('.credit-input').value || 0),
       description:   tr.querySelector('.desc-input').value.trim() || desc || null,
-      reference:     ref || null,
       vat_code:      tr.querySelector('.tax-select').value || null,
     })).filter(l => l.account_code && (l.debit > 0 || l.credit > 0));
 
@@ -588,7 +609,7 @@ ${commonStyle()}
 
     document.getElementById('btn-post').disabled = true;
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'journal.post', companyId: COMPANY, lines }) })
+      body: JSON.stringify({ action:'journal.post', companyId: COMPANY, journalId, lines }) })
       .then(r => r.json())
       .then(res => {
         var d = res.data || res;
@@ -596,10 +617,9 @@ ${commonStyle()}
           showStatus((d.errors || [res.error]).join('; '), true);
           document.getElementById('btn-post').disabled = false;
         } else {
-          showStatus('Posted \u2713  Batch: ' + d.batchId, false);
+          showStatus('Posted \u2713  ' + (d.reference || d.batchId), false);
           setTimeout(() => {
             document.getElementById('lines-body').innerHTML = '';
-            document.getElementById('entry-ref').value = '';
             document.getElementById('entry-desc').value = '';
             addLine(); addLine();
             updateTotals();

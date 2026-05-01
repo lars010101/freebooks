@@ -221,6 +221,30 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 -- =============================================================================
+-- journals
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS journals (
+  journal_id VARCHAR NOT NULL,
+  company_id VARCHAR NOT NULL,
+  code       VARCHAR NOT NULL,
+  name       VARCHAR NOT NULL,
+  active     BOOLEAN NOT NULL DEFAULT true,
+  PRIMARY KEY (journal_id),
+  UNIQUE (company_id, code)
+);
+
+-- =============================================================================
+-- journal_sequences
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS journal_sequences (
+  company_id VARCHAR NOT NULL,
+  journal_id VARCHAR NOT NULL,
+  year       INTEGER NOT NULL,
+  last_seq   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (company_id, journal_id, year)
+);
+
+-- =============================================================================
 -- periods
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS periods (

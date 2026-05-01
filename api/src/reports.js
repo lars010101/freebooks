@@ -489,7 +489,7 @@ ${commonStyle()}
   <table class="jv-table">
     <thead>
       <tr>
-        <th>Account</th><th>Account Name</th><th class="num">Debit</th><th class="num">Credit</th>
+        <th>Code</th><th>Account Name</th><th class="num">Debit</th><th class="num">Credit</th>
         <th>Line Description</th><th>Tax Code</th><th></th>
       </tr>
     </thead>
@@ -552,11 +552,93 @@ ${commonStyle()}
       + vatCodes.map(v => '<option value="'+v.vat_code+'"'+(v.vat_code===current?' selected':'')+'>'+v.vat_code+' \u2014 '+v.description+'</option>').join('');
   }
 
+  // ── Account autocomplete ──────────────────────────────────────────────────
+  var acctDropdown = null;
+  var acctDropdownTarget = null;
+
+  function getAccountList() {
+    return Object.keys(accountsMap).map(code => ({ code, name: accountsMap[code] }));
+  }
+
+  function showAcctDropdown(input, matches) {
+    hideAcctDropdown();
+    if (!matches.length) return;
+    var rect = input.getBoundingClientRect();
+    var div = document.createElement('div');
+    div.id = 'acct-dd';
+    div.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;'
+      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:220px;overflow-y:auto;min-width:280px;font-size:10pt;'
+      + 'top:'+(rect.bottom+2)+'px;left:'+rect.left+'px';
+    matches.slice(0, 20).forEach(function(a) {
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:6px 10px;cursor:pointer;display:flex;gap:10px;align-items:baseline';
+      row.innerHTML = '<span style="font-weight:600;color:#333;min-width:70px">'+a.code+'</span>'
+        +'<span style="color:#666">'+a.name+'</span>';
+      row.onmousedown = function(e) {
+        e.preventDefault();
+        selectAccount(a.code, a.name, acctDropdownTarget);
+      };
+      row.onmouseover = function() { row.style.background='#f0f4ff'; };
+      row.onmouseout  = function() { row.style.background=''; };
+      div.appendChild(row);
+    });
+    document.body.appendChild(div);
+    acctDropdown = div;
+    acctDropdownTarget = input;
+  }
+
+  function hideAcctDropdown() {
+    if (acctDropdown) { acctDropdown.remove(); acctDropdown = null; }
+    acctDropdownTarget = null;
+  }
+
+  function selectAccount(code, name, input) {
+    hideAcctDropdown();
+    var tr = input.closest('tr');
+    var codeInput = tr.querySelector('.acct-input');
+    var nameInput = tr.querySelector('.acct-name-input');
+    codeInput.value = code;
+    nameInput.value = name;
+    codeInput.style.color = '';
+    nameInput.style.color = '#555';
+  }
+
+  function onCodeInput(input) {
+    var q = input.value.trim().toLowerCase();
+    if (!q) { hideAcctDropdown(); return; }
+    var matches = getAccountList().filter(a =>
+      a.code.toLowerCase().startsWith(q) || a.code.toLowerCase().includes(q)
+    ).sort((a, b) => a.code.localeCompare(b.code));
+    // Sync name field if exact match
+    var tr = input.closest('tr');
+    var nameInput = tr.querySelector('.acct-name-input');
+    if (accountsMap[input.value.trim()]) {
+      nameInput.value = accountsMap[input.value.trim()];
+      nameInput.style.color = '#555';
+    } else {
+      nameInput.value = '';
+    }
+    showAcctDropdown(input, matches);
+  }
+
+  function onNameInput(input) {
+    var q = input.value.trim().toLowerCase();
+    if (!q) { hideAcctDropdown(); return; }
+    var matches = getAccountList().filter(a => a.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    showAcctDropdown(input, matches);
+  }
+
+  document.addEventListener('click', function(e) {
+    if (acctDropdown && !acctDropdown.contains(e.target)) hideAcctDropdown();
+  });
+  // ──────────────────────────────────────────────────────────────────────────
+
   function addLine() {
     var tr = document.createElement('tr');
     tr.innerHTML =
-      '<td><input type="text" class="acct-input" onblur="lookupAccount(this)" style="width:90px" placeholder="101414"></td>'
-      +'<td><span class="acct-name" style="color:#888;font-size:9pt"></span></td>'
+      '<td><input type="text" class="acct-input" oninput="onCodeInput(this)" onblur="hideAcctDropdown()" style="width:90px" placeholder="101414"></td>'
+      +'<td><input type="text" class="acct-name-input" oninput="onNameInput(this)" onblur="hideAcctDropdown()" style="width:160px;color:#555;border:1px solid #ddd;border-radius:3px;padding:3px 6px;font-size:10pt" placeholder="search by name"></td>'
       +'<td><input type="number" class="debit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="number" class="credit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="text" class="desc-input" style="width:160px" placeholder="optional"></td>'
@@ -565,13 +647,6 @@ ${commonStyle()}
     document.getElementById('lines-body').appendChild(tr);
     populateTaxSelect(tr.querySelector('.tax-select'));
     return tr;
-  }
-
-  function lookupAccount(input) {
-    var code = input.value.trim();
-    var nameSpan = input.parentElement.parentElement.querySelector('.acct-name');
-    nameSpan.textContent = code ? (accountsMap[code] || '?') : '';
-    nameSpan.style.color = (code && !accountsMap[code]) ? '#cc2222' : '#888';
   }
 
   function updateTotals() {
@@ -604,6 +679,9 @@ ${commonStyle()}
       description:   tr.querySelector('.desc-input').value.trim() || desc || null,
       vat_code:      tr.querySelector('.tax-select').value || null,
     })).filter(l => l.account_code && (l.debit > 0 || l.credit > 0));
+    // Validate codes
+    var badCodes = lines.filter(l => !accountsMap[l.account_code]).map(l => l.account_code);
+    if (badCodes.length) { showStatus('Unknown account(s): ' + badCodes.join(', '), true); return; }
 
     if (lines.length < 2) { showStatus('At least 2 lines required', true); return; }
 

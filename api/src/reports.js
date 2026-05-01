@@ -1430,38 +1430,48 @@ ${commonStyle()}
 <div class="page">
   <div class="back" style="display:flex;justify-content:space-between;align-items:center">
     <a href="/${company}">← Reports</a>
-    <a href="/${company}/bank/reconcile">✓ Reconcile</a>
+    <a href="/${company}/bank/reconcile" style="font-size:9.5pt">✓ Go to Reconciliation</a>
   </div>
-  <div class="header"><h1>Bank Statement Import</h1><p class="sub">${company}</p></div>
+  <div class="header"><h1>Bank Statement Import</h1><p class="sub">${company} — Upload a bank statement CSV, review matched entries, then post to the BANK journal.</p></div>
 
   <!-- Step 1: Upload -->
-  <div class="step">
-    <h3>1. Upload CSV</h3>
+  <div class="step" id="step1">
+    <h3>① Select your bank statement CSV file</h3>
+    <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Most bank statement exports work. The file must have a header row with column names.</p>
     <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()">
-    <div id="col-map" style="display:none;margin-top:12px">
-      <table style="border-collapse:collapse;font-size:10pt">
-        <tr><td style="padding:4px 10px 4px 0"><b>Date column</b></td><td><select id="col-date" class="col-map"></select></td></tr>
-        <tr><td style="padding:4px 10px 4px 0"><b>Description column</b></td><td><select id="col-desc" class="col-map"></select></td></tr>
-        <tr><td style="padding:4px 10px 4px 0"><b>Amount type</b></td><td>
-          <select id="amt-type" class="col-map" onchange="toggleAmtCols()">
-            <option value="single">Single amount column</option>
-            <option value="split">Separate Debit / Credit columns</option>
-          </select>
-        </td></tr>
-        <tr id="row-single"><td style="padding:4px 10px 4px 0">Amount column</td><td><select id="col-amt" class="col-map"></select></td>
-          <td style="padding-left:10px;font-size:9pt;color:#888">positive=inflow, negative=outflow</td></tr>
-        <tr id="row-debit" style="display:none"><td style="padding:4px 10px 4px 0">Debit column (outflow)</td><td><select id="col-deb" class="col-map"></select></td></tr>
-        <tr id="row-credit" style="display:none"><td style="padding:4px 10px 4px 0">Credit column (inflow)</td><td><select id="col-cred" class="col-map"></select></td></tr>
-        <tr><td style="padding:4px 10px 4px 0"><b>Bank account</b></td><td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414"></td></tr>
-      </table>
-      <button class="btn-primary" style="margin-top:12px" onclick="parseAndProcess()">Process →</button>
-      <span id="parse-status" style="margin-left:10px;font-size:10pt"></span>
+    <div id="file-status" style="margin-top:8px;font-size:10pt;color:#2a8a2a"></div>
+  </div>
+
+  <!-- Step 2: Map columns -->
+  <div class="step" id="step2" style="display:none">
+    <h3>② Map columns &amp; set bank account</h3>
+    <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Confirm which columns contain the date, description, and amounts. Then enter the bank account code this statement is for.</p>
+    <table style="border-collapse:collapse;font-size:10pt">
+      <tr><td style="padding:5px 14px 5px 0"><b>Date column</b></td><td><select id="col-date" class="col-map"></select></td></tr>
+      <tr><td style="padding:5px 14px 5px 0"><b>Description column</b></td><td><select id="col-desc" class="col-map"></select></td></tr>
+      <tr><td style="padding:5px 14px 5px 0"><b>Amount type</b></td><td>
+        <select id="amt-type" class="col-map" onchange="toggleAmtCols()">
+          <option value="single">Single amount column (positive=inflow, negative=outflow)</option>
+          <option value="split">Separate Debit / Credit columns</option>
+        </select>
+      </td></tr>
+      <tr id="row-single"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Amount column</td><td><select id="col-amt" class="col-map"></select></td></tr>
+      <tr id="row-debit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Debit column (outflow/payment)</td><td><select id="col-deb" class="col-map"></select></td></tr>
+      <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
+      <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
+        <td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414">
+        <span style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span></td></tr>
+    </table>
+    <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
+      <button class="btn-primary" onclick="parseAndProcess()">Process rows →</button>
+      <span id="parse-status" style="font-size:10pt"></span>
     </div>
   </div>
 
-  <!-- Step 2: Review -->
+  <!-- Step 3: Review -->
   <div class="step" id="step-review" style="display:none">
-    <h3>2. Review &amp; Approve</h3>
+    <h3>③ Review &amp; Approve</h3>
+    <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Green border = rule-matched. Orange = unmatched (fill in DR/CR accounts manually). Check <b>Skip</b> to exclude a row. Then click <b>Post to Bank Journal</b>.</p>
     <div id="import-summary" style="margin-bottom:10px;font-size:10pt"></div>
     <table class="review-table">
       <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:80px">Debit</th><th style="width:80px">Credit</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
@@ -1486,11 +1496,13 @@ ${commonStyle()}
     reader.onload = function(e) {
       var text = e.target.result;
       var lines = text.split(/\r?\n/).filter(l => l.trim());
-      if (lines.length < 2) { alert('CSV too short'); return; }
+      if (lines.length < 2) { document.getElementById('file-status').textContent = 'Error: file too short or empty'; return; }
       headers = parseCSVRow(lines[0]);
       csvRows = lines.slice(1).map(parseCSVRow).filter(r => r.some(c => c.trim()));
+      document.getElementById('file-status').textContent = '\u2713 Loaded: ' + csvRows.length + ' rows, ' + headers.length + ' columns detected (' + headers.join(', ') + ')';
       populateColDropdowns();
-      document.getElementById('col-map').style.display = '';
+      document.getElementById('step2').style.display = '';
+      document.getElementById('step2').scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
     reader.readAsText(file);
   }

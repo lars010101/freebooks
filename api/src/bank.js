@@ -166,7 +166,7 @@ function matchBillRow(openBills, description, amount) {
 
 async function approveBankEntries(ctx) {
   const { companyId, userEmail, body } = ctx;
-  const { entries, newMappings = [] } = body;
+  const { entries, newMappings = [], journalId: requestedJournalId } = body;
 
   if (!entries || !Array.isArray(entries) || entries.length === 0) {
     throw Object.assign(new Error('entries array required'), { code: 'INVALID_INPUT' });
@@ -188,12 +188,15 @@ async function approveBankEntries(ctx) {
     const now = new Date().toISOString();
 
     try {
-      // Generate BANK journal reference
-      const bankJournals = await query(
-        `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'BANK' AND active = true LIMIT 1`,
-        { companyId }
-      );
-      const bankJournalId = bankJournals.length > 0 ? bankJournals[0].journal_id : null;
+      // Use journal from request, or fall back to BANK journal
+      let bankJournalId = requestedJournalId || null;
+      if (!bankJournalId) {
+        const bankJournals = await query(
+          `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'BANK' AND active = true LIMIT 1`,
+          { companyId }
+        );
+        bankJournalId = bankJournals.length > 0 ? bankJournals[0].journal_id : null;
+      }
       const year = parseInt(String(entry.date).substring(0, 4), 10);
       const reference = bankJournalId ? await getNextReference(companyId, bankJournalId, year) : null;
 

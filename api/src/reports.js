@@ -1486,8 +1486,9 @@ ${commonStyle()}
       <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:80px">Debit</th><th style="width:80px">Credit</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
       <tbody id="review-body"></tbody>
     </table>
-    <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
-      <button class="btn-primary" onclick="postApproved()">Post to Bank Journal</button>
+    <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:10pt">Journal <select id="import-journal" style="height:32px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:10pt"><option value="">— loading —</option></select></label>
+      <button class="btn-primary" onclick="postApproved()">Post to Journal</button>
       <span id="post-status" style="font-size:10pt"></span>
     </div>
   </div>
@@ -1498,10 +1499,33 @@ ${commonStyle()}
   var headers = [];
   var processedRows = [];
   var accountsMap = {};
+  var journalsList = [];
 
   fetch('/api/' + COMPANY + '/accounts')
     .then(function(r){ return r.json(); })
     .then(function(rows){ rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; }); });
+
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      journalsList = res.data || res;
+      var sel = document.getElementById('import-journal');
+      if (!Array.isArray(journalsList) || !journalsList.length) {
+        sel.innerHTML = '<option value="">— no journals —</option>'; return;
+      }
+      sel.innerHTML = journalsList.map(function(j){
+        return '<option value="'+j.journal_id+'">'+j.code+' — '+j.name+'</option>';
+      }).join('');
+      // Default to BANK journal, then first
+      var bank = journalsList.find(function(j){ return j.code === 'BANK'; });
+      if (bank) sel.value = bank.journal_id;
+      // Restore saved journal preference
+      try {
+        var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        if (saved.journalId) sel.value = saved.journalId;
+      } catch(e) {}
+    });
 
   function processCSVText(text) {
     var statusEl = document.getElementById('file-status');
@@ -1560,6 +1584,7 @@ ${commonStyle()}
       var prefs = {
         amtType: document.getElementById('amt-type').value,
         bankAcct: document.getElementById('bank-acct').value,
+        journalId: document.getElementById('import-journal').value,
         colDate: document.getElementById('col-date').selectedIndex,
         colDesc: document.getElementById('col-desc').selectedIndex,
         colAmt:  document.getElementById('col-amt').selectedIndex,
@@ -1762,9 +1787,11 @@ ${commonStyle()}
         vatCode: r.vatCode || null, billId: r.billId || null });
     });
     if (!entries.length) { document.getElementById('post-status').textContent = 'Nothing to post'; return; }
+    var journalId = document.getElementById('import-journal').value;
+    if (!journalId) { document.getElementById('post-status').textContent = 'Select a journal first'; return; }
     document.getElementById('post-status').textContent = 'Posting '+entries.length+' entries…';
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'bank.approve', companyId: COMPANY, entries }) })
+      body: JSON.stringify({ action:'bank.approve', companyId: COMPANY, journalId, entries }) })
       .then(r => r.json()).then(res => {
         var d = res.data || res;
         if (res.error || d.error) { document.getElementById('post-status').textContent = res.error||d.error; return; }

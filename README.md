@@ -44,10 +44,14 @@ Key source files:
 | Path | Purpose |
 |---|---|
 | `api/src/index.js` | Express entry point, action routing, auth |
-| `api/src/reports.js` | All HTML pages: report selector, settings, JV form, bank import, reconcile |
+| `api/src/reports.js` | Thin router — mounts all GET routes, delegates to page modules |
+| `api/src/pages/` | **Page modules** — one file per UI page (see below) |
 | `api/src/journal.js` | Journal entry posting, reversal, search, reference generation |
 | `api/src/bank.js` | Bank statement processing, approval, reconciliation |
+| `api/src/bills.js` | Accounts Payable — bill creation, void, list, match |
+| `api/src/vendors.js` | Vendor master CRUD |
 | `api/src/vat.js` | VAT/GST computation, VAT return |
+| `api/src/fx.js` | FX rate fetching, revaluation preview/posting |
 | `api/src/setup.js` | Company creation, COA + VAT template loading |
 | `api/src/validation.js` | Period lock + balance checks before posting |
 | `reports/render.js` | Report HTML generation (PL, BS, CF, SCE, TB, GL, etc.) |
@@ -56,6 +60,28 @@ Key source files:
 | `db/init.js` | Loads schema + macros into DuckDB; seeds default journals per company |
 | `db/import.js` | One-time CSV import (COA.csv, JOURNAL.csv, MAPPING.csv) |
 | `db/jurisdictions/` | COA + VAT code templates per jurisdiction (SG, SE) |
+
+### Page Modules (`api/src/pages/`)
+
+Each UI page is a self-contained module that exports one handler function. The handler receives `(req, res)` and sends server-rendered HTML.
+
+| Module | Page | Route |
+|---|---|---|
+| `common.js` | Shared CSS (`commonStyle`) + `makeQuery` helper | — |
+| `index-page.js` | Company list | `GET /` |
+| `company.js` | Report selector | `GET /:company` |
+| `settings.js` | Settings (7 tabs: Periods, Company, COA, Tax Codes, Journals, Bank Mappings, Vendors) | `GET /:company/settings` |
+| `journal-new.js` | Journal entry form (with reversal mode) | `GET /:company/journal/new` |
+| `bank-import.js` | Bank statement CSV import | `GET /:company/bank/import` |
+| `bank-reconcile.js` | Bank reconciliation | `GET /:company/bank/reconcile` |
+| `new-company.js` | New company wizard | `GET /setup/new-company` |
+| `admin.js` | Debug SQL endpoint | `POST /api/admin/query` |
+
+**Rules for new pages:**
+- Create a new file in `api/src/pages/` — never add page HTML back into `reports.js`.
+- Import `commonStyle` and/or `makeQuery` from `./common`.
+- Export the handler, then add one `require` + one `app.get()` line in `reports.js`.
+- Keep each module under ~500 lines. If a page grows beyond that, split its client-side JS into a separate file or break the page into sub-modules.
 
 ---
 

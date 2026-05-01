@@ -1438,8 +1438,11 @@ ${commonStyle()}
   <div class="step" id="step1">
     <h3>① Select your bank statement CSV file</h3>
     <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Most bank statement exports work. The file must have a header row with column names.</p>
-    <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()">
-    <div id="file-status" style="margin-top:8px;font-size:10pt;color:#2a8a2a"></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <input type="file" id="csv-file" accept=".csv,.txt,.xls,.xlsx">
+      <button class="btn-primary" onclick="onFileLoad()">Load File →</button>
+    </div>
+    <div id="file-status" style="margin-top:8px;font-size:10pt"></div>
   </div>
 
   <!-- Step 2: Map columns -->

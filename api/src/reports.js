@@ -1508,24 +1508,8 @@ ${commonStyle()}
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
     .then(function(r){ return r.json(); })
-    .then(function(res){
-      journalsList = res.data || res;
-      var sel = document.getElementById('import-journal');
-      if (!Array.isArray(journalsList) || !journalsList.length) {
-        sel.innerHTML = '<option value="">— no journals —</option>'; return;
-      }
-      sel.innerHTML = journalsList.map(function(j){
-        return '<option value="'+j.journal_id+'">'+j.code+' — '+j.name+'</option>';
-      }).join('');
-      // Default to BANK journal, then first
-      var bank = journalsList.find(function(j){ return j.code === 'BANK'; });
-      if (bank) sel.value = bank.journal_id;
-      // Restore saved journal preference
-      try {
-        var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-        if (saved.journalId) sel.value = saved.journalId;
-      } catch(e) {}
-    });
+    .then(function(res){ journalsList = res.data || res; })
+    .catch(function(){});
 
   function processCSVText(text) {
     var statusEl = document.getElementById('file-status');
@@ -1731,6 +1715,30 @@ ${commonStyle()}
         +'</tr>';
     }).join('');
     document.getElementById('step-review').style.display = '';
+    // Populate journal dropdown now that the element is visible
+    var jSel = document.getElementById('import-journal');
+    if (Array.isArray(journalsList) && journalsList.length) {
+      jSel.innerHTML = journalsList.map(function(j){
+        return '<option value="'+j.journal_id+'">'+j.code+' \u2014 '+j.name+'</option>';
+      }).join('');
+      var bank = journalsList.find(function(j){ return j.code === 'BANK'; });
+      if (bank) jSel.value = bank.journal_id;
+      try {
+        var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        if (saved.journalId) jSel.value = saved.journalId;
+      } catch(e) {}
+    } else {
+      // journals not loaded yet — retry once after short delay
+      setTimeout(function(){
+        if (Array.isArray(journalsList) && journalsList.length) {
+          jSel.innerHTML = journalsList.map(function(j){ return '<option value="'+j.journal_id+'">'+j.code+' \u2014 '+j.name+'</option>'; }).join('');
+          var b = journalsList.find(function(j){ return j.code === 'BANK'; });
+          if (b) jSel.value = b.journal_id;
+        } else {
+          jSel.innerHTML = '<option value="">— no journals found —</option>';
+        }
+      }, 800);
+    }
   }
 
   var bookBalanceBefore = null;

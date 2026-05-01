@@ -1971,14 +1971,17 @@ ${commonStyle()}
         +'<td>'+(r.description||'')+'</td>'
         +'<td class="num">'+(parseFloat(r.debit||0)?fmt(r.debit):'')+'</td>'
         +'<td class="num">'+(parseFloat(r.credit||0)?fmt(r.credit):'')+'</td>'
-        +'<td style="text-align:center"><input type="checkbox"'+(r.cleared?' checked':'')+''
-          +' onchange="toggleCleared(this,\''+r.batch_id+'\',\''+acct+'\')" ></td>'
+        +'<td style="text-align:center"><input type="checkbox"'+(r.cleared?' checked':'')+' onchange="toggleCleared(this)" ></td>'
+        // (moved to toggleCleared via data attrs)
         +'</tr>';
     }).join('');
     updateSummary();
   }
 
-  function toggleCleared(cb, batchId, accountCode) {
+  function toggleCleared(cb) {
+    var tr = cb.closest('tr');
+    var batchId = tr.dataset.batch;
+    var accountCode = tr.dataset.acct;
     var cleared = cb.checked;
     cb.disabled = true;
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},

@@ -973,7 +973,7 @@ ${commonStyle()}
   <!-- BANK MAPPINGS TAB -->
   <div id="tab-mappings" class="tab-panel">
     <table class="edit-table" id="mappings-table">
-      <thead><tr><th>Pattern</th><th>Match</th><th>Debit Acct</th><th>Credit Acct</th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <thead><tr><th>Pattern</th><th>Match</th><th>DR Account <small style="font-weight:400;color:#888">(outflow: expense; inflow: bank)</small></th><th>CR Account <small style="font-weight:400;color:#888">(outflow: bank; inflow: income)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="mappings-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
@@ -981,7 +981,8 @@ ${commonStyle()}
       <button class="btn-primary" onclick="saveMappings()">Save</button>
       <span id="msg-mappings" class="msg"></span>
     </div>
-    <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower number = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.</p>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower number = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.<br>
+    Convention: for <b>outflow</b> (payment) — DR = expense account, CR = bank account. For <b>inflow</b> (receipt) — DR = bank account, CR = income account.</p>
   </div>
 
   <!-- VAT/GST CODES TAB -->

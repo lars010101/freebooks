@@ -28,7 +28,6 @@ ${commonStyle()}
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
   button.btn-primary:hover { background:#333; }
-  #review { display:none; margin-top:20px; padding:16px; background:#f8f8f8; border-radius:6px; border:1px solid #ddd; }
   .msg { margin-top:10px; font-size:10pt; }
   .msg.err { color:#cc2222; }
 </style>
@@ -60,16 +59,8 @@ ${commonStyle()}
   <button class="btn-sm" onclick="addRow()">+ Add Period</button>
 
   <div style="margin-top:24px;display:flex;gap:12px;align-items:center">
-    <button class="btn-primary" onclick="showReview()">Review →</button>
-  </div>
-
-  <div id="review">
-    <div class="section-title" style="margin-top:0">Review</div>
-    <div id="review-content"></div>
-    <div style="margin-top:16px;display:flex;gap:12px;align-items:center">
-      <button class="btn-primary" onclick="createCompany()">Create Company</button>
-      <span id="msg" class="msg"></span>
-    </div>
+    <button class="btn-primary" id="btn-create" onclick="createCompany()">Create Company</button>
+    <span id="msg" class="msg"></span>
   </div>
 </div>
 <script>
@@ -103,36 +94,24 @@ function getPeriods() {
   }).filter(p => p.name && p.start && p.end);
 }
 
-function showReview() {
-  var co = getFields();
-  var ps = getPeriods();
-  if (!co.company_id || !co.company_name) { alert('Company ID and Name are required'); return; }
-  document.getElementById('review-content').innerHTML =
-    '<p><strong>'+co.company_name+'</strong> ('+co.company_id+')</p>'
-    +'<p>'+co.jurisdiction+' · '+co.currency+' · '+co.reporting_standard+'</p>'
-    +(co.tax_id ? '<p>Tax ID: '+co.tax_id+'</p>' : '')
-    +'<p>'+ps.length+' fiscal period(s) defined</p>'
-    +'<p style="color:#555;font-size:9pt">COA and VAT codes will be loaded from the '+co.jurisdiction+' jurisdiction template.</p>';
-  document.getElementById('review').style.display = 'block';
-}
-
 function createCompany() {
   var co = getFields();
   var ps = getPeriods();
   var msg = document.getElementById('msg');
+  document.getElementById('btn-create').disabled = true;
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'setup.add_company', companyId: co.company_id,
-      body: { company: { ...co, fy_start: ps[0]&&ps[0].start, fy_end: ps[ps.length-1]&&ps[ps.length-1].end } } }) })
+      company: { ...co, fy_start: ps[0]&&ps[0].start, fy_end: ps[ps.length-1]&&ps[ps.length-1].end } }) })
     .then(r => r.json())
     .then(d => {
-      if (d.error) { msg.textContent = d.error; msg.className = 'msg err'; return; }
+      if (d.error) { msg.textContent = d.error; msg.className = 'msg err'; document.getElementById('btn-create').disabled = false; return; }
       if (ps.length === 0) { window.location.href = '/'+co.company_id+'/settings'; return; }
       var periods = ps.map(p => ({ company_id: co.company_id, period_id: p.name, start_date: p.start, end_date: p.end, locked: false }));
       return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ action:'period.save', companyId: co.company_id, periods }) })
         .then(() => { window.location.href = '/'+co.company_id+'/settings'; });
     })
-    .catch(e => { msg.textContent = e.message; msg.className = 'msg err'; });
+    .catch(e => { msg.textContent = e.message; msg.className = 'msg err'; document.getElementById('btn-create').disabled = false; });
 }
 </script>
 </body>

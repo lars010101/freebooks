@@ -211,7 +211,7 @@ function addPeriodRow(p) {
     + '<td><input type="date" value="' + (p.start_date ? p.start_date.slice(0,10) : '') + '"></td>'
     + '<td><input type="date" value="' + (p.end_date ? p.end_date.slice(0,10) : '') + '"></td>'
     + '<td style="text-align:center"><input type="checkbox"' + (p.locked ? ' checked' : '') + '>' + (p.locked ? ' \u{1f512}' : '') + '</td>'
-    + '<td><button class="btn-sm danger" onclick="markDirty(\'periods\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
+    + '<td><button class="btn-sm danger" onclick="markDirty(\\'periods\\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
   wireDirty(tr, 'periods');
   document.getElementById('periods-body').appendChild(tr);
 }
@@ -323,7 +323,7 @@ function addVatRow(v) {
     +'<td><input type="text" value="'+(v.report_box||'')+'" style="width:55px"></td>'
     +'<td style="text-align:center"><input type="checkbox"'+(v.is_reverse_charge?' checked':'')+' title="Reverse charge"></td>'
     +'<td style="text-align:center"><input type="checkbox"'+(v.is_active!==false?' checked':'')+' title="Active"></td>'
-    +'<td><button class="btn-sm danger" onclick="markDirty(\'vat\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
+    +'<td><button class="btn-sm danger" onclick="markDirty(\\'vat\\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
   wireDirty(tr, 'vat');
   document.getElementById('vat-body').appendChild(tr);
 }
@@ -358,7 +358,7 @@ function addJournalRow(j) {
   tr.innerHTML = '<td><input type="text" value="'+(j.code||'')+'" placeholder="MISC" style="width:80px;text-transform:uppercase"></td>'
     + '<td><input type="text" value="'+(j.name||'')+'" placeholder="Miscellaneous"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(j.active!==false?' checked':'')+' ></td>'
-    + '<td><button class="btn-sm danger" onclick="markDirty(\'journals\'); this.parentElement.parentElement.remove()">&times;</button></td>';
+    + '<td><button class="btn-sm danger" onclick="markDirty(\\'journals\\'); this.parentElement.parentElement.remove()">&times;</button></td>';
   wireDirty(tr, 'journals');
   document.getElementById('journals-body').appendChild(tr);
 }
@@ -396,7 +396,7 @@ function addMappingRow(m) {
     + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
     + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
-    + '<td><button class="btn-sm danger" onclick="markDirty(\'mappings\'); this.parentElement.parentElement.remove()">&times;</button></td>';
+    + '<td><button class="btn-sm danger" onclick="markDirty(\\'mappings\\'); this.parentElement.parentElement.remove()">&times;</button></td>';
   wireDirty(tr, 'mappings');
   document.getElementById('mappings-body').appendChild(tr);
 }
@@ -447,7 +447,7 @@ function addVendorRow(v) {
     '<td><input type="text" value="' + (v.tax_id||'') + '" style="width:110px"></td>' +
     '<td><input type="text" value="' + (v.notes||'') + '" style="width:180px"></td>' +
     '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
-    '<td><button class="btn-sm danger" onclick="markDirty(\'vendors\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
+    '<td><button class="btn-sm danger" onclick="markDirty(\\'vendors\\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
   wireDirty(tr, 'vendors');
   document.getElementById('vendors-body').appendChild(tr);
 }

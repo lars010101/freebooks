@@ -7,17 +7,55 @@
  */
 
 const path = require('path');
+const fs   = require('fs');
 const Database = require('duckdb').Database;
 
-const DB_PATH = process.env.DB_PATH || path.join(require('os').homedir(), '.freebooks', 'freebooks.duckdb');
+const DB_PATH  = process.env.DB_PATH || path.join(require('os').homedir(), '.freebooks', 'freebooks.duckdb');
+const WAL_PATH = DB_PATH + '.wal';
 
 let _db = null;
+let _dbReady = null; // Promise that resolves when DB is open
 
+function _openDb() {
+  return new Promise((resolve, reject) => {
+    const db = new Database(DB_PATH, (err) => {
+      if (err) reject(err);
+      else resolve(db);
+    });
+  });
+}
+
+async function _openWithWalRecovery() {
+  try {
+    return await _openDb();
+  } catch (err) {
+    if (fs.existsSync(WAL_PATH)) {
+      console.warn(`⚠ DuckDB WAL replay failed — removing stale WAL and retrying.`);
+      console.warn(`  (${err.message.split('\n')[0]})`);
+      fs.unlinkSync(WAL_PATH);
+      return await _openDb();
+    }
+    throw err;
+  }
+}
+
+/** Returns the Database instance (sync, may throw if not yet ready). */
 function getDb() {
   if (!_db) {
+    // Kick off async open; callers that need it ready should await ensureDb().
     _db = new Database(DB_PATH);
   }
   return _db;
+}
+
+/** Ensure DB is open and WAL-recovered. Call once at startup. */
+function ensureDb() {
+  if (_dbReady) return _dbReady;
+  _dbReady = _openWithWalRecovery().then(db => {
+    _db = db;
+    return db;
+  });
+  return _dbReady;
 }
 
 /**
@@ -118,4 +156,4 @@ function bindParams(sql, params) {
   return { sql: finalSql, values };
 }
 
-module.exports = { getDb, query, exec, bulkInsert };
+module.exports = { getDb, ensureDb, query, exec, bulkInsert };

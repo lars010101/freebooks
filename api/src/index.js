@@ -21,7 +21,7 @@ const { handleReports, mountReportRoutes } = require('./reports');
 const { handleVat } = require('./vat');
 const { handleFx } = require('./fx');
 const { handleSetup } = require('./setup');
-const { query, exec, bulkInsert } = require('./db');
+const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 
 const PORT = process.env.PORT || 3000;
 
@@ -455,8 +455,36 @@ async function handleDiag(ctx, action) {
   }
 }
 
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`freeBooks API listening on port ${PORT}`);
+// Ensure DB is open (with WAL recovery) before accepting requests
+ensureDb().then(() => {
+  app.listen(PORT, '127.0.0.1', () => {
+    console.log(`freeBooks API listening on port ${PORT}`);
+  });
+}).catch(err => {
+  console.error('Fatal: could not open database:', err.message);
+  process.exit(1);
 });
+
+// Graceful shutdown — flush WAL before exit
+function shutdown(signal) {
+  console.log(`\nShutting down… (${signal})`);
+  try {
+    const db = getDb();
+    // Flush WAL before close to prevent replay issues on next open
+    db.exec('CHECKPOINT;', () => {
+      db.close(() => {
+        console.log('Database closed.');
+        process.exit(0);
+      });
+    });
+    // Fallback if close hangs
+    setTimeout(() => { console.warn('Close timed out, forcing exit.'); process.exit(1); }, 5000);
+  } catch (_) {
+    process.exit(0);
+  }
+}
+
+process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 module.exports = app;

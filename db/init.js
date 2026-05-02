@@ -19,6 +19,8 @@ const DB_PATH     = process.env.DB_PATH || path.join(process.env.HOME || '/root'
 const SCHEMA_FILE  = path.join(__dirname, 'schema.sql');
 const MACROS_FILE  = path.join(__dirname, 'macros.sql');
 
+const WAL_PATH    = DB_PATH + '.wal';
+
 const dataDir = path.dirname(DB_PATH);
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
@@ -78,7 +80,36 @@ if (API_URL) {
 } else {
   // ── Direct DB mode ──────────────────────────────────────────────────────────
   console.log(`Opening DuckDB at: ${DB_PATH}`);
-  const db = new Database(DB_PATH);
+
+  function openDb() {
+    return new Promise((resolve, reject) => {
+      const db = new Database(DB_PATH, (err) => {
+        if (err) reject(err);
+        else resolve(db);
+      });
+    });
+  }
+
+  async function openWithWalRecovery() {
+    try {
+      return await openDb();
+    } catch (err) {
+      if (fs.existsSync(WAL_PATH)) {
+        console.warn(`⚠ DuckDB failed to replay WAL — removing stale WAL and retrying.`);
+        console.warn(`  (WAL error: ${err.message.split('\n')[0]})`);
+        fs.unlinkSync(WAL_PATH);
+        return await openDb();
+      }
+      throw err;
+    }
+  }
+
+  openWithWalRecovery().then(runSchema).catch(err => {
+    console.error('Fatal: could not open database:', err.message);
+    process.exit(1);
+  });
+
+  function runSchema(db) {
 
   const DEFAULT_JOURNALS = [
     { code: 'MISC', name: 'Miscellaneous' },
@@ -113,7 +144,10 @@ if (API_URL) {
       console.log(`\nSchema applied (${statements.length} statements).`);
       seedJournals(() => {
         console.log('Default journals seeded.');
-        db.close(() => process.exit(0));
+        // Force WAL flush before close to prevent replay issues on next open
+        db.exec('CHECKPOINT;', () => {
+          db.close(() => process.exit(0));
+        });
       });
       return;
     }
@@ -128,4 +162,5 @@ if (API_URL) {
   }
 
   runNext(0);
+  } // end runSchema
 }

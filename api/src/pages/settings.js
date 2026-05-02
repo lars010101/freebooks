@@ -40,6 +40,7 @@ ${commonStyle()}
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
   button.btn-primary:hover { background:#333; }
+  button.btn-primary:disabled { background:#ccc; color:#666; cursor:not-allowed; }
 </style>
 </head>
 <body>

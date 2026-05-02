@@ -69,7 +69,7 @@ ${commonStyle()}
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <button class="btn-sm" onclick="addPeriodRow()">+ Add Period</button>
-      <button class="btn-primary" onclick="savePeriods()">Save Periods</button>
+      <button id="btn-save-periods" class="btn-primary" onclick="savePeriods()" disabled>Save</button>
       <span id="msg-periods" class="msg"></span>
     </div>
   </div>
@@ -82,7 +82,7 @@ ${commonStyle()}
     <div class="field-row"><label>Tax ID</label><input type="text" id="co-taxid"></div>
     <div class="field-row"><label>Reporting Standard</label><input type="text" id="co-standard"></div>
     <div class="field-row"><label><input type="checkbox" id="co-vat"> VAT / GST Registered</label></div>
-    <button class="btn-primary" onclick="saveCompany()">Save</button>
+    <button id="btn-save-company" class="btn-primary" onclick="saveCompany()" disabled>Save</button>
     <span id="msg-company" class="msg"></span>
   </div>
 
@@ -94,7 +94,7 @@ ${commonStyle()}
       <tbody id="coa-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <button class="btn-primary" onclick="saveCoa()">Save COA</button>
+      <button id="btn-save-coa" class="btn-primary" onclick="saveCoa()" disabled>Save</button>
       <span id="msg-coa" class="msg"></span>
     </div>
   </div>
@@ -107,7 +107,7 @@ ${commonStyle()}
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <button class="btn-sm" onclick="addJournalRow()">+ Add Journal</button>
-      <button class="btn-primary" onclick="saveJournals()">Save</button>
+      <button id="btn-save-journals" class="btn-primary" onclick="saveJournals()" disabled>Save</button>
       <span id="msg-journals" class="msg"></span>
     </div>
     <p style="margin-top:8px;font-size:9pt;color:#888">Journal codes appear in the reference sequence (e.g. MISC/2026/0001). Codes should be short uppercase strings.</p>
@@ -121,7 +121,7 @@ ${commonStyle()}
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <button class="btn-sm" onclick="addMappingRow()">+ Add Rule</button>
-      <button class="btn-primary" onclick="saveMappings()">Save</button>
+      <button id="btn-save-mappings" class="btn-primary" onclick="saveMappings()" disabled>Save</button>
       <span id="msg-mappings" class="msg"></span>
     </div>
     <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.<br>
@@ -136,7 +136,7 @@ ${commonStyle()}
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <button class="btn-sm" onclick="addVatRow()">+ Add Code</button>
-      <button class="btn-primary" onclick="saveVat()">Save</button>
+      <button id="btn-save-vat" class="btn-primary" onclick="saveVat()" disabled>Save</button>
       <span id="msg-vat" class="msg"></span>
     </div>
     <p style="margin-top:8px;font-size:9pt;color:#888">Saving replaces all codes. Existing journal entry tax tags on transactions are preserved.</p>
@@ -160,11 +160,33 @@ ${commonStyle()}
 <script>
 var COMPANY = '${company}';
 var CF_OPTS = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded'];
-
 var VAT_NAMES = { SG:'GST', SE:'VAT' };
+
+// ========== DIRTY STATE MANAGER (all tabs) ==========
+var dirtyTabs = new Set();
+function markDirty(tab) {
+  dirtyTabs.add(tab);
+  var btn = document.getElementById('btn-save-' + tab);
+  if (btn) btn.disabled = false;
+}
+function resetDirty(tab) {
+  dirtyTabs.delete(tab);
+  var btn = document.getElementById('btn-save-' + tab);
+  if (btn) btn.disabled = true;
+}
+
 function showTab(t) {
-  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['periods','company','coa','vat','journals','mappings','vendors'][i]===t));
-  document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
+  var cur = document.querySelector('.tab-panel.active');
+  if (cur) {
+    var curTab = cur.id.replace('tab-','');
+    if (dirtyTabs.has(curTab) && curTab !== t) {
+      if (!confirm('You have unsaved changes. Discard?')) return;
+      resetDirty(curTab);
+    }
+  }
+  var tabs = ['periods','company','coa','vat','journals','mappings','vendors'];
+  document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
+  document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
   if (t === 'vendors') loadVendors();
 }
@@ -173,91 +195,109 @@ function showMsg(id, msg, isErr) {
   var el = document.getElementById(id);
   el.textContent = msg;
   el.className = 'msg ' + (isErr ? 'err' : 'ok');
-  if (!isErr) setTimeout(() => { el.textContent = ''; }, 3000);
+  if (!isErr) setTimeout(function(){ el.textContent = ''; }, 3000);
 }
 
-// --- PERIODS ---
+function wireDirty(tr, tab) {
+  var els = tr.querySelectorAll('input,select');
+  els.forEach(function(el){ el.oninput = function(){ markDirty(tab); }; el.onchange = function(){ markDirty(tab); }; });
+}
+
+// ========== PERIODS ==========
 function addPeriodRow(p) {
   p = p || {};
   var tr = document.createElement('tr');
   tr.innerHTML = '<td><input type="text" value="' + (p.period_id||'') + '" placeholder="FY2027"></td>'
     + '<td><input type="date" value="' + (p.start_date ? p.start_date.slice(0,10) : '') + '"></td>'
     + '<td><input type="date" value="' + (p.end_date ? p.end_date.slice(0,10) : '') + '"></td>'
-    + '<td style="text-align:center"><input type="checkbox"' + (p.locked ? ' checked' : '') + '>' + (p.locked ? ' 🔒' : '') + '</td>'
-    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
+    + '<td style="text-align:center"><input type="checkbox"' + (p.locked ? ' checked' : '') + '>' + (p.locked ? ' \u{1f512}' : '') + '</td>'
+    + '<td><button class="btn-sm danger" onclick="markDirty(\'periods\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
+  wireDirty(tr, 'periods');
   document.getElementById('periods-body').appendChild(tr);
 }
-
+function loadPeriods() {
+  document.getElementById('periods-body').innerHTML = '';
+  fetch('/api/' + COMPANY + '/periods').then(function(r){ return r.json(); }).then(function(rows){
+    rows.forEach(function(r){ addPeriodRow({ period_id: r.period_name, start_date: r.start_date ? String(r.start_date).slice(0,10) : '', end_date: r.end_date ? String(r.end_date).slice(0,10) : '', locked: r.locked }); });
+    resetDirty('periods');
+  });
+}
 function savePeriods() {
-  var rows = Array.from(document.querySelectorAll('#periods-body tr')).map(tr => {
+  var rows = Array.from(document.querySelectorAll('#periods-body tr')).map(function(tr){
     var inputs = tr.querySelectorAll('input');
     return { company_id: COMPANY, period_id: inputs[0].value.trim(), start_date: inputs[1].value, end_date: inputs[2].value, locked: inputs[3].checked };
-  }).filter(p => p.period_id && p.start_date && p.end_date);
+  }).filter(function(p){ return p.period_id && p.start_date && p.end_date; });
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'period.save', companyId: COMPANY, periods: rows }) })
-    .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-periods', r.error||d.error || ('Saved ' + (d.saved||0) + ' periods'), !!(r.error||d.error)); })
-    .catch(e => showMsg('msg-periods', e.message, true));
+    .then(function(r){ return r.json(); }).then(function(r){ var d = r.data||r; showMsg('msg-periods', r.error||d.error || ('Saved ' + (d.saved||0) + ' periods'), !!(r.error||d.error)); if (!r.error && !d.error) resetDirty('periods'); })
+    .catch(function(e){ showMsg('msg-periods', e.message, true); });
 }
+loadPeriods();
 
-fetch('/api/' + COMPANY + '/periods').then(r => r.json()).then(rows => rows.forEach(r => addPeriodRow({ period_id: r.period_name, start_date: r.start_date ? String(r.start_date).slice(0,10) : '', end_date: r.end_date ? String(r.end_date).slice(0,10) : '', locked: r.locked })));
-
-// --- COMPANY ---
-fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
-  .then(r => r.json()).then(res => {
-    var rows = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
-    var co = rows.find(c => c.company_id === COMPANY);
-    if (co && co.jurisdiction) {
-      var vn = VAT_NAMES[co.jurisdiction] || 'Tax';
-      document.getElementById('tab-vat-label').textContent = vn + ' Codes';
-    }
-    if (!co) return;
-    document.getElementById('co-name').value = co.company_name || '';
-    document.getElementById('co-currency').value = co.base_currency || co.currency || '';
-    document.getElementById('co-jurisdiction').value = co.jurisdiction || '';
-    document.getElementById('co-taxid').value = co.tax_id || '';
-    document.getElementById('co-standard').value = co.reporting_standard || '';
-    document.getElementById('co-vat').checked = !!co.vat_registered;
-  });
-
+// ========== COMPANY ==========
+function loadCompany() {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); }).then(function(res){
+      var rows = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
+      var co = rows.find(function(c){ return c.company_id === COMPANY; });
+      if (co && co.jurisdiction) {
+        var vn = VAT_NAMES[co.jurisdiction] || 'Tax';
+        document.getElementById('tab-vat-label').textContent = vn + ' Codes';
+      }
+      if (!co) return;
+      document.getElementById('co-name').value = co.company_name || '';
+      document.getElementById('co-currency').value = co.base_currency || co.currency || '';
+      document.getElementById('co-jurisdiction').value = co.jurisdiction || '';
+      document.getElementById('co-taxid').value = co.tax_id || '';
+      document.getElementById('co-standard').value = co.reporting_standard || '';
+      document.getElementById('co-vat').checked = !!co.vat_registered;
+      ['co-name','co-currency','co-jurisdiction','co-taxid','co-standard','co-vat'].forEach(function(id){
+        var el = document.getElementById(id);
+        if (el) { el.oninput = function(){ markDirty('company'); }; el.onchange = function(){ markDirty('company'); }; }
+      });
+      resetDirty('company');
+    });
+}
 function saveCompany() {
   var co = { company_id: COMPANY, company_name: document.getElementById('co-name').value,
     base_currency: document.getElementById('co-currency').value, jurisdiction: document.getElementById('co-jurisdiction').value,
     tax_id: document.getElementById('co-taxid').value, reporting_standard: document.getElementById('co-standard').value,
     vat_registered: document.getElementById('co-vat').checked };
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.save', companyId: COMPANY, companies: [co] }) })
-    .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-company', r.error||d.error || 'Saved', !!(r.error||d.error)); })
-    .catch(e => showMsg('msg-company', e.message, true));
+    .then(function(r){ return r.json(); }).then(function(r){ var d = r.data||r; showMsg('msg-company', r.error||d.error || 'Saved', !!(r.error||d.error)); if (!r.error && !d.error) resetDirty('company'); })
+    .catch(function(e){ showMsg('msg-company', e.message, true); });
 }
+loadCompany();
 
-// --- COA ---
+// ========== COA ==========
 var coaData = [];
-fetch('/api/' + COMPANY + '/accounts').then(r => r.json()).then(rows => {
-  coaData = rows;
-  renderCoa(rows);
-});
-
-function cfSelect(val) {
-  return '<select>' + CF_OPTS.map(o => '<option value="'+o+'"'+(o===val?' selected':'')+'>'+( o||'— none —')+'</option>').join('') + '</select>';
+function loadCoa() {
+  fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
+    coaData = rows;
+    renderCoa(rows);
+    resetDirty('coa');
+  });
 }
-
+function cfSelect(val) {
+  return '<select>' + CF_OPTS.map(function(o){ return '<option value="'+o+'"'+(o===val?' selected':'')+'>'+( o||'\u2014 none \u2014')+'</option>'; }).join('') + '</select>';
+}
 function renderCoa(rows) {
-  document.getElementById('coa-body').innerHTML = rows.map(a => '<tr data-code="'+a.account_code+'">'
+  document.getElementById('coa-body').innerHTML = rows.map(function(a){ return '<tr data-code="'+a.account_code+'">'
     + '<td><span class="ro">'+a.account_code+'</span></td>'
     + '<td><input type="text" value="'+(a.account_name||'').replace(/"/g,'&quot;')+'"></td>'
     + '<td><span class="ro">'+( a.account_type||'')+'</span></td>'
     + '<td><input type="text" value="'+(a.account_subtype||'').replace(/"/g,'&quot;')+'"></td>'
     + '<td>'+cfSelect(a.cf_category||'')+'</td>'
     + '<td style="text-align:center"><input type="checkbox"'+(a.is_active!==false?' checked':'')+'></td>'
-    + '</tr>').join('');
+    + '</tr>'; }).join('');
+  Array.from(document.querySelectorAll('#coa-body tr')).forEach(function(tr){ wireDirty(tr, 'coa'); });
 }
-
 function filterCoa() {
   var q = document.getElementById('coa-search').value.toLowerCase();
-  var filtered = q ? coaData.filter(a => (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q)) : coaData;
+  var filtered = q ? coaData.filter(function(a){ return (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q); }) : coaData;
   renderCoa(filtered);
 }
-
 function saveCoa() {
-  var rows = Array.from(document.querySelectorAll('#coa-body tr')).map(tr => {
+  var rows = Array.from(document.querySelectorAll('#coa-body tr')).map(function(tr){
     var inputs = tr.querySelectorAll('input[type=text]');
     var sel = tr.querySelector('select');
     var chk = tr.querySelector('input[type=checkbox]');
@@ -265,11 +305,12 @@ function saveCoa() {
       cf_category: sel ? sel.value : '', is_active: chk ? chk.checked : true };
   });
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'coa.save', companyId: COMPANY, accounts: rows }) })
-    .then(r => r.json()).then(r => { var d = r.data||r; showMsg('msg-coa', r.error||d.error || ('Saved ' + (d.saved||0) + ' accounts'), !!(r.error||d.error)); })
-    .catch(e => showMsg('msg-coa', e.message, true));
+    .then(function(r){ return r.json(); }).then(function(r){ var d = r.data||r; showMsg('msg-coa', r.error||d.error || ('Saved ' + (d.saved||0) + ' accounts'), !!(r.error||d.error)); if (!r.error && !d.error) resetDirty('coa'); })
+    .catch(function(e){ showMsg('msg-coa', e.message, true); });
 }
+loadCoa();
 
-// --- VAT/GST CODES ---
+// ========== VAT/GST CODES ==========
 function addVatRow(v) {
   v = v || {};
   var tr = document.createElement('tr');
@@ -282,57 +323,69 @@ function addVatRow(v) {
     +'<td><input type="text" value="'+(v.report_box||'')+'" style="width:55px"></td>'
     +'<td style="text-align:center"><input type="checkbox"'+(v.is_reverse_charge?' checked':'')+' title="Reverse charge"></td>'
     +'<td style="text-align:center"><input type="checkbox"'+(v.is_active!==false?' checked':'')+' title="Active"></td>'
-    +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
+    +'<td><button class="btn-sm danger" onclick="markDirty(\'vat\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
+  wireDirty(tr, 'vat');
   document.getElementById('vat-body').appendChild(tr);
 }
-
+function loadVat() {
+  document.getElementById('vat-body').innerHTML = '';
+  fetch('/api/'+COMPANY+'/vat-codes').then(function(r){ return r.json(); }).then(function(rows){
+    if (Array.isArray(rows)) rows.forEach(addVatRow);
+    resetDirty('vat');
+  });
+}
 function saveVat() {
-  var rows = Array.from(document.querySelectorAll('#vat-body tr')).map(tr => {
+  var rows = Array.from(document.querySelectorAll('#vat-body tr')).map(function(tr){
     var inputs = tr.querySelectorAll('input');
     return { vat_code: inputs[0].value.trim(), description: inputs[1].value.trim(),
       rate: parseFloat(inputs[2].value||0)/100, vat_account_input: inputs[3].value.trim()||null,
       vat_account_output: inputs[4].value.trim()||null, report_box: inputs[5].value.trim()||null,
       is_reverse_charge: inputs[6].checked, is_active: inputs[7].checked, effective_from: '2000-01-01' };
-  }).filter(v => v.vat_code);
+  }).filter(function(v){ return v.vat_code; });
   if (rows.length === 0 && !confirm('No codes defined. This will delete all tax codes. Continue?')) return;
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'vat.codes.save', companyId: COMPANY, vatCodes: rows }) })
-    .then(r => r.json())
-    .then(r => { var d=r.data||r; showMsg('msg-vat', r.error||d.error||('Saved '+(d.saved||0)+' codes'), !!(r.error||d.error)); })
-    .catch(e => showMsg('msg-vat', e.message, true));
+    .then(function(r){ return r.json(); })
+    .then(function(r){ var d=r.data||r; showMsg('msg-vat', r.error||d.error||('Saved '+(d.saved||0)+' codes'), !!(r.error||d.error)); if (!r.error && !d.error) resetDirty('vat'); })
+    .catch(function(e){ showMsg('msg-vat', e.message, true); });
 }
+loadVat();
 
-fetch('/api/'+COMPANY+'/vat-codes').then(r=>r.json()).then(rows=>{ if(Array.isArray(rows)) rows.forEach(addVatRow); });
-
-// --- JOURNALS ---
+// ========== JOURNALS ==========
 function addJournalRow(j) {
   j = j || {};
   var tr = document.createElement('tr');
   tr.innerHTML = '<td><input type="text" value="'+(j.code||'')+'" placeholder="MISC" style="width:80px;text-transform:uppercase"></td>'
     + '<td><input type="text" value="'+(j.name||'')+'" placeholder="Miscellaneous"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(j.active!==false?' checked':'')+' ></td>'
-    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">&times;</button></td>';
+    + '<td><button class="btn-sm danger" onclick="markDirty(\'journals\'); this.parentElement.parentElement.remove()">&times;</button></td>';
+  wireDirty(tr, 'journals');
   document.getElementById('journals-body').appendChild(tr);
 }
-
+function loadJournals() {
+  document.getElementById('journals-body').innerHTML = '';
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); }).then(function(res){
+      var rows = res.data||res;
+      if (Array.isArray(rows)) rows.forEach(addJournalRow);
+      resetDirty('journals');
+    });
+}
 function saveJournals() {
-  var rows = Array.from(document.querySelectorAll('#journals-body tr')).map(tr => {
+  var rows = Array.from(document.querySelectorAll('#journals-body tr')).map(function(tr){
     var inputs = tr.querySelectorAll('input');
     var code = inputs[0].value.trim().toUpperCase();
     return { journal_id: COMPANY+'_'+code.toLowerCase(), code: code, name: inputs[1].value.trim(), active: inputs[2].checked };
-  }).filter(j => j.code && j.name);
-  var saves = rows.map(j => fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'journals.save', companyId: COMPANY, journal: j }) }).then(r => r.json()));
+  }).filter(function(j){ return j.code && j.name; });
+  var saves = rows.map(function(j){ return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'journals.save', companyId: COMPANY, journal: j }) }).then(function(r){ return r.json(); }); });
   Promise.all(saves)
-    .then(() => showMsg('msg-journals', 'Saved '+rows.length+' journal'+(rows.length===1?'':'s'), false))
-    .catch(e => showMsg('msg-journals', e.message, true));
+    .then(function(){ showMsg('msg-journals', 'Saved '+rows.length+' journal'+(rows.length===1?'':'s'), false); resetDirty('journals'); })
+    .catch(function(e){ showMsg('msg-journals', e.message, true); });
 }
+loadJournals();
 
-fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-  body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
-  .then(r => r.json()).then(res => { var rows = res.data||res; if(Array.isArray(rows)) rows.forEach(addJournalRow); });
-
-// --- BANK MAPPINGS ---
+// ========== BANK MAPPINGS ==========
 var MATCH_TYPES = ['contains','exact','starts_with','regex'];
 function addMappingRow(m) {
   m = m || {};
@@ -343,51 +396,63 @@ function addMappingRow(m) {
     + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
     + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
-    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">&times;</button></td>';
+    + '<td><button class="btn-sm danger" onclick="markDirty(\'mappings\'); this.parentElement.parentElement.remove()">&times;</button></td>';
+  wireDirty(tr, 'mappings');
   document.getElementById('mappings-body').appendChild(tr);
 }
-
-// --- VENDORS ---
-function markVendorsDirty() {
-  var btn = document.getElementById('btn-save-vendors');
-  if (btn) btn.disabled = false;
+function loadMappings() {
+  document.getElementById('mappings-body').innerHTML = '';
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mapping.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); }).then(function(res){
+      var rows = res.data||res;
+      if (Array.isArray(rows)) rows.forEach(addMappingRow);
+      resetDirty('mappings');
+    });
 }
+function saveMappings() {
+  var rows = Array.from(document.querySelectorAll('#mappings-body tr')).map(function(tr){
+    var inputs = tr.querySelectorAll('input');
+    var sel = tr.querySelector('select');
+    return { pattern: inputs[0].value.trim(), match_type: sel.value,
+      debit_account: inputs[1].value.trim(), credit_account: null,
+      description_override: inputs[2].value.trim() || null,
+      priority: parseInt(inputs[3].value||100), is_active: inputs[4].checked };
+  }).filter(function(m){ return m.pattern && m.debit_account; });
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'mapping.save', companyId: COMPANY, mappings: rows }) })
+    .then(function(r){ return r.json(); }).then(function(r){ var d=r.data||r; showMsg('msg-mappings', r.error||d.error||('Saved '+(d.saved||0)+' rules'), !!(r.error||d.error)); if (!r.error && !d.error) resetDirty('mappings'); })
+    .catch(function(e){ showMsg('msg-mappings', e.message, true); });
+}
+loadMappings();
 
+// ========== VENDORS ==========
 function loadVendors() {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
-    .then(r => r.json())
-    .then(res => {
+    .then(function(r){ return r.json(); })
+    .then(function(res){
       var rows = (res.data || res);
       var tbody = document.getElementById('vendors-body');
       tbody.innerHTML = '';
       if (Array.isArray(rows)) rows.forEach(addVendorRow);
-      var btn = document.getElementById('btn-save-vendors');
-      if (btn) btn.disabled = true;
-    }).catch(() => {});
+      resetDirty('vendors');
+    }).catch(function(){});
 }
-
 function addVendorRow(v) {
   v = v || {};
   var tr = document.createElement('tr');
-  tr.innerHTML = 
+  tr.innerHTML =
     '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:220px"></td>' +
     '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:70px"></td>' +
     '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:70px"></td>' +
     '<td><input type="text" value="' + (v.tax_id||'') + '" style="width:110px"></td>' +
     '<td><input type="text" value="' + (v.notes||'') + '" style="width:180px"></td>' +
     '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
-    '<td><button class="btn-sm danger" onclick="markVendorsDirty(); this.parentElement.parentElement.remove()">✕</button></td>';
-  var inputs = tr.querySelectorAll('input,select');
-  inputs.forEach(el => {
-    el.oninput = markVendorsDirty;
-    el.onchange = markVendorsDirty;
-  });
+    '<td><button class="btn-sm danger" onclick="markDirty(\'vendors\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
+  wireDirty(tr, 'vendors');
   document.getElementById('vendors-body').appendChild(tr);
-  markVendorsDirty();
 }
-
 function saveVendors() {
-  var rows = Array.from(document.querySelectorAll('#vendors-body tr')).map(tr => {
+  var rows = Array.from(document.querySelectorAll('#vendors-body tr')).map(function(tr){
     var inputs = tr.querySelectorAll('input');
     return {
       name: inputs[0].value.trim(),
@@ -397,40 +462,26 @@ function saveVendors() {
       notes: inputs[4].value.trim() || null,
       is_active: inputs[5].checked
     };
-  }).filter(r => r.name);
+  }).filter(function(r){ return r.name; });
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.save', companyId: COMPANY, vendors: rows }) })
-    .then(r => r.json())
-    .then(res => {
+    .then(function(r){ return r.json(); })
+    .then(function(res){
       var d = res.data || res;
       showMsg('msg-vendors', d.error || 'Saved ' + rows.length + ' vendors', !!d.error);
-      if (!d.error) {
-        loadVendors();
-        var btn = document.getElementById('btn-save-vendors');
-        if (btn) btn.disabled = true;
-      }
+      if (!d.error) loadVendors();
     })
-    .catch(e => showMsg('msg-vendors', e.message, true));
+    .catch(function(e){ showMsg('msg-vendors', e.message, true); });
 }
 
+// ========== UNSAVED CHANGES PROTECTION ==========
+window.onbeforeunload = function(e) {
+  if (dirtyTabs.size > 0) {
+    var msg = 'You have unsaved changes.';
+    e.returnValue = msg;
+    return msg;
+  }
+};
 
-function saveMappings() {
-  var rows = Array.from(document.querySelectorAll('#mappings-body tr')).map(tr => {
-    var inputs = tr.querySelectorAll('input');
-    var sel = tr.querySelector('select');
-    return { pattern: inputs[0].value.trim(), match_type: sel.value,
-      debit_account: inputs[1].value.trim(), credit_account: null,
-      description_override: inputs[2].value.trim() || null,
-      priority: parseInt(inputs[3].value||100), is_active: inputs[4].checked };
-  }).filter(m => m.pattern && m.debit_account);
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'mapping.save', companyId: COMPANY, mappings: rows }) })
-    .then(r => r.json()).then(r => { var d=r.data||r; showMsg('msg-mappings', r.error||d.error||('Saved '+(d.saved||0)+' rules'), !!(r.error||d.error)); })
-    .catch(e => showMsg('msg-mappings', e.message, true));
-}
-
-fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-  body: JSON.stringify({ action:'mapping.list', companyId: COMPANY }) })
-  .then(r => r.json()).then(res => { var rows = res.data||res; if(Array.isArray(rows)) rows.forEach(addMappingRow); });
 </script>
 </body>
 </html>`;

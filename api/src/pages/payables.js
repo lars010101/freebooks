@@ -117,11 +117,11 @@ ${commonStyle()}
     <h3 style="font-size:10pt;color:#555;font-weight:600;margin:20px 0 8px">Expense Lines</h3>
     <table style="width:100%;border-collapse:collapse;font-size:10pt">
       <thead><tr>
-        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 6px;font-size:9pt;color:#555;text-transform:uppercase">Code</th>
-        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 6px;font-size:9pt;color:#555;text-transform:uppercase">Account</th>
-        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 6px;font-size:9pt;color:#555;text-transform:uppercase">Description</th>
-        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 6px;font-size:9pt;color:#555;text-transform:uppercase">Amount</th>
-        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 6px;font-size:9pt;color:#555;text-transform:uppercase">VAT</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">Code</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase">Account</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase">Description</th>
+        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">Amount</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">VAT</th>
       </tr></thead>
       <tbody id="m-lines-tbody"></tbody>
     </table>
@@ -227,11 +227,10 @@ function renderBills(rows) {
   var html = '';
   rows.forEach(function(b){
     var badge = statusBadge(b.status, b.due_date);
-    var dueDisp = b.due_date || '\u2014';
     var descDisp = (b.description || '').substring(0, 60);
     html += '<tr>' +
-      '<td>' + (b.date || '') + '</td>' +
-      '<td>' + dueDisp + '</td>' +
+      '<td>' + (b.date ? String(b.date).slice(0,10) : '') + '</td>' +
+      '<td>' + (b.due_date ? String(b.due_date).slice(0,10) : '\u2014') + '</td>' +
       '<td>' + esc(b.vendor || '') + '</td>' +
       '<td>' + esc(descDisp) + '</td>' +
       '<td>' + (b.currency || '') + '</td>' +
@@ -271,8 +270,8 @@ function viewBill(billId) {
   if (!bill) return;
   document.getElementById('m-vendor').textContent = bill.vendor || '';
   document.getElementById('m-ref').textContent = bill.vendor_ref || '\u2014';
-  document.getElementById('m-date').textContent = bill.date || '';
-  document.getElementById('m-due').textContent = bill.due_date || '\u2014';
+  document.getElementById('m-date').textContent = bill.date ? String(bill.date).slice(0,10) : '';
+  document.getElementById('m-due').textContent = bill.due_date ? String(bill.due_date).slice(0,10) : '\u2014';
   document.getElementById('m-currency').textContent = bill.currency || '';
   document.getElementById('m-amount').textContent = Number(bill.amount||0).toFixed(2);
   document.getElementById('m-status').innerHTML = statusBadge(bill.status, bill.due_date);
@@ -293,9 +292,13 @@ function viewBill(billId) {
       }
       var html = '';
       lines.forEach(function(l){
-        html += '<tr><td>' + esc(l.account_code||'') + '</td><td>' + esc(l.account_name||'') + '</td>'
-          + '<td>' + esc(l.description||'') + '</td><td style="text-align:right">' + Number(l.amount||0).toFixed(2) + '</td>'
-          + '<td>' + esc(l.vat_code||'') + '</td></tr>';
+        html += '<tr>'
+          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + esc(l.account_code||'') + '</td>'
+          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + esc(l.account_name||'') + '</td>'
+          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + esc(l.description||'') + '</td>'
+          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + Number(l.amount||0).toFixed(2) + '</td>'
+          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#555">' + esc(l.vat_code||'') + '</td>'
+          + '</tr>';
       });
       document.getElementById('m-lines-tbody').innerHTML = html;
     })

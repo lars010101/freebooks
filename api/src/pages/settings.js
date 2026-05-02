@@ -457,9 +457,11 @@ function addVendorRow(v) {
 function loadVendorAccounts() {
   fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
     vendorAccountsList = Array.isArray(rows) ? rows : [];
+    console.log('vendorAccountsList loaded:', vendorAccountsList.length);
   }).catch(function(e){ console.error('loadVendorAccounts failed:', e); });
 }
 function vendorAcctInput(input) {
+  if (!vendorAccountsList.length) { loadVendorAccounts(); }
   vendorAcctActiveInput = input;
   var q = input.value.trim().toLowerCase();
   var dd = document.getElementById('vendor-acct-dd');

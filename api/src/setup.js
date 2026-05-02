@@ -160,7 +160,22 @@ async function addCompany(ctx) {
     { company_id: company.company_id, key: 'backup_destination', value: 'none', updated_at: now },
   ]);
 
-  return { created: true, companyId: company.company_id, accountsInserted, vatCodesInserted };
+  // Seed default journals
+  const DEFAULT_JOURNALS = [
+    { journal_id: 'MISC', journal_name: 'Miscellaneous', is_active: true },
+    { journal_id: 'BANK', journal_name: 'Bank',          is_active: true },
+    { journal_id: 'ADJ',  journal_name: 'Adjustments',   is_active: true },
+    { journal_id: 'AP',   journal_name: 'Accounts Payable', is_active: true },
+  ];
+  await bulkInsert('journals', DEFAULT_JOURNALS.map(j => ({
+    company_id: company.company_id,
+    journal_id: j.journal_id,
+    journal_name: j.journal_name,
+    is_active: j.is_active,
+    created_at: now,
+  })));
+
+  return { created: true, companyId: company.company_id, accountsInserted, vatCodesInserted, journalsInserted: DEFAULT_JOURNALS.length };
 }
 
 module.exports = { handleSetup };

@@ -10,6 +10,7 @@
 
 const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
+const { getNextReference } = require('./journal');
 const { validateBill } = require('./validation');
 const { computeVatSplit } = require('./vat');
 
@@ -111,6 +112,8 @@ async function createBill(ctx) {
   }
 
   const batchId = uuid();
+  const year = new Date(bill.date).getFullYear();
+  const apRef = await getNextReference(companyId, 'AP', year).catch(() => bill.vendor_ref || null);
   const lines = [];
   const desc = [bill.vendor, bill.vendor_ref, bill.description].filter(Boolean).join(' / ');
 
@@ -125,17 +128,17 @@ async function createBill(ctx) {
       lineVat = split.vatAmount;
 
       // VAT entry
-      lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: split.inputAccount, debit: lineVat, credit: 0, currency, fx_rate: fxRate, debit_home: lineVat * fxRate, credit_home: 0, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: 0, net_amount_home: 0, description: `VAT: ${bill.vendor}`, reference: bill.vendor_ref || null, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+      lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: split.inputAccount, debit: lineVat, credit: 0, currency, fx_rate: fxRate, debit_home: lineVat * fxRate, credit_home: 0, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: 0, net_amount_home: 0, description: `VAT: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
       if (split.isReverseCharge) {
-        lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: split.outputAccount, debit: 0, credit: lineVat, currency, fx_rate: fxRate, debit_home: 0, credit_home: lineVat * fxRate, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: 0, net_amount_home: 0, description: `Output VAT RC: ${bill.vendor}`, reference: bill.vendor_ref || null, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+        lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: split.outputAccount, debit: 0, credit: lineVat, currency, fx_rate: fxRate, debit_home: 0, credit_home: lineVat * fxRate, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: 0, net_amount_home: 0, description: `Output VAT RC: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
       }
     }
     const lineDesc = expLine.description ? `${desc} / ${expLine.description}` : desc;
-    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: expLine.expense_account, debit: lineNet, credit: 0, currency, fx_rate: fxRate, debit_home: lineNet * fxRate, credit_home: 0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: lineDesc, reference: bill.vendor_ref || null, source: 'manual', cost_center: bill.cost_center || null, profit_center: bill.profit_center || null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: expLine.expense_account, debit: lineNet, credit: 0, currency, fx_rate: fxRate, debit_home: lineNet * fxRate, credit_home: 0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: lineDesc, reference: apRef, source: 'manual', cost_center: bill.cost_center || null, profit_center: bill.profit_center || null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
   }
 
   // Single CR AP line for total
-  lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: bill.ap_account, debit: 0, credit: totalAmount, currency, fx_rate: fxRate, debit_home: 0, credit_home: totalAmount * fxRate, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, description: `AP: ${desc}`, reference: bill.vendor_ref || null, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+  lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: bill.ap_account, debit: 0, credit: totalAmount, currency, fx_rate: fxRate, debit_home: 0, credit_home: totalAmount * fxRate, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, description: `AP: ${desc}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
 
   await bulkInsert('journal_entries', lines);
   await bulkInsert('bills', [{ ...billRow, status: 'posted', amount_paid: 0 }]);

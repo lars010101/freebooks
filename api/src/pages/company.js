@@ -130,7 +130,7 @@ ${commonStyle()}
     <a href="/${co.company_id}/settings">⚙ Settings</a>
     <a href="/${co.company_id}/journal/new">✏ New Entry</a>
     <a href="/${co.company_id}/bank/import">🏦 Bank Import</a>
-    <a href="/${co.company_id}/bill/new">📄 New Bill</a>
+    <a href="/${co.company_id}/payables">📋 Payables</a>
     <a href="/${co.company_id}/bank/reconcile">✓ Reconcile</a>
   </div>
   <div class="header">

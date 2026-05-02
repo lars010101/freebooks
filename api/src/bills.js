@@ -19,6 +19,7 @@ async function handleBills(ctx, action) {
     case 'bill.void':   return voidBill(ctx);
     case 'bill.list':   return listBills(ctx);
     case 'bill.match':  return matchBill(ctx);
+    case 'bill.lines':  return getBillLines(ctx);
     default:
       throw Object.assign(new Error(`Unknown bill action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -178,13 +179,14 @@ async function voidBill(ctx) {
 
 async function listBills(ctx) {
   const { companyId, body } = ctx;
-  const { status, vendor, dateFrom, dateTo, limit = 200, offset = 0 } = body;
+  const { status, vendor, description, dateFrom, dateTo, limit = 200, offset = 0 } = body;
 
   let sql = `SELECT * FROM bills WHERE company_id = @companyId`;
   const params = { companyId };
 
   if (status) { sql += ` AND status = @status`; params.status = status; }
   if (vendor) { sql += ` AND UPPER(vendor) LIKE '%' || UPPER(@vendor) || '%'`; params.vendor = vendor; }
+  if (description) { sql += ` AND UPPER(description) LIKE '%' || UPPER(@description) || '%'`; params.description = description; }
   if (dateFrom) { sql += ` AND date >= @dateFrom`; params.dateFrom = dateFrom; }
   if (dateTo) { sql += ` AND date <= @dateTo`; params.dateTo = dateTo; }
 
@@ -214,6 +216,21 @@ async function matchBill(ctx) {
   sql += ` ORDER BY date DESC LIMIT 10`;
 
   return query(sql, params);
+}
+
+async function getBillLines(ctx) {
+  const { companyId, body } = ctx;
+  const { billId } = body;
+  if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
+  return query(
+    `SELECT je.account_code, a.account_name, je.description, je.debit as amount, je.vat_code
+     FROM journal_entries je
+     LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+     WHERE je.company_id = @companyId AND je.bill_id = @billId AND je.debit > 0
+       AND je.account_code != (SELECT ap_account FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1)
+     ORDER BY je.created_at`,
+    { companyId, billId }
+  );
 }
 
 module.exports = { handleBills };

@@ -99,7 +99,7 @@ ${commonStyle()}
       <!-- Bill Date -->
       <div class="form-group">
         <label>Bill Date *</label>
-        <input type="date" id="bill-date">
+        <input type="date" id="bill-date" onchange="recalcDueDate()">
         <div class="err" id="err-date">Date is required</div>
       </div>
       <!-- Due Date -->
@@ -201,8 +201,14 @@ ${commonStyle()}
   // Set default dates
   var today = new Date().toISOString().slice(0, 10);
   document.getElementById('bill-date').value = today;
-  var due = new Date(); due.setDate(due.getDate() + 30);
-  document.getElementById('due-date').value = due.toISOString().slice(0, 10);
+  var currentTermsDays = 30;
+  function recalcDueDate() {
+    var bd = document.getElementById('bill-date').value;
+    if (!bd) return;
+    var d = new Date(bd); d.setDate(d.getDate() + currentTermsDays);
+    document.getElementById('due-date').value = d.toISOString().slice(0, 10);
+  }
+  recalcDueDate();
 
   // Add first line on load
   addLine();
@@ -253,6 +259,11 @@ ${commonStyle()}
   }
 
   function autoFillVendor(v) {
+    // Payment terms → recalc due date
+    if (v.payment_terms_days) {
+      currentTermsDays = parseInt(v.payment_terms_days) || 30;
+      recalcDueDate();
+    }
     // Currency
     if (v.default_currency) {
       document.getElementById('currency').value = v.default_currency;
@@ -590,10 +601,10 @@ ${commonStyle()}
     document.getElementById('vendor-id-input').value = '';
     document.getElementById('vendor-ref').value = '';
     document.getElementById('description').value = '';
+    currentTermsDays = 30;
     var today2 = new Date().toISOString().slice(0,10);
     document.getElementById('bill-date').value = today2;
-    var due2 = new Date(); due2.setDate(due2.getDate() + 30);
-    document.getElementById('due-date').value = due2.toISOString().slice(0,10);
+    recalcDueDate();
     document.getElementById('lines-body').innerHTML = '';
     lineCounter = 0;
     addLine();

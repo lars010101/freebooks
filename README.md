@@ -20,6 +20,8 @@ Core capabilities:
 - Multi-period comparative reports (MoM, YoY by fiscal period)
 - Bank statement CSV import with rule-based auto-matching
 - Bank reconciliation with cleared/uncleared tracking
+- Accounts Payable: vendor master, multi-line bill entry (auto-generates DR Expense / CR AP journal)
+- Bank import: manual bill allocation — link any import row to an open bill
 - CSV import (COA + journal entries via CSV)
 - Multi-company support
 - Period lock enforcement
@@ -44,7 +46,10 @@ Key source files:
 | Path | Purpose |
 |---|---|
 | `api/src/index.js` | Express entry point, action routing, auth |
-| `api/src/reports.js` | All HTML pages: report selector, settings, JV form, bank import, reconcile |
+| `api/src/reports.js` | Thin router — mounts page modules from `api/src/pages/` |
+| `api/src/bills.js` | Accounts Payable: bill creation (multi-line), void, list, match |
+| `api/src/vendors.js` | Vendor master CRUD |
+| `api/src/pages/` | Page modules (one file per UI page; new pages go here, never back into reports.js) |
 | `api/src/journal.js` | Journal entry posting, reversal, search, reference generation |
 | `api/src/bank.js` | Bank statement processing, approval, reconciliation |
 | `api/src/vat.js` | VAT/GST computation, VAT return |
@@ -86,7 +91,9 @@ cd /opt/freebooks && sudo git pull && node api/src/index.js
 cd /opt/freebooks && sudo git pull && node db/init.js && node api/src/index.js
 ```
 
-`node db/init.js` is idempotent — safe to always run on update.
+Note: `node db/init.js` must be run with the server stopped. If the server is running, use `node db/init.js --via-server` instead (applies migrations through the server's existing DB connection, avoids WAL conflict).
+
+The server handles SIGINT/SIGTERM (Ctrl+C) gracefully — checkpoints DuckDB before exit to prevent stale WAL files.
 
 ### Owner's deployment
 
@@ -101,8 +108,9 @@ cd /opt/freebooks && sudo git pull && node db/init.js && node api/src/index.js
 |---|---|
 | `/` | Company list + New Company button |
 | `/:company` | Report selector |
-| `/:company/settings` | Settings (6 tabs: Periods, Company, COA, Tax Codes, Journals, Bank Mappings) |
+| `/:company/settings` | Settings (7 tabs: Periods, Company, COA, Tax Codes, Journals, Bank Mappings, Vendors) |
 | `/:company/journal/new` | New journal entry form (with reversal mode) |
+| `/:company/bill/new` | Enter Bill form — vendor autocomplete, multi-line expenses, auto-generates AP journal entry |
 | `/:company/bank/import` | Bank statement CSV import |
 | `/:company/bank/reconcile` | Bank reconciliation |
 | `/:company/report?type=...` | Rendered report |
@@ -117,6 +125,13 @@ All actions use `{ action, companyId, ...body }` request format. Response: `{ ok
 
 | Action | Description |
 |---|---|
+| `bill.create` | Create bill + post journal (DR Expense lines / CR AP); accepts `lines[]` array for multi-line |
+| `bill.void` | Void bill + auto-reverse journal |
+| `bill.list` | List bills with filters (status, vendor, date range) |
+| `bill.match` | Find open bills matching amount/vendor/date for bank import allocation |
+| `vendor.list` | List vendors with defaults (currency, terms, expense account, AP account) |
+| `vendor.save` | Replace all vendors for company |
+| `vendor.delete` | Delete a single vendor |
 | `journal.post` | Post a journal entry batch (accepts `journalId` for auto-reference) |
 | `journal.reverse` | Reverse a posted batch |
 | `journal.list` | List journal entries |
@@ -192,6 +207,26 @@ Legacy rules with both debit_account and credit_account set explicitly are still
 
 ### Bank Reconciliation
 Cleared entries stored in `reconciliations` table (company_id, batch_id, account_code, cleared_at). The reconcile page shows: Opening Balance (pre-period) + Period Net = Closing Book Balance, compared against the user-entered Statement Closing Balance.
+
+## Vendor Master
+
+Stored in the `vendors` table. Fields: name, default currency, payment terms (days), default expense account, default AP account.
+
+Accessible via Settings → Vendors tab. Defaults auto-fill the Enter Bill form when a vendor is selected:
+- Currency → bill currency field
+- Terms(d) → due date = bill date + terms
+- Default Expense Account → first expense line
+- Default AP Account → AP account field
+
+## Enter Bill (`/:company/bill/new`)
+
+Form for creating vendor bills. Generates a balanced journal entry on submit:
+- One DR line per expense line (expense account, amount, VAT if applicable)
+- One CR line for AP account (total amount)
+
+Supports multi-line bills (multiple expense accounts per invoice). VAT computed via `computeVatSplit()`. Bill stored in `bills` table with status `posted`.
+
+Due date auto-calculates from bill date + vendor terms (default 30 days). Changing the bill date recalculates due date automatically.
 
 ### Period Locks
 The `periods.locked` boolean is enforced in `validation.js` on every journal entry post. Locked periods cannot be written to. `period.save` is a full DELETE + INSERT (no row accumulation).

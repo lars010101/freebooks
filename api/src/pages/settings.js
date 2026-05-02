@@ -234,6 +234,7 @@ function savePeriods() {
     .catch(function(e){ showMsg('msg-periods', e.message, true); });
 }
 loadPeriods();
+loadVendorAccounts(); // preload accounts for vendor autocomplete
 
 // ========== COMPANY ==========
 function loadCompany() {
@@ -454,10 +455,9 @@ function addVendorRow(v) {
   document.getElementById('vendors-body').appendChild(tr);
 }
 function loadVendorAccounts() {
-  if (vendorAccountsList.length > 0) return;
   fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
     vendorAccountsList = Array.isArray(rows) ? rows : [];
-  }).catch(function(){});
+  }).catch(function(e){ console.error('loadVendorAccounts failed:', e); });
 }
 function vendorAcctInput(input) {
   vendorAcctActiveInput = input;

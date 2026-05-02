@@ -125,8 +125,7 @@ function renderReport(rows, asOf) {
       totals[b.bucket] = (totals[b.bucket] || 0) + bal;
       totals.total += bal;
     });
-    var vendorKey = vendor.replace(/'/g,"\\'");
-    html += '<tr class="vendor-row" onclick="toggleDetails(\'' + vendorKey + '\')">'
+    html += '<tr class="vendor-row" data-vendor-key="' + esc(vendor) + '" onclick="toggleDetails(this.dataset.vendorKey)">'
       + '<td>▶ ' + esc(vendor) + '</td>'
       + '<td>' + fmt(vt.current) + '</td>'
       + '<td>' + fmt(vt['1_30']) + '</td>'
@@ -168,6 +167,7 @@ function renderReport(rows, asOf) {
 }
 
 function toggleDetails(vendor) {
+  // vendor is passed as a string (either from data-vendor-key or direct call)
   var key = btoa(vendor);
   var header = document.getElementById('dh-' + key);
   if (!header) return;

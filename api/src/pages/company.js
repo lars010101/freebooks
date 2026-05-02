@@ -94,7 +94,7 @@ function buildCompanyPage(co, periods) {
   ).join('\n');
   const auditButtons = AUDIT_REPORTS.map(r => {
     if (r.href) {
-      return `<a class="report-btn" href="/${co.company_id}/payables/aging" style="text-decoration:none">${r.label}</a>`;
+      return `<a class="report-btn" href="/${co.company_id}/payables/aging" style="text-decoration:none;display:inline-block;padding:6px 14px;border:1px solid #ccc;border-radius:4px;background:#f5f5f5;font-size:10pt;cursor:pointer">${r.label}</a>`;
     }
     return `<button class="report-btn" onclick="setReport('${r.id}')">${r.label}</button>`;
   }).join('\n');
@@ -109,10 +109,11 @@ ${commonStyle()}
   .controls { display: flex; flex-direction: column; gap: 16px; }
   .control-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .label { font-weight: 600; font-size: 10pt; min-width: 155px; color: #555; }
-  button { cursor: pointer; padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px;
+  button, a.report-btn { cursor: pointer; padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px;
            background: #f5f5f5; font-size: 10pt; }
   button.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
-  button:hover:not(.active) { background: #e8e8e8; }
+  button:hover:not(.active), a.report-btn:hover { background: #e8e8e8; }
+  a.report-btn { color: inherit; }
   input[type=date], select { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 10pt; min-height: 34px; }
   .actions { margin-top: 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   a.btn-primary { display: inline-block; padding: 10px 24px; background: #1a1a1a; color: #fff;

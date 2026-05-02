@@ -203,6 +203,7 @@ function doSearch() {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
     .then(function(r){ return r.json(); })
     .then(function(res){
+      if (res.error) { showTableMsg('Error: ' + res.error); return; }
       var rows = res.data || res || [];
       if (!Array.isArray(rows)) rows = [];
       if (!isNaN(amtVal) && amtVal > 0) {

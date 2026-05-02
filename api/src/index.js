@@ -40,6 +40,8 @@ const ACTION_ROLES = {
   'bill.void': 'data_entry',
   'bill.list': 'viewer',
   'bill.match': 'viewer',
+  'bill.lines': 'viewer',
+  'bill.aging': 'viewer',
   'report.refresh_ap_aging': 'viewer',
   'report.refresh_vat_return': 'viewer',
   'coa.list': 'viewer',

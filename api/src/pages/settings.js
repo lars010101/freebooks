@@ -334,6 +334,17 @@ fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'
 // --- BANK MAPPINGS ---
 var MATCH_TYPES = ['contains','exact','starts_with','regex'];
 function addMappingRow(m) {
+  m = m || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:140px"></td>'
+    + '<td><select style="width:90px">' + MATCH_TYPES.map(function(t){ return '<option'+(t===(m.match_type||'contains')?' selected':'')+'>'+t+'</option>'; }).join('') + '</select></td>'
+    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="600001" style="width:80px"></td>'
+    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
+    + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
+    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">&times;</button></td>';
+  document.getElementById('mappings-body').appendChild(tr);
+}
 
 // --- VENDORS ---
 function loadVendors() {
@@ -382,17 +393,7 @@ function saveVendors() {
     })
     .catch(e => showMsg('msg-vendors', e.message, true));
 }
-  m = m || {};
-  var tr = document.createElement('tr');
-  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:140px"></td>'
-    + '<td><select style="width:90px">' + MATCH_TYPES.map(t => '<option'+(t===(m.match_type||'contains')?' selected':'')+'>'+t+'</option>').join('') + '</select></td>'
-    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="600001" style="width:80px"></td>'
-    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
-    + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
-    + '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">&times;</button></td>';
-  document.getElementById('mappings-body').appendChild(tr);
-}
+
 
 function saveMappings() {
   var rows = Array.from(document.querySelectorAll('#mappings-body tr')).map(tr => {

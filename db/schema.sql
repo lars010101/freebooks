@@ -371,3 +371,7 @@ CREATE INDEX IF NOT EXISTS idx_vendors_name ON vendors(name);
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_subtype VARCHAR;
 ALTER TABLE accounts DROP COLUMN IF EXISTS bs_category;
 ALTER TABLE accounts DROP COLUMN IF EXISTS pl_category;
+
+-- MIGRATION: vendor default expense and AP accounts
+ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
+ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;

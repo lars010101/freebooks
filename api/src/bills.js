@@ -30,7 +30,18 @@ async function createBill(ctx) {
 
   if (!bill) throw Object.assign(new Error('bill object required'), { code: 'INVALID_INPUT' });
 
-  const validation = await validateBill(companyId, bill);
+  // Pre-resolve lines for validation (amount + expense_account needed by validateBill)
+  const _preLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)
+    ? bill.lines
+    : [{ expense_account: bill.expense_account, amount: bill.amount, vat_code: bill.vat_code, description: bill.description }];
+  const _preTotal = _preLines.reduce((s, l) => s + Number(l.amount || 0), 0);
+  const billForValidation = {
+    ...bill,
+    amount: bill.amount || _preTotal,
+    expense_account: bill.expense_account || (_preLines[0] && _preLines[0].expense_account),
+  };
+
+  const validation = await validateBill(companyId, billForValidation);
   if (!validation.valid) return { created: false, errors: validation.errors, warnings: validation.warnings };
 
   const companies = await query(
@@ -41,9 +52,17 @@ async function createBill(ctx) {
   const currency = bill.currency || company.currency;
   const fxRate = currency === company.currency ? 1.0 : (bill.fx_rate || 1.0);
 
-  let vatAmount = 0, netAmount = bill.amount;
-  if (bill.vat_code && company.vat_registered) {
-    const split = await computeVatSplit(companyId, bill.vat_code, bill.amount);
+  // Resolve expense lines: multi-line or legacy single-line
+  const expenseLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)
+    ? bill.lines
+    : [{ expense_account: bill.expense_account, amount: bill.amount, vat_code: bill.vat_code, description: bill.description }];
+  const totalAmount = expenseLines.reduce((s, l) => s + Number(l.amount || 0), 0);
+
+  // Compute VAT on first line (or aggregate) for legacy compat
+  let vatAmount = 0, netAmount = totalAmount;
+  const firstVatCode = expenseLines[0].vat_code;
+  if (firstVatCode && company.vat_registered) {
+    const split = await computeVatSplit(companyId, firstVatCode, totalAmount);
     vatAmount = split.vatAmount;
     netAmount = split.netAmount;
   }
@@ -58,13 +77,13 @@ async function createBill(ctx) {
     vendor_ref: bill.vendor_ref || null,
     date: bill.date,
     due_date: bill.due_date,
-    amount: bill.amount,
+    amount: totalAmount,
     currency,
     fx_rate: fxRate,
-    amount_home: bill.amount * fxRate,
-    expense_account: bill.expense_account,
+    amount_home: totalAmount * fxRate,
+    expense_account: expenseLines[0].expense_account,
     ap_account: bill.ap_account,
-    vat_code: bill.vat_code || null,
+    vat_code: firstVatCode || null,
     vat_amount: vatAmount,
     net_amount: netAmount,
     cost_center: bill.cost_center || null,
@@ -75,13 +94,13 @@ async function createBill(ctx) {
   };
 
   if (payment_batch_id) {
-    await bulkInsert('bills', [{ ...billRow, status: 'paid', amount_paid: bill.amount }]);
+    await bulkInsert('bills', [{ ...billRow, status: 'paid', amount_paid: totalAmount }]);
     await bulkInsert('bill_payments', [{
       company_id: companyId,
       payment_id: uuid(),
       bill_id: billId,
       batch_id: payment_batch_id,
-      amount: bill.amount,
+      amount: totalAmount,
       date: bill.date,
       method: 'bank_match',
       created_at: now,
@@ -93,17 +112,28 @@ async function createBill(ctx) {
   const lines = [];
   const desc = [bill.vendor, bill.vendor_ref, bill.description].filter(Boolean).join(' / ');
 
-  lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: bill.expense_account, debit: netAmount, credit: 0, currency, fx_rate: fxRate, debit_home: netAmount * fxRate, credit_home: 0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: netAmount, net_amount_home: netAmount * fxRate, description: desc, reference: bill.vendor_ref || null, source: 'manual', cost_center: bill.cost_center || null, profit_center: bill.profit_center || null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+  // One DR line per expense line
+  for (const expLine of expenseLines) {
+    const lineAmount = Number(expLine.amount || 0);
+    let lineNet = lineAmount;
+    let lineVat = 0;
+    if (expLine.vat_code && company.vat_registered) {
+      const split = await computeVatSplit(companyId, expLine.vat_code, lineAmount);
+      lineNet = split.netAmount;
+      lineVat = split.vatAmount;
 
-  if (bill.vat_code && vatAmount > 0) {
-    const split = await computeVatSplit(companyId, bill.vat_code, bill.amount);
-    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: split.inputAccount, debit: vatAmount, credit: 0, currency, fx_rate: fxRate, debit_home: vatAmount * fxRate, credit_home: 0, vat_code: bill.vat_code, vat_amount: vatAmount, vat_amount_home: vatAmount * fxRate, net_amount: 0, net_amount_home: 0, description: `VAT: ${bill.vendor}`, reference: bill.vendor_ref || null, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
-    if (split.isReverseCharge) {
-      lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: split.outputAccount, debit: 0, credit: vatAmount, currency, fx_rate: fxRate, debit_home: 0, credit_home: vatAmount * fxRate, vat_code: bill.vat_code, vat_amount: vatAmount, vat_amount_home: vatAmount * fxRate, net_amount: 0, net_amount_home: 0, description: `Output VAT RC: ${bill.vendor}`, reference: bill.vendor_ref || null, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+      // VAT entry
+      lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: split.inputAccount, debit: lineVat, credit: 0, currency, fx_rate: fxRate, debit_home: lineVat * fxRate, credit_home: 0, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: 0, net_amount_home: 0, description: `VAT: ${bill.vendor}`, reference: bill.vendor_ref || null, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+      if (split.isReverseCharge) {
+        lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: split.outputAccount, debit: 0, credit: lineVat, currency, fx_rate: fxRate, debit_home: 0, credit_home: lineVat * fxRate, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: 0, net_amount_home: 0, description: `Output VAT RC: ${bill.vendor}`, reference: bill.vendor_ref || null, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+      }
     }
+    const lineDesc = expLine.description ? `${desc} / ${expLine.description}` : desc;
+    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: expLine.expense_account, debit: lineNet, credit: 0, currency, fx_rate: fxRate, debit_home: lineNet * fxRate, credit_home: 0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: lineDesc, reference: bill.vendor_ref || null, source: 'manual', cost_center: bill.cost_center || null, profit_center: bill.profit_center || null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
   }
 
-  lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: bill.ap_account, debit: 0, credit: bill.amount, currency, fx_rate: fxRate, debit_home: 0, credit_home: bill.amount * fxRate, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, description: `AP: ${desc}`, reference: bill.vendor_ref || null, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+  // Single CR AP line for total
+  lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: bill.ap_account, debit: 0, credit: totalAmount, currency, fx_rate: fxRate, debit_home: 0, credit_home: totalAmount * fxRate, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, description: `AP: ${desc}`, reference: bill.vendor_ref || null, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
 
   await bulkInsert('journal_entries', lines);
   await bulkInsert('bills', [{ ...billRow, status: 'posted', amount_paid: 0 }]);

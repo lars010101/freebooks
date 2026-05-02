@@ -20,7 +20,8 @@ async function handleVendors(ctx, action) {
 async function listVendors(ctx) {
   const { companyId } = ctx;
   return query(
-    `SELECT vendor_id, name, default_currency, payment_terms_days, tax_id, notes, is_active 
+    `SELECT vendor_id, name, default_currency, payment_terms_days, tax_id, notes,
+            default_expense_account, default_ap_account, is_active 
      FROM vendors 
      WHERE company_id = @companyId 
      ORDER BY name`,
@@ -46,6 +47,8 @@ async function saveVendors(ctx) {
     payment_terms_days: v.payment_terms_days || 30,
     tax_id: v.tax_id || null,
     notes: v.notes || null,
+    default_expense_account: v.default_expense_account || null,
+    default_ap_account: v.default_ap_account || null,
     is_active: v.is_active !== false
   }));
 

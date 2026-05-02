@@ -37,6 +37,26 @@ ${commonStyle()}
   .acct-row input.name { flex:1; color:#555; }
   .acct-hint { font-size:8pt; color:#888; margin-top:2px; }
   .vendor-wrap { position:relative; }
+  /* Lines table */
+  .lines-section { max-width:900px; margin-bottom:18px; }
+  .lines-section h3 { font-size:10pt; color:#555; font-weight:600; margin:0 0 8px; }
+  table.lines-table { width:100%; border-collapse:collapse; font-size:10pt; }
+  table.lines-table th { text-align:left; font-size:9pt; color:#555; text-transform:uppercase;
+    border-bottom:1px solid #ccc; padding:5px 6px; }
+  table.lines-table td { padding:4px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  table.lines-table input[type=text], table.lines-table input[type=number] {
+    padding:5px 7px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  table.lines-table select { padding:5px 7px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  .btn-remove { background:none; border:none; color:#cc2222; font-size:13pt; cursor:pointer;
+    padding:0 4px; line-height:1; }
+  .btn-remove:disabled { color:#ccc; cursor:default; }
+  .btn-add-line { margin-top:8px; padding:6px 16px; font-size:10pt; cursor:pointer;
+    border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-add-line:hover { background:#e8e8e8; }
+  .total-row { margin-top:8px; font-size:11pt; font-weight:600; text-align:right; max-width:900px; }
+  .line-acct-wrap { position:relative; display:flex; gap:4px; }
+  .line-acct-wrap input.lcode { width:80px; }
+  .line-acct-wrap input.lname { width:140px; color:#555; }
 </style>
 </head>
 <body>
@@ -87,28 +107,10 @@ ${commonStyle()}
         <label>Due Date</label>
         <input type="date" id="due-date">
       </div>
-      <!-- Amount -->
-      <div class="form-group">
-        <label>Amount *</label>
-        <input type="number" id="amount" min="0" step="0.01" placeholder="0.00">
-        <div class="err" id="err-amount">Valid amount required</div>
-      </div>
       <!-- Currency -->
       <div class="form-group">
         <label>Currency</label>
         <input type="text" id="currency" maxlength="3" placeholder="e.g. SGD" style="text-transform:uppercase">
-      </div>
-      <!-- Expense Account -->
-      <div class="form-group">
-        <label>Expense Account *</label>
-        <div class="acct-row">
-          <input type="text" class="code" id="expense-code" placeholder="401000"
-            oninput="onCodeInput(this,'expense-name','expense-hint')" onblur="hideAcctDropdown()" autocomplete="off">
-          <input type="text" class="name" id="expense-name" placeholder="search by name"
-            oninput="onNameInput(this,'expense-code','expense-hint')" onblur="hideAcctDropdown()" autocomplete="off">
-        </div>
-        <div class="acct-hint" id="expense-hint"></div>
-        <div class="err" id="err-expense">Valid expense account required</div>
       </div>
       <!-- AP Account -->
       <div class="form-group">
@@ -122,16 +124,32 @@ ${commonStyle()}
         <div class="acct-hint" id="ap-hint"></div>
         <div class="err" id="err-ap">Valid AP account required</div>
       </div>
-      <!-- VAT Code -->
-      <div class="form-group">
-        <label>VAT Code</label>
-        <select id="vat-code"><option value="">— none —</option></select>
-      </div>
-      <!-- Description -->
+      <!-- Description (overall) -->
       <div class="form-group full">
-        <label>Description</label>
+        <label>Description (overall)</label>
         <input type="text" id="description" placeholder="e.g. Office supplies for Jan 2025">
       </div>
+    </div>
+
+    <!-- Expense Lines -->
+    <div class="lines-section">
+      <h3>Expense Lines</h3>
+      <table class="lines-table" id="lines-table">
+        <thead>
+          <tr>
+            <th style="width:30px">#</th>
+            <th>Expense Account</th>
+            <th>Description</th>
+            <th style="width:110px">Amount *</th>
+            <th style="width:110px">VAT Code</th>
+            <th style="width:30px"></th>
+          </tr>
+        </thead>
+        <tbody id="lines-body"></tbody>
+      </table>
+      <button class="btn-add-line" onclick="addLine()">＋ Add Line</button>
+      <div class="total-row">Total: <span id="lines-total">0.00</span></div>
+      <div class="err" id="err-lines" style="display:none;margin-top:6px">At least one expense line with a valid account and amount > 0 is required</div>
     </div>
 
     <div style="display:flex;gap:12px;align-items:center">
@@ -144,7 +162,9 @@ ${commonStyle()}
 <script>
   var COMPANY = '${company}';
   var accountsMap = {};
+  var vatCodesList = [];
   var vendorsList = [];
+  var lineCounter = 0;
 
   // Load accounts
   fetch('/api/' + COMPANY + '/accounts')
@@ -164,12 +184,10 @@ ${commonStyle()}
     .then(function(r){ return r.json(); })
     .then(function(rows){
       if (!Array.isArray(rows)) return;
-      var sel = document.getElementById('vat-code');
-      rows.filter(function(v){ return v.is_active !== false; }).forEach(function(v){
-        var opt = document.createElement('option');
-        opt.value = v.vat_code;
-        opt.textContent = v.vat_code + ' — ' + v.description;
-        sel.appendChild(opt);
+      vatCodesList = rows.filter(function(v){ return v.is_active !== false; });
+      // Re-render existing lines to populate selects
+      document.querySelectorAll('.vat-select').forEach(function(sel){
+        populateVatSelect(sel, sel.value);
       });
     }).catch(function(){});
 
@@ -185,6 +203,9 @@ ${commonStyle()}
   document.getElementById('bill-date').value = today;
   var due = new Date(); due.setDate(due.getDate() + 30);
   document.getElementById('due-date').value = due.toISOString().slice(0, 10);
+
+  // Add first line on load
+  addLine();
 
   // ── Vendor autocomplete ──────────────────────────────────────────────
   var vendorDropdown = null;
@@ -217,6 +238,7 @@ ${commonStyle()}
         document.getElementById('vendor-name-input').value = v.name || v.vendor_id;
         document.getElementById('vendor-id-input').value = v.vendor_id;
         hideVendorDropdown();
+        autoFillVendor(v);
       };
       row.onmouseover = function(){ row.style.background='#f0f4ff'; };
       row.onmouseout  = function(){ row.style.background=''; };
@@ -230,9 +252,188 @@ ${commonStyle()}
     if (vendorDropdown) { vendorDropdown.remove(); vendorDropdown = null; }
   }
 
-  // ── Account autocomplete ─────────────────────────────────────────────
+  function autoFillVendor(v) {
+    // Currency
+    if (v.default_currency) {
+      document.getElementById('currency').value = v.default_currency;
+    }
+    // AP account
+    if (v.default_ap_account) {
+      var apCode = v.default_ap_account;
+      document.getElementById('ap-code').value = apCode;
+      if (accountsMap[apCode]) {
+        document.getElementById('ap-name').value = accountsMap[apCode];
+        document.getElementById('ap-hint').textContent = accountsMap[apCode];
+      } else {
+        document.getElementById('ap-name').value = '';
+        document.getElementById('ap-hint').textContent = '';
+      }
+    }
+    // Expense account — first line
+    if (v.default_expense_account) {
+      var firstRow = document.querySelector('#lines-body tr');
+      if (firstRow) {
+        var lcodeEl = firstRow.querySelector('.lcode');
+        var lnameEl = firstRow.querySelector('.lname');
+        var lineIdx = lcodeEl ? lcodeEl.dataset.line : null;
+        if (lcodeEl) {
+          lcodeEl.value = v.default_expense_account;
+          if (accountsMap[v.default_expense_account]) {
+            if (lnameEl) lnameEl.value = accountsMap[v.default_expense_account];
+          } else {
+            if (lnameEl) lnameEl.value = '';
+          }
+        }
+      }
+    }
+  }
+
+  // ── VAT select helpers ────────────────────────────────────────────────
+  function populateVatSelect(sel, currentVal) {
+    var prev = currentVal || sel.value || '';
+    sel.innerHTML = '<option value="">— none —</option>';
+    vatCodesList.forEach(function(v){
+      var opt = document.createElement('option');
+      opt.value = v.vat_code;
+      opt.textContent = v.vat_code + ' — ' + v.description;
+      if (v.vat_code === prev) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  // ── Lines management ────────────────────────────────────────────────
+  function addLine(data) {
+    data = data || {};
+    lineCounter++;
+    var idx = lineCounter;
+    var tbody = document.getElementById('lines-body');
+    var tr = document.createElement('tr');
+    tr.dataset.line = idx;
+
+    var vatSel = '<select class="vat-select" style="width:100px"></select>';
+
+    tr.innerHTML =
+      '<td style="color:#888;font-size:9pt;padding-left:8px">' + tbody.children.length + 1 + '</td>' +
+      '<td>' +
+        '<div class="line-acct-wrap">' +
+          '<input type="text" class="lcode" data-line="'+idx+'" placeholder="401000" style="width:80px" autocomplete="off">' +
+          '<input type="text" class="lname" data-line="'+idx+'" placeholder="account name" style="width:150px;color:#555" autocomplete="off">' +
+        '</div>' +
+      '</td>' +
+      '<td><input type="text" class="ldesc" data-line="'+idx+'" placeholder="Line detail" style="width:200px"></td>' +
+      '<td><input type="number" class="lamount" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px" oninput="updateTotal()"></td>' +
+      '<td>' + vatSel + '</td>' +
+      '<td><button class="btn-remove" onclick="removeLine(this)" title="Remove line">\u00d7</button></td>';
+
+    tbody.appendChild(tr);
+
+    // Set values if provided
+    if (data.expense_account) { tr.querySelector('.lcode').value = data.expense_account; }
+    if (data.description) { tr.querySelector('.ldesc').value = data.description; }
+    if (data.amount) { tr.querySelector('.lamount').value = data.amount; }
+
+    // Wire expense account autocomplete
+    var lcodeEl = tr.querySelector('.lcode');
+    var lnameEl = tr.querySelector('.lname');
+    lcodeEl.oninput = function(){ onLineCodeInput(lcodeEl, lnameEl); };
+    lcodeEl.onblur  = function(){ hideAcctDropdown(); };
+    lnameEl.oninput = function(){ onLineNameInput(lnameEl, lcodeEl); };
+    lnameEl.onblur  = function(){ hideAcctDropdown(); };
+
+    // Pre-fill name if code already set
+    if (data.expense_account && accountsMap[data.expense_account]) {
+      lnameEl.value = accountsMap[data.expense_account];
+    }
+
+    // Populate VAT select
+    var sel = tr.querySelector('.vat-select');
+    populateVatSelect(sel, data.vat_code || '');
+
+    updateRemoveButtons();
+    updateTotal();
+    updateLineNumbers();
+    return tr;
+  }
+
+  function removeLine(btn) {
+    var tr = btn.closest('tr');
+    tr.remove();
+    updateRemoveButtons();
+    updateTotal();
+    updateLineNumbers();
+  }
+
+  function updateRemoveButtons() {
+    var btns = document.querySelectorAll('#lines-body .btn-remove');
+    btns.forEach(function(b){ b.disabled = btns.length <= 1; });
+  }
+
+  function updateLineNumbers() {
+    var rows = document.querySelectorAll('#lines-body tr');
+    rows.forEach(function(tr, i){ tr.querySelector('td:first-child').textContent = i + 1; });
+  }
+
+  function updateTotal() {
+    var total = 0;
+    document.querySelectorAll('#lines-body .lamount').forEach(function(inp){
+      var v = parseFloat(inp.value);
+      if (!isNaN(v) && v > 0) total += v;
+    });
+    document.getElementById('lines-total').textContent = total.toFixed(2);
+  }
+
+  function onLineCodeInput(codeEl, nameEl) {
+    var q = codeEl.value.trim();
+    if (accountsMap[q]) {
+      nameEl.value = accountsMap[q];
+    } else {
+      nameEl.value = '';
+    }
+    if (!q) { hideAcctDropdown(); return; }
+    var matches = getAccountList().filter(function(a){
+      return a.code.toLowerCase().startsWith(q.toLowerCase()) || a.code.toLowerCase().includes(q.toLowerCase());
+    }).sort(function(a,b){ return a.code.localeCompare(b.code); });
+    showLineAcctDropdown(codeEl, matches, codeEl, nameEl);
+  }
+
+  function onLineNameInput(nameEl, codeEl) {
+    var q = nameEl.value.trim().toLowerCase();
+    if (!q) { hideAcctDropdown(); return; }
+    var matches = getAccountList().filter(function(a){ return a.name.toLowerCase().includes(q); })
+      .sort(function(a,b){ return a.name.localeCompare(b.name); });
+    showLineAcctDropdown(nameEl, matches, codeEl, nameEl);
+  }
+
+  function showLineAcctDropdown(anchorEl, matches, codeEl, nameEl) {
+    hideAcctDropdown();
+    if (!matches.length) return;
+    var rect = anchorEl.getBoundingClientRect();
+    var div = document.createElement('div');
+    div.id = 'acct-dd';
+    div.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;'
+      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:220px;overflow-y:auto;min-width:300px;font-size:10pt;'
+      + 'top:'+(rect.bottom+2)+'px;left:'+rect.left+'px';
+    matches.slice(0, 20).forEach(function(a){
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:6px 10px;cursor:pointer;display:flex;gap:10px;align-items:baseline';
+      row.innerHTML = '<span style="font-weight:600;color:#333;min-width:70px">'+a.code+'</span>'
+        +'<span style="color:#666">'+a.name+'</span>';
+      row.onmousedown = function(e){
+        e.preventDefault();
+        codeEl.value = a.code;
+        nameEl.value = a.name;
+        hideAcctDropdown();
+      };
+      row.onmouseover = function(){ row.style.background='#f0f4ff'; };
+      row.onmouseout  = function(){ row.style.background=''; };
+      div.appendChild(row);
+    });
+    document.body.appendChild(div);
+    acctDropdown = div;
+  }
+
+  // ── Account autocomplete (for AP field) ─────────────────────────────
   var acctDropdown = null;
-  var acctDropdownMeta = null; // { codeId, nameId, hintId }
 
   function getAccountList() {
     return Object.keys(accountsMap).map(function(code){ return { code: code, name: accountsMap[code] }; });
@@ -265,12 +466,10 @@ ${commonStyle()}
     });
     document.body.appendChild(div);
     acctDropdown = div;
-    acctDropdownMeta = { codeId: codeId, nameId: nameId, hintId: hintId };
   }
 
   function hideAcctDropdown() {
     if (acctDropdown) { acctDropdown.remove(); acctDropdown = null; }
-    acctDropdownMeta = null;
   }
 
   function onCodeInput(input, nameId, hintId) {
@@ -305,7 +504,6 @@ ${commonStyle()}
 
   // ── Submit ────────────────────────────────────────────────────────────
   function submitBill() {
-    // Clear errors
     document.querySelectorAll('.err').forEach(function(el){ el.style.display='none'; });
 
     var vendorId   = document.getElementById('vendor-id-input').value.trim();
@@ -313,33 +511,33 @@ ${commonStyle()}
     var vendorRef  = document.getElementById('vendor-ref').value.trim();
     var billDate   = document.getElementById('bill-date').value;
     var dueDate    = document.getElementById('due-date').value;
-    var amount     = parseFloat(document.getElementById('amount').value);
     var currency   = document.getElementById('currency').value.trim().toUpperCase();
-    var expCode    = document.getElementById('expense-code').value.trim();
     var apCode     = document.getElementById('ap-code').value.trim();
-    var vatCode    = document.getElementById('vat-code').value;
     var description= document.getElementById('description').value.trim();
+
+    // Collect lines
+    var lines = [];
+    document.querySelectorAll('#lines-body tr').forEach(function(tr){
+      var expCode = tr.querySelector('.lcode').value.trim();
+      var amount  = parseFloat(tr.querySelector('.lamount').value);
+      var vatCode = tr.querySelector('.vat-select').value;
+      var desc    = tr.querySelector('.ldesc').value.trim();
+      lines.push({ expense_account: expCode, amount: isNaN(amount) ? 0 : amount, vat_code: vatCode || null, description: desc || null });
+    });
 
     var valid = true;
     if (!vendorId && !vendorName) {
-      document.getElementById('err-vendor').style.display = '';
-      valid = false;
+      document.getElementById('err-vendor').style.display = ''; valid = false;
     }
     if (!billDate) {
-      document.getElementById('err-date').style.display = '';
-      valid = false;
-    }
-    if (!amount || amount <= 0) {
-      document.getElementById('err-amount').style.display = '';
-      valid = false;
-    }
-    if (!expCode || !accountsMap[expCode]) {
-      document.getElementById('err-expense').style.display = '';
-      valid = false;
+      document.getElementById('err-date').style.display = ''; valid = false;
     }
     if (!apCode || !accountsMap[apCode]) {
-      document.getElementById('err-ap').style.display = '';
-      valid = false;
+      document.getElementById('err-ap').style.display = ''; valid = false;
+    }
+    var linesValid = lines.length > 0 && lines.every(function(l){ return l.expense_account && accountsMap[l.expense_account] && l.amount > 0; });
+    if (!linesValid) {
+      document.getElementById('err-lines').style.display = ''; valid = false;
     }
     if (!valid) return;
 
@@ -349,17 +547,16 @@ ${commonStyle()}
     var payload = {
       action: 'bill.create',
       companyId: COMPANY,
-      vendorId: vendorId || null,
-      vendorName: vendorName || null,
-      vendor_ref: vendorRef || null,
-      bill_date: billDate,
-      due_date: dueDate || null,
-      amount: amount,
-      currency: currency || null,
-      expense_account: expCode,
-      ap_account: apCode,
-      vat_code: vatCode || null,
-      description: description || null
+      bill: {
+        vendor: vendorName || vendorId || null,
+        vendor_ref: vendorRef || null,
+        date: billDate,
+        due_date: dueDate || null,
+        currency: currency || null,
+        ap_account: apCode,
+        description: description || null,
+        lines: lines
+      }
     };
 
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -392,13 +589,14 @@ ${commonStyle()}
     document.getElementById('vendor-name-input').value = '';
     document.getElementById('vendor-id-input').value = '';
     document.getElementById('vendor-ref').value = '';
-    document.getElementById('amount').value = '';
     document.getElementById('description').value = '';
-    document.getElementById('vat-code').value = '';
     var today2 = new Date().toISOString().slice(0,10);
     document.getElementById('bill-date').value = today2;
     var due2 = new Date(); due2.setDate(due2.getDate() + 30);
     document.getElementById('due-date').value = due2.toISOString().slice(0,10);
+    document.getElementById('lines-body').innerHTML = '';
+    lineCounter = 0;
+    addLine();
     document.querySelectorAll('.err').forEach(function(el){ el.style.display='none'; });
     showStatus('', false);
   }

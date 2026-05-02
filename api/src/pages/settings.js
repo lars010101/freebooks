@@ -145,7 +145,7 @@ ${commonStyle()}
   <!-- VENDORS TAB -->
   <div id="tab-vendors" class="tab-panel">
     <table class="edit-table" id="vendors-table">
-      <thead><tr><th>Name</th><th>Default Currency</th><th>Terms (days)</th><th>Tax ID</th><th>Notes</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Default Currency</th><th>Terms (days)</th><th>Tax ID</th><th>Notes</th><th>Def. Expense A/c</th><th>Def. AP A/c</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="vendors-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
@@ -446,6 +446,8 @@ function addVendorRow(v) {
     '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:70px"></td>' +
     '<td><input type="text" value="' + (v.tax_id||'') + '" style="width:110px"></td>' +
     '<td><input type="text" value="' + (v.notes||'') + '" style="width:180px"></td>' +
+    '<td><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px"></td>' +
+    '<td><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px"></td>' +
     '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
     '<td><button class="btn-sm danger" onclick="markDirty(\\'vendors\\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
   wireDirty(tr, 'vendors');
@@ -460,7 +462,9 @@ function saveVendors() {
       payment_terms_days: parseInt(inputs[2].value) || 30,
       tax_id: inputs[3].value.trim() || null,
       notes: inputs[4].value.trim() || null,
-      is_active: inputs[5].checked
+      default_expense_account: inputs[5].value.trim() || null,
+      default_ap_account: inputs[6].value.trim() || null,
+      is_active: inputs[7].checked
     };
   }).filter(function(r){ return r.name; });
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.save', companyId: COMPANY, vendors: rows }) })

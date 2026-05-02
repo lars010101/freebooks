@@ -57,11 +57,7 @@ ${commonStyle()}
   .line-acct-wrap { position:relative; display:flex; gap:4px; }
   .line-acct-wrap input.lcode { width:80px; }
   .line-acct-wrap input.lname { width:140px; color:#555; }
-  tr.gst-row td { background:#f5f5ff; font-size:9.5pt; color:#444; padding:3px 4px; border-bottom:1px solid #e8e8f8; }
-  tr.gst-row td:first-child { padding-left:20px; color:#888; font-style:italic; }
-  tr.gst-row .gst-acct-code { width:80px; background:#f0f0ff; border:1px solid #d0d0ee; border-radius:3px; padding:3px 5px; font-size:9.5pt; }
-  tr.gst-row .gst-acct-name { width:150px; color:#888; background:#f5f5ff; border:1px solid #e0e0f0; border-radius:3px; padding:3px 5px; font-size:9.5pt; }
-  tr.gst-row .gst-amount { width:90px; background:#f0f0ff; border:1px solid #d0d0ee; border-radius:3px; padding:3px 5px; font-size:9.5pt; text-align:right; }
+
 </style>
 </head>
 <body>
@@ -445,31 +441,33 @@ ${commonStyle()}
     var gstTr = document.createElement('tr');
     gstTr.className = 'gst-row';
     gstTr.dataset.parentLine = parentTr.dataset.line;
+
+    // Same structure as a regular expense line
     gstTr.innerHTML =
-      '<td>\u21b3 GST</td>' +
+      '<td style="color:#888;font-size:9pt;padding-left:8px">GST</td>' +
       '<td>' +
-        '<div style="display:flex;gap:4px">' +
-          '<input type="text" class="gst-acct-code" value="' + esc(vc.vat_account_input) + '" placeholder="account" autocomplete="off">' +
-          '<input type="text" class="gst-acct-name" value="' + esc(acctName) + '" readonly style="color:#888">' +
+        '<div class="line-acct-wrap">' +
+          '<input type="text" class="lcode gst-acct-code" placeholder="' + esc(vc.vat_account_input) + '" value="' + esc(vc.vat_account_input) + '" autocomplete="off">' +
+          '<input type="text" class="lname gst-acct-name" placeholder="account name" value="' + esc(acctName) + '" autocomplete="off">' +
         '</div>' +
       '</td>' +
-      '<td><span style="color:#888;font-size:9pt">GST Input: ' + esc(vatCode) + '</span></td>' +
-      '<td><input type="number" class="gst-amount" value="' + gstAmount.toFixed(2) + '" min="0" step="0.01"></td>' +
-      '<td colspan="2"></td>';
+      '<td><input type="text" class="ldesc" value="GST Input: ' + esc(vatCode) + '" style="width:200px"></td>' +
+      '<td><input type="number" class="lamount gst-amount" value="' + gstAmount.toFixed(2) + '" min="0" step="0.01" placeholder="0.00" style="width:100px"></td>' +
+      '<td></td>' +
+      '<td></td>';
 
     // Insert after parentTr
     parentTr.parentNode.insertBefore(gstTr, parentTr.nextSibling);
 
-    // Wire gst-acct-code input: update gst-acct-name when account code changes
+    // Wire full account autocomplete (same as regular lines)
     var gstCodeEl = gstTr.querySelector('.gst-acct-code');
-    gstCodeEl.oninput = function() {
-      var code = gstCodeEl.value.trim();
-      var nameEl = gstTr.querySelector('.gst-acct-name');
-      nameEl.value = accountsMap[code] || '';
-      updateTotal();
-    };
+    var gstNameEl = gstTr.querySelector('.gst-acct-name');
+    gstCodeEl.oninput = function() { onLineCodeInput(gstCodeEl, gstNameEl); updateTotal(); };
+    gstCodeEl.onblur  = function() { hideAcctDropdown(); };
+    gstNameEl.oninput = function() { onLineNameInput(gstNameEl, gstCodeEl); updateTotal(); };
+    gstNameEl.onblur  = function() { hideAcctDropdown(); };
 
-    // Wire gst-amount input: update total
+    // Wire amount input
     gstTr.querySelector('.gst-amount').oninput = function() { updateTotal(); };
 
     updateTotal();

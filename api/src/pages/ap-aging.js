@@ -131,21 +131,28 @@ function renderReport(rows, asOf) {
       + '<td>' + fmt(vt['1_30']) + '</td>'
       + '<td>' + fmt(vt['31_60']) + '</td>'
       + '<td>' + fmt(vt['61_90']) + '</td>'
-      + '<td class="col-90plus">' + fmt(vt['90plus']) + '</td>'
+      + '<td' + (vt['90plus'] > 0 ? ' class="col-90plus"' : '') + '>' + fmt(vt['90plus']) + '</td>'
       + '<td>' + fmt(vt.total) + '</td>'
       + '</tr>';
     // Detail rows (hidden by default)
     html += '<tr class="detail-header" id="dh-' + btoa(vendor) + '" style="display:none"><td colspan="7" style="padding:4px 8px 2px 24px;font-size:8.5pt;color:#888;text-transform:uppercase;border-bottom:1px solid #e0e0e0">Invoice Ref &nbsp;|&nbsp; Bill Date &nbsp;|&nbsp; Due Date &nbsp;|&nbsp; Description</td></tr>';
     bills.forEach(function(b, i) {
       var bal = Number(b.balance_due || 0);
-      var desc = [b.vendor_ref, b.date, b.due_date || '—', b.description].filter(Boolean).join(' | ').substring(0, 80);
+      var billDate = b.date ? String(b.date).slice(0, 10) : '';
+      var dueDate = b.due_date ? String(b.due_date).slice(0, 10) : '—';
+      var parts = [];
+      if (b.vendor_ref) parts.push('<strong>' + esc(b.vendor_ref) + '</strong>');
+      parts.push(billDate);
+      parts.push('due: ' + dueDate);
+      if (b.description) parts.push(esc(b.description));
+      var detailText = parts.join(' &nbsp;|&nbsp; ');
       html += '<tr class="detail-row" id="dr-' + btoa(vendor) + '-' + i + '" style="display:none">'
-        + '<td>' + esc(desc) + '</td>'
+        + '<td>' + detailText + '</td>'
         + '<td>' + (b.bucket === 'current' ? fmt(bal) : '') + '</td>'
         + '<td>' + (b.bucket === '1_30'    ? fmt(bal) : '') + '</td>'
         + '<td>' + (b.bucket === '31_60'   ? fmt(bal) : '') + '</td>'
         + '<td>' + (b.bucket === '61_90'   ? fmt(bal) : '') + '</td>'
-        + '<td class="col-90plus">' + (b.bucket === '90plus' ? fmt(bal) : '') + '</td>'
+        + '<td' + (bal > 0 ? ' class="col-90plus"' : '') + '>' + (b.bucket === '90plus' ? fmt(bal) : '') + '</td>'
         + '<td>' + fmt(bal) + '</td>'
         + '</tr>';
     });
@@ -158,7 +165,7 @@ function renderReport(rows, asOf) {
     + '<td>' + fmt(totals['1_30']) + '</td>'
     + '<td>' + fmt(totals['31_60']) + '</td>'
     + '<td>' + fmt(totals['61_90']) + '</td>'
-    + '<td class="col-90plus">' + fmt(totals['90plus']) + '</td>'
+    + '<td' + (totals['90plus'] > 0 ? ' class="col-90plus"' : '') + '>' + fmt(totals['90plus']) + '</td>'
     + '<td>' + fmt(totals.total) + '</td>'
     + '</tr>';
 

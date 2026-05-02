@@ -133,6 +133,11 @@ async function createBill(ctx) {
         const vc = vatRows[0];
         const rate = Number(vc.rate);
         lineVat = Math.round(lineAmount * rate * 100) / 100;
+        // Apply vat_amount_override if provided by the user
+        if (expLine.vat_amount_override !== null && expLine.vat_amount_override !== undefined && !isNaN(Number(expLine.vat_amount_override))) {
+          lineVat = Number(expLine.vat_amount_override);
+        }
+        const vatInputAccount = expLine.vat_account_override || vc.vat_account_input;
         // lineNet stays = lineAmount (tax-exclusive — the user entered the net amount)
 
         if (vc.is_reverse_charge) {
@@ -141,7 +146,7 @@ async function createBill(ctx) {
           lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: vc.vat_account_output, debit: 0, credit: lineVat, currency, fx_rate: fxRate, debit_home: 0, credit_home: lineVat * fxRate, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: 0, net_amount_home: 0, description: `Output VAT RC: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
         } else {
           // Standard input VAT: DR GST input account (one entry per expense line)
-          lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: vc.vat_account_input, debit: lineVat, credit: 0, currency, fx_rate: fxRate, debit_home: lineVat * fxRate, credit_home: 0, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: `GST Input: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+          lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: vatInputAccount, debit: lineVat, credit: 0, currency, fx_rate: fxRate, debit_home: lineVat * fxRate, credit_home: 0, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: `GST Input: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
         }
       }
     }

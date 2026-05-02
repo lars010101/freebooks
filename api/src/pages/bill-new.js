@@ -57,6 +57,11 @@ ${commonStyle()}
   .line-acct-wrap { position:relative; display:flex; gap:4px; }
   .line-acct-wrap input.lcode { width:80px; }
   .line-acct-wrap input.lname { width:140px; color:#555; }
+  tr.gst-row td { background:#f5f5ff; font-size:9.5pt; color:#444; padding:3px 4px; border-bottom:1px solid #e8e8f8; }
+  tr.gst-row td:first-child { padding-left:20px; color:#888; font-style:italic; }
+  tr.gst-row .gst-acct-code { width:80px; background:#f0f0ff; border:1px solid #d0d0ee; border-radius:3px; padding:3px 5px; font-size:9.5pt; }
+  tr.gst-row .gst-acct-name { width:150px; color:#888; background:#f5f5ff; border:1px solid #e0e0f0; border-radius:3px; padding:3px 5px; font-size:9.5pt; }
+  tr.gst-row .gst-amount { width:90px; background:#f0f0ff; border:1px solid #d0d0ee; border-radius:3px; padding:3px 5px; font-size:9.5pt; text-align:right; }
 </style>
 </head>
 <body>
@@ -192,7 +197,10 @@ ${commonStyle()}
       // Re-render existing lines to populate selects and wire onchange
       document.querySelectorAll('.vat-select').forEach(function(sel){
         populateVatSelect(sel, sel.value);
-        sel.onchange = function() { updateTotal(); };
+        sel.onchange = function() { syncGstRow(sel.closest('tr')); };
+      });
+      document.querySelectorAll('#lines-body tr:not(.gst-row)').forEach(function(tr) {
+        if (tr.dataset.line) syncGstRow(tr);
       });
       updateTotal();
     }).catch(function(){});
@@ -338,7 +346,7 @@ ${commonStyle()}
         '</div>' +
       '</td>' +
       '<td><input type="text" class="ldesc" data-line="'+idx+'" placeholder="Line detail" style="width:200px"></td>' +
-      '<td><input type="number" class="lamount" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px" oninput="updateTotal()"></td>' +
+      '<td><input type="number" class="lamount" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px"></td>' +
       '<td>' + vatSel + '</td>' +
       '<td><button class="btn-remove" onclick="removeLine(this)" title="Remove line">\u00d7</button></td>';
 
@@ -365,7 +373,9 @@ ${commonStyle()}
     // Populate VAT select
     var sel = tr.querySelector('.vat-select');
     populateVatSelect(sel, data.vat_code || '');
-    sel.onchange = function() { updateTotal(); };
+    sel.onchange = function() { syncGstRow(tr); };
+    var amtEl2 = tr.querySelector('.lamount');
+    amtEl2.oninput = function() { syncGstRow(tr); };
 
     updateRemoveButtons();
     updateTotal();
@@ -375,6 +385,11 @@ ${commonStyle()}
 
   function removeLine(btn) {
     var tr = btn.closest('tr');
+    // Remove associated GST row if present
+    var next = tr.nextSibling;
+    if (next && next.classList && next.classList.contains('gst-row') && next.dataset.parentLine === tr.dataset.line) {
+      next.remove();
+    }
     tr.remove();
     updateRemoveButtons();
     updateTotal();
@@ -387,41 +402,117 @@ ${commonStyle()}
   }
 
   function updateLineNumbers() {
-    var rows = document.querySelectorAll('#lines-body tr');
-    rows.forEach(function(tr, i){ tr.querySelector('td:first-child').textContent = i + 1; });
+    var n = 0;
+    document.querySelectorAll('#lines-body tr').forEach(function(tr) {
+      if (tr.classList.contains('gst-row')) return;
+      n++;
+      var firstTd = tr.querySelector('td:first-child');
+      if (firstTd) firstTd.textContent = n;
+    });
+  }
+
+  function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function syncGstRow(parentTr) {
+    var amtEl = parentTr.querySelector('.lamount');
+    var vatSel = parentTr.querySelector('.vat-select');
+    if (!amtEl || !vatSel) return;
+
+    var amount = parseFloat(amtEl.value);
+    var vatCode = vatSel.value;
+
+    // Remove existing GST row for this parent
+    var existing = parentTr.nextSibling;
+    if (existing && existing.classList && existing.classList.contains('gst-row') && existing.dataset.parentLine === parentTr.dataset.line) {
+      existing.remove();
+    }
+
+    if (!vatCode || isNaN(amount) || amount <= 0) {
+      updateTotal();
+      return;
+    }
+
+    var vc = vatCodesList.find(function(x) { return x.vat_code === vatCode; });
+    if (!vc || !vc.vat_account_input) {
+      updateTotal();
+      return;
+    }
+
+    var rate = Number(vc.rate);
+    var gstAmount = Math.round(amount * rate * 100) / 100;
+    var acctName = accountsMap[vc.vat_account_input] || '';
+
+    var gstTr = document.createElement('tr');
+    gstTr.className = 'gst-row';
+    gstTr.dataset.parentLine = parentTr.dataset.line;
+    gstTr.innerHTML =
+      '<td>\u21b3 GST</td>' +
+      '<td>' +
+        '<div style="display:flex;gap:4px">' +
+          '<input type="text" class="gst-acct-code" value="' + esc(vc.vat_account_input) + '" placeholder="account" autocomplete="off">' +
+          '<input type="text" class="gst-acct-name" value="' + esc(acctName) + '" readonly style="color:#888">' +
+        '</div>' +
+      '</td>' +
+      '<td><span style="color:#888;font-size:9pt">GST Input: ' + esc(vatCode) + '</span></td>' +
+      '<td><input type="number" class="gst-amount" value="' + gstAmount.toFixed(2) + '" min="0" step="0.01"></td>' +
+      '<td colspan="2"></td>';
+
+    // Insert after parentTr
+    parentTr.parentNode.insertBefore(gstTr, parentTr.nextSibling);
+
+    // Wire gst-acct-code input: update gst-acct-name when account code changes
+    var gstCodeEl = gstTr.querySelector('.gst-acct-code');
+    gstCodeEl.oninput = function() {
+      var code = gstCodeEl.value.trim();
+      var nameEl = gstTr.querySelector('.gst-acct-name');
+      nameEl.value = accountsMap[code] || '';
+      updateTotal();
+    };
+
+    // Wire gst-amount input: update total
+    gstTr.querySelector('.gst-amount').oninput = function() { updateTotal(); };
+
+    updateTotal();
   }
 
   function updateTotal() {
     var net = 0;
-    var gstByCode = {}; // vatCode -> { label, amount }
+    var gstTotal = 0;
+    var gstByCode = {};
+
     document.querySelectorAll('#lines-body tr').forEach(function(tr) {
+      if (tr.classList.contains('gst-row')) {
+        var gstEl = tr.querySelector('.gst-amount');
+        var parentLine = tr.dataset.parentLine;
+        // Find parent's vat code
+        var parentTr = document.querySelector('#lines-body tr[data-line="' + parentLine + '"]');
+        var vatCode = parentTr ? (parentTr.querySelector('.vat-select') ? parentTr.querySelector('.vat-select').value : '') : '';
+        var gv = gstEl ? parseFloat(gstEl.value) : 0;
+        if (!isNaN(gv) && gv > 0) {
+          gstTotal += gv;
+          if (vatCode) {
+            if (!gstByCode[vatCode]) gstByCode[vatCode] = 0;
+            gstByCode[vatCode] += gv;
+          }
+        }
+        return;
+      }
       var amtEl = tr.querySelector('.lamount');
-      var vatSel = tr.querySelector('.vat-select');
       if (!amtEl) return;
       var v = parseFloat(amtEl.value);
-      if (isNaN(v) || v <= 0) return;
-      net += v;
-      var vatCode = vatSel ? vatSel.value : '';
-      if (vatCode) {
-        var vc = vatCodesList.find(function(x){ return x.vat_code === vatCode; });
-        if (vc) {
-          var rate = Number(vc.rate);
-          var lineVat = Math.round(v * rate * 100) / 100;
-          if (!gstByCode[vatCode]) gstByCode[vatCode] = { label: vatCode + ' (' + Math.round(rate*100) + '%)', amount: 0 };
-          gstByCode[vatCode].amount += lineVat;
-        }
-      }
+      if (!isNaN(v) && v > 0) net += v;
     });
-    var totalGst = 0;
+
     var gstHtml = '';
     Object.keys(gstByCode).forEach(function(code) {
-      var g = gstByCode[code];
-      totalGst += g.amount;
-      gstHtml += '<div style="font-weight:400;font-size:10pt;color:#555">GST ' + g.label + ': ' + g.amount.toFixed(2) + '</div>';
+      var vc = vatCodesList.find(function(x) { return x.vat_code === code; });
+      var rateLabel = vc ? ' (' + Math.round(Number(vc.rate) * 100) + '%)' : '';
+      gstHtml += '<div style="font-weight:400;font-size:10pt;color:#555">GST ' + code + rateLabel + ': ' + gstByCode[code].toFixed(2) + '</div>';
     });
+
     document.getElementById('lines-net').textContent = net.toFixed(2);
     document.getElementById('gst-rows').innerHTML = gstHtml;
-    document.getElementById('lines-total').textContent = (net + totalGst).toFixed(2);
+    document.getElementById('lines-total').textContent = (net + gstTotal).toFixed(2);
   }
 
   function onLineCodeInput(codeEl, nameEl) {
@@ -559,12 +650,24 @@ ${commonStyle()}
 
     // Collect lines
     var lines = [];
-    document.querySelectorAll('#lines-body tr').forEach(function(tr){
+    document.querySelectorAll('#lines-body tr:not(.gst-row)').forEach(function(tr){
       var expCode = tr.querySelector('.lcode').value.trim();
       var amount  = parseFloat(tr.querySelector('.lamount').value);
       var vatCode = tr.querySelector('.vat-select').value;
       var desc    = tr.querySelector('.ldesc').value.trim();
-      lines.push({ expense_account: expCode, amount: isNaN(amount) ? 0 : amount, vat_code: vatCode || null, description: desc || null });
+
+      // Read GST row overrides
+      var vatAccountOverride = null;
+      var vatAmountOverride = null;
+      var gstRow = tr.nextSibling;
+      if (gstRow && gstRow.classList && gstRow.classList.contains('gst-row') && gstRow.dataset.parentLine === tr.dataset.line) {
+        var gstCode = gstRow.querySelector('.gst-acct-code');
+        var gstAmt = gstRow.querySelector('.gst-amount');
+        if (gstCode && gstCode.value.trim()) vatAccountOverride = gstCode.value.trim();
+        if (gstAmt) vatAmountOverride = parseFloat(gstAmt.value) || null;
+      }
+
+      lines.push({ expense_account: expCode, amount: isNaN(amount) ? 0 : amount, vat_code: vatCode || null, description: desc || null, vat_account_override: vatAccountOverride, vat_amount_override: vatAmountOverride });
     });
 
     var valid = true;

@@ -202,7 +202,12 @@ function showMsg(id, msg, isErr) {
 
 function wireDirty(tr, tab) {
   var els = tr.querySelectorAll('input,select');
-  els.forEach(function(el){ el.oninput = function(){ markDirty(tab); }; el.onchange = function(){ markDirty(tab); }; });
+  els.forEach(function(el){
+    var prev = el.oninput;
+    el.oninput = function(e){ if (prev) prev.call(this, e); markDirty(tab); };
+    var prevC = el.onchange;
+    el.onchange = function(e){ if (prevC) prevC.call(this, e); markDirty(tab); };
+  });
 }
 
 // ========== PERIODS ==========

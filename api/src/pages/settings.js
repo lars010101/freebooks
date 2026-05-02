@@ -145,7 +145,7 @@ ${commonStyle()}
   <!-- VENDORS TAB -->
   <div id="tab-vendors" class="tab-panel">
     <table class="edit-table" id="vendors-table">
-      <thead><tr><th>Name</th><th>Default Currency</th><th>Terms (days)</th><th>Tax ID</th><th>Notes</th><th>Def. Expense A/c</th><th>Def. AP A/c</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Default Currency</th><th>Terms (days)</th><th>Tax ID</th><th>Notes</th><th>Default Expense Account</th><th>Default AP Account</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="vendors-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
@@ -153,7 +153,7 @@ ${commonStyle()}
       <button id="btn-save-vendors" class="btn-primary" onclick="saveVendors()" disabled>Save</button>
       <span id="msg-vendors" class="msg"></span>
     </div>
-    <p style="margin-top:8px;font-size:9pt;color:#888">Vendors are used in the upcoming Bills module. Default currency and terms will auto-fill when creating bills.</p>
+    <p style="margin-top:8px;font-size:9pt;color:#888">These defaults auto-fill when creating a bill for this vendor: currency, payment terms, expense account, and AP account.</p>
   </div>
 </div>
 

@@ -149,7 +149,7 @@ ${commonStyle()}
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <button class="btn-sm" onclick="addVendorRow()">+ Add Vendor</button>
-      <button class="btn-primary" onclick="saveVendors()">Save Vendors</button>
+      <button id="btn-save-vendors" class="btn-primary" onclick="saveVendors()" disabled>Save</button>
       <span id="msg-vendors" class="msg"></span>
     </div>
     <p style="margin-top:8px;font-size:9pt;color:#888">Vendors are used in the upcoming Bills module. Default currency and terms will auto-fill when creating bills.</p>
@@ -347,6 +347,11 @@ function addMappingRow(m) {
 }
 
 // --- VENDORS ---
+function markVendorsDirty() {
+  var btn = document.getElementById('btn-save-vendors');
+  if (btn) btn.disabled = false;
+}
+
 function loadVendors() {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
     .then(r => r.json())
@@ -355,6 +360,8 @@ function loadVendors() {
       var tbody = document.getElementById('vendors-body');
       tbody.innerHTML = '';
       if (Array.isArray(rows)) rows.forEach(addVendorRow);
+      var btn = document.getElementById('btn-save-vendors');
+      if (btn) btn.disabled = true;
     }).catch(() => {});
 }
 
@@ -368,8 +375,14 @@ function addVendorRow(v) {
     '<td><input type="text" value="' + (v.tax_id||'') + '" style="width:110px"></td>' +
     '<td><input type="text" value="' + (v.notes||'') + '" style="width:180px"></td>' +
     '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
-    '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
+    '<td><button class="btn-sm danger" onclick="markVendorsDirty(); this.parentElement.parentElement.remove()">✕</button></td>';
+  var inputs = tr.querySelectorAll('input,select');
+  inputs.forEach(el => {
+    el.oninput = markVendorsDirty;
+    el.onchange = markVendorsDirty;
+  });
   document.getElementById('vendors-body').appendChild(tr);
+  markVendorsDirty();
 }
 
 function saveVendors() {
@@ -389,7 +402,11 @@ function saveVendors() {
     .then(res => {
       var d = res.data || res;
       showMsg('msg-vendors', d.error || 'Saved ' + rows.length + ' vendors', !!d.error);
-      if (!d.error) loadVendors();
+      if (!d.error) {
+        loadVendors();
+        var btn = document.getElementById('btn-save-vendors');
+        if (btn) btn.disabled = true;
+      }
     })
     .catch(e => showMsg('msg-vendors', e.message, true));
 }

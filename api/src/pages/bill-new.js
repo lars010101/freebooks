@@ -170,18 +170,22 @@ ${commonStyle()}
   var vatCodesList = [];
   var vendorsList = [];
   var lineCounter = 0;
+  var _reenterId = new URLSearchParams(window.location.search).get('reenter');
+  var _accountsLoaded = false, _vatLoaded = false;
 
   // Load accounts
   fetch('/api/' + COMPANY + '/accounts')
     .then(function(r){ return r.json(); })
     .then(function(rows){
       rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; });
-      // Default AP account to 201130 if it exists
-      if (accountsMap['201130']) {
+      // Default AP account to 201130 if it exists (only when NOT in reenter mode)
+      if (!_reenterId && accountsMap['201130']) {
         document.getElementById('ap-code').value = '201130';
         document.getElementById('ap-name').value = accountsMap['201130'];
         document.getElementById('ap-hint').textContent = accountsMap['201130'];
       }
+      _accountsLoaded = true;
+      maybeFillReenter();
     });
 
   // Load VAT codes
@@ -199,6 +203,8 @@ ${commonStyle()}
         if (tr.dataset.line) syncGstRow(tr);
       });
       updateTotal();
+      _vatLoaded = true;
+      maybeFillReenter();
     }).catch(function(){});
 
   // Load vendors
@@ -222,6 +228,53 @@ ${commonStyle()}
 
   // Add first line on load
   addLine();
+
+  // ── Re-enter mode ────────────────────────────────────────────────────
+  if (_reenterId) {
+    document.querySelector('.header h1').textContent = '📄 Re-enter Bill';
+    var _banner = document.createElement('div');
+    _banner.style.cssText = 'background:#fff3e0;border:1px solid #ff9800;border-radius:4px;padding:12px 16px;margin-bottom:16px;font-size:10pt;';
+    _banner.innerHTML = '<strong>⟲ Re-entry mode</strong> &mdash; The original bill has been reversed. Fill in the corrected details and submit.';
+    var _formGrid = document.querySelector('.form-grid');
+    document.getElementById('bill-form').insertBefore(_banner, _formGrid);
+  }
+
+  function maybeFillReenter() {
+    if (!_reenterId || !_accountsLoaded || !_vatLoaded) return;
+    Promise.all([
+      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'bill.get', companyId: COMPANY, billId: _reenterId }) }).then(function(r){ return r.json(); }),
+      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'bill.lines', companyId: COMPANY, billId: _reenterId }) }).then(function(r){ return r.json(); })
+    ]).then(function(results) {
+      var billRes = results[0], linesRes = results[1];
+      var bill = billRes.data || billRes;
+      var lines = linesRes.data || linesRes;
+      if (!bill || bill.error) return;
+      // Pre-fill header fields
+      document.getElementById('vendor-name-input').value = bill.vendor || '';
+      document.getElementById('vendor-ref').value = bill.vendor_ref || '';
+      if (bill.date) document.getElementById('bill-date').value = String(bill.date).slice(0,10);
+      if (bill.due_date) document.getElementById('due-date').value = String(bill.due_date).slice(0,10);
+      if (bill.currency) document.getElementById('currency').value = bill.currency;
+      if (bill.ap_account) {
+        document.getElementById('ap-code').value = bill.ap_account;
+        document.getElementById('ap-name').value = accountsMap[bill.ap_account] || bill.ap_account;
+        document.getElementById('ap-hint').textContent = accountsMap[bill.ap_account] || '';
+      }
+      if (bill.description) document.getElementById('description').value = bill.description;
+      // Replace default line with bill lines
+      if (Array.isArray(lines) && lines.length > 0) {
+        document.getElementById('lines-body').innerHTML = '';
+        lineCounter = 0;
+        lines.forEach(function(l) {
+          addLine({ expense_account: l.account_code, amount: Number(l.amount||0).toFixed(2),
+            vat_code: l.vat_code || '', description: l.description || '' });
+        });
+      }
+      updateTotal();
+    }).catch(function(){});
+  }
 
   // ── Vendor autocomplete ──────────────────────────────────────────────
   var vendorDropdown = null;

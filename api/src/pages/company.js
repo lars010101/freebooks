@@ -137,6 +137,7 @@ ${commonStyle()}
     <a href="/${co.company_id}/bank/import">🏦 Bank Import</a>
     <a href="/${co.company_id}/payables">📋 Payables</a>
     <a href="/${co.company_id}/bank/reconcile">✓ Reconcile</a>
+    <a href="/${co.company_id}/opening-balances">📂 Opening Bal.</a>
   </div>
   <div class="header">
     <h1>${co.company_name}</h1>

@@ -125,7 +125,29 @@ ${commonStyle()}
       </tr></thead>
       <tbody id="m-lines-tbody"></tbody>
     </table>
-    <div style="margin-top:20px;text-align:right">
+    <div id="m-edit-section" style="margin-top:18px;border-top:1px solid #eee;padding-top:14px">
+      <h3 style="font-size:10pt;color:#555;font-weight:600;margin:0 0 10px">Edit Non-Financial Fields</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:12px">
+        <div>
+          <label style="font-size:9pt;color:#888;font-weight:600;text-transform:uppercase;display:block;margin-bottom:3px">Invoice Ref</label>
+          <input type="text" id="m-edit-ref" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:3px;font-size:10pt;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:9pt;color:#888;font-weight:600;text-transform:uppercase;display:block;margin-bottom:3px">Due Date</label>
+          <input type="date" id="m-edit-due" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:3px;font-size:10pt;box-sizing:border-box">
+        </div>
+        <div style="grid-column:1/-1">
+          <label style="font-size:9pt;color:#888;font-weight:600;text-transform:uppercase;display:block;margin-bottom:3px">Description</label>
+          <input type="text" id="m-edit-desc" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:3px;font-size:10pt;box-sizing:border-box">
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button id="m-btn-save" onclick="saveNonFinancial()" style="padding:7px 18px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer">Save Changes</button>
+        <button id="m-btn-rr" onclick="reverseAndReenter()" style="padding:7px 18px;background:#cc7700;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer;display:none">🔄 Reverse &amp; Re-enter</button>
+        <span id="m-edit-status" style="font-size:10pt"></span>
+      </div>
+    </div>
+    <div style="margin-top:18px;text-align:right">
       <button onclick="closeModal()" style="padding:8px 20px;border:1px solid #ccc;border-radius:4px;background:#f5f5f5;cursor:pointer;font-size:10pt">Close</button>
     </div>
   </div>
@@ -135,6 +157,7 @@ ${commonStyle()}
 var COMPANY = '${company}';
 var periodsData = [];
 var billsData = [];
+var currentBillId = null;
 var today = new Date().toISOString().slice(0,10);
 
 window.addEventListener('DOMContentLoaded', function() {
@@ -266,6 +289,7 @@ function toggleMore() {
 }
 
 function viewBill(billId) {
+  currentBillId = billId;
   var bill = billsData.find(function(b){ return b.bill_id === billId; });
   if (!bill) return;
   document.getElementById('m-vendor').textContent = bill.vendor || '';
@@ -277,6 +301,17 @@ function viewBill(billId) {
   document.getElementById('m-status').innerHTML = statusBadge(bill.status, bill.due_date);
   document.getElementById('m-ap').textContent = bill.ap_account || '';
   document.getElementById('m-desc').textContent = bill.description || '\u2014';
+  // Populate edit fields
+  document.getElementById('m-edit-ref').value = bill.vendor_ref || '';
+  document.getElementById('m-edit-due').value = bill.due_date ? String(bill.due_date).slice(0,10) : '';
+  document.getElementById('m-edit-desc').value = bill.description || '';
+  document.getElementById('m-edit-status').textContent = '';
+  document.getElementById('m-edit-status').style.color = '#555';
+  var saveBtn = document.getElementById('m-btn-save');
+  var rrBtn = document.getElementById('m-btn-rr');
+  saveBtn.disabled = (bill.status === 'void');
+  rrBtn.style.display = (bill.status === 'posted' || bill.status === 'partial') ? '' : 'none';
+  rrBtn.disabled = false;
   document.getElementById('m-lines-tbody').innerHTML = '<tr><td colspan="5" style="color:#888">Loading\u2026</td></tr>';
   document.getElementById('bill-modal').style.display = '';
 
@@ -309,6 +344,74 @@ function viewBill(billId) {
 
 function closeModal() {
   document.getElementById('bill-modal').style.display = 'none';
+  currentBillId = null;
+}
+
+function saveNonFinancial() {
+  if (!currentBillId) return;
+  var vendor_ref = document.getElementById('m-edit-ref').value.trim();
+  var due_date = document.getElementById('m-edit-due').value;
+  var description = document.getElementById('m-edit-desc').value.trim();
+  var saveBtn = document.getElementById('m-btn-save');
+  var statusEl = document.getElementById('m-edit-status');
+  saveBtn.disabled = true;
+  statusEl.textContent = 'Saving\u2026';
+  statusEl.style.color = '#555';
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'bill.update', companyId: COMPANY, billId: currentBillId,
+      vendor_ref: vendor_ref, due_date: due_date || undefined, description: description }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      saveBtn.disabled = false;
+      var err = res.error || (res.data && res.data.error);
+      if (err) {
+        statusEl.textContent = '\u2717 ' + err;
+        statusEl.style.color = '#cc2222';
+      } else {
+        statusEl.textContent = '\u2713 Saved';
+        statusEl.style.color = '#2a8a2a';
+        // Update local cache
+        var b = billsData.find(function(x){ return x.bill_id === currentBillId; });
+        if (b) { b.vendor_ref = vendor_ref; b.due_date = due_date; b.description = description; }
+        // Update display fields in modal
+        document.getElementById('m-ref').textContent = vendor_ref || '\u2014';
+        document.getElementById('m-due').textContent = due_date || '\u2014';
+        document.getElementById('m-desc').textContent = description || '\u2014';
+      }
+    })
+    .catch(function(e){
+      saveBtn.disabled = false;
+      statusEl.textContent = '\u2717 ' + e.message;
+      statusEl.style.color = '#cc2222';
+    });
+}
+
+function reverseAndReenter() {
+  if (!currentBillId) return;
+  if (!confirm('Void this bill and open the re-entry form?\n\nThe original journal entry will be auto-reversed.')) return;
+  var rrBtn = document.getElementById('m-btn-rr');
+  var statusEl = document.getElementById('m-edit-status');
+  rrBtn.disabled = true;
+  statusEl.textContent = 'Reversing\u2026';
+  statusEl.style.color = '#555';
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'bill.void', companyId: COMPANY, billId: currentBillId }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var err = res.error || (res.data && res.data.error);
+      if (err) {
+        rrBtn.disabled = false;
+        statusEl.textContent = '\u2717 ' + err;
+        statusEl.style.color = '#cc2222';
+      } else {
+        window.location.href = '/' + COMPANY + '/bill/new?reenter=' + encodeURIComponent(currentBillId);
+      }
+    })
+    .catch(function(e){
+      rrBtn.disabled = false;
+      statusEl.textContent = '\u2717 ' + e.message;
+      statusEl.style.color = '#cc2222';
+    });
 }
 </script>
 </body>

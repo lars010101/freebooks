@@ -24,6 +24,7 @@ const { handlePayablesPage } = require('./pages/payables');
 const { handleApAgingPage } = require('./pages/ap-aging');
 const { handleNewCompanyPage } = require('./pages/new-company');
 const { handleAdminQuery } = require('./pages/admin');
+const { handleOpeningBalancesPage } = require('./pages/opening-balances');
 const { makeQuery } = require('./pages/common');
 
 // ── Route: GET /api/:company/report ──────────────────────────────────────────
@@ -149,6 +150,7 @@ function mountReportRoutes(app) {
   app.get('/:company/payables/aging', handleApAgingPage);
   app.get('/:company/bank/import', handleBankImportPage);
   app.get('/:company/bank/reconcile', handleBankReconcilePage);
+  app.get('/:company/opening-balances', handleOpeningBalancesPage);
   app.get('/:company/settings', handleSettingsPage);
   app.get('/:company', handleCompanyPage);
   app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);

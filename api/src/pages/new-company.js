@@ -62,6 +62,10 @@ ${commonStyle()}
     <button class="btn-primary" id="btn-create" onclick="createCompany()">Create Company</button>
     <span id="msg" class="msg"></span>
   </div>
+  <div id="post-links" style="display:none;margin-top:14px;display:none">
+    <a id="lnk-ob" href="#" style="display:inline-block;padding:9px 20px;background:#1a5276;color:#fff;text-decoration:none;border-radius:4px;font-size:10pt;font-weight:600;margin-right:10px">📂 Enter Opening Balances &rarr;</a>
+    <a id="lnk-settings" href="#" style="display:inline-block;padding:9px 20px;background:#f5f5f5;color:#333;text-decoration:none;border-radius:4px;font-size:10pt;border:1px solid #ccc">⚙ Go to Settings</a>
+  </div>
 </div>
 <script>
 function addRow(p) {
@@ -105,11 +109,28 @@ function createCompany() {
     .then(r => r.json())
     .then(d => {
       if (d.error) { msg.textContent = d.error; msg.className = 'msg err'; document.getElementById('btn-create').disabled = false; return; }
-      if (ps.length === 0) { window.location.href = '/'+co.company_id+'/settings'; return; }
+      if (ps.length === 0) {
+        msg.textContent = 'Company created.';
+        msg.className = 'msg';
+        msg.style.color = '#2a8a2a';
+        document.getElementById('btn-create').textContent = 'Created \u2713';
+        document.getElementById('post-links').style.display = '';
+        document.getElementById('lnk-ob').href = '/'+co.company_id+'/opening-balances';
+        document.getElementById('lnk-settings').href = '/'+co.company_id+'/settings';
+        return;
+      }
       var periods = ps.map(p => ({ company_id: co.company_id, period_id: p.name, start_date: p.start, end_date: p.end, locked: false }));
       return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ action:'period.save', companyId: co.company_id, periods }) })
-        .then(() => { window.location.href = '/'+co.company_id+'/settings'; });
+        .then(() => {
+          msg.textContent = 'Company created.';
+          msg.className = 'msg';
+          msg.style.color = '#2a8a2a';
+          document.getElementById('btn-create').textContent = 'Created ✓';
+          document.getElementById('post-links').style.display = '';
+          document.getElementById('lnk-ob').href = '/'+co.company_id+'/opening-balances';
+          document.getElementById('lnk-settings').href = '/'+co.company_id+'/settings';
+        });
     })
     .catch(e => { msg.textContent = e.message; msg.className = 'msg err'; document.getElementById('btn-create').disabled = false; });
 }

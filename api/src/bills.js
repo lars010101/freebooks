@@ -22,6 +22,8 @@ async function handleBills(ctx, action) {
     case 'bill.match':  return matchBill(ctx);
     case 'bill.lines':  return getBillLines(ctx);
     case 'bill.aging':  return getAgingReport(ctx);
+    case 'bill.get':    return getBill(ctx);
+    case 'bill.update': return updateBill(ctx);
     default:
       throw Object.assign(new Error(`Unknown bill action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -285,6 +287,45 @@ async function getAgingReport(ctx) {
   if (currency) { sql += ` AND currency = @currency`; params.currency = currency; }
   sql += ` ORDER BY vendor, due_date`;
   return query(sql, params);
+}
+
+async function getBill(ctx) {
+  const { companyId, body } = ctx;
+  const { billId } = body;
+  if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
+  const rows = await query(
+    `SELECT * FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
+    { companyId, billId }
+  );
+  if (!rows.length) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
+  return rows[0];
+}
+
+async function updateBill(ctx) {
+  const { companyId, body } = ctx;
+  const { billId, vendor_ref, due_date, description } = body;
+  if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
+
+  const rows = await query(
+    `SELECT status FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
+    { companyId, billId }
+  );
+  if (!rows.length) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
+  if (rows[0].status === 'void') throw Object.assign(new Error('Cannot edit a voided bill'), { code: 'INVALID_STATUS' });
+
+  const setParts = [];
+  const params = { companyId, billId };
+  if (vendor_ref !== undefined) { setParts.push('vendor_ref = @vendor_ref'); params.vendor_ref = vendor_ref || null; }
+  if (due_date !== undefined && due_date) { setParts.push('due_date = @due_date'); params.due_date = due_date; }
+  if (description !== undefined) { setParts.push('description = @description'); params.description = description || null; }
+
+  if (!setParts.length) return { updated: false, message: 'No fields to update' };
+
+  await exec(
+    `UPDATE bills SET ${setParts.join(', ')} WHERE company_id = @companyId AND bill_id = @billId`,
+    params
+  );
+  return { updated: true, billId };
 }
 
 module.exports = { handleBills };

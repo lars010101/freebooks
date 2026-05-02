@@ -162,17 +162,17 @@ async function addCompany(ctx) {
 
   // Seed default journals
   const DEFAULT_JOURNALS = [
-    { journal_id: 'MISC', journal_name: 'Miscellaneous', is_active: true },
-    { journal_id: 'BANK', journal_name: 'Bank',          is_active: true },
-    { journal_id: 'ADJ',  journal_name: 'Adjustments',   is_active: true },
-    { journal_id: 'AP',   journal_name: 'Accounts Payable', is_active: true },
+    { code: 'MISC', name: 'Miscellaneous' },
+    { code: 'BANK', name: 'Bank' },
+    { code: 'ADJ',  name: 'Adjustments' },
+    { code: 'AP',   name: 'Accounts Payable' },
   ];
   await bulkInsert('journals', DEFAULT_JOURNALS.map(j => ({
+    journal_id: `${company.company_id}_${j.code.toLowerCase()}`,
     company_id: company.company_id,
-    journal_id: j.journal_id,
-    journal_name: j.journal_name,
-    is_active: j.is_active,
-    created_at: now,
+    code: j.code,
+    name: j.name,
+    active: true,
   })));
 
   return { created: true, companyId: company.company_id, accountsInserted, vatCodesInserted, journalsInserted: DEFAULT_JOURNALS.length };

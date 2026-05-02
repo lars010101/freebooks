@@ -113,7 +113,14 @@ async function createBill(ctx) {
 
   const batchId = uuid();
   const year = new Date(bill.date).getFullYear();
-  const apRef = await getNextReference(companyId, 'AP', year).catch(() => bill.vendor_ref || null);
+  const apJournals = await query(
+    `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'AP' AND active = true LIMIT 1`,
+    { companyId }
+  );
+  const apJournalId = apJournals.length ? apJournals[0].journal_id : null;
+  const apRef = apJournalId
+    ? await getNextReference(companyId, apJournalId, year).catch(() => bill.vendor_ref || null)
+    : (bill.vendor_ref || null);
   const lines = [];
   const desc = [bill.vendor, bill.vendor_ref, bill.description].filter(Boolean).join(' / ');
 

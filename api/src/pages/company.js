@@ -87,13 +87,17 @@ function buildCompanyPage(co, periods) {
     { id: 'gl',        label: 'General Ledger' },
     { id: 'journal',   label: 'Journal' },
     { id: 'integrity', label: 'Integrity Check' },
+    { id: 'ap_aging',  label: 'AP Aging', href: true },
   ];
   const finButtons = FIN_REPORTS.map(r =>
     `<button class="report-btn${r.id === 'pl' ? ' active' : ''}" onclick="setReport('${r.id}')">${r.label}</button>`
   ).join('\n');
-  const auditButtons = AUDIT_REPORTS.map(r =>
-    `<button class="report-btn" onclick="setReport('${r.id}')">${r.label}</button>`
-  ).join('\n');
+  const auditButtons = AUDIT_REPORTS.map(r => {
+    if (r.href) {
+      return `<a class="report-btn" href="/${co.company_id}/payables/aging" style="text-decoration:none">${r.label}</a>`;
+    }
+    return `<button class="report-btn" onclick="setReport('${r.id}')">${r.label}</button>`;
+  }).join('\n');
 
   return `<!DOCTYPE html>
 <html lang="en">

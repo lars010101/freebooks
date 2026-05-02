@@ -21,6 +21,7 @@ const { handleBankImportPage } = require('./pages/bank-import');
 const { handleBillNewPage } = require('./pages/bill-new');
 const { handleBankReconcilePage } = require('./pages/bank-reconcile');
 const { handlePayablesPage } = require('./pages/payables');
+const { handleApAgingPage } = require('./pages/ap-aging');
 const { handleNewCompanyPage } = require('./pages/new-company');
 const { handleAdminQuery } = require('./pages/admin');
 const { makeQuery } = require('./pages/common');
@@ -145,6 +146,7 @@ function mountReportRoutes(app) {
   app.get('/:company/journal/new', handleJournalNewPage);
   app.get('/:company/bill/new', handleBillNewPage);
   app.get('/:company/payables', handlePayablesPage);
+  app.get('/:company/payables/aging', handleApAgingPage);
   app.get('/:company/bank/import', handleBankImportPage);
   app.get('/:company/bank/reconcile', handleBankReconcilePage);
   app.get('/:company/settings', handleSettingsPage);

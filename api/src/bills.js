@@ -20,6 +20,7 @@ async function handleBills(ctx, action) {
     case 'bill.list':   return listBills(ctx);
     case 'bill.match':  return matchBill(ctx);
     case 'bill.lines':  return getBillLines(ctx);
+    case 'bill.aging':  return getAgingReport(ctx);
     default:
       throw Object.assign(new Error(`Unknown bill action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -231,6 +232,34 @@ async function getBillLines(ctx) {
      ORDER BY je.created_at`,
     { companyId, billId }
   );
+}
+
+async function getAgingReport(ctx) {
+  const { companyId, body } = ctx;
+  const { asOfDate, currency } = body;
+  const asOf = asOfDate || new Date().toISOString().slice(0, 10);
+
+  let sql = `
+    SELECT
+      bill_id, vendor, vendor_ref, date, due_date, amount, currency,
+      status, amount_paid,
+      COALESCE(amount - amount_paid, amount) AS balance_due,
+      CASE
+        WHEN due_date IS NULL OR due_date >= @asOf THEN 'current'
+        WHEN DATEDIFF('day', due_date::DATE, @asOf::DATE) <= 30 THEN '1_30'
+        WHEN DATEDIFF('day', due_date::DATE, @asOf::DATE) <= 60 THEN '31_60'
+        WHEN DATEDIFF('day', due_date::DATE, @asOf::DATE) <= 90 THEN '61_90'
+        ELSE '90plus'
+      END AS bucket,
+      CASE WHEN due_date IS NULL THEN 0 ELSE DATEDIFF('day', due_date::DATE, @asOf::DATE) END AS days_overdue
+    FROM bills
+    WHERE company_id = @companyId
+      AND status IN ('posted', 'partial')
+  `;
+  const params = { companyId, asOf };
+  if (currency) { sql += ` AND currency = @currency`; params.currency = currency; }
+  sql += ` ORDER BY vendor, due_date`;
+  return query(sql, params);
 }
 
 module.exports = { handleBills };

@@ -145,7 +145,7 @@ ${commonStyle()}
   <!-- VENDORS TAB -->
   <div id="tab-vendors" class="tab-panel">
     <table class="edit-table" id="vendors-table">
-      <thead><tr><th>Name</th><th>Default Currency</th><th>Terms (days)</th><th>Tax ID</th><th>Notes</th><th>Default Expense Account</th><th>Default AP Account</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>CCY</th><th>Terms(d)</th><th>Expense A/C</th><th>AP A/C</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="vendors-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
@@ -164,6 +164,8 @@ var VAT_NAMES = { SG:'GST', SE:'VAT' };
 
 // ========== DIRTY STATE MANAGER (all tabs) ==========
 var dirtyTabs = new Set();
+var vendorAccountsList = [];
+var vendorAcctActiveInput = null;
 function markDirty(tab) {
   dirtyTabs.add(tab);
   var btn = document.getElementById('btn-save-' + tab);
@@ -188,7 +190,7 @@ function showTab(t) {
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
-  if (t === 'vendors') loadVendors();
+  if (t === 'vendors') { loadVendors(); loadVendorAccounts(); }
 }
 
 function showMsg(id, msg, isErr) {
@@ -442,16 +444,60 @@ function addVendorRow(v) {
   var tr = document.createElement('tr');
   tr.innerHTML =
     '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:220px"></td>' +
-    '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:70px"></td>' +
-    '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:70px"></td>' +
-    '<td><input type="text" value="' + (v.tax_id||'') + '" style="width:110px"></td>' +
-    '<td><input type="text" value="' + (v.notes||'') + '" style="width:180px"></td>' +
-    '<td><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px"></td>' +
-    '<td><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px"></td>' +
+    '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:45px"></td>' +
+    '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:55px"></td>' +
+    '<td><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="vendorAcctInput(this)" onblur="hideVendorAcctDd()"></td>' +
+    '<td><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="vendorAcctInput(this)" onblur="hideVendorAcctDd()"></td>' +
     '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
     '<td><button class="btn-sm danger" onclick="markDirty(\\'vendors\\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
   wireDirty(tr, 'vendors');
   document.getElementById('vendors-body').appendChild(tr);
+}
+function loadVendorAccounts() {
+  if (vendorAccountsList.length > 0) return;
+  fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
+    vendorAccountsList = Array.isArray(rows) ? rows : [];
+  }).catch(function(){});
+}
+function vendorAcctInput(input) {
+  vendorAcctActiveInput = input;
+  var q = input.value.trim().toLowerCase();
+  var dd = document.getElementById('vendor-acct-dd');
+  if (dd) dd.remove();
+  if (!q) return;
+  var matches = vendorAccountsList.filter(function(a){
+    return (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q);
+  }).slice(0, 12);
+  if (!matches.length) return;
+  var div = document.createElement('div');
+  div.id = 'vendor-acct-dd';
+  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
+  matches.forEach(function(a){
+    var item = document.createElement('div');
+    item.textContent = a.account_code + ' — ' + a.account_name;
+    item.style.cssText = 'padding:4px 8px;cursor:pointer;white-space:nowrap';
+    item.onmouseover = function(){ item.style.background='#e8f0fe'; };
+    item.onmouseout  = function(){ item.style.background=''; };
+    item.onmousedown = function(e){ e.preventDefault(); };
+    item.onclick = function(){
+      if (vendorAcctActiveInput) vendorAcctActiveInput.value = a.account_code;
+      var d = document.getElementById('vendor-acct-dd');
+      if (d) d.remove();
+      vendorAcctActiveInput = null;
+    };
+    div.appendChild(item);
+  });
+  var rect = input.getBoundingClientRect();
+  div.style.left = rect.left + 'px';
+  div.style.top  = (rect.bottom + 2) + 'px';
+  div.style.minWidth = rect.width + 'px';
+  document.body.appendChild(div);
+}
+function hideVendorAcctDd() {
+  setTimeout(function(){
+    var dd = document.getElementById('vendor-acct-dd');
+    if (dd) dd.remove();
+  }, 150);
 }
 function saveVendors() {
   var rows = Array.from(document.querySelectorAll('#vendors-body tr')).map(function(tr){
@@ -460,11 +506,11 @@ function saveVendors() {
       name: inputs[0].value.trim(),
       default_currency: inputs[1].value.trim() || null,
       payment_terms_days: parseInt(inputs[2].value) || 30,
-      tax_id: inputs[3].value.trim() || null,
-      notes: inputs[4].value.trim() || null,
-      default_expense_account: inputs[5].value.trim() || null,
-      default_ap_account: inputs[6].value.trim() || null,
-      is_active: inputs[7].checked
+      tax_id: null,
+      notes: null,
+      default_expense_account: inputs[3].value.trim() || null,
+      default_ap_account: inputs[4].value.trim() || null,
+      is_active: inputs[5].checked
     };
   }).filter(function(r){ return r.name; });
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.save', companyId: COMPANY, vendors: rows }) })

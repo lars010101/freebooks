@@ -148,7 +148,11 @@ ${commonStyle()}
         <tbody id="lines-body"></tbody>
       </table>
       <button class="btn-add-line" onclick="addLine()">＋ Add Line</button>
-      <div class="total-row">Total: <span id="lines-total">0.00</span></div>
+      <div class="total-row" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+        <div style="font-weight:400;font-size:10pt;color:#555">Subtotal (net): <span id="lines-net">0.00</span></div>
+        <div id="gst-rows"></div>
+        <div style="border-top:1px solid #ccc;padding-top:4px;margin-top:2px">Total payable: <span id="lines-total">0.00</span></div>
+      </div>
       <div class="err" id="err-lines" style="display:none;margin-top:6px">At least one expense line with a valid account and amount > 0 is required</div>
     </div>
 
@@ -385,12 +389,36 @@ ${commonStyle()}
   }
 
   function updateTotal() {
-    var total = 0;
-    document.querySelectorAll('#lines-body .lamount').forEach(function(inp){
-      var v = parseFloat(inp.value);
-      if (!isNaN(v) && v > 0) total += v;
+    var net = 0;
+    var gstByCode = {}; // vatCode -> { label, amount }
+    document.querySelectorAll('#lines-body tr').forEach(function(tr) {
+      var amtEl = tr.querySelector('.lamount');
+      var vatSel = tr.querySelector('.vat-select');
+      if (!amtEl) return;
+      var v = parseFloat(amtEl.value);
+      if (isNaN(v) || v <= 0) return;
+      net += v;
+      var vatCode = vatSel ? vatSel.value : '';
+      if (vatCode) {
+        var vc = vatCodesList.find(function(x){ return x.vat_code === vatCode; });
+        if (vc) {
+          var rate = Number(vc.rate);
+          var lineVat = Math.round(v * rate * 100) / 100;
+          if (!gstByCode[vatCode]) gstByCode[vatCode] = { label: vatCode + ' (' + Math.round(rate*100) + '%)', amount: 0 };
+          gstByCode[vatCode].amount += lineVat;
+        }
+      }
     });
-    document.getElementById('lines-total').textContent = total.toFixed(2);
+    var totalGst = 0;
+    var gstHtml = '';
+    Object.keys(gstByCode).forEach(function(code) {
+      var g = gstByCode[code];
+      totalGst += g.amount;
+      gstHtml += '<div style="font-weight:400;font-size:10pt;color:#555">GST ' + g.label + ': ' + g.amount.toFixed(2) + '</div>';
+    });
+    document.getElementById('lines-net').textContent = net.toFixed(2);
+    document.getElementById('gst-rows').innerHTML = gstHtml;
+    document.getElementById('lines-total').textContent = (net + totalGst).toFixed(2);
   }
 
   function onLineCodeInput(codeEl, nameEl) {

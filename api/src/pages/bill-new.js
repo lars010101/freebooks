@@ -189,10 +189,12 @@ ${commonStyle()}
     .then(function(rows){
       if (!Array.isArray(rows)) return;
       vatCodesList = rows.filter(function(v){ return v.is_active !== false; });
-      // Re-render existing lines to populate selects
+      // Re-render existing lines to populate selects and wire onchange
       document.querySelectorAll('.vat-select').forEach(function(sel){
         populateVatSelect(sel, sel.value);
+        sel.onchange = function() { updateTotal(); };
       });
+      updateTotal();
     }).catch(function(){});
 
   // Load vendors
@@ -363,6 +365,7 @@ ${commonStyle()}
     // Populate VAT select
     var sel = tr.querySelector('.vat-select');
     populateVatSelect(sel, data.vat_code || '');
+    sel.onchange = function() { updateTotal(); };
 
     updateRemoveButtons();
     updateTotal();

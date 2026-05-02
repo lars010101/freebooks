@@ -50,55 +50,82 @@ const statements = [
   ...loadMacroBlocks(MACROS_FILE),
 ];
 
-console.log(`Opening DuckDB at: ${DB_PATH}`);
-const db = new Database(DB_PATH);
-const con = db.connect();
+// ── Via-server mode: POST statements to admin endpoint ──────────────────────
+const API_URL = process.env.API_URL || process.argv.includes('--via-server') ? 'http://localhost:3000' : null;
 
-const DEFAULT_JOURNALS = [
-  { code: 'MISC', name: 'Miscellaneous' },
-  { code: 'BANK', name: 'Bank' },
-  { code: 'ADJ',  name: 'Adjustment' },
-];
-
-function seedJournals(callback) {
-  con.all(`SELECT company_id FROM companies`, (err, companies) => {
-    if (err || !companies || companies.length === 0) { callback(); return; }
-    let pending = 0;
-    for (const company of companies) {
-      for (const j of DEFAULT_JOURNALS) {
-        const journalId = `${company.company_id}_${j.code.toLowerCase()}`;
-        pending++;
-        const sql = `INSERT INTO journals (journal_id, company_id, code, name, active)
-          VALUES ('${journalId}', '${company.company_id}', '${j.code}', '${j.name}', true)
-          ON CONFLICT DO NOTHING`;
-        con.exec(sql, (e) => {
-          if (e) console.warn(`Journal seed warning (${company.company_id}/${j.code}): ${e.message}`);
-          pending--;
-          if (pending === 0) callback();
+if (API_URL) {
+  const http = require('http');
+  console.log(`Applying ${statements.length} statements via server at ${API_URL} ...`);
+  function postNext(i) {
+    if (i >= statements.length) { console.log('Done.'); return; }
+    const body = JSON.stringify({ sql: statements[i] });
+    const req = http.request(`${API_URL}/api/admin/query`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
+      (res) => {
+        let d = '';
+        res.on('data', c => d += c);
+        res.on('end', () => {
+          const r = JSON.parse(d);
+          if (r.error) console.warn(`  stmt ${i+1} warn: ${r.error}`);
+          else process.stdout.write('.');
+          postNext(i + 1);
         });
-      }
-    }
-    if (pending === 0) callback();
-  });
-}
-
-function runNext(i) {
-  if (i >= statements.length) {
-    console.log(`Schema applied (${statements.length} statements).`);
-    seedJournals(() => {
-      console.log('Default journals seeded.');
-      con.close();
-      db.close(() => process.exit(0));
-    });
-    return;
+      });
+    req.on('error', e => { console.error('Request error:', e.message); process.exit(1); });
+    req.write(body); req.end();
   }
-  con.exec(statements[i] + ';', (err) => {
-    if (err) {
-      console.error(`Failed on statement ${i + 1}:\n${statements[i].slice(0, 120)}\nError: ${err.message}`);
-      process.exit(1);
-    }
-    runNext(i + 1);
-  });
-}
+  postNext(0);
+} else {
+  // ── Direct DB mode ──────────────────────────────────────────────────────────
+  console.log(`Opening DuckDB at: ${DB_PATH}`);
+  const db = new Database(DB_PATH);
 
-runNext(0);
+  const DEFAULT_JOURNALS = [
+    { code: 'MISC', name: 'Miscellaneous' },
+    { code: 'BANK', name: 'Bank' },
+    { code: 'ADJ',  name: 'Adjustment' },
+  ];
+
+  function seedJournals(callback) {
+    db.all('SELECT company_id FROM companies', (err, companies) => {
+      if (err || !companies || companies.length === 0) { callback(); return; }
+      let pending = 0;
+      for (const company of companies) {
+        for (const j of DEFAULT_JOURNALS) {
+          const journalId = `${company.company_id}_${j.code.toLowerCase()}`;
+          pending++;
+          const sql = `INSERT INTO journals (journal_id, company_id, code, name, active)
+            VALUES ('${journalId}', '${company.company_id}', '${j.code}', '${j.name}', true)
+            ON CONFLICT DO NOTHING`;
+          db.exec(sql, (e) => {
+            if (e) console.warn(`Journal seed warning (${company.company_id}/${j.code}): ${e.message}`);
+            pending--;
+            if (pending === 0) callback();
+          });
+        }
+      }
+      if (pending === 0) callback();
+    });
+  }
+
+  function runNext(i) {
+    if (i >= statements.length) {
+      console.log(`\nSchema applied (${statements.length} statements).`);
+      seedJournals(() => {
+        console.log('Default journals seeded.');
+        db.close(() => process.exit(0));
+      });
+      return;
+    }
+    db.exec(statements[i] + ';', (err) => {
+      if (err) {
+        console.error(`Failed on statement ${i + 1}:\n${statements[i].slice(0, 120)}\nError: ${err.message}`);
+        process.exit(1);
+      }
+      process.stdout.write('.');
+      runNext(i + 1);
+    });
+  }
+
+  runNext(0);
+}

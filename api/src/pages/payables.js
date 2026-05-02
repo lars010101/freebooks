@@ -237,7 +237,7 @@ function renderBills(rows) {
       '<td>' + (b.currency || '') + '</td>' +
       '<td style="text-align:right">' + Number(b.amount || 0).toFixed(2) + '</td>' +
       '<td>' + badge + '</td>' +
-      '<td><button class="btn-view" onclick="viewBill(\'' + b.bill_id + '\')">View</button></td>' +
+      '<td><button class="btn-view" data-bill-id="' + b.bill_id + '" onclick="viewBill(this.dataset.billId)">View</button></td>' +
       '</tr>';
   });
   tbody.innerHTML = html;

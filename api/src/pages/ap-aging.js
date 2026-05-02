@@ -243,7 +243,7 @@ function viewBill(billId) {
   document.getElementById('m-due').textContent = bill.due_date ? String(bill.due_date).slice(0,10) : '—';
   document.getElementById('m-currency').textContent = bill.currency || '';
   document.getElementById('m-amount').textContent = Number(bill.amount||0).toFixed(2);
-  document.getElementById('m-status').textContent = bill.status || '';
+  document.getElementById('m-status').innerHTML = statusBadge(bill.status, bill.due_date);
   document.getElementById('m-ap').textContent = bill.ap_account || '';
   document.getElementById('m-desc').textContent = bill.description || '—';
   document.getElementById('m-lines-tbody').innerHTML = '<tr><td colspan="5" style="color:#888;padding:8px">Loading…</td></tr>';
@@ -277,6 +277,18 @@ function viewBill(billId) {
 
 function closeModal() {
   document.getElementById('bill-modal').style.display = 'none';
+}
+
+function statusBadge(status, dueDate) {
+  var today = new Date().toISOString().slice(0,10);
+  var due = dueDate ? String(dueDate).slice(0,10) : null;
+  var isOverdue = (status === 'posted' || status === 'partial') && due && due < today;
+  if (isOverdue) return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:9pt;font-weight:600;background:#fff0f0;color:#cc2222">Overdue</span>';
+  if (status === 'posted') return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:9pt;font-weight:600;background:#e8eeff;color:#2255cc">Open</span>';
+  if (status === 'partial') return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:9pt;font-weight:600;background:#fff3e0;color:#cc7700">Partial</span>';
+  if (status === 'paid')    return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:9pt;font-weight:600;background:#f0fff4;color:#2a8a2a">Paid</span>';
+  if (status === 'void')    return '<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:9pt;font-weight:600;background:#f0f0f0;color:#888">Void</span>';
+  return '<span>' + (status||'') + '</span>';
 }
 
 function fmt(n) {

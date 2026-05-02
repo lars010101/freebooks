@@ -267,7 +267,7 @@ async function getAgingReport(ctx) {
   let sql = `
     SELECT
       bill_id, vendor, vendor_ref, date, due_date, amount, currency,
-      status, amount_paid,
+      status, amount_paid, ap_account, description,
       COALESCE(amount - amount_paid, amount) AS balance_due,
       CASE
         WHEN due_date IS NULL OR due_date >= @asOf THEN 'current'

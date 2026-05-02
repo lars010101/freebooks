@@ -18,6 +18,7 @@ const { handleCompanyPage } = require('./pages/company');
 const { handleSettingsPage } = require('./pages/settings');
 const { handleJournalNewPage } = require('./pages/journal-new');
 const { handleBankImportPage } = require('./pages/bank-import');
+const { handleBillNewPage } = require('./pages/bill-new');
 const { handleBankReconcilePage } = require('./pages/bank-reconcile');
 const { handleNewCompanyPage } = require('./pages/new-company');
 const { handleAdminQuery } = require('./pages/admin');
@@ -141,6 +142,7 @@ function mountReportRoutes(app) {
   app.get('/api/:company/accounts', handleAccounts);
   app.get('/api/:company/vat-codes', handleVatCodes);
   app.get('/:company/journal/new', handleJournalNewPage);
+  app.get('/:company/bill/new', handleBillNewPage);
   app.get('/:company/bank/import', handleBankImportPage);
   app.get('/:company/bank/reconcile', handleBankReconcilePage);
   app.get('/:company/settings', handleSettingsPage);

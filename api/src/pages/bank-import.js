@@ -79,6 +79,17 @@ ${commonStyle()}
     </div>
   </div>
 
+  <!-- Bill search panel -->
+  <div id="bill-panel" style="display:none;position:fixed;top:20%;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1px solid #ccc;border-radius:6px;padding:16px;min-width:500px;max-width:700px;box-shadow:0 4px 20px rgba(0,0,0,0.2)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-weight:600;font-size:11pt">Link Bill <span id="bill-panel-row-label" style="font-size:9pt;color:#888"></span></div>
+      <button onclick="closeBillPanel()" style="border:none;background:none;cursor:pointer;font-size:14pt;color:#888">&times;</button>
+    </div>
+    <input type="text" id="bill-panel-search" placeholder="Filter by vendor or ref…" oninput="renderBillPanelList()"
+      style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt;margin-bottom:10px">
+    <div id="bill-panel-list" style="max-height:320px;overflow-y:auto;border:1px solid #eee;border-radius:4px"></div>
+  </div>
+
   <!-- Step 3: Review -->
   <div class="step" id="step-review" style="display:none">
     <h3>③ Review &amp; Approve</h3>
@@ -90,7 +101,7 @@ ${commonStyle()}
       <span>Book balance after: <b id="bal-after">—</b></span>
     </div>
     <table class="review-table">
-      <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:80px">Debit</th><th style="width:80px">Credit</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
+      <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:80px">Bill</th><th style="width:80px">Debit</th><th style="width:80px">Credit</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
       <tbody id="review-body"></tbody>
     </table>
     <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -107,6 +118,8 @@ ${commonStyle()}
   var processedRows = [];
   var accountsMap = {};
   var journalsList = [];
+  var openBills = [];
+  var billPanelRowIdx = -1;
 
   fetch('/api/' + COMPANY + '/accounts')
     .then(function(r){ return r.json(); })
@@ -263,6 +276,7 @@ ${commonStyle()}
         renderReview(d);
         fetchAndShowBalance(bankAcct);
         checkDuplicates(bankAcct, bankRows);
+        fetchOpenBills();
       })
       .catch(e => { document.getElementById('parse-status').textContent = e.message; });
   }
@@ -310,11 +324,18 @@ ${commonStyle()}
         : r.matchType === 'bill' ? '<span class="tag med">bill</span>'
         : '<span class="tag lo">manual</span>';
       var cls = r.matchType ? 'matched' : 'unmatched';
+      var billCell = r.billId
+        ? '<span style="color:#2a8a2a;font-size:9pt">\u2713 '+escHtml((r.vendorShort||String(r.billId)).slice(0,10))+'</span>'
+          +' <button style="border:none;background:none;cursor:pointer;color:#888;font-size:9pt" '
+          +'onclick="unlinkBill('+i+')" title="Unlink bill">\u00d7</button>'
+        : '<button style="border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer;padding:2px 6px;font-size:10pt" '
+          +'onclick="openBillPanel('+i+')">&#128279;</button>';
       return '<tr class="'+cls+'" data-i="'+i+'">'
         +'<td>'+orig.date+'</td>'
         +'<td>'+escHtml(orig.description)+'</td>'
         +'<td class="num" style="color:'+(amt>=0?'#2a8a2a':'#cc2222')+'">'+(amt>=0?'+':'')+fmt(Math.abs(amt))+'</td>'
         +'<td>'+matchTag+'</td>'
+        +'<td style="width:80px;text-align:center" data-bill-cell="'+i+'">'+billCell+'</td>'
         +'<td style="width:90px"><input class="acct" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct" oninput="updateAcctName(this)">'
           +'<div style="font-size:8pt;color:#888;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></td>'
         +'<td style="width:90px"><input class="acct" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" oninput="updateAcctName(this)">'
@@ -470,6 +491,112 @@ ${commonStyle()}
           +'</div></div>';
       })
       .catch(e => { document.getElementById('post-status').textContent = e.message; });
+  }
+
+  // ── Bill linking ─────────────────────────────────────────────────────
+  function fetchOpenBills() {
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'bill.list', companyId: COMPANY }) })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        var bills = res.data || res;
+        if (Array.isArray(bills)) openBills = bills;
+      }).catch(function(){});
+  }
+
+  function openBillPanel(rowIdx) {
+    billPanelRowIdx = rowIdx;
+    var r = processedRows[rowIdx];
+    var orig = r ? r.original : {};
+    document.getElementById('bill-panel-row-label').textContent =
+      '— row '+(rowIdx+1)+': '+(orig.date||'')+' '+(orig.description||'').slice(0,40);
+    document.getElementById('bill-panel-search').value = '';
+    renderBillPanelList();
+    document.getElementById('bill-panel').style.display = '';
+    document.getElementById('bill-panel-search').focus();
+  }
+
+  function closeBillPanel() {
+    document.getElementById('bill-panel').style.display = 'none';
+    billPanelRowIdx = -1;
+  }
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') closeBillPanel();
+  });
+
+  function renderBillPanelList() {
+    var q = document.getElementById('bill-panel-search').value.trim().toLowerCase();
+    var filtered = openBills.filter(function(b){
+      if (!q) return true;
+      return (b.vendor_name||'').toLowerCase().includes(q)
+        || (b.vendor_ref||'').toLowerCase().includes(q)
+        || (b.bill_id||'').toLowerCase().includes(q);
+    });
+    var list = document.getElementById('bill-panel-list');
+    if (!filtered.length) {
+      list.innerHTML = '<div style="padding:10px 14px;color:#888;font-size:10pt">'+(openBills.length?'No matching bills':'No open bills loaded')+'</div>';
+      return;
+    }
+    list.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:9.5pt">'
+      +'<thead><tr style="background:#f0f0f0">'
+      +'<th style="padding:5px 8px;text-align:left">Vendor</th>'
+      +'<th style="padding:5px 8px;text-align:left">Ref</th>'
+      +'<th style="padding:5px 8px;text-align:left">Date</th>'
+      +'<th style="padding:5px 8px;text-align:right">Outstanding</th>'
+      +'</tr></thead><tbody>'
+      + filtered.slice(0,50).map(function(b, i){
+          var outstanding = parseFloat(b.outstanding_amount||b.amount||0);
+          return '<tr style="cursor:pointer;border-bottom:1px solid #f0f0f0" '
+            +'onmouseover="this.style.background=\'#f0f4ff\'" onmouseout="this.style.background=\'\'\'" '
+            +'onclick="selectBill('+JSON.stringify(b)+')" >'
+            +'<td style="padding:5px 8px">'+escHtml(b.vendor_name||b.vendor_id||'')+'</td>'
+            +'<td style="padding:5px 8px;color:#555">'+escHtml(b.vendor_ref||'')+'</td>'
+            +'<td style="padding:5px 8px;color:#555">'+escHtml(String(b.bill_date||'').slice(0,10))+'</td>'
+            +'<td style="padding:5px 8px;text-align:right;font-weight:600">'+outstanding.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'
+            +'</tr>';
+        }).join('')
+      +'</tbody></table>';
+  }
+
+  function selectBill(bill) {
+    if (billPanelRowIdx < 0 || !processedRows[billPanelRowIdx]) return;
+    var r = processedRows[billPanelRowIdx];
+    r.billId = bill.bill_id;
+    r.vendorShort = (bill.vendor_name||bill.vendor_id||'').slice(0,10);
+    // Set AP account as debit (payment reduces AP), bank account as credit
+    if (bill.ap_account) {
+      var tr = document.querySelector('#review-body tr[data-i="'+billPanelRowIdx+'"]');
+      if (tr) {
+        var drInput = tr.querySelector('[data-field=dr]');
+        var crInput = tr.querySelector('[data-field=cr]');
+        if (drInput) { drInput.value = bill.ap_account; updateAcctName(drInput); }
+        // creditAccount stays as bank account if already set
+      }
+    }
+    refreshBillCell(billPanelRowIdx);
+    closeBillPanel();
+  }
+
+  function unlinkBill(rowIdx) {
+    if (!processedRows[rowIdx]) return;
+    processedRows[rowIdx].billId = null;
+    processedRows[rowIdx].vendorShort = null;
+    refreshBillCell(rowIdx);
+  }
+
+  function refreshBillCell(rowIdx) {
+    var cell = document.querySelector('[data-bill-cell="'+rowIdx+'"]');
+    if (!cell) return;
+    var r = processedRows[rowIdx];
+    if (r && r.billId) {
+      cell.innerHTML = '<span style="color:#2a8a2a;font-size:9pt">\u2713 '+escHtml((r.vendorShort||String(r.billId)).slice(0,10))+'</span>'
+        +' <button style="border:none;background:none;cursor:pointer;color:#888;font-size:9pt" '
+        +'onclick="unlinkBill('+rowIdx+')" title="Unlink bill">\u00d7</button>';
+    } else {
+      cell.innerHTML = '<button style="border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer;padding:2px 6px;font-size:10pt" '
+        +'onclick="openBillPanel('+rowIdx+')">&#128279;</button>';
+    }
   }
 <\/script>
 </body>

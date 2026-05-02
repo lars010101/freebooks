@@ -21,6 +21,8 @@ Core capabilities:
 - Bank statement CSV import with rule-based auto-matching
 - Bank reconciliation with cleared/uncleared tracking
 - Accounts Payable: vendor master, multi-line bill entry (auto-generates DR Expense / CR AP journal)
+- Payables screen: list all open bills with filters (vendor, status, period, description, amount, currency); click to view bill detail
+- AP Aging report: outstanding payables bucketed by days overdue (Current / 1–30 / 31–60 / 61–90 / 90+); click row to open bill detail
 - Bank import: manual bill allocation — link any import row to an open bill
 - CSV import (COA + journal entries via CSV)
 - Multi-company support
@@ -111,6 +113,8 @@ The server handles SIGINT/SIGTERM (Ctrl+C) gracefully — checkpoints DuckDB bef
 | `/:company/settings` | Settings (7 tabs: Periods, Company, COA, Tax Codes, Journals, Bank Mappings, Vendors) |
 | `/:company/journal/new` | New journal entry form (with reversal mode) |
 | `/:company/bill/new` | Enter Bill form — vendor autocomplete, multi-line expenses, auto-generates AP journal entry |
+| `/:company/payables` | Payables screen — bill list with filters + bill detail modal |
+| `/:company/payables/aging` | AP Aging report — outstanding payables by aging bucket |
 | `/:company/bank/import` | Bank statement CSV import |
 | `/:company/bank/reconcile` | Bank reconciliation |
 | `/:company/report?type=...` | Rendered report |
@@ -129,6 +133,8 @@ All actions use `{ action, companyId, ...body }` request format. Response: `{ ok
 | `bill.void` | Void bill + auto-reverse journal |
 | `bill.list` | List bills with filters (status, vendor, date range) |
 | `bill.match` | Find open bills matching amount/vendor/date for bank import allocation |
+| `bill.lines` | Get expense lines for a bill (for bill detail modal) |
+| `bill.aging` | AP Aging report data — outstanding bills with bucket classification |
 | `vendor.list` | List vendors with defaults (currency, terms, expense account, AP account) |
 | `vendor.save` | Replace all vendors for company |
 | `vendor.delete` | Delete a single vendor |
@@ -173,6 +179,7 @@ All actions use `{ action, companyId, ...body }` request format. Response: `{ ok
 | `gl` | General Ledger | No |
 | `journal` | Journal | No |
 | `integrity` | Integrity Checks + RE roll-forward | No |
+| `payables/aging` | AP Aging (separate page, not a /report?type= URL) | No |
 
 YoY uses the company's defined fiscal periods (not calendar years).
 
@@ -221,12 +228,35 @@ Accessible via Settings → Vendors tab. Defaults auto-fill the Enter Bill form 
 ## Enter Bill (`/:company/bill/new`)
 
 Form for creating vendor bills. Generates a balanced journal entry on submit:
-- One DR line per expense line (expense account, amount, VAT if applicable)
-- One CR line for AP account (total amount)
+- DR line per expense line (expense account, net amount)
+- DR line per expense line with VAT code (input tax account, GST amount) — one per line, tax-exclusive
+- CR line for AP account (total including VAT)
 
-Supports multi-line bills (multiple expense accounts per invoice). VAT computed via `computeVatSplit()`. Bill stored in `bills` table with status `posted`.
+Amounts entered are **net ex-VAT** (tax-exclusive). VAT is computed as `lineAmount × rate` and added on top. The GST sub-row appears automatically in the form when a VAT code is selected — account and amount are editable before submitting.
 
-Due date auto-calculates from bill date + vendor terms (default 30 days). Changing the bill date recalculates due date automatically.
+AP journal reference auto-generated: `AP/YYYY/NNNNN`.
+
+Supports multi-line bills. Vendor autocomplete fills in currency, payment terms (→ due date), default expense account, and default AP account.
+
+Bill status on creation: `posted`. Status transitions:
+- `posted` → `partial` → `paid` (via payment matching, not yet implemented)
+- `posted` / `partial` → `void` (via bill.void — auto-reverses the journal)
+
+### Payables Screen (`/:company/payables`)
+List of all bills for the company with filter controls: vendor (dropdown), description (text search), status (Open/Partial/Paid/Void), fiscal period (dropdown). Collapsible "More filters" for amount (≥/=/≤) and currency. Click any row to open a read-only bill detail modal with all header fields and expense lines (fetched via `bill.lines`).
+
+### AP Aging Report (`/:company/payables/aging`)
+Outstanding payables (status `posted` or `partial`) as of a selected date, bucketed by days overdue:
+- **Current** — due_date ≥ as_of_date (not yet due)
+- **1–30** — 1 to 30 days past due
+- **31–60** — 31 to 60 days past due
+- **61–90** — 61 to 90 days past due
+- **90+** — more than 90 days past due; shown in red
+
+Vendor-grouped summary table; click vendor row to expand individual bills. Click any bill row to open the full bill detail modal. Balance = `amount - amount_paid`.
+
+### New Company Journal Seeding
+`setup.add_company` seeds 4 default journals on creation: MISC, BANK, ADJ, AP. Bills post through the AP journal (`AP/YYYY/NNNNN` references). `db/init.js` seeds MISC, BANK, ADJ for existing companies.
 
 ### Period Locks
 The `periods.locked` boolean is enforced in `validation.js` on every journal entry post. Locked periods cannot be written to. `period.save` is a full DELETE + INSERT (no row accumulation).
@@ -281,6 +311,11 @@ DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly
 - [ ] Automatic `node db/init.js` on server start (detect schema changes)
 - [ ] Opening balance wizard for new companies
 - [ ] Backup / export to CSV/SQLite
+
+### Accounts Payable
+- [ ] Payment matching: mark bill Paid via bank import (link import row → open bill during import)
+- [ ] Partial payment tracking and allocation
+- [ ] Bill edit workflow (non-financial fields editable; financial fields require Reverse & Re-enter)
 
 ### Known Issues
 - [ ] example_se CF categories: accounts 1942, 1941 → Investing; 2990 → Op-WC (not yet confirmed fixed)

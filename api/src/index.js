@@ -125,7 +125,10 @@ async function handleApiRequest(req, res) {
         return res.status(400).json({ error: `Unknown module: ${module}` });
     }
 
-    res.json({ ok: true, data: result });
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ ok: true, data: result }, (_key, val) =>
+      typeof val === 'bigint' ? Number(val) : val
+    ));
   } catch (err) {
     console.error('Handler error:', err);
     res.status(500).json({ error: err.message || 'Internal error', code: err.code || 'INTERNAL' });

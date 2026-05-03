@@ -4,8 +4,12 @@
  * Ported from BigQuery Cloud Function to DuckDB/Express.
  */
 
+const fs = require('fs');
+const path = require('path');
 const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
+
+const PROVIDERS_DIR = path.join(__dirname, 'fxProviders');
 
 async function handleFx(ctx, action) {
   switch (action) {
@@ -16,6 +20,9 @@ async function handleFx(ctx, action) {
     case 'fx.rates.save':           return saveRates(ctx);
     case 'fx.rates.delete':         return deleteRate(ctx);
     case 'fx.rates.get':            return getEffectiveRate(ctx);
+    case 'fx.providers.list':       return listProviders(ctx);
+    case 'fx.provider.get':         return getProvider(ctx);
+    case 'fx.provider.save':        return saveProvider(ctx);
     default:
       throw Object.assign(new Error(`Unknown FX action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -33,39 +40,32 @@ async function fetchRates(ctx) {
   const baseCurrency = body.baseCurrency || companies[0].currency;
   const date = body.date || 'latest';
 
-  const url = date === 'latest'
-    ? `https://api.frankfurter.app/latest?from=${baseCurrency}`
-    : `https://api.frankfurter.app/${date}?from=${baseCurrency}`;
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw Object.assign(new Error(`FX rate fetch failed: ${response.status}`), { code: 'FX_FETCH_ERROR' });
-  }
-
-  const data = await response.json();
-  const rateDate = data.date;
-  const rates = data.rates;
-  const now = new Date().toISOString();
-
-  // Delete existing rates for this date + base (DuckDB UPDATE/DELETE works immediately)
-  await exec(
-    `DELETE FROM fx_rates WHERE date = @rateDate AND source = 'ecb'
-     AND (from_currency = @baseCurrency OR to_currency = @baseCurrency)`,
-    { rateDate, baseCurrency }
+  // Load provider setting
+  const providerSettings = await query(
+    `SELECT value FROM settings WHERE company_id = @companyId AND key IN ('fx_provider', 'fx_provider_api_key')`,
+    { companyId }
   );
+  const settingsMap = Object.fromEntries(providerSettings.map(r => [r.key, r.value]));
+  const providerName = settingsMap.fx_provider || 'ecb';
+  const apiKey = settingsMap.fx_provider_api_key || null;
 
-  const rows = [
-    ...Object.entries(rates).map(([currency, rate]) => ({
-      date: rateDate, from_currency: baseCurrency, to_currency: currency, rate, source: 'ecb', fetched_at: now,
-    })),
-    ...Object.entries(rates).map(([currency, rate]) => ({
-      date: rateDate, from_currency: currency, to_currency: baseCurrency, rate: Math.round((1 / rate) * 1000000) / 1000000, source: 'ecb', fetched_at: now,
-    })),
-  ];
+  const providerPath = path.join(PROVIDERS_DIR, providerName + '.js');
+  if (!fs.existsSync(providerPath)) throw Object.assign(new Error(`FX provider not found: ${providerName}`), { code: 'NOT_FOUND' });
+  const provider = require(providerPath);
+
+  const rows = await provider.fetchRates(baseCurrency, date, apiKey);
+
+  // Delete existing rows for this date+source
+  const rateDate = rows[0]?.date || date;
+  const source = rows[0]?.source || providerName;
+  await exec(
+    `DELETE FROM fx_rates WHERE date = @rateDate AND source = @source AND (from_currency = @base OR to_currency = @base)`,
+    { rateDate, source, base: baseCurrency }
+  );
 
   if (rows.length > 0) await bulkInsert('fx_rates', rows);
 
-  return { date: rateDate, baseCurrency, rateCount: Object.keys(rates).length, currencies: Object.keys(rates) };
+  return { date: rateDate, baseCurrency, rateCount: rows.length / 2, provider: providerName };
 }
 
 async function getRate(fromCurrency, toCurrency, date) {
@@ -251,6 +251,76 @@ async function revaluationPost(ctx) {
   if (lines.length > 0) await bulkInsert('journal_entries', lines);
 
   return { posted: true, batchId, lineCount: lines.length, totalGainLoss: adjustments.reduce((s, a) => s + (a.fxGainLoss || 0), 0) };
+}
+
+async function listProviders(ctx) {
+  const providers = [];
+  const files = fs.readdirSync(PROVIDERS_DIR);
+  for (const file of files) {
+    if (file.endsWith('.js')) {
+      const id = file.slice(0, -3);
+      const provider = require(path.join(PROVIDERS_DIR, file));
+      providers.push({
+        id,
+        name: provider.name,
+        description: provider.description,
+        requiresApiKey: provider.requiresApiKey,
+        apiKeyLabel: provider.apiKeyLabel
+      });
+    }
+  }
+  return providers;
+}
+
+async function getProvider(ctx) {
+  const { companyId } = ctx;
+  const settings = await query(
+    `SELECT key, value FROM settings WHERE company_id = @companyId AND key IN ('fx_provider', 'fx_provider_api_key')`,
+    { companyId }
+  );
+  const settingsMap = Object.fromEntries(settings.map(r => [r.key, r.value]));
+  const providerName = settingsMap.fx_provider || 'ecb';
+  const apiKey = settingsMap.fx_provider_api_key || null;
+  const maskedKey = apiKey ? apiKey.slice(-4).padStart(apiKey.length, '*') : null;
+  return { provider: providerName, apiKey: maskedKey };
+}
+
+async function saveProvider(ctx) {
+  const { companyId, body } = ctx;
+  const { provider, apiKey } = body;
+  if (!provider) throw Object.assign(new Error('provider required'), { code: 'INVALID_INPUT' });
+
+  // Verify provider exists
+  const providerPath = path.join(PROVIDERS_DIR, provider + '.js');
+  if (!fs.existsSync(providerPath)) throw Object.assign(new Error(`FX provider not found: ${provider}`), { code: 'NOT_FOUND' });
+
+  // Save provider setting
+  await exec(
+    `DELETE FROM settings WHERE company_id = @companyId AND key = 'fx_provider'`,
+    { companyId }
+  );
+  await bulkInsert('settings', [{
+    company_id: companyId,
+    key: 'fx_provider',
+    value: provider,
+    updated_at: new Date().toISOString()
+  }]);
+
+  // Save API key if provided
+  if (apiKey) {
+    await exec(
+      `DELETE FROM settings WHERE company_id = @companyId AND key = 'fx_provider_api_key'`,
+      { companyId }
+    );
+    await bulkInsert('settings', [{
+      company_id: companyId,
+      key: 'fx_provider_api_key',
+      value: apiKey,
+      updated_at: new Date().toISOString()
+    }]);
+  }
+
+  return { saved: true, provider };
 }
 
 module.exports = { handleFx, getRate, listRates, saveRates, deleteRate, getEffectiveRate };

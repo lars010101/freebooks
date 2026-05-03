@@ -60,6 +60,9 @@ const ACTION_ROLES = {
   'fx.rates.save': 'data_entry',
   'fx.rates.delete': 'data_entry',
   'fx.rates.get': 'viewer',
+  'fx.providers.list': 'viewer',
+  'fx.provider.get': 'viewer',
+  'fx.provider.save': 'owner',
   'mapping.list': 'viewer',
   'mapping.save': 'data_entry',
   'center.list': 'viewer',
@@ -87,6 +90,10 @@ const ACTION_ROLES = {
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from db directory (e.g., currencies.json)
+const path = require('path');
+app.use('/db', express.static(path.join(__dirname, '../../db')));
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'freebooks-api' }));
 

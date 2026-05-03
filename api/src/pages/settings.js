@@ -18,12 +18,12 @@ async function handleSettingsPage(req, res) {
 
 function buildSettingsPage(company, companies = []) {
   const cfOptions = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded']
-    .map(v => `<option value="${v}">${v || '— none —'}</option>`).join('');
+    .map(v => `<option value="${v}">${v || '- none -'}</option>`).join('');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Settings — freeBooks</title>
+<title>Settings - freeBooks</title>
 ${commonStyle()}
 <style>
   .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
@@ -86,7 +86,7 @@ ${commonStyle()}
   <!-- COMPANY TAB -->
   <div id="tab-company" class="tab-panel">
     <div class="field-row"><label>Company Name</label><input type="text" id="co-name"></div>
-    <div class="field-row"><label>Currency</label><input type="text" id="co-currency" maxlength="3" style="max-width:80px"></div>
+    <div class="field-row"><label>Currency</label><input type="text" id="co-currency" maxlength="3" style="max-width:80px" list="currency-list"></div>
     <div class="field-row"><label>Jurisdiction</label><input type="text" id="co-jurisdiction" style="max-width:80px"></div>
     <div class="field-row"><label>Tax ID</label><input type="text" id="co-taxid"></div>
     <div class="field-row"><label>Reporting Standard</label><input type="text" id="co-standard"></div>
@@ -99,11 +99,11 @@ ${commonStyle()}
     </div>
     <button id="btn-save-company" class="btn-primary" onclick="saveCompany()" disabled>Save</button>
     <span id="msg-company" class="msg"></span>
-    
+
     <hr style="margin:24px 0;border:none;border-top:1px solid #e8e8e8">
-    
+
     <div style="margin-bottom:6px;font-weight:700;font-size:11pt">Manage Companies</div>
-    
+
     <div class="field-row" style="margin-bottom:16px">
       <label>Switch Company</label>
       <div style="display:flex;gap:10px;align-items:center">
@@ -113,7 +113,7 @@ ${commonStyle()}
         <button class="btn-sm" onclick="switchCompany()">Switch →</button>
       </div>
     </div>
-    
+
     <div>
       <a href="/setup/new-company" style="display:inline-block;padding:9px 20px;background:#f5f5f5;color:#1a1a1a;border:1px solid #ccc;border-radius:4px;font-size:10pt;font-weight:600;text-decoration:none">+ New Company</a>
     </div>
@@ -121,7 +121,7 @@ ${commonStyle()}
 
   <!-- COA TAB -->
   <div id="tab-coa" class="tab-panel">
-    <input type="text" class="search-bar" id="coa-search" placeholder="Filter by code or name…" oninput="filterCoa()">
+    <input type="text" class="search-bar" id="coa-search" placeholder="Filter by code or name..." oninput="filterCoa()">
     <table class="edit-table" id="coa-table">
       <thead><tr><th>Code</th><th>Account Name</th><th>Type</th><th>Subtype</th><th>CF Category</th><th>Active</th></tr></thead>
       <tbody id="coa-body"></tbody>
@@ -149,7 +149,7 @@ ${commonStyle()}
   <!-- BANK MAPPINGS TAB -->
   <div id="tab-mappings" class="tab-panel">
     <table class="edit-table" id="mappings-table">
-      <thead><tr><th>Pattern</th><th>Match</th><th>Offset Account <small style="font-weight:400;color:#888">(expense/income — bank side auto-assigned)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <thead><tr><th>Pattern</th><th>Match</th><th>Offset Account <small style="font-weight:400;color:#888">(expense/income - bank side auto-assigned)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="mappings-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
@@ -177,9 +177,23 @@ ${commonStyle()}
 
   <!-- EXCHANGE RATES TAB -->
   <div id="tab-fxrates" class="tab-panel">
+    <div style="margin-bottom:16px;padding:12px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
+      <div style="font-weight:600;margin-bottom:10px">FX Rate Provider</div>
+      <div class="field-row">
+        <label>Provider</label>
+        <select id="fx-provider-select" onchange="onFxProviderChange()" style="max-width:300px"></select>
+      </div>
+      <div id="fx-provider-desc" style="font-size:9pt;color:#666;margin:6px 0 10px 0"></div>
+      <div id="fx-api-key-row" class="field-row" style="display:none">
+        <label id="fx-api-key-label">API Key</label>
+        <input type="password" id="fx-provider-apikey" placeholder="Enter API key" style="max-width:300px">
+      </div>
+      <button class="btn-sm" onclick="saveFxProvider()">Save Provider</button>
+      <span id="msg-fx-provider" class="msg" style="margin-left:8px"></span>
+    </div>
     <div style="margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button class="btn-primary" onclick="fetchFromEcb()">📡 Fetch from ECB</button>
-      <label>Base Currency <select id="fx-base-currency" onchange="loadFxRates()" style="height:32px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:10pt"></select></label>
+      <button class="btn-primary" onclick="fetchFromEcb()">📡 Fetch Rates</button>
+      <span id="current-base-currency" style="font-size:10pt;color:#666"></span>
     </div>
     <table class="edit-table" id="fx-rates-table">
       <thead><tr><th>Date</th><th>From</th><th>To</th><th style="text-align:right">Rate</th><th>Source</th><th></th></tr></thead>
@@ -244,7 +258,7 @@ function showTab(t) {
   document.getElementById('tab-'+t).classList.add('active');
   if (t === 'vendors') { loadVendors(); loadVendorAccounts(); }
   if (t === 'mappings') loadVendorAccounts();
-  if (t === 'fxrates') { loadFxRates(); loadBaseCurrencies(); }
+  if (t === 'fxrates') { loadFxProviders(); loadFxRates(); loadBaseCurrencies(); }
 }
 
 function switchCompany() {
@@ -579,7 +593,7 @@ function vendorAcctInput(input) {
   div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
   matches.forEach(function(a){
     var item = document.createElement('div');
-    item.textContent = a.account_code + ' — ' + a.account_name;
+    item.textContent = a.account_code + ' - ' + a.account_name;
     item.style.cssText = 'padding:4px 8px;cursor:pointer;white-space:nowrap';
     item.onmouseover = function(){ item.style.background='#e8f0fe'; };
     item.onmouseout  = function(){ item.style.background=''; };
@@ -633,31 +647,23 @@ var fxRatesData = [];
 var baseCurrencies = new Set();
 
 function loadBaseCurrencies() {
-  // Extract unique currencies from all FX rates
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.rates.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); }).then(function(res){
-      var rows = res.data || res;
-      baseCurrencies.clear();
-      (Array.isArray(rows) ? rows : []).forEach(function(r){
-        baseCurrencies.add(r.from_currency);
-        baseCurrencies.add(r.to_currency);
-      });
-      var sel = document.getElementById('fx-base-currency');
-      sel.innerHTML = '<option value="">— All currencies —</option>';
-      Array.from(baseCurrencies).sort().forEach(function(c){
-        sel.appendChild(new Option(c, c));
-      });
-    }).catch(function(){});
+  // Update the display of current company's base currency
+  var compCcy = document.getElementById('co-currency').value || '';
+  var displayEl = document.getElementById('current-base-currency');
+  if (displayEl && compCcy) {
+    displayEl.textContent = 'Base currency: ' + compCcy;
+  }
 }
 
 function loadFxRates() {
-  var baseCcy = document.getElementById('fx-base-currency').value || '';
+  var compCcy = document.getElementById('co-currency').value || '';
   var params = { action:'fx.rates.list', companyId: COMPANY };
-  if (baseCcy) params.baseCurrency = baseCcy;
+  if (compCcy) params.baseCurrency = compCcy;
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(params) })
     .then(function(r){ return r.json(); }).then(function(res){
       fxRatesData = res.data || res;
       renderFxRates(Array.isArray(fxRatesData) ? fxRatesData : []);
+      loadBaseCurrencies();
     }).catch(function(){});
 }
 
@@ -684,8 +690,8 @@ function addFxRateRow() {
   var tr = document.createElement('tr');
   tr.innerHTML =
     '<td><input type="date" class="fx-date" style="width:120px"></td>' +
-    '<td><input type="text" class="fx-from" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="USD"></td>' +
-    '<td><input type="text" class="fx-to" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="SGD"></td>' +
+    '<td><input type="text" class="fx-from" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="USD" list="currency-list"></td>' +
+    '<td><input type="text" class="fx-to" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="SGD" list="currency-list"></td>' +
     '<td style="text-align:right"><input type="number" class="fx-rate" step="0.000001" style="width:100px" placeholder="1.0"></td>' +
     '<td><span class="ro">manual</span></td>' +
     '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()" style="font-size:9pt">×</button></td>';
@@ -700,13 +706,14 @@ function deleteFxRate(date, from, to, source) {
 }
 
 function fetchFromEcb() {
-  var baseCcy = document.getElementById('fx-base-currency').value || '';
+  var baseCcy = document.getElementById('co-currency').value || '';
+  if (!baseCcy) { showMsg('msg-fxrates', 'Please set company currency first', true); return; }
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.fetch_rates', companyId: COMPANY, baseCurrency: baseCcy }) })
     .then(function(r){ return r.json(); }).then(function(r){
       if (r.error || (r.data && r.data.error)) {
         showMsg('msg-fxrates', r.error || r.data.error, true);
       } else {
-        showMsg('msg-fxrates', 'Fetched ' + (r.data.rateCount || 0) + ' rates from ECB', false);
+        showMsg('msg-fxrates', 'Fetched ' + (r.data.rateCount || 0) + ' rates from ' + (r.data.provider || 'provider'), false);
         loadFxRates();
       }
     }).catch(function(e){ showMsg('msg-fxrates', e.message, true); });
@@ -728,6 +735,88 @@ function saveFxRates() {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.rates.save', companyId: COMPANY, rates: newRates }) })
     .then(function(r){ return r.json(); }).then(function(r){ var d = r.data||r; showMsg('msg-fxrates', r.error||d.error||('Saved '+newRates.length+' rates'), !!(r.error||d.error)); if (!r.error && !d.error) loadFxRates(); })
     .catch(function(e){ showMsg('msg-fxrates', e.message, true); });
+}
+
+// ========== CURRENCY DATALIST ==========
+function loadCurrencyDatalist() {
+  fetch('/db/currencies.json')
+    .then(function(r){ return r.json(); })
+    .then(function(currencies){
+      var datalist = document.getElementById('currency-list');
+      if (!datalist) {
+        datalist = document.createElement('datalist');
+        datalist.id = 'currency-list';
+        document.body.appendChild(datalist);
+      }
+      datalist.innerHTML = '';
+      currencies.forEach(function(c){
+        var opt = document.createElement('option');
+        opt.value = c.code;
+        opt.textContent = c.code + ' — ' + c.name;
+        datalist.appendChild(opt);
+      });
+    })
+    .catch(function(e){ console.error('Failed to load currencies:', e); });
+}
+loadCurrencyDatalist();
+
+// ========== FX PROVIDER MANAGEMENT ==========
+var fxProviders = [];
+
+function loadFxProviders() {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.providers.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      fxProviders = res.data || res || [];
+      var select = document.getElementById('fx-provider-select');
+      select.innerHTML = '';
+      (Array.isArray(fxProviders) ? fxProviders : []).forEach(function(p){
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        select.appendChild(opt);
+      });
+      // Load current provider setting
+      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.get', companyId: COMPANY }) })
+        .then(function(r){ return r.json(); })
+        .then(function(res){
+          var current = res.data || res || {};
+          select.value = current.provider || 'ecb';
+          onFxProviderChange();
+          if (current.apiKey) {
+            document.getElementById('fx-provider-apikey').placeholder = 'API key set (' + current.apiKey + ')';
+          }
+        })
+        .catch(function(e){ console.error('loadFxProviders: failed to get current:', e); });
+    })
+    .catch(function(e){ console.error('loadFxProviders failed:', e); });
+}
+
+function onFxProviderChange() {
+  var select = document.getElementById('fx-provider-select');
+  var providerId = select.value;
+  var provider = fxProviders.find(function(p){ return p.id === providerId; });
+  if (!provider) return;
+  document.getElementById('fx-provider-desc').textContent = provider.description || '';
+  var apiKeyRow = document.getElementById('fx-api-key-row');
+  if (provider.requiresApiKey) {
+    apiKeyRow.style.display = 'flex';
+    document.getElementById('fx-api-key-label').textContent = provider.apiKeyLabel || 'API Key';
+  } else {
+    apiKeyRow.style.display = 'none';
+  }
+}
+
+function saveFxProvider() {
+  var select = document.getElementById('fx-provider-select');
+  var providerId = select.value;
+  var provider = fxProviders.find(function(p){ return p.id === providerId; });
+  if (!provider) return;
+  var apiKey = provider.requiresApiKey ? document.getElementById('fx-provider-apikey').value.trim() : null;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.save', companyId: COMPANY, provider: providerId, apiKey: apiKey }) })
+    .then(function(r){ return r.json(); })
+    .then(function(r){ var d = r.data||r; showMsg('msg-fx-provider', r.error||d.error||('Saved: ' + providerId), !!(r.error||d.error)); })
+    .catch(function(e){ showMsg('msg-fx-provider', e.message, true); });
 }
 
 // ========== UNSAVED CHANGES PROTECTION ==========

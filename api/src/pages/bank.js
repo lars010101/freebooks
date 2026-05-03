@@ -569,6 +569,7 @@ ${commonStyle()}
         +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'" onchange="updateBalances()"></td>'
         +'</tr>';
     }).join('');
+    document.querySelectorAll('#review-body .acct').forEach(function(inp){ if (inp.value) updateAcctName(inp); });
     document.getElementById('step-review').style.display = '';
     var jSel = document.getElementById('import-journal');
     if (Array.isArray(journalsList) && journalsList.length) {

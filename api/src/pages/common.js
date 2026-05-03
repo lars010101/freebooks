@@ -44,7 +44,8 @@ function commonStyle() {
   .top-nav a { padding:10px 18px; text-decoration:none; color:#555; font-size:10pt; font-weight:500; border-bottom:3px solid transparent; margin-bottom:-2px; }
   .top-nav a:hover { color:#1a1a1a; background:#f8f8f8; }
   .top-nav a.nav-active { color:#1a1a1a; border-bottom-color:#1a1a1a; font-weight:700; }
-</style>`;
+</style>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📒</text></svg>">`;
 }
 
 // ── Mount on Express app ──────────────────────────────────────────────────────

@@ -84,7 +84,7 @@ ${commonStyle()}
   </div>
 
   <table class="rec-table" id="rec-table" style="display:none">
-    <thead><tr><th style="width:90px">Date</th><th>Reference</th><th>Description</th><th class="num" style="width:100px">Debit</th><th class="num" style="width:100px">Credit</th><th style="text-align:center;width:70px">Cleared</th></tr></thead>
+    <thead><tr><th style="width:90px">Date</th><th>Reference</th><th>Description</th><th class="num" style="width:100px">Debit</th><th class="num" style="width:100px">Credit</th><th style="text-align:center;width:70px"><input type="checkbox" id="hdr-clear-all" onchange="toggleAllCleared(this)" style="cursor:pointer" title="Mark all cleared"> Cleared</th></tr></thead>
     <tbody id="rec-body"></tbody>
   </table>
   <div id="rec-status" style="margin-top:10px;font-size:10pt"></div>
@@ -217,7 +217,27 @@ ${commonStyle()}
     updateSummary();
   }
 
-  function toggleCleared(cb) {
+  function toggleAllCleared(hdrCb) {
+    var wantCleared = hdrCb.checked;
+    // Collect all row checkboxes that need to change state
+    var rowCbs = Array.from(document.querySelectorAll('#rec-body tr')).map(function(tr) {
+      return tr.querySelector('input[type=checkbox]');
+    }).filter(function(cb) { return cb && cb.checked !== wantCleared; });
+    if (!rowCbs.length) return;
+    // Disable header checkbox during operation
+    hdrCb.disabled = true;
+    var pending = rowCbs.length;
+    rowCbs.forEach(function(cb) {
+      cb.checked = wantCleared;
+      // Trigger the same logic as individual toggleCleared
+      toggleCleared(cb, function() {
+        pending--;
+        if (pending === 0) { hdrCb.disabled = false; }
+      });
+    });
+  }
+
+  function toggleCleared(cb, _done) {
     var tr = cb.closest('tr');
     var batchId = tr.dataset.batch;
     var accountCode = tr.dataset.acct;
@@ -232,8 +252,12 @@ ${commonStyle()}
         recRows[i].cleared = cleared;
         tr.className = cleared ? 'cleared' : '';
         updateSummary();
+        // Sync header checkbox
+        var hdrCb = document.getElementById('hdr-clear-all');
+        if (hdrCb && !cleared) hdrCb.checked = false;
+        if (_done) _done();
       })
-      .catch(function() { cb.disabled = false; cb.checked = !cleared; });
+      .catch(function() { cb.disabled = false; cb.checked = !cleared; if (_done) _done(); });
   }
 
   function updateSummary() {

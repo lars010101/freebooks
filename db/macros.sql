@@ -15,8 +15,8 @@ WITH base AS (
     je.account_code,
     a.account_name,
     CASE
-      WHEN a.account_type = 'Revenue' THEN SUM(je.credit) - SUM(je.debit)
-      ELSE SUM(je.debit) - SUM(je.credit)
+      WHEN a.account_type = 'Revenue' THEN SUM(je.credit_home) - SUM(je.debit_home)
+      ELSE SUM(je.debit_home) - SUM(je.credit_home)
     END AS amount
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
@@ -69,8 +69,8 @@ WITH base AS (
     je.account_code,
     a.account_name,
     CASE
-      WHEN a.account_type = 'Asset' THEN SUM(je.debit) - SUM(je.credit)
-      ELSE SUM(je.credit) - SUM(je.debit)
+      WHEN a.account_type = 'Asset' THEN SUM(je.debit_home) - SUM(je.credit_home)
+      ELSE SUM(je.credit_home) - SUM(je.debit_home)
     END AS balance
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
@@ -110,9 +110,9 @@ SELECT
   je.account_code,
   a.account_name,
   a.account_type,
-  SUM(je.debit)  AS total_debit,
-  SUM(je.credit) AS total_credit,
-  SUM(je.debit) - SUM(je.credit) AS net_balance
+  SUM(je.debit_home)  AS total_debit,
+  SUM(je.credit_home) AS total_credit,
+  SUM(je.debit_home) - SUM(je.credit_home) AS net_balance
 FROM journal_entries je
 LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
 WHERE je.company_id = cid
@@ -134,6 +134,9 @@ SELECT
   je.debit,
   je.credit,
   je.currency,
+  je.fx_rate,
+  je.debit_home,
+  je.credit_home,
   je.source
 FROM journal_entries je
 LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
@@ -156,7 +159,7 @@ net_income AS (
     -- Net Income = Revenue - Expenses. Use credit-debit for all P&L:
     -- Revenue (credit-normal): credit-debit = positive income
     -- Expense (debit-normal): credit-debit = negative (expense reduces income)
-    SUM(je.credit - je.debit) AS amount
+    SUM(je.credit_home - je.debit_home) AS amount
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
   WHERE je.company_id = cid
@@ -169,7 +172,7 @@ op_wc AS (
     'Operating' AS section,
     je.account_code,
     a.account_name,
-    SUM(je.credit) - SUM(je.debit) AS amount
+    SUM(je.credit_home) - SUM(je.debit_home) AS amount
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
   WHERE je.company_id = cid
@@ -183,7 +186,7 @@ op_tax AS (
     'Operating' AS section,
     je.account_code,
     a.account_name,
-    SUM(je.credit) - SUM(je.debit) AS amount
+    SUM(je.credit_home) - SUM(je.debit_home) AS amount
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
   WHERE je.company_id = cid
@@ -197,7 +200,7 @@ investing AS (
     'Investing' AS section,
     je.account_code,
     a.account_name,
-    SUM(je.credit) - SUM(je.debit) AS amount
+    SUM(je.credit_home) - SUM(je.debit_home) AS amount
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
   WHERE je.company_id = cid
@@ -211,7 +214,7 @@ financing AS (
     'Financing' AS section,
     je.account_code,
     a.account_name,
-    SUM(je.credit) - SUM(je.debit) AS amount
+    SUM(je.credit_home) - SUM(je.debit_home) AS amount
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
   WHERE je.company_id = cid
@@ -229,7 +232,7 @@ non_cash AS (
     'NonCash' AS section,
     je.account_code,
     a.account_name,
-    SUM(je.credit) - SUM(je.debit) AS amount
+    SUM(je.credit_home) - SUM(je.debit_home) AS amount
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
   WHERE je.company_id = cid
@@ -243,7 +246,7 @@ opening_cash AS (
     'Cash' AS section,
     NULL AS account_code,
     'Cash at Beginning of Period' AS account_name,
-    SUM(je.debit) - SUM(je.credit) AS amount
+    SUM(je.debit_home) - SUM(je.credit_home) AS amount
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
   WHERE je.company_id = cid
@@ -322,7 +325,7 @@ SELECT
   'Cash'        AS section,
   NULL          AS account_code,
   'Cash at End of Period' AS account_name,
-  (SELECT SUM(je2.debit) - SUM(je2.credit)
+  (SELECT SUM(je2.debit_home) - SUM(je2.credit_home)
    FROM journal_entries je2
    LEFT JOIN accounts a2 ON a2.company_id = je2.company_id AND a2.account_code = je2.account_code
    WHERE je2.company_id = cid AND je2.date <= CAST(end_date AS DATE) AND a2.cf_category = 'Cash') AS amount,
@@ -340,7 +343,7 @@ opening AS (
   SELECT
     je.account_code,
     a.account_name,
-    SUM(je.credit) - SUM(je.debit) AS opening_balance
+    SUM(je.credit_home) - SUM(je.debit_home) AS opening_balance
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
   WHERE je.company_id = cid
@@ -352,7 +355,7 @@ period_mvt AS (
   SELECT
     je.account_code,
     a.account_name,
-    SUM(je.credit) - SUM(je.debit) AS movements
+    SUM(je.credit_home) - SUM(je.debit_home) AS movements
   FROM journal_entries je
   LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
   WHERE je.company_id = cid
@@ -387,17 +390,17 @@ bs_check AS (
   SELECT
     'BS Balance' AS check_name,
     CASE WHEN ABS(
-      SUM(CASE WHEN account_type = 'Asset'     THEN debit - credit ELSE 0 END) -
-      SUM(CASE WHEN account_type = 'Liability' THEN credit - debit ELSE 0 END) -
-      SUM(CASE WHEN account_type = 'Equity'    THEN credit - debit ELSE 0 END)
+      SUM(CASE WHEN account_type = 'Asset'     THEN debit_home - credit_home ELSE 0 END) -
+      SUM(CASE WHEN account_type = 'Liability' THEN credit_home - debit_home ELSE 0 END) -
+      SUM(CASE WHEN account_type = 'Equity'    THEN credit_home - debit_home ELSE 0 END)
     ) <= 0.01 THEN 'OK' ELSE 'FAIL' END AS status,
-    'Assets: ' || ROUND(SUM(CASE WHEN account_type='Asset' THEN debit-credit ELSE 0 END), 2)
+    'Assets: ' || ROUND(SUM(CASE WHEN account_type='Asset' THEN debit_home-credit_home ELSE 0 END), 2)
     || ' | Liab+Equity: ' || ROUND(
-      SUM(CASE WHEN account_type='Liability' THEN credit-debit ELSE 0 END) +
-      SUM(CASE WHEN account_type='Equity'    THEN credit-debit ELSE 0 END), 2
+      SUM(CASE WHEN account_type='Liability' THEN credit_home-debit_home ELSE 0 END) +
+      SUM(CASE WHEN account_type='Equity'    THEN credit_home-debit_home ELSE 0 END), 2
     ) AS detail
   FROM (
-    SELECT a.account_type, je.debit, je.credit
+    SELECT a.account_type, je.debit_home, je.credit_home
     FROM journal_entries je
     LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
     WHERE je.company_id = cid
@@ -414,12 +417,12 @@ batch_check AS (
       ELSE 'Unbalanced batches: ' || STRING_AGG(batch_id || ' (diff=' || ROUND(diff,2) || ')', ', ')
     END AS detail
   FROM (
-    SELECT batch_id, SUM(debit) - SUM(credit) AS diff
+    SELECT batch_id, SUM(debit_home) - SUM(credit_home) AS diff
     FROM journal_entries
     WHERE company_id = cid
       AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
     GROUP BY batch_id
-    HAVING ABS(SUM(debit) - SUM(credit)) > 0.01
+    HAVING ABS(SUM(debit_home) - SUM(credit_home)) > 0.01
   ) unbalanced
 ),
 -- Orphan accounts
@@ -478,7 +481,7 @@ opening AS (
   SELECT
     aa.account_code,
     aa.account_name,
-    COALESCE(SUM(je.debit) - SUM(je.credit), 0) AS opening_balance
+    COALESCE(SUM(je.debit_home) - SUM(je.credit_home), 0) AS opening_balance
   FROM active_accounts aa
   LEFT JOIN journal_entries je ON je.company_id = cid
     AND je.account_code = aa.account_code
@@ -495,7 +498,10 @@ SELECT
   NULL AS reference,
   CASE WHEN o.opening_balance >= 0 THEN o.opening_balance ELSE 0 END AS debit,
   CASE WHEN o.opening_balance < 0  THEN -o.opening_balance ELSE 0 END AS credit,
-  NULL AS currency
+  NULL AS currency,
+  NULL AS fx_rate,
+  CASE WHEN o.opening_balance >= 0 THEN o.opening_balance ELSE 0 END AS debit_home,
+  CASE WHEN o.opening_balance < 0  THEN -o.opening_balance ELSE 0 END AS credit_home
 FROM opening o
 UNION ALL
 -- Period transactions
@@ -508,7 +514,10 @@ SELECT
   je.reference,
   je.debit,
   je.credit,
-  je.currency
+  je.currency,
+  je.fx_rate,
+  je.debit_home,
+  je.credit_home
 FROM journal_entries je
 LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
 WHERE je.company_id = cid
@@ -530,7 +539,7 @@ periods_data AS (
     p.end_date,
     -- P&L net income for the period (credit - debit for all P&L accounts)
     COALESCE((
-      SELECT SUM(je.credit - je.debit)
+      SELECT SUM(je.credit_home - je.debit_home)
       FROM journal_entries je
       LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
       WHERE je.company_id = cid
@@ -539,7 +548,7 @@ periods_data AS (
     ), 0) AS pl_net,
     -- Closing entry: movement on 203070 in batches that also involve 999999
     COALESCE((
-      SELECT SUM(je.credit - je.debit)
+      SELECT SUM(je.credit_home - je.debit_home)
       FROM journal_entries je
       WHERE je.company_id = cid
         AND je.date BETWEEN p.start_date AND p.end_date
@@ -552,7 +561,7 @@ periods_data AS (
     -- Non-cash equity adjustments (e.g. RE capitalisation, IAS 7.43)
     -- Excludes closing batches (those involve account 999999)
     COALESCE((
-      SELECT SUM(je.credit - je.debit)
+      SELECT SUM(je.credit_home - je.debit_home)
       FROM journal_entries je
       LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
       WHERE je.company_id = cid
@@ -565,7 +574,7 @@ periods_data AS (
     ), 0) AS noncash_adj,
     -- Opening RE: cumulative credit-debit on 203070 before period start
     COALESCE((
-      SELECT SUM(je.credit - je.debit)
+      SELECT SUM(je.credit_home - je.debit_home)
       FROM journal_entries je
       WHERE je.company_id = cid
         AND je.date < p.start_date
@@ -598,9 +607,9 @@ WITH
 tb_check AS (
   SELECT
     'Trial Balance' AS check_name,
-    CASE WHEN ROUND(ABS(SUM(debit) - SUM(credit)), 4) <= 0.01 THEN 'OK' ELSE 'FAIL' END AS status,
-    'Debits: ' || ROUND(SUM(debit), 2) || ' | Credits: ' || ROUND(SUM(credit), 2)
-      || ' | Diff: ' || ROUND(SUM(debit) - SUM(credit), 4) AS detail
+    CASE WHEN ROUND(ABS(SUM(debit_home) - SUM(credit_home)), 4) <= 0.01 THEN 'OK' ELSE 'FAIL' END AS status,
+    'Debits: ' || ROUND(SUM(debit_home), 2) || ' | Credits: ' || ROUND(SUM(credit_home), 2)
+      || ' | Diff: ' || ROUND(SUM(debit_home) - SUM(credit_home), 4) AS detail
   FROM journal_entries
   WHERE company_id = cid
     AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
@@ -625,22 +634,22 @@ pl_close AS (
   SELECT
     'P&L vs Closing Entry' AS check_name,
     CASE WHEN ROUND(ABS(
-      COALESCE((SELECT SUM(credit-debit) FROM journal_entries je
+      COALESCE((SELECT SUM(credit_home-debit_home) FROM journal_entries je
         LEFT JOIN accounts a ON a.company_id=je.company_id AND a.account_code=je.account_code
         WHERE je.company_id=cid AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
         AND a.account_type IN ('Revenue','Expense')), 0)
       -
-      COALESCE((SELECT SUM(credit-debit) FROM journal_entries
+      COALESCE((SELECT SUM(credit_home-debit_home) FROM journal_entries
         WHERE company_id=cid AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
         AND account_code='203070' AND batch_id LIKE 'MISC%'), 0)
     ), 4) <= 0.01 THEN 'OK' ELSE 'FAIL' END AS status,
     'P&L net: ' || ROUND(
-      COALESCE((SELECT SUM(credit-debit) FROM journal_entries je
+      COALESCE((SELECT SUM(credit_home-debit_home) FROM journal_entries je
         LEFT JOIN accounts a ON a.company_id=je.company_id AND a.account_code=je.account_code
         WHERE je.company_id=cid AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
         AND a.account_type IN ('Revenue','Expense')), 0), 2)
     || ' | Closing entry: ' || ROUND(
-      COALESCE((SELECT SUM(credit-debit) FROM journal_entries
+      COALESCE((SELECT SUM(credit_home-debit_home) FROM journal_entries
         WHERE company_id=cid AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
         AND account_code='203070' AND batch_id LIKE 'MISC%'), 0), 2) AS detail
 )

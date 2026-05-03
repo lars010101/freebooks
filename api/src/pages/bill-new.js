@@ -108,7 +108,16 @@ ${commonStyle()}
       <!-- Currency -->
       <div class="form-group">
         <label>Currency</label>
-        <input type="text" id="currency" maxlength="3" placeholder="e.g. SGD" style="text-transform:uppercase">
+        <input type="text" id="currency" maxlength="3" placeholder="e.g. SGD" style="text-transform:uppercase" onchange="onCurrencyChange()">
+      </div>
+      <!-- FX Rate -->
+      <div class="form-group">
+        <label>FX Rate</label>
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <input type="number" id="fx-rate" placeholder="1.0" step="0.0001" style="flex:1">
+          <button type="button" class="btn-sm" id="btn-get-rate" onclick="getRate()" style="padding:7px 12px;font-size:10pt;display:none">Get Rate</button>
+        </div>
+        <span id="fx-rate-hint" style="font-size:9pt;color:#666"></span>
       </div>
       <!-- AP Account -->
       <div class="form-group">
@@ -169,6 +178,19 @@ ${commonStyle()}
   var lineCounter = 0;
   var _reenterId = new URLSearchParams(window.location.search).get('reenter');
   var _accountsLoaded = false, _vatLoaded = false;
+  var homeCurrency = 'SGD';  // Default, will be loaded from company data
+
+  // Load company info to get home currency
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'company.get', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var comp = res.data || res;
+      if (comp && comp.currency) {
+        homeCurrency = comp.currency.toUpperCase();
+      }
+    })
+    .catch(function(){});
 
   // Load accounts
   fetch('/api/' + COMPANY + '/accounts')
@@ -225,6 +247,120 @@ ${commonStyle()}
 
   // Add first line on load
   addLine();
+
+  // ── FX Rate lookup ──────────────────────────────────────────────────
+  function onCurrencyChange() {
+    var currency = document.getElementById('currency').value.trim().toUpperCase();
+    updateFxRateVisibility(currency);
+    if (currency && currency !== homeCurrency) {
+      getRate();
+    }
+  }
+
+  function updateFxRateVisibility(currency) {
+    var btn = document.getElementById('btn-get-rate');
+    var hint = document.getElementById('fx-rate-hint');
+    var fxRateInput = document.getElementById('fx-rate');
+    
+    if (!currency || currency === homeCurrency) {
+      btn.style.display = 'none';
+      hint.textContent = '';
+      if (!currency || currency === homeCurrency) {
+        fxRateInput.value = '1.0';
+      }
+    } else {
+      btn.style.display = '';
+    }
+  }
+
+  function getRate() {
+    var billDate = document.getElementById('bill-date').value;
+    var currency = document.getElementById('currency').value.trim().toUpperCase();
+    var hint = document.getElementById('fx-rate-hint');
+    var fxRateInput = document.getElementById('fx-rate');
+    var btn = document.getElementById('btn-get-rate');
+
+    if (!billDate || !currency || currency === homeCurrency) {
+      return;
+    }
+
+    btn.disabled = true;
+    hint.textContent = 'Loading...';
+
+    fetchRate(billDate, currency, function(success, rate, rateDate, source) {
+      btn.disabled = false;
+      if (success) {
+        fxRateInput.value = rate.toFixed(4);
+        hint.textContent = 'Rate as of ' + rateDate + ' (' + source + ')';
+      } else {
+        hint.innerHTML = 'No rate found — <a href="#" onclick="fetchAndRetry(event, \'' + billDate + '\', \'' + currency + '\'); return false">Fetch from ECB</a>';
+      }
+    });
+  }
+
+  function fetchRate(billDate, billCurrency, callback) {
+    fetch('/api/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'fx.rates.get',
+        companyId: COMPANY,
+        fromCurrency: billCurrency,
+        toCurrency: homeCurrency,
+        date: billDate
+      })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        var data = res.data || res;
+        if (data && data.rate) {
+          callback(true, data.rate, data.date || billDate, data.source || 'ECB');
+        } else {
+          callback(false, null, null, null);
+        }
+      })
+      .catch(function(e) {
+        console.error('FX rate fetch error:', e);
+        callback(false, null, null, null);
+      });
+  }
+
+  function fetchAndRetry(evt, billDate, billCurrency) {
+    evt.preventDefault();
+    var hint = document.getElementById('fx-rate-hint');
+    var btn = document.getElementById('btn-get-rate');
+    btn.disabled = true;
+    hint.textContent = 'Fetching from ECB...';
+
+    fetch('/api/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'fx.fetch_rates',
+        companyId: COMPANY,
+        date: billDate
+      })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        // Now retry the rate lookup
+        fetchRate(billDate, billCurrency, function(success, rate, rateDate, source) {
+          btn.disabled = false;
+          if (success) {
+            var fxRateInput = document.getElementById('fx-rate');
+            fxRateInput.value = rate.toFixed(4);
+            hint.textContent = 'Rate as of ' + rateDate + ' (' + source + ')';
+          } else {
+            hint.textContent = 'No rate found after fetch attempt.';
+          }
+        });
+      })
+      .catch(function(e) {
+        console.error('ECB fetch error:', e);
+        btn.disabled = false;
+        hint.textContent = 'Error fetching rates from ECB.';
+      });
+  }
 
   // ── Re-enter mode ────────────────────────────────────────────────────
   if (_reenterId) {

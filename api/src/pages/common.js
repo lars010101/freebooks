@@ -27,6 +27,10 @@ function commonStyle() {
   .company-list a { display: block; padding: 12px 0; color: #1a1a1a; text-decoration: none; font-size: 12pt; }
   .company-list a:hover { color: #555; }
   .company-list .id { font-size: 9pt; color: #999; }
+  .top-nav { display:flex; gap:0; border-bottom:2px solid #e8e8e8; margin-bottom:24px; }
+  .top-nav a { padding:10px 18px; text-decoration:none; color:#555; font-size:10pt; font-weight:500; border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .top-nav a:hover { color:#1a1a1a; background:#f8f8f8; }
+  .top-nav a.nav-active { color:#1a1a1a; border-bottom-color:#1a1a1a; font-weight:700; }
 </style>`;
 }
 
@@ -461,4 +465,18 @@ ${commonStyle()}
 </html>`;
 }
 
-module.exports = { makeQuery, commonStyle };
+function navBar(company, activeKey) {
+  const items = [
+    { key: 'dashboard', label: '📊 Dashboard', href: `/${company}` },
+    { key: 'bank',      label: '🏦 Bank',      href: `/${company}/bank` },
+    { key: 'newjv',     label: '✏ New JV',     href: `/${company}/journal/new` },
+    { key: 'payables',  label: '📋 Payables',  href: `/${company}/payables` },
+    { key: 'settings',  label: '⚙ Settings',   href: `/${company}/settings` },
+  ];
+  const links = items.map(item =>
+    `<a href="${item.href}"${item.key === activeKey ? ' class="nav-active"' : ''}>${item.label}</a>`
+  ).join('');
+  return `<nav class="top-nav">${links}</nav>`;
+}
+
+module.exports = { makeQuery, commonStyle, navBar };

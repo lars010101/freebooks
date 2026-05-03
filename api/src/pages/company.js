@@ -1,5 +1,5 @@
 'use strict';
-const { makeQuery, commonStyle } = require('./common');
+const { makeQuery, commonStyle, navBar } = require('./common');
 
 async function handleCompanyPage(req, res) {
   const { company } = req.params;
@@ -18,7 +18,57 @@ async function handleCompanyPage(req, res) {
       [company]
     );
 
-    const html = buildCompanyPage(co, periods);
+    // 1. Unlocked periods count
+    const [{ unlocked_count }] = await query(
+      `SELECT COUNT(*) as unlocked_count FROM periods WHERE company_id = ? AND locked = false`,
+      [company]
+    ).catch(() => [{ unlocked_count: 0 }]);
+
+    // 2. Uncleared transactions
+    const [unclearedRow] = await query(
+      `SELECT COUNT(*) as cnt, MIN(date) as oldest_date
+       FROM journal_entries je
+       JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+       WHERE je.company_id = ? AND je.cleared = false AND a.cf_category = 'Cash'`,
+      [company]
+    ).catch(() => [{ cnt: 0, oldest_date: null }]);
+
+    // 3. Bank balance (sum of cash accounts, all time)
+    const [bankRow] = await query(
+      `SELECT COALESCE(SUM(je.debit) - SUM(je.credit), 0) as balance
+       FROM journal_entries je
+       JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+       WHERE je.company_id = ? AND a.cf_category = 'Cash'`,
+      [company]
+    ).catch(() => [{ balance: 0 }]);
+
+    // 4. P&L for most recent period
+    const currentPeriod = periods[0];
+    let plRow = { revenue: 0, expenses: 0 };
+    if (currentPeriod) {
+      const startDate = String(currentPeriod.start_date).slice(0, 10);
+      const endDate = String(currentPeriod.end_date).slice(0, 10);
+      const plData = await query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) as revenue,
+           COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit - je.credit ELSE 0 END), 0) as expenses
+         FROM journal_entries je
+         JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+         WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?`,
+        [company, startDate, endDate]
+      ).catch(() => []);
+      if (plData[0]) plRow = plData[0];
+    }
+
+    const html = buildCompanyPage(co, periods, {
+      unlockedCount: Number(unlocked_count || 0),
+      unclearedCount: Number(unclearedRow?.cnt || 0),
+      unclearedOldest: unclearedRow?.oldest_date || null,
+      bankBalance: Number(bankRow?.balance || 0),
+      revenue: Number(plRow.revenue || 0),
+      expenses: Number(plRow.expenses || 0),
+      currentPeriodName: currentPeriod?.period_name || null,
+    });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
@@ -57,7 +107,7 @@ ${commonStyle()}
 }
 
 
-function buildCompanyPage(co, periods) {
+function buildCompanyPage(co, periods, stats = {}) {
   const REPORT_TYPES = [
     { id: 'pl',        label: 'Profit & Loss' },
     { id: 'bs',        label: 'Balance Sheet' },
@@ -126,22 +176,46 @@ ${commonStyle()}
   .back { margin-bottom: 16px; }
   .back a { color: #555; text-decoration: none; font-size: 10pt; }
   .back a:hover { text-decoration: underline; }
+  .dashboard-cards { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:28px; }
+  .dash-card { background:#f8f9fa; border:1px solid #e8e8e8; border-radius:8px; padding:16px 18px; text-decoration:none; color:inherit; display:block; cursor:pointer; transition:box-shadow .15s; }
+  .dash-card:hover { box-shadow:0 2px 8px rgba(0,0,0,.1); background:#fff; }
+  .dash-card .card-label { font-size:9pt; color:#888; font-weight:600; text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+  .dash-card .card-value { font-size:16pt; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
+  .dash-card .card-sub { font-size:9pt; color:#888; }
+  .dash-card.warn .card-value { color:#856404; }
+  .dash-card.ok .card-value { color:#2a8a2a; }
+  @media (max-width:700px) { .dashboard-cards { grid-template-columns:repeat(2,1fr); } }
 </style>
 </head>
 <body>
 <div class="page">
-  <div class="back" style="display:flex;justify-content:space-between;align-items:center">
-    <a href="/">← All companies</a>
-    <a href="/${co.company_id}/settings">⚙ Settings</a>
-    <a href="/${co.company_id}/journal/new">✏ New Entry</a>
-    <a href="/${co.company_id}/bank/import">🏦 Bank Import</a>
-    <a href="/${co.company_id}/payables">📋 Payables</a>
-    <a href="/${co.company_id}/bank/reconcile">✓ Reconcile</a>
-    <a href="/${co.company_id}/opening-balances">📂 Opening Bal.</a>
-  </div>
+  ${navBar(co.company_id, 'dashboard')}
   <div class="header">
     <h1>${co.company_name}</h1>
     <p class="sub">${co.company_id} · freeBooks Reports</p>
+  </div>
+
+  <div class="dashboard-cards">
+    <a class="dash-card${stats.unlockedCount > 0 ? ' warn' : ' ok'}" href="/${co.company_id}/settings?tab=periods">
+      <div class="card-label">📅 Periods</div>
+      <div class="card-value">${stats.unlockedCount}</div>
+      <div class="card-sub">${stats.unlockedCount === 1 ? '1 period unlocked' : stats.unlockedCount + ' periods unlocked'}</div>
+    </a>
+    <a class="dash-card${stats.unclearedCount > 0 ? ' warn' : ' ok'}" href="/${co.company_id}/bank">
+      <div class="card-label">⚠ Uncleared</div>
+      <div class="card-value">${stats.unclearedCount}</div>
+      <div class="card-sub">${stats.unclearedCount > 0 && stats.unclearedOldest ? 'oldest: ' + String(stats.unclearedOldest).slice(0,10) : 'all cleared'}</div>
+    </a>
+    <a class="dash-card" href="/${co.company_id}/bank">
+      <div class="card-label">🏦 Bank Balance</div>
+      <div class="card-value">${stats.bankBalance >= 0 ? '' : '-'}${Math.abs(stats.bankBalance).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+      <div class="card-sub">${stats.currentPeriodName || 'all time'}</div>
+    </a>
+    <a class="dash-card" href="/${co.company_id}">
+      <div class="card-label">📈 P&amp;L</div>
+      <div class="card-value" style="color:${stats.revenue - stats.expenses >= 0 ? '#2a8a2a' : '#cc2222'}">${stats.revenue - stats.expenses >= 0 ? '' : '-'}${Math.abs(stats.revenue - stats.expenses).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+      <div class="card-sub">Rev: ${stats.revenue.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} / Exp: ${stats.expenses.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+    </a>
   </div>
 
   <div class="controls">
@@ -193,6 +267,7 @@ ${commonStyle()}
 
 <script>
   var company = '${co.company_id}';
+  localStorage.setItem('freebooks_company', '${co.company_id}');
   var reportType = 'pl';
   var formatType = 'html';
   var stepType   = '';

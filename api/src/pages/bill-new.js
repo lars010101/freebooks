@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle } = require('./common');
+const { commonStyle, navBar } = require('./common');
 
 async function handleBillNewPage(req, res) {
   const { company } = req.params;
@@ -62,10 +62,7 @@ ${commonStyle()}
 </head>
 <body>
 <div class="page">
-  <div class="back" style="display:flex;justify-content:space-between;align-items:center">
-    <a href="/${company}">← Reports</a>
-    <a href="/${company}/settings">⚙ Settings</a>
-  </div>
+  ${navBar(company, 'payables')}
   <div class="header">
     <h1>📄 New Bill</h1>
     <p class="sub">${company}</p>

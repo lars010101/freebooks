@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, makeQuery } = require('./common');
+const { commonStyle, makeQuery, navBar } = require('./common');
 
 async function handleBankReconcilePage(req, res) {
   const { company } = req.params;
@@ -36,10 +36,7 @@ ${commonStyle()}
 </head>
 <body>
 <div class="page">
-  <div class="back" style="display:flex;justify-content:space-between;align-items:center">
-    <a href="/${company}">← Reports</a>
-    <a href="/${company}/bank/import">🏦 Bank Import</a>
-  </div>
+  ${navBar(company, 'bank')}
   <div class="header"><h1>Bank Reconciliation</h1><p class="sub">${company}</p></div>
 
   <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">

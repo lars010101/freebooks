@@ -1,14 +1,22 @@
 'use strict';
-const { commonStyle } = require('./common');
+const { makeQuery, commonStyle, navBar } = require('./common');
 
 async function handleSettingsPage(req, res) {
   const { company } = req.params;
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(buildSettingsPage(company));
+  const q = makeQuery();
+  try {
+    const companies = await q(
+      `SELECT company_id, company_name FROM companies ORDER BY company_name`
+    );
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(buildSettingsPage(company, companies));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 }
 
 
-function buildSettingsPage(company) {
+function buildSettingsPage(company, companies = []) {
   const cfOptions = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded']
     .map(v => `<option value="${v}">${v || '— none —'}</option>`).join('');
   return `<!DOCTYPE html>
@@ -45,7 +53,7 @@ ${commonStyle()}
 </head>
 <body>
 <div class="page">
-  <div class="back"><a href="/${company}">← Reports</a></div>
+  ${navBar(company, 'settings')}
   <div class="header">
     <h1>⚙ Settings</h1>
     <p class="sub">${company}</p>
@@ -84,6 +92,24 @@ ${commonStyle()}
     <div class="field-row"><label><input type="checkbox" id="co-vat"> VAT / GST Registered</label></div>
     <button id="btn-save-company" class="btn-primary" onclick="saveCompany()" disabled>Save</button>
     <span id="msg-company" class="msg"></span>
+    
+    <hr style="margin:24px 0;border:none;border-top:1px solid #e8e8e8">
+    
+    <div style="margin-bottom:6px;font-weight:700;font-size:11pt">Manage Companies</div>
+    
+    <div class="field-row" style="margin-bottom:16px">
+      <label>Switch Company</label>
+      <div style="display:flex;gap:10px;align-items:center">
+        <select id="co-switch-select" style="max-width:280px;padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt">
+          ${companies.map(c => `<option value="${c.company_id}"${c.company_id === company ? ' selected' : ''}>${c.company_name} (${c.company_id})</option>`).join('\n          ')}
+        </select>
+        <button class="btn-sm" onclick="switchCompany()">Switch →</button>
+      </div>
+    </div>
+    
+    <div>
+      <a href="/setup/new-company" style="display:inline-block;padding:9px 20px;background:#f5f5f5;color:#1a1a1a;border:1px solid #ccc;border-radius:4px;font-size:10pt;font-weight:600;text-decoration:none">+ New Company</a>
+    </div>
   </div>
 
   <!-- COA TAB -->
@@ -192,6 +218,14 @@ function showTab(t) {
   document.getElementById('tab-'+t).classList.add('active');
   if (t === 'vendors') { loadVendors(); loadVendorAccounts(); }
   if (t === 'mappings') loadVendorAccounts();
+}
+
+function switchCompany() {
+  var sel = document.getElementById('co-switch-select');
+  var id = sel.value;
+  if (!id) return;
+  localStorage.setItem('freebooks_company', id);
+  window.location.href = '/' + id;
 }
 
 function showMsg(id, msg, isErr) {
@@ -466,6 +500,14 @@ function loadVendorAccounts() {
     console.log('vendorAccountsList loaded:', vendorAccountsList.length);
   }).catch(function(e){ console.error('loadVendorAccounts failed:', e); });
 }
+
+// ========== HANDLE ?tab= URL PARAM ==========
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var tab = params.get('tab');
+  if (tab) showTab(tab);
+})();
+
 function vendorAcctInput(input) {
   if (!vendorAccountsList.length) { loadVendorAccounts(); }
   vendorAcctActiveInput = input;

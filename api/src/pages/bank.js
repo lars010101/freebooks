@@ -1,21 +1,38 @@
 'use strict';
-const { commonStyle, navBar } = require('./common');
+const { commonStyle, makeQuery, navBar } = require('./common');
 
-async function handleBankImportPage(req, res) {
+async function handleBankPage(req, res) {
   const { company } = req.params;
+  const q = makeQuery();
+  const accounts = await q(
+    `SELECT account_code, account_name FROM accounts WHERE company_id = ? AND cf_category = 'Cash' ORDER BY account_code`,
+    [company]
+  );
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(buildBankImportPage(company));
+  res.send(buildBankPage(company, accounts));
 }
 
 
-function buildBankImportPage(company) {
+function buildBankPage(company, cashAccounts) {
+  const acctOptions = cashAccounts.map(a =>
+    `<option value="${a.account_code}">${a.account_code} — ${a.account_name}</option>`
+  ).join('');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Bank Import — ${company}</title>
+<title>Bank — ${company}</title>
 ${commonStyle()}
 <style>
+  table.rec-table { width:100%; border-collapse:collapse; font-size:10pt; }
+  table.rec-table th { background:#f0f0f0; padding:6px 8px; text-align:left; font-size:9pt; border:1px solid #ddd; }
+  table.rec-table td { padding:5px 7px; border:1px solid #eee; vertical-align:middle; }
+  table.rec-table tr.cleared td { color:#888; }
+  table.rec-table tr.cleared td:first-child { text-decoration:line-through; }
+  .summary-bar { display:flex; gap:24px; padding:12px 16px; background:#f8f8f8; border:1px solid #e0e0e0; border-radius:6px; margin-bottom:16px; font-size:10pt; }
+  .summary-bar .lbl { color:#888; font-size:9pt; }
+  .summary-bar .val { font-weight:700; font-size:12pt; }
+  
   .step { background:#f8f8f8; border:1px solid #e0e0e0; border-radius:6px; padding:14px 18px; margin-bottom:16px; }
   .step h3 { margin:0 0 10px; font-size:11pt; color:#333; }
   table.review-table { width:100%; border-collapse:collapse; font-size:9.5pt; }
@@ -30,86 +47,217 @@ ${commonStyle()}
   .tag.lo  { background:#f8d7da; color:#721c24; }
   input.acct { width:75px; padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
   select.col-map { padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
+  
+  details { margin-top:28px; }
+  details summary { cursor:pointer; font-weight:600; font-size:11pt; padding:10px 0; }
+  details[open] summary { margin-bottom:14px; }
 </style>
 </head>
 <body>
 <div class="page">
   ${navBar(company, 'bank')}
-  <div class="header"><h1>Bank Statement Import</h1><p class="sub">${company} — Upload a bank statement CSV, review matched entries, then post to the BANK journal.</p></div>
-
-  <!-- Step 1: Upload -->
-  <div class="step" id="step1">
-    <h3>① Load your bank statement CSV</h3>
-    <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Open the CSV in a text editor, select all (Ctrl+A), copy (Ctrl+C), then paste below. Or use the file picker.</p>
-    <textarea id="csv-paste" rows="5" style="width:100%;font-family:monospace;font-size:9pt;padding:8px;border:1px solid #ccc;border-radius:4px;resize:vertical" placeholder="Paste CSV content here…"></textarea>
-    <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
-      <button class="btn-primary" onclick="onPasteLoad()">Load Pasted CSV →</button>
-      <span style="color:#888;font-size:9.5pt">or select file:</span>
-      <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()">
-    </div>
-    <div id="file-status" style="margin-top:8px;font-size:10pt"></div>
+  
+  <div class="header">
+    <h1>🏦 Bank</h1>
+    <p class="sub">${company}</p>
   </div>
 
-  <!-- Step 2: Map columns -->
-  <div class="step" id="step2" style="display:none">
-    <h3>② Map columns &amp; set bank account</h3>
-    <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Confirm which columns contain the date, description, and amounts. Then enter the bank account code this statement is for.</p>
-    <table style="border-collapse:collapse;font-size:10pt">
-      <tr><td style="padding:5px 14px 5px 0"><b>Date column</b></td><td><select id="col-date" class="col-map"></select></td></tr>
-      <tr><td style="padding:5px 14px 5px 0"><b>Description column</b></td><td><select id="col-desc" class="col-map"></select></td></tr>
-      <tr><td style="padding:5px 14px 5px 0"><b>Amount type</b></td><td>
-        <select id="amt-type" class="col-map" onchange="toggleAmtCols()">
-          <option value="single">Single amount column (positive=inflow, negative=outflow)</option>
-          <option value="split">Separate Debit / Credit columns</option>
-        </select>
-      </td></tr>
-      <tr id="row-single"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Amount column</td><td><select id="col-amt" class="col-map"></select></td></tr>
-      <tr id="row-debit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Debit column (outflow/payment)</td><td><select id="col-deb" class="col-map"></select></td></tr>
-      <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
-      <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
-        <td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414">
-        <span style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span></td></tr>
-    </table>
-    <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
-      <button class="btn-primary" onclick="parseAndProcess()">Process rows →</button>
-      <span id="parse-status" style="font-size:10pt"></span>
-    </div>
+  <!-- Reconciliation section (primary) -->
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+    <label>Account <select id="rec-account" style="width:220px;height:32px;padding:4px 6px">
+      ${acctOptions || '<option>No cash accounts found</option>'}
+    </select></label>
+    <label>From <input type="date" id="rec-from"></label>
+    <label>To <input type="date" id="rec-to"></label>
+    <button class="btn-primary" onclick="loadReconcile()">Load</button>
   </div>
 
-  <!-- Bill search panel -->
-  <div id="bill-panel" style="display:none;position:fixed;top:20%;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1px solid #ccc;border-radius:6px;padding:16px;min-width:500px;max-width:700px;box-shadow:0 4px 20px rgba(0,0,0,0.2)">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div style="font-weight:600;font-size:11pt">Link Bill <span id="bill-panel-row-label" style="font-size:9pt;color:#888"></span></div>
-      <button onclick="closeBillPanel()" style="border:none;background:none;cursor:pointer;font-size:14pt;color:#888">&times;</button>
-    </div>
-    <input type="text" id="bill-panel-search" placeholder="Filter by vendor or ref…" oninput="renderBillPanelList()"
-      style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt;margin-bottom:10px">
-    <div id="bill-panel-list" style="max-height:320px;overflow-y:auto;border:1px solid #eee;border-radius:4px"></div>
+  <div class="summary-bar" id="rec-summary" style="display:none">
+    <div><div class="lbl">Opening Balance</div><div class="val" id="sum-opening">0.00</div></div>
+    <div><div class="lbl">Period Net</div><div class="val" id="sum-net">0.00</div></div>
+    <div><div class="lbl">Closing Book Balance</div><div class="val" id="sum-book">0.00</div></div>
+    <div><div class="lbl">Uncleared Items</div><div class="val" id="sum-uncleared">0</div></div>
+    <div><div class="lbl">Statement Closing Balance</div><input type="number" id="stmt-balance" step="0.01" placeholder="from bank statement" style="width:140px;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:10pt"></div>
+    <div><div class="lbl">Difference</div><div class="val" id="sum-diff" style="color:#888">—</div></div>
   </div>
 
-  <!-- Step 3: Review -->
-  <div class="step" id="step-review" style="display:none">
-    <h3>③ Review &amp; Approve</h3>
-    <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Green border = rule-matched. Orange = unmatched (fill in DR/CR accounts manually). Check <b>Skip</b> to exclude a row. Then click <b>Post to Bank Journal</b>.</p>
-    <div id="import-summary" style="margin-bottom:10px;font-size:10pt"></div>
-    <div id="balance-bar" style="display:none;margin-bottom:12px;padding:10px 14px;background:#f0f4ff;border:1px solid #c0cfe8;border-radius:6px;font-size:10pt;display:flex;gap:28px;align-items:center">
-      <span>Book balance before: <b id="bal-before">—</b></span>
-      <span>→ net import: <b id="bal-net">—</b></span>
-      <span>Book balance after: <b id="bal-after">—</b></span>
+  <table class="rec-table" id="rec-table" style="display:none">
+    <thead><tr><th style="width:90px">Date</th><th>Reference</th><th>Description</th><th class="num" style="width:100px">Debit</th><th class="num" style="width:100px">Credit</th><th style="text-align:center;width:70px">Cleared</th></tr></thead>
+    <tbody id="rec-body"></tbody>
+  </table>
+  <div id="rec-status" style="margin-top:10px;font-size:10pt"></div>
+
+  <!-- Import section (collapsible) -->
+  <details id="import-section" style="margin-top:28px">
+    <summary style="cursor:pointer;font-weight:600;font-size:11pt;padding:10px 0">Import CSV ↑</summary>
+
+    <!-- Step 1: Upload -->
+    <div class="step" id="step1">
+      <h3>① Load your bank statement CSV</h3>
+      <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Open the CSV in a text editor, select all (Ctrl+A), copy (Ctrl+C), then paste below. Or use the file picker.</p>
+      <textarea id="csv-paste" rows="5" style="width:100%;font-family:monospace;font-size:9pt;padding:8px;border:1px solid #ccc;border-radius:4px;resize:vertical" placeholder="Paste CSV content here…"></textarea>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+        <button class="btn-primary" onclick="onPasteLoad()">Load Pasted CSV →</button>
+        <span style="color:#888;font-size:9.5pt">or select file:</span>
+        <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()">
+      </div>
+      <div id="file-status" style="margin-top:8px;font-size:10pt"></div>
     </div>
-    <table class="review-table">
-      <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:80px">Bill</th><th style="width:80px">Debit</th><th style="width:80px">Credit</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
-      <tbody id="review-body"></tbody>
-    </table>
-    <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-      <label style="font-size:10pt">Journal <select id="import-journal" style="height:32px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:10pt"><option value="">— loading —</option></select></label>
-      <button class="btn-primary" onclick="postApproved()">Post to Journal</button>
-      <span id="post-status" style="font-size:10pt"></span>
+
+    <!-- Step 2: Map columns -->
+    <div class="step" id="step2" style="display:none">
+      <h3>② Map columns &amp; set bank account</h3>
+      <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Confirm which columns contain the date, description, and amounts. Then enter the bank account code this statement is for.</p>
+      <table style="border-collapse:collapse;font-size:10pt">
+        <tr><td style="padding:5px 14px 5px 0"><b>Date column</b></td><td><select id="col-date" class="col-map"></select></td></tr>
+        <tr><td style="padding:5px 14px 5px 0"><b>Description column</b></td><td><select id="col-desc" class="col-map"></select></td></tr>
+        <tr><td style="padding:5px 14px 5px 0"><b>Amount type</b></td><td>
+          <select id="amt-type" class="col-map" onchange="toggleAmtCols()">
+            <option value="single">Single amount column (positive=inflow, negative=outflow)</option>
+            <option value="split">Separate Debit / Credit columns</option>
+          </select>
+        </td></tr>
+        <tr id="row-single"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Amount column</td><td><select id="col-amt" class="col-map"></select></td></tr>
+        <tr id="row-debit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Debit column (outflow/payment)</td><td><select id="col-deb" class="col-map"></select></td></tr>
+        <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
+        <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
+          <td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414">
+          <span style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span></td></tr>
+      </table>
+      <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
+        <button class="btn-primary" onclick="parseAndProcess()">Process rows →</button>
+        <span id="parse-status" style="font-size:10pt"></span>
+      </div>
     </div>
-  </div>
+
+    <!-- Bill search panel -->
+    <div id="bill-panel" style="display:none;position:fixed;top:20%;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1px solid #ccc;border-radius:6px;padding:16px;min-width:500px;max-width:700px;box-shadow:0 4px 20px rgba(0,0,0,0.2)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-weight:600;font-size:11pt">Link Bill <span id="bill-panel-row-label" style="font-size:9pt;color:#888"></span></div>
+        <button onclick="closeBillPanel()" style="border:none;background:none;cursor:pointer;font-size:14pt;color:#888">&times;</button>
+      </div>
+      <input type="text" id="bill-panel-search" placeholder="Filter by vendor or ref…" oninput="renderBillPanelList()"
+        style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt;margin-bottom:10px">
+      <div id="bill-panel-list" style="max-height:320px;overflow-y:auto;border:1px solid #eee;border-radius:4px"></div>
+    </div>
+
+    <!-- Step 3: Review -->
+    <div class="step" id="step-review" style="display:none">
+      <h3>③ Review &amp; Approve</h3>
+      <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Green border = rule-matched. Orange = unmatched (fill in DR/CR accounts manually). Check <b>Skip</b> to exclude a row. Then click <b>Post to Journal</b>.</p>
+      <div id="import-summary" style="margin-bottom:10px;font-size:10pt"></div>
+      <div id="balance-bar" style="display:none;margin-bottom:12px;padding:10px 14px;background:#f0f4ff;border:1px solid #c0cfe8;border-radius:6px;font-size:10pt;display:flex;gap:28px;align-items:center">
+        <span>Book balance before: <b id="bal-before">—</b></span>
+        <span>→ net import: <b id="bal-net">—</b></span>
+        <span>Book balance after: <b id="bal-after">—</b></span>
+      </div>
+      <table class="review-table">
+        <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:80px">Bill</th><th style="width:80px">Debit</th><th style="width:80px">Credit</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
+        <tbody id="review-body"></tbody>
+      </table>
+      <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:10pt">Journal <select id="import-journal" style="height:32px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:10pt"><option value="">— loading —</option></select></label>
+        <button class="btn-primary" onclick="postApproved()">Post to Journal</button>
+        <span id="post-status" style="font-size:10pt"></span>
+      </div>
+    </div>
+
+  </details>
+
 </div>
+
 <script>
   var COMPANY = '${company}';
+  
+  // ── Reconciliation JS ────────────────────────────────────────────────────────
+  var recRows = [];
+  var openingBalance = 0;
+
+  // Set default date range: current month
+  var now = new Date();
+  document.getElementById('rec-from').value = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+  document.getElementById('rec-to').value = now.toISOString().slice(0,10);
+  document.getElementById('stmt-balance').addEventListener('input', updateSummary);
+
+  function loadReconcile() {
+    var accountCode = document.getElementById('rec-account').value;
+    var dateFrom = document.getElementById('rec-from').value;
+    var dateTo = document.getElementById('rec-to').value;
+    if (!accountCode) return;
+    document.getElementById('rec-status').textContent = 'Loading…';
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'bank.reconcile.list', companyId: COMPANY, accountCode, dateFrom, dateTo }) })
+      .then(r => r.json()).then(res => {
+        var d = res.data || res;
+        recRows = Array.isArray(d) ? d : (d.rows || []);
+        openingBalance = d.openingBalance || 0;
+        document.getElementById('rec-status').textContent = '';
+        renderReconcile();
+      })
+      .catch(e => { document.getElementById('rec-status').textContent = e.message; });
+  }
+
+  function renderReconcile() {
+    var acct = document.getElementById('rec-account').value;
+    document.getElementById('rec-summary').style.display = '';
+    document.getElementById('rec-table').style.display = '';
+    document.getElementById('rec-body').innerHTML = recRows.map(function(r, i) {
+      var cls = r.cleared ? 'cleared' : '';
+      return '<tr class="'+cls+'" data-i="'+i+'" data-batch="'+r.batch_id+'" data-acct="'+acct+'">'
+        +'<td>'+(r.date?String(r.date).slice(0,10):'')+'</td>'
+        +'<td>'+(r.reference||r.batch_id||'')+'</td>'
+        +'<td>'+(r.description||'')+'</td>'
+        +'<td class="num">'+(parseFloat(r.debit||0)?fmt(r.debit):'')+'</td>'
+        +'<td class="num">'+(parseFloat(r.credit||0)?fmt(r.credit):'')+'</td>'
+        +'<td style="text-align:center"><input type="checkbox"'+(r.cleared?' checked':'')+' onchange="toggleCleared(this)" ></td>'
+        +'</tr>';
+    }).join('');
+    updateSummary();
+  }
+
+  function toggleCleared(cb) {
+    var tr = cb.closest('tr');
+    var batchId = tr.dataset.batch;
+    var accountCode = tr.dataset.acct;
+    var cleared = cb.checked;
+    cb.disabled = true;
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'bank.reconcile.clear', companyId: COMPANY, batchId, accountCode, cleared }) })
+      .then(r => r.json()).then(res => {
+        cb.disabled = false;
+        var tr = cb.closest('tr');
+        var i = parseInt(tr.dataset.i);
+        recRows[i].cleared = cleared;
+        tr.className = cleared ? 'cleared' : '';
+        updateSummary();
+      })
+      .catch(function() { cb.disabled = false; cb.checked = !cleared; });
+  }
+
+  function updateSummary() {
+    var periodNet = 0, unclearedCount = 0;
+    recRows.forEach(function(r) {
+      var net = parseFloat(r.debit||0) - parseFloat(r.credit||0);
+      periodNet += net;
+      if (!r.cleared) unclearedCount++;
+    });
+    var closingBook = openingBalance + periodNet;
+    document.getElementById('sum-opening').textContent = fmt(openingBalance);
+    document.getElementById('sum-net').textContent = (periodNet >= 0 ? '+' : '') + fmt(periodNet);
+    document.getElementById('sum-book').textContent = fmt(closingBook);
+    document.getElementById('sum-uncleared').textContent = unclearedCount;
+    var stmtVal = parseFloat(document.getElementById('stmt-balance').value);
+    if (!isNaN(stmtVal)) {
+      var diff = closingBook - stmtVal;
+      var el = document.getElementById('sum-diff');
+      el.textContent = fmt(diff);
+      el.style.color = Math.abs(diff) < 0.01 ? '#2a8a2a' : '#cc2222';
+    } else {
+      document.getElementById('sum-diff').textContent = '—';
+    }
+  }
+
+  // ── Import JS ───────────────────────────────────────────────────────────────
   var csvRows = [];
   var headers = [];
   var processedRows = [];
@@ -191,7 +339,7 @@ ${commonStyle()}
         colAmt:  document.getElementById('col-amt').selectedIndex,
         colDeb:  document.getElementById('col-deb').selectedIndex,
         colCred: document.getElementById('col-cred').selectedIndex,
-        colHeaders: headers.join(',') // only restore if same headers
+        colHeaders: headers.join(',')
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
     } catch(e) {}
@@ -202,7 +350,6 @@ ${commonStyle()}
       var raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       var prefs = JSON.parse(raw);
-      // Only restore column indices if headers match
       if (prefs.colHeaders === headers.join(',')) {
         var ids = ['col-date','col-desc','col-amt','col-deb','col-cred'];
         var saved = [prefs.colDate, prefs.colDesc, prefs.colAmt, prefs.colDeb, prefs.colCred];
@@ -250,7 +397,7 @@ ${commonStyle()}
       } else {
         amount = parseFloat((row[parseInt(document.getElementById('col-amt').value)]||'').replace(/,/g,'')) || 0;
       }
-      if (deb === 0 && cred === 0 && amount === 0) return; // skip balance-only rows
+      if (deb === 0 && cred === 0 && amount === 0) return;
       var date = normalizeDate(dateRaw);
       if (!date) return;
       bankRows.push({ date, description: desc || '(no description)', amount, bankAccount: bankAcct });
@@ -282,11 +429,8 @@ ${commonStyle()}
   function normalizeDate(s) {
     if (!s) return null;
     s = s.trim();
-    // Try YYYY-MM-DD
     if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s)) return s;
-    // Try YYYYMMDD (e.g. 20260326)
     if (/^[0-9]{8}$/.test(s)) return s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8);
-    // Try DD Mon YYYY or D Mon YYYY (e.g. 26 Mar 2026, 5 Jan 2026)
     var m = s.match(/^([0-9]{1,2})[ \-]([A-Za-z]{3})[ \-]([0-9]{2,4})$/);
     if (m) {
       var mon = MONTHS[m[2].toLowerCase()];
@@ -295,14 +439,13 @@ ${commonStyle()}
         return yr + '-' + String(mon).padStart(2,'0') + '-' + m[1].padStart(2,'0');
       }
     }
-    // Replace slashes/dots with dashes then parse
     s = s.replace(/[\/.]/g, '-');
     var p = s.split('-');
     if (p.length === 3) {
-      if (p[0].length === 4) return s; // YYYY-MM-DD
-      if (p[2].length === 4) return p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0'); // DD-MM-YYYY
-      if (parseInt(p[0]) > 12) return '20'+p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0'); // DD-MM-YY
-      return '20'+p[2]+'-'+p[0].padStart(2,'0')+'-'+p[1].padStart(2,'0'); // MM-DD-YY
+      if (p[0].length === 4) return s;
+      if (p[2].length === 4) return p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0');
+      if (parseInt(p[0]) > 12) return '20'+p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0');
+      return '20'+p[2]+'-'+p[0].padStart(2,'0')+'-'+p[1].padStart(2,'0');
     }
     return null;
   }
@@ -341,7 +484,6 @@ ${commonStyle()}
         +'</tr>';
     }).join('');
     document.getElementById('step-review').style.display = '';
-    // Populate journal dropdown now that the element is visible
     var jSel = document.getElementById('import-journal');
     if (Array.isArray(journalsList) && journalsList.length) {
       jSel.innerHTML = journalsList.map(function(j){
@@ -354,7 +496,6 @@ ${commonStyle()}
         if (saved.journalId) jSel.value = saved.journalId;
       } catch(e) {}
     } else {
-      // journals not loaded yet — retry once after short delay
       setTimeout(function(){
         if (Array.isArray(journalsList) && journalsList.length) {
           jSel.innerHTML = journalsList.map(function(j){ return '<option value="'+j.journal_id+'">'+j.code+' \u2014 '+j.name+'</option>'; }).join('');
@@ -368,14 +509,12 @@ ${commonStyle()}
   }
 
   function checkDuplicates(bankAcct, bankRows) {
-    // Build a lookup of date+amount combos already in the ledger for this account
     fetch('/api/admin/query', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ sql: "SELECT date, debit, credit FROM journal_entries WHERE company_id='" + COMPANY + "' AND account_code='" + bankAcct + "'" }) })
       .then(function(r){ return r.json(); })
       .then(function(res){
         var existing = res.data || res.rows || res;
         if (!Array.isArray(existing)) return;
-        // Build set of 'date|amount' signatures already in the ledger
         var sigs = new Set();
         existing.forEach(function(e) {
           var net = parseFloat(e.debit||0) - parseFloat(e.credit||0);
@@ -483,14 +622,13 @@ ${commonStyle()}
             +(failed ? ' <span style="color:#cc2222">'+failed+' failed.</span>' : '')
           +'</div>'
           +'<div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">'
-            +'<a href="/'+COMPANY+'" style="display:inline-block;padding:10px 22px;background:#1a1a1a;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">&larr; Back to Reports</a>'
-            +'<a href="/'+COMPANY+'/bank/import" style="display:inline-block;padding:10px 22px;background:#555;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">Import Another Statement</a>'
+            +'<a href="/'+COMPANY+'/bank" style="display:inline-block;padding:10px 22px;background:#1a1a1a;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">&larr; Back to Bank</a>'
+            +'<a href="/'+COMPANY+'/bank" style="display:inline-block;padding:10px 22px;background:#555;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">Import Another Statement</a>'
           +'</div></div>';
       })
       .catch(e => { document.getElementById('post-status').textContent = e.message; });
   }
 
-  // ── Bill linking ─────────────────────────────────────────────────────
   function fetchOpenBills() {
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'bill.list', companyId: COMPANY }) })
@@ -561,14 +699,12 @@ ${commonStyle()}
     var r = processedRows[billPanelRowIdx];
     r.billId = bill.bill_id;
     r.vendorShort = (bill.vendor_name||bill.vendor_id||'').slice(0,10);
-    // Set AP account as debit (payment reduces AP), bank account as credit
     if (bill.ap_account) {
       var tr = document.querySelector('#review-body tr[data-i="'+billPanelRowIdx+'"]');
       if (tr) {
         var drInput = tr.querySelector('[data-field=dr]');
         var crInput = tr.querySelector('[data-field=cr]');
         if (drInput) { drInput.value = bill.ap_account; updateAcctName(drInput); }
-        // creditAccount stays as bank account if already set
       }
     }
     refreshBillCell(billPanelRowIdx);
@@ -600,4 +736,4 @@ ${commonStyle()}
 </html>`;
 }
 
-module.exports = { handleBankImportPage };
+module.exports = { handleBankPage };

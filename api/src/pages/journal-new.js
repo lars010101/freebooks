@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle } = require('./common');
+const { commonStyle, navBar } = require('./common');
 
 async function handleJournalNewPage(req, res) {
   const { company } = req.params;
@@ -13,7 +13,7 @@ function buildJournalNewPage(company) {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>New Journal Entry — freeBooks</title>
+<title>New JV — freeBooks</title>
 ${commonStyle()}
 <style>
   table.jv-table { width:100%; border-collapse:collapse; font-size:10pt; }
@@ -35,13 +35,10 @@ ${commonStyle()}
 </head>
 <body>
 <div class="page">
-  <div class="back" style="display:flex;justify-content:space-between;align-items:center">
-    <a href="/${company}">← Reports</a>
-    <a href="/${company}/settings">⚙ Settings</a>
-  </div>
+  ${navBar(company, 'newjv')}
   <div class="header" style="display:flex;justify-content:space-between;align-items:flex-start">
     <div>
-      <h1 id="jv-mode-title">New Journal Entry</h1>
+      <h1 id="jv-mode-title">New JV</h1>
       <p class="sub">${company}</p>
     </div>
     <button class="btn-sm" id="btn-reversal-mode" onclick="toggleReversalMode()" style="margin-top:8px">⟲ Reversal</button>
@@ -301,7 +298,7 @@ ${commonStyle()}
   function toggleReversalMode() {
     reversalMode = !reversalMode;
     document.getElementById('reversal-panel').style.display = reversalMode ? '' : 'none';
-    document.getElementById('jv-mode-title').textContent = reversalMode ? 'Reversal Entry' : 'New Journal Entry';
+    document.getElementById('jv-mode-title').textContent = reversalMode ? 'Reversal Entry' : 'New JV';
     document.getElementById('btn-reversal-mode').textContent = reversalMode ? '\u2715 Cancel Reversal' : '\u27f2 Reversal';
     document.getElementById('btn-reversal-mode').style.background = reversalMode ? '#f0e8ff' : '';
     if (!reversalMode) {

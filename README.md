@@ -282,16 +282,6 @@ DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly
 
 ---
 
-## Companies (Owner's instance)
-
-| company_id | Name | Currency |
-|---|---|---|
-| `example_sg` | Example Company SG | SGD |
-| `example_se` | Example Company SE | SEK |
-| `test_co` | Test Trading Co. | SGD |
-
----
-
 ## Remaining Work / Backlog
 
 ### Settings & Admin

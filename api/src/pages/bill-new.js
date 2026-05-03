@@ -306,12 +306,13 @@ ${commonStyle()}
     hint.textContent = 'Loading...';
 
     fetchRate(billDate, currency, function(success, rate, rateDate, source) {
-      btn.disabled = false;
       if (success) {
+        btn.disabled = false;
         fxRateInput.value = rate.toFixed(4);
         hint.textContent = 'Rate as of ' + rateDate + ' (' + source + ')';
       } else {
-        hint.innerHTML = 'No rate found — <a href="#" class="fetch-ecb-link" data-date="' + billDate + '" data-currency="' + currency + '" style="color:#0066cc">Fetch from ECB</a>';
+        // Not in DB — auto-fetch from ECB then retry
+        fetchAndRetry(billDate, currency);
       }
     });
   }

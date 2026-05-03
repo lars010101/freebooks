@@ -272,30 +272,44 @@ async function approveBankEntries(ctx) {
         created_at: now,
       }));
 
+      // Post the normal 2-line journal first
+      await bulkInsert('journal_entries', journalRows);
+
       // FX gain/loss: if this payment settles a foreign-currency bill, split the journal
       if (entry.billId) {
         const billRows = await query(
-          `SELECT amount, amount_home, currency, ap_account FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
+          `SELECT amount, amount_home, amount_paid, currency, fx_rate, ap_account FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
           { companyId, billId: entry.billId }
         );
         const bill = billRows[0];
-        if (bill && bill.currency && bill.currency !== homeCurrency) {
+
+        if (bill && bill.currency && bill.currency !== homeCurrency && entry.settledForeign != null) {
           const fxSettings = await query(
             `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_gain_loss_account' LIMIT 1`,
             { companyId }
           );
           const fxAccount = fxSettings[0]?.value || null;
-          const bookedHome = Number(bill.amount_home);
-          const paidHome = amount; // bank amount IS already in home currency
-          const fxDiff = bookedHome - paidHome; // positive = gain (paid less), negative = loss (paid more)
 
-          if (Math.abs(fxDiff) > 0.01 && fxAccount) {
-            // Replace 2-line journal with 3-line FX journal (all in homeCurrency)
+          const settledForeign = Number(entry.settledForeign);
+          const bookingRate = Number(bill.fx_rate) || 1;
+          const settledBooked = Math.round(settledForeign * bookingRate * 10000) / 10000;
+          const bankAmount = amount; // already Math.abs'd
+          const fxDiff = Math.round((bankAmount - settledBooked) * 10000) / 10000;
+          // fxDiff > 0 = loss (paid more SGD than booked), fxDiff < 0 = gain (paid less)
+
+          if (fxAccount && Math.abs(fxDiff) > 0.005) {
+            // Replace 2-line journal with 3-line FX journal
+            await exec(
+              `DELETE FROM journal_entries WHERE batch_id = @batchId AND company_id = @companyId`,
+              { batchId, companyId }
+            );
+
             const fxLines = [
-              { account_code: entry.debitAccount, debit: bookedHome, credit: 0 },
-              { account_code: fxAccount, debit: fxDiff < 0 ? Math.abs(fxDiff) : 0, credit: fxDiff > 0 ? fxDiff : 0 },
-              { account_code: entry.creditAccount, debit: 0, credit: paidHome },
+              { account_code: entry.debitAccount, debit: settledBooked, credit: 0, description: entry.description },
+              { account_code: fxAccount, debit: fxDiff > 0 ? fxDiff : 0, credit: fxDiff < 0 ? Math.abs(fxDiff) : 0, description: 'FX ' + (fxDiff > 0 ? 'loss' : 'gain') + ': ' + bill.currency + ' payment' },
+              { account_code: entry.creditAccount, debit: 0, credit: bankAmount, description: entry.description },
             ];
+
             const fxJournalRows = fxLines.map((line) => ({
               company_id: companyId, entry_id: uuid(), batch_id: batchId,
               date: entry.date, account_code: line.account_code,
@@ -304,27 +318,38 @@ async function approveBankEntries(ctx) {
               debit_home: line.debit, credit_home: line.credit,
               vat_code: null, vat_amount: 0, vat_amount_home: 0,
               net_amount: 0, net_amount_home: 0,
-              description: line.account_code === fxAccount
-                ? `FX ${fxDiff > 0 ? 'gain' : 'loss'}: ${bill.currency} payment`
-                : (entry.description || null),
+              description: line.description,
               reference, source: 'bank_import',
               cost_center: null, profit_center: null,
               reverses: null, reversed_by: null,
               bill_id: entry.billId, created_by: userEmail, created_at: now,
             }));
-            // Replace previously inserted journalRows with FX version
-            await exec(
-              `DELETE FROM journal_entries WHERE batch_id = @batchId AND company_id = @companyId`,
-              { batchId, companyId }
-            );
             await bulkInsert('journal_entries', fxJournalRows);
-          } else if (Math.abs(fxDiff) > 0.01 && !fxAccount) {
-            results.push({ index: i, batchId, posted: true, warning: 'FX diff of ' + Math.abs(fxDiff).toFixed(2) + ' ' + homeCurrency + ' not posted — set FX Gain/Loss account in Settings → Company' });
+          } else if (!fxAccount && Math.abs(fxDiff) > 0.005) {
+            results.push({ index: i, batchId, posted: true, warning: 'FX diff ' + Math.abs(fxDiff).toFixed(2) + ' ' + homeCurrency + ' not posted — configure FX Gain/Loss account in Settings → Company' });
           }
+
+          // Update bill: amount_paid in FOREIGN currency
+          const newAmountPaid = Number(bill.amount_paid) + settledForeign;
+          const billAmount = Number(bill.amount);
+          const newStatus = newAmountPaid >= billAmount ? 'paid' : 'partial';
+          await exec(
+            `UPDATE bills SET amount_paid = @newAmountPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
+            { companyId, billId: entry.billId, newAmountPaid, newStatus }
+          );
+
+          // bill_payments still uses bankAmount (SGD paid)
+          await bulkInsert('bill_payments', [{
+            company_id: companyId, payment_id: uuid(), bill_id: entry.billId,
+            batch_id: batchId, amount: bankAmount, date: entry.date, method: 'bank_match', created_at: now,
+          }]);
+
+          results.push({ index: i, batchId, posted: true, fxDiff, settledForeign, settledBooked });
+          continue; // skip the generic bill handling below
         }
       }
 
-      if (entry.billId) {
+      if (entry.billId && !(bill && bill.currency && bill.currency !== homeCurrency && entry.settledForeign != null)) {
         await bulkInsert('bill_payments', [{
           company_id: companyId, payment_id: uuid(), bill_id: entry.billId,
           batch_id: batchId, amount, date: entry.date, method: 'bank_match', created_at: now,

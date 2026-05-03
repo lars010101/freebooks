@@ -648,6 +648,27 @@ ${commonStyle()}
     }
   }
 
+  // Event delegation for settle-input changes on foreign bills
+  document.addEventListener('input', function(e) {
+    var inp = e.target.closest('.settle-input');
+    if (!inp) return;
+    var rowIdx = parseInt(inp.dataset.row);
+    var r = processedRows[rowIdx];
+    if (!r) return;
+    r.settledForeign = parseFloat(inp.value) || 0;
+    // Update fx-preview span in the same cell
+    var cell = document.querySelector('[data-bill-cell="' + rowIdx + '"]');
+    if (cell) {
+      var preview = cell.querySelector('.fx-preview');
+      if (preview && r.billBookingRate) {
+        var settledBooked = r.settledForeign * r.billBookingRate;
+        var bankAmt = Math.abs(parseFloat(r.original.amount) || 0);
+        var fxDiff = bankAmt - settledBooked;
+        preview.textContent = '\u2248 ' + settledBooked.toFixed(2) + ' SGD cleared | FX ' + (fxDiff >= 0 ? 'loss' : 'gain') + ': ' + Math.abs(fxDiff).toFixed(2) + ' SGD';
+      }
+    }
+  });
+
   function checkDuplicates(bankAcct, bankRows) {
     fetch('/api/admin/query', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ sql: "SELECT date, debit, credit FROM journal_entries WHERE company_id='" + COMPANY + "' AND account_code='" + bankAcct + "'" }) })
@@ -748,7 +769,8 @@ ${commonStyle()}
       }
       entries.push({ date: r.original.date, description: r.description || r.original.description,
         amount: r.original.amount, debitAccount: dr, creditAccount: cr,
-        vatCode: r.vatCode || null, billId: r.billId || null });
+        vatCode: r.vatCode || null, billId: r.billId || null,
+        settledForeign: r.billCurrency && r.billCurrency !== HOME_CURRENCY ? (r.settledForeign || null) : null });
     });
     if (problemRows.length > 0) {
       document.getElementById('post-status').textContent = 'Invalid accounts on rows: ' + problemRows.join(', ') + '. Fill in debit & credit accounts.';
@@ -859,6 +881,10 @@ ${commonStyle()}
     var r = processedRows[billPanelRowIdx];
     r.billId = bill.bill_id;
     r.vendorShort = (bill.vendor_name||bill.vendor_id||'').slice(0,10);
+    r.billCurrency = bill.currency;
+    r.billBookingRate = parseFloat(bill.fx_rate || 1);
+    r.billOutstanding = parseFloat(bill.amount || 0) - parseFloat(bill.amount_paid || 0);
+    r.settledForeign = r.billOutstanding;
     if (bill.ap_account) {
       var tr = document.querySelector('#review-body tr[data-i="'+billPanelRowIdx+'"]');
       if (tr) {
@@ -875,6 +901,10 @@ ${commonStyle()}
     if (!processedRows[rowIdx]) return;
     processedRows[rowIdx].billId = null;
     processedRows[rowIdx].vendorShort = null;
+    processedRows[rowIdx].billCurrency = null;
+    processedRows[rowIdx].billBookingRate = null;
+    processedRows[rowIdx].billOutstanding = null;
+    processedRows[rowIdx].settledForeign = null;
     refreshBillCell(rowIdx);
   }
 
@@ -883,9 +913,22 @@ ${commonStyle()}
     if (!cell) return;
     var r = processedRows[rowIdx];
     if (r && r.billId) {
-      cell.innerHTML = '<span style="color:#2a8a2a;font-size:9pt">\u2713 '+escHtml((r.vendorShort||String(r.billId)).slice(0,10))+'</span>'
+      var billHtml = '<span style="color:#2a8a2a;font-size:9pt">\u2713 '+escHtml((r.vendorShort||String(r.billId)).slice(0,10))+'</span>'
         +' <button style="border:none;background:none;cursor:pointer;color:#888;font-size:9pt" '
         +'onclick="unlinkBill('+rowIdx+')" title="Unlink bill">\u00d7</button>';
+      if (r.billCurrency && r.billCurrency !== HOME_CURRENCY) {
+        var settledBooked = (r.settledForeign || 0) * (r.billBookingRate || 1);
+        var bankAmt = Math.abs(parseFloat(r.original.amount) || 0);
+        var fxDiff = bankAmt - settledBooked;
+        billHtml += '<div style="margin-top:4px;font-size:9pt">' +
+          'Settle: <input type="number" class="settle-input" data-row="'+rowIdx+'" ' +
+          'value="'+(r.settledForeign||0)+'" step="0.01" min="0" ' +
+          'style="width:70px;font-size:9pt;padding:2px 4px;border:1px solid #ccc;border-radius:3px"> ' +
+          escHtml(r.billCurrency) + ' ' +
+          '<span class="fx-preview" style="color:#666;margin-left:6px">\u2248 '+settledBooked.toFixed(2)+' SGD cleared | FX '+(fxDiff>=0?'loss':'gain')+': '+Math.abs(fxDiff).toFixed(2)+' SGD</span>' +
+          '</div>';
+      }
+      cell.innerHTML = billHtml;
     } else {
       cell.innerHTML = '<button style="border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer;padding:2px 6px;font-size:10pt" '
         +'onclick="openBillPanel('+rowIdx+')">&#128279;</button>';

@@ -195,10 +195,11 @@ ${commonStyle()}
 
   // Load company info to get home currency
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'company.get', companyId: COMPANY }) })
+    body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
-      var comp = res.data || res;
+      var list = res.data || res;
+      var comp = Array.isArray(list) ? list.find(function(c){ return c.company_id === COMPANY; }) : list;
       if (comp && comp.currency) {
         homeCurrency = comp.currency.toUpperCase();
         var currencyInput = document.getElementById('currency');

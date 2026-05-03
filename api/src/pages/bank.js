@@ -444,7 +444,21 @@ ${commonStyle()}
         ids.forEach(function(id, i) { if (saved[i] != null) document.getElementById(id).selectedIndex = saved[i]; });
       }
       if (prefs.amtType) { document.getElementById('amt-type').value = prefs.amtType; toggleAmtCols(); }
-      if (prefs.bankAcct) document.getElementById('bank-acct').value = prefs.bankAcct;
+      if (prefs.bankAcct) {
+        document.getElementById('bank-acct').value = prefs.bankAcct;
+        // Validate restored account against current company COA
+        // accountsMap may not be loaded yet — defer to next tick
+        setTimeout(function() {
+          var code = prefs.bankAcct;
+          var input = document.getElementById('bank-acct');
+          if (code && Object.keys(accountsMap).length > 0 && !accountsMap[code]) {
+            input.value = '';
+            input.style.borderColor = '';
+            var errEl = document.getElementById('bank-acct-error');
+            if (errEl) { errEl.textContent = 'Saved account ' + code + ' not in this company’s COA — cleared.'; errEl.style.display = ''; }
+          }
+        }, 600);
+      }
     } catch(e) {}
   }
 

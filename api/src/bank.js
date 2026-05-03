@@ -272,21 +272,63 @@ async function approveBankEntries(ctx) {
         created_at: now,
       }));
 
-      await bulkInsert('journal_entries', journalRows);
+      // FX gain/loss: if this payment settles a foreign-currency bill, split the journal
+      if (entry.billId) {
+        const billRows = await query(
+          `SELECT amount, amount_home, currency, ap_account FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
+          { companyId, billId: entry.billId }
+        );
+        const bill = billRows[0];
+        if (bill && bill.currency && bill.currency !== homeCurrency) {
+          const fxSettings = await query(
+            `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_gain_loss_account' LIMIT 1`,
+            { companyId }
+          );
+          const fxAccount = fxSettings[0]?.value || null;
+          const bookedHome = Number(bill.amount_home);
+          const paidHome = amount; // bank amount IS already in home currency
+          const fxDiff = bookedHome - paidHome; // positive = gain (paid less), negative = loss (paid more)
+
+          if (Math.abs(fxDiff) > 0.01 && fxAccount) {
+            // Replace 2-line journal with 3-line FX journal (all in homeCurrency)
+            const fxLines = [
+              { account_code: entry.debitAccount, debit: bookedHome, credit: 0 },
+              { account_code: fxAccount, debit: fxDiff < 0 ? Math.abs(fxDiff) : 0, credit: fxDiff > 0 ? fxDiff : 0 },
+              { account_code: entry.creditAccount, debit: 0, credit: paidHome },
+            ];
+            const fxJournalRows = fxLines.map((line) => ({
+              company_id: companyId, entry_id: uuid(), batch_id: batchId,
+              date: entry.date, account_code: line.account_code,
+              debit: line.debit, credit: line.credit,
+              currency: homeCurrency, fx_rate: 1.0,
+              debit_home: line.debit, credit_home: line.credit,
+              vat_code: null, vat_amount: 0, vat_amount_home: 0,
+              net_amount: 0, net_amount_home: 0,
+              description: line.account_code === fxAccount
+                ? `FX ${fxDiff > 0 ? 'gain' : 'loss'}: ${bill.currency} payment`
+                : (entry.description || null),
+              reference, source: 'bank_import',
+              cost_center: null, profit_center: null,
+              reverses: null, reversed_by: null,
+              bill_id: entry.billId, created_by: userEmail, created_at: now,
+            }));
+            // Replace previously inserted journalRows with FX version
+            await exec(
+              `DELETE FROM journal_entries WHERE batch_id = @batchId AND company_id = @companyId`,
+              { batchId, companyId }
+            );
+            await bulkInsert('journal_entries', fxJournalRows);
+          } else if (Math.abs(fxDiff) > 0.01 && !fxAccount) {
+            results.push({ index: i, batchId, posted: true, warning: 'FX diff of ' + Math.abs(fxDiff).toFixed(2) + ' ' + homeCurrency + ' not posted — set FX Gain/Loss account in Settings → Company' });
+          }
+        }
+      }
 
       if (entry.billId) {
         await bulkInsert('bill_payments', [{
-          company_id: companyId,
-          payment_id: uuid(),
-          bill_id: entry.billId,
-          batch_id: batchId,
-          amount,
-          date: entry.date,
-          method: 'bank_match',
-          created_at: now,
+          company_id: companyId, payment_id: uuid(), bill_id: entry.billId,
+          batch_id: batchId, amount, date: entry.date, method: 'bank_match', created_at: now,
         }]);
-
-        // DuckDB: direct UPDATE works (no streaming buffer constraint)
         await exec(
           `UPDATE bills SET amount_paid = amount_paid + @amount,
            status = CASE WHEN amount_paid + @amount >= amount_home THEN 'paid' ELSE 'partial' END

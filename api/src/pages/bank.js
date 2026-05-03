@@ -130,9 +130,10 @@ ${commonStyle()}
         <tr id="row-debit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Debit column (outflow/payment)</td><td><select id="col-deb" class="col-map"></select></td></tr>
         <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
         <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
-          <td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" onblur="validateBankAcctCode()">
+          <td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="account code" list="bank-acct-list" onblur="validateBankAcctCode()" oninput="validateBankAcctCode()">
           <span id="bank-acct-error" style="font-size:9pt;color:#cc2222;margin-left:8px;display:none">Account not found in COA</span>
           <span id="bank-acct-ok" style="font-size:9pt;color:#2a8a2a;margin-left:8px;display:none">✓</span>
+          <datalist id="bank-acct-list"></datalist>
           <span style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span></td></tr>
       </table>
       <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
@@ -356,7 +357,17 @@ ${commonStyle()}
 
   fetch('/api/' + COMPANY + '/accounts')
     .then(function(r){ return r.json(); })
-    .then(function(rows){ rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; }); });
+    .then(function(rows){
+      rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; });
+      // Populate bank account code datalist
+      var dl = document.getElementById('bank-acct-list');
+      if (dl) rows.forEach(function(a){
+        var opt = document.createElement('option');
+        opt.value = a.account_code;
+        opt.label = a.account_code + ' — ' + a.account_name;
+        dl.appendChild(opt);
+      });
+    });
 
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })

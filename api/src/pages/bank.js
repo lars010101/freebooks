@@ -721,7 +721,7 @@ ${commonStyle()}
       .then(function(r){ return r.json(); })
       .then(function(res){
         var bills = res.data || res;
-        if (Array.isArray(bills)) openBills = bills;
+        if (Array.isArray(bills)) openBills = bills.filter(function(b){ return b.status === 'posted' || b.status === 'partial'; });
       }).catch(function(){});
   }
 

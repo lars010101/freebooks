@@ -336,7 +336,7 @@ function loadCompany() {
       document.getElementById('co-vat').checked = !!co.vat_registered;
       ['co-name','co-currency','co-jurisdiction','co-taxid','co-standard','co-vat','co-fx-account'].forEach(function(id){
         var el = document.getElementById(id);
-        if (el) { el.oninput = function(){ markDirty('company'); }; el.onchange = function(){ markDirty('company'); }; }
+        if (el) { el.addEventListener('input', function(){ markDirty('company'); }); el.addEventListener('change', function(){ markDirty('company'); }); }
       });
       // Load FX settings
       loadFxSettings();

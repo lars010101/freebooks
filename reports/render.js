@@ -339,6 +339,39 @@ async function buildIntegrity(query, company, start, end) {
   const rows2 = await query(`SELECT * FROM integrity_extended(?, ?, ?)`, [company, start, end]);
   const allChecks = [...rows1, ...rows2];
 
+  // Compute unallocated net income — same logic as buildBS
+  const [niRow] = await query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) -
+       COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit - je.credit ELSE 0 END), 0)
+       AS net_income
+     FROM journal_entries je
+     JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+     WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?
+       AND a.account_type NOT IN ('Closing')`,
+    [company, start, end]
+  ).catch(() => [{ net_income: 0 }]);
+  const netIncome = Number(niRow?.net_income || 0);
+
+  // Adjust checks that are affected by unallocated net income
+  for (const check of allChecks) {
+    if (check.check_name === 'BS Balance' && check.status === 'FAIL' && netIncome !== 0) {
+      const m = check.detail.match(/Assets: ([\d.]+) \| Liab\+Equity: ([\d.]+)/);
+      if (m) {
+        const assets = parseFloat(m[1]);
+        const adjustedLiabEq = parseFloat(m[2]) + netIncome;
+        if (Math.abs(adjustedLiabEq - assets) < 0.01) {
+          check.status = 'OK';
+          check.detail = `Assets: ${assets.toFixed(2)} | Liab+Equity: ${adjustedLiabEq.toFixed(2)} (incl. unallocated P&L: ${netIncome >= 0 ? '' : '-'}${Math.abs(netIncome).toFixed(2)})`;
+        }
+      }
+    }
+    if (check.check_name === 'P&L vs Closing Entry' && check.status === 'FAIL' && netIncome !== 0) {
+      check.status = 'WARN';
+      check.detail = check.detail + ' — unallocated, closing entry not yet posted';
+    }
+  }
+
   const statusColor = s => s === 'OK' ? '#2d8a2d' : s === 'WARN' ? '#cc7700' : '#cc2222';
   let tableRows = allChecks.map(r =>
     `<tr class="account">

@@ -675,7 +675,7 @@ function renderFxRates(rows) {
       '<td><span class="ro">' + (r.to_currency || '') + '</span></td>' +
       '<td style="text-align:right"><span class="ro">' + (Number(r.rate).toFixed(6)) + '</span></td>' +
       '<td><span class="ro">' + (r.source || '') + '</span></td>' +
-      '<td>' + (isEcb ? '' : '<button class="btn-sm danger" onclick="deleteFxRate(\'' + date + '\', \'' + r.from_currency + '\', \'' + r.to_currency + '\', \'' + r.source + '\')" style="font-size:9pt">×</button>') + '</td>';
+      '<td>' + (isEcb ? '' : '<button class="btn-sm danger" onclick="deleteFxRate(&apos;' + date + '&apos;, &apos;' + r.from_currency + '&apos;, &apos;' + r.to_currency + '&apos;, &apos;' + r.source + '&apos;)" style="font-size:9pt">×</button>') + '</td>';
     tbody.appendChild(tr);
   });
 }

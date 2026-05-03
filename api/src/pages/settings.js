@@ -548,8 +548,10 @@ function addVendorRow(v) {
     '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:220px"></td>' +
     '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:45px"></td>' +
     '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:55px"></td>' +
-    '<td><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="vendorAcctInput(this)" onblur="hideVendorAcctDd()"></td>' +
-    '<td><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="vendorAcctInput(this)" onblur="hideVendorAcctDd()"></td>' +
+    '<td style="position:relative"><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="vendorAcctInput(this)" onblur="validateVendorAcctField(this)" class="vendor-exp-acct">' +
+    '<span class="vendor-acct-status" style="margin-left:4px;font-size:12px"></span></td>' +
+    '<td style="position:relative"><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="vendorAcctInput(this)" onblur="validateVendorAcctField(this)" class="vendor-ap-acct">' +
+    '<span class="vendor-acct-status" style="margin-left:4px;font-size:12px"></span></td>' +
     '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
     '<td><button class="btn-sm danger" onclick="markDirty(\\'vendors\\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
   wireDirty(tr, 'vendors');
@@ -617,6 +619,25 @@ function hideVendorAcctDd() {
     var dd = document.getElementById('vendor-acct-dd');
     if (dd) dd.remove();
   }, 150);
+}
+// CHANGE 4: Validate vendor account fields
+function validateVendorAcctField(input) {
+  hideVendorAcctDd();
+  var code = input.value.trim();
+  var statusEl = input.nextElementSibling;
+  if (!statusEl || !statusEl.classList.contains('vendor-acct-status')) return;
+  if (!code) {
+    statusEl.textContent = '';
+    return;
+  }
+  var found = vendorAccountsList.find(function(a) { return a.account_code === code; });
+  if (found) {
+    statusEl.textContent = '✓';
+    statusEl.style.color = '#2a8a2a';
+  } else {
+    statusEl.textContent = '✗';
+    statusEl.style.color = '#cc2222';
+  }
 }
 function saveVendors() {
   var rows = Array.from(document.querySelectorAll('#vendors-body tr')).map(function(tr){

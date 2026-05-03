@@ -130,7 +130,9 @@ ${commonStyle()}
         <tr id="row-debit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Debit column (outflow/payment)</td><td><select id="col-deb" class="col-map"></select></td></tr>
         <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
         <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
-          <td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414">
+          <td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" onblur="validateBankAcctCode()">
+          <span id="bank-acct-error" style="font-size:9pt;color:#cc2222;margin-left:8px;display:none">Account not found in COA</span>
+          <span id="bank-acct-ok" style="font-size:9pt;color:#2a8a2a;margin-left:8px;display:none">✓</span>
           <span style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span></td></tr>
       </table>
       <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
@@ -464,12 +466,38 @@ ${commonStyle()}
     document.getElementById('row-credit').style.display = split ? '' : 'none';
   }
 
+  // CHANGE 1: Validate bank account code
+  function validateBankAcctCode() {
+    var code = document.getElementById('bank-acct').value.trim();
+    var errorEl = document.getElementById('bank-acct-error');
+    var okEl = document.getElementById('bank-acct-ok');
+    if (!code) {
+      errorEl.style.display = 'none';
+      okEl.style.display = 'none';
+      return true;
+    }
+    var found = accountsMap[code];
+    if (!found) {
+      errorEl.style.display = '';
+      okEl.style.display = 'none';
+      return false;
+    }
+    errorEl.style.display = 'none';
+    okEl.style.display = '';
+    return true;
+  }
+
   function parseAndProcess() {
     var di = parseInt(document.getElementById('col-date').value);
     var dsi = parseInt(document.getElementById('col-desc').value);
     var bankAcct = document.getElementById('bank-acct').value.trim();
     var split = document.getElementById('amt-type').value === 'split';
     if (!bankAcct) { document.getElementById('parse-status').textContent = 'Bank account required'; return; }
+    // CHANGE 1: Validate bank account code before processing
+    if (!validateBankAcctCode()) {
+      document.getElementById('parse-status').textContent = 'Account ' + bankAcct + ' not found in Chart of Accounts';
+      return;
+    }
 
     var bankRows = [];
     csvRows.forEach(function(row) {
@@ -677,17 +705,31 @@ ${commonStyle()}
 
   function postApproved() {
     var entries = [];
+    var problemRows = [];
     document.querySelectorAll('#review-body tr').forEach(function(tr, i) {
       var skip = tr.querySelector('[data-skip]').checked;
       if (skip) return;
       var r = processedRows[i];
       var dr = tr.querySelector('[data-field=dr]').value.trim();
       var cr = tr.querySelector('[data-field=cr]').value.trim();
-      if (!dr || !cr) return;
+      if (!dr || !cr) {
+        problemRows.push(i + 1);
+        return;
+      }
+      // CHANGE 2: Validate accounts exist in accountsMap
+      if (!accountsMap[dr] || !accountsMap[cr]) {
+        problemRows.push(i + 1);
+        return;
+      }
       entries.push({ date: r.original.date, description: r.description || r.original.description,
         amount: r.original.amount, debitAccount: dr, creditAccount: cr,
         vatCode: r.vatCode || null, billId: r.billId || null });
     });
+    if (problemRows.length > 0) {
+      document.getElementById('post-status').textContent = 'Invalid accounts on rows: ' + problemRows.join(', ') + '. Fill in debit & credit accounts.';
+      document.getElementById('post-status').style.color = '#cc2222';
+      return;
+    }
     if (!entries.length) { document.getElementById('post-status').textContent = 'Nothing to post'; return; }
     var journalId = document.getElementById('import-journal').value;
     if (!journalId) { document.getElementById('post-status').textContent = 'Select a journal first'; return; }

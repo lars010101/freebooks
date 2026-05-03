@@ -34,6 +34,36 @@ async function saveVendors(ctx) {
   const { vendors } = body;
   if (!Array.isArray(vendors)) throw Object.assign(new Error('vendors array required'), { code: 'INVALID_INPUT' });
 
+  // CHANGE 4: Validate default account codes before saving
+  const accountCodes = new Set();
+  for (const v of vendors) {
+    if (v.default_expense_account) accountCodes.add(v.default_expense_account);
+    if (v.default_ap_account) accountCodes.add(v.default_ap_account);
+  }
+  
+  if (accountCodes.size > 0) {
+    const placeholders = Array.from(accountCodes).map((_, i) => `@acct${i}`).join(',');
+    const params = { companyId };
+    Array.from(accountCodes).forEach((code, i) => {
+      params[`acct${i}`] = code;
+    });
+    
+    const validAccounts = await query(
+      `SELECT account_code FROM accounts WHERE company_id = @companyId AND account_code IN (${placeholders}) AND is_active = true`,
+      params
+    );
+    
+    const validCodes = new Set(validAccounts.map(a => a.account_code));
+    const invalidCodes = Array.from(accountCodes).filter(code => !validCodes.has(code));
+    
+    if (invalidCodes.length > 0) {
+      throw Object.assign(
+        new Error(`Invalid or inactive account codes: ${invalidCodes.join(', ')}`),
+        { code: 'INVALID_ACCOUNT' }
+      );
+    }
+  }
+
   // Replace all for the company (simple replace pattern like periods or mappings)
   await exec(`DELETE FROM vendors WHERE company_id = @companyId`, { companyId });
 

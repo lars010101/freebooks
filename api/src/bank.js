@@ -179,6 +179,36 @@ async function approveBankEntries(ctx) {
   );
   const homeCurrency = companies[0]?.currency || 'USD';
 
+  // CHANGE 3: Validate all accounts before posting any entries
+  const accountCodes = new Set();
+  for (const entry of entries) {
+    if (entry.debitAccount) accountCodes.add(entry.debitAccount);
+    if (entry.creditAccount) accountCodes.add(entry.creditAccount);
+  }
+  
+  if (accountCodes.size > 0) {
+    const placeholders = Array.from(accountCodes).map((_, i) => `@acct${i}`).join(',');
+    const params = { companyId };
+    Array.from(accountCodes).forEach((code, i) => {
+      params[`acct${i}`] = code;
+    });
+    
+    const validAccounts = await query(
+      `SELECT account_code FROM accounts WHERE company_id = @companyId AND account_code IN (${placeholders}) AND is_active = true`,
+      params
+    );
+    
+    const validCodes = new Set(validAccounts.map(a => a.account_code));
+    const invalidCodes = Array.from(accountCodes).filter(code => !validCodes.has(code));
+    
+    if (invalidCodes.length > 0) {
+      throw Object.assign(
+        new Error(`Invalid or inactive account codes: ${invalidCodes.join(', ')}`),
+        { code: 'INVALID_ACCOUNT' }
+      );
+    }
+  }
+
   const results = [];
   const errors = [];
 

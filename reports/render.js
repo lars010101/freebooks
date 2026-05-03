@@ -235,9 +235,8 @@ async function buildGL(query, company, start, end, account) {
     } else {
       runBal += parseFloat(r.debit_home || r.debit || 0) - parseFloat(r.credit_home || r.credit || 0);
       const dateStr = new Date(r.date).toISOString().slice(0, 10);
-      const ccyTag = r.currency && r.currency !== 'SGD' ? ` <span style="font-size:8pt;color:#888">${r.currency}</span>` : '';
       tableRows += `<tr class="account">
-        <td>${dateStr}</td><td>${r.reference || r.batch_id}</td><td>${r.description || ''}${ccyTag}</td>
+        <td>${dateStr}</td><td>${r.reference || r.batch_id}</td><td>${r.description || ''}</td>
         <td class="num">${fmt(r.debit_home || r.debit)}</td><td class="num">${fmt(r.credit_home || r.credit)}</td>
         <td class="num">${fmt(runBal)}</td>
       </tr>`;
@@ -276,9 +275,8 @@ async function buildJournal(query, company, start, end) {
     }
     batchDebit  += parseFloat(r.debit_home  || r.debit  || 0);
     batchCredit += parseFloat(r.credit_home || r.credit || 0);
-    const jCcyTag = r.currency && r.currency !== 'SGD' ? ` <span style="font-size:8pt;color:#888">${r.currency}</span>` : '';
     tableRows += `<tr class="account">
-      <td></td><td>${r.account_code}</td><td>${r.account_name || ''}${jCcyTag}</td>
+      <td></td><td>${r.account_code}</td><td>${r.account_name || ''}</td>
       <td class="num">${fmt(r.debit_home || r.debit)}</td><td class="num">${fmt(r.credit_home || r.credit)}</td>
     </tr>`;
   }

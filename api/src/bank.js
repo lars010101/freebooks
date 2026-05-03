@@ -15,6 +15,7 @@ async function handleBank(ctx, action) {
     case 'bank.approve':         return approveBankEntries(ctx);
     case 'bank.reconcile.list':  return listReconcile(ctx);
     case 'bank.reconcile.clear': return clearReconcile(ctx);
+    case 'bank.uncleared.list':  return listAllUncleared(ctx);
     default:
       throw Object.assign(new Error(`Unknown bank action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -342,6 +343,26 @@ async function clearReconcile(ctx) {
     );
   }
   return { ok: true };
+}
+
+async function listAllUncleared(ctx) {
+  const { companyId } = ctx;
+  const rows = await query(
+    `SELECT je.batch_id, je.date, je.reference, je.description,
+            a.account_code, a.account_name,
+            SUM(je.debit) AS debit, SUM(je.credit) AS credit
+     FROM journal_entries je
+     JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+     LEFT JOIN reconciliations r
+       ON r.company_id = je.company_id
+       AND r.batch_id = je.batch_id
+       AND r.account_code = je.account_code
+     WHERE je.company_id = @companyId AND a.cf_category = 'Cash' AND r.batch_id IS NULL
+     GROUP BY je.batch_id, je.date, je.reference, je.description, a.account_code, a.account_name
+     ORDER BY je.date, je.batch_id`,
+    { companyId }
+  );
+  return { rows: rows.map(r => ({ ...r, cleared: false })) };
 }
 
 module.exports = { handleBank };

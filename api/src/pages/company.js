@@ -206,7 +206,7 @@ ${commonStyle()}
       <span class="card-label">UNLOCKED YR</span>
       <span class="card-value" style="color:${stats.unlockedCount <= 1 ? '#2a8a2a' : stats.unlockedCount === 2 ? '#cc7700' : '#cc2222'}">${stats.unlockedCount}</span>
     </a>
-    <a class="dash-card" href="/${co.company_id}/bank">
+    <a class="dash-card" href="/${co.company_id}/bank?mode=uncleared">
       <span class="card-icon">⚠</span>
       <span class="card-label">UNCLEARED TX</span>
       <span class="card-value" style="color:${stats.unclearedCount > 0 ? '#cc2222' : '#2a8a2a'}">${stats.unclearedCount}</span>

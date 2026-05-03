@@ -65,6 +65,11 @@ ${commonStyle()}
   </div>
 
   <!-- Reconciliation section (primary) -->
+  <div id="uncleared-banner" style="display:none;margin-bottom:12px;padding:8px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;font-size:10pt">
+    Showing all uncleared transactions across all bank accounts.
+    <a href="javascript:void(0)" onclick="exitUnclearedMode()" style="margin-left:12px;color:#555;font-size:9.5pt">← Show date filter</a>
+  </div>
+
   <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
     <label>Account <select id="rec-account" style="width:220px;height:32px;padding:4px 6px">
       ${acctOptions || '<option>No cash accounts found</option>'}
@@ -84,7 +89,7 @@ ${commonStyle()}
   </div>
 
   <table class="rec-table" id="rec-table" style="display:none">
-    <thead><tr><th style="width:90px">Date</th><th>Reference</th><th>Description</th><th class="num" style="width:100px">Debit</th><th class="num" style="width:100px">Credit</th><th style="text-align:center;width:70px"><input type="checkbox" id="hdr-clear-all" onchange="toggleAllCleared(this)" style="cursor:pointer" title="Mark all cleared"> Cleared</th></tr></thead>
+    <thead><tr><th style="width:90px">Date</th><th class="acct-col" style="display:none;width:100px">Account</th><th>Reference</th><th>Description</th><th class="num" style="width:100px">Debit</th><th class="num" style="width:100px">Credit</th><th style="text-align:center;width:70px"><input type="checkbox" id="hdr-clear-all" onchange="toggleAllCleared(this)" style="cursor:pointer" title="Mark all cleared"> Cleared</th></tr></thead>
     <tbody id="rec-body"></tbody>
   </table>
   <div id="rec-status" style="margin-top:10px;font-size:10pt"></div>
@@ -170,6 +175,7 @@ ${commonStyle()}
 
 <script>
   var COMPANY = '${company}';
+  var _unclearedMode = (new URLSearchParams(window.location.search)).get('mode') === 'uncleared';
   
   // ── Reconciliation JS ────────────────────────────────────────────────────────
   var recRows = [];
@@ -180,6 +186,14 @@ ${commonStyle()}
   document.getElementById('rec-from').value = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
   document.getElementById('rec-to').value = now.toISOString().slice(0,10);
   document.getElementById('stmt-balance').addEventListener('input', updateSummary);
+
+  if (_unclearedMode) {
+    document.getElementById('uncleared-banner').style.display = '';
+    document.getElementById('rec-account').closest('div').style.display = 'none'; // hide controls
+    // Show the Account column header
+    document.querySelectorAll('.acct-col').forEach(function(el) { el.style.display = ''; });
+    loadAllUncleared();
+  }
 
   function loadReconcile() {
     var accountCode = document.getElementById('rec-account').value;
@@ -199,6 +213,20 @@ ${commonStyle()}
       .catch(e => { document.getElementById('rec-status').textContent = e.message; });
   }
 
+  function loadAllUncleared() {
+    document.getElementById('rec-status').textContent = 'Loading uncleared transactions…';
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'bank.uncleared.list', companyId: COMPANY }) })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        var d = res.data || res;
+        recRows = Array.isArray(d) ? d : (d.rows || []);
+        document.getElementById('rec-status').textContent = '';
+        renderUnclearedAll();
+      })
+      .catch(function(e){ document.getElementById('rec-status').textContent = e.message; });
+  }
+
   function renderReconcile() {
     var acct = document.getElementById('rec-account').value;
     document.getElementById('rec-summary').style.display = '';
@@ -215,6 +243,25 @@ ${commonStyle()}
         +'</tr>';
     }).join('');
     updateSummary();
+  }
+
+  function renderUnclearedAll() {
+    document.getElementById('rec-summary').style.display = 'none';
+    document.getElementById('rec-table').style.display = '';
+    document.getElementById('rec-body').innerHTML = recRows.map(function(r, i) {
+      return '<tr class="" data-i="'+i+'" data-batch="'+r.batch_id+'" data-acct="'+r.account_code+'">'
+        +'<td>'+(r.date?String(r.date).slice(0,10):'')+'</td>'
+        +'<td class="acct-col">'+(r.account_code||'')+'</td>'
+        +'<td>'+(r.reference||r.batch_id||'')+'</td>'
+        +'<td>'+(r.description||'')+'</td>'
+        +'<td class="num">'+(parseFloat(r.debit||0)?fmt(r.debit):'')+'</td>'
+        +'<td class="num">'+(parseFloat(r.credit||0)?fmt(r.credit):'')+'</td>'
+        +'<td style="text-align:center"><input type="checkbox" onchange="toggleCleared(this)"></td>'
+        +'</tr>';
+    }).join('');
+    document.getElementById('rec-status').textContent = recRows.length
+      ? recRows.length + ' uncleared transaction' + (recRows.length === 1 ? '' : 's')
+      : 'No uncleared transactions \u2713';
   }
 
   function toggleAllCleared(hdrCb) {
@@ -281,6 +328,16 @@ ${commonStyle()}
     } else {
       document.getElementById('sum-diff').textContent = '—';
     }
+  }
+
+  function exitUnclearedMode() {
+    _unclearedMode = false;
+    document.getElementById('uncleared-banner').style.display = 'none';
+    document.getElementById('rec-account').closest('div').style.display = '';
+    document.querySelectorAll('.acct-col').forEach(function(el) { el.style.display = 'none'; });
+    document.getElementById('rec-table').style.display = 'none';
+    document.getElementById('rec-body').innerHTML = '';
+    document.getElementById('rec-status').textContent = '';
   }
 
   // ── Import JS ───────────────────────────────────────────────────────────────

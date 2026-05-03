@@ -26,6 +26,7 @@ function htmlPage(title, company, period, tableHtml, opts = {}) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📒</text></svg>">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
@@ -117,8 +118,8 @@ async function buildBS(query, company, start, end) {
   // Compute unallocated net income for the period (P&L not yet closed to RE)
   const [niRow] = await query(
     `SELECT
-       COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) -
-       COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit - je.credit ELSE 0 END), 0)
+       COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit_home - je.debit_home ELSE 0 END), 0) -
+       COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit_home - je.credit_home ELSE 0 END), 0)
        AS net_income
      FROM journal_entries je
      JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
@@ -225,18 +226,19 @@ async function buildGL(query, company, start, end, account) {
       lastAcct = r.account_code;
     }
     if (r.batch_id === 'Opening Balance') {
-      const obAmt = parseFloat(r.debit || 0) - parseFloat(r.credit || 0);
+      const obAmt = parseFloat(r.debit_home || r.debit || 0) - parseFloat(r.credit_home || r.credit || 0);
       runBal = obAmt;
       tableRows += `<tr class="subtotal">
         <td></td><td colspan="2" style="font-style:italic">Opening Balance</td>
         <td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td>
       </tr>`;
     } else {
-      runBal += parseFloat(r.debit || 0) - parseFloat(r.credit || 0);
+      runBal += parseFloat(r.debit_home || r.debit || 0) - parseFloat(r.credit_home || r.credit || 0);
       const dateStr = new Date(r.date).toISOString().slice(0, 10);
+      const ccyTag = r.currency && r.currency !== 'SGD' ? ` <span style="font-size:8pt;color:#888">${r.currency}</span>` : '';
       tableRows += `<tr class="account">
-        <td>${dateStr}</td><td>${r.reference || r.batch_id}</td><td>${r.description || ''}</td>
-        <td class="num">${fmt(r.debit)}</td><td class="num">${fmt(r.credit)}</td>
+        <td>${dateStr}</td><td>${r.reference || r.batch_id}</td><td>${r.description || ''}${ccyTag}</td>
+        <td class="num">${fmt(r.debit_home || r.debit)}</td><td class="num">${fmt(r.credit_home || r.credit)}</td>
         <td class="num">${fmt(runBal)}</td>
       </tr>`;
     }
@@ -272,11 +274,12 @@ async function buildJournal(query, company, start, end) {
       tableRows += `<tr class="section-header"><td>${dateStr}</td><td colspan="4">${ref}${r.description ? ' — ' + r.description : ''}</td></tr>`;
       lastBatch = r.batch_id;
     }
-    batchDebit  += parseFloat(r.debit  || 0);
-    batchCredit += parseFloat(r.credit || 0);
+    batchDebit  += parseFloat(r.debit_home  || r.debit  || 0);
+    batchCredit += parseFloat(r.credit_home || r.credit || 0);
+    const jCcyTag = r.currency && r.currency !== 'SGD' ? ` <span style="font-size:8pt;color:#888">${r.currency}</span>` : '';
     tableRows += `<tr class="account">
-      <td></td><td>${r.account_code}</td><td>${r.account_name || ''}</td>
-      <td class="num">${fmt(r.debit)}</td><td class="num">${fmt(r.credit)}</td>
+      <td></td><td>${r.account_code}</td><td>${r.account_name || ''}${jCcyTag}</td>
+      <td class="num">${fmt(r.debit_home || r.debit)}</td><td class="num">${fmt(r.credit_home || r.credit)}</td>
     </tr>`;
   }
   flush();
@@ -342,8 +345,8 @@ async function buildIntegrity(query, company, start, end) {
   // Compute unallocated net income — same logic as buildBS
   const [niRow] = await query(
     `SELECT
-       COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) -
-       COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit - je.credit ELSE 0 END), 0)
+       COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit_home - je.debit_home ELSE 0 END), 0) -
+       COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit_home - je.credit_home ELSE 0 END), 0)
        AS net_income
      FROM journal_entries je
      JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id

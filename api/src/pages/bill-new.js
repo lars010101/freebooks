@@ -199,17 +199,15 @@ ${commonStyle()}
     .then(function(r){ return r.json(); })
     .then(function(res){
       var comp = res.data || res;
-      var comp = res.data || res;
       if (comp && comp.currency) {
         homeCurrency = comp.currency.toUpperCase();
-        // Set default currency to company currency
         var currencyInput = document.getElementById('currency');
         if (currencyInput && !currencyInput.value) {
           currencyInput.value = homeCurrency;
           onCurrencyChange();
         }
       }
-    .catch(function(){});
+    }).catch(function(){});
 
   // Load accounts
   fetch('/api/' + COMPANY + '/accounts')

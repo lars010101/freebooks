@@ -816,7 +816,7 @@ function saveProviderSelection() {
   var providerId = select.value;
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.save', companyId: COMPANY, provider: providerId, apiKey: null }) })
     .then(function(r){ return r.json(); })
-    .then(function(r){ var d = r.data||r; showMsg('msg-fx-provider', r.error||d.error||('Provider saved: ' + providerId), !!(r.error||d.error)); })
+    .then(function(r){ var d = r.data||r; if (r.error||d.error) showMsg('msg-fx-provider', r.error||d.error, true); })
     .catch(function(e){ showMsg('msg-fx-provider', e.message, true); });
 }
 

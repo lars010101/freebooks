@@ -36,6 +36,7 @@ const ACTION_ROLES = {
   'bank.approve': 'data_entry',
   'bank.reconcile.list': 'viewer',
   'bank.reconcile.clear': 'data_entry',
+  'bank.uncleared.list': 'viewer',
   'bill.create': 'data_entry',
   'bill.void': 'data_entry',
   'bill.list': 'viewer',

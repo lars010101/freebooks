@@ -140,7 +140,7 @@ ${commonStyle()}
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <button id="m-btn-save" onclick="saveNonFinancial()" style="padding:7px 18px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer">Save Changes</button>
-        <button id="m-btn-rr" onclick="reverseAndReenter()" style="padding:7px 18px;background:#cc7700;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer;display:none">🔄 Reverse &amp; Re-enter</button>
+        <button id="m-btn-void" onclick="voidBill()" style="padding:7px 18px;background:#cc2222;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer;display:none">Void</button>
         <span id="m-edit-status" style="font-size:10pt"></span>
       </div>
     </div>
@@ -327,10 +327,10 @@ function viewBill(billId) {
   document.getElementById('m-edit-status').textContent = '';
   document.getElementById('m-edit-status').style.color = '#555';
   var saveBtn = document.getElementById('m-btn-save');
-  var rrBtn = document.getElementById('m-btn-rr');
+  var voidBtn = document.getElementById('m-btn-void');
   saveBtn.disabled = (bill.status === 'void');
-  rrBtn.style.display = (bill.status === 'posted' || bill.status === 'partial') ? '' : 'none';
-  rrBtn.disabled = false;
+  voidBtn.style.display = (bill.status === 'posted' || bill.status === 'partial') ? '' : 'none';
+  voidBtn.disabled = false;
   document.getElementById('m-lines-tbody').innerHTML = '<tr><td colspan="5" style="color:#888">Loading\u2026</td></tr>';
   document.getElementById('bill-modal').style.display = '';
 
@@ -412,13 +412,13 @@ function saveNonFinancial() {
     });
 }
 
-function reverseAndReenter() {
+function voidBill() {
   if (!currentBillId) return;
-  if (!confirm('Void this bill and open the re-entry form?\\n\\nThe original journal entry will be auto-reversed.')) return;
-  var rrBtn = document.getElementById('m-btn-rr');
+  if (!confirm('Void this bill? The journal entry will be auto-reversed.')) return;
+  var voidBtn = document.getElementById('m-btn-void');
   var statusEl = document.getElementById('m-edit-status');
-  rrBtn.disabled = true;
-  statusEl.textContent = 'Reversing\u2026';
+  voidBtn.disabled = true;
+  statusEl.textContent = 'Voiding…';
   statusEl.style.color = '#555';
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'bill.void', companyId: COMPANY, billId: currentBillId }) })
@@ -426,16 +426,17 @@ function reverseAndReenter() {
     .then(function(res){
       var err = res.error || (res.data && res.data.error);
       if (err) {
-        rrBtn.disabled = false;
-        statusEl.textContent = '\u2717 ' + err;
+        voidBtn.disabled = false;
+        statusEl.textContent = '✗ ' + err;
         statusEl.style.color = '#cc2222';
       } else {
-        window.location.href = '/' + COMPANY + '/bill/new?reenter=' + encodeURIComponent(currentBillId);
+        closeModal();
+        doSearch();
       }
     })
     .catch(function(e){
-      rrBtn.disabled = false;
-      statusEl.textContent = '\u2717 ' + e.message;
+      voidBtn.disabled = false;
+      statusEl.textContent = '✗ ' + e.message;
       statusEl.style.color = '#cc2222';
     });
 }

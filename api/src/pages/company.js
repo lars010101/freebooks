@@ -190,22 +190,18 @@ ${commonStyle()}
     <a class="dash-card${stats.unlockedCount > 0 ? ' warn' : ' ok'}" href="/${co.company_id}/settings?tab=periods">
       <div class="card-label">📅 Periods</div>
       <div class="card-value">${stats.unlockedCount}</div>
-      <div class="card-sub">${stats.unlockedCount === 1 ? '1 period unlocked' : stats.unlockedCount + ' periods unlocked'}</div>
     </a>
     <a class="dash-card${stats.unclearedCount > 0 ? ' warn' : ' ok'}" href="/${co.company_id}/bank">
       <div class="card-label">⚠ Uncleared</div>
       <div class="card-value">${stats.unclearedCount}</div>
-      <div class="card-sub">${stats.unclearedCount > 0 && stats.unclearedOldest ? 'oldest: ' + String(stats.unclearedOldest).slice(0,10) : 'all cleared'}</div>
     </a>
     <a class="dash-card" href="/${co.company_id}/bank">
       <div class="card-label">🏦 Bank Balance</div>
       <div class="card-value">${stats.bankBalance >= 0 ? '' : '-'}${Math.abs(stats.bankBalance).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-      <div class="card-sub">book balance</div>
     </a>
     <a class="dash-card" href="/${co.company_id}">
       <div class="card-label">📈 P&amp;L</div>
       <div class="card-value" style="color:${stats.revenue - stats.expenses >= 0 ? '#2a8a2a' : '#cc2222'}">${stats.revenue - stats.expenses >= 0 ? '' : '-'}${Math.abs(stats.revenue - stats.expenses).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-      <div class="card-sub">Rev: ${stats.revenue.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} / Exp: ${stats.expenses.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
     </a>
   </div>
 

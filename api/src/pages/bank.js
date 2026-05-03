@@ -51,6 +51,8 @@ ${commonStyle()}
   details { margin-top:28px; }
   details summary { cursor:pointer; font-weight:600; font-size:11pt; padding:10px 0; }
   details[open] summary { margin-bottom:14px; }
+  .bill-row { cursor:pointer; }
+  .bill-row:hover td { background:#f0f4ff; }
 </style>
 </head>
 <body>
@@ -89,7 +91,7 @@ ${commonStyle()}
 
   <!-- Import section (collapsible) -->
   <details id="import-section" style="margin-top:28px">
-    <summary style="cursor:pointer;font-weight:600;font-size:11pt;padding:10px 0">Import CSV ↑</summary>
+    <summary style="cursor:pointer;font-weight:600;font-size:11pt;padding:10px 0">Import Statement</summary>
 
     <!-- Step 1: Upload -->
     <div class="step" id="step1">
@@ -660,16 +662,17 @@ ${commonStyle()}
     if (e.key === 'Escape') closeBillPanel();
   });
 
+  var _filteredBills = [];
   function renderBillPanelList() {
     var q = document.getElementById('bill-panel-search').value.trim().toLowerCase();
-    var filtered = openBills.filter(function(b){
+    _filteredBills = openBills.filter(function(b){
       if (!q) return true;
       return (b.vendor_name||'').toLowerCase().includes(q)
         || (b.vendor_ref||'').toLowerCase().includes(q)
         || (b.bill_id||'').toLowerCase().includes(q);
     });
     var list = document.getElementById('bill-panel-list');
-    if (!filtered.length) {
+    if (!_filteredBills.length) {
       list.innerHTML = '<div style="padding:10px 14px;color:#888;font-size:10pt">'+(openBills.length?'No matching bills':'No open bills loaded')+'</div>';
       return;
     }
@@ -680,11 +683,9 @@ ${commonStyle()}
       +'<th style="padding:5px 8px;text-align:left">Date</th>'
       +'<th style="padding:5px 8px;text-align:right">Outstanding</th>'
       +'</tr></thead><tbody>'
-      + filtered.slice(0,50).map(function(b, i){
+      + _filteredBills.slice(0,50).map(function(b, i){
           var outstanding = parseFloat(b.outstanding_amount||b.amount||0);
-          return '<tr style="cursor:pointer;border-bottom:1px solid #f0f0f0" '
-            +'onmouseover="this.style.background=\\\'#f0f4ff\\\'" onmouseout="this.style.background=\\\'\\\'" '
-            +'onclick="selectBill('+JSON.stringify(b)+')" >'}]}
+          return '<tr class="bill-row" data-idx="'+i+'">'
             +'<td style="padding:5px 8px">'+escHtml(b.vendor_name||b.vendor_id||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(b.vendor_ref||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(String(b.bill_date||'').slice(0,10))+'</td>'
@@ -692,8 +693,13 @@ ${commonStyle()}
             +'</tr>';
         }).join('')
       +'</tbody></table>';
+    list.onclick = function(e) {
+      var tr = e.target.closest('tr.bill-row');
+      if (!tr) return;
+      var idx = parseInt(tr.dataset.idx);
+      if (!isNaN(idx) && _filteredBills[idx]) selectBill(_filteredBills[idx]);
+    };
   }
-
   function selectBill(bill) {
     if (billPanelRowIdx < 0 || !processedRows[billPanelRowIdx]) return;
     var r = processedRows[billPanelRowIdx];

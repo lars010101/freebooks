@@ -64,6 +64,11 @@ Key source files:
 | `db/import.js` | One-time CSV import (COA.csv, JOURNAL.csv, MAPPING.csv) |
 | `db/jurisdictions/` | COA + VAT code templates per jurisdiction (SG, SE) |
 
+#### Performance
+
+- **Persistent DuckDB connection**: `makeQuery()` in `common.js` reuses a single module-level DuckDB connection (`_conn`) across all page renders instead of opening/closing per query. Reconnects automatically on error.
+- **Dashboard cache**: the 4-aggregate CTE query on the Dashboard is cached in memory with a 30-second TTL per company.
+
 ---
 
 ## Install & Run
@@ -108,18 +113,46 @@ The server handles SIGINT/SIGTERM (Ctrl+C) gracefully — checkpoints DuckDB bef
 
 | URL | Description |
 |---|---|
-| `/` | Company list + New Company button |
-| `/:company` | Report selector |
+| `/` | Onboarding: redirects to `/setup/new-company` if no companies exist; otherwise client-side redirect to active company (from localStorage) |
+| `/setup/new-company` | New company wizard |
+| `/:company` | **Dashboard** — 4 summary cards (UNLOCKED YR, UNCLEARED TX, Bank Balance, P&L) + report selector |
 | `/:company/settings` | Settings (7 tabs: Periods, Company, COA, Tax Codes, Journals, Bank Mappings, Vendors) |
-| `/:company/journal/new` | New journal entry form (with reversal mode) |
+| `/:company/journal/new` | New JV form (with reversal mode) |
 | `/:company/bill/new` | Enter Bill form — vendor autocomplete, multi-line expenses, auto-generates AP journal entry |
 | `/:company/payables` | Payables screen — bill list with filters + bill detail modal |
 | `/:company/payables/aging` | AP Aging report — outstanding payables by aging bucket |
-| `/:company/bank/import` | Bank statement CSV import |
-| `/:company/bank/reconcile` | Bank reconciliation |
-| `/:company/report?type=...` | Rendered report |
-| `/setup/new-company` | New company wizard |
+| `/:company/bank` | **Bank** — uncleared transactions list + collapsible CSV import ("Import Statement"). Supports `?mode=uncleared` to auto-load all uncleared transactions across all cash accounts. |
+| `/:company/opening-balances` | Opening balances (setup step; accessible from new company wizard) |
 | `/api/admin/query` | Debug SQL endpoint (POST) |
+
+Note: `/:company/bank/import` and `/:company/bank/reconcile` both 301-redirect to `/:company/bank`.
+
+### Navigation
+
+All pages share a persistent 5-item top nav bar rendered by `navBar(company, activeKey)` in `api/src/pages/common.js`:
+
+```
+📊 Dashboard  |  🏦 Bank  |  ✏ New JV  |  📋 Payables  |  ⚙ Settings
+```
+
+Active item highlighted with bold + bottom border. Opening Balances is not in the persistent nav — it surfaces contextually in the new company wizard.
+
+### Company switching
+
+The active company is stored in `localStorage` (`freebooks_company` key). Switching company is done via Settings → Company tab → "Manage Companies" section. The root `/` route redirects to the stored active company on return visits.
+
+### Dashboard cards
+
+The dashboard shows 4 clickable summary cards before the report selector:
+
+| Card | Color logic | Links to |
+|---|---|---|
+| **UNLOCKED YR** | Green (0–1 unlocked), Orange (2), Red (3+) | Settings → Periods tab |
+| **UNCLEARED TX** | Green (0), Red (>0) | Bank page (uncleared mode) |
+| **Bank Balance** | Neutral | Bank page |
+| **P&L** | Green (profit), Red (loss) | Dashboard |
+
+Card data is cached in memory for 30 seconds per company (`_dashCache` in `company.js`)
 
 ---
 
@@ -150,6 +183,7 @@ All actions use `{ action, companyId, ...body }` request format. Response: `{ ok
 | `bank.approve` | Post approved bank entries as journal entries |
 | `bank.reconcile.list` | Get journal entries for an account with cleared status + opening balance |
 | `bank.reconcile.clear` | Toggle cleared status for a batch |
+| `bank.uncleared.list` | Return all uncleared transactions across all Cash accounts (no date filter) |
 | `vat.codes.list` | List VAT/GST codes |
 | `vat.codes.save` | Replace all VAT/GST codes |
 | `vat.return` | Generate VAT return |
@@ -214,6 +248,18 @@ Legacy rules with both debit_account and credit_account set explicitly are still
 
 ### Bank Reconciliation
 Cleared entries stored in `reconciliations` table (company_id, batch_id, account_code, cleared_at). The reconcile page shows: Opening Balance (pre-period) + Period Net = Closing Book Balance, compared against the user-entered Statement Closing Balance.
+
+### Balance Sheet — Unallocated Net Income
+
+The BS report includes a computed *"Unallocated net income / (loss)"* row in the Equity section, representing P&L not yet closed to Retained Earnings. Computed live from Revenue/Expense accounts for the report period. Once the annual closing entry is posted (`DR 999999 / CR RE account`), the P&L clears and this row disappears.
+
+TOTAL EQUITY and TOTAL EQUITY + LIABILITIES are both adjusted to include this amount, ensuring the balance sheet balances during open periods.
+
+### Integrity Report — Unallocated P&L Handling
+
+The `buildIntegrity` function post-processes DuckDB macro results to account for unallocated net income:
+- **BS Balance check**: if the imbalance equals the unallocated P&L exactly, status is upgraded to OK with a note
+- **P&L vs Closing Entry check**: downgraded from FAIL to WARN when P&L is non-zero but no closing entry has been posted ("unallocated, closing entry not yet posted")
 
 ## Vendor Master
 
@@ -291,21 +337,28 @@ DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly
 
 ### Reports
 - [ ] P&L with budget vs actual column
-- [ ] Swedish årsredovisning (K2/K3 formatted annual report)
-- [ ] Bolagsverket / Skatteverket filing exports (SE)
+- [ ] Annual report filing exports
+- [ ] Filing/compliance outputs
 
 ### Journal Entry Form
 - [ ] Template entries (recurring journal presets)
 
 ### Infrastructure
 - [ ] Automatic `node db/init.js` on server start (detect schema changes)
-- [ ] Opening balance wizard for new companies
+- [x] Opening balance wizard for new companies
 - [ ] Backup / export to CSV/SQLite
 
 ### Accounts Payable
 - [ ] Payment matching: mark bill Paid via bank import (link import row → open bill during import)
 - [ ] Partial payment tracking and allocation
 - [ ] Bill edit workflow (non-financial fields editable; financial fields require Reverse & Re-enter)
+
+### UX / Navigation
+- [ ] Delete old `bank-import.js` and `bank-reconcile.js` page modules (pending stability confirmation)
+- [ ] Period-end checklist per jurisdiction — template-driven, stored on period row
+- [ ] Period-end notes field on the period row (visible in Periods tab)
+- [ ] `Filings` / `Compliance` nav section for statutory output (VAT return, annual report formats)
+- [ ] Static JS extraction to files with Cache-Control headers (further perf improvement)
 
 ### Known Issues
 - [ ] example_se CF categories: accounts 1942, 1941 → Investing; 2990 → Op-WC (not yet confirmed fixed)

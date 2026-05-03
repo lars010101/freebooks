@@ -601,7 +601,14 @@ function vendorAcctInput(input) {
     item.onmouseout  = function(){ item.style.background=''; };
     item.onmousedown = function(e){ e.preventDefault(); };
     item.onclick = function(){
-      if (vendorAcctActiveInput) vendorAcctActiveInput.value = a.account_code;
+      if (vendorAcctActiveInput) {
+        vendorAcctActiveInput.value = a.account_code;
+        // Update paired name span if present (e.g. co-fx-account-name)
+        var nameSpan = vendorAcctActiveInput.parentElement && vendorAcctActiveInput.parentElement.querySelector('span[id$="-name"]');
+        if (nameSpan) nameSpan.textContent = a.account_name || '';
+        // Trigger input event so change listeners (enable Save button) fire
+        vendorAcctActiveInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
       var d = document.getElementById('vendor-acct-dd');
       if (d) d.remove();
       vendorAcctActiveInput = null;

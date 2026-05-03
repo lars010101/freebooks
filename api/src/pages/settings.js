@@ -188,7 +188,7 @@ ${commonStyle()}
         <label id="fx-api-key-label">API Key</label>
         <input type="password" id="fx-provider-apikey" placeholder="Enter API key" style="max-width:300px">
       </div>
-      <button class="btn-sm" onclick="saveFxProvider()">Save Provider</button>
+      <button class="btn-sm" id="btn-save-apikey" onclick="saveApiKey()" style="display:none">Save API Key</button>
       <span id="msg-fx-provider" class="msg" style="margin-left:8px"></span>
     </div>
     <div style="margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -799,23 +799,34 @@ function onFxProviderChange() {
   if (!provider) return;
   document.getElementById('fx-provider-desc').textContent = provider.description || '';
   var apiKeyRow = document.getElementById('fx-api-key-row');
+  var apiKeyBtn = document.getElementById('btn-save-apikey');
   if (provider.requiresApiKey) {
     apiKeyRow.style.display = 'flex';
+    if (apiKeyBtn) apiKeyBtn.style.display = '';
     document.getElementById('fx-api-key-label').textContent = provider.apiKeyLabel || 'API Key';
   } else {
     apiKeyRow.style.display = 'none';
+    if (apiKeyBtn) apiKeyBtn.style.display = 'none';
   }
+  saveProviderSelection();
 }
 
-function saveFxProvider() {
+function saveProviderSelection() {
   var select = document.getElementById('fx-provider-select');
   var providerId = select.value;
-  var provider = fxProviders.find(function(p){ return p.id === providerId; });
-  if (!provider) return;
-  var apiKey = provider.requiresApiKey ? document.getElementById('fx-provider-apikey').value.trim() : null;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.save', companyId: COMPANY, provider: providerId, apiKey: null }) })
+    .then(function(r){ return r.json(); })
+    .then(function(r){ var d = r.data||r; showMsg('msg-fx-provider', r.error||d.error||('Provider saved: ' + providerId), !!(r.error||d.error)); })
+    .catch(function(e){ showMsg('msg-fx-provider', e.message, true); });
+}
+
+function saveApiKey() {
+  var select = document.getElementById('fx-provider-select');
+  var providerId = select.value;
+  var apiKey = document.getElementById('fx-provider-apikey').value.trim();
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.save', companyId: COMPANY, provider: providerId, apiKey: apiKey }) })
     .then(function(r){ return r.json(); })
-    .then(function(r){ var d = r.data||r; showMsg('msg-fx-provider', r.error||d.error||('Saved: ' + providerId), !!(r.error||d.error)); })
+    .then(function(r){ var d = r.data||r; showMsg('msg-fx-provider', r.error||d.error||'API Key saved', !!(r.error||d.error)); })
     .catch(function(e){ showMsg('msg-fx-provider', e.message, true); });
 }
 

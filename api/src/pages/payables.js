@@ -385,7 +385,7 @@ function saveNonFinancial() {
 
 function reverseAndReenter() {
   if (!currentBillId) return;
-  if (!confirm('Void this bill and open the re-entry form?\n\nThe original journal entry will be auto-reversed.')) return;
+  if (!confirm('Void this bill and open the re-entry form?\\n\\nThe original journal entry will be auto-reversed.')) return;
   var rrBtn = document.getElementById('m-btn-rr');
   var statusEl = document.getElementById('m-edit-status');
   rrBtn.disabled = true;

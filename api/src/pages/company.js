@@ -18,55 +18,46 @@ async function handleCompanyPage(req, res) {
       [company]
     );
 
-    // 1. Unlocked periods count
-    const [{ unlocked_count }] = await query(
-      `SELECT COUNT(*) as unlocked_count FROM periods WHERE company_id = ? AND locked = false`,
-      [company]
-    ).catch(() => [{ unlocked_count: 0 }]);
-
-    // 2. Uncleared transactions
-    const [unclearedRow] = await query(
-      `SELECT COUNT(*) as cnt, MIN(date) as oldest_date
-       FROM journal_entries je
-       JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-       WHERE je.company_id = ? AND je.cleared = false AND a.cf_category = 'Cash'`,
-      [company]
-    ).catch(() => [{ cnt: 0, oldest_date: null }]);
-
-    // 3. Bank balance (sum of cash accounts, all time)
-    const [bankRow] = await query(
-      `SELECT COALESCE(SUM(je.debit) - SUM(je.credit), 0) as balance
-       FROM journal_entries je
-       JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-       WHERE je.company_id = ? AND a.cf_category = 'Cash'`,
-      [company]
-    ).catch(() => [{ balance: 0 }]);
-
-    // 4. P&L for most recent period
+    // Dashboard card data — single query for performance
     const currentPeriod = periods[0];
-    let plRow = { revenue: 0, expenses: 0 };
-    if (currentPeriod) {
-      const startDate = String(currentPeriod.start_date).slice(0, 10);
-      const endDate = String(currentPeriod.end_date).slice(0, 10);
-      const plData = await query(
-        `SELECT
-           COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) as revenue,
-           COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit - je.credit ELSE 0 END), 0) as expenses
+    const toYMDInner = d => { if (!d) return ''; const dt = (d instanceof Date) ? d : new Date(d); return dt.toISOString().slice(0, 10); };
+    const startDate = currentPeriod ? toYMDInner(currentPeriod.start_date) : null;
+    const endDate = currentPeriod ? toYMDInner(currentPeriod.end_date) : null;
+
+    const [cardData] = await query(
+      `SELECT
+        (SELECT COUNT(*) FROM periods WHERE company_id = $1 AND locked = false) as unlocked_count,
+        (SELECT COUNT(DISTINCT je.batch_id)
          FROM journal_entries je
          JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-         WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?`,
-        [company, startDate, endDate]
-      ).catch(() => []);
-      if (plData[0]) plRow = plData[0];
-    }
+         LEFT JOIN reconciliations r ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
+         WHERE je.company_id = $1 AND a.cf_category = 'Cash' AND r.batch_id IS NULL) as uncleared_cnt,
+        (SELECT MIN(je.date)
+         FROM journal_entries je
+         JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+         LEFT JOIN reconciliations r ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
+         WHERE je.company_id = $1 AND a.cf_category = 'Cash' AND r.batch_id IS NULL) as uncleared_oldest,
+        (SELECT COALESCE(SUM(je.debit) - SUM(je.credit), 0)
+         FROM journal_entries je
+         JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+         WHERE je.company_id = $1 AND a.cf_category = 'Cash') as bank_balance,
+        COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) as revenue,
+        COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) as expenses
+       FROM journal_entries je
+       JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+       WHERE je.company_id = $1
+         AND ($2::DATE IS NULL OR je.date >= $2::DATE)
+         AND ($3::DATE IS NULL OR je.date <= $3::DATE)`,
+      [company, startDate, endDate]
+    ).catch(() => [{}]);
 
     const html = buildCompanyPage(co, periods, {
-      unlockedCount: Number(unlocked_count || 0),
-      unclearedCount: Number(unclearedRow?.cnt || 0),
-      unclearedOldest: unclearedRow?.oldest_date || null,
-      bankBalance: Number(bankRow?.balance || 0),
-      revenue: Number(plRow.revenue || 0),
-      expenses: Number(plRow.expenses || 0),
+      unlockedCount: Number(cardData?.unlocked_count || 0),
+      unclearedCount: Number(cardData?.uncleared_cnt || 0),
+      unclearedOldest: cardData?.uncleared_oldest || null,
+      bankBalance: Number(cardData?.bank_balance || 0),
+      revenue: Number(cardData?.revenue || 0),
+      expenses: Number(cardData?.expenses || 0),
       currentPeriodName: currentPeriod?.period_name || null,
     });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -209,7 +200,7 @@ ${commonStyle()}
     <a class="dash-card" href="/${co.company_id}/bank">
       <div class="card-label">🏦 Bank Balance</div>
       <div class="card-value">${stats.bankBalance >= 0 ? '' : '-'}${Math.abs(stats.bankBalance).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-      <div class="card-sub">${stats.currentPeriodName || 'all time'}</div>
+      <div class="card-sub">book balance</div>
     </a>
     <a class="dash-card" href="/${co.company_id}">
       <div class="card-label">📈 P&amp;L</div>
@@ -217,6 +208,8 @@ ${commonStyle()}
       <div class="card-sub">Rev: ${stats.revenue.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} / Exp: ${stats.expenses.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
     </a>
   </div>
+
+  <hr style="border:none;border-top:1px solid #e8e8e8;margin:0 0 28px">
 
   <div class="controls">
 

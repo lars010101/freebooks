@@ -683,8 +683,8 @@ ${commonStyle()}
       + filtered.slice(0,50).map(function(b, i){
           var outstanding = parseFloat(b.outstanding_amount||b.amount||0);
           return '<tr style="cursor:pointer;border-bottom:1px solid #f0f0f0" '
-            +'onmouseover="this.style.background=\'#f0f4ff\'" onmouseout="this.style.background=\'\'\'" '
-            +'onclick="selectBill('+JSON.stringify(b)+')" >'
+            +'onmouseover="this.style.background=\\\'#f0f4ff\\\'" onmouseout="this.style.background=\\\'\\\'" '
+            +'onclick="selectBill('+JSON.stringify(b)+')" >'}]}
             +'<td style="padding:5px 8px">'+escHtml(b.vendor_name||b.vendor_id||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(b.vendor_ref||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(String(b.bill_date||'').slice(0,10))+'</td>'

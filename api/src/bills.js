@@ -251,7 +251,7 @@ async function getBillLines(ctx) {
   const { billId } = body;
   if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
   return query(
-    `SELECT je.account_code, a.account_name, je.description, je.debit as amount, je.vat_code
+    `SELECT je.entry_id, je.account_code, a.account_name, je.description, je.debit as amount, je.vat_code
      FROM journal_entries je
      LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
      WHERE je.company_id = @companyId AND je.bill_id = @billId AND je.debit > 0

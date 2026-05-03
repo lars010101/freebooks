@@ -280,6 +280,28 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+function escAttr(s){ 
+  return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); 
+}
+
+function updateLineDesc(entryId, description) {
+  fetch('/api/action', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      action:'journal.entry.update',
+      companyId: COMPANY,
+      entryId: entryId,
+      description: description
+    })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    if (res.error) console.warn('Line update failed:', res.error);
+  })
+  .catch(function(e){ console.warn('Line update error:', e); });
+}
+
 function toggleMore() {
   var el = document.getElementById('more-filters');
   el.style.display = el.style.display === 'none' ? '' : 'none';
@@ -327,7 +349,14 @@ function viewBill(billId) {
         html += '<tr>'
           + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + esc(l.account_code||'') + '</td>'
           + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + esc(l.account_name||'') + '</td>'
-          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + esc(l.description||'') + '</td>'
+          + '<td style="padding:4px 8px;border-bottom:1px solid #f0f0f0">'
+          + '<input type="text" value="' + escAttr(l.description||'') + '" '
+          + 'style="width:100%;border:none;background:transparent;font-size:10pt;padding:2px 4px;border-radius:3px" '
+          + 'onchange="updateLineDesc(&apos;' + esc(l.entry_id||'') + '&apos;, this.value)" '
+          + 'onfocus="this.style.background=&apos;#f8f9ff&apos;;this.style.border=&apos;1px solid #c0c8ff&apos;" '
+          + 'onblur="this.style.background=&apos;transparent&apos;;this.style.border=&apos;none&apos;" '
+          + '>'
+          + '</td>'
           + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + Number(l.amount||0).toFixed(2) + '</td>'
           + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#555">' + esc(l.vat_code||'') + '</td>'
           + '</tr>';

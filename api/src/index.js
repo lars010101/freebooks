@@ -33,6 +33,7 @@ const ACTION_ROLES = {
   'journal.import': 'data_entry',
   'journal.search': 'viewer',
   'journal.get': 'viewer',
+  'journal.entry.update': 'data_entry',
   'bank.process': 'data_entry',
   'bank.approve': 'data_entry',
   'bank.reconcile.list': 'viewer',

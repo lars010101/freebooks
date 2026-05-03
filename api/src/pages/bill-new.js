@@ -71,10 +71,6 @@ ${commonStyle()}
   <div id="success-panel" style="display:none" class="success-box">
     <h2>✓ Bill created</h2>
     <p>Bill ID: <strong id="success-bill-id"></strong></p>
-    <div style="display:flex;gap:16px;margin-top:14px">
-      <a href="#" onclick="resetForm(); return false">↩ Enter Another</a>
-      <a href="/${company}">← Back to Reports</a>
-    </div>
   </div>
 
   <div id="bill-form">
@@ -161,6 +157,7 @@ ${commonStyle()}
         <div id="gst-rows"></div>
         <div style="border-top:1px solid #ccc;padding-top:4px;margin-top:2px">Total payable: <span id="lines-total">0.00</span></div>
       </div>
+      <div id="fx-total-display" style="margin-top:4px;font-size:9.5pt;color:#666;display:none"></div>
       <div class="err" id="err-lines" style="display:none;margin-top:6px">At least one expense line with a valid account and amount > 0 is required</div>
     </div>
 
@@ -266,10 +263,23 @@ ${commonStyle()}
   // Add first line on load
   addLine();
 
+  // Wire fx-rate input to update FX total display
+  var fxRateInput = document.getElementById('fx-rate');
+  if (fxRateInput) {
+    fxRateInput.addEventListener('change', function(){
+      updateFxTotalDisplay();
+    });
+  }
+
   // ── FX Rate lookup ──────────────────────────────────────────────────
   function onCurrencyChange() {
     var currency = document.getElementById('currency').value.trim().toUpperCase();
     updateFxRateVisibility(currency);
+    // Update all currency labels in line items
+    document.querySelectorAll('.line-ccy-label').forEach(function(el){
+      el.textContent = currency;
+    });
+    updateFxTotalDisplay();
     if (currency && currency !== homeCurrency) {
       getRate();
     }
@@ -289,6 +299,28 @@ ${commonStyle()}
     } else {
       btn.style.display = '';
     }
+  }
+
+  function updateFxTotalDisplay() {
+    var el = document.getElementById('fx-total-display');
+    if (!el) return;
+    var currency = document.getElementById('currency').value.trim().toUpperCase();
+    var fxRate = parseFloat(document.getElementById('fx-rate').value) || 1.0;
+    if (!currency || currency === homeCurrency || fxRate === 1.0) {
+      el.style.display = 'none';
+      return;
+    }
+    var foreignTotal = 0;
+    document.querySelectorAll('.lamount').forEach(function(inp){
+      foreignTotal += parseFloat(inp.value) || 0;
+    });
+    if (foreignTotal === 0) {
+      el.style.display = 'none';
+      return;
+    }
+    var homeTotal = foreignTotal * fxRate;
+    el.textContent = '\u2248 ' + homeCurrency + ' ' + homeTotal.toFixed(2) + ' @ ' + fxRate.toFixed(4) + ' (' + currency + ')';
+    el.style.display = '';
   }
 
   function getRate() {
@@ -547,7 +579,10 @@ ${commonStyle()}
         '</div>' +
       '</td>' +
       '<td><input type="text" class="ldesc" data-line="'+idx+'" placeholder="Line detail" style="width:200px"></td>' +
-      '<td><input type="number" class="lamount" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px"></td>' +
+      '<td>' +
+        '<span class="line-ccy-label" style="font-size:9pt;color:#888;min-width:32px;display:inline-block"></span>' +
+        '<input type="number" class="lamount" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px">' +
+      '</td>' +
       '<td>' + vatSel + '</td>' +
       '<td><button class="btn-remove" onclick="removeLine(this)" title="Remove line">\u00d7</button></td>';
 
@@ -576,7 +611,7 @@ ${commonStyle()}
     populateVatSelect(sel, data.vat_code || '');
     sel.onchange = function() { syncGstRow(tr); };
     var amtEl2 = tr.querySelector('.lamount');
-    amtEl2.oninput = function() { syncGstRow(tr); };
+    amtEl2.oninput = function() { syncGstRow(tr); updateFxTotalDisplay(); };
 
     updateRemoveButtons();
     updateTotal();
@@ -954,6 +989,15 @@ ${commonStyle()}
     el.textContent = msg;
     el.style.color = isErr ? '#cc2222' : '#2a8a2a';
   }
+  // Update currency labels and FX display on initial load
+  window.addEventListener('load', function(){
+    var currency = document.getElementById('currency').value.trim().toUpperCase();
+    document.querySelectorAll('.line-ccy-label').forEach(function(el){
+      el.textContent = currency || homeCurrency;
+    });
+    updateFxTotalDisplay();
+  });
+
   // Delegated click handler for FX "Fetch from ECB" links
   document.addEventListener('click', function(e) {
     var link = e.target.closest('.fetch-ecb-link');

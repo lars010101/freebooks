@@ -23,9 +23,22 @@ async function handleJournal(ctx, action) {
     case 'journal.import':  return importEntries(ctx);
     case 'journal.search':  return searchEntries(ctx);
     case 'journal.get':     return getEntry(ctx);
+    case 'journal.entry.update': return updateEntryDescription(ctx);
     default:
       throw Object.assign(new Error(`Unknown journal action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
+}
+
+async function updateEntryDescription(ctx) {
+  const { companyId, body } = ctx;
+  const { entryId, description } = body;
+  if (!entryId) throw Object.assign(new Error('entryId required'), { code: 'INVALID_INPUT' });
+  // Only allow updating description — never financial fields
+  await exec(
+    `UPDATE journal_entries SET description = @description WHERE company_id = @companyId AND entry_id = @entryId`,
+    { companyId, entryId, description: description || null }
+  );
+  return { updated: true, entryId };
 }
 
 async function searchEntries(ctx) {

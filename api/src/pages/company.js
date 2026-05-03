@@ -1,6 +1,10 @@
 'use strict';
 const { makeQuery, commonStyle, navBar } = require('./common');
 
+// Simple TTL cache for dashboard card data (per company, 30s TTL)
+const _dashCache = new Map(); // key: company_id, value: { data, expiresAt }
+const DASH_CACHE_TTL_MS = 30_000;
+
 async function handleCompanyPage(req, res) {
   const { company } = req.params;
   const query = makeQuery();
@@ -24,32 +28,42 @@ async function handleCompanyPage(req, res) {
     const startDate = currentPeriod ? toYMDInner(currentPeriod.start_date) : null;
     const endDate = currentPeriod ? toYMDInner(currentPeriod.end_date) : null;
 
-    const [cardData] = await query(
-      `SELECT
-        (SELECT COUNT(*) FROM periods WHERE company_id = $1 AND locked = false) as unlocked_count,
-        (SELECT COUNT(DISTINCT je.batch_id)
+    // Check cache first
+    let cardData = {};
+    const cacheKey = company;
+    const cached = _dashCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      cardData = cached.data;
+    } else {
+      const [fetched] = await query(
+        `SELECT
+          (SELECT COUNT(*) FROM periods WHERE company_id = $1 AND locked = false) as unlocked_count,
+          (SELECT COUNT(DISTINCT je.batch_id)
+           FROM journal_entries je
+           JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+           LEFT JOIN reconciliations r ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
+           WHERE je.company_id = $1 AND a.cf_category = 'Cash' AND r.batch_id IS NULL) as uncleared_cnt,
+          (SELECT MIN(je.date)
+           FROM journal_entries je
+           JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+           LEFT JOIN reconciliations r ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
+           WHERE je.company_id = $1 AND a.cf_category = 'Cash' AND r.batch_id IS NULL) as uncleared_oldest,
+          (SELECT COALESCE(SUM(je.debit) - SUM(je.credit), 0)
+           FROM journal_entries je
+           JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+           WHERE je.company_id = $1 AND a.cf_category = 'Cash') as bank_balance,
+          COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) as revenue,
+          COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) as expenses
          FROM journal_entries je
          JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-         LEFT JOIN reconciliations r ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
-         WHERE je.company_id = $1 AND a.cf_category = 'Cash' AND r.batch_id IS NULL) as uncleared_cnt,
-        (SELECT MIN(je.date)
-         FROM journal_entries je
-         JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-         LEFT JOIN reconciliations r ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
-         WHERE je.company_id = $1 AND a.cf_category = 'Cash' AND r.batch_id IS NULL) as uncleared_oldest,
-        (SELECT COALESCE(SUM(je.debit) - SUM(je.credit), 0)
-         FROM journal_entries je
-         JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-         WHERE je.company_id = $1 AND a.cf_category = 'Cash') as bank_balance,
-        COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) as revenue,
-        COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) as expenses
-       FROM journal_entries je
-       JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-       WHERE je.company_id = $1
-         AND ($2::DATE IS NULL OR je.date >= $2::DATE)
-         AND ($3::DATE IS NULL OR je.date <= $3::DATE)`,
-      [company, startDate, endDate]
-    ).catch(() => [{}]);
+         WHERE je.company_id = $1
+           AND ($2::DATE IS NULL OR je.date >= $2::DATE)
+           AND ($3::DATE IS NULL OR je.date <= $3::DATE)`,
+        [company, startDate, endDate]
+      ).catch(() => [{}]);
+      cardData = fetched || {};
+      _dashCache.set(cacheKey, { data: cardData, expiresAt: Date.now() + DASH_CACHE_TTL_MS });
+    }
 
     const html = buildCompanyPage(co, periods, {
       unlockedCount: Number(cardData?.unlocked_count || 0),

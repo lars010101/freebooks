@@ -1,14 +1,27 @@
 'use strict';
 const { getDb } = require('../db');
 
+let _conn = null;
+
+function _getConn() {
+  if (!_conn) {
+    _conn = getDb().connect();
+  }
+  return _conn;
+}
+
 function makeQuery() {
   return function query(sql, params = []) {
     return new Promise((resolve, reject) => {
-      const conn = getDb().connect();
+      const conn = _getConn();
       conn.all(sql, ...params, (err, rows) => {
-        conn.close();
-        if (err) reject(err);
-        else resolve(rows || []);
+        if (err) {
+          // Reset on error so next call reconnects
+          try { _conn = null; } catch(e) {}
+          reject(err);
+        } else {
+          resolve(rows || []);
+        }
       });
     });
   };

@@ -67,6 +67,7 @@ ${commonStyle()}
     <div class="tab" onclick="showTab('journals')">Journals</div>
     <div class="tab" onclick="showTab('mappings')">Bank Mappings</div>
     <div class="tab" onclick="showTab('vendors')">Vendors</div>
+    <div class="tab" onclick="showTab('fxrates')">Exchange Rates</div>
   </div>
 
   <!-- PERIODS TAB -->
@@ -90,6 +91,12 @@ ${commonStyle()}
     <div class="field-row"><label>Tax ID</label><input type="text" id="co-taxid"></div>
     <div class="field-row"><label>Reporting Standard</label><input type="text" id="co-standard"></div>
     <div class="field-row"><label><input type="checkbox" id="co-vat"> VAT / GST Registered</label></div>
+    <div class="field-row"><label>FX Gain/Loss Account</label>
+      <div style="display:flex;gap:8px;align-items:center;width:100%">
+        <input type="text" id="co-fx-account" placeholder="code or name" style="flex:1;max-width:300px" autocomplete="off" oninput="vendorAcctInput(this)" onblur="hideVendorAcctDd()">
+        <span id="co-fx-account-name" style="font-size:9pt;color:#888"></span>
+      </div>
+    </div>
     <button id="btn-save-company" class="btn-primary" onclick="saveCompany()" disabled>Save</button>
     <span id="msg-company" class="msg"></span>
     
@@ -168,6 +175,22 @@ ${commonStyle()}
     <p style="margin-top:8px;font-size:9pt;color:#888">Saving replaces all codes. Existing journal entry tax tags on transactions are preserved.</p>
   </div>
 
+  <!-- EXCHANGE RATES TAB -->
+  <div id="tab-fxrates" class="tab-panel">
+    <div style="margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn-primary" onclick="fetchFromEcb()">📡 Fetch from ECB</button>
+      <label>Base Currency <select id="fx-base-currency" onchange="loadFxRates()" style="height:32px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:10pt"></select></label>
+    </div>
+    <table class="edit-table" id="fx-rates-table">
+      <thead><tr><th>Date</th><th>From</th><th>To</th><th style="text-align:right">Rate</th><th>Source</th><th></th></tr></thead>
+      <tbody id="fx-rates-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn-sm" onclick="addFxRateRow()">+ Add Rate</button>
+      <span id="msg-fxrates" class="msg"></span>
+    </div>
+  </div>
+
   <!-- VENDORS TAB -->
   <div id="tab-vendors" class="tab-panel">
     <table class="edit-table" id="vendors-table">
@@ -180,6 +203,9 @@ ${commonStyle()}
       <span id="msg-vendors" class="msg"></span>
     </div>
     <p style="margin-top:8px;font-size:9pt;color:#888">These defaults auto-fill when creating a bill for this vendor: currency, payment terms, expense account, and AP account.</p>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button id="btn-save-fxrates" class="btn-primary" onclick="saveFxRates()">Save Rates</button>
+    </div>
   </div>
 </div>
 
@@ -212,12 +238,13 @@ function showTab(t) {
       resetDirty(curTab);
     }
   }
-  var tabs = ['periods','company','coa','vat','journals','mappings','vendors'];
+  var tabs = ['periods','company','coa','vat','journals','mappings','vendors','fxrates'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
   if (t === 'vendors') { loadVendors(); loadVendorAccounts(); }
   if (t === 'mappings') loadVendorAccounts();
+  if (t === 'fxrates') { loadFxRates(); loadBaseCurrencies(); }
 }
 
 function switchCompany() {
@@ -293,12 +320,26 @@ function loadCompany() {
       document.getElementById('co-taxid').value = co.tax_id || '';
       document.getElementById('co-standard').value = co.reporting_standard || '';
       document.getElementById('co-vat').checked = !!co.vat_registered;
-      ['co-name','co-currency','co-jurisdiction','co-taxid','co-standard','co-vat'].forEach(function(id){
+      ['co-name','co-currency','co-jurisdiction','co-taxid','co-standard','co-vat','co-fx-account'].forEach(function(id){
         var el = document.getElementById(id);
         if (el) { el.oninput = function(){ markDirty('company'); }; el.onchange = function(){ markDirty('company'); }; }
       });
+      // Load FX settings
+      loadFxSettings();
       resetDirty('company');
     });
+}
+function loadFxSettings() {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'settings.get', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); }).then(function(res){
+      var settings = res.data || res;
+      var fxAcct = settings.fx_gain_loss_account || '';
+      document.getElementById('co-fx-account').value = fxAcct;
+      if (fxAcct && vendorAccountsList.length > 0) {
+        var acct = vendorAccountsList.find(function(a){ return a.account_code === fxAcct; });
+        if (acct) document.getElementById('co-fx-account-name').textContent = acct.account_name || '';
+      }
+    }).catch(function(){});
 }
 function saveCompany() {
   var co = { company_id: COMPANY, company_name: document.getElementById('co-name').value,
@@ -306,7 +347,13 @@ function saveCompany() {
     tax_id: document.getElementById('co-taxid').value, reporting_standard: document.getElementById('co-standard').value,
     vat_registered: document.getElementById('co-vat').checked };
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.save', companyId: COMPANY, companies: [co] }) })
-    .then(function(r){ return r.json(); }).then(function(r){ var d = r.data||r; showMsg('msg-company', r.error||d.error || 'Saved', !!(r.error||d.error)); if (!r.error && !d.error) resetDirty('company'); })
+    .then(function(r){ return r.json(); }).then(function(r){ var d = r.data||r; showMsg('msg-company', r.error||d.error || 'Saved', !!(r.error||d.error)); if (!r.error && !d.error) {
+      // Also save FX settings
+      var fxSettings = { fx_gain_loss_account: document.getElementById('co-fx-account').value.trim() || '' };
+      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'settings.save', companyId: COMPANY, settings: fxSettings }) })
+        .catch(function(e){ console.error('FX settings save failed:', e); });
+      resetDirty('company');
+    } })
     .catch(function(e){ showMsg('msg-company', e.message, true); });
 }
 loadCompany();
@@ -508,6 +555,14 @@ function loadVendorAccounts() {
   if (tab) showTab(tab);
 })();
 
+// Wire FX rates save button
+var fxSaveBtn = document.querySelector('#fx-rates-body');
+if (!fxSaveBtn) {
+  var s = document.createElement('script');
+  s.textContent = 'document.addEventListener("DOMContentLoaded", function(){ var tbody = document.getElementById("fx-rates-body"); if (tbody && !tbody.dataset.fxWired) { tbody.dataset.fxWired = true; var frm = tbody.parentElement.parentElement; var btn = document.createElement("button"); btn.className = "btn-primary"; btn.textContent = "Save Rates"; btn.onclick = saveFxRates; frm.appendChild(btn); } });';
+  document.body.appendChild(s);
+}
+
 function vendorAcctInput(input) {
   if (!vendorAccountsList.length) { loadVendorAccounts(); }
   vendorAcctActiveInput = input;
@@ -571,6 +626,108 @@ function saveVendors() {
       if (!d.error) loadVendors();
     })
     .catch(function(e){ showMsg('msg-vendors', e.message, true); });
+}
+
+// ========== EXCHANGE RATES ==========
+var fxRatesData = [];
+var baseCurrencies = new Set();
+
+function loadBaseCurrencies() {
+  // Extract unique currencies from all FX rates
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.rates.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); }).then(function(res){
+      var rows = res.data || res;
+      baseCurrencies.clear();
+      (Array.isArray(rows) ? rows : []).forEach(function(r){
+        baseCurrencies.add(r.from_currency);
+        baseCurrencies.add(r.to_currency);
+      });
+      var sel = document.getElementById('fx-base-currency');
+      sel.innerHTML = '<option value="">— All currencies —</option>';
+      Array.from(baseCurrencies).sort().forEach(function(c){
+        sel.appendChild(new Option(c, c));
+      });
+    }).catch(function(){});
+}
+
+function loadFxRates() {
+  var baseCcy = document.getElementById('fx-base-currency').value || '';
+  var params = { action:'fx.rates.list', companyId: COMPANY };
+  if (baseCcy) params.baseCurrency = baseCcy;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(params) })
+    .then(function(r){ return r.json(); }).then(function(res){
+      fxRatesData = res.data || res;
+      renderFxRates(Array.isArray(fxRatesData) ? fxRatesData : []);
+    }).catch(function(){});
+}
+
+function renderFxRates(rows) {
+  var tbody = document.getElementById('fx-rates-body');
+  tbody.innerHTML = '';
+  rows.forEach(function(r){
+    var tr = document.createElement('tr');
+    var isEcb = r.source === 'ecb';
+    if (isEcb) tr.style.opacity = '0.6';
+    var date = r.date ? String(r.date).slice(0, 10) : '';
+    tr.innerHTML =
+      '<td><span class="ro">' + date + '</span></td>' +
+      '<td><span class="ro">' + (r.from_currency || '') + '</span></td>' +
+      '<td><span class="ro">' + (r.to_currency || '') + '</span></td>' +
+      '<td style="text-align:right"><span class="ro">' + (Number(r.rate).toFixed(6)) + '</span></td>' +
+      '<td><span class="ro">' + (r.source || '') + '</span></td>' +
+      '<td>' + (isEcb ? '' : '<button class="btn-sm danger" onclick="deleteFxRate(\'' + date + '\', \'' + r.from_currency + '\', \'' + r.to_currency + '\', \'' + r.source + '\')" style="font-size:9pt">×</button>') + '</td>';
+    tbody.appendChild(tr);
+  });
+}
+
+function addFxRateRow() {
+  var tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input type="date" class="fx-date" style="width:120px"></td>' +
+    '<td><input type="text" class="fx-from" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="USD"></td>' +
+    '<td><input type="text" class="fx-to" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="SGD"></td>' +
+    '<td style="text-align:right"><input type="number" class="fx-rate" step="0.000001" style="width:100px" placeholder="1.0"></td>' +
+    '<td><span class="ro">manual</span></td>' +
+    '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()" style="font-size:9pt">×</button></td>';
+  document.getElementById('fx-rates-body').appendChild(tr);
+}
+
+function deleteFxRate(date, from, to, source) {
+  if (!confirm('Delete this rate?')) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.rates.delete', companyId: COMPANY, date: date, from_currency: from, to_currency: to, source: source }) })
+    .then(function(r){ return r.json(); }).then(function(r){ if (!r.error && !r.data.error) loadFxRates(); else showMsg('msg-fxrates', r.error || r.data.error, true); })
+    .catch(function(e){ showMsg('msg-fxrates', e.message, true); });
+}
+
+function fetchFromEcb() {
+  var baseCcy = document.getElementById('fx-base-currency').value || '';
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.fetch_rates', companyId: COMPANY, baseCurrency: baseCcy }) })
+    .then(function(r){ return r.json(); }).then(function(r){
+      if (r.error || (r.data && r.data.error)) {
+        showMsg('msg-fxrates', r.error || r.data.error, true);
+      } else {
+        showMsg('msg-fxrates', 'Fetched ' + (r.data.rateCount || 0) + ' rates from ECB', false);
+        loadFxRates();
+      }
+    }).catch(function(e){ showMsg('msg-fxrates', e.message, true); });
+}
+
+function saveFxRates() {
+  var newRates = [];
+  var rows = Array.from(document.querySelectorAll('#fx-rates-body tr')).filter(function(tr){ return tr.querySelector('.fx-date'); });
+  rows.forEach(function(tr){
+    var date = tr.querySelector('.fx-date').value;
+    var from = tr.querySelector('.fx-from').value.trim().toUpperCase();
+    var to = tr.querySelector('.fx-to').value.trim().toUpperCase();
+    var rate = parseFloat(tr.querySelector('.fx-rate').value || 0);
+    if (date && from && to && rate > 0) {
+      newRates.push({ date: date, from_currency: from, to_currency: to, rate: rate });
+    }
+  });
+  if (!newRates.length) { showMsg('msg-fxrates', 'No rates to save', true); return; }
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.rates.save', companyId: COMPANY, rates: newRates }) })
+    .then(function(r){ return r.json(); }).then(function(r){ var d = r.data||r; showMsg('msg-fxrates', r.error||d.error||('Saved '+newRates.length+' rates'), !!(r.error||d.error)); if (!r.error && !d.error) loadFxRates(); })
+    .catch(function(e){ showMsg('msg-fxrates', e.message, true); });
 }
 
 // ========== UNSAVED CHANGES PROTECTION ==========

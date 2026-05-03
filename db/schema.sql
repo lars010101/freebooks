@@ -375,3 +375,20 @@ ALTER TABLE accounts DROP COLUMN IF EXISTS pl_category;
 -- MIGRATION: vendor default expense and AP accounts
 ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
 ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;
+
+-- =============================================================================
+-- attachments
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS attachments (
+  attachment_id  VARCHAR    NOT NULL,
+  company_id     VARCHAR    NOT NULL,
+  entity_type    VARCHAR    NOT NULL,
+  entity_id      VARCHAR    NOT NULL,
+  filename       VARCHAR    NOT NULL,
+  content_type   VARCHAR    NOT NULL,
+  file_size      INTEGER    NOT NULL,
+  storage_path   VARCHAR    NOT NULL,
+  uploaded_by    VARCHAR,
+  uploaded_at    TIMESTAMP  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments(company_id, entity_type, entity_id);

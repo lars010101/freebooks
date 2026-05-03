@@ -12,6 +12,10 @@ async function handleFx(ctx, action) {
     case 'fx.fetch_rates':          return fetchRates(ctx);
     case 'fx.revaluation_preview':  return revaluationPreview(ctx);
     case 'fx.revaluation_post':     return revaluationPost(ctx);
+    case 'fx.rates.list':           return listRates(ctx);
+    case 'fx.rates.save':           return saveRates(ctx);
+    case 'fx.rates.delete':         return deleteRate(ctx);
+    case 'fx.rates.get':            return getEffectiveRate(ctx);
     default:
       throw Object.assign(new Error(`Unknown FX action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -80,6 +84,102 @@ async function getRate(fromCurrency, toCurrency, date) {
   if (nearest.length > 0) return Number(nearest[0].rate);
 
   return null;
+}
+
+async function listRates(ctx) {
+  const { companyId, body } = ctx;
+  const baseCurrency = body.baseCurrency || null;
+
+  let sql = `SELECT date, from_currency, to_currency, rate, source, fetched_at FROM fx_rates`;
+  const params = {};
+
+  if (baseCurrency) {
+    sql += ` WHERE (from_currency = @base OR to_currency = @base)`;
+    params.base = baseCurrency;
+  }
+
+  sql += ` ORDER BY date DESC, from_currency, to_currency LIMIT 500`;
+
+  const rows = await query(sql, params);
+  return rows;
+}
+
+async function saveRates(ctx) {
+  const { companyId, body } = ctx;
+  const { rates } = body;
+
+  if (!rates || !Array.isArray(rates)) {
+    throw Object.assign(new Error('rates array required'), { code: 'INVALID_INPUT' });
+  }
+
+  const now = new Date().toISOString();
+
+  for (const rate of rates) {
+    const { date, from_currency, to_currency, rate: rateValue } = rate;
+    if (!date || !from_currency || !to_currency || rateValue === undefined) {
+      throw Object.assign(new Error('date, from_currency, to_currency, and rate required'), { code: 'INVALID_INPUT' });
+    }
+
+    // Delete existing manual rates with same key
+    await exec(
+      `DELETE FROM fx_rates WHERE date = @date AND from_currency = @from AND to_currency = @to AND source = 'manual'`,
+      { date, from: from_currency, to: to_currency }
+    );
+
+    // Insert new manual rate
+    await bulkInsert('fx_rates', [{
+      date,
+      from_currency,
+      to_currency,
+      rate: Number(rateValue),
+      source: 'manual',
+      fetched_at: now,
+    }]);
+  }
+
+  return { saved: rates.length };
+}
+
+async function deleteRate(ctx) {
+  const { companyId, body } = ctx;
+  const { date, from_currency, to_currency, source } = body;
+
+  if (!date || !from_currency || !to_currency || !source) {
+    throw Object.assign(new Error('date, from_currency, to_currency, and source required'), { code: 'INVALID_INPUT' });
+  }
+
+  await exec(
+    `DELETE FROM fx_rates WHERE date = @date AND from_currency = @from AND to_currency = @to AND source = @source`,
+    { date, from: from_currency, to: to_currency, source }
+  );
+
+  return { deleted: true };
+}
+
+async function getEffectiveRate(ctx) {
+  const { body } = ctx;
+  const { fromCurrency, toCurrency, date } = body;
+
+  if (!fromCurrency || !toCurrency || !date) {
+    throw Object.assign(new Error('fromCurrency, toCurrency, and date required'), { code: 'INVALID_INPUT' });
+  }
+
+  const rate = await getRate(fromCurrency, toCurrency, date);
+  if (rate === null) {
+    return { rate: null, source: null, rateDate: null };
+  }
+
+  // Find the actual row to get source and date
+  const rows = await query(
+    `SELECT rate, source, date FROM fx_rates WHERE from_currency = @from AND to_currency = @to AND date <= @date ORDER BY date DESC, source = 'manual' DESC LIMIT 1`,
+    { from: fromCurrency, to: toCurrency, date }
+  );
+
+  if (rows.length === 0) {
+    return { rate: null, source: null, rateDate: null };
+  }
+
+  return { rate: Number(rows[0].rate), source: rows[0].source, rateDate: rows[0].date };
 }
 
 async function revaluationPreview(ctx) {
@@ -153,4 +253,4 @@ async function revaluationPost(ctx) {
   return { posted: true, batchId, lineCount: lines.length, totalGainLoss: adjustments.reduce((s, a) => s + (a.fxGainLoss || 0), 0) };
 }
 
-module.exports = { handleFx, getRate };
+module.exports = { handleFx, getRate, listRates, saveRates, deleteRate, getEffectiveRate };

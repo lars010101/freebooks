@@ -348,10 +348,29 @@ DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly
 - [x] Opening balance wizard for new companies
 - [ ] Backup / export to CSV/SQLite
 
+### Accounts Receivable
+- [ ] Customer master (name, currency, payment terms, default income account, AR account)
+- [ ] Invoice creation: multi-line, VAT-aware, auto-generates DR AR / CR Revenue journal (AR/YYYY/NNNNN reference)
+- [ ] Invoice list / Receivables screen with filters (customer, status, period, amount)
+- [ ] AR Aging report — outstanding receivables bucketed by days overdue
+- [ ] Send invoice by email (PDF export + mailto or SMTP)
+- [ ] Payment matching: mark invoice Paid via bank import (link import row → open invoice)
+- [ ] Partial receipt tracking and allocation
+
 ### Accounts Payable
 - [ ] Payment matching: mark bill Paid via bank import (link import row → open bill during import)
 - [ ] Partial payment tracking and allocation
 - [ ] Bill edit workflow (non-financial fields editable; financial fields require Reverse & Re-enter)
+
+### Multi-Currency
+- [ ] FX revaluation at period-end: revalue open AR/AP balances to closing rate, post unrealised gain/loss journal
+- [ ] FX rate table (manual entry per period or per date)
+- [ ] Realised gain/loss on settlement (invoice paid at different rate than booked)
+
+### Documents & Attachments
+- [ ] Attach files (PDF, image) to journal entries, bills, and invoices
+- [ ] View/download attachments from transaction detail modals
+- [ ] Storage: local filesystem or configurable path
 
 ### UX / Navigation
 - [ ] Delete old `bank-import.js` and `bank-reconcile.js` page modules (pending stability confirmation)

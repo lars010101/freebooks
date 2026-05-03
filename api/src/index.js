@@ -21,6 +21,7 @@ const { handleReports, mountReportRoutes } = require('./reports');
 const { handleVat } = require('./vat');
 const { handleFx } = require('./fx');
 const { handleSetup } = require('./setup');
+const { handleAttachments } = require('./attachments');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -55,6 +56,10 @@ const ACTION_ROLES = {
   'fx.fetch_rates': 'data_entry',
   'fx.revaluation_preview': 'owner',
   'fx.revaluation_post': 'owner',
+  'fx.rates.list': 'viewer',
+  'fx.rates.save': 'data_entry',
+  'fx.rates.delete': 'data_entry',
+  'fx.rates.get': 'viewer',
   'mapping.list': 'viewer',
   'mapping.save': 'data_entry',
   'center.list': 'viewer',
@@ -75,6 +80,8 @@ const ACTION_ROLES = {
   'diag.account': 'owner',
   'setup.init': 'owner',
   'setup.add_company': 'owner',
+  'attachment.list': 'viewer',
+  'attachment.delete': 'data_entry',
 };
 
 const app = express();
@@ -124,6 +131,7 @@ async function handleApiRequest(req, res) {
       case 'permissions': result = await handlePermissions(ctx, action); break;
       case 'setup':       result = await handleSetup(ctx, action); break;
       case 'diag':        result = await handleDiag(ctx, action); break;
+      case 'attachment':  result = await handleAttachments(ctx, action); break;
       default:
         return res.status(400).json({ error: `Unknown module: ${module}` });
     }
@@ -140,6 +148,11 @@ async function handleApiRequest(req, res) {
 
 app.post('/api', handleApiRequest);
 app.post('/api/action', handleApiRequest);
+
+// Attachment routes
+const { uploadMiddleware, handleUpload, serveAttachment } = require('./attachments');
+app.post('/api/upload', uploadMiddleware, handleUpload);
+app.get('/api/attachments/:attachmentId', serveAttachment);
 
 // --- COA ---
 

@@ -184,9 +184,9 @@ ${commonStyle()}
   .dashboard-cards { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:28px; }
   .dash-card { background:#f8f9fa; border:1px solid #e8e8e8; border-radius:8px; padding:16px 18px; text-decoration:none; color:inherit; display:block; cursor:pointer; transition:box-shadow .15s; }
   .dash-card:hover { box-shadow:0 2px 8px rgba(0,0,0,.1); background:#fff; }
-  .dash-card .card-label { font-size:9pt; color:#888; font-weight:600; text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
-  .dash-card .card-value { font-size:16pt; font-weight:700; color:#1a1a1a; margin-bottom:4px; }
-  .dash-card .card-sub { font-size:9pt; color:#888; }
+  .dash-card .card-icon { font-size:18pt; margin-bottom:6px; display:block; }
+  .dash-card .card-label { font-size:8pt; color:#888; font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; display:block; }
+  .dash-card .card-value { font-size:18pt; font-weight:700; color:#1a1a1a; display:block; }
   .dash-card.warn .card-value { color:#856404; }
   .dash-card.ok .card-value { color:#2a8a2a; }
   @media (max-width:700px) { .dashboard-cards { grid-template-columns:repeat(2,1fr); } }
@@ -202,20 +202,24 @@ ${commonStyle()}
 
   <div class="dashboard-cards">
     <a class="dash-card${stats.unlockedCount > 0 ? ' warn' : ' ok'}" href="/${co.company_id}/settings?tab=periods">
-      <div class="card-label">📅 Periods</div>
-      <div class="card-value">${stats.unlockedCount}</div>
+      <span class="card-icon">📅</span>
+      <span class="card-label">UNLOCKED YR</span>
+      <span class="card-value">${stats.unlockedCount}</span>
     </a>
     <a class="dash-card${stats.unclearedCount > 0 ? ' warn' : ' ok'}" href="/${co.company_id}/bank">
-      <div class="card-label">⚠ Uncleared</div>
-      <div class="card-value">${stats.unclearedCount}</div>
+      <span class="card-icon">⚠</span>
+      <span class="card-label">UNCLEARED TX</span>
+      <span class="card-value">${stats.unclearedCount}</span>
     </a>
     <a class="dash-card" href="/${co.company_id}/bank">
-      <div class="card-label">🏦 Bank Balance</div>
-      <div class="card-value">${stats.bankBalance >= 0 ? '' : '-'}${Math.abs(stats.bankBalance).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+      <span class="card-icon">🏦</span>
+      <span class="card-label">Bank Balance</span>
+      <span class="card-value">${stats.bankBalance >= 0 ? '' : '-'}${Math.abs(stats.bankBalance).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
     </a>
     <a class="dash-card" href="/${co.company_id}">
-      <div class="card-label">📈 P&amp;L</div>
-      <div class="card-value" style="color:${stats.revenue - stats.expenses >= 0 ? '#2a8a2a' : '#cc2222'}">${stats.revenue - stats.expenses >= 0 ? '' : '-'}${Math.abs(stats.revenue - stats.expenses).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+      <span class="card-icon">📈</span>
+      <span class="card-label">P&amp;L</span>
+      <span class="card-value" style="color:${stats.revenue - stats.expenses >= 0 ? '#2a8a2a' : '#cc2222'}">${stats.revenue - stats.expenses >= 0 ? '' : '-'}${Math.abs(stats.revenue - stats.expenses).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
     </a>
   </div>
 

@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle } = require('./common');
+const { commonStyle, navBar } = require('./common');
 
 async function handleApAgingPage(req, res) {
   const { company } = req.params;
@@ -43,13 +43,7 @@ ${commonStyle()}
 </head>
 <body>
 <div class="page">
-  <div class="back" style="display:flex;justify-content:space-between;align-items:center">
-    <a href="/${company}">← Reports</a>
-    <div style="display:flex;gap:16px">
-      <a href="/${company}/payables">📋 Payables</a>
-      <a href="/${company}/settings">⚙ Settings</a>
-    </div>
-  </div>
+  ${navBar(company, 'payables')}
   <div class="header">
     <h1>⏱ AP Aging</h1>
     <p class="sub">${company}</p>

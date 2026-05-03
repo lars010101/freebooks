@@ -113,6 +113,21 @@ async function buildPL(query, company, start, end) {
 async function buildBS(query, company, start, end) {
   // BS macro takes (company, end_date) — use end date
   const rows = await query(`SELECT * FROM bs(?, ?)`, [company, end]);
+
+  // Compute unallocated net income for the period (P&L not yet closed to RE)
+  const [niRow] = await query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) -
+       COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit - je.credit ELSE 0 END), 0)
+       AS net_income
+     FROM journal_entries je
+     JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+     WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?
+       AND a.account_type NOT IN ('Closing')`,
+    [company, start, end]
+  ).catch(() => [{ net_income: 0 }]);
+  const netIncome = Number(niRow?.net_income || 0);
+
   const sorted = [...rows].sort((a, b) => {
     const typeOrder = { Asset: 0, Equity: 1, Liability: 2 };
     const tA = typeOrder[a.account_type] ?? 99;
@@ -133,9 +148,18 @@ async function buildBS(query, company, start, end) {
   const collectedTypeTotals = [];
   for (const r of sorted) {
     if (r.row_type === 'type_total') {
-      // Render inline (no new section header — same account_type as preceding accounts)
       collectedTypeTotals.push(r);
-      tableRows += `<tr class="type_total"><td></td><td><strong>${r.account_name}</strong></td><td class="num">${fmt(r.balance)}</td></tr>`;
+      if (/equity/i.test(r.account_name)) {
+        // Insert unallocated net income row before TOTAL EQUITY (if non-zero)
+        if (netIncome !== 0) {
+          tableRows += `<tr class="account"><td></td><td><em>Unallocated net income / (loss)</em></td><td class="num">${fmt(netIncome)}</td></tr>`;
+        }
+        // Adjust TOTAL EQUITY to include net income
+        const adjustedTotal = parseFloat(r.balance || 0) + netIncome;
+        tableRows += `<tr class="type_total"><td></td><td><strong>${r.account_name}</strong></td><td class="num">${fmt(adjustedTotal)}</td></tr>`;
+      } else {
+        tableRows += `<tr class="type_total"><td></td><td><strong>${r.account_name}</strong></td><td class="num">${fmt(r.balance)}</td></tr>`;
+      }
       continue;
     }
     if (r.account_type !== lastType) {
@@ -147,10 +171,13 @@ async function buildBS(query, company, start, end) {
     const name = r.row_type === 'subtotal' ? `<em>${r.account_name}</em>` : r.account_name;
     tableRows += `<tr class="${cls}"><td>${code}</td><td>${name}</td><td class="num">${fmt(r.balance)}</td></tr>`;
   }
-  // Compute TOTAL EQUITY + LIABILITIES
-  const eqLiabTotal = collectedTypeTotals
-    .filter(r => /equity|liabilit/i.test(r.account_name))
+  // Compute TOTAL EQUITY + LIABILITIES (equity total already adjusted above)
+  const equityTypeTotal = collectedTypeTotals.find(r => /equity/i.test(r.account_name));
+  const adjustedEquityTotal = equityTypeTotal ? parseFloat(equityTypeTotal.balance || 0) + netIncome : netIncome;
+  const liabilityTotal = collectedTypeTotals
+    .filter(r => /liabilit/i.test(r.account_name))
     .reduce((sum, r) => sum + parseFloat(r.balance || 0), 0);
+  const eqLiabTotal = adjustedEquityTotal + liabilityTotal;
   tableRows += `<tr class="total"><td></td><td><strong>TOTAL EQUITY + LIABILITIES</strong></td><td class="num">${fmt(eqLiabTotal)}</td></tr>`;
   const tableHtml = `<table>
     <thead><tr><th>Code</th><th>Description</th><th class="num">Balance</th></tr></thead>

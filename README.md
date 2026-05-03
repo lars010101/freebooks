@@ -71,8 +71,8 @@ Key source files:
 ### From scratch
 
 ```bash
-git clone https://github.com/lars010101/freebooks /opt/freebooks
-cd /opt/freebooks
+git clone https://github.com/lars010101/freebooks ~/freebooks
+cd ~/freebooks
 npm install --prefix api
 node db/init.js          # creates ~/.freebooks/freebooks.duckdb, seeds journals
 node db/import.js <data-dir>   # import historical CSV data (optional)
@@ -84,13 +84,13 @@ Open http://localhost:3000
 ### Updating (code only)
 
 ```bash
-cd /opt/freebooks && sudo git pull && node api/src/index.js
+cd ~/freebooks && git pull && node api/src/index.js
 ```
 
 ### Updating (includes schema changes)
 
 ```bash
-cd /opt/freebooks && sudo git pull && node db/init.js && node api/src/index.js
+cd ~/freebooks && git pull && node db/init.js && node api/src/index.js
 ```
 
 Note: `node db/init.js` must be run with the server stopped. If the server is running, use `node db/init.js --via-server` instead (applies migrations through the server's existing DB connection, avoids WAL conflict).
@@ -100,7 +100,7 @@ The server handles SIGINT/SIGTERM (Ctrl+C) gracefully — checkpoints DuckDB bef
 ### Owner's deployment
 
 - Host: Fedora Atomic laptop, wolfi distrobox
-- Path: `/opt/freebooks`
+- Path: `~/freebooks`
 
 ---
 

@@ -156,8 +156,8 @@ ${commonStyle()}
         <div style="font-weight:400;font-size:10pt;color:#555">Subtotal (net): <span id="lines-net">0.00</span></div>
         <div id="gst-rows"></div>
         <div style="border-top:1px solid #ccc;padding-top:4px;margin-top:2px">Total payable: <span id="lines-total">0.00</span></div>
+        <div id="fx-total-display" style="margin-top:2px;font-size:9.5pt;color:#666;display:none"></div>
       </div>
-      <div id="fx-total-display" style="margin-top:4px;font-size:9.5pt;color:#666;display:none"></div>
       <div class="err" id="err-lines" style="display:none;margin-top:6px">At least one expense line with a valid account and amount > 0 is required</div>
     </div>
 
@@ -936,6 +936,7 @@ ${commonStyle()}
         date: billDate,
         due_date: dueDate || null,
         currency: currency || null,
+        fx_rate: parseFloat(document.getElementById('fx-rate').value) || 1.0,
         ap_account: apCode,
         description: description || null,
         lines: lines

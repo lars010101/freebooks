@@ -4,16 +4,18 @@ const { commonStyle, makeQuery, navBar } = require('./common');
 async function handleBankPage(req, res) {
   const { company } = req.params;
   const q = makeQuery();
-  const accounts = await q(
-    `SELECT account_code, account_name FROM accounts WHERE company_id = ? AND cf_category = 'Cash' ORDER BY account_code`,
-    [company]
-  );
+  const [accounts, companyRows] = await Promise.all([
+    q(`SELECT account_code, account_name FROM accounts WHERE company_id = ? AND cf_category = 'Cash' ORDER BY account_code`, [company]),
+    q(`SELECT currency FROM companies WHERE company_id = ? LIMIT 1`, [company])
+  ]);
+  const homeCurrency = companyRows[0]?.currency || 'SGD';
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(buildBankPage(company, accounts));
+  res.send(buildBankPage(company, accounts, homeCurrency));
 }
 
 
-function buildBankPage(company, cashAccounts) {
+function buildBankPage(company, cashAccounts, homeCurrency) {
+  homeCurrency = homeCurrency || 'SGD';
   const acctOptions = cashAccounts.map(a =>
     `<option value="${a.account_code}">${a.account_code} — ${a.account_name}</option>`
   ).join('');
@@ -175,6 +177,7 @@ ${commonStyle()}
 
 <script>
   var COMPANY = '${company}';
+  var HOME_CURRENCY = '${homeCurrency}';
   var _unclearedMode = (new URLSearchParams(window.location.search)).get('mode') === 'uncleared';
   
   // ── Reconciliation JS ────────────────────────────────────────────────────────
@@ -763,14 +766,16 @@ ${commonStyle()}
       +'<th style="padding:5px 8px;text-align:left">Ref</th>'
       +'<th style="padding:5px 8px;text-align:left">Date</th>'
       +'<th style="padding:5px 8px;text-align:right">Outstanding</th>'
+      +'<th style="padding:5px 8px;text-align:left">Ccy</th>'
       +'</tr></thead><tbody>'
       + _filteredBills.slice(0,50).map(function(b, i){
-          var outstanding = parseFloat(b.outstanding_amount||b.amount||0);
+          var outstanding = parseFloat((parseFloat(b.amount||0)-parseFloat(b.amount_paid||0)));
           return '<tr class="bill-row" data-idx="'+i+'">'
-            +'<td style="padding:5px 8px">'+escHtml(b.vendor_name||b.vendor_id||'')+'</td>'
+            +'<td style="padding:5px 8px">'+escHtml(b.vendor||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(b.vendor_ref||'')+'</td>'
-            +'<td style="padding:5px 8px;color:#555">'+escHtml(String(b.bill_date||'').slice(0,10))+'</td>'
-            +'<td style="padding:5px 8px;text-align:right;font-weight:600">'+outstanding.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'
+            +'<td style="padding:5px 8px;color:#555">'+escHtml(String(b.date||'').slice(0,10))+'</td>'
+            +'<td style="padding:5px 8px;text-align:right;font-weight:600">'+outstanding.toFixed(2)+(b.currency&&b.currency!==HOME_CURRENCY&&b.amount_home?'<br><span style="font-size:8.5pt;color:#888">≈ '+parseFloat(b.amount_home).toFixed(2)+' '+HOME_CURRENCY+'</span>':'')+\'</td>\'
+            +\'<td style="padding:5px 8px;font-size:9pt;color:#555">\'+escHtml(b.currency||\'\')+\'</td>\'
             +'</tr>';
         }).join('')
       +'</tbody></table>';

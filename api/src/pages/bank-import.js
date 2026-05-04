@@ -67,8 +67,10 @@ ${commonStyle()}
       <tr id="row-debit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Debit column (outflow/payment)</td><td><select id="col-deb" class="col-map"></select></td></tr>
       <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
       <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
-        <td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414">
-        <span style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span></td></tr>
+        <td style="position:relative">
+          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" oninput="onBankAcctInput(this)" onblur="hideBankAcctDropdown()">
+          <span id="bank-acct-hint" style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span>
+        </td></tr>
     </table>
     <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
       <button class="btn-primary" onclick="parseAndProcess()">Process rows →</button>
@@ -118,15 +120,69 @@ ${commonStyle()}
   var openBills = [];
   var billPanelRowIdx = -1;
 
+  var bankAcctDropdown = null;
   fetch('/api/' + COMPANY + '/accounts')
     .then(function(r){ return r.json(); })
-    .then(function(rows){ rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; }); });
+    .then(function(rows){
+      rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; });
+      var existingVal = document.getElementById('bank-acct').value.trim();
+      if (existingVal && accountsMap[existingVal]) {
+        var hint = document.getElementById('bank-acct-hint');
+        if (hint) hint.textContent = accountsMap[existingVal];
+      }
+    });
 
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
     .then(function(r){ return r.json(); })
     .then(function(res){ journalsList = res.data || res; })
     .catch(function(){});
+
+  function showBankAcctDropdown(input, matches) {
+    hideBankAcctDropdown();
+    if (!matches.length) return;
+    var rect = input.getBoundingClientRect();
+    var div = document.createElement('div');
+    div.id = 'bank-acct-dd';
+    div.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;'
+      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;min-width:240px;font-size:10pt;'
+      + 'top:'+(rect.bottom+2)+'px;left:'+rect.left+'px';
+    matches.slice(0, 20).forEach(function(a) {
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:6px 10px;cursor:pointer;display:flex;gap:10px;align-items:baseline';
+      row.innerHTML = '<span style="font-weight:600;color:#333;min-width:60px">'+a.code+'</span>'
+        +'<span style="color:#666">'+a.name+'</span>';
+      row.onmousedown = function(e) {
+        e.preventDefault();
+        document.getElementById('bank-acct').value = a.code;
+        var hint = document.getElementById('bank-acct-hint');
+        if (hint) hint.textContent = a.name;
+        hideBankAcctDropdown();
+      };
+      row.onmouseover = function() { row.style.background='#f0f4ff'; };
+      row.onmouseout = function() { row.style.background=''; };
+      div.appendChild(row);
+    });
+    document.body.appendChild(div);
+    bankAcctDropdown = div;
+  }
+
+  function hideBankAcctDropdown() {
+    if (bankAcctDropdown) { bankAcctDropdown.remove(); bankAcctDropdown = null; }
+  }
+
+  function onBankAcctInput(input) {
+    var q = input.value.trim().toLowerCase();
+    if (!q) { hideBankAcctDropdown(); return; }
+    var matches = Object.keys(accountsMap)
+      .filter(function(code) {
+        return code.toLowerCase().startsWith(q) || code.toLowerCase().includes(q)
+          || (accountsMap[code]||'').toLowerCase().includes(q);
+      })
+      .sort()
+      .map(function(code) { return { code: code, name: accountsMap[code] || '' }; });
+    showBankAcctDropdown(input, matches);
+  }
 
   function processCSVText(text) {
     var statusEl = document.getElementById('file-status');

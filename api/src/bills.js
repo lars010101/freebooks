@@ -183,9 +183,10 @@ async function voidBill(ctx) {
 
   const bill = bills[0];
   if (bill.status === 'void') throw Object.assign(new Error('Bill is already void'), { code: 'INVALID_STATUS' });
+  if (bill.status === 'partial') throw Object.assign(new Error('Cannot void a partially paid bill. To cancel the outstanding balance, post a credit note (DR AP account / CR expense account) for the remaining amount. Payments already made cannot be reversed.'), { code: 'INVALID_STATUS' });
   if (bill.status === 'paid') throw Object.assign(new Error('Cannot void a paid bill — reverse the payment journal first'), { code: 'INVALID_STATUS' });
 
-  if (bill.status === 'posted' || bill.status === 'partial') {
+  if (bill.status === 'posted') {
     const entries = await query(
       `SELECT DISTINCT batch_id FROM journal_entries WHERE company_id = @companyId AND bill_id = @billId`,
       { companyId, billId }
@@ -251,7 +252,7 @@ async function getBillLines(ctx) {
   const { billId } = body;
   if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
   return query(
-    `SELECT je.entry_id, je.account_code, a.account_name, je.description, je.debit as amount, je.vat_code
+    `SELECT je.entry_id, je.account_code, a.account_name, je.description, je.debit as amount, je.vat_code, je.currency, je.fx_rate
      FROM journal_entries je
      LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
      WHERE je.company_id = @companyId AND je.bill_id = @billId AND je.debit > 0

@@ -340,6 +340,21 @@ async function buildJournal(query, company, start, end) {
 <script>
   var currentSort = { sortBy: 'date', sortDir: 'DESC' };
   var currentFilters = {};
+  var accountsMap = {};
+  
+  // Pre-fetch accounts once on load
+  fetch('/api/${company}/accounts')
+    .then(function(r) { return r.json(); })
+    .then(function(rows) {
+      if (Array.isArray(rows)) {
+        rows.forEach(function(a) {
+          if (a.account_code && a.account_name) {
+            accountsMap[a.account_code] = a.account_name;
+          }
+        });
+      }
+    })
+    .catch(function() {});
   
   function doSearch() {
     var filters = {
@@ -620,6 +635,13 @@ async function buildReport(query, company, reportType, startDate, endDate, opts 
 async function renderReport(query, company, reportType, startDate, endDate, opts = {}) {
   const title = REPORT_TITLES[reportType] || reportType;
   const { tableHtml, rows } = await buildReport(query, company, reportType, startDate, endDate, opts);
+
+  // If builder returned a full self-contained page, use it directly (skip htmlPage wrapper)
+  if (tableHtml && tableHtml.trimStart().startsWith('<!DOCTYPE')) {
+    const csvOut = rows && rows.length ? toCSV(rows) : '';
+    const filename = `${reportType}_${startDate}_${endDate}`;
+    return { html: tableHtml, csv: csvOut, filename };
+  }
 
   // Get company name
   let companyName = company;

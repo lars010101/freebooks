@@ -97,7 +97,7 @@ ${commonStyle()}
 </div>
 
 <div id="bill-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:1000;overflow:auto">
-  <div style="background:#fff;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-width:640px;margin:40px auto;padding:28px 32px;position:relative">
+  <div style="background:#fff;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-width:860px;margin:40px auto;padding:28px 32px;position:relative">
     <button onclick="closeModal()" style="position:absolute;top:12px;right:16px;background:none;border:none;font-size:18pt;cursor:pointer;color:#888">&times;</button>
     <h2 style="margin:0 0 18px;font-size:14pt">Bill Details</h2>
     <div class="modal-grid">
@@ -110,34 +110,39 @@ ${commonStyle()}
       <div class="modal-field"><span class="mf-label">Status</span><span class="mf-val" id="m-status"></span></div>
       <div class="modal-field"><span class="mf-label">AP Account</span><span class="mf-val" id="m-ap"></span></div>
       <div class="modal-field" style="grid-column:1/-1"><span class="mf-label">Description</span><span class="mf-val" id="m-desc"></span></div>
+      <div class="modal-field"><span class="mf-label">Amount Paid</span><span class="mf-val" id="m-amount-paid"></span></div>
+      <div class="modal-field"><span class="mf-label">Amount Due</span><span class="mf-val" id="m-amount-due" style="font-weight:700"></span></div>
     </div>
-    <div style="margin-bottom:4px;font-size:9pt;color:#888;font-weight:600;text-transform:uppercase">🔗 Bill Ref</div>
-    <div style="font-size:11pt;color:#1a1a1a;margin-bottom:16px;padding:8px;background:#f8f8f8;border-radius:3px" id="m-bill-ref-display"></div>
-    <h3 style="font-size:10pt;color:#555;font-weight:600;margin:20px 0 8px">Expense Lines</h3>
+    <h3 style="font-size:10pt;color:#555;font-weight:600;margin:20px 0 8px">Bill Line Items</h3>
     <table style="width:100%;border-collapse:collapse;font-size:10pt">
       <thead><tr>
-        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">Code</th>
-        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase">Account</th>
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase">Description</th>
         <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">Amount</th>
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">VAT</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:50px">Currency</th>
       </tr></thead>
       <tbody id="m-lines-tbody"></tbody>
     </table>
     <h3 style="font-size:10pt;color:#555;font-weight:600;margin:20px 0 8px">Journal Entries</h3>
     <table style="width:100%;border-collapse:collapse;font-size:10pt">
       <thead><tr>
-        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;width:80px">Date</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;width:80px;white-space:nowrap">Date</th>
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:100px">Reference</th>
-        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">Account</th>
-        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:70px">DR</th>
-        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:70px">CR</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:70px">Account</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:100px">Account Name</th>
+        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">DR (home)</th>
+        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">CR (home)</th>
       </tr></thead>
       <tbody id="m-journals-tbody">
-        <tr><td colspan="5" style="color:#888;padding:8px">Loading…</td></tr>
+        <tr><td colspan="6" style="color:#888;padding:8px">Loading…</td></tr>
       </tbody>
     </table>
-    <div id="m-edit-section" style="margin-top:18px;border-top:1px solid #eee;padding-top:14px">
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+      <button id="m-btn-edit-toggle" onclick="toggleEditSection()" style="padding:6px 14px;border:1px solid #ccc;border-radius:4px;background:#f5f5f5;cursor:pointer;font-size:10pt">✏️ Edit</button>
+      <button id="m-btn-void" onclick="voidBill()" style="padding:6px 14px;background:#cc2222;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer;display:none">Void</button>
+      <span id="m-edit-status" style="font-size:10pt"></span>
+    </div>
+    <div id="m-edit-section" style="margin-top:18px;border-top:1px solid #eee;padding-top:14px;display:none">
       <h3 style="font-size:10pt;color:#555;font-weight:600;margin:0 0 10px">Edit Non-Financial Fields</h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:12px">
         <div>
@@ -155,8 +160,6 @@ ${commonStyle()}
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <button id="m-btn-save" onclick="saveNonFinancial()" style="padding:7px 18px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer">Save Changes</button>
-        <button id="m-btn-void" onclick="voidBill()" style="padding:7px 18px;background:#cc2222;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer;display:none">Void</button>
-        <span id="m-edit-status" style="font-size:10pt"></span>
       </div>
     </div>
     <div style="margin-top:18px;text-align:right">
@@ -328,11 +331,14 @@ function viewBill(billId) {
   if (!bill) return;
   document.getElementById('m-vendor').textContent = bill.vendor || '';
   document.getElementById('m-ref').textContent = bill.vendor_ref || '\u2014';
-  document.getElementById('m-bill-ref-display').textContent = bill.vendor_ref || '\u2014';
   document.getElementById('m-date').textContent = bill.date ? String(bill.date).slice(0,10) : '';
   document.getElementById('m-due').textContent = bill.due_date ? String(bill.due_date).slice(0,10) : '\u2014';
   document.getElementById('m-currency').textContent = bill.currency || '';
   document.getElementById('m-amount').textContent = Number(bill.amount||0).toFixed(2);
+  var amountPaid = Number(bill.amount_paid || 0);
+  var amountDue = Number(bill.amount || 0) - amountPaid;
+  document.getElementById('m-amount-paid').textContent = amountPaid.toFixed(2);
+  document.getElementById('m-amount-due').textContent = amountDue.toFixed(2);
   document.getElementById('m-status').innerHTML = statusBadge(bill.status, bill.due_date);
   document.getElementById('m-ap').textContent = bill.ap_account || '';
   document.getElementById('m-desc').textContent = bill.description || '\u2014';
@@ -341,14 +347,16 @@ function viewBill(billId) {
   document.getElementById('m-edit-due').value = bill.due_date ? String(bill.due_date).slice(0,10) : '';
   document.getElementById('m-edit-desc').value = bill.description || '';
   document.getElementById('m-edit-status').textContent = '';
-  document.getElementById('m-edit-status').style.color = '#555';
+   document.getElementById('m-edit-status').style.color = '#555';
+  document.getElementById('m-edit-section').style.display = 'none';
+  document.getElementById('m-btn-edit-toggle').textContent = '✏️ Edit';
   var saveBtn = document.getElementById('m-btn-save');
   var voidBtn = document.getElementById('m-btn-void');
   saveBtn.disabled = (bill.status === 'void');
-  voidBtn.style.display = (bill.status === 'posted' || bill.status === 'partial') ? '' : 'none';
+  voidBtn.style.display = (bill.status === 'posted') ? '' : 'none';
   voidBtn.disabled = false;
-  document.getElementById('m-lines-tbody').innerHTML = '<tr><td colspan="5" style="color:#888">Loading\u2026</td></tr>';
-  document.getElementById('m-journals-tbody').innerHTML = '<tr><td colspan="5" style="color:#888">Loading\u2026</td></tr>';
+  document.getElementById('m-lines-tbody').innerHTML = '<tr><td colspan="4" style="color:#888">Loading\u2026</td></tr>';
+  document.getElementById('m-journals-tbody').innerHTML = '<tr><td colspan="6" style="color:#888">Loading\u2026</td></tr>';
   document.getElementById('bill-modal').style.display = '';
   loadBillJournals(billId);
 
@@ -359,14 +367,12 @@ function viewBill(billId) {
       var lines = res.data || res || [];
       if (!Array.isArray(lines)) lines = [];
       if (!lines.length) {
-        document.getElementById('m-lines-tbody').innerHTML = '<tr><td colspan="5" style="color:#888">No expense lines found.</td></tr>';
+        document.getElementById('m-lines-tbody').innerHTML = '<tr><td colspan="4" style="color:#888">No expense lines found.</td></tr>';
         return;
       }
       var html = '';
       lines.forEach(function(l){
         html += '<tr>'
-          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + esc(l.account_code||'') + '</td>'
-          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + esc(l.account_name||'') + '</td>'
           + '<td style="padding:4px 8px;border-bottom:1px solid #f0f0f0">'
           + '<input type="text" value="' + escAttr(l.description||'') + '" '
           + 'style="width:100%;border:none;background:transparent;font-size:10pt;padding:2px 4px;border-radius:3px" '
@@ -377,18 +383,31 @@ function viewBill(billId) {
           + '</td>'
           + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + Number(l.amount||0).toFixed(2) + '</td>'
           + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#555">' + esc(l.vat_code||'') + '</td>'
+          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#666">' + esc(l.currency||'') + '</td>'
           + '</tr>';
       });
       document.getElementById('m-lines-tbody').innerHTML = html;
     })
     .catch(function(e){
-      document.getElementById('m-lines-tbody').innerHTML = '<tr><td colspan="5" style="color:#cc2222">Error loading lines.</td></tr>';
+      document.getElementById('m-lines-tbody').innerHTML = '<tr><td colspan="4" style="color:#cc2222">Error loading lines.</td></tr>';
     });
 }
 
 function closeModal() {
   document.getElementById('bill-modal').style.display = 'none';
   currentBillId = null;
+}
+
+function toggleEditSection() {
+  var sec = document.getElementById('m-edit-section');
+  var btn = document.getElementById('m-btn-edit-toggle');
+  if (sec.style.display === 'none') {
+    sec.style.display = '';
+    btn.textContent = '✕ Cancel Edit';
+  } else {
+    sec.style.display = 'none';
+    btn.textContent = '✏️ Edit';
+  }
 }
 
 function saveNonFinancial() {
@@ -430,60 +449,77 @@ function saveNonFinancial() {
     });
 }
 
+var accountsCache = null;
+function ensureAccounts(cb) {
+  if (accountsCache) { cb(accountsCache); return; }
+  fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
+    accountsCache = {};
+    if (Array.isArray(rows)) {
+      rows.forEach(function(a){ if (a.account_code && a.account_name) { accountsCache[a.account_code] = a.account_name; } });
+    }
+    cb(accountsCache);
+  }).catch(function(){ cb({}); });
+}
+
 function loadBillJournals(billId) {
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'journal.list', companyId: COMPANY, billId: billId, sortBy: 'date', sortDir: 'ASC' }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var entries = res.data || res || [];
-      if (!Array.isArray(entries)) entries = [];
-      
-      if (entries.length === 0) {
-        document.getElementById('m-journals-tbody').innerHTML = '<tr><td colspan="5" style="color:#888;padding:8px">No journal entries</td></tr>';
-        return;
-      }
-      
-      var batches = {};
-      entries.forEach(function(e) {
-        var bId = e.batch_id || 'default';
-        if (!batches[bId]) {
-          batches[bId] = { batchId: bId, date: e.date, reference: e.reference, lines: [] };
+  ensureAccounts(function(acctMap) {
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'journal.list', companyId: COMPANY, billId: billId, sortBy: 'date', sortDir: 'ASC' }) })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        var entries = res.data || res || [];
+        if (!Array.isArray(entries)) entries = [];
+        
+        if (entries.length === 0) {
+          document.getElementById('m-journals-tbody').innerHTML = '<tr><td colspan="6" style="color:#888;padding:8px">No journal entries</td></tr>';
+          return;
         }
-        batches[bId].lines.push(e);
-      });
-      
-      var html = '';
-      Object.keys(batches).forEach(function(bId) {
-        var batch = batches[bId];
-        var dateStr = batch.date ? new Date(batch.date).toISOString().slice(0,10) : '';
-        batch.lines.forEach(function(line, idx) {
-          var debit = parseFloat(line.debit || 0).toFixed(2);
-          var credit = parseFloat(line.credit || 0).toFixed(2);
-          if (idx === 0) {
-            html += '<tr style="background:#f8f8f8">' +
-              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:600">' + dateStr + '</td>' +
-              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:600">' + (batch.reference || batch.batchId) + '</td>' +
-              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + (line.account_code || '') + '</td>' +
-              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (debit !== '0.00' ? debit : '') + '</td>' +
-              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (credit !== '0.00' ? credit : '') + '</td>' +
-              '</tr>';
-          } else {
-            html += '<tr>' +
-              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0"></td>' +
-              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0"></td>' +
-              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + (line.account_code || '') + '</td>' +
-              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (debit !== '0.00' ? debit : '') + '</td>' +
-              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (credit !== '0.00' ? credit : '') + '</td>' +
-              '</tr>';
+        
+        var batches = {};
+        entries.forEach(function(e) {
+          var bId = e.batch_id || 'default';
+          if (!batches[bId]) {
+            batches[bId] = { batchId: bId, date: e.date, reference: e.reference, lines: [] };
           }
+          batches[bId].lines.push(e);
         });
+        
+        var html = '';
+        Object.keys(batches).forEach(function(bId) {
+          var batch = batches[bId];
+          var dateStr = batch.date ? new Date(batch.date).toISOString().slice(0,10) : '';
+          batch.lines.forEach(function(line, idx) {
+            var debit_home = parseFloat(line.debit_home || line.debit || 0).toFixed(2);
+            var credit_home = parseFloat(line.credit_home || line.credit || 0).toFixed(2);
+            var acctName = line.account_name || acctMap[line.account_code] || '';
+            if (idx === 0) {
+              html += '<tr style="background:#f8f8f8">' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:600;white-space:nowrap">' + dateStr + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:600">' + (batch.reference || batch.batchId) + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + (line.account_code || '') + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:9pt;color:#666">' + esc(acctName) + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (debit_home !== '0.00' ? debit_home : '') + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (credit_home !== '0.00' ? credit_home : '') + '</td>' +
+                '</tr>';
+            } else {
+              html += '<tr>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0"></td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0"></td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + (line.account_code || '') + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:9pt;color:#666">' + esc(acctName) + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (debit_home !== '0.00' ? debit_home : '') + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (credit_home !== '0.00' ? credit_home : '') + '</td>' +
+                '</tr>';
+            }
+          });
+        });
+        document.getElementById('m-journals-tbody').innerHTML = html;
+      })
+      .catch(function(e){
+        document.getElementById('m-journals-tbody').innerHTML = '<tr><td colspan="6" style="color:#cc2222;padding:8px">Error loading journal entries</td></tr>';
+        console.error('Journal load error:', e);
       });
-      document.getElementById('m-journals-tbody').innerHTML = html;
-    })
-    .catch(function(e){
-      document.getElementById('m-journals-tbody').innerHTML = '<tr><td colspan="5" style="color:#cc2222;padding:8px">Error loading journal entries</td></tr>';
-      console.error('Journal load error:', e);
-    });
+  });
 }
 
 function voidBill() {

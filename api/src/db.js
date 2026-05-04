@@ -138,19 +138,17 @@ async function bulkInsert(table, rows) {
   if (!rows || rows.length === 0) return;
   const conn = await ensureDb();
   const keys = Object.keys(rows[0]);
-  // Use generated named params $p0, $p1, ... to avoid column-name conflicts
-  const placeholders = keys.map((_, i) => `$p${i}`).join(', ');
+  // Use column names as named params ($colName) — conn.run() supports named-object binding
+  const placeholders = keys.map(k => `$${k}`).join(', ');
   const sql = `INSERT INTO ${table} (${keys.map(k => `"${k}"`).join(', ')}) VALUES (${placeholders})`;
 
   await conn.run('BEGIN');
   try {
-    const stmt = await conn.prepare(sql);
     for (const row of rows) {
       const rowParams = {};
-      keys.forEach((k, i) => { rowParams[`p${i}`] = row[k] ?? null; });
-      await stmt.run(rowParams);
+      keys.forEach(k => { rowParams[k] = row[k] ?? null; });
+      await conn.run(sql, rowParams);  // conn.run() handles named params correctly
     }
-    stmt.destroy();
     await conn.run('COMMIT');
   } catch (err) {
     try { await conn.run('ROLLBACK'); } catch {}
@@ -159,18 +157,21 @@ async function bulkInsert(table, rows) {
 }
 
 /**
- * Positional ? params used by macro queries (pl, bs, cf etc.).
- * Values are internal/trusted so we inline them as SQL literals — avoids
- * positional binding which @duckdb/node-api does not support.
+ * Positional params: handles both ? (sequential) and $N (1-based reusable) style.
+ * Values are internal/trusted — inlined as SQL literals to avoid binding issues.
  */
 async function queryPositional(sql, params = []) {
   const conn = await ensureDb();
-  let i = 0;
-  const finalSql = sql.replace(/\?/g, () => {
-    const val = params[i++];
+  let seqIdx = 0;
+  const inlineVal = (val) => {
     if (val === null || val === undefined) return 'NULL';
     if (typeof val === 'number' || typeof val === 'boolean') return String(val);
     return `'${String(val).replace(/'/g, "''")}'`;
+  };
+  const finalSql = sql.replace(/\?(::(?:[A-Za-z]+))?|\$(\d+)(::(?:[A-Za-z]+))?/g, (match, cast1, num, cast2) => {
+    const val = num ? params[parseInt(num, 10) - 1] : params[seqIdx++];
+    const cast = cast1 || cast2 || '';
+    return inlineVal(val) + cast;
   });
   const result = await conn.runAndReadAll(finalSql);
   return normalizeRows(result.getRowObjects());

@@ -101,31 +101,79 @@ ${commonStyle()}
 
 <div id="bill-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:1000;overflow:auto">
   <div style="background:#fff;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-width:860px;margin:40px auto;padding:28px 32px;position:relative">
-    <button onclick="closeModal()" style="position:absolute;top:12px;right:16px;background:none;border:none;font-size:18pt;cursor:pointer;color:#888">&times;</button>
-    <h2 style="margin:0 0 18px;font-size:14pt">Bill Details</h2>
-    <div class="modal-grid">
-      <div class="modal-field"><span class="mf-label">Vendor</span><span class="mf-val" id="m-vendor"></span></div>
-      <div class="modal-field"><span class="mf-label">Invoice Ref</span><span class="mf-val" id="m-ref"></span></div>
-      <div class="modal-field"><span class="mf-label">Bill Date</span><span class="mf-val" id="m-date"></span></div>
-      <div class="modal-field"><span class="mf-label">Due Date</span><span class="mf-val" id="m-due"></span></div>
-      <div class="modal-field"><span class="mf-label">Currency</span><span class="mf-val" id="m-currency"></span></div>
-      <div class="modal-field"><span class="mf-label">Amount</span><span class="mf-val" id="m-amount"></span></div>
-      <div class="modal-field"><span class="mf-label">Status</span><span class="mf-val" id="m-status"></span></div>
-      <div class="modal-field"><span class="mf-label">AP Account</span><span class="mf-val" id="m-ap"></span></div>
-      <div class="modal-field" style="grid-column:1/-1"><span class="mf-label">Description</span><span class="mf-val" id="m-desc"></span></div>
-      <div class="modal-field"><span class="mf-label">Amount Paid</span><span class="mf-val" id="m-amount-paid"></span></div>
-      <div class="modal-field"><span class="mf-label">Amount Due</span><span class="mf-val" id="m-amount-due" style="font-weight:700"></span></div>
+
+    <!-- 1. Modal header row -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <h2 style="margin:0;font-size:14pt">Bill Details</h2>
+        <span id="m-status"></span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button id="m-btn-edit-toggle" onclick="toggleEditSection()" style="padding:6px 14px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:10pt">&#9998; Edit</button>
+        <button id="m-btn-void" onclick="voidBill()" style="padding:6px 14px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:10pt;display:none">&#8856; Void</button>
+        <button onclick="document.getElementById(&apos;m-attach-input&apos;).click()" style="padding:6px 14px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer">&#128206; Add Attachment</button>
+        <input type="file" id="m-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="uploadAttachment(this)">
+      </div>
     </div>
+
+    <!-- 2. Meta fields row -->
+    <div style="display:flex;border-bottom:1px solid #e8e8e8;padding-bottom:14px;margin-bottom:14px">
+      <div style="flex:1;padding-right:16px">
+        <div style="font-size:9pt;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Vendor</div>
+        <div style="font-size:10.5pt;font-weight:600;color:#1a1a1a" id="m-vendor"></div>
+      </div>
+      <div style="flex:1;border-left:1px solid #eee;padding-left:16px;padding-right:16px">
+        <div style="font-size:9pt;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Invoice Ref</div>
+        <div style="font-size:10.5pt;font-weight:600;color:#1a1a1a" id="m-ref"></div>
+      </div>
+      <div style="flex:1;border-left:1px solid #eee;padding-left:16px;padding-right:16px">
+        <div style="font-size:9pt;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Bill Date</div>
+        <div style="font-size:10.5pt;font-weight:600;color:#1a1a1a" id="m-date"></div>
+      </div>
+      <div style="flex:1;border-left:1px solid #eee;padding-left:16px;padding-right:16px">
+        <div style="font-size:9pt;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Due Date</div>
+        <div style="font-size:10.5pt;font-weight:600;color:#1a1a1a" id="m-due"></div>
+      </div>
+      <div style="flex:1;border-left:1px solid #eee;padding-left:16px">
+        <div style="font-size:9pt;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Currency</div>
+        <div style="font-size:10.5pt;font-weight:600;color:#1a1a1a" id="m-currency"></div>
+      </div>
+    </div>
+
+    <!-- Hidden amount + secondary meta row -->
+    <span id="m-amount" style="display:none"></span>
+    <div style="display:flex;gap:20px;margin-bottom:4px;font-size:9pt;color:#888">
+      <span>AP Account: <span id="m-ap" style="color:#444"></span></span>
+      <span>Description: <span id="m-desc" style="color:#444"></span></span>
+    </div>
+
+    <!-- 3. Amount cards -->
+    <div style="display:flex;gap:12px;margin:16px 0">
+      <div style="flex:0 0 40%;background:#f5f5f5;border-radius:6px;padding:14px 18px">
+        <div style="font-size:9pt;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Amount Paid</div>
+        <div style="font-size:20pt;font-weight:600;color:#aaa" id="m-amount-paid"></div>
+      </div>
+      <div style="flex:1;background:#fff;border:2px solid #1a1a1a;border-radius:6px;padding:14px 18px">
+        <div style="font-size:9pt;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Amount Due</div>
+        <div style="font-size:20pt;font-weight:700;color:#1a1a1a">
+          <span id="m-amount-due-currency" style="font-size:11pt;color:#aaa;margin-right:4px"></span><span id="m-amount-due"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Bill Line Items -->
     <h3 style="font-size:10pt;color:#555;font-weight:600;margin:20px 0 8px">Bill Line Items</h3>
     <table style="width:100%;border-collapse:collapse;font-size:10pt">
       <thead><tr>
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase">Description</th>
         <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">Amount</th>
-        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">${taxLabel}</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">${taxLabel} (8%)</th>
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:50px">Currency</th>
       </tr></thead>
       <tbody id="m-lines-tbody"></tbody>
     </table>
+
+    <!-- 5. Journal Entries -->
     <h3 style="font-size:10pt;color:#555;font-weight:600;margin:20px 0 8px">Journal Entries</h3>
     <table style="width:100%;border-collapse:collapse;font-size:10pt">
       <thead><tr>
@@ -137,14 +185,19 @@ ${commonStyle()}
         <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">CR</th>
       </tr></thead>
       <tbody id="m-journals-tbody">
-        <tr><td colspan="6" style="color:#888;padding:8px">Loading…</td></tr>
+        <tr><td colspan="6" style="color:#888;padding:8px">Loading&#8230;</td></tr>
       </tbody>
     </table>
-    <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
-      <button id="m-btn-edit-toggle" onclick="toggleEditSection()" style="padding:6px 14px;border:1px solid #ccc;border-radius:4px;background:#f5f5f5;cursor:pointer;font-size:10pt">✏️ Edit</button>
-      <button id="m-btn-void" onclick="voidBill()" style="padding:6px 14px;background:#cc2222;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer;display:none">Void</button>
-      <span id="m-edit-status" style="font-size:10pt"></span>
+
+    <!-- 6. Attachments -->
+    <div style="margin-top:20px;border-top:1px solid #eee;padding-top:14px">
+      <h3 style="font-size:10pt;color:#555;font-weight:600;margin:0 0 10px">Attachments</h3>
+      <div id="m-attachments-list" style="font-size:9.5pt">
+        <span style="color:#888">Loading&#8230;</span>
+      </div>
     </div>
+
+    <!-- 7. Edit section -->
     <div id="m-edit-section" style="margin-top:18px;border-top:1px solid #eee;padding-top:14px;display:none">
       <h3 style="font-size:10pt;color:#555;font-weight:600;margin:0 0 10px">Edit Non-Financial Fields</h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:12px">
@@ -163,23 +216,15 @@ ${commonStyle()}
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <button id="m-btn-save" onclick="saveNonFinancial()" style="padding:7px 18px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer">Save Changes</button>
+        <span id="m-edit-status" style="font-size:10pt"></span>
       </div>
     </div>
-    <div style="margin-top:14px;border-top:1px solid #eee;padding-top:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <h3 style="font-size:10pt;color:#555;font-weight:600;margin:0">📎 Attachments</h3>
-        <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;font-size:9.5pt">
-          + Attach
-          <input type="file" id="m-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="uploadAttachment(this)">
-        </label>
-      </div>
-      <div id="m-attachments-list" style="font-size:9.5pt">
-        <span style="color:#888">Loading…</span>
-      </div>
-    </div>
+
+    <!-- 8. Close button -->
     <div style="margin-top:18px;text-align:right">
       <button onclick="closeModal()" style="padding:8px 20px;border:1px solid #ccc;border-radius:4px;background:#f5f5f5;cursor:pointer;font-size:10pt">Close</button>
     </div>
+
   </div>
 </div>
 
@@ -354,6 +399,7 @@ function viewBill(billId) {
   var amountDue = Number(bill.amount || 0) - amountPaid;
   document.getElementById('m-amount-paid').textContent = amountPaid.toFixed(2);
   document.getElementById('m-amount-due').textContent = amountDue.toFixed(2);
+  var el=document.getElementById('m-amount-due-currency');if(el)el.textContent=(bill.currency||'');
   document.getElementById('m-status').innerHTML = statusBadge(bill.status, bill.due_date);
   document.getElementById('m-ap').textContent = bill.ap_account || '';
   document.getElementById('m-desc').textContent = bill.description || '\u2014';
@@ -399,7 +445,7 @@ function viewBill(billId) {
           + '</td>'
           + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + Number(l.amount||0).toFixed(2) + '</td>'
           + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#555">' + esc(l.vat_code||'') + '</td>'
-          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#666">' + esc(l.currency||'') + '</td>'
+          + '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#2255cc">' + esc(l.currency||'') + '</td>'
           + '</tr>';
       });
       document.getElementById('m-lines-tbody').innerHTML = html;
@@ -511,20 +557,20 @@ function loadBillJournals(billId) {
             if (idx === 0) {
               html += '<tr style="background:#f8f8f8">' +
                 '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:600;white-space:nowrap">' + dateStr + '</td>' +
-                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:600">' + (batch.reference || batch.batchId) + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:600;color:#2255cc">' + (batch.reference || batch.batchId) + '</td>' +
                 '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + (line.account_code || '') + '</td>' +
                 '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:9pt;color:#666">' + esc(acctName) + '</td>' +
-                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (debit_home !== '0.00' ? debit_home : '') + '</td>' +
-                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (credit_home !== '0.00' ? credit_home : '') + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (debit_home !== '0.00' ? debit_home : '\u2014') + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (credit_home !== '0.00' ? credit_home : '\u2014') + '</td>' +
                 '</tr>';
             } else {
               html += '<tr>' +
                 '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0"></td>' +
-                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0"></td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#2255cc"></td>' +
                 '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + (line.account_code || '') + '</td>' +
                 '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:9pt;color:#666">' + esc(acctName) + '</td>' +
-                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (debit_home !== '0.00' ? debit_home : '') + '</td>' +
-                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (credit_home !== '0.00' ? credit_home : '') + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (debit_home !== '0.00' ? debit_home : '\u2014') + '</td>' +
+                '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (credit_home !== '0.00' ? credit_home : '\u2014') + '</td>' +
                 '</tr>';
             }
           });
@@ -553,11 +599,19 @@ function loadAttachments(billId) {
       }
       listEl.innerHTML = items.map(function(a) {
         var kb = (a.file_size / 1024).toFixed(1);
-        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f5f5f5">'
-          + '<a href="/api/attachments/' + esc(a.attachment_id) + '" target="_blank" style="color:#1a1a1a;text-decoration:none;font-size:9.5pt">'
-          + '📄 ' + esc(a.filename) + ' <span style="color:#888;font-size:8.5pt">(' + kb + ' KB)</span></a>'
-          + '<button onclick="deleteAttachment(\\'' + esc(a.attachment_id) + '\\')" '
-          + 'style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:11pt;padding:0 4px" title="Remove">&times;</button>'
+        var uploadedOn = a.created_at ? new Date(a.created_at).toISOString().slice(0,10) : '';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5">'
+          + '<div style="display:flex;align-items:center;gap:10px">'
+          + '<span style="font-size:18pt;line-height:1">&#128196;</span>'
+          + '<div>'
+          + '<div style="font-weight:600;font-size:9.5pt;color:#1a1a1a">' + esc(a.filename) + '</div>'
+          + '<div style="font-size:8.5pt;color:#999;margin-top:2px">Uploaded on ' + uploadedOn + ' \u2022 ' + kb + ' KB</div>'
+          + '</div></div>'
+          + '<div style="display:flex;gap:6px;align-items:center">'
+          + '<a href="/api/attachments/' + esc(a.attachment_id) + '" target="_blank" style="padding:4px 10px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;font-size:8.5pt;text-decoration:none;color:#333">Download</a>'
+          + '<button onclick="deleteAttachment(&apos;' + esc(a.attachment_id) + '&apos;)" '
+          + 'style="padding:4px 10px;border:1px solid #ffcccc;border-radius:3px;background:#fff5f5;font-size:8.5pt;cursor:pointer;color:#cc4444">Delete</button>'
+          + '</div>'
           + '</div>';
       }).join('');
     })

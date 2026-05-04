@@ -165,6 +165,18 @@ ${commonStyle()}
         <button id="m-btn-save" onclick="saveNonFinancial()" style="padding:7px 18px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:10pt;cursor:pointer">Save Changes</button>
       </div>
     </div>
+    <div style="margin-top:14px;border-top:1px solid #eee;padding-top:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3 style="font-size:10pt;color:#555;font-weight:600;margin:0">📎 Attachments</h3>
+        <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;font-size:9.5pt">
+          + Attach
+          <input type="file" id="m-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="uploadAttachment(this)">
+        </label>
+      </div>
+      <div id="m-attachments-list" style="font-size:9.5pt">
+        <span style="color:#888">Loading…</span>
+      </div>
+    </div>
     <div style="margin-top:18px;text-align:right">
       <button onclick="closeModal()" style="padding:8px 20px;border:1px solid #ccc;border-radius:4px;background:#f5f5f5;cursor:pointer;font-size:10pt">Close</button>
     </div>
@@ -362,6 +374,7 @@ function viewBill(billId) {
   document.getElementById('m-journals-tbody').innerHTML = '<tr><td colspan="6" style="color:#888">Loading\u2026</td></tr>';
   document.getElementById('bill-modal').style.display = '';
   loadBillJournals(billId);
+  loadAttachments(billId);
 
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'bill.lines', companyId: COMPANY, billId: billId }) })
@@ -523,6 +536,62 @@ function loadBillJournals(billId) {
         console.error('Journal load error:', e);
       });
   });
+}
+
+function loadAttachments(billId) {
+  var listEl = document.getElementById('m-attachments-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<span style="color:#888">Loading…</span>';
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'attachment.list', companyId: COMPANY, entityType: 'bill', entityId: billId }) })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      var items = res.data || res || [];
+      if (!Array.isArray(items) || !items.length) {
+        listEl.innerHTML = '<span style="color:#aaa;font-size:9pt">No attachments</span>';
+        return;
+      }
+      listEl.innerHTML = items.map(function(a) {
+        var kb = (a.file_size / 1024).toFixed(1);
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f5f5f5">'
+          + '<a href="/api/attachments/' + esc(a.attachment_id) + '" target="_blank" style="color:#1a1a1a;text-decoration:none;font-size:9.5pt">'
+          + '📄 ' + esc(a.filename) + ' <span style="color:#888;font-size:8.5pt">(' + kb + ' KB)</span></a>'
+          + '<button onclick="deleteAttachment(\'" + esc(a.attachment_id) + "\')" '
+          + 'style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:11pt;padding:0 4px" title="Remove">&times;</button>'
+          + '</div>';
+      }).join('');
+    })
+    .catch(function() { listEl.innerHTML = '<span style="color:#cc2222">Error loading</span>'; });
+}
+
+function uploadAttachment(input) {
+  if (!input.files || !input.files[0] || !currentBillId) return;
+  var file = input.files[0];
+  input.value = '';
+  var listEl = document.getElementById('m-attachments-list');
+  var prev = listEl.innerHTML;
+  listEl.innerHTML = '<span style="color:#888">Uploading ' + esc(file.name) + '…</span>';
+  var fd = new FormData();
+  fd.append('companyId', COMPANY);
+  fd.append('entityType', 'bill');
+  fd.append('entityId', currentBillId);
+  fd.append('file', file);
+  fetch('/api/upload', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.error || !res.ok) { listEl.innerHTML = prev; alert('Upload failed: ' + (res.error || 'unknown error')); return; }
+      loadAttachments(currentBillId);
+    })
+    .catch(function(e) { listEl.innerHTML = prev; alert('Upload failed: ' + e.message); });
+}
+
+function deleteAttachment(attachmentId) {
+  if (!confirm('Remove this attachment?')) return;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'attachment.delete', companyId: COMPANY, attachmentId: attachmentId }) })
+    .then(function(r) { return r.json(); })
+    .then(function() { if (currentBillId) loadAttachments(currentBillId); })
+    .catch(function() {});
 }
 
 function voidBill() {

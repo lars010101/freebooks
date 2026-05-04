@@ -80,11 +80,25 @@ ${commonStyle()}
     <button class="btn-primary" id="btn-post" onclick="postEntry()">Post Entry</button>
     <span id="status-msg" style="font-size:10pt"></span>
   </div>
+
+  <div id="jv-attachment-panel" style="display:none;margin-top:14px;padding:12px;border:1px solid #e0e0e0;border-radius:4px;background:#fafafa">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:10pt;font-weight:600">📎 Attachments for this entry</span>
+      <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#fff;font-size:9.5pt">
+        + Attach
+        <input type="file" id="jv-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="uploadJvAttachment(this)">
+      </label>
+    </div>
+    <div id="jv-attachments-list" style="font-size:9.5pt">
+      <span style="color:#aaa;font-size:9pt">No attachments yet</span>
+    </div>
+  </div>
 </div>
 <script>
   var COMPANY = '${company}';
   var accountsMap = {};
   var vatCodes = [];
+  var currentBatchId = null;
 
   fetch('/api/' + COMPANY + '/accounts')
     .then(r => r.json())
@@ -237,6 +251,60 @@ ${commonStyle()}
     document.getElementById('btn-post').disabled = diff !== 0;
   }
 
+  function loadJvAttachments() {
+    if (!currentBatchId) return;
+    var listEl = document.getElementById('jv-attachments-list');
+    if (!listEl) return;
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'attachment.list', companyId: COMPANY, entityType: 'journal', entityId: currentBatchId }) })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        var items = res.data || res || [];
+        if (!Array.isArray(items) || !items.length) {
+          listEl.innerHTML = '<span style="color:#aaa;font-size:9pt">No attachments yet</span>';
+          return;
+        }
+        listEl.innerHTML = items.map(function(a) {
+          var kb = (a.file_size / 1024).toFixed(1);
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #eee">'
+            + '<a href="/api/attachments/' + a.attachment_id + '" target="_blank" style="color:#1a1a1a;text-decoration:none;font-size:9.5pt">'
+            + '\ud83d\udcc4 ' + a.filename + ' <span style="color:#888;font-size:8.5pt">(' + kb + ' KB)</span></a>'
+            + '<button onclick="deleteJvAttachment(\'" + a.attachment_id + "\')" '
+            + 'style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:11pt;padding:0 4px">&times;</button>'
+            + '</div>';
+        }).join('');
+      }).catch(function(){});
+  }
+
+  function uploadJvAttachment(input) {
+    if (!input.files || !input.files[0] || !currentBatchId) return;
+    var file = input.files[0];
+    input.value = '';
+    var listEl = document.getElementById('jv-attachments-list');
+    listEl.innerHTML = '<span style="color:#888">Uploading ' + file.name + '\u2026</span>';
+    var fd = new FormData();
+    fd.append('companyId', COMPANY);
+    fd.append('entityType', 'journal');
+    fd.append('entityId', currentBatchId);
+    fd.append('file', file);
+    fetch('/api/upload', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res.error || !res.ok) { alert('Upload failed: ' + (res.error || 'unknown')); loadJvAttachments(); return; }
+        loadJvAttachments();
+      })
+      .catch(function(e) { alert('Upload failed: ' + e.message); loadJvAttachments(); });
+  }
+
+  function deleteJvAttachment(attachmentId) {
+    if (!confirm('Remove attachment?')) return;
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'attachment.delete', companyId: COMPANY, attachmentId: attachmentId }) })
+      .then(function(r) { return r.json(); })
+      .then(function() { loadJvAttachments(); })
+      .catch(function(){});
+  }
+
   function postEntry() {
     var date      = document.getElementById('entry-date').value;
     var journalId = document.getElementById('entry-journal').value;
@@ -269,6 +337,9 @@ ${commonStyle()}
           document.getElementById('btn-post').disabled = false;
         } else {
           showStatus('Posted \u2713  ' + (d.reference || d.batchId), false);
+          currentBatchId = d.batchId;
+          document.getElementById('jv-attachment-panel').style.display = '';
+          document.getElementById('jv-attachments-list').innerHTML = '<span style="color:#aaa;font-size:9pt">No attachments yet</span>';
           setTimeout(() => {
             document.getElementById('lines-body').innerHTML = '';
             document.getElementById('entry-desc').value = '';

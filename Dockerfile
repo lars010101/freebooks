@@ -7,7 +7,7 @@ RUN useradd -m -u 1000 user && echo "user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers
 
 # Clone repo and install API dependencies only (no Evidence)
 RUN git clone https://github.com/lars010101/freebooks /opt/freebooks && \
-    cd /opt/freebooks/api && npm install --legacy-peer-deps && \
+    cd /opt/freebooks/api && npm install && \
     chmod -R a+rX /opt/freebooks
 
 # Default env

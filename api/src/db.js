@@ -51,8 +51,39 @@ function normalizeValue(val) {
   if (val instanceof Date) {
     if (isNaN(val.getTime())) return null;
     const iso = val.toISOString();
-    // DATE columns come back as midnight UTC — return date-only string
     return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
+  }
+  if (typeof val === 'object') {
+    // @duckdb/node-api returns DuckDB-specific typed objects (DuckDBDateValue etc.)
+    // Try .toJSON() — many DuckDB types implement this
+    if (typeof val.toJSON === 'function') {
+      try {
+        const j = val.toJSON();
+        if (j instanceof Date) {
+          if (isNaN(j.getTime())) return null;
+          const iso = j.toISOString();
+          return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
+        }
+        if (j !== null && typeof j !== 'object') return j;
+      } catch {}
+    }
+    // Try valueOf() — some DuckDB types return epoch millis
+    const prim = val.valueOf();
+    if (prim !== val) {
+      if (typeof prim === 'bigint') return Number(prim);
+      if (typeof prim === 'number' && !isNaN(prim)) {
+        const d = new Date(prim);
+        if (!isNaN(d.getTime())) {
+          const iso = d.toISOString();
+          return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
+        }
+        return prim;
+      }
+      if (typeof prim === 'string' && prim !== '[object Object]') return prim;
+    }
+    // toString as last resort
+    const str = String(val);
+    return str === '[object Object]' ? null : str;
   }
   return val;
 }
@@ -109,7 +140,7 @@ async function bulkInsert(table, rows) {
   const keys = Object.keys(rows[0]);
   // Use generated named params $p0, $p1, ... to avoid column-name conflicts
   const placeholders = keys.map((_, i) => `$p${i}`).join(', ');
-  const sql = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`;
+  const sql = `INSERT INTO ${table} (${keys.map(k => `"${k}"`).join(', ')}) VALUES (${placeholders})`;
 
   await conn.run('BEGIN');
   try {

@@ -1,13 +1,16 @@
 'use strict';
 const { commonStyle, navBar } = require('./common');
+const { query } = require('../db');
 
 async function handlePayablesPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(buildPayablesPage(company));
+  const [co] = await query(`SELECT jurisdiction FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
+  const taxLabel = (co && co.jurisdiction === 'SG') ? 'GST' : 'VAT';
+  res.send(buildPayablesPage(company, taxLabel));
 }
 
-function buildPayablesPage(company) {
+function buildPayablesPage(company, taxLabel = 'VAT') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -118,7 +121,7 @@ ${commonStyle()}
       <thead><tr>
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase">Description</th>
         <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">Amount</th>
-        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">VAT</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">${taxLabel}</th>
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:50px">Currency</th>
       </tr></thead>
       <tbody id="m-lines-tbody"></tbody>
@@ -130,8 +133,8 @@ ${commonStyle()}
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:100px">Reference</th>
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:70px">Account</th>
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:100px">Account Name</th>
-        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">DR (home)</th>
-        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">CR (home)</th>
+        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">DR</th>
+        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:80px">CR</th>
       </tr></thead>
       <tbody id="m-journals-tbody">
         <tr><td colspan="6" style="color:#888;padding:8px">Loading…</td></tr>

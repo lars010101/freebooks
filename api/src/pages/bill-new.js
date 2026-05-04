@@ -1,13 +1,16 @@
 'use strict';
 const { commonStyle, navBar } = require('./common');
+const { query } = require('../db');
 
 async function handleBillNewPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(buildBillNewPage(company));
+  const [co] = await query(`SELECT jurisdiction FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
+  const taxLabel = (co && co.jurisdiction === 'SG') ? 'GST' : 'VAT';
+  res.send(buildBillNewPage(company, taxLabel));
 }
 
-function buildBillNewPage(company) {
+function buildBillNewPage(company, taxLabel = 'VAT') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -148,7 +151,7 @@ ${commonStyle()}
             <th>Expense Account</th>
             <th>Description</th>
             <th style="width:110px">Amount *</th>
-            <th style="width:110px">VAT Code</th>
+            <th style="width:110px">${taxLabel} Code</th>
             <th style="width:30px"></th>
           </tr>
         </thead>

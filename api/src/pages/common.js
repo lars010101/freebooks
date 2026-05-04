@@ -13,44 +13,44 @@ function commonStyle() {
 /* ---- Reset & base ---- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  --bg:          #f4f4f4;
+  --bg:          #f2f4f7;
   --surface:     #ffffff;
-  --border:      #e8e8e8;
-  --text:        #1a1a1a;
-  --text-muted:  #888;
-  --text-faint:  #aaa;
-  --sb-bg:       #111111;
-  --sb-text:     rgba(255,255,255,.75);
-  --sb-active-bg: rgba(255,255,255,.10);
+  --border:      #e4e8ee;
+  --text:        #18243a;
+  --text-muted:  #6b7a95;
+  --text-faint:  #a0aec0;
+  --sb-bg:       #18293f;
+  --sb-text:     rgba(220,228,242,.72);
+  --sb-active-bg: rgba(255,255,255,.11);
   --sb-active-text: #ffffff;
   --sb-hover-bg: rgba(255,255,255,.06);
-  --tb-bg:       #ffffff;
-  --tb-border:   #e8e8e8;
-  --tb-text:     #1a1a1a;
-  --accent:      #1a1a1a;
+  --tb-bg:       #f9fafc;
+  --tb-border:   #e4e8ee;
+  --tb-text:     #18243a;
+  --accent:      #18293f;
 }
 [data-theme="dark"] {
-  --bg:          #0e0e0e;
-  --surface:     #1a1a1a;
-  --border:      #2e2e2e;
-  --text:        #e8e8e8;
-  --text-muted:  #888;
-  --text-faint:  #555;
-  --sb-bg:       #080808;
-  --sb-text:     rgba(255,255,255,.65);
-  --sb-active-bg: rgba(255,255,255,.12);
+  --bg:          #0e1520;
+  --surface:     #18243a;
+  --border:      #253348;
+  --text:        #dce4f2;
+  --text-muted:  #7a8faa;
+  --text-faint:  #4a5e78;
+  --sb-bg:       #0e1520;
+  --sb-text:     rgba(220,228,242,.65);
+  --sb-active-bg: rgba(255,255,255,.10);
   --sb-active-text: #ffffff;
-  --sb-hover-bg: rgba(255,255,255,.06);
-  --tb-bg:       #1a1a1a;
-  --tb-border:   #2e2e2e;
-  --tb-text:     #e8e8e8;
-  --accent:      #e8e8e8;
+  --sb-hover-bg: rgba(255,255,255,.05);
+  --tb-bg:       #18243a;
+  --tb-border:   #253348;
+  --tb-text:     #dce4f2;
+  --accent:      #3d6494;
 }
 
 html, body { height:100%; }
 body {
   font-family: 'Helvetica Neue', Arial, sans-serif;
-  font-size: 11pt;
+  font-size: 12pt;
   color: var(--text);
   background: var(--bg);
 }
@@ -76,25 +76,28 @@ body {
 #sidebar.sb-collapsed { width: 52px; }
 
 .sb-header {
-  padding: 18px 16px 16px;
+  padding: 20px 16px 18px;
   border-bottom: 1px solid rgba(255,255,255,.07);
   flex-shrink: 0;
 }
 .sb-co-name {
-  font-size: 13pt;
+  font-size: 13.5pt;
   font-weight: 700;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   transition: opacity .15s;
+  letter-spacing: -.01em;
 }
 .sb-co-sub {
-  font-size: 8.5pt;
-  color: rgba(255,255,255,.45);
-  margin-top: 2px;
+  font-size: 8pt;
+  color: rgba(220,228,242,.38);
+  margin-top: 3px;
   white-space: nowrap;
   transition: opacity .15s;
+  letter-spacing: .04em;
+  text-transform: uppercase;
 }
 .sb-co-caret { font-size: 7pt; }
 #sidebar.sb-collapsed .sb-co-name,
@@ -111,11 +114,11 @@ body {
 .sb-item {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 10px 16px;
+  gap: 12px;
+  padding: 11px 16px;
   color: var(--sb-text);
   text-decoration: none;
-  font-size: 10pt;
+  font-size: 10.5pt;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
@@ -124,6 +127,7 @@ body {
   width: 100%;
   text-align: left;
   transition: background .12s;
+  letter-spacing: .005em;
 }
 .sb-item:hover { background: var(--sb-hover-bg); color: #fff; }
 .sb-item.sb-active { background: var(--sb-active-bg); color: var(--sb-active-text); }
@@ -298,11 +302,11 @@ body {
 
 /* ---- .page content wrapper ---- */
 .page {
-  padding: 32px 40px;
+  padding: 36px 48px;
   max-width: 1100px;
   color: var(--text);
 }
-.page h1 { font-size: 20pt; font-weight: 700; }
+.page h1 { font-size: 22pt; font-weight: 700; letter-spacing: -.02em; }
 .sub { color: var(--text-muted); font-size: 10pt; margin-top: 4px; }
 
 /* ---- Legacy compat ---- */

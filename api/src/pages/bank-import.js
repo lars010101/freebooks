@@ -23,7 +23,6 @@ ${commonStyle()}
   table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; background:#fff !important; color:#1a1a1a !important; opacity:1 !important; }
   table.review-table tr.matched td:first-child { border-left:3px solid #2a8a2a; }
   table.review-table tr.unmatched td:first-child { border-left:3px solid #cc8800; }
-  table.review-table tr { opacity:1 !important; }
   .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:8.5pt; font-weight:600; }
   .tag.hi  { background:#d4edda; color:#155724; }
   .tag.med { background:#fff3cd; color:#856404; }
@@ -68,8 +67,10 @@ ${commonStyle()}
       <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
       <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
         <td style="position:relative">
-          <input type="text" style="display:none" name="prevent-autofill" tabindex="-1">
-          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" autocomplete="new-password" oninput="onBankAcctInput(this)" onfocus="onBankAcctInput(this)" onblur="hideBankAcctDropdown()">
+          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" autocomplete="off" readonly
+            onfocus="this.removeAttribute('readonly'); onBankAcctInput(this);"
+            oninput="onBankAcctInput(this)"
+            onblur="hideBankAcctDropdown()">
           <span id="bank-acct-hint" style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span>
         </td></tr>
     </table>
@@ -457,7 +458,7 @@ ${commonStyle()}
           if (!r) return;
           var sig = r.original.date + '|' + Math.abs(parseFloat(r.original.amount)).toFixed(2);
           if (sigs.has(sig)) {
-            tr.style.opacity = '1';
+
             tr.querySelector('[data-skip]').checked = true;
             var warn = tr.querySelector('.dup-warn');
             if (!warn) {

@@ -87,8 +87,9 @@ ${commonStyle()}
       </div>
       <!-- Invoice Ref -->
       <div class="form-group">
-        <label>Invoice Ref</label>
+        <label>Invoice Ref *</label>
         <input type="text" id="vendor-ref" placeholder="e.g. INV-2024-001">
+        <div class="err" id="err-ref">Invoice Ref is required</div>
       </div>
       <!-- Bill Date -->
       <div class="form-group">
@@ -104,9 +105,11 @@ ${commonStyle()}
       <!-- Currency -->
       <div class="form-group">
         <label>Currency</label>
-        <input type="text" id="currency" maxlength="3" placeholder="e.g. SGD" style="text-transform:uppercase" onchange="onCurrencyChange()" list="bill-currency-list">
+        <div style="position:relative">
+          <input type="text" id="currency" maxlength="3" placeholder="e.g. SGD" style="text-transform:uppercase" onchange="onCurrencyChange()" oninput="onCurrencyInput(this)" onblur="hideCurrencyDropdown()" autocomplete="off">
+          <div id="currency-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ccc;border-top:none;border-radius:0 0 4px 4px;box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;z-index:9999"></div>
+        </div>
       </div>
-      <datalist id="bill-currency-list"></datalist>
       <!-- FX Rate -->
       <div class="form-group">
         <label>FX Rate</label>
@@ -173,21 +176,15 @@ ${commonStyle()}
   var accountsMap = {};
   var vatCodesList = [];
   var vendorsList = [];
+  var currenciesList = [];
   var lineCounter = 0;
   var _reenterId = new URLSearchParams(window.location.search).get('reenter');
   var _accountsLoaded = false, _vatLoaded = false;
   var homeCurrency = 'SGD';  // Default, will be loaded from company data
 
-  // Load currencies datalist
+  // Load currencies
   fetch('/db/currencies.json').then(function(r){ return r.json(); }).then(function(currencies){
-    var dl = document.getElementById('bill-currency-list');
-    if (!dl) return;
-    currencies.forEach(function(c){
-      var opt = document.createElement('option');
-      opt.value = c.code;
-      opt.label = c.code + ' — ' + c.name;
-      dl.appendChild(opt);
-    });
+    currenciesList = currencies || [];
   }).catch(function(){});
 
   // Load company info to get home currency
@@ -503,6 +500,46 @@ ${commonStyle()}
 
   function hideVendorDropdown() {
     if (vendorDropdown) { vendorDropdown.remove(); vendorDropdown = null; }
+  }
+
+  // ── Currency autocomplete ──────────────────────────────────────────────
+  function onCurrencyInput(input) {
+    var q = input.value.trim().toUpperCase();
+    if (!q) { hideCurrencyDropdown(); return; }
+    var matches = currenciesList.filter(function(c){
+      return (c.code||'').toUpperCase().startsWith(q) || (c.code||'').toUpperCase().includes(q) || 
+              (c.name||'').toUpperCase().includes(q);
+    }).slice(0, 15);
+    showCurrencyDropdown(input, matches);
+  }
+
+  function showCurrencyDropdown(input, matches) {
+    hideCurrencyDropdown();
+    var dd = document.getElementById('currency-dropdown');
+    if (!dd) return;
+    if (!matches.length) { return; }
+    dd.innerHTML = '';
+    matches.forEach(function(c){
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:7px 10px;cursor:pointer;display:flex;gap:8px;align-items:center';
+      row.innerHTML = '<span style="font-weight:600;min-width:50px">' + (c.code||'') + '</span>' +
+                      '<span style="color:#666;flex:1">' + (c.name||'') + '</span>';
+      row.onmousedown = function(e){
+        e.preventDefault();
+        input.value = c.code.toUpperCase();
+        hideCurrencyDropdown();
+        input.onchange();
+      };
+      row.onmouseover = function(){ row.style.background='#f0f4ff'; };
+      row.onmouseout  = function(){ row.style.background=''; };
+      dd.appendChild(row);
+    });
+    dd.style.display = '';
+  }
+
+  function hideCurrencyDropdown() {
+    var dd = document.getElementById('currency-dropdown');
+    if (dd) dd.style.display = 'none';
   }
 
   function autoFillVendor(v) {
@@ -871,6 +908,9 @@ ${commonStyle()}
   document.addEventListener('click', function(e){
     if (acctDropdown && !acctDropdown.contains(e.target)) hideAcctDropdown();
     if (vendorDropdown && !vendorDropdown.contains(e.target)) hideVendorDropdown();
+    var currencyInput = document.getElementById('currency');
+    var currencyDD = document.getElementById('currency-dropdown');
+    if (currencyDD && currencyInput && e.target !== currencyInput && !currencyDD.contains(e.target)) hideCurrencyDropdown();
   });
 
   // ── Submit ────────────────────────────────────────────────────────────
@@ -911,6 +951,9 @@ ${commonStyle()}
     var valid = true;
     if (!vendorId && !vendorName) {
       document.getElementById('err-vendor').style.display = ''; valid = false;
+    }
+    if (!vendorRef) {
+      document.getElementById('err-ref').style.display = ''; valid = false;
     }
     if (!billDate) {
       document.getElementById('err-date').style.display = ''; valid = false;

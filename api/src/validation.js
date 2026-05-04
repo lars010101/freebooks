@@ -128,6 +128,7 @@ async function validateBill(companyId, bill) {
   const warnings = [];
 
   if (!bill.vendor || bill.vendor.trim() === '') errors.push('Vendor name required');
+  if (!bill.vendor_ref || bill.vendor_ref.trim() === '') errors.push('Invoice Ref is required');
   if (!bill.amount || bill.amount <= 0) errors.push('Bill amount must be positive');
 
   const accounts = await query(

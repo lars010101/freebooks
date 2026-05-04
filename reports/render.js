@@ -254,39 +254,199 @@ async function buildGL(query, company, start, end, account) {
 }
 
 async function buildJournal(query, company, start, end) {
-  const rows = await query(`SELECT * FROM journal(?, ?, ?)`, [company, start, end]);
-  let lastBatch = null;
-  let batchDebit = 0, batchCredit = 0;
-  let tableRows = '';
-  const flush = () => {
-    if (lastBatch !== null) {
-      tableRows += `<tr class="subtotal"><td></td><td></td><td></td><td class="num">${fmt(batchDebit)}</td><td class="num">${fmt(batchCredit)}</td></tr>
-      <tr><td colspan="5" style="padding:4px 0"></td></tr>`;
-      batchDebit = 0; batchCredit = 0;
-    }
-  };
-  for (const r of rows) {
-    if (r.batch_id !== lastBatch) {
-      flush();
-      const dateStr = new Date(r.date).toISOString().slice(0, 10);
-      const ref = r.reference || r.batch_id;
-      tableRows += `<tr class="section-header"><td>${dateStr}</td><td colspan="4">${ref}${r.description ? ' — ' + r.description : ''}</td></tr>`;
-      lastBatch = r.batch_id;
-    }
-    batchDebit  += parseFloat(r.debit_home  || r.debit  || 0);
-    batchCredit += parseFloat(r.credit_home || r.credit || 0);
-    tableRows += `<tr class="account">
-      <td></td><td>${r.account_code}</td><td>${r.account_name || ''}</td>
-      <td class="num">${fmt(r.debit_home || r.debit)}</td><td class="num">${fmt(r.credit_home || r.credit)}</td>
-    </tr>`;
+  const tableHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Journal Report — freeBooks</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
+  .page { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
+  .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
+  .company { font-size: 16pt; font-weight: 700; }
+  .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
+  .period { font-size: 10pt; color: #666; margin-top: 2px; }
+  .filter-bar { background: #f8f8f8; border: 1px solid #eee; border-radius: 4px; padding: 14px 16px; margin-bottom: 18px; }
+  .filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .filter-row:last-child { margin-bottom: 0; }
+  .filter-row label { font-size: 9pt; color: #555; font-weight: 600; min-width: 80px; }
+  .filter-row input, .filter-row select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 3px; font-size: 10pt; }
+  .filter-row button { padding: 6px 18px; background: #1a1a1a; color: #fff; border: none; border-radius: 3px; font-size: 10pt; font-weight: 600; cursor: pointer; }
+  .filter-row button:hover { background: #333; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; cursor: pointer; user-select: none; }
+  th:hover { background: #f5f5f5; }
+  th.sortable::after { content: ' ↕'; color: #aaa; font-size: 8pt; }
+  th.sort-asc::after { content: ' ↑'; color: #1a1a1a; font-size: 8pt; font-weight: 700; }
+  th.sort-desc::after { content: ' ↓'; color: #1a1a1a; font-size: 8pt; font-weight: 700; }
+  th.num { text-align: right; }
+  td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:hover td { background: #fafafa; }
+  .no-results { text-align: center; color: #888; padding: 20px; }
+  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div class="company">${company}</div>
+    <div class="report-title">Journal Report</div>
+    <div class="period">${start || ''} to ${end || ''}</div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-row">
+      <label>Journal Code:</label>
+      <input type="text" id="f-journal" placeholder="e.g. BANK" maxlength="10" style="width: 120px;">
+      <label style="margin-left: 20px;">Date From:</label>
+      <input type="date" id="f-date-from" style="width: 140px;">
+      <label style="margin-left: 20px;">Date To:</label>
+      <input type="date" id="f-date-to" style="width: 140px;">
+    </div>
+    <div class="filter-row">
+      <label>Account Code:</label>
+      <input type="text" id="f-account" placeholder="e.g. 401000" maxlength="20" style="width: 120px;">
+      <button onclick="doSearch()" style="margin-left: 20px;">Search</button>
+      <button onclick="clearFilters()" style="background: #888;">Clear</button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="sortable" onclick="setSort('date')">Date</th>
+          <th class="sortable" onclick="setSort('reference')">Reference</th>
+          <th class="sortable" onclick="setSort('account_code')">Account</th>
+          <th style="width: 200px;">Account Name</th>
+          <th style="width: 250px;">Description</th>
+          <th class="num sortable" onclick="setSort('debit')">Debit</th>
+          <th class="num sortable" onclick="setSort('credit')">Credit</th>
+        </tr>
+      </thead>
+      <tbody id="table-body">
+        <tr><td colspan="7" class="no-results">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks</div>
+</div>
+
+<script>
+  var currentSort = { sortBy: 'date', sortDir: 'DESC' };
+  var currentFilters = {};
+  
+  function doSearch() {
+    var filters = {
+      dateFrom: document.getElementById('f-date-from').value,
+      dateTo: document.getElementById('f-date-to').value,
+      accountCode: document.getElementById('f-account').value.trim(),
+      journalCode: document.getElementById('f-journal').value.trim()
+    };
+    currentFilters = filters;
+    loadJournal();
   }
-  flush();
-  const tableHtml = `<table>
-    <thead><tr><th>Date / Ref</th><th>Code</th><th>Account</th>
-      <th class="num">Debit</th><th class="num">Credit</th></tr></thead>
-    <tbody>${tableRows}</tbody>
-  </table>`;
-  return { tableHtml, rows };
+  
+  function clearFilters() {
+    document.getElementById('f-journal').value = '';
+    document.getElementById('f-date-from').value = '';
+    document.getElementById('f-date-to').value = '';
+    document.getElementById('f-account').value = '';
+    currentFilters = {};
+    currentSort = { sortBy: 'date', sortDir: 'DESC' };
+    loadJournal();
+  }
+  
+  function setSort(column) {
+    if (currentSort.sortBy === column) {
+      currentSort.sortDir = currentSort.sortDir === 'ASC' ? 'DESC' : 'ASC';
+    } else {
+      currentSort.sortBy = column;
+      currentSort.sortDir = 'DESC';
+    }
+    updateSortIndicators();
+    loadJournal();
+  }
+  
+  function updateSortIndicators() {
+    document.querySelectorAll('th.sortable').forEach(function(th) {
+      th.classList.remove('sort-asc', 'sort-desc');
+    });
+    var activeHeader = Array.from(document.querySelectorAll('th.sortable')).find(function(th) {
+      var col = th.textContent.toLowerCase().trim();
+      if (currentSort.sortBy === 'date' && col.includes('date')) return true;
+      if (currentSort.sortBy === 'reference' && col.includes('reference')) return true;
+      if (currentSort.sortBy === 'account_code' && col.includes('account')) return true;
+      if (currentSort.sortBy === 'debit' && col.includes('debit')) return true;
+      if (currentSort.sortBy === 'credit' && col.includes('credit')) return true;
+      return false;
+    });
+    if (activeHeader) {
+      activeHeader.classList.add(currentSort.sortDir === 'ASC' ? 'sort-asc' : 'sort-desc');
+    }
+  }
+  
+  function loadJournal() {
+    var body = document.getElementById('table-body');
+    body.innerHTML = '<tr><td colspan="7" class="no-results">Loading…</td></tr>';
+    
+    var payload = Object.assign({}, currentFilters, currentSort, { companyId: '${company}', action: 'journal.list', limit: 500 });
+    
+    fetch('/api/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      var rows = res.data || res || [];
+      if (!Array.isArray(rows) || rows.length === 0) {
+        body.innerHTML = '<tr><td colspan="7" class="no-results">No entries found.</td></tr>';
+        return;
+      }
+      
+      var accountsMap = {};
+      rows.forEach(function(r) {
+        if (r.account_code && r.account_name) {
+          accountsMap[r.account_code] = r.account_name;
+        }
+      });
+      
+      var html = '';
+      rows.forEach(function(r) {
+        var dateStr = r.date ? new Date(r.date).toISOString().slice(0, 10) : '';
+        var debit = parseFloat(r.debit || 0).toFixed(2);
+        var credit = parseFloat(r.credit || 0).toFixed(2);
+        var desc = (r.description || '').substring(0, 80);
+        html += '<tr>' +
+          '<td>' + dateStr + '</td>' +
+          '<td>' + (r.reference || r.batch_id || '') + '</td>' +
+          '<td>' + (r.account_code || '') + '</td>' +
+          '<td>' + (r.account_name || accountsMap[r.account_code] || '') + '</td>' +
+          '<td>' + desc + '</td>' +
+          '<td class="num">' + (debit !== '0.00' ? debit : '') + '</td>' +
+          '<td class="num">' + (credit !== '0.00' ? credit : '') + '</td>' +
+          '</tr>';
+      });
+      body.innerHTML = html;
+    })
+    .catch(function(e) {
+      body.innerHTML = '<tr><td colspan="7" class="no-results">Error loading journal entries.</td></tr>';
+      console.error(e);
+    });
+  }
+  
+  updateSortIndicators();
+  loadJournal();
+</script>
+</body>
+</html>`;
+  return { tableHtml, rows: [] };
 }
 
 async function buildCF(query, company, start, end) {

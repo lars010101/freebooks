@@ -261,7 +261,7 @@ async function reverseEntry(ctx) {
 
 async function listEntries(ctx) {
   const { companyId, body } = ctx;
-  const { dateFrom, dateTo, accountCode, source } = body;
+  const { dateFrom, dateTo, accountCode, source, journalCode, billId, sortBy = 'date', sortDir = 'DESC', limit = 500 } = body;
 
   let sql = `SELECT * FROM journal_entries WHERE company_id = @companyId`;
   const params = { companyId };
@@ -270,8 +270,14 @@ async function listEntries(ctx) {
   if (dateTo) { sql += ` AND date <= @dateTo`; params.dateTo = dateTo; }
   if (accountCode) { sql += ` AND account_code = @accountCode`; params.accountCode = accountCode; }
   if (source) { sql += ` AND source = @source`; params.source = source; }
+  if (journalCode) { sql += ` AND reference LIKE @jCodePfx`; params.jCodePfx = journalCode + '/%'; }
+  if (billId) { sql += ` AND bill_id = @billId`; params.billId = billId; }
 
-  sql += ` ORDER BY date DESC, batch_id, account_code`;
+  const validSortCols = { date: 'date', reference: 'reference', account_code: 'account_code', debit: 'debit', credit: 'credit' };
+  const sortCol = validSortCols[sortBy] || 'date';
+  const dir = sortDir === 'ASC' ? 'ASC' : 'DESC';
+  sql += ` ORDER BY ${sortCol} ${dir}, batch_id, account_code LIMIT @lim`;
+  params.lim = Math.min(Number(limit) || 500, 2000);
 
   return query(sql, params);
 }

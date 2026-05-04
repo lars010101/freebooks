@@ -347,19 +347,21 @@ async function approveBankEntries(ctx) {
           results.push({ index: i, batchId, posted: true, fxDiff, settledForeign, settledBooked });
           continue; // skip the generic bill handling below
         }
-      }
 
-      if (entry.billId && !(bill && bill.currency && bill.currency !== homeCurrency && entry.settledForeign != null)) {
-        await bulkInsert('bill_payments', [{
-          company_id: companyId, payment_id: uuid(), bill_id: entry.billId,
-          batch_id: batchId, amount, date: entry.date, method: 'bank_match', created_at: now,
-        }]);
-        await exec(
-          `UPDATE bills SET amount_paid = amount_paid + @amount,
-           status = CASE WHEN amount_paid + @amount >= amount_home THEN 'paid' ELSE 'partial' END
-           WHERE company_id = @companyId AND bill_id = @billId`,
-          { companyId, billId: entry.billId, amount }
-        );
+        // Non-FX path — inside the block, bill is in scope
+        if (bill) {
+          await bulkInsert('bill_payments', [{
+            company_id: companyId, payment_id: uuid(), bill_id: entry.billId,
+            batch_id: batchId, amount, date: entry.date, method: 'bank_match', created_at: now,
+          }]);
+          const newAmountPaid = Number(bill.amount_paid) + amount;
+          const billTotal = Number(bill.amount_home);
+          const newStatus = newAmountPaid >= billTotal - 0.005 ? 'paid' : 'partial';
+          await exec(
+            `UPDATE bills SET amount_paid = @newAmountPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
+            { companyId, billId: entry.billId, newAmountPaid, newStatus }
+          );
+        }
       }
 
       results.push({ index: i, batchId, posted: true });

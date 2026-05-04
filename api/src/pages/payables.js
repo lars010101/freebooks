@@ -111,6 +111,8 @@ ${commonStyle()}
       <div class="modal-field"><span class="mf-label">AP Account</span><span class="mf-val" id="m-ap"></span></div>
       <div class="modal-field" style="grid-column:1/-1"><span class="mf-label">Description</span><span class="mf-val" id="m-desc"></span></div>
     </div>
+    <div style="margin-bottom:4px;font-size:9pt;color:#888;font-weight:600;text-transform:uppercase">🔗 Bill Ref</div>
+    <div style="font-size:11pt;color:#1a1a1a;margin-bottom:16px;padding:8px;background:#f8f8f8;border-radius:3px" id="m-bill-ref-display"></div>
     <h3 style="font-size:10pt;color:#555;font-weight:600;margin:20px 0 8px">Expense Lines</h3>
     <table style="width:100%;border-collapse:collapse;font-size:10pt">
       <thead><tr>
@@ -121,6 +123,19 @@ ${commonStyle()}
         <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">VAT</th>
       </tr></thead>
       <tbody id="m-lines-tbody"></tbody>
+    </table>
+    <h3 style="font-size:10pt;color:#555;font-weight:600;margin:20px 0 8px">Journal Entries</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:10pt">
+      <thead><tr>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;width:80px">Date</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:100px">Reference</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:60px">Account</th>
+        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:70px">DR</th>
+        <th style="text-align:right;border-bottom:1px solid #ccc;padding:5px 8px;font-size:9pt;color:#555;text-transform:uppercase;min-width:70px">CR</th>
+      </tr></thead>
+      <tbody id="m-journals-tbody">
+        <tr><td colspan="5" style="color:#888;padding:8px">Loading…</td></tr>
+      </tbody>
     </table>
     <div id="m-edit-section" style="margin-top:18px;border-top:1px solid #eee;padding-top:14px">
       <h3 style="font-size:10pt;color:#555;font-weight:600;margin:0 0 10px">Edit Non-Financial Fields</h3>
@@ -313,6 +328,7 @@ function viewBill(billId) {
   if (!bill) return;
   document.getElementById('m-vendor').textContent = bill.vendor || '';
   document.getElementById('m-ref').textContent = bill.vendor_ref || '\u2014';
+  document.getElementById('m-bill-ref-display').textContent = bill.vendor_ref || '\u2014';
   document.getElementById('m-date').textContent = bill.date ? String(bill.date).slice(0,10) : '';
   document.getElementById('m-due').textContent = bill.due_date ? String(bill.due_date).slice(0,10) : '\u2014';
   document.getElementById('m-currency').textContent = bill.currency || '';
@@ -332,7 +348,9 @@ function viewBill(billId) {
   voidBtn.style.display = (bill.status === 'posted' || bill.status === 'partial') ? '' : 'none';
   voidBtn.disabled = false;
   document.getElementById('m-lines-tbody').innerHTML = '<tr><td colspan="5" style="color:#888">Loading\u2026</td></tr>';
+  document.getElementById('m-journals-tbody').innerHTML = '<tr><td colspan="5" style="color:#888">Loading\u2026</td></tr>';
   document.getElementById('bill-modal').style.display = '';
+  loadBillJournals(billId);
 
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'bill.lines', companyId: COMPANY, billId: billId }) })
@@ -409,6 +427,62 @@ function saveNonFinancial() {
       saveBtn.disabled = false;
       statusEl.textContent = '\u2717 ' + e.message;
       statusEl.style.color = '#cc2222';
+    });
+}
+
+function loadBillJournals(billId) {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'journal.list', companyId: COMPANY, billId: billId, sortBy: 'date', sortDir: 'ASC' }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var entries = res.data || res || [];
+      if (!Array.isArray(entries)) entries = [];
+      
+      if (entries.length === 0) {
+        document.getElementById('m-journals-tbody').innerHTML = '<tr><td colspan="5" style="color:#888;padding:8px">No journal entries</td></tr>';
+        return;
+      }
+      
+      var batches = {};
+      entries.forEach(function(e) {
+        var bId = e.batch_id || 'default';
+        if (!batches[bId]) {
+          batches[bId] = { batchId: bId, date: e.date, reference: e.reference, lines: [] };
+        }
+        batches[bId].lines.push(e);
+      });
+      
+      var html = '';
+      Object.keys(batches).forEach(function(bId) {
+        var batch = batches[bId];
+        var dateStr = batch.date ? new Date(batch.date).toISOString().slice(0,10) : '';
+        batch.lines.forEach(function(line, idx) {
+          var debit = parseFloat(line.debit || 0).toFixed(2);
+          var credit = parseFloat(line.credit || 0).toFixed(2);
+          if (idx === 0) {
+            html += '<tr style="background:#f8f8f8">' +
+              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:600">' + dateStr + '</td>' +
+              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:600">' + (batch.reference || batch.batchId) + '</td>' +
+              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + (line.account_code || '') + '</td>' +
+              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (debit !== '0.00' ? debit : '') + '</td>' +
+              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (credit !== '0.00' ? credit : '') + '</td>' +
+              '</tr>';
+          } else {
+            html += '<tr>' +
+              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0"></td>' +
+              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0"></td>' +
+              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">' + (line.account_code || '') + '</td>' +
+              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (debit !== '0.00' ? debit : '') + '</td>' +
+              '<td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;text-align:right">' + (credit !== '0.00' ? credit : '') + '</td>' +
+              '</tr>';
+          }
+        });
+      });
+      document.getElementById('m-journals-tbody').innerHTML = html;
+    })
+    .catch(function(e){
+      document.getElementById('m-journals-tbody').innerHTML = '<tr><td colspan="5" style="color:#cc2222;padding:8px">Error loading journal entries</td></tr>';
+      console.error('Journal load error:', e);
     });
 }
 

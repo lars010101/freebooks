@@ -171,6 +171,17 @@ ${commonStyle()}
       <button class="btn-primary" id="btn-submit" onclick="submitBill()">Create Bill</button>
       <span id="status-msg" style="font-size:10pt"></span>
     </div>
+
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid #eee">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:10pt;font-weight:600">📎 Attachments</span>
+        <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;font-size:9.5pt">
+          + Attach
+          <input type="file" id="bill-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addBillAttachment(this)" multiple>
+        </label>
+      </div>
+      <div id="bill-pending-list" style="font-size:9.5pt;color:#aaa">No files queued</div>
+    </div>
   </div>
 </div>
 
@@ -184,6 +195,7 @@ ${commonStyle()}
   var _reenterId = new URLSearchParams(window.location.search).get('reenter');
   var _accountsLoaded = false, _vatLoaded = false;
   var homeCurrency = 'SGD';  // Default, will be loaded from company data
+  var pendingBillAttachments = [];
 
   // Load currencies
   fetch('/db/currencies.json').then(function(r){ return r.json(); }).then(function(currencies){
@@ -1004,6 +1016,7 @@ ${commonStyle()}
           document.getElementById('bill-form').style.display = 'none';
           document.getElementById('success-panel').style.display = '';
           document.getElementById('status-msg').textContent = '';
+          uploadPendingBillAttachments(billId);
         }
       })
       .catch(function(e){
@@ -1052,6 +1065,44 @@ ${commonStyle()}
     e.preventDefault();
     fetchAndRetry(link.dataset.date, link.dataset.currency);
   });
+
+  function addBillAttachment(input) {
+    if (!input.files || !input.files.length) return;
+    for (var i = 0; i < input.files.length; i++) pendingBillAttachments.push(input.files[i]);
+    input.value = '';
+    renderBillPendingList();
+  }
+
+  function removeBillAttachment(idx) {
+    pendingBillAttachments.splice(idx, 1);
+    renderBillPendingList();
+  }
+
+  function renderBillPendingList() {
+    var el = document.getElementById('bill-pending-list');
+    if (!el) return;
+    if (!pendingBillAttachments.length) { el.innerHTML = '<span style="color:#aaa">No files queued</span>'; return; }
+    el.innerHTML = pendingBillAttachments.map(function(f, i) {
+      var kb = (f.size / 1024).toFixed(1);
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #f5f5f5">'
+        + '<span>\ud83d\udcc4 ' + f.name + ' <span style="color:#888;font-size:8.5pt">(' + kb + ' KB)</span></span>'
+        + '<button onclick="removeBillAttachment(' + i + ')" style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:11pt;padding:0 4px">&times;</button>'
+        + '</div>';
+    }).join('');
+  }
+
+  async function uploadPendingBillAttachments(billId) {
+    if (!pendingBillAttachments.length) return;
+    for (var i = 0; i < pendingBillAttachments.length; i++) {
+      var fd = new FormData();
+      fd.append('companyId', COMPANY);
+      fd.append('entityType', 'bill');
+      fd.append('entityId', billId);
+      fd.append('file', pendingBillAttachments[i]);
+      try { await fetch('/api/upload', { method: 'POST', body: fd }); } catch(e) {}
+    }
+    pendingBillAttachments = [];
+  }
 <\/script>
 </body>
 </html>`;

@@ -81,6 +81,17 @@ ${commonStyle()}
     <span id="status-msg" style="font-size:10pt"></span>
   </div>
 
+  <div id="jv-pre-attach-section" style="margin-top:14px;padding:12px;border:1px solid #e8e8e8;border-radius:4px;background:#fafafa">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:10pt;font-weight:600">📎 Attachments</span>
+      <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#fff;font-size:9.5pt">
+        + Attach
+        <input type="file" id="jv-pre-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addJvAttachment(this)" multiple>
+      </label>
+    </div>
+    <div id="jv-pending-list" style="font-size:9.5pt;color:#aaa">No files queued</div>
+  </div>
+
   <div id="jv-attachment-panel" style="display:none;margin-top:14px;padding:12px;border:1px solid #e0e0e0;border-radius:4px;background:#fafafa">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <span style="font-size:10pt;font-weight:600">📎 Attachments for this entry</span>
@@ -99,6 +110,7 @@ ${commonStyle()}
   var accountsMap = {};
   var vatCodes = [];
   var currentBatchId = null;
+  var pendingJvAttachments = [];
 
   fetch('/api/' + COMPANY + '/accounts')
     .then(r => r.json())
@@ -338,8 +350,11 @@ ${commonStyle()}
         } else {
           showStatus('Posted \u2713  ' + (d.reference || d.batchId), false);
           currentBatchId = d.batchId;
+          pendingJvAttachments = [];
+          renderJvPendingList();
           document.getElementById('jv-attachment-panel').style.display = '';
           document.getElementById('jv-attachments-list').innerHTML = '<span style="color:#aaa;font-size:9pt">No attachments yet</span>';
+          uploadPendingJvAttachments(d.batchId).then(function() { if (currentBatchId) loadJvAttachments(); });
           setTimeout(() => {
             document.getElementById('lines-body').innerHTML = '';
             document.getElementById('entry-desc').value = '';
@@ -463,6 +478,44 @@ ${commonStyle()}
         showStatus('Reversal loaded — review and post', false);
       })
       .catch(function(e) { showStatus(e.message, true); });
+  }
+
+  function addJvAttachment(input) {
+    if (!input.files || !input.files.length) return;
+    for (var i = 0; i < input.files.length; i++) pendingJvAttachments.push(input.files[i]);
+    input.value = '';
+    renderJvPendingList();
+  }
+
+  function removeJvAttachment(idx) {
+    pendingJvAttachments.splice(idx, 1);
+    renderJvPendingList();
+  }
+
+  function renderJvPendingList() {
+    var el = document.getElementById('jv-pending-list');
+    if (!el) return;
+    if (!pendingJvAttachments.length) { el.innerHTML = '<span style="color:#aaa">No files queued</span>'; return; }
+    el.innerHTML = pendingJvAttachments.map(function(f, i) {
+      var kb = (f.size / 1024).toFixed(1);
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #f5f5f5">'
+        + '<span>\ud83d\udcc4 ' + f.name + ' <span style="color:#888;font-size:8.5pt">(' + kb + ' KB)</span></span>'
+        + '<button onclick="removeJvAttachment(' + i + ')" style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:11pt;padding:0 4px">&times;</button>'
+        + '</div>';
+    }).join('');
+  }
+
+  async function uploadPendingJvAttachments(batchId) {
+    if (!pendingJvAttachments.length) return;
+    for (var i = 0; i < pendingJvAttachments.length; i++) {
+      var fd = new FormData();
+      fd.append('companyId', COMPANY);
+      fd.append('entityType', 'journal');
+      fd.append('entityId', batchId);
+      fd.append('file', pendingJvAttachments[i]);
+      try { await fetch('/api/upload', { method: 'POST', body: fd }); } catch(e) {}
+    }
+    pendingJvAttachments = [];
   }
 <\/script>
 </body>

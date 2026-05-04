@@ -622,8 +622,7 @@ ${commonStyle()}
         ? '' // filled by refreshBillCell after render
         : '<button style="border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer;padding:2px 6px;font-size:10pt" '
           +'onclick="openBillPanel('+i+')">&#128279;</button>';
-      return '<tr class="'+cls+'" data-i="'+i+'">
-        +'<td>'+orig.date+'</td>'
+      return '<tr class="'+cls+'" data-i="'+i+'">'+'<td>'+orig.date+'</td>'
         +'<td>'+escHtml(orig.description)+'</td>'
         +'<td class="num" style="color:'+(amt>=0?'#2a8a2a':'#cc2222')+'">'+(amt>=0?'+':'')+fmt(Math.abs(amt))+'</td>'
         +'<td>'+matchTag+'</td>'

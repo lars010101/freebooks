@@ -80,26 +80,25 @@ body {
   border-bottom: 1px solid rgba(255,255,255,.07);
   flex-shrink: 0;
 }
-.sb-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  text-decoration: none;
-}
-.sb-brand-icon {
-  font-size: 18pt;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.sb-brand-name {
-  font-size: 11pt;
+.sb-co-name {
+  font-size: 13pt;
   font-weight: 700;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
-  transition: opacity .15s, width .15s;
+  text-overflow: ellipsis;
+  transition: opacity .15s;
 }
-#sidebar.sb-collapsed .sb-brand-name { opacity: 0; width: 0; }
+.sb-co-sub {
+  font-size: 8.5pt;
+  color: rgba(255,255,255,.45);
+  margin-top: 2px;
+  white-space: nowrap;
+  transition: opacity .15s;
+}
+.sb-co-caret { font-size: 7pt; }
+#sidebar.sb-collapsed .sb-co-name,
+#sidebar.sb-collapsed .sb-co-sub { opacity: 0; }
 
 .sb-nav {
   flex: 1;
@@ -403,8 +402,6 @@ function navBar(company, activeKey) {
     { key: 'bank',        icon: '🏦', label: 'Bank',        href: `/${company}/bank` },
     { key: 'payables',    icon: '📋', label: 'Expenses',    href: `/${company}/payables` },
     { key: 'receivables', icon: '📄', label: 'Sales',       href: '#',                   disabled: true },
-    { key: 'reports',     icon: '📈', label: 'Reports',     href: `/${company}` },
-    { key: 'auditor',     icon: '🔍', label: 'Auditor',     href: '#',                   disabled: true },
     { key: 'settings',    icon: '⚙',  label: 'Settings',    href: `/${company}/settings` },
   ];
 
@@ -423,11 +420,10 @@ function navBar(company, activeKey) {
 
   return `<div id="app-shell">
   <aside id="sidebar">
-    <div class="sb-header">
-      <a href="/${company}" class="sb-brand">
-        <span class="sb-brand-icon">📒</span>
-        <span class="sb-brand-name">freeBooks</span>
-      </a>
+    <div class="sb-header" onclick="fbToggleCompany(event)" style="cursor:pointer" title="Switch company">
+      <div class="sb-co-name">${company}</div>
+      <div class="sb-co-sub">freeBooks <span class="sb-co-caret">▾</span></div>
+      <div class="tb-company-dropdown" id="tb-company-dropdown" style="display:none;left:12px;top:auto;margin-top:6px"></div>
     </div>
     <nav class="sb-nav">
       ${navHtml}

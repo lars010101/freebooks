@@ -115,11 +115,11 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 11px 16px;
+  padding: 14px 18px;
   color: var(--sb-text);
   text-decoration: none;
-  font-size: 10.5pt;
-  font-weight: 500;
+  font-size: 11pt;
+  font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
   background: none;
@@ -127,7 +127,7 @@ body {
   width: 100%;
   text-align: left;
   transition: background .12s;
-  letter-spacing: .005em;
+  letter-spacing: .01em;
 }
 .sb-item:hover { background: var(--sb-hover-bg); color: #fff; }
 .sb-item.sb-active { background: var(--sb-active-bg); color: var(--sb-active-text); }
@@ -248,13 +248,14 @@ body {
 .tb-nav-link {
   display: inline-flex;
   align-items: center;
-  padding: 6px 12px;
-  font-size: 10pt;
+  padding: 6px 14px;
+  font-size: 10.5pt;
   color: var(--text-muted);
   text-decoration: none;
   border-radius: 5px;
   white-space: nowrap;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: .01em;
 }
 .tb-nav-link:hover { color: var(--text); background: var(--bg); }
 .tb-nav-link.tb-nav-active { color: var(--text); font-weight: 600; background: var(--bg); }
@@ -422,7 +423,7 @@ function navBar(company, activeKey) {
 
   const ctx = topBarContext(company, activeKey);
 
-  return `<div id="app-shell">
+  return `<div id="app-shell" data-company="${company}">
   <aside id="sidebar">
     <div class="sb-header" onclick="fbToggleCompany(event)" style="cursor:pointer" title="Switch company">
       <div class="sb-co-name">${company}</div>
@@ -486,6 +487,25 @@ function layoutEnd() {
     fbApplyTheme(next);
   };
   fbApplyTheme(localStorage.getItem('fb-theme') || 'light');
+
+  // ── Load company display name ──
+  (function() {
+    var coId = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
+    if (!coId) return;
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'company.list' }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var cos = res.data || res || [];
+      if (!Array.isArray(cos)) return;
+      var co = cos.find(function(c){ return c.company_id === coId; });
+      if (co && co.name) {
+        var el = document.querySelector('.sb-co-name');
+        if (el) el.textContent = co.name;
+      }
+    })
+    .catch(function(){});
+  })();
 
   // ── Sidebar collapse ──
   function fbApplySidebar(collapsed) {

@@ -20,10 +20,10 @@ ${commonStyle()}
   .step h3 { margin:0 0 10px; font-size:11pt; color:#333; }
   table.review-table { width:100%; border-collapse:collapse; font-size:9.5pt; }
   table.review-table th { background:#f0f0f0; padding:5px 7px; text-align:left; font-size:9pt; border:1px solid #ddd; }
-  table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; background:#fff; }
+  table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; background:#fff; color:#1a1a1a; }
   table.review-table tr.matched td:first-child { border-left:3px solid #2a8a2a; }
   table.review-table tr.unmatched td:first-child { border-left:3px solid #cc8800; }
-  table.review-table tr.skipped td { opacity:.5; }
+  table.review-table tr.skipped td { opacity:.75; }
   .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:8.5pt; font-weight:600; }
   .tag.hi  { background:#d4edda; color:#155724; }
   .tag.med { background:#fff3cd; color:#856404; }
@@ -68,7 +68,8 @@ ${commonStyle()}
       <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
       <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
         <td style="position:relative">
-          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" autocomplete="nope" oninput="onBankAcctInput(this)" onfocus="onBankAcctInput(this)" onblur="hideBankAcctDropdown()">
+          <input type="text" style="display:none" name="prevent-autofill" tabindex="-1">
+          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" autocomplete="new-password" oninput="onBankAcctInput(this)" onfocus="onBankAcctInput(this)" onblur="hideBankAcctDropdown()">
           <span id="bank-acct-hint" style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span>
         </td></tr>
     </table>
@@ -173,14 +174,18 @@ ${commonStyle()}
 
   function onBankAcctInput(input) {
     var q = input.value.trim().toLowerCase();
-    if (!q) { hideBankAcctDropdown(); return; }
-    var matches = Object.keys(accountsMap)
-      .filter(function(code) {
-        return code.toLowerCase().startsWith(q) || code.toLowerCase().includes(q)
-          || (accountsMap[code]||'').toLowerCase().includes(q);
-      })
-      .sort()
-      .map(function(code) { return { code: code, name: accountsMap[code] || '' }; });
+    var allAccounts = Object.keys(accountsMap).sort().map(function(code) {
+      return { code: code, name: accountsMap[code] || '' };
+    });
+    if (!q) {
+      // Show top 20 accounts on focus (even when empty) to pre-empt browser autofill
+      showBankAcctDropdown(input, allAccounts.slice(0, 20));
+      return;
+    }
+    var matches = allAccounts.filter(function(a) {
+      return a.code.toLowerCase().startsWith(q) || a.code.toLowerCase().includes(q)
+        || a.name.toLowerCase().includes(q);
+    });
     showBankAcctDropdown(input, matches);
   }
 

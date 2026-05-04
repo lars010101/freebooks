@@ -564,6 +564,7 @@ function doVoid() {
   .catch(function(e){ btn.disabled = false; alert('Error: ' + e.message); });
 }
 </script>
+${layoutEnd()}
 </body>
 </html>`;
 }

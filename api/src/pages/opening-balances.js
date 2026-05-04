@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, navBar } = require('./common');
+const { commonStyle, navBar, layoutEnd } = require('./common');
 
 async function handleOpeningBalancesPage(req, res) {
   const { company } = req.params;
@@ -49,9 +49,8 @@ ${commonStyle()}
     font-size:10pt; margin-bottom:16px; }
 </style>
 </head>
-<body>
+<body>${navBar(company, 'settings')}
 <div class="page">
-  ${navBar(company, 'settings')}
   <div class="header">
     <h1>📂 Opening Balances</h1>
     <p class="sub">${company}</p>
@@ -303,6 +302,7 @@ ${commonStyle()}
       });
   }
 <\/script>
+${layoutEnd()}
 </body>
 </html>`;
 }

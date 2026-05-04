@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, navBar } = require('./common');
+const { commonStyle, navBar, layoutEnd } = require('./common');
 const { query } = require('../db');
 
 async function handlePayablesPage(req, res) {
@@ -76,9 +76,8 @@ ${commonStyle()}
   .page-btn:disabled { opacity:.4; cursor:default; }
 </style>
 </head>
-<body>
+<body>${navBar(company, 'payables')}
 <div class="page">
-  ${navBar(company, 'payables')}
 
   <!-- Page header -->
   <div class="page-header">
@@ -367,6 +366,7 @@ function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 </script>
+${layoutEnd()}
 </body>
 </html>`;
 }

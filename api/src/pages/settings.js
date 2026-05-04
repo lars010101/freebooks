@@ -1,5 +1,5 @@
 'use strict';
-const { makeQuery, commonStyle, navBar } = require('./common');
+const { makeQuery, commonStyle, navBar, layoutEnd } = require('./common');
 
 async function handleSettingsPage(req, res) {
   const { company } = req.params;
@@ -51,9 +51,8 @@ ${commonStyle()}
   button.btn-primary:disabled { background:#ccc; color:#666; cursor:not-allowed; }
 </style>
 </head>
-<body>
+<body>${navBar(company, 'settings')}
 <div class="page">
-  ${navBar(company, 'settings')}
   <div class="header">
     <h1>⚙ Settings</h1>
     <p class="sub">${company}</p>
@@ -868,6 +867,7 @@ window.onbeforeunload = function(e) {
 };
 
 </script>
+${layoutEnd()}
 </body>
 </html>`;
 }

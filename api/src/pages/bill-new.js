@@ -1104,6 +1104,7 @@ ${commonStyle()}
     pendingBillAttachments = [];
   }
 <\/script>
+${layoutEnd()}
 </body>
 </html>`;
 }

@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, navBar } = require('./common');
+const { commonStyle, navBar, layoutEnd } = require('./common');
 
 async function handleJournalNewPage(req, res) {
   const { company } = req.params;
@@ -33,9 +33,8 @@ ${commonStyle()}
   button.btn-primary:hover:not(:disabled) { background:#333; }
 </style>
 </head>
-<body>
+<body>${navBar(company, 'newjv')}
 <div class="page">
-  ${navBar(company, 'newjv')}
   <div class="header" style="display:flex;justify-content:space-between;align-items:flex-start">
     <div>
       <h1 id="jv-mode-title">New JV</h1>
@@ -518,6 +517,7 @@ ${commonStyle()}
     pendingJvAttachments = [];
   }
 <\/script>
+${layoutEnd()}
 </body>
 </html>`;
 }

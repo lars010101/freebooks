@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, navBar } = require('./common');
+const { commonStyle, navBar, layoutEnd } = require('./common');
 
 async function handleApAgingPage(req, res) {
   const { company } = req.params;
@@ -41,9 +41,8 @@ ${commonStyle()}
   .mf-val { font-size:10pt; color:#222; }
 </style>
 </head>
-<body>
+<body>${navBar(company, 'payables')}
 <div class="page">
-  ${navBar(company, 'payables')}
   <div class="header">
     <h1>⏱ AP Aging</h1>
     <p class="sub">${company}</p>
@@ -294,6 +293,7 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 <\/script>
+${layoutEnd()}
 </body>
 </html>`;
 }

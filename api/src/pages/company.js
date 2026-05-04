@@ -1,5 +1,5 @@
 'use strict';
-const { makeQuery, commonStyle, navBar } = require('./common');
+const { makeQuery, commonStyle, navBar, layoutEnd } = require('./common');
 
 // Simple TTL cache for dashboard card data (per company, 30s TTL)
 const _dashCache = new Map(); // key: company_id, value: { data, expiresAt }
@@ -192,9 +192,8 @@ ${commonStyle()}
   @media (max-width:700px) { .dashboard-cards { grid-template-columns:repeat(2,1fr); } }
 </style>
 </head>
-<body>
+<body>${navBar(co.company_id, 'dashboard')}
 <div class="page">
-  ${navBar(co.company_id, 'dashboard')}
   <div class="header">
     <h1>${co.company_name}</h1>
     <p class="sub">${co.company_id} · freeBooks Reports</p>
@@ -360,6 +359,7 @@ ${commonStyle()}
     });
   }).catch(() => {});
 </script>
+${layoutEnd()}
 </body>
 </html>`;
 }

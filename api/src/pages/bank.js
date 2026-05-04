@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, makeQuery, navBar } = require('./common');
+const { commonStyle, makeQuery, navBar, layoutEnd } = require('./common');
 
 async function handleBankPage(req, res) {
   const { company } = req.params;
@@ -72,9 +72,8 @@ ${commonStyle()}
   .bill-row:hover td { background:#f0f4ff; }
 </style>
 </head>
-<body>
+<body>${navBar(company, 'bank')}
 <div class="page">
-  ${navBar(company, 'bank')}
   
   <div class="header">
     <h1>🏦 Bank</h1>
@@ -1076,6 +1075,7 @@ ${commonStyle()}
     }
   }
 <\/script>
+${layoutEnd()}
 </body>
 </html>`;
 }

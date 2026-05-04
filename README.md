@@ -2,7 +2,7 @@
 
 Open-source double-entry accounting for small companies.
 
-**Stack:** Node.js · Express · DuckDB  
+**Stack:** Node.js · Express · DuckDB (`@duckdb/node-api`)  
 **License:** AGPL-3.0  
 **Repo:** https://github.com/lars010101/freebooks
 
@@ -120,8 +120,8 @@ The server handles SIGINT/SIGTERM (Ctrl+C) gracefully — checkpoints DuckDB bef
 | `/setup/new-company` | New company wizard |
 | `/:company` | **Dashboard** — 4 summary cards (UNLOCKED YR, UNCLEARED TX, Bank Balance, P&L) + report selector |
 | `/:company/settings` | Settings (8 tabs: Periods, Company, COA, Tax Codes, Journals, Bank Mappings, Exchange Rates, Vendors) |
-| `/:company/journal/new` | New JV form (with reversal mode) |
-| `/:company/bill/new` | Enter Bill form — vendor autocomplete, multi-line expenses, auto-generates AP journal entry |
+| `/:company/journal/new` | New JV form (with reversal mode; pre-post attachment queue) |
+| `/:company/bill/new` | Enter Bill form — vendor autocomplete, multi-line expenses, pre-post attachment queue, auto-generates AP journal entry |
 | `/:company/payables` | Payables screen — bill list with filters + bill detail modal |
 | `/:company/payables/aging` | AP Aging report — outstanding payables by aging bucket |
 | `/:company/bank` | **Bank** — uncleared transactions list + collapsible CSV import ("Import Statement"). Supports `?mode=uncleared` to auto-load all uncleared transactions across all cash accounts. Step 2: Link Bill panel shows open bills with outstanding amounts and multi-currency support. |
@@ -355,13 +355,20 @@ Vendor-grouped summary table; click vendor row to expand individual bills. Click
 `setup.add_company` seeds 4 default journals on creation: MISC, BANK, ADJ, AP. Bills post through the AP journal (`AP/YYYY/NNNNN` references). `db/init.js` seeds MISC, BANK, ADJ for existing companies.
 
 ### File Attachments
-Bills and journal entries can have file attachments (PDF, images, etc.). Stored in `attachments` table with file stored in `~/.freebooks/attachments/{company_id}/{entity_type}/{entity_id}/`. Attachment widget appears on bill detail modal and Enter Bill success state. Accessed via:
-- `POST /api/upload` — multipart form (field `file`, body: `companyId`, `entityType`, `entityId`)
-- `GET /api/attachments/:attachmentId?companyId=xxx` — stream file
-- `attachment.list` action — list attachments for an entity
-- `attachment.delete` action — delete an attachment
+Bills and journal entries support file attachments (PDF, images, Word, Excel, CSV, etc.). Files stored on disk at `~/.freebooks/attachments/{company_id}/{entity_type}/{entity_id}/`; metadata in the `attachments` table.
 
-Requires `npm install --prefix api multer` on setup.
+**Attachment points:**
+- **New Bill form** — "📎 Attachments" section below Create Bill button. Select one or more files; they queue with filename/size/remove controls. On successful bill creation, all queued files upload automatically using the returned bill ID.
+- **New JV form** — same pre-post queue above the Post Entry button. Files are queued before posting and uploaded automatically after the batch ID is returned, then shown in the post-success attachment panel.
+- **Bill detail modal** — view/download/delete existing attachments, or upload new ones at any time.
+
+**API surface:**
+- `POST /api/upload` — multipart form (field `file`, body: `companyId`, `entityType`, `entityId`)
+- `GET /api/attachments/:attachmentId` — stream file inline
+- `attachment.list` action — list attachments for an entity (`entityType`, `entityId`)
+- `attachment.delete` action — delete an attachment by `attachmentId`
+
+Max file size: 50 MB. `multer` is bundled in `api/package.json`; no separate install needed.
 
 ### Period Locks
 The `periods.locked` boolean is enforced in `validation.js` on every journal entry post. Locked periods cannot be written to. `period.save` is a full DELETE + INSERT (no row accumulation).
@@ -428,10 +435,12 @@ DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly
 - [ ] FX revaluation at period-end: revalue open AR/AP balances to closing rate, post unrealised gain/loss journal
 
 ### Documents & Attachments
-- [x] Attach files (PDF, image) to bills
-- [x] View/download attachments from bill detail modal
+- [x] Attach files (PDF, image, Office docs, CSV) to bills and journal entries
+- [x] Pre-post attachment queue on New Bill and New JV forms (attach before submitting; uploads fire automatically on success)
+- [x] View/download/delete attachments from bill detail modal
 - [x] Storage: local filesystem (`~/.freebooks/attachments/{company_id}/{entity_type}/{entity_id}/`)
-- [ ] Attachments on journal entries and invoices
+- [ ] Attachments on invoices (AR, not yet built)
+- [ ] Attachment viewer modal in-app (currently opens in new browser tab)
 
 ### UX / Navigation
 - [ ] Delete old `bank-import.js` and `bank-reconcile.js` page modules (pending stability confirmation)

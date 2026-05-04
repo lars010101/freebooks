@@ -68,62 +68,80 @@ function normalizeRows(rows) {
   });
 }
 
+/**
+ * Convert @paramName → $paramName (named) and return {paramName: value} object.
+ * @duckdb/node-api uses named binding only — positional $1/$2 not supported.
+ */
 function bindParams(sql, params = {}) {
-  const values = [];
+  const namedParams = {};
   const finalSql = sql.replace(/@([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
     if (!(name in params)) throw new Error(`Missing query parameter: ${name}`);
-    values.push(params[name]);
-    return `$${values.length}`;
+    namedParams[name] = params[name];
+    return `$${name}`;
   });
-  return { sql: finalSql, values };
+  return { sql: finalSql, params: namedParams };
 }
 
 async function query(sql, params = {}) {
   const conn = await ensureDb();
-  const { sql: finalSql, values } = bindParams(sql, params);
-  const result = await conn.runAndReadAll(finalSql, ...values);
+  const { sql: finalSql, params: namedParams } = bindParams(sql, params);
+  const hasParams = Object.keys(namedParams).length > 0;
+  const result = hasParams
+    ? await conn.runAndReadAll(finalSql, namedParams)
+    : await conn.runAndReadAll(finalSql);
   return normalizeRows(result.getRowObjects());
 }
 
 async function exec(sql, params = {}) {
   const conn = await ensureDb();
-  const { sql: finalSql, values } = bindParams(sql, params);
-  await conn.run(finalSql, ...values);
+  const { sql: finalSql, params: namedParams } = bindParams(sql, params);
+  const hasParams = Object.keys(namedParams).length > 0;
+  if (hasParams) {
+    await conn.run(finalSql, namedParams);
+  } else {
+    await conn.run(finalSql);
+  }
 }
 
 async function bulkInsert(table, rows) {
   if (!rows || rows.length === 0) return;
   const conn = await ensureDb();
   const keys = Object.keys(rows[0]);
-  const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+  // Use generated named params $p0, $p1, ... to avoid column-name conflicts
+  const placeholders = keys.map((_, i) => `$p${i}`).join(', ');
   const sql = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`;
 
   await conn.run('BEGIN');
   try {
     const stmt = await conn.prepare(sql);
     for (const row of rows) {
-      const values = keys.map(k => row[k] ?? null);
-      await stmt.run(...values);
+      const rowParams = {};
+      keys.forEach((k, i) => { rowParams[`p${i}`] = row[k] ?? null; });
+      await stmt.run(rowParams);
     }
     stmt.destroy();
     await conn.run('COMMIT');
   } catch (err) {
-    try {
-      await conn.run('ROLLBACK');
-    } catch {}
+    try { await conn.run('ROLLBACK'); } catch {}
     throw err;
   }
 }
 
 /**
- * Handle positional ? params and convert to $1, $2... for internal use.
+ * Positional ? params used by macro queries (pl, bs, cf etc.).
+ * Values are internal/trusted so we inline them as SQL literals — avoids
+ * positional binding which @duckdb/node-api does not support.
  */
 async function queryPositional(sql, params = []) {
   const conn = await ensureDb();
-  // Replace ? with $1, $2, $3...
   let i = 0;
-  const finalSql = sql.replace(/\?/g, () => `$${++i}`);
-  const result = await conn.runAndReadAll(finalSql, ...params);
+  const finalSql = sql.replace(/\?/g, () => {
+    const val = params[i++];
+    if (val === null || val === undefined) return 'NULL';
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    return `'${String(val).replace(/'/g, "''")}'`;
+  });
+  const result = await conn.runAndReadAll(finalSql);
   return normalizeRows(result.getRowObjects());
 }
 

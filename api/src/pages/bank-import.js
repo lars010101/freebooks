@@ -16,7 +16,7 @@ function buildBankImportPage(company) {
 <title>Bank Import — ${company}</title>
 ${commonStyle()}
 <style>
-  .step { background:#f8f8f8; border:1px solid #e0e0e0; border-radius:6px; padding:14px 18px; margin-bottom:16px; }
+  .step { background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:14px 18px; margin-bottom:16px; }
   .step h3 { margin:0 0 10px; font-size:11pt; color:#333; }
   table.review-table { width:100%; border-collapse:collapse; font-size:9.5pt; }
   table.review-table th { background:#f0f0f0; padding:5px 7px; text-align:left; font-size:9pt; border:1px solid #ddd; }
@@ -68,7 +68,7 @@ ${commonStyle()}
       <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
       <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
         <td style="position:relative">
-          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" autocomplete="off" oninput="onBankAcctInput(this)" onblur="hideBankAcctDropdown()">
+          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" autocomplete="nope" oninput="onBankAcctInput(this)" onfocus="onBankAcctInput(this)" onblur="hideBankAcctDropdown()">
           <span id="bank-acct-hint" style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span>
         </td></tr>
     </table>
@@ -443,15 +443,17 @@ ${commonStyle()}
           if (!r) return;
           var sig = r.original.date + '|' + Math.abs(parseFloat(r.original.amount)).toFixed(2);
           if (sigs.has(sig)) {
-            tr.style.opacity = '0.55';
+            tr.style.opacity = '';
+            tr.style.background = '#fffbf0';
+            tr.querySelectorAll('td').forEach(function(td){ td.style.background='#fffbf0'; });
             tr.querySelector('[data-skip]').checked = true;
             var warn = tr.querySelector('.dup-warn');
             if (!warn) {
               var td = tr.querySelector('td');
               var w = document.createElement('div');
               w.className = 'dup-warn';
-              w.style.cssText = 'font-size:8pt;color:#856404;font-weight:600';
-              w.textContent = 'possible duplicate';
+              w.style.cssText = 'font-size:8pt;color:#7a5c00;font-weight:600';
+              w.textContent = '⚠ possible duplicate';
               td.appendChild(w);
             }
             dupCount++;

@@ -42,6 +42,32 @@ function getDb() {
 /**
  * Replace @paramName tokens with positional $1, $2... and return ordered values array.
  */
+/**
+ * Normalize values for JSON serialization: convert Date/BigInt to primitives.
+ */
+function normalizeValue(val) {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'bigint') return Number(val);
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return null;
+    const iso = val.toISOString();
+    // DATE columns come back as midnight UTC — return date-only string
+    return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
+  }
+  return val;
+}
+
+/**
+ * Normalize all rows: apply normalizeValue to each field.
+ */
+function normalizeRows(rows) {
+  return rows.map(row => {
+    const out = {};
+    for (const [k, v] of Object.entries(row)) out[k] = normalizeValue(v);
+    return out;
+  });
+}
+
 function bindParams(sql, params = {}) {
   const values = [];
   const finalSql = sql.replace(/@([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
@@ -55,14 +81,14 @@ function bindParams(sql, params = {}) {
 async function query(sql, params = {}) {
   const conn = await ensureDb();
   const { sql: finalSql, values } = bindParams(sql, params);
-  const result = await conn.runAndReadAll(finalSql, values);
-  return result.getRowObjects();
+  const result = await conn.runAndReadAll(finalSql, ...values);
+  return normalizeRows(result.getRowObjects());
 }
 
 async function exec(sql, params = {}) {
   const conn = await ensureDb();
   const { sql: finalSql, values } = bindParams(sql, params);
-  await conn.run(finalSql, values);
+  await conn.run(finalSql, ...values);
 }
 
 async function bulkInsert(table, rows) {
@@ -77,7 +103,7 @@ async function bulkInsert(table, rows) {
     const stmt = await conn.prepare(sql);
     for (const row of rows) {
       const values = keys.map(k => row[k] ?? null);
-      await stmt.run(values);
+      await stmt.run(...values);
     }
     stmt.destroy();
     await conn.run('COMMIT');
@@ -97,8 +123,8 @@ async function queryPositional(sql, params = []) {
   // Replace ? with $1, $2, $3...
   let i = 0;
   const finalSql = sql.replace(/\?/g, () => `$${++i}`);
-  const result = await conn.runAndReadAll(finalSql, params);
-  return result.getRowObjects();
+  const result = await conn.runAndReadAll(finalSql, ...params);
+  return normalizeRows(result.getRowObjects());
 }
 
 module.exports = { getDb, ensureDb, query, exec, bulkInsert, queryPositional };

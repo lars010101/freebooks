@@ -20,10 +20,10 @@ ${commonStyle()}
   .step h3 { margin:0 0 10px; font-size:11pt; color:#333; }
   table.review-table { width:100%; border-collapse:collapse; font-size:9.5pt; }
   table.review-table th { background:#f0f0f0; padding:5px 7px; text-align:left; font-size:9pt; border:1px solid #ddd; }
-  table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; background:#fff; color:#1a1a1a; }
+  table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; background:#fff !important; color:#1a1a1a !important; opacity:1 !important; }
   table.review-table tr.matched td:first-child { border-left:3px solid #2a8a2a; }
   table.review-table tr.unmatched td:first-child { border-left:3px solid #cc8800; }
-  table.review-table tr.skipped td { opacity:.75; }
+  table.review-table tr { opacity:1 !important; }
   .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:8.5pt; font-weight:600; }
   .tag.hi  { background:#d4edda; color:#155724; }
   .tag.med { background:#fff3cd; color:#856404; }
@@ -174,11 +174,20 @@ ${commonStyle()}
 
   function onBankAcctInput(input) {
     var q = input.value.trim().toLowerCase();
+    if (Object.keys(accountsMap).length === 0) {
+      // Accounts not loaded yet — fetch now then retry
+      fetch('/api/' + COMPANY + '/accounts')
+        .then(function(r){ return r.json(); })
+        .then(function(rows){
+          rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; });
+          onBankAcctInput(input);
+        }).catch(function(){});
+      return;
+    }
     var allAccounts = Object.keys(accountsMap).sort().map(function(code) {
       return { code: code, name: accountsMap[code] || '' };
     });
     if (!q) {
-      // Show top 20 accounts on focus (even when empty) to pre-empt browser autofill
       showBankAcctDropdown(input, allAccounts.slice(0, 20));
       return;
     }
@@ -448,9 +457,7 @@ ${commonStyle()}
           if (!r) return;
           var sig = r.original.date + '|' + Math.abs(parseFloat(r.original.amount)).toFixed(2);
           if (sigs.has(sig)) {
-            tr.style.opacity = '';
-            tr.style.background = '#fffbf0';
-            tr.querySelectorAll('td').forEach(function(td){ td.style.background='#fffbf0'; });
+            tr.style.opacity = '1';
             tr.querySelector('[data-skip]').checked = true;
             var warn = tr.querySelector('.dup-warn');
             if (!warn) {

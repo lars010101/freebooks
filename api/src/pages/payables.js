@@ -556,7 +556,7 @@ function loadAttachments(billId) {
         return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f5f5f5">'
           + '<a href="/api/attachments/' + esc(a.attachment_id) + '" target="_blank" style="color:#1a1a1a;text-decoration:none;font-size:9.5pt">'
           + '📄 ' + esc(a.filename) + ' <span style="color:#888;font-size:8.5pt">(' + kb + ' KB)</span></a>'
-          + '<button onclick="deleteAttachment(\'" + esc(a.attachment_id) + "\')" '
+          + '<button onclick="deleteAttachment(\\'' + esc(a.attachment_id) + '\\')" '
           + 'style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:11pt;padding:0 4px" title="Remove">&times;</button>'
           + '</div>';
       }).join('');

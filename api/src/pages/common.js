@@ -493,15 +493,15 @@ function layoutEnd() {
     var coId = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
     if (!coId) return;
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'company.list' }) })
+      body: JSON.stringify({ action:'company.list', companyId: coId }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       var cos = res.data || res || [];
       if (!Array.isArray(cos)) return;
       var co = cos.find(function(c){ return c.company_id === coId; });
-      if (co && co.name) {
+      if (co && (co.company_name || co.name)) {
         var el = document.querySelector('.sb-co-name');
-        if (el) el.textContent = co.name;
+        if (el) el.textContent = co.company_name || co.name;
       }
     })
     .catch(function(){});
@@ -539,14 +539,15 @@ function layoutEnd() {
     dd.style.display = open ? 'none' : '';
     if (!open && !dd._loaded) {
       dd._loaded = true;
+      var coId2 = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
       fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action:'company.list' }) })
+        body: JSON.stringify({ action:'company.list', companyId: coId2 || '' }) })
       .then(function(r){ return r.json(); })
       .then(function(res){
         var cos = res.data || res || [];
         if (!Array.isArray(cos) || !cos.length) { dd.innerHTML='<div class="tb-company-opt" style="color:#888">No other companies</div>'; return; }
         dd.innerHTML = cos.map(function(c){
-          return '<a class="tb-company-opt" href="/'+c.company_id+'">'+c.name+'<br><small style="color:#aaa;font-size:8pt">'+c.company_id+'</small></a>';
+          return '<a class="tb-company-opt" href="/'+c.company_id+'">'+(c.company_name||c.name||c.company_id)+'<br><small style="color:#aaa;font-size:8pt">'+c.company_id+'</small></a>';
         }).join('');
       })
       .catch(function(){ dd.innerHTML='<div class="tb-company-opt" style="color:#cc2222">Error loading</div>'; });

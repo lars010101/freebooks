@@ -950,20 +950,20 @@ ${commonStyle()}
 
     var valid = true;
     if (!vendorId && !vendorName) {
-      document.getElementById('err-vendor').style.display = ''; valid = false;
+      document.getElementById('err-vendor').style.display = 'block'; valid = false;
     }
     if (!vendorRef) {
-      document.getElementById('err-ref').style.display = ''; valid = false;
+      document.getElementById('err-ref').style.display = 'block'; valid = false;
     }
     if (!billDate) {
-      document.getElementById('err-date').style.display = ''; valid = false;
+      document.getElementById('err-date').style.display = 'block'; valid = false;
     }
     if (!apCode || !accountsMap[apCode]) {
-      document.getElementById('err-ap').style.display = ''; valid = false;
+      document.getElementById('err-ap').style.display = 'block'; valid = false;
     }
     var linesValid = lines.length > 0 && lines.every(function(l){ return l.expense_account && accountsMap[l.expense_account] && l.amount > 0; });
     if (!linesValid) {
-      document.getElementById('err-lines').style.display = ''; valid = false;
+      document.getElementById('err-lines').style.display = 'block'; valid = false;
     }
     if (!valid) return;
 

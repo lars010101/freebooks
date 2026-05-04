@@ -342,7 +342,7 @@ async function buildJournal(query, company, start, end) {
   var currentFilters = {};
   var accountsMap = {};
   
-  // Pre-fetch accounts once on load
+  // Pre-fetch accounts, then load journal (ensures account names are ready)
   fetch('/api/${company}/accounts')
     .then(function(r) { return r.json(); })
     .then(function(rows) {
@@ -353,8 +353,9 @@ async function buildJournal(query, company, start, end) {
           }
         });
       }
+      loadJournal();
     })
-    .catch(function() {});
+    .catch(function() { loadJournal(); });
   
   function doSearch() {
     var filters = {
@@ -425,13 +426,6 @@ async function buildJournal(query, company, start, end) {
         return;
       }
       
-      var accountsMap = {};
-      rows.forEach(function(r) {
-        if (r.account_code && r.account_name) {
-          accountsMap[r.account_code] = r.account_name;
-        }
-      });
-      
       var html = '';
       rows.forEach(function(r) {
         var dateStr = r.date ? new Date(r.date).toISOString().slice(0, 10) : '';
@@ -442,7 +436,7 @@ async function buildJournal(query, company, start, end) {
           '<td>' + dateStr + '</td>' +
           '<td>' + (r.reference || r.batch_id || '') + '</td>' +
           '<td>' + (r.account_code || '') + '</td>' +
-          '<td>' + (r.account_name || accountsMap[r.account_code] || '') + '</td>' +
+          '<td>' + (accountsMap[r.account_code] || '') + '</td>' +
           '<td>' + desc + '</td>' +
           '<td class="num">' + (debit !== '0.00' ? debit : '') + '</td>' +
           '<td class="num">' + (credit !== '0.00' ? credit : '') + '</td>' +
@@ -457,7 +451,7 @@ async function buildJournal(query, company, start, end) {
   }
   
   updateSortIndicators();
-  loadJournal();
+  // loadJournal() is triggered after accounts fetch completes (above)
 </script>
 </body>
 </html>`;

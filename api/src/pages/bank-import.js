@@ -20,7 +20,7 @@ ${commonStyle()}
   .step h3 { margin:0 0 10px; font-size:11pt; color:#333; }
   table.review-table { width:100%; border-collapse:collapse; font-size:9.5pt; }
   table.review-table th { background:#f0f0f0; padding:5px 7px; text-align:left; font-size:9pt; border:1px solid #ddd; }
-  table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; }
+  table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; background:#fff; }
   table.review-table tr.matched td:first-child { border-left:3px solid #2a8a2a; }
   table.review-table tr.unmatched td:first-child { border-left:3px solid #cc8800; }
   table.review-table tr.skipped td { opacity:.5; }
@@ -68,7 +68,7 @@ ${commonStyle()}
       <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
       <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
         <td style="position:relative">
-          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" oninput="onBankAcctInput(this)" onblur="hideBankAcctDropdown()">
+          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" autocomplete="off" oninput="onBankAcctInput(this)" onblur="hideBankAcctDropdown()">
           <span id="bank-acct-hint" style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span>
         </td></tr>
     </table>
@@ -390,9 +390,9 @@ ${commonStyle()}
         +'<td>'+matchTag+'</td>'
         +'<td style="width:80px;text-align:center" data-bill-cell="'+i+'">'+billCell+'</td>'
         +'<td style="width:90px"><input class="acct" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct" oninput="updateAcctName(this)">'
-          +'<div style="font-size:8pt;color:#888;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></td>'
+          +'<div style="font-size:8pt;color:#333;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></td>'
         +'<td style="width:90px"><input class="acct" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" oninput="updateAcctName(this)">'
-          +'<div style="font-size:8pt;color:#888;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.creditAccount ? (accountsMap[r.creditAccount]||'?') : '')+'</div></td>'
+          +'<div style="font-size:8pt;color:#333;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.creditAccount ? (accountsMap[r.creditAccount]||'?') : '')+'</div></td>'
         +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'" onchange="updateBalances()"></td>'
         +'</tr>';
     }).join('');
@@ -502,7 +502,7 @@ ${commonStyle()}
     var nameDiv = input.nextElementSibling;
     if (!nameDiv) return;
     nameDiv.textContent = code ? (accountsMap[code] || (code.length >= 4 ? '?' : '')) : '';
-    nameDiv.style.color = (code && !accountsMap[code] && code.length >= 4) ? '#cc2222' : '#888';
+    nameDiv.style.color = (code && !accountsMap[code] && code.length >= 4) ? '#cc2222' : '#333';
   }
 
   function postApproved() {

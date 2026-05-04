@@ -1,29 +1,10 @@
 'use strict';
-const { getDb } = require('../db');
-
-let _conn = null;
-
-function _getConn() {
-  if (!_conn) {
-    _conn = getDb().connect();
-  }
-  return _conn;
-}
+const { queryPositional } = require('../db');
 
 function makeQuery() {
   return function query(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      const conn = _getConn();
-      conn.all(sql, ...params, (err, rows) => {
-        if (err) {
-          // Reset on error so next call reconnects
-          try { _conn = null; } catch(e) {}
-          reject(err);
-        } else {
-          resolve(rows || []);
-        }
-      });
-    });
+    // Use positional params (? style) via queryPositional
+    return queryPositional(sql, params);
   };
 }
 

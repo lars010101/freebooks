@@ -1,159 +1,104 @@
 'use strict';
-/**
- * freeBooks — DuckDB connection singleton
- *
- * Wraps the duckdb callback API in promise helpers.
- * One database connection shared across the process lifetime.
- */
-
 const path = require('path');
-const fs   = require('fs');
-const Database = require('duckdb').Database;
+const fs = require('fs');
+const { DuckDBInstance } = require('@duckdb/node-api');
 
-const DB_PATH  = process.env.DB_PATH || path.join(require('os').homedir(), '.freebooks', 'freebooks.duckdb');
+const DB_PATH = process.env.DB_PATH || path.join(require('os').homedir(), '.freebooks', 'freebooks.duckdb');
 const WAL_PATH = DB_PATH + '.wal';
 
-let _db = null;
-let _dbReady = null; // Promise that resolves when DB is open
-
-function _openDb() {
-  return new Promise((resolve, reject) => {
-    const db = new Database(DB_PATH, (err) => {
-      if (err) reject(err);
-      else resolve(db);
-    });
-  });
-}
+let _instance = null;
+let _conn = null;
+let _dbReady = null;
 
 async function _openWithWalRecovery() {
   try {
-    return await _openDb();
+    _instance = await DuckDBInstance.create(DB_PATH);
   } catch (err) {
     if (fs.existsSync(WAL_PATH)) {
-      console.warn(`⚠ DuckDB WAL replay failed — removing stale WAL and retrying.`);
-      console.warn(`  (${err.message.split('\n')[0]})`);
+      console.warn('⚠ DuckDB WAL replay failed — removing stale WAL and retrying.');
       fs.unlinkSync(WAL_PATH);
-      return await _openDb();
+      _instance = await DuckDBInstance.create(DB_PATH);
+    } else {
+      throw err;
     }
-    throw err;
   }
+  _conn = await _instance.connect();
+  return _conn;
 }
 
-/** Returns the Database instance (sync, may throw if not yet ready). */
-function getDb() {
-  if (!_db) {
-    // Kick off async open; callers that need it ready should await ensureDb().
-    _db = new Database(DB_PATH);
-  }
-  return _db;
-}
-
-/** Ensure DB is open and WAL-recovered. Call once at startup. */
 function ensureDb() {
   if (_dbReady) return _dbReady;
-  _dbReady = _openWithWalRecovery().then(db => {
-    _db = db;
-    return db;
-  });
+  _dbReady = _openWithWalRecovery();
   return _dbReady;
 }
 
-/**
- * Run a query and return all rows.
- * Supports named parameters via { named: true, params: {...} }.
- *
- * DuckDB node doesn't support named params natively — we substitute
- * @paramName → ? and pass values in key order.
- *
- * @param {string} sql
- * @param {object} [params] - { paramName: value, ... }
- * @returns {Promise<object[]>}
- */
-function query(sql, params = {}) {
-  return new Promise((resolve, reject) => {
-    const { sql: finalSql, values } = bindParams(sql, params);
-    const conn = getDb().connect();
-    conn.all(finalSql, ...values, (err, rows) => {
-      conn.close();
-      if (err) reject(err);
-      else resolve(rows || []);
-    });
-  });
+function getDb() {
+  // Returns connection synchronously — only safe after ensureDb() has resolved.
+  // Kept for backward compat. Prefer ensureDb() at startup.
+  if (!_conn) throw new Error('DB not yet initialised — call ensureDb() first');
+  return _conn;
 }
 
 /**
- * Execute a statement (INSERT / UPDATE / DELETE / DDL).
- * Returns nothing meaningful.
+ * Replace @paramName tokens with positional $1, $2... and return ordered values array.
  */
-function exec(sql, params = {}) {
-  return new Promise((resolve, reject) => {
-    const { sql: finalSql, values } = bindParams(sql, params);
-    const conn = getDb().connect();
-    conn.run(finalSql, ...values, (err) => {
-      conn.close();
-      if (err) reject(err);
-      else resolve();
-    });
-  });
-}
-
-/**
- * Bulk insert rows into a table.
- * Uses a prepared statement for efficiency.
- *
- * @param {string} table
- * @param {object[]} rows
- */
-async function bulkInsert(table, rows) {
-  if (!rows || rows.length === 0) return;
-
-  const keys = Object.keys(rows[0]);
-  const placeholders = keys.map(() => '?').join(', ');
-  const sql = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`;
-
-  const db = getDb();
-  const conn = db.connect();
-
-  await new Promise((resolve, reject) => {
-    conn.run('BEGIN', (err) => { if (err) reject(err); else resolve(); });
-  });
-
-  try {
-    const stmt = conn.prepare(sql);
-
-    for (const row of rows) {
-      const values = keys.map((k) => row[k] ?? null);
-      await new Promise((resolve, reject) => {
-        stmt.run(...values, (err) => { if (err) reject(err); else resolve(); });
-      });
-    }
-
-    stmt.finalize();
-
-    await new Promise((resolve, reject) => {
-      conn.run('COMMIT', (err) => { if (err) reject(err); else resolve(); });
-    });
-  } catch (err) {
-    await new Promise((resolve) => {
-      conn.run('ROLLBACK', () => resolve());
-    });
-    throw err;
-  } finally {
-    conn.close();
-  }
-}
-
-/**
- * Replace @paramName tokens with positional ? and return ordered values.
- */
-function bindParams(sql, params) {
+function bindParams(sql, params = {}) {
   const values = [];
   const finalSql = sql.replace(/@([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
     if (!(name in params)) throw new Error(`Missing query parameter: ${name}`);
     values.push(params[name]);
-    return '?';
+    return `$${values.length}`;
   });
   return { sql: finalSql, values };
 }
 
-module.exports = { getDb, ensureDb, query, exec, bulkInsert };
+async function query(sql, params = {}) {
+  const conn = await ensureDb();
+  const { sql: finalSql, values } = bindParams(sql, params);
+  const result = await conn.runAndReadAll(finalSql, values);
+  return result.getRowObjects();
+}
+
+async function exec(sql, params = {}) {
+  const conn = await ensureDb();
+  const { sql: finalSql, values } = bindParams(sql, params);
+  await conn.run(finalSql, values);
+}
+
+async function bulkInsert(table, rows) {
+  if (!rows || rows.length === 0) return;
+  const conn = await ensureDb();
+  const keys = Object.keys(rows[0]);
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+  const sql = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`;
+
+  await conn.run('BEGIN');
+  try {
+    const stmt = await conn.prepare(sql);
+    for (const row of rows) {
+      const values = keys.map(k => row[k] ?? null);
+      await stmt.run(values);
+    }
+    stmt.destroy();
+    await conn.run('COMMIT');
+  } catch (err) {
+    try {
+      await conn.run('ROLLBACK');
+    } catch {}
+    throw err;
+  }
+}
+
+/**
+ * Handle positional ? params and convert to $1, $2... for internal use.
+ */
+async function queryPositional(sql, params = []) {
+  const conn = await ensureDb();
+  // Replace ? with $1, $2, $3...
+  let i = 0;
+  const finalSql = sql.replace(/\?/g, () => `$${++i}`);
+  const result = await conn.runAndReadAll(finalSql, params);
+  return result.getRowObjects();
+}
+
+module.exports = { getDb, ensureDb, query, exec, bulkInsert, queryPositional };

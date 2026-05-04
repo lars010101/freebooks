@@ -13,7 +13,7 @@
 
 const path = require('path');
 const fs   = require('fs');
-const Database = require(path.resolve(__dirname, '../api/node_modules/duckdb')).Database;
+const { DuckDBInstance } = require(path.resolve(__dirname, '../api/node_modules/@duckdb/node-api'));
 
 const DB_PATH     = process.env.DB_PATH || path.join(process.env.HOME || '/root', '.freebooks', 'freebooks.duckdb');
 const SCHEMA_FILE  = path.join(__dirname, 'schema.sql');
@@ -81,24 +81,14 @@ if (API_URL) {
   // ── Direct DB mode ──────────────────────────────────────────────────────────
   console.log(`Opening DuckDB at: ${DB_PATH}`);
 
-  function openDb() {
-    return new Promise((resolve, reject) => {
-      const db = new Database(DB_PATH, (err) => {
-        if (err) reject(err);
-        else resolve(db);
-      });
-    });
-  }
-
   async function openWithWalRecovery() {
     try {
-      return await openDb();
+      return await DuckDBInstance.create(DB_PATH);
     } catch (err) {
       if (fs.existsSync(WAL_PATH)) {
-        console.warn(`⚠ DuckDB failed to replay WAL — removing stale WAL and retrying.`);
-        console.warn(`  (WAL error: ${err.message.split('\n')[0]})`);
+        console.warn(`⚠ DuckDB WAL replay failed — removing stale WAL and retrying.`);
         fs.unlinkSync(WAL_PATH);
-        return await openDb();
+        return await DuckDBInstance.create(DB_PATH);
       }
       throw err;
     }
@@ -109,58 +99,62 @@ if (API_URL) {
     process.exit(1);
   });
 
-  function runSchema(db) {
+  async function runSchema(instance) {
+    const conn = await instance.connect();
 
-  const DEFAULT_JOURNALS = [
-    { code: 'MISC', name: 'Miscellaneous' },
-    { code: 'BANK', name: 'Bank' },
-    { code: 'ADJ',  name: 'Adjustment' },
-  ];
+    const DEFAULT_JOURNALS = [
+      { code: 'MISC', name: 'Miscellaneous' },
+      { code: 'BANK', name: 'Bank' },
+      { code: 'ADJ',  name: 'Adjustment' },
+    ];
 
-  function seedJournals(callback) {
-    db.all('SELECT company_id FROM companies', (err, companies) => {
-      if (err || !companies || companies.length === 0) { callback(); return; }
-      let pending = 0;
-      for (const company of companies) {
-        for (const j of DEFAULT_JOURNALS) {
-          const journalId = `${company.company_id}_${j.code.toLowerCase()}`;
-          pending++;
-          const sql = `INSERT INTO journals (journal_id, company_id, code, name, active)
-            VALUES ('${journalId}', '${company.company_id}', '${j.code}', '${j.name}', true)
-            ON CONFLICT DO NOTHING`;
-          db.exec(sql, (e) => {
-            if (e) console.warn(`Journal seed warning (${company.company_id}/${j.code}): ${e.message}`);
-            pending--;
-            if (pending === 0) callback();
-          });
+    async function seedJournals() {
+      try {
+        const companies = await conn.runAndReadAll('SELECT company_id FROM companies', []);
+        const companyRows = companies.getRowObjects();
+        if (!companyRows || companyRows.length === 0) return;
+
+        for (const company of companyRows) {
+          for (const j of DEFAULT_JOURNALS) {
+            const journalId = `${company.company_id}_${j.code.toLowerCase()}`;
+            const sql = `INSERT INTO journals (journal_id, company_id, code, name, active)
+              VALUES ($1, $2, $3, $4, true)
+              ON CONFLICT DO NOTHING`;
+            try {
+              await conn.run(sql, [journalId, company.company_id, j.code, j.name]);
+            } catch (e) {
+              if (!e.message.includes('already exists')) {
+                console.warn(`Journal seed warning (${company.company_id}/${j.code}): ${e.message}`);
+              }
+            }
+          }
         }
+      } catch (err) {
+        console.warn(`Seed journals warning: ${err.message}`);
       }
-      if (pending === 0) callback();
-    });
-  }
-
-  function runNext(i) {
-    if (i >= statements.length) {
-      console.log(`\nSchema applied (${statements.length} statements).`);
-      seedJournals(() => {
-        console.log('Default journals seeded.');
-        // Force WAL flush before close to prevent replay issues on next open
-        db.exec('CHECKPOINT;', () => {
-          db.close(() => process.exit(0));
-        });
-      });
-      return;
     }
-    db.exec(statements[i] + ';', (err) => {
-      if (err) {
+
+    async function runNext(i) {
+      if (i >= statements.length) {
+        console.log(`\nSchema applied (${statements.length} statements).`);
+        await seedJournals();
+        console.log('Default journals seeded.');
+        // Force WAL flush before close
+        await conn.run('CHECKPOINT', []);
+        await instance.close();
+        process.exit(0);
+        return;
+      }
+      try {
+        await conn.run(statements[i], []);
+        process.stdout.write('.');
+        await runNext(i + 1);
+      } catch (err) {
         console.error(`Failed on statement ${i + 1}:\n${statements[i].slice(0, 120)}\nError: ${err.message}`);
         process.exit(1);
       }
-      process.stdout.write('.');
-      runNext(i + 1);
-    });
-  }
+    }
 
-  runNext(0);
+    await runNext(0);
   } // end runSchema
 }

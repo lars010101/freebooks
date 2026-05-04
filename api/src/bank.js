@@ -291,7 +291,7 @@ async function approveBankEntries(ctx) {
           const fxAccount = fxSettings[0]?.value || null;
 
           const settledForeign = Number(entry.settledForeign);
-          const bookingRate = Number(bill.fx_rate) || 1;
+          const bookingRate = entry.billPayRate ? Number(entry.billPayRate) : (Number(bill.fx_rate) || 1);
           const settledBooked = Math.round(settledForeign * bookingRate * 10000) / 10000;
           const bankAmount = amount; // already Math.abs'd
           const fxDiff = Math.round((bankAmount - settledBooked) * 10000) / 10000;

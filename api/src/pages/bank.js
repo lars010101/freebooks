@@ -54,6 +54,21 @@ ${commonStyle()}
   details summary { cursor:pointer; font-weight:600; font-size:11pt; padding:10px 0; }
   details[open] summary { margin-bottom:14px; }
   .bill-row { cursor:pointer; }
+  .acct-dd { position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:180px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2);border-radius:3px; }
+  .acct-dd-item { padding:4px 8px;cursor:pointer;white-space:nowrap; }
+  .acct-dd-item:hover { background:#e8f0fe; }
+  .acct-name-hint { font-size:8pt;color:#888;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
+  .bill-card { font-size:9pt;line-height:1.6; }
+  .bill-card .bc-row { display:flex;align-items:center;gap:4px;margin-bottom:2px; }
+  .bill-card input.bc-input { font-size:9pt;padding:1px 4px;border:1px solid #ccc;border-radius:3px; }
+  .bill-card input.bc-settle { width:65px; }
+  .bill-card input.bc-rate { width:65px; }
+  .bill-card input.bc-fx-acct { width:90px; }
+  .bill-card .bc-get-rate { font-size:8pt;padding:1px 5px;border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer; }
+  .bill-card .bc-unlink { border:none;background:none;cursor:pointer;color:#aaa;font-size:12pt;line-height:1;padding:0 2px; }
+  .bill-card .bc-unlink:hover { color:#cc2222; }
+  .bc-fx-acct-name { font-size:8pt;color:#888;max-width:120px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
+  .info-icon { cursor:help;color:#999;font-size:10pt;margin-left:2px; }
   .bill-row:hover td { background:#f0f4ff; }
 </style>
 </head>
@@ -164,7 +179,7 @@ ${commonStyle()}
         <span>Book balance after: <b id="bal-after">—</b></span>
       </div>
       <table class="review-table">
-        <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:80px">Bill</th><th style="width:80px">Debit</th><th style="width:80px">Credit</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
+        <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:90px">Debit</th><th style="width:90px">Credit</th><th style="min-width:160px">Bill</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
         <tbody id="review-body"></tbody>
       </table>
       <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -604,25 +619,26 @@ ${commonStyle()}
         : '<span class="tag lo">manual</span>';
       var cls = r.matchType ? 'matched' : 'unmatched';
       var billCell = r.billId
-        ? '<span style="color:#2a8a2a;font-size:9pt">\u2713 '+escHtml((r.vendorShort||String(r.billId)).slice(0,10))+'</span>'
-          +' <button style="border:none;background:none;cursor:pointer;color:#888;font-size:9pt" '
-          +'onclick="unlinkBill('+i+')" title="Unlink bill">\u00d7</button>'
+        ? '' // filled by refreshBillCell after render
         : '<button style="border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer;padding:2px 6px;font-size:10pt" '
           +'onclick="openBillPanel('+i+')">&#128279;</button>';
-      return '<tr class="'+cls+'" data-i="'+i+'">'
+      return '<tr class="'+cls+'" data-i="'+i+'">
         +'<td>'+orig.date+'</td>'
         +'<td>'+escHtml(orig.description)+'</td>'
         +'<td class="num" style="color:'+(amt>=0?'#2a8a2a':'#cc2222')+'">'+(amt>=0?'+':'')+fmt(Math.abs(amt))+'</td>'
         +'<td>'+matchTag+'</td>'
-        +'<td style="width:80px;text-align:center" data-bill-cell="'+i+'">'+billCell+'</td>'
-        +'<td style="width:90px"><input class="acct" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct" oninput="updateAcctName(this)">'
-          +'<div style="font-size:8pt;color:#888;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></td>'
-        +'<td style="width:90px"><input class="acct" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" oninput="updateAcctName(this)">'
-          +'<div style="font-size:8pt;color:#888;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.creditAccount ? (accountsMap[r.creditAccount]||'?') : '')+'</div></td>'
+        +'<td style="width:90px"><div style="position:relative"><input class="acct acct-search" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct" autocomplete="off" oninput="acctSearch(this)" onblur="hideAcctDd()">'
+          +'<div class="acct-name-hint">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></div></td>'
+        +'<td style="width:90px"><div style="position:relative"><input class="acct acct-search" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" autocomplete="off" oninput="acctSearch(this)" onblur="hideAcctDd()">'
+          +'<div class="acct-name-hint">'+(r.creditAccount ? (accountsMap[r.creditAccount]||'?') : '')+'</div></div></td>'
+        +'<td data-bill-cell="'+i+'">'+billCell+'</td>'
         +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'" onchange="updateBalances()"></td>'
         +'</tr>';
     }).join('');
-    document.querySelectorAll('#review-body .acct').forEach(function(inp){ if (inp.value) updateAcctName(inp); });
+    document.querySelectorAll('#review-body .acct').forEach(function(inp){
+      if (inp.value) { var nd = inp.nextElementSibling; if(nd) nd.textContent = accountsMap[inp.value]||'?'; }
+    });
+    processedRows.forEach(function(r, i){ if (r.billId) refreshBillCell(i); });
     document.getElementById('step-review').style.display = '';
     var jSel = document.getElementById('import-journal');
     if (Array.isArray(journalsList) && journalsList.length) {
@@ -648,25 +664,32 @@ ${commonStyle()}
     }
   }
 
-  // Event delegation for settle-input changes on foreign bills
+  // Event delegation for bill cell inputs
   document.addEventListener('input', function(e) {
-    var inp = e.target.closest('.settle-input');
-    if (!inp) return;
-    var rowIdx = parseInt(inp.dataset.row);
-    var r = processedRows[rowIdx];
-    if (!r) return;
-    r.settledForeign = parseFloat(inp.value) || 0;
-    // Update fx-preview span in the same cell
-    var cell = document.querySelector('[data-bill-cell="' + rowIdx + '"]');
-    if (cell) {
-      var preview = cell.querySelector('.fx-preview');
-      if (preview && r.billBookingRate) {
-        var settledBooked = r.settledForeign * r.billBookingRate;
-        var bankAmt = Math.abs(parseFloat(r.original.amount) || 0);
-        var fxDiff = bankAmt - settledBooked;
-        preview.textContent = '\u2248 ' + settledBooked.toFixed(2) + ' SGD cleared | FX ' + (fxDiff >= 0 ? 'loss' : 'gain') + ': ' + Math.abs(fxDiff).toFixed(2) + ' SGD';
-      }
+    var settle = e.target.closest('.settle-input');
+    if (settle) {
+      var rowIdx = parseInt(settle.dataset.row);
+      var r = processedRows[rowIdx];
+      if (r) { r.settledForeign = parseFloat(settle.value) || 0; updateFxPreview(rowIdx); }
+      return;
     }
+    var rateInp = e.target.closest('.bc-rate');
+    if (rateInp && !rateInp.classList.contains('bc-fx-acct')) {
+      var rowIdx2 = parseInt(rateInp.dataset.row);
+      var r2 = processedRows[rowIdx2];
+      if (r2) { r2.billPayRate = parseFloat(rateInp.value) || r2.billBookingRate; updateFxPreview(rowIdx2); }
+      return;
+    }
+    var fxAcct = e.target.closest('.bc-fx-acct');
+    if (fxAcct) {
+      var rowIdx3 = parseInt(fxAcct.dataset.row);
+      var r3 = processedRows[rowIdx3];
+      if (r3) r3.fxAccount = fxAcct.value.trim();
+    }
+  });
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.bill-get-rate');
+    if (btn) fetchBillRate(parseInt(btn.dataset.row));
   });
 
   function checkDuplicates(bankAcct, bankRows) {
@@ -741,6 +764,100 @@ ${commonStyle()}
 
   function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  // ── Account autosearch ──────────────────────────────────────────────────────
+  var _acctDd = null;
+  var _acctDdInput = null;
+
+  function acctSearch(input) {
+    _acctDdInput = input;
+    var q = input.value.trim().toLowerCase();
+    if (_acctDd) { _acctDd.remove(); _acctDd = null; }
+    if (!q) return;
+    var keys = Object.keys(accountsMap);
+    var matches = keys.filter(function(code){
+      return code.toLowerCase().includes(q) || (accountsMap[code]||'').toLowerCase().includes(q);
+    }).slice(0, 12);
+    if (!matches.length) return;
+    var dd = document.createElement('div');
+    dd.className = 'acct-dd';
+    matches.forEach(function(code){
+      var item = document.createElement('div');
+      item.className = 'acct-dd-item';
+      item.textContent = code + ' \u2014 ' + accountsMap[code];
+      item.onmousedown = function(e){ e.preventDefault(); };
+      item.onclick = function(){
+        if (_acctDdInput) {
+          _acctDdInput.value = code;
+          var nd = _acctDdInput.nextElementSibling;
+          if (nd && nd.classList.contains('acct-name-hint')) nd.textContent = accountsMap[code]||'';
+          if (_acctDdInput.classList.contains('bc-fx-acct')) {
+            var ri = parseInt(_acctDdInput.dataset.row);
+            if (!isNaN(ri) && processedRows[ri]) {
+              processedRows[ri].fxAccount = code;
+              var nameEl = _acctDdInput.closest('.bc-row') && _acctDdInput.closest('.bc-row').querySelector('.bc-fx-acct-name');
+              if (nameEl) nameEl.textContent = accountsMap[code]||'';
+            }
+          }
+          _acctDdInput.dispatchEvent(new Event('input', { bubbles:true }));
+        }
+        if (_acctDd) { _acctDd.remove(); _acctDd = null; }
+        _acctDdInput = null;
+      };
+      dd.appendChild(item);
+    });
+    var rect = input.getBoundingClientRect();
+    dd.style.left = rect.left + 'px';
+    dd.style.top = (rect.bottom + 2) + 'px';
+    dd.style.minWidth = Math.max(rect.width, 200) + 'px';
+    document.body.appendChild(dd);
+    _acctDd = dd;
+  }
+
+  function hideAcctDd() {
+    setTimeout(function(){
+      if (_acctDd) { _acctDd.remove(); _acctDd = null; }
+    }, 150);
+  }
+
+  // ── Per-row FX rate fetch ───────────────────────────────────────────────────
+  function fetchBillRate(rowIdx) {
+    var r = processedRows[rowIdx];
+    if (!r || !r.billCurrency || r.billCurrency === HOME_CURRENCY) return;
+    var btn = document.querySelector('.bill-get-rate[data-row="'+rowIdx+'"]');
+    if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'fx.rates.get', companyId: COMPANY,
+        fromCurrency: r.billCurrency, toCurrency: HOME_CURRENCY, date: r.original.date }) })
+      .then(function(res){ return res.json(); })
+      .then(function(res){
+        var d = res.data || res;
+        var rate = d && d.rate ? parseFloat(d.rate) : null;
+        if (rate) {
+          r.billPayRate = rate;
+          var rateInp = document.querySelector('.bc-rate[data-row="'+rowIdx+'"]');
+          if (rateInp) rateInp.value = rate.toFixed(4);
+          updateFxPreview(rowIdx);
+        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Get'; }
+      })
+      .catch(function(){ if (btn) { btn.disabled = false; btn.textContent = 'Get'; } });
+  }
+
+  function updateFxPreview(rowIdx) {
+    var r = processedRows[rowIdx];
+    if (!r) return;
+    var settled = parseFloat(r.settledForeign) || 0;
+    var bookRate = parseFloat(r.billBookingRate) || 1;
+    var payRate = r.billPayRate ? parseFloat(r.billPayRate) : bookRate;
+    var settledBooked = settled * bookRate;
+    var settledActual = settled * payRate;
+    var fxDiff = settledActual - settledBooked;
+    var icon = document.querySelector('.info-icon[data-row="'+rowIdx+'"]');
+    if (icon) {
+      icon.title = '\u2248 '+settledActual.toFixed(2)+' '+HOME_CURRENCY+' at pay rate | FX '+(fxDiff>=0?'gain':'loss')+': '+Math.abs(fxDiff).toFixed(2)+' '+HOME_CURRENCY;
+    }
+  }
+
   function updateAcctName(input) {
     var code = input.value.trim();
     var nameDiv = input.nextElementSibling;
@@ -770,7 +887,9 @@ ${commonStyle()}
       entries.push({ date: r.original.date, description: r.description || r.original.description,
         amount: r.original.amount, debitAccount: dr, creditAccount: cr,
         vatCode: r.vatCode || null, billId: r.billId || null,
-        settledForeign: r.billCurrency && r.billCurrency !== HOME_CURRENCY ? (r.settledForeign || null) : null });
+        settledForeign: r.billCurrency && r.billCurrency !== HOME_CURRENCY ? (r.settledForeign || null) : null,
+        billPayRate: r.billPayRate || null,
+        fxAccount: r.fxAccount || null });
     });
     if (problemRows.length > 0) {
       document.getElementById('post-status').textContent = 'Invalid accounts on rows: ' + problemRows.join(', ') + '. Fill in debit & credit accounts.';
@@ -913,25 +1032,48 @@ ${commonStyle()}
     if (!cell) return;
     var r = processedRows[rowIdx];
     if (r && r.billId) {
-      var billHtml = '<span style="color:#2a8a2a;font-size:9pt">\u2713 '+escHtml((r.vendorShort||String(r.billId)).slice(0,10))+'</span>'
-        +' <button style="border:none;background:none;cursor:pointer;color:#888;font-size:9pt" '
-        +'onclick="unlinkBill('+rowIdx+')" title="Unlink bill">\u00d7</button>';
-      if (r.billCurrency && r.billCurrency !== HOME_CURRENCY) {
-        var settledBooked = (r.settledForeign || 0) * (r.billBookingRate || 1);
-        var bankAmt = Math.abs(parseFloat(r.original.amount) || 0);
-        var fxDiff = bankAmt - settledBooked;
-        billHtml += '<div style="margin-top:4px;font-size:9pt">' +
-          'Settle: <input type="number" class="settle-input" data-row="'+rowIdx+'" ' +
-          'value="'+(r.settledForeign||0)+'" step="0.01" min="0" ' +
-          'style="width:70px;font-size:9pt;padding:2px 4px;border:1px solid #ccc;border-radius:3px"> ' +
-          escHtml(r.billCurrency) + ' ' +
-          '<span class="fx-preview" style="color:#666;margin-left:6px">\u2248 '+settledBooked.toFixed(2)+' SGD cleared | FX '+(fxDiff>=0?'loss':'gain')+': '+Math.abs(fxDiff).toFixed(2)+' SGD</span>' +
-          '</div>';
+      var isFx = !!(r.billCurrency && r.billCurrency !== HOME_CURRENCY);
+      var unpaid = typeof r.billOutstanding === 'number' ? r.billOutstanding.toFixed(2) : '\u2014';
+      var ccy = escHtml(r.billCurrency || HOME_CURRENCY);
+      var vendor = escHtml((r.vendorShort || '').slice(0, 18));
+      if (!r.billPayRate) r.billPayRate = r.billBookingRate || 1;
+      var fxAcctCode = r.fxAccount || '';
+      var fxAcctName = fxAcctCode ? (accountsMap[fxAcctCode] || '') : '';
+
+      var html = '<div class="bill-card">';
+      html += '<div class="bc-row" style="justify-content:space-between">'
+        + '<span style="font-weight:600;color:#444">' + vendor + '</span>'
+        + '<button class="bc-unlink" onclick="unlinkBill(' + rowIdx + ')" title="Unlink">\u00d7</button>'
+        + '</div>';
+      html += '<div class="bc-row"><span style="color:#777">Unpaid:</span>&nbsp;<b>' + unpaid + '&nbsp;' + ccy + '</b></div>';
+
+      if (isFx) {
+        var payRate = (r.billPayRate || r.billBookingRate || 1);
+        var settled = (r.settledForeign != null ? r.settledForeign : (r.billOutstanding || 0));
+        var settledBooked = settled * (r.billBookingRate || 1);
+        var settledActual = settled * payRate;
+        var fxDiff = settledActual - settledBooked;
+        var fxTip = '\u2248 ' + settledActual.toFixed(2) + ' ' + HOME_CURRENCY + ' at pay rate | FX ' + (fxDiff >= 0 ? 'gain' : 'loss') + ': ' + Math.abs(fxDiff).toFixed(2) + ' ' + HOME_CURRENCY;
+
+        html += '<div class="bc-row"><span style="color:#777">Settle:</span>'
+          + '<input type="number" class="bc-input bc-settle settle-input" data-row="' + rowIdx + '" value="' + settled.toFixed(2) + '" step="0.01" min="0">&nbsp;'
+          + ccy + '</div>';
+        html += '<div class="bc-row"><span style="color:#777">Rate:</span>'
+          + '<input type="number" class="bc-input bc-rate" data-row="' + rowIdx + '" value="' + payRate.toFixed(4) + '" step="0.0001" min="0">'
+          + '<button class="bc-get-rate bill-get-rate" data-row="' + rowIdx + '">Get</button>'
+          + '<span class="info-icon" data-row="' + rowIdx + '" title="' + escHtml(fxTip) + '">&#9432;</span>'
+          + '</div>';
+        html += '<div class="bc-row"><span style="color:#777">FX&nbsp;Act:</span>'
+          + '<div style="position:relative"><input type="text" class="bc-input bc-fx-acct" data-row="' + rowIdx + '" value="' + escHtml(fxAcctCode) + '" placeholder="code or name" autocomplete="off" oninput="acctSearch(this)" onblur="hideAcctDd()">'
+          + '<div class="acct-name-hint bc-fx-acct-name">' + escHtml(fxAcctName) + '</div></div>'
+          + '</div>';
       }
-      cell.innerHTML = billHtml;
+
+      html += '</div>';
+      cell.innerHTML = html;
     } else {
       cell.innerHTML = '<button style="border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer;padding:2px 6px;font-size:10pt" '
-        +'onclick="openBillPanel('+rowIdx+')">&#128279;</button>';
+        + 'onclick="openBillPanel(' + rowIdx + ')">&#128279;</button>';
     }
   }
 <\/script>

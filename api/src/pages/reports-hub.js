@@ -179,6 +179,75 @@ ${layoutEnd()}
 
     frame.src = url;
   };
+
+  /* ── Helper: build current report URL ── */
+  function buildReportUrl() {
+    var type  = (document.getElementById('rpt-type')  || {}).value || '';
+    var start = (document.getElementById('rpt-start') || {}).value || '';
+    var end   = (document.getElementById('rpt-end')   || {}).value || '';
+    if (!type || !start || !end) return null;
+    if (type === 'ap-aging') return '/' + company + '/payables/aging';
+    var url = '/api/' + company + '/report?type=' + encodeURIComponent(type)
+            + '&start=' + encodeURIComponent(start)
+            + '&end='   + encodeURIComponent(end);
+    var mom = document.getElementById('rpt-mom').classList.contains('tb-active');
+    var yoy = document.getElementById('rpt-yoy').classList.contains('tb-active');
+    if (mom)      url += '&step=mom';
+    else if (yoy) url += '&step=yoy';
+    var filterActive = document.getElementById('rpt-filter').classList.contains('tb-active');
+    if (filterActive) {
+      var acct = (document.getElementById('rpt-account') || {}).value || '';
+      if (acct.trim()) url += '&account=' + encodeURIComponent(acct.trim());
+    }
+    return url;
+  }
+
+  /* ── PDF: open report standalone in new tab (no sidebar/nav) ── */
+  window.fbExportPDF = function() {
+    var url = buildReportUrl();
+    if (!url) { alert('Select a report and date range first.'); return; }
+    window.open(url, '_blank');
+  };
+
+  /* ── CSV: client-side extraction from loaded iframe ── */
+  window.fbExportCSV = function() {
+    var frame = document.getElementById('report-frame');
+    var type  = (document.getElementById('rpt-type')  || {}).value || 'report';
+    var start = (document.getElementById('rpt-start') || {}).value || '';
+    var end   = (document.getElementById('rpt-end')   || {}).value || '';
+    if (!frame || !frame.src || frame.src === 'about:blank') {
+      alert('Load a report first.'); return;
+    }
+    try {
+      var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+      if (!doc) { alert('Report not accessible yet — wait for it to finish loading.'); return; }
+      var tables = doc.querySelectorAll('table');
+      if (!tables.length) { alert('No tabular data found in this report.'); return; }
+      var csvRows = [];
+      tables.forEach(function(table) {
+        table.querySelectorAll('tr').forEach(function(row) {
+          var cells = Array.from(row.querySelectorAll('th, td'));
+          if (!cells.length) return;
+          csvRows.push(cells.map(function(c) {
+            return '"' + c.textContent.trim().replace(/"/g, '""') + '"';
+          }).join(','));
+        });
+        csvRows.push('');
+      });
+      var filename = type + (start ? '_' + start : '') + (end ? '_' + end : '') + '.csv';
+      var blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      var link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    } catch(e) {
+      alert('CSV export failed: ' + e.message);
+    }
+  };
+
 })();
 </script>
 </body>

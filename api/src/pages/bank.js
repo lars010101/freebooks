@@ -1146,7 +1146,7 @@ function addMappingRow(m) {
     + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
     + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
-    + '<td><button class="btn-sm danger" onclick="bankMappingsDirty=true; document.getElementById('btn-save-mappings').disabled=false; this.parentElement.parentElement.remove()">&times;</button></td>';
+    + '<td><button class="btn-sm danger" onclick="bankMappingsDirty=true; document.getElementById(\'btn-save-mappings\').disabled=false; this.parentElement.parentElement.remove()">&times;</button></td>';
   tr.querySelectorAll('input,select').forEach(function(el){
     el.addEventListener('input', function(){ bankMappingsDirty=true; document.getElementById('btn-save-mappings').disabled=false; });
     el.addEventListener('change', function(){ bankMappingsDirty=true; document.getElementById('btn-save-mappings').disabled=false; });

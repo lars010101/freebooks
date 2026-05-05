@@ -242,6 +242,14 @@ body {
   cursor: not-allowed;
 }
 
+/* Global search + command palette */
+.tb-global-controls { display:flex; align-items:center; gap:8px; flex:1; max-width:480px; }
+.tb-search-wrap { flex:1; }
+.tb-search { width:100%; padding:6px 12px; border:1px solid var(--border); border-radius:6px; font-size:0.875rem; background:var(--surface-alt,#f5f5f5); color:var(--text); outline:none; cursor:text; }
+.tb-search:focus { border-color:var(--accent,#1a1a1a); background:var(--surface,#fff); }
+.tb-cmd-btn { padding:6px 12px; border:1px solid var(--border); border-radius:6px; font-size:0.875rem; background:var(--surface-alt,#f5f5f5); color:var(--text); cursor:pointer; white-space:nowrap; }
+.tb-cmd-btn:hover { background:var(--border); }
+
 /* Top bar nav links */
 .tb-nav-link {
   display: inline-flex;
@@ -413,30 +421,22 @@ function topBarContext(company, activeKey) {
 
   const ctx = {
     dashboard: {
-      nav: `<input type="text" class="tb-search" placeholder="🔍  Search…" disabled>`,
+      nav: ``,
       actions: `
         ${actionBtn('+ Bill', `/${company}/bill/new`, false)}
         <span class="tb-btn" style="opacity:.4;cursor:default" title="Invoicing coming soon">+ Invoice</span>
         ${actionBtn('+ Statement', `/${company}/bank#import`, false)}`
     },
     bank: {
-      nav: `${sep}
-        ${navLink('Reconcile', `/${company}/bank`, activeKey === 'bank')}
-        ${navLink('Mappings', `/${company}/settings?tab=bank-mappings`, false)}`,
+      nav: ``,
       actions: `${actionBtn('+ Statement', `/${company}/bank#import`)}`
     },
     payables: {
-      nav: `${sep}
-        ${navLink('Bills', `/${company}/payables`, true)}
-        ${navLink('Vendors', '#', false, true)}
-        <a href="#" class="tb-nav-link" onclick="event.preventDefault();localStorage.setItem('fb-rpt-type','ap-aging');window.location.href='/${company}/reports'">AP Aging</a>`,
+      nav: ``,
       actions: `${actionBtn('+ Bill', `/${company}/bill/new`)}`
     },
     receivables: {
-      nav: `${sep}
-        ${navLink('Invoices', '#', false, true)}
-        ${navLink('Customers', '#', false, true)}
-        ${navLink('AR Aging', '#', false, true)}`,
+      nav: ``,
       actions: `${actionBtn('+ Invoice', '#', false)}`
     },
     reports: {
@@ -469,21 +469,11 @@ function topBarContext(company, activeKey) {
         </div>`
     },
     auditor: {
-      nav: `${sep}
-        ${navLink('Trial Balance', '#', false, true)}
-        ${navLink('General Ledger', '#', false, true)}
-        ${navLink('Journal', '#', false, true)}
-        ${navLink('Integrity Check', '#', false, true)}`,
+      nav: ``,
       actions: ''
     },
     settings: {
-      nav: `${sep}
-        ${navLink('Company', `/${company}/settings?tab=company`, false)}
-        ${navLink('Periods', `/${company}/settings?tab=periods`, false)}
-        ${navLink('COA', `/${company}/settings?tab=coa`, false)}
-        ${navLink('GST / VAT', `/${company}/settings?tab=tax`, false)}
-        ${navLink('Journals', `/${company}/settings?tab=journals`, false)}
-        ${navLink('FX Rates', `/${company}/settings?tab=fx`, false)}`,
+      nav: ``,
       actions: ''
     },
     newjv: {
@@ -544,7 +534,12 @@ function navBar(company, activeKey) {
   <div id="main-area">
     <header id="top-bar">
       <div class="tb-left">
-        ${ctx.nav}
+        <div class="tb-global-controls">
+          <div class="tb-search-wrap">
+            <input type="text" id="tb-global-search" class="tb-search" placeholder="🔍  Search…" autocomplete="off" tabindex="-1">
+          </div>
+          <button class="tb-cmd-btn" id="tb-cmd-palette-btn" title="Command palette (: or Ctrl+K)" onclick="fbOpenCmdPalette()">⌘ Commands</button>
+        </div>
       </div>
       <div class="tb-right">
         ${ctx.actions}
@@ -648,6 +643,77 @@ function layoutEnd() {
     var dd = document.getElementById('tb-company-dropdown');
     if (dd) dd.style.display = 'none';
   });
+})();
+</script>
+<script>
+(function() {
+  // "/" focuses global search
+  // ":" or Ctrl+K opens command palette
+  document.addEventListener('keydown', function(e) {
+    var tag = (document.activeElement || {}).tagName || '';
+    var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    if (!inInput && e.key === '/') {
+      e.preventDefault();
+      var s = document.getElementById('tb-global-search');
+      if (s) { s.focus(); s.select(); }
+    }
+    if ((!inInput && e.key === ':') || (e.ctrlKey && e.key === 'k')) {
+      e.preventDefault();
+      fbOpenCmdPalette();
+    }
+  });
+
+  window.fbOpenCmdPalette = window.fbOpenCmdPalette || function() {
+    var company = document.getElementById('app-shell') ? document.getElementById('app-shell').dataset.company : '';
+    var cmds = [
+      { label: '+ New Journal Entry',  action: function(){ window.location.href = '/' + company + '/journal/new'; } },
+      { label: '+ New Bill',           action: function(){ window.location.href = '/' + company + '/bill/new'; } },
+      { label: '\u2192 Dashboard',          action: function(){ window.location.href = '/' + company; } },
+      { label: '\u2192 Bank',               action: function(){ window.location.href = '/' + company + '/bank'; } },
+      { label: '\u2192 Payables',           action: function(){ window.location.href = '/' + company + '/payables'; } },
+      { label: '\u2192 Reports',            action: function(){ window.location.href = '/' + company + '/reports'; } },
+      { label: '\u2192 Settings',           action: function(){ window.location.href = '/' + company + '/settings'; } },
+    ];
+    var existing = document.getElementById('fb-cmd-modal');
+    if (existing) { existing.remove(); return; }
+    var overlay = document.createElement('div');
+    overlay.id = 'fb-cmd-modal';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9000;background:rgba(0,0,0,.4);display:flex;align-items:flex-start;justify-content:center;padding-top:15vh';
+    overlay.onclick = function(e){ if(e.target===overlay) overlay.remove(); };
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:420px;max-width:90vw;overflow:hidden';
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.placeholder = 'Type a command\u2026';
+    inp.style.cssText = 'width:100%;padding:14px 18px;font-size:1rem;border:none;border-bottom:1px solid #e8e8e8;outline:none;box-sizing:border-box';
+    var list = document.createElement('div');
+    function renderList(q) {
+      list.innerHTML = '';
+      cmds.filter(function(c){ return !q || c.label.toLowerCase().includes(q.toLowerCase()); }).forEach(function(c) {
+        var item = document.createElement('div');
+        item.textContent = c.label;
+        item.style.cssText = 'padding:12px 18px;cursor:pointer;font-size:0.9375rem;border-bottom:1px solid #f5f5f5';
+        item.onmouseover = function(){ item.style.background='#f0f4ff'; };
+        item.onmouseout  = function(){ item.style.background=''; };
+        item.onclick = function(){ overlay.remove(); c.action(); };
+        list.appendChild(item);
+      });
+    }
+    renderList('');
+    inp.oninput = function(){ renderList(inp.value); };
+    inp.onkeydown = function(e){
+      if(e.key==='Escape') overlay.remove();
+      if(e.key==='Enter') {
+        var first = list.querySelector('div');
+        if(first) first.click();
+      }
+    };
+    box.appendChild(inp);
+    box.appendChild(list);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    setTimeout(function(){ inp.focus(); }, 50);
+  };
 })();
 </script>`;
 }

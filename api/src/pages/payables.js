@@ -15,7 +15,7 @@ function buildPayablesPage(company, taxLabel = 'VAT') {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Bills — freeBooks</title>
+<title>Payables — freeBooks</title>
 ${commonStyle()}
 <style>
   .page { max-width:1100px; }
@@ -98,7 +98,7 @@ ${commonStyle()}
   <!-- Page header -->
   <div class="page-header">
     <div>
-      <h1>Bills</h1>
+      <h1>📋 Payables</h1>
       <p class="sub">Manage accounts payable and vendor invoices.</p>
     </div>
     <a href="/${company}/bill/new" class="btn-create">&#43; Create Bill</a>

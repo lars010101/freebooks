@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, navBar } = require('./common');
+const { commonStyle, navBar, layoutEnd } = require('./common');
 const { query } = require('../db');
 
 async function handleBillNewPage(req, res) {

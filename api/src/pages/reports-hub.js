@@ -11,13 +11,45 @@ async function handleReportsHubPage(req, res) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Reports \u2014 freeBooks</title>
 ${commonStyle()}
-<style>
-  #page-main { padding: 0 !important; overflow: hidden !important; display: flex; flex-direction: column; }
-  #report-frame { flex: 1; border: none; width: 100%; min-height: 0; display: block; }
-</style>
 </head>
 <body>${navBar(company, 'reports')}
-<iframe id="report-frame" src="about:blank"></iframe>
+<div class="page" style="display:flex; flex-direction:column; height:100%; padding:0; overflow:hidden;">
+  <div class="header" style="padding:20px 24px 0; flex-shrink:0;">
+    <h1>\u{1F4C8} Reports</h1>
+  </div>
+
+  <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:12px 24px; border-bottom:1px solid var(--border,#e8e8e8); flex-shrink:0;">
+    <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbOnTypeChange()">
+      <option value="pl">Profit &amp; Loss</option>
+      <option value="bs">Balance Sheet</option>
+      <option value="cf">Cash Flow</option>
+      <option value="sce">Statement of Equity</option>
+      <option value="tb">Trial Balance</option>
+      <option value="gl">General Ledger</option>
+      <option value="journal">Journal Listing</option>
+      <option value="integrity">Integrity Check</option>
+      <option value="ap-aging">AP Aging</option>
+    </select>
+    <div class="tb-divider"></div>
+    <select id="rpt-period" class="tb-select" style="min-width:110px" onchange="fbOnPeriodChange()" title="Period"><option value="">—</option></select>
+    <input type="date" id="rpt-start" class="tb-date-input" onchange="fbLoadReport()" title="Start date">
+    <span style="color:var(--text-muted);padding:0 3px;font-size:0.875rem">–</span>
+    <input type="date" id="rpt-end" class="tb-date-input" onchange="fbLoadReport()" title="End date">
+    <button class="tb-toggle-btn" id="rpt-mom" onclick="fbToggleComparison('mom')" title="Month-over-month" style="margin-left:8px">MoM</button>
+    <button class="tb-toggle-btn" id="rpt-yoy" onclick="fbToggleComparison('yoy')" title="Year-over-year">YoY</button>
+    <div style="position:relative;margin-left:auto">
+      <button class="tb-icon-btn" id="rpt-dl-btn" onclick="fbToggleDownload(event)" title="Download report">⬇</button>
+      <div id="rpt-dl-dd" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:300;min-width:140px;padding:4px 0">
+        <button onclick="fbExportPDF()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">🖳 Print / PDF</button>
+        <button onclick="fbExportCSV()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">⬇ CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex:1; overflow:hidden; min-height:0;">
+    <iframe id="report-frame" src="about:blank" style="border:none; width:100%; height:100%; display:block;"></iframe>
+  </div>
+</div>
 ${layoutEnd()}
 <script>
 (function() {

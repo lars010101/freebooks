@@ -1155,13 +1155,23 @@ function addMappingRow(m) {
 }
 
 function loadMappings() {
+  var msgEl = document.getElementById('msg-mappings');
+  if (msgEl) { msgEl.textContent = 'Loading…'; msgEl.className = 'msg'; }
   document.getElementById('mappings-body').innerHTML = '';
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mapping.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); }).then(function(res){
-      var rows = res.data||res;
-      if (Array.isArray(rows)) rows.forEach(addMappingRow);
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var rows = res.data || res;
+      if (res.error) throw new Error(res.error);
+      if (!Array.isArray(rows)) throw new Error('Unexpected response: ' + JSON.stringify(res).slice(0, 100));
+      rows.forEach(addMappingRow);
       bankMappingsDirty = false;
       document.getElementById('btn-save-mappings').disabled = true;
+      if (msgEl) { msgEl.textContent = rows.length ? '' : 'No rules yet.'; msgEl.className = 'msg'; }
+    })
+    .catch(function(e){
+      if (msgEl) { msgEl.textContent = 'Error: ' + e.message; msgEl.className = 'msg err'; }
+      console.error('loadMappings failed:', e);
     });
 }
 

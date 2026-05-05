@@ -440,25 +440,7 @@ function topBarContext(company, activeKey) {
       actions: `${actionBtn('+ Invoice', '#', false)}`
     },
     reports: {
-      nav: `
-        <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbOnTypeChange()">
-          <option value="pl">Profit &amp; Loss</option>
-          <option value="bs">Balance Sheet</option>
-          <option value="cf">Cash Flow</option>
-          <option value="sce">Statement of Equity</option>
-          <option value="tb">Trial Balance</option>
-          <option value="gl">General Ledger</option>
-          <option value="journal">Journal Listing</option>
-          <option value="integrity">Integrity Check</option>
-          <option value="ap-aging">AP Aging</option>
-        </select>
-        <div class="tb-divider"></div>
-        <select id="rpt-period" class="tb-select" style="min-width:110px" onchange="fbOnPeriodChange()" title="Period"><option value="">—</option></select>
-        <input type="date" id="rpt-start" class="tb-date-input" onchange="fbLoadReport()" title="Start date">
-        <span style="color:var(--text-muted);padding:0 3px;font-size:0.875rem">–</span>
-        <input type="date" id="rpt-end" class="tb-date-input" onchange="fbLoadReport()" title="End date">
-        <button class="tb-toggle-btn" id="rpt-mom" onclick="fbToggleComparison('mom')" title="Month-over-month" style="margin-left:8px">MoM</button>
-        <button class="tb-toggle-btn" id="rpt-yoy" onclick="fbToggleComparison('yoy')" title="Year-over-year">YoY</button>`,
+      nav: ``,
       actions: `
         <div style="position:relative">
           <button class="tb-icon-btn" id="rpt-dl-btn" onclick="fbToggleDownload(event)" title="Download report">⬇</button>

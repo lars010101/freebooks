@@ -263,7 +263,7 @@ body {
   gap: 5px;
   padding: 6px 14px;
   border-radius: 5px;
-  font-size: 9.5pt;
+  font-size: 10.5pt;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;

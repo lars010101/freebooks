@@ -35,8 +35,15 @@ ${commonStyle()}
   .summary-bar .lbl { color:#888; font-size:9pt; }
   .summary-bar .val { font-weight:700; font-size:12pt; }
   
-  .step { background:#f8f8f8; border:1px solid #e0e0e0; border-radius:6px; padding:14px 18px; margin-bottom:16px; }
-  .step h3 { margin:0 0 10px; font-size:11pt; color:#333; }
+  .step { background:var(--surface,#fff); border:1px solid var(--border,#e8e8e8); border-radius:0.5rem; padding:1.25rem 1.5rem; margin-bottom:1rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .step h3 { margin:0 0 0.875rem; font-size:0.9375rem; color:var(--text); font-weight:600; }
+  .wz-step .wz-num { display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;border-radius:50%;background:var(--border,#e0e0e0);color:var(--text-muted,#888);font-size:0.8rem;font-weight:700;flex-shrink:0; }
+  .wz-step .wz-label { font-size:0.875rem;color:var(--text-muted,#888);font-weight:500; }
+  .wz-step.active .wz-num { background:var(--accent,#1a1a1a);color:#fff; }
+  .wz-step.active .wz-label { color:var(--text);font-weight:600; }
+  .wz-step.done .wz-num { background:#2a8a2a;color:#fff; }
+  .wz-step.done .wz-label { color:var(--text-muted,#888); }
+  .wz-connector { flex:1;height:2px;background:var(--border,#e0e0e0);margin:0 0.5rem;max-width:4rem; }
   table.review-table { width:100%; border-collapse:collapse; font-size:9.5pt; }
   table.review-table th { background:#f0f0f0; padding:5px 7px; text-align:left; font-size:9pt; border:1px solid #ddd; }
   table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; }
@@ -50,9 +57,7 @@ ${commonStyle()}
   input.acct { width:75px; padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
   select.col-map { padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
   
-  details { margin-top:28px; }
-  details summary { cursor:pointer; font-weight:600; font-size:11pt; padding:10px 0; }
-  details[open] summary { margin-bottom:14px; }
+
   .bill-row { cursor:pointer; }
   .acct-dd { position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:180px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2);border-radius:3px; }
   .acct-dd-item { padding:4px 8px;cursor:pointer;white-space:nowrap; }
@@ -133,21 +138,41 @@ ${commonStyle()}
   </table>
   <div id="rec-status" style="margin-top:10px;font-size:10pt"></div>
 
-  <!-- Import section (collapsible) -->
-  <details id="import-section" style="margin-top:28px">
-    <summary style="cursor:pointer;font-weight:600;font-size:11pt;padding:10px 0">Import Statement</summary>
+  <!-- Import section (wizard) -->
+  <div id="import-section" style="margin-top:2rem; border-top:1px solid var(--border,#e8e8e8); padding-top:1.5rem;">
+    <h2 style="font-size:1rem; font-weight:700; margin:0 0 1.25rem; color:var(--text)">Import Statement</h2>
+
+    <!-- Wizard step indicator -->
+    <div id="wizard-steps" style="display:flex; align-items:center; gap:0; margin-bottom:1.5rem;">
+      <div class="wz-step active" id="wz-step-1" style="display:flex;align-items:center;gap:0.5rem">
+        <span class="wz-num">1</span>
+        <span class="wz-label">Upload</span>
+      </div>
+      <div class="wz-connector"></div>
+      <div class="wz-step" id="wz-step-2" style="display:flex;align-items:center;gap:0.5rem">
+        <span class="wz-num">2</span>
+        <span class="wz-label">Mapping</span>
+      </div>
+      <div class="wz-connector"></div>
+      <div class="wz-step" id="wz-step-3" style="display:flex;align-items:center;gap:0.5rem">
+        <span class="wz-num">3</span>
+        <span class="wz-label">Review &amp; Approve</span>
+      </div>
+    </div>
 
     <!-- Step 1: Upload -->
     <div class="step" id="step1">
       <h3>① Load your bank statement CSV</h3>
-      <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Open the CSV in a text editor, select all (Ctrl+A), copy (Ctrl+C), then paste below. Or use the file picker.</p>
-      <textarea id="csv-paste" rows="5" style="width:100%;font-family:monospace;font-size:9pt;padding:8px;border:1px solid #ccc;border-radius:4px;resize:vertical" placeholder="Paste CSV content here…"></textarea>
-      <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
-        <button class="btn-primary" onclick="onPasteLoad()">Load Pasted CSV →</button>
-        <span style="color:#888;font-size:9.5pt">or select file:</span>
-        <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()">
+      <div id="drop-zone" style="border:2px dashed var(--border,#ccc);border-radius:0.5rem;padding:2rem 1rem;text-align:center;color:var(--text-muted,#888);margin-bottom:1rem;cursor:pointer;transition:border-color .15s" onclick="document.getElementById('csv-file').click()" ondragover="event.preventDefault();this.style.borderColor='var(--accent,#1a1a1a)'" ondragleave="this.style.borderColor=''" ondrop="onDropFile(event)">
+        <div style="font-size:0.9375rem;margin-bottom:0.5rem">Drag and drop your bank statement file here, or <span style="color:var(--accent,#2255cc);text-decoration:underline;cursor:pointer">click to browse</span>.</div>
+        <button class="btn-sm" onclick="event.stopPropagation();var s=document.getElementById('csv-paste-section');s.style.display=s.style.display==='none'?'':'none';" style="margin-top:0.5rem">Paste CSV data here</button>
       </div>
-      <div id="file-status" style="margin-top:8px;font-size:10pt"></div>
+      <div id="csv-paste-section" style="display:none;margin-top:0.75rem">
+        <textarea id="csv-paste" rows="4" style="width:100%;font-family:monospace;font-size:0.8125rem;padding:0.5rem;border:1px solid var(--border,#ccc);border-radius:0.375rem;resize:vertical;box-sizing:border-box;" placeholder="Paste CSV content here…"></textarea>
+        <button class="btn-primary" onclick="onPasteLoad()" style="margin-top:0.5rem">Load Pasted CSV →</button>
+      </div>
+      <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()" style="display:none">
+      <div id="file-status" style="margin-top:0.5rem;font-size:0.875rem"></div>
     </div>
 
     <!-- Step 2: Map columns -->
@@ -211,7 +236,7 @@ ${commonStyle()}
       </div>
     </div>
 
-  </details>
+  </div><!-- /import-section -->
 
   </div><!-- /bank-panel-txn -->
 
@@ -440,6 +465,7 @@ ${commonStyle()}
       statusEl.style.color = '#2a8a2a';
       statusEl.textContent = '\u2713 Loaded ' + csvRows.length + ' rows | Columns: ' + headers.join(', ');
       populateColDropdowns();
+      setWizardStep(2);
       document.getElementById('step2').style.display = '';
       document.getElementById('step2').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch(err) {
@@ -676,6 +702,7 @@ ${commonStyle()}
       if (inp.value) { var nd = inp.nextElementSibling; if(nd) nd.textContent = accountsMap[inp.value]||'?'; }
     });
     processedRows.forEach(function(r, i){ if (r.billId) refreshBillCell(i); });
+    setWizardStep(3);
     document.getElementById('step-review').style.display = '';
     var jSel = document.getElementById('import-journal');
     if (Array.isArray(journalsList) && journalsList.length) {
@@ -797,6 +824,31 @@ ${commonStyle()}
     document.getElementById('bal-net').textContent = (net >= 0 ? '+' : '') + fmt(net);
     document.getElementById('bal-net').style.color = net >= 0 ? '#2a8a2a' : '#cc2222';
     document.getElementById('bal-after').textContent = fmt(after);
+  }
+
+  function setWizardStep(n) {
+    for (var i = 1; i <= 3; i++) {
+      var el = document.getElementById('wz-step-' + i);
+      if (!el) continue;
+      el.classList.remove('active','done');
+      if (i < n) el.classList.add('done');
+      else if (i === n) el.classList.add('active');
+    }
+  }
+
+  function onDropFile(e) {
+    e.preventDefault();
+    document.getElementById('drop-zone').style.borderColor = '';
+    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var s = document.getElementById('csv-paste-section');
+      s.style.display = '';
+      document.getElementById('csv-paste').value = ev.target.result;
+      onPasteLoad();
+    };
+    reader.readAsText(file);
   }
 
   function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }

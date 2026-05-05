@@ -925,6 +925,26 @@ function generatePeriods(start, end, step) {
   return periods;
 }
 
+function generateYoYPeriods(start, end) {
+  const startD = new Date(start + 'T00:00:00Z');
+  const endD   = new Date(end   + 'T00:00:00Z');
+  const diffDays = (endD - startD) / (864e5);
+  if (diffDays < 364 || diffDays > 366) return null; // must be ~1 year
+
+  const periods = [];
+  // 5 columns: [current-4, current-3, current-2, current-1, current]
+  for (let i = 4; i >= 0; i--) {
+    const s = new Date(Date.UTC(startD.getUTCFullYear() - i, startD.getUTCMonth(), startD.getUTCDate()));
+    const e = new Date(Date.UTC(endD.getUTCFullYear()   - i, endD.getUTCMonth(),   endD.getUTCDate()));
+    periods.push({
+      start: s.toISOString().slice(0, 10),
+      end:   e.toISOString().slice(0, 10),
+      label: 'FY' + e.getUTCFullYear(),
+    });
+  }
+  return periods;
+}
+
 // ── renderComparative ─────────────────────────────────────────────────────────
 /**
  * Render a multi-period (comparative) report.
@@ -1084,4 +1104,4 @@ async function generateFiscalPeriods(query, company) {
   return rows.map(p => ({ start: toYMD(p.start_date), end: toYMD(p.end_date), label: p.period_name }));
 }
 
-module.exports = { renderReport, renderComparative, generatePeriods, generateFiscalPeriods, REPORT_TITLES, toCSV, htmlPage };
+module.exports = { renderReport, renderComparative, generatePeriods, generateYoYPeriods, generateFiscalPeriods, REPORT_TITLES, toCSV, htmlPage };

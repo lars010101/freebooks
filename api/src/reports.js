@@ -8,7 +8,7 @@
 
 const path = require('path');
 const { getDb } = require('./db');
-const { renderReport, renderComparative, generatePeriods, generateFiscalPeriods } = require(
+const { renderReport, renderComparative, generatePeriods, generateYoYPeriods, generateFiscalPeriods } = require(
   path.resolve(__dirname, '../../reports/render.js')
 );
 
@@ -48,8 +48,12 @@ async function handleReport(req, res) {
       const fyPeriods = await generateFiscalPeriods(query, company);
       if (!fyPeriods.length) return res.status(400).json({ error: 'No fiscal periods defined for this company' });
       result = await renderComparative(query, company, type, fyPeriods);
-    } else if (step === 'month' || step === 'year') {
-      const periods = generatePeriods(start, end, step);
+    } else if (step === 'mom') {
+      const periods = generatePeriods(start, end, 'month');
+      result = await renderComparative(query, company, type, periods);
+    } else if (step === 'yoy') {
+      const periods = generateYoYPeriods(start, end);
+      if (!periods) return res.status(400).json({ error: 'YoY comparison requires a period of exactly 1 year.' });
       result = await renderComparative(query, company, type, periods);
     } else {
       result = await renderReport(query, company, type, start, end, { account });

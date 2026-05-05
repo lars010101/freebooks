@@ -441,7 +441,7 @@ function topBarContext(company, activeKey) {
     },
     reports: {
       nav: `
-        <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbLoadReport()">
+        <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbOnTypeChange()">
           <option value="pl">Profit &amp; Loss</option>
           <option value="bs">Balance Sheet</option>
           <option value="cf">Cash Flow</option>
@@ -451,19 +451,26 @@ function topBarContext(company, activeKey) {
           <option value="journal">Journal Listing</option>
           <option value="integrity">Integrity Check</option>
           <option value="ap-aging">AP Aging</option>
+          <option disabled style="color:var(--text-faint)">────────</option>
+          <option value="__mom">MoM Comparison</option>
+          <option value="__yoy">YoY Comparison</option>
         </select>
+        <span id="rpt-step-badge" style="display:none;font-size:0.75rem;font-weight:700;color:var(--accent);white-space:nowrap"></span>
         <div class="tb-divider"></div>
         <select id="rpt-period" class="tb-select" style="width:9ch" onchange="fbOnPeriodChange()" title="Period"><option value="">—</option></select>
-        <button class="tb-toggle-btn" id="rpt-mom" onclick="fbToggleComparison('mom')" title="Month-over-month">MoM</button>
-        <button class="tb-toggle-btn" id="rpt-yoy" onclick="fbToggleComparison('yoy')" title="Year-over-year">YoY</button>
         <input type="date" id="rpt-start" class="tb-date-input" onchange="fbLoadReport()" title="Start date">
         <span style="color:var(--text-muted);padding:0 3px;font-size:0.875rem">–</span>
         <input type="date" id="rpt-end" class="tb-date-input" onchange="fbLoadReport()" title="End date">
         <button class="tb-toggle-btn" id="rpt-filter" onclick="fbToggleFilter()" title="Filter by account">Filter</button>
         <input type="text" id="rpt-account" class="tb-date-input" placeholder="Account code" style="display:none;width:130px" oninput="fbLoadReport()">`,
       actions: `
-        <button class="tb-btn" onclick="fbExportPDF()" title="Open report in new tab — use browser Print / Save as PDF">🖨 Print / PDF</button>
-        <button class="tb-btn" onclick="fbExportCSV()" title="Download report data as CSV">⬇ CSV</button>`
+        <div style="position:relative">
+          <button class="tb-icon-btn" id="rpt-dl-btn" onclick="fbToggleDownload(event)" title="Download report">⬇</button>
+          <div id="rpt-dl-dd" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:300;min-width:140px;padding:4px 0">
+            <button onclick="fbExportPDF()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">🖨 Print / PDF</button>
+            <button onclick="fbExportCSV()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">⬇ CSV</button>
+          </div>
+        </div>`
     },
     auditor: {
       nav: `${sep}

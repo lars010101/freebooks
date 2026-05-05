@@ -63,9 +63,8 @@ ${commonStyle()}
 
 </style>
 </head>
-<body>
+<body>${navBar(company, 'payables')}
 <div class="page">
-  ${navBar(company, 'payables')}
   <div class="header">
     <h1>📄 New Bill</h1>
     <p class="sub">${company}</p>

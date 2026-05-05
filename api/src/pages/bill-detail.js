@@ -134,9 +134,8 @@ ${commonStyle()}
   .edit-input:focus { outline:none; border-color:#2255cc; box-shadow:0 0 0 3px rgba(34,85,204,.08); }
 </style>
 </head>
-<body>
+<body>${navBar(company, 'payables')}
 <div class="page">
-  ${navBar(company, 'payables')}
 
   <!-- Breadcrumb -->
   <div class="breadcrumb">

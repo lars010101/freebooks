@@ -30,7 +30,7 @@ function htmlPage(title, company, period, tableHtml, opts = {}) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: 900px; margin: 0 auto; padding: 32px 40px; }
+  .page { max-width: 900px; margin: 0; padding: 32px 40px; }
   .page.wide { max-width: none; margin: 0; padding: 24px 32px; }
   .page.wide .table-wrap { overflow-x: auto; }
   .page.wide th { white-space: nowrap; }
@@ -271,7 +271,7 @@ async function buildGL(query, company, start, end, account) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
+  .page { max-width: 1200px; margin: 0; padding: 24px 32px; }
   .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
@@ -358,7 +358,7 @@ async function buildJournal(query, company, start, end) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
+  .page { max-width: 1200px; margin: 0; padding: 24px 32px; }
   .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
@@ -701,7 +701,7 @@ async function buildAPAging(query, company, _start, end) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: 1100px; margin: 0 auto; padding: 24px 32px; }
+  .page { max-width: 1100px; margin: 0; padding: 24px 32px; }
   .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }

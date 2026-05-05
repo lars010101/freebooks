@@ -73,6 +73,7 @@ const ACTION_ROLES = {
   'vendor.list': 'viewer',
   'vendor.save': 'owner',
   'vendor.delete': 'owner',
+  'vendor.upsert': 'owner',
   'settings.get': 'viewer',
   'settings.save': 'owner',
   'company.list': 'viewer',

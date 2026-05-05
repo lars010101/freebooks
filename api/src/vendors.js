@@ -12,6 +12,7 @@ async function handleVendors(ctx, action) {
     case 'vendor.list':  return listVendors(ctx);
     case 'vendor.save':  return saveVendors(ctx);
     case 'vendor.delete': return deleteVendor(ctx);
+    case 'vendor.upsert': return upsertVendor(ctx);
     default:
       throw Object.assign(new Error(`Unknown vendor action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -96,6 +97,47 @@ async function deleteVendor(ctx) {
     { companyId, vendorId }
   );
   return { deleted: true, vendorId };
+}
+
+async function upsertVendor(ctx) {
+  const { companyId, body } = ctx;
+  const { vendor } = body;
+  if (!vendor || !vendor.name) throw Object.assign(new Error('vendor.name required'), { code: 'INVALID_INPUT' });
+
+  const vendorId = vendor.vendor_id || uuid();
+
+  const existing = await query(
+    `SELECT vendor_id FROM vendors WHERE company_id = @companyId AND vendor_id = @vendorId`,
+    { companyId, vendorId }
+  );
+
+  if (existing.length > 0) {
+    await exec(
+      `UPDATE vendors SET name=@name, default_currency=@currency, payment_terms_days=@terms,
+       default_expense_account=@expAcct, default_ap_account=@apAcct, is_active=@active
+       WHERE company_id=@companyId AND vendor_id=@vendorId`,
+      { companyId, vendorId, name: vendor.name,
+        currency: vendor.default_currency || null,
+        terms: vendor.payment_terms_days || 30,
+        expAcct: vendor.default_expense_account || null,
+        apAcct: vendor.default_ap_account || null,
+        active: vendor.is_active !== false }
+    );
+  } else {
+    await bulkInsert('vendors', [{
+      vendor_id: vendorId,
+      company_id: companyId,
+      name: vendor.name,
+      default_currency: vendor.default_currency || null,
+      payment_terms_days: vendor.payment_terms_days || 30,
+      tax_id: null,
+      notes: null,
+      default_expense_account: vendor.default_expense_account || null,
+      default_ap_account: vendor.default_ap_account || null,
+      is_active: vendor.is_active !== false
+    }]);
+  }
+  return { saved: true, vendorId };
 }
 
 module.exports = { handleVendors };

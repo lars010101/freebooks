@@ -181,9 +181,7 @@ ${commonStyle()}
       <tbody id="vendors-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <button class="btn-sm" onclick="addVendorRow()">+ Add Vendor</button>
-      <button id="btn-save-vendors" class="btn-primary" onclick="saveVendors()" disabled>Save</button>
-      <span id="msg-vendors" class="msg-pay"></span>
+      <span id="msg-vendors" class="msg" style="font-size:0.8125rem"></span>
     </div>
     <p style="margin-top:8px;font-size:9pt;color:#888">These defaults auto-fill when creating a bill for this vendor: currency, payment terms, expense account, and AP account.</p>
   </div><!-- /pay-panel-vendors -->
@@ -433,63 +431,151 @@ function loadVendorTable() {
       var tbody = document.getElementById('vendors-body');
       tbody.innerHTML = '';
       if (Array.isArray(rows)) rows.forEach(addVendorRow);
-      document.getElementById('btn-save-vendors').disabled = true;
+      appendBlankVendorRow();
     }).catch(function(){});
 }
 
 function addVendorRow(v) {
   v = v || {};
+  var isNew = !v.vendor_id;
   var tr = document.createElement('tr');
+  tr.dataset.vendorId = v.vendor_id || '';
+  tr.dataset.dirty = isNew ? '1' : '0';
   tr.innerHTML =
-    '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:220px"></td>' +
+    '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:200px"></td>' +
     '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:45px"></td>' +
     '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:55px"></td>' +
-    '<td style="position:relative"><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()" class="vendor-exp-acct">' +
-    '<span class="vendor-acct-status" style="margin-left:4px;font-size:12px"></span></td>' +
-    '<td style="position:relative"><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()" class="vendor-ap-acct">' +
-    '<span class="vendor-acct-status" style="margin-left:4px;font-size:12px"></span></td>' +
+    '<td><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
+    '<td><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
     '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
-    '<td></td>';
+    '<td style="white-space:nowrap;text-align:right"></td>';
+
+  // Save button
+  var saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-sm';
+  saveBtn.title = 'Save this row';
+  saveBtn.innerHTML = '\uD83D\uDCBE';
+  saveBtn.style.cssText = 'opacity:' + (isNew ? '1' : '0.35') + ';margin-right:4px';
+  saveBtn.onclick = function() { saveVendorRow(tr); };
+
+  // Delete button
   var delBtn = document.createElement('button');
   delBtn.className = 'btn-sm danger';
-  delBtn.innerHTML = '&#x2715;';
-  delBtn.onclick = function() {
-    var saveBtn = document.getElementById('btn-save-vendors');
-    if (saveBtn) saveBtn.disabled = false;
-    tr.remove();
-  };
+  delBtn.title = 'Delete vendor';
+  delBtn.innerHTML = '\u2715';
+  delBtn.onclick = function() { deleteVendorRow(tr); };
+
+  tr.cells[tr.cells.length - 1].appendChild(saveBtn);
   tr.cells[tr.cells.length - 1].appendChild(delBtn);
-  tr.querySelectorAll('input,select').forEach(function(el){
-    el.addEventListener('input', function(){ var b=document.getElementById('btn-save-vendors'); if(b) b.disabled=false; });
-    el.addEventListener('change', function(){ var b=document.getElementById('btn-save-vendors'); if(b) b.disabled=false; });
+
+  // Mark dirty and brighten save button on any change
+  tr.querySelectorAll('input').forEach(function(el) {
+    el.addEventListener('input', function() {
+      tr.dataset.dirty = '1';
+      saveBtn.style.opacity = '1';
+      // If this is the blank row and name got filled, add another blank row
+      if (isNew && el === tr.cells[0].querySelector('input') && el.value.trim()) {
+        isNew = false;
+        tr.dataset.vendorId = tr.dataset.vendorId || '';
+        appendBlankVendorRow();
+      }
+    });
+    el.addEventListener('change', function() {
+      tr.dataset.dirty = '1';
+      saveBtn.style.opacity = '1';
+    });
   });
+  tr.querySelectorAll('input[type=checkbox]').forEach(function(el) {
+    el.addEventListener('change', function() {
+      tr.dataset.dirty = '1';
+      saveBtn.style.opacity = '1';
+    });
+  });
+
   document.getElementById('vendors-body').appendChild(tr);
+  return tr;
 }
 
-function saveVendors() {
-  var rows = Array.from(document.querySelectorAll('#vendors-body tr')).map(function(tr){
-    var inputs = tr.querySelectorAll('input');
-    return {
-      name: inputs[0].value.trim(),
-      default_currency: inputs[1].value.trim() || null,
-      payment_terms_days: parseInt(inputs[2].value) || 30,
-      tax_id: null, notes: null,
-      default_expense_account: inputs[3].value.trim() || null,
-      default_ap_account: inputs[4].value.trim() || null,
-      is_active: inputs[5].checked
-    };
-  }).filter(function(r){ return r.name; });
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.save', companyId: COMPANY, vendors: rows }) })
+function appendBlankVendorRow() {
+  // Only append if last row isn't already blank
+  var tbody = document.getElementById('vendors-body');
+  var rows = tbody.querySelectorAll('tr');
+  if (rows.length > 0) {
+    var lastNameInput = rows[rows.length - 1].cells[0].querySelector('input');
+    if (lastNameInput && !lastNameInput.value.trim()) return; // already blank
+  }
+  addVendorRow({});
+}
+
+// saveVendors: replaced by per-row saveVendorRow()
+
+function saveVendorRow(tr) {
+  var inputs = tr.querySelectorAll('input');
+  var name = inputs[0].value.trim();
+  if (!name) {
+    var msgEl = document.getElementById('msg-vendors');
+    if (msgEl) { msgEl.textContent = 'Name is required.'; msgEl.className = 'msg err'; }
+    inputs[0].focus();
+    return;
+  }
+  var vendor = {
+    vendor_id: tr.dataset.vendorId || null,
+    name: name,
+    default_currency: inputs[1].value.trim() || null,
+    payment_terms_days: parseInt(inputs[2].value) || 30,
+    default_expense_account: inputs[3].value.trim() || null,
+    default_ap_account: inputs[4].value.trim() || null,
+    is_active: inputs[5].checked
+  };
+  var saveBtn = tr.querySelector('button.btn-sm:not(.danger)');
+  if (saveBtn) { saveBtn.innerHTML = '\u23F3'; saveBtn.disabled = true; }
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'vendor.upsert', companyId: COMPANY, vendor: vendor }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       var d = res.data || res;
       var msgEl = document.getElementById('msg-vendors');
-      var ok = !d.error;
-      msgEl.textContent = d.error || 'Saved ' + rows.length + ' vendors';
-      msgEl.className = 'msg-pay ' + (ok ? 'ok' : 'err');
-      if (ok) { document.getElementById('btn-save-vendors').disabled=true; setTimeout(function(){ msgEl.textContent=''; }, 3000); loadVendorTable(); }
+      if (d.error || res.error) {
+        if (msgEl) { msgEl.textContent = d.error || res.error; msgEl.className = 'msg err'; }
+        if (saveBtn) { saveBtn.innerHTML = '\uD83D\uDCBE'; saveBtn.disabled = false; }
+      } else {
+        // Store the returned/assigned vendorId on the row
+        if (d.vendorId) tr.dataset.vendorId = d.vendorId;
+        tr.dataset.dirty = '0';
+        if (saveBtn) { saveBtn.innerHTML = '\u2713'; saveBtn.style.opacity='0.35'; saveBtn.disabled = false; setTimeout(function(){ saveBtn.innerHTML='\uD83D\uDCBE'; }, 1500); }
+        if (msgEl) { msgEl.textContent = 'Saved.'; msgEl.className = 'msg ok'; setTimeout(function(){ msgEl.textContent=''; }, 2000); }
+      }
     })
-    .catch(function(e){ var msgEl = document.getElementById('msg-vendors'); msgEl.textContent=e.message; msgEl.className='msg-pay err'; });
+    .catch(function(e){
+      var msgEl = document.getElementById('msg-vendors');
+      if (msgEl) { msgEl.textContent = e.message; msgEl.className = 'msg err'; }
+      if (saveBtn) { saveBtn.innerHTML = '\uD83D\uDCBE'; saveBtn.disabled = false; }
+    });
+}
+
+function deleteVendorRow(tr) {
+  var name = tr.cells[0].querySelector('input').value.trim();
+  var vendorId = tr.dataset.vendorId;
+  // If no vendorId (unsaved new row) just remove from DOM
+  if (!vendorId) { tr.remove(); appendBlankVendorRow(); return; }
+  if (!confirm('Delete vendor "' + (name || vendorId) + '"?')) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'vendor.delete', companyId: COMPANY, vendorId: vendorId }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var d = res.data || res;
+      if (d.error || res.error) {
+        var msgEl = document.getElementById('msg-vendors');
+        if (msgEl) { msgEl.textContent = d.error || res.error; msgEl.className = 'msg err'; }
+      } else {
+        tr.remove();
+        appendBlankVendorRow();
+      }
+    })
+    .catch(function(e){
+      var msgEl = document.getElementById('msg-vendors');
+      if (msgEl) { msgEl.textContent = e.message; msgEl.className = 'msg err'; }
+    });
 }
 
 function payVendorAcctInput(input) {

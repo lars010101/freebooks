@@ -117,15 +117,29 @@ async function buildBS(query, company, start, end) {
 
   // Compute unallocated net income for the period (P&L not yet closed to RE)
   const [niRow] = await query(
-    `SELECT
-       COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit_home - je.debit_home ELSE 0 END), 0) -
-       COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit_home - je.credit_home ELSE 0 END), 0)
-       AS net_income
-     FROM journal_entries je
-     JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-     WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?
-       AND a.account_type NOT IN ('Closing')`,
-    [company, start, end]
+    `WITH pl AS (
+      SELECT
+        COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit_home - je.debit_home ELSE 0 END), 0) -
+        COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit_home - je.credit_home ELSE 0 END), 0)
+        AS pl_net
+      FROM journal_entries je
+      JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+      WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?
+        AND a.account_type NOT IN ('Closing')
+    ),
+    closed AS (
+      SELECT COALESCE(SUM(je.credit_home - je.debit_home), 0) AS closed_to_re
+      FROM journal_entries je
+      WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?
+        AND je.account_code = '203070'
+        AND je.batch_id IN (
+          SELECT DISTINCT batch_id FROM journal_entries j2
+          WHERE j2.company_id = ? AND j2.account_code = '999999'
+        )
+    )
+    SELECT pl.pl_net - closed.closed_to_re AS net_income
+    FROM pl, closed`,
+    [company, start, end, company, start, end, company]
   ).catch(() => [{ net_income: 0 }]);
   const netIncome = Number(niRow?.net_income || 0);
 
@@ -588,15 +602,29 @@ async function buildIntegrity(query, company, start, end) {
 
   // Compute unallocated net income — same logic as buildBS
   const [niRow] = await query(
-    `SELECT
-       COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit_home - je.debit_home ELSE 0 END), 0) -
-       COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit_home - je.credit_home ELSE 0 END), 0)
-       AS net_income
-     FROM journal_entries je
-     JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-     WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?
-       AND a.account_type NOT IN ('Closing')`,
-    [company, start, end]
+    `WITH pl AS (
+      SELECT
+        COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit_home - je.debit_home ELSE 0 END), 0) -
+        COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit_home - je.credit_home ELSE 0 END), 0)
+        AS pl_net
+      FROM journal_entries je
+      JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+      WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?
+        AND a.account_type NOT IN ('Closing')
+    ),
+    closed AS (
+      SELECT COALESCE(SUM(je.credit_home - je.debit_home), 0) AS closed_to_re
+      FROM journal_entries je
+      WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?
+        AND je.account_code = '203070'
+        AND je.batch_id IN (
+          SELECT DISTINCT batch_id FROM journal_entries j2
+          WHERE j2.company_id = ? AND j2.account_code = '999999'
+        )
+    )
+    SELECT pl.pl_net - closed.closed_to_re AS net_income
+    FROM pl, closed`,
+    [company, start, end, company, start, end, company]
   ).catch(() => [{ net_income: 0 }]);
   const netIncome = Number(niRow?.net_income || 0);
 

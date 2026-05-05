@@ -31,6 +31,15 @@ Core capabilities:
 
 ---
 
+## Documentation
+
+| Doc | Purpose |
+|---|---|
+| `README.md` | Architecture, API reference, design decisions, backlog |
+| [`docs/UI.md`](docs/UI.md) | UI/UX philosophy: typography scale, rem/clamp rules, theming, accessibility |
+
+---
+
 ## Architecture
 
 ```

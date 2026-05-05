@@ -1141,15 +1141,25 @@ function addMappingRow(m) {
   m = m || {};
   var tr = document.createElement('tr');
   tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:140px"></td>'
-    + '<td><select style="width:90px">' + MATCH_TYPES.map(function(t){ return '<option'+(t===(m.match_type||'contains')?' selected':'')+'>'+t+'</option>'; }).join('') + '</select></td>'
+    + '<td><select style="width:90px">' + MATCH_TYPES.map(function(mt){ return '<option'+(mt===(m.match_type||'contains')?' selected':'')+'>'+mt+'</option>'; }).join('') + '</select></td>'
     + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="code or name" style="width:110px" autocomplete="off" oninput="bankMappingAcctInput(this)" onblur="hideBankMappingAcctDd()"></td>'
     + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
     + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
-    + '<td><button class="btn-sm danger" onclick="bankMappingsDirty=true; document.getElementById(\'btn-save-mappings\').disabled=false; this.parentElement.parentElement.remove()">&times;</button></td>';
+    + '<td></td>';
+  var delBtn = document.createElement('button');
+  delBtn.className = 'btn-sm danger';
+  delBtn.innerHTML = '&times;';
+  delBtn.onclick = function() {
+    bankMappingsDirty = true;
+    var saveBtn = document.getElementById('btn-save-mappings');
+    if (saveBtn) saveBtn.disabled = false;
+    tr.remove();
+  };
+  tr.cells[tr.cells.length - 1].appendChild(delBtn);
   tr.querySelectorAll('input,select').forEach(function(el){
-    el.addEventListener('input', function(){ bankMappingsDirty=true; document.getElementById('btn-save-mappings').disabled=false; });
-    el.addEventListener('change', function(){ bankMappingsDirty=true; document.getElementById('btn-save-mappings').disabled=false; });
+    el.addEventListener('input', function(){ bankMappingsDirty=true; var b=document.getElementById('btn-save-mappings'); if(b) b.disabled=false; });
+    el.addEventListener('change', function(){ bankMappingsDirty=true; var b=document.getElementById('btn-save-mappings'); if(b) b.disabled=false; });
   });
   document.getElementById('mappings-body').appendChild(tr);
 }

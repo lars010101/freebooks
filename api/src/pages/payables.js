@@ -449,10 +449,19 @@ function addVendorRow(v) {
     '<td style="position:relative"><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()" class="vendor-ap-acct">' +
     '<span class="vendor-acct-status" style="margin-left:4px;font-size:12px"></span></td>' +
     '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
-    '<td><button class="btn-sm danger" onclick="document.getElementById('btn-save-vendors').disabled=false; this.parentElement.parentElement.remove()">&#x2715;</button></td>';
+    '<td></td>';
+  var delBtn = document.createElement('button');
+  delBtn.className = 'btn-sm danger';
+  delBtn.innerHTML = '&#x2715;';
+  delBtn.onclick = function() {
+    var saveBtn = document.getElementById('btn-save-vendors');
+    if (saveBtn) saveBtn.disabled = false;
+    tr.remove();
+  };
+  tr.cells[tr.cells.length - 1].appendChild(delBtn);
   tr.querySelectorAll('input,select').forEach(function(el){
-    el.addEventListener('input', function(){ document.getElementById('btn-save-vendors').disabled=false; });
-    el.addEventListener('change', function(){ document.getElementById('btn-save-vendors').disabled=false; });
+    el.addEventListener('input', function(){ var b=document.getElementById('btn-save-vendors'); if(b) b.disabled=false; });
+    el.addEventListener('change', function(){ var b=document.getElementById('btn-save-vendors'); if(b) b.disabled=false; });
   });
   document.getElementById('vendors-body').appendChild(tr);
 }

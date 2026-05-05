@@ -13,8 +13,8 @@ async function handleReportsHubPage(req, res) {
 ${commonStyle()}
 </head>
 <body>${navBar(company, 'reports')}
-<div class="page" style="display:flex; flex-direction:column; height:100%; padding:0; overflow:hidden;">
-  <div class="header" style="padding:20px 24px 0; flex-shrink:0;">
+<div class="page" style="display:flex; flex-direction:column; height:100%; padding:0; overflow:hidden; max-width:none;">
+  <div class="header" style="flex-shrink:0;">
     <h1>\u{1F4C8} Reports</h1>
   </div>
 
@@ -46,8 +46,8 @@ ${commonStyle()}
     </div>
   </div>
 
-  <div style="flex:1; overflow:hidden; min-height:0;">
-    <iframe id="report-frame" src="about:blank" style="border:none; width:100%; height:100%; display:block;"></iframe>
+  <div style="flex:1; overflow:auto; min-height:0; background:var(--bg,#f0f0f0); padding:16px;">
+    <iframe id="report-frame" src="about:blank" style="border:none; width:100%; height:calc(100% - 32px); display:block; background:#fff; min-height:600px;"></iframe>
   </div>
 </div>
 ${layoutEnd()}
@@ -164,33 +164,45 @@ ${layoutEnd()}
     return url;
   }
 
-  /* ── Download dropdown overlay ── */
-  var _overlayEl = null;
+  /* ── Download dropdown menu ── */
+  var _dlOpen = false;
+  
   function closeDownloadMenu() {
     var dd = document.getElementById('rpt-dl-dd');
     if (dd) dd.style.display = 'none';
-    if (_overlayEl && _overlayEl.parentNode) _overlayEl.parentNode.removeChild(_overlayEl);
-    _overlayEl = null;
+    _dlOpen = false;
+    // Remove iframe listener
+    try {
+      var frame = document.getElementById('report-frame');
+      if (frame && frame.contentDocument) {
+        frame.contentDocument.removeEventListener('click', closeDownloadMenu);
+      }
+    } catch(e) {}
   }
-
+  
   window.fbToggleDownload = function(e) {
     e.stopPropagation();
     var dd = document.getElementById('rpt-dl-dd');
     if (!dd) return;
-    var isOpen = dd.style.display !== 'none';
-    if (isOpen) { closeDownloadMenu(); return; }
+    if (_dlOpen) { closeDownloadMenu(); return; }
     dd.style.display = '';
-    /* overlay to catch clicks inside iframe and anywhere on the page */
-    _overlayEl = document.createElement('div');
-    _overlayEl.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;';
-    _overlayEl.addEventListener('click', closeDownloadMenu);
-    document.body.appendChild(_overlayEl);
-    /* put the download button+menu above the overlay */
-    var btn = document.getElementById('rpt-dl-btn');
-    if (btn) btn.style.position = 'relative';
-    if (dd) dd.style.zIndex = '400';
+    _dlOpen = true;
+    // Catch clicks inside iframe to close menu
+    try {
+      var frame = document.getElementById('report-frame');
+      if (frame && frame.contentDocument) {
+        frame.contentDocument.addEventListener('click', closeDownloadMenu);
+      }
+    } catch(e) {}
   };
-  document.addEventListener('click', closeDownloadMenu);
+  document.addEventListener('click', function(e) {
+    if (!_dlOpen) return;
+    var btn = document.getElementById('rpt-dl-btn');
+    var dd = document.getElementById('rpt-dl-dd');
+    if (btn && btn.contains(e.target)) return;
+    if (dd && dd.contains(e.target)) return;
+    closeDownloadMenu();
+  });
 
   /* ── Public handlers ── */
   window.fbOnTypeChange = function() {
@@ -232,6 +244,22 @@ ${layoutEnd()}
     if (!frame) return;
     var url = buildReportUrl();
     if (url) frame.src = url;
+    frame.addEventListener('load', function onFrameLoad() {
+      try {
+        var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+        if (!doc || !doc.head) return;
+        var existing = doc.getElementById('fb-theme-inject');
+        if (existing) existing.remove();
+        var theme = document.documentElement.getAttribute('data-theme') || 'light';
+        if (theme === 'dark') {
+          var s = doc.createElement('style');
+          s.id = 'fb-theme-inject';
+          s.textContent = 'html,body{background:#1a1a1a!important;color:#e0e0e0!important}' +
+            '@media print{html,body{background:#fff!important;color:#000!important}}';
+          doc.head.appendChild(s);
+        }
+      } catch(e) {}
+    });
   };
 
   /* ── PDF / CSV export ── */

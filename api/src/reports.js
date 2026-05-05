@@ -151,7 +151,9 @@ function mountReportRoutes(app) {
   app.get('/:company/bill/new', handleBillNewPage);
   app.get('/:company/bill/:id', handleBillDetailPage);
   app.get('/:company/payables', handlePayablesPage);
-  app.get('/:company/payables/aging', handleApAgingPage);
+  app.get('/:company/payables/aging', function(req, res) {
+    res.redirect(302, '/' + req.params.company + '/reports?t=ap-aging');
+  });
   app.get('/:company/bank/import', (req, res) => res.redirect(301, `/${req.params.company}/bank`));
   app.get('/:company/bank/reconcile', (req, res) => res.redirect(301, `/${req.params.company}/bank`));
   app.get('/:company/bank', handleBankPage);

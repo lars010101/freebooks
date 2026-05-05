@@ -429,7 +429,7 @@ function topBarContext(company, activeKey) {
       nav: `${sep}
         ${navLink('Bills', `/${company}/payables`, true)}
         ${navLink('Vendors', '#', false, true)}
-        ${navLink('AP Aging', `/${company}/payables/aging`, false)}`,
+        <a href="#" class="tb-nav-link" onclick="event.preventDefault();localStorage.setItem('fb-rpt-type','ap-aging');window.location.href='/${company}/reports'">AP Aging</a>`,
       actions: `${actionBtn('+ Bill', `/${company}/bill/new`)}`
     },
     receivables: {
@@ -457,7 +457,7 @@ function topBarContext(company, activeKey) {
         <input type="date" id="rpt-start" class="tb-date-input" onchange="fbLoadReport()" title="Start date">
         <span style="color:var(--text-muted);padding:0 3px;font-size:0.875rem">–</span>
         <input type="date" id="rpt-end" class="tb-date-input" onchange="fbLoadReport()" title="End date">
-        <button class="tb-toggle-btn" id="rpt-mom" onclick="fbToggleComparison('mom')" title="Month-over-month">MoM</button>
+        <button class="tb-toggle-btn" id="rpt-mom" onclick="fbToggleComparison('mom')" title="Month-over-month" style="margin-left:8px">MoM</button>
         <button class="tb-toggle-btn" id="rpt-yoy" onclick="fbToggleComparison('yoy')" title="Year-over-year">YoY</button>`,
       actions: `
         <div style="position:relative">

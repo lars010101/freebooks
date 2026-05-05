@@ -666,6 +666,134 @@ async function buildIntegrity(query, company, start, end) {
   return { tableHtml, rows: allChecks };
 }
 
+async function buildAPAging(query, company, _start, end) {
+  let companyName = company;
+  try {
+    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
+    if (co) companyName = co.company_name;
+  } catch (_) {}
+
+  const asOf = end;
+  const tableHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AP Aging — freeBooks</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
+  .page { max-width: 1100px; margin: 0 auto; padding: 24px 32px; }
+  .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
+  .company { font-size: 16pt; font-weight: 700; }
+  .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
+  .period { font-size: 10pt; color: #666; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 4px; }
+  th { text-align: right; font-size: 9pt; color: #555; text-transform: uppercase; border-bottom: 2px solid #ccc; padding: 6px 8px; }
+  th:first-child { text-align: left; }
+  td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; text-align: right; }
+  td:first-child { text-align: left; }
+  tr.vendor-row { cursor: pointer; }
+  tr.vendor-row:hover td { background: #f5f5ff; }
+  tr.vendor-row td:first-child { font-weight: 600; }
+  tr.detail-row td { font-size: 9pt; color: #555; background: #fafafa; padding: 4px 8px 4px 24px; }
+  tr.detail-row td:first-child { text-align: left; }
+  tr.total-row td { font-weight: 700; border-top: 2px solid #ccc; background: #f8f8f8; }
+  .col-90plus { color: #cc2222; font-weight: 600; }
+  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div class="company">${companyName}</div>
+    <div class="report-title">AP Aging</div>
+    <div class="period">As of ${asOf}</div>
+  </div>
+  <div id="report-area"><p style="color:#888">Loading\u2026</p></div>
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} \u00b7 freeBooks</div>
+</div>
+<script>
+  var COMPANY = '${company}';
+  var AS_OF   = '${asOf}';
+
+  fetch('/api/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'bill.aging', companyId: COMPANY, asOfDate: AS_OF })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    var rows = res.data || res || [];
+    if (!Array.isArray(rows)) rows = [];
+    renderAging(rows);
+  })
+  .catch(function(e) {
+    document.getElementById('report-area').innerHTML = '<p style="color:#cc2222">Error: ' + e.message + '</p>';
+  });
+
+  function fmt(n) {
+    if (!n || n === 0) return '';
+    return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function renderAging(rows) {
+    if (!rows.length) {
+      document.getElementById('report-area').innerHTML = '<p style="color:#888">No outstanding payables as of ' + AS_OF + '.</p>';
+      return;
+    }
+    var vendors = {};
+    rows.forEach(function(r) { if (!vendors[r.vendor]) vendors[r.vendor] = []; vendors[r.vendor].push(r); });
+    var totals = { current: 0, '1_30': 0, '31_60': 0, '61_90': 0, '90plus': 0, total: 0 };
+    var html = '<table><thead><tr>'
+      + '<th style="text-align:left">Vendor</th>'
+      + '<th>Current</th><th>1\u201330 days</th><th>31\u201360 days</th><th>61\u201390 days</th>'
+      + '<th class="col-90plus">90+ days</th><th>Total</th>'
+      + '</tr></thead><tbody>';
+    Object.keys(vendors).sort().forEach(function(vendor) {
+      var bills = vendors[vendor];
+      var vt = { current: 0, '1_30': 0, '31_60': 0, '61_90': 0, '90plus': 0, total: 0 };
+      bills.forEach(function(b) {
+        var bal = Number(b.balance_due || 0);
+        vt[b.bucket] = (vt[b.bucket] || 0) + bal;
+        vt.total += bal;
+        totals[b.bucket] = (totals[b.bucket] || 0) + bal;
+        totals.total += bal;
+      });
+      html += '<tr class="vendor-row" onclick="this.nextElementSibling && (this.nextElementSibling.style.display = this.nextElementSibling.style.display === \'none\' ? \'\' : \'none\')">';
+      html += '<td>\u25b6 ' + esc(vendor) + '</td>';
+      html += '<td>' + fmt(vt.current) + '</td><td>' + fmt(vt['1_30']) + '</td>';
+      html += '<td>' + fmt(vt['31_60']) + '</td><td>' + fmt(vt['61_90']) + '</td>';
+      html += '<td' + (vt['90plus'] > 0 ? ' class="col-90plus"' : '') + '>' + fmt(vt['90plus']) + '</td>';
+      html += '<td>' + fmt(vt.total) + '</td></tr>';
+      html += '<tr class="detail-group" style="display:none"><td colspan="7" style="padding:0"><table style="width:100%;border-collapse:collapse">';
+      bills.forEach(function(b) {
+        var bal = Number(b.balance_due || 0);
+        var label = b.vendor_ref || String(b.date || '').slice(0, 10) || String(b.bill_id || '').slice(0, 8);
+        html += '<tr class="detail-row"><td style="padding-left:24px">' + esc(label) + '</td>';
+        html += '<td>' + (b.bucket === 'current' ? fmt(bal) : '') + '</td>';
+        html += '<td>' + (b.bucket === '1_30'    ? fmt(bal) : '') + '</td>';
+        html += '<td>' + (b.bucket === '31_60'   ? fmt(bal) : '') + '</td>';
+        html += '<td>' + (b.bucket === '61_90'   ? fmt(bal) : '') + '</td>';
+        html += '<td' + (b.bucket === '90plus' ? ' class="col-90plus"' : '') + '>' + (b.bucket === '90plus' ? fmt(bal) : '') + '</td>';
+        html += '<td>' + fmt(bal) + '</td></tr>';
+      });
+      html += '</table></td></tr>';
+    });
+    html += '<tr class="total-row"><td>Total</td>';
+    html += '<td>' + fmt(totals.current) + '</td><td>' + fmt(totals['1_30']) + '</td>';
+    html += '<td>' + fmt(totals['31_60']) + '</td><td>' + fmt(totals['61_90']) + '</td>';
+    html += '<td class="col-90plus">' + fmt(totals['90plus']) + '</td><td>' + fmt(totals.total) + '</td></tr>';
+    html += '</tbody></table>';
+    document.getElementById('report-area').innerHTML = html;
+  }
+</script>
+</body>
+</html>`;
+  return { tableHtml, rows: [] };
+}
+
 // ── Report type dispatch ──────────────────────────────────────────────────────
 const REPORT_TITLES = {
   pl: 'Profit & Loss',
@@ -688,6 +816,7 @@ async function buildReport(query, company, reportType, startDate, endDate, opts 
     case 'cf':        return buildCF(query, company, startDate, endDate);
     case 'sce':       return buildSCE(query, company, startDate, endDate);
     case 'integrity': return buildIntegrity(query, company, startDate, endDate);
+    case 'ap-aging':  return buildAPAging(query, company, startDate, endDate);
     default:          throw new Error(`Unknown report type: ${reportType}`);
   }
 }

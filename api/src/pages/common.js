@@ -446,7 +446,7 @@ function navBar(company, activeKey) {
       </div>
       <div class="tb-right">
         ${ctx.actions}
-        ${actionBtn('+ Journal Entry', `/${company}/journal/new`, true)}
+        <a href="/${company}/journal/new" class="tb-btn tb-btn-primary">+ Journal Entry</a>
         <button class="tb-icon-btn" title="Notifications">🔔</button>
         <button class="tb-icon-btn" title="Help">?</button>
       </div>

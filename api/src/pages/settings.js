@@ -55,7 +55,6 @@ ${commonStyle()}
 <div class="page">
   <div class="header">
     <h1>⚙ Settings</h1>
-    <p class="sub">${company}</p>
   </div>
 
   <div class="tabs">
@@ -64,8 +63,6 @@ ${commonStyle()}
     <div class="tab" onclick="showTab('coa')">Chart of Accounts</div>
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes</div>
     <div class="tab" onclick="showTab('journals')">Journals</div>
-    <div class="tab" onclick="showTab('mappings')">Bank Mappings</div>
-    <div class="tab" onclick="showTab('vendors')">Vendors</div>
     <div class="tab" onclick="showTab('fxrates')">Exchange Rates</div>
   </div>
 
@@ -145,21 +142,6 @@ ${commonStyle()}
     <p style="margin-top:8px;font-size:9pt;color:#888">Journal codes appear in the reference sequence (e.g. MISC/2026/0001). Codes should be short uppercase strings.</p>
   </div>
 
-  <!-- BANK MAPPINGS TAB -->
-  <div id="tab-mappings" class="tab-panel">
-    <table class="edit-table" id="mappings-table">
-      <thead><tr><th>Pattern</th><th>Match</th><th>Offset Account <small style="font-weight:400;color:#888">(expense/income - bank side auto-assigned)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
-      <tbody id="mappings-body"></tbody>
-    </table>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <button class="btn-sm" onclick="addMappingRow()">+ Add Rule</button>
-      <button id="btn-save-mappings" class="btn-primary" onclick="saveMappings()" disabled>Save</button>
-      <span id="msg-mappings" class="msg"></span>
-    </div>
-    <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.<br>
-    Set the <b>offset account</b> (expense for outflows, income for inflows). The bank account is supplied at import time and assigned automatically based on the amount sign.</p>
-  </div>
-
   <!-- VAT/GST CODES TAB -->
   <div id="tab-vat" class="tab-panel">
     <table class="edit-table" id="vat-table">
@@ -200,24 +182,8 @@ ${commonStyle()}
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button class="btn-sm" onclick="addFxRateRow()">+ Add Rate</button>
-      <span id="msg-fxrates" class="msg"></span>
-    </div>
-  </div>
-
-  <!-- VENDORS TAB -->
-  <div id="tab-vendors" class="tab-panel">
-    <table class="edit-table" id="vendors-table">
-      <thead><tr><th>Name</th><th>CCY</th><th>Terms(d)</th><th>Expense A/C</th><th>AP A/C</th><th style="text-align:center">Active</th><th></th></tr></thead>
-      <tbody id="vendors-body"></tbody>
-    </table>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <button class="btn-sm" onclick="addVendorRow()">+ Add Vendor</button>
-      <button id="btn-save-vendors" class="btn-primary" onclick="saveVendors()" disabled>Save</button>
-      <span id="msg-vendors" class="msg"></span>
-    </div>
-    <p style="margin-top:8px;font-size:9pt;color:#888">These defaults auto-fill when creating a bill for this vendor: currency, payment terms, expense account, and AP account.</p>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button id="btn-save-fxrates" class="btn-primary" onclick="saveFxRates()">Save Rates</button>
+      <span id="msg-fxrates" class="msg"></span>
     </div>
   </div>
 </div>
@@ -251,12 +217,10 @@ function showTab(t) {
       resetDirty(curTab);
     }
   }
-  var tabs = ['periods','company','coa','vat','journals','mappings','vendors','fxrates'];
+  var tabs = ['periods','company','coa','vat','journals','fxrates'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
-  if (t === 'vendors') { loadVendors(); loadVendorAccounts(); }
-  if (t === 'mappings') loadVendorAccounts();
   if (t === 'fxrates') { loadFxProviders(); loadFxRates(); loadBaseCurrencies(); }
 }
 
@@ -488,74 +452,6 @@ function saveJournals() {
 }
 loadJournals();
 
-// ========== BANK MAPPINGS ==========
-var MATCH_TYPES = ['contains','exact','starts_with','regex'];
-function addMappingRow(m) {
-  m = m || {};
-  var tr = document.createElement('tr');
-  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:140px"></td>'
-    + '<td><select style="width:90px">' + MATCH_TYPES.map(function(t){ return '<option'+(t===(m.match_type||'contains')?' selected':'')+'>'+t+'</option>'; }).join('') + '</select></td>'
-    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="code or name" style="width:110px" autocomplete="off" oninput="vendorAcctInput(this)" onblur="hideVendorAcctDd()"></td>'
-    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
-    + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
-    + '<td><button class="btn-sm danger" onclick="markDirty(\\'mappings\\'); this.parentElement.parentElement.remove()">&times;</button></td>';
-  wireDirty(tr, 'mappings');
-  document.getElementById('mappings-body').appendChild(tr);
-}
-function loadMappings() {
-  document.getElementById('mappings-body').innerHTML = '';
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mapping.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); }).then(function(res){
-      var rows = res.data||res;
-      if (Array.isArray(rows)) rows.forEach(addMappingRow);
-      resetDirty('mappings');
-    });
-}
-function saveMappings() {
-  var rows = Array.from(document.querySelectorAll('#mappings-body tr')).map(function(tr){
-    var inputs = tr.querySelectorAll('input');
-    var sel = tr.querySelector('select');
-    return { pattern: inputs[0].value.trim(), match_type: sel.value,
-      debit_account: inputs[1].value.trim(), credit_account: null,
-      description_override: inputs[2].value.trim() || null,
-      priority: parseInt(inputs[3].value||100), is_active: inputs[4].checked };
-  }).filter(function(m){ return m.pattern && m.debit_account; });
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'mapping.save', companyId: COMPANY, mappings: rows }) })
-    .then(function(r){ return r.json(); }).then(function(r){ var d=r.data||r; showMsg('msg-mappings', r.error||d.error||('Saved '+(d.saved||0)+' rules'), !!(r.error||d.error)); if (!r.error && !d.error) resetDirty('mappings'); })
-    .catch(function(e){ showMsg('msg-mappings', e.message, true); });
-}
-loadMappings();
-
-// ========== VENDORS ==========
-function loadVendors() {
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var rows = (res.data || res);
-      var tbody = document.getElementById('vendors-body');
-      tbody.innerHTML = '';
-      if (Array.isArray(rows)) rows.forEach(addVendorRow);
-      resetDirty('vendors');
-    }).catch(function(){});
-}
-function addVendorRow(v) {
-  v = v || {};
-  var tr = document.createElement('tr');
-  tr.innerHTML =
-    '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:220px"></td>' +
-    '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:45px"></td>' +
-    '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:55px"></td>' +
-    '<td style="position:relative"><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="vendorAcctInput(this)" onblur="validateVendorAcctField(this)" class="vendor-exp-acct">' +
-    '<span class="vendor-acct-status" style="margin-left:4px;font-size:12px"></span></td>' +
-    '<td style="position:relative"><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="vendorAcctInput(this)" onblur="validateVendorAcctField(this)" class="vendor-ap-acct">' +
-    '<span class="vendor-acct-status" style="margin-left:4px;font-size:12px"></span></td>' +
-    '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
-    '<td><button class="btn-sm danger" onclick="markDirty(\\'vendors\\'); this.parentElement.parentElement.remove()">\u2715</button></td>';
-  wireDirty(tr, 'vendors');
-  document.getElementById('vendors-body').appendChild(tr);
-}
 function loadVendorAccounts() {
   fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
     vendorAccountsList = Array.isArray(rows) ? rows : [];
@@ -645,30 +541,6 @@ function validateVendorAcctField(input) {
     statusEl.style.color = '#cc2222';
   }
 }
-function saveVendors() {
-  var rows = Array.from(document.querySelectorAll('#vendors-body tr')).map(function(tr){
-    var inputs = tr.querySelectorAll('input');
-    return {
-      name: inputs[0].value.trim(),
-      default_currency: inputs[1].value.trim() || null,
-      payment_terms_days: parseInt(inputs[2].value) || 30,
-      tax_id: null,
-      notes: null,
-      default_expense_account: inputs[3].value.trim() || null,
-      default_ap_account: inputs[4].value.trim() || null,
-      is_active: inputs[5].checked
-    };
-  }).filter(function(r){ return r.name; });
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.save', companyId: COMPANY, vendors: rows }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var d = res.data || res;
-      showMsg('msg-vendors', d.error || 'Saved ' + rows.length + ' vendors', !!d.error);
-      if (!d.error) loadVendors();
-    })
-    .catch(function(e){ showMsg('msg-vendors', e.message, true); });
-}
-
 // ========== EXCHANGE RATES ==========
 var fxRatesData = [];
 var baseCurrencies = new Set();

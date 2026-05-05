@@ -74,6 +74,22 @@ ${commonStyle()}
   .page-btn:hover { background:#f5f5f5; }
   .page-btn.active { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
   .page-btn:disabled { opacity:.4; cursor:default; }
+  .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
+  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:10pt; color:#555; border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+  .edit-table { width:100%; border-collapse:collapse; font-size:10pt; }
+  .edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px; }
+  .edit-table td { padding:4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  .edit-table input[type=text], .edit-table select { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  .btn-sm { padding:0 14px; height:32px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm:hover { background:#e8e8e8; }
+  .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
+  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
+  button.btn-primary:hover { background:#333; }
+  button.btn-primary:disabled { background:#ccc; color:#666; cursor:not-allowed; }
+  .msg-pay { margin-top:10px; font-size:10pt; }
+  .msg-pay.ok { color:#2a8a2a; }
+  .msg-pay.err { color:#cc2222; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
@@ -87,6 +103,13 @@ ${commonStyle()}
     </div>
     <a href="/${company}/bill/new" class="btn-create">&#43; Create Bill</a>
   </div>
+
+  <div class="tabs" style="margin-bottom:20px">
+    <div class="tab active" id="pay-tab-bills" onclick="showPayTab('bills')">Bills</div>
+    <div class="tab" id="pay-tab-vendors" onclick="showPayTab('vendors')">Vendors</div>
+  </div>
+
+  <div id="pay-panel-bills">
 
   <!-- KPI cards -->
   <div class="kpi-row">
@@ -149,6 +172,21 @@ ${commonStyle()}
       <div class="page-btns" id="pag-btns"></div>
     </div>
   </div>
+
+  </div><!-- /pay-panel-bills -->
+
+  <div id="pay-panel-vendors" style="display:none">
+    <table class="edit-table" id="vendors-table">
+      <thead><tr><th>Name</th><th>CCY</th><th>Terms(d)</th><th>Expense A/C</th><th>AP A/C</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="vendors-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addVendorRow()">+ Add Vendor</button>
+      <button id="btn-save-vendors" class="btn-primary" onclick="saveVendors()" disabled>Save</button>
+      <span id="msg-vendors" class="msg-pay"></span>
+    </div>
+    <p style="margin-top:8px;font-size:9pt;color:#888">These defaults auto-fill when creating a bill for this vendor: currency, payment terms, expense account, and AP account.</p>
+  </div><!-- /pay-panel-vendors -->
 
 </div>
 
@@ -364,6 +402,128 @@ function showMsg(msg) {
 
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ========== PAYABLES TAB SWITCHER ==========
+function showPayTab(t) {
+  ['bills','vendors'].forEach(function(id) {
+    document.getElementById('pay-panel-' + id).style.display = (id === t) ? '' : 'none';
+    var tabEl = document.getElementById('pay-tab-' + id);
+    if (tabEl) tabEl.classList.toggle('active', id === t);
+  });
+  if (t === 'vendors') { loadVendorTable(); loadVendorAccounts(); }
+}
+
+// ========== VENDOR MANAGEMENT ==========
+var vendorAccountsList = [];
+var vendorAcctActiveInput = null;
+
+function loadVendorAccounts() {
+  if (vendorAccountsList.length) return;
+  fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
+    vendorAccountsList = Array.isArray(rows) ? rows : [];
+  }).catch(function(){});
+}
+
+function loadVendorTable() {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var rows = (res.data || res);
+      var tbody = document.getElementById('vendors-body');
+      tbody.innerHTML = '';
+      if (Array.isArray(rows)) rows.forEach(addVendorRow);
+      document.getElementById('btn-save-vendors').disabled = true;
+    }).catch(function(){});
+}
+
+function addVendorRow(v) {
+  v = v || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:220px"></td>' +
+    '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:45px"></td>' +
+    '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:55px"></td>' +
+    '<td style="position:relative"><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()" class="vendor-exp-acct">' +
+    '<span class="vendor-acct-status" style="margin-left:4px;font-size:12px"></span></td>' +
+    '<td style="position:relative"><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px" placeholder="code or name" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()" class="vendor-ap-acct">' +
+    '<span class="vendor-acct-status" style="margin-left:4px;font-size:12px"></span></td>' +
+    '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
+    '<td><button class="btn-sm danger" onclick="document.getElementById('btn-save-vendors').disabled=false; this.parentElement.parentElement.remove()">&#x2715;</button></td>';
+  tr.querySelectorAll('input,select').forEach(function(el){
+    el.addEventListener('input', function(){ document.getElementById('btn-save-vendors').disabled=false; });
+    el.addEventListener('change', function(){ document.getElementById('btn-save-vendors').disabled=false; });
+  });
+  document.getElementById('vendors-body').appendChild(tr);
+}
+
+function saveVendors() {
+  var rows = Array.from(document.querySelectorAll('#vendors-body tr')).map(function(tr){
+    var inputs = tr.querySelectorAll('input');
+    return {
+      name: inputs[0].value.trim(),
+      default_currency: inputs[1].value.trim() || null,
+      payment_terms_days: parseInt(inputs[2].value) || 30,
+      tax_id: null, notes: null,
+      default_expense_account: inputs[3].value.trim() || null,
+      default_ap_account: inputs[4].value.trim() || null,
+      is_active: inputs[5].checked
+    };
+  }).filter(function(r){ return r.name; });
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.save', companyId: COMPANY, vendors: rows }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var d = res.data || res;
+      var msgEl = document.getElementById('msg-vendors');
+      var ok = !d.error;
+      msgEl.textContent = d.error || 'Saved ' + rows.length + ' vendors';
+      msgEl.className = 'msg-pay ' + (ok ? 'ok' : 'err');
+      if (ok) { document.getElementById('btn-save-vendors').disabled=true; setTimeout(function(){ msgEl.textContent=''; }, 3000); loadVendorTable(); }
+    })
+    .catch(function(e){ var msgEl = document.getElementById('msg-vendors'); msgEl.textContent=e.message; msgEl.className='msg-pay err'; });
+}
+
+function payVendorAcctInput(input) {
+  loadVendorAccounts();
+  vendorAcctActiveInput = input;
+  var q = input.value.trim().toLowerCase();
+  var dd = document.getElementById('pay-vendor-acct-dd');
+  if (dd) dd.remove();
+  if (!q) return;
+  var matches = vendorAccountsList.filter(function(a){
+    return (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q);
+  }).slice(0, 12);
+  if (!matches.length) return;
+  var div = document.createElement('div');
+  div.id = 'pay-vendor-acct-dd';
+  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
+  matches.forEach(function(a){
+    var item = document.createElement('div');
+    item.textContent = a.account_code + ' - ' + a.account_name;
+    item.style.cssText = 'padding:4px 8px;cursor:pointer;white-space:nowrap';
+    item.onmouseover = function(){ item.style.background='#e8f0fe'; };
+    item.onmouseout  = function(){ item.style.background=''; };
+    item.onmousedown = function(e){ e.preventDefault(); };
+    item.onclick = function(){
+      if (vendorAcctActiveInput) {
+        vendorAcctActiveInput.value = a.account_code;
+        vendorAcctActiveInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      var d = document.getElementById('pay-vendor-acct-dd');
+      if (d) d.remove();
+      vendorAcctActiveInput = null;
+    };
+    div.appendChild(item);
+  });
+  var rect = input.getBoundingClientRect();
+  div.style.left = rect.left + 'px';
+  div.style.top  = (rect.bottom + 2) + 'px';
+  div.style.minWidth = rect.width + 'px';
+  document.body.appendChild(div);
+}
+
+function hidePayVendorAcctDd() {
+  setTimeout(function(){ var dd = document.getElementById('pay-vendor-acct-dd'); if (dd) dd.remove(); }, 150);
 }
 </script>
 ${layoutEnd()}

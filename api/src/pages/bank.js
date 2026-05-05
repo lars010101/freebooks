@@ -70,6 +70,22 @@ ${commonStyle()}
   .bc-fx-acct-name { font-size:8pt;color:#888;max-width:120px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
   .info-icon { cursor:help;color:#999;font-size:10pt;margin-left:2px; }
   .bill-row:hover td { background:#f0f4ff; }
+  .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
+  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:10pt; color:#555; border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+  .edit-table { width:100%; border-collapse:collapse; font-size:10pt; }
+  .edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px; }
+  .edit-table td { padding:4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  .edit-table input[type=text], .edit-table select { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  .btn-sm { padding:0 14px; height:32px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
+  .btn-sm:hover { background:#e8e8e8; }
+  .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
+  .msg { margin-top:10px; font-size:10pt; }
+  .msg.ok { color:#2a8a2a; }
+  .msg.err { color:#cc2222; }
+  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
+  button.btn-primary:hover { background:#333; }
+  button.btn-primary:disabled { background:#ccc; color:#666; cursor:not-allowed; }
 </style>
 </head>
 <body>${navBar(company, 'bank')}
@@ -79,6 +95,13 @@ ${commonStyle()}
     <h1>🏦 Bank</h1>
     <p class="sub">${company}</p>
   </div>
+
+  <div class="tabs" style="margin-bottom:20px">
+    <div class="tab active" id="bank-tab-txn" onclick="showBankTab('txn')">Transactions</div>
+    <div class="tab" id="bank-tab-mappings" onclick="showBankTab('mappings')">Mappings</div>
+  </div>
+
+  <div id="bank-panel-txn">
 
   <!-- Reconciliation section (primary) -->
   <div id="uncleared-banner" style="display:none;margin-bottom:12px;padding:8px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;font-size:10pt">
@@ -189,6 +212,22 @@ ${commonStyle()}
     </div>
 
   </details>
+
+  </div><!-- /bank-panel-txn -->
+
+  <div id="bank-panel-mappings" style="display:none">
+    <table class="edit-table" id="mappings-table">
+      <thead><tr><th>Pattern</th><th>Match</th><th>Offset Account <small style="font-weight:400;color:#888">(expense/income - bank side auto-assigned)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="mappings-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="btn-sm" onclick="addMappingRow()">+ Add Rule</button>
+      <button id="btn-save-mappings" class="btn-primary" onclick="saveMappings()" disabled>Save</button>
+      <span id="msg-mappings" class="msg"></span>
+    </div>
+    <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.<br>
+    Set the <b>offset account</b> (expense for outflows, income for inflows). The bank account is supplied at import time and assigned automatically based on the amount sign.</p>
+  </div><!-- /bank-panel-mappings -->
 
 </div>
 
@@ -1074,6 +1113,121 @@ ${commonStyle()}
         + 'onclick="openBillPanel(' + rowIdx + ')">&#128279;</button>';
     }
   }
+
+// ========== BANK TAB SWITCHER ==========
+function showBankTab(t) {
+  ['txn','mappings'].forEach(function(id) {
+    document.getElementById('bank-panel-' + id).style.display = (id === t) ? '' : 'none';
+    var tabEl = document.getElementById('bank-tab-' + id);
+    if (tabEl) tabEl.classList.toggle('active', id === t);
+  });
+  if (t === 'mappings') { loadMappings(); loadBankMappingAccounts(); }
+}
+
+// ========== BANK MAPPINGS ==========
+var MATCH_TYPES = ['contains','exact','starts_with','regex'];
+var bankMappingAccounts = [];
+var bankMappingActiveInput = null;
+var bankMappingsDirty = false;
+
+function loadBankMappingAccounts() {
+  if (bankMappingAccounts.length) return;
+  fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
+    bankMappingAccounts = Array.isArray(rows) ? rows : [];
+  });
+}
+
+function addMappingRow(m) {
+  m = m || {};
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:140px"></td>'
+    + '<td><select style="width:90px">' + MATCH_TYPES.map(function(t){ return '<option'+(t===(m.match_type||'contains')?' selected':'')+'>'+t+'</option>'; }).join('') + '</select></td>'
+    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="code or name" style="width:110px" autocomplete="off" oninput="bankMappingAcctInput(this)" onblur="hideBankMappingAcctDd()"></td>'
+    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
+    + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
+    + '<td><button class="btn-sm danger" onclick="bankMappingsDirty=true; document.getElementById('btn-save-mappings').disabled=false; this.parentElement.parentElement.remove()">&times;</button></td>';
+  tr.querySelectorAll('input,select').forEach(function(el){
+    el.addEventListener('input', function(){ bankMappingsDirty=true; document.getElementById('btn-save-mappings').disabled=false; });
+    el.addEventListener('change', function(){ bankMappingsDirty=true; document.getElementById('btn-save-mappings').disabled=false; });
+  });
+  document.getElementById('mappings-body').appendChild(tr);
+}
+
+function loadMappings() {
+  document.getElementById('mappings-body').innerHTML = '';
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mapping.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); }).then(function(res){
+      var rows = res.data||res;
+      if (Array.isArray(rows)) rows.forEach(addMappingRow);
+      bankMappingsDirty = false;
+      document.getElementById('btn-save-mappings').disabled = true;
+    });
+}
+
+function saveMappings() {
+  var rows = Array.from(document.querySelectorAll('#mappings-body tr')).map(function(tr){
+    var inputs = tr.querySelectorAll('input');
+    var sel = tr.querySelector('select');
+    return { pattern: inputs[0].value.trim(), match_type: sel.value,
+      debit_account: inputs[1].value.trim(), credit_account: null,
+      description_override: inputs[2].value.trim() || null,
+      priority: parseInt(inputs[3].value||100), is_active: inputs[4].checked };
+  }).filter(function(m){ return m.pattern && m.debit_account; });
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'mapping.save', companyId: COMPANY, mappings: rows }) })
+    .then(function(r){ return r.json(); }).then(function(r){ var d=r.data||r;
+      var ok = !(r.error||d.error);
+      var msgEl = document.getElementById('msg-mappings');
+      msgEl.textContent = r.error||d.error||('Saved '+(d.saved||0)+' rules');
+      msgEl.className = 'msg ' + (ok ? 'ok' : 'err');
+      if (ok) { bankMappingsDirty=false; document.getElementById('btn-save-mappings').disabled=true; setTimeout(function(){ msgEl.textContent=''; }, 3000); }
+    })
+    .catch(function(e){ var msgEl = document.getElementById('msg-mappings'); msgEl.textContent=e.message; msgEl.className='msg err'; });
+}
+
+function bankMappingAcctInput(input) {
+  loadBankMappingAccounts();
+  bankMappingActiveInput = input;
+  var q = input.value.trim().toLowerCase();
+  var dd = document.getElementById('bank-mapping-acct-dd');
+  if (dd) dd.remove();
+  if (!q) return;
+  var matches = bankMappingAccounts.filter(function(a){
+    return (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q);
+  }).slice(0, 12);
+  if (!matches.length) return;
+  var div = document.createElement('div');
+  div.id = 'bank-mapping-acct-dd';
+  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
+  matches.forEach(function(a){
+    var item = document.createElement('div');
+    item.textContent = a.account_code + ' - ' + a.account_name;
+    item.style.cssText = 'padding:4px 8px;cursor:pointer;white-space:nowrap';
+    item.onmouseover = function(){ item.style.background='#e8f0fe'; };
+    item.onmouseout  = function(){ item.style.background=''; };
+    item.onmousedown = function(e){ e.preventDefault(); };
+    item.onclick = function(){
+      if (bankMappingActiveInput) {
+        bankMappingActiveInput.value = a.account_code;
+        bankMappingActiveInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      var d = document.getElementById('bank-mapping-acct-dd');
+      if (d) d.remove();
+      bankMappingActiveInput = null;
+    };
+    div.appendChild(item);
+  });
+  var rect = input.getBoundingClientRect();
+  div.style.left = rect.left + 'px';
+  div.style.top  = (rect.bottom + 2) + 'px';
+  div.style.minWidth = rect.width + 'px';
+  document.body.appendChild(div);
+}
+
+function hideBankMappingAcctDd() {
+  setTimeout(function(){ var dd = document.getElementById('bank-mapping-acct-dd'); if (dd) dd.remove(); }, 150);
+}
 <\/script>
 ${layoutEnd()}
 </body>

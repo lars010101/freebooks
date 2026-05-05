@@ -308,6 +308,20 @@ function deletePeriodRow(tr) {
     .catch(function(e){ var m=document.getElementById('msg-periods'); if(m){m.textContent=e.message;m.className='msg err';} });
 }
 // savePeriods replaced by per-row savePeriodRow
+function loadPeriods() {
+  var tbody = document.getElementById('periods-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'period.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var rows = res.data || res;
+      if (Array.isArray(rows)) rows.forEach(function(p){ addPeriodRow(p); });
+      appendBlankPeriodRow();
+    })
+    .catch(function(e){ console.error('loadPeriods:', e); });
+}
 loadPeriods();
 loadVendorAccounts(); // preload accounts for vendor autocomplete
 

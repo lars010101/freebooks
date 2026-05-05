@@ -13,6 +13,8 @@ function commonStyle() {
 /* ---- Reset & base ---- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
+  /* Typography scale — rem-based, respects browser/OS accessibility settings */
+  font-size: 100%;
   --bg:          #f2f4f7;
   --surface:     #ffffff;
   --border:      #e4e8ee;
@@ -50,7 +52,8 @@ function commonStyle() {
 html, body { height:100%; }
 body {
   font-family: 'Helvetica Neue', Arial, sans-serif;
-  font-size: 12pt;
+  font-size: 1rem;
+  line-height: 1.6;
   color: var(--text);
   background: var(--bg);
 }
@@ -81,7 +84,7 @@ body {
   flex-shrink: 0;
 }
 .sb-co-name {
-  font-size: 13.5pt;
+  font-size: 1.125rem;
   font-weight: 700;
   color: #fff;
   white-space: nowrap;
@@ -91,7 +94,7 @@ body {
   letter-spacing: -.01em;
 }
 .sb-co-sub {
-  font-size: 8pt;
+  font-size: 0.75rem;
   color: rgba(220,228,242,.38);
   margin-top: 3px;
   white-space: nowrap;
@@ -99,7 +102,7 @@ body {
   letter-spacing: .04em;
   text-transform: uppercase;
 }
-.sb-co-caret { font-size: 7pt; }
+.sb-co-caret { font-size: 0.625rem; }
 #sidebar.sb-collapsed .sb-co-name,
 #sidebar.sb-collapsed .sb-co-sub { opacity: 0; }
 
@@ -118,7 +121,7 @@ body {
   padding: 14px 18px;
   color: var(--sb-text);
   text-decoration: none;
-  font-size: 11pt;
+  font-size: 0.917rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -132,7 +135,7 @@ body {
 .sb-item:hover { background: var(--sb-hover-bg); color: #fff; }
 .sb-item.sb-active { background: var(--sb-active-bg); color: var(--sb-active-text); }
 .sb-item.sb-disabled { opacity: .35; pointer-events: none; cursor: default; }
-.sb-icon { font-size: 13pt; line-height: 1; flex-shrink: 0; width: 20px; text-align: center; }
+.sb-icon { font-size: 1.083rem; line-height: 1; flex-shrink: 0; width: 20px; text-align: center; }
 .sb-label { transition: opacity .15s, width .15s; overflow: hidden; }
 #sidebar.sb-collapsed .sb-label { opacity: 0; width: 0; }
 
@@ -146,7 +149,7 @@ body {
   color: #fff;
   padding: 5px 10px;
   border-radius: 4px;
-  font-size: 9pt;
+  font-size: 0.75rem;
   white-space: nowrap;
   z-index: 200;
   pointer-events: none;
@@ -210,7 +213,7 @@ body {
 .tb-company-opt {
   display: block;
   padding: 9px 16px;
-  font-size: 10pt;
+  font-size: 0.833rem;
   color: var(--text);
   text-decoration: none;
   cursor: pointer;
@@ -233,7 +236,7 @@ body {
   border-radius: 5px;
   background: var(--bg);
   color: var(--text-muted);
-  font-size: 9.5pt;
+  font-size: 0.875rem;
   width: 220px;
   outline: none;
   cursor: not-allowed;
@@ -244,7 +247,7 @@ body {
   display: inline-flex;
   align-items: center;
   padding: 6px 14px;
-  font-size: 10.5pt;
+  font-size: 0.875rem;
   color: var(--text-muted);
   text-decoration: none;
   border-radius: 5px;
@@ -263,7 +266,7 @@ body {
   gap: 5px;
   padding: 6px 14px;
   border-radius: 5px;
-  font-size: 10.5pt;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -284,7 +287,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 13pt;
+  font-size: 1.083rem;
   color: var(--text-muted);
 }
 .tb-icon-btn:hover { background: var(--bg); color: var(--text); }
@@ -302,18 +305,18 @@ body {
   max-width: 1100px;
   color: var(--text);
 }
-.page h1 { font-size: 22pt; font-weight: 700; letter-spacing: -.02em; }
-.sub { color: var(--text-muted); font-size: 10pt; margin-top: 4px; }
+.page h1 { font-size: clamp(1.375rem, 1.5vw + 1rem, 1.833rem); font-weight: 700; letter-spacing: -.02em; }
+.sub { color: var(--text-muted); font-size: 0.833rem; margin-top: 4px; }
 
 /* ---- Legacy compat ---- */
 .header { margin-bottom: 28px; }
-.header h1 { font-size: 20pt; font-weight: 700; }
-.header .sub { color: var(--text-muted); font-size: 10pt; margin-top: 4px; }
+.header h1 { font-size: clamp(1.25rem, 1.25vw + 0.875rem, 1.667rem); font-weight: 700; }
+.header .sub { color: var(--text-muted); font-size: 0.833rem; margin-top: 4px; }
 .company-list { list-style: none; margin-top: 8px; }
 .company-list li { border-bottom: 1px solid var(--border); }
-.company-list a { display: block; padding: 12px 0; color: var(--text); text-decoration: none; font-size: 12pt; }
+.company-list a { display: block; padding: 12px 0; color: var(--text); text-decoration: none; font-size: 1rem; }
 .company-list a:hover { color: var(--text-muted); }
-.company-list .id { font-size: 9pt; color: var(--text-faint); }
+.company-list .id { font-size: 0.75rem; color: var(--text-faint); }
 </style>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📒</text></svg>">`;
 }

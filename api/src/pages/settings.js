@@ -3,20 +3,16 @@ const { makeQuery, commonStyle, navBar, layoutEnd } = require('./common');
 
 async function handleSettingsPage(req, res) {
   const { company } = req.params;
-  const q = makeQuery();
   try {
-    const companies = await q(
-      `SELECT company_id, company_name FROM companies ORDER BY company_name`
-    );
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(buildSettingsPage(company, companies));
+    res.send(buildSettingsPage(company));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }
 
 
-function buildSettingsPage(company, companies = []) {
+function buildSettingsPage(company) {
   const cfOptions = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded']
     .map(v => `<option value="${v}">${v || '- none -'}</option>`).join('');
   return `<!DOCTYPE html>
@@ -93,20 +89,6 @@ ${commonStyle()}
     </div>
     <button id="btn-save-company" class="btn-primary" onclick="saveCompany()" disabled>Save</button>
     <span id="msg-company" class="msg"></span>
-
-    <hr style="margin:24px 0;border:none;border-top:1px solid #e8e8e8">
-
-    <div style="margin-bottom:6px;font-weight:700;font-size:11pt">Manage Companies</div>
-
-    <div class="field-row" style="margin-bottom:16px">
-      <label>Switch Company</label>
-      <div style="display:flex;gap:10px;align-items:center">
-        <select id="co-switch-select" style="max-width:280px;padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt">
-          ${companies.map(c => `<option value="${c.company_id}"${c.company_id === company ? ' selected' : ''}>${c.company_name} (${c.company_id})</option>`).join('\n          ')}
-        </select>
-        <button class="btn-sm" onclick="switchCompany()">Switch →</button>
-      </div>
-    </div>
 
     <div>
       <a href="/setup/new-company" style="display:inline-block;padding:9px 20px;background:#f5f5f5;color:#1a1a1a;border:1px solid #ccc;border-radius:4px;font-size:10pt;font-weight:600;text-decoration:none">+ New Company</a>
@@ -217,14 +199,6 @@ function showTab(t) {
   if (t === 'fxrates') { loadFxProviders(); loadFxRates(); loadBaseCurrencies(); }
 }
 
-function switchCompany() {
-  var sel = document.getElementById('co-switch-select');
-  var id = sel.value;
-  if (!id) return;
-  localStorage.setItem('freebooks_company', id);
-  window.location.href = '/' + id;
-}
-
 function showMsg(id, msg, isErr) {
   var el = document.getElementById(id);
   el.textContent = msg;
@@ -248,7 +222,7 @@ function addPeriodRow(p) {
   var isNew = !p.period_id && !p.period_name;
   var tr = document.createElement('tr');
   tr.dataset.periodId = p.period_id || p.period_name || '';
-  tr.innerHTML = '<td><input type="text" value="'+(p.period_name||p.period_id||'')+'" placeholder="FY2026" style="width:100px"></td>'
+  tr.innerHTML = '<td><input type="text" value="'+(p.period_name||p.period_id||'')+'" style="width:100px"></td>'
     + '<td><input type="date" value="'+(p.start_date?p.start_date.slice(0,10):'')+'" style="width:130px"></td>'
     + '<td><input type="date" value="'+(p.end_date?p.end_date.slice(0,10):'')+'" style="width:130px"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(p.locked?' checked':'')+' ></td>'
@@ -391,7 +365,7 @@ function addCoaRow(a, isNew) {
   tr.dataset.accountCode = isNew ? '' : (a.account_code || '');
   tr.dataset.isNew = isNew ? '1' : '0';
   var codeCell = isNew
-    ? '<input type="text" value="" placeholder="101XXX" style="width:80px">'
+    ? '<input type="text" value="" style="width:80px">'
     : '<span class="ro">' + a.account_code + '</span>';
   var typeCell = isNew
     ? '<select style="width:90px">' + ACCT_TYPES.map(function(t){ return '<option>'+t+'</option>'; }).join('') + '</select>'
@@ -399,11 +373,11 @@ function addCoaRow(a, isNew) {
   var subtypeOpts = SUBTYPES.map(function(s){ return '<option value="'+s+'"'+(s===(a.account_subtype||'')?' selected':'')+'>'+s+'</option>'; }).join('');
   var cfOpts = CF_CATS_COA.map(function(c){ return '<option value="'+c+'"'+(c===(a.cf_category||'')?' selected':'')+'>'+c+'</option>'; }).join('');
   tr.innerHTML = '<td>' + codeCell + '</td>'
-    + '<td><input type="text" value="'+(a.account_name||'').replace(/"/g,'&quot;')+'" placeholder="Account name" style="width:200px"></td>'
+    + '<td><input type="text" value="'+(a.account_name||'').replace(/"/g,'&quot;')+'" style="width:200px"></td>'
     + '<td>' + typeCell + '</td>'
     + '<td><select style="width:140px">'+subtypeOpts+'</select></td>'
     + '<td><select style="width:100px">'+cfOpts+'</select></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(a.is_active!==false?' checked':'')+' ></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(a.is_active===true?' checked':'')+' ></td>'
     + '<td style="white-space:nowrap;text-align:right"></td>';
   var saveBtn = document.createElement('button');
   saveBtn.className = 'btn-sm';
@@ -492,14 +466,14 @@ function addVatRow(vc) {
   var isNew = !vc.vat_code;
   var tr = document.createElement('tr');
   tr.dataset.vatCode = vc.vat_code || '';
-  tr.innerHTML = '<td><input type="text" value="'+(vc.vat_code||'')+'" placeholder="GST9" style="width:60px"></td>'
-    + '<td><input type="text" value="'+(vc.description||'').replace(/"/g,'&quot;')+'" placeholder="Description" style="width:160px"></td>'
+  tr.innerHTML = '<td><input type="text" value="'+(vc.vat_code||'')+'" style="width:60px"></td>'
+    + '<td><input type="text" value="'+(vc.description||'').replace(/"/g,'&quot;')+'" style="width:160px"></td>'
     + '<td><input type="number" step="0.01" value="'+(vc.rate||0)+'" style="width:55px"></td>'
-    + '<td><input type="text" value="'+(vc.input_account||vc.vat_account_input||'')+'" placeholder="code" style="width:70px"></td>'
-    + '<td><input type="text" value="'+(vc.output_account||vc.vat_account_output||'')+'" placeholder="code" style="width:70px"></td>'
-    + '<td><input type="text" value="'+(vc.report_box||'')+'" placeholder="box" style="width:50px"></td>'
+    + '<td><input type="text" value="'+(vc.input_account||vc.vat_account_input||'')+'" style="width:70px"></td>'
+    + '<td><input type="text" value="'+(vc.output_account||vc.vat_account_output||'')+'" style="width:70px"></td>'
+    + '<td><input type="text" value="'+(vc.report_box||'')+'" style="width:50px"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(vc.is_reverse_charge?' checked':'')+' ></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(vc.is_active!==false?' checked':'')+' ></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(vc.is_active===true?' checked':'')+' ></td>'
     + '<td style="white-space:nowrap;text-align:right"></td>';
   var saveBtn = document.createElement('button');
   saveBtn.className = 'btn-sm';
@@ -568,9 +542,9 @@ function addJournalRow(j) {
   var isNew = !j.journal_id;
   var tr = document.createElement('tr');
   tr.dataset.journalId = j.journal_id || '';
-  tr.innerHTML = '<td><input type="text" value="'+(j.code||'')+'" placeholder="MISC" style="width:70px" oninput="this.value=this.value.toUpperCase()"></td>'
-    + '<td><input type="text" value="'+(j.name||'')+'" placeholder="Journal name" style="width:180px"></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(j.active!==false?' checked':'')+' ></td>'
+  tr.innerHTML = '<td><input type="text" value="'+(j.code||'')+'" style="width:70px" oninput="this.value=this.value.toUpperCase()"></td>'
+    + '<td><input type="text" value="'+(j.name||'')+'" style="width:180px"></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(j.active===true?' checked':'')+' ></td>'
     + '<td style="white-space:nowrap;text-align:right"></td>';
   var saveBtn=document.createElement('button');
   saveBtn.className='btn-sm';
@@ -640,7 +614,6 @@ loadJournals();
 function loadVendorAccounts() {
   fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
     vendorAccountsList = Array.isArray(rows) ? rows : [];
-    console.log('vendorAccountsList loaded:', vendorAccountsList.length);
   }).catch(function(e){ console.error('loadVendorAccounts failed:', e); });
 }
 

@@ -1094,12 +1094,12 @@ function addMappingRow(m) {
   var MATCH_TYPES_LOCAL = ['contains','exact','starts_with','regex'];
   var tr = document.createElement('tr');
   tr.dataset.mappingId = m.mapping_id || '';
-  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:130px"></td>'
+  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" style="width:130px"></td>'
     + '<td><select style="width:90px">' + MATCH_TYPES_LOCAL.map(function(mt){ return '<option'+(mt===(m.match_type||'contains')?' selected':'')+'>'+mt+'</option>'; }).join('') + '</select></td>'
-    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="code or name" style="width:100px" autocomplete="off" oninput="bankMappingAcctInput(this)" onblur="hideBankMappingAcctDd()"></td>'
-    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:140px"></td>'
+    + '<td><input type="text" value="'+(m.debit_account||'')+'" style="width:100px" autocomplete="off" oninput="bankMappingAcctInput(this)" onblur="hideBankMappingAcctDd()"></td>'
+    + '<td><input type="text" value="'+(m.description_override||'')+'" style="width:140px"></td>'
     + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
+    + '<td style="text-align:center"><input type="checkbox"'+(m.is_active===true?' checked':'')+' ></td>'
     + '<td style="white-space:nowrap;text-align:right"></td>';
   var saveBtn = document.createElement('button');
   saveBtn.className = 'btn-sm';

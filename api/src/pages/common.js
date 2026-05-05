@@ -441,14 +441,7 @@ function topBarContext(company, activeKey) {
     },
     reports: {
       nav: ``,
-      actions: `
-        <div style="position:relative">
-          <button class="tb-icon-btn" id="rpt-dl-btn" onclick="fbToggleDownload(event)" title="Download report">⬇</button>
-          <div id="rpt-dl-dd" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:300;min-width:140px;padding:4px 0">
-            <button onclick="fbExportPDF()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">🖨 Print / PDF</button>
-            <button onclick="fbExportCSV()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">⬇ CSV</button>
-          </div>
-        </div>`
+      actions: ''
     },
     auditor: {
       nav: ``,
@@ -473,7 +466,7 @@ function navBar(company, activeKey) {
     { key: 'dashboard',   icon: '📊', label: 'Dashboard',   href: `/${company}` },
     { key: 'bank',        icon: '🏦', label: 'Bank',        href: `/${company}/bank` },
     { key: 'payables',    icon: '📋', label: 'Payables',     href: `/${company}/payables` },
-    { key: 'receivables', icon: '📄', label: 'Receivables',  href: '#',                   disabled: true },
+    { key: 'receivables', icon: '📄', label: 'Receivables',  href: `/${company}/receivables` },
     { key: 'reports',     icon: '📈', label: 'Reports',      href: `/${company}/reports` },
     { key: 'settings',    icon: '⚙',  label: 'Settings',     href: `/${company}/settings` },
   ];
@@ -642,6 +635,43 @@ function layoutEnd() {
     if ((!inInput && e.key === ':') || (e.ctrlKey && e.key === 'k')) {
       e.preventDefault();
       fbOpenCmdPalette();
+    }
+  });
+
+  // ── "g" prefix navigation shortcuts ──
+  var _gPending = false, _gTimer = null;
+  document.addEventListener('keydown', function(e) {
+    var tag = (document.activeElement || {}).tagName || '';
+    var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (document.activeElement || {}).isContentEditable;
+    if (inInput) return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+    // "g" prefix
+    if (e.key === 'g' && !_gPending) {
+      _gPending = true;
+      clearTimeout(_gTimer);
+      _gTimer = setTimeout(function() { _gPending = false; }, 1000);
+      e.preventDefault();
+      return;
+    }
+    if (_gPending) {
+      _gPending = false;
+      clearTimeout(_gTimer);
+      var company = document.getElementById('app-shell') ? document.getElementById('app-shell').dataset.company : '';
+      if (!company) return;
+      var navMap = { d: '/' + company, b: '/' + company + '/bank', p: '/' + company + '/payables', v: '/' + company + '/receivables', r: '/' + company + '/reports', s: '/' + company + '/settings' };
+      if (navMap[e.key]) { e.preventDefault(); window.location.href = navMap[e.key]; }
+      return;
+    }
+
+    // "}" next tab / "{" previous tab
+    if (e.key === '}' || e.key === '{') {
+      var tabs = Array.from(document.querySelectorAll('.tabs .tab'));
+      if (!tabs.length) return;
+      var activeIdx = -1;
+      tabs.forEach(function(t, i) { if (t.classList.contains('active')) activeIdx = i; });
+      var newIdx = e.key === '}' ? activeIdx + 1 : activeIdx - 1;
+      if (newIdx >= 0 && newIdx < tabs.length) { e.preventDefault(); tabs[newIdx].click(); }
     }
   });
 

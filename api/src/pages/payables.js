@@ -443,7 +443,7 @@ function addVendorRow(v) {
     '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:55px"></td>' +
     '<td><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
     '<td><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
-    '<td style="text-align:center"><input type="checkbox"' + (v.is_active!==false ? ' checked' : '') + '></td>' +
+    '<td style="text-align:center"><input type="checkbox"' + (v.is_active===true ? ' checked' : '') + '></td>' +
     '<td style="white-space:nowrap;text-align:right"></td>';
 
   // Save button

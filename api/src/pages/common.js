@@ -194,25 +194,7 @@ body {
   flex-shrink: 0;
 }
 
-/* Company switcher */
-.tb-company {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10pt;
-  font-weight: 700;
-  color: var(--tb-text);
-  cursor: pointer;
-  padding: 5px 10px;
-  border-radius: 5px;
-  border: 1px solid transparent;
-  white-space: nowrap;
-  flex-shrink: 0;
-  position: relative;
-  user-select: none;
-}
-.tb-company:hover { border-color: var(--border); background: var(--bg); }
-.tb-company-caret { font-size: 8pt; color: var(--text-muted); margin-left: 2px; }
+/* Company switcher dropdown (sidebar) */
 .tb-company-dropdown {
   position: absolute;
   top: calc(100% + 4px);
@@ -235,13 +217,26 @@ body {
 }
 .tb-company-opt:hover { background: var(--bg); }
 
-/* Section divider between company and nav items */
+/* Section divider between nav items */
 .tb-divider {
   width: 1px;
   height: 20px;
   background: var(--border);
   margin: 0 12px;
   flex-shrink: 0;
+}
+
+/* Top bar search */
+.tb-search {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 9.5pt;
+  width: 220px;
+  outline: none;
+  cursor: not-allowed;
 }
 
 /* Top bar nav links */
@@ -338,12 +333,11 @@ function topBarContext(company, activeKey) {
 
   const ctx = {
     dashboard: {
-      nav: `${sep}
-        ${navLink('P&amp;L', `/${company}?report=pl`, false)}
-        ${navLink('Balance Sheet', `/${company}?report=bs`, false)}
-        ${navLink('Cash Flow', `/${company}?report=cf`, false)}
-        ${navLink('Equity', `/${company}?report=equity`, false)}`,
-      actions: ''
+      nav: `<input type="text" class="tb-search" placeholder="🔍  Search…" disabled>`,
+      actions: `
+        ${actionBtn('+ Bill', `/${company}/bill/new`, false)}
+        <span class="tb-btn" style="opacity:.4;cursor:default" title="Invoicing coming soon">+ Invoice</span>
+        ${actionBtn('+ Journal Entry', `/${company}/journal/new`, true)}`
     },
     bank: {
       nav: `${sep}
@@ -448,16 +442,10 @@ function navBar(company, activeKey) {
   <div id="main-area">
     <header id="top-bar">
       <div class="tb-left">
-        <div class="tb-company" onclick="fbToggleCompany(event)" id="tb-company-btn">
-          <span id="tb-company-name">${company}</span>
-          <span class="tb-company-caret">▾</span>
-          <div class="tb-company-dropdown" id="tb-company-dropdown" style="display:none"></div>
-        </div>
         ${ctx.nav}
       </div>
       <div class="tb-right">
         ${ctx.actions}
-        <a href="/${company}/journal/new" class="tb-btn tb-btn-primary">+ New JV</a>
         <button class="tb-icon-btn" title="Notifications">🔔</button>
         <button class="tb-icon-btn" title="Help">?</button>
       </div>

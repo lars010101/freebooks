@@ -11,6 +11,8 @@ async function handleVat(ctx, action) {
   switch (action) {
     case 'vat.codes.list': return listVatCodes(ctx);
     case 'vat.codes.save': return saveVatCodes(ctx);
+    case 'vat.codes.upsert': return upsertVatCode(ctx);
+    case 'vat.codes.delete': return deleteVatCode(ctx);
     default:
       throw Object.assign(new Error(`Unknown VAT action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -138,6 +140,28 @@ async function saveVatCodes(ctx) {
 
   if (rows.length > 0) await bulkInsert('vat_codes', rows);
   return { saved: rows.length };
+}
+
+async function upsertVatCode(ctx) {
+  const { companyId, body } = ctx;
+  const { vatCode } = body;
+  if (!vatCode || !vatCode.vat_code) throw Object.assign(new Error('vat_code required'), { code: 'INVALID_INPUT' });
+  const existing = await query(`SELECT vat_code FROM vat_codes WHERE company_id = @companyId AND vat_code = @code`, { companyId, code: vatCode.vat_code });
+  if (existing.length > 0) {
+    await exec(`UPDATE vat_codes SET description=@desc, rate=@rate, input_account=@inp, output_account=@out, report_box=@box, is_reverse_charge=@rc, is_active=@active WHERE company_id=@companyId AND vat_code=@code`,
+      { companyId, code: vatCode.vat_code, desc: vatCode.description || null, rate: vatCode.rate || 0, inp: vatCode.input_account || null, out: vatCode.output_account || null, box: vatCode.report_box || null, rc: !!vatCode.is_reverse_charge, active: vatCode.is_active !== false });
+  } else {
+    await bulkInsert('vat_codes', [{ company_id: companyId, vat_code: vatCode.vat_code, description: vatCode.description || null, rate: vatCode.rate || 0, input_account: vatCode.input_account || null, output_account: vatCode.output_account || null, report_box: vatCode.report_box || null, is_reverse_charge: !!vatCode.is_reverse_charge, is_active: vatCode.is_active !== false }]);
+  }
+  return { saved: true };
+}
+
+async function deleteVatCode(ctx) {
+  const { companyId, body } = ctx;
+  const { vatCode } = body;
+  if (!vatCode) throw Object.assign(new Error('vatCode required'), { code: 'INVALID_INPUT' });
+  await exec(`DELETE FROM vat_codes WHERE company_id = @companyId AND vat_code = @vatCode`, { companyId, vatCode });
+  return { deleted: true };
 }
 
 function roundCurrency(amount) {

@@ -147,9 +147,7 @@ ${commonStyle()}
       <tbody id="mappings-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <button class="btn-sm" onclick="addMappingRow()">+ Add Rule</button>
-      <button id="btn-save-mappings" class="btn-primary" onclick="saveMappings()" disabled>Save</button>
-      <span id="msg-mappings" class="msg"></span>
+      <span id="msg-mappings" class="msg" style="font-size:0.8125rem"></span>
     </div>
     <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.<br>
     Set the <b>offset account</b> (expense for outflows, income for inflows). The bank account is supplied at import time and assigned automatically based on the amount sign.</p>
@@ -1092,29 +1090,92 @@ function loadBankMappingAccounts() {
 
 function addMappingRow(m) {
   m = m || {};
+  var isNew = !m.mapping_id;
+  var MATCH_TYPES_LOCAL = ['contains','exact','starts_with','regex'];
   var tr = document.createElement('tr');
-  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:140px"></td>'
-    + '<td><select style="width:90px">' + MATCH_TYPES.map(function(mt){ return '<option'+(mt===(m.match_type||'contains')?' selected':'')+'>'+mt+'</option>'; }).join('') + '</select></td>'
-    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="code or name" style="width:110px" autocomplete="off" oninput="bankMappingAcctInput(this)" onblur="hideBankMappingAcctDd()"></td>'
-    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:160px"></td>'
+  tr.dataset.mappingId = m.mapping_id || '';
+  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="SALARY" style="width:130px"></td>'
+    + '<td><select style="width:90px">' + MATCH_TYPES_LOCAL.map(function(mt){ return '<option'+(mt===(m.match_type||'contains')?' selected':'')+'>'+mt+'</option>'; }).join('') + '</select></td>'
+    + '<td><input type="text" value="'+(m.debit_account||'')+'" placeholder="code or name" style="width:100px" autocomplete="off" oninput="bankMappingAcctInput(this)" onblur="hideBankMappingAcctDd()"></td>'
+    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="optional" style="width:140px"></td>'
     + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(m.is_active!==false?' checked':'')+' ></td>'
-    + '<td></td>';
+    + '<td style="white-space:nowrap;text-align:right"></td>';
+  var saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-sm';
+  saveBtn.innerHTML = '\u{1F4BE}';
+  saveBtn.title = 'Save';
+  saveBtn.style.cssText = 'opacity:' + (isNew ? '1' : '0.35') + ';margin-right:4px';
+  saveBtn.onclick = function() { saveMappingRow(tr); };
   var delBtn = document.createElement('button');
   delBtn.className = 'btn-sm danger';
-  delBtn.innerHTML = '&times;';
-  delBtn.onclick = function() {
-    bankMappingsDirty = true;
-    var saveBtn = document.getElementById('btn-save-mappings');
-    if (saveBtn) saveBtn.disabled = false;
-    tr.remove();
-  };
-  tr.cells[tr.cells.length - 1].appendChild(delBtn);
+  delBtn.innerHTML = '\u2715';
+  delBtn.title = 'Delete';
+  delBtn.onclick = function() { deleteMappingRow(tr); };
+  tr.cells[tr.cells.length-1].appendChild(saveBtn);
+  tr.cells[tr.cells.length-1].appendChild(delBtn);
   tr.querySelectorAll('input,select').forEach(function(el){
-    el.addEventListener('input', function(){ bankMappingsDirty=true; var b=document.getElementById('btn-save-mappings'); if(b) b.disabled=false; });
-    el.addEventListener('change', function(){ bankMappingsDirty=true; var b=document.getElementById('btn-save-mappings'); if(b) b.disabled=false; });
+    el.addEventListener('input', function(){ saveBtn.style.opacity='1'; if(isNew && el===tr.cells[0].querySelector('input') && el.value.trim()){ isNew=false; appendBlankMappingRow(); } });
+    el.addEventListener('change', function(){ saveBtn.style.opacity='1'; });
   });
   document.getElementById('mappings-body').appendChild(tr);
+  return tr;
+}
+function appendBlankMappingRow() {
+  var tbody = document.getElementById('mappings-body');
+  var rows = tbody ? tbody.querySelectorAll('tr') : [];
+  if (rows.length > 0) {
+    var lastInput = rows[rows.length-1].cells[0].querySelector('input');
+    if (lastInput && !lastInput.value.trim()) return;
+  }
+  addMappingRow({});
+}
+function saveMappingRow(tr) {
+  var inputs = tr.querySelectorAll('input');
+  var sel = tr.querySelector('select');
+  var pattern = inputs[0].value.trim();
+  var debitAcct = inputs[1].value.trim();
+  if (!pattern || !debitAcct) {
+    var m = document.getElementById('msg-mappings');
+    if (m) { m.textContent='Pattern and account required'; m.className='msg err'; }
+    return;
+  }
+  var mapping = { mapping_id: tr.dataset.mappingId || null, pattern: pattern, match_type: sel ? sel.value : 'contains', debit_account: debitAcct, description_override: inputs[2].value.trim() || null, priority: parseInt(inputs[3].value)||100, is_active: inputs[4].checked };
+  var saveBtn = tr.querySelector('button.btn-sm:not(.danger)');
+  if (saveBtn) { saveBtn.innerHTML='\u23F3'; saveBtn.disabled=true; }
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mapping.upsert', companyId: COMPANY, mapping: mapping }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var d = res.data||res;
+      var m = document.getElementById('msg-mappings');
+      if (d.error||res.error) {
+        if (m) { m.textContent=d.error||res.error; m.className='msg err'; }
+        if (saveBtn) { saveBtn.innerHTML='\u{1F4BE}'; saveBtn.disabled=false; }
+      } else {
+        if (d.mappingId) tr.dataset.mappingId = d.mappingId;
+        if (saveBtn) { saveBtn.innerHTML='\u2713'; saveBtn.style.opacity='0.35'; saveBtn.disabled=false; setTimeout(function(){ saveBtn.innerHTML='\u{1F4BE}'; },1500); }
+        if (m) { m.textContent='Saved'; m.className='msg ok'; setTimeout(function(){ m.textContent=''; },2000); }
+      }
+    })
+    .catch(function(e){
+      var m = document.getElementById('msg-mappings');
+      if (m) { m.textContent=e.message; m.className='msg err'; }
+      if (saveBtn) { saveBtn.innerHTML='\u{1F4BE}'; saveBtn.disabled=false; }
+    });
+}
+function deleteMappingRow(tr) {
+  var mappingId = tr.dataset.mappingId;
+  if (!mappingId) { tr.remove(); appendBlankMappingRow(); return; }
+  var pattern = tr.cells[0].querySelector('input').value.trim();
+  if (!confirm('Delete mapping "'+pattern+'"?')) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mapping.delete', companyId: COMPANY, mappingId: mappingId }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var d = res.data||res;
+      if (d.error||res.error) { var m=document.getElementById('msg-mappings'); if(m){m.textContent=d.error||res.error;m.className='msg err';} }
+      else { tr.remove(); appendBlankMappingRow(); }
+    })
+    .catch(function(e){ var m=document.getElementById('msg-mappings'); if(m){m.textContent=e.message;m.className='msg err';} });
 }
 
 function loadMappings() {
@@ -1128,8 +1189,8 @@ function loadMappings() {
       if (res.error) throw new Error(res.error);
       if (!Array.isArray(rows)) throw new Error('Unexpected response: ' + JSON.stringify(res).slice(0, 100));
       rows.forEach(addMappingRow);
+      appendBlankMappingRow();
       bankMappingsDirty = false;
-      document.getElementById('btn-save-mappings').disabled = true;
       if (msgEl) { msgEl.textContent = rows.length ? '' : 'No rules yet.'; msgEl.className = 'msg'; }
     })
     .catch(function(e){
@@ -1138,26 +1199,7 @@ function loadMappings() {
     });
 }
 
-function saveMappings() {
-  var rows = Array.from(document.querySelectorAll('#mappings-body tr')).map(function(tr){
-    var inputs = tr.querySelectorAll('input');
-    var sel = tr.querySelector('select');
-    return { pattern: inputs[0].value.trim(), match_type: sel.value,
-      debit_account: inputs[1].value.trim(), credit_account: null,
-      description_override: inputs[2].value.trim() || null,
-      priority: parseInt(inputs[3].value||100), is_active: inputs[4].checked };
-  }).filter(function(m){ return m.pattern && m.debit_account; });
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'mapping.save', companyId: COMPANY, mappings: rows }) })
-    .then(function(r){ return r.json(); }).then(function(r){ var d=r.data||r;
-      var ok = !(r.error||d.error);
-      var msgEl = document.getElementById('msg-mappings');
-      msgEl.textContent = r.error||d.error||('Saved '+(d.saved||0)+' rules');
-      msgEl.className = 'msg ' + (ok ? 'ok' : 'err');
-      if (ok) { bankMappingsDirty=false; document.getElementById('btn-save-mappings').disabled=true; setTimeout(function(){ msgEl.textContent=''; }, 3000); }
-    })
-    .catch(function(e){ var msgEl = document.getElementById('msg-mappings'); msgEl.textContent=e.message; msgEl.className='msg err'; });
-}
+// saveMappings replaced by per-row saveMappingRow
 
 function bankMappingAcctInput(input) {
   loadBankMappingAccounts();

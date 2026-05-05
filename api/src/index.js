@@ -87,6 +87,15 @@ const ACTION_ROLES = {
   'setup.add_company': 'owner',
   'attachment.list': 'viewer',
   'attachment.delete': 'data_entry',
+  'mapping.upsert': 'data_entry',
+  'mapping.delete': 'data_entry',
+  'period.upsert':  'owner',
+  'period.delete':  'owner',
+  'coa.upsert':     'owner',
+  'coa.delete':     'owner',
+  'vat.codes.upsert': 'owner',
+  'vat.codes.delete': 'owner',
+  'journals.delete':  'owner',
 };
 
 const app = express();
@@ -248,6 +257,29 @@ async function handleCoa(ctx, action) {
     }
     return { saved: accounts.length };
   }
+
+  if (action === 'coa.upsert') {
+    const { account } = body;
+    if (!account || !account.account_code || !account.account_name || !account.account_type) throw Object.assign(new Error('account_code, account_name, account_type required'), { code: 'INVALID_INPUT' });
+    const now = new Date().toISOString();
+    const existing = await query(`SELECT account_code FROM accounts WHERE company_id = @companyId AND account_code = @code`, { companyId, code: account.account_code });
+    if (existing.length > 0) {
+      await exec(`UPDATE accounts SET account_name=@name, account_subtype=@subtype, cf_category=@cf, is_active=@active WHERE company_id=@companyId AND account_code=@code`,
+        { companyId, code: account.account_code, name: account.account_name, subtype: account.account_subtype || null, cf: account.cf_category || null, active: account.is_active !== false });
+    } else {
+      await bulkInsert('accounts', [{ company_id: companyId, account_code: account.account_code, account_name: account.account_name, account_type: account.account_type, account_subtype: account.account_subtype || null, cf_category: account.cf_category || null, is_active: account.is_active !== false, effective_from: now, effective_to: null, created_at: now }]);
+    }
+    return { saved: true };
+  }
+
+  if (action === 'coa.delete') {
+    const { accountCode } = body;
+    if (!accountCode) throw Object.assign(new Error('accountCode required'), { code: 'INVALID_INPUT' });
+    const inUse = await query(`SELECT COUNT(*) AS cnt FROM journal_entries WHERE company_id = @companyId AND account_code = @code`, { companyId, code: accountCode });
+    if (Number(inUse[0]?.cnt) > 0) throw Object.assign(new Error('Account has transactions and cannot be deleted'), { code: 'REFERENTIAL_INTEGRITY' });
+    await exec(`DELETE FROM accounts WHERE company_id = @companyId AND account_code = @code`, { companyId, code: accountCode });
+    return { deleted: true };
+  }
 }
 
 // --- Bank Mappings ---
@@ -282,6 +314,28 @@ async function handleMapping(ctx, action) {
 
     if (rows.length > 0) await bulkInsert('bank_mappings', rows);
     return { saved: rows.length };
+  }
+
+  if (action === 'mapping.upsert') {
+    const { mapping } = body;
+    if (!mapping || !mapping.pattern || !mapping.debit_account) throw Object.assign(new Error('pattern and debit_account required'), { code: 'INVALID_INPUT' });
+    const mappingId = mapping.mapping_id || uuid();
+    const existing = await query(`SELECT mapping_id FROM bank_mappings WHERE company_id = @companyId AND mapping_id = @mappingId`, { companyId, mappingId });
+    const row = { company_id: companyId, mapping_id: mappingId, pattern: mapping.pattern, match_type: mapping.match_type || 'contains', debit_account: mapping.debit_account, credit_account: null, description_override: mapping.description_override || null, vat_code: null, cost_center: null, profit_center: null, priority: mapping.priority || 100, is_active: mapping.is_active !== false };
+    if (existing.length > 0) {
+      await exec(`UPDATE bank_mappings SET pattern=@pattern, match_type=@match_type, debit_account=@debit_account, description_override=@description_override, priority=@priority, is_active=@is_active WHERE company_id=@companyId AND mapping_id=@mapping_id`,
+        { companyId, mapping_id: mappingId, pattern: row.pattern, match_type: row.match_type, debit_account: row.debit_account, description_override: row.description_override, priority: row.priority, is_active: row.is_active });
+    } else {
+      await bulkInsert('bank_mappings', [row]);
+    }
+    return { saved: true, mappingId };
+  }
+
+  if (action === 'mapping.delete') {
+    const { mappingId } = body;
+    if (!mappingId) throw Object.assign(new Error('mappingId required'), { code: 'INVALID_INPUT' });
+    await exec(`DELETE FROM bank_mappings WHERE company_id = @companyId AND mapping_id = @mappingId`, { companyId, mappingId });
+    return { deleted: true };
   }
 }
 
@@ -327,6 +381,13 @@ async function handleJournals(ctx, action) {
       { journalId, companyId, code: journal.code, name: journal.name, active: journal.active !== false }
     );
     return { saved: true, journalId };
+  }
+
+  if (action === 'journals.delete') {
+    const { journalId } = body;
+    if (!journalId) throw Object.assign(new Error('journalId required'), { code: 'INVALID_INPUT' });
+    await exec(`UPDATE journals SET active = false WHERE company_id = @companyId AND journal_id = @journalId`, { companyId, journalId });
+    return { deleted: true };
   }
 }
 
@@ -389,6 +450,27 @@ async function handleSettings(ctx, action) {
     await exec(`DELETE FROM periods WHERE company_id = @companyId`, { companyId });
     await bulkInsert('periods', rows);
     return { saved: rows.length };
+  }
+
+  if (action === 'period.upsert') {
+    const { period } = body;
+    if (!period || !period.period_id || !period.start_date || !period.end_date) throw Object.assign(new Error('period_id, start_date, end_date required'), { code: 'INVALID_INPUT' });
+    const now = new Date().toISOString();
+    const existing = await query(`SELECT period_name FROM periods WHERE company_id = @companyId AND period_name = @name`, { companyId, name: period.period_id });
+    if (existing.length > 0) {
+      await exec(`UPDATE periods SET start_date=@start, end_date=@end, locked=@locked, updated_at=@now WHERE company_id=@companyId AND period_name=@name`,
+        { companyId, name: period.period_id, start: period.start_date, end: period.end_date, locked: !!period.locked, now });
+    } else {
+      await bulkInsert('periods', [{ company_id: companyId, period_name: period.period_id, start_date: period.start_date, end_date: period.end_date, locked: !!period.locked, created_at: now, updated_at: now }]);
+    }
+    return { saved: true };
+  }
+
+  if (action === 'period.delete') {
+    const { periodId } = body;
+    if (!periodId) throw Object.assign(new Error('periodId required'), { code: 'INVALID_INPUT' });
+    await exec(`DELETE FROM periods WHERE company_id = @companyId AND period_name = @periodId`, { companyId, periodId });
+    return { deleted: true };
   }
 
   if (action === 'settings.get') {

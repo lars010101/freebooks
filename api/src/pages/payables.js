@@ -96,12 +96,8 @@ ${commonStyle()}
 <div class="page">
 
   <!-- Page header -->
-  <div class="page-header">
-    <div>
-      <h1>📋 Payables</h1>
-      <p class="sub">Manage accounts payable and vendor invoices.</p>
-    </div>
-    <a href="/${company}/bill/new" class="btn-create">&#43; Create Bill</a>
+  <div class="header">
+    <h1>📋 Payables</h1>
   </div>
 
   <div class="tabs" style="margin-bottom:20px">

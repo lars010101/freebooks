@@ -139,14 +139,6 @@ ${commonStyle()}
   <div id="rec-status" style="margin-top:10px;font-size:10pt"></div>
 
 
-  <!-- Import Statement — opens dedicated page -->
-  <div style="margin-top:2rem; border-top:1px solid var(--border,#e8e8e8); padding-top:1.5rem;">
-    <a href="/${company}/bank/import" class="btn-primary" style="display:inline-flex;align-items:center;gap:0.5rem;text-decoration:none;padding:0.625rem 1.25rem;font-size:0.9375rem">
-      ⬆ Import Statement
-    </a>
-    <p style="margin:0.75rem 0 0; font-size:0.8125rem; color:var(--text-muted)">Upload a bank statement CSV, map columns, review and post to journal.</p>
-  </div>
-
   </div><!-- /bank-panel-txn -->
 
   <div id="bank-panel-mappings" style="display:none">

@@ -16,8 +16,15 @@ function buildBankImportPage(company) {
 <title>Bank Import — ${company}</title>
 ${commonStyle()}
 <style>
-  .step { background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:14px 18px; margin-bottom:16px; }
-  .step h3 { margin:0 0 10px; font-size:11pt; color:#333; }
+  .step { background:var(--surface,#fff); border:1px solid var(--border,#e8e8e8); border-radius:0.5rem; padding:1.25rem 1.5rem; margin-bottom:1rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .step h3 { margin:0 0 0.875rem; font-size:0.9375rem; color:var(--text); font-weight:600; }
+  .wz-step .wz-num { display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;border-radius:50%;background:var(--border,#e0e0e0);color:var(--text-muted,#888);font-size:0.8rem;font-weight:700;flex-shrink:0; }
+  .wz-step .wz-label { font-size:0.875rem;color:var(--text-muted,#888);font-weight:500; }
+  .wz-step.active .wz-num { background:var(--accent,#1a1a1a);color:#fff; }
+  .wz-step.active .wz-label { color:var(--text);font-weight:600; }
+  .wz-step.done .wz-num { background:#2a8a2a;color:#fff; }
+  .wz-step.done .wz-label { color:var(--text-muted,#888); }
+  .wz-connector { flex:1;height:2px;background:var(--border,#e0e0e0);margin:0 0.5rem;max-width:4rem; }
   table.review-table { width:100%; border-collapse:collapse; font-size:9.5pt; }
   table.review-table th { background:#f0f0f0; padding:5px 7px; text-align:left; font-size:9pt; border:1px solid #ddd; }
   table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; background:#fff !important; color:#1a1a1a !important; opacity:1 !important; }
@@ -33,19 +40,36 @@ ${commonStyle()}
 </head>
 <body>${navBar(company, 'bank')}
 <div class="page">
-  <div class="header"><h1>Bank Statement Import</h1><p class="sub">${company} — Upload a bank statement CSV, review matched entries, then post to the BANK journal.</p></div>
+  <div class="header"><h1>⬆ Import Statement</h1><p class="sub">${company}</p></div>
+
+  <div id="wizard-steps" style="display:flex; align-items:center; gap:0; margin-bottom:1.5rem;">
+    <div class="wz-step active" id="wz-step-1" style="display:flex;align-items:center;gap:0.5rem">
+      <span class="wz-num">1</span>
+      <span class="wz-label">Upload</span>
+    </div>
+    <div class="wz-connector"></div>
+    <div class="wz-step" id="wz-step-2" style="display:flex;align-items:center;gap:0.5rem">
+      <span class="wz-num">2</span>
+      <span class="wz-label">Mapping</span>
+    </div>
+    <div class="wz-connector"></div>
+    <div class="wz-step" id="wz-step-3" style="display:flex;align-items:center;gap:0.5rem">
+      <span class="wz-num">3</span>
+      <span class="wz-label">Review &amp; Approve</span>
+    </div>
+  </div>
 
   <!-- Step 1: Upload -->
   <div class="step" id="step1">
     <h3>① Load your bank statement CSV</h3>
-    <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Open the CSV in a text editor, select all (Ctrl+A), copy (Ctrl+C), then paste below. Or use the file picker.</p>
-    <textarea id="csv-paste" rows="5" style="width:100%;font-family:monospace;font-size:9pt;padding:8px;border:1px solid #ccc;border-radius:4px;resize:vertical" placeholder="Paste CSV content here…"></textarea>
-    <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
-      <button class="btn-primary" onclick="onPasteLoad()">Load Pasted CSV →</button>
-      <span style="color:#888;font-size:9.5pt">or select file:</span>
-      <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()">
+    <div id="drop-zone" style="border:2px dashed var(--border,#ccc);border-radius:0.5rem;padding:2rem 1rem;text-align:center;color:var(--text-muted,#888);margin-bottom:1rem;cursor:pointer;transition:border-color .15s" onclick="document.getElementById('csv-file').click()" ondragover="event.preventDefault();this.style.borderColor='var(--accent,#1a1a1a)'" ondragleave="this.style.borderColor=''" ondrop="onDropFile(event)">
+      <div style="font-size:0.9375rem;margin-bottom:0.5rem">Drag and drop your bank statement file here, or <span style="color:var(--accent,#2255cc);text-decoration:underline;cursor:pointer">click to browse</span>.</div>
+      <button class="btn-sm" onclick="event.stopPropagation(); var t=document.getElementById('csv-paste'); var b=document.getElementById('paste-load-btn'); var show=t.style.display==='none'||!t.style.display; t.style.display=show?'block':'none'; b.style.display=show?'':'none';" style="margin-top:0.5rem">Paste CSV instead</button>
     </div>
-    <div id="file-status" style="margin-top:8px;font-size:10pt"></div>
+    <textarea id="csv-paste" rows="4" style="display:none;width:100%;font-family:monospace;font-size:0.8125rem;padding:0.5rem;border:1px solid var(--border,#ccc);border-radius:0.375rem;resize:vertical;box-sizing:border-box;" placeholder="Paste CSV content here…"></textarea>
+    <button class="btn-primary" id="paste-load-btn" style="display:none;margin-top:0.5rem" onclick="onPasteLoad()">Load Pasted CSV →</button>
+    <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()" style="display:none">
+    <div id="file-status" style="margin-top:0.5rem;font-size:0.875rem"></div>
   </div>
 
   <!-- Step 2: Map columns -->
@@ -211,6 +235,7 @@ ${commonStyle()}
       statusEl.textContent = '\u2713 Loaded ' + csvRows.length + ' rows | Columns: ' + headers.join(', ');
       populateColDropdowns();
       document.getElementById('step2').style.display = '';
+      setWizardStep(2);
       document.getElementById('step2').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch(err) {
       statusEl.style.color = '#cc2222';
@@ -232,6 +257,33 @@ ${commonStyle()}
     var reader = new FileReader();
     reader.onerror = function() { statusEl.style.color='#cc2222'; statusEl.textContent = 'File read error'; };
     reader.onload = function(e) { processCSVText(e.target.result); };
+    reader.readAsText(file);
+  }
+
+  function setWizardStep(n) {
+    for (var i = 1; i <= 3; i++) {
+      var el = document.getElementById('wz-step-' + i);
+      if (!el) continue;
+      el.classList.remove('active','done');
+      if (i < n) el.classList.add('done');
+      else if (i === n) el.classList.add('active');
+    }
+  }
+
+  function onDropFile(e) {
+    e.preventDefault();
+    document.getElementById('drop-zone').style.borderColor = '';
+    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    var statusEl = document.getElementById('file-status');
+    if (statusEl) { statusEl.style.color = '#888'; statusEl.textContent = 'Reading ' + file.name + '…'; }
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      processCSVText(ev.target.result);
+    };
+    reader.onerror = function() {
+      if (statusEl) { statusEl.style.color = '#cc2222'; statusEl.textContent = 'File read error'; }
+    };
     reader.readAsText(file);
   }
 
@@ -384,6 +436,8 @@ ${commonStyle()}
       + '<span style="color:#2a8a2a">'+(summary.ruleMatched||0)+' rule-matched</span>, '
       + '<span style="color:#856404">'+(summary.billMatched||0)+' bill-matched</span>, '
       + '<span style="color:#cc8800">'+(summary.unmatched||0)+' unmatched</span>';
+    document.getElementById('step-review').style.display = '';
+    setWizardStep(3);
     document.getElementById('review-body').innerHTML = processedRows.map(function(r, i) {
       var orig = r.original;
       var amt = parseFloat(orig.amount);
@@ -410,7 +464,6 @@ ${commonStyle()}
         +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'" onchange="updateBalances()"></td>'
         +'</tr>';
     }).join('');
-    document.getElementById('step-review').style.display = '';
     // Populate journal dropdown now that the element is visible
     var jSel = document.getElementById('import-journal');
     if (Array.isArray(journalsList) && journalsList.length) {

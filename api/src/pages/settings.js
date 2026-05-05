@@ -58,8 +58,8 @@ ${commonStyle()}
   </div>
 
   <div class="tabs">
-    <div class="tab active" onclick="showTab('periods')">Periods</div>
-    <div class="tab" onclick="showTab('company')">Company</div>
+    <div class="tab active" onclick="showTab('company')">Company</div>
+    <div class="tab" onclick="showTab('periods')">Periods</div>
     <div class="tab" onclick="showTab('coa')">Chart of Accounts</div>
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes</div>
     <div class="tab" onclick="showTab('journals')">Journals</div>
@@ -67,7 +67,7 @@ ${commonStyle()}
   </div>
 
   <!-- PERIODS TAB -->
-  <div id="tab-periods" class="tab-panel active">
+  <div id="tab-periods" class="tab-panel">
     <table class="edit-table" id="periods-table">
       <thead><tr><th>Period Name</th><th>Start Date</th><th>End Date</th><th>Locked</th><th></th></tr></thead>
       <tbody id="periods-body"></tbody>
@@ -80,7 +80,7 @@ ${commonStyle()}
   </div>
 
   <!-- COMPANY TAB -->
-  <div id="tab-company" class="tab-panel">
+  <div id="tab-company" class="tab-panel active">
     <div class="field-row"><label>Company Name</label><input type="text" id="co-name"></div>
     <div class="field-row"><label>Currency</label><input type="text" id="co-currency" maxlength="3" style="max-width:80px" list="currency-list"></div>
     <div class="field-row"><label>Jurisdiction</label><input type="text" id="co-jurisdiction" style="max-width:80px"></div>
@@ -217,7 +217,7 @@ function showTab(t) {
       resetDirty(curTab);
     }
   }
-  var tabs = ['periods','company','coa','vat','journals','fxrates'];
+  var tabs = ['company','periods','coa','vat','journals','fxrates'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');

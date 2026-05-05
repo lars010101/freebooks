@@ -14,11 +14,11 @@ ${commonStyle()}
 </head>
 <body>${navBar(company, 'reports')}
 <div class="page" style="display:flex; flex-direction:column; height:100%; padding:0; overflow:hidden; max-width:none;">
-  <div class="header" style="flex-shrink:0;">
+  <div class="header" style="flex-shrink:0; padding:2.25rem 3rem 0;">
     <h1>\u{1F4C8} Reports</h1>
   </div>
 
-  <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:12px 24px; border-bottom:1px solid var(--border,#e8e8e8); flex-shrink:0;">
+  <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:0.75rem 3rem; border-bottom:1px solid var(--border,#e8e8e8); flex-shrink:0;">
     <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbOnTypeChange()">
       <option value="pl">Profit &amp; Loss</option>
       <option value="bs">Balance Sheet</option>
@@ -251,13 +251,13 @@ ${layoutEnd()}
         var existing = doc.getElementById('fb-theme-inject');
         if (existing) existing.remove();
         var theme = document.documentElement.getAttribute('data-theme') || 'light';
-        if (theme === 'dark') {
-          var s = doc.createElement('style');
-          s.id = 'fb-theme-inject';
-          s.textContent = 'html,body{background:#1a1a1a!important;color:#e0e0e0!important}' +
-            '@media print{html,body{background:#fff!important;color:#000!important}}';
-          doc.head.appendChild(s);
-        }
+        var bgColor = theme === 'dark' ? '#0e1520' : '#f2f4f7';
+        var fgColor = theme === 'dark' ? '#e0e0e0' : 'inherit';
+        var s = doc.createElement('style');
+        s.id = 'fb-theme-inject';
+        s.textContent = 'html,body{background:' + bgColor + '!important;color:' + fgColor + '!important}' +
+          '@media print{html,body{background:#fff!important;color:#000!important}}';
+        doc.head.appendChild(s);
       } catch(e) {}
     });
   };

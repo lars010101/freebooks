@@ -132,26 +132,46 @@ The server handles SIGINT/SIGTERM (Ctrl+C) gracefully — checkpoints DuckDB bef
 | `/:company/journal/new` | New JV form (with reversal mode; pre-post attachment queue) |
 | `/:company/bill/new` | Enter Bill form — vendor autocomplete, multi-line expenses, pre-post attachment queue, auto-generates AP journal entry |
 | `/:company/payables` | Payables screen — bill list with filters + bill detail modal |
-| `/:company/payables/aging` | AP Aging report — outstanding payables by aging bucket |
+| `/:company/payables/aging` | Redirects (302) to `/:company/reports?t=ap-aging` |
+| `/:company/reports` | **Reports hub** — full period/type/filter controls in top bar; report renders inline in an iframe. See [Reports Hub](#reports-hub) below. |
 | `/:company/bank` | **Bank** — uncleared transactions list + collapsible CSV import ("Import Statement"). Supports `?mode=uncleared` to auto-load all uncleared transactions across all cash accounts. Step 2: Link Bill panel shows open bills with outstanding amounts and multi-currency support. |
 | `/:company/opening-balances` | Opening balances (setup step; accessible from new company wizard) |
 | `/api/admin/query` | Debug SQL endpoint (POST) |
 
-Note: `/:company/bank/import` and `/:company/bank/reconcile` both 301-redirect to `/:company/bank`.
+Notes:
+- `/:company/bank/import` and `/:company/bank/reconcile` both 301-redirect to `/:company/bank`.
+- `/:company/payables/aging` 302-redirects to `/:company/reports?t=ap-aging`.
 
 ### Navigation
 
-All pages share a persistent 5-item top nav bar rendered by `navBar(company, activeKey)` in `api/src/pages/common.js`:
+All pages share a two-panel shell rendered by `navBar(company, activeKey)` in `api/src/pages/common.js`:
+
+**Sidebar** (left, collapsible)
 
 ```
-📊 Dashboard  |  🏦 Bank  |  ✏ New JV  |  📋 Payables  |  ⚙ Settings
+📊 Dashboard  |  🏦 Bank  |  📋 Payables  |  📄 Receivables  |  📈 Reports  |  ⚙ Settings
 ```
 
-Active item highlighted with bold + bottom border. Opening Balances is not in the persistent nav — it surfaces contextually in the new company wizard.
+- Company name + switcher in sidebar header (click to switch company)
+- Footer: theme toggle + collapse icon (no text labels; theme icon hidden when collapsed)
+- Collapse state and theme persisted in `localStorage`
+
+**Top bar** (right panel header)
+
+Context-sensitive per section. Always-present: `+ Journal Entry` button, 🔔, `?`.
+Additional actions per context:
+
+| Section | Extra buttons |
+|---|---|
+| Dashboard | `+ Bill`, `+ Invoice` (placeholder), `+ Statement` |
+| Bank | `+ Statement` |
+| Payables | `+ Bill` |
+| Sales | `+ Invoice` |
+| Reports | Period dropdown, start/end date, MoM, YoY, report type, ⬇ download |
 
 ### Company switching
 
-The active company is stored in `localStorage` (`freebooks_company` key). Switching company is done via Settings → Company tab → "Manage Companies" section. The root `/` route redirects to the stored active company on return visits.
+Click the company name in the sidebar header to open the company switcher dropdown.
 
 ### Dashboard cards
 
@@ -165,6 +185,24 @@ The dashboard shows 4 clickable summary cards before the report selector:
 | **P&L** | Green (profit), Red (loss) | Dashboard |
 
 Card data is cached in memory for 30 seconds per company (`_dashCache` in `company.js`)
+
+### Reports Hub
+
+`/:company/reports` — all report types in one page.
+
+**Top bar controls (left → right):**
+1. Report type dropdown (9 types)
+2. Period dropdown (fiscal periods from DB) + custom start/end date inputs
+3. MoM button (greyed/disabled except for pl, bs, cf)
+4. YoY button (greyed/disabled except for pl, bs, cf)
+5. ⬇ Download icon — dropdown with *Print / PDF* (opens clean report in new tab) and *CSV* (client-side table extraction)
+
+**Behaviour:**
+- Report renders live in an `<iframe>` below the top bar; reloads on any control change
+- Journal Listing and General Ledger have their own on-page account code filter (and journal code filter for Journal)
+- AP Aging uses the end date as "as of" date; vendor rows expand/collapse on click
+- Last used report type, period, and date range persisted in `localStorage` and restored on next visit
+- `?t=<type>` URL param overrides the initial report type (used by the payables redirect)
 
 ---
 
@@ -235,7 +273,12 @@ All actions use `{ action, companyId, ...body }` request format. Response: `{ ok
 | `gl` | General Ledger | No |
 | `journal` | Journal | No |
 | `integrity` | Integrity Checks + RE roll-forward | No |
-| `payables/aging` | AP Aging (separate page, not a /report?type= URL) | No |
+| `ap-aging` | AP Aging — as of end date, embedded in Reports hub | No |
+
+MoM and YoY are only available for `pl`, `bs`, and `cf`. All other types ignore the `step` parameter.
+
+All report types are accessible via `GET /api/:company/report?type=<type>&start=YYYY-MM-DD&end=YYYY-MM-DD`.
+`ap-aging` only requires `end` (no `start` needed).
 
 YoY uses the company's defined fiscal periods (not calendar years).
 

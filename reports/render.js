@@ -737,6 +737,11 @@ async function buildAPAging(query, company, _start, end) {
     return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function toggleDetail(row) {
+    var next = row.nextElementSibling;
+    if (!next) return;
+    next.style.display = next.style.display === 'none' ? '' : 'none';
+  }
 
   function renderAging(rows) {
     if (!rows.length) {
@@ -761,7 +766,7 @@ async function buildAPAging(query, company, _start, end) {
         totals[b.bucket] = (totals[b.bucket] || 0) + bal;
         totals.total += bal;
       });
-      html += '<tr class="vendor-row" onclick="this.nextElementSibling && (this.nextElementSibling.style.display = this.nextElementSibling.style.display === \'none\' ? \'\' : \'none\')">';
+      html += '<tr class="vendor-row" onclick="toggleDetail(this)">';
       html += '<td>\u25b6 ' + esc(vendor) + '</td>';
       html += '<td>' + fmt(vt.current) + '</td><td>' + fmt(vt['1_30']) + '</td>';
       html += '<td>' + fmt(vt['31_60']) + '</td><td>' + fmt(vt['61_90']) + '</td>';

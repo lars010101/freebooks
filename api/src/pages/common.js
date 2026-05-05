@@ -337,27 +337,27 @@ function topBarContext(company, activeKey) {
       actions: `
         ${actionBtn('+ Bill', `/${company}/bill/new`, false)}
         <span class="tb-btn" style="opacity:.4;cursor:default" title="Invoicing coming soon">+ Invoice</span>
-        ${actionBtn('+ Journal Entry', `/${company}/journal/new`, true)}`
+        ${actionBtn('+ Statement', `/${company}/bank#import`, false)}`
     },
     bank: {
       nav: `${sep}
         ${navLink('Reconcile', `/${company}/bank`, activeKey === 'bank')}
         ${navLink('Mappings', `/${company}/settings?tab=bank-mappings`, false)}`,
-      actions: `${actionBtn('+ New Statement', `/${company}/bank#import`)}`
+      actions: `${actionBtn('+ Statement', `/${company}/bank#import`)}`
     },
     payables: {
       nav: `${sep}
         ${navLink('Bills', `/${company}/payables`, true)}
         ${navLink('Vendors', '#', false, true)}
         ${navLink('AP Aging', `/${company}/payables/aging`, false)}`,
-      actions: `${actionBtn('+ New Bill', `/${company}/bill/new`)}`
+      actions: `${actionBtn('+ Bill', `/${company}/bill/new`)}`
     },
     receivables: {
       nav: `${sep}
         ${navLink('Invoices', '#', false, true)}
         ${navLink('Customers', '#', false, true)}
         ${navLink('AR Aging', '#', false, true)}`,
-      actions: `${actionBtn('+ New Invoice', '#', false)}`
+      actions: `${actionBtn('+ Invoice', '#', false)}`
     },
     reports: {
       nav: `${sep}
@@ -446,6 +446,7 @@ function navBar(company, activeKey) {
       </div>
       <div class="tb-right">
         ${ctx.actions}
+        ${actionBtn('+ Journal Entry', `/${company}/journal/new`, true)}
         <button class="tb-icon-btn" title="Notifications">🔔</button>
         <button class="tb-icon-btn" title="Help">?</button>
       </div>

@@ -442,26 +442,28 @@ function topBarContext(company, activeKey) {
     reports: {
       nav: `
         <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbOnTypeChange()">
-          <option value="pl">Profit &amp; Loss</option>
-          <option value="bs">Balance Sheet</option>
-          <option value="cf">Cash Flow</option>
-          <option value="sce">Statement of Equity</option>
-          <option value="tb">Trial Balance</option>
-          <option value="gl">General Ledger</option>
-          <option value="journal">Journal Listing</option>
-          <option value="integrity">Integrity Check</option>
-          <option value="ap-aging">AP Aging</option>
-          <option disabled style="color:var(--text-faint)">────────</option>
-          <option value="__mom">MoM Comparison</option>
-          <option value="__yoy">YoY Comparison</option>
+          <optgroup label="Reports">
+            <option value="pl">Profit &amp; Loss</option>
+            <option value="bs">Balance Sheet</option>
+            <option value="cf">Cash Flow</option>
+            <option value="sce">Statement of Equity</option>
+            <option value="tb">Trial Balance</option>
+            <option value="gl">General Ledger</option>
+            <option value="journal">Journal Listing</option>
+            <option value="integrity">Integrity Check</option>
+            <option value="ap-aging">AP Aging</option>
+          </optgroup>
+          <optgroup label="Comparison">
+            <option value="__mom">Month-over-Month</option>
+            <option value="__yoy">Year-over-Year</option>
+          </optgroup>
         </select>
         <span id="rpt-step-badge" style="display:none;font-size:0.75rem;font-weight:700;color:var(--accent);white-space:nowrap"></span>
         <div class="tb-divider"></div>
-        <select id="rpt-period" class="tb-select" style="width:9ch" onchange="fbOnPeriodChange()" title="Period"><option value="">—</option></select>
+        <select id="rpt-period" class="tb-select" style="min-width:110px" onchange="fbOnPeriodChange()" title="Period"><option value="">—</option></select>
         <input type="date" id="rpt-start" class="tb-date-input" onchange="fbLoadReport()" title="Start date">
         <span style="color:var(--text-muted);padding:0 3px;font-size:0.875rem">–</span>
         <input type="date" id="rpt-end" class="tb-date-input" onchange="fbLoadReport()" title="End date">
-        <button class="tb-toggle-btn" id="rpt-filter" onclick="fbToggleFilter()" title="Filter by account">Filter</button>
         <input type="text" id="rpt-account" class="tb-date-input" placeholder="Account code" style="display:none;width:130px" oninput="fbLoadReport()">`,
       actions: `
         <div style="position:relative">

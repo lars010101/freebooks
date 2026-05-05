@@ -37,6 +37,7 @@ ${layoutEnd()}
       if (typeEl.options[i].value === currentType) { typeEl.selectedIndex = i; break; }
     }
     updateStepBadge();
+    /* account input shown after updateAccountInput is defined, called after fbLoadReport */
   }
 
   /* ── Load periods ── */
@@ -81,6 +82,7 @@ ${layoutEnd()}
         document.getElementById('rpt-end').value   = e0;
         periodEl.value = s0 + '|' + e0;
       }
+      updateAccountInput();
       fbLoadReport();
     })
     .catch(function() {
@@ -88,6 +90,7 @@ ${layoutEnd()}
         document.getElementById('rpt-start').value = savedStart;
         document.getElementById('rpt-end').value   = savedEnd;
       }
+      updateAccountInput();
       fbLoadReport();
     });
 
@@ -116,8 +119,7 @@ ${layoutEnd()}
             + '&start=' + encodeURIComponent(start)
             + '&end='   + encodeURIComponent(end);
     if (currentStep) url += '&step=' + currentStep;
-    var filterActive = document.getElementById('rpt-filter').classList.contains('tb-active');
-    if (filterActive) {
+    if (currentType === 'gl' || currentType === 'journal') {
       var acct = (document.getElementById('rpt-account') || {}).value || '';
       if (acct.trim()) url += '&account=' + encodeURIComponent(acct.trim());
     }
@@ -125,11 +127,17 @@ ${layoutEnd()}
   }
 
   /* ── Public handlers ── */
+  function updateAccountInput() {
+    var inp = document.getElementById('rpt-account');
+    if (!inp) return;
+    inp.style.display = (currentType === 'gl' || currentType === 'journal') ? '' : 'none';
+    if (currentType !== 'gl' && currentType !== 'journal') inp.value = '';
+  }
+
   window.fbOnTypeChange = function() {
     var val = typeEl ? typeEl.value : '';
     if (val === '__mom') {
       currentStep = (currentStep === 'mom') ? '' : 'mom';
-      /* revert dropdown to show current report type */
       if (typeEl) {
         for (var i = 0; i < typeEl.options.length; i++) {
           if (typeEl.options[i].value === currentType) { typeEl.selectedIndex = i; break; }
@@ -146,6 +154,7 @@ ${layoutEnd()}
       currentType = val;
     }
     updateStepBadge();
+    updateAccountInput();
     localStorage.setItem('fb-rpt-type', currentType);
     localStorage.setItem('fb-rpt-step', currentStep);
     fbLoadReport();
@@ -161,16 +170,7 @@ ${layoutEnd()}
     fbLoadReport();
   };
 
-  window.fbToggleFilter = function() {
-    var btn = document.getElementById('rpt-filter');
-    var inp = document.getElementById('rpt-account');
-    btn.classList.toggle('tb-active');
-    if (inp) {
-      inp.style.display = btn.classList.contains('tb-active') ? '' : 'none';
-      if (!btn.classList.contains('tb-active')) inp.value = '';
-    }
-    fbLoadReport();
-  };
+  /* account input visibility is driven by type selection, no separate filter button */
 
   window.fbLoadReport = function() {
     var start  = (document.getElementById('rpt-start')  || {}).value || '';

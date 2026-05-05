@@ -23,24 +23,31 @@ ${layoutEnd()}
 (function() {
   var company = ${JSON.stringify(company)};
 
-  /* ── State ── */
+  /* \u2500\u2500 State \u2500\u2500 */
   var currentType = localStorage.getItem('fb-rpt-type')   || 'pl';
   var currentStep = localStorage.getItem('fb-rpt-step')   || '';
   var savedPeriod = localStorage.getItem('fb-rpt-period') || '';
   var savedStart  = localStorage.getItem('fb-rpt-start')  || '';
   var savedEnd    = localStorage.getItem('fb-rpt-end')    || '';
 
-  /* ── Restore type dropdown ── */
+  /* \u2500\u2500 Restore type dropdown \u2500\u2500 */
   var typeEl = document.getElementById('rpt-type');
   if (typeEl) {
     for (var i = 0; i < typeEl.options.length; i++) {
       if (typeEl.options[i].value === currentType) { typeEl.selectedIndex = i; break; }
     }
-    updateStepBadge();
-    /* account input shown after updateAccountInput is defined, called after fbLoadReport */
   }
 
-  /* ── Load periods ── */
+  /* \u2500\u2500 Restore MoM/YoY buttons \u2500\u2500 */
+  function restoreStepButtons() {
+    var momBtn = document.getElementById('rpt-mom');
+    var yoyBtn = document.getElementById('rpt-yoy');
+    if (momBtn) momBtn.classList.toggle('tb-active', currentStep === 'mom');
+    if (yoyBtn) yoyBtn.classList.toggle('tb-active', currentStep === 'yoy');
+  }
+  restoreStepButtons();
+
+  /* \u2500\u2500 Load periods \u2500\u2500 */
   fetch('/api/' + company + '/periods')
     .then(function(r) { return r.json(); })
     .then(function(raw) {
@@ -72,8 +79,7 @@ ${layoutEnd()}
       if (!matched && savedStart && savedEnd) {
         document.getElementById('rpt-start').value = savedStart;
         document.getElementById('rpt-end').value   = savedEnd;
-        periodEl.value = 'custom';
-        matched = true;
+        periodEl.value = 'custom'; matched = true;
       }
       if (!matched && periods.length) {
         var p0 = periods[0];
@@ -82,7 +88,6 @@ ${layoutEnd()}
         document.getElementById('rpt-end').value   = e0;
         periodEl.value = s0 + '|' + e0;
       }
-      updateAccountInput();
       fbLoadReport();
     })
     .catch(function() {
@@ -90,11 +95,10 @@ ${layoutEnd()}
         document.getElementById('rpt-start').value = savedStart;
         document.getElementById('rpt-end').value   = savedEnd;
       }
-      updateAccountInput();
       fbLoadReport();
     });
 
-  /* ── Helpers ── */
+  /* \u2500\u2500 Helpers \u2500\u2500 */
   function fmtDate(d) {
     if (!d) return '';
     if (typeof d === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(d)) return d;
@@ -102,61 +106,23 @@ ${layoutEnd()}
     return isNaN(dt) ? String(d).slice(0, 10) : dt.toISOString().slice(0, 10);
   }
 
-  function updateStepBadge() {
-    var badge = document.getElementById('rpt-step-badge');
-    if (!badge) return;
-    if (currentStep === 'mom') { badge.textContent = 'MoM'; badge.style.display = ''; }
-    else if (currentStep === 'yoy') { badge.textContent = 'YoY'; badge.style.display = ''; }
-    else { badge.style.display = 'none'; }
-  }
-
   function buildReportUrl() {
     var start = (document.getElementById('rpt-start') || {}).value || '';
     var end   = (document.getElementById('rpt-end')   || {}).value || '';
     if (!currentType || !start || !end) return null;
-    if (currentType === 'ap-aging') return '/' + company + '/payables/aging';
+    if (currentType === 'ap-aging') return null; /* handled separately */
     var url = '/api/' + company + '/report?type=' + encodeURIComponent(currentType)
             + '&start=' + encodeURIComponent(start)
             + '&end='   + encodeURIComponent(end);
     if (currentStep) url += '&step=' + currentStep;
-    if (currentType === 'gl' || currentType === 'journal') {
-      var acct = (document.getElementById('rpt-account') || {}).value || '';
-      if (acct.trim()) url += '&account=' + encodeURIComponent(acct.trim());
-    }
     return url;
   }
 
-  /* ── Public handlers ── */
-  function updateAccountInput() {
-    var inp = document.getElementById('rpt-account');
-    if (!inp) return;
-    inp.style.display = (currentType === 'gl' || currentType === 'journal') ? '' : 'none';
-    if (currentType !== 'gl' && currentType !== 'journal') inp.value = '';
-  }
-
+  /* \u2500\u2500 Public handlers \u2500\u2500 */
   window.fbOnTypeChange = function() {
     var val = typeEl ? typeEl.value : '';
-    if (val === '__mom') {
-      currentStep = (currentStep === 'mom') ? '' : 'mom';
-      if (typeEl) {
-        for (var i = 0; i < typeEl.options.length; i++) {
-          if (typeEl.options[i].value === currentType) { typeEl.selectedIndex = i; break; }
-        }
-      }
-    } else if (val === '__yoy') {
-      currentStep = (currentStep === 'yoy') ? '' : 'yoy';
-      if (typeEl) {
-        for (var i = 0; i < typeEl.options.length; i++) {
-          if (typeEl.options[i].value === currentType) { typeEl.selectedIndex = i; break; }
-        }
-      }
-    } else if (val) {
-      currentType = val;
-    }
-    updateStepBadge();
-    updateAccountInput();
+    if (val) currentType = val;
     localStorage.setItem('fb-rpt-type', currentType);
-    localStorage.setItem('fb-rpt-step', currentStep);
     fbLoadReport();
   };
 
@@ -170,47 +136,66 @@ ${layoutEnd()}
     fbLoadReport();
   };
 
-  /* account input visibility is driven by type selection, no separate filter button */
+  window.fbToggleComparison = function(mode) {
+    currentStep = (currentStep === mode) ? '' : mode;
+    restoreStepButtons();
+    localStorage.setItem('fb-rpt-step', currentStep);
+    fbLoadReport();
+  };
 
   window.fbLoadReport = function() {
     var start  = (document.getElementById('rpt-start')  || {}).value || '';
     var end    = (document.getElementById('rpt-end')    || {}).value || '';
     var period = (document.getElementById('rpt-period') || {}).value || 'custom';
     localStorage.setItem('fb-rpt-type',   currentType);
-    localStorage.setItem('fb-rpt-step',   currentStep);
     localStorage.setItem('fb-rpt-period', period);
     localStorage.setItem('fb-rpt-start',  start);
     localStorage.setItem('fb-rpt-end',    end);
+
     if (!start || !end) return;
     var frame = document.getElementById('report-frame');
     if (!frame) return;
+
+    /* AP Aging is a full page \u2014 open in new tab */
+    if (currentType === 'ap-aging') {
+      window.open('/' + company + '/payables/aging', '_blank');
+      /* revert to previous valid type */
+      currentType = localStorage.getItem('fb-rpt-type-prev') || 'pl';
+      if (typeEl) {
+        for (var i = 0; i < typeEl.options.length; i++) {
+          if (typeEl.options[i].value === currentType) { typeEl.selectedIndex = i; break; }
+        }
+      }
+      return;
+    }
+    localStorage.setItem('fb-rpt-type-prev', currentType);
+
     var url = buildReportUrl();
     if (url) frame.src = url;
   };
 
-  /* ── Download dropdown toggle ── */
+  /* \u2500\u2500 Download dropdown \u2500\u2500 */
   window.fbToggleDownload = function(e) {
     e.stopPropagation();
     var dd = document.getElementById('rpt-dl-dd');
-    if (!dd) return;
-    dd.style.display = dd.style.display === 'none' ? '' : 'none';
+    if (dd) dd.style.display = dd.style.display === 'none' ? '' : 'none';
   };
   document.addEventListener('click', function() {
     var dd = document.getElementById('rpt-dl-dd');
     if (dd) dd.style.display = 'none';
   });
 
-  /* ── PDF: open clean standalone report in new tab ── */
   window.fbExportPDF = function() {
-    document.getElementById('rpt-dl-dd').style.display = 'none';
+    var dd = document.getElementById('rpt-dl-dd');
+    if (dd) dd.style.display = 'none';
     var url = buildReportUrl();
     if (!url) { alert('Select a report and date range first.'); return; }
     window.open(url, '_blank');
   };
 
-  /* ── CSV: client-side table extraction from iframe ── */
   window.fbExportCSV = function() {
-    document.getElementById('rpt-dl-dd').style.display = 'none';
+    var dd = document.getElementById('rpt-dl-dd');
+    if (dd) dd.style.display = 'none';
     var frame = document.getElementById('report-frame');
     var start = (document.getElementById('rpt-start') || {}).value || '';
     var end   = (document.getElementById('rpt-end')   || {}).value || '';

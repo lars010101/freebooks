@@ -210,32 +210,39 @@ async function buildTB(query, company, start, end) {
 }
 
 async function buildGL(query, company, start, end, account) {
+  let companyName = company;
+  try {
+    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
+    if (co) companyName = co.company_name;
+  } catch (_) {}
+
   let rows = await query(`SELECT * FROM gl(?, ?, ?)`, [company, start, end]);
   if (account) rows = rows.filter(r => r.account_code === account);
+
   let lastAcct = null;
   let runBal = 0;
   let tableRows = '';
   for (const r of rows) {
     if (r.account_code !== lastAcct) {
       if (lastAcct !== null) {
-        tableRows += `<tr class="subtotal"><td></td><td></td><td>Closing Balance</td><td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td></tr>
-        <tr><td colspan="6" style="padding:8px 0"></td></tr>`;
+        tableRows += `<tr class="subtotal" data-account="${lastAcct}"><td></td><td></td><td>Closing Balance</td><td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td></tr>
+        <tr data-account="${lastAcct}"><td colspan="6" style="padding:4px 0"></td></tr>`;
       }
       runBal = 0;
-      tableRows += `<tr class="section-header"><td colspan="6">${r.account_code} — ${r.account_name || ''}</td></tr>`;
+      tableRows += `<tr class="section-header" data-account="${r.account_code}"><td colspan="6">${r.account_code} — ${r.account_name || ''}</td></tr>`;
       lastAcct = r.account_code;
     }
     if (r.batch_id === 'Opening Balance') {
       const obAmt = parseFloat(r.debit_home || r.debit || 0) - parseFloat(r.credit_home || r.credit || 0);
       runBal = obAmt;
-      tableRows += `<tr class="subtotal">
+      tableRows += `<tr class="subtotal" data-account="${r.account_code}">
         <td></td><td colspan="2" style="font-style:italic">Opening Balance</td>
         <td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td>
       </tr>`;
     } else {
       runBal += parseFloat(r.debit_home || r.debit || 0) - parseFloat(r.credit_home || r.credit || 0);
       const dateStr = new Date(r.date).toISOString().slice(0, 10);
-      tableRows += `<tr class="account">
+      tableRows += `<tr class="account" data-account="${r.account_code}">
         <td>${dateStr}</td><td>${r.reference || r.batch_id}</td><td>${r.description || ''}</td>
         <td class="num">${fmt(r.debit_home || r.debit)}</td><td class="num">${fmt(r.credit_home || r.credit)}</td>
         <td class="num">${fmt(runBal)}</td>
@@ -243,17 +250,96 @@ async function buildGL(query, company, start, end, account) {
     }
   }
   if (lastAcct !== null) {
-    tableRows += `<tr class="subtotal"><td></td><td></td><td>Closing Balance</td><td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td></tr>`;
+    tableRows += `<tr class="subtotal" data-account="${lastAcct}"><td></td><td></td><td>Closing Balance</td><td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td></tr>`;
   }
-  const tableHtml = `<table>
-    <thead><tr><th>Date</th><th>Ref</th><th>Description</th>
-      <th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
-    <tbody>${tableRows}</tbody>
-  </table>`;
+
+  const tableHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>General Ledger — freeBooks</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
+  .page { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
+  .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
+  .company { font-size: 16pt; font-weight: 700; }
+  .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
+  .period { font-size: 10pt; color: #666; margin-top: 2px; }
+  .filter-bar { background: #f8f8f8; border: 1px solid #eee; border-radius: 4px; padding: 14px 16px; margin-bottom: 18px; }
+  .filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .filter-row label { font-size: 9pt; color: #555; font-weight: 600; }
+  .filter-row input { padding: 6px 10px; border: 1px solid #ccc; border-radius: 3px; font-size: 10pt; }
+  .filter-row button { padding: 6px 18px; background: #1a1a1a; color: #fff; border: none; border-radius: 3px; font-size: 10pt; font-weight: 600; cursor: pointer; }
+  .filter-row button.clear { background: #888; }
+  .filter-row button:hover { opacity: .85; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: .05em; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; }
+  th.num { text-align: right; }
+  td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.section-header td { font-weight: 700; font-size: 10pt; text-transform: uppercase; background: #f4f4f4; letter-spacing: .03em; padding: 8px; }
+  tr.subtotal td { font-weight: 600; background: #fafafa; }
+  tr.account:hover td { background: #fafafa; }
+  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div class="company">${companyName}</div>
+    <div class="report-title">General Ledger</div>
+    <div class="period">${start} to ${end}</div>
+  </div>
+  <div class="filter-bar">
+    <div class="filter-row">
+      <label>Account Code:</label>
+      <input type="text" id="gl-account" placeholder="e.g. 101414" maxlength="20" style="width:130px">
+      <button onclick="applyGLFilter()">Search</button>
+      <button class="clear" onclick="clearGLFilter()">Clear</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Date</th><th>Ref</th><th>Description</th>
+        <th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th>
+      </tr></thead>
+      <tbody id="gl-body">${tableRows}</tbody>
+    </table>
+  </div>
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks</div>
+</div>
+<script>
+  function applyGLFilter() {
+    var code = document.getElementById('gl-account').value.trim().toUpperCase();
+    document.querySelectorAll('#gl-body tr').forEach(function(tr) {
+      if (!code) { tr.style.display = ''; return; }
+      var acct = (tr.getAttribute('data-account') || '').toUpperCase();
+      tr.style.display = (acct === code) ? '' : 'none';
+    });
+  }
+  function clearGLFilter() {
+    document.getElementById('gl-account').value = '';
+    document.querySelectorAll('#gl-body tr').forEach(function(tr) { tr.style.display = ''; });
+  }
+  document.getElementById('gl-account').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') applyGLFilter();
+  });
+</script>
+</body>
+</html>`;
   return { tableHtml, rows };
 }
 
 async function buildJournal(query, company, start, end) {
+  let companyName = company;
+  try {
+    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
+    if (co) companyName = co.company_name;
+  } catch (_) {}
   const tableHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -293,7 +379,7 @@ async function buildJournal(query, company, start, end) {
 <body>
 <div class="page">
   <div class="header">
-    <div class="company">${company}</div>
+    <div class="company">${companyName}</div>
     <div class="report-title">Journal Report</div>
     <div class="period">${start || ''} to ${end || ''}</div>
   </div>
@@ -302,13 +388,7 @@ async function buildJournal(query, company, start, end) {
     <div class="filter-row">
       <label>Journal Code:</label>
       <input type="text" id="f-journal" placeholder="e.g. BANK" maxlength="10" style="width: 120px;">
-      <label style="margin-left: 20px;">Date From:</label>
-      <input type="date" id="f-date-from" style="width: 140px;">
-      <label style="margin-left: 20px;">Date To:</label>
-      <input type="date" id="f-date-to" style="width: 140px;">
-    </div>
-    <div class="filter-row">
-      <label>Account Code:</label>
+      <label style="margin-left: 20px;">Account Code:</label>
       <input type="text" id="f-account" placeholder="e.g. 401000" maxlength="20" style="width: 120px;">
       <button onclick="doSearch()" style="margin-left: 20px;">Search</button>
       <button onclick="clearFilters()" style="background: #888;">Clear</button>
@@ -339,7 +419,7 @@ async function buildJournal(query, company, start, end) {
 
 <script>
   var currentSort = { sortBy: 'date', sortDir: 'DESC' };
-  var currentFilters = {};
+  var currentFilters = { dateFrom: '${start}', dateTo: '${end}' };
   var accountsMap = {};
   
   // Pre-fetch accounts, then load journal (ensures account names are ready)
@@ -358,22 +438,19 @@ async function buildJournal(query, company, start, end) {
     .catch(function() { loadJournal(); });
   
   function doSearch() {
-    var filters = {
-      dateFrom: document.getElementById('f-date-from').value,
-      dateTo: document.getElementById('f-date-to').value,
-      accountCode: document.getElementById('f-account').value.trim(),
-      journalCode: document.getElementById('f-journal').value.trim()
+    currentFilters = {
+      dateFrom: '${start}',
+      dateTo:   '${end}',
+      accountCode:  document.getElementById('f-account').value.trim(),
+      journalCode:  document.getElementById('f-journal').value.trim()
     };
-    currentFilters = filters;
     loadJournal();
   }
   
   function clearFilters() {
     document.getElementById('f-journal').value = '';
-    document.getElementById('f-date-from').value = '';
-    document.getElementById('f-date-to').value = '';
     document.getElementById('f-account').value = '';
-    currentFilters = {};
+    currentFilters = { dateFrom: '${start}', dateTo: '${end}' };
     currentSort = { sortBy: 'date', sortDir: 'DESC' };
     loadJournal();
   }

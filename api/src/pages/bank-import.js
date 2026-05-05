@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, navBar } = require('./common');
+const { commonStyle, navBar, layoutEnd } = require('./common');
 
 async function handleBankImportPage(req, res) {
   const { company } = req.params;
@@ -31,9 +31,8 @@ ${commonStyle()}
   select.col-map { padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
 </style>
 </head>
-<body>
+<body>${navBar(company, 'bank')}
 <div class="page">
-  ${navBar(company, 'bank')}
   <div class="header"><h1>Bank Statement Import</h1><p class="sub">${company} — Upload a bank statement CSV, review matched entries, then post to the BANK journal.</p></div>
 
   <!-- Step 1: Upload -->
@@ -667,6 +666,7 @@ ${commonStyle()}
     }
   }
 <\/script>
+${layoutEnd()}
 </body>
 </html>`;
 }

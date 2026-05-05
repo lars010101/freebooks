@@ -138,105 +138,14 @@ ${commonStyle()}
   </table>
   <div id="rec-status" style="margin-top:10px;font-size:10pt"></div>
 
-  <!-- Import section (wizard) -->
-  <div id="import-section" style="margin-top:2rem; border-top:1px solid var(--border,#e8e8e8); padding-top:1.5rem;">
-    <h2 style="font-size:1rem; font-weight:700; margin:0 0 1.25rem; color:var(--text)">Import Statement</h2>
 
-    <!-- Wizard step indicator -->
-    <div id="wizard-steps" style="display:flex; align-items:center; gap:0; margin-bottom:1.5rem;">
-      <div class="wz-step active" id="wz-step-1" style="display:flex;align-items:center;gap:0.5rem">
-        <span class="wz-num">1</span>
-        <span class="wz-label">Upload</span>
-      </div>
-      <div class="wz-connector"></div>
-      <div class="wz-step" id="wz-step-2" style="display:flex;align-items:center;gap:0.5rem">
-        <span class="wz-num">2</span>
-        <span class="wz-label">Mapping</span>
-      </div>
-      <div class="wz-connector"></div>
-      <div class="wz-step" id="wz-step-3" style="display:flex;align-items:center;gap:0.5rem">
-        <span class="wz-num">3</span>
-        <span class="wz-label">Review &amp; Approve</span>
-      </div>
-    </div>
-
-    <!-- Step 1: Upload -->
-    <div class="step" id="step1">
-      <h3>① Load your bank statement CSV</h3>
-      <div id="drop-zone" style="border:2px dashed var(--border,#ccc);border-radius:0.5rem;padding:2rem 1rem;text-align:center;color:var(--text-muted,#888);margin-bottom:1rem;cursor:pointer;transition:border-color .15s" onclick="document.getElementById('csv-file').click()" ondragover="event.preventDefault();this.style.borderColor='var(--accent,#1a1a1a)'" ondragleave="this.style.borderColor=''" ondrop="onDropFile(event)">
-        <div style="font-size:0.9375rem;margin-bottom:0.5rem">Drag and drop your bank statement file here, or <span style="color:var(--accent,#2255cc);text-decoration:underline;cursor:pointer">click to browse</span>.</div>
-        <button class="btn-sm" onclick="event.stopPropagation();var s=document.getElementById('csv-paste-section');s.style.display=s.style.display==='none'?'':'none';" style="margin-top:0.5rem">Paste CSV data here</button>
-      </div>
-      <div id="csv-paste-section" style="display:none;margin-top:0.75rem">
-        <textarea id="csv-paste" rows="4" style="width:100%;font-family:monospace;font-size:0.8125rem;padding:0.5rem;border:1px solid var(--border,#ccc);border-radius:0.375rem;resize:vertical;box-sizing:border-box;" placeholder="Paste CSV content here…"></textarea>
-        <button class="btn-primary" onclick="onPasteLoad()" style="margin-top:0.5rem">Load Pasted CSV →</button>
-      </div>
-      <input type="file" id="csv-file" accept=".csv,.txt" onchange="onFileLoad()" style="display:none">
-      <div id="file-status" style="margin-top:0.5rem;font-size:0.875rem"></div>
-    </div>
-
-    <!-- Step 2: Map columns -->
-    <div class="step" id="step2" style="display:none">
-      <h3>② Map columns &amp; set bank account</h3>
-      <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Confirm which columns contain the date, description, and amounts. Then enter the bank account code this statement is for.</p>
-      <table style="border-collapse:collapse;font-size:10pt">
-        <tr><td style="padding:5px 14px 5px 0"><b>Date column</b></td><td><select id="col-date" class="col-map"></select></td></tr>
-        <tr><td style="padding:5px 14px 5px 0"><b>Description column</b></td><td><select id="col-desc" class="col-map"></select></td></tr>
-        <tr><td style="padding:5px 14px 5px 0"><b>Amount type</b></td><td>
-          <select id="amt-type" class="col-map" onchange="toggleAmtCols()">
-            <option value="single">Single amount column (positive=inflow, negative=outflow)</option>
-            <option value="split">Separate Debit / Credit columns</option>
-          </select>
-        </td></tr>
-        <tr id="row-single"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Amount column</td><td><select id="col-amt" class="col-map"></select></td></tr>
-        <tr id="row-debit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Debit column (outflow/payment)</td><td><select id="col-deb" class="col-map"></select></td></tr>
-        <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
-        <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
-          <td><input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="account code" list="bank-acct-list" onblur="validateBankAcctCode()" oninput="validateBankAcctCode()">
-          <span id="bank-acct-error" style="font-size:9pt;color:#cc2222;margin-left:8px;display:none">Account not found in COA</span>
-          <span id="bank-acct-ok" style="font-size:9pt;color:#2a8a2a;margin-left:8px;display:none">✓</span>
-          <datalist id="bank-acct-list"></datalist>
-          <span style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span></td></tr>
-      </table>
-      <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
-        <button class="btn-primary" onclick="parseAndProcess()">Process rows →</button>
-        <span id="parse-status" style="font-size:10pt"></span>
-      </div>
-    </div>
-
-    <!-- Bill search panel -->
-    <div id="bill-panel" style="display:none;position:fixed;top:20%;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1px solid #ccc;border-radius:6px;padding:16px;min-width:500px;max-width:700px;box-shadow:0 4px 20px rgba(0,0,0,0.2)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div style="font-weight:600;font-size:11pt">Link Bill <span id="bill-panel-row-label" style="font-size:9pt;color:#888"></span></div>
-        <button onclick="closeBillPanel()" style="border:none;background:none;cursor:pointer;font-size:14pt;color:#888">&times;</button>
-      </div>
-      <input type="text" id="bill-panel-search" placeholder="Filter by vendor or ref…" oninput="renderBillPanelList()"
-        style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt;margin-bottom:10px">
-      <div id="bill-panel-list" style="max-height:320px;overflow-y:auto;border:1px solid #eee;border-radius:4px"></div>
-    </div>
-
-    <!-- Step 3: Review -->
-    <div class="step" id="step-review" style="display:none">
-      <h3>③ Review &amp; Approve</h3>
-      <p style="margin:0 0 10px;font-size:9.5pt;color:#555">Green border = rule-matched. Orange = unmatched (fill in DR/CR accounts manually). Check <b>Skip</b> to exclude a row. Then click <b>Post to Journal</b>.</p>
-      <div id="import-summary" style="margin-bottom:10px;font-size:10pt"></div>
-      <div id="balance-bar" style="display:none;margin-bottom:12px;padding:10px 14px;background:#f0f4ff;border:1px solid #c0cfe8;border-radius:6px;font-size:10pt;display:flex;gap:28px;align-items:center">
-        <span>Book balance before: <b id="bal-before">—</b></span>
-        <span>→ net import: <b id="bal-net">—</b></span>
-        <span>Book balance after: <b id="bal-after">—</b></span>
-      </div>
-      <table class="review-table">
-        <thead><tr><th style="width:90px">Date</th><th>Description</th><th style="width:85px" class="num">Amount</th><th style="width:80px">Match</th><th style="width:90px">Debit</th><th style="width:90px">Credit</th><th style="min-width:160px">Bill</th><th style="text-align:center;width:50px">Skip</th></tr></thead>
-        <tbody id="review-body"></tbody>
-      </table>
-      <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-        <label style="font-size:10pt">Journal <select id="import-journal" style="height:32px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:10pt"><option value="">— loading —</option></select></label>
-        <button class="btn-primary" onclick="postApproved()">Post to Journal</button>
-        <span id="post-status" style="font-size:10pt"></span>
-      </div>
-    </div>
-
-  </div><!-- /import-section -->
+  <!-- Import Statement — opens dedicated page -->
+  <div style="margin-top:2rem; border-top:1px solid var(--border,#e8e8e8); padding-top:1.5rem;">
+    <a href="/${company}/bank/import" class="btn-primary" style="display:inline-flex;align-items:center;gap:0.5rem;text-decoration:none;padding:0.625rem 1.25rem;font-size:0.9375rem">
+      ⬆ Import Statement
+    </a>
+    <p style="margin:0.75rem 0 0; font-size:0.8125rem; color:var(--text-muted)">Upload a bank statement CSV, map columns, review and post to journal.</p>
+  </div>
 
   </div><!-- /bank-panel-txn -->
 

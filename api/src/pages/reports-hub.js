@@ -46,8 +46,8 @@ ${commonStyle()}
     </div>
   </div>
 
-  <div style="flex:1; overflow:auto; min-height:0; background:var(--bg,#f0f0f0); padding:16px;">
-    <iframe id="report-frame" src="about:blank" style="border:none; width:100%; height:calc(100% - 32px); display:block; background:#fff; min-height:600px;"></iframe>
+  <div style="flex:1; overflow:auto; min-height:0; background:var(--bg,#f0f0f0); padding:1rem;">
+    <iframe id="report-frame" src="about:blank" style="border:none; width:100%; height:calc(100% - 2rem); display:block; background:#fff; min-height:37.5rem;"></iframe>
   </div>
 </div>
 ${layoutEnd()}

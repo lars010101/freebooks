@@ -115,28 +115,32 @@ async function buildBS(query, company, start, end) {
   // BS macro takes (company, end_date) — use end date
   const rows = await query(`SELECT * FROM bs(?, ?)`, [company, end]);
 
-  // Compute unallocated net income for the period (P&L not yet closed to RE)
-  const [niRow] = await query(
-    `SELECT
-       COALESCE((
-         SELECT
-           SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit_home - je.debit_home ELSE 0 END) -
-           SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit_home - je.credit_home ELSE 0 END)
-         FROM journal_entries je
-         JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-         WHERE je.company_id = ? AND je.date <= ?
-           AND a.account_type NOT IN ('Closing')
-       ), 0) -
-       COALESCE((
-         SELECT SUM(je.debit_home - je.credit_home)
-         FROM journal_entries je
-         JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-         WHERE je.company_id = ? AND je.date <= ?
-           AND a.account_type = 'Closing'
-       ), 0) AS net_income`,
-    [company, end, company, end]
-  ).catch(() => [{ net_income: 0 }]);
-  const netIncome = Number(niRow?.net_income || 0);
+  // Check if closing entry exists for this period
+  const [closingCheck] = await query(
+    `SELECT COUNT(*) AS cnt
+     FROM journal_entries je
+     JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+     WHERE je.company_id = ? AND je.date BETWEEN ? AND ?
+       AND a.account_type = 'Closing'`,
+    [company, start, end]
+  ).catch(() => [{ cnt: 1 }]);
+
+  let netIncome = 0;
+  if (Number(closingCheck?.cnt || 0) === 0) {
+    // No closing entry in period — show current period P&L as unallocated
+    const [niRow] = await query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit_home - je.debit_home ELSE 0 END), 0) -
+         COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit_home - je.credit_home ELSE 0 END), 0)
+         AS net_income
+       FROM journal_entries je
+       JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+       WHERE je.company_id = ? AND je.date BETWEEN ? AND ?
+         AND a.account_type NOT IN ('Closing')`,
+      [company, start, end]
+    ).catch(() => [{ net_income: 0 }]);
+    netIncome = Number(niRow?.net_income || 0);
+  }
 
   const sorted = [...rows].sort((a, b) => {
     const typeOrder = { Asset: 0, Equity: 1, Liability: 2 };
@@ -595,28 +599,32 @@ async function buildIntegrity(query, company, start, end) {
   const rows2 = await query(`SELECT * FROM integrity_extended(?, ?, ?)`, [company, start, end]);
   const allChecks = [...rows1, ...rows2];
 
-  // Compute unallocated net income — same logic as buildBS
-  const [niRow] = await query(
-    `SELECT
-       COALESCE((
-         SELECT
-           SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit_home - je.debit_home ELSE 0 END) -
-           SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit_home - je.credit_home ELSE 0 END)
-         FROM journal_entries je
-         JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-         WHERE je.company_id = ? AND je.date <= ?
-           AND a.account_type NOT IN ('Closing')
-       ), 0) -
-       COALESCE((
-         SELECT SUM(je.debit_home - je.credit_home)
-         FROM journal_entries je
-         JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-         WHERE je.company_id = ? AND je.date <= ?
-           AND a.account_type = 'Closing'
-       ), 0) AS net_income`,
-    [company, end, company, end]
-  ).catch(() => [{ net_income: 0 }]);
-  const netIncome = Number(niRow?.net_income || 0);
+  // Check if closing entry exists for this period
+  const [closingCheck] = await query(
+    `SELECT COUNT(*) AS cnt
+     FROM journal_entries je
+     JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+     WHERE je.company_id = ? AND je.date BETWEEN ? AND ?
+       AND a.account_type = 'Closing'`,
+    [company, start, end]
+  ).catch(() => [{ cnt: 1 }]);
+
+  let netIncome = 0;
+  if (Number(closingCheck?.cnt || 0) === 0) {
+    // No closing entry in period — show current period P&L as unallocated
+    const [niRow] = await query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit_home - je.debit_home ELSE 0 END), 0) -
+         COALESCE(SUM(CASE WHEN a.account_type IN ('Expense','Cost of Sales') THEN je.debit_home - je.credit_home ELSE 0 END), 0)
+         AS net_income
+       FROM journal_entries je
+       JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+       WHERE je.company_id = ? AND je.date BETWEEN ? AND ?
+         AND a.account_type NOT IN ('Closing')`,
+      [company, start, end]
+    ).catch(() => [{ net_income: 0 }]);
+    netIncome = Number(niRow?.net_income || 0);
+  }
 
   // Adjust checks that are affected by unallocated net income
   for (const check of allChecks) {

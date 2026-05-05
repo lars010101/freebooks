@@ -28,6 +28,7 @@ const { handleNewCompanyPage } = require('./pages/new-company');
 const { handleAdminQuery } = require('./pages/admin');
 const { handleOpeningBalancesPage } = require('./pages/opening-balances');
 const { makeQuery } = require('./pages/common');
+const { handleReportsHubPage } = require('./pages/reports-hub');
 
 // ── Route: GET /api/:company/report ──────────────────────────────────────────
 async function handleReport(req, res) {
@@ -156,6 +157,7 @@ function mountReportRoutes(app) {
   app.get('/:company/bank', handleBankPage);
   app.get('/:company/opening-balances', handleOpeningBalancesPage);
   app.get('/:company/settings', handleSettingsPage);
+  app.get('/:company/reports', handleReportsHubPage);
   app.get('/:company', handleCompanyPage);
   app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);
 }

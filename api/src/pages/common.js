@@ -317,6 +317,81 @@ body {
 .company-list a { display: block; padding: 12px 0; color: var(--text); text-decoration: none; font-size: 1rem; }
 .company-list a:hover { color: var(--text-muted); }
 .company-list .id { font-size: 0.75rem; color: var(--text-faint); }
+
+/* ---- Sidebar footer icon row ---- */
+.sb-footer-row {
+  display: flex;
+  padding: 6px 10px;
+  gap: 4px;
+}
+.sb-icon-action {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--sb-text);
+  cursor: pointer;
+  font-size: 1.083rem;
+  transition: background .12s;
+}
+.sb-icon-action:hover { background: var(--sb-hover-bg); color: #fff; }
+/* Hide theme icon when collapsed — only show expand/collapse */
+#sidebar.sb-collapsed #fb-theme-btn { display: none; }
+
+/* ---- Report controls (top bar) ---- */
+.tb-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+  margin-right: 2px;
+  white-space: nowrap;
+}
+.tb-select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  outline: none;
+  height: 32px;
+}
+.tb-date-input {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.875rem;
+  width: 136px;
+  outline: none;
+  height: 32px;
+}
+.tb-toggle-btn {
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  height: 32px;
+  white-space: nowrap;
+}
+.tb-toggle-btn.tb-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.tb-toggle-btn:hover:not(.tb-active) { background: var(--bg); color: var(--text); }
 </style>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📒</text></svg>">`;
 }
@@ -363,11 +438,28 @@ function topBarContext(company, activeKey) {
       actions: `${actionBtn('+ Invoice', '#', false)}`
     },
     reports: {
-      nav: `${sep}
-        ${navLink('P&amp;L', `/${company}?report=pl`, false)}
-        ${navLink('Balance Sheet', `/${company}?report=bs`, false)}
-        ${navLink('Cash Flow', `/${company}?report=cf`, false)}
-        ${navLink('Equity', `/${company}?report=equity`, false)}`,
+      nav: `
+        <span class="tb-label">Period</span>
+        <select id="rpt-period" class="tb-select" style="min-width:150px" onchange="fbOnPeriodChange()"><option value="">—</option></select>
+        <input type="date" id="rpt-start" class="tb-date-input" onchange="fbLoadReport()" title="Start date">
+        <span style="color:var(--text-muted);padding:0 3px;font-size:0.875rem">–</span>
+        <input type="date" id="rpt-end" class="tb-date-input" onchange="fbLoadReport()" title="End date">
+        <button class="tb-toggle-btn" id="rpt-mom" onclick="fbToggleComparison('mom')" title="Month-over-month">MoM</button>
+        <button class="tb-toggle-btn" id="rpt-yoy" onclick="fbToggleComparison('yoy')" title="Year-over-year">YoY</button>
+        <div class="tb-divider"></div>
+        <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbLoadReport()">
+          <option value="pl">Profit &amp; Loss</option>
+          <option value="bs">Balance Sheet</option>
+          <option value="cf">Cash Flow</option>
+          <option value="sce">Statement of Equity</option>
+          <option value="tb">Trial Balance</option>
+          <option value="gl">General Ledger</option>
+          <option value="journal">Journal Listing</option>
+          <option value="integrity">Integrity Check</option>
+          <option value="ap-aging">AP Aging</option>
+        </select>
+        <button class="tb-toggle-btn" id="rpt-filter" onclick="fbToggleFilter()" title="Filter by account">Filter</button>
+        <input type="text" id="rpt-account" class="tb-date-input" placeholder="Account code" style="display:none;width:130px" oninput="fbLoadReport()">`,
       actions: ''
     },
     auditor: {
@@ -402,9 +494,10 @@ function navBar(company, activeKey) {
   const sidebarItems = [
     { key: 'dashboard',   icon: '📊', label: 'Dashboard',   href: `/${company}` },
     { key: 'bank',        icon: '🏦', label: 'Bank',        href: `/${company}/bank` },
-    { key: 'payables',    icon: '📋', label: 'Expenses',    href: `/${company}/payables` },
-    { key: 'receivables', icon: '📄', label: 'Sales',       href: '#',                   disabled: true },
-    { key: 'settings',    icon: '⚙',  label: 'Settings',    href: `/${company}/settings` },
+    { key: 'payables',    icon: '📋', label: 'Payables',     href: `/${company}/payables` },
+    { key: 'receivables', icon: '📄', label: 'Receivables',  href: '#',                   disabled: true },
+    { key: 'reports',     icon: '📈', label: 'Reports',      href: `/${company}/reports` },
+    { key: 'settings',    icon: '⚙',  label: 'Settings',     href: `/${company}/settings` },
   ];
 
   const navHtml = sidebarItems.map(item => {
@@ -431,14 +524,14 @@ function navBar(company, activeKey) {
       ${navHtml}
     </nav>
     <div class="sb-footer">
-      <button class="sb-item" id="fb-theme-btn" onclick="fbToggleTheme()" data-label="Toggle theme">
-        <span class="sb-icon" id="fb-theme-icon">☀</span>
-        <span class="sb-label" id="fb-theme-label">Light mode</span>
-      </button>
-      <button class="sb-item" id="fb-collapse-btn" onclick="fbToggleSidebar()" data-label="Expand">
-        <span class="sb-icon" id="fb-collapse-icon">«</span>
-        <span class="sb-label">Collapse</span>
-      </button>
+      <div class="sb-footer-row">
+        <button class="sb-icon-action" id="fb-theme-btn" onclick="fbToggleTheme()" title="Toggle theme">
+          <span id="fb-theme-icon">☀</span>
+        </button>
+        <button class="sb-icon-action" id="fb-collapse-btn" onclick="fbToggleSidebar()" title="Collapse sidebar">
+          <span id="fb-collapse-icon">«</span>
+        </button>
+      </div>
     </div>
   </aside>
 
@@ -449,7 +542,7 @@ function navBar(company, activeKey) {
       </div>
       <div class="tb-right">
         ${ctx.actions}
-        <a href="/${company}/journal/new" class="tb-btn tb-btn-primary">+ Journal Entry</a>
+        <a href="/${company}/journal/new" class="tb-btn">+ Journal Entry</a>
         <button class="tb-icon-btn" title="Notifications">🔔</button>
         <button class="tb-icon-btn" title="Help">?</button>
       </div>
@@ -468,9 +561,9 @@ function layoutEnd() {
   function fbApplyTheme(t) {
     document.documentElement.setAttribute('data-theme', t);
     var icon = document.getElementById('fb-theme-icon');
-    var lbl  = document.getElementById('fb-theme-label');
+    var btn  = document.getElementById('fb-theme-btn');
     if (icon) icon.textContent = t === 'dark' ? '🌙' : '☀';
-    if (lbl)  lbl.textContent  = t === 'dark' ? 'Dark mode' : 'Light mode';
+    if (btn)  btn.title = t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   }
   window.fbToggleTheme = function() {
     var cur = document.documentElement.getAttribute('data-theme') || 'light';
@@ -508,11 +601,11 @@ function layoutEnd() {
     if (collapsed) {
       sb.classList.add('sb-collapsed');
       if (icon) icon.textContent = '»';
-      if (btn)  btn.setAttribute('data-label', 'Expand');
+      if (btn)  btn.title = 'Expand sidebar';
     } else {
       sb.classList.remove('sb-collapsed');
       if (icon) icon.textContent = '«';
-      if (btn)  btn.setAttribute('data-label', 'Collapse');
+      if (btn)  btn.title = 'Collapse sidebar';
     }
   }
   window.fbToggleSidebar = function() {

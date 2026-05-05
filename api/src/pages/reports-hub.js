@@ -231,7 +231,7 @@ ${layoutEnd()}
         });
         rows.push('');
       });
-      var blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      var blob = new Blob([rows.join('\\n')], { type: 'text/csv;charset=utf-8;' });
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = currentType + (start ? '_' + start : '') + (end ? '_' + end : '') + '.csv';

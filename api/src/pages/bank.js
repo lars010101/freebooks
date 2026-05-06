@@ -98,7 +98,6 @@ ${commonStyle()}
   
   <div class="header">
     <h1>🏦 Bank</h1>
-    <p class="sub">${company}</p>
   </div>
 
   <div class="tabs" style="margin-bottom:20px">
@@ -120,7 +119,8 @@ ${commonStyle()}
     </select></label>
     <label>From <input type="date" id="rec-from"></label>
     <label>To <input type="date" id="rec-to"></label>
-    <button class="btn-primary" onclick="loadReconcile()">Load</button>
+    <label style="display:flex;align-items:center;gap:5px;font-size:10pt;cursor:pointer"><input type="checkbox" id="filter-cleared"> Cleared</label>
+    <label style="display:flex;align-items:center;gap:5px;font-size:10pt;cursor:pointer"><input type="checkbox" id="filter-uncleared" checked> Uncleared</label>
   </div>
 
   <div class="summary-bar" id="rec-summary" style="display:none">
@@ -170,6 +170,32 @@ ${commonStyle()}
   document.getElementById('rec-to').value = now.toISOString().slice(0,10);
   document.getElementById('stmt-balance').addEventListener('input', updateSummary);
 
+  // Cleared/Uncleared filter + getFilteredRows
+  function getFilteredRows() {
+    var showCleared   = document.getElementById('filter-cleared')   ? document.getElementById('filter-cleared').checked   : true;
+    var showUncleared = document.getElementById('filter-uncleared') ? document.getElementById('filter-uncleared').checked : true;
+    return recRows.filter(function(r) {
+      if (r.cleared && !showCleared)   return false;
+      if (!r.cleared && !showUncleared) return false;
+      return true;
+    }).slice(0, 100);
+  }
+
+  // Auto-load on any filter change
+  function attachFilterListeners() {
+    ['rec-account','rec-from','rec-to','filter-cleared','filter-uncleared'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('change', function() { loadReconcile(); });
+    });
+  }
+  attachFilterListeners();
+
+  // Auto-load on page open (uncleared only by default)
+  setTimeout(function() {
+    var acct = document.getElementById('rec-account');
+    if (acct && acct.options.length > 0 && acct.options[0].value) { loadReconcile(); }
+  }, 150);
+
   if (_unclearedMode) {
     document.getElementById('uncleared-banner').style.display = '';
     document.getElementById('rec-account').closest('div').style.display = 'none'; // hide controls
@@ -214,7 +240,9 @@ ${commonStyle()}
     var acct = document.getElementById('rec-account').value;
     document.getElementById('rec-summary').style.display = '';
     document.getElementById('rec-table').style.display = '';
-    document.getElementById('rec-body').innerHTML = recRows.map(function(r, i) {
+    var displayRows = getFilteredRows();
+    document.getElementById('rec-status').textContent = recRows.length > displayRows.length ? 'Showing ' + displayRows.length + ' of ' + recRows.length + ' transactions' : '';
+    document.getElementById('rec-body').innerHTML = displayRows.map(function(r, i) {
       var cls = r.cleared ? 'cleared' : '';
       return '<tr class="'+cls+'" data-i="'+i+'" data-batch="'+r.batch_id+'" data-acct="'+acct+'">'
         +'<td>'+(r.date?String(r.date).slice(0,10):'')+'</td>'
@@ -231,7 +259,9 @@ ${commonStyle()}
   function renderUnclearedAll() {
     document.getElementById('rec-summary').style.display = 'none';
     document.getElementById('rec-table').style.display = '';
-    document.getElementById('rec-body').innerHTML = recRows.map(function(r, i) {
+    var displayRows = getFilteredRows();
+    document.getElementById('rec-status').textContent = recRows.length > displayRows.length ? 'Showing ' + displayRows.length + ' of ' + recRows.length + ' transactions' : '';
+    document.getElementById('rec-body').innerHTML = displayRows.map(function(r, i) {
       return '<tr class="" data-i="'+i+'" data-batch="'+r.batch_id+'" data-acct="'+r.account_code+'">'
         +'<td>'+(r.date?String(r.date).slice(0,10):'')+'</td>'
         +'<td class="acct-col">'+(r.account_code||'')+'</td>'

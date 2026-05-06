@@ -59,10 +59,9 @@ ${commonStyle()}
   .data-table th.sortable:hover { background:#f0f0f0; }
   .th-inner { display:flex; align-items:center; gap:4px; }
   .th-sort { font-size:8pt; color:#1a1a1a; width:12px; text-align:center; flex-shrink:0; }
-  .th-filter-btn { margin-left:auto; font-size:8pt; color:#bbb; padding:1px 3px; border-radius:3px; opacity:0; transition:opacity .1s; cursor:pointer; line-height:1; }
-  th:hover .th-filter-btn,
-  th.col-filtered .th-filter-btn { opacity:1; }
-  th.col-filtered .th-filter-btn { color:#2255cc; }
+  .th-filter-btn { margin-left:auto; font-size:11pt; color:#999; padding:3px 6px; border-radius:4px; opacity:0.45; transition:opacity .1s, color .1s; cursor:pointer; line-height:1; }
+  th:hover .th-filter-btn { opacity:1; color:#555; }
+  th.col-filtered .th-filter-btn { opacity:1; color:#2255cc; }
   .col-filter-dd { position:fixed; background:#fff; border:1px solid #ddd; border-radius:6px; z-index:9999; min-width:180px; box-shadow:0 4px 12px rgba(0,0,0,.12); overflow:hidden; padding:10px; }
   .col-filter-dd-item { padding:8px 14px; cursor:pointer; font-size:10pt; white-space:nowrap; border-radius:4px; }
   .col-filter-dd-item:hover { background:#f5f5f5; }
@@ -279,7 +278,8 @@ function openColFilter(th, col) {
     // Native date picker (no dropdown dialog)
     var inp = document.createElement('input');
     inp.type = 'date';
-    inp.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none;';
+    var btnRect = filterBtn.getBoundingClientRect();
+    inp.style.cssText = 'position:fixed;top:' + btnRect.bottom + 'px;left:' + btnRect.left + 'px;opacity:0;pointer-events:none;width:0;height:0;border:none;padding:0;margin:0;';
     document.body.appendChild(inp);
     if (colFilters[col]) inp.value = colFilters[col];
     inp.addEventListener('change', function() {

@@ -870,12 +870,12 @@ function enterVendorCellEdit() {
   var input = document.createElement('input');
   if (vendorSelCol === 2) {
     input.type = 'number'; input.min = 0;
-    input.style.cssText = 'width:60px;text-align:center';
+    input.style.cssText = 'width:60px;text-align:center;font-family:inherit;font-size:inherit';
   } else {
     input.type = 'text';
-    if (vendorSelCol === 0) input.style.cssText = 'width:100%;min-width:160px';
-    if (vendorSelCol === 1) { input.maxLength = 3; input.style.cssText = 'width:48px;text-align:center;text-transform:uppercase'; }
-    if (vendorSelCol === 3 || vendorSelCol === 4) input.style.cssText = 'width:110px';
+    if (vendorSelCol === 0) input.style.cssText = 'width:100%;min-width:160px;font-family:inherit;font-size:inherit';
+    if (vendorSelCol === 1) { input.maxLength = 3; input.style.cssText = 'width:48px;text-align:center;text-transform:uppercase;font-family:inherit;font-size:inherit'; }
+    if (vendorSelCol === 3 || vendorSelCol === 4) input.style.cssText = 'width:110px;font-family:inherit;font-size:inherit';
   }
   input.setAttribute('autocomplete', 'off');
   input.value = colVals[vendorSelCol];

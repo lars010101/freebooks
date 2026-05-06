@@ -20,6 +20,7 @@ ${commonStyle()}
 
   <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:0.75rem 3rem; border-bottom:1px solid var(--border,#e8e8e8); flex-shrink:0;">
     <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbOnTypeChange()">
+      <option value="" disabled>Select report…</option>
       <option value="pl">Profit &amp; Loss</option>
       <option value="bs">Balance Sheet</option>
       <option value="cf">Cash Flow</option>
@@ -57,7 +58,7 @@ ${layoutEnd()}
 
   /* ── State ── */
   var MOM_YOY_TYPES = ['pl', 'bs', 'cf'];
-  var currentType = localStorage.getItem('fb-rpt-type') || 'pl';
+  var currentType = localStorage.getItem('fb-rpt-type') || '';
   /* Handle ?t= URL param (e.g. redirect from payables/aging) */
   var urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('t')) { currentType = urlParams.get('t'); localStorage.setItem('fb-rpt-type', currentType); }
@@ -206,6 +207,7 @@ ${layoutEnd()}
   /* ── Public handlers ── */
   window.fbOnTypeChange = function() {
     var val = typeEl ? typeEl.value : '';
+    if (!val) return;
     if (val) currentType = val;
     localStorage.setItem('fb-rpt-type', currentType);
     updateStepButtons();

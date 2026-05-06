@@ -159,7 +159,11 @@ ${commonStyle()}
   var COMPANY = '${company}';
   var HOME_CURRENCY = '${homeCurrency}';
   var _unclearedMode = (new URLSearchParams(window.location.search)).get('mode') === 'uncleared';
-  
+
+  function setRecStatus(msg) { var el = document.getElementById('rec-status'); if (el) el.textContent = msg; }
+  function setParseStatus(msg) { var el = document.getElementById('parse-status'); if (el) el.textContent = msg; }
+  function setPostStatus(msg) { var el = document.getElementById('post-status'); if (el) el.textContent = msg; }
+
   // ── Reconciliation JS ────────────────────────────────────────────────────────
   var recRows = [];
   var openingBalance = 0;
@@ -209,31 +213,31 @@ ${commonStyle()}
     var dateFrom = document.getElementById('rec-from').value;
     var dateTo = document.getElementById('rec-to').value;
     if (!accountCode) return;
-    document.getElementById('rec-status').textContent = 'Loading…';
+    setRecStatus('Loading…');
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'bank.reconcile.list', companyId: COMPANY, accountCode, dateFrom, dateTo }) })
       .then(r => r.json()).then(res => {
         var d = res.data || res;
         recRows = Array.isArray(d) ? d : (d.rows || []);
         openingBalance = d.openingBalance || 0;
-        document.getElementById('rec-status').textContent = '';
+        setRecStatus('');
         renderReconcile();
       })
-      .catch(e => { document.getElementById('rec-status').textContent = e.message; });
+      .catch(e => { setRecStatus(e.message); });
   }
 
   function loadAllUncleared() {
-    document.getElementById('rec-status').textContent = 'Loading uncleared transactions…';
+    setRecStatus('Loading uncleared transactions…');
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'bank.uncleared.list', companyId: COMPANY }) })
       .then(function(r){ return r.json(); })
       .then(function(res){
         var d = res.data || res;
         recRows = Array.isArray(d) ? d : (d.rows || []);
-        document.getElementById('rec-status').textContent = '';
+        setRecStatus('');
         renderUnclearedAll();
       })
-      .catch(function(e){ document.getElementById('rec-status').textContent = e.message; });
+      .catch(function(e){ setRecStatus(e.message); });
   }
 
   function renderReconcile() {
@@ -241,7 +245,7 @@ ${commonStyle()}
     document.getElementById('rec-summary').style.display = '';
     document.getElementById('rec-table').style.display = '';
     var displayRows = getFilteredRows();
-    document.getElementById('rec-status').textContent = recRows.length > displayRows.length ? 'Showing ' + displayRows.length + ' of ' + recRows.length + ' transactions' : '';
+    setRecStatus(recRows.length > displayRows.length ? 'Showing ' + displayRows.length + ' of ' + recRows.length + ' transactions' : '');
     document.getElementById('rec-body').innerHTML = displayRows.map(function(r, i) {
       var cls = r.cleared ? 'cleared' : '';
       return '<tr class="'+cls+'" data-i="'+i+'" data-batch="'+r.batch_id+'" data-acct="'+acct+'">'
@@ -260,7 +264,7 @@ ${commonStyle()}
     document.getElementById('rec-summary').style.display = 'none';
     document.getElementById('rec-table').style.display = '';
     var displayRows = getFilteredRows();
-    document.getElementById('rec-status').textContent = recRows.length > displayRows.length ? 'Showing ' + displayRows.length + ' of ' + recRows.length + ' transactions' : '';
+    setRecStatus(recRows.length > displayRows.length ? 'Showing ' + displayRows.length + ' of ' + recRows.length + ' transactions' : '');
     document.getElementById('rec-body').innerHTML = displayRows.map(function(r, i) {
       return '<tr class="" data-i="'+i+'" data-batch="'+r.batch_id+'" data-acct="'+r.account_code+'">'
         +'<td>'+(r.date?String(r.date).slice(0,10):'')+'</td>'
@@ -272,9 +276,9 @@ ${commonStyle()}
         +'<td style="text-align:center"><input type="checkbox" onchange="toggleCleared(this)"></td>'
         +'</tr>';
     }).join('');
-    document.getElementById('rec-status').textContent = recRows.length
+    setRecStatus(recRows.length
       ? recRows.length + ' uncleared transaction' + (recRows.length === 1 ? '' : 's')
-      : 'No uncleared transactions \u2713';
+      : 'No uncleared transactions \u2713');
   }
 
   function toggleAllCleared(hdrCb) {
@@ -350,7 +354,7 @@ ${commonStyle()}
     document.querySelectorAll('.acct-col').forEach(function(el) { el.style.display = 'none'; });
     document.getElementById('rec-table').style.display = 'none';
     document.getElementById('rec-body').innerHTML = '';
-    document.getElementById('rec-status').textContent = '';
+    setRecStatus('');
   }
 
   // ── Import JS ───────────────────────────────────────────────────────────────
@@ -525,10 +529,10 @@ ${commonStyle()}
     var dsi = parseInt(document.getElementById('col-desc').value);
     var bankAcct = document.getElementById('bank-acct').value.trim();
     var split = document.getElementById('amt-type').value === 'split';
-    if (!bankAcct) { document.getElementById('parse-status').textContent = 'Bank account required'; return; }
+    if (!bankAcct) { setParseStatus('Bank account required'); return; }
     // CHANGE 1: Validate bank account code before processing
     if (!validateBankAcctCode()) {
-      document.getElementById('parse-status').textContent = 'Account ' + bankAcct + ' not found in Chart of Accounts';
+      setParseStatus('Account ' + bankAcct + ' not found in Chart of Accounts');
       return;
     }
 
@@ -553,23 +557,23 @@ ${commonStyle()}
     saveImportPrefs();
     var skipped = csvRows.length - bankRows.length;
     if (bankRows.length === 0) {
-      document.getElementById('parse-status').textContent = 'No valid rows found (' + csvRows.length + ' rows read, all skipped). Check date column and amount columns.';
+      setParseStatus('No valid rows found (' + csvRows.length + ' rows read, all skipped). Check date column and amount columns.');
       return;
     }
-    document.getElementById('parse-status').textContent = 'Processing ' + bankRows.length + ' rows (' + skipped + ' skipped)…';
+    setParseStatus('Processing ' + bankRows.length + ' rows (' + skipped + ' skipped)…');
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'bank.process', companyId: COMPANY, bankAccount: bankAcct, rows: bankRows }) })
       .then(r => r.json()).then(res => {
         var d = res.data || res;
-        if (res.error || d.error) { document.getElementById('parse-status').textContent = res.error || d.error; return; }
+        if (res.error || d.error) { setParseStatus(res.error || d.error); return; }
         processedRows = d.processed || [];
-        document.getElementById('parse-status').textContent = '';
+        setParseStatus('');
         renderReview(d);
         fetchAndShowBalance(bankAcct);
         checkDuplicates(bankAcct, bankRows);
         fetchOpenBills();
       })
-      .catch(e => { document.getElementById('parse-status').textContent = e.message; });
+      .catch(e => { setParseStatus(e.message); });
   }
 
   var MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
@@ -910,19 +914,19 @@ ${commonStyle()}
         fxAccount: r.fxAccount || null });
     });
     if (problemRows.length > 0) {
-      document.getElementById('post-status').textContent = 'Invalid accounts on rows: ' + problemRows.join(', ') + '. Fill in debit & credit accounts.';
+      setPostStatus('Invalid accounts on rows: ' + problemRows.join(', ') + '. Fill in debit & credit accounts.');
       document.getElementById('post-status').style.color = '#cc2222';
       return;
     }
-    if (!entries.length) { document.getElementById('post-status').textContent = 'Nothing to post'; return; }
+    if (!entries.length) { setPostStatus('Nothing to post'); return; }
     var journalId = document.getElementById('import-journal').value;
-    if (!journalId) { document.getElementById('post-status').textContent = 'Select a journal first'; return; }
-    document.getElementById('post-status').textContent = 'Posting '+entries.length+' entries…';
+    if (!journalId) { setPostStatus('Select a journal first'); return; }
+    setPostStatus('Posting '+entries.length+' entries…');
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'bank.approve', companyId: COMPANY, journalId, entries }) })
       .then(r => r.json()).then(res => {
         var d = res.data || res;
-        if (res.error || d.error) { document.getElementById('post-status').textContent = res.error||d.error; return; }
+        if (res.error || d.error) { setPostStatus(res.error||d.error); return; }
         var n = d.posted || 0, failed = d.failed || 0;
         var jName = document.getElementById('import-journal').options[document.getElementById('import-journal').selectedIndex];
         var jLabel = jName ? jName.text : journalId;
@@ -939,7 +943,7 @@ ${commonStyle()}
             +'<a href="/'+COMPANY+'/bank" style="display:inline-block;padding:10px 22px;background:#555;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">Import Another Statement</a>'
           +'</div></div>';
       })
-      .catch(e => { document.getElementById('post-status').textContent = e.message; });
+      .catch(e => { setPostStatus(e.message); });
   }
 
   function fetchOpenBills() {

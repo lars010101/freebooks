@@ -301,6 +301,7 @@ function loadPeriods() {
       appendBlankPeriodRow();
     })
     .catch(function(e){ console.error('loadPeriods:', e); });
+}
 
 // ========== COMPANY ==========
 var companiesData = [];

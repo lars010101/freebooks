@@ -415,11 +415,22 @@ function openColFilter(th, col) {
   var firstInput = dd.querySelector('input, select');
   if (firstInput) setTimeout(function() { firstInput.focus(); }, 10);
 
-  // Close on outside click
+  // Close on outside click or Escape
   function onOutsideClick(e) {
-    if (!dd.contains(e.target)) { dd.remove(); document.removeEventListener('click', onOutsideClick); }
+    if (!dd.contains(e.target)) { cleanup(); }
   }
-  setTimeout(function() { document.addEventListener('click', onOutsideClick); }, 0);
+  function onEscape(e) {
+    if (e.key === 'Escape') { e.stopPropagation(); cleanup(); }
+  }
+  function cleanup() {
+    dd.remove();
+    document.removeEventListener('click', onOutsideClick);
+    document.removeEventListener('keydown', onEscape, true);
+  }
+  setTimeout(function() {
+    document.addEventListener('click', onOutsideClick);
+    document.addEventListener('keydown', onEscape, true);
+  }, 0);
 }
 
 function registerBillKeyActions() {

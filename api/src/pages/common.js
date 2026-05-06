@@ -161,6 +161,30 @@ body {
   flex-shrink: 0;
 }
 
+/* ---- Vim mode indicator ---- */
+#fb-vim-mode {
+  font-size: 9px;
+  font-family: 'SF Mono', 'Fira Mono', monospace;
+  color: rgba(220,228,242,.35);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 1px 8px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: color .15s;
+  user-select: none;
+}
+#fb-vim-mode.insert { color: #4ade80; }
+#sidebar.sb-collapsed #fb-vim-mode { opacity: 0; }
+
+/* ---- Table row keyboard focus ---- */
+tr.nav-row-focus > td {
+  background: var(--accent) !important;
+  color: #fff !important;
+  outline: none;
+}
+tr.nav-row-focus > td a { color: #fff !important; }
+
 /* ---- Top bar ---- */
 #main-area {
   flex: 1;
@@ -503,6 +527,7 @@ function navBar(company, activeKey) {
           <span id="fb-collapse-icon">«</span>
         </button>
       </div>
+      <div id="fb-vim-mode">NORMAL</div>
     </div>
   </aside>
 
@@ -622,31 +647,78 @@ function layoutEnd() {
 </script>
 <script>
 (function() {
-  // "/" focuses global search
-  // ":" or Ctrl+K opens command palette
+  // ── Vim-modal keyboard navigation ──
+  // Modes: normal (default) | insert (typing in a field)
+  // Escape        → Normal mode (blur inputs, clear row focus)
+  // i             → Insert mode (focus first input in page-main)
+  // { / }         → sidebar prev/next item (navigate pages)
+  // h / l         → horizontal submenu tab prev/next
+  // j / k         → table row prev/next (with visual focus)
+  // Enter         → activate focused row (follow link or click)
+  // /             → focus global search
+  // : or Ctrl+K   → command palette
+  // g + letter    → jump navigation (gd=Dashboard, gb=Bank, etc.)
+
+  var _fbVimMode = 'normal';
+  window.fbSetVimMode = function(mode) {
+    _fbVimMode = mode;
+    var el = document.getElementById('fb-vim-mode');
+    if (!el) return;
+    el.textContent = mode === 'insert' ? 'INSERT' : 'NORMAL';
+    el.className = mode === 'insert' ? 'insert' : '';
+  };
+
+  // Auto-track mode on focus in/out
+  document.addEventListener('focusin', function(e) {
+    var tag = (e.target || {}).tagName || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') fbSetVimMode('insert');
+  });
+  document.addEventListener('focusout', function(e) {
+    var tag = (e.target || {}).tagName || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+      setTimeout(function() {
+        var ae = document.activeElement;
+        var aeTag = (ae || {}).tagName || '';
+        if (aeTag !== 'INPUT' && aeTag !== 'TEXTAREA' && aeTag !== 'SELECT') fbSetVimMode('normal');
+      }, 50);
+    }
+  });
+
+  var _gPending = false, _gTimer = null;
+
   document.addEventListener('keydown', function(e) {
-    var tag = (document.activeElement || {}).tagName || '';
-    var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    var ae = document.activeElement || {};
+    var tag = (ae.tagName || '').toUpperCase();
+    var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || ae.isContentEditable;
+
+    // ── Escape: always exit to Normal mode ──
+    if (e.key === 'Escape') {
+      document.querySelectorAll('tr.nav-row-focus').forEach(function(r) { r.classList.remove('nav-row-focus'); });
+      if (inInput) { ae.blur(); }
+      fbSetVimMode('normal');
+      return;
+    }
+
+    // ── / → global search ──
     if (!inInput && e.key === '/') {
       e.preventDefault();
       var s = document.getElementById('tb-global-search');
       if (s) { s.focus(); s.select(); }
+      return;
     }
+
+    // ── : or Ctrl+K → command palette ──
     if ((!inInput && e.key === ':') || (e.ctrlKey && e.key === 'k')) {
       e.preventDefault();
       fbOpenCmdPalette();
+      return;
     }
-  });
 
-  // ── "g" prefix navigation shortcuts ──
-  var _gPending = false, _gTimer = null;
-  document.addEventListener('keydown', function(e) {
-    var tag = (document.activeElement || {}).tagName || '';
-    var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (document.activeElement || {}).isContentEditable;
+    // ── Normal-mode-only keys below ──
     if (inInput) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
 
-    // "g" prefix
+    // ── g prefix navigation ──
     if (e.key === 'g' && !_gPending) {
       _gPending = true;
       clearTimeout(_gTimer);
@@ -657,21 +729,73 @@ function layoutEnd() {
     if (_gPending) {
       _gPending = false;
       clearTimeout(_gTimer);
-      var company = document.getElementById('app-shell') ? document.getElementById('app-shell').dataset.company : '';
+      var company = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
       if (!company) return;
       var navMap = { d: '/' + company, b: '/' + company + '/bank', p: '/' + company + '/payables', v: '/' + company + '/receivables', r: '/' + company + '/reports', s: '/' + company + '/settings' };
       if (navMap[e.key]) { e.preventDefault(); window.location.href = navMap[e.key]; }
       return;
     }
 
-    // "}" next tab / "{" previous tab
-    if (e.key === '}' || e.key === '{') {
+    // ── i → Insert mode: focus first input in page-main ──
+    if (e.key === 'i') {
+      e.preventDefault();
+      var first = document.querySelector('#page-main input:not([type=hidden]):not([disabled]), #page-main textarea:not([disabled])');
+      if (first) { first.focus(); fbSetVimMode('insert'); }
+      return;
+    }
+
+    // ── { / } → sidebar navigation ──
+    if (e.key === '{' || e.key === '}') {
+      var sbItems = Array.from(document.querySelectorAll('.sb-nav a[href]'));
+      if (!sbItems.length) return;
+      var sbActiveIdx = sbItems.findIndex(function(el) { return el.classList.contains('sb-active'); });
+      if (sbActiveIdx === -1) sbActiveIdx = 0;
+      var sbNewIdx = e.key === '}' ? sbActiveIdx + 1 : sbActiveIdx - 1;
+      sbNewIdx = Math.max(0, Math.min(sbItems.length - 1, sbNewIdx));
+      e.preventDefault();
+      window.location.href = sbItems[sbNewIdx].getAttribute('href');
+      return;
+    }
+
+    // ── h / l → horizontal submenu tab navigation ──
+    if (e.key === 'h' || e.key === 'l') {
       var tabs = Array.from(document.querySelectorAll('.tabs .tab'));
       if (!tabs.length) return;
-      var activeIdx = -1;
-      tabs.forEach(function(t, i) { if (t.classList.contains('active')) activeIdx = i; });
-      var newIdx = e.key === '}' ? activeIdx + 1 : activeIdx - 1;
-      if (newIdx >= 0 && newIdx < tabs.length) { e.preventDefault(); tabs[newIdx].click(); }
+      var tabActiveIdx = -1;
+      tabs.forEach(function(t, i) { if (t.classList.contains('active')) tabActiveIdx = i; });
+      var tabNewIdx = e.key === 'l' ? tabActiveIdx + 1 : tabActiveIdx - 1;
+      if (tabNewIdx >= 0 && tabNewIdx < tabs.length) { e.preventDefault(); tabs[tabNewIdx].click(); }
+      return;
+    }
+
+    // ── j / k → table row navigation ──
+    if (e.key === 'j' || e.key === 'k') {
+      var rows = Array.from(document.querySelectorAll('table tbody tr'));
+      if (!rows.length) return;
+      var focusedIdx = rows.findIndex(function(r) { return r.classList.contains('nav-row-focus'); });
+      var rowNewIdx;
+      if (focusedIdx === -1) {
+        rowNewIdx = e.key === 'j' ? 0 : rows.length - 1;
+      } else {
+        rowNewIdx = e.key === 'j' ? focusedIdx + 1 : focusedIdx - 1;
+      }
+      rowNewIdx = Math.max(0, Math.min(rows.length - 1, rowNewIdx));
+      e.preventDefault();
+      rows.forEach(function(r) { r.classList.remove('nav-row-focus'); });
+      rows[rowNewIdx].classList.add('nav-row-focus');
+      rows[rowNewIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      return;
+    }
+
+    // ── Enter → activate focused row ──
+    if (e.key === 'Enter') {
+      var focusedRow = document.querySelector('tr.nav-row-focus');
+      if (focusedRow) {
+        e.preventDefault();
+        var link = focusedRow.querySelector('a[href]');
+        if (link) { window.location.href = link.getAttribute('href'); }
+        else { focusedRow.click(); }
+      }
     }
   });
 

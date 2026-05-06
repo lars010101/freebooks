@@ -75,23 +75,22 @@ ${commonStyle()}
 
   <!-- COMPANY TAB -->
   <div id="tab-company" class="tab-panel active">
-    <div class="field-row"><label>Company Name</label><input type="text" id="co-name"></div>
-    <div class="field-row"><label>Currency</label><input type="text" id="co-currency" maxlength="3" style="max-width:80px" list="currency-list"></div>
-    <div class="field-row"><label>Jurisdiction</label><input type="text" id="co-jurisdiction" style="max-width:80px"></div>
-    <div class="field-row"><label>Tax ID</label><input type="text" id="co-taxid"></div>
-    <div class="field-row"><label>Reporting Standard</label><input type="text" id="co-standard"></div>
-    <div class="field-row"><label><input type="checkbox" id="co-vat"> VAT / GST Registered</label></div>
-    <div class="field-row"><label>FX Gain/Loss Account</label>
-      <div style="display:flex;gap:8px;align-items:center;width:100%">
-        <input type="text" id="co-fx-account" placeholder="code or name" style="flex:1;max-width:300px" autocomplete="off" oninput="vendorAcctInput(this)" onblur="hideVendorAcctDd()">
-        <span id="co-fx-account-name" style="font-size:9pt;color:#888"></span>
-      </div>
-    </div>
-    <button id="btn-save-company" class="btn-primary" onclick="saveCompany()" disabled>Save</button>
-    <span id="msg-company" class="msg"></span>
-
-    <div>
-      <a href="/setup/new-company" style="display:inline-block;padding:9px 20px;background:#f5f5f5;color:#1a1a1a;border:1px solid #ccc;border-radius:4px;font-size:10pt;font-weight:600;text-decoration:none">+ New Company</a>
+    <table class="edit-table" id="company-table">
+      <thead><tr>
+        <th>Company ID</th>
+        <th>Company Name</th>
+        <th style="width:70px">Currency</th>
+        <th style="width:60px">Jur.</th>
+        <th>Tax ID</th>
+        <th>Std.</th>
+        <th style="text-align:center">VAT</th>
+        <th>FX Acct</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="company-body"></tbody>
+    </table>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <span id="msg-company" class="msg" style="font-size:0.8125rem"></span>
     </div>
   </div>
 
@@ -171,8 +170,6 @@ var VAT_NAMES = { SG:'GST', SE:'VAT' };
 // ========== DIRTY STATE MANAGER (all tabs) ==========
 var dirtyTabs = new Set();
 var tabLoaded = {};
-var vendorAccountsList = [];
-var vendorAcctActiveInput = null;
 function markDirty(tab) {
   dirtyTabs.add(tab);
   var btn = document.getElementById('btn-save-' + tab);
@@ -199,7 +196,7 @@ function showTab(t) {
   document.getElementById('tab-'+t).classList.add('active');
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
-    if (t === 'company')  { loadCompany(); }
+    if (t === 'company')  { loadCompanies(); }
     if (t === 'periods')  { loadPeriods(); }
     if (t === 'coa')      { loadCoa(); }
     if (t === 'vat')      { loadVat(); }
@@ -304,61 +301,216 @@ function loadPeriods() {
       appendBlankPeriodRow();
     })
     .catch(function(e){ console.error('loadPeriods:', e); });
-}
-loadVendorAccounts(); // preload accounts for vendor autocomplete
 
 // ========== COMPANY ==========
-function loadCompany() {
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); }).then(function(res){
-      var rows = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
-      var co = rows.find(function(c){ return c.company_id === COMPANY; });
-      if (co && co.jurisdiction) {
-        var vn = VAT_NAMES[co.jurisdiction] || 'Tax';
-        document.getElementById('tab-vat-label').textContent = vn + ' Codes';
+var companiesData = [];
+
+function addCompanyRow(co, isNew) {
+  isNew = isNew || false;
+  co = co || {};
+  var tr = document.createElement('tr');
+  tr.dataset.companyId = isNew ? '' : (co.company_id || '');
+  tr.dataset.isNew = isNew ? '1' : '0';
+
+  var idCell = isNew
+    ? '<input type="text" value="" style="width:110px" placeholder="e.g. myco_sg">'
+    : '<span class="ro">' + (co.company_id || '') + '</span>';
+
+  tr.innerHTML = '<td>' + idCell + '</td>'
+    + '<td><input type="text" value="' + (co.company_name || '').replace(/"/g, '&quot;') + '" style="width:160px"></td>'
+    + '<td><input type="text" value="' + (co.base_currency || co.currency || '') + '" maxlength="3" style="width:60px" list="currency-list" oninput="this.value=this.value.toUpperCase()"></td>'
+    + '<td><input type="text" value="' + (co.jurisdiction || '') + '" maxlength="10" style="width:55px"></td>'
+    + '<td><input type="text" value="' + (co.tax_id || '').replace(/"/g, '&quot;') + '" style="width:120px"></td>'
+    + '<td><input type="text" value="' + (co.reporting_standard || '').replace(/"/g, '&quot;') + '" style="width:80px"></td>'
+    + '<td style="text-align:center"><input type="checkbox"' + (co.vat_registered ? ' checked' : '') + '></td>'
+    + '<td><input type="text" value="' + (co.fx_gain_loss_account || '').replace(/"/g, '&quot;') + '" style="width:80px" placeholder="account code"></td>'
+    + '<td style="white-space:nowrap;text-align:right"></td>';
+
+  var saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-sm';
+  saveBtn.innerHTML = '\u{1F4BE}';
+  saveBtn.title = 'Save';
+  saveBtn.style.cssText = 'opacity:' + (isNew ? '1' : '0.35') + ';margin-right:4px';
+  saveBtn.onclick = function () { saveCompanyRow(tr); };
+
+  var delBtn = document.createElement('button');
+  delBtn.className = 'btn-sm danger';
+  delBtn.innerHTML = '\u2715';
+  delBtn.title = 'Delete';
+  delBtn.onclick = function () { deleteCompanyRow(tr); };
+
+  tr.cells[tr.cells.length - 1].appendChild(saveBtn);
+  tr.cells[tr.cells.length - 1].appendChild(delBtn);
+
+  tr.querySelectorAll('input').forEach(function (el) {
+    el.addEventListener('input', function () {
+      saveBtn.style.opacity = '1';
+      if (isNew && el === tr.cells[0].querySelector('input') && el.value.trim()) {
+        appendBlankCompanyRow();
       }
-      if (!co) return;
-      document.getElementById('co-name').value = co.company_name || '';
-      document.getElementById('co-currency').value = co.base_currency || co.currency || '';
-      document.getElementById('co-jurisdiction').value = co.jurisdiction || '';
-      document.getElementById('co-taxid').value = co.tax_id || '';
-      document.getElementById('co-standard').value = co.reporting_standard || '';
-      document.getElementById('co-vat').checked = !!co.vat_registered;
-      ['co-name','co-currency','co-jurisdiction','co-taxid','co-standard','co-vat','co-fx-account'].forEach(function(id){
-        var el = document.getElementById(id);
-        if (el) { el.addEventListener('input', function(){ markDirty('company'); }); el.addEventListener('change', function(){ markDirty('company'); }); }
-      });
-      // Load FX settings
-      loadFxSettings();
-      resetDirty('company');
+    });
+    el.addEventListener('change', function () { saveBtn.style.opacity = '1'; });
+  });
+
+  document.getElementById('company-body').appendChild(tr);
+  return tr;
+}
+
+function appendBlankCompanyRow() {
+  var tbody = document.getElementById('company-body');
+  var rows = tbody ? tbody.querySelectorAll('tr') : [];
+  if (rows.length > 0) {
+    var li = rows[rows.length - 1].cells[0].querySelector('input');
+    if (li && !li.value.trim()) return;
+  }
+  addCompanyRow({}, true);
+}
+
+function saveCompanyRow(tr) {
+  var isNew = tr.dataset.isNew === '1';
+  var idEl = tr.cells[0].querySelector('input,span.ro');
+  var companyId = (idEl && idEl.value !== undefined ? idEl.value : idEl.textContent).trim();
+  if (!companyId) { showMsg('msg-company', 'Company ID required', true); return; }
+
+  var inputs = tr.querySelectorAll('input[type=text]');
+  var cb = tr.querySelector('input[type=checkbox]');
+
+  // inputs[0]=id(new only), [1]=name, [2]=currency, [3]=jurisdiction, [4]=taxid, [5]=std, [6]=fxacct
+  var nameVal       = inputs[1] ? inputs[1].value.trim() : '';
+  var currencyVal   = inputs[2] ? inputs[2].value.trim().toUpperCase() : '';
+  var jurisdicVal   = inputs[3] ? inputs[3].value.trim() : '';
+  var taxIdVal      = inputs[4] ? inputs[4].value.trim() : '';
+  var stdVal        = inputs[5] ? inputs[5].value.trim() : '';
+  var fxAcctVal     = inputs[6] ? inputs[6].value.trim() : '';
+
+  if (!nameVal) { showMsg('msg-company', 'Company name required', true); return; }
+
+  var saveBtn = tr.querySelector('button.btn-sm:not(.danger)');
+  if (saveBtn) { saveBtn.innerHTML = '\u23F3'; saveBtn.disabled = true; }
+
+  var co = {
+    company_id: isNew ? companyId : tr.dataset.companyId,
+    company_name: nameVal,
+    base_currency: currencyVal,
+    jurisdiction: jurisdicVal,
+    tax_id: taxIdVal,
+    reporting_standard: stdVal,
+    vat_registered: cb ? cb.checked : false
+  };
+
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'company.save', companyId: isNew ? companyId : tr.dataset.companyId, companies: [co] }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      var d = res.data || res;
+      var m = document.getElementById('msg-company');
+      if (res.error || d.error) {
+        if (m) { m.textContent = res.error || d.error; m.className = 'msg err'; }
+        if (saveBtn) { saveBtn.innerHTML = '\u{1F4BE}'; saveBtn.disabled = false; }
+      } else {
+        tr.dataset.companyId = companyId;
+        tr.dataset.isNew = '0';
+        // If new, replace id input with ro span
+        if (isNew) {
+          var idInput = tr.cells[0].querySelector('input');
+          if (idInput) {
+            var span = document.createElement('span');
+            span.className = 'ro';
+            span.textContent = companyId;
+            idInput.replaceWith(span);
+          }
+        }
+        // Save FX settings separately
+        if (fxAcctVal !== '') {
+          fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'settings.save', companyId: companyId, settings: { fx_gain_loss_account: fxAcctVal } }) })
+            .catch(function (e) { console.error('FX settings save failed:', e); });
+        }
+        if (saveBtn) {
+          saveBtn.innerHTML = '\u2713';
+          saveBtn.style.opacity = '0.35';
+          saveBtn.disabled = false;
+          setTimeout(function () { saveBtn.innerHTML = '\u{1F4BE}'; }, 1500);
+        }
+        if (m) { m.textContent = 'Saved'; m.className = 'msg ok'; setTimeout(function () { m.textContent = ''; }, 2000); }
+        // Update VAT tab label if editing current company
+        if (companyId === COMPANY && jurisdicVal) {
+          var vn = VAT_NAMES[jurisdicVal] || 'Tax';
+          document.getElementById('tab-vat-label').textContent = vn + ' Codes';
+        }
+        // Store base currency for FX tab
+        if (companyId === COMPANY) {
+          window._companyCurrency = currencyVal;
+        }
+      }
+    })
+    .catch(function (e) {
+      showMsg('msg-company', e.message, true);
+      if (saveBtn) { saveBtn.innerHTML = '\u{1F4BE}'; saveBtn.disabled = false; }
     });
 }
-function loadFxSettings() {
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'settings.get', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); }).then(function(res){
-      var settings = res.data || res;
-      var fxAcct = settings.fx_gain_loss_account || '';
-      document.getElementById('co-fx-account').value = fxAcct;
-      if (fxAcct && vendorAccountsList.length > 0) {
-        var acct = vendorAccountsList.find(function(a){ return a.account_code === fxAcct; });
-        if (acct) document.getElementById('co-fx-account-name').textContent = acct.account_name || '';
+
+function deleteCompanyRow(tr) {
+  var companyId = tr.dataset.companyId;
+  if (!companyId) { tr.remove(); appendBlankCompanyRow(); return; }
+  if (companyId === COMPANY) { showMsg('msg-company', 'Cannot delete the active company', true); return; }
+  if (!confirm('Delete company "' + companyId + '"? This cannot be undone.')) return;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'company.delete', companyId: companyId }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      var d = res.data || res;
+      if (res.error || d.error) {
+        showMsg('msg-company', res.error || d.error, true);
+      } else {
+        tr.remove();
+        appendBlankCompanyRow();
       }
-    }).catch(function(){});
+    })
+    .catch(function (e) { showMsg('msg-company', e.message, true); });
 }
-function saveCompany() {
-  var co = { company_id: COMPANY, company_name: document.getElementById('co-name').value,
-    base_currency: document.getElementById('co-currency').value, jurisdiction: document.getElementById('co-jurisdiction').value,
-    tax_id: document.getElementById('co-taxid').value, reporting_standard: document.getElementById('co-standard').value,
-    vat_registered: document.getElementById('co-vat').checked };
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'company.save', companyId: COMPANY, companies: [co] }) })
-    .then(function(r){ return r.json(); }).then(function(r){ var d = r.data||r; showMsg('msg-company', r.error||d.error || 'Saved', !!(r.error||d.error)); if (!r.error && !d.error) {
-      // Also save FX settings
-      var fxSettings = { fx_gain_loss_account: document.getElementById('co-fx-account').value.trim() || '' };
-      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'settings.save', companyId: COMPANY, settings: fxSettings }) })
-        .catch(function(e){ console.error('FX settings save failed:', e); });
-      resetDirty('company');
-    } })
-    .catch(function(e){ showMsg('msg-company', e.message, true); });
+
+function loadCompanies() {
+  var tbody = document.getElementById('company-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'company.list', companyId: COMPANY }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      var rows = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
+      companiesData = rows;
+      rows.forEach(function (co) { addCompanyRow(co, false); });
+      appendBlankCompanyRow();
+      // Set VAT tab label and currency from current company
+      var cur = rows.find(function (c) { return c.company_id === COMPANY; });
+      if (cur) {
+        if (cur.jurisdiction) {
+          var vn = VAT_NAMES[cur.jurisdiction] || 'Tax';
+          document.getElementById('tab-vat-label').textContent = vn + ' Codes';
+        }
+        window._companyCurrency = cur.base_currency || cur.currency || '';
+      }
+      // Load FX gain/loss account for each company row
+      rows.forEach(function (co, idx) {
+        fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'settings.get', companyId: co.company_id }) })
+          .then(function (r) { return r.json(); })
+          .then(function (r2) {
+            var s = r2.data || r2;
+            var fxAcct = s.fx_gain_loss_account || '';
+            if (fxAcct) {
+              var trs = document.getElementById('company-body').querySelectorAll('tr');
+              var matchTr = Array.from(trs).find(function (t) { return t.dataset.companyId === co.company_id; });
+              if (matchTr) {
+                var fxInput = matchTr.querySelectorAll('input[type=text]')[6];
+                if (fxInput) fxInput.value = fxAcct;
+              }
+            }
+          }).catch(function () {});
+      });
+    })
+    .catch(function (e) { console.error('loadCompanies:', e); });
 }
 
 // ========== COA ==========
@@ -615,12 +767,6 @@ function loadJournals() {
 }
 // saveJournals replaced by per-row saveJournalRow
 
-function loadVendorAccounts() {
-  fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
-    vendorAccountsList = Array.isArray(rows) ? rows : [];
-  }).catch(function(e){ console.error('loadVendorAccounts failed:', e); });
-}
-
 // ========== HANDLE ?tab= URL PARAM ==========
 (function() {
   var params = new URLSearchParams(window.location.search);
@@ -636,81 +782,13 @@ if (!fxSaveBtn) {
   s.textContent = '(function(){ var tbody = document.getElementById("fx-rates-body"); if (tbody && !tbody.dataset.fxWired) { tbody.dataset.fxWired = true; var frm = tbody.parentElement.parentElement; var btn = document.createElement("button"); btn.className = "btn-primary"; btn.textContent = "Save Rates"; btn.onclick = saveFxRates; frm.appendChild(btn); } })();';
   document.body.appendChild(s);
 }
-
-function vendorAcctInput(input) {
-  if (!vendorAccountsList.length) { loadVendorAccounts(); }
-  vendorAcctActiveInput = input;
-  var q = input.value.trim().toLowerCase();
-  var dd = document.getElementById('vendor-acct-dd');
-  if (dd) dd.remove();
-  if (!q) return;
-  var matches = vendorAccountsList.filter(function(a){
-    return (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q);
-  }).slice(0, 12);
-  if (!matches.length) return;
-  var div = document.createElement('div');
-  div.id = 'vendor-acct-dd';
-  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
-  matches.forEach(function(a){
-    var item = document.createElement('div');
-    item.textContent = a.account_code + ' - ' + a.account_name;
-    item.style.cssText = 'padding:4px 8px;cursor:pointer;white-space:nowrap';
-    item.onmouseover = function(){ item.style.background='#e8f0fe'; };
-    item.onmouseout  = function(){ item.style.background=''; };
-    item.onmousedown = function(e){ e.preventDefault(); };
-    item.onclick = function(){
-      if (vendorAcctActiveInput) {
-        vendorAcctActiveInput.value = a.account_code;
-        // Update paired name span if present (e.g. co-fx-account-name)
-        var nameSpan = vendorAcctActiveInput.parentElement && vendorAcctActiveInput.parentElement.querySelector('span[id$="-name"]');
-        if (nameSpan) nameSpan.textContent = a.account_name || '';
-        // Trigger input event so change listeners (enable Save button) fire
-        vendorAcctActiveInput.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      var d = document.getElementById('vendor-acct-dd');
-      if (d) d.remove();
-      vendorAcctActiveInput = null;
-    };
-    div.appendChild(item);
-  });
-  var rect = input.getBoundingClientRect();
-  div.style.left = rect.left + 'px';
-  div.style.top  = (rect.bottom + 2) + 'px';
-  div.style.minWidth = rect.width + 'px';
-  document.body.appendChild(div);
-}
-function hideVendorAcctDd() {
-  setTimeout(function(){
-    var dd = document.getElementById('vendor-acct-dd');
-    if (dd) dd.remove();
-  }, 150);
-}
-// CHANGE 4: Validate vendor account fields
-function validateVendorAcctField(input) {
-  hideVendorAcctDd();
-  var code = input.value.trim();
-  var statusEl = input.nextElementSibling;
-  if (!statusEl || !statusEl.classList.contains('vendor-acct-status')) return;
-  if (!code) {
-    statusEl.textContent = '';
-    return;
-  }
-  var found = vendorAccountsList.find(function(a) { return a.account_code === code; });
-  if (found) {
-    statusEl.textContent = '✓';
-    statusEl.style.color = '#2a8a2a';
-  } else {
-    statusEl.textContent = '✗';
-    statusEl.style.color = '#cc2222';
-  }
-}
 // ========== EXCHANGE RATES ==========
 var fxRatesData = [];
 var baseCurrencies = new Set();
 
 function loadBaseCurrencies() {
   // Update the display of current company's base currency
-  var compCcy = document.getElementById('co-currency').value || '';
+  var compCcy = window._companyCurrency || '';
   var displayEl = document.getElementById('current-base-currency');
   if (displayEl && compCcy) {
     displayEl.textContent = 'Base currency: ' + compCcy;
@@ -718,7 +796,7 @@ function loadBaseCurrencies() {
 }
 
 function loadFxRates() {
-  var compCcy = document.getElementById('co-currency').value || '';
+  var compCcy = window._companyCurrency || '';
   var params = { action:'fx.rates.list', companyId: COMPANY };
   if (compCcy) params.baseCurrency = compCcy;
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(params) })
@@ -768,7 +846,7 @@ function deleteFxRate(date, from, to, source) {
 }
 
 function fetchFromEcb() {
-  var baseCcy = document.getElementById('co-currency').value || '';
+  var baseCcy = window._companyCurrency || '';
   if (!baseCcy) { showMsg('msg-fxrates', 'Please set company currency first', true); return; }
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.fetch_rates', companyId: COMPANY, baseCurrency: baseCcy }) })
     .then(function(r){ return r.json(); }).then(function(r){

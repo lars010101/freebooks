@@ -184,7 +184,8 @@
   // e             → page-registered "edit" action
   // /             → focus global search
   // : or Ctrl+K   → command palette
-  // g + letter    → jump navigation (gd=Dashboard, gb=Bank, etc.)
+  // gg            → scroll to top
+  // G             → scroll to bottom
   //
   // Pages register handlers via: window.fbKeyActions = { new, delete, edit }
 
@@ -263,22 +264,38 @@
     if (inInput) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
 
-    // ── g prefix navigation ──
+    // ── gg → scroll to top ──
     if (e.key === 'g' && !_gPending) {
       _gPending = true;
       clearTimeout(_gTimer);
-      _gTimer = setTimeout(function() { _gPending = false; }, 1000);
+      _gTimer = setTimeout(function() { _gPending = false; }, 500);
       e.preventDefault();
+      return;
+    }
+    if (_gPending && e.key === 'g') {
+      _gPending = false;
+      clearTimeout(_gTimer);
+      e.preventDefault();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     if (_gPending) {
       _gPending = false;
       clearTimeout(_gTimer);
-      var company = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
-      if (!company) return;
-      var navMap = { d: '/' + company, b: '/' + company + '/bank', p: '/' + company + '/payables', v: '/' + company + '/receivables', r: '/' + company + '/reports', s: '/' + company + '/settings' };
-      if (navMap[e.key]) { e.preventDefault(); fbNavigate(navMap[e.key]); }
       return;
+    }
+
+    // ── G → scroll to bottom ──
+    if (e.shiftKey && e.key === 'G') {
+      e.preventDefault();
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      return;
+    }
+
+    // Reset g pending flag if it was set (but not matching gg)
+    if (_gPending) {
+      _gPending = false;
+      clearTimeout(_gTimer);
     }
 
     // ── i → Insert mode: focus first input in page-main ──

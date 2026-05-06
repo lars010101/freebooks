@@ -155,13 +155,13 @@ ${commonStyle()}
     <table class="data-table">
       <thead>
         <tr>
-          <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Date</span><span class="th-filter-btn" title="Filter by date">▾</span></div></th>
-          <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Due</span><span class="th-filter-btn" title="Filter by due date">▾</span></div></th>
-          <th class="sortable" data-col="vendor" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Vendor</span><span class="th-filter-btn" title="Filter by vendor">▾</span></div></th>
-          <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span><span class="th-filter-btn" title="Filter by reference">▾</span></div></th>
-          <th style="width:50px"><div class="th-inner"><span class="th-label">CCY</span></div></th>
-          <th class="sortable" data-col="amount" data-filter-type="amount" style="text-align:right"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Amount</span><span class="th-filter-btn" title="Filter by amount">▾</span></div></th>
-          <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Status</span><span class="th-filter-btn" title="Filter by status">▾</span></div></th>
+          <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Date</span><span class="th-filter-btn" title="Filter by date">≡</span></div></th>
+          <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Due</span><span class="th-filter-btn" title="Filter by due date">≡</span></div></th>
+          <th class="sortable" data-col="vendor" data-filter-type="text"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Vendor</span><span class="th-filter-btn" title="Filter by vendor">≡</span></div></th>
+          <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span><span class="th-filter-btn" title="Filter by reference">≡</span></div></th>
+          <th class="sortable" data-col="amount" data-filter-type="amount" style="text-align:right"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Amount</span><span class="th-filter-btn" title="Filter by amount">≡</span></div></th>
+          <th class="sortable" data-col="currency" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">CCY</span><span class="th-filter-btn" title="Filter by currency">≡</span></div></th>
+          <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Status</span><span class="th-filter-btn" title="Filter by status">≡</span></div></th>
         </tr>
       </thead>
       <tbody id="bills-tbody">
@@ -295,33 +295,41 @@ function openColFilter(th, col) {
     dd.appendChild(applyBtn);
 
   } else if (filterType === 'text') {
-    // Free-text contains filter
-    var lbl2 = document.createElement('label');
-    lbl2.textContent = 'Contains';
+    // Free-text contains filter (simplified: no buttons, just input + autosearch)
     var inp2 = document.createElement('input');
     inp2.type = 'text';
     inp2.placeholder = 'Type to filter…';
     inp2.value = colFilters[col] || '';
-    var clearBtn2 = document.createElement('div');
-    clearBtn2.className = 'col-filter-dd-item col-filter-dd-clear';
-    clearBtn2.textContent = 'Clear filter';
-    clearBtn2.addEventListener('click', function() {
-      delete colFilters[col]; th.classList.remove('col-filtered'); dd.remove(); applyFilters();
+    inp2.style.width = '100%';
+    inp2.style.padding = '9px';
+    inp2.style.border = '1px solid #ccc';
+    inp2.style.borderRadius = '4px';
+    inp2.style.fontSize = '10pt';
+    inp2.style.boxSizing = 'border-box';
+    inp2.style.marginBottom = '0';
+    var debounceTimer = null;
+    inp2.addEventListener('input', function(e) {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function() {
+        var v = inp2.value.trim();
+        if (v) { colFilters[col] = v; th.classList.add('col-filtered'); }
+        else { delete colFilters[col]; th.classList.remove('col-filtered'); }
+        applyFilters();
+      }, 150);
     });
-    var applyBtn2 = document.createElement('button');
-    applyBtn2.className = 'col-filter-dd-apply';
-    applyBtn2.textContent = 'Apply';
-    applyBtn2.addEventListener('click', function() {
-      var v = inp2.value.trim();
-      if (v) { colFilters[col] = v; th.classList.add('col-filtered'); }
-      else { delete colFilters[col]; th.classList.remove('col-filtered'); }
-      dd.remove(); applyFilters();
+    inp2.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        clearTimeout(debounceTimer);
+        var v = inp2.value.trim();
+        if (v) { colFilters[col] = v; th.classList.add('col-filtered'); }
+        else { delete colFilters[col]; th.classList.remove('col-filtered'); }
+        dd.remove();
+        applyFilters();
+      } else if (e.key === 'Escape') {
+        dd.remove();
+      }
     });
-    inp2.addEventListener('keydown', function(e) { if (e.key === 'Enter') applyBtn2.click(); });
-    dd.appendChild(lbl2);
     dd.appendChild(inp2);
-    dd.appendChild(clearBtn2);
-    dd.appendChild(applyBtn2);
 
   } else if (filterType === 'amount') {
     // Operator + value filter
@@ -363,14 +371,24 @@ function openColFilter(th, col) {
     dd.appendChild(applyBtn3);
 
   } else {
-    // List (single-select): vendor, status
+    // List (single-select): status, currency
     var vals = [];
-    allBills.forEach(function(b) {
-      var v = b[col];
-      if (v == null || v === '') return;
-      v = String(v);
-      if (vals.indexOf(v) === -1) vals.push(v);
-    });
+    if (col === 'currency') {
+      // Collect all unique currencies from bills
+      allBills.forEach(function(b) {
+        var v = b.currency || BASE_CURRENCY;
+        v = String(v);
+        if (vals.indexOf(v) === -1) vals.push(v);
+      });
+    } else {
+      // For other list types
+      allBills.forEach(function(b) {
+        var v = b[col];
+        if (v == null || v === '') return;
+        v = String(v);
+        if (vals.indexOf(v) === -1) vals.push(v);
+      });
+    }
     if (col === 'status') {
       var hasOverdue = allBills.some(function(b) {
         var due = b.due_date ? String(b.due_date).slice(0,10) : null;
@@ -530,11 +548,17 @@ function applyFilters() {
         if (b.status !== colFilters.status) return false;
       }
     }
-    if (colFilters.vendor && b.vendor !== colFilters.vendor) return false;
+    if (colFilters.vendor) {
+      // Vendor now uses text filter (contains match, case-insensitive)
+      if (String(b.vendor || '').toLowerCase().indexOf(colFilters.vendor.toLowerCase()) === -1) return false;
+    }
     if (colFilters.date && String(b.date || '').slice(0,10) !== colFilters.date) return false;
     if (colFilters.due_date && String(b.due_date || '').slice(0,10) !== colFilters.due_date) return false;
     if (colFilters.vendor_ref) {
       if (String(b.vendor_ref || '').toLowerCase().indexOf(colFilters.vendor_ref.toLowerCase()) === -1) return false;
+    }
+    if (colFilters.currency) {
+      if ((b.currency || BASE_CURRENCY) !== colFilters.currency) return false;
     }
     if (colFilters.amount) {
       var bAmt = Number(b.amount || 0);
@@ -554,6 +578,7 @@ function applyFilters() {
       var av = a[col] == null ? '' : a[col];
       var bv = b[col] == null ? '' : b[col];
       if (col === 'amount') { av = Number(av); bv = Number(bv); }
+      else if (col === 'currency') { av = String(av); bv = String(bv); }
       else { av = String(av).toLowerCase(); bv = String(bv).toLowerCase(); }
       if (av < bv) return dir === 'asc' ? -1 : 1;
       if (av > bv) return dir === 'asc' ? 1 : -1;
@@ -591,8 +616,8 @@ function renderPage() {
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'
       + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || b.bill_id) + '</a></td>'
-      + '<td style="font-size:9pt;color:#666;width:50px">' + esc(b.currency || BASE_CURRENCY) + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
+      + '<td style="font-size:9pt;color:#666;text-align:center;width:50px">' + esc(b.currency || BASE_CURRENCY) + '</td>'
       + '<td>' + statusBadge(b.status, due) + '</td>'
       + '</tr>';
   });

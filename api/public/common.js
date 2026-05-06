@@ -98,6 +98,14 @@
         var oldMain = document.getElementById('page-main');
         if (!newMain || !oldMain) { window.location.href = url; return; }
 
+        // Swap <head> page-specific styles
+        document.querySelectorAll('head style').forEach(function(s) { s.remove(); });
+        doc.querySelectorAll('head style').forEach(function(s) {
+          var ns = document.createElement('style');
+          ns.textContent = s.textContent;
+          document.head.appendChild(ns);
+        });
+
         // Swap page-main content
         oldMain.innerHTML = newMain.innerHTML;
 

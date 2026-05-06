@@ -132,6 +132,9 @@ ${commonStyle()}
   .line-desc-input { width:100%; border:none; background:transparent; font-size:10.5pt; padding:2px 4px; border-radius:3px; color:#222; cursor:text; }
   .line-desc-input:hover { background:#f8f9ff; border:1px solid #c0c8ff; }
   .line-desc-input:focus { outline:none; background:#f8f9ff; border:1px solid #c0c8ff; }
+  .meta-val-input { font-size:12pt; font-weight:600; color:#1a1a1a; border:none; background:transparent; padding:2px 4px; border-radius:3px; width:100%; cursor:text; }
+  .meta-val-input:hover { background:#f8f9ff; border:1px solid #c0c8ff; }
+  .meta-val-input:focus { outline:none; background:#f8f9ff; border:1px solid #c0c8ff; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
@@ -139,8 +142,8 @@ ${commonStyle()}
 
   <!-- Header -->
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:28px;">
-    <div style="display:flex; align-items:center; gap:12px;">
-      <h1 style="margin:0">📋 Payables: Bill details</h1>
+    <div class="header" style="margin-bottom:0; display:flex; align-items:center; gap:12px;">
+      <h1>📋 Payables: Bill details</h1>
       <span id="b-status"></span>
     </div>
     <div class="bill-header-actions">
@@ -161,8 +164,8 @@ ${commonStyle()}
       <div class="meta-val" id="b-vendor">—</div>
     </div>
     <div class="meta-field">
-      <div class="meta-label">Invoice Ref</div>
-      <div class="meta-val" id="b-ref">—</div>
+      <div class="meta-label">Invoice Ref <span style="font-size:7.5pt;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(click to edit)</span></div>
+      <input class="meta-val-input" id="b-ref" value="" placeholder="—" title="Click to edit invoice reference" onchange="saveRef(this.value)" onblur="saveRef(this.value)">
     </div>
     <div class="meta-field">
       <div class="meta-label">Bill Date</div>
@@ -374,7 +377,7 @@ function renderBill(bill) {
   document.title = 'Bill \u2014 ' + (bill.vendor || BILL_ID) + ' \u2014 freeBooks';
   var ref = bill.vendor_ref || BILL_ID;
   document.getElementById('b-vendor').textContent = bill.vendor || '\u2014';
-  document.getElementById('b-ref').textContent = ref;
+  document.getElementById('b-ref').value = ref;
   document.getElementById('b-date').textContent = bill.date ? fmtDate(bill.date) : '\u2014';
   document.getElementById('b-due').textContent = bill.due_date ? fmtDate(bill.due_date) : '\u2014';
   document.getElementById('b-currency').textContent = bill.currency || '\u2014';
@@ -564,6 +567,23 @@ function deleteAttachment(attachmentId) {
 }
 
 
+
+var _saveRefPending = null;
+function saveRef(val) {
+  if (!billData) return;
+  val = val.trim();
+  if (val === (billData.vendor_ref || BILL_ID)) return; // no change
+  clearTimeout(_saveRefPending);
+  _saveRefPending = setTimeout(function() {
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'bill.update', companyId: COMPANY, billId: BILL_ID,
+        vendor_ref: val, description: billData.description || '' }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (!res.error) { billData.vendor_ref = val; }
+    }).catch(function(){});
+  }, 400);
+}
 
 function doVoid() {
   if (!confirm('Void this bill? The journal entry will be auto-reversed.')) return;

@@ -309,6 +309,7 @@ function loadBill() {
     body: JSON.stringify({ action:'bill.get', companyId: COMPANY, billId: BILL_ID }) })
   .then(function(r){ return r.json(); })
   .then(function(res){
+    if (!document.getElementById('b-vendor')) return;
     var bill = res.data || res;
     if (!bill || res.error) {
       document.getElementById('b-vendor').textContent = res.error || 'Bill not found';
@@ -320,7 +321,10 @@ function loadBill() {
     loadJournals();
     loadAttachments();
   })
-  .catch(function(e){ document.getElementById('b-vendor').textContent = 'Error: ' + e.message; });
+  .catch(function(e){
+    var el = document.getElementById('b-vendor');
+    if (el) el.textContent = 'Error: ' + e.message;
+  });
 }
 
 function renderBill(bill) {

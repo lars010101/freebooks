@@ -265,6 +265,7 @@ function setText(id, text) {
 }
 
 function applyFilters() {
+  if (!document.getElementById('f-search')) return;
   var search = (document.getElementById('f-search').value || '').toLowerCase().trim();
   var status = document.getElementById('f-status').value;
   var vendor = document.getElementById('f-vendor').value;
@@ -323,7 +324,9 @@ function renderPage() {
       + '<td style="text-align:right"><a href="/' + COMPANY + '/bill/' + b.bill_id + '" class="view-link">View</a></td>'
       + '</tr>';
   });
-  document.getElementById('bills-tbody').innerHTML = html;
+  var tbody = document.getElementById('bills-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = html;
 
   // Pagination
   var pagRow = document.getElementById('pagination-row');
@@ -392,8 +395,9 @@ function statusBadge(status, dueDate) {
 }
 
 function showMsg(msg) {
-  document.getElementById('bills-tbody').innerHTML =
-    '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:32px">' + esc(msg) + '</td></tr>';
+  var el = document.getElementById('bills-tbody');
+  if (!el) return;
+  el.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:32px">' + esc(msg) + '</td></tr>';
 }
 
 function esc(s) {

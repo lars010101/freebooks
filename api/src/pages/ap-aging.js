@@ -113,13 +113,15 @@ function doLoad() {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
     .then(function(r){ return r.json(); })
     .then(function(res){
+      if (!document.getElementById('report-area')) return;
       var rows = res.data || res || [];
       if (!Array.isArray(rows)) rows = [];
       agingRows = rows;
       renderReport(rows, asOf);
     })
     .catch(function(e){
-      document.getElementById('report-area').innerHTML = '<p style="color:#cc2222">Error: ' + e.message + '</p>';
+      var el = document.getElementById('report-area');
+      if (el) el.innerHTML = '<p style="color:#cc2222">Error: ' + e.message + '</p>';
     });
 }
 

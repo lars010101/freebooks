@@ -57,17 +57,23 @@ ${commonStyle()}
   .data-table th.sortable { cursor:pointer; user-select:none; }
   .data-table th.sortable:hover { background:#f0f0f0; }
   .th-inner { display:flex; align-items:center; gap:4px; }
-  .th-sort { font-size:7.5pt; color:#ccc; }
-  .th-sort.on { color:#1a1a1a; }
+  .th-sort { font-size:8pt; color:#1a1a1a; width:12px; text-align:center; flex-shrink:0; }
   .th-filter-btn { margin-left:auto; font-size:8pt; color:#bbb; padding:1px 3px; border-radius:3px; opacity:0; transition:opacity .1s; cursor:pointer; line-height:1; }
   th:hover .th-filter-btn,
   th.col-filtered .th-filter-btn { opacity:1; }
   th.col-filtered .th-filter-btn { color:#2255cc; }
-  .col-filter-dd { position:fixed; background:#fff; border:1px solid #ddd; border-radius:6px; z-index:9999; min-width:160px; box-shadow:0 4px 12px rgba(0,0,0,.12); overflow:hidden; }
-  .col-filter-dd-item { padding:8px 14px; cursor:pointer; font-size:10pt; white-space:nowrap; }
+  .col-filter-dd { position:fixed; background:#fff; border:1px solid #ddd; border-radius:6px; z-index:9999; min-width:180px; box-shadow:0 4px 12px rgba(0,0,0,.12); overflow:hidden; padding:10px; }
+  .col-filter-dd-item { padding:8px 14px; cursor:pointer; font-size:10pt; white-space:nowrap; border-radius:4px; }
   .col-filter-dd-item:hover { background:#f5f5f5; }
   .col-filter-dd-item.active { font-weight:700; color:#2255cc; }
-  .col-filter-dd-clear { color:#999; font-style:italic; font-size:9.5pt; border-bottom:1px solid #eee; }
+  .col-filter-dd-clear { color:#999; font-style:italic; font-size:9.5pt; border-bottom:1px solid #eee; margin-bottom:4px; padding-bottom:6px; border-radius:0; }
+  .col-filter-dd label { font-size:8.5pt; color:#888; font-weight:600; text-transform:uppercase; letter-spacing:.04em; display:block; margin-bottom:5px; }
+  .col-filter-dd input[type=date],
+  .col-filter-dd input[type=text],
+  .col-filter-dd input[type=number] { width:100%; padding:7px 9px; border:1px solid #ccc; border-radius:4px; font-size:10pt; box-sizing:border-box; margin-bottom:6px; }
+  .col-filter-dd select { width:100%; padding:6px 8px; border:1px solid #ccc; border-radius:4px; font-size:10pt; background:#fff; margin-bottom:6px; }
+  .col-filter-dd-apply { width:100%; padding:7px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:10pt; cursor:pointer; }
+  .col-filter-dd-apply:hover { background:#333; }
 
   /* Vendor avatar */
   .vendor-cell { display:flex; align-items:center; gap:10px; }
@@ -117,14 +123,7 @@ ${commonStyle()}
     <h1>📋 Payables</h1>
   </div>
 
-  <div class="tabs" style="margin-bottom:20px">
-    <div class="tab active" id="pay-tab-bills" onclick="showPayTab('bills')">Bills</div>
-    <div class="tab" id="pay-tab-vendors" onclick="showPayTab('vendors')">Vendors</div>
-  </div>
-
-  <div id="pay-panel-bills">
-
-  <!-- KPI cards -->
+  <!-- KPI cards (moved above tabs) -->
   <div class="kpi-row">
     <div class="kpi-card">
       <div class="kpi-label">Total Outstanding</div>
@@ -143,26 +142,24 @@ ${commonStyle()}
     </div>
   </div>
 
-  <!-- Filter bar -->
-  <div class="filter-bar">
-    <div class="search-wrap">
-      <span class="search-icon">&#128269;</span>
-      <input type="text" id="f-search" placeholder="Search bills, vendors..." oninput="applyFilters()">
-    </div>
-
+  <div class="tabs" style="margin-bottom:20px">
+    <div class="tab active" id="pay-tab-bills" onclick="showPayTab('bills')">Bills</div>
+    <div class="tab" id="pay-tab-vendors" onclick="showPayTab('vendors')">Vendors</div>
   </div>
+
+  <div id="pay-panel-bills">
 
   <!-- Table card -->
   <div class="table-card">
     <table class="data-table">
       <thead>
         <tr>
-          <th class="sortable" data-col="date"><div class="th-inner"><span class="th-label">Date</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter">&#9662;</span></div></th>
-          <th class="sortable" data-col="due_date"><div class="th-inner"><span class="th-label">Due Date</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter">&#9662;</span></div></th>
-          <th class="sortable" data-col="vendor"><div class="th-inner"><span class="th-label">Vendor</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter">&#9662;</span></div></th>
-          <th data-col="vendor_ref"><div class="th-inner"><span class="th-label">Invoice Ref</span></div></th>
-          <th class="sortable" data-col="amount" style="text-align:right"><div class="th-inner"><span class="th-label">Amount</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter">&#9662;</span></div></th>
-          <th class="sortable" data-col="status"><div class="th-inner"><span class="th-label">Status</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter">&#9662;</span></div></th>
+          <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Date</span><span class="th-filter-btn" title="Filter by date">▾</span></div></th>
+          <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Due Date</span><span class="th-filter-btn" title="Filter by due date">▾</span></div></th>
+          <th class="sortable" data-col="vendor" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Vendor</span><span class="th-filter-btn" title="Filter by vendor">▾</span></div></th>
+          <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Invoice Ref</span><span class="th-filter-btn" title="Filter by invoice ref">▾</span></div></th>
+          <th class="sortable" data-col="amount" data-filter-type="amount" style="text-align:right"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Amount</span><span class="th-filter-btn" title="Filter by amount">▾</span></div></th>
+          <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Status</span><span class="th-filter-btn" title="Filter by status">▾</span></div></th>
         </tr>
       </thead>
       <tbody id="bills-tbody">
@@ -231,7 +228,8 @@ function initBillsTable() {
     var filterBtn = th.querySelector('.th-filter-btn');
 
     if (label && sortIcon && th.classList.contains('sortable')) {
-      label.addEventListener('click', function() {
+      th.addEventListener('click', function(e) {
+        if (e.target.closest('.th-filter-btn')) return; // filter button handles its own click
         if (sortState.col === col) {
           sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
         } else {
@@ -260,64 +258,152 @@ function openColFilter(th, col) {
   var existing = document.getElementById('col-filter-dd');
   if (existing) { existing.remove(); if (existing.dataset.col === col) return; }
 
-  // Collect distinct values from allBills for this column
-  var vals = [];
-  allBills.forEach(function(b) {
-    var v = b[col];
-    if (v == null || v === '') return;
-    v = String(v);
-    if (col === 'date' || col === 'due_date') v = v.slice(0, 10);
-    if (col === 'amount') v = Number(b.amount||0).toFixed(2);
-    if (vals.indexOf(v) === -1) vals.push(v);
-  });
-
-  // For status, include 'overdue' as a synthetic option
-  if (col === 'status') {
-    var hasOverdue = allBills.some(function(b) {
-      var due = b.due_date ? String(b.due_date).slice(0,10) : null;
-      return (b.status === 'posted' || b.status === 'partial') && due && due < today;
-    });
-    if (hasOverdue && vals.indexOf('overdue') === -1) vals.push('overdue');
-  }
-
-  vals.sort();
-
-  // Build dropdown
+  var filterType = th.dataset.filterType || 'list';
   var dd = document.createElement('div');
   dd.id = 'col-filter-dd';
   dd.className = 'col-filter-dd';
   dd.dataset.col = col;
 
-  // Clear option
-  var clearItem = document.createElement('div');
-  clearItem.className = 'col-filter-dd-item col-filter-dd-clear';
-  clearItem.textContent = 'All (clear filter)';
-  clearItem.addEventListener('click', function() {
-    delete colFilters[col];
-    th.classList.remove('col-filtered');
-    dd.remove();
-    applyFilters();
-  });
-  dd.appendChild(clearItem);
-
-  vals.forEach(function(v) {
-    var item = document.createElement('div');
-    item.className = 'col-filter-dd-item' + (colFilters[col] === v ? ' active' : '');
-    item.textContent = col === 'date' || col === 'due_date' ? fmtDate(v) : (col === 'status' ? (v === 'posted' ? 'Open' : v.charAt(0).toUpperCase() + v.slice(1)) : v);
-    item.addEventListener('click', function() {
-      colFilters[col] = v;
-      th.classList.add('col-filtered');
-      dd.remove();
-      applyFilters();
+  if (filterType === 'date') {
+    // Calendar picker
+    var lbl = document.createElement('label');
+    lbl.textContent = 'Pick a date';
+    var inp = document.createElement('input');
+    inp.type = 'date';
+    inp.value = colFilters[col] || '';
+    var clearBtn = document.createElement('div');
+    clearBtn.className = 'col-filter-dd-item col-filter-dd-clear';
+    clearBtn.textContent = 'Clear filter';
+    clearBtn.addEventListener('click', function() {
+      delete colFilters[col]; th.classList.remove('col-filtered'); dd.remove(); applyFilters();
     });
-    dd.appendChild(item);
-  });
+    var applyBtn = document.createElement('button');
+    applyBtn.className = 'col-filter-dd-apply';
+    applyBtn.textContent = 'Apply';
+    applyBtn.addEventListener('click', function() {
+      var v = inp.value;
+      if (v) { colFilters[col] = v; th.classList.add('col-filtered'); }
+      else { delete colFilters[col]; th.classList.remove('col-filtered'); }
+      dd.remove(); applyFilters();
+    });
+    dd.appendChild(lbl);
+    dd.appendChild(inp);
+    dd.appendChild(clearBtn);
+    dd.appendChild(applyBtn);
+
+  } else if (filterType === 'text') {
+    // Free-text contains filter
+    var lbl2 = document.createElement('label');
+    lbl2.textContent = 'Contains';
+    var inp2 = document.createElement('input');
+    inp2.type = 'text';
+    inp2.placeholder = 'Type to filter…';
+    inp2.value = colFilters[col] || '';
+    var clearBtn2 = document.createElement('div');
+    clearBtn2.className = 'col-filter-dd-item col-filter-dd-clear';
+    clearBtn2.textContent = 'Clear filter';
+    clearBtn2.addEventListener('click', function() {
+      delete colFilters[col]; th.classList.remove('col-filtered'); dd.remove(); applyFilters();
+    });
+    var applyBtn2 = document.createElement('button');
+    applyBtn2.className = 'col-filter-dd-apply';
+    applyBtn2.textContent = 'Apply';
+    applyBtn2.addEventListener('click', function() {
+      var v = inp2.value.trim();
+      if (v) { colFilters[col] = v; th.classList.add('col-filtered'); }
+      else { delete colFilters[col]; th.classList.remove('col-filtered'); }
+      dd.remove(); applyFilters();
+    });
+    inp2.addEventListener('keydown', function(e) { if (e.key === 'Enter') applyBtn2.click(); });
+    dd.appendChild(lbl2);
+    dd.appendChild(inp2);
+    dd.appendChild(clearBtn2);
+    dd.appendChild(applyBtn2);
+
+  } else if (filterType === 'amount') {
+    // Operator + value filter
+    var lbl3 = document.createElement('label');
+    lbl3.textContent = 'Amount filter';
+    var opSel = document.createElement('select');
+    opSel.innerHTML = '<option value="=">=  Equal to</option><option value=">">&gt;  Greater than</option><option value="<">&lt;  Less than</option>';
+    if (colFilters[col]) opSel.value = colFilters[col].op;
+    var inp3 = document.createElement('input');
+    inp3.type = 'number';
+    inp3.placeholder = '0.00';
+    inp3.step = '0.01';
+    inp3.min = '0';
+    if (colFilters[col]) inp3.value = colFilters[col].val;
+    var clearBtn3 = document.createElement('div');
+    clearBtn3.className = 'col-filter-dd-item col-filter-dd-clear';
+    clearBtn3.textContent = 'Clear filter';
+    clearBtn3.addEventListener('click', function() {
+      delete colFilters[col]; th.classList.remove('col-filtered'); dd.remove(); applyFilters();
+    });
+    var applyBtn3 = document.createElement('button');
+    applyBtn3.className = 'col-filter-dd-apply';
+    applyBtn3.textContent = 'Apply';
+    applyBtn3.addEventListener('click', function() {
+      var v = inp3.value.trim();
+      if (v !== '') {
+        colFilters[col] = { op: opSel.value, val: Number(v) };
+        th.classList.add('col-filtered');
+      } else {
+        delete colFilters[col];
+        th.classList.remove('col-filtered');
+      }
+      dd.remove(); applyFilters();
+    });
+    dd.appendChild(lbl3);
+    dd.appendChild(opSel);
+    dd.appendChild(inp3);
+    dd.appendChild(clearBtn3);
+    dd.appendChild(applyBtn3);
+
+  } else {
+    // List (single-select): vendor, status
+    var vals = [];
+    allBills.forEach(function(b) {
+      var v = b[col];
+      if (v == null || v === '') return;
+      v = String(v);
+      if (vals.indexOf(v) === -1) vals.push(v);
+    });
+    if (col === 'status') {
+      var hasOverdue = allBills.some(function(b) {
+        var due = b.due_date ? String(b.due_date).slice(0,10) : null;
+        return (b.status === 'posted' || b.status === 'partial') && due && due < today;
+      });
+      if (hasOverdue && vals.indexOf('overdue') === -1) vals.push('overdue');
+    }
+    vals.sort();
+    var clearItem = document.createElement('div');
+    clearItem.className = 'col-filter-dd-item col-filter-dd-clear';
+    clearItem.textContent = 'All (clear filter)';
+    clearItem.addEventListener('click', function() {
+      delete colFilters[col]; th.classList.remove('col-filtered'); dd.remove(); applyFilters();
+    });
+    dd.appendChild(clearItem);
+    vals.forEach(function(v) {
+      var item = document.createElement('div');
+      item.className = 'col-filter-dd-item' + (colFilters[col] === v ? ' active' : '');
+      var dispV = col === 'status' ? (v === 'posted' ? 'Open' : v.charAt(0).toUpperCase() + v.slice(1)) : v;
+      item.textContent = dispV;
+      item.addEventListener('click', function() {
+        colFilters[col] = v; th.classList.add('col-filtered'); dd.remove(); applyFilters();
+      });
+      dd.appendChild(item);
+    });
+  }
 
   // Position below the filter button
   var rect = th.getBoundingClientRect();
   dd.style.top = (rect.bottom + 4) + 'px';
-  dd.style.left = rect.left + 'px';
+  dd.style.left = Math.max(4, rect.right - 200) + 'px';
   document.body.appendChild(dd);
+
+  // Focus first input
+  var firstInput = dd.querySelector('input, select');
+  if (firstInput) setTimeout(function() { firstInput.focus(); }, 10);
 
   // Close on outside click
   function onOutsideClick(e) {
@@ -400,16 +486,8 @@ function setText(id, text) {
 }
 
 function applyFilters() {
-  if (!document.getElementById('f-search')) return;
-  var search = (document.getElementById('f-search').value || '').toLowerCase().trim();
-
   filteredBills = allBills.filter(function(b) {
-    // Text search
-    if (search) {
-      var haystack = ((b.vendor || '') + ' ' + (b.vendor_ref || '') + ' ' + (b.description || '')).toLowerCase();
-      if (haystack.indexOf(search) === -1) return false;
-    }
-    // Column filters (single-select per column)
+    // Column filters
     if (colFilters.status) {
       if (colFilters.status === 'overdue') {
         var due = b.due_date ? String(b.due_date).slice(0,10) : null;
@@ -420,9 +498,19 @@ function applyFilters() {
       }
     }
     if (colFilters.vendor && b.vendor !== colFilters.vendor) return false;
-    if (colFilters.date && String(b.date).slice(0,10) !== colFilters.date) return false;
+    if (colFilters.date && String(b.date || '').slice(0,10) !== colFilters.date) return false;
     if (colFilters.due_date && String(b.due_date || '').slice(0,10) !== colFilters.due_date) return false;
-    if (colFilters.amount && String(Number(b.amount||0).toFixed(2)) !== colFilters.amount) return false;
+    if (colFilters.vendor_ref) {
+      if (String(b.vendor_ref || '').toLowerCase().indexOf(colFilters.vendor_ref.toLowerCase()) === -1) return false;
+    }
+    if (colFilters.amount) {
+      var bAmt = Number(b.amount || 0);
+      var fAmt = Number(colFilters.amount.val);
+      var fOp  = colFilters.amount.op;
+      if (fOp === '=' && bAmt !== fAmt) return false;
+      if (fOp === '>' && bAmt <= fAmt) return false;
+      if (fOp === '<' && bAmt >= fAmt) return false;
+    }
     return true;
   });
 

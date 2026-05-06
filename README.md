@@ -132,6 +132,7 @@ The server handles SIGINT/SIGTERM (Ctrl+C) gracefully — checkpoints DuckDB bef
 | `/:company/journal/new` | New JV form (with reversal mode; pre-post attachment queue) |
 | `/:company/bill/new` | Enter Bill form — vendor autocomplete, multi-line expenses, pre-post attachment queue, auto-generates AP journal entry |
 | `/:company/payables` | Payables screen — bill list with filters + bill detail modal |
+| `/:company/bill/:id` | **Bill Detail** — standalone page showing bill header (Invoice Ref editable inline, Due Date editable inline), amount cards, line items (descriptions editable inline), attachments, and journal entries |
 | `/:company/payables/aging` | Redirects (302) to `/:company/reports?t=ap-aging` |
 | `/:company/reports` | **Reports hub** — full period/type/filter controls in top bar; report renders inline in an iframe. See [Reports Hub](#reports-hub) below. |
 | `/:company/bank` | **Bank** — uncleared transactions list + collapsible CSV import ("Import Statement"). Supports `?mode=uncleared` to auto-load all uncleared transactions across all cash accounts. Step 2: Link Bill panel shows open bills with outstanding amounts and multi-currency support. |
@@ -181,8 +182,8 @@ freeBooks uses a vim-inspired modal keyboard system. The current mode is shown i
 
 | Key | Action |
 |---|---|
-| `Escape` | Enter **Normal** mode — blurs any active input, clears row focus |
-| `i` | Enter **Insert** mode — focuses the first input on the page |
+| `Escape` | Enter **Normal** mode — blurs any active input, clears row focus; on bill detail, navigates back to Payables |
+| `i` | **Context-sensitive insert**: if a navigable item is focused, enters edit mode on it; otherwise focuses the first input on the page (generic insert mode) |
 
 #### Normal mode — navigation
 
@@ -190,14 +191,27 @@ freeBooks uses a vim-inspired modal keyboard system. The current mode is shown i
 |---|---|
 | `{` | Previous sidebar item (navigate to preceding page) |
 | `}` | Next sidebar item (navigate to following page) |
-| `h` | Previous horizontal submenu tab |
-| `l` | Next horizontal submenu tab |
-| `j` | Move focus down one table row |
-| `k` | Move focus up one table row |
+| `h` | Previous horizontal submenu tab; on bill detail: move left between meta fields (Invoice Ref ↔ Due Date) |
+| `l` | Next horizontal submenu tab; on bill detail: move right between meta fields |
+| `j` | Move focus down — table rows, or between sections on bill detail (meta strip → line items → attachments) |
+| `k` | Move focus up |
 | `Enter` | Activate the focused row (follow its link or trigger click) |
-| `i` | Enter Insert mode (focus first input) |
 | `/` | Focus global search |
 | `:` or `Ctrl+K` | Open command palette |
+| `a` | Page-registered "new/add" action (e.g. on bill detail: open file picker to add attachment) |
+| `d` | Page-registered "delete" action on focused row; on bill detail with attachment focused: deletes attachment; with nothing focused: confirms void |
+
+#### Bill Detail page — keyboard navigation
+
+The bill detail page has a unified navigable list:
+
+1. **Meta strip** (one row for j/k): Invoice Ref and Due Date side-by-side
+   - `h` / `l` — move between Invoice Ref and Due Date
+   - `i` — enter edit on the focused meta field
+2. **Bill Line Items** — each line is a j/k row; `i` focuses the description input
+3. **Attachments** — each attachment is a j/k row; `d` deletes the focused attachment
+
+`Escape` — exit back to Payables list.
 
 #### g-prefix jumps (Normal mode)
 
@@ -258,6 +272,7 @@ All actions use `{ action, companyId, ...body }` request format. Response: `{ ok
 | `bill.list` | List bills with filters (status, vendor, date range) |
 | `bill.match` | Find open bills matching amount/vendor/date for bank import allocation |
 | `bill.lines` | Get expense lines for a bill (for bill detail modal) |
+| `bill.update` | Update non-financial fields on a bill: `vendor_ref` (invoice reference) and `due_date` |
 | `bill.aging` | AP Aging report data — outstanding bills with bucket classification |
 | `journal.entry.update` | Update description on a single journal entry (non-financial fields only) |
 | `vendor.list` | List vendors with defaults (currency, terms, expense account, AP account) |
@@ -432,7 +447,7 @@ Bill status on creation: `posted`. Status transitions:
 - `posted` / `partial` → `void` (via `bill.void` — voids bill, auto-reverses journal, closes modal)
 
 ### Payables Screen (`/:company/payables`)
-List of all bills for the company with filter controls: vendor (dropdown), description (text search), status (Open/Partial/Paid/Void), fiscal period (dropdown). Collapsible "More filters" for amount (≥/=/≤) and currency. Click any row to open a bill detail modal with all header fields and expense lines (fetched via `bill.lines`). Modal shows: header (date, vendor, ref, status, amount, currency, fx_rate), expense lines with inline-editable descriptions (fires `journal.entry.update` on change), attachment widget (view/download uploaded files), and action buttons (void, close modal).
+List of all bills for the company with filter controls: vendor (dropdown), description (text search), status (Open/Partial/Paid/Void), fiscal period (dropdown). Collapsible "More filters" for amount (≥/=/≤) and currency. Click any row to navigate to the **Bill Detail page** (`/:company/bill/:id`). The page shows: header with "📋 Payables: Bill details [status]"; meta strip with Vendor, Invoice Ref (inline editable), Bill Date, Due Date (inline editable), Currency; amount cards (Amount Paid / Amount Due); Bill Line Items with inline-editable descriptions; Attachments; and Journal Entries. Keyboard navigation: `j`/`k` move between meta strip, line items, and attachments; `h`/`l` move between Invoice Ref and Due Date; `i` enters edit on the focused item; `d` deletes a focused attachment or (with nothing focused) confirms void; `a` opens the file picker; `Escape` returns to Payables.
 
 ### AP Aging Report (`/:company/payables/aging`)
 Outstanding payables (status `posted` or `partial`) as of a selected date, bucketed by days overdue:

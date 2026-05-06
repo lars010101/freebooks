@@ -741,6 +741,7 @@ var vendorAcctActiveInput = null;
 var vendorCurrenciesList = [];
 var allVendors = [];
 var vendorSelRow = -1;
+window.fbVendorSelRow = -1;
 var vendorSelCol = 0;
 var vendorCellEdit = false;
 var vendorCellPreEdit = null;
@@ -833,6 +834,7 @@ function buildVendorDisplayRow(v, i) {
 }
 
 function updateVendorCursor() {
+  window.fbVendorSelRow = vendorSelRow;
   document.querySelectorAll('#vendors-body tr.vrow-selected').forEach(function(r){ r.classList.remove('vrow-selected'); });
   document.querySelectorAll('#vendors-body td.vcell-selected').forEach(function(td){ td.classList.remove('vcell-selected'); });
   if (vendorSelRow < 0) return;
@@ -970,7 +972,7 @@ function vendorMoveRow(dir) {
   if (vendorCellEdit) commitVendorCell(true);
   if (dir < 0) {
     if (vendorSelRow < 0) return; // no selection, nothing to do
-    if (vendorSelRow === 0) { saveVendorRowIfDirty(0); vendorSelRow = -1; updateVendorCursor(); return; }
+    if (vendorSelRow === 0) { saveVendorRowIfDirty(0); vendorSelRow = -1; window.fbVendorSelRow = -1; updateVendorCursor(); return; }
   } else {
     if (vendorSelRow < 0) { vendorSelRow = 0; updateVendorCursor(); return; }
   }

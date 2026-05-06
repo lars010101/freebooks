@@ -275,24 +275,19 @@ function openColFilter(th, col) {
   dd.dataset.col = col;
 
   if (filterType === 'date') {
-    // Native date picker (no dropdown dialog)
+    // Date filter: positioned dropdown with a single date input, auto-focused
     var inp = document.createElement('input');
     inp.type = 'date';
-    var btnEl = th.querySelector('.th-filter-btn') || th;
-    var btnRect = btnEl.getBoundingClientRect();
-    inp.style.cssText = 'position:fixed;top:' + btnRect.bottom + 'px;left:' + btnRect.left + 'px;opacity:0;pointer-events:none;width:0;height:0;border:none;padding:0;margin:0;';
-    document.body.appendChild(inp);
+    inp.style.cssText = 'display:block;width:160px;padding:7px 9px;border:1px solid #ccc;border-radius:4px;font-size:10pt;box-sizing:border-box;';
     if (colFilters[col]) inp.value = colFilters[col];
     inp.addEventListener('change', function() {
       var v = inp.value;
       if (v) { colFilters[col] = v; th.classList.add('col-filtered'); }
       else { delete colFilters[col]; th.classList.remove('col-filtered'); }
-      inp.remove();
+      dd.remove();
       applyFilters();
     });
-    inp.addEventListener('blur', function() { inp.remove(); });
-    setTimeout(function() { inp.showPicker && inp.showPicker(); }, 0);
-    return;
+    dd.appendChild(inp);
 
   } else if (filterType === 'text') {
     // Free-text contains filter (simplified: no buttons, just input + autosearch)

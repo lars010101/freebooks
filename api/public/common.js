@@ -341,9 +341,10 @@
     if (e.key === 'h' || e.key === 'l') {
       var tabs = Array.from(document.querySelectorAll('.tabs .tab'));
       if (!tabs.length) {
-        if (e.key === 'h' && window.fbKeyActions && typeof window.fbKeyActions['back'] === 'function') {
+        var hlKey = e.key; // 'h' or 'l'
+        if (window.fbKeyActions && typeof window.fbKeyActions[hlKey] === 'function') {
           e.preventDefault();
-          window.fbKeyActions['back']();
+          window.fbKeyActions[hlKey]();
         }
         return;
       }

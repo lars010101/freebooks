@@ -129,8 +129,8 @@ ${commonStyle()}
   /* Description input: white text when row is focused */
   tr.nav-row-focus > td input { color: #fff !important; background: transparent !important; border-color: transparent !important; }
   /* Invoice ref nav focus */
-  .meta-field.nav-meta-focus { background: #1a1a1a; border-radius:6px; }
-  .meta-field.nav-meta-focus .meta-label { color: #aaa; }
+  .meta-field.nav-meta-focus { background: var(--accent); border-radius:6px; }
+  .meta-field.nav-meta-focus .meta-label { color: rgba(255,255,255,.7); }
   .meta-field.nav-meta-focus .meta-val-input { color: #fff; background: transparent; }
   /* Inline edit hint */
   .line-desc-input { width:100%; border:none; background:transparent; font-size:10.5pt; padding:2px 4px; border-radius:3px; color:#222; cursor:text; }
@@ -175,9 +175,9 @@ ${commonStyle()}
       <div class="meta-label">Bill Date</div>
       <div class="meta-val" id="b-date">—</div>
     </div>
-    <div class="meta-field">
-      <div class="meta-label">Due Date</div>
-      <div class="meta-val" id="b-due">—</div>
+    <div class="meta-field nav-meta-item">
+      <div class="meta-label">Due Date <span style="font-size:7.5pt;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
+      <input type="date" class="meta-val-input" id="b-due" title="Press i or click to edit" onchange="saveDueDate(this.value)">
     </div>
     <div class="meta-field">
       <div class="meta-label">Currency</div>
@@ -266,6 +266,17 @@ window.addEventListener('DOMContentLoaded', fbPageInitBillDetail);
 window.fbPageInit = fbPageInitBillDetail;
 
 // Unified navigable items: line item rows + attachment rows
+function moveMetaNav(dir) {
+  var metaItems = Array.from(document.querySelectorAll('.nav-meta-item'));
+  if (!metaItems.length) return;
+  var focused = document.querySelector('.nav-meta-item.nav-meta-focus');
+  if (!focused) return;
+  var idx = metaItems.indexOf(focused);
+  var newIdx = Math.max(0, Math.min(metaItems.length - 1, idx + dir));
+  clearBillNavFocus();
+  metaItems[newIdx].classList.add('nav-meta-focus');
+}
+
 function getBillNavItems() {
   var metaItems = Array.from(document.querySelectorAll('.nav-meta-item'));
   var rows = Array.from(document.querySelectorAll('#lines-tbody tr'));
@@ -340,9 +351,8 @@ window.fbKeyActions = {
     // Nothing focused → confirm void
     doVoid();
   },
-  'back': function() {
-    if (typeof COMPANY !== 'undefined') fbNavigate('/' + COMPANY + '/payables');
-  },
+  'h': function() { moveMetaNav(-1); },
+  'l': function() { moveMetaNav(1); },
   'escape': function() {
     if (typeof COMPANY !== 'undefined') fbNavigate('/' + COMPANY + '/payables');
   }
@@ -395,7 +405,7 @@ function renderBill(bill) {
   document.getElementById('b-vendor').textContent = bill.vendor || '\u2014';
   document.getElementById('b-ref').value = ref;
   document.getElementById('b-date').textContent = bill.date ? fmtDate(bill.date) : '\u2014';
-  document.getElementById('b-due').textContent = bill.due_date ? fmtDate(bill.due_date) : '\u2014';
+  document.getElementById('b-due').value = bill.due_date ? String(bill.due_date).slice(0,10) : '';
   document.getElementById('b-currency').textContent = bill.currency || '\u2014';
   document.getElementById('b-status').innerHTML = statusBadge(bill.status, bill.due_date);
   document.getElementById('b-currency-prefix').textContent = bill.currency || '';
@@ -599,6 +609,18 @@ function saveRef(val) {
       if (!res.error) { billData.vendor_ref = val; }
     }).catch(function(){});
   }, 400);
+}
+
+function saveDueDate(val) {
+  if (!billData) return;
+  if (val === (billData.due_date ? String(billData.due_date).slice(0,10) : '')) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'bill.update', companyId: COMPANY, billId: BILL_ID,
+      due_date: val || undefined, vendor_ref: billData.vendor_ref || '',
+      description: billData.description || '' }) })
+  .then(function(r){ return r.json(); })
+  .then(function(res){ if (!res.error) { billData.due_date = val; } })
+  .catch(function(){});
 }
 
 function doVoid() {

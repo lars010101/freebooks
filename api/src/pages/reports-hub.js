@@ -131,14 +131,13 @@ ${layoutEnd()}
         document.getElementById('rpt-end').value   = e0;
         periodEl.value = s0 + '|' + e0;
       }
-      fbLoadReport();
+      // Don't auto-load — user selects params then report fires on interaction
     })
     .catch(function() {
       if (savedStart && savedEnd) {
         document.getElementById('rpt-start').value = savedStart;
         document.getElementById('rpt-end').value   = savedEnd;
       }
-      fbLoadReport();
     });
 
   /* ── Helpers ── */

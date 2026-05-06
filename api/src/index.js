@@ -10,6 +10,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const { v4: uuid } = require('uuid');
 
 const { checkPermission } = require('./auth');
@@ -101,10 +102,15 @@ const ACTION_ROLES = {
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(compression());
 
 // Serve static files from db directory (e.g., currencies.json)
 const path = require('path');
 app.use('/db', express.static(path.join(__dirname, '../../db')));
+app.use('/public', express.static(path.join(__dirname, '../public'), {
+  maxAge: '1h',
+  etag: true,
+}));
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'freebooks-api' }));
 

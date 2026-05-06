@@ -1,0 +1,295 @@
+
+(function() {
+  // ── Theme ──
+  function fbApplyTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    var icon = document.getElementById('fb-theme-icon');
+    var btn  = document.getElementById('fb-theme-btn');
+    if (icon) icon.textContent = t === 'dark' ? '🌙' : '☀';
+    if (btn)  btn.title = t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+  }
+  window.fbToggleTheme = function() {
+    var cur = document.documentElement.getAttribute('data-theme') || 'light';
+    var next = cur === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('fb-theme', next);
+    fbApplyTheme(next);
+  };
+  fbApplyTheme(localStorage.getItem('fb-theme') || 'light');
+
+  // ── Load company display name ──
+  (function() {
+    var coId = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
+    if (!coId) return;
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'company.list', companyId: coId }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var cos = res.data || res || [];
+      if (!Array.isArray(cos)) return;
+      var co = cos.find(function(c){ return c.company_id === coId; });
+      if (co && (co.company_name || co.name)) {
+        var el = document.querySelector('.sb-co-name');
+        if (el) el.textContent = co.company_name || co.name;
+      }
+    })
+    .catch(function(){});
+  })();
+
+  // ── Sidebar collapse ──
+  function fbApplySidebar(collapsed) {
+    var sb = document.getElementById('sidebar');
+    var icon = document.getElementById('fb-collapse-icon');
+    var btn = document.getElementById('fb-collapse-btn');
+    if (!sb) return;
+    if (collapsed) {
+      sb.classList.add('sb-collapsed');
+      if (icon) icon.textContent = '»';
+      if (btn)  btn.title = 'Expand sidebar';
+    } else {
+      sb.classList.remove('sb-collapsed');
+      if (icon) icon.textContent = '«';
+      if (btn)  btn.title = 'Collapse sidebar';
+    }
+  }
+  window.fbToggleSidebar = function() {
+    var collapsed = !document.getElementById('sidebar').classList.contains('sb-collapsed');
+    localStorage.setItem('fb-sidebar-collapsed', collapsed ? '1' : '0');
+    fbApplySidebar(collapsed);
+  };
+  fbApplySidebar(localStorage.getItem('fb-sidebar-collapsed') === '1');
+
+  // ── Company switcher ──
+  window.fbToggleCompany = function(e) {
+    e.stopPropagation();
+    var dd = document.getElementById('tb-company-dropdown');
+    if (!dd) return;
+    var open = dd.style.display !== 'none';
+    dd.style.display = open ? 'none' : '';
+    if (!open && !dd._loaded) {
+      dd._loaded = true;
+      var coId2 = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
+      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'company.list', companyId: coId2 || '' }) })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        var cos = res.data || res || [];
+        if (!Array.isArray(cos) || !cos.length) { dd.innerHTML='<div class="tb-company-opt" style="color:#888">No other companies</div>'; return; }
+        dd.innerHTML = cos.map(function(c){
+          return '<a class="tb-company-opt" href="/'+c.company_id+'">'+(c.company_name||c.name||c.company_id)+'<br><small style="color:#aaa;font-size:8pt">'+c.company_id+'</small></a>';
+        }).join('');
+      })
+      .catch(function(){ dd.innerHTML='<div class="tb-company-opt" style="color:#cc2222">Error loading</div>'; });
+    }
+  };
+  document.addEventListener('click', function() {
+    var dd = document.getElementById('tb-company-dropdown');
+    if (dd) dd.style.display = 'none';
+  });
+})();
+
+
+(function() {
+  // ── Vim-modal keyboard navigation ──
+  // Modes: normal (default) | insert (typing in a field)
+  // Escape        → Normal mode (blur inputs, clear row focus)
+  // i             → Insert mode (focus first input in page-main)
+  // { / }         → sidebar prev/next item (navigate pages)
+  // h / l         → horizontal submenu tab prev/next
+  // j / k         → table row prev/next (with visual focus)
+  // Enter         → activate focused row (follow link or click)
+  // /             → focus global search
+  // : or Ctrl+K   → command palette
+  // g + letter    → jump navigation (gd=Dashboard, gb=Bank, etc.)
+
+  var _fbVimMode = 'normal';
+  window.fbSetVimMode = function(mode) {
+    _fbVimMode = mode;
+    var el = document.getElementById('fb-vim-mode');
+    if (!el) return;
+    el.textContent = mode === 'insert' ? 'INSERT' : 'NORMAL';
+    el.className = mode === 'insert' ? 'insert' : '';
+  };
+
+  // Auto-track mode on focus in/out
+  document.addEventListener('focusin', function(e) {
+    var tag = (e.target || {}).tagName || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') fbSetVimMode('insert');
+  });
+  document.addEventListener('focusout', function(e) {
+    var tag = (e.target || {}).tagName || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+      setTimeout(function() {
+        var ae = document.activeElement;
+        var aeTag = (ae || {}).tagName || '';
+        if (aeTag !== 'INPUT' && aeTag !== 'TEXTAREA' && aeTag !== 'SELECT') fbSetVimMode('normal');
+      }, 50);
+    }
+  });
+
+  var _gPending = false, _gTimer = null;
+
+  document.addEventListener('keydown', function(e) {
+    var ae = document.activeElement || {};
+    var tag = (ae.tagName || '').toUpperCase();
+    var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || ae.isContentEditable;
+
+    // ── Escape: always exit to Normal mode ──
+    if (e.key === 'Escape') {
+      document.querySelectorAll('tr.nav-row-focus').forEach(function(r) { r.classList.remove('nav-row-focus'); });
+      if (inInput) { ae.blur(); }
+      fbSetVimMode('normal');
+      return;
+    }
+
+    // ── / → global search ──
+    if (!inInput && e.key === '/') {
+      e.preventDefault();
+      var s = document.getElementById('tb-global-search');
+      if (s) { s.focus(); s.select(); }
+      return;
+    }
+
+    // ── : or Ctrl+K → command palette ──
+    if ((!inInput && e.key === ':') || (e.ctrlKey && e.key === 'k')) {
+      e.preventDefault();
+      fbOpenCmdPalette();
+      return;
+    }
+
+    // ── Normal-mode-only keys below ──
+    if (inInput) return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+    // ── g prefix navigation ──
+    if (e.key === 'g' && !_gPending) {
+      _gPending = true;
+      clearTimeout(_gTimer);
+      _gTimer = setTimeout(function() { _gPending = false; }, 1000);
+      e.preventDefault();
+      return;
+    }
+    if (_gPending) {
+      _gPending = false;
+      clearTimeout(_gTimer);
+      var company = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
+      if (!company) return;
+      var navMap = { d: '/' + company, b: '/' + company + '/bank', p: '/' + company + '/payables', v: '/' + company + '/receivables', r: '/' + company + '/reports', s: '/' + company + '/settings' };
+      if (navMap[e.key]) { e.preventDefault(); window.location.href = navMap[e.key]; }
+      return;
+    }
+
+    // ── i → Insert mode: focus first input in page-main ──
+    if (e.key === 'i') {
+      e.preventDefault();
+      var first = document.querySelector('#page-main input:not([type=hidden]):not([disabled]), #page-main textarea:not([disabled])');
+      if (first) { first.focus(); fbSetVimMode('insert'); }
+      return;
+    }
+
+    // ── { / } → sidebar navigation ──
+    if (e.key === '{' || e.key === '}') {
+      var sbItems = Array.from(document.querySelectorAll('.sb-nav a[href]'));
+      if (!sbItems.length) return;
+      var sbActiveIdx = sbItems.findIndex(function(el) { return el.classList.contains('sb-active'); });
+      if (sbActiveIdx === -1) sbActiveIdx = 0;
+      var sbNewIdx = e.key === '}' ? sbActiveIdx + 1 : sbActiveIdx - 1;
+      sbNewIdx = Math.max(0, Math.min(sbItems.length - 1, sbNewIdx));
+      e.preventDefault();
+      window.location.href = sbItems[sbNewIdx].getAttribute('href');
+      return;
+    }
+
+    // ── h / l → horizontal submenu tab navigation ──
+    if (e.key === 'h' || e.key === 'l') {
+      var tabs = Array.from(document.querySelectorAll('.tabs .tab'));
+      if (!tabs.length) return;
+      var tabActiveIdx = -1;
+      tabs.forEach(function(t, i) { if (t.classList.contains('active')) tabActiveIdx = i; });
+      var tabNewIdx = e.key === 'l' ? tabActiveIdx + 1 : tabActiveIdx - 1;
+      if (tabNewIdx >= 0 && tabNewIdx < tabs.length) { e.preventDefault(); tabs[tabNewIdx].click(); }
+      return;
+    }
+
+    // ── j / k → table row navigation ──
+    if (e.key === 'j' || e.key === 'k') {
+      var rows = Array.from(document.querySelectorAll('table tbody tr'));
+      if (!rows.length) return;
+      var focusedIdx = rows.findIndex(function(r) { return r.classList.contains('nav-row-focus'); });
+      var rowNewIdx;
+      if (focusedIdx === -1) {
+        rowNewIdx = e.key === 'j' ? 0 : rows.length - 1;
+      } else {
+        rowNewIdx = e.key === 'j' ? focusedIdx + 1 : focusedIdx - 1;
+      }
+      rowNewIdx = Math.max(0, Math.min(rows.length - 1, rowNewIdx));
+      e.preventDefault();
+      rows.forEach(function(r) { r.classList.remove('nav-row-focus'); });
+      rows[rowNewIdx].classList.add('nav-row-focus');
+      rows[rowNewIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      return;
+    }
+
+    // ── Enter → activate focused row ──
+    if (e.key === 'Enter') {
+      var focusedRow = document.querySelector('tr.nav-row-focus');
+      if (focusedRow) {
+        e.preventDefault();
+        var link = focusedRow.querySelector('a[href]');
+        if (link) { window.location.href = link.getAttribute('href'); }
+        else { focusedRow.click(); }
+      }
+    }
+  });
+
+  window.fbOpenCmdPalette = window.fbOpenCmdPalette || function() {
+    var company = document.getElementById('app-shell') ? document.getElementById('app-shell').dataset.company : '';
+    var cmds = [
+      { label: '+ New Journal Entry',  action: function(){ window.location.href = '/' + company + '/journal/new'; } },
+      { label: '+ New Bill',           action: function(){ window.location.href = '/' + company + '/bill/new'; } },
+      { label: '\u2192 Dashboard',          action: function(){ window.location.href = '/' + company; } },
+      { label: '\u2192 Bank',               action: function(){ window.location.href = '/' + company + '/bank'; } },
+      { label: '\u2192 Payables',           action: function(){ window.location.href = '/' + company + '/payables'; } },
+      { label: '\u2192 Reports',            action: function(){ window.location.href = '/' + company + '/reports'; } },
+      { label: '\u2192 Settings',           action: function(){ window.location.href = '/' + company + '/settings'; } },
+    ];
+    var existing = document.getElementById('fb-cmd-modal');
+    if (existing) { existing.remove(); return; }
+    var overlay = document.createElement('div');
+    overlay.id = 'fb-cmd-modal';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9000;background:rgba(0,0,0,.4);display:flex;align-items:flex-start;justify-content:center;padding-top:15vh';
+    overlay.onclick = function(e){ if(e.target===overlay) overlay.remove(); };
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:420px;max-width:90vw;overflow:hidden';
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.placeholder = 'Type a command\u2026';
+    inp.style.cssText = 'width:100%;padding:14px 18px;font-size:1rem;border:none;border-bottom:1px solid #e8e8e8;outline:none;box-sizing:border-box';
+    var list = document.createElement('div');
+    function renderList(q) {
+      list.innerHTML = '';
+      cmds.filter(function(c){ return !q || c.label.toLowerCase().includes(q.toLowerCase()); }).forEach(function(c) {
+        var item = document.createElement('div');
+        item.textContent = c.label;
+        item.style.cssText = 'padding:12px 18px;cursor:pointer;font-size:0.9375rem;border-bottom:1px solid #f5f5f5';
+        item.onmouseover = function(){ item.style.background='#f0f4ff'; };
+        item.onmouseout  = function(){ item.style.background=''; };
+        item.onclick = function(){ overlay.remove(); c.action(); };
+        list.appendChild(item);
+      });
+    }
+    renderList('');
+    inp.oninput = function(){ renderList(inp.value); };
+    inp.onkeydown = function(e){
+      if(e.key==='Escape') overlay.remove();
+      if(e.key==='Enter') {
+        var first = list.querySelector('div');
+        if(first) first.click();
+      }
+    };
+    box.appendChild(inp);
+    box.appendChild(list);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    setTimeout(function(){ inp.focus(); }, 50);
+  };
+})();

@@ -113,6 +113,12 @@ ${commonStyle()}
   .msg-pay { margin-top:10px; font-size:10pt; }
   .msg-pay.ok { color:#2a8a2a; }
   .msg-pay.err { color:#cc2222; }
+
+  /* Vendor keyboard nav */
+  .data-table tbody tr.selected td { background:#e8eeff !important; }
+  .data-table tbody tr.editing td { background:#fffde7 !important; padding:4px 10px; }
+  .data-table tbody tr.editing input[type=text],
+  .data-table tbody tr.editing input[type=number] { padding:5px 8px; border:1px solid #aaa; border-radius:4px; font-size:10pt; box-sizing:border-box; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
@@ -176,14 +182,27 @@ ${commonStyle()}
   </div><!-- /pay-panel-bills -->
 
   <div id="pay-panel-vendors" style="display:none">
-    <table class="edit-table" id="vendors-table">
-      <thead><tr><th>Name</th><th>CCY</th><th>Terms(d)</th><th>Expense A/C</th><th>AP A/C</th><th style="text-align:center">Active</th><th></th></tr></thead>
-      <tbody id="vendors-body"></tbody>
-    </table>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <span id="msg-vendors" class="msg" style="font-size:0.8125rem"></span>
+    <div class="table-card">
+      <table class="data-table" id="vendors-table">
+        <thead>
+          <tr>
+            <th>Vendor</th>
+            <th style="width:60px;text-align:center">CCY</th>
+            <th style="width:90px;text-align:center">Terms (d)</th>
+            <th style="width:140px">Expense A/C</th>
+            <th style="width:140px">AP A/C</th>
+            <th style="width:90px;text-align:center">Active</th>
+          </tr>
+        </thead>
+        <tbody id="vendors-body">
+          <tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
+        </tbody>
+      </table>
     </div>
-    <p style="margin-top:8px;font-size:9pt;color:#888">These defaults auto-fill when creating a bill for this vendor: currency, payment terms, expense account, and AP account.</p>
+    <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
+      <span id="msg-vendors" style="font-size:0.875rem"></span>
+      <span style="margin-left:auto;font-size:7.5pt;color:#bbb">j/k&nbsp;move &nbsp;·&nbsp; i&nbsp;edit &nbsp;·&nbsp; a&nbsp;add &nbsp;·&nbsp; d&nbsp;delete &nbsp;·&nbsp; ~&nbsp;toggle active &nbsp;·&nbsp; Enter&nbsp;save &nbsp;·&nbsp; Esc&nbsp;cancel</span>
+    </div>
   </div><!-- /pay-panel-vendors -->
 
 </div>
@@ -207,6 +226,7 @@ function fbPageInitPayables() {
   loadAllBills();
   initBillsTable();
   registerBillKeyActions();
+  registerVendorKeyActions();
 }
 window.addEventListener('DOMContentLoaded', fbPageInitPayables);
 window.fbPageInit = fbPageInitPayables;
@@ -714,6 +734,9 @@ function showPayTab(t) {
 // ========== VENDOR MANAGEMENT ==========
 var vendorAccountsList = [];
 var vendorAcctActiveInput = null;
+var vendorSelectedIdx = -1;
+var vendorEditMode = false;
+var allVendors = [];
 
 function loadVendorAccounts() {
   if (vendorAccountsList.length) return;
@@ -726,155 +749,261 @@ function loadVendorTable() {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
-      var rows = (res.data || res);
-      var tbody = document.getElementById('vendors-body');
-      tbody.innerHTML = '';
-      if (Array.isArray(rows)) rows.forEach(addVendorRow);
-      appendBlankVendorRow();
-    }).catch(function(){});
+      var rows = res.data || res;
+      allVendors = Array.isArray(rows) ? rows : [];
+      renderVendorTable();
+      vendorSelectedIdx = allVendors.length > 0 ? 0 : -1;
+      updateVendorSelection();
+    }).catch(function(e){ vendorMsg('Error loading vendors: ' + e.message, 'err'); });
 }
 
-function addVendorRow(v) {
-  v = v || {};
-  var isNew = !v.vendor_id;
+function renderVendorTable() {
+  var tbody = document.getElementById('vendors-body');
+  if (!tbody) return;
+  if (!allVendors.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">No vendors yet. Press <b>a</b> to add one.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '';
+  allVendors.forEach(function(v, i) {
+    tbody.appendChild(buildVendorDisplayRow(v, i));
+  });
+}
+
+function buildVendorDisplayRow(v, i) {
   var tr = document.createElement('tr');
   tr.dataset.vendorId = v.vendor_id || '';
-  tr.dataset.dirty = isNew ? '1' : '0';
+  tr.dataset.name     = v.name || '';
+  tr.dataset.currency = v.default_currency || '';
+  tr.dataset.terms    = String(v.payment_terms_days || 30);
+  tr.dataset.expAcct  = v.default_expense_account || '';
+  tr.dataset.apAcct   = v.default_ap_account || '';
+  tr.dataset.active   = v.is_active !== false ? 'true' : 'false';
+  tr.dataset.idx      = String(i);
+  tr.style.cursor = 'pointer';
+
+  var activeBadge = v.is_active !== false
+    ? '<span class="badge" style="background:#f0fff4;color:#2a8a2a">Active</span>'
+    : '<span class="badge" style="background:#f0f0f0;color:#888">Inactive</span>';
+
   tr.innerHTML =
-    '<td><input type="text" value="' + (v.name||'') + '" placeholder="Vendor name" style="width:200px"></td>' +
-    '<td><input type="text" value="' + (v.default_currency||'') + '" maxlength="3" style="width:45px"></td>' +
-    '<td><input type="number" value="' + (v.payment_terms_days||30) + '" style="width:55px"></td>' +
-    '<td><input type="text" value="' + (v.default_expense_account||'') + '" style="width:90px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
-    '<td><input type="text" value="' + (v.default_ap_account||'') + '" style="width:90px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
-    '<td style="text-align:center"><input type="checkbox"' + (v.is_active===true ? ' checked' : '') + '></td>' +
-    '<td style="white-space:nowrap;text-align:right"></td>';
+    '<td>' + vendorCell(v.name) + '</td>' +
+    '<td style="text-align:center;font-size:9pt;color:#666">' + esc(v.default_currency || '\u2014') + '</td>' +
+    '<td style="text-align:center;color:#444">' + (v.payment_terms_days || 30) + '\u202fd</td>' +
+    '<td style="font-family:monospace;font-size:9.5pt">' + esc(v.default_expense_account || '\u2014') + '</td>' +
+    '<td style="font-family:monospace;font-size:9.5pt">' + esc(v.default_ap_account || '\u2014') + '</td>' +
+    '<td style="text-align:center">' + activeBadge + '</td>';
 
-  // Save button
-  var saveBtn = document.createElement('button');
-  saveBtn.className = 'btn-sm';
-  saveBtn.title = 'Save this row';
-  saveBtn.innerHTML = '\uD83D\uDCBE';
-  saveBtn.style.cssText = 'opacity:' + (isNew ? '1' : '0.35') + ';margin-right:4px';
-  saveBtn.onclick = function() { saveVendorRow(tr); };
-
-  // Delete button
-  var delBtn = document.createElement('button');
-  delBtn.className = 'btn-sm danger';
-  delBtn.title = 'Delete vendor';
-  delBtn.innerHTML = '\u2715';
-  delBtn.onclick = function() { deleteVendorRow(tr); };
-
-  tr.cells[tr.cells.length - 1].appendChild(saveBtn);
-  tr.cells[tr.cells.length - 1].appendChild(delBtn);
-
-  // Mark dirty and brighten save button on any change
-  tr.querySelectorAll('input').forEach(function(el) {
-    el.addEventListener('input', function() {
-      tr.dataset.dirty = '1';
-      saveBtn.style.opacity = '1';
-      // If this is the blank row and name got filled, add another blank row
-      if (isNew && el === tr.cells[0].querySelector('input') && el.value.trim()) {
-        isNew = false;
-        tr.dataset.vendorId = tr.dataset.vendorId || '';
-        appendBlankVendorRow();
-      }
-    });
-    el.addEventListener('change', function() {
-      tr.dataset.dirty = '1';
-      saveBtn.style.opacity = '1';
-    });
+  tr.addEventListener('click', function() {
+    if (vendorEditMode) return;
+    vendorSelectedIdx = i;
+    updateVendorSelection();
   });
-  tr.querySelectorAll('input[type=checkbox]').forEach(function(el) {
-    el.addEventListener('change', function() {
-      tr.dataset.dirty = '1';
-      saveBtn.style.opacity = '1';
-    });
+  tr.addEventListener('dblclick', function() {
+    if (vendorEditMode) exitVendorEditMode(false);
+    vendorSelectedIdx = i;
+    updateVendorSelection();
+    enterVendorEditMode();
   });
-
-  document.getElementById('vendors-body').appendChild(tr);
   return tr;
 }
 
-function appendBlankVendorRow() {
-  // Only append if last row isn't already blank
-  var tbody = document.getElementById('vendors-body');
-  var rows = tbody.querySelectorAll('tr');
-  if (rows.length > 0) {
-    var lastNameInput = rows[rows.length - 1].cells[0].querySelector('input');
-    if (lastNameInput && !lastNameInput.value.trim()) return; // already blank
-  }
-  addVendorRow({});
+function updateVendorSelection() {
+  document.querySelectorAll('#vendors-body tr[data-idx]').forEach(function(r) {
+    r.classList.toggle('selected', String(r.dataset.idx) === String(vendorSelectedIdx));
+  });
 }
 
-// saveVendors: replaced by per-row saveVendorRow()
+function getSelectedVendorRow() {
+  return document.querySelector('#vendors-body tr[data-idx="' + vendorSelectedIdx + '"]');
+}
 
-function saveVendorRow(tr) {
-  var inputs = tr.querySelectorAll('input');
-  var name = inputs[0].value.trim();
-  if (!name) {
-    var msgEl = document.getElementById('msg-vendors');
-    if (msgEl) { msgEl.textContent = 'Name is required.'; msgEl.className = 'msg err'; }
-    inputs[0].focus();
+function enterVendorEditMode() {
+  if (vendorEditMode) return;
+  var tr = getSelectedVendorRow();
+  if (!tr) return;
+  vendorEditMode = true;
+  tr.classList.add('editing');
+
+  tr.innerHTML =
+    '<td><input type="text" value="' + esc(tr.dataset.name) + '" placeholder="Vendor name" style="width:200px"></td>' +
+    '<td><input type="text" value="' + esc(tr.dataset.currency) + '" maxlength="3" style="width:52px;text-align:center"></td>' +
+    '<td><input type="number" value="' + esc(tr.dataset.terms) + '" min="0" style="width:64px;text-align:center"></td>' +
+    '<td><input type="text" value="' + esc(tr.dataset.expAcct) + '" style="width:120px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
+    '<td><input type="text" value="' + esc(tr.dataset.apAcct) + '" style="width:120px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
+    '<td style="text-align:center;color:#aaa;font-size:8.5pt">~&nbsp;toggle</td>';
+
+  tr.querySelector('input').focus();
+}
+
+function exitVendorEditMode(save) {
+  if (!vendorEditMode) return;
+  var tr = getSelectedVendorRow();
+  if (!tr) { vendorEditMode = false; return; }
+
+  if (!save) {
+    vendorEditMode = false;
+    tr.classList.remove('editing');
+    var idx = parseInt(tr.dataset.idx);
+    if (!tr.dataset.vendorId) {
+      allVendors.splice(idx, 1);
+      renderVendorTable();
+      vendorSelectedIdx = Math.min(idx, allVendors.length - 1);
+      updateVendorSelection();
+      return;
+    }
+    var v = allVendors[idx];
+    var newTr = buildVendorDisplayRow(v, idx);
+    newTr.classList.add('selected');
+    tr.parentNode.replaceChild(newTr, tr);
     return;
   }
+
+  // Save
+  var inputs = tr.querySelectorAll('input');
+  var name = inputs[0].value.trim();
+  if (!name) { inputs[0].focus(); vendorMsg('Name is required.', 'err'); return; }
+
+  var idx = parseInt(tr.dataset.idx);
   var vendor = {
-    vendor_id: tr.dataset.vendorId || null,
-    name: name,
-    default_currency: inputs[1].value.trim() || null,
-    payment_terms_days: parseInt(inputs[2].value) || 30,
+    vendor_id:               tr.dataset.vendorId || null,
+    name:                    name,
+    default_currency:        inputs[1].value.trim().toUpperCase() || null,
+    payment_terms_days:      parseInt(inputs[2].value) || 30,
     default_expense_account: inputs[3].value.trim() || null,
-    default_ap_account: inputs[4].value.trim() || null,
-    is_active: inputs[5].checked
+    default_ap_account:      inputs[4].value.trim() || null,
+    is_active:               tr.dataset.active === 'true'
   };
-  var saveBtn = tr.querySelector('button.btn-sm:not(.danger)');
-  if (saveBtn) { saveBtn.innerHTML = '\u23F3'; saveBtn.disabled = true; }
+
+  vendorEditMode = false;
+  tr.classList.remove('editing');
+
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'vendor.upsert', companyId: COMPANY, vendor: vendor }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       var d = res.data || res;
-      var msgEl = document.getElementById('msg-vendors');
-      if (d.error || res.error) {
-        if (msgEl) { msgEl.textContent = d.error || res.error; msgEl.className = 'msg err'; }
-        if (saveBtn) { saveBtn.innerHTML = '\uD83D\uDCBE'; saveBtn.disabled = false; }
-      } else {
-        // Store the returned/assigned vendorId on the row
-        if (d.vendorId) tr.dataset.vendorId = d.vendorId;
-        tr.dataset.dirty = '0';
-        if (saveBtn) { saveBtn.innerHTML = '\u2713'; saveBtn.style.opacity='0.35'; saveBtn.disabled = false; setTimeout(function(){ saveBtn.innerHTML='\uD83D\uDCBE'; }, 1500); }
-        if (msgEl) { msgEl.textContent = 'Saved.'; msgEl.className = 'msg ok'; setTimeout(function(){ msgEl.textContent=''; }, 2000); }
-      }
+      if (d.error || res.error) { vendorMsg(d.error || res.error, 'err'); loadVendorTable(); return; }
+      allVendors[idx] = {
+        vendor_id: d.vendorId || vendor.vendor_id,
+        name: vendor.name,
+        default_currency: vendor.default_currency,
+        payment_terms_days: vendor.payment_terms_days,
+        default_expense_account: vendor.default_expense_account,
+        default_ap_account: vendor.default_ap_account,
+        is_active: vendor.is_active
+      };
+      renderVendorTable();
+      vendorSelectedIdx = idx;
+      updateVendorSelection();
+      vendorMsg('Saved.', 'ok');
+      setTimeout(function(){ vendorMsg('', ''); }, 2000);
     })
-    .catch(function(e){
-      var msgEl = document.getElementById('msg-vendors');
-      if (msgEl) { msgEl.textContent = e.message; msgEl.className = 'msg err'; }
-      if (saveBtn) { saveBtn.innerHTML = '\uD83D\uDCBE'; saveBtn.disabled = false; }
-    });
+    .catch(function(e){ vendorMsg(e.message, 'err'); loadVendorTable(); });
 }
 
-function deleteVendorRow(tr) {
-  var name = tr.cells[0].querySelector('input').value.trim();
-  var vendorId = tr.dataset.vendorId;
-  // If no vendorId (unsaved new row) just remove from DOM
-  if (!vendorId) { tr.remove(); appendBlankVendorRow(); return; }
-  if (!confirm('Delete vendor "' + (name || vendorId) + '"?')) return;
+function vendorAddNew() {
+  if (vendorEditMode) exitVendorEditMode(false);
+  allVendors.push({ vendor_id: '', name: '', default_currency: '', payment_terms_days: 30,
+    default_expense_account: '', default_ap_account: '', is_active: true });
+  renderVendorTable();
+  vendorSelectedIdx = allVendors.length - 1;
+  updateVendorSelection();
+  var tbody = document.getElementById('vendors-body');
+  if (tbody) { var last = tbody.lastElementChild; if (last) last.scrollIntoView({ block: 'nearest' }); }
+  enterVendorEditMode();
+}
+
+function vendorToggleActive() {
+  var tr = getSelectedVendorRow();
+  if (!tr || vendorEditMode) return;
+  var idx = parseInt(tr.dataset.idx);
+  var v = allVendors[idx];
+  if (!v || !v.vendor_id) { vendorMsg('Save the vendor first before toggling.', 'err'); return; }
+  var newActive = !(tr.dataset.active === 'true');
+  var vendor = {
+    vendor_id: v.vendor_id, name: v.name,
+    default_currency: v.default_currency,
+    payment_terms_days: v.payment_terms_days,
+    default_expense_account: v.default_expense_account,
+    default_ap_account: v.default_ap_account,
+    is_active: newActive
+  };
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'vendor.delete', companyId: COMPANY, vendorId: vendorId }) })
+    body: JSON.stringify({ action:'vendor.upsert', companyId: COMPANY, vendor: vendor }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       var d = res.data || res;
-      if (d.error || res.error) {
-        var msgEl = document.getElementById('msg-vendors');
-        if (msgEl) { msgEl.textContent = d.error || res.error; msgEl.className = 'msg err'; }
-      } else {
-        tr.remove();
-        appendBlankVendorRow();
-      }
+      if (d.error || res.error) { vendorMsg(d.error || res.error, 'err'); return; }
+      allVendors[idx].is_active = newActive;
+      renderVendorTable();
+      vendorSelectedIdx = idx;
+      updateVendorSelection();
+      vendorMsg(newActive ? 'Marked active.' : 'Marked inactive.', 'ok');
+      setTimeout(function(){ vendorMsg('', ''); }, 1500);
     })
-    .catch(function(e){
-      var msgEl = document.getElementById('msg-vendors');
-      if (msgEl) { msgEl.textContent = e.message; msgEl.className = 'msg err'; }
-    });
+    .catch(function(e){ vendorMsg(e.message, 'err'); });
+}
+
+function vendorDeleteSelected() {
+  if (vendorEditMode) return;
+  var tr = getSelectedVendorRow();
+  if (!tr) return;
+  var idx = parseInt(tr.dataset.idx);
+  var v = allVendors[idx];
+  if (!v) return;
+  if (!v.vendor_id) {
+    allVendors.splice(idx, 1);
+    renderVendorTable();
+    vendorSelectedIdx = Math.min(idx, allVendors.length - 1);
+    updateVendorSelection();
+    return;
+  }
+  if (!confirm('Delete vendor "' + (v.name || v.vendor_id) + '"?')) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'vendor.delete', companyId: COMPANY, vendorId: v.vendor_id }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var d = res.data || res;
+      if (d.error || res.error) { vendorMsg(d.error || res.error, 'err'); return; }
+      allVendors.splice(idx, 1);
+      renderVendorTable();
+      vendorSelectedIdx = Math.min(idx, allVendors.length - 1);
+      updateVendorSelection();
+      vendorMsg('Deleted.', 'ok');
+      setTimeout(function(){ vendorMsg('', ''); }, 1500);
+    })
+    .catch(function(e){ vendorMsg(e.message, 'err'); });
+}
+
+function vendorMsg(msg, type) {
+  var el = document.getElementById('msg-vendors');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : '#888';
+}
+
+function registerVendorKeyActions() {
+  document.addEventListener('keydown', function(e) {
+    var panel = document.getElementById('pay-panel-vendors');
+    if (!panel || panel.style.display === 'none') return;
+
+    if (vendorEditMode) {
+      if (e.key === 'Enter') { e.preventDefault(); exitVendorEditMode(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); exitVendorEditMode(false); }
+      return;
+    }
+
+    var tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    if (e.key === 'j') { e.preventDefault(); vendorSelectedIdx = Math.min(vendorSelectedIdx + 1, allVendors.length - 1); updateVendorSelection(); }
+    else if (e.key === 'k') { e.preventDefault(); vendorSelectedIdx = Math.max(vendorSelectedIdx - 1, 0); updateVendorSelection(); }
+    else if (e.key === 'i') { e.preventDefault(); if (vendorSelectedIdx >= 0) enterVendorEditMode(); }
+    else if (e.key === 'a') { e.preventDefault(); vendorAddNew(); }
+    else if (e.key === 'd') { e.preventDefault(); vendorDeleteSelected(); }
+    else if (e.key === '~') { e.preventDefault(); vendorToggleActive(); }
+  });
 }
 
 function payVendorAcctInput(input) {

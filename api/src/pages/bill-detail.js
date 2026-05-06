@@ -128,6 +128,10 @@ ${commonStyle()}
   .attach-row.nav-attach-focus .pdf-icon { border-color: #888; color: #fff; }
   /* Description input: white text when row is focused */
   tr.nav-row-focus > td input { color: #fff !important; background: transparent !important; border-color: transparent !important; }
+  /* Invoice ref nav focus */
+  .meta-field.nav-meta-focus { background: #1a1a1a; border-radius:6px; }
+  .meta-field.nav-meta-focus .meta-label { color: #aaa; }
+  .meta-field.nav-meta-focus .meta-val-input { color: #fff; background: transparent; }
   /* Inline edit hint */
   .line-desc-input { width:100%; border:none; background:transparent; font-size:10.5pt; padding:2px 4px; border-radius:3px; color:#222; cursor:text; }
   .line-desc-input:hover { background:#f8f9ff; border:1px solid #c0c8ff; }
@@ -163,9 +167,9 @@ ${commonStyle()}
       <div class="meta-label">Vendor</div>
       <div class="meta-val" id="b-vendor">—</div>
     </div>
-    <div class="meta-field">
-      <div class="meta-label">Invoice Ref <span style="font-size:7.5pt;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(click to edit)</span></div>
-      <input class="meta-val-input" id="b-ref" value="" placeholder="—" title="Click to edit invoice reference" onchange="saveRef(this.value)" onblur="saveRef(this.value)">
+    <div class="meta-field nav-meta-item">
+      <div class="meta-label">Invoice Ref <span style="font-size:7.5pt;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
+      <input class="meta-val-input" id="b-ref" value="" placeholder="—" title="Press i or click to edit" onchange="saveRef(this.value)" onblur="saveRef(this.value)">
     </div>
     <div class="meta-field">
       <div class="meta-label">Bill Date</div>
@@ -263,18 +267,22 @@ window.fbPageInit = fbPageInitBillDetail;
 
 // Unified navigable items: line item rows + attachment rows
 function getBillNavItems() {
+  var metaItems = Array.from(document.querySelectorAll('.nav-meta-item'));
   var rows = Array.from(document.querySelectorAll('#lines-tbody tr'));
   var attachRows = Array.from(document.querySelectorAll('.attach-row'));
-  return rows.concat(attachRows);
+  return metaItems.concat(rows).concat(attachRows);
 }
 
 function clearBillNavFocus() {
   document.querySelectorAll('tr.nav-row-focus').forEach(function(r) { r.classList.remove('nav-row-focus'); });
   document.querySelectorAll('.attach-row.nav-attach-focus').forEach(function(r) { r.classList.remove('nav-attach-focus'); });
+  document.querySelectorAll('.nav-meta-item.nav-meta-focus').forEach(function(r) { r.classList.remove('nav-meta-focus'); });
 }
 
 function getFocusedBillItem() {
-  return document.querySelector('tr.nav-row-focus') || document.querySelector('.attach-row.nav-attach-focus');
+  return document.querySelector('tr.nav-row-focus') ||
+         document.querySelector('.attach-row.nav-attach-focus') ||
+         document.querySelector('.nav-meta-item.nav-meta-focus');
 }
 
 function moveBillNav(dir) {
@@ -293,8 +301,10 @@ function moveBillNav(dir) {
   var next = items[newIdx];
   if (next.tagName === 'TR') {
     next.classList.add('nav-row-focus');
-  } else {
+  } else if (next.classList.contains('attach-row')) {
     next.classList.add('nav-attach-focus');
+  } else {
+    next.classList.add('nav-meta-focus');
   }
   next.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
@@ -304,6 +314,12 @@ window.fbKeyActions = {
   'j': function() { moveBillNav('j'); },
   'k': function() { moveBillNav('k'); },
   'edit': function() {
+    var metaFocused = document.querySelector('.nav-meta-item.nav-meta-focus');
+    if (metaFocused) {
+      var metaInp = metaFocused.querySelector('input');
+      if (metaInp) { metaInp.focus(); metaInp.select(); }
+      return;
+    }
     var focused = document.querySelector('tr.nav-row-focus');
     if (focused) {
       var inp = focused.querySelector('input.line-desc-input');

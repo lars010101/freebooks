@@ -24,14 +24,10 @@ ${commonStyle()}
   /* ---- Bill Detail page overrides ---- */
   .page { max-width:1100px; }
 
-  .breadcrumb { font-size:9pt; color:#aaa; margin-bottom:22px; letter-spacing:.02em; }
-  .breadcrumb a { color:#aaa; text-decoration:none; }
-  .breadcrumb a:hover { color:#555; }
-  .breadcrumb span { margin:0 7px; }
 
-  .bill-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:28px; }
-  .bill-header-left { display:flex; align-items:center; gap:14px; }
-  .bill-header h1 { margin:0; font-size:20pt; font-weight:700; letter-spacing:-.01em; }
+
+  .page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:28px; }
+  .page-header h1 { margin:0; font-size:20pt; font-weight:700; letter-spacing:-.01em; display:flex; align-items:center; gap:12px; }
   .bill-header-actions { display:flex; gap:10px; align-items:center; }
 
   .badge { display:inline-block; padding:4px 12px; border-radius:5px; font-size:9pt; font-weight:600; }
@@ -125,33 +121,28 @@ ${commonStyle()}
   .btn-icon-del { color:#cc4444; border-color:#ffcccc; background:#fff5f5; }
   .btn-icon-del:hover { background:#ffe0e0; }
 
-  /* Edit section */
-  .edit-section { border:1px solid #e8e8e8; border-radius:8px; padding:24px 28px; display:none; margin-bottom:28px; }
-  .edit-section-title { font-size:10.5pt; font-weight:600; color:#333; margin-bottom:16px; }
-  .edit-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px 28px; margin-bottom:16px; }
-  .edit-label { font-size:8.5pt; color:#888; font-weight:600; text-transform:uppercase; letter-spacing:.04em; display:block; margin-bottom:5px; }
-  .edit-input { width:100%; padding:9px 12px; border:1px solid #ccc; border-radius:5px; font-size:10.5pt; box-sizing:border-box; }
-  .edit-input:focus { outline:none; border-color:#2255cc; box-shadow:0 0 0 3px rgba(34,85,204,.08); }
+
+
+  /* Keyboard nav focus for attachment rows */
+  .attach-row.nav-attach-focus { background: #1a1a1a !important; }
+  .attach-row.nav-attach-focus .attach-filename,
+  .attach-row.nav-attach-focus .attach-meta { color: #fff !important; }
+  .attach-row.nav-attach-focus .pdf-icon { border-color: #888; color: #fff; }
+  /* Description input: white text when row is focused */
+  tr.nav-row-focus > td input { color: #fff !important; background: transparent !important; border-color: transparent !important; }
+  /* Inline edit hint */
+  .line-desc-input { width:100%; border:none; background:transparent; font-size:10.5pt; padding:2px 4px; border-radius:3px; color:#222; cursor:text; }
+  .line-desc-input:hover { background:#f8f9ff; border:1px solid #c0c8ff; }
+  .line-desc-input:focus { outline:none; background:#f8f9ff; border:1px solid #c0c8ff; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
 <div class="page">
 
-  <!-- Breadcrumb -->
-  <div class="breadcrumb">
-    <a href="/${company}/payables">BILLS</a>
-    <span>&#8250;</span>
-    <span id="bc-ref" style="color:#555;font-weight:600">${billId}</span>
-  </div>
-
   <!-- Header -->
-  <div class="bill-header">
-    <div class="bill-header-left">
-      <h1>Bill Details</h1>
-      <span id="b-status"></span>
-    </div>
+  <div class="page-header">
+    <h1>📋 Payables: Bill details <span id="b-status"></span></h1>
     <div class="bill-header-actions">
-      <button id="btn-edit-toggle" class="btn-action" onclick="toggleEdit()">&#9998; Edit</button>
       <button id="btn-void" class="btn-action" onclick="doVoid()" style="display:none">&#8856; Void</button>
       <button class="btn-action btn-primary" onclick="document.getElementById('attach-input').click()">
         &#128206; Add Attachment
@@ -214,7 +205,7 @@ ${commonStyle()}
         <tr>
           <th>Description</th>
           <th style="text-align:right;min-width:100px">Amount</th>
-          <th style="min-width:90px">${taxLabel} (8%)</th>
+          <th style="min-width:90px">${taxLabel}</th>
           <th style="min-width:80px">Currency</th>
         </tr>
       </thead>
@@ -250,27 +241,7 @@ ${commonStyle()}
     <div style="padding:16px 20px;color:#aaa;font-size:9.5pt">Loading&#8230;</div>
   </div>
 
-  <!-- Edit section -->
-  <div class="edit-section" id="edit-section" style="margin-top:28px">
-    <div class="edit-section-title">Edit Non-Financial Fields</div>
-    <div class="edit-grid">
-      <div>
-        <label class="edit-label">Invoice Ref</label>
-        <input type="text" id="edit-ref" class="edit-input">
-      </div>
-      <div>
-        <label class="edit-label">Due Date</label>
-        <input type="date" id="edit-due" class="edit-input">
-      </div>
-    </div>
-    <div style="display:flex;gap:10px;align-items:center">
-      <button onclick="saveEdits()"
-        style="padding:9px 22px;background:#1a1a1a;color:#fff;border:none;border-radius:5px;font-size:10.5pt;cursor:pointer">
-        Save Changes
-      </button>
-      <span id="edit-status" style="font-size:10pt"></span>
-    </div>
-  </div>
+
 
 </div>
 
@@ -286,10 +257,64 @@ function fbPageInitBillDetail() {
 window.addEventListener('DOMContentLoaded', fbPageInitBillDetail);
 window.fbPageInit = fbPageInitBillDetail;
 
+// Unified navigable items: line item rows + attachment rows
+function getBillNavItems() {
+  var rows = Array.from(document.querySelectorAll('#lines-tbody tr'));
+  var attachRows = Array.from(document.querySelectorAll('.attach-row'));
+  return rows.concat(attachRows);
+}
+
+function clearBillNavFocus() {
+  document.querySelectorAll('tr.nav-row-focus').forEach(function(r) { r.classList.remove('nav-row-focus'); });
+  document.querySelectorAll('.attach-row.nav-attach-focus').forEach(function(r) { r.classList.remove('nav-attach-focus'); });
+}
+
+function getFocusedBillItem() {
+  return document.querySelector('tr.nav-row-focus') || document.querySelector('.attach-row.nav-attach-focus');
+}
+
+function moveBillNav(dir) {
+  var items = getBillNavItems();
+  if (!items.length) return;
+  var focused = getFocusedBillItem();
+  var idx = focused ? items.indexOf(focused) : -1;
+  var newIdx;
+  if (idx === -1) {
+    newIdx = dir === 'j' ? 0 : items.length - 1;
+  } else {
+    newIdx = dir === 'j' ? idx + 1 : idx - 1;
+  }
+  newIdx = Math.max(0, Math.min(items.length - 1, newIdx));
+  clearBillNavFocus();
+  var next = items[newIdx];
+  if (next.tagName === 'TR') {
+    next.classList.add('nav-row-focus');
+  } else {
+    next.classList.add('nav-attach-focus');
+  }
+  next.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 // Register keyboard actions for bill detail view
 window.fbKeyActions = {
-  'edit': function() {
-    if (typeof toggleEdit === 'function') toggleEdit();
+  'j': function() { moveBillNav('j'); },
+  'k': function() { moveBillNav('k'); },
+  'e': function() {
+    var focused = document.querySelector('tr.nav-row-focus');
+    if (focused) {
+      var inp = focused.querySelector('input.line-desc-input');
+      if (inp) { inp.focus(); inp.select(); }
+    }
+  },
+  'delete': function() {
+    var attachFocused = document.querySelector('.attach-row.nav-attach-focus');
+    if (attachFocused) {
+      var delBtn = attachFocused.querySelector('.btn-icon-del');
+      if (delBtn) delBtn.click();
+      return;
+    }
+    // Nothing focused → confirm void
+    doVoid();
   },
   'escape': function() {
     if (typeof COMPANY !== 'undefined') fbNavigate('/' + COMPANY + '/payables');
@@ -340,22 +365,17 @@ function loadBill() {
 function renderBill(bill) {
   document.title = 'Bill \u2014 ' + (bill.vendor || BILL_ID) + ' \u2014 freeBooks';
   var ref = bill.vendor_ref || BILL_ID;
-  document.getElementById('bc-ref').textContent = ref;
   document.getElementById('b-vendor').textContent = bill.vendor || '\u2014';
   document.getElementById('b-ref').textContent = ref;
   document.getElementById('b-date').textContent = bill.date ? fmtDate(bill.date) : '\u2014';
   document.getElementById('b-due').textContent = bill.due_date ? fmtDate(bill.due_date) : '\u2014';
-  document.getElementById('b-currency').textContent = bill.currency
-    ? bill.currency + ' \u2013 ' + currencyName(bill.currency)
-    : '\u2014';
+  document.getElementById('b-currency').textContent = bill.currency || '\u2014';
   document.getElementById('b-status').innerHTML = statusBadge(bill.status, bill.due_date);
   document.getElementById('b-currency-prefix').textContent = bill.currency || '';
   var paid = Number(bill.amount_paid || 0);
   var due = Number(bill.amount || 0) - paid;
   document.getElementById('b-amount-paid').textContent = paid.toFixed(2);
   document.getElementById('b-amount-due').textContent = due.toFixed(2);
-  document.getElementById('edit-ref').value = bill.vendor_ref || '';
-  document.getElementById('edit-due').value = bill.due_date ? String(bill.due_date).slice(0,10) : '';
   var voidBtn = document.getElementById('btn-void');
   if (voidBtn) voidBtn.style.display = (bill.status === 'posted') ? '' : 'none';
 }
@@ -388,10 +408,10 @@ function loadLines() {
     lines.forEach(function(l){
       html += '<tr>'
         + '<td><input type="text" value="' + escAttr(l.description||'') + '" '
-        + 'style="width:100%;border:none;background:transparent;font-size:10.5pt;padding:2px 4px;border-radius:3px;color:#222" '
-        + 'onchange="updateLineDesc(&apos;' + esc(l.entry_id||'') + '&apos;, this.value)" '
-        + 'onfocus="this.style.background=&apos;#f8f9ff&apos;;this.style.border=&apos;1px solid #c0c8ff&apos;" '
-        + 'onblur="this.style.background=&apos;transparent&apos;;this.style.border=&apos;none&apos;">'
+        + 'class="line-desc-input" '
+        + 'title="Click to edit description" '
+        + 'data-entry-id="' + escAttr(l.entry_id||'') + '" '
+        + 'onchange="updateLineDesc(&apos;' + esc(l.entry_id||'') + '&apos;, this.value)">'
         + '</td>'
         + '<td style="text-align:right">' + Number(l.amount||0).toFixed(2) + '</td>'
         + '<td style="color:#555">' + esc(l.vat_code||'') + '</td>'
@@ -535,34 +555,7 @@ function deleteAttachment(attachmentId) {
   .catch(function(){});
 }
 
-function toggleEdit() {
-  var sec = document.getElementById('edit-section');
-  var btn = document.getElementById('btn-edit-toggle');
-  var open = sec.style.display !== 'none' && sec.style.display !== '';
-  sec.style.display = open ? 'none' : '';
-  btn.innerHTML = open ? '&#9998; Edit' : '&#10005; Cancel Edit';
-}
 
-function saveEdits() {
-  if (!billData) return;
-  var vendor_ref = document.getElementById('edit-ref').value.trim();
-  var due_date = document.getElementById('edit-due').value;
-  var statusEl = document.getElementById('edit-status');
-  statusEl.textContent = 'Saving\u2026'; statusEl.style.color = '#555';
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'bill.update', companyId: COMPANY, billId: BILL_ID,
-      vendor_ref: vendor_ref, due_date: due_date || undefined, description: billData.description || '' }) })
-  .then(function(r){ return r.json(); })
-  .then(function(res){
-    if (res.error) { statusEl.textContent = '\u2717 ' + res.error; statusEl.style.color = '#cc2222'; return; }
-    billData.vendor_ref = vendor_ref; billData.due_date = due_date;
-    document.getElementById('b-ref').textContent = vendor_ref || '\u2014';
-    document.getElementById('bc-ref').textContent = vendor_ref || BILL_ID;
-    document.getElementById('b-due').textContent = due_date ? fmtDate(due_date) : '\u2014';
-    statusEl.textContent = '\u2713 Saved'; statusEl.style.color = '#2a8a2a';
-  })
-  .catch(function(e){ statusEl.textContent = '\u2717 ' + e.message; statusEl.style.color = '#cc2222'; });
-}
 
 function doVoid() {
   if (!confirm('Void this bill? The journal entry will be auto-reversed.')) return;

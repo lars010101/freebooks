@@ -172,6 +172,13 @@ tr.nav-row-focus > td {
   outline: none;
 }
 tr.nav-row-focus > td a { color: #fff !important; }
+tr.nav-row-focus > td input { color: #fff !important; background: transparent !important; border-color: transparent !important; }
+
+/* ---- Attachment row keyboard focus ---- */
+.attach-row.nav-attach-focus { background: #1a1a1a !important; }
+.attach-row.nav-attach-focus .attach-filename,
+.attach-row.nav-attach-focus .attach-meta { color: #fff !important; }
+.attach-row.nav-attach-focus .pdf-icon { border-color: #888 !important; color: #aaa !important; background: #333 !important; }
 
 /* ---- Top bar ---- */
 #main-area {

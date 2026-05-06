@@ -126,18 +126,26 @@
           ns.remove();
         });
 
-        // Update sidebar active state (longest/most-specific match wins)
+        // Update sidebar active state — use server-set sb-active from incoming doc
         var sbItems = Array.from(document.querySelectorAll('.sb-nav a[href]'));
         sbItems.forEach(function(el) { el.classList.remove('sb-active'); });
-        var active = sbItems.reduce(function(best, el) {
-          var href = el.getAttribute('href');
-          if (!href) return best;
-          if (url === href || url.startsWith(href + '/')) {
-            if (!best || href.length > best.getAttribute('href').length) return el;
-          }
-          return best;
-        }, null);
-        if (active) active.classList.add('sb-active');
+        var incomingActive = doc.querySelector('.sb-nav a.sb-active');
+        if (incomingActive) {
+          var activeHref = incomingActive.getAttribute('href');
+          var matchItem = sbItems.find(function(el) { return el.getAttribute('href') === activeHref; });
+          if (matchItem) matchItem.classList.add('sb-active');
+        } else {
+          // Fallback: longest-match by URL
+          var active = sbItems.reduce(function(best, el) {
+            var href = el.getAttribute('href');
+            if (!href) return best;
+            if (url === href || url.startsWith(href + '/')) {
+              if (!best || href.length > best.getAttribute('href').length) return el;
+            }
+            return best;
+          }, null);
+          if (active) active.classList.add('sb-active');
+        }
 
         // Update top-bar right section
         var newTbRight = doc.querySelector('.tb-right');
@@ -336,6 +344,12 @@
 
     // ── j / k → table row navigation ──
     if (e.key === 'j' || e.key === 'k') {
+      // Allow page to intercept j/k (e.g. for mixed table+div navigation)
+      if (window.fbKeyActions && typeof window.fbKeyActions[e.key] === 'function') {
+        e.preventDefault();
+        window.fbKeyActions[e.key]();
+        return;
+      }
       var rows = Array.from(document.querySelectorAll('table tbody tr'));
       if (!rows.length) return;
       var focusedIdx = rows.findIndex(function(r) { return r.classList.contains('nav-row-focus'); });
@@ -380,9 +394,9 @@
 
     // ── d → delete focused row (page-registered) ──
     if (e.key === 'd') {
-      var focusedRowD = document.querySelector('tr.nav-row-focus');
-      if (focusedRowD && window.fbKeyActions && typeof window.fbKeyActions['delete'] === 'function') {
+      if (window.fbKeyActions && typeof window.fbKeyActions['delete'] === 'function') {
         e.preventDefault();
+        var focusedRowD = document.querySelector('tr.nav-row-focus');
         window.fbKeyActions['delete'](focusedRowD);
       }
       return;

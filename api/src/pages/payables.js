@@ -51,6 +51,24 @@ ${commonStyle()}
   .data-table td { padding:14px 18px; border-bottom:1px solid #f2f2f2; vertical-align:middle; color:#222; }
   .data-table tbody tr:last-child td { border-bottom:none; }
   .data-table tbody tr:hover td { background:#fafafa; }
+  .data-table tbody tr[data-url] { cursor:pointer; }
+  .data-table tbody tr.nav-row-focus td { background:#f0f4ff !important; }
+
+  /* Sortable/filterable column headers */
+  .data-table th.sortable { cursor:pointer; user-select:none; }
+  .data-table th.sortable:hover { background:#f0f0f0; }
+  .th-inner { display:flex; align-items:center; gap:4px; }
+  .th-sort { font-size:7.5pt; color:#ccc; }
+  .th-sort.on { color:#1a1a1a; }
+  .th-filter-btn { margin-left:auto; font-size:8pt; color:#bbb; padding:1px 3px; border-radius:3px; opacity:0; transition:opacity .1s; cursor:pointer; line-height:1; }
+  th:hover .th-filter-btn,
+  th.col-filtered .th-filter-btn { opacity:1; }
+  th.col-filtered .th-filter-btn { color:#2255cc; }
+  .col-filter-dd { position:fixed; background:#fff; border:1px solid #ddd; border-radius:6px; z-index:9999; min-width:160px; box-shadow:0 4px 12px rgba(0,0,0,.12); overflow:hidden; }
+  .col-filter-dd-item { padding:8px 14px; cursor:pointer; font-size:10pt; white-space:nowrap; }
+  .col-filter-dd-item:hover { background:#f5f5f5; }
+  .col-filter-dd-item.active { font-weight:700; color:#2255cc; }
+  .col-filter-dd-clear { color:#999; font-style:italic; font-size:9.5pt; border-bottom:1px solid #eee; }
 
   /* Vendor avatar */
   .vendor-cell { display:flex; align-items:center; gap:10px; }
@@ -132,17 +150,7 @@ ${commonStyle()}
       <span class="search-icon">&#128269;</span>
       <input type="text" id="f-search" placeholder="Search bills, vendors..." oninput="applyFilters()">
     </div>
-    <select id="f-status" onchange="applyFilters()">
-      <option value="">Status: All</option>
-      <option value="posted">Open</option>
-      <option value="partial">Partial</option>
-      <option value="paid">Paid</option>
-      <option value="void">Void</option>
-      <option value="overdue">Overdue</option>
-    </select>
-    <select id="f-vendor" onchange="applyFilters()">
-      <option value="">Vendor: All</option>
-    </select>
+
   </div>
 
   <!-- Table card -->
@@ -150,17 +158,16 @@ ${commonStyle()}
     <table class="data-table">
       <thead>
         <tr>
-          <th>Date</th>
-          <th>Due Date</th>
-          <th>Vendor</th>
-          <th>Invoice Ref</th>
-          <th style="text-align:right">Amount</th>
-          <th>Status</th>
-          <th style="text-align:right">Actions</th>
+          <th class="sortable" data-col="date"><div class="th-inner"><span class="th-label">Date</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter">&#9662;</span></div></th>
+          <th class="sortable" data-col="due_date"><div class="th-inner"><span class="th-label">Due Date</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter">&#9662;</span></div></th>
+          <th class="sortable" data-col="vendor"><div class="th-inner"><span class="th-label">Vendor</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter">&#9662;</span></div></th>
+          <th data-col="vendor_ref"><div class="th-inner"><span class="th-label">Invoice Ref</span></div></th>
+          <th class="sortable" data-col="amount" style="text-align:right"><div class="th-inner"><span class="th-label">Amount</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter">&#9662;</span></div></th>
+          <th class="sortable" data-col="status"><div class="th-inner"><span class="th-label">Status</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter">&#9662;</span></div></th>
         </tr>
       </thead>
       <tbody id="bills-tbody">
-        <tr><td colspan="7" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
+        <tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
       </tbody>
     </table>
     <div class="pagination-row" id="pagination-row" style="display:none">
@@ -192,31 +199,160 @@ var today = new Date().toISOString().slice(0,10);
 var in7days = new Date(Date.now() + 7*24*3600*1000).toISOString().slice(0,10);
 var PAGE_SIZE = 20;
 var currentPage = 1;
+var sortState = { col: null, dir: 'asc' };
+var colFilters = {};
 
 var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8','#e07840','#5c7ae0'];
 
 function fbPageInitPayables() {
   loadVendors();
   loadAllBills();
+  initBillsTable();
+  registerBillKeyActions();
 }
 window.addEventListener('DOMContentLoaded', fbPageInitPayables);
 window.fbPageInit = fbPageInitPayables;
 
-function loadVendors() {
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
-  .then(function(r){ return r.json(); })
-  .then(function(res){
-    var vendors = res.data || res || [];
-    if (!Array.isArray(vendors)) return;
-    var sel = document.getElementById('f-vendor');
-    vendors.forEach(function(v){
-      var opt = document.createElement('option');
-      opt.value = v.name || v.vendor_id;
-      opt.textContent = v.name || v.vendor_id;
-      sel.appendChild(opt);
+function initBillsTable() {
+  // Row click → navigate to bill
+  var tbody = document.getElementById('bills-tbody');
+  if (tbody) {
+    tbody.addEventListener('click', function(e) {
+      if (e.target.closest('a[href]')) return; // let links handle themselves
+      var tr = e.target.closest('tr[data-url]');
+      if (tr) fbNavigate(tr.dataset.url);
     });
-  }).catch(function(){});
+  }
+
+  // Header sort + filter
+  document.querySelectorAll('.data-table th[data-col]').forEach(function(th) {
+    var col = th.dataset.col;
+    var label = th.querySelector('.th-label');
+    var sortIcon = th.querySelector('.th-sort');
+    var filterBtn = th.querySelector('.th-filter-btn');
+
+    if (label && sortIcon && th.classList.contains('sortable')) {
+      label.addEventListener('click', function() {
+        if (sortState.col === col) {
+          sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortState.col = col;
+          sortState.dir = 'asc';
+        }
+        // Update all sort icons
+        document.querySelectorAll('.data-table th[data-col] .th-sort').forEach(function(ic) { ic.textContent = ''; ic.classList.remove('on'); });
+        sortIcon.textContent = sortState.dir === 'asc' ? '▲' : '▼';
+        sortIcon.classList.add('on');
+        applyFilters();
+      });
+    }
+
+    if (filterBtn) {
+      filterBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        openColFilter(th, col);
+      });
+    }
+  });
+}
+
+function openColFilter(th, col) {
+  // Close any existing dropdown
+  var existing = document.getElementById('col-filter-dd');
+  if (existing) { existing.remove(); if (existing.dataset.col === col) return; }
+
+  // Collect distinct values from allBills for this column
+  var vals = [];
+  allBills.forEach(function(b) {
+    var v = b[col];
+    if (v == null || v === '') return;
+    v = String(v);
+    if (col === 'date' || col === 'due_date') v = v.slice(0, 10);
+    if (col === 'amount') v = Number(b.amount||0).toFixed(2);
+    if (vals.indexOf(v) === -1) vals.push(v);
+  });
+
+  // For status, include 'overdue' as a synthetic option
+  if (col === 'status') {
+    var hasOverdue = allBills.some(function(b) {
+      var due = b.due_date ? String(b.due_date).slice(0,10) : null;
+      return (b.status === 'posted' || b.status === 'partial') && due && due < today;
+    });
+    if (hasOverdue && vals.indexOf('overdue') === -1) vals.push('overdue');
+  }
+
+  vals.sort();
+
+  // Build dropdown
+  var dd = document.createElement('div');
+  dd.id = 'col-filter-dd';
+  dd.className = 'col-filter-dd';
+  dd.dataset.col = col;
+
+  // Clear option
+  var clearItem = document.createElement('div');
+  clearItem.className = 'col-filter-dd-item col-filter-dd-clear';
+  clearItem.textContent = 'All (clear filter)';
+  clearItem.addEventListener('click', function() {
+    delete colFilters[col];
+    th.classList.remove('col-filtered');
+    dd.remove();
+    applyFilters();
+  });
+  dd.appendChild(clearItem);
+
+  vals.forEach(function(v) {
+    var item = document.createElement('div');
+    item.className = 'col-filter-dd-item' + (colFilters[col] === v ? ' active' : '');
+    item.textContent = col === 'date' || col === 'due_date' ? fmtDate(v) : (col === 'status' ? (v === 'posted' ? 'Open' : v.charAt(0).toUpperCase() + v.slice(1)) : v);
+    item.addEventListener('click', function() {
+      colFilters[col] = v;
+      th.classList.add('col-filtered');
+      dd.remove();
+      applyFilters();
+    });
+    dd.appendChild(item);
+  });
+
+  // Position below the filter button
+  var rect = th.getBoundingClientRect();
+  dd.style.top = (rect.bottom + 4) + 'px';
+  dd.style.left = rect.left + 'px';
+  document.body.appendChild(dd);
+
+  // Close on outside click
+  function onOutsideClick(e) {
+    if (!dd.contains(e.target)) { dd.remove(); document.removeEventListener('click', onOutsideClick); }
+  }
+  setTimeout(function() { document.addEventListener('click', onOutsideClick); }, 0);
+}
+
+function registerBillKeyActions() {
+  window.fbKeyActions = {
+    'new': function() { fbNavigate('/' + COMPANY + '/bill/new'); },
+    'delete': function(row) {
+      var billId = row.dataset.billId;
+      var vendor = row.dataset.vendor || billId;
+      if (!billId) return;
+      if (!confirm('Delete bill from "' + vendor + '"? This cannot be undone.')) return;
+      fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'bill.delete', companyId: COMPANY, billId: billId }) })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+          var d = res.data || res;
+          if (res.error || d.error) {
+            alert('Cannot delete: ' + (res.error || d.error));
+          } else {
+            loadAllBills();
+          }
+        })
+        .catch(function(e) { alert('Error: ' + e.message); });
+    }
+  };
+}
+
+function loadVendors() {
+  // Vendors loaded into allBills data; no separate dropdown needed
 }
 
 function loadAllBills() {
@@ -267,27 +403,43 @@ function setText(id, text) {
 function applyFilters() {
   if (!document.getElementById('f-search')) return;
   var search = (document.getElementById('f-search').value || '').toLowerCase().trim();
-  var status = document.getElementById('f-status').value;
-  var vendor = document.getElementById('f-vendor').value;
 
   filteredBills = allBills.filter(function(b) {
-    // Search
+    // Text search
     if (search) {
       var haystack = ((b.vendor || '') + ' ' + (b.vendor_ref || '') + ' ' + (b.description || '')).toLowerCase();
       if (haystack.indexOf(search) === -1) return false;
     }
-    // Status (special: overdue)
-    if (status === 'overdue') {
-      var due = b.due_date ? String(b.due_date).slice(0,10) : null;
-      var active = b.status === 'posted' || b.status === 'partial';
-      if (!active || !due || due >= today) return false;
-    } else if (status) {
-      if (b.status !== status) return false;
+    // Column filters (single-select per column)
+    if (colFilters.status) {
+      if (colFilters.status === 'overdue') {
+        var due = b.due_date ? String(b.due_date).slice(0,10) : null;
+        var active = b.status === 'posted' || b.status === 'partial';
+        if (!active || !due || due >= today) return false;
+      } else {
+        if (b.status !== colFilters.status) return false;
+      }
     }
-    // Vendor
-    if (vendor && b.vendor !== vendor) return false;
+    if (colFilters.vendor && b.vendor !== colFilters.vendor) return false;
+    if (colFilters.date && String(b.date).slice(0,10) !== colFilters.date) return false;
+    if (colFilters.due_date && String(b.due_date || '').slice(0,10) !== colFilters.due_date) return false;
+    if (colFilters.amount && String(Number(b.amount||0).toFixed(2)) !== colFilters.amount) return false;
     return true;
   });
+
+  // Apply sort
+  if (sortState.col) {
+    var col = sortState.col, dir = sortState.dir;
+    filteredBills = filteredBills.slice().sort(function(a, b) {
+      var av = a[col] == null ? '' : a[col];
+      var bv = b[col] == null ? '' : b[col];
+      if (col === 'amount') { av = Number(av); bv = Number(bv); }
+      else { av = String(av).toLowerCase(); bv = String(bv).toLowerCase(); }
+      if (av < bv) return dir === 'asc' ? -1 : 1;
+      if (av > bv) return dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
 
   currentPage = 1;
   renderPage();
@@ -313,15 +465,14 @@ function renderPage() {
     var active = b.status === 'posted' || b.status === 'partial';
     var isOverdue = active && due && due < today;
     var dueCls = isOverdue ? ' class="overdue-date"' : '';
-    var dueDisp = due || '\u2014';
-    html += '<tr>'
+    var rowUrl = '/' + COMPANY + '/bill/' + b.bill_id;
+    html += '<tr data-url="' + rowUrl + '" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '">'
       + '<td style="white-space:nowrap">' + fmtDate(b.date) + '</td>'
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'
       + '<td>' + vendorCell(b.vendor) + '</td>'
-      + '<td><a href="/' + COMPANY + '/bill/' + b.bill_id + '" class="ref-link">' + esc(b.vendor_ref || b.bill_id) + '</a></td>'
+      + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || b.bill_id) + '</a></td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
       + '<td>' + statusBadge(b.status, due) + '</td>'
-      + '<td style="text-align:right"><a href="/' + COMPANY + '/bill/' + b.bill_id + '" class="view-link">View</a></td>'
       + '</tr>';
   });
   var tbody = document.getElementById('bills-tbody');
@@ -397,7 +548,7 @@ function statusBadge(status, dueDate) {
 function showMsg(msg) {
   var el = document.getElementById('bills-tbody');
   if (!el) return;
-  el.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:32px">' + esc(msg) + '</td></tr>';
+  el.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">' + esc(msg) + '</td></tr>';
 }
 
 function esc(s) {

@@ -286,6 +286,13 @@ function fbPageInitBillDetail() {
 window.addEventListener('DOMContentLoaded', fbPageInitBillDetail);
 window.fbPageInit = fbPageInitBillDetail;
 
+// Register keyboard actions for bill detail view
+window.fbKeyActions = {
+  'edit': function() {
+    if (typeof toggleEdit === 'function') toggleEdit();
+  }
+};
+
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }

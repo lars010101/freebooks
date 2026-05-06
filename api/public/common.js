@@ -179,9 +179,14 @@
   // h / l         → horizontal submenu tab prev/next
   // j / k         → table row prev/next (with visual focus)
   // Enter         → activate focused row (follow link or click)
+  // a             → page-registered "new" action (e.g. New Bill)
+  // d             → page-registered "delete" action on focused row
+  // e             → page-registered "edit" action
   // /             → focus global search
   // : or Ctrl+K   → command palette
   // g + letter    → jump navigation (gd=Dashboard, gb=Bank, etc.)
+  //
+  // Pages register handlers via: window.fbKeyActions = { new, delete, edit }
 
   var _fbVimMode = 'normal';
   window.fbSetVimMode = function(mode) {
@@ -332,6 +337,35 @@
         if (link) { fbNavigate(link.getAttribute('href')); }
         else { focusedRow.click(); }
       }
+      return;
+    }
+
+    // ── a → page-registered "new" action ──
+    if (e.key === 'a') {
+      if (window.fbKeyActions && typeof window.fbKeyActions['new'] === 'function') {
+        e.preventDefault();
+        window.fbKeyActions['new']();
+      }
+      return;
+    }
+
+    // ── d → delete focused row (page-registered) ──
+    if (e.key === 'd') {
+      var focusedRowD = document.querySelector('tr.nav-row-focus');
+      if (focusedRowD && window.fbKeyActions && typeof window.fbKeyActions['delete'] === 'function') {
+        e.preventDefault();
+        window.fbKeyActions['delete'](focusedRowD);
+      }
+      return;
+    }
+
+    // ── e → page-registered "edit" action ──
+    if (e.key === 'e') {
+      if (window.fbKeyActions && typeof window.fbKeyActions['edit'] === 'function') {
+        e.preventDefault();
+        window.fbKeyActions['edit']();
+      }
+      return;
     }
   });
 

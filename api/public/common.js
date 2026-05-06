@@ -405,8 +405,13 @@
       return;
     }
 
+    // ── a / d → vendor cell nav owns these when active ──
+    var vendorPanelAD = document.getElementById('pay-panel-vendors');
+    var vendorActive = vendorPanelAD && vendorPanelAD.style.display !== 'none';
+
     // ── a → page-registered "new" action ──
     if (e.key === 'a') {
+      if (vendorActive) return;
       if (window.fbKeyActions && typeof window.fbKeyActions['new'] === 'function') {
         e.preventDefault();
         window.fbKeyActions['new']();
@@ -416,6 +421,7 @@
 
     // ── d → delete focused row (page-registered) ──
     if (e.key === 'd') {
+      if (vendorActive) return;
       if (window.fbKeyActions && typeof window.fbKeyActions['delete'] === 'function') {
         e.preventDefault();
         var focusedRowD = document.querySelector('tr.nav-row-focus');

@@ -808,7 +808,7 @@ function buildVendorDisplayRow(v, i) {
     activeBadge
   ];
   var cellStyles = ['', 'text-align:center;font-size:9pt;color:#666', 'text-align:center;color:#444',
-    'font-family:monospace;font-size:9.5pt', 'font-family:monospace;font-size:9.5pt', 'text-align:center'];
+    'font-size:9.5pt', 'font-size:9.5pt', 'text-align:center'];
 
   cellContents.forEach(function(content, col) {
     var td = document.createElement('td');
@@ -926,8 +926,8 @@ function renderVendorCell(td, col, v) {
   if (col === 0) { td.innerHTML = vendorCell(v.name || ''); td.style.cssText = ''; }
   else if (col === 1) { td.textContent = v.default_currency || '\u2014'; td.style.cssText = 'text-align:center;font-size:9pt;color:#666'; }
   else if (col === 2) { td.textContent = (v.payment_terms_days || 30) + '\u202fd'; td.style.cssText = 'text-align:center;color:#444'; }
-  else if (col === 3) { td.textContent = v.default_expense_account || '\u2014'; td.style.cssText = 'font-family:monospace;font-size:9.5pt'; }
-  else if (col === 4) { td.textContent = v.default_ap_account || '\u2014'; td.style.cssText = 'font-family:monospace;font-size:9.5pt'; }
+  else if (col === 3) { td.textContent = v.default_expense_account || '\u2014'; td.style.cssText = 'font-size:9.5pt'; }
+  else if (col === 4) { td.textContent = v.default_ap_account || '\u2014'; td.style.cssText = 'font-size:9.5pt'; }
   else if (col === 5) {
     td.innerHTML = v.is_active !== false
       ? '<span class="badge" style="background:#f0fff4;color:#2a8a2a">Active</span>'
@@ -1061,9 +1061,14 @@ function vendorMsg(msg, type) {
 }
 
 function registerVendorKeyActions() {
+  var VENDOR_KEYS = ['j','k','h','l','i','a','d','~','Enter','Escape','Tab','ArrowDown','ArrowUp'];
   document.addEventListener('keydown', function(e) {
     var panel = document.getElementById('pay-panel-vendors');
     if (!panel || panel.style.display === 'none') return;
+    // Capture phase: stop common.js tab-switch handler from also consuming these keys
+    if (VENDOR_KEYS.indexOf(e.key) !== -1 && (vendorCellEdit || vendorSelRow >= 0)) {
+      e.stopImmediatePropagation();
+    }
 
     if (vendorCellEdit) {
       var acctDd = document.getElementById('pay-vendor-acct-dd');

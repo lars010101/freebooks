@@ -310,9 +310,15 @@
       clearTimeout(_gTimer);
     }
 
-    // ── i → Insert mode: focus first input in page-main ──
+    // ── i → Insert mode: edit focused nav row, or focus first input in page-main ──
     if (e.key === 'i') {
       e.preventDefault();
+      // If a nav row is focused and page registered 'edit', delegate to it
+      if (window.fbKeyActions && typeof window.fbKeyActions['edit'] === 'function') {
+        var focusedNavRow = document.querySelector('tr.nav-row-focus, .attach-row.nav-attach-focus');
+        if (focusedNavRow) { window.fbKeyActions['edit'](); return; }
+      }
+      // Generic: focus first input in page (vim insert mode)
       var first = document.querySelector('#page-main input:not([type=hidden]):not([disabled]), #page-main textarea:not([disabled])');
       if (first) { first.focus(); fbSetVimMode('insert'); }
       return;

@@ -288,6 +288,7 @@ function openColFilter(th, col) {
       applyFilters();
     });
     dd.appendChild(inp);
+    setTimeout(function() { if (inp.showPicker) inp.showPicker(); }, 50);
 
   } else if (filterType === 'text') {
     // Free-text contains filter (simplified: no buttons, just input + autosearch)

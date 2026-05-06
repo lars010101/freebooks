@@ -276,7 +276,9 @@
       _gPending = false;
       clearTimeout(_gTimer);
       e.preventDefault();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      var pm = document.getElementById('page-main');
+      if (pm) pm.scrollTo({ top: 0, behavior: 'smooth' });
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     if (_gPending) {
@@ -288,7 +290,9 @@
     // ── G → scroll to bottom ──
     if (e.shiftKey && e.key === 'G') {
       e.preventDefault();
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      var pm = document.getElementById('page-main');
+      if (pm) pm.scrollTo({ top: pm.scrollHeight, behavior: 'smooth' });
+      else window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
       return;
     }
 

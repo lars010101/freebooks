@@ -261,6 +261,14 @@ function openColFilter(th, col) {
   var existing = document.getElementById('col-filter-dd');
   if (existing) { existing.remove(); if (existing.dataset.col === col) return; }
 
+  // Toggle: if column already has a filter, clear it and return
+  if (th.classList.contains('col-filtered')) {
+    delete colFilters[col];
+    th.classList.remove('col-filtered');
+    applyFilters();
+    return;
+  }
+
   var filterType = th.dataset.filterType || 'list';
   var dd = document.createElement('div');
   dd.id = 'col-filter-dd';
@@ -268,31 +276,22 @@ function openColFilter(th, col) {
   dd.dataset.col = col;
 
   if (filterType === 'date') {
-    // Calendar picker
-    var lbl = document.createElement('label');
-    lbl.textContent = 'Pick a date';
+    // Native date picker (no dropdown dialog)
     var inp = document.createElement('input');
     inp.type = 'date';
-    inp.value = colFilters[col] || '';
-    var clearBtn = document.createElement('div');
-    clearBtn.className = 'col-filter-dd-item col-filter-dd-clear';
-    clearBtn.textContent = 'Clear filter';
-    clearBtn.addEventListener('click', function() {
-      delete colFilters[col]; th.classList.remove('col-filtered'); dd.remove(); applyFilters();
-    });
-    var applyBtn = document.createElement('button');
-    applyBtn.className = 'col-filter-dd-apply';
-    applyBtn.textContent = 'Apply';
-    applyBtn.addEventListener('click', function() {
+    inp.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none;';
+    document.body.appendChild(inp);
+    if (colFilters[col]) inp.value = colFilters[col];
+    inp.addEventListener('change', function() {
       var v = inp.value;
       if (v) { colFilters[col] = v; th.classList.add('col-filtered'); }
       else { delete colFilters[col]; th.classList.remove('col-filtered'); }
-      dd.remove(); applyFilters();
+      inp.remove();
+      applyFilters();
     });
-    dd.appendChild(lbl);
-    dd.appendChild(inp);
-    dd.appendChild(clearBtn);
-    dd.appendChild(applyBtn);
+    inp.addEventListener('blur', function() { inp.remove(); });
+    setTimeout(function() { inp.showPicker && inp.showPicker(); }, 0);
+    return;
 
   } else if (filterType === 'text') {
     // Free-text contains filter (simplified: no buttons, just input + autosearch)
@@ -344,31 +343,24 @@ function openColFilter(th, col) {
     inp3.step = '0.01';
     inp3.min = '0';
     if (colFilters[col]) inp3.value = colFilters[col].val;
-    var clearBtn3 = document.createElement('div');
-    clearBtn3.className = 'col-filter-dd-item col-filter-dd-clear';
-    clearBtn3.textContent = 'Clear filter';
-    clearBtn3.addEventListener('click', function() {
-      delete colFilters[col]; th.classList.remove('col-filtered'); dd.remove(); applyFilters();
-    });
-    var applyBtn3 = document.createElement('button');
-    applyBtn3.className = 'col-filter-dd-apply';
-    applyBtn3.textContent = 'Apply';
-    applyBtn3.addEventListener('click', function() {
-      var v = inp3.value.trim();
-      if (v !== '') {
-        colFilters[col] = { op: opSel.value, val: Number(v) };
-        th.classList.add('col-filtered');
-      } else {
-        delete colFilters[col];
-        th.classList.remove('col-filtered');
+    inp3.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        var v = inp3.value.trim();
+        if (v !== '') {
+          colFilters[col] = { op: opSel.value, val: Number(v) };
+          th.classList.add('col-filtered');
+        } else {
+          delete colFilters[col];
+          th.classList.remove('col-filtered');
+        }
+        dd.remove();
+        applyFilters();
       }
-      dd.remove(); applyFilters();
     });
     dd.appendChild(lbl3);
     dd.appendChild(opSel);
     dd.appendChild(inp3);
-    dd.appendChild(clearBtn3);
-    dd.appendChild(applyBtn3);
+    setTimeout(function() { inp3.focus(); }, 50);
 
   } else {
     // List (single-select): status, currency

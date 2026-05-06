@@ -215,7 +215,7 @@
   document.addEventListener('keydown', function(e) {
     var ae = document.activeElement || {};
     var tag = (ae.tagName || '').toUpperCase();
-    var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || ae.isContentEditable;
+    var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || ae.isContentEditable;
 
     // ── Escape: always exit to Normal mode ──
     if (e.key === 'Escape') {

@@ -20,7 +20,7 @@ ${commonStyle()}
 
   <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:0.75rem 3rem; border-bottom:1px solid var(--border,#e8e8e8); flex-shrink:0;">
     <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbOnTypeChange()">
-      <option value="" disabled>Select report…</option>
+      <option value="" disabled selected>Select report…</option>
       <option value="pl">Profit &amp; Loss</option>
       <option value="bs">Balance Sheet</option>
       <option value="cf">Cash Flow</option>

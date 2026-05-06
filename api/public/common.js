@@ -116,13 +116,17 @@
           s.replaceWith(ns);
         });
 
-        // Update sidebar active state
+        // Update sidebar active state (longest/most-specific match wins)
         var sbItems = Array.from(document.querySelectorAll('.sb-nav a[href]'));
         sbItems.forEach(function(el) { el.classList.remove('sb-active'); });
-        var active = sbItems.find(function(el) {
+        var active = sbItems.reduce(function(best, el) {
           var href = el.getAttribute('href');
-          return href && (url === href || url.startsWith(href + '/'));
-        });
+          if (!href) return best;
+          if (url === href || url.startsWith(href + '/')) {
+            if (!best || href.length > best.getAttribute('href').length) return el;
+          }
+          return best;
+        }, null);
         if (active) active.classList.add('sb-active');
 
         // Update top-bar right section

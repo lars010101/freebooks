@@ -109,11 +109,21 @@
         // Swap page-main content
         oldMain.innerHTML = newMain.innerHTML;
 
-        // Re-execute inline scripts
+        // Re-execute inline scripts inside #page-main
         oldMain.querySelectorAll('script').forEach(function(s) {
           var ns = document.createElement('script');
           ns.textContent = s.textContent;
           s.replaceWith(ns);
+        });
+
+        // Re-execute body-level inline scripts outside #page-main (e.g. reports-hub)
+        doc.querySelectorAll('body script').forEach(function(s) {
+          if (s.src) return; // skip external scripts like common.js
+          if (newMain && newMain.contains(s)) return; // already handled above
+          var ns = document.createElement('script');
+          ns.textContent = s.textContent;
+          document.body.appendChild(ns);
+          ns.remove();
         });
 
         // Update sidebar active state (longest/most-specific match wins)

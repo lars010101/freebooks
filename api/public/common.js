@@ -415,7 +415,7 @@
     }
 
     // ── e → page-registered "edit" action ──
-    if (e.key === 'i') {
+    if (e.key === 'e') {
       if (window.fbKeyActions && typeof window.fbKeyActions['edit'] === 'function') {
         e.preventDefault();
         window.fbKeyActions['edit']();

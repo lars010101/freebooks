@@ -26,9 +26,6 @@ ${commonStyle()}
 
 
 
-  .page-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:28px; }
-  .page-header h1 { margin:0 0 4px; font-size:20pt; font-weight:700; letter-spacing:-.01em; }
-  .page-header-left { display:flex; align-items:center; gap:12px; }
   .bill-header-actions { display:flex; gap:10px; align-items:center; }
 
   .badge { display:inline-block; padding:4px 12px; border-radius:5px; font-size:9pt; font-weight:600; }
@@ -141,9 +138,9 @@ ${commonStyle()}
 <div class="page">
 
   <!-- Header -->
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1>📋 Payables: Bill details</h1>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:28px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <h1 style="margin:0">📋 Payables: Bill details</h1>
       <span id="b-status"></span>
     </div>
     <div class="bill-header-actions">

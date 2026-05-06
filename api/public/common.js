@@ -361,6 +361,11 @@
 
     // ── j / k → table row navigation ──
     if (e.key === 'j' || e.key === 'k') {
+      // Vendor cell nav owns j/k when active
+      var vendorPanelJK = document.getElementById('pay-panel-vendors');
+      if (vendorPanelJK && vendorPanelJK.style.display !== 'none' && typeof window.fbVendorSelRow !== 'undefined' && window.fbVendorSelRow >= 0) {
+        return;
+      }
       // Allow page to intercept j/k (e.g. for mixed table+div navigation)
       if (window.fbKeyActions && typeof window.fbKeyActions[e.key] === 'function') {
         e.preventDefault();

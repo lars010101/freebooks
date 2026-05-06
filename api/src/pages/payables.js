@@ -975,6 +975,7 @@ function vendorMoveRow(dir) {
     if (vendorSelRow === 0) { saveVendorRowIfDirty(0); vendorSelRow = -1; window.fbVendorSelRow = -1; updateVendorCursor(); return; }
   } else {
     if (vendorSelRow < 0) { vendorSelRow = 0; updateVendorCursor(); return; }
+    if (vendorSelRow === allVendors.length - 1) { saveVendorRowIfDirty(vendorSelRow); vendorSelRow = -1; window.fbVendorSelRow = -1; updateVendorCursor(); return; }
   }
   saveVendorRowIfDirty(vendorSelRow);
   vendorSelRow = Math.max(0, Math.min(allVendors.length - 1, vendorSelRow + dir));

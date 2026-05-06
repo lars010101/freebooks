@@ -28,12 +28,12 @@ ${commonStyle()}
 
   .bill-header-actions { display:flex; gap:10px; align-items:center; }
 
-  .badge { display:inline-block; padding:4px 12px; border-radius:5px; font-size:9pt; font-weight:600; }
+  .badge { display:inline-block; padding:4px 12px; border-radius:5px; font-size:0.75rem; font-weight:600; }
 
   .btn-action {
     display:inline-flex; align-items:center; gap:6px;
     padding:8px 18px; border:1px solid #d0d0d0; border-radius:6px;
-    background:#fff; cursor:pointer; font-size:10pt; color:#333;
+    background:#fff; cursor:pointer; font-size:0.8125rem; color:#333;
     white-space:nowrap;
   }
   .btn-action:hover { background:#f5f5f5; border-color:#bbb; }
@@ -50,8 +50,8 @@ ${commonStyle()}
   .meta-field:first-child { padding-left:0; }
   .meta-field:last-child { border-right:none; }
   .meta-field + .meta-field { border-left:1px solid #eee; }
-  .meta-label { font-size:8.5pt; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }
-  .meta-val { font-size:12pt; font-weight:600; color:#1a1a1a; }
+  .meta-label { font-size:0.75rem; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }
+  .meta-val { font-size:1rem; font-weight:600; color:#1a1a1a; }
 
   /* Amount cards */
   .amount-cards { display:flex; gap:16px; margin-bottom:36px; }
@@ -65,23 +65,23 @@ ${commonStyle()}
     background:#fff; border:2px solid #1a1a1a; border-radius:8px;
     padding:24px 28px;
   }
-  .card-label { font-size:8.5pt; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.06em; margin-bottom:12px; }
-  .card-val-paid { font-size:30pt; font-weight:600; color:#c0c0c0; line-height:1; }
+  .card-label { font-size:0.75rem; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.06em; margin-bottom:12px; }
+  .card-val-paid { font-size:1.875rem; font-weight:600; color:#c0c0c0; line-height:1; }
   .card-val-due { display:flex; align-items:baseline; gap:8px; line-height:1; }
-  .card-currency { font-size:13pt; font-weight:500; color:#aaa; }
-  .card-amount { font-size:36pt; font-weight:700; color:#1a1a1a; }
+  .card-currency { font-size:1.0625rem; font-weight:500; color:#aaa; }
+  .card-amount { font-size:2.25rem; font-weight:700; color:#1a1a1a; }
 
   /* Section headings */
-  .section-h { font-size:13pt; font-weight:700; color:#1a1a1a; margin:0 0 14px; }
+  .section-h { font-size:1.0625rem; font-weight:700; color:#1a1a1a; margin:0 0 14px; }
 
   /* Card-wrapped tables */
   .table-card {
     border:1px solid #e8e8e8; border-radius:8px;
     overflow:hidden; margin-bottom:36px;
   }
-  .data-table { width:100%; border-collapse:collapse; font-size:10.5pt; }
+  .data-table { width:100%; border-collapse:collapse; font-size:0.875rem; }
   .data-table th {
-    text-align:left; font-size:8.5pt; color:#aaa; font-weight:600;
+    text-align:left; font-size:0.75rem; color:#aaa; font-weight:600;
     text-transform:uppercase; letter-spacing:.05em;
     background:#fafafa; border-bottom:1px solid #e8e8e8;
     padding:12px 18px;
@@ -101,18 +101,18 @@ ${commonStyle()}
     width:36px; height:44px; background:#fff0f0; border:1px solid #ffcccc;
     border-radius:4px; flex-shrink:0;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
-    font-size:8pt; font-weight:700; color:#cc4444; letter-spacing:.04em;
+    font-size:0.6875rem; font-weight:700; color:#cc4444; letter-spacing:.04em;
     line-height:1;
   }
-  .pdf-icon::before { content:'\\2014'; font-size:6pt; color:#ffaaaa; margin-bottom:2px; }
+  .pdf-icon::before { content:'\\2014'; font-size:0.5rem; color:#ffaaaa; margin-bottom:2px; }
   .attach-info { flex:1; min-width:0; }
-  .attach-filename { font-weight:600; font-size:10pt; color:#1a1a1a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .attach-meta { font-size:8.5pt; color:#aaa; margin-top:3px; }
+  .attach-filename { font-weight:600; font-size:0.8125rem; color:#1a1a1a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .attach-meta { font-size:0.75rem; color:#aaa; margin-top:3px; }
   .attach-actions { display:flex; gap:6px; flex-shrink:0; }
   .btn-icon {
     width:32px; height:32px; border:1px solid #ddd; border-radius:5px;
     background:#fff; cursor:pointer; display:inline-flex;
-    align-items:center; justify-content:center; font-size:13pt; color:#555;
+    align-items:center; justify-content:center; font-size:1.0625rem; color:#555;
     text-decoration:none;
   }
   .btn-icon:hover { background:#f5f5f5; border-color:#bbb; }
@@ -133,10 +133,10 @@ ${commonStyle()}
   .meta-field.nav-meta-focus .meta-label { color: rgba(255,255,255,.7); }
   .meta-field.nav-meta-focus .meta-val-input { color: #fff; background: transparent; }
   /* Inline edit hint */
-  .line-desc-input { width:100%; border:none; background:transparent; font-size:10.5pt; padding:2px 4px; border-radius:3px; color:#222; cursor:text; }
+  .line-desc-input { width:100%; border:none; background:transparent; font-size:0.875rem; padding:2px 4px; border-radius:3px; color:#222; cursor:text; }
   .line-desc-input:hover { background:#f8f9ff; border:1px solid #c0c8ff; }
   .line-desc-input:focus { outline:none; background:#f8f9ff; border:1px solid #c0c8ff; }
-  .meta-val-input { font-size:12pt; font-weight:600; color:#1a1a1a; border:none; background:transparent; padding:2px 4px; border-radius:3px; width:100%; cursor:text; }
+  .meta-val-input { font-size:1rem; font-weight:600; color:#1a1a1a; border:none; background:transparent; padding:2px 4px; border-radius:3px; width:100%; cursor:text; }
   .meta-val-input:hover { background:#f8f9ff; border:1px solid #c0c8ff; }
   .meta-val-input:focus { outline:none; background:#f8f9ff; border:1px solid #c0c8ff; }
 </style>
@@ -168,7 +168,7 @@ ${commonStyle()}
       <div class="meta-val" id="b-vendor">—</div>
     </div>
     <div class="meta-field nav-meta-item">
-      <div class="meta-label">Invoice Ref <span style="font-size:7.5pt;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
+      <div class="meta-label">Invoice Ref <span style="font-size:0.625rem;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
       <input class="meta-val-input" id="b-ref" value="" placeholder="—" title="Press i or click to edit" onchange="saveRef(this.value)" onblur="saveRef(this.value)">
     </div>
     <div class="meta-field">
@@ -176,7 +176,7 @@ ${commonStyle()}
       <div class="meta-val" id="b-date">—</div>
     </div>
     <div class="meta-field nav-meta-item">
-      <div class="meta-label">Due Date <span style="font-size:7.5pt;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
+      <div class="meta-label">Due Date <span style="font-size:0.625rem;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
       <input type="date" class="meta-val-input" id="b-due" title="Press i or click to edit" onchange="saveDueDate(this.value)">
     </div>
     <div class="meta-field">
@@ -226,7 +226,7 @@ ${commonStyle()}
   <!-- Attachments -->
   <div class="section-h">Attachments</div>
   <div id="attachments-list" class="attach-card" style="margin-bottom:36px">
-    <div style="padding:16px 20px;color:#aaa;font-size:9.5pt">Loading&#8230;</div>
+    <div style="padding:16px 20px;color:#aaa;font-size:0.8125rem">Loading&#8230;</div>
   </div>
 
   <!-- Journal Entries -->
@@ -539,7 +539,7 @@ function loadJournals() {
 function renderAttachments(items) {
   var el = document.getElementById('attachments-list');
   if (!items.length) {
-    el.innerHTML = '<div style="padding:16px 20px;color:#aaa;font-size:9.5pt">No attachments yet.</div>';
+    el.innerHTML = '<div style="padding:16px 20px;color:#aaa;font-size:0.8125rem">No attachments yet.</div>';
     return;
   }
   el.innerHTML = items.map(function(a){
@@ -562,7 +562,7 @@ function renderAttachments(items) {
 
 function loadAttachments() {
   var el = document.getElementById('attachments-list');
-  el.innerHTML = '<div style="padding:16px 20px;color:#aaa;font-size:9.5pt">Loading\u2026</div>';
+  el.innerHTML = '<div style="padding:16px 20px;color:#aaa;font-size:0.8125rem">Loading\u2026</div>';
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'attachment.list', companyId: COMPANY, entityType:'bill', entityId: BILL_ID }) })
   .then(function(r){ return r.json(); })

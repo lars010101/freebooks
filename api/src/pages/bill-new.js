@@ -21,13 +21,13 @@ ${commonStyle()}
   .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px 24px; max-width:700px; margin-bottom:20px; }
   .form-grid .full { grid-column:1 / -1; }
   .form-group { display:flex; flex-direction:column; gap:4px; }
-  .form-group label { font-weight:600; font-size:10pt; color:#555; }
+  .form-group label { font-weight:600; font-size:0.8125rem; color:#555; }
   .form-group input, .form-group select, .form-group textarea {
-    padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; }
+    padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:0.8125rem; }
   .form-group input:focus, .form-group select:focus { outline:none; border-color:#888; }
-  .form-group .err { color:#cc2222; font-size:9pt; margin-top:2px; display:none; }
+  .form-group .err { color:#cc2222; font-size:0.75rem; margin-top:2px; display:none; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px;
-    font-size:11pt; font-weight:600; cursor:pointer; }
+    font-size:0.9375rem; font-weight:600; cursor:pointer; }
   button.btn-primary:hover:not(:disabled) { background:#333; }
   button.btn-primary:disabled { opacity:0.4; cursor:default; }
   .success-box { background:#f0fff4; border:1px solid #2a8a2a; border-radius:6px; padding:20px 24px;
@@ -38,25 +38,25 @@ ${commonStyle()}
   .acct-row { display:flex; gap:6px; align-items:flex-start; }
   .acct-row input.code { width:90px; flex-shrink:0; }
   .acct-row input.name { flex:1; color:#555; }
-  .acct-hint { font-size:8pt; color:#888; margin-top:2px; }
+  .acct-hint { font-size:0.6875rem; color:#888; margin-top:2px; }
   .vendor-wrap { position:relative; }
   /* Lines table */
   .lines-section { max-width:900px; margin-bottom:18px; }
-  .lines-section h3 { font-size:10pt; color:#555; font-weight:600; margin:0 0 8px; }
-  table.lines-table { width:100%; border-collapse:collapse; font-size:10pt; }
-  table.lines-table th { text-align:left; font-size:9pt; color:#555; text-transform:uppercase;
+  .lines-section h3 { font-size:0.8125rem; color:#555; font-weight:600; margin:0 0 8px; }
+  table.lines-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+  table.lines-table th { text-align:left; font-size:0.75rem; color:#555; text-transform:uppercase;
     border-bottom:1px solid #ccc; padding:5px 6px; }
   table.lines-table td { padding:4px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
   table.lines-table input[type=text], table.lines-table input[type=number] {
-    padding:5px 7px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  table.lines-table select { padding:5px 7px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  .btn-remove { background:none; border:none; color:#cc2222; font-size:13pt; cursor:pointer;
+    padding:5px 7px; border:1px solid #ddd; border-radius:3px; font-size:0.8125rem; }
+  table.lines-table select { padding:5px 7px; border:1px solid #ddd; border-radius:3px; font-size:0.8125rem; }
+  .btn-remove { background:none; border:none; color:#cc2222; font-size:1.0625rem; cursor:pointer;
     padding:0 4px; line-height:1; }
   .btn-remove:disabled { color:#ccc; cursor:default; }
-  .btn-add-line { margin-top:8px; padding:6px 16px; font-size:10pt; cursor:pointer;
+  .btn-add-line { margin-top:8px; padding:6px 16px; font-size:0.8125rem; cursor:pointer;
     border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
   .btn-add-line:hover { background:#e8e8e8; }
-  .total-row { margin-top:8px; font-size:11pt; font-weight:600; text-align:right; max-width:900px; }
+  .total-row { margin-top:8px; font-size:0.9375rem; font-weight:600; text-align:right; max-width:900px; }
   .line-acct-wrap { position:relative; display:flex; gap:4px; }
   .line-acct-wrap input.lcode { width:80px; }
   .line-acct-wrap input.lname { width:140px; color:#555; }
@@ -117,9 +117,9 @@ ${commonStyle()}
         <label>FX Rate</label>
         <div style="display:flex;gap:8px;align-items:flex-start">
           <input type="number" id="fx-rate" placeholder="1.0" step="0.0001" style="flex:1">
-          <button type="button" class="btn-sm" id="btn-get-rate" onclick="getRate()" style="padding:7px 12px;font-size:10pt;display:none">Get Rate</button>
+          <button type="button" class="btn-sm" id="btn-get-rate" onclick="getRate()" style="padding:7px 12px;font-size:0.8125rem;display:none">Get Rate</button>
         </div>
-        <span id="fx-rate-hint" style="font-size:9pt;color:#666"></span>
+        <span id="fx-rate-hint" style="font-size:0.75rem;color:#666"></span>
       </div>
       <!-- AP Account -->
       <div class="form-group">
@@ -158,28 +158,28 @@ ${commonStyle()}
       </table>
       <button class="btn-add-line" onclick="addLine()">＋ Add Line</button>
       <div class="total-row" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
-        <div style="font-weight:400;font-size:10pt;color:#555">Subtotal (net): <span id="lines-net">0.00</span></div>
+        <div style="font-weight:400;font-size:0.8125rem;color:#555">Subtotal (net): <span id="lines-net">0.00</span></div>
         <div id="gst-rows"></div>
         <div style="border-top:1px solid #ccc;padding-top:4px;margin-top:2px">Total payable: <span id="lines-total">0.00</span></div>
-        <div id="fx-total-display" style="margin-top:2px;font-size:9.5pt;color:#666;display:none"></div>
+        <div id="fx-total-display" style="margin-top:2px;font-size:0.8125rem;color:#666;display:none"></div>
       </div>
       <div class="err" id="err-lines" style="display:none;margin-top:6px">At least one expense line with a valid account and amount > 0 is required</div>
     </div>
 
     <div style="display:flex;gap:12px;align-items:center">
       <button class="btn-primary" id="btn-submit" onclick="submitBill()">Create Bill</button>
-      <span id="status-msg" style="font-size:10pt"></span>
+      <span id="status-msg" style="font-size:0.8125rem"></span>
     </div>
 
     <div style="margin-top:14px;padding-top:12px;border-top:1px solid #eee">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-size:10pt;font-weight:600">📎 Attachments</span>
-        <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;font-size:9.5pt">
+        <span style="font-size:0.8125rem;font-weight:600">📎 Attachments</span>
+        <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;font-size:0.8125rem">
           + Attach
           <input type="file" id="bill-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addBillAttachment(this)" multiple>
         </label>
       </div>
-      <div id="bill-pending-list" style="font-size:9.5pt;color:#aaa">No files queued</div>
+      <div id="bill-pending-list" style="font-size:0.8125rem;color:#aaa">No files queued</div>
     </div>
   </div>
 </div>
@@ -428,7 +428,7 @@ ${commonStyle()}
   if (_reenterId) {
     document.querySelector('.header h1').textContent = '📄 Re-enter Bill';
     var _banner = document.createElement('div');
-    _banner.style.cssText = 'background:#fff3e0;border:1px solid #ff9800;border-radius:4px;padding:12px 16px;margin-bottom:16px;font-size:10pt;';
+    _banner.style.cssText = 'background:#fff3e0;border:1px solid #ff9800;border-radius:4px;padding:12px 16px;margin-bottom:16px;font-size:0.8125rem;';
     _banner.innerHTML = '<strong>⟲ Re-entry mode</strong> &mdash; The original bill has been reversed. Fill in the corrected details and submit.';
     var _formGrid = document.querySelector('.form-grid');
     document.getElementById('bill-form').insertBefore(_banner, _formGrid);
@@ -491,7 +491,7 @@ ${commonStyle()}
     var div = document.createElement('div');
     div.id = 'vendor-dd';
     div.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;'
-      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;min-width:260px;font-size:10pt;'
+      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;min-width:260px;font-size:0.8125rem;'
       + 'top:'+(rect.bottom+2)+'px;left:'+rect.left+'px';
     matches.forEach(function(v){
       var row = document.createElement('div');
@@ -622,7 +622,7 @@ ${commonStyle()}
     var vatSel = '<select class="vat-select" style="width:100px"></select>';
 
     tr.innerHTML =
-      '<td style="color:#888;font-size:9pt;padding-left:8px">' + tbody.children.length + 1 + '</td>' +
+      '<td style="color:#888;font-size:0.75rem;padding-left:8px">' + tbody.children.length + 1 + '</td>' +
       '<td>' +
         '<div class="line-acct-wrap">' +
           '<input type="text" class="lcode" data-line="'+idx+'" placeholder="401000" style="width:80px" autocomplete="off">' +
@@ -631,7 +631,7 @@ ${commonStyle()}
       '</td>' +
       '<td><input type="text" class="ldesc" data-line="'+idx+'" placeholder="Line detail" style="width:200px"></td>' +
       '<td>' +
-        '<span class="line-ccy-label" style="font-size:9pt;color:#888;min-width:32px;display:inline-block"></span>' +
+        '<span class="line-ccy-label" style="font-size:0.75rem;color:#888;min-width:32px;display:inline-block"></span>' +
         '<input type="number" class="lamount" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px">' +
       '</td>' +
       '<td>' + vatSel + '</td>' +
@@ -735,7 +735,7 @@ ${commonStyle()}
 
     // Same structure as a regular expense line
     gstTr.innerHTML =
-      '<td style="color:#888;font-size:9pt;padding-left:8px">GST</td>' +
+      '<td style="color:#888;font-size:0.75rem;padding-left:8px">GST</td>' +
       '<td>' +
         '<div class="line-acct-wrap">' +
           '<input type="text" class="lcode gst-acct-code" placeholder="' + esc(vc.vat_account_input) + '" value="' + esc(vc.vat_account_input) + '" autocomplete="off">' +
@@ -796,7 +796,7 @@ ${commonStyle()}
     Object.keys(gstByCode).forEach(function(code) {
       var vc = vatCodesList.find(function(x) { return x.vat_code === code; });
       var rateLabel = vc ? ' (' + Math.round(Number(vc.rate) * 100) + '%)' : '';
-      gstHtml += '<div style="font-weight:400;font-size:10pt;color:#555">GST ' + code + rateLabel + ': ' + gstByCode[code].toFixed(2) + '</div>';
+      gstHtml += '<div style="font-weight:400;font-size:0.8125rem;color:#555">GST ' + code + rateLabel + ': ' + gstByCode[code].toFixed(2) + '</div>';
     });
 
     document.getElementById('lines-net').textContent = net.toFixed(2);
@@ -833,7 +833,7 @@ ${commonStyle()}
     var div = document.createElement('div');
     div.id = 'acct-dd';
     div.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;'
-      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:220px;overflow-y:auto;min-width:300px;font-size:10pt;'
+      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:220px;overflow-y:auto;min-width:300px;font-size:0.8125rem;'
       + 'top:'+(rect.bottom+2)+'px;left:'+rect.left+'px';
     matches.slice(0, 20).forEach(function(a){
       var row = document.createElement('div');
@@ -868,7 +868,7 @@ ${commonStyle()}
     var div = document.createElement('div');
     div.id = 'acct-dd';
     div.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;'
-      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:220px;overflow-y:auto;min-width:300px;font-size:10pt;'
+      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:220px;overflow-y:auto;min-width:300px;font-size:0.8125rem;'
       + 'top:'+(rect.bottom+2)+'px;left:'+rect.left+'px';
     matches.slice(0, 20).forEach(function(a){
       var row = document.createElement('div');
@@ -1084,8 +1084,8 @@ ${commonStyle()}
     el.innerHTML = pendingBillAttachments.map(function(f, i) {
       var kb = (f.size / 1024).toFixed(1);
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #f5f5f5">'
-        + '<span>\ud83d\udcc4 ' + f.name + ' <span style="color:#888;font-size:8.5pt">(' + kb + ' KB)</span></span>'
-        + '<button onclick="removeBillAttachment(' + i + ')" style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:11pt;padding:0 4px">&times;</button>'
+        + '<span>\ud83d\udcc4 ' + f.name + ' <span style="color:#888;font-size:0.75rem">(' + kb + ' KB)</span></span>'
+        + '<button onclick="removeBillAttachment(' + i + ')" style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:0.9375rem;padding:0 4px">&times;</button>'
         + '</div>';
     }).join('');
   }

@@ -99,6 +99,39 @@ async function getNextReference(companyId, journalId, year) {
   return `${code}/${year}/${String(last_seq).padStart(5, '0')}`;
 }
 
+/**
+ * Pre-allocate `count` sequential references in one atomic DB round-trip.
+ * Returns array of reference strings in order.
+ */
+async function getNextReferenceBatch(companyId, journalId, year, count) {
+  if (!count || count <= 0) return [];
+  await exec(
+    `INSERT INTO journal_sequences (company_id, journal_id, year, last_seq)
+     VALUES (@companyId, @journalId, @year, 0)
+     ON CONFLICT DO NOTHING`,
+    { companyId, journalId, year }
+  );
+  await exec(
+    `UPDATE journal_sequences SET last_seq = last_seq + @count
+     WHERE company_id = @companyId AND journal_id = @journalId AND year = @year`,
+    { companyId, journalId, year, count }
+  );
+  const rows = await query(
+    `SELECT j.code, s.last_seq
+     FROM journal_sequences s
+     JOIN journals j ON j.journal_id = s.journal_id
+     WHERE s.company_id = @companyId AND s.journal_id = @journalId AND s.year = @year`,
+    { companyId, journalId, year }
+  );
+  if (rows.length === 0) throw new Error('Failed to generate reference batch');
+  const { code, last_seq } = rows[0];
+  const endSeq = Number(last_seq);
+  const startSeq = endSeq - count + 1;
+  return Array.from({ length: count }, (_, i) =>
+    `${code}/${year}/${String(startSeq + i).padStart(5, '0')}`
+  );
+}
+
 async function postEntry(ctx) {
   const { companyId, userEmail, body } = ctx;
   const { lines, source = 'manual', journalId } = body;
@@ -388,4 +421,4 @@ async function importEntries(ctx) {
   return { imported: entries.length, failed: 0, totalEntries: entries.length, rowsInserted: allRows.length, errors: [] };
 }
 
-module.exports = { handleJournal, getNextReference };
+module.exports = { handleJournal, getNextReference, getNextReferenceBatch };

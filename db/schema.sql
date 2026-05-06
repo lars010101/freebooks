@@ -124,22 +124,6 @@ CREATE TABLE IF NOT EXISTS user_permissions (
 );
 
 -- =============================================================================
--- report_runs
--- =============================================================================
-CREATE TABLE IF NOT EXISTS report_runs (
-  company_id     VARCHAR   NOT NULL,
-  run_id         VARCHAR   NOT NULL,
-  report_type    VARCHAR   NOT NULL,
-  fy_year        INTEGER,
-  period         VARCHAR,
-  generated_at   TIMESTAMP NOT NULL DEFAULT NOW(),
-  generated_by   VARCHAR,
-  document_url   VARCHAR,
-  ai_model       VARCHAR,
-  ai_tokens_used INTEGER
-);
-
--- =============================================================================
 -- bills (Accounts Payable)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS bills (

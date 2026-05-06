@@ -32,7 +32,7 @@ async function initSchema(ctx) {
     `SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'`
   );
   const names = tables.map((t) => t.table_name);
-  const expected = ['companies','accounts','journal_entries','vat_codes','bank_mappings','settings','periods','user_permissions','report_runs','bills','bill_payments','fx_rates','centers','audit_log'];
+  const expected = ['companies','accounts','journal_entries','vat_codes','bank_mappings','settings','periods','user_permissions','bills','bill_payments','fx_rates','centers','audit_log'];
   const present = expected.filter((t) => names.includes(t));
   const missing = expected.filter((t) => !names.includes(t));
 

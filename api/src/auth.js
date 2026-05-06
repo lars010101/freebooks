@@ -12,8 +12,16 @@ const ROLE_HIERARCHY = {
   viewer: 1,
 };
 
+// Simple TTL cache — permissions rarely change in a personal app
+const _permCache = new Map();
+const PERM_CACHE_TTL_MS = 60_000;
+
 async function checkPermission(email, companyId, requiredRole) {
   if (!email) return false;
+
+  const cacheKey = `${email}:${companyId}:${requiredRole}`;
+  const cached = _permCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
 
   const rows = await query(
     `SELECT role FROM user_permissions
@@ -23,11 +31,12 @@ async function checkPermission(email, companyId, requiredRole) {
     { email, companyId }
   );
 
-  if (rows.length === 0) return false;
-
-  const userLevel = ROLE_HIERARCHY[rows[0].role] || 0;
+  const userLevel = rows.length > 0 ? (ROLE_HIERARCHY[rows[0].role] || 0) : 0;
   const requiredLevel = ROLE_HIERARCHY[requiredRole] || 0;
-  return userLevel >= requiredLevel;
+  const result = userLevel >= requiredLevel;
+
+  _permCache.set(cacheKey, { result, expiresAt: Date.now() + PERM_CACHE_TTL_MS });
+  return result;
 }
 
-module.exports = { checkPermission, ROLE_HIERARCHY };
+module.exports = { checkPermission };

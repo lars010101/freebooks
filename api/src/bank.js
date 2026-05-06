@@ -7,7 +7,7 @@
 const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
 const { expandVatLines } = require('./vat');
-const { getNextReference } = require('./journal');
+const { getNextReference, getNextReferenceBatch } = require('./journal');
 
 async function handleBank(ctx, action) {
   switch (action) {
@@ -209,6 +209,41 @@ async function approveBankEntries(ctx) {
     }
   }
 
+  // Pre-fetch once for all entries
+  let bankJournalId = requestedJournalId || null;
+  if (!bankJournalId) {
+    const bankJournals = await query(
+      `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'BANK' AND active = true LIMIT 1`,
+      { companyId }
+    );
+    bankJournalId = bankJournals.length > 0 ? bankJournals[0].journal_id : null;
+  }
+
+  // Pre-fetch FX gain/loss account once
+  const fxSettings = await query(
+    `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_gain_loss_account' LIMIT 1`,
+    { companyId }
+  );
+  const fxAccount = fxSettings[0]?.value || null;
+
+  // Pre-allocate references grouped by year — 3 DB calls per year instead of 3 per entry
+  const entriesByYear = {};
+  for (const entry of entries) {
+    const yr = parseInt(String(entry.date).substring(0, 4), 10);
+    if (!entriesByYear[yr]) entriesByYear[yr] = [];
+    entriesByYear[yr].push(entry);
+  }
+  const referenceMap = new Map(); // entry index → reference string
+  if (bankJournalId) {
+    for (const [yr, yearEntries] of Object.entries(entriesByYear)) {
+      const refs = await getNextReferenceBatch(companyId, bankJournalId, parseInt(yr, 10), yearEntries.length);
+      yearEntries.forEach((entry, idx) => {
+        const globalIdx = entries.indexOf(entry);
+        referenceMap.set(globalIdx, refs[idx]);
+      });
+    }
+  }
+
   const results = [];
   const errors = [];
 
@@ -219,17 +254,7 @@ async function approveBankEntries(ctx) {
     const now = new Date().toISOString();
 
     try {
-      // Use journal from request, or fall back to BANK journal
-      let bankJournalId = requestedJournalId || null;
-      if (!bankJournalId) {
-        const bankJournals = await query(
-          `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'BANK' AND active = true LIMIT 1`,
-          { companyId }
-        );
-        bankJournalId = bankJournals.length > 0 ? bankJournals[0].journal_id : null;
-      }
-      const year = parseInt(String(entry.date).substring(0, 4), 10);
-      const reference = bankJournalId ? await getNextReference(companyId, bankJournalId, year) : null;
+      const reference = referenceMap.get(i) || null;
 
       let lines = [
         { account_code: entry.debitAccount, debit: amount, credit: 0, date: entry.date, description: entry.description, vat_code: entry.vatCode || null, cost_center: entry.costCenter || null, profit_center: entry.profitCenter || null },
@@ -284,11 +309,6 @@ async function approveBankEntries(ctx) {
         const bill = billRows[0];
 
         if (bill && bill.currency && bill.currency !== homeCurrency && entry.settledForeign != null) {
-          const fxSettings = await query(
-            `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_gain_loss_account' LIMIT 1`,
-            { companyId }
-          );
-          const fxAccount = fxSettings[0]?.value || null;
 
           const settledForeign = Number(entry.settledForeign);
           const bookingRate = entry.billPayRate ? Number(entry.billPayRate) : (Number(bill.fx_rate) || 1);

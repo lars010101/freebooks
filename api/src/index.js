@@ -47,7 +47,6 @@ const ACTION_ROLES = {
   'bill.aging': 'viewer',
   'bill.get': 'viewer',
   'bill.update': 'data_entry',
-  'report.refresh_ap_aging': 'viewer',
   'report.refresh_vat_return': 'viewer',
   'coa.list': 'viewer',
   'coa.save': 'owner',
@@ -582,25 +581,24 @@ ensureDb().then(() => {
 });
 
 // Graceful shutdown — flush WAL before exit
-function shutdown(signal) {
+async function shutdown(signal) {
   console.log(`\nShutting down… (${signal})`);
+  const timer = setTimeout(() => {
+    console.warn('Shutdown timed out, forcing exit.');
+    process.exit(1);
+  }, 5000);
   try {
-    const db = getDb();
-    // Flush WAL before close to prevent replay issues on next open
-    db.exec('CHECKPOINT;', () => {
-      db.close(() => {
-        console.log('Database closed.');
-        process.exit(0);
-      });
-    });
-    // Fallback if close hangs
-    setTimeout(() => { console.warn('Close timed out, forcing exit.'); process.exit(1); }, 5000);
-  } catch (_) {
+    await exec('CHECKPOINT;');
+    console.log('Database checkpointed.');
+  } catch (err) {
+    console.warn('Checkpoint failed:', err.message);
+  } finally {
+    clearTimeout(timer);
     process.exit(0);
   }
 }
 
-process.on('SIGINT',  () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT').catch(() => process.exit(1)));
+process.on('SIGTERM', () => shutdown('SIGTERM').catch(() => process.exit(1)));
 
 module.exports = app;

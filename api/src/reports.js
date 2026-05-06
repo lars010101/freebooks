@@ -124,18 +124,12 @@ async function handleVatCodes(req, res) {
 }
 
 // ── Action handler for report.* actions ──────────────────────────────────────
-async function handleReports(ctx, action) {
+function handleReports(ctx, action) {
   switch (action) {
-    case 'report.refresh_ap_aging':   return refreshAPAging(ctx);
     case 'report.refresh_vat_return': return generateVatReturn(ctx);
     default:
       throw Object.assign(new Error(`Unknown report action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
-}
-
-async function refreshAPAging(ctx) {
-  // TODO: implement AP aging refresh
-  return { refreshed: true };
 }
 
 async function generateVatReturn(ctx) {

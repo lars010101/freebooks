@@ -871,7 +871,7 @@ function enterVendorCellEdit() {
     input.type = 'text';
     if (vendorSelCol === 0) input.style.cssText = 'width:100%;min-width:160px';
     if (vendorSelCol === 1) { input.maxLength = 3; input.style.cssText = 'width:48px;text-align:center;text-transform:uppercase'; }
-    if (vendorSelCol === 3 || vendorSelCol === 4) input.style.cssText = 'width:110px;font-family:monospace';
+    if (vendorSelCol === 3 || vendorSelCol === 4) input.style.cssText = 'width:110px';
   }
   input.setAttribute('autocomplete', 'off');
   input.value = colVals[vendorSelCol];
@@ -1142,7 +1142,7 @@ function payVendorCcyInput(input) {
     item.dataset.ccyCode = c.code;
     item.dataset.idx = String(i);
     item.textContent = c.code + '  \u2014  ' + (c.name || '');
-    item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-family:monospace';
+    item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap';
     item.onmouseover = function(){ clearVendorCcyDdFocus(); item.classList.add('dd-active'); item.style.background='#e8f0fe'; };
     item.onmouseout  = function(){ item.classList.remove('dd-active'); item.style.background=''; };
     item.onmousedown = function(e){ e.preventDefault(); };
@@ -1247,7 +1247,7 @@ function payVendorAcctInput(input) {
     item.dataset.acctCode = a.account_code;
     item.dataset.idx = String(mi);
     item.textContent = a.account_code + ' \u2014 ' + a.account_name;
-    item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-family:monospace;font-size:11px';
+    item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-size:11px';
     item.onmouseover = function(){ clearVendorAcctDdFocus(); item.classList.add('dd-active'); item.style.background='#e8f0fe'; };
     item.onmouseout  = function(){ item.classList.remove('dd-active'); item.style.background=''; };
     item.onmousedown = function(e){ e.preventDefault(); };

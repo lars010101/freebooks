@@ -130,8 +130,8 @@
         var oldTbRight = document.querySelector('.tb-right');
         if (newTbRight && oldTbRight) oldTbRight.innerHTML = newTbRight.innerHTML;
 
-        // Fire custom event so pages can re-init
-        document.dispatchEvent(new CustomEvent('fb:pageload'));
+        // Call page-specific init if registered
+        if (typeof window.fbPageInit === 'function') window.fbPageInit();
 
         // Push history
         history.pushState({ fbUrl: url }, '', url);

@@ -200,7 +200,7 @@ function fbPageInitPayables() {
   loadAllBills();
 }
 window.addEventListener('DOMContentLoaded', fbPageInitPayables);
-document.addEventListener('fb:pageload', fbPageInitPayables);
+window.fbPageInit = fbPageInitPayables;
 
 function loadVendors() {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},

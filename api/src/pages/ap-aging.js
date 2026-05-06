@@ -100,7 +100,7 @@ function fbPageInitApAging() {
   doLoad();
 }
 window.addEventListener('DOMContentLoaded', fbPageInitApAging);
-document.addEventListener('fb:pageload', fbPageInitApAging);
+window.fbPageInit = fbPageInitApAging;
 
 function doLoad() {
   var asOf = document.getElementById('asof-date').value;

@@ -334,7 +334,13 @@
     // ── h / l → horizontal submenu tab navigation ──
     if (e.key === 'h' || e.key === 'l') {
       var tabs = Array.from(document.querySelectorAll('.tabs .tab'));
-      if (!tabs.length) return;
+      if (!tabs.length) {
+        if (e.key === 'h' && window.fbKeyActions && typeof window.fbKeyActions['back'] === 'function') {
+          e.preventDefault();
+          window.fbKeyActions['back']();
+        }
+        return;
+      }
       var tabActiveIdx = -1;
       tabs.forEach(function(t, i) { if (t.classList.contains('active')) tabActiveIdx = i; });
       var tabNewIdx = e.key === 'l' ? tabActiveIdx + 1 : tabActiveIdx - 1;
@@ -403,7 +409,7 @@
     }
 
     // ── e → page-registered "edit" action ──
-    if (e.key === 'e') {
+    if (e.key === 'i') {
       if (window.fbKeyActions && typeof window.fbKeyActions['edit'] === 'function') {
         e.preventDefault();
         window.fbKeyActions['edit']();

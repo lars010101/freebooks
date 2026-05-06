@@ -26,8 +26,9 @@ ${commonStyle()}
 
 
 
-  .page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:28px; }
-  .page-header h1 { margin:0; font-size:20pt; font-weight:700; letter-spacing:-.01em; display:flex; align-items:center; gap:12px; }
+  .page-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:28px; }
+  .page-header h1 { margin:0 0 4px; font-size:20pt; font-weight:700; letter-spacing:-.01em; }
+  .page-header-left { display:flex; align-items:center; gap:12px; }
   .bill-header-actions { display:flex; gap:10px; align-items:center; }
 
   .badge { display:inline-block; padding:4px 12px; border-radius:5px; font-size:9pt; font-weight:600; }
@@ -141,7 +142,10 @@ ${commonStyle()}
 
   <!-- Header -->
   <div class="page-header">
-    <h1>📋 Payables: Bill details <span id="b-status"></span></h1>
+    <div class="page-header-left">
+      <h1>📋 Payables: Bill details</h1>
+      <span id="b-status"></span>
+    </div>
     <div class="bill-header-actions">
       <button id="btn-void" class="btn-action" onclick="doVoid()" style="display:none">&#8856; Void</button>
       <button class="btn-action btn-primary" onclick="document.getElementById('attach-input').click()">
@@ -215,6 +219,12 @@ ${commonStyle()}
     </table>
   </div>
 
+  <!-- Attachments -->
+  <div class="section-h">Attachments</div>
+  <div id="attachments-list" class="attach-card" style="margin-bottom:36px">
+    <div style="padding:16px 20px;color:#aaa;font-size:9.5pt">Loading&#8230;</div>
+  </div>
+
   <!-- Journal Entries -->
   <div class="section-h">Journal Entries</div>
   <div class="table-card" style="margin-bottom:36px">
@@ -233,12 +243,6 @@ ${commonStyle()}
         <tr><td colspan="6" style="color:#aaa;padding:20px 18px">Loading&#8230;</td></tr>
       </tbody>
     </table>
-  </div>
-
-  <!-- Attachments -->
-  <div class="section-h">Attachments</div>
-  <div id="attachments-list" class="attach-card">
-    <div style="padding:16px 20px;color:#aaa;font-size:9.5pt">Loading&#8230;</div>
   </div>
 
 
@@ -299,12 +303,16 @@ function moveBillNav(dir) {
 window.fbKeyActions = {
   'j': function() { moveBillNav('j'); },
   'k': function() { moveBillNav('k'); },
-  'e': function() {
+  'edit': function() {
     var focused = document.querySelector('tr.nav-row-focus');
     if (focused) {
       var inp = focused.querySelector('input.line-desc-input');
       if (inp) { inp.focus(); inp.select(); }
     }
+  },
+  'new': function() {
+    var inp = document.getElementById('attach-input');
+    if (inp) inp.click();
   },
   'delete': function() {
     var attachFocused = document.querySelector('.attach-row.nav-attach-focus');
@@ -315,6 +323,9 @@ window.fbKeyActions = {
     }
     // Nothing focused → confirm void
     doVoid();
+  },
+  'back': function() {
+    if (typeof COMPANY !== 'undefined') fbNavigate('/' + COMPANY + '/payables');
   },
   'escape': function() {
     if (typeof COMPANY !== 'undefined') fbNavigate('/' + COMPANY + '/payables');

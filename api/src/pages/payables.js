@@ -114,12 +114,13 @@ ${commonStyle()}
   .msg-pay.ok { color:#2a8a2a; }
   .msg-pay.err { color:#cc2222; }
 
-  /* Vendor keyboard nav */
-  .data-table tbody tr.selected td { background:#1a3a6b !important; color:#fff !important; }
-  .data-table tbody tr.selected td span:not(.avatar):not(.badge) { color:#fff !important; }
-  .data-table tbody tr.editing td { background:#fffde7 !important; padding:4px 10px; }
-  .data-table tbody tr.editing input[type=text],
-  .data-table tbody tr.editing input[type=number] { padding:5px 8px; border:1px solid #aaa; border-radius:4px; font-size:10pt; box-sizing:border-box; }
+  /* Vendor cell navigation */
+  .data-table tbody tr.vrow-selected td { background:#f0f4ff; }
+  .data-table tbody tr.vrow-selected td.vcell-selected { background:#1a3a6b !important; color:#fff !important; }
+  .data-table tbody tr.vrow-selected td.vcell-selected span:not(.avatar):not(.badge) { color:#fff !important; }
+  .data-table tbody tr.vrow-selected td.vcell-selected .badge { opacity:0.85; }
+  .data-table tbody td.vcell-editing { background:#fffde7 !important; color:#222 !important; box-shadow:inset 0 0 0 2px #1a3a6b; padding:3px 8px !important; }
+  .data-table tbody td.vcell-editing input { border:none; outline:none; background:transparent; font-size:inherit; font-family:inherit; color:#222; padding:0; box-sizing:border-box; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
@@ -202,7 +203,7 @@ ${commonStyle()}
     </div>
     <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
       <span id="msg-vendors" style="font-size:0.875rem"></span>
-      <span style="margin-left:auto;font-size:7.5pt;color:#bbb">j/k&nbsp;move &nbsp;·&nbsp; i&nbsp;edit &nbsp;·&nbsp; a&nbsp;add &nbsp;·&nbsp; d&nbsp;delete &nbsp;·&nbsp; ~&nbsp;toggle active &nbsp;·&nbsp; Enter&nbsp;save &nbsp;·&nbsp; Esc&nbsp;cancel</span>
+      <span style="margin-left:auto;font-size:7.5pt;color:#bbb">hjkl&nbsp;navigate &nbsp;·&nbsp; i&nbsp;edit cell &nbsp;·&nbsp; a&nbsp;add &nbsp;·&nbsp; d&nbsp;delete &nbsp;·&nbsp; ~&nbsp;toggle active &nbsp;·&nbsp; Enter&nbsp;commit &nbsp;·&nbsp; Esc&nbsp;cancel</span>
     </div>
   </div><!-- /pay-panel-vendors -->
 
@@ -735,22 +736,27 @@ function showPayTab(t) {
 // ========== VENDOR MANAGEMENT ==========
 var vendorAccountsList = [];
 var vendorAcctActiveInput = null;
-var vendorSelectedIdx = -1;
-var vendorEditMode = false;
-var allVendors = [];
 var vendorCurrenciesList = [];
+var allVendors = [];
+var vendorSelRow = -1;
+var vendorSelCol = 0;
+var vendorCellEdit = false;
+var vendorCellPreEdit = null;
+var vendorDirtyRows = {};
 
-function loadVendorCurrencies() {
-  if (vendorCurrenciesList.length) return;
-  fetch('/db/currencies.json').then(function(r){ return r.json(); }).then(function(list){
-    vendorCurrenciesList = Array.isArray(list) ? list : [];
-  }).catch(function(){});
-}
+var VENDOR_COL_EDIT_MAX = 4; // cols 0-4 editable; col 5 (Active) = toggle only
 
 function loadVendorAccounts() {
   if (vendorAccountsList.length) return;
   fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
     vendorAccountsList = Array.isArray(rows) ? rows : [];
+  }).catch(function(){});
+}
+
+function loadVendorCurrencies() {
+  if (vendorCurrenciesList.length) return;
+  fetch('/db/currencies.json').then(function(r){ return r.json(); }).then(function(list){
+    vendorCurrenciesList = Array.isArray(list) ? list : [];
   }).catch(function(){});
 }
 
@@ -760,9 +766,11 @@ function loadVendorTable() {
     .then(function(res){
       var rows = res.data || res;
       allVendors = Array.isArray(rows) ? rows : [];
+      vendorDirtyRows = {};
       renderVendorTable();
-      vendorSelectedIdx = allVendors.length > 0 ? 0 : -1;
-      updateVendorSelection();
+      vendorSelRow = allVendors.length > 0 ? 0 : -1;
+      vendorSelCol = 0;
+      updateVendorCursor();
     }).catch(function(e){ vendorMsg('Error loading vendors: ' + e.message, 'err'); });
 }
 
@@ -782,12 +790,6 @@ function renderVendorTable() {
 function buildVendorDisplayRow(v, i) {
   var tr = document.createElement('tr');
   tr.dataset.vendorId = v.vendor_id || '';
-  tr.dataset.name     = v.name || '';
-  tr.dataset.currency = v.default_currency || '';
-  tr.dataset.terms    = String(v.payment_terms_days || 30);
-  tr.dataset.expAcct  = v.default_expense_account || '';
-  tr.dataset.apAcct   = v.default_ap_account || '';
-  tr.dataset.active   = v.is_active !== false ? 'true' : 'false';
   tr.dataset.idx      = String(i);
   tr.style.cursor = 'pointer';
 
@@ -795,183 +797,235 @@ function buildVendorDisplayRow(v, i) {
     ? '<span class="badge" style="background:#f0fff4;color:#2a8a2a">Active</span>'
     : '<span class="badge" style="background:#f0f0f0;color:#888">Inactive</span>';
 
-  tr.innerHTML =
-    '<td>' + vendorCell(v.name) + '</td>' +
-    '<td style="text-align:center;font-size:9pt;color:#666">' + esc(v.default_currency || '\u2014') + '</td>' +
-    '<td style="text-align:center;color:#444">' + (v.payment_terms_days || 30) + '\u202fd</td>' +
-    '<td style="font-family:monospace;font-size:9.5pt">' + esc(v.default_expense_account || '\u2014') + '</td>' +
-    '<td style="font-family:monospace;font-size:9.5pt">' + esc(v.default_ap_account || '\u2014') + '</td>' +
-    '<td style="text-align:center">' + activeBadge + '</td>';
+  var cellContents = [
+    vendorCell(v.name),
+    esc(v.default_currency || '\u2014'),
+    (v.payment_terms_days || 30) + '\u202fd',
+    esc(v.default_expense_account || '\u2014'),
+    esc(v.default_ap_account || '\u2014'),
+    activeBadge
+  ];
+  var cellStyles = ['', 'text-align:center;font-size:9pt;color:#666', 'text-align:center;color:#444',
+    'font-family:monospace;font-size:9.5pt', 'font-family:monospace;font-size:9.5pt', 'text-align:center'];
 
-  tr.addEventListener('click', function() {
-    if (vendorEditMode) return;
-    vendorSelectedIdx = i;
-    updateVendorSelection();
-  });
-  tr.addEventListener('dblclick', function() {
-    if (vendorEditMode) exitVendorEditMode(false);
-    vendorSelectedIdx = i;
-    updateVendorSelection();
-    enterVendorEditMode();
+  cellContents.forEach(function(content, col) {
+    var td = document.createElement('td');
+    td.dataset.col = String(col);
+    td.className = 'vcell';
+    td.innerHTML = content;
+    if (cellStyles[col]) td.style.cssText = cellStyles[col];
+    td.addEventListener('click', function() {
+      if (vendorCellEdit && (vendorSelRow !== i || vendorSelCol !== col)) commitVendorCell(true);
+      vendorSelRow = i; vendorSelCol = col;
+      updateVendorCursor();
+    });
+    td.addEventListener('dblclick', function() {
+      vendorSelRow = i; vendorSelCol = col;
+      updateVendorCursor();
+      if (col === 5) { vendorToggleActive(); return; }
+      if (!vendorCellEdit) enterVendorCellEdit();
+    });
+    tr.appendChild(td);
   });
   return tr;
 }
 
-function updateVendorSelection() {
-  document.querySelectorAll('#vendors-body tr[data-idx]').forEach(function(r) {
-    r.classList.toggle('selected', String(r.dataset.idx) === String(vendorSelectedIdx));
-  });
-}
-
-function getSelectedVendorRow() {
-  return document.querySelector('#vendors-body tr[data-idx="' + vendorSelectedIdx + '"]');
-}
-
-function enterVendorEditMode() {
-  if (vendorEditMode) return;
-  var tr = getSelectedVendorRow();
+function updateVendorCursor() {
+  document.querySelectorAll('#vendors-body tr.vrow-selected').forEach(function(r){ r.classList.remove('vrow-selected'); });
+  document.querySelectorAll('#vendors-body td.vcell-selected').forEach(function(td){ td.classList.remove('vcell-selected'); });
+  if (vendorSelRow < 0) return;
+  var tr = document.querySelector('#vendors-body tr[data-idx="' + vendorSelRow + '"]');
   if (!tr) return;
-  vendorEditMode = true;
-  tr.classList.add('editing');
-
-  tr.innerHTML =
-    '<td><input type="text" value="' + esc(tr.dataset.name) + '" placeholder="Vendor name" style="width:200px"></td>' +
-    '<td><input type="text" value="' + esc(tr.dataset.currency) + '" maxlength="3" style="width:52px;text-align:center;text-transform:uppercase" autocomplete="off" oninput="payVendorCcyInput(this)" onblur="hidePayVendorCcyDd()"></td>' +
-    '<td><input type="number" value="' + esc(tr.dataset.terms) + '" min="0" style="width:64px;text-align:center"></td>' +
-    '<td><input type="text" value="' + esc(tr.dataset.expAcct) + '" style="width:120px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
-    '<td><input type="text" value="' + esc(tr.dataset.apAcct) + '" style="width:120px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
-    '<td style="text-align:center;color:#aaa;font-size:8.5pt">~&nbsp;toggle</td>';
-
-  tr.querySelector('input').focus();
+  tr.classList.add('vrow-selected');
+  var td = tr.querySelector('td[data-col="' + vendorSelCol + '"]');
+  if (td) td.classList.add('vcell-selected');
+  tr.scrollIntoView({ block: 'nearest' });
 }
 
-function exitVendorEditMode(save) {
-  if (!vendorEditMode) return;
-  var tr = getSelectedVendorRow();
-  if (!tr) { vendorEditMode = false; return; }
+function getSelectedTd() {
+  if (vendorSelRow < 0) return null;
+  var tr = document.querySelector('#vendors-body tr[data-idx="' + vendorSelRow + '"]');
+  if (!tr) return null;
+  return tr.querySelector('td[data-col="' + vendorSelCol + '"]');
+}
 
-  if (!save) {
-    vendorEditMode = false;
-    tr.classList.remove('editing');
-    var idx = parseInt(tr.dataset.idx);
-    if (!tr.dataset.vendorId) {
-      allVendors.splice(idx, 1);
-      renderVendorTable();
-      vendorSelectedIdx = Math.min(idx, allVendors.length - 1);
-      updateVendorSelection();
-      return;
+function enterVendorCellEdit() {
+  if (vendorCellEdit) return;
+  if (vendorSelRow < 0 || vendorSelCol > VENDOR_COL_EDIT_MAX) return;
+  var td = getSelectedTd();
+  if (!td) return;
+  var v = allVendors[vendorSelRow];
+  if (!v) return;
+  vendorCellEdit = true;
+  td.classList.add('vcell-editing');
+  var colVals = [v.name || '', v.default_currency || '', String(v.payment_terms_days || 30),
+    v.default_expense_account || '', v.default_ap_account || ''];
+  vendorCellPreEdit = colVals[vendorSelCol];
+  var input = document.createElement('input');
+  if (vendorSelCol === 2) {
+    input.type = 'number'; input.min = 0;
+    input.style.cssText = 'width:60px;text-align:center';
+  } else {
+    input.type = 'text';
+    if (vendorSelCol === 0) input.style.cssText = 'width:100%;min-width:160px';
+    if (vendorSelCol === 1) { input.maxLength = 3; input.style.cssText = 'width:48px;text-align:center;text-transform:uppercase'; }
+    if (vendorSelCol === 3 || vendorSelCol === 4) input.style.cssText = 'width:110px;font-family:monospace';
+  }
+  input.setAttribute('autocomplete', 'off');
+  input.value = colVals[vendorSelCol];
+  if (vendorSelCol === 1) {
+    input.oninput = function(){ payVendorCcyInput(input); };
+    input.onblur  = function(){ hidePayVendorCcyDd(); };
+  }
+  if (vendorSelCol === 3 || vendorSelCol === 4) {
+    input.oninput = function(){ vendorAcctActiveInput = input; payVendorAcctInput(input); };
+    input.onblur  = function(){ hidePayVendorAcctDd(); };
+  }
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+function commitVendorCell(save) {
+  if (!vendorCellEdit) return;
+  vendorCellEdit = false;
+  var td = getSelectedTd();
+  if (!td) return;
+  td.classList.remove('vcell-editing');
+  var dd1 = document.getElementById('pay-vendor-acct-dd'); if (dd1) dd1.remove();
+  var dd2 = document.getElementById('pay-vendor-ccy-dd');  if (dd2) dd2.remove();
+  var input = td.querySelector('input');
+  var newVal = input ? input.value.trim() : vendorCellPreEdit;
+  if (!save) { newVal = vendorCellPreEdit; }
+  else {
+    if (vendorSelCol === 1 && newVal && vendorCurrenciesList.length) {
+      var ccyUp = newVal.toUpperCase();
+      var valid = vendorCurrenciesList.some(function(c){ return (c.code||'').toUpperCase() === ccyUp; });
+      if (!valid) { vendorMsg('Unknown currency: ' + ccyUp, 'err'); newVal = vendorCellPreEdit; save = false; }
     }
-    var v = allVendors[idx];
-    var newTr = buildVendorDisplayRow(v, idx);
-    newTr.classList.add('selected');
-    tr.parentNode.replaceChild(newTr, tr);
-    return;
+    if (save) {
+      var v = allVendors[vendorSelRow];
+      if (v) {
+        if (vendorSelCol === 0) v.name = newVal;
+        else if (vendorSelCol === 1) v.default_currency = newVal.toUpperCase() || null;
+        else if (vendorSelCol === 2) v.payment_terms_days = parseInt(newVal) || 30;
+        else if (vendorSelCol === 3) v.default_expense_account = newVal || null;
+        else if (vendorSelCol === 4) v.default_ap_account = newVal || null;
+        vendorDirtyRows[vendorSelRow] = true;
+      }
+    }
   }
+  renderVendorCell(td, vendorSelCol, allVendors[vendorSelRow] || {});
+  td.classList.add('vcell-selected');
+}
 
-  // Save
-  var inputs = tr.querySelectorAll('input');
-  var name = inputs[0].value.trim();
-  if (!name) { inputs[0].focus(); vendorMsg('Name is required.', 'err'); return; }
-
-  var ccyRaw = inputs[1].value.trim().toUpperCase();
-  if (ccyRaw && vendorCurrenciesList.length) {
-    var ccyValid = vendorCurrenciesList.some(function(c){ return (c.code||'').toUpperCase() === ccyRaw; });
-    if (!ccyValid) { inputs[1].focus(); vendorMsg('Unknown currency code: ' + ccyRaw, 'err'); vendorEditMode = true; tr.classList.add('editing'); return; }
+function renderVendorCell(td, col, v) {
+  if (col === 0) { td.innerHTML = vendorCell(v.name || ''); td.style.cssText = ''; }
+  else if (col === 1) { td.textContent = v.default_currency || '\u2014'; td.style.cssText = 'text-align:center;font-size:9pt;color:#666'; }
+  else if (col === 2) { td.textContent = (v.payment_terms_days || 30) + '\u202fd'; td.style.cssText = 'text-align:center;color:#444'; }
+  else if (col === 3) { td.textContent = v.default_expense_account || '\u2014'; td.style.cssText = 'font-family:monospace;font-size:9.5pt'; }
+  else if (col === 4) { td.textContent = v.default_ap_account || '\u2014'; td.style.cssText = 'font-family:monospace;font-size:9.5pt'; }
+  else if (col === 5) {
+    td.innerHTML = v.is_active !== false
+      ? '<span class="badge" style="background:#f0fff4;color:#2a8a2a">Active</span>'
+      : '<span class="badge" style="background:#f0f0f0;color:#888">Inactive</span>';
+    td.style.cssText = 'text-align:center';
   }
-  var idx = parseInt(tr.dataset.idx);
-  var vendor = {
-    vendor_id:               tr.dataset.vendorId || null,
-    name:                    name,
-    default_currency:        ccyRaw || null,
-    payment_terms_days:      parseInt(inputs[2].value) || 30,
-    default_expense_account: inputs[3].value.trim() || null,
-    default_ap_account:      inputs[4].value.trim() || null,
-    is_active:               tr.dataset.active === 'true'
-  };
+}
 
-  vendorEditMode = false;
-  tr.classList.remove('editing');
-
+function saveVendorRowIfDirty(rowIdx) {
+  if (!vendorDirtyRows[rowIdx]) return;
+  var v = allVendors[rowIdx];
+  if (!v) return;
+  if (!v.name) { vendorMsg('Vendor name required.', 'err'); return; }
+  delete vendorDirtyRows[rowIdx];
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'vendor.upsert', companyId: COMPANY, vendor: vendor }) })
+    body: JSON.stringify({ action:'vendor.upsert', companyId: COMPANY, vendor: {
+      vendor_id: v.vendor_id || null, name: v.name,
+      default_currency: v.default_currency || null,
+      payment_terms_days: v.payment_terms_days || 30,
+      default_expense_account: v.default_expense_account || null,
+      default_ap_account: v.default_ap_account || null,
+      is_active: v.is_active !== false
+    }}) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       var d = res.data || res;
-      if (d.error || res.error) { vendorMsg(d.error || res.error, 'err'); loadVendorTable(); return; }
-      allVendors[idx] = {
-        vendor_id: d.vendorId || vendor.vendor_id,
-        name: vendor.name,
-        default_currency: vendor.default_currency,
-        payment_terms_days: vendor.payment_terms_days,
-        default_expense_account: vendor.default_expense_account,
-        default_ap_account: vendor.default_ap_account,
-        is_active: vendor.is_active
-      };
-      renderVendorTable();
-      vendorSelectedIdx = idx;
-      updateVendorSelection();
+      if (d.error || res.error) { vendorMsg(d.error || res.error, 'err'); vendorDirtyRows[rowIdx] = true; return; }
+      if (d.vendorId && !v.vendor_id) {
+        allVendors[rowIdx].vendor_id = d.vendorId;
+        var tr = document.querySelector('#vendors-body tr[data-idx="' + rowIdx + '"]');
+        if (tr) tr.dataset.vendorId = d.vendorId;
+      }
       vendorMsg('Saved.', 'ok');
       setTimeout(function(){ vendorMsg('', ''); }, 2000);
     })
-    .catch(function(e){ vendorMsg(e.message, 'err'); loadVendorTable(); });
+    .catch(function(e){ vendorMsg(e.message, 'err'); vendorDirtyRows[rowIdx] = true; });
+}
+
+function vendorMoveRow(dir) {
+  if (vendorCellEdit) commitVendorCell(true);
+  saveVendorRowIfDirty(vendorSelRow);
+  vendorSelRow = Math.max(0, Math.min(allVendors.length - 1, vendorSelRow + dir));
+  updateVendorCursor();
+}
+
+function vendorMoveCol(dir) {
+  if (vendorCellEdit) commitVendorCell(true);
+  vendorSelCol = Math.max(0, Math.min(5, vendorSelCol + dir));
+  updateVendorCursor();
 }
 
 function vendorAddNew() {
-  if (vendorEditMode) exitVendorEditMode(false);
+  if (vendorCellEdit) commitVendorCell(true);
+  saveVendorRowIfDirty(vendorSelRow);
   allVendors.push({ vendor_id: '', name: '', default_currency: '', payment_terms_days: 30,
     default_expense_account: '', default_ap_account: '', is_active: true });
   renderVendorTable();
-  vendorSelectedIdx = allVendors.length - 1;
-  updateVendorSelection();
+  vendorSelRow = allVendors.length - 1;
+  vendorSelCol = 0;
+  updateVendorCursor();
   var tbody = document.getElementById('vendors-body');
-  if (tbody) { var last = tbody.lastElementChild; if (last) last.scrollIntoView({ block: 'nearest' }); }
-  enterVendorEditMode();
+  if (tbody && tbody.lastElementChild) tbody.lastElementChild.scrollIntoView({ block: 'nearest' });
+  enterVendorCellEdit();
 }
 
 function vendorToggleActive() {
-  var tr = getSelectedVendorRow();
-  if (!tr || vendorEditMode) return;
-  var idx = parseInt(tr.dataset.idx);
-  var v = allVendors[idx];
-  if (!v || !v.vendor_id) { vendorMsg('Save the vendor first before toggling.', 'err'); return; }
-  var newActive = !(tr.dataset.active === 'true');
-  var vendor = {
-    vendor_id: v.vendor_id, name: v.name,
-    default_currency: v.default_currency,
-    payment_terms_days: v.payment_terms_days,
-    default_expense_account: v.default_expense_account,
-    default_ap_account: v.default_ap_account,
-    is_active: newActive
-  };
+  if (vendorCellEdit) commitVendorCell(true);
+  var v = allVendors[vendorSelRow];
+  if (!v) return;
+  if (!v.vendor_id) { vendorMsg('Save the vendor first before toggling.', 'err'); return; }
+  var newActive = v.is_active === false;
+  v.is_active = newActive;
+  var vendor = { vendor_id: v.vendor_id, name: v.name, default_currency: v.default_currency,
+    payment_terms_days: v.payment_terms_days, default_expense_account: v.default_expense_account,
+    default_ap_account: v.default_ap_account, is_active: newActive };
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'vendor.upsert', companyId: COMPANY, vendor: vendor }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       var d = res.data || res;
-      if (d.error || res.error) { vendorMsg(d.error || res.error, 'err'); return; }
-      allVendors[idx].is_active = newActive;
-      renderVendorTable();
-      vendorSelectedIdx = idx;
-      updateVendorSelection();
+      if (d.error || res.error) { v.is_active = !newActive; vendorMsg(d.error || res.error, 'err'); return; }
+      var tr = document.querySelector('#vendors-body tr[data-idx="' + vendorSelRow + '"]');
+      var activeTd = tr && tr.querySelector('td[data-col="5"]');
+      if (activeTd) renderVendorCell(activeTd, 5, v);
       vendorMsg(newActive ? 'Marked active.' : 'Marked inactive.', 'ok');
       setTimeout(function(){ vendorMsg('', ''); }, 1500);
     })
-    .catch(function(e){ vendorMsg(e.message, 'err'); });
+    .catch(function(e){ v.is_active = !newActive; vendorMsg(e.message, 'err'); });
 }
 
 function vendorDeleteSelected() {
-  if (vendorEditMode) return;
-  var tr = getSelectedVendorRow();
-  if (!tr) return;
-  var idx = parseInt(tr.dataset.idx);
-  var v = allVendors[idx];
+  if (vendorCellEdit) commitVendorCell(false);
+  var v = allVendors[vendorSelRow];
   if (!v) return;
   if (!v.vendor_id) {
-    allVendors.splice(idx, 1);
+    allVendors.splice(vendorSelRow, 1);
+    delete vendorDirtyRows[vendorSelRow];
     renderVendorTable();
-    vendorSelectedIdx = Math.min(idx, allVendors.length - 1);
-    updateVendorSelection();
-    return;
+    vendorSelRow = Math.min(vendorSelRow, allVendors.length - 1);
+    updateVendorCursor(); return;
   }
   if (!confirm('Delete vendor "' + (v.name || v.vendor_id) + '"?')) return;
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -980,10 +1034,11 @@ function vendorDeleteSelected() {
     .then(function(res){
       var d = res.data || res;
       if (d.error || res.error) { vendorMsg(d.error || res.error, 'err'); return; }
-      allVendors.splice(idx, 1);
+      allVendors.splice(vendorSelRow, 1);
+      delete vendorDirtyRows[vendorSelRow];
       renderVendorTable();
-      vendorSelectedIdx = Math.min(idx, allVendors.length - 1);
-      updateVendorSelection();
+      vendorSelRow = Math.min(vendorSelRow, allVendors.length - 1);
+      updateVendorCursor();
       vendorMsg('Deleted.', 'ok');
       setTimeout(function(){ vendorMsg('', ''); }, 1500);
     })
@@ -1002,7 +1057,7 @@ function registerVendorKeyActions() {
     var panel = document.getElementById('pay-panel-vendors');
     if (!panel || panel.style.display === 'none') return;
 
-    if (vendorEditMode) {
+    if (vendorCellEdit) {
       var acctDd = document.getElementById('pay-vendor-acct-dd');
       var ccyDd  = document.getElementById('pay-vendor-ccy-dd');
       if (acctDd) {
@@ -1021,23 +1076,41 @@ function registerVendorKeyActions() {
         if (e.key === 'Tab')       { if (selectVendorCcyDdItem()) e.preventDefault(); return; }
         return;
       }
-      if (e.key === 'Enter') { e.preventDefault(); exitVendorEditMode(true); }
-      else if (e.key === 'Escape') { e.preventDefault(); exitVendorEditMode(false); }
-      return;
+      if (e.key === 'Enter') { e.preventDefault(); commitVendorCell(true); return; }
+      if (e.key === 'Escape') { e.preventDefault(); commitVendorCell(false); return; }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        commitVendorCell(true);
+        var nextCol = Math.min(VENDOR_COL_EDIT_MAX, vendorSelCol + 1);
+        if (nextCol === vendorSelCol) return;
+        vendorSelCol = nextCol;
+        updateVendorCursor();
+        enterVendorCellEdit();
+        return;
+      }
+      return; // all other keys pass through to input
     }
 
+    // Browse mode
     var tag = document.activeElement && document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-    if (e.key === 'j') { e.preventDefault(); vendorSelectedIdx = Math.min(vendorSelectedIdx + 1, allVendors.length - 1); updateVendorSelection(); }
-    else if (e.key === 'k') { e.preventDefault(); vendorSelectedIdx = Math.max(vendorSelectedIdx - 1, 0); updateVendorSelection(); }
-    else if (e.key === 'i') { e.preventDefault(); if (vendorSelectedIdx >= 0) enterVendorEditMode(); }
+    if (e.key === 'j') { e.preventDefault(); vendorMoveRow(1); }
+    else if (e.key === 'k') { e.preventDefault(); vendorMoveRow(-1); }
+    else if (e.key === 'h') { e.preventDefault(); vendorMoveCol(-1); }
+    else if (e.key === 'l') { e.preventDefault(); vendorMoveCol(1); }
+    else if (e.key === 'i') {
+      e.preventDefault();
+      if (vendorSelCol === 5) vendorToggleActive();
+      else if (vendorSelRow >= 0) enterVendorCellEdit();
+    }
     else if (e.key === 'a') { e.preventDefault(); vendorAddNew(); }
     else if (e.key === 'd') { e.preventDefault(); vendorDeleteSelected(); }
     else if (e.key === '~') { e.preventDefault(); vendorToggleActive(); }
   });
 }
 
+// ── Currency autocomplete ──────────────────────────────────────────────
 function payVendorCcyInput(input) {
   loadVendorCurrencies();
   var q = input.value.trim().toUpperCase();
@@ -1055,7 +1128,7 @@ function payVendorCcyInput(input) {
     var item = document.createElement('div');
     item.dataset.ccyCode = c.code;
     item.dataset.idx = String(i);
-    item.textContent = c.code + '  —  ' + (c.name || '');
+    item.textContent = c.code + '  \u2014  ' + (c.name || '');
     item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-family:monospace';
     item.onmouseover = function(){ clearVendorCcyDdFocus(); item.classList.add('dd-active'); item.style.background='#e8f0fe'; };
     item.onmouseout  = function(){ item.classList.remove('dd-active'); item.style.background=''; };
@@ -1089,18 +1162,16 @@ function moveVendorCcyDd(dir) {
   var nextIdx = Math.max(0, Math.min(items.length - 1, curIdx + dir));
   clearVendorCcyDdFocus();
   var next = items[nextIdx];
-  next.classList.add('dd-active');
-  next.style.background = '#e8f0fe';
+  next.classList.add('dd-active'); next.style.background = '#e8f0fe';
   next.scrollIntoView({ block: 'nearest' });
 }
 
 function selectVendorCcyDdItem() {
   var dd = document.getElementById('pay-vendor-ccy-dd');
   if (!dd) return false;
-  var cur = dd.querySelector('.dd-active');
-  if (!cur) { var first = dd.querySelector('[data-ccy-code]'); if (first) cur = first; }
+  var cur = dd.querySelector('.dd-active') || dd.querySelector('[data-ccy-code]');
   if (!cur) return false;
-  var input = document.querySelector('#vendors-body tr.editing input[maxlength="3"]');
+  var input = document.querySelector('#vendors-body td.vcell-editing input');
   if (input) input.value = cur.dataset.ccyCode;
   dd.remove();
   return true;
@@ -1110,6 +1181,7 @@ function hidePayVendorCcyDd() {
   setTimeout(function(){ var dd = document.getElementById('pay-vendor-ccy-dd'); if (dd) dd.remove(); }, 150);
 }
 
+// ── Account autocomplete ──────────────────────────────────────────────
 function clearVendorAcctDdFocus() {
   var dd = document.getElementById('pay-vendor-acct-dd');
   if (!dd) return;
@@ -1126,23 +1198,20 @@ function moveVendorAcctDd(dir) {
   var nextIdx = Math.max(0, Math.min(items.length - 1, curIdx + dir));
   clearVendorAcctDdFocus();
   var next = items[nextIdx];
-  next.classList.add('dd-active');
-  next.style.background = '#e8f0fe';
+  next.classList.add('dd-active'); next.style.background = '#e8f0fe';
   next.scrollIntoView({ block: 'nearest' });
 }
 
 function selectVendorAcctDdItem() {
   var dd = document.getElementById('pay-vendor-acct-dd');
   if (!dd) return false;
-  var cur = dd.querySelector('.dd-active');
-  if (!cur) { var first = dd.querySelector('[data-acct-code]'); if (first) cur = first; }
+  var cur = dd.querySelector('.dd-active') || dd.querySelector('[data-acct-code]');
   if (!cur) return false;
   if (vendorAcctActiveInput) {
     vendorAcctActiveInput.value = cur.dataset.acctCode;
     vendorAcctActiveInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
-  dd.remove();
-  vendorAcctActiveInput = null;
+  dd.remove(); vendorAcctActiveInput = null;
   return true;
 }
 
@@ -1160,11 +1229,11 @@ function payVendorAcctInput(input) {
   var div = document.createElement('div');
   div.id = 'pay-vendor-acct-dd';
   div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
-  matches.forEach(function(a){
+  matches.forEach(function(a, mi){
     var item = document.createElement('div');
     item.dataset.acctCode = a.account_code;
-    item.dataset.idx = String(matches.indexOf(a));
-    item.textContent = a.account_code + ' — ' + a.account_name;
+    item.dataset.idx = String(mi);
+    item.textContent = a.account_code + ' \u2014 ' + a.account_name;
     item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-family:monospace;font-size:11px';
     item.onmouseover = function(){ clearVendorAcctDdFocus(); item.classList.add('dd-active'); item.style.background='#e8f0fe'; };
     item.onmouseout  = function(){ item.classList.remove('dd-active'); item.style.background=''; };

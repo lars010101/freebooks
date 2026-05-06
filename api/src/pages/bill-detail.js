@@ -265,23 +265,29 @@ function fbPageInitBillDetail() {
 window.addEventListener('DOMContentLoaded', fbPageInitBillDetail);
 window.fbPageInit = fbPageInitBillDetail;
 
-// Unified navigable items: line item rows + attachment rows
+// Navigation model: meta strip = one j/k row; h/l moves within it
+var _lastMetaIdx = 0;
+
 function moveMetaNav(dir) {
   var metaItems = Array.from(document.querySelectorAll('.nav-meta-item'));
   if (!metaItems.length) return;
   var focused = document.querySelector('.nav-meta-item.nav-meta-focus');
   if (!focused) return;
   var idx = metaItems.indexOf(focused);
-  var newIdx = Math.max(0, Math.min(metaItems.length - 1, idx + dir));
+  _lastMetaIdx = Math.max(0, Math.min(metaItems.length - 1, idx + dir));
   clearBillNavFocus();
-  metaItems[newIdx].classList.add('nav-meta-focus');
+  metaItems[_lastMetaIdx].classList.add('nav-meta-focus');
 }
 
+function getMetaStrip() { return document.querySelector('.meta-strip'); }
+
 function getBillNavItems() {
-  var metaItems = Array.from(document.querySelectorAll('.nav-meta-item'));
-  var rows = Array.from(document.querySelectorAll('#lines-tbody tr'));
-  var attachRows = Array.from(document.querySelectorAll('.attach-row'));
-  return metaItems.concat(rows).concat(attachRows);
+  var items = [];
+  var strip = getMetaStrip();
+  if (strip && strip.querySelector('.nav-meta-item')) items.push(strip);
+  Array.from(document.querySelectorAll('#lines-tbody tr')).forEach(function(r) { items.push(r); });
+  Array.from(document.querySelectorAll('.attach-row')).forEach(function(r) { items.push(r); });
+  return items;
 }
 
 function clearBillNavFocus() {
@@ -291,9 +297,10 @@ function clearBillNavFocus() {
 }
 
 function getFocusedBillItem() {
+  // Meta fields focused → report the strip as the focused item
+  if (document.querySelector('.nav-meta-item.nav-meta-focus')) return getMetaStrip();
   return document.querySelector('tr.nav-row-focus') ||
-         document.querySelector('.attach-row.nav-attach-focus') ||
-         document.querySelector('.nav-meta-item.nav-meta-focus');
+         document.querySelector('.attach-row.nav-attach-focus');
 }
 
 function moveBillNav(dir) {
@@ -315,7 +322,10 @@ function moveBillNav(dir) {
   } else if (next.classList.contains('attach-row')) {
     next.classList.add('nav-attach-focus');
   } else {
-    next.classList.add('nav-meta-focus');
+    // meta strip — focus the last-used meta field (default: first)
+    var metaItems = Array.from(next.querySelectorAll('.nav-meta-item'));
+    var target = metaItems[Math.min(_lastMetaIdx, metaItems.length - 1)];
+    if (target) target.classList.add('nav-meta-focus');
   }
   next.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }

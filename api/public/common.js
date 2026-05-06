@@ -315,7 +315,7 @@
       e.preventDefault();
       // If a nav row is focused and page registered 'edit', delegate to it
       if (window.fbKeyActions && typeof window.fbKeyActions['edit'] === 'function') {
-        var focusedNavRow = document.querySelector('tr.nav-row-focus, .attach-row.nav-attach-focus');
+        var focusedNavRow = document.querySelector('tr.nav-row-focus, .attach-row.nav-attach-focus, .nav-meta-item.nav-meta-focus');
         if (focusedNavRow) { window.fbKeyActions['edit'](); return; }
       }
       // Generic: focus first input in page (vim insert mode)
@@ -415,14 +415,8 @@
       return;
     }
 
-    // ── e → page-registered "edit" action ──
-    if (e.key === 'e') {
-      if (window.fbKeyActions && typeof window.fbKeyActions['edit'] === 'function') {
-        e.preventDefault();
-        window.fbKeyActions['edit']();
-      }
-      return;
-    }
+    // ── e → reserved (was edit; use i instead) ──
+    if (e.key === 'e') { return; }
   });
 
   window.fbOpenCmdPalette = window.fbOpenCmdPalette || function() {

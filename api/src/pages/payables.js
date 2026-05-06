@@ -5,12 +5,13 @@ const { query } = require('../db');
 async function handlePayablesPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  const [co] = await query(`SELECT jurisdiction FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
+  const [co] = await query(`SELECT jurisdiction, base_currency FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
   const taxLabel = (co && co.jurisdiction === 'SG') ? 'GST' : 'VAT';
-  res.send(buildPayablesPage(company, taxLabel));
+  const baseCurrency = (co && co.base_currency) || 'SGD';
+  res.send(buildPayablesPage(company, taxLabel, baseCurrency));
 }
 
-function buildPayablesPage(company, taxLabel = 'VAT') {
+function buildPayablesPage(company, taxLabel = 'VAT', baseCurrency = 'SGD') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -47,7 +48,7 @@ ${commonStyle()}
   /* Table card */
   .table-card { border:1px solid #e8e8e8; border-radius:8px; overflow:hidden; }
   .data-table { width:100%; border-collapse:collapse; font-size:10.5pt; }
-  .data-table th { text-align:left; font-size:8.5pt; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.05em; background:#fafafa; border-bottom:1px solid #e8e8e8; padding:12px 18px; }
+  .data-table th { text-align:left; font-size:8.5pt; color:#555; font-weight:600; text-transform:uppercase; letter-spacing:.05em; background:#fafafa; border-bottom:1px solid #e8e8e8; padding:12px 18px; }
   .data-table td { padding:14px 18px; border-bottom:1px solid #f2f2f2; vertical-align:middle; color:#222; }
   .data-table tbody tr:last-child td { border-bottom:none; }
   .data-table tbody tr:hover td { background:#fafafa; }
@@ -126,12 +127,12 @@ ${commonStyle()}
   <!-- KPI cards (moved above tabs) -->
   <div class="kpi-row">
     <div class="kpi-card">
-      <div class="kpi-label">Total Outstanding</div>
+      <div class="kpi-label">Total Outstanding (${baseCurrency})</div>
       <div class="kpi-amount" id="kpi-outstanding">—</div>
       <div class="kpi-count" id="kpi-outstanding-count"></div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Overdue</div>
+      <div class="kpi-label">Overdue (${baseCurrency})</div>
       <div class="kpi-amount overdue" id="kpi-overdue">—</div>
       <div class="kpi-count" id="kpi-overdue-count"></div>
     </div>
@@ -155,15 +156,16 @@ ${commonStyle()}
       <thead>
         <tr>
           <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Date</span><span class="th-filter-btn" title="Filter by date">▾</span></div></th>
-          <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Due Date</span><span class="th-filter-btn" title="Filter by due date">▾</span></div></th>
+          <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Due</span><span class="th-filter-btn" title="Filter by due date">▾</span></div></th>
           <th class="sortable" data-col="vendor" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Vendor</span><span class="th-filter-btn" title="Filter by vendor">▾</span></div></th>
-          <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Invoice Ref</span><span class="th-filter-btn" title="Filter by invoice ref">▾</span></div></th>
+          <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span><span class="th-filter-btn" title="Filter by reference">▾</span></div></th>
+          <th style="width:50px"><div class="th-inner"><span class="th-label">CCY</span></div></th>
           <th class="sortable" data-col="amount" data-filter-type="amount" style="text-align:right"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Amount</span><span class="th-filter-btn" title="Filter by amount">▾</span></div></th>
           <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Status</span><span class="th-filter-btn" title="Filter by status">▾</span></div></th>
         </tr>
       </thead>
       <tbody id="bills-tbody">
-        <tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
+        <tr><td colspan="7" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
       </tbody>
     </table>
     <div class="pagination-row" id="pagination-row" style="display:none">
@@ -189,6 +191,7 @@ ${commonStyle()}
 
 <script>
 var COMPANY = '${company}';
+var BASE_CURRENCY = '${baseCurrency}';
 var allBills = [];
 var filteredBills = [];
 var today = new Date().toISOString().slice(0,10);
@@ -448,20 +451,50 @@ function loadAllBills() {
     var rows = res.data || res || [];
     if (!Array.isArray(rows)) rows = [];
     allBills = rows;
-    computeKpis(rows);
     applyFilters();
+    loadFxRatesForKpi(function(rateMap) { computeKpis(rows, rateMap); });
   })
   .catch(function(e){ showMsg('Error loading bills: ' + e.message); });
 }
 
-function computeKpis(bills) {
+function loadFxRatesForKpi(callback) {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action: 'fx.rates.list', companyId: COMPANY }) })
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    var rates = res.data || res || [];
+    if (!Array.isArray(rates)) rates = [];
+    var rateMap = {};
+    rates.forEach(function(r) {
+      if (!r.from_currency || !r.to_currency || !r.rate) return;
+      var key = r.from_currency + '_' + r.to_currency;
+      if (!rateMap[key] || String(r.rate_date||'') > String(rateMap[key].date||'')) {
+        rateMap[key] = { rate: Number(r.rate), date: r.rate_date };
+      }
+    });
+    callback(rateMap);
+  })
+  .catch(function(){ callback({}); });
+}
+
+function convertToBase(amt, currency, rateMap) {
+  if (!currency || currency === BASE_CURRENCY) return amt;
+  var key = currency + '_' + BASE_CURRENCY;
+  if (rateMap[key]) return amt * rateMap[key].rate;
+  var invKey = BASE_CURRENCY + '_' + currency;
+  if (rateMap[invKey] && rateMap[invKey].rate) return amt / rateMap[invKey].rate;
+  return amt; // no rate available — use raw
+}
+
+function computeKpis(bills, rateMap) {
+  rateMap = rateMap || {};
   var outstandingAmt = 0, outstandingN = 0;
   var overdueAmt = 0, overdueN = 0;
   var upcomingAmt = 0, upcomingN = 0;
   bills.forEach(function(b) {
     var active = b.status === 'posted' || b.status === 'partial';
     if (!active) return;
-    var amt = Number(b.amount || 0);
+    var amt = convertToBase(Number(b.amount || 0), b.currency, rateMap);
     var due = b.due_date ? String(b.due_date).slice(0,10) : null;
     var isOverdue = due && due < today;
     outstandingAmt += amt; outstandingN++;
@@ -558,6 +591,7 @@ function renderPage() {
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'
       + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || b.bill_id) + '</a></td>'
+      + '<td style="font-size:9pt;color:#666;width:50px">' + esc(b.currency || BASE_CURRENCY) + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
       + '<td>' + statusBadge(b.status, due) + '</td>'
       + '</tr>';
@@ -635,7 +669,7 @@ function statusBadge(status, dueDate) {
 function showMsg(msg) {
   var el = document.getElementById('bills-tbody');
   if (!el) return;
-  el.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">' + esc(msg) + '</td></tr>';
+  el.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:32px">' + esc(msg) + '</td></tr>';
 }
 
 function esc(s) {

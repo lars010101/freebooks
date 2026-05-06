@@ -173,7 +173,7 @@
 (function() {
   // ── Vim-modal keyboard navigation ──
   // Modes: normal (default) | insert (typing in a field)
-  // Escape        → Normal mode (blur inputs, clear row focus)
+  // Escape        → Normal mode (blur); or page fbKeyActions.escape if already in normal mode
   // i             → Insert mode (focus first input in page-main)
   // { / }         → sidebar prev/next item (navigate pages)
   // h / l         → horizontal submenu tab prev/next
@@ -232,11 +232,15 @@
     var tag = (ae.tagName || '').toUpperCase();
     var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || ae.isContentEditable;
 
-    // ── Escape: always exit to Normal mode ──
+    // ── Escape: exit to Normal mode; or page escape action if already in normal mode ──
     if (e.key === 'Escape') {
       document.querySelectorAll('tr.nav-row-focus').forEach(function(r) { r.classList.remove('nav-row-focus'); });
-      if (inInput) { ae.blur(); }
-      fbSetVimMode('normal');
+      if (inInput) {
+        ae.blur();
+        fbSetVimMode('normal');
+      } else if (window.fbKeyActions && typeof window.fbKeyActions['escape'] === 'function') {
+        window.fbKeyActions['escape']();
+      }
       return;
     }
 
@@ -324,7 +328,11 @@
       e.preventDefault();
       rows.forEach(function(r) { r.classList.remove('nav-row-focus'); });
       rows[rowNewIdx].classList.add('nav-row-focus');
-      rows[rowNewIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (rowNewIdx === 0) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        rows[rowNewIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
       return;
     }
 

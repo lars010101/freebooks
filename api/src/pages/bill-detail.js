@@ -290,6 +290,9 @@ window.fbPageInit = fbPageInitBillDetail;
 window.fbKeyActions = {
   'edit': function() {
     if (typeof toggleEdit === 'function') toggleEdit();
+  },
+  'escape': function() {
+    if (typeof COMPANY !== 'undefined') fbNavigate('/' + COMPANY + '/payables');
   }
 };
 

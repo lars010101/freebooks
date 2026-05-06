@@ -158,6 +158,16 @@
     var target = (e.state && e.state.fbUrl) || window.location.pathname;
     window.fbNavigate(target);
   });
+
+  // Intercept sidebar link clicks → SPA navigation (same as { } keyboard nav)
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest('.sb-nav a[href]');
+    if (!a) return;
+    var href = a.getAttribute('href');
+    if (!href || href.startsWith('#') || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    window.fbNavigate(href);
+  });
 })();
 
 (function() {

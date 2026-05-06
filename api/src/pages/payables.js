@@ -278,7 +278,8 @@ function openColFilter(th, col) {
     // Native date picker (no dropdown dialog)
     var inp = document.createElement('input');
     inp.type = 'date';
-    var btnRect = filterBtn.getBoundingClientRect();
+    var btnEl = th.querySelector('.th-filter-btn') || th;
+    var btnRect = btnEl.getBoundingClientRect();
     inp.style.cssText = 'position:fixed;top:' + btnRect.bottom + 'px;left:' + btnRect.left + 'px;opacity:0;pointer-events:none;width:0;height:0;border:none;padding:0;margin:0;';
     document.body.appendChild(inp);
     if (colFilters[col]) inp.value = colFilters[col];

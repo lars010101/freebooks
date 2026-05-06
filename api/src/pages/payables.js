@@ -100,6 +100,44 @@ ${commonStyle()}
   .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
   .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:#555; border-bottom:3px solid transparent; margin-bottom:-2px; }
   .tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+
+  /* New Bill Modal */
+  .newbill-modal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.4); z-index:9998; align-items:center; justify-content:center; }
+  .newbill-modal.open { display:flex; }
+  .newbill-modal-content { background:#fff; border-radius:8px; box-shadow:0 8px 32px rgba(0,0,0,.2); max-width:900px; max-height:85vh; overflow:auto; padding:32px; position:relative; width:95%; }
+  .newbill-modal-header { margin-bottom:24px; }
+  .newbill-modal-header h2 { margin:0 0 4px; font-size:1.5rem; font-weight:700; }
+  .newbill-modal-header .close-btn { position:absolute; top:12px; right:12px; background:none; border:none; font-size:1.5rem; color:#999; cursor:pointer; }
+  .newbill-modal-header .close-btn:hover { color:#333; }
+  .newbill-form-section { margin-bottom:24px; }
+  .newbill-form-section h3 { font-size:0.875rem; color:#555; font-weight:600; text-transform:uppercase; margin:0 0 12px; letter-spacing:.06em; }
+  .newbill-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px 20px; margin-bottom:16px; }
+  .newbill-grid.full { grid-template-columns:1fr; }
+  .newbill-field { display:flex; flex-direction:column; gap:4px; }
+  .newbill-field label { font-weight:600; font-size:0.8125rem; color:#333; }
+  .newbill-field input, .newbill-field select { padding:8px 10px; border:1px solid #ccc; border-radius:4px; font-size:0.8125rem; font-family:inherit; }
+  .newbill-field input:focus, .newbill-field select:focus { outline:none; border-color:#1a1a1a; box-shadow:0 0 0 2px rgba(26,26,26,.1); }
+  .newbill-field.invalid input, .newbill-field.invalid select { border-color:#cc2222; background:#fff5f5; }
+  .newbill-field.invalid::after { content:'Required'; font-size:0.75rem; color:#cc2222; margin-top:2px; }
+  .newbill-lines { margin-bottom:24px; }
+  .newbill-lines h3 { font-size:0.875rem; color:#555; font-weight:600; text-transform:uppercase; margin:0 0 12px; letter-spacing:.06em; }
+  .newbill-lines-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+  .newbill-lines-table th { text-align:left; font-size:0.75rem; color:#555; font-weight:600; text-transform:uppercase; border-bottom:1px solid #ccc; padding:8px; }
+  .newbill-lines-table td { padding:6px 8px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  .newbill-lines-table td input { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:0.8125rem; font-family:inherit; }
+  .newbill-lines-table td input:focus { outline:none; border-color:#1a1a1a; }
+  .newbill-lines-table tbody tr.newbill-line-row.editing td { background:#f9f9f9; }
+  .newbill-lines-table tbody tr.newbill-line-row.editing td input { border-color:#1a1a1a; }
+  .newbill-totals { border-top:2px solid #ccc; padding-top:12px; text-align:right; font-size:0.9375rem; }
+  .newbill-total-row { display:flex; justify-content:flex-end; gap:24px; margin-top:8px; }
+  .newbill-total-row div { display:flex; align-items:baseline; gap:8px; }
+  .newbill-total-label { font-weight:600; color:#333; }
+  .newbill-total-value { font-weight:700; font-size:1.125rem; }
+  .newbill-actions { display:flex; gap:12px; margin-top:24px; align-items:center; }
+  .newbill-post-btn { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:0.9375rem; font-weight:600; cursor:pointer; }
+  .newbill-post-btn:hover { background:#333; }
+  .newbill-post-btn:disabled { opacity:.4; cursor:not-allowed; }
+  .newbill-status { font-size:0.8125rem; color:#666; }
   .edit-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
   .edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px; }
   .edit-table td { padding:4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
@@ -161,6 +199,11 @@ ${commonStyle()}
 
   <div id="pay-panel-bills">
 
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+    <div style="flex:1"></div>
+    <button onclick="openNewBillModal()" style="padding:9px 20px; background:#1a1a1a; color:#fff; border:none; border-radius:6px; font-size:0.875rem; font-weight:600; cursor:pointer;">+ New Bill</button>
+  </div>
+
   <!-- Table card -->
   <div class="table-card">
     <table class="data-table">
@@ -182,6 +225,84 @@ ${commonStyle()}
     <div class="pagination-row" id="pagination-row" style="display:none">
       <span id="pag-info"></span>
       <div class="page-btns" id="pag-btns"></div>
+    </div>
+  </div>
+
+  <!-- New Bill Modal -->
+  <div id="newbill-modal" class="newbill-modal">
+    <div class="newbill-modal-content">
+      <button class="close-btn" onclick="closeNewBillModal()">✕</button>
+      <div class="newbill-modal-header">
+        <h2>📄 New Bill</h2>
+        <div style="font-size:0.75rem;color:#888;margin-top:4px;">Press p to post · Esc to cancel · hjkl to navigate · i to edit</div>
+      </div>
+
+      <!-- Meta strip (mirrors Bill details) -->
+      <div class="meta-strip" style="margin-bottom:24px;">
+        <div class="meta-field nav-meta-item" id="newbill-vendor-field" data-field="vendor">
+          <div class="meta-label">Vendor *</div>
+          <input type="text" class="meta-val-input" id="newbill-vendor" placeholder="Search vendor…" autocomplete="off" style="font-size:1rem;font-weight:600;">
+          <input type="hidden" id="newbill-vendor-id">
+        </div>
+        <div class="meta-field nav-meta-item" id="newbill-ref-field" data-field="vendor_ref">
+          <div class="meta-label">Invoice Ref *</div>
+          <input type="text" class="meta-val-input" id="newbill-vendor-ref" placeholder="e.g. INV-2024-001">
+        </div>
+        <div class="meta-field nav-meta-item" id="newbill-date-field" data-field="date">
+          <div class="meta-label">Bill Date *</div>
+          <input type="date" class="meta-val-input" id="newbill-date">
+        </div>
+        <div class="meta-field nav-meta-item" id="newbill-due-field" data-field="due_date">
+          <div class="meta-label">Due Date</div>
+          <input type="date" class="meta-val-input" id="newbill-due-date">
+        </div>
+        <div class="meta-field nav-meta-item" id="newbill-currency-field" data-field="currency">
+          <div class="meta-label">Currency</div>
+          <input type="text" class="meta-val-input" id="newbill-currency" maxlength="3" placeholder="SGD" style="text-transform:uppercase">
+        </div>
+      </div>
+
+      <!-- Amount card -->
+      <div class="amount-cards" style="margin-bottom:24px;">
+        <div class="card-due" style="flex:1;">
+          <div class="card-label">Total Amount</div>
+          <div class="card-val-due" id="newbill-total-amount-card">
+            <span class="card-currency" id="newbill-total-ccy">SGD</span>
+            <span class="card-amount" id="newbill-total-amount">0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="newbill-form-section">
+        <h3>Line Items</h3>
+        <table class="newbill-lines-table" id="newbill-lines-table">
+          <thead>
+            <tr>
+              <th style="width:40px">#</th>
+              <th>Expense Account</th>
+              <th>Description *</th>
+              <th style="width:120px">Amount *</th>
+              <th style="width:30px"></th>
+            </tr>
+          </thead>
+          <tbody id="newbill-lines-body"></tbody>
+        </table>
+        <button type="button" onclick="newbillAddLine()" style="margin-top:8px; padding:6px 12px; font-size:0.8125rem; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; cursor:pointer;">＋ Add Line</button>
+      </div>
+
+      <div class="newbill-totals">
+        <div class="newbill-total-row">
+          <div><span class="newbill-total-label">Total:</span><span class="newbill-total-value" id="newbill-total-amount">0.00</span></div>
+        </div>
+      </div>
+
+      <div class="newbill-actions">
+        <button class="newbill-post-btn" id="newbill-post-btn" onclick="newbillPost()">Post Bill (p)</button>
+        <span class="newbill-status" id="newbill-status"></span>
+      </div>
+      <div style="margin-top:8px; font-size:0.75rem; color:#999;">
+        hjkl navigate · i/Enter edit · Esc cancel · a add line · d delete line · p post
+      </div>
     </div>
   </div>
 
@@ -1276,6 +1397,347 @@ function payVendorAcctInput(input) {
 
 function hidePayVendorAcctDd() {
   setTimeout(function(){ var dd = document.getElementById('pay-vendor-acct-dd'); if (dd) dd.remove(); }, 150);
+}
+
+// ========== NEW BILL MODAL (Vim-style) ==========
+var newbillModalOpen = false;
+var newbillAllVendors = [];
+var newbillAllAccounts = [];
+var newbillFormData = {};
+var newbillLineCounter = 0;
+var newbillCurField = 'vendor';
+var newbillFields = ['vendor', 'vendor_ref', 'date', 'due_date', 'currency', 'ap_account'];
+var newbillEditMode = false;
+var newbillIsDirty = false;
+var newbillSelectedLineId = null;
+
+function openNewBillModal() {
+  newbillModalOpen = true;
+  document.getElementById('newbill-modal').classList.add('open');
+  newbillFormData = {};
+  newbillLineCounter = 0;
+  loadNewbillVendors();
+  loadNewbillAccounts();
+  var today = new Date().toISOString().slice(0,10);
+  document.getElementById('newbill-date').value = today;
+  document.getElementById('newbill-currency').value = BASE_CURRENCY;
+  newbillFormData.date = today;
+  newbillFormData.currency = BASE_CURRENCY;
+  newbillRenderLines();
+  newbillAddLine();
+  newbillCurField = 'vendor';
+  // Prefocus vendor in insert mode (immediate typing + autocomplete)
+  var vendorInput = document.getElementById('newbill-vendor');
+  vendorInput.focus();
+  vendorInput.select();
+  // Mark as dirty tracking for Esc guard
+  newbillIsDirty = false;
+  vendorInput.addEventListener('input', function(){ newbillIsDirty = true; }, { once: true });
+
+  // Wire realtime validation
+  newbillWireRealtimeValidation();
+
+  // Basic vendor inheritance on blur/select
+  vendorInput.addEventListener('blur', function(){
+    var vname = vendorInput.value.trim();
+    if (!vname) return;
+    var match = newbillAllVendors.find(function(v){ return (v.name||'').toLowerCase() === vname.toLowerCase(); });
+    if (match) {
+      if (match.currency) document.getElementById('newbill-currency').value = match.currency;
+      if (match.payment_terms_days) {
+        var d = new Date(document.getElementById('newbill-date').value);
+        d.setDate(d.getDate() + match.payment_terms_days);
+        document.getElementById('newbill-due-date').value = d.toISOString().slice(0,10);
+      }
+      // Could also set default AP/expense accounts here
+      newbillIsDirty = true;
+    }
+  });
+
+  registerNewbillKeyHandlers();
+}
+
+function closeNewBillModal(force) {
+  if (!force && newbillIsDirty) {
+    if (!confirm('Discard unsaved changes?')) return;
+  }
+  newbillModalOpen = false;
+  document.getElementById('newbill-modal').classList.remove('open');
+  if (newbillKeyHandler) document.removeEventListener('keydown', newbillKeyHandler);
+}
+
+function loadNewbillVendors() {
+  if (newbillAllVendors.length) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){ newbillAllVendors = res.data || res || []; })
+    .catch(function(){});
+}
+
+function loadNewbillAccounts() {
+  if (newbillAllAccounts.length) return;
+  fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); })
+    .then(function(rows){ newbillAllAccounts = Array.isArray(rows) ? rows : []; })
+    .catch(function(){});
+}
+
+function newbillAddLine() {
+  if (!newbillFormData.lines) newbillFormData.lines = [];
+  newbillLineCounter++;
+  newbillFormData.lines.push({ id: newbillLineCounter, account_code: '', description: '', amount: 0 });
+  newbillRenderLines();
+}
+
+function newbillRemoveLine(lineId) {
+  if (newbillFormData.lines) {
+    var idx = newbillFormData.lines.findIndex(function(l){ return l.id === lineId; });
+    if (idx >= 0) {
+      newbillFormData.lines.splice(idx, 1);
+      newbillRenderLines();
+      newbillUpdateTotal();
+    }
+  }
+}
+
+function newbillRenderLines() {
+  var tbody = document.getElementById('newbill-lines-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (!newbillFormData.lines) newbillFormData.lines = [];
+  newbillFormData.lines.forEach(function(line, idx) {
+    var tr = document.createElement('tr');
+    tr.className = 'newbill-line-row';
+    tr.dataset.lineId = line.id;
+    tr.innerHTML = '<td style="text-align:center;color:#888;font-size:0.75rem">' + (idx+1) + '</td>' +
+      '<td><input type="text" value="' + esc(line.account_code||'') + '" placeholder="Account code"></td>' +
+      '<td><input type="text" value="' + esc(line.description||'') + '" placeholder="Description"></td>' +
+      '<td><input type="number" value="' + (line.amount||0) + '" step="0.01" min="0" style="text-align:right"></td>' +
+      '<td><button type="button" onclick="newbillRemoveLine(' + line.id + ')" style="border:none;background:none;color:#cc2222;cursor:pointer;">x</button></td>';
+    tbody.appendChild(tr);
+    tr.querySelectorAll('input').forEach(function(inp, i) {
+      inp.addEventListener('change', function() {
+        if (i === 0) line.account_code = inp.value;
+        else if (i === 1) line.description = inp.value;
+        else if (i === 2) line.amount = parseFloat(inp.value) || 0;
+        newbillUpdateTotal();
+      });
+    });
+  });
+  newbillUpdateTotal();
+}
+
+function newbillUpdateTotal() {
+  var total = 0;
+  if (newbillFormData.lines) {
+    newbillFormData.lines.forEach(function(line) { total += Number(line.amount || 0); });
+  }
+  document.getElementById('newbill-total-amount').textContent = total.toFixed(2);
+}
+
+function newbillValidate() {
+  document.querySelectorAll('.newbill-field').forEach(function(f){ f.classList.remove('invalid'); });
+  var errors = [];
+  var vendor = document.getElementById('newbill-vendor').value.trim();
+  var ref = document.getElementById('newbill-vendor-ref').value.trim();
+  var date = document.getElementById('newbill-date').value;
+  var due = document.getElementById('newbill-due-date').value;
+  var currency = document.getElementById('newbill-currency').value.trim();
+  var apAccount = document.getElementById('newbill-ap-account').value.trim();
+
+  if (!vendor) { errors.push('Vendor required'); document.getElementById('newbill-vendor-field').classList.add('invalid'); }
+  if (!ref) { errors.push('Invoice Ref required'); document.getElementById('newbill-ref-field').classList.add('invalid'); }
+  if (!date) { errors.push('Bill Date required'); document.getElementById('newbill-date-field').classList.add('invalid'); }
+  if (!due) { errors.push('Due Date required'); document.getElementById('newbill-due-field').classList.add('invalid'); }
+  if (!currency) { errors.push('Currency required'); document.getElementById('newbill-currency-field').classList.add('invalid'); }
+  if (!apAccount) { errors.push('AP Account required'); document.getElementById('newbill-ap-field').classList.add('invalid'); }
+
+  var hasValidLines = false;
+  if (newbillFormData.lines) {
+    newbillFormData.lines.forEach(function(line) {
+      if (line.description && line.amount > 0 && line.account_code) hasValidLines = true;
+    });
+  }
+  if (!hasValidLines) errors.push('At least one line with description, account and amount required');
+
+  return { valid: errors.length === 0, errors: errors };
+}
+
+function newbillWireRealtimeValidation() {
+  var fields = ['newbill-vendor','newbill-vendor-ref','newbill-date','newbill-due-date','newbill-currency','newbill-ap-account'];
+  fields.forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', function(){ newbillIsDirty = true; newbillValidate(); });
+      el.addEventListener('change', function(){ newbillValidate(); });
+    }
+  });
+}
+
+function newbillPost() {
+  document.querySelectorAll('.newbill-field').forEach(function(f){ f.classList.remove('invalid'); });
+  var validation = newbillValidate();
+  if (!validation.valid) {
+    newbillShowStatus(validation.errors.join('; '), 'err');
+    return;
+  }
+  var vendor = document.getElementById('newbill-vendor').value.trim();
+  var ref = document.getElementById('newbill-vendor-ref').value.trim();
+  var date = document.getElementById('newbill-date').value;
+  var dueDate = document.getElementById('newbill-due-date').value;
+  var currency = document.getElementById('newbill-currency').value.trim().toUpperCase() || BASE_CURRENCY;
+  var apAccount = document.getElementById('newbill-ap-account').value.trim();
+  var lines = [];
+  if (newbillFormData.lines) {
+    newbillFormData.lines.forEach(function(line) {
+      if (line.description && line.amount > 0 && line.account_code) {
+        lines.push({ expense_account: line.account_code, description: line.description, amount: Number(line.amount || 0) });
+      }
+    });
+  }
+  var payload = {
+    action: 'bill.create',
+    companyId: COMPANY,
+    bill: { vendor: vendor, vendor_ref: ref, date: date, due_date: dueDate || null, currency: currency, ap_account: apAccount, lines: lines }
+  };
+  newbillShowStatus('Creating bill...', '');
+  document.getElementById('newbill-post-btn').disabled = true;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var d = res.data || res;
+      if (res.error || d.error || (d.errors && d.errors.length)) {
+        var msg = d.errors ? d.errors.join('; ') : (res.error || d.error);
+        newbillShowStatus(msg, 'err');
+        document.getElementById('newbill-post-btn').disabled = false;
+      } else {
+        newbillShowStatus('Posted!', 'ok');
+        var newBillId = d.id || (res.data && res.data.id);
+        setTimeout(function() {
+          loadAllBills();
+          closeNewBillModal(true);
+          // Highlight the new bill in the list (simple re-render + flash)
+          setTimeout(function() {
+            var rows = document.querySelectorAll('#bills-tbody tr[data-url]');
+            rows.forEach(function(r) {
+              if (r.dataset.url && r.dataset.url.includes(newBillId)) {
+                r.style.transition = 'background 0.2s';
+                r.style.background = '#e8f0fe';
+                setTimeout(function(){ r.style.background = ''; }, 1800);
+              }
+            });
+          }, 400);
+        }, 800);
+      }
+    })
+    .catch(function(e){ newbillShowStatus(e.message, 'err'); document.getElementById('newbill-post-btn').disabled = false; });
+}
+
+function newbillShowStatus(msg, type) {
+  var el = document.getElementById('newbill-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = type === 'err' ? '#cc2222' : (type === 'ok' ? '#2a8a2a' : '#666');
+}
+
+var newbillKeyHandler = null;
+
+function registerNewbillKeyHandlers() {
+  if (newbillKeyHandler) document.removeEventListener('keydown', newbillKeyHandler);
+  newbillKeyHandler = function(e) {
+    if (!newbillModalOpen) return;
+    if (newbillEditMode) {
+      if (e.key === 'Enter') { e.preventDefault(); newbillExitEditMode(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); newbillExitEditMode(false); }
+      return;
+    }
+    // Normal mode
+    if (['h','j','k','l','i','a','d','p','Enter','Escape'].indexOf(e.key) !== -1) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (e.key === 'i' || e.key === 'Enter') { newbillEnterEditMode(); }
+    else if (e.key === 'Escape') { closeNewBillModal(); }
+    else if (e.key === 'h' || e.key === 'l') { newbillMoveCurField(e.key === 'h' ? -1 : 1); }
+    else if (e.key === 'j' || e.key === 'k') { newbillMoveLineFocus(e.key === 'j' ? 1 : -1); }
+    else if (e.key === 'a') { newbillAddLine(); }
+    else if (e.key === 'd') { newbillDeleteLine(); }
+    else if (e.key === 'p') { newbillPost(); }
+  };
+  document.addEventListener('keydown', newbillKeyHandler);
+}
+
+function newbillMoveCurField(dir) {
+  var idx = newbillFields.indexOf(newbillCurField);
+  if (idx < 0) idx = 0;
+  var newIdx = Math.max(0, Math.min(newbillFields.length - 1, idx + dir));
+  newbillCurField = newbillFields[newIdx];
+  newbillUpdateHighlight();
+}
+
+function newbillUpdateHighlight() {
+  document.querySelectorAll('.newbill-field').forEach(function(f) { f.style.borderLeft = 'none'; f.style.paddingLeft = '0'; });
+  var curFieldEl = document.getElementById('newbill-' + newbillCurField + '-field');
+  if (curFieldEl) {
+    curFieldEl.style.borderLeft = '3px solid #1a1a1a';
+    curFieldEl.style.paddingLeft = '12px';
+    var inp = curFieldEl.querySelector('input');
+    if (inp) inp.focus();
+  }
+}
+
+function newbillEnterEditMode() {
+  newbillEditMode = true;
+  var curFieldEl = document.getElementById('newbill-' + newbillCurField + '-field');
+  if (curFieldEl) {
+    var inp = curFieldEl.querySelector('input');
+    if (inp) { inp.focus(); inp.select(); }
+  }
+}
+
+function newbillExitEditMode(save) {
+  newbillEditMode = false;
+  if (save) {
+    var curFieldEl = document.getElementById('newbill-' + newbillCurField + '-field');
+    if (curFieldEl) {
+      var inp = curFieldEl.querySelector('input');
+      if (inp) newbillFormData[newbillCurField] = inp.value;
+    }
+  }
+  newbillUpdateHighlight();
+}
+
+function newbillMoveLineFocus(dir) {
+  if (!newbillFormData.lines || newbillFormData.lines.length === 0) return;
+  var currentIdx = -1;
+  if (newbillSelectedLineId) {
+    currentIdx = newbillFormData.lines.findIndex(function(l){ return l.id === newbillSelectedLineId; });
+  }
+  var newIdx = Math.max(0, Math.min(newbillFormData.lines.length - 1, currentIdx + dir));
+  newbillSelectedLineId = newbillFormData.lines[newIdx].id;
+  newbillHighlightLineRow();
+}
+
+function newbillHighlightLineRow() {
+  document.querySelectorAll('#newbill-lines-body tr').forEach(function(tr) {
+    tr.style.background = '';
+    if (parseInt(tr.dataset.lineId) === newbillSelectedLineId) {
+      tr.style.background = '#f0f0f0';
+    }
+  });
+}
+
+function newbillDeleteLine() {
+  if (!newbillFormData.lines || newbillFormData.lines.length === 0) return;
+  var idx = newbillFormData.lines.findIndex(function(l){ return l.id === newbillSelectedLineId; });
+  if (idx < 0) idx = newbillFormData.lines.length - 1;
+  if (!confirm('Delete this line?')) return;
+  newbillFormData.lines.splice(idx, 1);
+  newbillSelectedLineId = newbillFormData.lines.length ? newbillFormData.lines[0].id : null;
+  newbillRenderLines();
+  newbillUpdateTotal();
+  newbillHighlightLineRow();
+  newbillIsDirty = true;
 }
 </script>
 ${layoutEnd()}

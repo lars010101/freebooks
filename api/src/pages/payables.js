@@ -52,7 +52,6 @@ ${commonStyle()}
   .data-table tbody tr:last-child td { border-bottom:none; }
   .data-table tbody tr:hover td { background:#fafafa; }
   .data-table tbody tr[data-url] { cursor:pointer; }
-  .data-table tbody tr.nav-row-focus td { background:#f0f4ff !important; }
 
   /* Sortable/filterable column headers */
   .data-table th.sortable { cursor:pointer; user-select:none; }
@@ -334,14 +333,14 @@ function registerBillKeyActions() {
       var billId = row.dataset.billId;
       var vendor = row.dataset.vendor || billId;
       if (!billId) return;
-      if (!confirm('Delete bill from "' + vendor + '"? This cannot be undone.')) return;
+      if (!confirm('Void bill from "' + vendor + '"? This will reverse the bill and cannot be undone.')) return;
       fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'bill.delete', companyId: COMPANY, billId: billId }) })
+        body: JSON.stringify({ action: 'bill.void', companyId: COMPANY, billId: billId }) })
         .then(function(r) { return r.json(); })
         .then(function(res) {
           var d = res.data || res;
           if (res.error || d.error) {
-            alert('Cannot delete: ' + (res.error || d.error));
+            alert('Cannot void: ' + (res.error || d.error));
           } else {
             loadAllBills();
           }

@@ -115,7 +115,8 @@ ${commonStyle()}
   .msg-pay.err { color:#cc2222; }
 
   /* Vendor keyboard nav */
-  .data-table tbody tr.selected td { background:#e8eeff !important; }
+  .data-table tbody tr.selected td { background:#1a3a6b !important; color:#fff !important; }
+  .data-table tbody tr.selected td span:not(.avatar):not(.badge) { color:#fff !important; }
   .data-table tbody tr.editing td { background:#fffde7 !important; padding:4px 10px; }
   .data-table tbody tr.editing input[type=text],
   .data-table tbody tr.editing input[type=number] { padding:5px 8px; border:1px solid #aaa; border-radius:4px; font-size:10pt; box-sizing:border-box; }
@@ -728,7 +729,7 @@ function showPayTab(t) {
     var tabEl = document.getElementById('pay-tab-' + id);
     if (tabEl) tabEl.classList.toggle('active', id === t);
   });
-  if (t === 'vendors') { loadVendorTable(); loadVendorAccounts(); }
+  if (t === 'vendors') { loadVendorTable(); loadVendorAccounts(); loadVendorCurrencies(); }
 }
 
 // ========== VENDOR MANAGEMENT ==========
@@ -737,6 +738,14 @@ var vendorAcctActiveInput = null;
 var vendorSelectedIdx = -1;
 var vendorEditMode = false;
 var allVendors = [];
+var vendorCurrenciesList = [];
+
+function loadVendorCurrencies() {
+  if (vendorCurrenciesList.length) return;
+  fetch('/db/currencies.json').then(function(r){ return r.json(); }).then(function(list){
+    vendorCurrenciesList = Array.isArray(list) ? list : [];
+  }).catch(function(){});
+}
 
 function loadVendorAccounts() {
   if (vendorAccountsList.length) return;
@@ -827,7 +836,7 @@ function enterVendorEditMode() {
 
   tr.innerHTML =
     '<td><input type="text" value="' + esc(tr.dataset.name) + '" placeholder="Vendor name" style="width:200px"></td>' +
-    '<td><input type="text" value="' + esc(tr.dataset.currency) + '" maxlength="3" style="width:52px;text-align:center"></td>' +
+    '<td><input type="text" value="' + esc(tr.dataset.currency) + '" maxlength="3" style="width:52px;text-align:center;text-transform:uppercase" autocomplete="off" oninput="payVendorCcyInput(this)" onblur="hidePayVendorCcyDd()"></td>' +
     '<td><input type="number" value="' + esc(tr.dataset.terms) + '" min="0" style="width:64px;text-align:center"></td>' +
     '<td><input type="text" value="' + esc(tr.dataset.expAcct) + '" style="width:120px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
     '<td><input type="text" value="' + esc(tr.dataset.apAcct) + '" style="width:120px" placeholder="code" autocomplete="off" oninput="payVendorAcctInput(this)" onblur="hidePayVendorAcctDd()"></td>' +
@@ -864,11 +873,16 @@ function exitVendorEditMode(save) {
   var name = inputs[0].value.trim();
   if (!name) { inputs[0].focus(); vendorMsg('Name is required.', 'err'); return; }
 
+  var ccyRaw = inputs[1].value.trim().toUpperCase();
+  if (ccyRaw && vendorCurrenciesList.length) {
+    var ccyValid = vendorCurrenciesList.some(function(c){ return (c.code||'').toUpperCase() === ccyRaw; });
+    if (!ccyValid) { inputs[1].focus(); vendorMsg('Unknown currency code: ' + ccyRaw, 'err'); vendorEditMode = true; tr.classList.add('editing'); return; }
+  }
   var idx = parseInt(tr.dataset.idx);
   var vendor = {
     vendor_id:               tr.dataset.vendorId || null,
     name:                    name,
-    default_currency:        inputs[1].value.trim().toUpperCase() || null,
+    default_currency:        ccyRaw || null,
     payment_terms_days:      parseInt(inputs[2].value) || 30,
     default_expense_account: inputs[3].value.trim() || null,
     default_ap_account:      inputs[4].value.trim() || null,
@@ -989,6 +1003,24 @@ function registerVendorKeyActions() {
     if (!panel || panel.style.display === 'none') return;
 
     if (vendorEditMode) {
+      var acctDd = document.getElementById('pay-vendor-acct-dd');
+      var ccyDd  = document.getElementById('pay-vendor-ccy-dd');
+      if (acctDd) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); moveVendorAcctDd(1); return; }
+        if (e.key === 'ArrowUp')   { e.preventDefault(); moveVendorAcctDd(-1); return; }
+        if (e.key === 'Enter')     { e.preventDefault(); selectVendorAcctDdItem(); return; }
+        if (e.key === 'Escape')    { e.preventDefault(); acctDd.remove(); vendorAcctActiveInput = null; return; }
+        if (e.key === 'Tab')       { if (selectVendorAcctDdItem()) e.preventDefault(); return; }
+        return;
+      }
+      if (ccyDd) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); moveVendorCcyDd(1); return; }
+        if (e.key === 'ArrowUp')   { e.preventDefault(); moveVendorCcyDd(-1); return; }
+        if (e.key === 'Enter')     { e.preventDefault(); selectVendorCcyDdItem(); return; }
+        if (e.key === 'Escape')    { e.preventDefault(); ccyDd.remove(); return; }
+        if (e.key === 'Tab')       { if (selectVendorCcyDdItem()) e.preventDefault(); return; }
+        return;
+      }
       if (e.key === 'Enter') { e.preventDefault(); exitVendorEditMode(true); }
       else if (e.key === 'Escape') { e.preventDefault(); exitVendorEditMode(false); }
       return;
@@ -1004,6 +1036,114 @@ function registerVendorKeyActions() {
     else if (e.key === 'd') { e.preventDefault(); vendorDeleteSelected(); }
     else if (e.key === '~') { e.preventDefault(); vendorToggleActive(); }
   });
+}
+
+function payVendorCcyInput(input) {
+  loadVendorCurrencies();
+  var q = input.value.trim().toUpperCase();
+  var dd = document.getElementById('pay-vendor-ccy-dd');
+  if (dd) dd.remove();
+  if (!q) return;
+  var matches = vendorCurrenciesList.filter(function(c){
+    return (c.code||'').toUpperCase().startsWith(q) || (c.name||'').toUpperCase().includes(q);
+  }).slice(0, 10);
+  if (!matches.length) return;
+  var div = document.createElement('div');
+  div.id = 'pay-vendor-ccy-dd';
+  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:220px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2);min-width:200px';
+  matches.forEach(function(c, i){
+    var item = document.createElement('div');
+    item.dataset.ccyCode = c.code;
+    item.dataset.idx = String(i);
+    item.textContent = c.code + '  —  ' + (c.name || '');
+    item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-family:monospace';
+    item.onmouseover = function(){ clearVendorCcyDdFocus(); item.classList.add('dd-active'); item.style.background='#e8f0fe'; };
+    item.onmouseout  = function(){ item.classList.remove('dd-active'); item.style.background=''; };
+    item.onmousedown = function(e){ e.preventDefault(); };
+    item.onclick = function(){
+      input.value = c.code;
+      var dd2 = document.getElementById('pay-vendor-ccy-dd');
+      if (dd2) dd2.remove();
+    };
+    div.appendChild(item);
+  });
+  var rect = input.getBoundingClientRect();
+  div.style.left = rect.left + 'px';
+  div.style.top  = (rect.bottom + 2) + 'px';
+  document.body.appendChild(div);
+}
+
+function clearVendorCcyDdFocus() {
+  var dd = document.getElementById('pay-vendor-ccy-dd');
+  if (!dd) return;
+  dd.querySelectorAll('.dd-active').forEach(function(el){ el.classList.remove('dd-active'); el.style.background=''; });
+}
+
+function moveVendorCcyDd(dir) {
+  var dd = document.getElementById('pay-vendor-ccy-dd');
+  if (!dd) return;
+  var items = dd.querySelectorAll('[data-ccy-code]');
+  if (!items.length) return;
+  var cur = dd.querySelector('.dd-active');
+  var curIdx = cur ? parseInt(cur.dataset.idx) : -1;
+  var nextIdx = Math.max(0, Math.min(items.length - 1, curIdx + dir));
+  clearVendorCcyDdFocus();
+  var next = items[nextIdx];
+  next.classList.add('dd-active');
+  next.style.background = '#e8f0fe';
+  next.scrollIntoView({ block: 'nearest' });
+}
+
+function selectVendorCcyDdItem() {
+  var dd = document.getElementById('pay-vendor-ccy-dd');
+  if (!dd) return false;
+  var cur = dd.querySelector('.dd-active');
+  if (!cur) { var first = dd.querySelector('[data-ccy-code]'); if (first) cur = first; }
+  if (!cur) return false;
+  var input = document.querySelector('#vendors-body tr.editing input[maxlength="3"]');
+  if (input) input.value = cur.dataset.ccyCode;
+  dd.remove();
+  return true;
+}
+
+function hidePayVendorCcyDd() {
+  setTimeout(function(){ var dd = document.getElementById('pay-vendor-ccy-dd'); if (dd) dd.remove(); }, 150);
+}
+
+function clearVendorAcctDdFocus() {
+  var dd = document.getElementById('pay-vendor-acct-dd');
+  if (!dd) return;
+  dd.querySelectorAll('.dd-active').forEach(function(el){ el.classList.remove('dd-active'); el.style.background=''; });
+}
+
+function moveVendorAcctDd(dir) {
+  var dd = document.getElementById('pay-vendor-acct-dd');
+  if (!dd) return;
+  var items = dd.querySelectorAll('[data-acct-code]');
+  if (!items.length) return;
+  var cur = dd.querySelector('.dd-active');
+  var curIdx = cur ? parseInt(cur.dataset.idx) : -1;
+  var nextIdx = Math.max(0, Math.min(items.length - 1, curIdx + dir));
+  clearVendorAcctDdFocus();
+  var next = items[nextIdx];
+  next.classList.add('dd-active');
+  next.style.background = '#e8f0fe';
+  next.scrollIntoView({ block: 'nearest' });
+}
+
+function selectVendorAcctDdItem() {
+  var dd = document.getElementById('pay-vendor-acct-dd');
+  if (!dd) return false;
+  var cur = dd.querySelector('.dd-active');
+  if (!cur) { var first = dd.querySelector('[data-acct-code]'); if (first) cur = first; }
+  if (!cur) return false;
+  if (vendorAcctActiveInput) {
+    vendorAcctActiveInput.value = cur.dataset.acctCode;
+    vendorAcctActiveInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  dd.remove();
+  vendorAcctActiveInput = null;
+  return true;
 }
 
 function payVendorAcctInput(input) {
@@ -1022,10 +1162,12 @@ function payVendorAcctInput(input) {
   div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
   matches.forEach(function(a){
     var item = document.createElement('div');
-    item.textContent = a.account_code + ' - ' + a.account_name;
-    item.style.cssText = 'padding:4px 8px;cursor:pointer;white-space:nowrap';
-    item.onmouseover = function(){ item.style.background='#e8f0fe'; };
-    item.onmouseout  = function(){ item.style.background=''; };
+    item.dataset.acctCode = a.account_code;
+    item.dataset.idx = String(matches.indexOf(a));
+    item.textContent = a.account_code + ' — ' + a.account_name;
+    item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-family:monospace;font-size:11px';
+    item.onmouseover = function(){ clearVendorAcctDdFocus(); item.classList.add('dd-active'); item.style.background='#e8f0fe'; };
+    item.onmouseout  = function(){ item.classList.remove('dd-active'); item.style.background=''; };
     item.onmousedown = function(e){ e.preventDefault(); };
     item.onclick = function(){
       if (vendorAcctActiveInput) {

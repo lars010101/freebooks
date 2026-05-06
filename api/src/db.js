@@ -138,22 +138,21 @@ async function bulkInsert(table, rows) {
   if (!rows || rows.length === 0) return;
   const conn = await ensureDb();
   const keys = Object.keys(rows[0]);
-  // Use column names as named params ($colName) — conn.run() supports named-object binding
-  const placeholders = keys.map(k => `$${k}`).join(', ');
-  const sql = `INSERT INTO ${table} (${keys.map(k => `"${k}"`).join(', ')}) VALUES (${placeholders})`;
+  const columnList = keys.map(k => `"${k}"`).join(', ');
 
-  await conn.run('BEGIN');
-  try {
-    for (const row of rows) {
-      const rowParams = {};
-      keys.forEach(k => { rowParams[k] = row[k] ?? null; });
-      await conn.run(sql, rowParams);  // conn.run() handles named params correctly
-    }
-    await conn.run('COMMIT');
-  } catch (err) {
-    try { await conn.run('ROLLBACK'); } catch {}
-    throw err;
-  }
+  // Build one INSERT with all rows as named params — single round-trip
+  const allParams = {};
+  const valueClauses = rows.map((row, rowIdx) => {
+    const placeholders = keys.map(k => {
+      const paramName = `${k}_r${rowIdx}`;
+      allParams[paramName] = row[k] ?? null;
+      return `$${paramName}`;
+    });
+    return `(${placeholders.join(', ')})`;
+  });
+
+  const sql = `INSERT INTO "${table}" (${columnList}) VALUES ${valueClauses.join(', ')}`;
+  await conn.run(sql, allParams);
 }
 
 /**

@@ -170,6 +170,7 @@ var VAT_NAMES = { SG:'GST', SE:'VAT' };
 
 // ========== DIRTY STATE MANAGER (all tabs) ==========
 var dirtyTabs = new Set();
+var tabLoaded = {};
 var vendorAccountsList = [];
 var vendorAcctActiveInput = null;
 function markDirty(tab) {
@@ -196,7 +197,15 @@ function showTab(t) {
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
-  if (t === 'fxrates') { loadFxProviders(); loadFxRates(); loadBaseCurrencies(); }
+  if (!tabLoaded[t]) {
+    tabLoaded[t] = true;
+    if (t === 'company')  { loadCompany(); }
+    if (t === 'periods')  { loadPeriods(); }
+    if (t === 'coa')      { loadCoa(); }
+    if (t === 'vat')      { loadVat(); }
+    if (t === 'journals') { loadJournals(); }
+    if (t === 'fxrates')  { loadFxProviders(); loadFxRates(); loadBaseCurrencies(); }
+  }
 }
 
 function showMsg(id, msg, isErr) {
@@ -296,7 +305,6 @@ function loadPeriods() {
     })
     .catch(function(e){ console.error('loadPeriods:', e); });
 }
-loadPeriods();
 loadVendorAccounts(); // preload accounts for vendor autocomplete
 
 // ========== COMPANY ==========
@@ -352,7 +360,6 @@ function saveCompany() {
     } })
     .catch(function(e){ showMsg('msg-company', e.message, true); });
 }
-loadCompany();
 
 // ========== COA ==========
 var coaData = [];
@@ -458,7 +465,6 @@ function filterCoa() {
   appendBlankCoaRow();
 }
 // saveCoa replaced by per-row saveCoaRow
-loadCoa();
 
 // ========== VAT/GST CODES ==========
 function addVatRow(vc) {
@@ -534,7 +540,6 @@ function loadVat() {
   });
 }
 // saveVat replaced by per-row saveVatRow
-loadVat();
 
 // ========== JOURNALS ==========
 function addJournalRow(j) {
@@ -609,7 +614,6 @@ function loadJournals() {
     });
 }
 // saveJournals replaced by per-row saveJournalRow
-loadJournals();
 
 function loadVendorAccounts() {
   fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
@@ -621,7 +625,8 @@ function loadVendorAccounts() {
 (function() {
   var params = new URLSearchParams(window.location.search);
   var tab = params.get('tab');
-  if (tab) showTab(tab);
+  loadCurrencyDatalist();
+  showTab(tab || 'company');
 })();
 
 // Wire FX rates save button
@@ -815,7 +820,6 @@ function loadCurrencyDatalist() {
     })
     .catch(function(e){ console.error('Failed to load currencies:', e); });
 }
-loadCurrencyDatalist();
 
 // ========== FX PROVIDER MANAGEMENT ==========
 var fxProviders = [];

@@ -58,7 +58,7 @@ ${layoutEnd()}
 
   /* ── State ── */
   var MOM_YOY_TYPES = ['pl', 'bs', 'cf'];
-  var currentType = localStorage.getItem('fb-rpt-type') || '';
+  var currentType = '';
   /* Handle ?t= URL param (e.g. redirect from payables/aging) */
   var urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('t')) { currentType = urlParams.get('t'); localStorage.setItem('fb-rpt-type', currentType); }
@@ -68,13 +68,8 @@ ${layoutEnd()}
   var savedStart  = localStorage.getItem('fb-rpt-start')  || '';
   var savedEnd    = localStorage.getItem('fb-rpt-end')    || '';
 
-  /* ── Restore type dropdown ── */
+  /* ── Type dropdown ── */
   var typeEl = document.getElementById('rpt-type');
-  if (typeEl) {
-    for (var i = 0; i < typeEl.options.length; i++) {
-      if (typeEl.options[i].value === currentType) { typeEl.selectedIndex = i; break; }
-    }
-  }
 
   /* ── MoM/YoY buttons: enable only for pl/bs/cf ── */
   function updateStepButtons() {

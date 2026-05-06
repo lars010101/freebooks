@@ -185,15 +185,27 @@
   // Auto-track mode on focus in/out
   document.addEventListener('focusin', function(e) {
     var tag = (e.target || {}).tagName || '';
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') fbSetVimMode('insert');
+    var type = ((e.target || {}).type || '').toLowerCase();
+    var textInput = tag === 'TEXTAREA' ||
+      (tag === 'INPUT' && type !== 'checkbox' && type !== 'radio' &&
+       type !== 'button' && type !== 'submit' && type !== 'reset' && type !== 'file');
+    if (textInput) fbSetVimMode('insert');
   });
   document.addEventListener('focusout', function(e) {
     var tag = (e.target || {}).tagName || '';
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+    var type = ((e.target || {}).type || '').toLowerCase();
+    var textInput = tag === 'TEXTAREA' ||
+      (tag === 'INPUT' && type !== 'checkbox' && type !== 'radio' &&
+       type !== 'button' && type !== 'submit' && type !== 'reset' && type !== 'file');
+    if (textInput) {
       setTimeout(function() {
         var ae = document.activeElement;
         var aeTag = (ae || {}).tagName || '';
-        if (aeTag !== 'INPUT' && aeTag !== 'TEXTAREA' && aeTag !== 'SELECT') fbSetVimMode('normal');
+        var aeType = ((ae || {}).type || '').toLowerCase();
+        var aeTextInput = aeTag === 'TEXTAREA' ||
+          (aeTag === 'INPUT' && aeType !== 'checkbox' && aeType !== 'radio' &&
+           aeType !== 'button' && aeType !== 'submit' && aeType !== 'reset' && aeType !== 'file');
+        if (!aeTextInput) fbSetVimMode('normal');
       }, 50);
     }
   });

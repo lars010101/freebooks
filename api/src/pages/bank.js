@@ -969,7 +969,8 @@ ${commonStyle()}
   }
 
   function closeBillPanel() {
-    document.getElementById('bill-panel').style.display = 'none';
+    var panel = document.getElementById('bill-panel');
+    if (panel) panel.style.display = 'none';
     billPanelRowIdx = -1;
   }
 

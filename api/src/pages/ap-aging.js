@@ -95,10 +95,12 @@ ${commonStyle()}
 var COMPANY = '${company}';
 var agingRows = []; // stores all bill rows for modal lookup
 
-window.addEventListener('DOMContentLoaded', function() {
+function fbPageInitApAging() {
   document.getElementById('asof-date').value = new Date().toISOString().slice(0,10);
   doLoad();
-});
+}
+window.addEventListener('DOMContentLoaded', fbPageInitApAging);
+document.addEventListener('fb:pageload', fbPageInitApAging);
 
 function doLoad() {
   var asOf = document.getElementById('asof-date').value;

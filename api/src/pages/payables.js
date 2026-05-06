@@ -195,10 +195,12 @@ var currentPage = 1;
 
 var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8','#e07840','#5c7ae0'];
 
-window.addEventListener('DOMContentLoaded', function() {
+function fbPageInitPayables() {
   loadVendors();
   loadAllBills();
-});
+}
+window.addEventListener('DOMContentLoaded', fbPageInitPayables);
+document.addEventListener('fb:pageload', fbPageInitPayables);
 
 function loadVendors() {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},

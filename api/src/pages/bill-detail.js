@@ -280,9 +280,11 @@ var BILL_ID = '${billId}';
 var billData = null;
 var accountsCache = null;
 
-window.addEventListener('DOMContentLoaded', function() {
+function fbPageInitBillDetail() {
   loadBill();
-});
+}
+window.addEventListener('DOMContentLoaded', fbPageInitBillDetail);
+document.addEventListener('fb:pageload', fbPageInitBillDetail);
 
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');

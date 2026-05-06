@@ -89,6 +89,56 @@
 
 
 (function() {
+  window.fbNavigate = function(url) {
+    fetch(url)
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var newMain = doc.getElementById('page-main');
+        var oldMain = document.getElementById('page-main');
+        if (!newMain || !oldMain) { window.location.href = url; return; }
+
+        // Swap page-main content
+        oldMain.innerHTML = newMain.innerHTML;
+
+        // Re-execute inline scripts
+        oldMain.querySelectorAll('script').forEach(function(s) {
+          var ns = document.createElement('script');
+          ns.textContent = s.textContent;
+          s.replaceWith(ns);
+        });
+
+        // Update sidebar active state
+        var sbItems = Array.from(document.querySelectorAll('.sb-nav a[href]'));
+        sbItems.forEach(function(el) { el.classList.remove('sb-active'); });
+        var active = sbItems.find(function(el) {
+          var href = el.getAttribute('href');
+          return href && (url === href || url.startsWith(href + '/'));
+        });
+        if (active) active.classList.add('sb-active');
+
+        // Update top-bar right section
+        var newTbRight = doc.querySelector('.tb-right');
+        var oldTbRight = document.querySelector('.tb-right');
+        if (newTbRight && oldTbRight) oldTbRight.innerHTML = newTbRight.innerHTML;
+
+        // Fire custom event so pages can re-init
+        document.dispatchEvent(new CustomEvent('fb:pageload'));
+
+        // Push history
+        history.pushState({ fbUrl: url }, '', url);
+      })
+      .catch(function() { window.location.href = url; });
+  };
+
+  // Handle browser back/forward
+  window.addEventListener('popstate', function(e) {
+    var target = (e.state && e.state.fbUrl) || window.location.pathname;
+    window.fbNavigate(target);
+  });
+})();
+
+(function() {
   // ── Vim-modal keyboard navigation ──
   // Modes: normal (default) | insert (typing in a field)
   // Escape        → Normal mode (blur inputs, clear row focus)
@@ -174,7 +224,7 @@
       var company = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
       if (!company) return;
       var navMap = { d: '/' + company, b: '/' + company + '/bank', p: '/' + company + '/payables', v: '/' + company + '/receivables', r: '/' + company + '/reports', s: '/' + company + '/settings' };
-      if (navMap[e.key]) { e.preventDefault(); window.location.href = navMap[e.key]; }
+      if (navMap[e.key]) { e.preventDefault(); fbNavigate(navMap[e.key]); }
       return;
     }
 
@@ -195,7 +245,7 @@
       var sbNewIdx = e.key === '}' ? sbActiveIdx + 1 : sbActiveIdx - 1;
       sbNewIdx = Math.max(0, Math.min(sbItems.length - 1, sbNewIdx));
       e.preventDefault();
-      window.location.href = sbItems[sbNewIdx].getAttribute('href');
+      fbNavigate(sbItems[sbNewIdx].getAttribute('href'));
       return;
     }
 
@@ -235,7 +285,7 @@
       if (focusedRow) {
         e.preventDefault();
         var link = focusedRow.querySelector('a[href]');
-        if (link) { window.location.href = link.getAttribute('href'); }
+        if (link) { fbNavigate(link.getAttribute('href')); }
         else { focusedRow.click(); }
       }
     }
@@ -244,13 +294,13 @@
   window.fbOpenCmdPalette = window.fbOpenCmdPalette || function() {
     var company = document.getElementById('app-shell') ? document.getElementById('app-shell').dataset.company : '';
     var cmds = [
-      { label: '+ New Journal Entry',  action: function(){ window.location.href = '/' + company + '/journal/new'; } },
-      { label: '+ New Bill',           action: function(){ window.location.href = '/' + company + '/bill/new'; } },
-      { label: '\u2192 Dashboard',          action: function(){ window.location.href = '/' + company; } },
-      { label: '\u2192 Bank',               action: function(){ window.location.href = '/' + company + '/bank'; } },
-      { label: '\u2192 Payables',           action: function(){ window.location.href = '/' + company + '/payables'; } },
-      { label: '\u2192 Reports',            action: function(){ window.location.href = '/' + company + '/reports'; } },
-      { label: '\u2192 Settings',           action: function(){ window.location.href = '/' + company + '/settings'; } },
+      { label: '+ New Journal Entry',  action: function(){ fbNavigate('/' + company + '/journal/new'); } },
+      { label: '+ New Bill',           action: function(){ fbNavigate('/' + company + '/bill/new'); } },
+      { label: '\u2192 Dashboard',          action: function(){ fbNavigate('/' + company); } },
+      { label: '\u2192 Bank',               action: function(){ fbNavigate('/' + company + '/bank'); } },
+      { label: '\u2192 Payables',           action: function(){ fbNavigate('/' + company + '/payables'); } },
+      { label: '\u2192 Reports',            action: function(){ fbNavigate('/' + company + '/reports'); } },
+      { label: '\u2192 Settings',           action: function(){ fbNavigate('/' + company + '/settings'); } },
     ];
     var existing = document.getElementById('fb-cmd-modal');
     if (existing) { existing.remove(); return; }

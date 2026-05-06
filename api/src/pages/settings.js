@@ -633,7 +633,7 @@ function loadVendorAccounts() {
 var fxSaveBtn = document.querySelector('#fx-rates-body');
 if (!fxSaveBtn) {
   var s = document.createElement('script');
-  s.textContent = 'document.addEventListener("DOMContentLoaded", function(){ var tbody = document.getElementById("fx-rates-body"); if (tbody && !tbody.dataset.fxWired) { tbody.dataset.fxWired = true; var frm = tbody.parentElement.parentElement; var btn = document.createElement("button"); btn.className = "btn-primary"; btn.textContent = "Save Rates"; btn.onclick = saveFxRates; frm.appendChild(btn); } });';
+  s.textContent = '(function(){ var tbody = document.getElementById("fx-rates-body"); if (tbody && !tbody.dataset.fxWired) { tbody.dataset.fxWired = true; var frm = tbody.parentElement.parentElement; var btn = document.createElement("button"); btn.className = "btn-primary"; btn.textContent = "Save Rates"; btn.onclick = saveFxRates; frm.appendChild(btn); } })();';
   document.body.appendChild(s);
 }
 

@@ -173,6 +173,47 @@ Additional actions per context:
 
 Click the company name in the sidebar header to open the company switcher dropdown.
 
+### Keyboard shortcuts
+
+freeBooks uses a vim-inspired modal keyboard system. The current mode is shown in the sidebar footer (`NORMAL` / `INSERT`).
+
+#### Modes
+
+| Key | Action |
+|---|---|
+| `Escape` | Enter **Normal** mode — blurs any active input, clears row focus |
+| `i` | Enter **Insert** mode — focuses the first input on the page |
+
+#### Normal mode — navigation
+
+| Key | Action |
+|---|---|
+| `{` | Previous sidebar item (navigate to preceding page) |
+| `}` | Next sidebar item (navigate to following page) |
+| `h` | Previous horizontal submenu tab |
+| `l` | Next horizontal submenu tab |
+| `j` | Move focus down one table row |
+| `k` | Move focus up one table row |
+| `Enter` | Activate the focused row (follow its link or trigger click) |
+| `i` | Enter Insert mode (focus first input) |
+| `/` | Focus global search |
+| `:` or `Ctrl+K` | Open command palette |
+
+#### g-prefix jumps (Normal mode)
+
+Press `g` then a letter within 1 second:
+
+| Sequence | Destination |
+|---|---|
+| `gd` | Dashboard |
+| `gb` | Bank |
+| `gp` | Payables |
+| `gv` | Receivables (Sales) |
+| `gr` | Reports |
+| `gs` | Settings |
+
+All navigation keys are suppressed when an input, textarea, or select is focused (Insert mode).
+
 ### Dashboard cards
 
 The dashboard shows 4 clickable summary cards before the report selector:

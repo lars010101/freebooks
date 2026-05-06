@@ -119,8 +119,10 @@ ${commonStyle()}
   .data-table tbody tr.vrow-selected td.vcell-selected { background:#1a3a6b !important; color:#fff !important; }
   .data-table tbody tr.vrow-selected td.vcell-selected span:not(.avatar):not(.badge) { color:#fff !important; }
   .data-table tbody tr.vrow-selected td.vcell-selected .badge { opacity:0.85; }
-  .data-table tbody td.vcell-editing { background:#fffde7 !important; color:#222 !important; box-shadow:inset 0 0 0 2px #1a3a6b; padding:3px 8px !important; }
-  .data-table tbody td.vcell-editing input { border:none; outline:none; background:transparent; font-size:inherit; font-family:inherit; color:#222; padding:0; box-sizing:border-box; }
+  .data-table tbody td.vcell-editing,
+  .data-table tbody tr.vrow-selected td.vcell-editing { background:#fff !important; color:#222 !important; box-shadow:inset 0 0 0 2px #1a3a6b; padding:3px 8px !important; }
+  .data-table tbody td.vcell-editing input,
+  .data-table tbody tr.vrow-selected td.vcell-editing input { border:none; outline:none; background:transparent; font-size:inherit; font-family:inherit; color:#222 !important; padding:0; box-sizing:border-box; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
@@ -768,7 +770,7 @@ function loadVendorTable() {
       allVendors = Array.isArray(rows) ? rows : [];
       vendorDirtyRows = {};
       renderVendorTable();
-      vendorSelRow = allVendors.length > 0 ? 0 : -1;
+      vendorSelRow = -1;
       vendorSelCol = 0;
       updateVendorCursor();
     }).catch(function(e){ vendorMsg('Error loading vendors: ' + e.message, 'err'); });
@@ -966,6 +968,12 @@ function saveVendorRowIfDirty(rowIdx) {
 
 function vendorMoveRow(dir) {
   if (vendorCellEdit) commitVendorCell(true);
+  if (dir < 0) {
+    if (vendorSelRow < 0) return; // no selection, nothing to do
+    if (vendorSelRow === 0) { saveVendorRowIfDirty(0); vendorSelRow = -1; updateVendorCursor(); return; }
+  } else {
+    if (vendorSelRow < 0) { vendorSelRow = 0; updateVendorCursor(); return; }
+  }
   saveVendorRowIfDirty(vendorSelRow);
   vendorSelRow = Math.max(0, Math.min(allVendors.length - 1, vendorSelRow + dir));
   updateVendorCursor();
@@ -1097,7 +1105,7 @@ function registerVendorKeyActions() {
 
     if (e.key === 'j') { e.preventDefault(); vendorMoveRow(1); }
     else if (e.key === 'k') { e.preventDefault(); vendorMoveRow(-1); }
-    else if (e.key === 'h') { e.preventDefault(); vendorMoveCol(-1); }
+    else if (e.key === 'h') { e.preventDefault(); if (vendorSelRow < 0) { showPayTab('bills'); } else { vendorMoveCol(-1); } }
     else if (e.key === 'l') { e.preventDefault(); vendorMoveCol(1); }
     else if (e.key === 'i') {
       e.preventDefault();

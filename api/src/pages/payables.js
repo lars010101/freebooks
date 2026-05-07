@@ -110,7 +110,8 @@ ${commonStyle()}
 
   /* Tree table — child rows */
   .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; padding:14px 18px; }
-  .child-row td:first-child { padding-left:32px; }
+  .child-row td.child-desc { padding-left:2rem; }
+  .child-gst-row td { background:#f5f5f5; }
 
   /* Row state classes */
   tr[data-row-type="parent"]:hover td { background:#fafafa; }
@@ -327,7 +328,7 @@ function toggleBillLines(billId, parentTr) {
       emptyTr.dataset.rowType = 'child';
       emptyTr.dataset.parentId = billId;
       emptyTr.className = 'child-row';
-      emptyTr.innerHTML = '<td colspan="7" style="color:#aaa;font-style:italic;padding-left:32px">No line items</td>';
+      emptyTr.innerHTML = '<td colspan="7" class="child-desc" style="color:#aaa;font-style:italic">No line items</td>';
       insertAfter.insertAdjacentElement('afterend', emptyTr);
       return;
     }
@@ -343,19 +344,32 @@ function toggleBillLines(billId, parentTr) {
       var slashIdx = rawDesc.indexOf('/');
       var desc = slashIdx !== -1 ? rawDesc.slice(slashIdx + 1).trim() : rawDesc;
 
-      var gstInfo = '';
-      if (line.gst_code || line.tax_code) {
-        var gstAmt = line.gst_amount || line.tax_amount || 0;
-        gstInfo = esc(line.gst_code || line.tax_code || '') + (gstAmt ? '\u00a0' + Number(gstAmt).toFixed(2) : '');
-      }
-
-      tr.innerHTML = '<td colspan="4" style="padding-left:32px">' + esc(desc) + '</td>'
+      tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.line_amount || line.amount || 0).toFixed(2) + '</td>'
         + '<td style="text-align:center">' + esc(line.currency || '') + '</td>'
-        + '<td style="color:#888">' + gstInfo + '</td>';
+        + '<td style="color:#999;font-size:0.75rem">' + esc(line.gst_code || line.tax_code || '') + '</td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
       insertAfter = tr;
+
+      // Insert GST row if there's a tax amount
+      var gstAmt = Number(line.gst_amount || line.tax_amount || 0);
+      if (gstAmt !== 0) {
+        var gstTr = document.createElement('tr');
+        gstTr.dataset.rowType = 'child';
+        gstTr.dataset.parentId = billId;
+        gstTr.className = 'child-row child-gst-row';
+
+        var gstLabel = 'GST' + (line.gst_code || line.tax_code ? ' (' + esc(line.gst_code || line.tax_code) + ')' : '');
+
+        gstTr.innerHTML = '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + gstLabel + '</td>'
+          + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#888">' + gstAmt.toFixed(2) + '</td>'
+          + '<td style="text-align:center;color:#888">' + esc(line.currency || '') + '</td>'
+          + '<td></td>';
+
+        insertAfter.insertAdjacentElement('afterend', gstTr);
+        insertAfter = gstTr;
+      }
     });
   })
   .catch(function(e){

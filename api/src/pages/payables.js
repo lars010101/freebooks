@@ -113,7 +113,7 @@ ${commonStyle()}
   .tree-toggle:hover { color:#1a1a1a; }
 
   /* Tree table — child rows */
-  .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; font-size:0.8125rem; }
+  .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; }
   .child-row td:first-child { padding-left:32px; color:#aaa; width:28px; }
   .child-row:last-child td { border-bottom:1px solid #e8e8e8; }
   .btn-sm:hover { background:#e8e8e8; }
@@ -354,11 +354,10 @@ function toggleBillLines(billId, parentTr) {
       }
 
       tr.innerHTML = '<td>&#8627;</td>'
-        + '<td colspan="3">' + esc(desc) + '</td>'
+        + '<td colspan="4">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.line_amount || line.amount || 0).toFixed(2) + '</td>'
         + '<td style="font-size:0.75rem;color:#666;text-align:center">' + esc(line.currency || '') + '</td>'
-        + '<td style="font-size:0.75rem;color:#888">' + gstInfo + '</td>'
-        + '<td></td>';
+        + '<td style="font-size:0.75rem;color:#888">' + gstInfo + '</td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
       insertAfter = tr;

@@ -38,8 +38,9 @@ ${commonStyle()}
 .meta-field:first-child { padding-left:0; }
 .meta-field + .meta-field { border-left:1px solid #eee; }
 .meta-label { font-size:0.75rem; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }
-.meta-input { font-size:1rem; font-weight:600; color:#1a1a1a; border:none; background:transparent; padding:2px 4px; border-radius:3px; width:100%; border-bottom:2px solid #e8e8e8; }
-.meta-input:focus { outline:none; border-bottom-color:#1a1a1a; }
+.meta-input { font-size:1rem; font-weight:600; color:#1a1a1a; border:none; background:transparent; padding:2px 4px; border-radius:3px; width:100%; cursor:text; }
+.meta-input:hover { background:#f8f9ff; border:1px solid #c0c8ff; }
+.meta-input:focus { outline:none; background:#f8f9ff; border:1px solid #c0c8ff; }
 .meta-input::placeholder { color:#bbb; font-weight:400; font-size:0.875rem; }
 input[type=date].meta-input { font-size:0.9375rem; }
 .meta-err { color:#cc2222; font-size:0.6875rem; margin-top:3px; display:none; }
@@ -54,6 +55,8 @@ input[type=date].meta-input { font-size:0.9375rem; }
 
 /* Amount cards */
 .amount-cards { display:flex; gap:16px; margin-bottom:36px; }
+.card-paid { flex:0 0 42%; background:#f7f7f7; border-radius:8px; padding:24px 28px; }
+.card-val-paid { font-size:1.875rem; font-weight:600; color:#c0c0c0; line-height:1; }
 .card-due { flex:1; background:#fff; border:2px solid #1a1a1a; border-radius:8px; padding:24px 28px; }
 .card-label { font-size:0.75rem; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.06em; margin-bottom:12px; }
 .card-val-due { display:flex; align-items:baseline; gap:8px; line-height:1; }
@@ -71,9 +74,9 @@ input[type=date].meta-input { font-size:0.9375rem; }
 .data-table tbody tr:last-child td { border-bottom:none; }
 
 /* Line inputs */
-.line-input { border:none; background:transparent; font-size:0.875rem; padding:2px 4px; border-radius:3px; color:#222; border-bottom:1px solid transparent; width:100%; }
-.line-input:hover { border-bottom-color:#ddd; }
-.line-input:focus { outline:none; border-bottom-color:#1a1a1a; }
+.line-input { border:none; background:transparent; font-size:0.875rem; padding:2px 4px; border-radius:3px; color:#222; width:100%; cursor:text; }
+.line-input:hover { background:#f8f9ff; border:1px solid #c0c8ff; }
+.line-input:focus { outline:none; background:#f8f9ff; border:1px solid #c0c8ff; }
 .line-input::placeholder { color:#ccc; }
 
 /* GST rows */
@@ -95,6 +98,18 @@ input[type=date].meta-input { font-size:0.9375rem; }
 
 /* Attach card */
 .attach-card { border:1px solid #e8e8e8; border-radius:8px; overflow:hidden; }
+.attach-row { display:flex; align-items:center; padding:16px 20px; border-bottom:1px solid #f2f2f2; gap:14px; }
+.attach-row:last-child { border-bottom:none; }
+.pdf-icon { width:36px; height:44px; background:#fff0f0; border:1px solid #ffcccc; border-radius:4px; flex-shrink:0; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:0.6875rem; font-weight:700; color:#cc4444; letter-spacing:.04em; line-height:1; }
+.pdf-icon::before { content:'\\2014'; font-size:0.5rem; color:#ffaaaa; margin-bottom:2px; }
+.attach-info { flex:1; min-width:0; }
+.attach-filename { font-weight:600; font-size:0.8125rem; color:#1a1a1a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.attach-meta { font-size:0.75rem; color:#aaa; margin-top:3px; }
+.attach-actions { display:flex; gap:6px; flex-shrink:0; }
+.btn-icon { width:32px; height:32px; border:1px solid #ddd; border-radius:5px; background:#fff; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; font-size:1.0625rem; color:#555; text-decoration:none; }
+.btn-icon:hover { background:#f5f5f5; border-color:#bbb; }
+.btn-icon-del { color:#cc4444; border-color:#ffcccc; background:#fff5f5; }
+.btn-icon-del:hover { background:#ffe0e0; }
 
 /* Success box */
 .success-box { background:#f0fff4; border:1px solid #2a8a2a; border-radius:8px; padding:32px 36px; max-width:500px; }
@@ -188,10 +203,14 @@ input[type=date].meta-input { font-size:0.9375rem; }
       <input type="text" id="description" class="meta-input" placeholder="e.g. Office supplies for Jan 2025" style="max-width:600px;">
     </div>
 
-    <!-- Amount card -->
+    <!-- Amount cards -->
     <div class="amount-cards">
+      <div class="card-paid">
+        <div class="card-label">Amount Paid</div>
+        <div class="card-val-paid">0.00</div>
+      </div>
       <div class="card-due">
-        <div class="card-label">Bill Total</div>
+        <div class="card-label">Amount Due</div>
         <div class="card-val-due">
           <span class="card-currency" id="total-currency-prefix"></span>
           <span class="card-amount" id="lines-total">0.00</span>
@@ -253,7 +272,9 @@ input[type=date].meta-input { font-size:0.9375rem; }
           <input type="file" id="bill-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addBillAttachment(this)" multiple>
         </label>
       </div>
-      <div id="bill-pending-list" style="font-size:0.8125rem;color:#aaa;padding:12px 18px">No files queued</div>
+      <div id="bill-pending-list">
+        <div style="padding:16px 20px;color:#aaa;font-size:0.8125rem">No files queued</div>
+      </div>
     </div>
   </div>
 </div>
@@ -681,7 +702,7 @@ input[type=date].meta-input { font-size:0.9375rem; }
     tr.innerHTML =
       '<td style="color:#888;font-size:0.75rem;padding-left:8px">' + tbody.children.length + 1 + '</td>' +
       '<input type="hidden" class="lcode" data-line="'+idx+'">' +
-      '<td><input type="text" class="ldesc line-input" data-line="'+idx+'" placeholder="Line detail" style="width:200px"></td>' +
+      '<td><input type="text" class="ldesc line-input" data-line="'+idx+'" placeholder="Line detail"></td>' +
       '<td>' +
         '<span class="line-ccy-label" style="font-size:0.75rem;color:#888;min-width:32px;display:inline-block"></span>' +
         '<input type="number" class="lamount line-input" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px">' +
@@ -1281,12 +1302,19 @@ input[type=date].meta-input { font-size:0.9375rem; }
   function renderBillPendingList() {
     var el = document.getElementById('bill-pending-list');
     if (!el) return;
-    if (!pendingBillAttachments.length) { el.innerHTML = '<span style="color:#aaa">No files queued</span>'; return; }
+    if (!pendingBillAttachments.length) { el.innerHTML = '<div style="padding:16px 20px;color:#aaa;font-size:0.8125rem">No files queued</div>'; return; }
     el.innerHTML = pendingBillAttachments.map(function(f, i) {
       var kb = (f.size / 1024).toFixed(1);
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #f5f5f5">'
-        + '<span>\ud83d\udcc4 ' + f.name + ' <span style="color:#888;font-size:0.75rem">(' + kb + ' KB)</span></span>'
-        + '<button onclick="removeBillAttachment(' + i + ')" style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:0.9375rem;padding:0 4px">&times;</button>'
+      var ext = f.name.split('.').pop().toUpperCase().substring(0,4);
+      return '<div class="attach-row">'
+        + '<div class="pdf-icon">' + ext + '</div>'
+        + '<div class="attach-info">'
+        + '  <div class="attach-filename">' + f.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>'
+        + '  <div class="attach-meta">Pending save &middot; ' + kb + ' KB</div>'
+        + '</div>'
+        + '<div class="attach-actions">'
+        + '  <button type="button" class="btn-icon btn-icon-del" onclick="removeBillAttachment(' + i + ')" title="Remove">&#10005;</button>'
+        + '</div>'
         + '</div>';
     }).join('');
   }

@@ -109,7 +109,8 @@ ${commonStyle()}
   .btn-sm { padding:0 14px; height:32px; font-size:0.8125rem; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
 
   /* Tree table — child rows */
-  .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; padding:14px 18px; }
+  .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; padding:19px 18px; }
+  .child-ccy { font-size:0.75rem; color:#666; text-align:center; }
   .child-row td.child-desc { padding-left:2rem; }
   .child-gst-row td { background:#f5f5f5; }
 
@@ -346,7 +347,7 @@ function toggleBillLines(billId, parentTr) {
 
       tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.line_amount || line.amount || 0).toFixed(2) + '</td>'
-        + '<td style="text-align:center">' + esc(line.currency || '') + '</td>'
+        + '<td class="child-ccy">' + esc(line.currency || '') + '</td>'
         + '<td style="color:#999;font-size:0.75rem">' + esc(line.gst_code || line.tax_code || '') + '</td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
@@ -364,7 +365,7 @@ function toggleBillLines(billId, parentTr) {
 
         gstTr.innerHTML = '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + gstLabel + '</td>'
           + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#888">' + gstAmt.toFixed(2) + '</td>'
-          + '<td style="text-align:center;color:#888">' + esc(line.currency || '') + '</td>'
+          + '<td class="child-ccy" style="color:#888">' + esc(line.currency || '') + '</td>'
           + '<td></td>';
 
         insertAfter.insertAdjacentElement('afterend', gstTr);

@@ -31,12 +31,32 @@ async function handleJournal(ctx, action) {
 
 async function updateEntryDescription(ctx) {
   const { companyId, body } = ctx;
-  const { entryId, description } = body;
+  const { entryId, description, account_code } = body;
   if (!entryId) throw Object.assign(new Error('entryId required'), { code: 'INVALID_INPUT' });
-  // Only allow updating description — never financial fields
+
+  const setParts = [];
+  const params = { companyId, entryId };
+
+  if (description !== undefined) {
+    setParts.push('description = @description');
+    params.description = description || null;
+  }
+  if (account_code !== undefined) {
+    // Validate account exists in this company
+    const accts = await query(
+      `SELECT account_code FROM accounts WHERE company_id = @companyId AND account_code = @account_code LIMIT 1`,
+      { companyId, account_code }
+    );
+    if (!accts.length) throw Object.assign(new Error('Account not found: ' + account_code), { code: 'INVALID_INPUT' });
+    setParts.push('account_code = @account_code');
+    params.account_code = account_code;
+  }
+
+  if (!setParts.length) return { updated: false };
+
   await exec(
-    `UPDATE journal_entries SET description = @description WHERE company_id = @companyId AND entry_id = @entryId`,
-    { companyId, entryId, description: description || null }
+    `UPDATE journal_entries SET ${setParts.join(', ')} WHERE company_id = @companyId AND entry_id = @entryId`,
+    params
   );
   return { updated: true, entryId };
 }

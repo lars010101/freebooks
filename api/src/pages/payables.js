@@ -209,7 +209,10 @@ ${commonStyle()}
     </div>
   </div>
 
-
+    <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
+      <span id="msg-bills-edit" style="font-size:0.875rem"></span>
+      <span style="margin-left:auto;font-size:0.625rem;color:#bbb">hjkl&nbsp;navigate &nbsp;·&nbsp; i/Enter&nbsp;edit &nbsp;·&nbsp; Esc&nbsp;revert</span>
+    </div>
 
   </div><!-- /pay-panel-bills -->
 
@@ -311,6 +314,98 @@ var cursor = {
   }
 };
 
+var billAccountsList = [];
+var billAcctActiveInput = null;
+
+var billEditState = {
+  rowEl: null,
+  tdEl: null,
+  col: 0,
+  origHtml: null,
+  origValue: null,
+  fieldType: null  // 'text' | 'date' | 'account'
+};
+
+function loadBillAccounts() {
+  if (billAccountsList.length) return;
+  fetch('/api/' + COMPANY + '/accounts')
+    .then(function(r) { return r.json(); })
+    .then(function(rows) { billAccountsList = Array.isArray(rows) ? rows : []; })
+    .catch(function() {});
+}
+
+function billAcctInput(input) {
+  billAcctActiveInput = input;
+  var q = input.value.trim().toLowerCase();
+  var dd = document.getElementById('pay-bill-acct-dd');
+  if (dd) dd.remove();
+  if (!q) return;
+  var matches = billAccountsList.filter(function(a) {
+    return (a.account_code || '').toLowerCase().includes(q) || (a.account_name || '').toLowerCase().includes(q);
+  }).slice(0, 12);
+  if (!matches.length) return;
+  var div = document.createElement('div');
+  div.id = 'pay-bill-acct-dd';
+  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
+  matches.forEach(function(a, mi) {
+    var item = document.createElement('div');
+    item.dataset.acctCode = a.account_code;
+    item.dataset.idx = String(mi);
+    item.textContent = a.account_code + ' — ' + a.account_name;
+    item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-size:11px';
+    item.onmouseover = function() { clearBillAcctDdFocus(); item.classList.add('dd-active'); item.style.background = '#e8f0fe'; };
+    item.onmouseout  = function() { item.classList.remove('dd-active'); item.style.background = ''; };
+    item.onmousedown = function(e) { e.preventDefault(); };
+    item.onclick = function() {
+      if (billAcctActiveInput) billAcctActiveInput.value = a.account_code;
+      var d = document.getElementById('pay-bill-acct-dd');
+      if (d) d.remove();
+      billAcctActiveInput = null;
+    };
+    div.appendChild(item);
+  });
+  var rect = input.getBoundingClientRect();
+  div.style.left = rect.left + 'px';
+  div.style.top = (rect.bottom + 2) + 'px';
+  div.style.minWidth = rect.width + 'px';
+  document.body.appendChild(div);
+}
+
+function clearBillAcctDdFocus() {
+  var dd = document.getElementById('pay-bill-acct-dd');
+  if (!dd) return;
+  dd.querySelectorAll('.dd-active').forEach(function(el) { el.classList.remove('dd-active'); el.style.background = ''; });
+}
+
+function moveBillAcctDd(dir) {
+  var dd = document.getElementById('pay-bill-acct-dd');
+  if (!dd) return;
+  var items = dd.querySelectorAll('[data-acct-code]');
+  if (!items.length) return;
+  var cur = dd.querySelector('.dd-active');
+  var curIdx = cur ? parseInt(cur.dataset.idx) : -1;
+  var nextIdx = Math.max(0, Math.min(items.length - 1, curIdx + dir));
+  clearBillAcctDdFocus();
+  var next = items[nextIdx];
+  next.classList.add('dd-active'); next.style.background = '#e8f0fe';
+  next.scrollIntoView({ block: 'nearest' });
+}
+
+function selectBillAcctDdItem() {
+  var dd = document.getElementById('pay-bill-acct-dd');
+  if (!dd) return false;
+  var cur = dd.querySelector('.dd-active') || dd.querySelector('[data-acct-code]');
+  if (!cur) return false;
+  if (billAcctActiveInput) billAcctActiveInput.value = cur.dataset.acctCode;
+  dd.remove();
+  billAcctActiveInput = null;
+  return true;
+}
+
+function hideBillAcctDd() {
+  setTimeout(function() { var dd = document.getElementById('pay-bill-acct-dd'); if (dd) dd.remove(); }, 150);
+}
+
 var kbd = {
   _registered: false,
   _lastKey: null,
@@ -336,6 +431,23 @@ var kbd = {
   _handle: function(e) {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     if (!this._isBillsTabActive()) return;
+
+    // INSERT mode: intercept control keys only
+    if (cursor.mode === 'INSERT') {
+      var acctDd = document.getElementById('pay-bill-acct-dd');
+      if (acctDd) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); moveBillAcctDd(1); return; }
+        if (e.key === 'ArrowUp')   { e.preventDefault(); moveBillAcctDd(-1); return; }
+        if (e.key === 'Enter')     { e.preventDefault(); selectBillAcctDdItem(); return; }
+        if (e.key === 'Escape')    { e.preventDefault(); acctDd.remove(); return; }
+        if (e.key === 'Tab')       { e.preventDefault(); selectBillAcctDdItem(); exitBillCellEdit(true); return; }
+        return; // all other keys go to input
+      }
+      if (e.key === 'Escape') { e.preventDefault(); exitBillCellEdit(false); return; }
+      if (e.key === 'Enter')  { e.preventDefault(); exitBillCellEdit(true); return; }
+      return; // all other keys go to input
+    }
+
     var tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
 
@@ -370,6 +482,16 @@ var kbd = {
     if (e.key === 'h') {
       e.preventDefault();
       if (cursor.rowEl && cursor.col > 0) { cursor.set(cursor.rowEl, cursor.col - 1); }
+      this._lastKey = null; return;
+    }
+
+    if (e.key === 'i' || e.key === 'Enter') {
+      e.preventDefault();
+      if (cursor.rowEl) {
+        var tds2 = cursor.rowEl.querySelectorAll('td');
+        var tdFocus = tds2[cursor.col];
+        if (tdFocus) enterBillCellEdit(cursor.rowEl, cursor.col);
+      }
       this._lastKey = null; return;
     }
 
@@ -470,6 +592,179 @@ var kbd = {
 
 var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8','#e07840','#5c7ae0'];
 
+function enterBillCellEdit(rowEl, col) {
+  if (cursor.mode === 'INSERT') return; // already editing
+  var tds = rowEl.querySelectorAll('td');
+  var tdEl = tds[col];
+  if (!tdEl) return;
+
+  var rowType = rowEl.dataset.rowType;
+  var isGst = rowEl.classList.contains('child-gst-row');
+  var fieldType = null;
+  var currentValue = '';
+
+  if (rowType === 'parent') {
+    if (col === 2) {          // Due date
+      fieldType = 'date';
+      currentValue = rowEl.dataset.dueDate || '';
+    } else if (col === 3) {   // Vendor ref
+      fieldType = 'text';
+      currentValue = rowEl.dataset.vendorRef || '';
+    } else {
+      return; // not editable
+    }
+  } else if (rowType === 'child' && !isGst) {
+    if (col === 0) {          // Description
+      fieldType = 'text';
+      // Display value (user portion after last ' / ')
+      currentValue = tdEl.textContent.trim();
+    } else if (col === 1) {   // Account
+      fieldType = 'account';
+      currentValue = rowEl.dataset.accountCode || tdEl.textContent.trim();
+    } else {
+      return;
+    }
+  } else {
+    return;
+  }
+
+  // Freeze state
+  billEditState.rowEl = rowEl;
+  billEditState.tdEl = tdEl;
+  billEditState.col = col;
+  billEditState.origHtml = tdEl.innerHTML;
+  billEditState.origValue = currentValue;
+  billEditState.fieldType = fieldType;
+  cursor.mode = 'INSERT';
+
+  // Style active cell
+  tdEl.classList.remove('bill-cell-focus');
+  tdEl.classList.add('vcell-editing');
+
+  // Build input
+  var input = document.createElement('input');
+  if (fieldType === 'date') {
+    input.type = 'date';
+    input.style.cssText = 'width:100%;font-size:inherit;font-family:inherit;border:none;outline:none;background:transparent;box-sizing:border-box;';
+  } else if (fieldType === 'account') {
+    input.type = 'text';
+    input.style.cssText = 'width:100%;font-size:0.75rem;font-family:inherit;border:none;outline:none;background:transparent;box-sizing:border-box;';
+    loadBillAccounts();
+    input.addEventListener('input', function() { billAcctInput(input); });
+    input.addEventListener('blur', function() { hideBillAcctDd(); });
+  } else {
+    input.type = 'text';
+    input.style.cssText = 'width:100%;font-size:inherit;font-family:inherit;border:none;outline:none;background:transparent;box-sizing:border-box;';
+  }
+  input.setAttribute('autocomplete', 'off');
+  input.value = currentValue;
+
+  tdEl.innerHTML = '';
+  tdEl.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+function exitBillCellEdit(save) {
+  if (cursor.mode !== 'INSERT') return;
+  cursor.mode = 'NORMAL';
+
+  var dd = document.getElementById('pay-bill-acct-dd');
+  if (dd) dd.remove();
+
+  var rowEl = billEditState.rowEl;
+  var tdEl = billEditState.tdEl;
+  var col = billEditState.col;
+
+  if (!rowEl || !tdEl) { billEditState.rowEl = null; return; }
+
+  var input = tdEl.querySelector('input');
+  var newValue = input ? input.value.trim() : billEditState.origValue;
+
+  tdEl.classList.remove('vcell-editing');
+
+  if (!save || newValue === billEditState.origValue) {
+    // Revert
+    tdEl.innerHTML = billEditState.origHtml;
+    cursor.set(rowEl, col);
+    billEditState.rowEl = null;
+    return;
+  }
+
+  // Optimistic update of display + data-*
+  var rowType = rowEl.dataset.rowType;
+  if (rowType === 'parent') {
+    if (col === 2) {
+      // Due date: update display and data-due-date
+      rowEl.dataset.dueDate = newValue;
+      var dueSpan = tdEl.querySelector('span') || tdEl;
+      var today2 = new Date().toISOString().slice(0, 10);
+      var isOverdue = newValue && newValue < today2;
+      tdEl.innerHTML = '<span' + (isOverdue ? ' class="overdue-date"' : '') + '>' + fmtDate(newValue) + '</span>';
+    } else if (col === 3) {
+      // Vendor ref: update link
+      rowEl.dataset.vendorRef = newValue;
+      var rowUrl = '/' + COMPANY + '/bill/' + rowEl.dataset.billId;
+      tdEl.innerHTML = '<a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(newValue || rowEl.dataset.billId) + '</a>';
+    }
+  } else if (rowType === 'child') {
+    if (col === 0) {
+      tdEl.textContent = newValue;
+    } else if (col === 1) {
+      rowEl.dataset.accountCode = newValue;
+      tdEl.textContent = newValue;
+    }
+  }
+
+  cursor.set(rowEl, col);
+
+  // API save
+  var billId = rowType === 'parent' ? rowEl.dataset.billId : rowEl.dataset.parentId;
+  if (rowType === 'parent') {
+    var payload = { action: 'bill.update', companyId: COMPANY, billId: billId };
+    if (col === 2) payload.due_date = newValue;
+    if (col === 3) payload.vendor_ref = newValue;
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload) })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res.error) { billEditMsg(res.error, 'err'); }
+        else { billEditMsg('Saved.', 'ok'); setTimeout(function() { billEditMsg('', ''); }, 1500); }
+      })
+      .catch(function(e) { billEditMsg(e.message, 'err'); });
+  } else if (rowType === 'child') {
+    var entryId = rowEl.dataset.entryId;
+    var ep = { action: 'journal.entry.update', companyId: COMPANY, entryId: entryId };
+    if (col === 0) {
+      // Reconstruct full description with original prefix
+      var fullDesc = rowEl.dataset.fullDesc || '';
+      var si = fullDesc.lastIndexOf(' / ');
+      var prefix = si !== -1 ? fullDesc.slice(0, si) : null;
+      ep.description = prefix ? (prefix + ' / ' + newValue) : newValue;
+      rowEl.dataset.fullDesc = ep.description;
+    } else if (col === 1) {
+      ep.account_code = newValue;
+    }
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ep) })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res.error) { billEditMsg(res.error, 'err'); }
+        else { billEditMsg('Saved.', 'ok'); setTimeout(function() { billEditMsg('', ''); }, 1500); }
+      })
+      .catch(function(e) { billEditMsg(e.message, 'err'); });
+  }
+
+  billEditState.rowEl = null;
+}
+
+function billEditMsg(msg, type) {
+  var el = document.getElementById('msg-bills-edit');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : '#888';
+}
+
 function fbPageInitPayables() {
   loadVendors();
   loadAllBills();
@@ -477,6 +772,7 @@ function fbPageInitPayables() {
   registerBillKeyActions();
   registerVendorKeyActions();
   kbd.register();
+  loadBillAccounts();
   window.fbBillNav = true;
   window.fbBillCursorMid = false;
   
@@ -583,6 +879,8 @@ function toggleBillLines(billId, parentTr) {
       tr.dataset.rowType = 'child';
       tr.dataset.parentId = billId;
       tr.dataset.entryId = line.entry_id || '';
+      tr.dataset.fullDesc = line.description || '';
+      tr.dataset.accountCode = line.account_code || '';
       tr.className = 'child-row';
 
       // Strip compound prefix — user description is always the last segment after ' / '
@@ -590,7 +888,8 @@ function toggleBillLines(billId, parentTr) {
       var sepIdx = rawDesc.lastIndexOf(' / ');
       var desc = sepIdx !== -1 ? rawDesc.slice(sepIdx + 3).trim() : rawDesc;
 
-      tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
+      tr.innerHTML = '<td colspan="3" class="child-desc">' + esc(desc) + '</td>'
+        + '<td class="child-acct" style="font-size:0.75rem;color:#555">' + esc(line.account_code || '') + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
         + '<td class="child-ccy">' + esc(line.currency || '') + '</td>'
         + '<td style="font-size:0.75rem;color:#999">' + esc(line.vat_code || '') + '</td>';
@@ -978,7 +1277,7 @@ function renderPage() {
     var isOverdue = active && due && due < today;
     var dueCls = isOverdue ? ' class="overdue-date"' : '';
     var rowUrl = '/' + COMPANY + '/bill/' + b.bill_id;
-    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" style="cursor:pointer">'
+    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" data-due-date="' + esc(due || '') + '" data-vendor-ref="' + esc(b.vendor_ref || '') + '" style="cursor:pointer">'
       + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td style="white-space:nowrap">' + fmtDate(b.date) + '</td>'
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'

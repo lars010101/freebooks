@@ -43,7 +43,7 @@ ${commonStyle()}
 .line-desc-input.req:hover { border:1px solid #cc5555 !important; }
 .line-desc-input.req:focus { background:#f8f9ff; border:1px solid #cc5555 !important; }
 /* vim nav highlight */
-.nav-sel { outline:2px solid #4f6ef7 !important; background:#f0f3ff !important; }
+.nav-sel { outline:2px solid #1a3c8f !important; background:#eef2ff !important; }
 /* Hide GST rows in Bill Line Items (kept for journal calc) */
 .gst-row { display:none !important; }
 
@@ -1309,6 +1309,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     _navMoving = true;
     target.focus();
     _navMoving = false;
+    navMode = true; // guarantee NORMAL mode is preserved after programmatic focus
   }
 
   function enterInsertMode() {
@@ -1375,12 +1376,8 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     }
   });
 
-  // On page load: highlight first field (NORMAL mode) without auto-focusing it
-  // User must press i/Tab/click to enter INSERT mode and start typing
-  (function(){
-    var els = getNavEls();
-    if (els[0]) els[0].classList.add('nav-sel');
-  })();
+  // On page load: NORMAL mode, no cell selected or highlighted
+  // User navigates with hjkl; i/Tab/click enters INSERT mode
 
   // Update currency labels and FX display on initial load
   window.addEventListener('load', function(){

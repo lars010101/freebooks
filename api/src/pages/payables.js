@@ -279,7 +279,12 @@ var cursor = {
     var cells = rowEl.querySelectorAll('td');
     if (cells[this.col]) cells[this.col].classList.add('bill-cell-focus');
     window.fbBillCursorMid = (this.col < cells.length - 1);
-    rowEl.scrollIntoView({ block: 'nearest' });
+    var rows = this.getVisibleRows();
+    if (rows.length && rows[0] === rowEl) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      rowEl.scrollIntoView({ block: 'nearest' });
+    }
   },
 
   clear: function() { this.set(null, 0); },

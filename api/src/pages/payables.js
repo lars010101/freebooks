@@ -400,14 +400,14 @@ var kbd = {
       return;
     }
 
-    // Store key for sequences (ignore bare modifier keystrokes)
+    // Store key for sequences (ignore bare modifier keystrokes; normalize z/Z)
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
-    this._lastKey = e.key;
+    this._lastKey = (e.key === 'Z') ? 'z' : e.key;
     clearTimeout(this._lastKeyTimer);
     var self = this;
     this._lastKeyTimer = setTimeout(function(){ self._lastKey = null; window._fbBillZPending = false; }, 1000);
 
-    if (e.key === 'z') { e.preventDefault(); window._fbBillZPending = true; }
+    if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); window._fbBillZPending = true; }
     else if (e.key === 'g') { e.preventDefault(); }
   },
 

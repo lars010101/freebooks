@@ -279,11 +279,21 @@ var cursor = {
     var cells = rowEl.querySelectorAll('td');
     if (cells[this.col]) cells[this.col].classList.add('bill-cell-focus');
     window.fbBillCursorMid = (this.col < cells.length - 1);
+    var pm = document.getElementById('page-main');
     var rows = this.getVisibleRows();
-    if (rows.length && rows[0] === rowEl) {
-      window.scrollTo(0, 0);
+    if (pm && rows.length && rows[0] === rowEl) {
+      pm.scrollTo(0, 0);
+    } else if (pm) {
+      var rect = rowEl.getBoundingClientRect();
+      var pmRect = pm.getBoundingClientRect();
+      var pad = 8;
+      if (rect.top < pmRect.top + pad) {
+        pm.scrollBy({ top: rect.top - pmRect.top - pad, behavior: 'instant' });
+      } else if (rect.bottom > pmRect.bottom - pad) {
+        pm.scrollBy({ top: rect.bottom - pmRect.bottom + pad, behavior: 'instant' });
+      }
     } else {
-      rowEl.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+      rowEl.scrollIntoView({ block: 'nearest' });
     }
   },
 
@@ -308,10 +318,13 @@ var kbd = {
   _lastMoveTime: 0,
 
   register: function() {
-    if (this._registered) return;
-    this._registered = true;
+    // Remove old handler from any prior SPA navigation (script re-executes each time)
+    if (window._fbBillKbdHandler) {
+      document.removeEventListener('keydown', window._fbBillKbdHandler);
+    }
     var self = this;
-    document.addEventListener('keydown', function(e) { self._handle(e); });
+    window._fbBillKbdHandler = function(e) { self._handle(e); };
+    document.addEventListener('keydown', window._fbBillKbdHandler);
   },
 
   _isBillsTabActive: function() {

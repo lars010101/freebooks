@@ -656,7 +656,8 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     }
     // Currency
     if (v.default_currency) {
-      document.getElementById('currency').value = v.default_currency;
+      document.getElementById('currency').value = v.default_currency.toUpperCase();
+      onCurrencyChange(); // sync CCY labels in all line items
     }
     // AP account (hidden input)
     if (v.default_ap_account) {
@@ -1018,16 +1019,12 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     while (tbody.querySelectorAll('tr').length < 2) {
       var padTr = document.createElement('tr');
       padTr.innerHTML =
-        '<td style="white-space:nowrap;color:#ccc;font-size:0.8125rem">&nbsp;</td>' +
-        '<td></td><td></td><td></td>' +
+        '<td style="white-space:nowrap;color:#ddd;font-size:0.8125rem">—</td>' +
+        '<td style="color:#ddd;font-size:0.8125rem">—</td>' +
+        '<td></td><td></td>' +
         '<td style="text-align:right"></td>' +
         '<td style="text-align:right"></td>';
       tbody.appendChild(padTr);
-    }
-
-    // Empty state
-    if (!tbody.children.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;padding:20px 18px">Add expense lines above to preview journal entries.</td></tr>';
     }
   }
 

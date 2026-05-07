@@ -209,9 +209,8 @@ ${commonStyle()}
     </div>
   </div>
 
-    <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
-      <span id="msg-bills-edit" style="font-size:0.875rem"></span>
-      <span style="margin-left:auto;font-size:0.625rem;color:#bbb">hjkl&nbsp;navigate &nbsp;·&nbsp; i/Enter&nbsp;edit &nbsp;·&nbsp; Esc&nbsp;revert</span>
+    <div style="margin-top:6px;text-align:right">
+      <span style="font-size:0.625rem;color:#bbb">hjkl&nbsp;navigate &nbsp;·&nbsp; i/Enter&nbsp;edit &nbsp;·&nbsp; Esc&nbsp;revert</span>
     </div>
 
   </div><!-- /pay-panel-bills -->
@@ -434,18 +433,10 @@ var kbd = {
 
     // INSERT mode: intercept control keys only
     if (cursor.mode === 'INSERT') {
-      var acctDd = document.getElementById('pay-bill-acct-dd');
-      if (acctDd) {
-        if (e.key === 'ArrowDown') { e.preventDefault(); moveBillAcctDd(1); return; }
-        if (e.key === 'ArrowUp')   { e.preventDefault(); moveBillAcctDd(-1); return; }
-        if (e.key === 'Enter')     { e.preventDefault(); selectBillAcctDdItem(); return; }
-        if (e.key === 'Escape')    { e.preventDefault(); acctDd.remove(); return; }
-        if (e.key === 'Tab')       { e.preventDefault(); selectBillAcctDdItem(); exitBillCellEdit(true); return; }
-        return; // all other keys go to input
-      }
       if (e.key === 'Escape') { e.preventDefault(); exitBillCellEdit(false); return; }
       if (e.key === 'Enter')  { e.preventDefault(); exitBillCellEdit(true); return; }
-      return; // all other keys go to input
+      if (e.key === 'Tab')    { e.preventDefault(); return; } // disabled in INSERT mode
+      return; // all other keys go to input/select
     }
 
     var tag = e.target.tagName;
@@ -594,6 +585,17 @@ var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8'
 
 function enterBillCellEdit(rowEl, col) {
   if (cursor.mode === 'INSERT') return; // already editing
+
+  // Void guard: check current row or its parent bill
+  var statusRow = (rowEl.dataset.rowType === 'parent')
+    ? rowEl
+    : document.querySelector('tr[data-row-type="parent"][data-bill-id="' + rowEl.dataset.parentId + '"]');
+  if (statusRow && statusRow.dataset.status === 'void') {
+    billEditMsg('Cannot edit a voided bill', 'err');
+    setTimeout(function() { billEditMsg('', ''); }, 2500);
+    return;
+  }
+
   var tds = rowEl.querySelectorAll('td');
   var tdEl = tds[col];
   if (!tdEl) return;
@@ -616,11 +618,10 @@ function enterBillCellEdit(rowEl, col) {
   } else if (rowType === 'child' && !isGst) {
     if (col === 0) {          // Description
       fieldType = 'text';
-      // Display value (user portion after last ' / ')
       currentValue = tdEl.textContent.trim();
-    } else if (col === 1) {   // Account
-      fieldType = 'account';
-      currentValue = rowEl.dataset.accountCode || tdEl.textContent.trim();
+    } else if (col === 3) {   // GST/VAT code (4th td: desc|amount|ccy|gst)
+      fieldType = 'vatcode';
+      currentValue = rowEl.dataset.vatCode || tdEl.textContent.trim();
     } else {
       return;
     }
@@ -641,24 +642,39 @@ function enterBillCellEdit(rowEl, col) {
   tdEl.classList.remove('bill-cell-focus');
   tdEl.classList.add('vcell-editing');
 
-  // Build input
+  if (fieldType === 'vatcode') {
+    // Build native select with tax codes from taxCodeMap
+    var sel = document.createElement('select');
+    sel.style.cssText = 'width:100%;font-size:0.75rem;font-family:inherit;border:none;outline:none;background:transparent;box-sizing:border-box;';
+    var emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = '(no tax)';
+    if (!currentValue) emptyOpt.selected = true;
+    sel.appendChild(emptyOpt);
+    Object.keys(taxCodeMap).forEach(function(code) {
+      var opt = document.createElement('option');
+      opt.value = code;
+      opt.textContent = code + ': ' + taxCodeMap[code];
+      if (code === currentValue) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    tdEl.innerHTML = '';
+    tdEl.appendChild(sel);
+    sel.focus();
+    return;
+  }
+
+  // Build text/date input
   var input = document.createElement('input');
   if (fieldType === 'date') {
     input.type = 'date';
     input.style.cssText = 'width:100%;font-size:inherit;font-family:inherit;border:none;outline:none;background:transparent;box-sizing:border-box;';
-  } else if (fieldType === 'account') {
-    input.type = 'text';
-    input.style.cssText = 'width:100%;font-size:0.75rem;font-family:inherit;border:none;outline:none;background:transparent;box-sizing:border-box;';
-    loadBillAccounts();
-    input.addEventListener('input', function() { billAcctInput(input); });
-    input.addEventListener('blur', function() { hideBillAcctDd(); });
   } else {
     input.type = 'text';
     input.style.cssText = 'width:100%;font-size:inherit;font-family:inherit;border:none;outline:none;background:transparent;box-sizing:border-box;';
   }
   input.setAttribute('autocomplete', 'off');
   input.value = currentValue;
-
   tdEl.innerHTML = '';
   tdEl.appendChild(input);
   input.focus();
@@ -678,8 +694,9 @@ function exitBillCellEdit(save) {
 
   if (!rowEl || !tdEl) { billEditState.rowEl = null; return; }
 
-  var input = tdEl.querySelector('input');
-  var newValue = input ? input.value.trim() : billEditState.origValue;
+  // Support both input and select elements
+  var el = tdEl.querySelector('input, select');
+  var newValue = el ? el.value.trim() : billEditState.origValue;
 
   tdEl.classList.remove('vcell-editing');
 
@@ -695,14 +712,11 @@ function exitBillCellEdit(save) {
   var rowType = rowEl.dataset.rowType;
   if (rowType === 'parent') {
     if (col === 2) {
-      // Due date: update display and data-due-date
       rowEl.dataset.dueDate = newValue;
-      var dueSpan = tdEl.querySelector('span') || tdEl;
       var today2 = new Date().toISOString().slice(0, 10);
       var isOverdue = newValue && newValue < today2;
       tdEl.innerHTML = '<span' + (isOverdue ? ' class="overdue-date"' : '') + '>' + fmtDate(newValue) + '</span>';
     } else if (col === 3) {
-      // Vendor ref: update link
       rowEl.dataset.vendorRef = newValue;
       var rowUrl = '/' + COMPANY + '/bill/' + rowEl.dataset.billId;
       tdEl.innerHTML = '<a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(newValue || rowEl.dataset.billId) + '</a>';
@@ -710,8 +724,8 @@ function exitBillCellEdit(save) {
   } else if (rowType === 'child') {
     if (col === 0) {
       tdEl.textContent = newValue;
-    } else if (col === 1) {
-      rowEl.dataset.accountCode = newValue;
+    } else if (col === 3) {
+      rowEl.dataset.vatCode = newValue;
       tdEl.textContent = newValue;
     }
   }
@@ -736,14 +750,13 @@ function exitBillCellEdit(save) {
     var entryId = rowEl.dataset.entryId;
     var ep = { action: 'journal.entry.update', companyId: COMPANY, entryId: entryId };
     if (col === 0) {
-      // Reconstruct full description with original prefix
       var fullDesc = rowEl.dataset.fullDesc || '';
       var si = fullDesc.lastIndexOf(' / ');
       var prefix = si !== -1 ? fullDesc.slice(0, si) : null;
       ep.description = prefix ? (prefix + ' / ' + newValue) : newValue;
       rowEl.dataset.fullDesc = ep.description;
-    } else if (col === 1) {
-      ep.account_code = newValue;
+    } else if (col === 3) {
+      ep.vat_code = newValue;
     }
     fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ep) })
@@ -759,7 +772,7 @@ function exitBillCellEdit(save) {
 }
 
 function billEditMsg(msg, type) {
-  var el = document.getElementById('msg-bills-edit');
+  var el = document.getElementById('tb-status-msg');
   if (!el) return;
   el.textContent = msg;
   el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : '#888';
@@ -881,6 +894,7 @@ function toggleBillLines(billId, parentTr) {
       tr.dataset.entryId = line.entry_id || '';
       tr.dataset.fullDesc = line.description || '';
       tr.dataset.accountCode = line.account_code || '';
+      tr.dataset.vatCode = line.vat_code || '';
       tr.className = 'child-row';
 
       // Strip compound prefix — user description is always the last segment after ' / '
@@ -888,11 +902,10 @@ function toggleBillLines(billId, parentTr) {
       var sepIdx = rawDesc.lastIndexOf(' / ');
       var desc = sepIdx !== -1 ? rawDesc.slice(sepIdx + 3).trim() : rawDesc;
 
-      tr.innerHTML = '<td colspan="3" class="child-desc">' + esc(desc) + '</td>'
-        + '<td class="child-acct" style="font-size:0.75rem;color:#555">' + esc(line.account_code || '') + '</td>'
+      tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
         + '<td class="child-ccy">' + esc(line.currency || '') + '</td>'
-        + '<td style="font-size:0.75rem;color:#999">' + esc(line.vat_code || '') + '</td>';
+        + '<td style="font-size:0.75rem;color:#999;cursor:pointer" title="Edit tax code">' + esc(line.vat_code || '') + '</td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
       insertAfter = tr;
@@ -1277,7 +1290,7 @@ function renderPage() {
     var isOverdue = active && due && due < today;
     var dueCls = isOverdue ? ' class="overdue-date"' : '';
     var rowUrl = '/' + COMPANY + '/bill/' + b.bill_id;
-    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" data-due-date="' + esc(due || '') + '" data-vendor-ref="' + esc(b.vendor_ref || '') + '" style="cursor:pointer">'
+    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" data-due-date="' + esc(due || '') + '" data-vendor-ref="' + esc(b.vendor_ref || '') + '" data-status="' + esc(b.status || '') + '" style="cursor:pointer">'
       + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td style="white-space:nowrap">' + fmtDate(b.date) + '</td>'
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'

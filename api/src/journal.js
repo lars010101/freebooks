@@ -31,7 +31,7 @@ async function handleJournal(ctx, action) {
 
 async function updateEntryDescription(ctx) {
   const { companyId, body } = ctx;
-  const { entryId, description, account_code } = body;
+  const { entryId, description, account_code, vat_code } = body;
   if (!entryId) throw Object.assign(new Error('entryId required'), { code: 'INVALID_INPUT' });
 
   const setParts = [];
@@ -50,6 +50,10 @@ async function updateEntryDescription(ctx) {
     if (!accts.length) throw Object.assign(new Error('Account not found: ' + account_code), { code: 'INVALID_INPUT' });
     setParts.push('account_code = @account_code');
     params.account_code = account_code;
+  }
+  if (vat_code !== undefined) {
+    setParts.push('vat_code = @vat_code');
+    params.vat_code = vat_code || null;
   }
 
   if (!setParts.length) return { updated: false };

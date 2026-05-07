@@ -47,6 +47,11 @@ input[type=date].meta-input { font-size:0.9375rem; }
 .fx-input-inline { width:80px; border:none; background:transparent; font-size:0.6875rem; border-bottom:1px solid #e8e8e8; padding:1px 2px; color:#555; }
 .fx-input-inline:focus { outline:none; border-bottom-color:#888; }
 
+/* Journal entry inputs */
+.line-desc-input { width:100%; border:none; background:transparent; font-size:0.875rem; padding:2px 4px; border-radius:3px; color:#222; cursor:text; }
+.line-desc-input:hover { background:#f8f9ff; border:1px solid #c0c8ff; }
+.line-desc-input:focus { outline:none; background:#f8f9ff; border:1px solid #c0c8ff; }
+
 /* Amount cards */
 .amount-cards { display:flex; gap:16px; margin-bottom:36px; }
 .card-due { flex:1; background:#fff; border:2px solid #1a1a1a; border-radius:8px; padding:24px 28px; }
@@ -142,7 +147,7 @@ input[type=date].meta-input { font-size:0.9375rem; }
 
       <div class="meta-field">
         <div class="meta-label">Bill Date *</div>
-        <input type="date" id="bill-date" class="meta-input" onchange="recalcDueDate()">
+        <input type="date" id="bill-date" class="meta-input" onchange="recalcDueDate(); rebuildJournals();">
         <div class="meta-err" id="err-date">Date is required</div>
       </div>
 
@@ -160,6 +165,11 @@ input[type=date].meta-input { font-size:0.9375rem; }
       </div>
     </div>
 
+    <!-- Hidden inputs for AP account (kept for submitBill compatibility) -->
+    <input type="hidden" id="ap-code" value="">
+    <input type="hidden" id="ap-name" value="">
+    <span id="ap-hint" style="display:none"></span>
+
     <!-- FX Rate row (shown when foreign currency) -->
     <div id="fx-rate-row" style="display:none; padding:0 28px; margin-bottom:20px;">
       <div style="display:flex; gap:12px; align-items:flex-start;">
@@ -170,19 +180,6 @@ input[type=date].meta-input { font-size:0.9375rem; }
         <button type="button" id="btn-get-rate" onclick="getRate()" class="btn-action" style="margin-top:24px;">Get Rate</button>
       </div>
       <span id="fx-rate-hint" class="fx-hint-row" style="margin-top:6px; margin-left:0;"></span>
-    </div>
-
-    <!-- AP Account -->
-    <div style="padding:0 28px; margin-bottom:20px;">
-      <div class="meta-label">AP Account *</div>
-      <div class="line-acct-wrap">
-        <input type="text" class="lcode meta-input" id="ap-code" placeholder="201130" style="flex:0 0 auto; width:100px;"
-          oninput="onCodeInput(this,'ap-name','ap-hint')" onblur="hideAcctDropdown()" autocomplete="off">
-        <input type="text" class="lname meta-input" id="ap-name" placeholder="search by name" style="flex:1; max-width:300px; color:#555;"
-          oninput="onNameInput(this,'ap-code','ap-hint')" onblur="hideAcctDropdown()" autocomplete="off">
-      </div>
-      <div class="acct-hint" id="ap-hint"></div>
-      <div class="meta-err" id="err-ap">Valid AP account required</div>
     </div>
 
     <!-- Description (optional) -->
@@ -214,7 +211,6 @@ input[type=date].meta-input { font-size:0.9375rem; }
         <thead>
           <tr>
             <th style="width:30px">#</th>
-            <th>Expense Account</th>
             <th>Description</th>
             <th style="width:110px">Amount *</th>
             <th style="width:110px">${taxLabel} Code</th>
@@ -226,6 +222,26 @@ input[type=date].meta-input { font-size:0.9375rem; }
     </div>
     <button class="btn-add-line" onclick="addLine()">＋ Add Expense Line</button>
     <div class="meta-err" id="err-lines" style="display:none;margin-bottom:20px;margin-top:8px">At least one expense line with a valid account and amount > 0 is required</div>
+
+    <!-- Journal Entries -->
+    <div class="section-h" style="margin-top:36px">Journal Entries</div>
+    <div class="table-card" style="margin-bottom:36px">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="white-space:nowrap;width:100px">Date</th>
+            <th style="min-width:120px">Reference</th>
+            <th style="min-width:80px">Account</th>
+            <th>Account Name</th>
+            <th style="text-align:right;min-width:90px">DR</th>
+            <th style="text-align:right;min-width:90px">CR</th>
+          </tr>
+        </thead>
+        <tbody id="journals-tbody">
+          <tr><td colspan="6" style="color:#aaa;padding:20px 18px">Add expense lines above to preview journal entries.</td></tr>
+        </tbody>
+      </table>
+    </div>
 
     <!-- Attachments (section-h + attach-card) -->
     <div class="section-h" style="margin-top:36px">Attachments</div>
@@ -284,8 +300,6 @@ input[type=date].meta-input { font-size:0.9375rem; }
       // Default AP account to 201130 if it exists (only when NOT in reenter mode)
       if (!_reenterId && accountsMap['201130']) {
         document.getElementById('ap-code').value = '201130';
-        document.getElementById('ap-name').value = accountsMap['201130'];
-        document.getElementById('ap-hint').textContent = accountsMap['201130'];
       }
       _accountsLoaded = true;
       maybeFillReenter();
@@ -513,8 +527,6 @@ input[type=date].meta-input { font-size:0.9375rem; }
       if (bill.currency) document.getElementById('currency').value = bill.currency;
       if (bill.ap_account) {
         document.getElementById('ap-code').value = bill.ap_account;
-        document.getElementById('ap-name').value = accountsMap[bill.ap_account] || bill.ap_account;
-        document.getElementById('ap-hint').textContent = accountsMap[bill.ap_account] || '';
       }
       if (bill.description) document.getElementById('description').value = bill.description;
       // Replace default line with bill lines
@@ -625,35 +637,21 @@ input[type=date].meta-input { font-size:0.9375rem; }
     if (v.default_currency) {
       document.getElementById('currency').value = v.default_currency;
     }
-    // AP account
+    // AP account (hidden input)
     if (v.default_ap_account) {
-      var apCode = v.default_ap_account;
-      document.getElementById('ap-code').value = apCode;
-      if (accountsMap[apCode]) {
-        document.getElementById('ap-name').value = accountsMap[apCode];
-        document.getElementById('ap-hint').textContent = accountsMap[apCode];
-      } else {
-        document.getElementById('ap-name').value = '';
-        document.getElementById('ap-hint').textContent = '';
-      }
+      document.getElementById('ap-code').value = v.default_ap_account;
     }
     // Expense account — first line
     if (v.default_expense_account) {
       var firstRow = document.querySelector('#lines-body tr');
       if (firstRow) {
         var lcodeEl = firstRow.querySelector('.lcode');
-        var lnameEl = firstRow.querySelector('.lname');
-        var lineIdx = lcodeEl ? lcodeEl.dataset.line : null;
         if (lcodeEl) {
           lcodeEl.value = v.default_expense_account;
-          if (accountsMap[v.default_expense_account]) {
-            if (lnameEl) lnameEl.value = accountsMap[v.default_expense_account];
-          } else {
-            if (lnameEl) lnameEl.value = '';
-          }
         }
       }
     }
+    rebuildJournals();
   }
 
   // ── VAT select helpers ────────────────────────────────────────────────
@@ -682,12 +680,7 @@ input[type=date].meta-input { font-size:0.9375rem; }
 
     tr.innerHTML =
       '<td style="color:#888;font-size:0.75rem;padding-left:8px">' + tbody.children.length + 1 + '</td>' +
-      '<td>' +
-        '<div class="line-acct-wrap">' +
-          '<input type="text" class="lcode" data-line="'+idx+'" placeholder="401000" style="width:80px" autocomplete="off">' +
-          '<input type="text" class="lname" data-line="'+idx+'" placeholder="account name" style="width:150px;color:#555" autocomplete="off">' +
-        '</div>' +
-      '</td>' +
+      '<input type="hidden" class="lcode" data-line="'+idx+'">' +
       '<td><input type="text" class="ldesc line-input" data-line="'+idx+'" placeholder="Line detail" style="width:200px"></td>' +
       '<td>' +
         '<span class="line-ccy-label" style="font-size:0.75rem;color:#888;min-width:32px;display:inline-block"></span>' +
@@ -703,30 +696,30 @@ input[type=date].meta-input { font-size:0.9375rem; }
     if (data.description) { tr.querySelector('.ldesc').value = data.description; }
     if (data.amount) { tr.querySelector('.lamount').value = data.amount; }
 
-    // Wire expense account autocomplete
-    var lcodeEl = tr.querySelector('.lcode');
-    var lnameEl = tr.querySelector('.lname');
-    lcodeEl.oninput = function(){ onLineCodeInput(lcodeEl, lnameEl); };
-    lcodeEl.onblur  = function(){ hideAcctDropdown(); };
-    lnameEl.oninput = function(){ onLineNameInput(lnameEl, lcodeEl); };
-    lnameEl.onblur  = function(){ hideAcctDropdown(); };
-
-    // Pre-fill name if code already set
-    if (data.expense_account && accountsMap[data.expense_account]) {
-      lnameEl.value = accountsMap[data.expense_account];
-    }
-
     // Populate VAT select
     var sel = tr.querySelector('.vat-select');
     populateVatSelect(sel, data.vat_code || '');
     sel.onchange = function() { syncGstRow(tr); };
     var amtEl2 = tr.querySelector('.lamount');
-    amtEl2.oninput = function() { syncGstRow(tr); updateFxTotalDisplay(); };
+    amtEl2.oninput = function() { syncGstRow(tr); updateFxTotalDisplay(); rebuildJournals(); };
 
     updateRemoveButtons();
     updateTotal();
     updateLineNumbers();
     return tr;
+  }
+
+  function removeLine(btn) {
+    var tr = btn.closest('tr');
+    // Remove associated GST row if present
+    var next = tr.nextSibling;
+    if (next && next.classList && next.classList.contains('gst-row') && next.dataset.parentLine === tr.dataset.line) {
+      next.remove();
+    }
+    tr.remove();
+    updateRemoveButtons();
+    updateTotal();
+    updateLineNumbers();
   }
 
   function removeLine(btn) {
@@ -873,6 +866,139 @@ input[type=date].meta-input { font-size:0.9375rem; }
     document.getElementById('lines-net').textContent = net.toFixed(2);
     document.getElementById('gst-rows').innerHTML = gstHtml;
     document.getElementById('lines-total').textContent = (net + gstTotal).toFixed(2);
+    rebuildJournals();
+  }
+
+  function rebuildJournals() {
+    var tbody = document.getElementById('journals-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    var dateVal = (document.getElementById('bill-date').value || '').slice(0, 10);
+    var refText = '— (on save)';
+    var apCode  = document.getElementById('ap-code').value.trim() || '201130';
+    var apName  = accountsMap[apCode] || '';
+
+    var totalCr = 0; // will be sum of all DR amounts
+
+    // One DR row per expense line
+    document.querySelectorAll('#lines-body tr:not(.gst-row)').forEach(function(lineTr) {
+      var lineIdx  = lineTr.dataset.line;
+      var amt      = parseFloat(lineTr.querySelector('.lamount') ? lineTr.querySelector('.lamount').value : 0) || 0;
+      var expCode  = lineTr.querySelector('.lcode') ? lineTr.querySelector('.lcode').value.trim() : '';
+      var expName  = accountsMap[expCode] || '';
+
+      totalCr += amt;
+
+      var tr = document.createElement('tr');
+      tr.dataset.journalLine = lineIdx;
+      tr.innerHTML =
+        '<td style="color:#888;font-size:0.8125rem">' + dateVal + '</td>' +
+        '<td style="color:#aaa;font-size:0.8125rem">' + refText + '</td>' +
+        '<td>' +
+          '<div style="display:flex;gap:4px">' +
+            '<input type="text" class="j-code line-desc-input" style="width:72px" placeholder="401000" value="' + esc(expCode) + '" autocomplete="off">' +
+          '</div>' +
+        '</td>' +
+        '<td><input type="text" class="j-name line-desc-input" style="width:100%;min-width:120px" placeholder="account name" value="' + esc(expName) + '" autocomplete="off"></td>' +
+        '<td style="text-align:right;color:#222">' + (amt > 0 ? amt.toFixed(2) : '') + '</td>' +
+        '<td style="text-align:right;color:#aaa"></td>';
+
+      tbody.appendChild(tr);
+
+      // Wire autocomplete on j-code and j-name
+      var jCode = tr.querySelector('.j-code');
+      var jName = tr.querySelector('.j-name');
+
+      jCode.oninput = function() {
+        onLineCodeInput(jCode, jName);
+        var lcodHid = document.querySelector('#lines-body tr[data-line="' + lineIdx + '"] .lcode');
+        if (lcodHid) lcodHid.value = jCode.value;
+      };
+      jCode.onblur = function() { hideAcctDropdown(); };
+
+      jName.oninput = function() {
+        onLineNameInput(jName, jCode);
+      };
+      jName.onblur = function() {
+        hideAcctDropdown();
+        // sync code back
+        var lcodHid = document.querySelector('#lines-body tr[data-line="' + lineIdx + '"] .lcode');
+        if (lcodHid) lcodHid.value = jCode.value;
+      };
+
+      // Override dropdown selection to also sync hidden .lcode
+      (function(li, jc, jn) {
+        jc.addEventListener('change', function() {
+          var lcodHid = document.querySelector('#lines-body tr[data-line="' + li + '"] .lcode');
+          if (lcodHid) lcodHid.value = jc.value;
+        });
+      })(lineIdx, jCode, jName);
+    });
+
+    // One DR row per GST line
+    document.querySelectorAll('#lines-body tr.gst-row').forEach(function(gstTr) {
+      var gstCode = gstTr.querySelector('.gst-acct-code') ? gstTr.querySelector('.gst-acct-code').value.trim() : '';
+      var gstName = accountsMap[gstCode] || '';
+      var gstAmtInput = gstTr.querySelector('.gst-amount');
+      var gstAmt = gstAmtInput ? parseFloat(gstAmtInput.value) || 0 : 0;
+      
+      if (!gstCode) return; // skip if no account
+
+      totalCr += gstAmt;
+
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td style="color:#888;font-size:0.8125rem">' + dateVal + '</td>' +
+        '<td style="color:#aaa;font-size:0.8125rem">' + refText + '</td>' +
+        '<td><span style="font-size:0.8125rem;color:#555">' + esc(gstCode) + '</span></td>' +
+        '<td style="font-size:0.8125rem;color:#555">' + esc(gstName) + '</td>' +
+        '<td style="text-align:right;color:#222">' + (gstAmt > 0 ? gstAmt.toFixed(2) : '') + '</td>' +
+        '<td style="text-align:right;color:#aaa"></td>';
+      tbody.appendChild(tr);
+    });
+
+    // CR row — AP account
+    if (totalCr > 0 || apCode) {
+      var crTr = document.createElement('tr');
+      crTr.dataset.journalCr = '1';
+      crTr.innerHTML =
+        '<td style="color:#888;font-size:0.8125rem">' + dateVal + '</td>' +
+        '<td style="color:#aaa;font-size:0.8125rem">' + refText + '</td>' +
+        '<td>' +
+          '<input type="text" class="j-ap-code line-desc-input" style="width:72px" placeholder="201130" value="' + esc(apCode) + '" autocomplete="off">' +
+        '</td>' +
+        '<td><input type="text" class="j-ap-name line-desc-input" style="width:100%;min-width:120px" placeholder="AP account name" value="' + esc(apName) + '" autocomplete="off"></td>' +
+        '<td style="text-align:right;color:#aaa"></td>' +
+        '<td style="text-align:right;color:#222;font-weight:600">' + (totalCr > 0 ? totalCr.toFixed(2) : '') + '</td>';
+      tbody.appendChild(crTr);
+
+      var jApCode = crTr.querySelector('.j-ap-code');
+      var jApName = crTr.querySelector('.j-ap-name');
+
+      jApCode.oninput = function() {
+        onLineCodeInput(jApCode, jApName);
+        document.getElementById('ap-code').value = jApCode.value;
+      };
+      jApCode.onblur = function() {
+        hideAcctDropdown();
+        document.getElementById('ap-code').value = jApCode.value;
+      };
+      jApCode.addEventListener('change', function() {
+        document.getElementById('ap-code').value = jApCode.value;
+      });
+
+      jApName.oninput = function() { onLineNameInput(jApName, jApCode); };
+      jApName.onblur = function() {
+        hideAcctDropdown();
+        document.getElementById('ap-code').value = jApCode.value;
+      };
+    }
+
+    // Empty state
+    if (!tbody.children.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;padding:20px 18px">Add expense lines above to preview journal entries.</td></tr>';
+    }
   }
 
   function onLineCodeInput(codeEl, nameEl) {
@@ -1104,8 +1230,6 @@ input[type=date].meta-input { font-size:0.9375rem; }
     document.getElementById('vendor-ref').value = '';
     document.getElementById('description').value = '';
     document.getElementById('ap-code').value = '';
-    document.getElementById('ap-name').value = '';
-    document.getElementById('ap-hint').textContent = '';
     currentTermsDays = 30;
     var today2 = new Date().toISOString().slice(0,10);
     document.getElementById('bill-date').value = today2;

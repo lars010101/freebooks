@@ -180,9 +180,9 @@ ${commonStyle()}
       <thead>
         <tr>
           <th style="width:28px;padding:12px 6px"></th>
+          <th class="sortable" data-col="vendor" data-filter-type="text"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Vendor</span><span class="th-filter-btn" title="Filter by vendor">≡</span></div></th>
           <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Date</span><span class="th-filter-btn" title="Filter by date">≡</span></div></th>
           <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Due</span><span class="th-filter-btn" title="Filter by due date">≡</span></div></th>
-          <th class="sortable" data-col="vendor" data-filter-type="text"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Vendor</span><span class="th-filter-btn" title="Filter by vendor">≡</span></div></th>
           <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span><span class="th-filter-btn" title="Filter by reference">≡</span></div></th>
           <th class="sortable" data-col="amount" data-filter-type="amount" style="text-align:right"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Amount</span><span class="th-filter-btn" title="Filter by amount">≡</span></div></th>
           <th class="sortable" data-col="currency" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">CCY</span><span class="th-filter-btn" title="Filter by currency">≡</span></div></th>
@@ -342,6 +342,11 @@ function toggleBillLines(billId, parentTr) {
       tr.dataset.lineId = line.line_id || line.entry_id || '';
       tr.className = 'child-row';
 
+      // Strip vendor prefix from description (e.g. "VendorName/Office supplies" → "Office supplies")
+      var rawDesc = line.description || '';
+      var slashIdx = rawDesc.indexOf('/');
+      var desc = slashIdx !== -1 ? rawDesc.slice(slashIdx + 1).trim() : rawDesc;
+
       var gstInfo = '';
       if (line.gst_code || line.tax_code) {
         var gstAmt = line.gst_amount || line.tax_amount || 0;
@@ -349,11 +354,10 @@ function toggleBillLines(billId, parentTr) {
       }
 
       tr.innerHTML = '<td>&#8627;</td>'
-        + '<td colspan="2">' + esc(line.description || '') + '</td>'
-        + '<td style="color:#666">' + esc(line.account_code || line.gl_account || '') + '</td>'
+        + '<td colspan="3">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.line_amount || line.amount || 0).toFixed(2) + '</td>'
+        + '<td style="font-size:0.75rem;color:#666;text-align:center">' + esc(line.currency || '') + '</td>'
         + '<td style="font-size:0.75rem;color:#888">' + gstInfo + '</td>'
-        + '<td></td>'
         + '<td></td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
@@ -719,9 +723,9 @@ function renderPage() {
     var rowUrl = '/' + COMPANY + '/bill/' + b.bill_id;
     html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '">'
       + '<td class="tree-toggle" data-bill-id="' + esc(String(b.bill_id)) + '" title="Expand/collapse lines">&#9654;</td>'
+      + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td style="white-space:nowrap">' + fmtDate(b.date) + '</td>'
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'
-      + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || b.bill_id) + '</a></td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
       + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px">' + esc(b.currency || BASE_CURRENCY) + '</td>'

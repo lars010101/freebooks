@@ -909,8 +909,6 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       var expCode  = lineTr.querySelector('.lcode') ? lineTr.querySelector('.lcode').value.trim() : '';
       var expName  = accountsMap[expCode] || '';
 
-      if (amt <= 0) return; // don't show row until amount entered
-
       totalCr += amt;
 
       var tr = document.createElement('tr');
@@ -981,8 +979,8 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       tbody.appendChild(tr);
     });
 
-    // CR row — AP account (only when there's something to credit)
-    if (totalCr > 0) {
+    // CR row — AP account (always shown so user can enter account code)
+    {
       var crTr = document.createElement('tr');
       crTr.dataset.journalCr = '1';
       crTr.innerHTML =

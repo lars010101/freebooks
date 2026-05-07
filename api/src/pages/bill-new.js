@@ -160,13 +160,13 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
         <div class="meta-err" id="err-ref">Invoice Ref is required</div>
       </div>
 
-      <div class="meta-field">
+      <div class="meta-field" style="min-width:150px">
         <div class="meta-label">Bill Date *</div>
         <input type="date" id="bill-date" class="meta-input" onchange="recalcDueDate(); rebuildJournals();">
         <div class="meta-err" id="err-date">Date is required</div>
       </div>
 
-      <div class="meta-field">
+      <div class="meta-field" style="min-width:150px">
         <div class="meta-label">Due Date</div>
         <input type="date" id="due-date" class="meta-input">
       </div>
@@ -315,10 +315,6 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     .then(function(r){ return r.json(); })
     .then(function(rows){
       rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; });
-      // Default AP account to 201130 if it exists (only when NOT in reenter mode)
-      if (!_reenterId && accountsMap['201130']) {
-        document.getElementById('ap-code').value = '201130';
-      }
       _accountsLoaded = true;
       maybeFillReenter();
     });
@@ -808,7 +804,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       '<td>' +
         '<div class="line-acct-wrap">' +
           '<input type="text" class="lcode gst-acct-code" placeholder="' + esc(vc.vat_account_input) + '" value="' + esc(vc.vat_account_input) + '" autocomplete="off">' +
-          '<input type="text" class="lname gst-acct-name" placeholder="account name" value="' + esc(acctName) + '" autocomplete="off">' +
+          '<input type="text" class="lname gst-acct-name" placeholder="" value="' + esc(acctName) + '" autocomplete="off">' +
         '</div>' +
       '</td>' +
       '<td><input type="text" class="ldesc" value="GST Input: ' + esc(vatCode) + '" style="width:200px"></td>' +
@@ -893,7 +889,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
 
     var dateVal = (document.getElementById('bill-date').value || '').slice(0, 10);
     var refText = '— (on save)';
-    var apCode  = document.getElementById('ap-code').value.trim() || '201130';
+    var apCode  = document.getElementById('ap-code').value.trim();
     var apName  = accountsMap[apCode] || '';
 
     var totalCr = 0; // will be sum of all DR amounts
@@ -910,14 +906,14 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       var tr = document.createElement('tr');
       tr.dataset.journalLine = lineIdx;
       tr.innerHTML =
-        '<td style="color:#888;font-size:0.8125rem">' + dateVal + '</td>' +
+        '<td style="color:#888;font-size:0.8125rem;white-space:nowrap">' + dateVal + '</td>' +
         '<td style="color:#aaa;font-size:0.8125rem">' + refText + '</td>' +
         '<td>' +
           '<div style="display:flex;gap:4px">' +
             '<input type="text" class="j-code line-desc-input" style="width:72px" placeholder="401000" value="' + esc(expCode) + '" autocomplete="off">' +
           '</div>' +
         '</td>' +
-        '<td><input type="text" class="j-name line-desc-input" style="width:100%;min-width:120px" placeholder="account name" value="' + esc(expName) + '" autocomplete="off"></td>' +
+        '<td><input type="text" class="j-name line-desc-input" style="width:100%;min-width:120px" placeholder="" value="' + esc(expName) + '" autocomplete="off"></td>' +
         '<td style="text-align:right;color:#222">' + (amt > 0 ? amt.toFixed(2) : '') + '</td>' +
         '<td style="text-align:right;color:#aaa"></td>';
 
@@ -966,7 +962,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
 
       var tr = document.createElement('tr');
       tr.innerHTML =
-        '<td style="color:#888;font-size:0.8125rem">' + dateVal + '</td>' +
+        '<td style="color:#888;font-size:0.8125rem;white-space:nowrap">' + dateVal + '</td>' +
         '<td style="color:#aaa;font-size:0.8125rem">' + refText + '</td>' +
         '<td><span style="font-size:0.8125rem;color:#555">' + esc(gstCode) + '</span></td>' +
         '<td style="font-size:0.8125rem;color:#555">' + esc(gstName) + '</td>' +
@@ -980,12 +976,12 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       var crTr = document.createElement('tr');
       crTr.dataset.journalCr = '1';
       crTr.innerHTML =
-        '<td style="color:#888;font-size:0.8125rem">' + dateVal + '</td>' +
+        '<td style="color:#888;font-size:0.8125rem;white-space:nowrap">' + dateVal + '</td>' +
         '<td style="color:#aaa;font-size:0.8125rem">' + refText + '</td>' +
         '<td>' +
           '<input type="text" class="j-ap-code line-desc-input" style="width:72px" placeholder="201130" value="' + esc(apCode) + '" autocomplete="off">' +
         '</td>' +
-        '<td><input type="text" class="j-ap-name line-desc-input" style="width:100%;min-width:120px" placeholder="AP account name" value="' + esc(apName) + '" autocomplete="off"></td>' +
+        '<td><input type="text" class="j-ap-name line-desc-input" style="width:100%;min-width:120px" placeholder="" value="' + esc(apName) + '" autocomplete="off"></td>' +
         '<td style="text-align:right;color:#aaa"></td>' +
         '<td style="text-align:right;color:#222;font-weight:600">' + (totalCr > 0 ? totalCr.toFixed(2) : '') + '</td>';
       tbody.appendChild(crTr);
@@ -1270,7 +1266,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     var openDD = document.getElementById('acct-dd') || document.getElementById('vendor-dd') ||
       (document.getElementById('currency-dropdown') && document.getElementById('currency-dropdown').style.display !== 'none');
     if (openDD) return;
-    window.location.href = '/${company}/payables?tab=bills';
+    history.back();
   });
 
   // Update currency labels and FX display on initial load

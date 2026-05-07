@@ -1375,8 +1375,12 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     }
   });
 
-  // On page load: start in NORMAL mode with vendor field highlighted
-  navFocus(0);
+  // On page load: highlight first field (NORMAL mode) without auto-focusing it
+  // User must press i/Tab/click to enter INSERT mode and start typing
+  (function(){
+    var els = getNavEls();
+    if (els[0]) els[0].classList.add('nav-sel');
+  })();
 
   // Update currency labels and FX display on initial load
   window.addEventListener('load', function(){

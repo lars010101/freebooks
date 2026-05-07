@@ -334,6 +334,7 @@ var kbd = {
   },
 
   _handle: function(e) {
+    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     if (!this._isBillsTabActive()) return;
     var tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
@@ -400,8 +401,7 @@ var kbd = {
       return;
     }
 
-    // Store key for sequences (ignore bare modifier keystrokes; normalize z/Z)
-    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+    // Store key for sequences (normalize z/Z)
     this._lastKey = (e.key === 'Z') ? 'z' : e.key;
     clearTimeout(this._lastKeyTimer);
     var self = this;

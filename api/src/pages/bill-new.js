@@ -39,6 +39,9 @@ ${commonStyle()}
 .line-input.req { border:1px solid #cc5555 !important; }
 .line-input.req:hover { border:1px solid #cc5555 !important; }
 .line-input.req:focus { background:#f8f9ff; border:1px solid #cc5555 !important; }
+.line-desc-input.req { border:1px solid #cc5555 !important; }
+.line-desc-input.req:hover { border:1px solid #cc5555 !important; }
+.line-desc-input.req:focus { background:#f8f9ff; border:1px solid #cc5555 !important; }
 /* vim nav highlight */
 .nav-sel { outline:2px solid #4f6ef7 !important; background:#f0f3ff !important; }
 /* Hide GST rows in Bill Line Items (kept for journal calc) */
@@ -917,7 +920,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
         '<td style="color:#aaa;font-size:0.8125rem">' + refText + '</td>' +
         '<td>' +
           '<div style="display:flex;gap:4px">' +
-            '<input type="text" class="j-code line-desc-input" style="width:72px" placeholder="401000" value="' + esc(expCode) + '" autocomplete="off">' +
+            '<input type="text" class="j-code line-desc-input req" style="width:72px" placeholder="401000" value="' + esc(expCode) + '" autocomplete="off">' +
           '</div>' +
         '</td>' +
         '<td><input type="text" class="j-name line-desc-input" style="width:100%;min-width:120px" placeholder="" value="' + esc(expName) + '" autocomplete="off"></td>' +
@@ -986,7 +989,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
         '<td style="color:#888;font-size:0.8125rem;white-space:nowrap">' + dateVal + '</td>' +
         '<td style="color:#aaa;font-size:0.8125rem">' + refText + '</td>' +
         '<td>' +
-          '<input type="text" class="j-ap-code line-desc-input" style="width:72px" placeholder="201130" value="' + esc(apCode) + '" autocomplete="off">' +
+          '<input type="text" class="j-ap-code line-desc-input req" style="width:72px" placeholder="201130" value="' + esc(apCode) + '" autocomplete="off">' +
         '</td>' +
         '<td><input type="text" class="j-ap-name line-desc-input" style="width:100%;min-width:120px" placeholder="" value="' + esc(apName) + '" autocomplete="off"></td>' +
         '<td style="text-align:right;color:#aaa"></td>' +
@@ -1019,8 +1022,8 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     while (tbody.querySelectorAll('tr').length < 2) {
       var padTr = document.createElement('tr');
       padTr.innerHTML =
-        '<td style="white-space:nowrap;color:#ddd;font-size:0.8125rem">—</td>' +
-        '<td style="color:#ddd;font-size:0.8125rem">—</td>' +
+        '<td style="white-space:nowrap;color:#aaa;font-size:0.8125rem">—</td>' +
+        '<td style="color:#aaa;font-size:0.8125rem">—</td>' +
         '<td></td><td></td>' +
         '<td style="text-align:right"></td>' +
         '<td style="text-align:right"></td>';

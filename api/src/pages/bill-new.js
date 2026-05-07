@@ -43,7 +43,14 @@ ${commonStyle()}
 .line-desc-input.req:hover { border:1px solid #cc5555 !important; }
 .line-desc-input.req:focus { background:#f8f9ff; border:1px solid #cc5555 !important; }
 /* vim nav highlight */
-.nav-sel { outline:2px solid #1a3c8f !important; background:#eef2ff !important; }
+/* Nav NORMAL mode highlight — meta-strip: full dark container */
+.meta-field.nav-sel { background:#1a1a1a !important; border-radius:6px; }
+.meta-field.nav-sel .meta-label { color:rgba(255,255,255,0.7) !important; }
+.meta-field.nav-sel .meta-input { color:#fff !important; background:transparent !important; border-color:transparent !important; }
+.meta-field.nav-sel .meta-input.req { border-color:transparent !important; }
+.meta-field.nav-sel .meta-input::placeholder { color:rgba(255,255,255,0.35) !important; }
+/* Nav NORMAL mode highlight — line item inputs (no meta-field wrapper) */
+input.nav-sel, select.nav-sel { outline:2px solid #1a1a1a !important; background:#f0f3ff !important; }
 /* Hide GST rows in Bill Line Items (kept for journal calc) */
 .gst-row { display:none !important; }
 
@@ -159,7 +166,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     <!-- Meta strip: Vendor | Invoice Ref | Bill Date | Due Date | Currency | AP Account -->
     <div class="meta-strip">
       <div class="meta-field">
-        <div class="meta-label">Vendor *</div>
+        <div class="meta-label">Vendor * <span style="font-size:0.625rem;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
         <div class="vendor-wrap">
           <input type="text" id="vendor-name-input" class="meta-input req" placeholder="Search vendor…" autocomplete="off"
             oninput="onVendorInput(this)" onblur="hideVendorDropdown()">
@@ -169,24 +176,24 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       </div>
 
       <div class="meta-field">
-        <div class="meta-label">Invoice Ref *</div>
+        <div class="meta-label">Invoice Ref * <span style="font-size:0.625rem;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
         <input type="text" id="vendor-ref" class="meta-input req" placeholder="e.g. INV-2024-001">
         <div class="meta-err" id="err-ref">Invoice Ref is required</div>
       </div>
 
       <div class="meta-field" style="min-width:150px">
-        <div class="meta-label">Bill Date *</div>
+        <div class="meta-label">Bill Date * <span style="font-size:0.625rem;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
         <input type="date" id="bill-date" class="meta-input req" onchange="recalcDueDate(); rebuildJournals();">
         <div class="meta-err" id="err-date">Date is required</div>
       </div>
 
       <div class="meta-field" style="min-width:150px">
-        <div class="meta-label">Due Date</div>
+        <div class="meta-label">Due Date <span style="font-size:0.625rem;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
         <input type="date" id="due-date" class="meta-input">
       </div>
 
       <div class="meta-field">
-        <div class="meta-label">Currency</div>
+        <div class="meta-label">Currency <span style="font-size:0.625rem;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
         <div style="position:relative">
           <input type="text" id="currency" maxlength="3" class="meta-input" placeholder="e.g. SGD" style="text-transform:uppercase" onchange="onCurrencyChange()" oninput="onCurrencyInput(this)" onblur="hideCurrencyDropdown()" autocomplete="off">
           <div id="currency-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ccc;border-top:none;border-radius:0 0 4px 4px;box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;z-index:9999"></div>
@@ -1305,7 +1312,8 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     var target = els[navIdx];
     if (!target) return;
     document.querySelectorAll('.nav-sel').forEach(function(el){ el.classList.remove('nav-sel'); });
-    target.classList.add('nav-sel');
+    var navContainer = target.closest('.meta-field') || target;
+    navContainer.classList.add('nav-sel');
     _navMoving = true;
     target.focus();
     _navMoving = false;
@@ -1314,6 +1322,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
 
   function enterInsertMode() {
     navMode = false;
+    document.querySelectorAll('.nav-sel').forEach(function(el){ el.classList.remove('nav-sel'); });
     var els = getNavEls();
     var el = els[navIdx];
     if (el) { el.focus(); if (el.select) el.select(); }
@@ -1372,7 +1381,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       var idx = els.indexOf(e.target);
       if (idx >= 0) navIdx = idx;
       document.querySelectorAll('.nav-sel').forEach(function(el){ el.classList.remove('nav-sel'); });
-      e.target.classList.add('nav-sel');
+      // In INSERT mode, no nav highlight shown
     }
   });
 

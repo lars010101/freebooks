@@ -400,7 +400,8 @@ var kbd = {
       return;
     }
 
-    // Store key for sequences
+    // Store key for sequences (ignore bare modifier keystrokes)
+    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     this._lastKey = e.key;
     clearTimeout(this._lastKeyTimer);
     var self = this;

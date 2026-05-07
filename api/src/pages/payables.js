@@ -281,9 +281,9 @@ var cursor = {
     window.fbBillCursorMid = (this.col < cells.length - 1);
     var rows = this.getVisibleRows();
     if (rows.length && rows[0] === rowEl) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo(0, 0);
     } else {
-      rowEl.scrollIntoView({ block: 'nearest' });
+      rowEl.scrollIntoView({ block: 'nearest', behavior: 'instant' });
     }
   },
 
@@ -305,6 +305,7 @@ var kbd = {
   _registered: false,
   _lastKey: null,
   _lastKeyTimer: null,
+  _lastMoveTime: 0,
 
   register: function() {
     if (this._registered) return;
@@ -329,6 +330,7 @@ var kbd = {
 
     if (e.key === 'j') {
       e.preventDefault();
+      var now = Date.now(); if (now - this._lastMoveTime < 40) return; this._lastMoveTime = now;
       if (idx === -1 && rows.length) { cursor.set(rows[0], 0); }
       else if (idx >= 0 && idx < rows.length - 1) { cursor.set(rows[idx + 1], cursor.col); }
       this._lastKey = null; return;
@@ -336,6 +338,7 @@ var kbd = {
 
     if (e.key === 'k') {
       e.preventDefault();
+      var now2 = Date.now(); if (now2 - this._lastMoveTime < 40) return; this._lastMoveTime = now2;
       if (idx > 0) { cursor.set(rows[idx - 1], cursor.col); }
       else if (idx === 0) { cursor.clear(); }
       this._lastKey = null; return;

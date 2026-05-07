@@ -108,13 +108,14 @@ ${commonStyle()}
   .edit-table input[type=text], .edit-table select { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:0.8125rem; }
   .btn-sm { padding:0 14px; height:32px; font-size:0.8125rem; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
 
-  /* Tree table — toggle cell */
-  .tree-toggle { cursor:pointer; user-select:none; font-size:0.75rem; color:#555; padding:0 6px; }
-  .tree-toggle:hover { color:#1a1a1a; }
-
   /* Tree table — child rows */
-  .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; }
-  .child-row td:first-child { padding-left:32px; color:#aaa; width:28px; }
+  .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; padding:14px 18px; }
+  .child-row td:first-child { padding-left:32px; }
+
+  /* Row state classes */
+  tr[data-row-type="parent"]:hover td { background:#fafafa; }
+  tr.row-expanded > td:first-child { color:#1a1a1a; font-weight:600; }
+  tr.row-loading { opacity:0.6; }
   .child-row:last-child td { border-bottom:1px solid #e8e8e8; }
   .btn-sm:hover { background:#e8e8e8; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
@@ -179,7 +180,6 @@ ${commonStyle()}
     <table class="data-table">
       <thead>
         <tr>
-          <th style="width:28px;padding:12px 6px"></th>
           <th class="sortable" data-col="vendor" data-filter-type="text"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Vendor</span><span class="th-filter-btn" title="Filter by vendor">≡</span></div></th>
           <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Date</span><span class="th-filter-btn" title="Filter by date">≡</span></div></th>
           <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Due</span><span class="th-filter-btn" title="Filter by due date">≡</span></div></th>
@@ -190,7 +190,7 @@ ${commonStyle()}
         </tr>
       </thead>
       <tbody id="bills-tbody">
-        <tr><td colspan="8" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
+        <tr><td colspan="7" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
       </tbody>
     </table>
     <div class="pagination-row" id="pagination-row" style="display:none">
@@ -257,13 +257,14 @@ function initBillsTable() {
   var tbody = document.getElementById('bills-tbody');
   if (tbody) {
     tbody.addEventListener('click', function(e) {
-      // Toggle cell click
-      var toggleCell = e.target.closest('td.tree-toggle');
-      if (toggleCell) {
-        var billId = toggleCell.dataset.billId;
-        var parentTr = toggleCell.closest('tr[data-row-type="parent"]');
-        if (billId && parentTr) toggleBillLines(billId, parentTr);
-        return;
+      // Don't intercept badge clicks (status) or ref links
+      if (e.target.closest('a.ref-link')) return;
+      if (e.target.closest('.badge')) return;
+
+      var parentTr = e.target.closest('tr[data-row-type="parent"]');
+      if (parentTr) {
+        var billId = parentTr.dataset.billId;
+        if (billId) toggleBillLines(billId, parentTr);
       }
     });
   }
@@ -301,36 +302,32 @@ function initBillsTable() {
 }
 
 function toggleBillLines(billId, parentTr) {
-  // Check if already expanded
   var existing = document.querySelector('tr[data-row-type="child"][data-parent-id="' + billId + '"]');
-  var toggleCell = parentTr.querySelector('td.tree-toggle');
 
   if (existing) {
-    // Collapse: remove all child rows for this bill
     var toRemove = document.querySelectorAll('tr[data-row-type="child"][data-parent-id="' + billId + '"]');
     toRemove.forEach(function(r) { r.remove(); });
-    if (toggleCell) toggleCell.innerHTML = '&#9654;'; // ▶
+    parentTr.classList.remove('row-expanded');
     return;
   }
 
-  // Expand: fetch lines
-  if (toggleCell) toggleCell.innerHTML = '&#8230;'; // loading indicator
+  parentTr.classList.add('row-loading');
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'bill.lines', companyId: COMPANY, billId: billId }) })
   .then(function(r){ return r.json(); })
   .then(function(res){
     var lines = res.data || res || [];
     if (!Array.isArray(lines)) lines = [];
-    if (toggleCell) toggleCell.innerHTML = '&#9660;'; // ▼
+    parentTr.classList.remove('row-loading');
+    parentTr.classList.add('row-expanded');
 
-    // Insert child rows after parentTr
     var insertAfter = parentTr;
     if (!lines.length) {
       var emptyTr = document.createElement('tr');
       emptyTr.dataset.rowType = 'child';
       emptyTr.dataset.parentId = billId;
       emptyTr.className = 'child-row';
-      emptyTr.innerHTML = '<td></td><td colspan="7" style="color:#aaa;font-style:italic">No line items</td>';
+      emptyTr.innerHTML = '<td colspan="7" style="color:#aaa;font-style:italic;padding-left:32px">No line items</td>';
       insertAfter.insertAdjacentElement('afterend', emptyTr);
       return;
     }
@@ -342,7 +339,6 @@ function toggleBillLines(billId, parentTr) {
       tr.dataset.lineId = line.line_id || line.entry_id || '';
       tr.className = 'child-row';
 
-      // Strip vendor prefix from description (e.g. "VendorName/Office supplies" → "Office supplies")
       var rawDesc = line.description || '';
       var slashIdx = rawDesc.indexOf('/');
       var desc = slashIdx !== -1 ? rawDesc.slice(slashIdx + 1).trim() : rawDesc;
@@ -350,21 +346,20 @@ function toggleBillLines(billId, parentTr) {
       var gstInfo = '';
       if (line.gst_code || line.tax_code) {
         var gstAmt = line.gst_amount || line.tax_amount || 0;
-        gstInfo = esc(line.gst_code || line.tax_code || '') + (gstAmt ? ' ' + Number(gstAmt).toFixed(2) : '');
+        gstInfo = esc(line.gst_code || line.tax_code || '') + (gstAmt ? '\u00a0' + Number(gstAmt).toFixed(2) : '');
       }
 
-      tr.innerHTML = '<td>&#8627;</td>'
-        + '<td colspan="4">' + esc(desc) + '</td>'
+      tr.innerHTML = '<td colspan="4" style="padding-left:32px">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.line_amount || line.amount || 0).toFixed(2) + '</td>'
-        + '<td style="font-size:0.75rem;color:#666;text-align:center">' + esc(line.currency || '') + '</td>'
-        + '<td style="font-size:0.75rem;color:#888">' + gstInfo + '</td>';
+        + '<td style="text-align:center">' + esc(line.currency || '') + '</td>'
+        + '<td style="color:#888">' + gstInfo + '</td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
       insertAfter = tr;
     });
   })
   .catch(function(e){
-    if (toggleCell) toggleCell.innerHTML = '&#9654;';
+    parentTr.classList.remove('row-loading');
     console.error('Error loading lines:', e);
   });
 }
@@ -720,8 +715,7 @@ function renderPage() {
     var isOverdue = active && due && due < today;
     var dueCls = isOverdue ? ' class="overdue-date"' : '';
     var rowUrl = '/' + COMPANY + '/bill/' + b.bill_id;
-    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '">'
-      + '<td class="tree-toggle" data-bill-id="' + esc(String(b.bill_id)) + '" title="Expand/collapse lines">&#9654;</td>'
+    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" style="cursor:pointer">'
       + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td style="white-space:nowrap">' + fmtDate(b.date) + '</td>'
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'
@@ -794,7 +788,7 @@ function statusBadge(status, dueDate) {
 function showMsg(msg) {
   var el = document.getElementById('bills-tbody');
   if (!el) return;
-  el.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#aaa;padding:32px">' + esc(msg) + '</td></tr>';
+  el.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:32px">' + esc(msg) + '</td></tr>';
 }
 
 function esc(s) {

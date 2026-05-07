@@ -20,132 +20,197 @@ function buildBillNewPage(company, taxLabel = 'VAT') {
 <title>New Bill — freeBooks</title>
 ${commonStyle()}
 <style>
-  .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px 24px; max-width:700px; margin-bottom:20px; }
-  .form-grid .full { grid-column:1 / -1; }
-  .form-group { display:flex; flex-direction:column; gap:4px; }
-  .form-group label { font-weight:600; font-size:0.8125rem; color:#555; }
-  .form-group input, .form-group select, .form-group textarea {
-    padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:0.8125rem; }
-  .form-group input:focus, .form-group select:focus { outline:none; border-color:#888; }
-  .form-group .err { color:#cc2222; font-size:0.75rem; margin-top:2px; display:none; }
-  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px;
-    font-size:0.9375rem; font-weight:600; cursor:pointer; }
-  button.btn-primary:hover:not(:disabled) { background:#333; }
-  button.btn-primary:disabled { opacity:0.4; cursor:default; }
-  .success-box { background:#f0fff4; border:1px solid #2a8a2a; border-radius:6px; padding:20px 24px;
-    max-width:500px; }
-  .success-box h2 { color:#2a8a2a; margin:0 0 10px; }
-  .success-box a { color:#1a1a1a; font-weight:600; }
-  .acct-wrap { position:relative; }
-  .acct-row { display:flex; gap:6px; align-items:flex-start; }
-  .acct-row input.code { width:90px; flex-shrink:0; }
-  .acct-row input.name { flex:1; color:#555; }
-  .acct-hint { font-size:0.6875rem; color:#888; margin-top:2px; }
-  .vendor-wrap { position:relative; }
-  /* Lines table */
-  .lines-section { max-width:900px; margin-bottom:18px; }
-  .lines-section h3 { font-size:0.8125rem; color:#555; font-weight:600; margin:0 0 8px; }
-  table.lines-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
-  table.lines-table th { text-align:left; font-size:0.75rem; color:#555; text-transform:uppercase;
-    border-bottom:1px solid #ccc; padding:5px 6px; }
-  table.lines-table td { padding:4px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
-  table.lines-table input[type=text], table.lines-table input[type=number] {
-    padding:5px 7px; border:1px solid #ddd; border-radius:3px; font-size:0.8125rem; }
-  table.lines-table select { padding:5px 7px; border:1px solid #ddd; border-radius:3px; font-size:0.8125rem; }
-  .btn-remove { background:none; border:none; color:#cc2222; font-size:1.0625rem; cursor:pointer;
-    padding:0 4px; line-height:1; }
-  .btn-remove:disabled { color:#ccc; cursor:default; }
-  .btn-add-line { margin-top:8px; padding:6px 16px; font-size:0.8125rem; cursor:pointer;
-    border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
-  .btn-add-line:hover { background:#e8e8e8; }
-  .total-row { margin-top:8px; font-size:0.9375rem; font-weight:600; text-align:right; max-width:900px; }
-  .line-acct-wrap { position:relative; display:flex; gap:4px; }
-  .line-acct-wrap input.lcode { width:80px; }
-  .line-acct-wrap input.lname { width:140px; color:#555; }
+.page { max-width:1100px; }
+.bill-header-actions { display:flex; gap:10px; align-items:center; }
+.btn-action {
+  display:inline-flex; align-items:center; gap:6px;
+  padding:8px 18px; border:1px solid #d0d0d0; border-radius:6px;
+  background:#fff; cursor:pointer; font-size:0.8125rem; color:#333; white-space:nowrap;
+}
+.btn-action:hover { background:#f5f5f5; border-color:#bbb; }
+.btn-primary { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+.btn-primary:hover { background:#333; border-color:#333; }
+.btn-primary:disabled { opacity:0.4; cursor:default; }
+
+/* Meta strip */
+.meta-strip { display:flex; border-top:1px solid #eee; border-bottom:1px solid #eee; padding:24px 0; margin-bottom:24px; }
+.meta-field { flex:1; padding:0 28px; }
+.meta-field:first-child { padding-left:0; }
+.meta-field + .meta-field { border-left:1px solid #eee; }
+.meta-label { font-size:0.75rem; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }
+.meta-input { font-size:1rem; font-weight:600; color:#1a1a1a; border:none; background:transparent; padding:2px 4px; border-radius:3px; width:100%; border-bottom:2px solid #e8e8e8; }
+.meta-input:focus { outline:none; border-bottom-color:#1a1a1a; }
+.meta-input::placeholder { color:#bbb; font-weight:400; font-size:0.875rem; }
+input[type=date].meta-input { font-size:0.9375rem; }
+.meta-err { color:#cc2222; font-size:0.6875rem; margin-top:3px; display:none; }
+.fx-hint-row { font-size:0.6875rem; color:#888; margin-top:4px; display:flex; align-items:center; gap:4px; }
+.fx-input-inline { width:80px; border:none; background:transparent; font-size:0.6875rem; border-bottom:1px solid #e8e8e8; padding:1px 2px; color:#555; }
+.fx-input-inline:focus { outline:none; border-bottom-color:#888; }
+
+/* Amount cards */
+.amount-cards { display:flex; gap:16px; margin-bottom:36px; }
+.card-due { flex:1; background:#fff; border:2px solid #1a1a1a; border-radius:8px; padding:24px 28px; }
+.card-label { font-size:0.75rem; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.06em; margin-bottom:12px; }
+.card-val-due { display:flex; align-items:baseline; gap:8px; line-height:1; }
+.card-currency { font-size:1.0625rem; font-weight:500; color:#aaa; }
+.card-amount { font-size:2.25rem; font-weight:700; color:#1a1a1a; }
+
+/* Section headings */
+.section-h { font-size:1.0625rem; font-weight:700; color:#1a1a1a; margin:0 0 14px; }
+
+/* Table card */
+.table-card { border:1px solid #e8e8e8; border-radius:8px; overflow:hidden; margin-bottom:36px; }
+.data-table { width:100%; border-collapse:collapse; font-size:0.875rem; }
+.data-table th { text-align:left; font-size:0.75rem; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.05em; background:#fafafa; border-bottom:1px solid #e8e8e8; padding:12px 18px; }
+.data-table td { padding:10px 18px; border-bottom:1px solid #f2f2f2; vertical-align:middle; color:#222; }
+.data-table tbody tr:last-child td { border-bottom:none; }
+
+/* Line inputs */
+.line-input { border:none; background:transparent; font-size:0.875rem; padding:2px 4px; border-radius:3px; color:#222; border-bottom:1px solid transparent; width:100%; }
+.line-input:hover { border-bottom-color:#ddd; }
+.line-input:focus { outline:none; border-bottom-color:#1a1a1a; }
+.line-input::placeholder { color:#ccc; }
+
+/* GST rows */
+.gst-row > td { background:#f7fff7 !important; }
+.gst-row > td:first-child { color:#2a8a2a; font-size:0.75rem; }
+
+/* Add line button */
+.btn-add-line { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:10px; font-size:0.8125rem; cursor:pointer; border:1px solid #e8e8e8; border-top:none; border-radius:0 0 8px 8px; background:#fafafa; color:#555; }
+.btn-add-line:hover { background:#f0f0f0; color:#1a1a1a; }
+
+/* Remove button */
+.btn-remove { background:none; border:none; color:#cc2222; font-size:1.0625rem; cursor:pointer; padding:0 4px; line-height:1; }
+.btn-remove:disabled { color:#ccc; cursor:default; }
+
+/* Line account autocomplete */
+.line-acct-wrap { position:relative; display:flex; gap:4px; }
+.line-acct-wrap input.lcode { width:75px; }
+.line-acct-wrap input.lname { width:150px; color:#555; }
+
+/* Attach card */
+.attach-card { border:1px solid #e8e8e8; border-radius:8px; overflow:hidden; }
+
+/* Success box */
+.success-box { background:#f0fff4; border:1px solid #2a8a2a; border-radius:8px; padding:32px 36px; max-width:500px; }
+.success-box h2 { color:#2a8a2a; margin:0 0 10px; }
+.success-box a { color:#1a1a1a; font-weight:600; }
+
+/* Vendor/acct wraps */
+.vendor-wrap { position:relative; }
+.acct-hint { font-size:0.6875rem; color:#888; margin-top:2px; }
 
 </style>
 </head>
 <body>${navBar(company, 'payables')}
 <div class="page">
-  <div class="header">
-    <h1>📄 New Bill</h1>
-    <p class="sub">${company}</p>
-  </div>
-
   <div id="success-panel" style="display:none" class="success-box">
     <h2>✓ Bill created</h2>
     <p>Bill ID: <strong id="success-bill-id"></strong></p>
   </div>
 
   <div id="bill-form">
-    <div class="form-grid">
-      <!-- Vendor -->
-      <div class="form-group">
-        <label>Vendor *</label>
+    <!-- Header: h1 left, Create Bill button + status right -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:28px;">
+      <div class="header" style="margin-bottom:0;">
+        <h1 id="page-title">📄 New Bill</h1>
+        <p class="sub">${company}</p>
+      </div>
+      <div class="bill-header-actions">
+        <span id="status-msg" style="font-size:0.8125rem"></span>
+        <button class="btn-action btn-primary" id="btn-submit" onclick="submitBill()">Create Bill</button>
+      </div>
+    </div>
+
+    <!-- Meta strip: Vendor | Invoice Ref | Bill Date | Due Date | Currency | AP Account -->
+    <div class="meta-strip">
+      <div class="meta-field">
+        <div class="meta-label">Vendor *</div>
         <div class="vendor-wrap">
-          <input type="text" id="vendor-name-input" placeholder="Search vendor…" autocomplete="off"
+          <input type="text" id="vendor-name-input" class="meta-input" placeholder="Search vendor…" autocomplete="off"
             oninput="onVendorInput(this)" onblur="hideVendorDropdown()">
           <input type="hidden" id="vendor-id-input">
         </div>
-        <div class="err" id="err-vendor">Vendor is required</div>
+        <div class="meta-err" id="err-vendor">Vendor is required</div>
       </div>
-      <!-- Invoice Ref -->
-      <div class="form-group">
-        <label>Invoice Ref *</label>
-        <input type="text" id="vendor-ref" placeholder="e.g. INV-2024-001">
-        <div class="err" id="err-ref">Invoice Ref is required</div>
+
+      <div class="meta-field">
+        <div class="meta-label">Invoice Ref *</div>
+        <input type="text" id="vendor-ref" class="meta-input" placeholder="e.g. INV-2024-001">
+        <div class="meta-err" id="err-ref">Invoice Ref is required</div>
       </div>
-      <!-- Bill Date -->
-      <div class="form-group">
-        <label>Bill Date *</label>
-        <input type="date" id="bill-date" onchange="recalcDueDate()">
-        <div class="err" id="err-date">Date is required</div>
+
+      <div class="meta-field">
+        <div class="meta-label">Bill Date *</div>
+        <input type="date" id="bill-date" class="meta-input" onchange="recalcDueDate()">
+        <div class="meta-err" id="err-date">Date is required</div>
       </div>
-      <!-- Due Date -->
-      <div class="form-group">
-        <label>Due Date</label>
-        <input type="date" id="due-date">
+
+      <div class="meta-field">
+        <div class="meta-label">Due Date</div>
+        <input type="date" id="due-date" class="meta-input">
       </div>
-      <!-- Currency -->
-      <div class="form-group">
-        <label>Currency</label>
+
+      <div class="meta-field">
+        <div class="meta-label">Currency</div>
         <div style="position:relative">
-          <input type="text" id="currency" maxlength="3" placeholder="e.g. SGD" style="text-transform:uppercase" onchange="onCurrencyChange()" oninput="onCurrencyInput(this)" onblur="hideCurrencyDropdown()" autocomplete="off">
+          <input type="text" id="currency" maxlength="3" class="meta-input" placeholder="e.g. SGD" style="text-transform:uppercase" onchange="onCurrencyChange()" oninput="onCurrencyInput(this)" onblur="hideCurrencyDropdown()" autocomplete="off">
           <div id="currency-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ccc;border-top:none;border-radius:0 0 4px 4px;box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;z-index:9999"></div>
         </div>
       </div>
-      <!-- FX Rate -->
-      <div class="form-group">
-        <label>FX Rate</label>
-        <div style="display:flex;gap:8px;align-items:flex-start">
-          <input type="number" id="fx-rate" placeholder="1.0" step="0.0001" style="flex:1">
-          <button type="button" class="btn-sm" id="btn-get-rate" onclick="getRate()" style="padding:7px 12px;font-size:0.8125rem;display:none">Get Rate</button>
+    </div>
+
+    <!-- FX Rate row (shown when foreign currency) -->
+    <div id="fx-rate-row" style="display:none; padding:0 28px; margin-bottom:20px;">
+      <div style="display:flex; gap:12px; align-items:flex-start;">
+        <div style="flex:1; max-width:200px;">
+          <div class="meta-label">FX Rate</div>
+          <input type="number" id="fx-rate" class="meta-input" placeholder="1.0" step="0.0001">
         </div>
-        <span id="fx-rate-hint" style="font-size:0.75rem;color:#666"></span>
+        <button type="button" id="btn-get-rate" onclick="getRate()" class="btn-action" style="margin-top:24px;">Get Rate</button>
       </div>
-      <!-- AP Account -->
-      <div class="form-group">
-        <label>AP Account *</label>
-        <div class="acct-row">
-          <input type="text" class="code" id="ap-code" placeholder="201130"
-            oninput="onCodeInput(this,'ap-name','ap-hint')" onblur="hideAcctDropdown()" autocomplete="off">
-          <input type="text" class="name" id="ap-name" placeholder="search by name"
-            oninput="onNameInput(this,'ap-code','ap-hint')" onblur="hideAcctDropdown()" autocomplete="off">
+      <span id="fx-rate-hint" class="fx-hint-row" style="margin-top:6px; margin-left:0;"></span>
+    </div>
+
+    <!-- AP Account -->
+    <div style="padding:0 28px; margin-bottom:20px;">
+      <div class="meta-label">AP Account *</div>
+      <div class="line-acct-wrap">
+        <input type="text" class="lcode meta-input" id="ap-code" placeholder="201130" style="flex:0 0 auto; width:100px;"
+          oninput="onCodeInput(this,'ap-name','ap-hint')" onblur="hideAcctDropdown()" autocomplete="off">
+        <input type="text" class="lname meta-input" id="ap-name" placeholder="search by name" style="flex:1; max-width:300px; color:#555;"
+          oninput="onNameInput(this,'ap-code','ap-hint')" onblur="hideAcctDropdown()" autocomplete="off">
+      </div>
+      <div class="acct-hint" id="ap-hint"></div>
+      <div class="meta-err" id="err-ap">Valid AP account required</div>
+    </div>
+
+    <!-- Description (optional) -->
+    <div style="padding:0 28px; margin-bottom:24px;">
+      <div class="meta-label">Description (optional)</div>
+      <input type="text" id="description" class="meta-input" placeholder="e.g. Office supplies for Jan 2025" style="max-width:600px;">
+    </div>
+
+    <!-- Amount card -->
+    <div class="amount-cards">
+      <div class="card-due">
+        <div class="card-label">Bill Total</div>
+        <div class="card-val-due">
+          <span class="card-currency" id="total-currency-prefix"></span>
+          <span class="card-amount" id="lines-total">0.00</span>
         </div>
-        <div class="acct-hint" id="ap-hint"></div>
-        <div class="err" id="err-ap">Valid AP account required</div>
-      </div>
-      <!-- Description (overall) -->
-      <div class="form-group full">
-        <label>Description (overall)</label>
-        <input type="text" id="description" placeholder="e.g. Office supplies for Jan 2025">
+        <div id="card-breakdown" style="font-size:0.8125rem;color:#888;margin-top:8px"></div>
+        <div id="fx-total-display" style="margin-top:6px;font-size:0.8125rem;color:#666;display:none"></div>
+        <!-- hidden compat -->
+        <span id="lines-net" style="display:none">0.00</span>
+        <span id="gst-rows" style="display:none"></span>
       </div>
     </div>
 
     <!-- Expense Lines -->
-    <div class="lines-section">
-      <h3>Expense Lines</h3>
-      <table class="lines-table" id="lines-table">
+    <div class="section-h">Expense Lines</div>
+    <div class="table-card" style="margin-bottom:0;border-radius:8px 8px 0 0">
+      <table class="data-table" id="lines-table">
         <thead>
           <tr>
             <th style="width:30px">#</th>
@@ -158,30 +223,21 @@ ${commonStyle()}
         </thead>
         <tbody id="lines-body"></tbody>
       </table>
-      <button class="btn-add-line" onclick="addLine()">＋ Add Line</button>
-      <div class="total-row" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
-        <div style="font-weight:400;font-size:0.8125rem;color:#555">Subtotal (net): <span id="lines-net">0.00</span></div>
-        <div id="gst-rows"></div>
-        <div style="border-top:1px solid #ccc;padding-top:4px;margin-top:2px">Total payable: <span id="lines-total">0.00</span></div>
-        <div id="fx-total-display" style="margin-top:2px;font-size:0.8125rem;color:#666;display:none"></div>
-      </div>
-      <div class="err" id="err-lines" style="display:none;margin-top:6px">At least one expense line with a valid account and amount > 0 is required</div>
     </div>
+    <button class="btn-add-line" onclick="addLine()">＋ Add Expense Line</button>
+    <div class="meta-err" id="err-lines" style="display:none;margin-bottom:20px;margin-top:8px">At least one expense line with a valid account and amount > 0 is required</div>
 
-    <div style="display:flex;gap:12px;align-items:center">
-      <button class="btn-primary" id="btn-submit" onclick="submitBill()">Create Bill</button>
-      <span id="status-msg" style="font-size:0.8125rem"></span>
-    </div>
-
-    <div style="margin-top:14px;padding-top:12px;border-top:1px solid #eee">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-size:0.8125rem;font-weight:600">📎 Attachments</span>
-        <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5;font-size:0.8125rem">
-          + Attach
+    <!-- Attachments (section-h + attach-card) -->
+    <div class="section-h" style="margin-top:36px">Attachments</div>
+    <div class="attach-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 18px;background:#fafafa;border-bottom:1px solid #e8e8e8">
+        <span style="font-size:0.8125rem;font-weight:600;color:#555">📎 Files to attach on save</span>
+        <label style="cursor:pointer;color:#1a1a1a;font-size:0.8125rem;font-weight:600">
+          + Add File
           <input type="file" id="bill-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addBillAttachment(this)" multiple>
         </label>
       </div>
-      <div id="bill-pending-list" style="font-size:0.8125rem;color:#aaa">No files queued</div>
+      <div id="bill-pending-list" style="font-size:0.8125rem;color:#aaa;padding:12px 18px">No files queued</div>
     </div>
   </div>
 </div>
@@ -299,18 +355,19 @@ ${commonStyle()}
   }
 
   function updateFxRateVisibility(currency) {
+    var fxRateRow = document.getElementById('fx-rate-row');
     var btn = document.getElementById('btn-get-rate');
     var hint = document.getElementById('fx-rate-hint');
     var fxRateInput = document.getElementById('fx-rate');
     
     if (!currency || currency === homeCurrency) {
-      btn.style.display = 'none';
+      fxRateRow.style.display = 'none';
       hint.textContent = '';
       if (!currency || currency === homeCurrency) {
         fxRateInput.value = '1.0';
       }
     } else {
-      btn.style.display = '';
+      fxRateRow.style.display = '';
     }
   }
 
@@ -428,12 +485,12 @@ ${commonStyle()}
 
   // ── Re-enter mode ────────────────────────────────────────────────────
   if (_reenterId) {
-    document.querySelector('.header h1').textContent = '📄 Re-enter Bill';
+    document.getElementById('page-title').textContent = '📄 Re-enter Bill';
     var _banner = document.createElement('div');
     _banner.style.cssText = 'background:#fff3e0;border:1px solid #ff9800;border-radius:4px;padding:12px 16px;margin-bottom:16px;font-size:0.8125rem;';
     _banner.innerHTML = '<strong>⟲ Re-entry mode</strong> &mdash; The original bill has been reversed. Fill in the corrected details and submit.';
-    var _formGrid = document.querySelector('.form-grid');
-    document.getElementById('bill-form').insertBefore(_banner, _formGrid);
+    var _metaStrip = document.querySelector('.meta-strip');
+    document.getElementById('bill-form').insertBefore(_banner, _metaStrip);
   }
 
   function maybeFillReenter() {
@@ -631,10 +688,10 @@ ${commonStyle()}
           '<input type="text" class="lname" data-line="'+idx+'" placeholder="account name" style="width:150px;color:#555" autocomplete="off">' +
         '</div>' +
       '</td>' +
-      '<td><input type="text" class="ldesc" data-line="'+idx+'" placeholder="Line detail" style="width:200px"></td>' +
+      '<td><input type="text" class="ldesc line-input" data-line="'+idx+'" placeholder="Line detail" style="width:200px"></td>' +
       '<td>' +
         '<span class="line-ccy-label" style="font-size:0.75rem;color:#888;min-width:32px;display:inline-block"></span>' +
-        '<input type="number" class="lamount" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px">' +
+        '<input type="number" class="lamount line-input" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px">' +
       '</td>' +
       '<td>' + vatSel + '</td>' +
       '<td><button class="btn-remove" onclick="removeLine(this)" title="Remove line">\u00d7</button></td>';
@@ -795,11 +852,23 @@ ${commonStyle()}
     });
 
     var gstHtml = '';
+    var breakdownText = '';
     Object.keys(gstByCode).forEach(function(code) {
       var vc = vatCodesList.find(function(x) { return x.vat_code === code; });
       var rateLabel = vc ? ' (' + Math.round(Number(vc.rate) * 100) + '%)' : '';
       gstHtml += '<div style="font-weight:400;font-size:0.8125rem;color:#555">GST ' + code + rateLabel + ': ' + gstByCode[code].toFixed(2) + '</div>';
+      if (breakdownText) breakdownText += ' + ';
+      breakdownText += 'GST ' + code + ' ' + gstByCode[code].toFixed(2);
     });
+    
+    if (breakdownText) {
+      breakdownText = 'Net ' + net.toFixed(2) + ' + ' + breakdownText;
+    }
+
+    // Update currency prefix and breakdown in amount card
+    var currency = (document.getElementById('currency') ? document.getElementById('currency').value.trim().toUpperCase() : '') || homeCurrency;
+    document.getElementById('total-currency-prefix').textContent = currency;
+    document.getElementById('card-breakdown').textContent = breakdownText;
 
     document.getElementById('lines-net').textContent = net.toFixed(2);
     document.getElementById('gst-rows').innerHTML = gstHtml;
@@ -1034,14 +1103,20 @@ ${commonStyle()}
     document.getElementById('vendor-id-input').value = '';
     document.getElementById('vendor-ref').value = '';
     document.getElementById('description').value = '';
+    document.getElementById('ap-code').value = '';
+    document.getElementById('ap-name').value = '';
+    document.getElementById('ap-hint').textContent = '';
     currentTermsDays = 30;
     var today2 = new Date().toISOString().slice(0,10);
     document.getElementById('bill-date').value = today2;
     recalcDueDate();
+    document.getElementById('currency').value = homeCurrency;
+    document.getElementById('fx-rate').value = '1.0';
+    updateFxRateVisibility(homeCurrency);
     document.getElementById('lines-body').innerHTML = '';
     lineCounter = 0;
     addLine();
-    document.querySelectorAll('.err').forEach(function(el){ el.style.display='none'; });
+    document.querySelectorAll('.meta-err').forEach(function(el){ el.style.display='none'; });
     showStatus('', false);
   }
 

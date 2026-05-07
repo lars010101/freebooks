@@ -242,6 +242,7 @@ var PAGE_SIZE = 20;
 var currentPage = 1;
 var sortState = { col: null, dir: 'asc' };
 var colFilters = {};
+var taxCodeMap = {}; // vat_code → description
 
 var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8','#e07840','#5c7ae0'];
 
@@ -251,6 +252,15 @@ function fbPageInitPayables() {
   initBillsTable();
   registerBillKeyActions();
   registerVendorKeyActions();
+  
+  fetch('/api/' + COMPANY + '/vat-codes')
+    .then(function(r){ return r.json(); })
+    .then(function(codes){
+      if (Array.isArray(codes)) {
+        codes.forEach(function(c){ taxCodeMap[c.vat_code] = c.description || c.vat_code; });
+      }
+    })
+    .catch(function(){});
 }
 window.addEventListener('DOMContentLoaded', fbPageInitPayables);
 window.fbPageInit = fbPageInitPayables;
@@ -334,43 +344,51 @@ function toggleBillLines(billId, parentTr) {
       return;
     }
 
-    lines.forEach(function(line) {
+    // Separate expense lines (vat_code null) from GST/VAT lines (vat_code set)
+    var expenseLines = lines.filter(function(l){ return !l.vat_code; });
+    var gstLines     = lines.filter(function(l){ return !!l.vat_code; });
+
+    // Render expense lines first
+    expenseLines.forEach(function(line) {
       var tr = document.createElement('tr');
       tr.dataset.rowType = 'child';
       tr.dataset.parentId = billId;
-      tr.dataset.lineId = line.line_id || line.entry_id || '';
+      tr.dataset.entryId = line.entry_id || '';
       tr.className = 'child-row';
 
+      // Strip compound prefix — user description is always the last segment after ' / '
       var rawDesc = line.description || '';
-      var slashIdx = rawDesc.indexOf('/');
-      var desc = slashIdx !== -1 ? rawDesc.slice(slashIdx + 1).trim() : rawDesc;
+      var sepIdx = rawDesc.lastIndexOf(' / ');
+      var desc = sepIdx !== -1 ? rawDesc.slice(sepIdx + 3).trim() : rawDesc;
 
       tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
-        + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.line_amount || line.amount || 0).toFixed(2) + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
         + '<td class="child-ccy">' + esc(line.currency || '') + '</td>'
-        + '<td style="color:#999;font-size:0.75rem">' + esc(line.gst_code || line.tax_code || '') + '</td>';
+        + '<td style="font-size:0.75rem;color:#999">' + esc(line.vat_code || '') + '</td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
       insertAfter = tr;
+    });
 
-      // Insert GST row if there's a tax amount
-      var gstAmt = Number(line.gst_amount || line.tax_amount || 0);
-      if (gstAmt !== 0) {
-        var gstTr = document.createElement('tr');
-        gstTr.dataset.rowType = 'child';
-        gstTr.dataset.parentId = billId;
-        gstTr.className = 'child-row child-gst-row';
+    // Render GST/VAT lines after all expense lines
+    gstLines.forEach(function(line) {
+      var gstTr = document.createElement('tr');
+      gstTr.dataset.rowType = 'child';
+      gstTr.dataset.parentId = billId;
+      gstTr.dataset.entryId = line.entry_id || '';
+      gstTr.className = 'child-row child-gst-row';
 
-        var gstLabel = 'GST' + (line.gst_code || line.tax_code ? ' (' + esc(line.gst_code || line.tax_code) + ')' : '');
+      // Label: "SR9: Standard Rated 9%" from taxCodeMap, fallback to vat_code only
+      var codeDesc = taxCodeMap[line.vat_code];
+      var gstLabel = codeDesc ? esc(line.vat_code) + ': ' + esc(codeDesc) : esc(line.vat_code || 'GST/VAT');
 
-        gstTr.innerHTML = '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + gstLabel + '</td>'
-          + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#888">' + gstAmt.toFixed(2) + '</td>'
-          + '<td class="child-ccy" style="color:#888">' + esc(line.currency || '') + '</td>'
-          + '<td></td>';
+      gstTr.innerHTML = '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + gstLabel + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#888">' + Number(line.amount || 0).toFixed(2) + '</td>'
+        + '<td class="child-ccy" style="color:#888">' + esc(line.currency || '') + '</td>'
+        + '<td></td>';
 
-        insertAfter.insertAdjacentElement('afterend', gstTr);
-        insertAfter = gstTr;
-      }
+      insertAfter.insertAdjacentElement('afterend', gstTr);
+      insertAfter = gstTr;
     });
   })
   .catch(function(e){

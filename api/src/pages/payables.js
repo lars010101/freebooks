@@ -119,6 +119,14 @@ ${commonStyle()}
   tr.row-expanded > td:first-child { color:#1a1a1a; font-weight:600; }
   tr.row-loading { opacity:0.6; }
   .child-row:last-child td { border-bottom:1px solid #e8e8e8; }
+
+  /* Bills keyboard nav */
+  tr.bill-row-focus td { background:#f0f4ff; }
+  tr.bill-row-focus td.bill-cell-focus { background:#1a3a6b !important; color:#fff !important; }
+  tr.bill-row-focus td.bill-cell-focus span:not(.avatar):not(.badge) { color:#fff !important; }
+  tr.bill-row-focus td.bill-cell-focus .badge { opacity:0.85; }
+  tr.bill-row-focus td.bill-cell-focus a { color:#fff !important; }
+
   .btn-sm:hover { background:#e8e8e8; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:0.9375rem; font-weight:600; cursor:pointer; }
@@ -244,6 +252,190 @@ var sortState = { col: null, dir: 'asc' };
 var colFilters = {};
 var taxCodeMap = {}; // vat_code → description
 
+var treeState = {
+  open: new Set(),
+  isOpen: function(billId) { return this.open.has(String(billId)); },
+  toggle: function(billId) {
+    billId = String(billId);
+    if (this.open.has(billId)) this.open.delete(billId);
+    else this.open.add(billId);
+  },
+  setOpen: function(billId) { this.open.add(String(billId)); },
+  setClose: function(billId) { this.open.delete(String(billId)); }
+};
+
+var cursor = {
+  rowEl: null,
+  col: 0,
+  mode: 'NORMAL',
+
+  set: function(rowEl, col) {
+    document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
+    document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
+    this.rowEl = rowEl || null;
+    this.col = (col != null) ? col : 0;
+    if (!rowEl) return;
+    rowEl.classList.add('bill-row-focus');
+    var cells = rowEl.querySelectorAll('td');
+    if (cells[this.col]) cells[this.col].classList.add('bill-cell-focus');
+    rowEl.scrollIntoView({ block: 'nearest' });
+  },
+
+  clear: function() { this.set(null, 0); },
+
+  getVisibleRows: function() {
+    var tbody = document.getElementById('bills-tbody');
+    if (!tbody) return [];
+    return Array.from(tbody.querySelectorAll('tr[data-row-type="parent"], tr[data-row-type="child"]'));
+  },
+
+  currentIndex: function() {
+    if (!this.rowEl) return -1;
+    return this.getVisibleRows().indexOf(this.rowEl);
+  }
+};
+
+var kbd = {
+  _registered: false,
+  _lastKey: null,
+  _lastKeyTimer: null,
+
+  register: function() {
+    if (this._registered) return;
+    this._registered = true;
+    var self = this;
+    document.addEventListener('keydown', function(e) { self._handle(e); });
+  },
+
+  _isBillsTabActive: function() {
+    var bills_panel = document.getElementById('pay-panel-bills');
+    if (!bills_panel) return false;
+    return bills_panel.style.display !== 'none';
+  },
+
+  _handle: function(e) {
+    if (!this._isBillsTabActive()) return;
+    var tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+
+    var rows = cursor.getVisibleRows();
+    var idx = cursor.currentIndex();
+
+    if (e.key === 'j') {
+      e.preventDefault();
+      if (idx === -1 && rows.length) { cursor.set(rows[0], 0); }
+      else if (idx >= 0 && idx < rows.length - 1) { cursor.set(rows[idx + 1], cursor.col); }
+      this._lastKey = null; return;
+    }
+
+    if (e.key === 'k') {
+      e.preventDefault();
+      if (idx > 0) { cursor.set(rows[idx - 1], cursor.col); }
+      else if (idx === 0) { cursor.clear(); }
+      this._lastKey = null; return;
+    }
+
+    if (e.key === 'l') {
+      e.preventDefault();
+      if (cursor.rowEl) {
+        var cells = cursor.rowEl.querySelectorAll('td');
+        cursor.set(cursor.rowEl, Math.min(cursor.col + 1, cells.length - 1));
+      }
+      this._lastKey = null; return;
+    }
+
+    if (e.key === 'h') {
+      e.preventDefault();
+      if (cursor.rowEl && cursor.col > 0) { cursor.set(cursor.rowEl, cursor.col - 1); }
+      this._lastKey = null; return;
+    }
+
+    if (e.key === 'G') {
+      e.preventDefault();
+      if (rows.length) cursor.set(rows[rows.length - 1], cursor.col || 0);
+      this._lastKey = null; return;
+    }
+
+    // Sequence: z_ and g_
+    if (this._lastKey === 'z') {
+      if (e.key === 'a') { e.preventDefault(); this._lastKey = null; this._toggleFold(); return; }
+      if (e.key === 'o') { e.preventDefault(); this._lastKey = null; this._openFold(); return; }
+      if (e.key === 'c') { e.preventDefault(); this._lastKey = null; this._closeFold(); return; }
+      if (e.key === 'R') { e.preventDefault(); this._lastKey = null; this._expandAll(); return; }
+      if (e.key === 'M') { e.preventDefault(); this._lastKey = null; this._collapseAll(); return; }
+      this._lastKey = null;
+    }
+
+    if (this._lastKey === 'g' && e.key === 'g') {
+      e.preventDefault(); this._lastKey = null;
+      if (rows.length) cursor.set(rows[0], cursor.col || 0);
+      return;
+    }
+
+    // Store key for sequences
+    this._lastKey = e.key;
+    clearTimeout(this._lastKeyTimer);
+    var self = this;
+    this._lastKeyTimer = setTimeout(function(){ self._lastKey = null; }, 1000);
+
+    if (e.key === 'z' || e.key === 'g') { e.preventDefault(); }
+  },
+
+  _getParentRow: function() {
+    if (!cursor.rowEl) return null;
+    if (cursor.rowEl.dataset.rowType === 'parent') return cursor.rowEl;
+    if (cursor.rowEl.dataset.rowType === 'child') {
+      var pid = cursor.rowEl.dataset.parentId;
+      return document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pid + '"]');
+    }
+    return null;
+  },
+
+  _toggleFold: function() {
+    var pr = this._getParentRow(); if (!pr) return;
+    var billId = pr.dataset.billId;
+    if (treeState.isOpen(billId)) this._closeFold(pr); else this._openFold(pr);
+  },
+
+  _openFold: function(parentRow) {
+    parentRow = parentRow || this._getParentRow(); if (!parentRow) return;
+    var billId = parentRow.dataset.billId;
+    if (treeState.isOpen(billId)) return;
+    treeState.setOpen(billId);
+    toggleBillLines(billId, parentRow);
+  },
+
+  _closeFold: function(parentRow) {
+    parentRow = parentRow || this._getParentRow(); if (!parentRow) return;
+    var billId = parentRow.dataset.billId;
+    if (!treeState.isOpen(billId)) return;
+    if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') cursor.set(parentRow, 0);
+    treeState.setClose(billId);
+    toggleBillLines(billId, parentRow);
+  },
+
+  _expandAll: function() {
+    var tbody = document.getElementById('bills-tbody'); if (!tbody) return;
+    tbody.querySelectorAll('tr[data-row-type="parent"]').forEach(function(pr) {
+      var billId = pr.dataset.billId;
+      if (!treeState.isOpen(billId)) { treeState.setOpen(billId); toggleBillLines(billId, pr); }
+    });
+  },
+
+  _collapseAll: function() {
+    var tbody = document.getElementById('bills-tbody'); if (!tbody) return;
+    if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') {
+      var pid = cursor.rowEl.dataset.parentId;
+      var pr2 = tbody.querySelector('tr[data-row-type="parent"][data-bill-id="' + pid + '"]');
+      if (pr2) cursor.set(pr2, 0);
+    }
+    tbody.querySelectorAll('tr[data-row-type="parent"]').forEach(function(pr) {
+      var billId = pr.dataset.billId;
+      if (treeState.isOpen(billId)) { treeState.setClose(billId); toggleBillLines(billId, pr); }
+    });
+  }
+};
+
 var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8','#e07840','#5c7ae0'];
 
 function fbPageInitPayables() {
@@ -252,6 +444,7 @@ function fbPageInitPayables() {
   initBillsTable();
   registerBillKeyActions();
   registerVendorKeyActions();
+  kbd.register();
   
   fetch('/api/' + COMPANY + '/vat-codes')
     .then(function(r){ return r.json(); })
@@ -320,6 +513,7 @@ function toggleBillLines(billId, parentTr) {
     var toRemove = document.querySelectorAll('tr[data-row-type="child"][data-parent-id="' + billId + '"]');
     toRemove.forEach(function(r) { r.remove(); });
     parentTr.classList.remove('row-expanded');
+    treeState.setClose(billId);
     return;
   }
 
@@ -332,6 +526,7 @@ function toggleBillLines(billId, parentTr) {
     if (!Array.isArray(lines)) lines = [];
     parentTr.classList.remove('row-loading');
     parentTr.classList.add('row-expanded');
+    treeState.setOpen(billId);
 
     var insertAfter = parentTr;
     if (!lines.length) {
@@ -733,6 +928,7 @@ function applyFilters() {
 }
 
 function renderPage() {
+  cursor.clear();
   var rows = filteredBills;
 
   if (!rows.length) {

@@ -272,6 +272,10 @@ var cursor = {
   mode: 'NORMAL',
 
   set: function(rowEl, col) {
+    // Blur any browser-focused element (clears Tab-induced focus outlines)
+    if (document.activeElement && document.activeElement !== document.body) {
+      document.activeElement.blur();
+    }
     document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
     document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
     this.rowEl = rowEl || null;
@@ -619,9 +623,10 @@ function enterBillCellEdit(rowEl, col) {
     if (col === 0) {          // Description
       fieldType = 'text';
       currentValue = tdEl.textContent.trim();
-    } else if (col === 3) {   // GST/VAT code (4th td: desc|amount|ccy|gst)
+    } else if (col === 3) {   // GST/VAT code — edits paired gst journal entry
+      if (!rowEl.dataset.gstEntryId) return; // no paired gst entry, skip
       fieldType = 'vatcode';
-      currentValue = rowEl.dataset.vatCode || tdEl.textContent.trim();
+      currentValue = rowEl.dataset.gstVatCode || '';
     } else {
       return;
     }
@@ -725,7 +730,7 @@ function exitBillCellEdit(save) {
     if (col === 0) {
       tdEl.textContent = newValue;
     } else if (col === 3) {
-      rowEl.dataset.vatCode = newValue;
+      rowEl.dataset.gstVatCode = newValue;
       tdEl.textContent = newValue;
     }
   }
@@ -743,11 +748,12 @@ function exitBillCellEdit(save) {
       .then(function(r) { return r.json(); })
       .then(function(res) {
         if (res.error) { billEditMsg(res.error, 'err'); }
-        else { billEditMsg('Saved.', 'ok'); setTimeout(function() { billEditMsg('', ''); }, 1500); }
+        else { billEditMsg('Saved.', 'ok'); setTimeout(function() { billEditMsg('', ''); }, 2500); }
       })
       .catch(function(e) { billEditMsg(e.message, 'err'); });
   } else if (rowType === 'child') {
-    var entryId = rowEl.dataset.entryId;
+    // col 3 (gst code) targets the paired gst entry, not the expense entry
+    var entryId = (col === 3) ? rowEl.dataset.gstEntryId : rowEl.dataset.entryId;
     var ep = { action: 'journal.entry.update', companyId: COMPANY, entryId: entryId };
     if (col === 0) {
       var fullDesc = rowEl.dataset.fullDesc || '';
@@ -763,7 +769,7 @@ function exitBillCellEdit(save) {
       .then(function(r) { return r.json(); })
       .then(function(res) {
         if (res.error) { billEditMsg(res.error, 'err'); }
-        else { billEditMsg('Saved.', 'ok'); setTimeout(function() { billEditMsg('', ''); }, 1500); }
+        else { billEditMsg('Saved.', 'ok'); setTimeout(function() { billEditMsg('', ''); }, 2500); }
       })
       .catch(function(e) { billEditMsg(e.message, 'err'); });
   }
@@ -776,6 +782,7 @@ function billEditMsg(msg, type) {
   if (!el) return;
   el.textContent = msg;
   el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : '#888';
+  el.style.fontWeight = msg ? '700' : '';
 }
 
 function fbPageInitPayables() {
@@ -887,7 +894,8 @@ function toggleBillLines(billId, parentTr) {
     var gstLines     = lines.filter(function(l){ return !!l.vat_code; });
 
     // Render expense lines first
-    expenseLines.forEach(function(line) {
+    expenseLines.forEach(function(line, idx) {
+      var pairedGst = gstLines[idx] || null;
       var tr = document.createElement('tr');
       tr.dataset.rowType = 'child';
       tr.dataset.parentId = billId;
@@ -895,6 +903,8 @@ function toggleBillLines(billId, parentTr) {
       tr.dataset.fullDesc = line.description || '';
       tr.dataset.accountCode = line.account_code || '';
       tr.dataset.vatCode = line.vat_code || '';
+      tr.dataset.gstVatCode = pairedGst ? (pairedGst.vat_code || '') : '';
+      tr.dataset.gstEntryId = pairedGst ? (pairedGst.entry_id || '') : '';
       tr.className = 'child-row';
 
       // Strip compound prefix — user description is always the last segment after ' / '
@@ -902,10 +912,11 @@ function toggleBillLines(billId, parentTr) {
       var sepIdx = rawDesc.lastIndexOf(' / ');
       var desc = sepIdx !== -1 ? rawDesc.slice(sepIdx + 3).trim() : rawDesc;
 
+      var gstCode = pairedGst ? (pairedGst.vat_code || '') : '';
       tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
         + '<td class="child-ccy">' + esc(line.currency || '') + '</td>'
-        + '<td style="font-size:0.75rem;color:#999;cursor:pointer" title="Edit tax code">' + esc(line.vat_code || '') + '</td>';
+        + '<td style="font-size:0.75rem;color:#999;cursor:pointer" title="Edit tax code">' + esc(gstCode) + '</td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
       insertAfter = tr;

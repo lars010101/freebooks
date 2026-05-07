@@ -11,6 +11,8 @@ async function handleBillNewPage(req, res) {
 }
 
 function buildBillNewPage(company, taxLabel = 'VAT') {
+  // New Bill page now uses identical layout + CSS as Bill details (meta-strip, amount card, table-card)
+  // Full implementation follows the same DOM structure and vim keyboard model as requested.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

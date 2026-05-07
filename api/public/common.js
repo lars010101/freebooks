@@ -343,6 +343,7 @@
       if (vendorPanel && vendorPanel.style.display !== 'none' && typeof window.fbVendorSelRow !== 'undefined' && window.fbVendorSelRow >= 0) {
         return;
       }
+      if (window.fbBillCursorMid) { return; }
       var tabs = Array.from(document.querySelectorAll('.tabs .tab'));
       if (!tabs.length) {
         var hlKey = e.key; // 'h' or 'l'
@@ -366,6 +367,7 @@
       if (vendorPanelJK && vendorPanelJK.style.display !== 'none' && typeof window.fbVendorSelRow !== 'undefined' && window.fbVendorSelRow >= 0) {
         return;
       }
+      if (window.fbBillNav) { return; }
       // Allow page to intercept j/k (e.g. for mixed table+div navigation)
       if (window.fbKeyActions && typeof window.fbKeyActions[e.key] === 'function') {
         e.preventDefault();

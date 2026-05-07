@@ -274,10 +274,11 @@ var cursor = {
     document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
     this.rowEl = rowEl || null;
     this.col = (col != null) ? col : 0;
-    if (!rowEl) return;
+    if (!rowEl) { window.fbBillCursorMid = false; return; }
     rowEl.classList.add('bill-row-focus');
     var cells = rowEl.querySelectorAll('td');
     if (cells[this.col]) cells[this.col].classList.add('bill-cell-focus');
+    window.fbBillCursorMid = (this.col < cells.length - 1);
     rowEl.scrollIntoView({ block: 'nearest' });
   },
 
@@ -445,6 +446,8 @@ function fbPageInitPayables() {
   registerBillKeyActions();
   registerVendorKeyActions();
   kbd.register();
+  window.fbBillNav = true;
+  window.fbBillCursorMid = false;
   
   fetch('/api/' + COMPANY + '/vat-codes')
     .then(function(r){ return r.json(); })
@@ -1026,6 +1029,7 @@ function esc(s) {
 
 // ========== PAYABLES TAB SWITCHER ==========
 function showPayTab(t) {
+  window.fbBillNav = (t === 'bills');
   ['bills','vendors'].forEach(function(id) {
     document.getElementById('pay-panel-' + id).style.display = (id === t) ? '' : 'none';
     var tabEl = document.getElementById('pay-tab-' + id);

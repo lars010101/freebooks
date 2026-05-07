@@ -378,9 +378,15 @@ var kbd = {
       this._lastKey = null; return;
     }
 
+    if (e.key === ' ') {
+      e.preventDefault();
+      this._toggleFold();
+      this._lastKey = null; return;
+    }
+
     // Sequence: z_ and g_
     if (this._lastKey === 'z') {
-      if (e.key === 'a') { e.preventDefault(); this._lastKey = null; this._toggleFold(); return; }
+      if (e.key === 'a') { e.preventDefault(); this._lastKey = null; window._fbBillZPending = false; this._toggleFold(); return; }
       if (e.key === 'o') { e.preventDefault(); this._lastKey = null; this._openFold(); return; }
       if (e.key === 'c') { e.preventDefault(); this._lastKey = null; this._closeFold(); return; }
       if (e.key === 'R') { e.preventDefault(); this._lastKey = null; this._expandAll(); return; }
@@ -398,9 +404,10 @@ var kbd = {
     this._lastKey = e.key;
     clearTimeout(this._lastKeyTimer);
     var self = this;
-    this._lastKeyTimer = setTimeout(function(){ self._lastKey = null; }, 1000);
+    this._lastKeyTimer = setTimeout(function(){ self._lastKey = null; window._fbBillZPending = false; }, 1000);
 
-    if (e.key === 'z' || e.key === 'g') { e.preventDefault(); }
+    if (e.key === 'z') { e.preventDefault(); window._fbBillZPending = true; }
+    else if (e.key === 'g') { e.preventDefault(); }
   },
 
   _getParentRow: function() {
@@ -440,7 +447,8 @@ var kbd = {
     var tbody = document.getElementById('bills-tbody'); if (!tbody) return;
     tbody.querySelectorAll('tr[data-row-type="parent"]').forEach(function(pr) {
       var billId = pr.dataset.billId;
-      if (!treeState.isOpen(billId)) { treeState.setOpen(billId); toggleBillLines(billId, pr); }
+      var hasChildren = !!tbody.querySelector('tr[data-row-type="child"][data-parent-id="' + billId + '"]');
+      if (!hasChildren) { treeState.setOpen(billId); toggleBillLines(billId, pr); }
     });
   },
 
@@ -453,7 +461,8 @@ var kbd = {
     }
     tbody.querySelectorAll('tr[data-row-type="parent"]').forEach(function(pr) {
       var billId = pr.dataset.billId;
-      if (treeState.isOpen(billId)) { treeState.setClose(billId); toggleBillLines(billId, pr); }
+      var hasChildren = !!tbody.querySelector('tr[data-row-type="child"][data-parent-id="' + billId + '"]');
+      if (hasChildren) { treeState.setClose(billId); toggleBillLines(billId, pr); }
     });
   }
 };
@@ -796,7 +805,7 @@ function openColFilter(th, col) {
 
 function registerBillKeyActions() {
   window.fbKeyActions = {
-    'new': function() { fbNavigate('/' + COMPANY + '/bill/new'); },
+    'new': function() { if (window._fbBillZPending) { window._fbBillZPending = false; return; } fbNavigate('/' + COMPANY + '/bill/new'); },
     'delete': function(row) {
       var billId = row.dataset.billId;
       var vendor = row.dataset.vendor || billId;

@@ -43,14 +43,12 @@ ${commonStyle()}
 .line-desc-input.req:hover { border:1px solid #cc5555 !important; }
 .line-desc-input.req:focus { background:#f8f9ff; border:1px solid #cc5555 !important; }
 /* vim nav highlight */
-/* Nav NORMAL mode highlight — meta-strip: full dark container */
-.meta-field.nav-sel { background:#1a1a1a !important; border-radius:6px; }
-.meta-field.nav-sel .meta-label { color:rgba(255,255,255,0.7) !important; }
-.meta-field.nav-sel .meta-input { color:#fff !important; background:transparent !important; border-color:transparent !important; }
-.meta-field.nav-sel .meta-input.req { border-color:transparent !important; }
-.meta-field.nav-sel .meta-input::placeholder { color:rgba(255,255,255,0.35) !important; }
-/* Nav NORMAL mode highlight — line item inputs (no meta-field wrapper) */
-input.nav-sel, select.nav-sel { outline:2px solid #1a1a1a !important; background:#f0f3ff !important; }
+/* Nav NORMAL mode highlight — copied exactly from bill-detail.js */
+.meta-field.nav-sel { background:var(--accent); border-radius:6px; }
+.meta-field.nav-sel .meta-label { color:rgba(255,255,255,.7); }
+.meta-field.nav-sel .meta-input { color:#fff; background:transparent; border-color:transparent !important; }
+/* Nav highlight for line item inputs (no meta-field container) */
+input.nav-sel, select.nav-sel { outline:2px solid var(--accent) !important; background:#f0f4ff !important; }
 /* Hide GST rows in Bill Line Items (kept for journal calc) */
 .gst-row { display:none !important; }
 

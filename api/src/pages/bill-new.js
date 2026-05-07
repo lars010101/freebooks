@@ -32,6 +32,15 @@ ${commonStyle()}
 .btn-primary:hover { background:#333; border-color:#333; }
 .btn-primary:disabled { opacity:0.4; cursor:default; }
 .currency-blue { color:#2255cc; }
+/* Required field soft pink background */
+.meta-input.req { background:#fff5f5; }
+.meta-input.req:focus { background:#f8f9ff; border:1px solid #c0c8ff; }
+.line-input.req { background:#fff5f5; }
+.line-input.req:focus { background:#f8f9ff; border:1px solid #c0c8ff; }
+/* vim nav highlight */
+.nav-sel { outline:2px solid #4f6ef7 !important; background:#f0f3ff !important; }
+/* Hide GST rows in Bill Line Items (kept for journal calc) */
+.gst-row { display:none !important; }
 
 /* Meta strip */
 .meta-strip { display:flex; border-top:1px solid #eee; border-bottom:1px solid #eee; padding:24px 0; margin-bottom:24px; }
@@ -147,7 +156,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       <div class="meta-field">
         <div class="meta-label">Vendor *</div>
         <div class="vendor-wrap">
-          <input type="text" id="vendor-name-input" class="meta-input" placeholder="Search vendor…" autocomplete="off"
+          <input type="text" id="vendor-name-input" class="meta-input req" placeholder="Search vendor…" autocomplete="off"
             oninput="onVendorInput(this)" onblur="hideVendorDropdown()">
           <input type="hidden" id="vendor-id-input">
         </div>
@@ -156,13 +165,13 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
 
       <div class="meta-field">
         <div class="meta-label">Invoice Ref *</div>
-        <input type="text" id="vendor-ref" class="meta-input" placeholder="e.g. INV-2024-001">
+        <input type="text" id="vendor-ref" class="meta-input req" placeholder="e.g. INV-2024-001">
         <div class="meta-err" id="err-ref">Invoice Ref is required</div>
       </div>
 
       <div class="meta-field" style="min-width:150px">
         <div class="meta-label">Bill Date *</div>
-        <input type="date" id="bill-date" class="meta-input" onchange="recalcDueDate(); rebuildJournals();">
+        <input type="date" id="bill-date" class="meta-input req" onchange="recalcDueDate(); rebuildJournals();">
         <div class="meta-err" id="err-date">Date is required</div>
       </div>
 
@@ -227,9 +236,9 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
           <tr>
             <th style="width:30px">#</th>
             <th>Description</th>
-            <th style="width:60px">CCY</th>
             <th style="width:110px">Amount *</th>
             <th style="width:110px">${taxLabel} Code</th>
+            <th style="width:60px">CCY</th>
             <th style="width:30px"></th>
           </tr>
         </thead>
@@ -345,9 +354,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     .then(function(res){ vendorsList = res.data || res || []; })
     .catch(function(){});
 
-  // Set default dates
-  var today = new Date().toISOString().slice(0, 10);
-  document.getElementById('bill-date').value = today;
+  // Dates: not prepopulated — user enters manually
   var currentTermsDays = 30;
   function recalcDueDate() {
     var bd = document.getElementById('bill-date').value;
@@ -355,7 +362,6 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     var d = new Date(bd); d.setDate(d.getDate() + currentTermsDays);
     document.getElementById('due-date').value = d.toISOString().slice(0, 10);
   }
-  recalcDueDate();
 
   // Add first line on load
   addLine();
@@ -695,11 +701,11 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       '<td style="color:#888;font-size:0.75rem;padding-left:8px">' + tbody.children.length + 1 + '</td>' +
       '<input type="hidden" class="lcode" data-line="'+idx+'">' +
       '<td><input type="text" class="ldesc line-input" data-line="'+idx+'" placeholder="Line detail"></td>' +
-      '<td><span class="line-ccy-label currency-blue" style="font-size:0.8125rem;font-weight:500"></span></td>' +
       '<td>' +
-        '<input type="number" class="lamount line-input" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px">' +
+        '<input type="number" class="lamount line-input req" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px">' +
       '</td>' +
       '<td>' + vatSel + '</td>' +
+      '<td><span class="line-ccy-label currency-blue" style="font-size:0.8125rem;font-weight:500"></span></td>' +
       '<td><button class="btn-remove" onclick="removeLine(this)" title="Remove line">\u00d7</button></td>';
 
     tbody.appendChild(tr);
@@ -867,14 +873,10 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       breakdownText += 'GST ' + code + ' ' + gstByCode[code].toFixed(2);
     });
     
-    if (breakdownText) {
-      breakdownText = 'Net ' + net.toFixed(2) + ' + ' + breakdownText;
-    }
-
-    // Update currency prefix and breakdown in amount card
+    // Update currency prefix in amount card (no breakdown shown)
     var currency = (document.getElementById('currency') ? document.getElementById('currency').value.trim().toUpperCase() : '') || homeCurrency;
     document.getElementById('total-currency-prefix').textContent = currency;
-    document.getElementById('card-breakdown').textContent = breakdownText;
+    document.getElementById('card-breakdown').textContent = '';
 
     document.getElementById('lines-net').textContent = net.toFixed(2);
     document.getElementById('gst-rows').innerHTML = gstHtml;
@@ -894,12 +896,14 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
 
     var totalCr = 0; // will be sum of all DR amounts
 
-    // One DR row per expense line
+    // One DR row per expense line (only when amount > 0)
     document.querySelectorAll('#lines-body tr:not(.gst-row)').forEach(function(lineTr) {
       var lineIdx  = lineTr.dataset.line;
       var amt      = parseFloat(lineTr.querySelector('.lamount') ? lineTr.querySelector('.lamount').value : 0) || 0;
       var expCode  = lineTr.querySelector('.lcode') ? lineTr.querySelector('.lcode').value.trim() : '';
       var expName  = accountsMap[expCode] || '';
+
+      if (amt <= 0) return; // don't show row until amount entered
 
       totalCr += amt;
 
@@ -971,8 +975,8 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       tbody.appendChild(tr);
     });
 
-    // CR row — AP account
-    if (totalCr > 0 || apCode) {
+    // CR row — AP account (only when there's something to credit)
+    if (totalCr > 0) {
       var crTr = document.createElement('tr');
       crTr.dataset.journalCr = '1';
       crTr.innerHTML =
@@ -1241,9 +1245,8 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     document.getElementById('vendor-ref').value = '';
     document.getElementById('ap-code').value = '';
     currentTermsDays = 30;
-    var today2 = new Date().toISOString().slice(0,10);
-    document.getElementById('bill-date').value = today2;
-    recalcDueDate();
+    document.getElementById('bill-date').value = '';
+    document.getElementById('due-date').value = '';
     document.getElementById('currency').value = homeCurrency;
     document.getElementById('fx-rate').value = '1.0';
     updateFxRateVisibility(homeCurrency);
@@ -1259,15 +1262,85 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     el.textContent = msg;
     el.style.color = isErr ? '#cc2222' : '#2a8a2a';
   }
-  // ESC → cancel and return to Payables
+  // ── vim-style navigation ───────────────────────────────────────────────
+  var navMode = true; // true = navigating (hjkl), false = editing (typing)
+  var navIdx  = 0;
+
+  function getNavEls() {
+    var els = ['vendor-name-input','vendor-ref','bill-date','due-date','currency']
+      .map(function(id){ return document.getElementById(id); })
+      .filter(Boolean);
+    // Append line inputs in order: desc then amount for each line
+    document.querySelectorAll('#lines-body tr:not(.gst-row)').forEach(function(tr){
+      var desc = tr.querySelector('.ldesc');
+      var amt  = tr.querySelector('.lamount');
+      if (desc) els.push(desc);
+      if (amt)  els.push(amt);
+    });
+    return els;
+  }
+
+  function navFocus(idx) {
+    var els = getNavEls();
+    navIdx = Math.max(0, Math.min(idx, els.length - 1));
+    var target = els[navIdx];
+    if (!target) return;
+    document.querySelectorAll('.nav-sel').forEach(function(el){ el.classList.remove('nav-sel'); });
+    target.classList.add('nav-sel');
+    target.focus();
+  }
+
+  function enterEditMode() {
+    navMode = false;
+    var els = getNavEls();
+    var el = els[navIdx];
+    if (el) { el.focus(); if (el.select) el.select(); }
+  }
+
   document.addEventListener('keydown', function(e) {
-    if (e.key !== 'Escape') return;
-    // If any autocomplete dropdown is open, let it close first (don't navigate)
-    var openDD = document.getElementById('acct-dd') || document.getElementById('vendor-dd') ||
-      (document.getElementById('currency-dropdown') && document.getElementById('currency-dropdown').style.display !== 'none');
-    if (openDD) return;
-    history.back();
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // Close any open dropdown first
+      var openDD = document.getElementById('acct-dd') ||
+        (document.getElementById('currency-dropdown') && document.getElementById('currency-dropdown').style.display !== 'none') ||
+        (document.getElementById('vendor-dd') && document.getElementById('vendor-dd').style.display !== 'none');
+      if (openDD) { hideAcctDropdown && hideAcctDropdown(); hideCurrencyDropdown && hideCurrencyDropdown(); hideVendorDropdown && hideVendorDropdown(); return; }
+      if (!navMode) {
+        // Exit edit mode → back to nav mode on same field
+        navMode = true;
+        var els = getNavEls();
+        var active = document.activeElement;
+        var idx = els.indexOf(active);
+        if (idx >= 0) navIdx = idx;
+        navFocus(navIdx);
+      } else {
+        // Already in nav mode → leave page
+        history.back();
+      }
+      return;
+    }
+
+    if (!navMode) return; // In edit mode, let normal keys work
+
+    if (e.key === 'h' || e.key === 'k') { e.preventDefault(); navFocus(navIdx - 1); }
+    else if (e.key === 'l' || e.key === 'j') { e.preventDefault(); navFocus(navIdx + 1); }
+    else if (e.key === 'i' || e.key === 'Enter') { e.preventDefault(); enterEditMode(); }
   });
+
+  // When user directly clicks/focuses an input, enter edit mode
+  document.addEventListener('focusin', function(e) {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) {
+      navMode = false;
+      var els = getNavEls();
+      var idx = els.indexOf(e.target);
+      if (idx >= 0) { navIdx = idx; }
+      document.querySelectorAll('.nav-sel').forEach(function(el){ el.classList.remove('nav-sel'); });
+      e.target.classList.add('nav-sel');
+    }
+  });
+
+  // On load: focus vendor, start in nav mode
+  navFocus(0);
 
   // Update currency labels and FX display on initial load
   window.addEventListener('load', function(){

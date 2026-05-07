@@ -31,6 +31,7 @@ ${commonStyle()}
 .btn-primary { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
 .btn-primary:hover { background:#333; border-color:#333; }
 .btn-primary:disabled { opacity:0.4; cursor:default; }
+.currency-blue { color:#2255cc; }
 
 /* Meta strip */
 .meta-strip { display:flex; border-top:1px solid #eee; border-bottom:1px solid #eee; padding:24px 0; margin-bottom:24px; }
@@ -42,7 +43,7 @@ ${commonStyle()}
 .meta-input:hover { background:#f8f9ff; border:1px solid #c0c8ff; }
 .meta-input:focus { outline:none; background:#f8f9ff; border:1px solid #c0c8ff; }
 .meta-input::placeholder { color:#bbb; font-weight:400; font-size:0.875rem; }
-input[type=date].meta-input { font-size:0.9375rem; }
+input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:nowrap; }
 .meta-err { color:#cc2222; font-size:0.6875rem; margin-top:3px; display:none; }
 .fx-hint-row { font-size:0.6875rem; color:#888; margin-top:4px; display:flex; align-items:center; gap:4px; }
 .fx-input-inline { width:80px; border:none; background:transparent; font-size:0.6875rem; border-bottom:1px solid #e8e8e8; padding:1px 2px; color:#555; }
@@ -132,13 +133,12 @@ input[type=date].meta-input { font-size:0.9375rem; }
   <div id="bill-form">
     <!-- Header: h1 left, Create Bill button + status right -->
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:28px;">
-      <div class="header" style="margin-bottom:0;">
-        <h1 id="page-title">📄 New Bill</h1>
-        <p class="sub">${company}</p>
+      <div class="header" style="margin-bottom:0; display:flex; align-items:center; gap:12px;">
+        <h1 id="page-title">📄 Payables: New Bill</h1>
       </div>
       <div class="bill-header-actions">
         <span id="status-msg" style="font-size:0.8125rem"></span>
-        <button class="btn-action btn-primary" id="btn-submit" onclick="submitBill()">Create Bill</button>
+        <button class="btn-action btn-primary" id="btn-submit" onclick="submitBill()">Post</button>
       </div>
     </div>
 
@@ -197,11 +197,7 @@ input[type=date].meta-input { font-size:0.9375rem; }
       <span id="fx-rate-hint" class="fx-hint-row" style="margin-top:6px; margin-left:0;"></span>
     </div>
 
-    <!-- Description (optional) -->
-    <div style="padding:0 28px; margin-bottom:24px;">
-      <div class="meta-label">Description (optional)</div>
-      <input type="text" id="description" class="meta-input" placeholder="e.g. Office supplies for Jan 2025" style="max-width:600px;">
-    </div>
+
 
     <!-- Amount cards -->
     <div class="amount-cards">
@@ -223,14 +219,15 @@ input[type=date].meta-input { font-size:0.9375rem; }
       </div>
     </div>
 
-    <!-- Expense Lines -->
-    <div class="section-h">Expense Lines</div>
+    <!-- Bill Line Items -->
+    <div class="section-h">Bill Line Items</div>
     <div class="table-card" style="margin-bottom:0;border-radius:8px 8px 0 0">
       <table class="data-table" id="lines-table">
         <thead>
           <tr>
             <th style="width:30px">#</th>
             <th>Description</th>
+            <th style="width:60px">CCY</th>
             <th style="width:110px">Amount *</th>
             <th style="width:110px">${taxLabel} Code</th>
             <th style="width:30px"></th>
@@ -242,8 +239,23 @@ input[type=date].meta-input { font-size:0.9375rem; }
     <button class="btn-add-line" onclick="addLine()">＋ Add Expense Line</button>
     <div class="meta-err" id="err-lines" style="display:none;margin-bottom:20px;margin-top:8px">At least one expense line with a valid account and amount > 0 is required</div>
 
+    <!-- Attachments (section-h + attach-card) -->
+    <div class="section-h" style="margin-top:36px">Attachments</div>
+    <div class="attach-card" style="margin-bottom:36px">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 18px;background:#fafafa;border-bottom:1px solid #e8e8e8">
+        <span style="font-size:0.8125rem;font-weight:600;color:#555">📎 Files to attach on save</span>
+        <label style="cursor:pointer;color:#1a1a1a;font-size:0.8125rem;font-weight:600">
+          + Add File
+          <input type="file" id="bill-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addBillAttachment(this)" multiple>
+        </label>
+      </div>
+      <div id="bill-pending-list">
+        <div style="padding:16px 20px;color:#aaa;font-size:0.8125rem">No files queued</div>
+      </div>
+    </div>
+
     <!-- Journal Entries -->
-    <div class="section-h" style="margin-top:36px">Journal Entries</div>
+    <div class="section-h">Journal Entries</div>
     <div class="table-card" style="margin-bottom:36px">
       <table class="data-table">
         <thead>
@@ -260,21 +272,6 @@ input[type=date].meta-input { font-size:0.9375rem; }
           <tr><td colspan="6" style="color:#aaa;padding:20px 18px">Add expense lines above to preview journal entries.</td></tr>
         </tbody>
       </table>
-    </div>
-
-    <!-- Attachments (section-h + attach-card) -->
-    <div class="section-h" style="margin-top:36px">Attachments</div>
-    <div class="attach-card">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 18px;background:#fafafa;border-bottom:1px solid #e8e8e8">
-        <span style="font-size:0.8125rem;font-weight:600;color:#555">📎 Files to attach on save</span>
-        <label style="cursor:pointer;color:#1a1a1a;font-size:0.8125rem;font-weight:600">
-          + Add File
-          <input type="file" id="bill-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addBillAttachment(this)" multiple>
-        </label>
-      </div>
-      <div id="bill-pending-list">
-        <div style="padding:16px 20px;color:#aaa;font-size:0.8125rem">No files queued</div>
-      </div>
     </div>
   </div>
 </div>
@@ -549,7 +546,6 @@ input[type=date].meta-input { font-size:0.9375rem; }
       if (bill.ap_account) {
         document.getElementById('ap-code').value = bill.ap_account;
       }
-      if (bill.description) document.getElementById('description').value = bill.description;
       // Replace default line with bill lines
       if (Array.isArray(lines) && lines.length > 0) {
         document.getElementById('lines-body').innerHTML = '';
@@ -703,8 +699,8 @@ input[type=date].meta-input { font-size:0.9375rem; }
       '<td style="color:#888;font-size:0.75rem;padding-left:8px">' + tbody.children.length + 1 + '</td>' +
       '<input type="hidden" class="lcode" data-line="'+idx+'">' +
       '<td><input type="text" class="ldesc line-input" data-line="'+idx+'" placeholder="Line detail"></td>' +
+      '<td><span class="line-ccy-label currency-blue" style="font-size:0.8125rem;font-weight:500"></span></td>' +
       '<td>' +
-        '<span class="line-ccy-label" style="font-size:0.75rem;color:#888;min-width:32px;display:inline-block"></span>' +
         '<input type="number" class="lamount line-input" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px">' +
       '</td>' +
       '<td>' + vatSel + '</td>' +
@@ -1156,7 +1152,6 @@ input[type=date].meta-input { font-size:0.9375rem; }
     var dueDate    = document.getElementById('due-date').value;
     var currency   = document.getElementById('currency').value.trim().toUpperCase();
     var apCode     = document.getElementById('ap-code').value.trim();
-    var description= document.getElementById('description').value.trim();
 
     // Collect lines
     var lines = [];
@@ -1213,7 +1208,6 @@ input[type=date].meta-input { font-size:0.9375rem; }
         currency: currency || null,
         fx_rate: parseFloat(document.getElementById('fx-rate').value) || 1.0,
         ap_account: apCode,
-        description: description || null,
         lines: lines
       }
     };
@@ -1249,7 +1243,6 @@ input[type=date].meta-input { font-size:0.9375rem; }
     document.getElementById('vendor-name-input').value = '';
     document.getElementById('vendor-id-input').value = '';
     document.getElementById('vendor-ref').value = '';
-    document.getElementById('description').value = '';
     document.getElementById('ap-code').value = '';
     currentTermsDays = 30;
     var today2 = new Date().toISOString().slice(0,10);
@@ -1270,6 +1263,16 @@ input[type=date].meta-input { font-size:0.9375rem; }
     el.textContent = msg;
     el.style.color = isErr ? '#cc2222' : '#2a8a2a';
   }
+  // ESC → cancel and return to Payables
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+    // If any autocomplete dropdown is open, let it close first (don't navigate)
+    var openDD = document.getElementById('acct-dd') || document.getElementById('vendor-dd') ||
+      (document.getElementById('currency-dropdown') && document.getElementById('currency-dropdown').style.display !== 'none');
+    if (openDD) return;
+    window.location.href = '/${company}/payables?tab=bills';
+  });
+
   // Update currency labels and FX display on initial load
   window.addEventListener('load', function(){
     var currency = document.getElementById('currency').value.trim().toUpperCase();

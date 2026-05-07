@@ -1278,58 +1278,90 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     el.textContent = msg;
     el.style.color = isErr ? '#cc2222' : '#2a8a2a';
   }
-  // ── vim-style navigation ───────────────────────────────────────────────
-  // NORMAL mode: hjkl navigate, field highlighted; INSERT mode: typing in field
-  // h/k = prev, l/j = next, i = enter INSERT, ESC-in-INSERT = back to NORMAL,
-  // ESC-in-NORMAL = cancel page, Tab = advance + enter INSERT automatically
-  var navMode = true; // true = NORMAL, false = INSERT
-  var navIdx  = 0;
-  var _navMoving = false; // prevents focusin from flipping mode during programmatic focus
+  // ── vim-style 2D grid navigation ──────────────────────────────────────
+  // Grid layout:
+  //   Row 0     : meta-strip [vendor, invoice-ref, bill-date, due-date, currency]
+  //   Row 1..N  : bill line items [desc, amount, vat-select] per line
+  //   Row N+1.. : journal entry rows [j-code, j-name] per row
+  //
+  // j / k  = move DOWN / UP between rows (same column, clamped)
+  // h / l  = move LEFT / RIGHT within same row
+  // i      = enter INSERT mode on current cell
+  // ESC    = INSERT→NORMAL (stay on cell) | NORMAL→cancel (history.back)
+  // Tab / click = enter INSERT mode (handled via focusin)
 
-  function getNavEls() {
-    var els = ['vendor-name-input','vendor-ref','bill-date','due-date','currency']
+  var navMode = true;   // true = NORMAL, false = INSERT
+  var navRow  = 0;
+  var navCol  = 0;
+  var _navMoving = false;
+
+  function buildNavGrid() {
+    var grid = [];
+
+    // Row 0: meta-strip
+    var metaRow = ['vendor-name-input','vendor-ref','bill-date','due-date','currency']
       .map(function(id){ return document.getElementById(id); })
       .filter(Boolean);
-    // Line inputs: desc then amount per row
+    if (metaRow.length) grid.push(metaRow);
+
+    // One row per bill line item
     document.querySelectorAll('#lines-body tr:not(.gst-row)').forEach(function(tr){
+      var row = [];
       var desc = tr.querySelector('.ldesc');
       var amt  = tr.querySelector('.lamount');
-      if (desc) els.push(desc);
-      if (amt)  els.push(amt);
+      var vat  = tr.querySelector('.vat-select');
+      if (desc) row.push(desc);
+      if (amt)  row.push(amt);
+      if (vat)  row.push(vat);
+      if (row.length) grid.push(row);
     });
-    // Journal entry account inputs (exist when amounts entered)
-    document.querySelectorAll('#journals-tbody .j-code, #journals-tbody .j-ap-code').forEach(function(el){
-      els.push(el);
+
+    // One row per journal entry (account code + account name)
+    document.querySelectorAll('#journals-tbody tr').forEach(function(tr){
+      var row = [];
+      var code = tr.querySelector('.j-code, .j-ap-code');
+      var name = tr.querySelector('.j-name, .j-ap-name');
+      if (code) row.push(code);
+      if (name) row.push(name);
+      if (row.length) grid.push(row);
     });
-    return els;
+
+    return grid;
   }
 
-  function navFocus(idx) {
-    var els = getNavEls();
-    navIdx = Math.max(0, Math.min(idx, els.length - 1));
-    var target = els[navIdx];
-    if (!target) return;
+  function navHighlightCell(grid, r, c) {
     document.querySelectorAll('.nav-sel').forEach(function(el){ el.classList.remove('nav-sel'); });
-    var navContainer = target.closest('.meta-field') || target;
-    navContainer.classList.add('nav-sel');
+    var target = grid[r] && grid[r][c];
+    if (!target) return;
+    var container = target.closest('.meta-field') || target;
+    container.classList.add('nav-sel');
     _navMoving = true;
     target.focus();
     _navMoving = false;
-    navMode = true; // guarantee NORMAL mode is preserved after programmatic focus
+    navMode = true;
+  }
+
+  function navMove(dr, dc) {
+    var grid = buildNavGrid();
+    var newRow = navRow + dr;
+    if (newRow < 0 || newRow >= grid.length) return; // don't wrap vertically
+    var newCol = Math.max(0, Math.min(grid[newRow].length - 1, navCol + dc));
+    navRow = newRow;
+    navCol = newCol;
+    navHighlightCell(grid, navRow, navCol);
   }
 
   function enterInsertMode() {
     navMode = false;
     document.querySelectorAll('.nav-sel').forEach(function(el){ el.classList.remove('nav-sel'); });
-    var els = getNavEls();
-    var el = els[navIdx];
+    var grid = buildNavGrid();
+    var el = grid[navRow] && grid[navRow][navCol];
     if (el) { el.focus(); if (el.select) el.select(); }
   }
 
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
       e.preventDefault();
-      // Close any open autocomplete dropdown first
       var openDD =
         (document.getElementById('acct-dd') && document.getElementById('acct-dd').style.display !== 'none') ||
         (document.getElementById('currency-dropdown') && document.getElementById('currency-dropdown').style.display !== 'none') ||
@@ -1341,50 +1373,50 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
         return;
       }
       if (!navMode) {
-        // INSERT → NORMAL: stay on current field, stop editing
+        // INSERT → NORMAL: stay on current cell
         navMode = true;
-        var els = getNavEls();
+        var grid = buildNavGrid();
         var active = document.activeElement;
-        var found = els.indexOf(active);
-        if (found >= 0) navIdx = found;
-        navFocus(navIdx); // uses _navMoving so focusin won't flip back to INSERT
+        outer: for (var r = 0; r < grid.length; r++) {
+          for (var c = 0; c < grid[r].length; c++) {
+            if (grid[r][c] === active) { navRow = r; navCol = c; break outer; }
+          }
+        }
+        navHighlightCell(grid, navRow, navCol);
       } else {
-        // NORMAL → cancel: leave page
         history.back();
       }
       return;
     }
 
-    if (e.key === 'Tab') {
-      // Tab always enters INSERT mode on the newly focused element (handled via focusin)
-      // Just let the browser handle Tab normally; focusin will set INSERT mode
-      return;
-    }
+    if (e.key === 'Tab') return; // browser handles Tab; focusin sets INSERT mode
 
-    if (!navMode) return; // In INSERT mode, let all other keys work normally
+    if (!navMode) return; // INSERT mode — all keys pass through normally
 
-    // NORMAL mode key handling
-    if (e.key === 'h' || e.key === 'k') { e.preventDefault(); navFocus(navIdx - 1); }
-    else if (e.key === 'l' || e.key === 'j') { e.preventDefault(); navFocus(navIdx + 1); }
+    // NORMAL mode: strict 2D movement
+    if      (e.key === 'j') { e.preventDefault(); navMove( 1,  0); }
+    else if (e.key === 'k') { e.preventDefault(); navMove(-1,  0); }
+    else if (e.key === 'h') { e.preventDefault(); navMove( 0, -1); }
+    else if (e.key === 'l') { e.preventDefault(); navMove( 0,  1); }
     else if (e.key === 'i') { e.preventDefault(); enterInsertMode(); }
   });
 
-  // focusin: fired on Tab (browser) or click — enter INSERT mode
-  // NOT fired programmatically during hjkl/ESC nav (blocked by _navMoving)
+  // Tab or click → INSERT mode; track grid position
   document.addEventListener('focusin', function(e) {
-    if (_navMoving) return; // programmatic nav from navFocus() — keep current mode
+    if (_navMoving) return;
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) {
-      navMode = false; // Tab or click → INSERT mode
-      var els = getNavEls();
-      var idx = els.indexOf(e.target);
-      if (idx >= 0) navIdx = idx;
+      navMode = false;
+      var grid = buildNavGrid();
+      outer: for (var r = 0; r < grid.length; r++) {
+        for (var c = 0; c < grid[r].length; c++) {
+          if (grid[r][c] === e.target) { navRow = r; navCol = c; break outer; }
+        }
+      }
       document.querySelectorAll('.nav-sel').forEach(function(el){ el.classList.remove('nav-sel'); });
-      // In INSERT mode, no nav highlight shown
     }
   });
 
-  // On page load: NORMAL mode, no cell selected or highlighted
-  // User navigates with hjkl; i/Tab/click enters INSERT mode
+  // Page load: NORMAL mode, no cell highlighted — user starts navigation with hjkl
 
   // Update currency labels and FX display on initial load
   window.addEventListener('load', function(){

@@ -33,10 +33,12 @@ ${commonStyle()}
 .btn-primary:disabled { opacity:0.4; cursor:default; }
 .currency-blue { color:#2255cc; }
 /* Required field soft pink background */
-.meta-input.req { background:#fff5f5; }
-.meta-input.req:focus { background:#f8f9ff; border:1px solid #c0c8ff; }
-.line-input.req { background:#fff5f5; }
-.line-input.req:focus { background:#f8f9ff; border:1px solid #c0c8ff; }
+.meta-input.req { border:1px solid #cc5555 !important; }
+.meta-input.req:hover { border:1px solid #cc5555 !important; }
+.meta-input.req:focus { background:#f8f9ff; border:1px solid #cc5555 !important; }
+.line-input.req { border:1px solid #cc5555 !important; }
+.line-input.req:hover { border:1px solid #cc5555 !important; }
+.line-input.req:focus { background:#f8f9ff; border:1px solid #cc5555 !important; }
 /* vim nav highlight */
 .nav-sel { outline:2px solid #4f6ef7 !important; background:#f0f3ff !important; }
 /* Hide GST rows in Bill Line Items (kept for journal calc) */
@@ -245,7 +247,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
         <tbody id="lines-body"></tbody>
       </table>
     </div>
-    <button class="btn-add-line" onclick="addLine()">＋ Add Expense Line</button>
+    <button class="btn-add-line" onclick="addLine()">＋ Add Line Item</button>
     <div class="meta-err" id="err-lines" style="display:none;margin-bottom:20px;margin-top:8px">At least one expense line with a valid account and amount > 0 is required</div>
 
     <!-- Attachments (section-h + attach-card) -->
@@ -253,7 +255,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     <div class="attach-card" style="margin-bottom:36px">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 18px;background:#fafafa;border-bottom:1px solid #e8e8e8">
         <span style="font-size:0.8125rem;font-weight:600;color:#555">📎 Files to attach on save</span>
-        <label style="cursor:pointer;color:#1a1a1a;font-size:0.8125rem;font-weight:600">
+        <label tabindex="0" style="cursor:pointer;color:#1a1a1a;font-size:0.8125rem;font-weight:600">
           + Add File
           <input type="file" id="bill-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addBillAttachment(this)" multiple>
         </label>
@@ -700,7 +702,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     tr.innerHTML =
       '<td style="color:#888;font-size:0.75rem;padding-left:8px">' + tbody.children.length + 1 + '</td>' +
       '<input type="hidden" class="lcode" data-line="'+idx+'">' +
-      '<td><input type="text" class="ldesc line-input" data-line="'+idx+'" placeholder="Line detail"></td>' +
+      '<td><input type="text" class="ldesc line-input req" data-line="'+idx+'" placeholder="Line detail"></td>' +
       '<td>' +
         '<input type="number" class="lamount line-input req" data-line="'+idx+'" min="0" step="0.01" placeholder="0.00" style="width:100px">' +
       '</td>' +
@@ -1012,6 +1014,17 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
       };
     }
 
+    // Always show at least 2 rows for visual consistency
+    while (tbody.querySelectorAll('tr').length < 2) {
+      var padTr = document.createElement('tr');
+      padTr.innerHTML =
+        '<td style="white-space:nowrap;color:#ccc;font-size:0.8125rem">&nbsp;</td>' +
+        '<td></td><td></td><td></td>' +
+        '<td style="text-align:right"></td>' +
+        '<td style="text-align:right"></td>';
+      tbody.appendChild(padTr);
+    }
+
     // Empty state
     if (!tbody.children.length) {
       tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;padding:20px 18px">Add expense lines above to preview journal entries.</td></tr>';
@@ -1263,19 +1276,27 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     el.style.color = isErr ? '#cc2222' : '#2a8a2a';
   }
   // ── vim-style navigation ───────────────────────────────────────────────
-  var navMode = true; // true = navigating (hjkl), false = editing (typing)
+  // NORMAL mode: hjkl navigate, field highlighted; INSERT mode: typing in field
+  // h/k = prev, l/j = next, i = enter INSERT, ESC-in-INSERT = back to NORMAL,
+  // ESC-in-NORMAL = cancel page, Tab = advance + enter INSERT automatically
+  var navMode = true; // true = NORMAL, false = INSERT
   var navIdx  = 0;
+  var _navMoving = false; // prevents focusin from flipping mode during programmatic focus
 
   function getNavEls() {
     var els = ['vendor-name-input','vendor-ref','bill-date','due-date','currency']
       .map(function(id){ return document.getElementById(id); })
       .filter(Boolean);
-    // Append line inputs in order: desc then amount for each line
+    // Line inputs: desc then amount per row
     document.querySelectorAll('#lines-body tr:not(.gst-row)').forEach(function(tr){
       var desc = tr.querySelector('.ldesc');
       var amt  = tr.querySelector('.lamount');
       if (desc) els.push(desc);
       if (amt)  els.push(amt);
+    });
+    // Journal entry account inputs (exist when amounts entered)
+    document.querySelectorAll('#journals-tbody .j-code, #journals-tbody .j-ap-code').forEach(function(el){
+      els.push(el);
     });
     return els;
   }
@@ -1287,10 +1308,12 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     if (!target) return;
     document.querySelectorAll('.nav-sel').forEach(function(el){ el.classList.remove('nav-sel'); });
     target.classList.add('nav-sel');
+    _navMoving = true;
     target.focus();
+    _navMoving = false;
   }
 
-  function enterEditMode() {
+  function enterInsertMode() {
     navMode = false;
     var els = getNavEls();
     var el = els[navIdx];
@@ -1300,46 +1323,61 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
       e.preventDefault();
-      // Close any open dropdown first
-      var openDD = document.getElementById('acct-dd') ||
+      // Close any open autocomplete dropdown first
+      var openDD =
+        (document.getElementById('acct-dd') && document.getElementById('acct-dd').style.display !== 'none') ||
         (document.getElementById('currency-dropdown') && document.getElementById('currency-dropdown').style.display !== 'none') ||
         (document.getElementById('vendor-dd') && document.getElementById('vendor-dd').style.display !== 'none');
-      if (openDD) { hideAcctDropdown && hideAcctDropdown(); hideCurrencyDropdown && hideCurrencyDropdown(); hideVendorDropdown && hideVendorDropdown(); return; }
+      if (openDD) {
+        typeof hideAcctDropdown === 'function' && hideAcctDropdown();
+        typeof hideCurrencyDropdown === 'function' && hideCurrencyDropdown();
+        typeof hideVendorDropdown === 'function' && hideVendorDropdown();
+        return;
+      }
       if (!navMode) {
-        // Exit edit mode → back to nav mode on same field
+        // INSERT → NORMAL: stay on current field, stop editing
         navMode = true;
         var els = getNavEls();
         var active = document.activeElement;
-        var idx = els.indexOf(active);
-        if (idx >= 0) navIdx = idx;
-        navFocus(navIdx);
+        var found = els.indexOf(active);
+        if (found >= 0) navIdx = found;
+        navFocus(navIdx); // uses _navMoving so focusin won't flip back to INSERT
       } else {
-        // Already in nav mode → leave page
+        // NORMAL → cancel: leave page
         history.back();
       }
       return;
     }
 
-    if (!navMode) return; // In edit mode, let normal keys work
+    if (e.key === 'Tab') {
+      // Tab always enters INSERT mode on the newly focused element (handled via focusin)
+      // Just let the browser handle Tab normally; focusin will set INSERT mode
+      return;
+    }
 
+    if (!navMode) return; // In INSERT mode, let all other keys work normally
+
+    // NORMAL mode key handling
     if (e.key === 'h' || e.key === 'k') { e.preventDefault(); navFocus(navIdx - 1); }
     else if (e.key === 'l' || e.key === 'j') { e.preventDefault(); navFocus(navIdx + 1); }
-    else if (e.key === 'i' || e.key === 'Enter') { e.preventDefault(); enterEditMode(); }
+    else if (e.key === 'i') { e.preventDefault(); enterInsertMode(); }
   });
 
-  // When user directly clicks/focuses an input, enter edit mode
+  // focusin: fired on Tab (browser) or click — enter INSERT mode
+  // NOT fired programmatically during hjkl/ESC nav (blocked by _navMoving)
   document.addEventListener('focusin', function(e) {
+    if (_navMoving) return; // programmatic nav from navFocus() — keep current mode
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) {
-      navMode = false;
+      navMode = false; // Tab or click → INSERT mode
       var els = getNavEls();
       var idx = els.indexOf(e.target);
-      if (idx >= 0) { navIdx = idx; }
+      if (idx >= 0) navIdx = idx;
       document.querySelectorAll('.nav-sel').forEach(function(el){ el.classList.remove('nav-sel'); });
       e.target.classList.add('nav-sel');
     }
   });
 
-  // On load: focus vendor, start in nav mode
+  // On page load: start in NORMAL mode with vendor field highlighted
   navFocus(0);
 
   // Update currency labels and FX display on initial load

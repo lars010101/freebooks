@@ -602,14 +602,15 @@ var kbd = {
 
     if (e.key === 'a') {
       e.preventDefault();
-      e.stopImmediatePropagation(); // prevent common.js from firing fbKeyActions.new
-      // a = append child line to current draft parent (or sibling if on a child row)
+      e.stopImmediatePropagation();
+      // a = append child line: works on in-DOM drafts (data-draft) AND saved drafts (data-status=draft)
       if (cursor.rowEl) {
-        if (cursor.rowEl.dataset.rowType === 'parent' && cursor.rowEl.dataset.draft === 'true') {
-          insertDraftChildRow(cursor.rowEl, false);
-        } else if (cursor.rowEl.dataset.rowType === 'child' && cursor.rowEl.dataset.draft === 'true') {
-          insertDraftChildRow(cursor.rowEl, false);
-        }
+        var isDraftParent = cursor.rowEl.dataset.rowType === 'parent' &&
+          (cursor.rowEl.dataset.draft === 'true' || cursor.rowEl.dataset.status === 'draft');
+        var isDraftChild = cursor.rowEl.dataset.rowType === 'child' &&
+          (cursor.rowEl.dataset.draft === 'true' || cursor.rowEl.dataset.status === 'draft');
+        if (isDraftParent) { insertDraftChildRow(cursor.rowEl, false); }
+        else if (isDraftChild) { insertDraftChildRow(cursor.rowEl, false); }
       }
       this._lastKey = null; return;
     }
@@ -1741,9 +1742,8 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
     });
   }
   
-  // Restore cursor mode to NORMAL
+  // Restore cursor mode to NORMAL (no blur — avoids triggering re-save via blur handlers)
   cursor.mode = 'NORMAL';
-  if (document.activeElement) document.activeElement.blur();
   
   // Set cursor to parent row, last column
   var lastCol = draftParentTr.querySelectorAll('td').length - 1;
@@ -1815,8 +1815,10 @@ function saveDraftToDb(draftParentTr) {
     .then(function(res) {
       if (res.error) { billEditMsg(res.error, 'err'); return; }
       var data = res.data || res;
-      // Convert the draft row in-place to display row
-      convertDraftRowToDisplay(draftParentTr, data.billId);
+      // Guard: only convert if the row is still a draft (handles double-save race)
+      if (draftParentTr.dataset.draft === 'true') {
+        convertDraftRowToDisplay(draftParentTr, data.billId);
+      }
       billEditMsg('Bill saved as DRAFT.', 'ok');
       setTimeout(function() { billEditMsg('', ''); }, 3000);
     })

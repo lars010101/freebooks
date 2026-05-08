@@ -546,9 +546,19 @@ var kbd = {
 
     if (e.key === 'i' || e.key === 'Enter') {
       e.preventDefault();
-      // Draft parent row: Enter in NORMAL = save draft to DB
-      if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true' && cursor.rowEl.dataset.rowType === 'parent' && e.key === 'Enter') {
-        saveDraftToDb(cursor.rowEl);
+      // Draft parent row: Enter = save draft; i = focus existing input in current cell
+      if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
+        if (e.key === 'Enter' && cursor.rowEl.dataset.rowType === 'parent') {
+          saveDraftToDb(cursor.rowEl);
+          this._lastKey = null; return;
+        }
+        // i (or Enter on child draft): focus the existing draft input in the current column
+        var draftTds = cursor.rowEl.querySelectorAll('td');
+        var draftTd = draftTds[cursor.col];
+        if (draftTd) {
+          var draftInp = draftTd.querySelector('input, select');
+          if (draftInp) { cursor.mode = 'INSERT'; draftInp.focus(); }
+        }
         this._lastKey = null; return;
       }
       if (cursor.rowEl) {
@@ -1358,16 +1368,22 @@ function insertDraftParentRow(refRow, above) {
   vendorInput.addEventListener('blur', function() { setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150); });
   var dateInput2 = tr.querySelectorAll('input')[1];
   if (dateInput2) {
-    dateInput2.addEventListener('change', function() {
-      // Auto-calculate due date when bill date changes
+    dateInput2.addEventListener('blur', function() {
+      // Auto-calculate due date when bill date is committed (on blur only)
+      var val = dateInput2.value;
+      if (!val || !val.match(/^\d{4}-\d{2}-\d{2}$/)) return;
       var vendIn = tr.querySelector('input.draft-vendor-input');
       var terms = vendIn && parseInt(vendIn.dataset.paymentTerms);
       var dueIn = tr.querySelectorAll('input')[2];
-      if (terms && dateInput2.value && dueIn && !dueIn.value) {
-        var d = new Date(dateInput2.value);
-        d.setDate(d.getDate() + terms);
-        dueIn.value = d.toISOString().slice(0, 10);
-      }
+      if (!terms || !dueIn || dueIn.value) return; // skip if no terms or due already set
+      // Parse as local date (avoid UTC midnight offset issues)
+      var parts = val.split('-');
+      var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+      d.setDate(d.getDate() + terms);
+      var yr = d.getFullYear();
+      var mo = String(d.getMonth() + 1).padStart(2, '0');
+      var dy = String(d.getDate()).padStart(2, '0');
+      dueIn.value = yr + '-' + mo + '-' + dy;
     });
   }
   var ccyInput = tr.querySelectorAll('input')[5];
@@ -1465,10 +1481,12 @@ function draftVendorInput(input) {
         // Auto-fill due date from payment terms + bill date (if bill date already set)
         if (v.payment_terms_days) {
           var dateVal = ccyInputs[1] && ccyInputs[1].value;
-          if (dateVal) {
-            var bd = new Date(dateVal);
+          if (dateVal && dateVal.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            var dp = dateVal.split('-');
+            var bd = new Date(parseInt(dp[0]), parseInt(dp[1]) - 1, parseInt(dp[2]));
             bd.setDate(bd.getDate() + v.payment_terms_days);
-            if (ccyInputs[2]) ccyInputs[2].value = bd.toISOString().slice(0, 10);
+            var dyr = bd.getFullYear(), dmo = String(bd.getMonth()+1).padStart(2,'0'), ddy = String(bd.getDate()).padStart(2,'0');
+            if (ccyInputs[2]) ccyInputs[2].value = dyr + '-' + dmo + '-' + ddy;
           }
         }
       }

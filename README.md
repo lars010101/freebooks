@@ -130,9 +130,9 @@ The server handles SIGINT/SIGTERM (Ctrl+C) gracefully — checkpoints DuckDB bef
 | `/:company` | **Dashboard** — 4 summary cards (UNLOCKED YR, UNCLEARED TX, Bank Balance, P&L) + report selector |
 | `/:company/settings` | Settings (8 tabs: Periods, Company, COA, Tax Codes, Journals, Bank Mappings, Exchange Rates, Vendors) |
 | `/:company/journal/new` | New JV form (with reversal mode; pre-post attachment queue) |
-| `/:company/bill/new` | Enter Bill form — vendor autocomplete, multi-line expenses, pre-post attachment queue, auto-generates AP journal entry |
-| `/:company/payables` | Payables screen — bill list with filters + bill detail modal |
-| `/:company/bill/:id` | **Bill Detail** — standalone page showing bill header (Invoice Ref editable inline, Due Date editable inline), amount cards, line items (descriptions editable inline), attachments, and journal entries |
+| `/:company/bill/new` | Enter Bill form — vendor autocomplete, multi-line expenses, pre-post attachment queue, auto-generates AP journal entry *(legacy — will be removed in Step 5 of tree-table rewrite)* |
+| `/:company/payables` | **Payables tree-table** — vim-modal inline bill management. Parent rows = bill headers; child rows = expense/GST lines. Inline editing, keyboard navigation, fold/unfold. Steps 1–3 complete. |
+| `/:company/bill/:id` | **Bill Detail** — standalone page *(legacy — will be removed in Step 5 of tree-table rewrite)* |
 | `/:company/payables/aging` | Redirects (302) to `/:company/reports?t=ap-aging` |
 | `/:company/reports` | **Reports hub** — full period/type/filter controls in top bar; report renders inline in an iframe. See [Reports Hub](#reports-hub) below. |
 | `/:company/bank` | **Bank** — uncleared transactions list + collapsible CSV import ("Import Statement"). Supports `?mode=uncleared` to auto-load all uncleared transactions across all cash accounts. Step 2: Link Bill panel shows open bills with outstanding amounts and multi-currency support. |
@@ -274,7 +274,7 @@ All actions use `{ action, companyId, ...body }` request format. Response: `{ ok
 | `bill.lines` | Get expense lines for a bill (for bill detail modal) |
 | `bill.update` | Update non-financial fields on a bill: `vendor_ref` (invoice reference) and `due_date` |
 | `bill.aging` | AP Aging report data — outstanding bills with bucket classification |
-| `journal.entry.update` | Update description on a single journal entry (non-financial fields only) |
+| `journal.entry.update` | Update fields on a single journal entry: `description` (all bills), `vat_code` and `account_code` (draft bills only) |
 | `vendor.list` | List vendors with defaults (currency, terms, expense account, AP account) |
 | `vendor.save` | Replace all vendors for company |
 | `vendor.delete` | Delete a single vendor |
@@ -446,8 +446,50 @@ Bill status on creation: `posted`. Status transitions:
 - `posted` → `partial` → `paid` (via payment matching)
 - `posted` / `partial` → `void` (via `bill.void` — voids bill, auto-reverses journal, closes modal)
 
-### Payables Screen (`/:company/payables`)
-List of all bills for the company with filter controls: vendor (dropdown), description (text search), status (Open/Partial/Paid/Void), fiscal period (dropdown). Collapsible "More filters" for amount (≥/=/≤) and currency. Click any row to navigate to the **Bill Detail page** (`/:company/bill/:id`). The page shows: header with "📋 Payables: Bill details [status]"; meta strip with Vendor, Invoice Ref (inline editable), Bill Date, Due Date (inline editable), Currency; amount cards (Amount Paid / Amount Due); Bill Line Items with inline-editable descriptions; Attachments; and Journal Entries. Keyboard navigation: `j`/`k` move between meta strip, line items, and attachments; `h`/`l` move between Invoice Ref and Due Date; `i` enters edit on the focused item; `d` deletes a focused attachment or (with nothing focused) confirms void; `a` opens the file picker; `Escape` returns to Payables.
+### Payables Tree-Table (`/:company/payables`)
+
+Full inline bill management as a vim-modal tree-table. No separate bill detail page — all viewing and editing happens in-place.
+
+**Tree structure:**
+- **Parent rows** — bill header: toggle | Date | Due | Vendor | Ref | Amount | CCY | Status
+- **Child rows** — one per expense line + one GST line below; visible only when parent is unfolded
+
+**Keyboard navigation (NORMAL mode):**
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Move down / up (visible rows only; rate-limited to 40 ms) |
+| `h` / `l` | Move left / right between cells |
+| `gg` / `G` | Jump to first / last row |
+| `za` / `Space` | Toggle fold (expand/collapse child rows) |
+| `zo` / `zc` | Open / close current parent |
+| `zR` / `zM` | Expand all / collapse all |
+| `i` / `Enter` | Enter INSERT mode on focused cell |
+| `Esc` | Exit INSERT → NORMAL; revert unsaved cell value |
+| `/` | Focus search input |
+| `:` | Open command bar |
+
+**Inline editing (INSERT mode):**
+
+| Cell | Editable | Input type | Via |
+|------|----------|------------|-----|
+| Parent — Due Date (col 2) | All bills | Date input | `bill.update` |
+| Parent — Ref (col 3) | All bills | Text input | `bill.update` |
+| Child — Description (col 0) | All bills | Text input | `journal.entry.update` |
+| Child — GST code (col 3) | Draft bills only | Select dropdown | `journal.entry.update` (updates paired GST entry) |
+
+- `i` or `Enter` on focused cell → INSERT mode; `Esc` → revert; `Enter` → save and return to NORMAL
+- Void guard: editing a voided bill shows an error in the top bar status message
+- Tab disabled in INSERT mode (native browser only outside of tree)
+- Status messages appear in `#tb-status-msg` in the top bar (bold, auto-clear after 2.5 s)
+
+**Filter controls** (top bar): vendor (dropdown), description (text search), status, fiscal period. Collapsible "More filters" for amount and currency.
+
+**GST pairing logic:** Expense child rows have `vat_code = null`; GST child rows have `vat_code` set. The GST code dropdown on expense rows edits the *paired* GST journal entry (`expenseLines[i] ↔ gstLines[i]`). Read-only on non-draft bills.
+
+**Modules in `payables.js`:** `treeState` (Set-based open/closed + dirty tracking), `cursor` (row/cell highlight + scroll), `kbd` (keydown dispatcher with mode awareness).
+
+**Build status:** Steps 1 (tree rendering), 2 (keyboard navigation), and 3 (inline editing) complete. Step 4 (new bill creation inline), 5 (remove legacy routes), and 6 (polish) pending.
 
 ### AP Aging Report (`/:company/payables/aging`)
 Outstanding payables (status `posted` or `partial`) as of a selected date, bucketed by days overdue:
@@ -535,6 +577,12 @@ DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly
 - [x] Payment matching: mark bill Paid via bank import (link import row → open bill during import)
 - [x] Partial payment tracking and allocation (via foreign currency amount_paid tracking)
 - [x] Bill edit workflow (non-financial fields editable; financial fields require Reverse & Re-enter via `bill.void`)
+- [x] Payables tree-table Step 1 — tree rendering, read-only (click or `za` to fold/unfold)
+- [x] Payables tree-table Step 2 — vim keyboard navigation (`j`/`k`/`h`/`l`/`gg`/`G`/`za`/`zo`/`zc`/`zR`/`zM`)
+- [x] Payables tree-table Step 3 — inline editing of existing bills (parent: Due, Ref; child: Description, GST code)
+- [ ] Payables tree-table Step 4 — new bill creation inline (replaces `bill-new.js`)
+- [ ] Payables tree-table Step 5 — housekeeping: remove `bill-detail.js`, `bill-new.js`, old routes
+- [ ] Payables tree-table Step 6 — polish: `dd` confirm, `yy`/`p`, undo, `:` commands, `zR` bulk-fetch
 
 ### Multi-Currency
 - [x] FX rate table (manual entry) — Settings → Exchange Rates tab

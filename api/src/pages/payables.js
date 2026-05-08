@@ -587,24 +587,28 @@ var kbd = {
 
     if (e.key === 'o') {
       e.preventDefault();
-      if (!cursor.rowEl) {
-        insertDraftParentRow(null, false);
-      } else if (cursor.rowEl.dataset.rowType === 'parent') {
-        insertDraftParentRow(cursor.rowEl, false);
-      } else if (cursor.rowEl.dataset.rowType === 'child') {
-        insertDraftChildRow(cursor.rowEl, false);
-      }
+      // o always creates a new parent row; never auto-spawns a child
+      if (!cursor.rowEl) { insertDraftParentRow(null, false); }
+      else { insertDraftParentRow(cursor.rowEl, false); }
       this._lastKey = null; return;
     }
 
     if (e.key === 'O') {
       e.preventDefault();
-      if (!cursor.rowEl) {
-        insertDraftParentRow(null, false);
-      } else if (cursor.rowEl.dataset.rowType === 'parent') {
-        insertDraftParentRow(cursor.rowEl, true);
-      } else if (cursor.rowEl.dataset.rowType === 'child') {
-        insertDraftChildRow(cursor.rowEl, true);
+      if (!cursor.rowEl) { insertDraftParentRow(null, false); }
+      else { insertDraftParentRow(cursor.rowEl, true); }
+      this._lastKey = null; return;
+    }
+
+    if (e.key === 'a') {
+      e.preventDefault();
+      // a = append child line to current draft parent (or sibling if on a child row)
+      if (cursor.rowEl) {
+        if (cursor.rowEl.dataset.rowType === 'parent' && cursor.rowEl.dataset.draft === 'true') {
+          insertDraftChildRow(cursor.rowEl, false);
+        } else if (cursor.rowEl.dataset.rowType === 'child' && cursor.rowEl.dataset.draft === 'true') {
+          insertDraftChildRow(cursor.rowEl, false); // sibling below
+        }
       }
       this._lastKey = null; return;
     }
@@ -1451,8 +1455,6 @@ function insertDraftParentRow(refRow, above) {
   });
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
-  // Auto-spawn one mandatory child line row
-  insertDraftChildRow(tr, false);
   vendorInput.focus();
 }
 

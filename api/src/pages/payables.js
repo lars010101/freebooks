@@ -467,12 +467,33 @@ var kbd = {
     // INSERT mode: intercept control keys only
     if (cursor.mode === 'INSERT') {
       if (e.key === 'Escape') { e.preventDefault(); exitBillCellEdit(false); return; }
-      if (e.key === 'Enter')  { e.preventDefault(); exitBillCellEdit(true); return; }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        // Draft rows: select active dd item, else advance to next field
+        if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
+          var vDd = document.getElementById('pay-draft-vendor-dd');
+          var cDd = document.getElementById('pay-draft-ccy-dd');
+          if (vDd && vDd.querySelector('.dd-active')) { vDd.querySelector('.dd-active').click(); return; }
+          if (cDd && cDd.querySelector('.dd-active')) { cDd.querySelector('.dd-active').click(); return; }
+          var draftInputs = Array.from(cursor.rowEl.querySelectorAll('input.draft-input, select.draft-input'));
+          var ae = document.activeElement;
+          var dIdx = draftInputs.indexOf(ae);
+          if (dIdx >= 0 && dIdx < draftInputs.length - 1) { draftInputs[dIdx + 1].focus(); }
+          else { if (ae) ae.blur(); cursor.mode = 'NORMAL'; }
+          return;
+        }
+        exitBillCellEdit(true); return;
+      }
       if (e.key === 'Tab') {
         if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
           return; // let native Tab work for draft rows
         }
         e.preventDefault(); return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        var dir2 = e.key === 'ArrowDown' ? 1 : -1;
+        if (document.getElementById('pay-draft-vendor-dd')) { e.preventDefault(); moveDraftVendorDd(dir2); return; }
+        if (document.getElementById('pay-draft-ccy-dd'))    { e.preventDefault(); moveDraftCcyDd(dir2); return; }
       }
       return; // all other keys go to input/select
     }
@@ -516,6 +537,11 @@ var kbd = {
 
     if (e.key === 'i' || e.key === 'Enter') {
       e.preventDefault();
+      // Draft parent row: Enter in NORMAL = open post popup
+      if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true' && cursor.rowEl.dataset.rowType === 'parent' && e.key === 'Enter') {
+        openPostReviewPopup(cursor.rowEl);
+        this._lastKey = null; return;
+      }
       if (cursor.rowEl) {
         var tds2 = cursor.rowEl.querySelectorAll('td');
         var tdFocus = tds2[cursor.col];
@@ -1406,6 +1432,30 @@ function draftVendorInput(input) {
   div.style.top = (rect.bottom + 2) + 'px';
   div.style.minWidth = rect.width + 'px';
   document.body.appendChild(div);
+}
+
+function moveDraftVendorDd(dir) {
+  var dd = document.getElementById('pay-draft-vendor-dd');
+  if (!dd) return;
+  var items = Array.from(dd.querySelectorAll('div[data-vendor-id]'));
+  var cur = dd.querySelector('.dd-active');
+  var curIdx = cur ? parseInt(cur.dataset.idx) : -1;
+  var nextIdx = Math.max(0, Math.min(items.length - 1, curIdx + dir));
+  items.forEach(function(el) { el.classList.remove('dd-active'); el.style.background = ''; });
+  var next = items[nextIdx];
+  if (next) { next.classList.add('dd-active'); next.style.background = '#e8f0fe'; next.scrollIntoView({ block: 'nearest' }); }
+}
+
+function moveDraftCcyDd(dir) {
+  var dd = document.getElementById('pay-draft-ccy-dd');
+  if (!dd) return;
+  var items = Array.from(dd.querySelectorAll('div'));
+  var cur = dd.querySelector('.dd-active');
+  var curIdx = items.indexOf(cur);
+  var nextIdx = Math.max(0, Math.min(items.length - 1, (curIdx < 0 ? (dir > 0 ? 0 : items.length - 1) : curIdx + dir)));
+  items.forEach(function(el) { el.classList.remove('dd-active'); el.style.background = ''; });
+  var next = items[nextIdx];
+  if (next) { next.classList.add('dd-active'); next.style.background = '#e8f0fe'; next.scrollIntoView({ block: 'nearest' }); }
 }
 
 function draftCcyInput(input) {

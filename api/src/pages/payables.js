@@ -697,7 +697,7 @@ var kbd = {
       tr.dataset.parentKey = draftKey;
       tr.style.cssText = 'background:#fffef5';
       var baseCcy = parentRow.querySelectorAll('input')[5].value || BASE_CURRENCY;
-      tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Description" /></td>'
+      tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
         + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
         + '<td style="font-size:0.75rem;color:#888">' + baseCcy + '</td>'
         + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>';
@@ -1498,7 +1498,7 @@ function insertDraftChildRow(childRow, above) {
   tr.dataset.draft = 'true';
   tr.dataset.parentKey = draftKey; // data-parent-key references parent's data-draft-key
   tr.style.cssText = 'background:#fffef5';
-  tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Description" /></td>'
+  tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
     + '<td style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
     + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>';

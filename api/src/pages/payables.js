@@ -1230,7 +1230,7 @@ function openColFilter(th, col) {
     inp2.style.fontSize = '0.8125rem';
     inp2.style.boxSizing = 'border-box';
     inp2.style.marginBottom = '0';
-    // No live filter — apply only on Enter to avoid losing focus mid-type
+    var debounceTimer = null; // no live filter — Enter only
     inp2.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') {
         clearTimeout(debounceTimer);

@@ -561,7 +561,12 @@ var kbd = {
         var draftTd = draftTds[cursor.col];
         if (draftTd) {
           var draftInp = draftTd.querySelector('input, select');
-          if (draftInp) { cursor.mode = 'INSERT'; draftInp.focus(); }
+          if (draftInp) {
+          cursor.mode = 'INSERT';
+          document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
+          document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
+          draftInp.focus();
+        }
         }
         this._lastKey = null; return;
       }
@@ -1434,6 +1439,13 @@ function insertDraftParentRow(refRow, above) {
     if (inp) inp.addEventListener('blur', function() { autoSaveDraftIfReady(tr); });
   });
 
+  // Clear row/cell highlights when any input in the draft row gains focus
+  tr.addEventListener('focusin', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+      document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
+      document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
+    }
+  });
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
   vendorInput.focus();

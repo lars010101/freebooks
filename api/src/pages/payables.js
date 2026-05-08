@@ -602,12 +602,13 @@ var kbd = {
 
     if (e.key === 'a') {
       e.preventDefault();
+      e.stopImmediatePropagation(); // prevent common.js from firing fbKeyActions.new
       // a = append child line to current draft parent (or sibling if on a child row)
       if (cursor.rowEl) {
         if (cursor.rowEl.dataset.rowType === 'parent' && cursor.rowEl.dataset.draft === 'true') {
           insertDraftChildRow(cursor.rowEl, false);
         } else if (cursor.rowEl.dataset.rowType === 'child' && cursor.rowEl.dataset.draft === 'true') {
-          insertDraftChildRow(cursor.rowEl, false); // sibling below
+          insertDraftChildRow(cursor.rowEl, false);
         }
       }
       this._lastKey = null; return;
@@ -1444,7 +1445,9 @@ function insertDraftParentRow(refRow, above) {
   }
 
   // All other fields: trigger auto-save check on blur
+  var refInputEl = draftInputs2[3];
   if (dateInputEl) dateInputEl.addEventListener('blur', function() { autoSaveDraftIfReady(tr); });
+  if (refInputEl)  refInputEl.addEventListener('blur',  function() { autoSaveDraftIfReady(tr); });
 
   // Clear row/cell highlights when any input in the draft row gains focus
   tr.addEventListener('focusin', function(e) {
@@ -1489,10 +1492,11 @@ function autoSaveChildRow(childRow, parentTr) {
 function autoSaveDraftIfReady(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
-  var dateInput = inputs[1], dueInput = inputs[2], ccyInput = inputs[4]; // amount col is now display-only
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];
   if (!vendorInput || !vendorInput.dataset.vendorName) return;
   if (!dateInput || !dateInput.value) return;
   if (!dueInput || !dueInput.value) return;
+  if (!refInput || !refInput.value.trim()) return; // Invoice Ref mandatory
   if (!ccyInput || !ccyInput.value.trim()) return;
   saveDraftToDb(draftParentTr);
 }

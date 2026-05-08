@@ -261,10 +261,11 @@
       return;
     }
 
-    // ── : or Ctrl+K → command palette ──
+    // ── : or Ctrl+K → focus search bar in command mode ──
     if ((!inInput && e.key === ':') || (e.ctrlKey && e.key === 'k')) {
       e.preventDefault();
-      fbOpenCmdPalette();
+      var sc = document.getElementById('tb-global-search');
+      if (sc) { sc.value = ':'; sc.focus(); sc.setSelectionRange(1, 1); }
       return;
     }
 
@@ -436,6 +437,25 @@
     if (e.key === 'e') { return; }
   });
 
+  // Wire up tb-global-search: Enter dispatches commands when value starts with ':'
+  document.addEventListener('DOMContentLoaded', function() {
+    var gs = document.getElementById('tb-global-search');
+    if (!gs) return;
+    gs.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { gs.value = ''; gs.blur(); return; }
+      if (e.key === 'Enter') {
+        var val = gs.value.trim();
+        gs.value = ''; gs.blur();
+        if (val.startsWith(':')) {
+          if (window.fbCmdDispatch) { window.fbCmdDispatch(val); }
+          else { console.log('Command:', val); }
+        }
+        // else: search handled by page-level oninput handler
+      }
+    });
+  });
+
+  // fbOpenCmdPalette kept as no-op (replaced by search bar command mode)
   window.fbOpenCmdPalette = window.fbOpenCmdPalette || function() {
     var company = document.getElementById('app-shell') ? document.getElementById('app-shell').dataset.company : '';
     var cmds = [

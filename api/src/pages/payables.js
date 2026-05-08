@@ -443,8 +443,6 @@ var kbd = {
   _lastKey: null,
   _lastKeyTimer: null,
   _lastMoveTime: 0,
-  _cmdMode: false,
-  _cmdBuf: '',
 
   register: function() {
     // Remove old handler from any prior SPA navigation (script re-executes each time)
@@ -465,33 +463,6 @@ var kbd = {
   _handle: function(e) {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     if (!this._isBillsTabActive()) return;
-
-    // COMMAND mode (:w, :q, etc.)
-    if (this._cmdMode) {
-      e.preventDefault();
-      if (e.key === 'Escape') {
-        this._cmdMode = false; this._cmdBuf = ''; billEditMsg('', ''); return;
-      }
-      if (e.key === 'Backspace') {
-        this._cmdBuf = this._cmdBuf.slice(0, -1);
-        if (!this._cmdBuf) { this._cmdMode = false; billEditMsg('', ''); }
-        else billEditMsg(this._cmdBuf, ''); return;
-      }
-      if (e.key === 'Enter') {
-        var cmd = this._cmdBuf.trim();
-        this._cmdMode = false; this._cmdBuf = ''; billEditMsg('', '');
-        if (cmd === ':w') {
-          var dr = cursor.rowEl;
-          if (dr && dr.dataset.draft === 'true' && dr.dataset.rowType === 'parent') { saveDraftToDb(dr); }
-          else { billEditMsg(':w — no draft row selected', 'err'); setTimeout(function(){ billEditMsg('',''); }, 2000); }
-        } else {
-          billEditMsg('Unknown command: ' + cmd, 'err'); setTimeout(function(){ billEditMsg('',''); }, 2000);
-        }
-        return;
-      }
-      if (e.key.length === 1) { this._cmdBuf += e.key; billEditMsg(this._cmdBuf, ''); }
-      return;
-    }
 
     // INSERT mode: intercept control keys only
     if (cursor.mode === 'INSERT') {
@@ -561,13 +532,6 @@ var kbd = {
     if (e.key === 'h') {
       e.preventDefault();
       if (cursor.rowEl && cursor.col > 0) { cursor.set(cursor.rowEl, cursor.col - 1); }
-      this._lastKey = null; return;
-    }
-
-    if (e.key === ':') {
-      e.preventDefault();
-      this._cmdMode = true; this._cmdBuf = ':';
-      billEditMsg(': ', '');
       this._lastKey = null; return;
     }
 
@@ -1006,6 +970,16 @@ function fbPageInitPayables() {
   registerVendorKeyActions();
   kbd.register();
   loadBillAccounts();
+  // Register command dispatcher for :w etc. (called by public/common.js tb-global-search Enter handler)
+  window.fbCmdDispatch = function(cmd) {
+    if (cmd === ':w') {
+      var dr = cursor.rowEl;
+      if (dr && dr.dataset.draft === 'true' && dr.dataset.rowType === 'parent') { saveDraftToDb(dr); }
+      else { billEditMsg('No draft row selected', 'err'); setTimeout(function(){ billEditMsg('',''); }, 2000); }
+    } else {
+      billEditMsg('Unknown command: ' + cmd, 'err'); setTimeout(function(){ billEditMsg('',''); }, 2000);
+    }
+  };
   window.fbBillNav = true;
   window.fbBillCursorMid = false;
   

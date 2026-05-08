@@ -1701,11 +1701,24 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
       // Set parent bill ID
       childTr.dataset.parentId = billId;
       
-      // Replace innerHTML with display format
+      // Replace innerHTML with display format (keep select for tax code on draft child rows)
       childTr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right">' + Number(childAmt).toFixed(2) + '</td>'
-        + '<td style="font-size:0.75rem;color:#888">' + esc(currency) + '</td>'
-        + '<td>' + gstBadge + '</td>';
+        + '<td class="child-ccy" style="font-size:0.75rem;color:#aaa">' + esc(currency) + '</td>'
+        + '<td></td>'; // tax code cell filled below
+      // Build GST select dropdown (stays editable on draft rows)
+      var gstTd = childTr.querySelector('td:last-child');
+      var sel = document.createElement('select');
+      sel.style.cssText = 'font-size:0.75rem;border:1px solid #ddd;border-radius:3px;padding:2px 4px;background:#fff;max-width:120px;';
+      var emptyOpt = document.createElement('option'); emptyOpt.value = ''; emptyOpt.textContent = '— None —'; sel.appendChild(emptyOpt);
+      Object.keys(taxCodeMap).forEach(function(code) {
+        var opt = document.createElement('option');
+        opt.value = code; opt.textContent = code;
+        if (code === gstCode) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', function() { autoSaveDraftIfReady(draftParentTr); });
+      gstTd.appendChild(sel);
     });
   }
   

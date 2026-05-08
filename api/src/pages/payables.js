@@ -116,7 +116,7 @@ ${commonStyle()}
 
   .draft-input { border:1px solid #ccc; border-radius:4px; padding:5px 8px; font-size:0.875rem; width:100%; box-sizing:border-box; background:#fffef5; font-family:inherit; }
   .draft-input:focus { outline:none; border-color:#1a1a1a; }
-  .draft-input.req { border-color:#cc2222; }
+  .draft-input.req { border:2px solid #cc2222; box-shadow:0 0 0 1px #cc2222; }
   tr[data-draft="true"] td { background:#fffef5; }
   tr[data-draft="true"]:hover td { background:#fffbea; }
 
@@ -1649,7 +1649,7 @@ function saveDraftToDb(draftParentTr) {
       var data = res.data || res;
       // Store bill_id on the row so future saves update, and post can use bill.draft.post
       draftParentTr.dataset.billId = data.billId;
-      billEditMsg('Draft saved — p to post', 'ok');
+      billEditMsg('Bill saved as DRAFT.', 'ok');
       setTimeout(function() { billEditMsg('', ''); }, 3000);
     })
     .catch(function(e) { billEditMsg(e.message, 'err'); });

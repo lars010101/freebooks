@@ -1450,6 +1450,8 @@ function insertDraftParentRow(refRow, above) {
   });
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
+  // Auto-spawn one mandatory child line row
+  insertDraftChildRow(tr, false);
   vendorInput.focus();
 }
 
@@ -1457,12 +1459,22 @@ function autoSaveDraftIfReady(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
   var dateInput = inputs[1], dueInput = inputs[2], amtInput = inputs[4], ccyInput = inputs[5];
-  if (!vendorInput || !vendorInput.dataset.vendorName) return; // vendor not valid
+  if (!vendorInput || !vendorInput.dataset.vendorName) return;
   if (!dateInput || !dateInput.value) return;
   if (!dueInput || !dueInput.value) return;
   if (!amtInput || !(parseFloat(amtInput.value) > 0)) return;
   if (!ccyInput || !ccyInput.value.trim()) return;
-  // All required fields present — save
+  // Require at least one child row with description and amount > 0
+  var draftKey = draftParentTr.dataset.draftKey;
+  if (draftKey) {
+    var childRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"][data-draft="true"]'));
+    var hasValidChild = childRows.some(function(cr) {
+      var descInput = cr.querySelector('input.child-desc');
+      var amtInputC = cr.querySelectorAll('input')[1];
+      return descInput && descInput.value.trim() && amtInputC && parseFloat(amtInputC.value) > 0;
+    });
+    if (!hasValidChild) return;
+  }
   saveDraftToDb(draftParentTr);
 }
 
@@ -1502,6 +1514,13 @@ function insertDraftChildRow(childRow, above) {
   } else {
     childRow.parentElement.insertBefore(tr, childRow.nextElementSibling);
   }
+  // Wire blur on child inputs to trigger parent auto-save check
+  var parentTrRef = parentTr;
+  Array.from(tr.querySelectorAll('input.draft-input, select.draft-input')).forEach(function(inp) {
+    inp.addEventListener('blur', function() {
+      if (parentTrRef) autoSaveDraftIfReady(parentTrRef);
+    });
+  });
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
   var descInput = tr.querySelector('input.child-desc');

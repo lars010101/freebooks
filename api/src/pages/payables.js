@@ -1663,6 +1663,8 @@ function saveDraftToDb(draftParentTr) {
       draftParentTr.dataset.billId = data.billId;
       billEditMsg('Bill saved as DRAFT.', 'ok');
       setTimeout(function() { billEditMsg('', ''); }, 3000);
+      // Re-render the list so the row appears as a normal bill row
+      loadAllBills();
     })
     .catch(function(e) { billEditMsg(e.message, 'err'); });
 }

@@ -822,16 +822,19 @@ function exitBillCellEdit(save) {
 
   if (!rowEl || !tdEl) { billEditState.rowEl = null; return; }
 
-  // Draft row Esc handler: remove if all empty
-  if (rowEl && rowEl.dataset.draft === 'true' && !save) {
+  // Draft row handler: Enter just blurs; Esc removes row if empty
+  if (rowEl && rowEl.dataset.draft === 'true') {
     if (document.activeElement) document.activeElement.blur();
-    var draftKey = rowEl.dataset.draftKey;
-    var inputs = rowEl.querySelectorAll('input');
-    var allEmpty = Array.from(inputs).every(function(inp){ return !inp.value.trim(); });
-    if (allEmpty && draftKey) {
-      document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]').forEach(function(r){ r.remove(); });
-      rowEl.remove();
-      cursor.clear();
+    cursor.mode = 'NORMAL';
+    if (!save) {
+      var draftKey = rowEl.dataset.draftKey;
+      var inputs = rowEl.querySelectorAll('input');
+      var allEmpty = Array.from(inputs).every(function(inp){ return !inp.value.trim(); });
+      if (allEmpty && draftKey) {
+        document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]').forEach(function(r){ r.remove(); });
+        rowEl.remove();
+        cursor.clear();
+      }
     }
     tdEl.classList.remove('vcell-editing');
     billEditState.rowEl = null;
@@ -1295,6 +1298,19 @@ function insertDraftParentRow(refRow, above) {
   var vendorInput = tr.querySelector('input.draft-vendor-input');
   vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
   vendorInput.addEventListener('blur', function() { setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150); });
+  var ccyInput = tr.querySelectorAll('input')[5];
+  if (ccyInput) {
+    ccyInput.addEventListener('input', function() { draftCcyInput(ccyInput); });
+    ccyInput.addEventListener('blur', function() {
+      setTimeout(function() { var dd = document.getElementById('pay-draft-ccy-dd'); if (dd) dd.remove(); }, 150);
+      // validate on blur
+      var v = ccyInput.value.trim().toUpperCase();
+      if (v && vendorCurrenciesList.length) {
+        var valid = vendorCurrenciesList.some(function(c){ return (c.code||'').toUpperCase() === v; });
+        if (!valid) { ccyInput.classList.add('req'); } else { ccyInput.classList.remove('req'); ccyInput.value = v; }
+      }
+    });
+  }
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
   vendorInput.focus();
@@ -1392,6 +1408,41 @@ function draftVendorInput(input) {
   document.body.appendChild(div);
 }
 
+function draftCcyInput(input) {
+  var q = input.value.trim().toUpperCase();
+  var dd = document.getElementById('pay-draft-ccy-dd');
+  if (dd) dd.remove();
+  if (!q || !vendorCurrenciesList.length) return;
+  var matches = vendorCurrenciesList.filter(function(c){
+    var code = (c.code || '').toUpperCase();
+    return code.startsWith(q) || (c.name || '').toLowerCase().includes(q.toLowerCase());
+  }).slice(0, 10);
+  if (!matches.length) return;
+  var div = document.createElement('div');
+  div.id = 'pay-draft-ccy-dd';
+  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:0.8125rem;box-shadow:0 2px 6px rgba(0,0,0,.2)';
+  matches.forEach(function(c) {
+    var item = document.createElement('div');
+    item.textContent = (c.code || '').toUpperCase() + ' — ' + (c.name || '');
+    item.style.cssText = 'padding:8px 12px;cursor:pointer;white-space:nowrap';
+    item.onmouseover = function() { item.style.background = '#e8f0fe'; };
+    item.onmouseout  = function() { item.style.background = ''; };
+    item.onmousedown = function(e) { e.preventDefault(); };
+    item.onclick = function() {
+      input.value = (c.code || '').toUpperCase();
+      input.classList.remove('req');
+      var dd2 = document.getElementById('pay-draft-ccy-dd');
+      if (dd2) dd2.remove();
+    };
+    div.appendChild(item);
+  });
+  var rect = input.getBoundingClientRect();
+  div.style.left = rect.left + 'px';
+  div.style.top = (rect.bottom + 2) + 'px';
+  div.style.minWidth = '160px';
+  document.body.appendChild(div);
+}
+
 function clearDraftVendorDdFocus() {
   var dd = document.getElementById('pay-draft-vendor-dd');
   if (!dd) return;
@@ -1406,13 +1457,17 @@ function openPostReviewPopup(draftParentTr) {
   var refInput = vendorInputs[3];
   var amtInput = vendorInputs[4];
   var ccyInput = vendorInputs[5];
-  var vendorName = vendorInput && (vendorInput.dataset.vendorName || vendorInput.value.trim());
+  var vendorName = vendorInput && vendorInput.dataset.vendorName;
   var apAccount = vendorInput && (vendorInput.dataset.apAccount || '201100');
+  if (!vendorName && vendorInput) vendorName = vendorInput.value.trim(); // fallback (no vendor master required)
   var expAcct = vendorInput && (vendorInput.dataset.expenseAccount || '400000');
   var billDate = dateInput && dateInput.value;
   var totalAmt = parseFloat(amtInput && amtInput.value) || 0;
   var ccy = ccyInput && (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY);
-  if (!vendorName) { billEditMsg('Vendor is required', 'err'); return; }
+  if (!vendorName) { billEditMsg('Vendor required — select from dropdown', 'err'); return; }
+  // Enforce vendor master selection
+  var vendorNameSet = vendorInput && vendorInput.dataset.vendorName;
+  if (!vendorNameSet) { billEditMsg('Select vendor from dropdown (must exist in vendor master)', 'err'); return; }
   if (!billDate) { billEditMsg('Date is required', 'err'); return; }
   if (!totalAmt || totalAmt <= 0) { billEditMsg('Amount must be > 0', 'err'); return; }
   var draftKey = draftParentTr.dataset.draftKey;
@@ -1517,7 +1572,11 @@ function confirmPost() {
         return;
       }
       closePostReviewPopup();
-      if (window._prvDraftTr) window._prvDraftTr.remove();
+      if (window._prvDraftTr) {
+        var dKey = window._prvDraftTr.dataset.draftKey;
+        if (dKey) document.querySelectorAll('tr[data-parent-key="' + dKey + '"]').forEach(function(r){ r.remove(); });
+        window._prvDraftTr.remove();
+      }
       loadAllBills();
       billEditMsg('Bill posted successfully.', 'ok');
       setTimeout(function() { billEditMsg('', ''); }, 2500);
@@ -1561,7 +1620,20 @@ function registerBillKeyActions() {
 }
 
 function loadVendors() {
-  // Vendors loaded into allBills data; no separate dropdown needed
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'vendor.list', companyId: COMPANY }) })
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    var rows = res.data || res || [];
+    allVendors = Array.isArray(rows) ? rows : [];
+  })
+  .catch(function(){});
+  // also pre-load currencies for draft row CCY validation
+  if (!vendorCurrenciesList.length) {
+    fetch('/db/currencies.json').then(function(r){ return r.json(); }).then(function(list){
+      vendorCurrenciesList = Array.isArray(list) ? list : [];
+    }).catch(function(){});
+  }
 }
 
 function loadAllBills() {

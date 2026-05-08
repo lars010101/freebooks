@@ -2063,7 +2063,8 @@ function renderPage() {
     window._focusBillIdAfterRender = null;
     var focusTr = tbody.querySelector('tr[data-bill-id="' + focusId + '"]');
     if (focusTr) {
-      cursor.set(focusTr, 0);
+      var lastCol = focusTr.querySelectorAll('td').length - 1;
+      cursor.set(focusTr, lastCol);
       focusTr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
   }

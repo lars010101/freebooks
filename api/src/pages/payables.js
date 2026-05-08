@@ -1376,7 +1376,7 @@ function insertDraftParentRow(refRow, above) {
   if (dateInputEl) {
     dateInputEl.addEventListener('input', function() {
       var val = dateInputEl.value;
-      if (val && val.match(/^\d{4}-\d{2}-\d{2}$/) && dueInputEl && !dueInputEl.value) {
+      if (val && val.match(/^\\d{4}-\\d{2}-\\d{2}$/) && dueInputEl && !dueInputEl.value) {
         autoCalcDraftDueDate(tr);
       }
     });
@@ -1453,7 +1453,7 @@ function autoCalcDraftDueDate(draftParentTr) {
   if (!dateInput || !dueInput) { console.log('[dueDate] missing inputs', inputs.length); return; }
   var val = dateInput.value;
   console.log('[dueDate] dateInput.value=', val, 'dueInput.value=', dueInput.value);
-  if (!val || !val.match(/^\d{4}-\d{2}-\d{2}$/)) { console.log('[dueDate] invalid date format, skip'); return; }
+  if (!val || !val.match(/^\\d{4}-\\d{2}-\\d{2}$/)) { console.log('[dueDate] invalid date format, skip'); return; }
   if (dueInput.value) { console.log('[dueDate] due already set, skip'); return; }
   var vendIn = draftParentTr.querySelector('input.draft-vendor-input');
   var terms = vendIn ? parseInt(vendIn.dataset.paymentTerms || '0') : 0;
@@ -1504,7 +1504,7 @@ function draftVendorInput(input) {
         // Auto-fill due date from payment terms + bill date (if bill date already set)
         if (v.payment_terms_days) {
           var dateVal = ccyInputs[1] && ccyInputs[1].value;
-          if (dateVal && dateVal.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          if (dateVal && dateVal.match(/^\\d{4}-\\d{2}-\\d{2}$/)) {
             var dp = dateVal.split('-');
             var bd = new Date(parseInt(dp[0]), parseInt(dp[1]) - 1, parseInt(dp[2]));
             bd.setDate(bd.getDate() + v.payment_terms_days);

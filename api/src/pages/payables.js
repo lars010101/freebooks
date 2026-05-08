@@ -266,6 +266,28 @@ var treeState = {
   setClose: function(billId) { this.open.delete(String(billId)); }
 };
 
+// Map cursor column when crossing between parent rows (7 tds) and child rows (4 tds, first has colspan=4).
+// Parent cols: 0=Vendor,1=Date,2=Due,3=Ref,4=Amount,5=CCY,6=Status
+// Child cols:  0=Description(colspan4),1=Amount,2=CCY,3=VatTag
+function crossRowCol(fromRow, toRow, col) {
+  var fromType = fromRow.dataset.rowType;
+  var toType   = toRow.dataset.rowType;
+  if (fromType === toType) return col; // same type — no mapping needed
+  if (fromType === 'parent' && toType === 'child') {
+    if (col <= 3) return 0;
+    if (col === 4) return 1;
+    if (col === 5) return 2;
+    return 3;
+  }
+  if (fromType === 'child' && toType === 'parent') {
+    if (col === 0) return 0;
+    if (col === 1) return 4;
+    if (col === 2) return 5;
+    return 6;
+  }
+  return col;
+}
+
 var cursor = {
   rowEl: null,
   col: 0,
@@ -454,14 +476,14 @@ var kbd = {
       e.preventDefault();
       var now = Date.now(); if (now - this._lastMoveTime < 40) return; this._lastMoveTime = now;
       if (idx === -1 && rows.length) { cursor.set(rows[0], 0); }
-      else if (idx >= 0 && idx < rows.length - 1) { cursor.set(rows[idx + 1], cursor.col); }
+      else if (idx >= 0 && idx < rows.length - 1) { cursor.set(rows[idx + 1], crossRowCol(rows[idx], rows[idx + 1], cursor.col)); }
       this._lastKey = null; return;
     }
 
     if (e.key === 'k') {
       e.preventDefault();
       var now2 = Date.now(); if (now2 - this._lastMoveTime < 40) return; this._lastMoveTime = now2;
-      if (idx > 0) { cursor.set(rows[idx - 1], cursor.col); }
+      if (idx > 0) { cursor.set(rows[idx - 1], crossRowCol(rows[idx], rows[idx - 1], cursor.col)); }
       else if (idx === 0) { cursor.clear(); }
       this._lastKey = null; return;
     }

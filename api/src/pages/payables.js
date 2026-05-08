@@ -114,6 +114,12 @@ ${commonStyle()}
   .child-row td.child-desc { padding-left:2rem; }
   .child-gst-row td { background:#f5f5f5; }
 
+  .draft-input { border:1px solid #ccc; border-radius:4px; padding:5px 8px; font-size:0.875rem; width:100%; box-sizing:border-box; background:#fffef5; font-family:inherit; }
+  .draft-input:focus { outline:none; border-color:#1a1a1a; }
+  .draft-input.req { border-color:#cc2222; }
+  tr[data-draft="true"] td { background:#fffef5; }
+  tr[data-draft="true"]:hover td { background:#fffbea; }
+
   /* Row state classes */
   tr[data-row-type="parent"]:hover td { background:#fafafa; }
   tr.row-expanded > td:first-child { color:#1a1a1a; font-weight:600; }
@@ -462,7 +468,12 @@ var kbd = {
     if (cursor.mode === 'INSERT') {
       if (e.key === 'Escape') { e.preventDefault(); exitBillCellEdit(false); return; }
       if (e.key === 'Enter')  { e.preventDefault(); exitBillCellEdit(true); return; }
-      if (e.key === 'Tab')    { e.preventDefault(); return; } // disabled in INSERT mode
+      if (e.key === 'Tab') {
+        if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
+          return; // let native Tab work for draft rows
+        }
+        e.preventDefault(); return;
+      }
       return; // all other keys go to input/select
     }
 
@@ -509,6 +520,38 @@ var kbd = {
         var tds2 = cursor.rowEl.querySelectorAll('td');
         var tdFocus = tds2[cursor.col];
         if (tdFocus) enterBillCellEdit(cursor.rowEl, cursor.col);
+      }
+      this._lastKey = null; return;
+    }
+
+    if (e.key === 'o') {
+      e.preventDefault();
+      if (!cursor.rowEl) {
+        insertDraftParentRow(null, false);
+      } else if (cursor.rowEl.dataset.rowType === 'parent') {
+        insertDraftParentRow(cursor.rowEl, false);
+      } else if (cursor.rowEl.dataset.rowType === 'child') {
+        insertDraftChildRow(cursor.rowEl, false);
+      }
+      this._lastKey = null; return;
+    }
+
+    if (e.key === 'O') {
+      e.preventDefault();
+      if (!cursor.rowEl) {
+        insertDraftParentRow(null, false);
+      } else if (cursor.rowEl.dataset.rowType === 'parent') {
+        insertDraftParentRow(cursor.rowEl, true);
+      } else if (cursor.rowEl.dataset.rowType === 'child') {
+        insertDraftChildRow(cursor.rowEl, true);
+      }
+      this._lastKey = null; return;
+    }
+
+    if (e.key === 'p') {
+      e.preventDefault();
+      if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true' && cursor.rowEl.dataset.rowType === 'parent') {
+        openPostReviewPopup(cursor.rowEl);
       }
       this._lastKey = null; return;
     }
@@ -563,12 +606,14 @@ var kbd = {
 
   _toggleFold: function() {
     var pr = this._getParentRow(); if (!pr) return;
+    if (pr.dataset.draft === 'true') { this._toggleFoldDraft(pr); return; }
     var billId = pr.dataset.billId;
     if (treeState.isOpen(billId)) this._closeFold(pr); else this._openFold(pr);
   },
 
   _openFold: function(parentRow) {
     parentRow = parentRow || this._getParentRow(); if (!parentRow) return;
+    if (parentRow.dataset.draft === 'true') { this._openFoldDraft(parentRow); return; }
     var billId = parentRow.dataset.billId;
     if (treeState.isOpen(billId)) return;
     treeState.setOpen(billId);
@@ -577,6 +622,7 @@ var kbd = {
 
   _closeFold: function(parentRow) {
     parentRow = parentRow || this._getParentRow(); if (!parentRow) return;
+    if (parentRow.dataset.draft === 'true') { this._closeFoldDraft(parentRow); return; }
     var billId = parentRow.dataset.billId;
     if (!treeState.isOpen(billId)) return;
     if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') cursor.set(parentRow, 0);
@@ -584,9 +630,58 @@ var kbd = {
     toggleBillLines(billId, parentRow);
   },
 
+  _openFoldDraft: function(parentRow) {
+    if (!parentRow) return;
+    var draftKey = parentRow.dataset.draftKey;
+    if (!draftKey) return;
+    var existingChild = document.querySelector('tr[data-parent-key="' + draftKey + '"]');
+    if (!existingChild) {
+      var tr = document.createElement('tr');
+      tr.dataset.rowType = 'child';
+      tr.dataset.draft = 'true';
+      tr.dataset.parentKey = draftKey;
+      tr.style.cssText = 'background:#fffef5';
+      var baseCcy = parentRow.querySelectorAll('input')[5].value || BASE_CURRENCY;
+      tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Description" /></td>'
+        + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+        + '<td style="font-size:0.75rem;color:#888">' + baseCcy + '</td>'
+        + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>';
+      var gstSelect = tr.querySelector('select');
+      Object.keys(taxCodeMap).forEach(function(code) {
+        var opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = code + ': ' + taxCodeMap[code];
+        gstSelect.appendChild(opt);
+      });
+      parentRow.parentElement.insertBefore(tr, parentRow.nextElementSibling);
+    }
+  },
+
+  _closeFoldDraft: function(parentRow) {
+    if (!parentRow) return;
+    var draftKey = parentRow.dataset.draftKey;
+    if (!draftKey) return;
+    document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]').forEach(function(r) {
+      r.style.display = 'none';
+    });
+  },
+
+  _toggleFoldDraft: function(parentRow) {
+    var draftKey = parentRow.dataset.draftKey;
+    if (!draftKey) return;
+    var children = document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]');
+    var allHidden = Array.from(children).every(function(r) { return r.style.display === 'none'; });
+    if (allHidden) {
+      children.forEach(function(r) { r.style.display = ''; });
+    } else {
+      children.forEach(function(r) { r.style.display = 'none'; });
+    }
+  },
+
   _expandAll: function() {
     var tbody = document.getElementById('bills-tbody'); if (!tbody) return;
     tbody.querySelectorAll('tr[data-row-type="parent"]').forEach(function(pr) {
+      if (pr.dataset.draft === 'true') return;
       var billId = pr.dataset.billId;
       var hasChildren = !!tbody.querySelector('tr[data-row-type="child"][data-parent-id="' + billId + '"]');
       if (!hasChildren) { treeState.setOpen(billId); toggleBillLines(billId, pr); }
@@ -601,6 +696,7 @@ var kbd = {
       if (pr2) cursor.set(pr2, 0);
     }
     tbody.querySelectorAll('tr[data-row-type="parent"]').forEach(function(pr) {
+      if (pr.dataset.draft === 'true') return;
       var billId = pr.dataset.billId;
       var hasChildren = !!tbody.querySelector('tr[data-row-type="child"][data-parent-id="' + billId + '"]');
       if (hasChildren) { treeState.setClose(billId); toggleBillLines(billId, pr); }
@@ -725,6 +821,22 @@ function exitBillCellEdit(save) {
   var col = billEditState.col;
 
   if (!rowEl || !tdEl) { billEditState.rowEl = null; return; }
+
+  // Draft row Esc handler: remove if all empty
+  if (rowEl && rowEl.dataset.draft === 'true' && !save) {
+    if (document.activeElement) document.activeElement.blur();
+    var draftKey = rowEl.dataset.draftKey;
+    var inputs = rowEl.querySelectorAll('input');
+    var allEmpty = Array.from(inputs).every(function(inp){ return !inp.value.trim(); });
+    if (allEmpty && draftKey) {
+      document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]').forEach(function(r){ r.remove(); });
+      rowEl.remove();
+      cursor.clear();
+    }
+    tdEl.classList.remove('vcell-editing');
+    billEditState.rowEl = null;
+    return;
+  }
 
   // Support both input and select elements
   var el = tdEl.querySelector('input, select');
@@ -1152,6 +1264,276 @@ function openColFilter(th, col) {
     document.addEventListener('click', onOutsideClick);
     document.addEventListener('keydown', onEscape, true);
   }, 0);
+}
+
+// ========== DRAFT BILL CREATION ==========
+function insertDraftParentRow(refRow, above) {
+  var tbody = document.getElementById('bills-tbody');
+  if (!tbody) return;
+  var draftKey = 'draft-' + Date.now();
+  var tr = document.createElement('tr');
+  tr.dataset.rowType = 'parent';
+  tr.dataset.draft = 'true';
+  tr.dataset.status = 'draft';
+  tr.dataset.draftKey = draftKey;
+  tr.style.cssText = 'cursor:default';
+  var baseCcy = BASE_CURRENCY;
+  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" style="margin-left:10px" data-vendor-id="" data-vendor-name="" data-ap-account="201100" data-expense-account="400000" /></div></td>'
+    + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
+    + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
+    + '<td><input class="draft-input" placeholder="Ref" /></td>'
+    + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+    + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
+    + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewPopup(this.closest(\'tr\'))" title="Click to post draft bill">Draft</span></td>';
+  if (refRow && above) {
+    refRow.parentElement.insertBefore(tr, refRow);
+  } else if (refRow) {
+    refRow.parentElement.insertBefore(tr, refRow.nextElementSibling);
+  } else {
+    tbody.appendChild(tr);
+  }
+  var vendorInput = tr.querySelector('input.draft-vendor-input');
+  vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
+  vendorInput.addEventListener('blur', function() { setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150); });
+  cursor.set(tr, 0);
+  cursor.mode = 'INSERT';
+  vendorInput.focus();
+}
+
+function insertDraftChildRow(childRow, above) {
+  var tbody = document.getElementById('bills-tbody');
+  if (!tbody) return;
+  var parentTr = null;
+  if (childRow.dataset.rowType === 'parent') {
+    parentTr = childRow;
+  } else if (childRow.dataset.parentId) {
+    parentTr = document.querySelector('tr[data-row-type="parent"][data-bill-id="' + childRow.dataset.parentId + '"]');
+  } else if (childRow.dataset.parentKey) {
+    parentTr = document.querySelector('tr[data-row-type="parent"][data-draft-key="' + childRow.dataset.parentKey + '"]');
+  }
+  if (!parentTr) return;
+  var draftKey = parentTr.dataset.draftKey || parentTr.dataset.billId;
+  var parentInputs = parentTr.querySelectorAll('input');
+  var parentCcy = parentInputs.length > 5 ? parentInputs[5].value : BASE_CURRENCY;
+  var tr = document.createElement('tr');
+  tr.dataset.rowType = 'child';
+  tr.dataset.draft = 'true';
+  tr.dataset.parentKey = draftKey; // data-parent-key references parent's data-draft-key
+  tr.style.cssText = 'background:#fffef5';
+  tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Description" /></td>'
+    + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+    + '<td style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
+    + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>';
+  var gstSelect = tr.querySelector('select');
+  Object.keys(taxCodeMap).forEach(function(code) {
+    var opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = code + ': ' + taxCodeMap[code];
+    gstSelect.appendChild(opt);
+  });
+  if (above) {
+    childRow.parentElement.insertBefore(tr, childRow);
+  } else {
+    childRow.parentElement.insertBefore(tr, childRow.nextElementSibling);
+  }
+  cursor.set(tr, 0);
+  cursor.mode = 'INSERT';
+  var descInput = tr.querySelector('input.child-desc');
+  descInput.focus();
+}
+
+function draftVendorInput(input) {
+  var q = input.value.trim().toLowerCase();
+  var dd = document.getElementById('pay-draft-vendor-dd');
+  if (dd) dd.remove();
+  if (!q) return;
+  var matches = allVendors.filter(function(v) {
+    return (v.name || '').toLowerCase().includes(q);
+  }).slice(0, 12);
+  if (!matches.length) return;
+  var div = document.createElement('div');
+  div.id = 'pay-draft-vendor-dd';
+  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:0.8125rem;box-shadow:0 2px 6px rgba(0,0,0,.2)';
+  matches.forEach(function(v, i) {
+    var item = document.createElement('div');
+    item.dataset.vendorId = v.vendor_id || '';
+    item.dataset.idx = String(i);
+    item.textContent = v.name || '';
+    item.style.cssText = 'padding:8px 12px;cursor:pointer;white-space:nowrap';
+    item.onmouseover = function() { clearDraftVendorDdFocus(); item.classList.add('dd-active'); item.style.background = '#e8f0fe'; };
+    item.onmouseout = function() { item.classList.remove('dd-active'); item.style.background = ''; };
+    item.onmousedown = function(e) { e.preventDefault(); };
+    item.onclick = function() {
+      input.dataset.vendorId = v.vendor_id || '';
+      input.dataset.vendorName = v.name || '';
+      input.dataset.apAccount = v.default_ap_account || '201100';
+      input.dataset.expenseAccount = v.default_expense_account || '400000';
+      input.value = v.name || '';
+      var tr = input.closest('tr');
+      if (tr) {
+        var ccyInputs = tr.querySelectorAll('input');
+        if (ccyInputs[5]) ccyInputs[5].value = (v.default_currency || BASE_CURRENCY).toUpperCase();
+        if (v.payment_terms_days && ccyInputs[1] && ccyInputs[1].value) {
+          var billDate = new Date(ccyInputs[1].value);
+          var dueDate = new Date(billDate.getTime() + v.payment_terms_days * 24 * 60 * 60 * 1000);
+          var dueDateStr = dueDate.toISOString().slice(0, 10);
+          if (ccyInputs[2]) ccyInputs[2].value = dueDateStr;
+        }
+      }
+      var dd2 = document.getElementById('pay-draft-vendor-dd');
+      if (dd2) dd2.remove();
+    };
+    div.appendChild(item);
+  });
+  var rect = input.getBoundingClientRect();
+  div.style.left = rect.left + 'px';
+  div.style.top = (rect.bottom + 2) + 'px';
+  div.style.minWidth = rect.width + 'px';
+  document.body.appendChild(div);
+}
+
+function clearDraftVendorDdFocus() {
+  var dd = document.getElementById('pay-draft-vendor-dd');
+  if (!dd) return;
+  dd.querySelectorAll('.dd-active').forEach(function(el) { el.classList.remove('dd-active'); el.style.background = ''; });
+}
+
+function openPostReviewPopup(draftParentTr) {
+  var vendorInputs = draftParentTr.querySelectorAll('input');
+  var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
+  var dateInput = vendorInputs[1];
+  var dueInput = vendorInputs[2];
+  var refInput = vendorInputs[3];
+  var amtInput = vendorInputs[4];
+  var ccyInput = vendorInputs[5];
+  var vendorName = vendorInput && (vendorInput.dataset.vendorName || vendorInput.value.trim());
+  var apAccount = vendorInput && (vendorInput.dataset.apAccount || '201100');
+  var expAcct = vendorInput && (vendorInput.dataset.expenseAccount || '400000');
+  var billDate = dateInput && dateInput.value;
+  var totalAmt = parseFloat(amtInput && amtInput.value) || 0;
+  var ccy = ccyInput && (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY);
+  if (!vendorName) { billEditMsg('Vendor is required', 'err'); return; }
+  if (!billDate) { billEditMsg('Date is required', 'err'); return; }
+  if (!totalAmt || totalAmt <= 0) { billEditMsg('Amount must be > 0', 'err'); return; }
+  var draftKey = draftParentTr.dataset.draftKey;
+  var childRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]'));
+  var lines = [];
+  if (childRows.length > 0) {
+    childRows.forEach(function(cr) {
+      var descInput = cr.querySelector('input.child-desc');
+      var amtInputC = cr.querySelectorAll('input')[1];
+      var gstSelect = cr.querySelector('select');
+      var desc = descInput ? descInput.value.trim() : '';
+      var amt = parseFloat(amtInputC && amtInputC.value) || 0;
+      var vatCode = gstSelect ? gstSelect.value : '';
+      lines.push({ description: desc, expense_account: expAcct, amount: amt, vat_code: vatCode || null });
+    });
+  } else {
+    lines.push({ description: '', expense_account: expAcct, amount: totalAmt, vat_code: null });
+  }
+  window._prvDraftTr = draftParentTr;
+  window._prvLines = lines;
+  window._prvMeta = { vendor: vendorName, vendor_ref: refInput ? refInput.value.trim() : '', date: billDate, due_date: dueInput ? dueInput.value : '', amount: totalAmt, currency: ccy, ap_account: apAccount, expense_account: expAcct };
+  var overlay = document.createElement('div');
+  overlay.id = 'post-review-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center';
+  var popupContent = '<div style="background:#fff;border-radius:8px;padding:24px;max-width:600px;max-height:80vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.3)">' +
+    '<h2 style="margin:0 0 16px;font-size:1.25rem">Post Bill</h2>' +
+    '<div style="margin-bottom:16px">' +
+    '<div style="display:flex;gap:24px;font-size:0.875rem;margin-bottom:12px">' +
+    '<div><span style="color:#666">Vendor:</span> <strong>' + esc(vendorName) + '</strong></div>' +
+    '<div><span style="color:#666">Date:</span> <strong>' + fmtDate(billDate) + '</strong></div>' +
+    '</div>' +
+    '<div style="display:flex;gap:24px;font-size:0.875rem">' +
+    '<div><span style="color:#666">Amount:</span> <strong>' + Number(totalAmt).toFixed(2) + ' ' + ccy + '</strong></div>' +
+    '<div><span style="color:#666">Due:</span> <strong>' + fmtDate(window._prvMeta.due_date) + '</strong></div>' +
+    '</div>' +
+    '</div>' +
+    '<div id="post-review-error" style="color:#cc2222;margin-bottom:12px;display:none"></div>' +
+    '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:0.875rem">' +
+    '<thead><tr style="border-bottom:1px solid #ddd"><th style="text-align:left;padding:8px 0">Account</th><th style="text-align:right;padding:8px 0">Debit</th><th style="text-align:right;padding:8px 0">Credit</th></tr></thead>' +
+    '<tbody id="post-review-lines"></tbody>' +
+    '</table>' +
+    '<div style="display:flex;gap:10px;justify-content:flex-end">' +
+    '<button onclick="closePostReviewPopup()" style="padding:8px 16px;background:#f0f0f0;border:1px solid #ccc;border-radius:4px;cursor:pointer">Cancel</button>' +
+    '<button onclick="confirmPost()" style="padding:8px 16px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">Post</button>' +
+    '</div>' +
+    '</div>';
+  overlay.innerHTML = popupContent;
+  document.body.appendChild(overlay);
+  var linesTable = document.getElementById('post-review-lines');
+  lines.forEach(function(line) {
+    var tr = document.createElement('tr');
+    var acctName = billAccountsList.find(function(a) { return a.account_code === line.expense_account; });
+    var acctNameStr = acctName ? acctName.account_name : line.expense_account;
+    tr.innerHTML = '<td style="padding:6px 0"><span style="cursor:pointer;color:#2255cc" onclick="editPostLineAcct(event, \'' + line.expense_account + '\')">'
+      + esc(line.expense_account) + ' — ' + esc(acctNameStr) + '</span></td>'
+      + '<td style="text-align:right;padding:6px 0">' + Number(line.amount).toFixed(2) + '</td>'
+      + '<td style="text-align:right;padding:6px 0">—</td>';
+    linesTable.appendChild(tr);
+  });
+  var crTr = document.createElement('tr');
+  crTr.style.borderTop = '1px solid #ddd';
+  var crAcctName = billAccountsList.find(function(a) { return a.account_code === apAccount; });
+  var crAcctNameStr = crAcctName ? crAcctName.account_name : apAccount;
+  crTr.innerHTML = '<td style="padding:6px 0;font-weight:600"><span style="cursor:pointer;color:#2255cc" onclick="editPostLineAcct(event, \'' + apAccount + '\')">'
+    + esc(apAccount) + ' — ' + esc(crAcctNameStr) + '</span></td>'
+    + '<td style="text-align:right;padding:6px 0">—</td>'
+    + '<td style="text-align:right;padding:6px 0;font-weight:600">' + Number(totalAmt).toFixed(2) + '</td>';
+  linesTable.appendChild(crTr);
+}
+
+function editPostLineAcct(event, acctCode) {
+  // TODO: implement inline account editing in popup
+}
+
+function confirmPost() {
+  var meta = window._prvMeta;
+  var lines = window._prvLines;
+  fetch('/api/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'bill.create',
+      companyId: COMPANY,
+      bill: {
+        vendor: meta.vendor,
+        vendor_ref: meta.vendor_ref,
+        date: meta.date,
+        due_date: meta.due_date,
+        amount: meta.amount,
+        currency: meta.currency,
+        ap_account: meta.ap_account,
+        lines: lines
+      }
+    })
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.error || (res.data && res.data.error)) {
+        var err = res.error || (res.data && res.data.error);
+        var errDiv = document.getElementById('post-review-error');
+        if (errDiv) { errDiv.style.display = 'block'; errDiv.textContent = 'Error: ' + err; }
+        return;
+      }
+      closePostReviewPopup();
+      if (window._prvDraftTr) window._prvDraftTr.remove();
+      loadAllBills();
+      billEditMsg('Bill posted successfully.', 'ok');
+      setTimeout(function() { billEditMsg('', ''); }, 2500);
+    })
+    .catch(function(e) {
+      var errDiv = document.getElementById('post-review-error');
+      if (errDiv) { errDiv.style.display = 'block'; errDiv.textContent = 'Error: ' + e.message; }
+    });
+}
+
+function closePostReviewPopup() {
+  var overlay = document.getElementById('post-review-overlay');
+  if (overlay) overlay.remove();
+  window._prvDraftTr = null;
+  window._prvLines = null;
+  window._prvMeta = null;
 }
 
 function registerBillKeyActions() {

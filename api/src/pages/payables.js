@@ -907,7 +907,7 @@ function exitBillCellEdit(save) {
       var rowInputs = rowEl.querySelectorAll('input');
       var hasVendor = vendIn && vendIn.dataset.vendorName;
       var hasDate   = rowInputs[1] && rowInputs[1].value;
-      var hasAmount = rowInputs[4] && parseFloat(rowInputs[4].value) > 0;
+      var hasAmount = true; // amount is computed from children, not user-entered
       // auto-save is handled by blur listeners on individual inputs (no explicit save here)
     }
     tdEl.classList.remove('vcell-editing');
@@ -1362,7 +1362,7 @@ function insertDraftParentRow(refRow, above) {
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
-    + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+    + '<td style="text-align:right;color:#aaa;font-style:italic;padding:8px 18px" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
     + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewPopup(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
   if (refRow && above) {
@@ -1376,8 +1376,7 @@ function insertDraftParentRow(refRow, above) {
   var draftInputs2 = tr.querySelectorAll('input');
   var dateInputEl  = draftInputs2[1];
   var dueInputEl   = draftInputs2[2];
-  var amtInputEl   = draftInputs2[4];
-  var ccyInputEl   = draftInputs2[5];
+  var ccyInputEl   = draftInputs2[4]; // amount is now display-only; ccy shifts to index 4
 
   // Vendor: type-ahead + blur validation + auto-fill CCY/accounts
   vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
@@ -1441,9 +1440,7 @@ function insertDraftParentRow(refRow, above) {
   }
 
   // All other fields: trigger auto-save check on blur
-  [dateInputEl, amtInputEl].forEach(function(inp) {
-    if (inp) inp.addEventListener('blur', function() { autoSaveDraftIfReady(tr); });
-  });
+  if (dateInputEl) dateInputEl.addEventListener('blur', function() { autoSaveDraftIfReady(tr); });
 
   // Clear row/cell highlights when any input in the draft row gains focus
   tr.addEventListener('focusin', function(e) {
@@ -1459,26 +1456,42 @@ function insertDraftParentRow(refRow, above) {
   vendorInput.focus();
 }
 
+function updateParentDraftAmount(draftParentTr) {
+  var draftKey = draftParentTr.dataset.draftKey;
+  var total = 0;
+  if (draftKey) {
+    Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]')).forEach(function(cr) {
+      var a = cr.querySelectorAll('input')[1]; total += parseFloat(a && a.value) || 0;
+    });
+  }
+  var amtCell = draftParentTr.querySelector('.draft-total-amount');
+  if (amtCell) amtCell.textContent = total.toFixed(2);
+}
+
+function autoSaveChildRow(childRow, parentTr) {
+  var descInput = childRow.querySelector('input.child-desc');
+  var amtInput  = childRow.querySelectorAll('input')[1];
+  var gstSelect = childRow.querySelector('select');
+  var desc = descInput && descInput.value.trim();
+  var amt  = parseFloat(amtInput && amtInput.value) || 0;
+  var tax  = gstSelect && gstSelect.value;
+  // Validate red borders
+  if (descInput) descInput.classList.toggle('req', !desc);
+  if (amtInput)  amtInput.classList.toggle('req', !(amt > 0));
+  if (gstSelect) gstSelect.classList.toggle('req', !tax);
+  if (!desc || !(amt > 0) || !tax) return; // not complete yet
+  updateParentDraftAmount(parentTr);
+  saveDraftToDb(parentTr);
+}
+
 function autoSaveDraftIfReady(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
-  var dateInput = inputs[1], dueInput = inputs[2], amtInput = inputs[4], ccyInput = inputs[5];
+  var dateInput = inputs[1], dueInput = inputs[2], ccyInput = inputs[4]; // amount col is now display-only
   if (!vendorInput || !vendorInput.dataset.vendorName) return;
   if (!dateInput || !dateInput.value) return;
   if (!dueInput || !dueInput.value) return;
-  if (!amtInput || !(parseFloat(amtInput.value) > 0)) return;
   if (!ccyInput || !ccyInput.value.trim()) return;
-  // Require at least one child row with description and amount > 0
-  var draftKey = draftParentTr.dataset.draftKey;
-  if (draftKey) {
-    var childRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"][data-draft="true"]'));
-    var hasValidChild = childRows.some(function(cr) {
-      var descInput = cr.querySelector('input.child-desc');
-      var amtInputC = cr.querySelectorAll('input')[1];
-      return descInput && descInput.value.trim() && amtInputC && parseFloat(amtInputC.value) > 0;
-    });
-    if (!hasValidChild) return;
-  }
   saveDraftToDb(draftParentTr);
 }
 
@@ -1518,13 +1531,14 @@ function insertDraftChildRow(childRow, above) {
   } else {
     childRow.parentElement.insertBefore(tr, childRow.nextElementSibling);
   }
-  // Wire blur on child inputs to trigger parent auto-save check
+  // Wire child field events — auto-save child when all mandatory fields are filled
   var parentTrRef = parentTr;
-  Array.from(tr.querySelectorAll('input.draft-input, select.draft-input')).forEach(function(inp) {
-    inp.addEventListener('blur', function() {
-      if (parentTrRef) autoSaveDraftIfReady(parentTrRef);
-    });
-  });
+  var descInpRef = tr.querySelector('input.child-desc');
+  var amtInpRef  = tr.querySelectorAll('input')[1];
+  var gstSelRef  = tr.querySelector('select');
+  if (descInpRef) descInpRef.addEventListener('blur',   function() { autoSaveChildRow(tr, parentTrRef); });
+  if (amtInpRef)  amtInpRef.addEventListener('blur',    function() { autoSaveChildRow(tr, parentTrRef); });
+  if (gstSelRef)  gstSelRef.addEventListener('change',  function() { autoSaveChildRow(tr, parentTrRef); });
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
   var descInput = tr.querySelector('input.child-desc');
@@ -1563,7 +1577,7 @@ function draftVendorInput(input) {
       var tr = input.closest('tr');
       if (tr) {
         var ccyInputs = tr.querySelectorAll('input');
-        if (ccyInputs[5]) ccyInputs[5].value = (v.default_currency || BASE_CURRENCY).toUpperCase();
+        if (ccyInputs[4]) ccyInputs[4].value = (v.default_currency || BASE_CURRENCY).toUpperCase(); // ccy is now index 4 (amount removed)
       }
       var dd2 = document.getElementById('pay-draft-vendor-dd');
       if (dd2) dd2.remove();
@@ -1646,14 +1660,16 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   // Read current values from draft parent inputs
   var inputs = draftParentTr.querySelectorAll('input');
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
-  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], amtInput = inputs[4], ccyInput = inputs[5];
-  
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4]; // amount is display-only
   var vendor = vendorInput ? (vendorInput.dataset.vendorName || vendorInput.value) : '';
   var billDate = dateInput ? dateInput.value : '';
   var dueDate = dueInput ? dueInput.value : '';
   var vendorRef = refInput ? refInput.value.trim() : '';
-  var amount = parseFloat(amtInput ? amtInput.value : 0) || 0;
   var currency = ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY;
+  // Compute amount from child rows
+  var draftKeyC = draftParentTr.dataset.draftKey;
+  var amount = 0;
+  if (draftKeyC) Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyC + '"]')).forEach(function(cr) { var a = cr.querySelectorAll('input')[1]; amount += parseFloat(a && a.value) || 0; });
   var draftKey = draftParentTr.dataset.draftKey;
   
   // Update data-* attributes on parent row
@@ -1734,7 +1750,7 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
 function saveDraftToDb(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
-  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], amtInput = inputs[4], ccyInput = inputs[5];
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4]; // amount is display-only
 
   var vendorName = vendorInput && vendorInput.dataset.vendorName;
   if (!vendorName) { billEditMsg('Select vendor from dropdown before saving', 'err'); return; }
@@ -1743,8 +1759,14 @@ function saveDraftToDb(draftParentTr) {
   var dueDate = dueInput && dueInput.value;
   if (!dueDate) { billEditMsg('Due date required', 'err'); return; }
   if (dueDate < billDate) { billEditMsg('Due date must be ≥ bill date', 'err'); return; }
-  var totalAmt = parseFloat(amtInput && amtInput.value) || 0;
-  if (totalAmt <= 0) { billEditMsg('Amount must be > 0', 'err'); return; }
+  // Compute total from child rows
+  var draftKeyAmt = draftParentTr.dataset.draftKey;
+  var totalAmt = 0;
+  if (draftKeyAmt) {
+    Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyAmt + '"]')).forEach(function(cr) {
+      var a = cr.querySelectorAll('input')[1]; totalAmt += parseFloat(a && a.value) || 0;
+    });
+  }
 
   var existingBillId = draftParentTr.dataset.billId || null;
   var payload = {
@@ -1761,15 +1783,16 @@ function saveDraftToDb(draftParentTr) {
       ap_account: vendorInput ? (vendorInput.dataset.apAccount || '201100') : '201100',
       expense_account: vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000',
       lines: (function() {
-        var draftKey2 = draftParentTr.dataset.draftKey;
-        if (!draftKey2) return null;
+        var dk = draftKeyAmt;
+        if (!dk) return null;
         var expAcct2 = vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000';
-        var childRows2 = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey2 + '"]'));
+        var ccy2 = ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY;
+        var childRows2 = Array.from(document.querySelectorAll('tr[data-parent-key="' + dk + '"]'));
         return childRows2.map(function(cr) {
           var dIn = cr.querySelector('input.child-desc');
           var aIn = cr.querySelectorAll('input')[1];
           var gSel = cr.querySelector('select');
-          return { description: dIn ? dIn.value.trim() : '', expense_account: expAcct2,
+          return { description: dIn ? dIn.value.trim() : '', expense_account: expAcct2, currency: ccy2,
             amount: parseFloat(aIn && aIn.value) || 0, vat_code: gSel ? (gSel.value || null) : null };
         });
       })()
@@ -1820,15 +1843,17 @@ function openPostReviewPopup(draftParentTr) {
     var dateInput = vendorInputs[1];
     var dueInput = vendorInputs[2];
     var refInput = vendorInputs[3];
-    var amtInput = vendorInputs[4];
-    var ccyInput = vendorInputs[5];
+    var ccyInput = vendorInputs[4]; // amount is now display-only, ccy at index 4
     vendorName = vendorInput && vendorInput.dataset.vendorName;
     apAccount = vendorInput && (vendorInput.dataset.apAccount || '201100');
     if (!vendorName && vendorInput) vendorName = vendorInput.value.trim(); // fallback (no vendor master required)
     expAcct = vendorInput && (vendorInput.dataset.expenseAccount || '400000');
     billDate = dateInput && dateInput.value;
     dueDate = dueInput && dueInput.value;
-    totalAmt = parseFloat(amtInput && amtInput.value) || 0;
+    // Compute total from child rows (amount is display-only on parent)
+    var draftKeyT = draftParentTr.dataset.draftKey;
+    totalAmt = 0;
+    if (draftKeyT) Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyT + '"]')).forEach(function(cr) { var a = cr.querySelectorAll('input')[1]; totalAmt += parseFloat(a && a.value) || 0; });
     ccy = ccyInput && (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY);
     refCode = refInput ? refInput.value.trim() : '';
     if (!vendorName) { billEditMsg('Vendor required — select from dropdown', 'err'); return; }
@@ -1858,7 +1883,19 @@ function openPostReviewPopup(draftParentTr) {
   if (!billDate) { billEditMsg('Bill date is required', 'err'); return; }
   if (!dueDate) { billEditMsg('Due date is required', 'err'); return; }
   if (dueDate < billDate) { billEditMsg('Due date must be ≥ bill date', 'err'); return; }
-  if (!totalAmt || totalAmt <= 0) { billEditMsg('Amount must be > 0', 'err'); return; }
+  // Require at least one complete child row (desc + amount + tax code)
+  if (!isDbDraft) {
+    var draftKeyP = draftParentTr.dataset.draftKey;
+    if (draftKeyP) {
+      var childRowsP = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyP + '"]'));
+      var hasCompleteChild = childRowsP.some(function(cr) {
+        var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[1]; var gSel = cr.querySelector('select');
+        return dIn && dIn.value.trim() && aIn && parseFloat(aIn.value) > 0 && gSel && gSel.value;
+      });
+      if (!hasCompleteChild) { billEditMsg('Add at least one complete line item (description, amount, tax code) before posting', 'err'); return; }
+    }
+  }
+  if (!totalAmt || totalAmt <= 0) { billEditMsg('Total amount must be > 0', 'err'); return; }
   // Period check: bill date must fall within a defined, unlocked period
   if (allPeriods.length) {
     var bd = billDate.slice(0, 10);

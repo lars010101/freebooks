@@ -1094,12 +1094,7 @@ function toggleBillLines(billId, parentTr) {
     return;
   }
 
-  // For draft bills, don't fetch from API (no journal entries exist yet)
-  if (parentTr.dataset.status === 'draft') {
-    parentTr.classList.add('row-expanded');
-    treeState.setOpen(billId);
-    return;
-  }
+  // Draft bills with saved lines are fetched via API (draft_lines JSON served by getBillLines)
 
   parentTr.classList.add('row-loading');
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},

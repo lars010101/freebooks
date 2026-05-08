@@ -259,6 +259,25 @@ async function getBillLines(ctx) {
   const { companyId, body } = ctx;
   const { billId } = body;
   if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
+  // For draft bills, return stored draft_lines JSON instead of journal entries
+  const billRows = await query(`SELECT status, draft_lines FROM bills WHERE company_id=@companyId AND bill_id=@billId LIMIT 1`, { companyId, billId });
+  if (billRows.length && billRows[0].status === 'draft') {
+    const raw = billRows[0].draft_lines;
+    if (!raw) return [];
+    try {
+      const lines = JSON.parse(raw);
+      return lines.map((l, i) => ({
+        entry_id: 'draft_' + i,
+        account_code: l.expense_account || '',
+        account_name: '',
+        description: l.description || '',
+        amount: l.amount || 0,
+        vat_code: l.vat_code || null,
+        currency: l.currency || null,
+        fx_rate: 1,
+      }));
+    } catch(e) { return []; }
+  }
   return query(
     `SELECT je.entry_id, je.account_code, a.account_name, je.description, je.debit as amount, je.vat_code, je.currency, je.fx_rate
      FROM journal_entries je
@@ -379,8 +398,8 @@ async function saveDraftBill(ctx) {
   if (existing.length) {
     // update existing draft
     await query(
-      `UPDATE bills SET vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, description=@description WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
-      { vendor: billRow.vendor, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, description: billRow.description, bill_id: billId, company_id: companyId }
+      `UPDATE bills SET vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, description=@description, draft_lines=@draft_lines WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
+      { vendor: billRow.vendor, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, description: billRow.description, draft_lines: bill.lines ? JSON.stringify(bill.lines) : null, bill_id: billId, company_id: companyId }
     );
   } else {
     await bulkInsert('bills', [billRow]);

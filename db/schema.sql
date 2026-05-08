@@ -359,6 +359,7 @@ ALTER TABLE accounts DROP COLUMN IF EXISTS pl_category;
 -- MIGRATION: vendor default expense and AP accounts
 ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
 ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS draft_lines TEXT DEFAULT NULL;
 
 -- =============================================================================
 -- attachments

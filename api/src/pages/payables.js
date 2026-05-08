@@ -474,7 +474,13 @@ var kbd = {
         if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
           var vDd = document.getElementById('pay-draft-vendor-dd');
           var cDd = document.getElementById('pay-draft-ccy-dd');
-          if (vDd && vDd.querySelector('.dd-active')) { vDd.querySelector('.dd-active').click(); return; }
+          if (vDd && vDd.querySelector('.dd-active')) {
+            vDd.querySelector('.dd-active').click();
+            // Advance to date input after vendor selection
+            var draftInps2 = Array.from(cursor.rowEl.querySelectorAll('input.draft-input, select.draft-input'));
+            if (draftInps2[1]) draftInps2[1].focus();
+            return;
+          }
           if (cDd && cDd.querySelector('.dd-active')) { cDd.querySelector('.dd-active').click(); return; }
           var draftInputs = Array.from(cursor.rowEl.querySelectorAll('input.draft-input, select.draft-input'));
           var ae = document.activeElement;
@@ -1219,16 +1225,7 @@ function openColFilter(th, col) {
     inp2.style.fontSize = '0.8125rem';
     inp2.style.boxSizing = 'border-box';
     inp2.style.marginBottom = '0';
-    var debounceTimer = null;
-    inp2.addEventListener('input', function(e) {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(function() {
-        var v = inp2.value.trim();
-        if (v) { colFilters[col] = v; th.classList.add('col-filtered'); }
-        else { delete colFilters[col]; th.classList.remove('col-filtered'); }
-        applyFilters();
-      }, 150);
-    });
+    // No live filter — apply only on Enter to avoid losing focus mid-type
     inp2.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') {
         clearTimeout(debounceTimer);
@@ -1763,6 +1760,19 @@ function saveDraftToDb(draftParentTr) {
       currency: ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY,
       ap_account: vendorInput ? (vendorInput.dataset.apAccount || '201100') : '201100',
       expense_account: vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000',
+      lines: (function() {
+        var draftKey2 = draftParentTr.dataset.draftKey;
+        if (!draftKey2) return null;
+        var expAcct2 = vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000';
+        var childRows2 = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey2 + '"]'));
+        return childRows2.map(function(cr) {
+          var dIn = cr.querySelector('input.child-desc');
+          var aIn = cr.querySelectorAll('input')[1];
+          var gSel = cr.querySelector('select');
+          return { description: dIn ? dIn.value.trim() : '', expense_account: expAcct2,
+            amount: parseFloat(aIn && aIn.value) || 0, vat_code: gSel ? (gSel.value || null) : null };
+        });
+      })()
     }
   };
 

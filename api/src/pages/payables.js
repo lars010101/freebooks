@@ -1463,15 +1463,21 @@ function insertDraftParentRow(refRow, above) {
 }
 
 function updateParentDraftAmount(draftParentTr) {
-  var draftKey = draftParentTr.dataset.draftKey;
+  var lookupKey = draftParentTr.dataset.draftKey || draftParentTr.dataset.billId;
   var total = 0;
-  if (draftKey) {
-    Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]')).forEach(function(cr) {
+  if (lookupKey) {
+    Array.from(document.querySelectorAll('tr[data-parent-key="' + lookupKey + '"]')).forEach(function(cr) {
       var a = cr.querySelector('input.child-desc') ? cr.querySelectorAll('input')[1] : null; total += parseFloat(a && a.value) || 0;
     });
   }
+  // Draft input parent: .draft-total-amount cell
   var amtCell = draftParentTr.querySelector('.draft-total-amount');
-  if (amtCell) amtCell.textContent = total.toFixed(2);
+  if (amtCell) { amtCell.textContent = total.toFixed(2); return; }
+  // Converted display parent: amount is in td at column index 4
+  var tds = draftParentTr.querySelectorAll('td');
+  if (tds[4]) tds[4].textContent = total.toFixed(2);
+  // Keep dataset.amount in sync
+  draftParentTr.dataset.amount = String(total);
 }
 
 function autoSaveChildRow(childRow, parentTr) {
@@ -1544,8 +1550,10 @@ function insertDraftChildRow(childRow, above) {
   var descInpRef = tr.querySelector('input.child-desc');
   var amtInpRef  = tr.querySelectorAll('input')[1];
   var gstSelRef  = tr.querySelector('select');
-  if (descInpRef) descInpRef.addEventListener('blur',   function() { autoSaveChildRow(tr, parentTrRef); });
-  if (amtInpRef)  amtInpRef.addEventListener('blur',    function() { autoSaveChildRow(tr, parentTrRef); });
+  var _childSaveTimer = null;
+  function _schedChildSave() { clearTimeout(_childSaveTimer); _childSaveTimer = setTimeout(function() { autoSaveChildRow(tr, parentTrRef); }, 600); }
+  if (descInpRef) { descInpRef.addEventListener('blur', function() { autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', _schedChildSave); }
+  if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  _schedChildSave); }
   if (gstSelRef)  gstSelRef.addEventListener('change',  function() { autoSaveChildRow(tr, parentTrRef); });
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
@@ -1781,7 +1789,12 @@ function saveDraftToDb(draftParentTr) {
         amount:parseFloat(draftParentTr.dataset.amount)||0, currency:draftParentTr.dataset.currency||BASE_CURRENCY,
         ap_account:draftParentTr.dataset.apAccount||'201100', expense_account:draftParentTr.dataset.expenseAccount||'400000',
         lines:dispLines }}) })
-    .then(function(r){ return r.json(); }).catch(function(){});
+    .then(function(r){ return r.json(); }).then(function(res){
+      if (res && res.error) { billEditMsg(res.error, 'err'); return; }
+      updateParentDraftAmount(draftParentTr);
+      billEditMsg('Line saved.', 'ok');
+      setTimeout(function(){ billEditMsg('', ''); }, 2000);
+    }).catch(function(e){ billEditMsg(e.message || 'Save failed', 'err'); });
     return;
   }
 

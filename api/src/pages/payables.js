@@ -1385,6 +1385,9 @@ function insertDraftParentRow(refRow, above) {
     dueInputEl.addEventListener('focus', function() {
       if (!dueInputEl.value) autoCalcDraftDueDate(tr);
     });
+    dueInputEl.addEventListener('input', function() {
+      dueInputEl.dataset.autoSet = ''; // user is editing manually
+    });
   }
   var ccyInput = tr.querySelectorAll('input')[5];
   if (ccyInput) {
@@ -1454,19 +1457,23 @@ function autoCalcDraftDueDate(draftParentTr) {
   var val = dateInput.value;
   console.log('[dueDate] dateInput.value=', val, 'dueInput.value=', dueInput.value);
   if (!val || !val.match(/^\\d{4}-\\d{2}-\\d{2}$/)) { console.log('[dueDate] invalid date format, skip'); return; }
-  if (dueInput.value) { console.log('[dueDate] due already set, skip'); return; }
+  // skip only if user manually set the due date (not auto-populated)
+  if (dueInput.value && dueInput.dataset.autoSet !== 'true') { console.log('[dueDate] due manually set, skip'); return; }
   var vendIn = draftParentTr.querySelector('input.draft-vendor-input');
   var terms = vendIn ? parseInt(vendIn.dataset.paymentTerms || '0') : 0;
   console.log('[dueDate] terms=', terms, 'paymentTerms attr=', vendIn && vendIn.dataset.paymentTerms);
   // Use 0 days if no terms (due = bill date)
   var parts = val.split('-');
-  var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  var year = parseInt(parts[0]);
+  if (year < 2000 || year > 2100) return; // reject partial year (e.g. 0002 while typing 2026)
+  var d = new Date(year, parseInt(parts[1]) - 1, parseInt(parts[2]));
   if (isNaN(d.getTime())) return;
   d.setDate(d.getDate() + terms);
   var yr = d.getFullYear();
   var mo = String(d.getMonth() + 1).padStart(2, '0');
   var dy = String(d.getDate()).padStart(2, '0');
   dueInput.value = yr + '-' + mo + '-' + dy;
+  dueInput.dataset.autoSet = 'true'; // mark as auto-set so it can be recalculated on date change
 }
 
 function draftVendorInput(input) {

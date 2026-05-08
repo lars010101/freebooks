@@ -2038,7 +2038,7 @@ function openPostReviewForSavedDraft(parentTr) {
 
 function registerBillKeyActions() {
   window.fbKeyActions = {
-    'new': function() { if (window._fbBillZPending) { window._fbBillZPending = false; return; } fbNavigate('/' + COMPANY + '/bill/new'); },
+    'new': function() { /* a/o key handled by kbd._handle; legacy /bill/new suppressed */ },
     'delete': function(row) {
       var billId = row.dataset.billId;
       var vendor = row.dataset.vendor || billId;

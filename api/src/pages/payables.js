@@ -548,10 +548,12 @@ var kbd = {
 
     if (e.key === 'i' || e.key === 'Enter') {
       e.preventDefault();
-      // Draft parent row: Enter = save draft; i = focus existing input in current cell
+      // Draft parent row: Enter/i = focus existing input in current cell
       if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
         if (e.key === 'Enter' && cursor.rowEl.dataset.rowType === 'parent') {
-          saveDraftToDb(cursor.rowEl);
+          // auto-save happens on blur; Enter in NORMAL just enters INSERT mode
+          var firstInp = cursor.rowEl.querySelector('input, select');
+          if (firstInp) { cursor.mode = 'INSERT'; firstInp.focus(); }
           this._lastKey = null; return;
         }
         // i (or Enter on child draft): focus the existing draft input in the current column
@@ -894,7 +896,7 @@ function exitBillCellEdit(save) {
       var hasVendor = vendIn && vendIn.dataset.vendorName;
       var hasDate   = rowInputs[1] && rowInputs[1].value;
       var hasAmount = rowInputs[4] && parseFloat(rowInputs[4].value) > 0;
-      if (hasVendor && hasDate && hasAmount) { saveDraftToDb(rowEl); }
+      // auto-save is handled by blur listeners on individual inputs (no explicit save here)
     }
     tdEl.classList.remove('vcell-editing');
     billEditState.rowEl = null;
@@ -997,13 +999,7 @@ function fbPageInitPayables() {
   loadBillAccounts();
   // Register command dispatcher for :w etc. (called by public/common.js tb-global-search Enter handler)
   window.fbCmdDispatch = function(cmd) {
-    if (cmd === ':w') {
-      var dr = cursor.rowEl;
-      if (dr && dr.dataset.draft === 'true' && dr.dataset.rowType === 'parent') { saveDraftToDb(dr); }
-      else { billEditMsg('No draft row selected', 'err'); setTimeout(function(){ billEditMsg('',''); }, 2000); }
-    } else {
-      billEditMsg('Unknown command: ' + cmd, 'err'); setTimeout(function(){ billEditMsg('',''); }, 2000);
-    }
+    billEditMsg('Unknown command: ' + cmd, 'err'); setTimeout(function(){ billEditMsg('',''); }, 2000);
   };
   window.fbBillNav = true;
   window.fbBillCursorMid = false;
@@ -1368,6 +1364,14 @@ function insertDraftParentRow(refRow, above) {
   var vendorInput = tr.querySelector('input.draft-vendor-input');
   vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
   vendorInput.addEventListener('blur', function() { setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150); });
+  // Auto-save on blur of any draft input (debounced 400ms)
+  Array.from(tr.querySelectorAll('input.draft-input, select.draft-input')).forEach(function(inp) {
+    inp.addEventListener('blur', function() {
+      clearTimeout(tr._autoSaveTimer);
+      tr._autoSaveTimer = setTimeout(function() { autoSaveDraft(tr); }, 400);
+    });
+  });
+
   // No auto-populate for due date — user must set both dates manually
   var ccyInput = tr.querySelectorAll('input')[5];
   if (ccyInput) {
@@ -1384,7 +1388,47 @@ function insertDraftParentRow(refRow, above) {
   }
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
+  // Immediately create skeleton draft in DB to get a bill_id
+  initDraftInDb(tr);
   vendorInput.focus();
+}
+
+function initDraftInDb(draftParentTr) {
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'bill.draft.save', companyId: COMPANY, bill: {} }) })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    var data = res.data || res;
+    if (data && data.billId) {
+      draftParentTr.dataset.billId = data.billId;
+    }
+  })
+  .catch(function() {});
+}
+
+function autoSaveDraft(draftParentTr) {
+  var billId = draftParentTr.dataset.billId;
+  if (!billId) return; // skeleton not yet persisted, skip
+  var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
+  var inputs = draftParentTr.querySelectorAll('input');
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], amtInput = inputs[4], ccyInput = inputs[5];
+  var payload = {
+    action: 'bill.draft.save', companyId: COMPANY,
+    bill: {
+      bill_id: billId,
+      vendor: vendorInput ? (vendorInput.dataset.vendorName || vendorInput.value.trim() || null) : null,
+      vendor_ref: refInput ? refInput.value.trim() || null : null,
+      date: dateInput ? dateInput.value || null : null,
+      due_date: dueInput ? dueInput.value || null : null,
+      amount: parseFloat(amtInput && amtInput.value) || 0,
+      currency: ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY,
+      ap_account: vendorInput ? (vendorInput.dataset.apAccount || '201100') : '201100',
+      expense_account: vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000',
+    }
+  };
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+  .then(function(r) { return r.json(); })
+  .catch(function() {});
 }
 
 function insertDraftChildRow(childRow, above) {

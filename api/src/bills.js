@@ -341,8 +341,7 @@ async function saveDraftBill(ctx) {
   const { companyId, body } = ctx;
   const { bill } = body;
   if (!bill) throw Object.assign(new Error('bill required'), { code: 'INVALID_INPUT' });
-  if (!bill.vendor) throw Object.assign(new Error('vendor required'), { code: 'INVALID_INPUT' });
-  if (!bill.date) throw Object.assign(new Error('date required'), { code: 'INVALID_INPUT' });
+  // vendor and date optional — allows skeleton draft creation on row init
 
   const existing = bill.bill_id
     ? await query(`SELECT bill_id FROM bills WHERE bill_id = @id AND company_id = @cid AND status = 'draft' LIMIT 1`, { id: bill.bill_id, cid: companyId })

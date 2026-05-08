@@ -1369,7 +1369,13 @@ function insertDraftParentRow(refRow, above) {
   var vendorInput = tr.querySelector('input.draft-vendor-input');
   vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
   vendorInput.addEventListener('blur', function() { setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150); });
-  // No blur listener — due date auto-calc is triggered inline by Enter key (see autoCalcDraftDueDate)
+  // Trigger due-date calc whenever the due field gains focus while empty (Tab, click, or Enter advance)
+  var dueInputEl = tr.querySelectorAll('input')[2];
+  if (dueInputEl) {
+    dueInputEl.addEventListener('focus', function() {
+      if (!dueInputEl.value) autoCalcDraftDueDate(tr);
+    });
+  }
   var ccyInput = tr.querySelectorAll('input')[5];
   if (ccyInput) {
     ccyInput.addEventListener('input', function() { draftCcyInput(ccyInput); });

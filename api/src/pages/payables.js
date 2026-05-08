@@ -1516,7 +1516,8 @@ function insertDraftChildRow(childRow, above) {
   if (!parentTr) return;
   var draftKey = parentTr.dataset.draftKey || parentTr.dataset.billId;
   var parentInputs = parentTr.querySelectorAll('input');
-  var parentCcy = parentInputs.length > 5 ? parentInputs[5].value : BASE_CURRENCY;
+  // Inherit CCY from parent: index 4 if draft inputs present, else data-currency attribute
+  var parentCcy = (parentInputs[4] && parentInputs[4].value) || parentTr.dataset.currency || BASE_CURRENCY;
   var tr = document.createElement('tr');
   tr.dataset.rowType = 'child';
   tr.dataset.draft = 'true';
@@ -1688,6 +1689,12 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   draftParentTr.dataset.amount = String(amount);
   draftParentTr.dataset.currency = currency;
   draftParentTr.dataset.status = 'draft';
+  // Preserve AP/expense accounts for line saves after conversion
+  var savedVendorInput = draftParentTr.querySelector('input.draft-vendor-input');
+  if (savedVendorInput) {
+    draftParentTr.dataset.apAccount = savedVendorInput.dataset.apAccount || '201100';
+    draftParentTr.dataset.expenseAccount = savedVendorInput.dataset.expenseAccount || '400000';
+  }
   delete draftParentTr.dataset.draft; // remove draft indicator
   draftParentTr.style.cursor = 'pointer';
   
@@ -1757,6 +1764,26 @@ function saveDraftToDb(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
   var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4]; // amount is display-only
+
+  // If parent is already a saved display row (no draft inputs), save lines only
+  if (!vendorInput && draftParentTr.dataset.billId) {
+    var dispBillId = draftParentTr.dataset.billId;
+    var dispKey = draftParentTr.dataset.draftKey || dispBillId;
+    var dispLines = Array.from(document.querySelectorAll('tr[data-parent-key="' + dispKey + '"]')).map(function(cr) {
+      var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[1]; var gSel = cr.querySelector('select');
+      return { description: dIn?dIn.value.trim():'', expense_account: draftParentTr.dataset.expenseAccount||'400000',
+        amount: parseFloat(aIn&&aIn.value)||0, vat_code: gSel?(gSel.value||null):null, currency: draftParentTr.dataset.currency||BASE_CURRENCY };
+    });
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      action:'bill.draft.save', companyId:COMPANY, bill:{ bill_id:dispBillId,
+        vendor:draftParentTr.dataset.vendor, vendor_ref:draftParentTr.dataset.vendorRef,
+        date:draftParentTr.dataset.date, due_date:draftParentTr.dataset.dueDate,
+        amount:parseFloat(draftParentTr.dataset.amount)||0, currency:draftParentTr.dataset.currency||BASE_CURRENCY,
+        ap_account:draftParentTr.dataset.apAccount||'201100', expense_account:draftParentTr.dataset.expenseAccount||'400000',
+        lines:dispLines }}) })
+    .then(function(r){ return r.json(); }).catch(function(){});
+    return;
+  }
 
   var vendorName = vendorInput && vendorInput.dataset.vendorName;
   if (!vendorName) { billEditMsg('Select vendor from dropdown before saving', 'err'); return; }

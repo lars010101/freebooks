@@ -24,6 +24,8 @@ async function handleBills(ctx, action) {
     case 'bill.aging':  return getAgingReport(ctx);
     case 'bill.get':    return getBill(ctx);
     case 'bill.update': return updateBill(ctx);
+    case 'bill.draft.save': return saveDraftBill(ctx);
+    case 'bill.draft.post': return postDraftBill(ctx);
     default:
       throw Object.assign(new Error(`Unknown bill action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -32,6 +34,12 @@ async function handleBills(ctx, action) {
 async function createBill(ctx) {
   const { companyId, userEmail, body } = ctx;
   const { bill, payment_batch_id } = body;
+
+  // Replace draft: delete the draft record so bill_id can be reused
+  const replaceDraftId = body._replaceDraftId;
+  if (replaceDraftId) {
+    await query(`DELETE FROM bills WHERE bill_id=@id AND company_id=@companyId AND status='draft'`, { id: replaceDraftId, companyId });
+  }
 
   if (!bill) throw Object.assign(new Error('bill object required'), { code: 'INVALID_INPUT' });
 
@@ -327,6 +335,93 @@ async function updateBill(ctx) {
     params
   );
   return { updated: true, billId };
+}
+
+async function saveDraftBill(ctx) {
+  const { companyId, body } = ctx;
+  const { bill } = body;
+  if (!bill) throw Object.assign(new Error('bill required'), { code: 'INVALID_INPUT' });
+  if (!bill.vendor) throw Object.assign(new Error('vendor required'), { code: 'INVALID_INPUT' });
+  if (!bill.date) throw Object.assign(new Error('date required'), { code: 'INVALID_INPUT' });
+
+  const existing = bill.bill_id
+    ? await query(`SELECT bill_id FROM bills WHERE bill_id = @id AND company_id = @cid AND status = 'draft' LIMIT 1`, { id: bill.bill_id, cid: companyId })
+    : [];
+
+  const billId = (existing.length && bill.bill_id) ? bill.bill_id : uuid();
+  const now = new Date().toISOString();
+  const totalAmount = parseFloat(bill.amount) || 0;
+
+  const billRow = {
+    company_id: companyId,
+    bill_id: billId,
+    vendor: bill.vendor,
+    vendor_ref: bill.vendor_ref || null,
+    date: bill.date,
+    due_date: bill.due_date || null,
+    amount: totalAmount,
+    currency: bill.currency || 'SGD',
+    fx_rate: 1.0,
+    amount_home: totalAmount,
+    expense_account: (bill.lines && bill.lines[0] && bill.lines[0].expense_account) || bill.expense_account || null,
+    ap_account: bill.ap_account || null,
+    vat_code: null,
+    vat_amount: 0,
+    net_amount: totalAmount,
+    cost_center: null,
+    profit_center: null,
+    description: bill.description || null,
+    status: 'draft',
+    amount_paid: 0,
+    created_at: now,
+    created_by: ctx.userEmail || null,
+  };
+
+  if (existing.length) {
+    // update existing draft
+    await query(
+      `UPDATE bills SET vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, description=@description WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
+      { vendor: billRow.vendor, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, description: billRow.description, bill_id: billId, company_id: companyId }
+    );
+  } else {
+    await bulkInsert('bills', [billRow]);
+  }
+  return { billId, status: 'draft' };
+}
+
+async function postDraftBill(ctx) {
+  const { companyId, body } = ctx;
+  const { billId, bill: overrides } = body;
+  if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
+
+  const rows = await query(`SELECT * FROM bills WHERE bill_id=@id AND company_id=@cid AND status='draft' LIMIT 1`, { id: billId, cid: companyId });
+  if (!rows.length) throw Object.assign(new Error('Draft bill not found'), { code: 'NOT_FOUND' });
+  const draft = rows[0];
+
+  // Apply any overrides from the post review popup (e.g. updated account codes)
+  const bill = { ...draft, ...(overrides || {}) };
+
+  // Reuse createBill logic by delegating
+  return createBill({
+    ...ctx,
+    body: {
+      bill: {
+        vendor: bill.vendor,
+        vendor_ref: bill.vendor_ref,
+        date: bill.date,
+        due_date: bill.due_date,
+        amount: bill.amount,
+        currency: bill.currency,
+        ap_account: bill.ap_account,
+        expense_account: bill.expense_account,
+        description: bill.description,
+        lines: overrides && overrides.lines ? overrides.lines : [
+          { expense_account: bill.expense_account, amount: bill.amount, vat_code: bill.vat_code || null, description: bill.description || '' }
+        ],
+      },
+      _replaceDraftId: billId, // signal to createBill to DELETE the draft row first
+    }
+  });
 }
 
 module.exports = { handleBills };

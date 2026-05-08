@@ -574,6 +574,14 @@ var kbd = {
       this._lastKey = null; return;
     }
 
+    if (e.key === 's') {
+      e.preventDefault();
+      if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true' && cursor.rowEl.dataset.rowType === 'parent') {
+        saveDraftToDb(cursor.rowEl);
+      }
+      this._lastKey = null; return;
+    }
+
     if (e.key === 'p') {
       e.preventDefault();
       if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true' && cursor.rowEl.dataset.rowType === 'parent') {
@@ -1499,46 +1507,118 @@ function clearDraftVendorDdFocus() {
   dd.querySelectorAll('.dd-active').forEach(function(el) { el.classList.remove('dd-active'); el.style.background = ''; });
 }
 
-function openPostReviewPopup(draftParentTr) {
-  var vendorInputs = draftParentTr.querySelectorAll('input');
+function saveDraftToDb(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
-  var dateInput = vendorInputs[1];
-  var dueInput = vendorInputs[2];
-  var refInput = vendorInputs[3];
-  var amtInput = vendorInputs[4];
-  var ccyInput = vendorInputs[5];
+  var inputs = draftParentTr.querySelectorAll('input');
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], amtInput = inputs[4], ccyInput = inputs[5];
+
   var vendorName = vendorInput && vendorInput.dataset.vendorName;
-  var apAccount = vendorInput && (vendorInput.dataset.apAccount || '201100');
-  if (!vendorName && vendorInput) vendorName = vendorInput.value.trim(); // fallback (no vendor master required)
-  var expAcct = vendorInput && (vendorInput.dataset.expenseAccount || '400000');
+  if (!vendorName) { billEditMsg('Select vendor from dropdown before saving', 'err'); return; }
   var billDate = dateInput && dateInput.value;
+  if (!billDate) { billEditMsg('Date required', 'err'); return; }
   var totalAmt = parseFloat(amtInput && amtInput.value) || 0;
-  var ccy = ccyInput && (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY);
-  if (!vendorName) { billEditMsg('Vendor required — select from dropdown', 'err'); return; }
-  // Enforce vendor master selection
-  var vendorNameSet = vendorInput && vendorInput.dataset.vendorName;
-  if (!vendorNameSet) { billEditMsg('Select vendor from dropdown (must exist in vendor master)', 'err'); return; }
+  if (totalAmt <= 0) { billEditMsg('Amount must be > 0', 'err'); return; }
+
+  var existingBillId = draftParentTr.dataset.billId || null;
+  var payload = {
+    action: 'bill.draft.save',
+    companyId: COMPANY,
+    bill: {
+      bill_id: existingBillId,
+      vendor: vendorName,
+      vendor_ref: refInput ? refInput.value.trim() : '',
+      date: billDate,
+      due_date: dueInput ? dueInput.value : null,
+      amount: totalAmt,
+      currency: ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY,
+      ap_account: vendorInput ? (vendorInput.dataset.apAccount || '201100') : '201100',
+      expense_account: vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000',
+    }
+  };
+
+  billEditMsg('Saving draft…', '');
+  fetch('/api/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.error) { billEditMsg(res.error, 'err'); return; }
+      var data = res.data || res;
+      // Store bill_id on the row so future saves update, and post can use bill.draft.post
+      draftParentTr.dataset.billId = data.billId;
+      billEditMsg('Draft saved (s to update, p to post)', 'ok');
+      setTimeout(function() { billEditMsg('', ''); }, 3000);
+    })
+    .catch(function(e) { billEditMsg(e.message, 'err'); });
+}
+
+function openPostReviewPopup(draftParentTr) {
+  // Handle both in-memory draft rows (with inputs) and DB-saved draft rows (with data-* attributes)
+  var isDbDraft = draftParentTr.dataset.billId && !draftParentTr.querySelector('input.draft-vendor-input');
+  
+  var vendorName, apAccount, expAcct, billDate, dueDate, totalAmt, ccy, refCode;
+  var lines = [];
+  
+  if (isDbDraft) {
+    // DB-saved draft: read from data-* attributes
+    vendorName = draftParentTr.dataset.vendor;
+    billDate = draftParentTr.dataset.billDate || draftParentTr.dataset.date;
+    dueDate = draftParentTr.dataset.dueDate || draftParentTr.dataset.due_date;
+    totalAmt = parseFloat(draftParentTr.dataset.amount) || 0;
+    ccy = draftParentTr.dataset.currency || BASE_CURRENCY;
+    refCode = draftParentTr.dataset.vendorRef || '';
+    apAccount = '201100'; // default, would need to fetch from API if needed
+    expAcct = '400000'; // default, would need to fetch from API if needed
+    // For DB-saved drafts, we'll create a single-line bill
+    lines.push({ description: '', expense_account: expAcct, amount: totalAmt, vat_code: null });
+  } else {
+    // In-memory draft: read from input elements
+    var vendorInputs = draftParentTr.querySelectorAll('input');
+    var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
+    var dateInput = vendorInputs[1];
+    var dueInput = vendorInputs[2];
+    var refInput = vendorInputs[3];
+    var amtInput = vendorInputs[4];
+    var ccyInput = vendorInputs[5];
+    vendorName = vendorInput && vendorInput.dataset.vendorName;
+    apAccount = vendorInput && (vendorInput.dataset.apAccount || '201100');
+    if (!vendorName && vendorInput) vendorName = vendorInput.value.trim(); // fallback (no vendor master required)
+    expAcct = vendorInput && (vendorInput.dataset.expenseAccount || '400000');
+    billDate = dateInput && dateInput.value;
+    dueDate = dueInput && dueInput.value;
+    totalAmt = parseFloat(amtInput && amtInput.value) || 0;
+    ccy = ccyInput && (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY);
+    refCode = refInput ? refInput.value.trim() : '';
+    if (!vendorName) { billEditMsg('Vendor required — select from dropdown', 'err'); return; }
+    // Enforce vendor master selection
+    var vendorNameSet = vendorInput && vendorInput.dataset.vendorName;
+    if (!vendorNameSet) { billEditMsg('Select vendor from dropdown (must exist in vendor master)', 'err'); return; }
+    
+    var draftKey = draftParentTr.dataset.draftKey;
+    var childRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]'));
+    if (childRows.length > 0) {
+      childRows.forEach(function(cr) {
+        var descInput = cr.querySelector('input.child-desc');
+        var amtInputC = cr.querySelectorAll('input')[1];
+        var gstSelect = cr.querySelector('select');
+        var desc = descInput ? descInput.value.trim() : '';
+        var amt = parseFloat(amtInputC && amtInputC.value) || 0;
+        var vatCode = gstSelect ? gstSelect.value : '';
+        lines.push({ description: desc, expense_account: expAcct, amount: amt, vat_code: vatCode || null });
+      });
+    } else {
+      lines.push({ description: '', expense_account: expAcct, amount: totalAmt, vat_code: null });
+    }
+  }
+  
+  if (!vendorName) { billEditMsg('Vendor required', 'err'); return; }
   if (!billDate) { billEditMsg('Date is required', 'err'); return; }
   if (!totalAmt || totalAmt <= 0) { billEditMsg('Amount must be > 0', 'err'); return; }
-  var draftKey = draftParentTr.dataset.draftKey;
-  var childRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]'));
-  var lines = [];
-  if (childRows.length > 0) {
-    childRows.forEach(function(cr) {
-      var descInput = cr.querySelector('input.child-desc');
-      var amtInputC = cr.querySelectorAll('input')[1];
-      var gstSelect = cr.querySelector('select');
-      var desc = descInput ? descInput.value.trim() : '';
-      var amt = parseFloat(amtInputC && amtInputC.value) || 0;
-      var vatCode = gstSelect ? gstSelect.value : '';
-      lines.push({ description: desc, expense_account: expAcct, amount: amt, vat_code: vatCode || null });
-    });
-  } else {
-    lines.push({ description: '', expense_account: expAcct, amount: totalAmt, vat_code: null });
-  }
   window._prvDraftTr = draftParentTr;
   window._prvLines = lines;
-  window._prvMeta = { vendor: vendorName, vendor_ref: refInput ? refInput.value.trim() : '', date: billDate, due_date: dueInput ? dueInput.value : '', amount: totalAmt, currency: ccy, ap_account: apAccount, expense_account: expAcct };
+  window._prvMeta = { vendor: vendorName, vendor_ref: refCode, date: billDate, due_date: dueDate, amount: totalAmt, currency: ccy, ap_account: apAccount, expense_account: expAcct };
   var overlay = document.createElement('div');
   overlay.id = 'post-review-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center';
@@ -1595,23 +1675,27 @@ function editPostLineAcct(event, acctCode) {
 function confirmPost() {
   var meta = window._prvMeta;
   var lines = window._prvLines;
+  var draftTr = window._prvDraftTr;
+  var savedBillId = draftTr && draftTr.dataset.billId;
+
+  var action, payload;
+  if (savedBillId) {
+    // Draft already in DB — use bill.draft.post
+    action = 'bill.draft.post';
+    payload = { action: action, companyId: COMPANY, billId: savedBillId, bill: { lines: lines, ap_account: meta.ap_account } };
+  } else {
+    // In-memory draft — use bill.create
+    action = 'bill.create';
+    payload = { action: action, companyId: COMPANY, bill: {
+      vendor: meta.vendor, vendor_ref: meta.vendor_ref, date: meta.date, due_date: meta.due_date,
+      amount: meta.amount, currency: meta.currency, ap_account: meta.ap_account, lines: lines
+    }};
+  }
+
   fetch('/api/action', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: 'bill.create',
-      companyId: COMPANY,
-      bill: {
-        vendor: meta.vendor,
-        vendor_ref: meta.vendor_ref,
-        date: meta.date,
-        due_date: meta.due_date,
-        amount: meta.amount,
-        currency: meta.currency,
-        ap_account: meta.ap_account,
-        lines: lines
-      }
-    })
+    body: JSON.stringify(payload)
   })
     .then(function(r) { return r.json(); })
     .then(function(res) {
@@ -1643,6 +1727,14 @@ function closePostReviewPopup() {
   window._prvDraftTr = null;
   window._prvLines = null;
   window._prvMeta = null;
+}
+
+function openPostReviewForSavedDraft(parentTr) {
+  if (!parentTr || parentTr.dataset.status !== 'draft') return;
+  // Mark as draft in the row (for confirmPost to detect)
+  parentTr.dataset.draft = 'true';
+  // Open post review popup
+  openPostReviewPopup(parentTr);
 }
 
 function registerBillKeyActions() {
@@ -1832,14 +1924,14 @@ function renderPage() {
     var isOverdue = active && due && due < today;
     var dueCls = isOverdue ? ' class="overdue-date"' : '';
     var rowUrl = '/' + COMPANY + '/bill/' + b.bill_id;
-    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" data-due-date="' + esc(due || '') + '" data-vendor-ref="' + esc(b.vendor_ref || '') + '" data-status="' + esc(b.status || '') + '" style="cursor:pointer">'
+    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" data-date="' + esc(b.date||'') + '" data-due-date="' + esc(due || '') + '" data-vendor-ref="' + esc(b.vendor_ref || '') + '" data-amount="' + String(b.amount || 0) + '" data-currency="' + esc(b.currency || BASE_CURRENCY) + '" data-status="' + esc(b.status || '') + '" style="cursor:pointer">'
       + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td style="white-space:nowrap">' + fmtDate(b.date) + '</td>'
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || b.bill_id) + '</a></td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
       + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px">' + esc(b.currency || BASE_CURRENCY) + '</td>'
-      + '<td>' + statusBadge(b.status, due) + '</td>'
+      + '<td>' + (b.status === 'draft' ? '<span onclick="openPostReviewForSavedDraft(this.parentElement.parentElement)" style="cursor:pointer">' + statusBadge(b.status, due) + '</span>' : statusBadge(b.status, due)) + '</td>'
       + '</tr>';
   });
   var tbody = document.getElementById('bills-tbody');
@@ -1895,6 +1987,7 @@ function fmtDate(d) {
 function statusBadge(status, dueDate) {
   var isOverdue = (status === 'posted' || status === 'partial') && dueDate && String(dueDate).slice(0,10) < today;
   if (isOverdue) return '<span class="badge" style="background:#fff0f0;color:#cc2222">Overdue</span>';
+  if (status === 'draft')   return '<span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer">Draft</span>';
   if (status === 'posted')  return '<span class="badge" style="background:#e8eeff;color:#2255cc">Open</span>';
   if (status === 'partial') return '<span class="badge" style="background:#fff3e0;color:#cc7700">Partial</span>';
   if (status === 'paid')    return '<span class="badge" style="background:#f0fff4;color:#2a8a2a">Paid</span>';

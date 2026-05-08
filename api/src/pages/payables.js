@@ -251,6 +251,7 @@ ${commonStyle()}
 var COMPANY = '${company}';
 var BASE_CURRENCY = '${baseCurrency}';
 var allBills = [];
+var allPeriods = []; // loaded on init for popup period check
 var filteredBills = [];
 var today = new Date().toISOString().slice(0,10);
 var in7days = new Date(Date.now() + 7*24*3600*1000).toISOString().slice(0,10);
@@ -997,6 +998,7 @@ function billEditMsg(msg, type) {
 function fbPageInitPayables() {
   loadVendors();
   loadAllBills();
+  loadPeriods();
   initBillsTable();
   registerBillKeyActions();
   registerVendorKeyActions();
@@ -1731,10 +1733,24 @@ function openPostReviewPopup(draftParentTr) {
   }
   
   if (!vendorName) { billEditMsg('Vendor required', 'err'); return; }
+  if (!refCode) { billEditMsg('Invoice reference (Ref) is required before posting', 'err'); return; }
   if (!billDate) { billEditMsg('Bill date is required', 'err'); return; }
   if (!dueDate) { billEditMsg('Due date is required', 'err'); return; }
   if (dueDate < billDate) { billEditMsg('Due date must be ≥ bill date', 'err'); return; }
   if (!totalAmt || totalAmt <= 0) { billEditMsg('Amount must be > 0', 'err'); return; }
+  // Period check: bill date must fall within a defined, unlocked period
+  if (allPeriods.length) {
+    var bd = billDate.slice(0, 10);
+    var coveringPeriod = allPeriods.find(function(p) {
+      return !p.locked && p.start_date <= bd && p.end_date >= bd;
+    });
+    if (!coveringPeriod) {
+      var lockedMatch = allPeriods.find(function(p) { return p.start_date <= bd && p.end_date >= bd; });
+      if (lockedMatch) { billEditMsg('Bill date falls in a locked period: ' + lockedMatch.period_name, 'err'); }
+      else { billEditMsg('Bill date does not fall within any defined period', 'err'); }
+      return;
+    }
+  }
   window._prvDraftTr = draftParentTr;
   window._prvLines = lines;
   window._prvMeta = { vendor: vendorName, vendor_ref: refCode, date: billDate, due_date: dueDate, amount: totalAmt, currency: ccy, ap_account: apAccount, expense_account: expAcct };
@@ -1878,6 +1894,16 @@ function registerBillKeyActions() {
         .catch(function(e) { alert('Error: ' + e.message); });
     }
   };
+}
+
+function loadPeriods() {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'period.list', companyId: COMPANY }) })
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    var rows = res.data || res || [];
+    allPeriods = Array.isArray(rows) ? rows : [];
+  }).catch(function(){});
 }
 
 function loadVendors() {

@@ -1082,6 +1082,13 @@ function toggleBillLines(billId, parentTr) {
     return;
   }
 
+  // For draft bills, don't fetch from API (no journal entries exist yet)
+  if (parentTr.dataset.status === 'draft') {
+    parentTr.classList.add('row-expanded');
+    treeState.setOpen(billId);
+    return;
+  }
+
   parentTr.classList.add('row-loading');
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'bill.lines', companyId: COMPANY, billId: billId }) })
@@ -1638,6 +1645,82 @@ function clearDraftVendorDdFocus() {
   dd.querySelectorAll('.dd-active').forEach(function(el) { el.classList.remove('dd-active'); el.style.background = ''; });
 }
 
+function convertDraftRowToDisplay(draftParentTr, billId) {
+  // Read current values from draft parent inputs
+  var inputs = draftParentTr.querySelectorAll('input');
+  var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], amtInput = inputs[4], ccyInput = inputs[5];
+  
+  var vendor = vendorInput ? (vendorInput.dataset.vendorName || vendorInput.value) : '';
+  var billDate = dateInput ? dateInput.value : '';
+  var dueDate = dueInput ? dueInput.value : '';
+  var vendorRef = refInput ? refInput.value.trim() : '';
+  var amount = parseFloat(amtInput ? amtInput.value : 0) || 0;
+  var currency = ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY;
+  var draftKey = draftParentTr.dataset.draftKey;
+  
+  // Update data-* attributes on parent row
+  draftParentTr.dataset.billId = billId;
+  draftParentTr.dataset.vendor = vendor;
+  draftParentTr.dataset.date = billDate;
+  draftParentTr.dataset.dueDate = dueDate;
+  draftParentTr.dataset.vendorRef = vendorRef;
+  draftParentTr.dataset.amount = String(amount);
+  draftParentTr.dataset.currency = currency;
+  draftParentTr.dataset.status = 'draft';
+  delete draftParentTr.dataset.draft; // remove draft indicator
+  draftParentTr.style.cursor = 'pointer';
+  
+  // Replace parent row HTML with display format
+  var isOverdue = dueDate && dueDate < today;
+  var dueCls = isOverdue ? ' class="overdue-date"' : '';
+  var rowUrl = '/' + COMPANY + '/bill/' + billId;
+  draftParentTr.innerHTML = '<td>' + vendorCell(vendor) + '</td>'
+    + '<td style="white-space:nowrap">' + fmtDate(billDate) + '</td>'
+    + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(dueDate) + '</span></td>'
+    + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(vendorRef) + '</a></td>'
+    + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(amount).toFixed(2) + '</td>'
+    + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px">' + esc(currency) + '</td>'
+    + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewForSavedDraft(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
+  
+  // Convert child rows from draft to display format
+  if (draftKey) {
+    var childRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"][data-draft="true"]'));
+    childRows.forEach(function(childTr) {
+      var descInput = childTr.querySelector('input.child-desc');
+      var amtInputC = childTr.querySelectorAll('input')[1];
+      var gstSelect = childTr.querySelector('select');
+      
+      var desc = descInput ? descInput.value.trim() : '';
+      var childAmt = parseFloat(amtInputC ? amtInputC.value : 0) || 0;
+      var gstCode = gstSelect ? gstSelect.value : '';
+      var gstBadge = gstCode ? '<span style="font-size:0.75rem">' + esc(gstCode) + '</span>' : '';
+      
+      // Remove draft attribute
+      delete childTr.dataset.draft;
+      // Set parent bill ID
+      childTr.dataset.parentId = billId;
+      
+      // Replace innerHTML with display format
+      childTr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
+        + '<td style="text-align:right">' + Number(childAmt).toFixed(2) + '</td>'
+        + '<td style="font-size:0.75rem;color:#888">' + esc(currency) + '</td>'
+        + '<td>' + gstBadge + '</td>';
+    });
+  }
+  
+  // Restore cursor mode to NORMAL
+  cursor.mode = 'NORMAL';
+  if (document.activeElement) document.activeElement.blur();
+  
+  // Set cursor to parent row, last column
+  var lastCol = draftParentTr.querySelectorAll('td').length - 1;
+  cursor.set(draftParentTr, lastCol);
+  
+  // Smooth scroll into view
+  draftParentTr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 function saveDraftToDb(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
@@ -1680,14 +1763,10 @@ function saveDraftToDb(draftParentTr) {
     .then(function(res) {
       if (res.error) { billEditMsg(res.error, 'err'); return; }
       var data = res.data || res;
-      // Store bill_id on the row so future saves update, and post can use bill.draft.post
-      draftParentTr.dataset.billId = data.billId;
+      // Convert the draft row in-place to display row
+      convertDraftRowToDisplay(draftParentTr, data.billId);
       billEditMsg('Bill saved as DRAFT.', 'ok');
       setTimeout(function() { billEditMsg('', ''); }, 3000);
-      // Re-render the list so the row appears as a normal bill row;
-      // after render, focus the saved row
-      window._focusBillIdAfterRender = data.billId;
-      loadAllBills();
     })
     .catch(function(e) { billEditMsg(e.message, 'err'); });
 }
@@ -2102,19 +2181,6 @@ function renderPage() {
   if (!tbody) return;
   tbody.innerHTML = html;
   document.getElementById('pagination-row').style.display = 'none';
-  // Focus the row that was just saved (e.g. after draft save + reload)
-  if (window._focusBillIdAfterRender) {
-    var focusId = window._focusBillIdAfterRender;
-    window._focusBillIdAfterRender = null;
-    var focusTr = tbody.querySelector('tr[data-bill-id="' + focusId + '"]');
-    if (focusTr) {
-      cursor.mode = 'NORMAL';
-      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-      var lastCol = focusTr.querySelectorAll('td').length - 1;
-      cursor.set(focusTr, lastCol);
-      focusTr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
-  }
 }
 
 function renderPagination(totalPages) {

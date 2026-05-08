@@ -478,8 +478,11 @@ var kbd = {
           var draftInputs = Array.from(cursor.rowEl.querySelectorAll('input.draft-input, select.draft-input'));
           var ae = document.activeElement;
           var dIdx = draftInputs.indexOf(ae);
-          if (dIdx >= 0 && dIdx < draftInputs.length - 1) { draftInputs[dIdx + 1].focus(); }
-          else { if (ae) ae.blur(); cursor.mode = 'NORMAL'; }
+          if (dIdx >= 0 && dIdx < draftInputs.length - 1) {
+            draftInputs[dIdx + 1].focus();
+            // Auto-calculate due date when advancing FROM date (index 1) TO due (index 2)
+            if (dIdx === 1) { autoCalcDraftDueDate(cursor.rowEl); }
+          } else { if (ae) ae.blur(); cursor.mode = 'NORMAL'; }
           return;
         }
         exitBillCellEdit(true); return;
@@ -1366,26 +1369,7 @@ function insertDraftParentRow(refRow, above) {
   var vendorInput = tr.querySelector('input.draft-vendor-input');
   vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
   vendorInput.addEventListener('blur', function() { setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150); });
-  var dateInput2 = tr.querySelectorAll('input')[1];
-  if (dateInput2) {
-    dateInput2.addEventListener('blur', function() {
-      // Auto-calculate due date when bill date is committed (on blur only)
-      var val = dateInput2.value;
-      if (!val || !val.match(/^\d{4}-\d{2}-\d{2}$/)) return;
-      var vendIn = tr.querySelector('input.draft-vendor-input');
-      var terms = vendIn && parseInt(vendIn.dataset.paymentTerms);
-      var dueIn = tr.querySelectorAll('input')[2];
-      if (!terms || !dueIn || dueIn.value) return; // skip if no terms or due already set
-      // Parse as local date (avoid UTC midnight offset issues)
-      var parts = val.split('-');
-      var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-      d.setDate(d.getDate() + terms);
-      var yr = d.getFullYear();
-      var mo = String(d.getMonth() + 1).padStart(2, '0');
-      var dy = String(d.getDate()).padStart(2, '0');
-      dueIn.value = yr + '-' + mo + '-' + dy;
-    });
-  }
+  // No blur listener — due date auto-calc is triggered inline by Enter key (see autoCalcDraftDueDate)
   var ccyInput = tr.querySelectorAll('input')[5];
   if (ccyInput) {
     ccyInput.addEventListener('input', function() { draftCcyInput(ccyInput); });
@@ -1444,6 +1428,27 @@ function insertDraftChildRow(childRow, above) {
   cursor.mode = 'INSERT';
   var descInput = tr.querySelector('input.child-desc');
   descInput.focus();
+}
+
+function autoCalcDraftDueDate(draftParentTr) {
+  var inputs = draftParentTr.querySelectorAll('input');
+  var dateInput = inputs[1];
+  var dueInput  = inputs[2];
+  if (!dateInput || !dueInput) return;
+  var val = dateInput.value;
+  if (!val || !val.match(/^\d{4}-\d{2}-\d{2}$/)) return;
+  if (dueInput.value) return; // don't overwrite manually-set due date
+  var vendIn = draftParentTr.querySelector('input.draft-vendor-input');
+  var terms = vendIn ? parseInt(vendIn.dataset.paymentTerms || '0') : 0;
+  // Use 0 days if no terms (due = bill date)
+  var parts = val.split('-');
+  var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  if (isNaN(d.getTime())) return;
+  d.setDate(d.getDate() + terms);
+  var yr = d.getFullYear();
+  var mo = String(d.getMonth() + 1).padStart(2, '0');
+  var dy = String(d.getDate()).padStart(2, '0');
+  dueInput.value = yr + '-' + mo + '-' + dy;
 }
 
 function draftVendorInput(input) {
@@ -1988,7 +1993,7 @@ function renderPage() {
       + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td style="white-space:nowrap">' + fmtDate(b.date) + '</td>'
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'
-      + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || b.bill_id) + '</a></td>'
+      + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || '') + '</a></td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
       + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px">' + esc(b.currency || BASE_CURRENCY) + '</td>'
       + '<td>' + (b.status === 'draft' ? '<span onclick="openPostReviewForSavedDraft(this.parentElement.parentElement)" style="cursor:pointer">' + statusBadge(b.status, due) + '</span>' : statusBadge(b.status, due)) + '</td>'

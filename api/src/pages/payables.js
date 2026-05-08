@@ -1284,7 +1284,7 @@ function insertDraftParentRow(refRow, above) {
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewPopup(this.closest(\'tr\'))" title="Click to post draft bill">Draft</span></td>';
+    + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewPopup(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
   if (refRow && above) {
     refRow.parentElement.insertBefore(tr, refRow);
   } else if (refRow) {
@@ -1466,7 +1466,7 @@ function openPostReviewPopup(draftParentTr) {
     var tr = document.createElement('tr');
     var acctName = billAccountsList.find(function(a) { return a.account_code === line.expense_account; });
     var acctNameStr = acctName ? acctName.account_name : line.expense_account;
-    tr.innerHTML = '<td style="padding:6px 0"><span style="cursor:pointer;color:#2255cc" onclick="editPostLineAcct(event, \'' + line.expense_account + '\')">'
+    tr.innerHTML = '<td style="padding:6px 0"><span style="color:#2255cc">'
       + esc(line.expense_account) + ' — ' + esc(acctNameStr) + '</span></td>'
       + '<td style="text-align:right;padding:6px 0">' + Number(line.amount).toFixed(2) + '</td>'
       + '<td style="text-align:right;padding:6px 0">—</td>';
@@ -1476,7 +1476,7 @@ function openPostReviewPopup(draftParentTr) {
   crTr.style.borderTop = '1px solid #ddd';
   var crAcctName = billAccountsList.find(function(a) { return a.account_code === apAccount; });
   var crAcctNameStr = crAcctName ? crAcctName.account_name : apAccount;
-  crTr.innerHTML = '<td style="padding:6px 0;font-weight:600"><span style="cursor:pointer;color:#2255cc" onclick="editPostLineAcct(event, \'' + apAccount + '\')">'
+  crTr.innerHTML = '<td style="padding:6px 0;font-weight:600"><span style="color:#2255cc;font-weight:600">'
     + esc(apAccount) + ' — ' + esc(crAcctNameStr) + '</span></td>'
     + '<td style="text-align:right;padding:6px 0">—</td>'
     + '<td style="text-align:right;padding:6px 0;font-weight:600">' + Number(totalAmt).toFixed(2) + '</td>';

@@ -625,6 +625,10 @@ function enterBillCellEdit(rowEl, col) {
       currentValue = tdEl.textContent.trim();
     } else if (col === 3) {   // GST/VAT code — edits paired gst journal entry
       if (!rowEl.dataset.gstEntryId) return; // no paired gst entry, skip
+      // Only editable for draft bills — changing vat_code on posted entries is inconsistent
+      var parentBillTr = document.querySelector('tr[data-row-type="parent"][data-bill-id="' + rowEl.dataset.parentId + '"]');
+      var billStatus = parentBillTr ? parentBillTr.dataset.status : '';
+      if (billStatus !== 'draft') return;
       fieldType = 'vatcode';
       currentValue = rowEl.dataset.gstVatCode || '';
     } else {
@@ -916,7 +920,7 @@ function toggleBillLines(billId, parentTr) {
       tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
         + '<td class="child-ccy">' + esc(line.currency || '') + '</td>'
-        + '<td style="font-size:0.75rem;color:#999;cursor:pointer" title="Edit tax code">' + esc(gstCode) + '</td>';
+        + '<td style="font-size:0.75rem;cursor:pointer" title="Edit tax code">' + esc(gstCode) + '</td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
       insertAfter = tr;

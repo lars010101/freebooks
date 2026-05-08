@@ -1467,7 +1467,7 @@ function updateParentDraftAmount(draftParentTr) {
   var total = 0;
   if (draftKey) {
     Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]')).forEach(function(cr) {
-      var a = cr.querySelectorAll('input')[1]; total += parseFloat(a && a.value) || 0;
+      var a = cr.querySelector('input.child-desc') ? cr.querySelectorAll('input')[1] : null; total += parseFloat(a && a.value) || 0;
     });
   }
   var amtCell = draftParentTr.querySelector('.draft-total-amount');
@@ -1485,7 +1485,7 @@ function autoSaveChildRow(childRow, parentTr) {
   if (descInput) descInput.classList.toggle('req', !desc);
   if (amtInput)  amtInput.classList.toggle('req', !(amt > 0));
   if (gstSelect) gstSelect.classList.toggle('req', !tax);
-  if (!desc || !(amt > 0) || !tax) return; // not complete yet
+  if (!desc || !(amt > 0)) return; // save when desc+amount set; re-saves on tax code change
   updateParentDraftAmount(parentTr);
   saveDraftToDb(parentTr);
 }
@@ -1769,7 +1769,7 @@ function saveDraftToDb(draftParentTr) {
   if (!vendorInput && draftParentTr.dataset.billId) {
     var dispBillId = draftParentTr.dataset.billId;
     var dispKey = draftParentTr.dataset.draftKey || dispBillId;
-    var dispLines = Array.from(document.querySelectorAll('tr[data-parent-key="' + dispKey + '"]')).map(function(cr) {
+    var dispLines = Array.from(document.querySelectorAll('tr[data-parent-key="' + dispKey + '"]')).filter(function(cr){ return !!cr.querySelector('input.child-desc'); }).map(function(cr) {
       var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[1]; var gSel = cr.querySelector('select');
       return { description: dIn?dIn.value.trim():'', expense_account: draftParentTr.dataset.expenseAccount||'400000',
         amount: parseFloat(aIn&&aIn.value)||0, vat_code: gSel?(gSel.value||null):null, currency: draftParentTr.dataset.currency||BASE_CURRENCY };
@@ -1820,7 +1820,7 @@ function saveDraftToDb(draftParentTr) {
         if (!dk) return null;
         var expAcct2 = vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000';
         var ccy2 = ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY;
-        var childRows2 = Array.from(document.querySelectorAll('tr[data-parent-key="' + dk + '"]'));
+        var childRows2 = Array.from(document.querySelectorAll('tr[data-parent-key="' + dk + '"]')).filter(function(cr){ return !!cr.querySelector('input.child-desc'); });
         return childRows2.map(function(cr) {
           var dIn = cr.querySelector('input.child-desc');
           var aIn = cr.querySelectorAll('input')[1];

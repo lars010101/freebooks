@@ -480,8 +480,7 @@ var kbd = {
           var dIdx = draftInputs.indexOf(ae);
           if (dIdx >= 0 && dIdx < draftInputs.length - 1) {
             draftInputs[dIdx + 1].focus();
-            // Auto-calculate due date when advancing FROM date (index 1) TO due (index 2)
-            if (dIdx === 1) { autoCalcDraftDueDate(cursor.rowEl); }
+            // (due date is not auto-populated; user sets it manually)
           } else { if (ae) ae.blur(); cursor.mode = 'NORMAL'; }
           return;
         }
@@ -1369,26 +1368,7 @@ function insertDraftParentRow(refRow, above) {
   var vendorInput = tr.querySelector('input.draft-vendor-input');
   vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
   vendorInput.addEventListener('blur', function() { setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150); });
-  // Trigger due-date calc: (1) whenever bill date becomes a complete valid date, (2) whenever due field
-  // gains focus while empty (covers Tab, click, arrow).
-  var dateInputEl = tr.querySelectorAll('input')[1];
-  var dueInputEl  = tr.querySelectorAll('input')[2];
-  if (dateInputEl) {
-    dateInputEl.addEventListener('input', function() {
-      var val = dateInputEl.value;
-      if (val && val.match(/^\\d{4}-\\d{2}-\\d{2}$/) && dueInputEl && !dueInputEl.value) {
-        autoCalcDraftDueDate(tr);
-      }
-    });
-  }
-  if (dueInputEl) {
-    dueInputEl.addEventListener('focus', function() {
-      if (!dueInputEl.value) autoCalcDraftDueDate(tr);
-    });
-    dueInputEl.addEventListener('input', function() {
-      dueInputEl.dataset.autoSet = ''; // user is editing manually
-    });
-  }
+  // No auto-populate for due date — user must set both dates manually
   var ccyInput = tr.querySelectorAll('input')[5];
   if (ccyInput) {
     ccyInput.addEventListener('input', function() { draftCcyInput(ccyInput); });
@@ -1449,32 +1429,7 @@ function insertDraftChildRow(childRow, above) {
   descInput.focus();
 }
 
-function autoCalcDraftDueDate(draftParentTr) {
-  var inputs = draftParentTr.querySelectorAll('input');
-  var dateInput = inputs[1];
-  var dueInput  = inputs[2];
-  if (!dateInput || !dueInput) { console.log('[dueDate] missing inputs', inputs.length); return; }
-  var val = dateInput.value;
-  console.log('[dueDate] dateInput.value=', val, 'dueInput.value=', dueInput.value);
-  if (!val || !val.match(/^\\d{4}-\\d{2}-\\d{2}$/)) { console.log('[dueDate] invalid date format, skip'); return; }
-  // skip only if user manually set the due date (not auto-populated)
-  if (dueInput.value && dueInput.dataset.autoSet !== 'true') { console.log('[dueDate] due manually set, skip'); return; }
-  var vendIn = draftParentTr.querySelector('input.draft-vendor-input');
-  var terms = vendIn ? parseInt(vendIn.dataset.paymentTerms || '0') : 0;
-  console.log('[dueDate] terms=', terms, 'paymentTerms attr=', vendIn && vendIn.dataset.paymentTerms);
-  // Use 0 days if no terms (due = bill date)
-  var parts = val.split('-');
-  var year = parseInt(parts[0]);
-  if (year < 2000 || year > 2100) return; // reject partial year (e.g. 0002 while typing 2026)
-  var d = new Date(year, parseInt(parts[1]) - 1, parseInt(parts[2]));
-  if (isNaN(d.getTime())) return;
-  d.setDate(d.getDate() + terms);
-  var yr = d.getFullYear();
-  var mo = String(d.getMonth() + 1).padStart(2, '0');
-  var dy = String(d.getDate()).padStart(2, '0');
-  dueInput.value = yr + '-' + mo + '-' + dy;
-  dueInput.dataset.autoSet = 'true'; // mark as auto-set so it can be recalculated on date change
-}
+// autoCalcDraftDueDate removed — due date is set manually by the user
 
 function draftVendorInput(input) {
   var q = input.value.trim().toLowerCase();
@@ -1502,23 +1457,11 @@ function draftVendorInput(input) {
       input.dataset.vendorName = v.name || '';
       input.dataset.apAccount = v.default_ap_account || '201100';
       input.dataset.expenseAccount = v.default_expense_account || '400000';
-      input.dataset.paymentTerms = String(v.payment_terms_days || 0);
       input.value = v.name || '';
       var tr = input.closest('tr');
       if (tr) {
         var ccyInputs = tr.querySelectorAll('input');
         if (ccyInputs[5]) ccyInputs[5].value = (v.default_currency || BASE_CURRENCY).toUpperCase();
-        // Auto-fill due date from payment terms + bill date (if bill date already set)
-        if (v.payment_terms_days) {
-          var dateVal = ccyInputs[1] && ccyInputs[1].value;
-          if (dateVal && dateVal.match(/^\\d{4}-\\d{2}-\\d{2}$/)) {
-            var dp = dateVal.split('-');
-            var bd = new Date(parseInt(dp[0]), parseInt(dp[1]) - 1, parseInt(dp[2]));
-            bd.setDate(bd.getDate() + v.payment_terms_days);
-            var dyr = bd.getFullYear(), dmo = String(bd.getMonth()+1).padStart(2,'0'), ddy = String(bd.getDate()).padStart(2,'0');
-            if (ccyInputs[2]) ccyInputs[2].value = dyr + '-' + dmo + '-' + ddy;
-          }
-        }
       }
       var dd2 = document.getElementById('pay-draft-vendor-dd');
       if (dd2) dd2.remove();
@@ -1605,7 +1548,10 @@ function saveDraftToDb(draftParentTr) {
   var vendorName = vendorInput && vendorInput.dataset.vendorName;
   if (!vendorName) { billEditMsg('Select vendor from dropdown before saving', 'err'); return; }
   var billDate = dateInput && dateInput.value;
-  if (!billDate) { billEditMsg('Date required', 'err'); return; }
+  if (!billDate) { billEditMsg('Bill date required', 'err'); return; }
+  var dueDate = dueInput && dueInput.value;
+  if (!dueDate) { billEditMsg('Due date required', 'err'); return; }
+  if (dueDate < billDate) { billEditMsg('Due date must be ≥ bill date', 'err'); return; }
   var totalAmt = parseFloat(amtInput && amtInput.value) || 0;
   if (totalAmt <= 0) { billEditMsg('Amount must be > 0', 'err'); return; }
 
@@ -1704,7 +1650,9 @@ function openPostReviewPopup(draftParentTr) {
   }
   
   if (!vendorName) { billEditMsg('Vendor required', 'err'); return; }
-  if (!billDate) { billEditMsg('Date is required', 'err'); return; }
+  if (!billDate) { billEditMsg('Bill date is required', 'err'); return; }
+  if (!dueDate) { billEditMsg('Due date is required', 'err'); return; }
+  if (dueDate < billDate) { billEditMsg('Due date must be ≥ bill date', 'err'); return; }
   if (!totalAmt || totalAmt <= 0) { billEditMsg('Amount must be > 0', 'err'); return; }
   window._prvDraftTr = draftParentTr;
   window._prvLines = lines;

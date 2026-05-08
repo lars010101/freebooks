@@ -1369,8 +1369,18 @@ function insertDraftParentRow(refRow, above) {
   var vendorInput = tr.querySelector('input.draft-vendor-input');
   vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
   vendorInput.addEventListener('blur', function() { setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150); });
-  // Trigger due-date calc whenever the due field gains focus while empty (Tab, click, or Enter advance)
-  var dueInputEl = tr.querySelectorAll('input')[2];
+  // Trigger due-date calc: (1) whenever bill date becomes a complete valid date, (2) whenever due field
+  // gains focus while empty (covers Tab, click, arrow).
+  var dateInputEl = tr.querySelectorAll('input')[1];
+  var dueInputEl  = tr.querySelectorAll('input')[2];
+  if (dateInputEl) {
+    dateInputEl.addEventListener('input', function() {
+      var val = dateInputEl.value;
+      if (val && val.match(/^\d{4}-\d{2}-\d{2}$/) && dueInputEl && !dueInputEl.value) {
+        autoCalcDraftDueDate(tr);
+      }
+    });
+  }
   if (dueInputEl) {
     dueInputEl.addEventListener('focus', function() {
       if (!dueInputEl.value) autoCalcDraftDueDate(tr);
@@ -1440,12 +1450,14 @@ function autoCalcDraftDueDate(draftParentTr) {
   var inputs = draftParentTr.querySelectorAll('input');
   var dateInput = inputs[1];
   var dueInput  = inputs[2];
-  if (!dateInput || !dueInput) return;
+  if (!dateInput || !dueInput) { console.log('[dueDate] missing inputs', inputs.length); return; }
   var val = dateInput.value;
-  if (!val || !val.match(/^\d{4}-\d{2}-\d{2}$/)) return;
-  if (dueInput.value) return; // don't overwrite manually-set due date
+  console.log('[dueDate] dateInput.value=', val, 'dueInput.value=', dueInput.value);
+  if (!val || !val.match(/^\d{4}-\d{2}-\d{2}$/)) { console.log('[dueDate] invalid date format, skip'); return; }
+  if (dueInput.value) { console.log('[dueDate] due already set, skip'); return; }
   var vendIn = draftParentTr.querySelector('input.draft-vendor-input');
   var terms = vendIn ? parseInt(vendIn.dataset.paymentTerms || '0') : 0;
+  console.log('[dueDate] terms=', terms, 'paymentTerms attr=', vendIn && vendIn.dataset.paymentTerms);
   // Use 0 days if no terms (due = bill date)
   var parts = val.split('-');
   var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));

@@ -283,6 +283,7 @@ var cursor = {
     if (!rowEl) { window.fbBillCursorMid = false; return; }
     rowEl.classList.add('bill-row-focus');
     var cells = rowEl.querySelectorAll('td');
+    if (this.col >= cells.length) this.col = cells.length - 1; // clamp col when child has fewer tds than parent
     if (cells[this.col]) cells[this.col].classList.add('bill-cell-focus');
     window.fbBillCursorMid = (this.col < cells.length - 1);
     var pm = document.getElementById('page-main');

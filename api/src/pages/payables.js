@@ -443,6 +443,8 @@ var kbd = {
   _lastKey: null,
   _lastKeyTimer: null,
   _lastMoveTime: 0,
+  _cmdMode: false,
+  _cmdBuf: '',
 
   register: function() {
     // Remove old handler from any prior SPA navigation (script re-executes each time)
@@ -463,6 +465,33 @@ var kbd = {
   _handle: function(e) {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     if (!this._isBillsTabActive()) return;
+
+    // COMMAND mode (:w, :q, etc.)
+    if (this._cmdMode) {
+      e.preventDefault();
+      if (e.key === 'Escape') {
+        this._cmdMode = false; this._cmdBuf = ''; billEditMsg('', ''); return;
+      }
+      if (e.key === 'Backspace') {
+        this._cmdBuf = this._cmdBuf.slice(0, -1);
+        if (!this._cmdBuf) { this._cmdMode = false; billEditMsg('', ''); }
+        else billEditMsg(this._cmdBuf, ''); return;
+      }
+      if (e.key === 'Enter') {
+        var cmd = this._cmdBuf.trim();
+        this._cmdMode = false; this._cmdBuf = ''; billEditMsg('', '');
+        if (cmd === ':w') {
+          var dr = cursor.rowEl;
+          if (dr && dr.dataset.draft === 'true' && dr.dataset.rowType === 'parent') { saveDraftToDb(dr); }
+          else { billEditMsg(':w — no draft row selected', 'err'); setTimeout(function(){ billEditMsg('',''); }, 2000); }
+        } else {
+          billEditMsg('Unknown command: ' + cmd, 'err'); setTimeout(function(){ billEditMsg('',''); }, 2000);
+        }
+        return;
+      }
+      if (e.key.length === 1) { this._cmdBuf += e.key; billEditMsg(this._cmdBuf, ''); }
+      return;
+    }
 
     // INSERT mode: intercept control keys only
     if (cursor.mode === 'INSERT') {
@@ -535,11 +564,27 @@ var kbd = {
       this._lastKey = null; return;
     }
 
+    if (e.key === ':') {
+      e.preventDefault();
+      this._cmdMode = true; this._cmdBuf = ':';
+      billEditMsg(': ', '');
+      this._lastKey = null; return;
+    }
+
+    if (e.key === '~') {
+      e.preventDefault();
+      if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'parent') {
+        var st = cursor.rowEl.dataset.status || '';
+        if (st === 'draft') { openPostReviewPopup(cursor.rowEl); }
+      }
+      this._lastKey = null; return;
+    }
+
     if (e.key === 'i' || e.key === 'Enter') {
       e.preventDefault();
-      // Draft parent row: Enter in NORMAL = open post popup
+      // Draft parent row: Enter in NORMAL = save draft to DB
       if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true' && cursor.rowEl.dataset.rowType === 'parent' && e.key === 'Enter') {
-        openPostReviewPopup(cursor.rowEl);
+        saveDraftToDb(cursor.rowEl);
         this._lastKey = null; return;
       }
       if (cursor.rowEl) {
@@ -570,14 +615,6 @@ var kbd = {
         insertDraftParentRow(cursor.rowEl, true);
       } else if (cursor.rowEl.dataset.rowType === 'child') {
         insertDraftChildRow(cursor.rowEl, true);
-      }
-      this._lastKey = null; return;
-    }
-
-    if (e.key === 's') {
-      e.preventDefault();
-      if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true' && cursor.rowEl.dataset.rowType === 'parent') {
-        saveDraftToDb(cursor.rowEl);
       }
       this._lastKey = null; return;
     }

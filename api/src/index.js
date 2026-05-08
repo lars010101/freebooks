@@ -47,6 +47,8 @@ const ACTION_ROLES = {
   'bill.aging': 'viewer',
   'bill.get': 'viewer',
   'bill.update': 'data_entry',
+  'bill.draft.save': 'data_entry',
+  'bill.draft.post': 'data_entry',
   'report.refresh_vat_return': 'viewer',
   'coa.list': 'viewer',
   'coa.save': 'owner',

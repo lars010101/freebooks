@@ -857,11 +857,12 @@ function exitBillCellEdit(save) {
 
   if (!rowEl || !tdEl) { billEditState.rowEl = null; return; }
 
-  // Draft row handler: Enter just blurs; Esc removes row if empty
+  // Draft row handler: blur and return to NORMAL; auto-save if valid
   if (rowEl && rowEl.dataset.draft === 'true') {
     if (document.activeElement) document.activeElement.blur();
     cursor.mode = 'NORMAL';
     if (!save) {
+      // Esc: remove row if all inputs are empty
       var draftKey = rowEl.dataset.draftKey;
       var inputs = rowEl.querySelectorAll('input');
       var allEmpty = Array.from(inputs).every(function(inp){ return !inp.value.trim(); });
@@ -869,7 +870,19 @@ function exitBillCellEdit(save) {
         document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]').forEach(function(r){ r.remove(); });
         rowEl.remove();
         cursor.clear();
+        tdEl.classList.remove('vcell-editing');
+        billEditState.rowEl = null;
+        return;
       }
+    }
+    // Auto-save if all required fields are filled and not yet saved
+    if (rowEl.dataset.rowType === 'parent') {
+      var vendIn = rowEl.querySelector('input.draft-vendor-input');
+      var rowInputs = rowEl.querySelectorAll('input');
+      var hasVendor = vendIn && vendIn.dataset.vendorName;
+      var hasDate   = rowInputs[1] && rowInputs[1].value;
+      var hasAmount = rowInputs[4] && parseFloat(rowInputs[4].value) > 0;
+      if (hasVendor && hasDate && hasAmount) { saveDraftToDb(rowEl); }
     }
     tdEl.classList.remove('vcell-editing');
     billEditState.rowEl = null;
@@ -1343,6 +1356,20 @@ function insertDraftParentRow(refRow, above) {
   var vendorInput = tr.querySelector('input.draft-vendor-input');
   vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
   vendorInput.addEventListener('blur', function() { setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150); });
+  var dateInput2 = tr.querySelectorAll('input')[1];
+  if (dateInput2) {
+    dateInput2.addEventListener('change', function() {
+      // Auto-calculate due date when bill date changes
+      var vendIn = tr.querySelector('input.draft-vendor-input');
+      var terms = vendIn && parseInt(vendIn.dataset.paymentTerms);
+      var dueIn = tr.querySelectorAll('input')[2];
+      if (terms && dateInput2.value && dueIn && !dueIn.value) {
+        var d = new Date(dateInput2.value);
+        d.setDate(d.getDate() + terms);
+        dueIn.value = d.toISOString().slice(0, 10);
+      }
+    });
+  }
   var ccyInput = tr.querySelectorAll('input')[5];
   if (ccyInput) {
     ccyInput.addEventListener('input', function() { draftCcyInput(ccyInput); });
@@ -1429,16 +1456,20 @@ function draftVendorInput(input) {
       input.dataset.vendorName = v.name || '';
       input.dataset.apAccount = v.default_ap_account || '201100';
       input.dataset.expenseAccount = v.default_expense_account || '400000';
+      input.dataset.paymentTerms = String(v.payment_terms_days || 0);
       input.value = v.name || '';
       var tr = input.closest('tr');
       if (tr) {
         var ccyInputs = tr.querySelectorAll('input');
         if (ccyInputs[5]) ccyInputs[5].value = (v.default_currency || BASE_CURRENCY).toUpperCase();
-        if (v.payment_terms_days && ccyInputs[1] && ccyInputs[1].value) {
-          var billDate = new Date(ccyInputs[1].value);
-          var dueDate = new Date(billDate.getTime() + v.payment_terms_days * 24 * 60 * 60 * 1000);
-          var dueDateStr = dueDate.toISOString().slice(0, 10);
-          if (ccyInputs[2]) ccyInputs[2].value = dueDateStr;
+        // Auto-fill due date from payment terms + bill date (if bill date already set)
+        if (v.payment_terms_days) {
+          var dateVal = ccyInputs[1] && ccyInputs[1].value;
+          if (dateVal) {
+            var bd = new Date(dateVal);
+            bd.setDate(bd.getDate() + v.payment_terms_days);
+            if (ccyInputs[2]) ccyInputs[2].value = bd.toISOString().slice(0, 10);
+          }
         }
       }
       var dd2 = document.getElementById('pay-draft-vendor-dd');

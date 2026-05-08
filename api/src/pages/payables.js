@@ -1663,7 +1663,9 @@ function saveDraftToDb(draftParentTr) {
       draftParentTr.dataset.billId = data.billId;
       billEditMsg('Bill saved as DRAFT.', 'ok');
       setTimeout(function() { billEditMsg('', ''); }, 3000);
-      // Re-render the list so the row appears as a normal bill row
+      // Re-render the list so the row appears as a normal bill row;
+      // after render, focus the saved row
+      window._focusBillIdAfterRender = data.billId;
       loadAllBills();
     })
     .catch(function(e) { billEditMsg(e.message, 'err'); });
@@ -2055,6 +2057,16 @@ function renderPage() {
   if (!tbody) return;
   tbody.innerHTML = html;
   document.getElementById('pagination-row').style.display = 'none';
+  // Focus the row that was just saved (e.g. after draft save + reload)
+  if (window._focusBillIdAfterRender) {
+    var focusId = window._focusBillIdAfterRender;
+    window._focusBillIdAfterRender = null;
+    var focusTr = tbody.querySelector('tr[data-bill-id="' + focusId + '"]');
+    if (focusTr) {
+      cursor.set(focusTr, 0);
+      focusTr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
 }
 
 function renderPagination(totalPages) {

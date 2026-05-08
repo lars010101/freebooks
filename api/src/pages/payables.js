@@ -1395,7 +1395,7 @@ function insertDraftParentRow(refRow, above) {
 
 function initDraftInDb(draftParentTr) {
   fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'bill.draft.save', companyId: COMPANY, bill: {} }) })
+    body: JSON.stringify({ action: 'bill.draft.save', companyId: COMPANY, bill: { vendor: '(draft)', date: today, amount: 0, currency: BASE_CURRENCY } }) })
   .then(function(r) { return r.json(); })
   .then(function(res) {
     var data = res.data || res;

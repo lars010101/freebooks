@@ -1362,76 +1362,94 @@ function insertDraftParentRow(refRow, above) {
     tbody.appendChild(tr);
   }
   var vendorInput = tr.querySelector('input.draft-vendor-input');
+  var draftInputs2 = tr.querySelectorAll('input');
+  var dateInputEl  = draftInputs2[1];
+  var dueInputEl   = draftInputs2[2];
+  var amtInputEl   = draftInputs2[4];
+  var ccyInputEl   = draftInputs2[5];
+
+  // Vendor: type-ahead + blur validation + auto-fill CCY/accounts
   vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
-  vendorInput.addEventListener('blur', function() { setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150); });
-  // Auto-save on blur of any draft input (debounced 400ms)
-  Array.from(tr.querySelectorAll('input.draft-input, select.draft-input')).forEach(function(inp) {
-    inp.addEventListener('blur', function() {
-      clearTimeout(tr._autoSaveTimer);
-      tr._autoSaveTimer = setTimeout(function() { autoSaveDraft(tr); }, 400);
-    });
+  vendorInput.addEventListener('blur', function() {
+    setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150);
+    setTimeout(function() {
+      var name = vendorInput.value.trim();
+      if (!name) return;
+      // Accept if already selected from dropdown
+      if (vendorInput.dataset.vendorName) {
+        vendorInput.classList.remove('req');
+        // Inherit CCY from vendor master if CCY field is empty
+        var v = allVendors.find(function(x){ return x.vendor_id === vendorInput.dataset.vendorId; });
+        if (v && ccyInputEl && !ccyInputEl.value) ccyInputEl.value = (v.default_currency || BASE_CURRENCY).toUpperCase();
+        autoSaveDraftIfReady(tr); return;
+      }
+      // Try exact case-insensitive match in vendor master
+      var match = allVendors.find(function(x){ return (x.name||'').toLowerCase() === name.toLowerCase(); });
+      if (!match) {
+        billEditMsg('Vendor not in master data — select from dropdown', 'err');
+        vendorInput.classList.add('req'); vendorInput.value = ''; vendorInput.dataset.vendorName = ''; return;
+      }
+      vendorInput.dataset.vendorId = match.vendor_id || '';
+      vendorInput.dataset.vendorName = match.name || '';
+      vendorInput.dataset.apAccount = match.default_ap_account || '201100';
+      vendorInput.dataset.expenseAccount = match.default_expense_account || '400000';
+      vendorInput.value = match.name;
+      vendorInput.classList.remove('req');
+      if (ccyInputEl && !ccyInputEl.value) ccyInputEl.value = (match.default_currency || BASE_CURRENCY).toUpperCase();
+      autoSaveDraftIfReady(tr);
+    }, 200);
   });
 
-  // No auto-populate for due date — user must set both dates manually
-  var ccyInput = tr.querySelectorAll('input')[5];
-  if (ccyInput) {
-    ccyInput.addEventListener('input', function() { draftCcyInput(ccyInput); });
-    ccyInput.addEventListener('blur', function() {
-      setTimeout(function() { var dd = document.getElementById('pay-draft-ccy-dd'); if (dd) dd.remove(); }, 150);
-      // validate on blur
-      var v = ccyInput.value.trim().toUpperCase();
-      if (v && vendorCurrenciesList.length) {
-        var valid = vendorCurrenciesList.some(function(c){ return (c.code||'').toUpperCase() === v; });
-        if (!valid) { ccyInput.classList.add('req'); } else { ccyInput.classList.remove('req'); ccyInput.value = v; }
+  // Due date: validate >= bill date on blur
+  if (dueInputEl) {
+    dueInputEl.addEventListener('blur', function() {
+      var dueVal = dueInputEl.value;
+      var dateVal = dateInputEl ? dateInputEl.value : '';
+      if (dueVal && dateVal && dueVal < dateVal) {
+        billEditMsg('Due date must be ≥ bill date', 'err');
+        dueInputEl.classList.add('req'); dueInputEl.value = ''; return;
       }
+      if (dueVal) dueInputEl.classList.remove('req');
+      autoSaveDraftIfReady(tr);
     });
   }
+
+  // CCY: dropdown + validation on blur
+  if (ccyInputEl) {
+    ccyInputEl.addEventListener('input', function() { draftCcyInput(ccyInputEl); });
+    ccyInputEl.addEventListener('blur', function() {
+      setTimeout(function() { var dd = document.getElementById('pay-draft-ccy-dd'); if (dd) dd.remove(); }, 150);
+      var v = ccyInputEl.value.trim().toUpperCase();
+      if (v && vendorCurrenciesList.length) {
+        var valid = vendorCurrenciesList.some(function(c){ return (c.code||'').toUpperCase() === v; });
+        if (!valid) { ccyInputEl.classList.add('req'); return; }
+        ccyInputEl.classList.remove('req'); ccyInputEl.value = v;
+      }
+      autoSaveDraftIfReady(tr);
+    });
+  }
+
+  // All other fields: trigger auto-save check on blur
+  [dateInputEl, amtInputEl].forEach(function(inp) {
+    if (inp) inp.addEventListener('blur', function() { autoSaveDraftIfReady(tr); });
+  });
+
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
-  // Immediately create skeleton draft in DB to get a bill_id
-  initDraftInDb(tr);
   vendorInput.focus();
 }
 
-function initDraftInDb(draftParentTr) {
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'bill.draft.save', companyId: COMPANY, bill: {
-      vendor: '(draft)', date: today, due_date: today, amount: 0,
-      currency: BASE_CURRENCY, expense_account: '400000', ap_account: '201100'
-    } }) })
-  .then(function(r) { return r.json(); })
-  .then(function(res) {
-    var data = res.data || res;
-    if (data && data.billId) {
-      draftParentTr.dataset.billId = data.billId;
-    }
-  })
-  .catch(function() {});
-}
-
-function autoSaveDraft(draftParentTr) {
-  var billId = draftParentTr.dataset.billId;
-  if (!billId) return; // skeleton not yet persisted, skip
+function autoSaveDraftIfReady(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
-  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], amtInput = inputs[4], ccyInput = inputs[5];
-  var payload = {
-    action: 'bill.draft.save', companyId: COMPANY,
-    bill: {
-      bill_id: billId,
-      vendor: vendorInput ? (vendorInput.dataset.vendorName || vendorInput.value.trim() || null) : null,
-      vendor_ref: refInput ? refInput.value.trim() || null : null,
-      date: dateInput ? dateInput.value || null : null,
-      due_date: dueInput ? dueInput.value || null : null,
-      amount: parseFloat(amtInput && amtInput.value) || 0,
-      currency: ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY,
-      ap_account: vendorInput ? (vendorInput.dataset.apAccount || '201100') : '201100',
-      expense_account: vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000',
-    }
-  };
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-  .then(function(r) { return r.json(); })
-  .catch(function() {});
+  var dateInput = inputs[1], dueInput = inputs[2], amtInput = inputs[4], ccyInput = inputs[5];
+  if (!vendorInput || !vendorInput.dataset.vendorName) return; // vendor not valid
+  if (!dateInput || !dateInput.value) return;
+  if (!dueInput || !dueInput.value) return;
+  if (!amtInput || !(parseFloat(amtInput.value) > 0)) return;
+  if (!ccyInput || !ccyInput.value.trim()) return;
+  // All required fields present — save
+  saveDraftToDb(draftParentTr);
 }
 
 function insertDraftChildRow(childRow, above) {
@@ -1631,7 +1649,7 @@ function saveDraftToDb(draftParentTr) {
       var data = res.data || res;
       // Store bill_id on the row so future saves update, and post can use bill.draft.post
       draftParentTr.dataset.billId = data.billId;
-      billEditMsg('Draft saved (s to update, p to post)', 'ok');
+      billEditMsg('Draft saved — p to post', 'ok');
       setTimeout(function() { billEditMsg('', ''); }, 3000);
     })
     .catch(function(e) { billEditMsg(e.message, 'err'); });

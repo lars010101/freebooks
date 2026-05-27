@@ -1384,9 +1384,17 @@ function autoSaveChildRow(childRow, parentTr) {
 }
 
 function autoSaveDraftIfReady(draftParentTr) {
-  // Defer so focus has settled — only save if the user has left the draft row entirely
+  // Defer so focus has settled — only save if the user has left the draft bill entirely
+  var draftKey = draftParentTr.dataset.draftKey || draftParentTr.dataset.billId;
   setTimeout(function() {
-    if (draftParentTr.contains(document.activeElement)) return; // still editing inside row
+    if (draftParentTr.contains(document.activeElement)) return; // still in parent row
+    // Also check sibling child rows (they are <tr> siblings, not DOM children of parent)
+    if (draftKey) {
+      var childRows = document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]');
+      for (var ci = 0; ci < childRows.length; ci++) {
+        if (childRows[ci].contains(document.activeElement)) return;
+      }
+    }
     var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
     var inputs = draftParentTr.querySelectorAll('input');
     var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];

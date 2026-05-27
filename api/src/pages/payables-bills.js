@@ -1139,9 +1139,8 @@ function renderDraftChildRows(parentRow, linesList) {
       }
     }
     var _saveTimer = null;
-    function _schedSave() { clearTimeout(_saveTimer); _saveTimer = setTimeout(function() { syncLine(); autoSaveChildRow(tr, parentRow); }, 600); }
-    if (descInp) { descInp.addEventListener('blur', function() { syncLine(); autoSaveChildRow(tr, parentRow); }); descInp.addEventListener('input', _schedSave); }
-    if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); autoSaveChildRow(tr, parentRow); }); amtInp.addEventListener('input',  _schedSave); }
+    if (descInp) { descInp.addEventListener('blur', function() { syncLine(); autoSaveChildRow(tr, parentRow); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); }); }
+    if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); autoSaveChildRow(tr, parentRow); }); amtInp.addEventListener('input',  function() { syncLine(); updateParentDraftAmount(parentRow); }); }
     if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); autoSaveChildRow(tr, parentRow); });
     insertAfter.insertAdjacentElement('afterend', tr);
     insertAfter = tr;
@@ -1223,9 +1222,8 @@ function createDraftLine(childRow) {
     }
   }
   var _t2 = null;
-  function _sched2() { clearTimeout(_t2); _t2 = setTimeout(function() { syncLine2(); autoSaveChildRow(tr, parentRow); }, 600); }
-  if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); descInp2.addEventListener('input', _sched2); }
-  if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); amtInp2.addEventListener('input',  _sched2); }
+  if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); descInp2.addEventListener('input', function() { syncLine2(); updateParentDraftAmount(parentRow); }); }
+  if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); amtInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); }); }
   if (gstSel2)  gstSel2.addEventListener('change',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); });
   insertAfterEl.insertAdjacentElement('afterend', tr);
   cursor.set(tr, 0);
@@ -1369,18 +1367,16 @@ function updateParentDraftAmount(draftParentTr) {
 var recalcParentAmount = updateParentDraftAmount;
 
 function autoSaveChildRow(childRow, parentTr) {
+  // Validate + highlight; recalc parent total; then try save (deferred focus check)
   var descInput = childRow.querySelector('input.child-desc');
   var amtInput  = childRow.querySelectorAll('input')[1];
   var gstSelect = childRow.querySelector('select');
   var desc = descInput && descInput.value.trim();
   var amt  = parseFloat(amtInput && amtInput.value) || 0;
-  var tax  = gstSelect && gstSelect.value;
   if (descInput) descInput.classList.toggle('req', !desc);
   if (amtInput)  amtInput.classList.toggle('req', !(amt > 0));
-  if (gstSelect) gstSelect.classList.toggle('req', !tax);
-  if (!desc || !(amt > 0)) return;
   updateParentDraftAmount(parentTr);
-  saveDraftToDb(parentTr);
+  autoSaveDraftIfReady(parentTr); // deferred — only saves when focus leaves entire bill
 }
 
 function autoSaveDraftIfReady(draftParentTr) {
@@ -1447,10 +1443,8 @@ function insertDraftChildRow(childRow, above) {
   var descInpRef = tr.querySelector('input.child-desc');
   var amtInpRef  = tr.querySelectorAll('input')[1];
   var gstSelRef  = tr.querySelector('select');
-  var _childSaveTimer = null;
-  function _schedChildSave() { clearTimeout(_childSaveTimer); _childSaveTimer = setTimeout(function() { autoSaveChildRow(tr, parentTrRef); }, 600); }
-  if (descInpRef) { descInpRef.addEventListener('blur', function() { autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', _schedChildSave); }
-  if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  _schedChildSave); }
+  if (descInpRef) { descInpRef.addEventListener('blur', function() { autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', function() { updateParentDraftAmount(parentTrRef); }); }
+  if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); }); }
   if (gstSelRef)  gstSelRef.addEventListener('change',  function() { autoSaveChildRow(tr, parentTrRef); });
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';

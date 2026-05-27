@@ -1289,7 +1289,12 @@ function _wireDraftParentEvents(tr) {
       var v = ccyInputEl.value.trim().toUpperCase();
       if (v && vendorCurrenciesList.length) {
         var valid = vendorCurrenciesList.some(function(c){ return (c.code||'').toUpperCase() === v; });
-        if (!valid) { ccyInputEl.classList.add('req'); return; }
+        if (!valid) {
+          billEditMsg('"' + v + '" is not a valid currency code — select from the dropdown', 'err');
+          ccyInputEl.value = '';
+          ccyInputEl.classList.add('req');
+          return;
+        }
         ccyInputEl.classList.remove('req'); ccyInputEl.value = v;
       }
       autoSaveDraftIfReady(tr);

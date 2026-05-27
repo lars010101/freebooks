@@ -1379,15 +1379,19 @@ function autoSaveChildRow(childRow, parentTr) {
 }
 
 function autoSaveDraftIfReady(draftParentTr) {
-  var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
-  var inputs = draftParentTr.querySelectorAll('input');
-  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];
-  if (!vendorInput || !vendorInput.dataset.vendorName) return;
-  if (!dateInput || !dateInput.value) return;
-  if (!dueInput || !dueInput.value) return;
-  if (!refInput || !refInput.value.trim()) return;
-  if (!ccyInput || !ccyInput.value.trim()) return;
-  saveDraftToDb(draftParentTr);
+  // Defer so focus has settled — only save if the user has left the draft row entirely
+  setTimeout(function() {
+    if (draftParentTr.contains(document.activeElement)) return; // still editing inside row
+    var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
+    var inputs = draftParentTr.querySelectorAll('input');
+    var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];
+    if (!vendorInput || !vendorInput.dataset.vendorName) return;
+    if (!dateInput || !dateInput.value) return;
+    if (!dueInput || !dueInput.value) return;
+    if (!refInput || !refInput.value.trim()) return;
+    if (!ccyInput || !ccyInput.value.trim()) return;
+    saveDraftToDb(draftParentTr);
+  }, 200);
 }
 
 function insertDraftChildRow(childRow, above) {

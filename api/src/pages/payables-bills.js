@@ -499,17 +499,33 @@ var kbd = {
         if (pr3) recalcParentAmount(pr3);
       }
     } else if (rowType === 'parent') {
-      if (cursor.rowEl.dataset.draft === 'true') {
+      var isDraft2 = cursor.rowEl.dataset.draft === 'true' || cursor.rowEl.dataset.status === 'draft';
+      if (isDraft2) {
         var dk = cursor.rowEl.dataset.draftKey;
-        if (dk) { delete draftLines[dk]; treeState.setClose(dk); }
-        document.querySelectorAll('tr[data-parent-key="' + dk + '"]').forEach(function(r) { r.remove(); });
+        // Remove child rows (both keyed by draftKey and billId for saved drafts)
+        var billIdDraft = cursor.rowEl.dataset.billId;
+        if (dk) { delete draftLines[dk]; treeState.setClose(dk); document.querySelectorAll('tr[data-parent-key="' + dk + '"]').forEach(function(r) { r.remove(); }); }
+        if (billIdDraft) { document.querySelectorAll('tr[data-parent-id="' + billIdDraft + '"]').forEach(function(r) { r.remove(); }); }
+        var nxtRows = cursor.getVisibleRows();
+        var nxtIdx = nxtRows.indexOf(cursor.rowEl);
         cursor.rowEl.remove();
-        cursor.clear();
+        var afterRows = cursor.getVisibleRows();
+        if (afterRows.length) cursor.set(afterRows[Math.max(0, nxtIdx - 1)] || afterRows[0], 0); else cursor.clear();
+        // If saved draft (has bill_id), delete from DB
+        if (billIdDraft) {
+          fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'bill.delete', companyId: COMPANY, billId: billIdDraft }) })
+            .then(function(r) { return r.json(); })
+            .then(function(res) { var d = res.data || res; if (res.error || d.error) billEditMsg('Delete failed: ' + (res.error || d.error), 'err'); })
+            .catch(function(e) { billEditMsg('Error: ' + e.message, 'err'); });
+        }
       } else {
         var billId2 = cursor.rowEl.dataset.billId;
         var vendor2 = cursor.rowEl.dataset.vendor || billId2;
+        var status2 = cursor.rowEl.dataset.status || '';
         if (!billId2) return;
-        if (!confirm('Void bill from "' + vendor2 + '"? This will reverse the bill and cannot be undone.')) return;
+        if (status2 === 'void') { billEditMsg('Bill is already void — cannot be modified.', 'err'); return; }
+        if (!confirm('Void bill from "' + vendor2 + '"? A reversal journal entry will be created. This cannot be undone.')) return;
         fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'bill.void', companyId: COMPANY, billId: billId2 }) })
           .then(function(r) { return r.json(); })

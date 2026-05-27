@@ -525,7 +525,11 @@ var kbd = {
         var status2 = cursor.rowEl.dataset.status || '';
         if (!billId2) return;
         if (status2 === 'void') { billEditMsg('Bill is already void — cannot be modified.', 'err'); return; }
-        if (!confirm('Void bill from "' + vendor2 + '"? A reversal journal entry will be created. This cannot be undone.')) return;
+        if (status2 === 'paid') { billEditMsg('Bill is fully paid — reversal must be done via a credit note or payment reversal.', 'err'); return; }
+        var confirmMsg = status2 === 'partial'
+          ? 'Bill from "' + vendor2 + '" is partially paid. Reversing will void the bill but will not reverse the payment. Continue?'
+          : 'Reverse bill from "' + vendor2 + '"? A reversal journal entry will be created. This cannot be undone.';
+        if (!confirm(confirmMsg)) return;
         fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'bill.void', companyId: COMPANY, billId: billId2 }) })
           .then(function(r) { return r.json(); })
@@ -1176,6 +1180,10 @@ function createDraftBill(refRow) {
   treeState.setOpen(draftKey);
   renderDraftChildRows(tr, draftLines[draftKey]);
   cursor.set(tr, 0);
+  // Auto-enter INSERT on vendor field
+  cursor.mode = 'INSERT';
+  var vendorInp = tr.querySelector('input.draft-vendor-input');
+  if (vendorInp) setTimeout(function() { vendorInp.focus(); vendorInp.select(); }, 0);
 }
 
 // Append new empty child line below current child row
@@ -1267,6 +1275,15 @@ function _wireDraftParentEvents(tr) {
   }
   if (ccyInputEl) {
     ccyInputEl.addEventListener('input', function() { draftCcyInput(ccyInputEl); });
+    ccyInputEl.addEventListener('keydown', function(e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); moveDraftCcyDd(1); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); moveDraftCcyDd(-1); return; }
+      if (e.key === 'Tab' && !e.shiftKey) {
+        // Tab from CCY -> first child desc input
+        var firstChild = document.querySelector('tr[data-parent-key="' + tr.dataset.draftKey + '"] input.child-desc');
+        if (firstChild) { e.preventDefault(); firstChild.focus(); }
+      }
+    });
     ccyInputEl.addEventListener('blur', function() {
       setTimeout(function() { var dd = document.getElementById('pay-draft-ccy-dd'); if (dd) dd.remove(); }, 150);
       var v = ccyInputEl.value.trim().toUpperCase();
@@ -1281,6 +1298,12 @@ function _wireDraftParentEvents(tr) {
   var refInputEl = draftInputs2[3];
   if (dateInputEl) dateInputEl.addEventListener('blur', function() { autoSaveDraftIfReady(tr); });
   if (refInputEl)  refInputEl.addEventListener('blur',  function() { autoSaveDraftIfReady(tr); });
+  // Tab from ref -> skip read-only amount, go to CCY
+  if (refInputEl && ccyInputEl) {
+    refInputEl.addEventListener('keydown', function(e) {
+      if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); ccyInputEl.focus(); }
+    });
+  }
   tr.addEventListener('focusin', function(e) {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
       document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });

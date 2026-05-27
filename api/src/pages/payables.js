@@ -216,7 +216,7 @@ ${commonStyle()}
   </div>
 
     <div style="margin-top:6px;text-align:right">
-      <span style="font-size:0.625rem;color:#bbb">hjkl&nbsp;navigate &nbsp;·&nbsp; i/Enter&nbsp;edit &nbsp;·&nbsp; Esc&nbsp;revert</span>
+      <span style="font-size:0.625rem;color:#bbb">hjkl&nbsp;navigate &nbsp;·&nbsp; Enter&nbsp;fold &nbsp;&middot;&nbsp; i&nbsp;edit &nbsp;&middot;&nbsp; o&nbsp;new &nbsp;&middot;&nbsp; dd&nbsp;delete &nbsp;&middot;&nbsp; p&nbsp;post &nbsp;·&nbsp; Esc&nbsp;revert</span>
     </div>
 
   </div><!-- /pay-panel-bills -->
@@ -261,6 +261,8 @@ var sortState = { col: null, dir: 'asc' };
 var colFilters = {};
 var taxCodeMap = {}; // vat_code → description
 
+var draftLines = {}; // { draftKey: [{desc, amount, vatCode}] } — source of truth for draft child rows
+
 var treeState = {
   open: new Set(),
   isOpen: function(billId) { return this.open.has(String(billId)); },
@@ -272,28 +274,6 @@ var treeState = {
   setOpen: function(billId) { this.open.add(String(billId)); },
   setClose: function(billId) { this.open.delete(String(billId)); }
 };
-
-// Map cursor column when crossing between parent rows (7 tds) and child rows (4 tds, first has colspan=4).
-// Parent cols: 0=Vendor,1=Date,2=Due,3=Ref,4=Amount,5=CCY,6=Status
-// Child cols:  0=Description(colspan4),1=Amount,2=CCY,3=VatTag
-function crossRowCol(fromRow, toRow, col) {
-  var fromType = fromRow.dataset.rowType;
-  var toType   = toRow.dataset.rowType;
-  if (fromType === toType) return col; // same type — no mapping needed
-  if (fromType === 'parent' && toType === 'child') {
-    if (col <= 3) return 0;
-    if (col === 4) return 1;
-    if (col === 5) return 2;
-    return 3;
-  }
-  if (fromType === 'child' && toType === 'parent') {
-    if (col === 0) return 0;
-    if (col === 1) return 4;
-    if (col === 2) return 5;
-    return 6;
-  }
-  return col;
-}
 
 var cursor = {
   rowEl: null,
@@ -441,9 +421,9 @@ function hideBillAcctDd() {
 
 var kbd = {
   _registered: false,
-  _lastKey: null,
-  _lastKeyTimer: null,
   _lastMoveTime: 0,
+  _ddPending: false,
+  _ddTimer: null,
 
   register: function() {
     // Remove old handler from any prior SPA navigation (script re-executes each time)
@@ -517,16 +497,24 @@ var kbd = {
       e.preventDefault();
       var now = Date.now(); if (now - this._lastMoveTime < 40) return; this._lastMoveTime = now;
       if (idx === -1 && rows.length) { cursor.set(rows[0], 0); }
-      else if (idx >= 0 && idx < rows.length - 1) { cursor.set(rows[idx + 1], crossRowCol(rows[idx], rows[idx + 1], cursor.col)); }
-      this._lastKey = null; return;
+      else if (idx >= 0 && idx < rows.length - 1) {
+        // Step 3: block j from crossing bill boundary (child → next parent)
+        if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child' && rows[idx + 1].dataset.rowType === 'parent') { return; }
+        cursor.set(rows[idx + 1], 0);
+      }
+      return;
     }
 
     if (e.key === 'k') {
       e.preventDefault();
       var now2 = Date.now(); if (now2 - this._lastMoveTime < 40) return; this._lastMoveTime = now2;
-      if (idx > 0) { cursor.set(rows[idx - 1], crossRowCol(rows[idx], rows[idx - 1], cursor.col)); }
+      if (idx > 0) {
+        // Step 3: block k from crossing bill boundary (child → prev parent)
+        if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child' && rows[idx - 1].dataset.rowType === 'parent') { return; }
+        cursor.set(rows[idx - 1], 0);
+      }
       else if (idx === 0) { cursor.clear(); }
-      this._lastKey = null; return;
+      return;
     }
 
     if (e.key === 'l') {
@@ -535,13 +523,13 @@ var kbd = {
         var cells = cursor.rowEl.querySelectorAll('td');
         cursor.set(cursor.rowEl, Math.min(cursor.col + 1, cells.length - 1));
       }
-      this._lastKey = null; return;
+      return;
     }
 
     if (e.key === 'h') {
       e.preventDefault();
       if (cursor.rowEl && cursor.col > 0) { cursor.set(cursor.rowEl, cursor.col - 1); }
-      this._lastKey = null; return;
+      return;
     }
 
     if (e.key === '~') {
@@ -550,54 +538,77 @@ var kbd = {
         var st = cursor.rowEl.dataset.status || '';
         if (st === 'draft') { openPostReviewPopup(cursor.rowEl); }
       }
-      this._lastKey = null; return;
+      return;
     }
 
-    if (e.key === 'i' || e.key === 'Enter') {
+    // Step 2: Enter = fold toggle (parent) or collapse parent (child)
+    if (e.key === 'Enter') {
       e.preventDefault();
-      // Draft parent row: Enter/i = focus existing input in current cell
+      if (!cursor.rowEl) return;
+      if (cursor.rowEl.dataset.rowType === 'parent') {
+        this._toggleFold();
+      } else if (cursor.rowEl.dataset.rowType === 'child') {
+        // Collapse parent and move cursor to it
+        var childParentKey = cursor.rowEl.dataset.parentKey || cursor.rowEl.dataset.parentId;
+        var childParentRow = childParentKey
+          ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + childParentKey + '"]') ||
+             document.querySelector('tr[data-row-type="parent"][data-bill-id="' + childParentKey + '"]'))
+          : null;
+        if (childParentRow) {
+          this._closeFold(childParentRow);
+          cursor.set(childParentRow, 0);
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'i') {
+      e.preventDefault();
+      // Draft row: i = focus existing input in current cell
       if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
-        if (e.key === 'Enter' && cursor.rowEl.dataset.rowType === 'parent') {
-          // auto-save happens on blur; Enter in NORMAL just enters INSERT mode
+        if (cursor.rowEl.dataset.rowType === 'parent') {
           var firstInp = cursor.rowEl.querySelector('input, select');
           if (firstInp) { cursor.mode = 'INSERT'; firstInp.focus(); }
-          this._lastKey = null; return;
+          return;
         }
-        // i (or Enter on child draft): focus the existing draft input in the current column
+        // i on child draft: focus the existing draft input in the current column
         var draftTds = cursor.rowEl.querySelectorAll('td');
         var draftTd = draftTds[cursor.col];
         if (draftTd) {
           var draftInp = draftTd.querySelector('input, select');
           if (draftInp) {
-          cursor.mode = 'INSERT';
-          document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
-          document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
-          draftInp.focus();
+            cursor.mode = 'INSERT';
+            document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
+            document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
+            draftInp.focus();
+          }
         }
-        }
-        this._lastKey = null; return;
+        return;
       }
       if (cursor.rowEl) {
         var tds2 = cursor.rowEl.querySelectorAll('td');
         var tdFocus = tds2[cursor.col];
         if (tdFocus) enterBillCellEdit(cursor.rowEl, cursor.col);
       }
-      this._lastKey = null; return;
+      return;
     }
 
+    // Step 6: o = new draft bill (on parent) or new child line (on child)
     if (e.key === 'o') {
       e.preventDefault();
-      // o always creates a new parent row; never auto-spawns a child
-      if (!cursor.rowEl) { insertDraftParentRow(null, false); }
-      else { insertDraftParentRow(cursor.rowEl, false); }
-      this._lastKey = null; return;
+      if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') {
+        createDraftLine(cursor.rowEl);
+      } else {
+        createDraftBill(cursor.rowEl || null);
+      }
+      return;
     }
 
     if (e.key === 'O') {
       e.preventDefault();
-      if (!cursor.rowEl) { insertDraftParentRow(null, false); }
+      if (!cursor.rowEl) { createDraftBill(null); }
       else { insertDraftParentRow(cursor.rowEl, true); }
-      this._lastKey = null; return;
+      return;
     }
 
     if (e.key === 'a') {
@@ -612,75 +623,91 @@ var kbd = {
         if (isDraftParent) { insertDraftChildRow(cursor.rowEl, false); }
         else if (isDraftChild) { insertDraftChildRow(cursor.rowEl, false); }
       }
-      this._lastKey = null; return;
+      return;
     }
 
+    // Step 7: dd = delete line (child) or delete/void bill (parent)
+    if (e.key === 'd') {
+      e.preventDefault();
+      if (this._ddPending) {
+        clearTimeout(this._ddTimer);
+        this._ddPending = false;
+        this._deleteCurrent();
+      } else {
+        this._ddPending = true;
+        var self = this;
+        this._ddTimer = setTimeout(function() { self._ddPending = false; }, 500);
+      }
+      return;
+    }
+
+    // Step 8: p = post bill from any row
     if (e.key === 'p') {
       e.preventDefault();
-      if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true' && cursor.rowEl.dataset.rowType === 'parent') {
-        openPostReviewPopup(cursor.rowEl);
+      var pRow = cursor.rowEl;
+      if (!pRow) return;
+      // Walk up to parent if on a child row
+      if (pRow.dataset.rowType === 'child') {
+        var pKey = pRow.dataset.parentKey || pRow.dataset.parentId;
+        pRow = pKey
+          ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') ||
+             document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]'))
+          : null;
       }
-      this._lastKey = null; return;
+      if (pRow && (pRow.dataset.draft === 'true' || pRow.dataset.status === 'draft')) {
+        if (pRow.dataset.status === 'draft' && !pRow.dataset.draft) pRow.dataset.draft = 'true';
+        openPostReviewPopup(pRow);
+      }
+      return;
     }
 
     if (e.key === 'G') {
       e.preventDefault();
-      if (rows.length) cursor.set(rows[rows.length - 1], cursor.col || 0);
-      this._lastKey = null; return;
+      if (rows.length) cursor.set(rows[rows.length - 1], 0);
+      return;
     }
 
     if (e.key === ' ') {
       e.preventDefault();
       this._toggleFold();
-      this._lastKey = null; return;
-    }
-
-    // Sequence: z_ and g_
-    if (this._lastKey === 'z') {
-      if (e.key === 'a') { e.preventDefault(); this._lastKey = null; window._fbBillZPending = false; this._toggleFold(); return; }
-      if (e.key === 'o') { e.preventDefault(); this._lastKey = null; this._openFold(); return; }
-      if (e.key === 'c') { e.preventDefault(); this._lastKey = null; this._closeFold(); return; }
-      if (e.key === 'R') { e.preventDefault(); this._lastKey = null; this._expandAll(); return; }
-      if (e.key === 'M') { e.preventDefault(); this._lastKey = null; this._collapseAll(); return; }
-      this._lastKey = null;
-    }
-
-    if (this._lastKey === 'g' && e.key === 'g') {
-      e.preventDefault(); this._lastKey = null;
-      if (rows.length) cursor.set(rows[0], cursor.col || 0);
       return;
     }
 
-    // Store key for sequences (normalize z/Z)
-    this._lastKey = (e.key === 'Z') ? 'z' : e.key;
-    clearTimeout(this._lastKeyTimer);
-    var self = this;
-    this._lastKeyTimer = setTimeout(function(){ self._lastKey = null; window._fbBillZPending = false; }, 1000);
-
-    if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); window._fbBillZPending = true; }
-    else if (e.key === 'g') { e.preventDefault(); }
+    if (e.key === 'g') { e.preventDefault(); }
   },
 
   _getParentRow: function() {
     if (!cursor.rowEl) return null;
     if (cursor.rowEl.dataset.rowType === 'parent') return cursor.rowEl;
     if (cursor.rowEl.dataset.rowType === 'child') {
-      var pid = cursor.rowEl.dataset.parentId;
-      return document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pid + '"]');
+      var pid = cursor.rowEl.dataset.parentId || cursor.rowEl.dataset.parentKey;
+      return pid
+        ? (document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pid + '"]') ||
+           document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pid + '"]'))
+        : null;
     }
     return null;
   },
 
+  // Step 4: unified _toggleFold, _openFold, _closeFold
   _toggleFold: function() {
     var pr = this._getParentRow(); if (!pr) return;
-    if (pr.dataset.draft === 'true') { this._toggleFoldDraft(pr); return; }
-    var billId = pr.dataset.billId;
-    if (treeState.isOpen(billId)) this._closeFold(pr); else this._openFold(pr);
+    var key = pr.dataset.draft === 'true' ? pr.dataset.draftKey : pr.dataset.billId;
+    if (treeState.isOpen(key)) this._closeFold(pr); else this._openFold(pr);
   },
 
   _openFold: function(parentRow) {
     parentRow = parentRow || this._getParentRow(); if (!parentRow) return;
-    if (parentRow.dataset.draft === 'true') { this._openFoldDraft(parentRow); return; }
+    if (parentRow.dataset.draft === 'true') {
+      var draftKey = parentRow.dataset.draftKey;
+      if (!draftKey) return;
+      if (treeState.isOpen(draftKey)) return;
+      treeState.setOpen(draftKey);
+      if (!draftLines[draftKey]) draftLines[draftKey] = [];
+      if (!draftLines[draftKey].length) draftLines[draftKey].push({ desc: '', amount: 0, vatCode: '' });
+      renderDraftChildRows(parentRow, draftLines[draftKey]);
+      return;
+    }
     var billId = parentRow.dataset.billId;
     if (treeState.isOpen(billId)) return;
     treeState.setOpen(billId);
@@ -689,7 +716,15 @@ var kbd = {
 
   _closeFold: function(parentRow) {
     parentRow = parentRow || this._getParentRow(); if (!parentRow) return;
-    if (parentRow.dataset.draft === 'true') { this._closeFoldDraft(parentRow); return; }
+    if (parentRow.dataset.draft === 'true') {
+      var draftKey = parentRow.dataset.draftKey;
+      if (!draftKey) return;
+      if (!treeState.isOpen(draftKey)) return;
+      if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') cursor.set(parentRow, 0);
+      treeState.setClose(draftKey);
+      document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]').forEach(function(r) { r.remove(); });
+      return;
+    }
     var billId = parentRow.dataset.billId;
     if (!treeState.isOpen(billId)) return;
     if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') cursor.set(parentRow, 0);
@@ -697,51 +732,52 @@ var kbd = {
     toggleBillLines(billId, parentRow);
   },
 
-  _openFoldDraft: function(parentRow) {
-    if (!parentRow) return;
-    var draftKey = parentRow.dataset.draftKey;
-    if (!draftKey) return;
-    var existingChild = document.querySelector('tr[data-parent-key="' + draftKey + '"]');
-    if (!existingChild) {
-      var tr = document.createElement('tr');
-      tr.dataset.rowType = 'child';
-      tr.dataset.draft = 'true';
-      tr.dataset.parentKey = draftKey;
-      tr.style.cssText = 'background:#fffef5';
-      var baseCcy = parentRow.querySelectorAll('input')[5].value || BASE_CURRENCY;
-      tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
-        + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-        + '<td style="font-size:0.75rem;color:#888">' + baseCcy + '</td>'
-        + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>';
-      var gstSelect = tr.querySelector('select');
-      Object.keys(taxCodeMap).forEach(function(code) {
-        var opt = document.createElement('option');
-        opt.value = code;
-        opt.textContent = code + ': ' + taxCodeMap[code];
-        gstSelect.appendChild(opt);
-      });
-      parentRow.parentElement.insertBefore(tr, parentRow.nextElementSibling);
-    }
-  },
-
-  _closeFoldDraft: function(parentRow) {
-    if (!parentRow) return;
-    var draftKey = parentRow.dataset.draftKey;
-    if (!draftKey) return;
-    document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]').forEach(function(r) {
-      r.style.display = 'none';
-    });
-  },
-
-  _toggleFoldDraft: function(parentRow) {
-    var draftKey = parentRow.dataset.draftKey;
-    if (!draftKey) return;
-    var children = document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]');
-    var allHidden = Array.from(children).every(function(r) { return r.style.display === 'none'; });
-    if (allHidden) {
-      children.forEach(function(r) { r.style.display = ''; });
-    } else {
-      children.forEach(function(r) { r.style.display = 'none'; });
+  // Step 7: delete current row (dd)
+  _deleteCurrent: function() {
+    if (!cursor.rowEl) return;
+    var rowType = cursor.rowEl.dataset.rowType;
+    if (rowType === 'child') {
+      // Delete child line
+      var parentKey = cursor.rowEl.dataset.parentKey || cursor.rowEl.dataset.parentId;
+      if (cursor.rowEl.dataset.draft === 'true' && parentKey && draftLines[parentKey]) {
+        var lineIdx = parseInt(cursor.rowEl.dataset.lineIdx);
+        if (!isNaN(lineIdx)) draftLines[parentKey].splice(lineIdx, 1);
+      }
+      var prevRow = cursor.rowEl.previousElementSibling || cursor.rowEl.parentElement.querySelector('tr');
+      cursor.rowEl.remove();
+      // Move cursor to prev visible row
+      var vrows = cursor.getVisibleRows();
+      if (vrows.length) cursor.set(vrows[Math.min(cursor.currentIndex(), vrows.length - 1)] || vrows[0], 0);
+      else cursor.clear();
+      // Recalc parent amount
+      if (parentKey) {
+        var pr3 = document.querySelector('tr[data-row-type="parent"][data-draft-key="' + parentKey + '"]') ||
+                  document.querySelector('tr[data-row-type="parent"][data-bill-id="' + parentKey + '"]');
+        if (pr3) recalcParentAmount(pr3);
+      }
+    } else if (rowType === 'parent') {
+      if (cursor.rowEl.dataset.draft === 'true') {
+        // Delete draft bill from DOM and draftLines
+        var dk = cursor.rowEl.dataset.draftKey;
+        if (dk) { delete draftLines[dk]; treeState.setClose(dk); }
+        document.querySelectorAll('tr[data-parent-key="' + dk + '"]').forEach(function(r) { r.remove(); });
+        cursor.rowEl.remove();
+        cursor.clear();
+      } else {
+        // Posted/saved: void bill
+        var billId2 = cursor.rowEl.dataset.billId;
+        var vendor2 = cursor.rowEl.dataset.vendor || billId2;
+        if (!billId2) return;
+        if (!confirm('Void bill from "' + vendor2 + '"? This will reverse the bill and cannot be undone.')) return;
+        fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'bill.void', companyId: COMPANY, billId: billId2 }) })
+          .then(function(r) { return r.json(); })
+          .then(function(res) {
+            var d = res.data || res;
+            if (res.error || d.error) { billEditMsg('Cannot void: ' + (res.error || d.error), 'err'); }
+            else { loadAllBills(); }
+          }).catch(function(e) { billEditMsg('Error: ' + e.message, 'err'); });
+      }
     }
   },
 
@@ -1348,10 +1384,210 @@ function openColFilter(th, col) {
 }
 
 // ========== DRAFT BILL CREATION ==========
+
+// Step 4: Render draft child rows from draftLines array
+function renderDraftChildRows(parentRow, linesList) {
+  var draftKey = parentRow.dataset.draftKey;
+  var parentInputs = parentRow.querySelectorAll('input');
+  var parentCcy = (parentInputs[4] && parentInputs[4].value) || parentRow.dataset.currency || BASE_CURRENCY;
+  var insertAfter = parentRow;
+  linesList.forEach(function(line, idx) {
+    var tr = document.createElement('tr');
+    tr.dataset.rowType = 'child';
+    tr.dataset.draft = 'true';
+    tr.dataset.parentKey = draftKey;
+    tr.dataset.lineIdx = String(idx);
+    tr.style.cssText = 'background:#fffef5';
+    tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
+      + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+      + '<td style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
+      + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>';
+    var descInp = tr.querySelector('input.child-desc');
+    var amtInp  = tr.querySelectorAll('input')[1];
+    var gstSel  = tr.querySelector('select');
+    // Populate select options
+    Object.keys(taxCodeMap).forEach(function(code) {
+      var opt = document.createElement('option');
+      opt.value = code; opt.textContent = code + ': ' + taxCodeMap[code];
+      if (code === line.vatCode) opt.selected = true;
+      gstSel.appendChild(opt);
+    });
+    // Pre-fill values
+    if (descInp) descInp.value = line.desc || '';
+    if (amtInp)  amtInp.value  = line.amount ? String(line.amount) : '';
+    // Sync helper
+    function syncLine() {
+      if (draftLines[draftKey] && draftLines[draftKey][idx] !== undefined) {
+        draftLines[draftKey][idx].desc    = descInp ? descInp.value.trim() : '';
+        draftLines[draftKey][idx].amount  = parseFloat(amtInp ? amtInp.value : 0) || 0;
+        draftLines[draftKey][idx].vatCode = gstSel ? gstSel.value : '';
+      }
+    }
+    var _saveTimer = null;
+    function _schedSave() { clearTimeout(_saveTimer); _saveTimer = setTimeout(function() { syncLine(); autoSaveChildRow(tr, parentRow); }, 600); }
+    if (descInp) { descInp.addEventListener('blur', function() { syncLine(); autoSaveChildRow(tr, parentRow); }); descInp.addEventListener('input', _schedSave); }
+    if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); autoSaveChildRow(tr, parentRow); }); amtInp.addEventListener('input',  _schedSave); }
+    if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); autoSaveChildRow(tr, parentRow); });
+    insertAfter.insertAdjacentElement('afterend', tr);
+    insertAfter = tr;
+  });
+}
+
+// Step 6: create a new draft bill below refRow (or at bottom if null), expand immediately
+function createDraftBill(refRow) {
+  var tbody = document.getElementById('bills-tbody');
+  if (!tbody) return;
+  var draftKey = 'draft-' + Date.now();
+  draftLines[draftKey] = [{ desc: '', amount: 0, vatCode: '' }];
+  var tr = document.createElement('tr');
+  tr.dataset.rowType = 'parent';
+  tr.dataset.draft = 'true';
+  tr.dataset.status = 'draft';
+  tr.dataset.draftKey = draftKey;
+  tr.style.cssText = 'cursor:default';
+  var baseCcy = BASE_CURRENCY;
+  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" style="margin-left:10px" data-vendor-id="" data-vendor-name="" data-ap-account="201100" data-expense-account="400000" /></div></td>'
+    + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
+    + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
+    + '<td><input class="draft-input" placeholder="Ref" /></td>'
+    + '<td style="text-align:right;color:#aaa;font-style:italic;padding:8px 18px" class="draft-total-amount">0.00</td>'
+    + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
+    + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewPopup(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
+  // Insert below refRow (or below last child if refRow is a child)
+  var insertAfterRow = refRow;
+  if (refRow && refRow.dataset.rowType === 'child') {
+    // Find last sibling child
+    var pKey2 = refRow.dataset.parentKey || refRow.dataset.parentId;
+    var siblings = pKey2 ? Array.from(document.querySelectorAll('tr[data-parent-key="' + pKey2 + '"]')) : [];
+    if (siblings.length) insertAfterRow = siblings[siblings.length - 1];
+  }
+  if (insertAfterRow) { insertAfterRow.parentElement.insertBefore(tr, insertAfterRow.nextElementSibling); }
+  else { tbody.appendChild(tr); }
+  // Wire vendor/date/due/ccy events (same as insertDraftParentRow)
+  _wireDraftParentEvents(tr);
+  // Expand immediately (show one empty child line)
+  treeState.setOpen(draftKey);
+  renderDraftChildRows(tr, draftLines[draftKey]);
+  cursor.set(tr, 0);
+}
+
+// Step 6: append new empty child line below current child row
+function createDraftLine(childRow) {
+  var parentKey = childRow.dataset.parentKey || childRow.dataset.parentId;
+  if (!parentKey) return;
+  var parentRow = document.querySelector('tr[data-row-type="parent"][data-draft-key="' + parentKey + '"]') ||
+                  document.querySelector('tr[data-row-type="parent"][data-bill-id="' + parentKey + '"]');
+  if (!parentRow) return;
+  if (!draftLines[parentKey]) draftLines[parentKey] = [];
+  var newIdx = draftLines[parentKey].length;
+  draftLines[parentKey].push({ desc: '', amount: 0, vatCode: '' });
+  // Create and insert new child row at end
+  var siblings = Array.from(document.querySelectorAll('tr[data-parent-key="' + parentKey + '"]'));
+  var insertAfterEl = siblings.length ? siblings[siblings.length - 1] : parentRow;
+  var tr = document.createElement('tr');
+  tr.dataset.rowType = 'child';
+  tr.dataset.draft = 'true';
+  tr.dataset.parentKey = parentKey;
+  tr.dataset.lineIdx = String(newIdx);
+  tr.style.cssText = 'background:#fffef5';
+  var parentCcy = parentRow.dataset.currency || BASE_CURRENCY;
+  tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
+    + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+    + '<td style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
+    + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>';
+  var gstSel2 = tr.querySelector('select');
+  Object.keys(taxCodeMap).forEach(function(code) {
+    var opt = document.createElement('option'); opt.value = code; opt.textContent = code + ': ' + taxCodeMap[code]; gstSel2.appendChild(opt);
+  });
+  var descInp2 = tr.querySelector('input.child-desc');
+  var amtInp2  = tr.querySelectorAll('input')[1];
+  function syncLine2() {
+    if (draftLines[parentKey] && draftLines[parentKey][newIdx] !== undefined) {
+      draftLines[parentKey][newIdx].desc    = descInp2 ? descInp2.value.trim() : '';
+      draftLines[parentKey][newIdx].amount  = parseFloat(amtInp2 ? amtInp2.value : 0) || 0;
+      draftLines[parentKey][newIdx].vatCode = gstSel2 ? gstSel2.value : '';
+    }
+  }
+  var _t2 = null;
+  function _sched2() { clearTimeout(_t2); _t2 = setTimeout(function() { syncLine2(); autoSaveChildRow(tr, parentRow); }, 600); }
+  if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); descInp2.addEventListener('input', _sched2); }
+  if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); amtInp2.addEventListener('input',  _sched2); }
+  if (gstSel2)  gstSel2.addEventListener('change',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); });
+  insertAfterEl.insertAdjacentElement('afterend', tr);
+  cursor.set(tr, 0);
+}
+
+// Helper: wire all parent-row input events (vendor, date, due, ccy) onto a draft parent TR
+function _wireDraftParentEvents(tr) {
+  var vendorInput = tr.querySelector('input.draft-vendor-input');
+  var draftInputs2 = tr.querySelectorAll('input');
+  var dateInputEl  = draftInputs2[1];
+  var dueInputEl   = draftInputs2[2];
+  var ccyInputEl   = draftInputs2[4];
+  if (vendorInput) {
+    vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
+    vendorInput.addEventListener('blur', function() {
+      setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150);
+      setTimeout(function() {
+        var name = vendorInput.value.trim();
+        if (!name) return;
+        if (vendorInput.dataset.vendorName) {
+          vendorInput.classList.remove('req');
+          var v = allVendors.find(function(x){ return x.vendor_id === vendorInput.dataset.vendorId; });
+          if (v && ccyInputEl && !ccyInputEl.value) ccyInputEl.value = (v.default_currency || BASE_CURRENCY).toUpperCase();
+          autoSaveDraftIfReady(tr); return;
+        }
+        var match = allVendors.find(function(x){ return (x.name||'').toLowerCase() === name.toLowerCase(); });
+        if (!match) { billEditMsg('Vendor not in master data — select from dropdown', 'err'); vendorInput.classList.add('req'); vendorInput.value = ''; vendorInput.dataset.vendorName = ''; return; }
+        vendorInput.dataset.vendorId = match.vendor_id || '';
+        vendorInput.dataset.vendorName = match.name || '';
+        vendorInput.dataset.apAccount = match.default_ap_account || '201100';
+        vendorInput.dataset.expenseAccount = match.default_expense_account || '400000';
+        vendorInput.value = match.name;
+        vendorInput.classList.remove('req');
+        if (ccyInputEl && !ccyInputEl.value) ccyInputEl.value = (match.default_currency || BASE_CURRENCY).toUpperCase();
+        autoSaveDraftIfReady(tr);
+      }, 200);
+    });
+  }
+  if (dueInputEl) {
+    dueInputEl.addEventListener('blur', function() {
+      var dueVal = dueInputEl.value;
+      var dateVal = dateInputEl ? dateInputEl.value : '';
+      if (dueVal && dateVal && dueVal < dateVal) { billEditMsg('Due date must be ≥ bill date', 'err'); dueInputEl.classList.add('req'); dueInputEl.value = ''; return; }
+      if (dueVal) dueInputEl.classList.remove('req');
+      autoSaveDraftIfReady(tr);
+    });
+  }
+  if (ccyInputEl) {
+    ccyInputEl.addEventListener('input', function() { draftCcyInput(ccyInputEl); });
+    ccyInputEl.addEventListener('blur', function() {
+      setTimeout(function() { var dd = document.getElementById('pay-draft-ccy-dd'); if (dd) dd.remove(); }, 150);
+      var v = ccyInputEl.value.trim().toUpperCase();
+      if (v && vendorCurrenciesList.length) {
+        var valid = vendorCurrenciesList.some(function(c){ return (c.code||'').toUpperCase() === v; });
+        if (!valid) { ccyInputEl.classList.add('req'); return; }
+        ccyInputEl.classList.remove('req'); ccyInputEl.value = v;
+      }
+      autoSaveDraftIfReady(tr);
+    });
+  }
+  var refInputEl = draftInputs2[3];
+  if (dateInputEl) dateInputEl.addEventListener('blur', function() { autoSaveDraftIfReady(tr); });
+  if (refInputEl)  refInputEl.addEventListener('blur',  function() { autoSaveDraftIfReady(tr); });
+  tr.addEventListener('focusin', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+      document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
+      document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
+    }
+  });
+}
+
 function insertDraftParentRow(refRow, above) {
   var tbody = document.getElementById('bills-tbody');
   if (!tbody) return;
   var draftKey = 'draft-' + Date.now();
+  draftLines[draftKey] = []; // Step 4: init draftLines entry
   var tr = document.createElement('tr');
   tr.dataset.rowType = 'parent';
   tr.dataset.draft = 'true';
@@ -1373,107 +1609,33 @@ function insertDraftParentRow(refRow, above) {
   } else {
     tbody.appendChild(tr);
   }
-  var vendorInput = tr.querySelector('input.draft-vendor-input');
-  var draftInputs2 = tr.querySelectorAll('input');
-  var dateInputEl  = draftInputs2[1];
-  var dueInputEl   = draftInputs2[2];
-  var ccyInputEl   = draftInputs2[4]; // amount is now display-only; ccy shifts to index 4
-
-  // Vendor: type-ahead + blur validation + auto-fill CCY/accounts
-  vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
-  vendorInput.addEventListener('blur', function() {
-    setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150);
-    setTimeout(function() {
-      var name = vendorInput.value.trim();
-      if (!name) return;
-      // Accept if already selected from dropdown
-      if (vendorInput.dataset.vendorName) {
-        vendorInput.classList.remove('req');
-        // Inherit CCY from vendor master if CCY field is empty
-        var v = allVendors.find(function(x){ return x.vendor_id === vendorInput.dataset.vendorId; });
-        if (v && ccyInputEl && !ccyInputEl.value) ccyInputEl.value = (v.default_currency || BASE_CURRENCY).toUpperCase();
-        autoSaveDraftIfReady(tr); return;
-      }
-      // Try exact case-insensitive match in vendor master
-      var match = allVendors.find(function(x){ return (x.name||'').toLowerCase() === name.toLowerCase(); });
-      if (!match) {
-        billEditMsg('Vendor not in master data — select from dropdown', 'err');
-        vendorInput.classList.add('req'); vendorInput.value = ''; vendorInput.dataset.vendorName = ''; return;
-      }
-      vendorInput.dataset.vendorId = match.vendor_id || '';
-      vendorInput.dataset.vendorName = match.name || '';
-      vendorInput.dataset.apAccount = match.default_ap_account || '201100';
-      vendorInput.dataset.expenseAccount = match.default_expense_account || '400000';
-      vendorInput.value = match.name;
-      vendorInput.classList.remove('req');
-      if (ccyInputEl && !ccyInputEl.value) ccyInputEl.value = (match.default_currency || BASE_CURRENCY).toUpperCase();
-      autoSaveDraftIfReady(tr);
-    }, 200);
-  });
-
-  // Due date: validate >= bill date on blur
-  if (dueInputEl) {
-    dueInputEl.addEventListener('blur', function() {
-      var dueVal = dueInputEl.value;
-      var dateVal = dateInputEl ? dateInputEl.value : '';
-      if (dueVal && dateVal && dueVal < dateVal) {
-        billEditMsg('Due date must be ≥ bill date', 'err');
-        dueInputEl.classList.add('req'); dueInputEl.value = ''; return;
-      }
-      if (dueVal) dueInputEl.classList.remove('req');
-      autoSaveDraftIfReady(tr);
-    });
-  }
-
-  // CCY: dropdown + validation on blur
-  if (ccyInputEl) {
-    ccyInputEl.addEventListener('input', function() { draftCcyInput(ccyInputEl); });
-    ccyInputEl.addEventListener('blur', function() {
-      setTimeout(function() { var dd = document.getElementById('pay-draft-ccy-dd'); if (dd) dd.remove(); }, 150);
-      var v = ccyInputEl.value.trim().toUpperCase();
-      if (v && vendorCurrenciesList.length) {
-        var valid = vendorCurrenciesList.some(function(c){ return (c.code||'').toUpperCase() === v; });
-        if (!valid) { ccyInputEl.classList.add('req'); return; }
-        ccyInputEl.classList.remove('req'); ccyInputEl.value = v;
-      }
-      autoSaveDraftIfReady(tr);
-    });
-  }
-
-  // All other fields: trigger auto-save check on blur
-  var refInputEl = draftInputs2[3];
-  if (dateInputEl) dateInputEl.addEventListener('blur', function() { autoSaveDraftIfReady(tr); });
-  if (refInputEl)  refInputEl.addEventListener('blur',  function() { autoSaveDraftIfReady(tr); });
-
-  // Clear row/cell highlights when any input in the draft row gains focus
-  tr.addEventListener('focusin', function(e) {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
-      document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
-      document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
-    }
-  });
+  _wireDraftParentEvents(tr);
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
-  vendorInput.focus();
+  var vendorInputFocus = tr.querySelector('input.draft-vendor-input');
+  if (vendorInputFocus) vendorInputFocus.focus();
 }
 
-function updateParentDraftAmount(draftParentTr) {
+// Step 4/5: unified parent amount recalc — uses draftLines as source of truth with DOM fallback
+function recalcParentAmount(draftParentTr) {
   var lookupKey = draftParentTr.dataset.draftKey || draftParentTr.dataset.billId;
   var total = 0;
-  if (lookupKey) {
+  if (lookupKey && draftLines[lookupKey] && draftLines[lookupKey].length) {
+    draftLines[lookupKey].forEach(function(l) { total += parseFloat(l.amount) || 0; });
+  } else if (lookupKey) {
+    // Fallback: sum from DOM child inputs
     Array.from(document.querySelectorAll('tr[data-parent-key="' + lookupKey + '"]')).forEach(function(cr) {
-      var a = cr.querySelector('input.child-desc') ? cr.querySelectorAll('input')[1] : null; total += parseFloat(a && a.value) || 0;
+      var a = cr.querySelector('input.child-desc') ? cr.querySelectorAll('input')[1] : null;
+      total += parseFloat(a && a.value) || 0;
     });
   }
-  // Draft input parent: .draft-total-amount cell
   var amtCell = draftParentTr.querySelector('.draft-total-amount');
   if (amtCell) { amtCell.textContent = total.toFixed(2); return; }
-  // Converted display parent: amount is in td at column index 4
   var tds = draftParentTr.querySelectorAll('td');
   if (tds[4]) tds[4].textContent = total.toFixed(2);
-  // Keep dataset.amount in sync
   draftParentTr.dataset.amount = String(total);
 }
+function updateParentDraftAmount(draftParentTr) { recalcParentAmount(draftParentTr); }
 
 function autoSaveChildRow(childRow, parentTr) {
   var descInput = childRow.querySelector('input.child-desc');
@@ -1517,12 +1679,16 @@ function insertDraftChildRow(childRow, above) {
   if (!parentTr) return;
   var draftKey = parentTr.dataset.draftKey || parentTr.dataset.billId;
   var parentInputs = parentTr.querySelectorAll('input');
-  // Inherit CCY from parent: index 4 if draft inputs present, else data-currency attribute
   var parentCcy = (parentInputs[4] && parentInputs[4].value) || parentTr.dataset.currency || BASE_CURRENCY;
+  // Step 4: add entry to draftLines
+  if (!draftLines[draftKey]) draftLines[draftKey] = [];
+  var lineIdx = draftLines[draftKey].length;
+  draftLines[draftKey].push({ desc: '', amount: 0, vatCode: '' });
   var tr = document.createElement('tr');
   tr.dataset.rowType = 'child';
   tr.dataset.draft = 'true';
-  tr.dataset.parentKey = draftKey; // data-parent-key references parent's data-draft-key
+  tr.dataset.parentKey = draftKey;
+  tr.dataset.lineIdx = String(lineIdx);
   tr.style.cssText = 'background:#fffef5';
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
@@ -1530,30 +1696,30 @@ function insertDraftChildRow(childRow, above) {
     + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>';
   var gstSelect = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
-    var opt = document.createElement('option');
-    opt.value = code;
-    opt.textContent = code + ': ' + taxCodeMap[code];
-    gstSelect.appendChild(opt);
+    var opt = document.createElement('option'); opt.value = code; opt.textContent = code + ': ' + taxCodeMap[code]; gstSelect.appendChild(opt);
   });
-  if (above) {
-    childRow.parentElement.insertBefore(tr, childRow);
-  } else {
-    childRow.parentElement.insertBefore(tr, childRow.nextElementSibling);
-  }
-  // Wire child field events — auto-save child when all mandatory fields are filled
+  if (above) { childRow.parentElement.insertBefore(tr, childRow); }
+  else { childRow.parentElement.insertBefore(tr, childRow.nextElementSibling); }
   var parentTrRef = parentTr;
   var descInpRef = tr.querySelector('input.child-desc');
   var amtInpRef  = tr.querySelectorAll('input')[1];
   var gstSelRef  = tr.querySelector('select');
+  function syncChildLine() {
+    if (draftLines[draftKey] && draftLines[draftKey][lineIdx] !== undefined) {
+      draftLines[draftKey][lineIdx].desc    = descInpRef ? descInpRef.value.trim() : '';
+      draftLines[draftKey][lineIdx].amount  = parseFloat(amtInpRef ? amtInpRef.value : 0) || 0;
+      draftLines[draftKey][lineIdx].vatCode = gstSelRef ? gstSelRef.value : '';
+    }
+  }
   var _childSaveTimer = null;
-  function _schedChildSave() { clearTimeout(_childSaveTimer); _childSaveTimer = setTimeout(function() { autoSaveChildRow(tr, parentTrRef); }, 600); }
-  if (descInpRef) { descInpRef.addEventListener('blur', function() { autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', _schedChildSave); }
-  if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  _schedChildSave); }
-  if (gstSelRef)  gstSelRef.addEventListener('change',  function() { autoSaveChildRow(tr, parentTrRef); });
+  function _schedChildSave() { clearTimeout(_childSaveTimer); _childSaveTimer = setTimeout(function() { syncChildLine(); autoSaveChildRow(tr, parentTrRef); }, 600); }
+  if (descInpRef) { descInpRef.addEventListener('blur', function() { syncChildLine(); autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', _schedChildSave); }
+  if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { syncChildLine(); autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  _schedChildSave); }
+  if (gstSelRef)  gstSelRef.addEventListener('change',  function() { syncChildLine(); autoSaveChildRow(tr, parentTrRef); });
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
   var descInput = tr.querySelector('input.child-desc');
-  descInput.focus();
+  if (descInput) descInput.focus();
 }
 
 // autoCalcDraftDueDate removed — due date is set manually by the user

@@ -353,19 +353,10 @@ var kbd = {
       return;
     }
 
-    // s = save current draft row
-    if (e.key === 's') {
+    // : = open vim command box
+    if (e.key === ':') {
       e.preventDefault();
-      if (!cursor.rowEl) return;
-      var _saveRow = cursor.rowEl;
-      if (_saveRow.dataset.rowType === 'child') {
-        var _spk = _saveRow.dataset.parentKey || _saveRow.dataset.parentId;
-        _saveRow = _spk
-          ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + _spk + '"]') ||
-             document.querySelector('tr[data-row-type="parent"][data-bill-id="' + _spk + '"]'))
-          : null;
-      }
-      if (_saveRow && _saveRow.dataset.draft === 'true') saveDraftToDb(_saveRow);
+      openVimCmd();
       return;
     }
 
@@ -800,6 +791,36 @@ function exitBillCellEdit(save) {
   billEditState.rowEl = null;
 }
 
+function openVimCmd() {
+  var overlay = document.getElementById('vim-cmd-overlay');
+  var inp = document.getElementById('vim-cmd-input');
+  if (!overlay || !inp) return;
+  inp.value = '';
+  overlay.style.visibility = 'visible';
+  inp.focus();
+}
+
+function closeVimCmd() {
+  var overlay = document.getElementById('vim-cmd-overlay');
+  if (overlay) overlay.style.visibility = 'hidden';
+  var inp = document.getElementById('vim-cmd-input');
+  if (inp) { inp.value = ''; inp.blur(); }
+}
+
+function execVimCmd(cmd) {
+  cmd = cmd.trim();
+  if (cmd === 'w') {
+    // Save all unsaved draft parent rows visible on screen
+    var draftRows = Array.from(document.querySelectorAll('tr[data-row-type="parent"][data-draft="true"]'));
+    if (!draftRows.length) { billEditMsg('Nothing to save.', ''); setTimeout(function(){ billEditMsg('',''); }, 1500); }
+    draftRows.forEach(function(row) { saveDraftToDb(row); });
+  } else {
+    billEditMsg('Unknown command: ' + cmd, 'err');
+    setTimeout(function(){ billEditMsg('',''); }, 2000);
+  }
+  closeVimCmd();
+}
+
 function billEditMsg(msg, type) {
   var el = document.getElementById('tb-status-msg');
   if (!el) return;
@@ -823,6 +844,16 @@ function fbPageInitPayables() {
   };
   window.fbBillNav = true;
   window.fbBillCursorMid = false;
+
+  (function() {
+    var cmdInp = document.getElementById('vim-cmd-input');
+    if (cmdInp) {
+      cmdInp.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { e.preventDefault(); closeVimCmd(); }
+        if (e.key === 'Enter') { e.preventDefault(); execVimCmd(cmdInp.value); }
+      });
+    }
+  })();
 
   fetch('/api/' + COMPANY + '/vat-codes')
     .then(function(r){ return r.json(); })

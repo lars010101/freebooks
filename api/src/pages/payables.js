@@ -137,6 +137,8 @@ ${commonStyle()}
   tr.bill-row-focus td.bill-cell-focus a { color:#fff !important; }
 
   .btn-sm:hover { background:#e8e8e8; }
+  .btn-save-draft { background:none; border:none; cursor:pointer; font-size:1rem; padding:2px 6px; color:#bbb; line-height:1; border-radius:4px; }
+  .btn-save-draft:hover { color:#1a1a1a; background:#f0f0f0; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:0.9375rem; font-weight:600; cursor:pointer; }
   button.btn-primary:hover { background:#333; }
@@ -217,7 +219,7 @@ ${commonStyle()}
   </div>
 
     <div style="margin-top:6px;text-align:right">
-      <span style="font-size:0.625rem;color:#bbb">jk&nbsp;navigate &nbsp;&middot;&nbsp; Enter&nbsp;fold &nbsp;&middot;&nbsp; i&nbsp;edit &nbsp;&middot;&nbsp; o&nbsp;new bill/line &nbsp;&middot;&nbsp; p&nbsp;post &nbsp;&middot;&nbsp; dd&nbsp;delete/void &nbsp;&middot;&nbsp; Esc&nbsp;cancel</span>
+      <span style="font-size:0.625rem;color:#bbb">jk&nbsp;navigate &nbsp;&middot;&nbsp; Enter&nbsp;fold &nbsp;&middot;&nbsp; i&nbsp;edit &nbsp;&middot;&nbsp; o&nbsp;new bill/line &nbsp;&middot;&nbsp; s&nbsp;save &nbsp;&middot;&nbsp; p&nbsp;post &nbsp;&middot;&nbsp; dd&nbsp;delete/void &nbsp;&middot;&nbsp; Esc&nbsp;cancel</span>
     </div>
 
   </div><!-- /pay-panel-bills -->

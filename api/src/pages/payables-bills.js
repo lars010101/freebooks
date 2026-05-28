@@ -353,6 +353,22 @@ var kbd = {
       return;
     }
 
+    // s = save current draft row
+    if (e.key === 's') {
+      e.preventDefault();
+      if (!cursor.rowEl) return;
+      var _saveRow = cursor.rowEl;
+      if (_saveRow.dataset.rowType === 'child') {
+        var _spk = _saveRow.dataset.parentKey || _saveRow.dataset.parentId;
+        _saveRow = _spk
+          ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + _spk + '"]') ||
+             document.querySelector('tr[data-row-type="parent"][data-bill-id="' + _spk + '"]'))
+          : null;
+      }
+      if (_saveRow && _saveRow.dataset.draft === 'true') saveDraftToDb(_saveRow);
+      return;
+    }
+
     // o = new draft bill (on parent) or new child line (on child)
     if (e.key === 'o') {
       e.preventDefault();
@@ -1131,7 +1147,7 @@ function renderDraftChildRows(parentRow, linesList) {
     tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
       + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
       + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
-      + '<td></td>';
+      + '<td><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
     var descInp = tr.querySelector('input.child-desc');
     var amtInp  = tr.querySelectorAll('input')[1];
     var gstSel  = tr.querySelector('select');
@@ -1178,7 +1194,7 @@ function createDraftBill(refRow) {
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic;padding:8px 18px" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td><span style="font-size:0.75rem;color:#bbb">Unsaved</span></td>';
+    + '<td><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
   var insertAfterRow = refRow;
   if (refRow && refRow.dataset.rowType === 'child') {
     var pKey2 = refRow.dataset.parentKey || refRow.dataset.parentId;
@@ -1218,7 +1234,7 @@ function createDraftLine(childRow) {
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
     + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
-    + '<td></td>';
+    + '<td><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
   var gstSel2 = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
     var opt = document.createElement('option'); opt.value = code; opt.textContent = code + ': ' + taxCodeMap[code]; gstSel2.appendChild(opt);
@@ -1448,7 +1464,7 @@ function insertDraftChildRow(childRow, above) {
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
     + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
-    + '<td></td>';
+    + '<td><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
   var gstSelect = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
     var opt = document.createElement('option');
@@ -1555,6 +1571,24 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   var lastCol = draftParentTr.querySelectorAll('td').length - 1;
   cursor.set(draftParentTr, lastCol);
   draftParentTr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+// ========== SAVE DRAFT FROM ICON ==========
+function saveDraftFromIcon(btnEl) {
+  var row = btnEl.closest ? btnEl.closest('tr') : btnEl.parentElement;
+  while (row && row.tagName !== 'TR') row = row.parentElement;
+  if (!row) return;
+  var parentRow = null;
+  if (row.dataset.rowType === 'parent') {
+    parentRow = row;
+  } else {
+    var pk = row.dataset.parentKey || row.dataset.parentId;
+    if (pk) {
+      parentRow = document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pk + '"]') ||
+                  document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pk + '"]');
+    }
+  }
+  if (parentRow && parentRow.dataset.draft === 'true') saveDraftToDb(parentRow);
 }
 
 // ========== SAVE DRAFT TO DB ==========

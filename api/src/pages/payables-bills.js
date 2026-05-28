@@ -1597,12 +1597,11 @@ function saveDraftToDb(draftParentTr) {
   var draftKeyAmt = draftParentTr.dataset.draftKey;
   var totalAmt = 0;
   if (draftKeyAmt) {
-    if (draftLines[draftKeyAmt] && draftLines[draftKeyAmt].length) {
+    var _amtRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyAmt + '"]'));
+    if (_amtRows.length > 0) {
+      _amtRows.forEach(function(cr) { var a = cr.querySelectorAll('input')[1]; totalAmt += parseFloat(a && a.value) || 0; });
+    } else if (draftLines[draftKeyAmt]) {
       draftLines[draftKeyAmt].forEach(function(l){ totalAmt += parseFloat(l.amount) || 0; });
-    } else {
-      Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyAmt + '"]')).forEach(function(cr) {
-        var a = cr.querySelectorAll('input')[1]; totalAmt += parseFloat(a && a.value) || 0;
-      });
     }
   }
 
@@ -1625,23 +1624,25 @@ function saveDraftToDb(draftParentTr) {
         if (!dk) return null;
         var expAcct2 = vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000';
         var ccy2 = ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY;
-        // Use draftLines (in-memory, updated by syncLine on blur) as primary source.
-        // DOM-based scan fails if the fold was closed before this timer fired.
-        if (draftLines[dk] && draftLines[dk].length) {
+        // Primary: DOM child rows — reads current input values directly, reliable regardless of syncLine state.
+        var childRows2 = Array.from(document.querySelectorAll('tr[data-parent-key="' + dk + '"]')).filter(function(cr){ return !!cr.querySelector('input.child-desc'); });
+        if (childRows2.length) {
+          return childRows2.map(function(cr) {
+            var dIn = cr.querySelector('input.child-desc');
+            var aIn = cr.querySelectorAll('input')[1];
+            var gSel = cr.querySelector('select');
+            return { description: dIn ? dIn.value.trim() : '', expense_account: expAcct2, currency: ccy2,
+              amount: parseFloat(aIn && aIn.value) || 0, vat_code: gSel ? (gSel.value || null) : null };
+          });
+        }
+        // Fallback: draftLines — used when fold was closed (DOM rows removed) before auto-save timer fired.
+        if (draftLines[dk] && draftLines[dk].some(function(l){ return l.desc || l.amount > 0; })) {
           return draftLines[dk].filter(function(l){ return l.desc || l.amount > 0; }).map(function(l){
             return { description: l.desc || '', expense_account: expAcct2, currency: ccy2,
               amount: l.amount || 0, vat_code: l.vatCode || null };
           });
         }
-        var childRows2 = Array.from(document.querySelectorAll('tr[data-parent-key="' + dk + '"]')).filter(function(cr){ return !!cr.querySelector('input.child-desc'); });
-        if (!childRows2.length) return null;
-        return childRows2.map(function(cr) {
-          var dIn = cr.querySelector('input.child-desc');
-          var aIn = cr.querySelectorAll('input')[1];
-          var gSel = cr.querySelector('select');
-          return { description: dIn ? dIn.value.trim() : '', expense_account: expAcct2, currency: ccy2,
-            amount: parseFloat(aIn && aIn.value) || 0, vat_code: gSel ? (gSel.value || null) : null };
-        });
+        return null;
       })()
     }
   };

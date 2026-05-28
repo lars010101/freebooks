@@ -1246,7 +1246,7 @@ function _wireDraftParentEvents(tr) {
         if (vendorInput.dataset.vendorName) {
           vendorInput.classList.remove('req');
           var v = allVendors.find(function(x){ return x.vendor_id === vendorInput.dataset.vendorId; });
-          if (v && ccyInputEl && !ccyInputEl.value) ccyInputEl.value = (v.default_currency || BASE_CURRENCY).toUpperCase();
+          if (v && ccyInputEl && !ccyInputEl.value) { ccyInputEl.value = (v.default_currency || BASE_CURRENCY).toUpperCase(); ccyInputEl.dispatchEvent(new Event('input')); }
           autoSaveDraftIfReady(tr); return;
         }
         var match = allVendors.find(function(x){ return (x.name||'').toLowerCase() === name.toLowerCase(); });
@@ -1257,7 +1257,7 @@ function _wireDraftParentEvents(tr) {
         vendorInput.dataset.expenseAccount = match.default_expense_account || '400000';
         vendorInput.value = match.name;
         vendorInput.classList.remove('req');
-        if (ccyInputEl && !ccyInputEl.value) ccyInputEl.value = (match.default_currency || BASE_CURRENCY).toUpperCase();
+        if (ccyInputEl && !ccyInputEl.value) { ccyInputEl.value = (match.default_currency || BASE_CURRENCY).toUpperCase(); ccyInputEl.dispatchEvent(new Event('input')); }
         autoSaveDraftIfReady(tr);
       }, 200);
     });
@@ -1480,7 +1480,9 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   var draftKey = draftParentTr.dataset.draftKey;
 
   draftParentTr.dataset.billId = billId;
-  treeState.setOpen(billId);
+  var wasFoldOpen = draftKey ? treeState.isOpen(draftKey) : false;
+  if (draftKey) treeState.setClose(draftKey);
+  if (wasFoldOpen) treeState.setOpen(billId);
   draftParentTr.dataset.vendor = vendor;
   draftParentTr.dataset.date = billDate;
   draftParentTr.dataset.dueDate = dueDate;
@@ -1585,9 +1587,13 @@ function saveDraftToDb(draftParentTr) {
   var draftKeyAmt = draftParentTr.dataset.draftKey;
   var totalAmt = 0;
   if (draftKeyAmt) {
-    Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyAmt + '"]')).forEach(function(cr) {
-      var a = cr.querySelectorAll('input')[1]; totalAmt += parseFloat(a && a.value) || 0;
-    });
+    if (draftLines[draftKeyAmt] && draftLines[draftKeyAmt].length) {
+      draftLines[draftKeyAmt].forEach(function(l){ totalAmt += parseFloat(l.amount) || 0; });
+    } else {
+      Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyAmt + '"]')).forEach(function(cr) {
+        var a = cr.querySelectorAll('input')[1]; totalAmt += parseFloat(a && a.value) || 0;
+      });
+    }
   }
 
   var existingBillId = draftParentTr.dataset.billId || null;
@@ -1609,7 +1615,16 @@ function saveDraftToDb(draftParentTr) {
         if (!dk) return null;
         var expAcct2 = vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000';
         var ccy2 = ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY;
+        // Use draftLines (in-memory, updated by syncLine on blur) as primary source.
+        // DOM-based scan fails if the fold was closed before this timer fired.
+        if (draftLines[dk] && draftLines[dk].length) {
+          return draftLines[dk].filter(function(l){ return l.desc || l.amount > 0; }).map(function(l){
+            return { description: l.desc || '', expense_account: expAcct2, currency: ccy2,
+              amount: l.amount || 0, vat_code: l.vatCode || null };
+          });
+        }
         var childRows2 = Array.from(document.querySelectorAll('tr[data-parent-key="' + dk + '"]')).filter(function(cr){ return !!cr.querySelector('input.child-desc'); });
+        if (!childRows2.length) return null;
         return childRows2.map(function(cr) {
           var dIn = cr.querySelector('input.child-desc');
           var aIn = cr.querySelectorAll('input')[1];

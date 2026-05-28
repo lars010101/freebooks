@@ -353,13 +353,6 @@ var kbd = {
       return;
     }
 
-    // : = open vim command box
-    if (e.key === ':') {
-      e.preventDefault();
-      openVimCmd();
-      return;
-    }
-
     // o = new draft bill (on parent) or new child line (on child)
     if (e.key === 'o') {
       e.preventDefault();
@@ -791,36 +784,6 @@ function exitBillCellEdit(save) {
   billEditState.rowEl = null;
 }
 
-function openVimCmd() {
-  var overlay = document.getElementById('vim-cmd-overlay');
-  var inp = document.getElementById('vim-cmd-input');
-  if (!overlay || !inp) return;
-  inp.value = '';
-  overlay.style.visibility = 'visible';
-  inp.focus();
-}
-
-function closeVimCmd() {
-  var overlay = document.getElementById('vim-cmd-overlay');
-  if (overlay) overlay.style.visibility = 'hidden';
-  var inp = document.getElementById('vim-cmd-input');
-  if (inp) { inp.value = ''; inp.blur(); }
-}
-
-function execVimCmd(cmd) {
-  cmd = cmd.trim();
-  if (cmd === 'w') {
-    // Save all unsaved draft parent rows visible on screen
-    var draftRows = Array.from(document.querySelectorAll('tr[data-row-type="parent"][data-draft="true"]'));
-    if (!draftRows.length) { billEditMsg('Nothing to save.', ''); setTimeout(function(){ billEditMsg('',''); }, 1500); }
-    draftRows.forEach(function(row) { saveDraftToDb(row); });
-  } else {
-    billEditMsg('Unknown command: ' + cmd, 'err');
-    setTimeout(function(){ billEditMsg('',''); }, 2000);
-  }
-  closeVimCmd();
-}
-
 function billEditMsg(msg, type) {
   var el = document.getElementById('tb-status-msg');
   if (!el) return;
@@ -839,21 +802,19 @@ function fbPageInitPayables() {
   registerVendorKeyActions();
   kbd.register();
   loadBillAccounts();
-  window.fbCmdDispatch = function(cmd) {
-    billEditMsg('Unknown command: ' + cmd, 'err'); setTimeout(function(){ billEditMsg('',''); }, 2000);
+  // Register global command dispatch for vim-style :commands via the top bar
+  window.fbCmdDispatch = function(val) {
+    var cmd = val.replace(/^:/, '').trim();
+    if (cmd === 'w') {
+      var draftRows = Array.from(document.querySelectorAll('tr[data-row-type="parent"][data-draft="true"]'));
+      if (!draftRows.length) { billEditMsg('Nothing to save.', ''); setTimeout(function(){ billEditMsg('', ''); }, 1500); return; }
+      draftRows.forEach(function(row) { saveDraftToDb(row); });
+      billEditMsg('Saving ' + draftRows.length + ' draft(s)\u2026', '');
+      setTimeout(function(){ billEditMsg('', ''); }, 2000);
+    }
   };
   window.fbBillNav = true;
   window.fbBillCursorMid = false;
-
-  (function() {
-    var cmdInp = document.getElementById('vim-cmd-input');
-    if (cmdInp) {
-      cmdInp.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') { e.preventDefault(); closeVimCmd(); }
-        if (e.key === 'Enter') { e.preventDefault(); execVimCmd(cmdInp.value); }
-      });
-    }
-  })();
 
   fetch('/api/' + COMPANY + '/vat-codes')
     .then(function(r){ return r.json(); })

@@ -222,10 +222,6 @@ ${commonStyle()}
       <span style="font-size:0.625rem;color:#bbb">jk&nbsp;navigate &nbsp;&middot;&nbsp; Enter&nbsp;fold &nbsp;&middot;&nbsp; i&nbsp;edit &nbsp;&middot;&nbsp; o&nbsp;new bill/line &nbsp;&middot;&nbsp; :w&nbsp;save &nbsp;&middot;&nbsp; p&nbsp;post &nbsp;&middot;&nbsp; dd&nbsp;delete/void &nbsp;&middot;&nbsp; Esc&nbsp;cancel</span>
     </div>
 
-    <div id="vim-cmd-overlay" style="visibility:hidden;position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:#fff;border-radius:6px;padding:8px 16px;font-family:'Courier New',monospace;font-size:0.9rem;z-index:9999;min-width:220px;box-shadow:0 4px 16px rgba(0,0,0,.4);display:flex;align-items:center;gap:4px">
-      <span style="user-select:none">:</span><input id="vim-cmd-input" autocomplete="off" spellcheck="false" style="background:transparent;border:none;color:#fff;outline:none;font-family:'Courier New',monospace;font-size:0.9rem;min-width:140px;caret-color:#fff" />
-    </div>
-
   </div><!-- /pay-panel-bills -->
 
   <div id="pay-panel-vendors" style="display:none">

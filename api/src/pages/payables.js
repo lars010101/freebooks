@@ -48,7 +48,7 @@ ${commonStyle()}
   .filter-bar select:focus { outline:none; border-color:#1a1a1a; }
 
   /* Table card */
-  .table-card { border:1px solid #e8e8e8; border-radius:8px; overflow:hidden; }
+  .table-card { border:1px solid #e8e8e8; border-radius:8px; overflow:visible; }
   .data-table { width:100%; border-collapse:collapse; font-size:0.875rem; }
   .data-table th { text-align:left; font-size:0.75rem; color:#555; font-weight:600; text-transform:uppercase; letter-spacing:.05em; background:#fafafa; border-bottom:1px solid #e8e8e8; padding:12px 18px; }
   .data-table td { padding:14px 18px; border-bottom:1px solid #f2f2f2; vertical-align:middle; color:#222; }
@@ -126,6 +126,8 @@ ${commonStyle()}
   tr.row-expanded > td:first-child { color:#1a1a1a; font-weight:600; }
   tr.row-loading { opacity:0.6; }
   .child-row:last-child td { border-bottom:1px solid #e8e8e8; }
+  .data-table th:last-child,
+  .data-table td:last-child { min-width: 110px; }
 
   /* Bills keyboard nav */
   tr.bill-row-focus td { background:#f0f4ff; }

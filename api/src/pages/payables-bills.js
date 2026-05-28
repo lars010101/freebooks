@@ -1118,7 +1118,7 @@ function renderDraftChildRows(parentRow, linesList) {
     tr.style.cssText = 'background:#fffef5';
     tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
       + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-      + '<td style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
+      + '<td data-child-ccy="true" style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
       + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>';
     var descInp = tr.querySelector('input.child-desc');
     var amtInp  = tr.querySelectorAll('input')[1];
@@ -1206,7 +1206,7 @@ function createDraftLine(childRow) {
   var parentCcy = parentRow.dataset.currency || BASE_CURRENCY;
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-    + '<td style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
+    + '<td data-child-ccy="true" style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
     + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>';
   var gstSel2 = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
@@ -1273,6 +1273,15 @@ function _wireDraftParentEvents(tr) {
   }
   if (ccyInputEl) {
     ccyInputEl.addEventListener('input', function() { draftCcyInput(ccyInputEl); });
+    ccyInputEl.addEventListener('input', function() {
+      var v = ccyInputEl.value.trim().toUpperCase();
+      var dk = tr.dataset.draftKey;
+      if (dk) {
+        document.querySelectorAll('tr[data-parent-key="' + dk + '"] td[data-child-ccy]').forEach(function(td) {
+          td.textContent = v;
+        });
+      }
+    });
     ccyInputEl.addEventListener('keydown', function(e) {
       if (e.key === 'ArrowDown') { e.preventDefault(); moveDraftCcyDd(1); return; }
       if (e.key === 'ArrowUp')   { e.preventDefault(); moveDraftCcyDd(-1); return; }
@@ -1380,6 +1389,9 @@ function autoSaveChildRow(childRow, parentTr) {
 }
 
 function autoSaveDraftIfReady(draftParentTr) {
+  // Only auto-save while the row is still in raw draft mode.
+  // After convertDraftRowToDisplay runs (dataset.draft deleted), skip.
+  if (draftParentTr.dataset.draft !== 'true') return;
   // Defer so focus has settled — only save if the user has left the draft bill entirely
   var draftKey = draftParentTr.dataset.draftKey || draftParentTr.dataset.billId;
   setTimeout(function() {
@@ -1425,7 +1437,7 @@ function insertDraftChildRow(childRow, above) {
   tr.style.cssText = 'background:#fffef5';
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-    + '<td style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
+    + '<td data-child-ccy="true" style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
     + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>';
   var gstSelect = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
@@ -1468,6 +1480,7 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   var draftKey = draftParentTr.dataset.draftKey;
 
   draftParentTr.dataset.billId = billId;
+  treeState.setOpen(billId);
   draftParentTr.dataset.vendor = vendor;
   draftParentTr.dataset.date = billDate;
   draftParentTr.dataset.dueDate = dueDate;

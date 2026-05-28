@@ -293,11 +293,18 @@ var kbd = {
       return;
     }
 
-    // Enter = fold toggle (parent) or collapse parent (child)
+    // Enter = fold toggle (parent) or collapse parent (child); saves draft if applicable
     if (e.key === 'Enter') {
       e.preventDefault();
       if (!cursor.rowEl) return;
       if (cursor.rowEl.dataset.rowType === 'parent') {
+        var isDraftParent = cursor.rowEl.dataset.draft === 'true';
+        var foldKey = isDraftParent ? cursor.rowEl.dataset.draftKey : cursor.rowEl.dataset.billId;
+        var foldIsOpen = foldKey ? treeState.isOpen(foldKey) : false;
+        // Save when folding a raw unsaved draft (not when opening it)
+        if (isDraftParent && foldIsOpen) {
+          saveDraftToDb(cursor.rowEl);
+        }
         this._toggleFold();
       } else if (cursor.rowEl.dataset.rowType === 'child') {
         var childParentKey = cursor.rowEl.dataset.parentKey || cursor.rowEl.dataset.parentId;
@@ -306,6 +313,10 @@ var kbd = {
              document.querySelector('tr[data-row-type="parent"][data-bill-id="' + childParentKey + '"]'))
           : null;
         if (childParentRow) {
+          // Save when returning from child to parent on a raw unsaved draft
+          if (childParentRow.dataset.draft === 'true') {
+            saveDraftToDb(childParentRow);
+          }
           this._closeFold(childParentRow);
           cursor.set(childParentRow, 0);
         }
@@ -908,10 +919,12 @@ function toggleBillLines(billId, parentTr) {
       var desc = sepIdx !== -1 ? rawDesc.slice(sepIdx + 3).trim() : rawDesc;
 
       var gstCode = pairedGst ? (pairedGst.vat_code || '') : '';
+      var pStatus = parentTr ? (parentTr.dataset.status || '') : '';
+      var pStatusLabel = pStatus.charAt(0).toUpperCase() + pStatus.slice(1);
       tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
-        + '<td class="child-ccy">' + esc(line.currency || '') + '</td>'
-        + '<td style="font-size:0.75rem;cursor:pointer" title="Edit tax code">' + esc(gstCode) + '</td>';
+        + '<td style="font-size:0.75rem;cursor:pointer" title="Edit tax code">' + esc(gstCode) + '</td>'
+        + '<td style="font-size:0.75rem;color:#888">' + esc(pStatusLabel) + '</td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
       insertAfter = tr;
@@ -929,7 +942,7 @@ function toggleBillLines(billId, parentTr) {
 
       gstTr.innerHTML = '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + gstLabel + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#888">' + Number(line.amount || 0).toFixed(2) + '</td>'
-        + '<td class="child-ccy" style="color:#888">' + esc(line.currency || '') + '</td>'
+        + '<td></td>'
         + '<td></td>';
 
       insertAfter.insertAdjacentElement('afterend', gstTr);
@@ -1107,7 +1120,6 @@ function openColFilter(th, col) {
 function renderDraftChildRows(parentRow, linesList) {
   var draftKey = parentRow.dataset.draftKey;
   var parentInputs = parentRow.querySelectorAll('input');
-  var parentCcy = (parentInputs[4] && parentInputs[4].value) || parentRow.dataset.currency || BASE_CURRENCY;
   var insertAfter = parentRow;
   linesList.forEach(function(line, idx) {
     var tr = document.createElement('tr');
@@ -1118,8 +1130,8 @@ function renderDraftChildRows(parentRow, linesList) {
     tr.style.cssText = 'background:#fffef5';
     tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
       + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-      + '<td data-child-ccy="true" style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
-      + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>';
+      + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
+      + '<td></td>';
     var descInp = tr.querySelector('input.child-desc');
     var amtInp  = tr.querySelectorAll('input')[1];
     var gstSel  = tr.querySelector('select');
@@ -1166,7 +1178,7 @@ function createDraftBill(refRow) {
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic;padding:8px 18px" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewPopup(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
+    + '<td><span style="font-size:0.75rem;color:#bbb">Unsaved</span></td>';
   var insertAfterRow = refRow;
   if (refRow && refRow.dataset.rowType === 'child') {
     var pKey2 = refRow.dataset.parentKey || refRow.dataset.parentId;
@@ -1203,11 +1215,10 @@ function createDraftLine(childRow) {
   tr.dataset.parentKey = parentKey;
   tr.dataset.lineIdx = String(newIdx);
   tr.style.cssText = 'background:#fffef5';
-  var parentCcy = parentRow.dataset.currency || BASE_CURRENCY;
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-    + '<td data-child-ccy="true" style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
-    + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>';
+    + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
+    + '<td></td>';
   var gstSel2 = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
     var opt = document.createElement('option'); opt.value = code; opt.textContent = code + ': ' + taxCodeMap[code]; gstSel2.appendChild(opt);
@@ -1429,7 +1440,6 @@ function insertDraftChildRow(childRow, above) {
   if (!parentTr) return;
   var draftKey = parentTr.dataset.draftKey || parentTr.dataset.billId;
   var parentInputs = parentTr.querySelectorAll('input');
-  var parentCcy = (parentInputs[4] && parentInputs[4].value) || parentTr.dataset.currency || BASE_CURRENCY;
   var tr = document.createElement('tr');
   tr.dataset.rowType = 'child';
   tr.dataset.draft = 'true';
@@ -1437,8 +1447,8 @@ function insertDraftChildRow(childRow, above) {
   tr.style.cssText = 'background:#fffef5';
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-    + '<td data-child-ccy="true" style="font-size:0.75rem;color:#888">' + parentCcy + '</td>'
-    + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>';
+    + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
+    + '<td></td>';
   var gstSelect = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
     var opt = document.createElement('option');
@@ -1524,9 +1534,9 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
 
       childTr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right">' + Number(childAmt).toFixed(2) + '</td>'
-        + '<td class="child-ccy" style="font-size:0.75rem;color:#aaa">' + esc(currency) + '</td>'
-        + '<td></td>';
-      var gstTd = childTr.querySelector('td:last-child');
+        + '<td></td>'
+        + '<td style="font-size:0.75rem;color:#888">Draft</td>';
+      var gstTd = childTr.querySelectorAll('td')[2];
       var sel = document.createElement('select');
       sel.style.cssText = 'font-size:0.75rem;border:1px solid #ddd;border-radius:3px;padding:2px 4px;background:#fff;max-width:120px;';
       var emptyOpt = document.createElement('option'); emptyOpt.value = ''; emptyOpt.textContent = '\\u2014 None \\u2014'; sel.appendChild(emptyOpt);

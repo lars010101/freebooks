@@ -251,11 +251,18 @@ var kbd = {
     // NOT stopped (common.js owns tab switching); g/{/}//:/Escape are left to common.js
     // (sidebar nav / search / gg / no-op escape). cursor.col is retained internally for
     // the transitional INSERT model; Phase 2b will remove it.
-    var _BILLS_OWNED_KEYS = { 'j':1,'k':1,'i':1,'o':1,'O':1,'a':1,'d':1,'p':1,'G':1,'Enter':1,' ':1,'~':1 };
-    if (_BILLS_OWNED_KEYS[e.key]) { e.stopImmediatePropagation(); }
-
     var rows = cursor.getVisibleRows();
     var idx = cursor.currentIndex();
+
+    // Only swallow j/k when we have rows to navigate; otherwise let common.js handle
+    var _BILLS_OWNED_KEYS = { 'j':1,'k':1,'i':1,'o':1,'O':1,'a':1,'d':1,'p':1,'G':1,'Enter':1,' ':1,'~':1 };
+    if (_BILLS_OWNED_KEYS[e.key]) {
+      if ((e.key === 'j' || e.key === 'k') && rows.length === 0) {
+        // No rows loaded yet — don't swallow, let common.js try
+      } else {
+        e.stopImmediatePropagation();
+      }
+    }
 
     if (e.key === 'j') {
       e.preventDefault();
@@ -2078,6 +2085,12 @@ function renderPage() {
   if (!tbody) return;
   tbody.innerHTML = html;
   document.getElementById('pagination-row').style.display = 'none';
+
+  // Auto-select first row after bills load, so j/k navigation works on initial entry
+  if (!cursor.rowEl) {
+    var firstRow = tbody.querySelector('tr[data-row-type="parent"], tr[data-row-type="child"]');
+    if (firstRow) cursor.set(firstRow, 0);
+  }
 }
 
 function renderPagination(totalPages) {

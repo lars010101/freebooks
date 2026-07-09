@@ -130,7 +130,8 @@ ${commonStyle()}
   .data-table td:last-child { min-width: 110px; }
 
   /* Bills keyboard nav */
-  tr.bill-row-focus td { background:#f0f4ff; }
+  tr.bill-row-focus td { background: rgba(61, 100, 148, 0.18) !important; }
+  [data-theme="dark"] tr.bill-row-focus td { background: rgba(61, 100, 148, 0.35) !important; }
 
   .btn-sm:hover { background:#e8e8e8; }
   .btn-save-draft { background:none; border:none; cursor:pointer; font-size:1rem; padding:2px 6px; color:#bbb; line-height:1; border-radius:4px; }

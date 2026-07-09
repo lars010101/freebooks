@@ -213,18 +213,7 @@ The bill detail page has a unified navigable list:
 
 `Escape` — exit back to Payables list.
 
-#### g-prefix jumps (Normal mode)
-
-Press `g` then a letter within 1 second:
-
-| Sequence | Destination |
-|---|---|
-| `gd` | Dashboard |
-| `gb` | Bank |
-| `gp` | Payables |
-| `gv` | Receivables (Sales) |
-| `gr` | Reports |
-| `gs` | Settings |
+> Note: only the `gg` double-key sequence is implemented (in the Payables tree-table, where it scrolls to top). No other `g`-prefix jumps (e.g. `gd`/`gb`/`gp`/`gv`/`gr`/`gs`) are wired up.
 
 All navigation keys are suppressed when an input, textarea, or select is focused (Insert mode).
 
@@ -448,46 +437,72 @@ Bill status on creation: `posted`. Status transitions:
 
 ### Payables Tree-Table (`/:company/payables`)
 
+> **See `docs/payables-ux-spec.md` for the complete UX specification** (two-state NORMAL/INSERT model, keyboard + mouse equivalents, fold behavior, removed/simplified elements).
+
 Full inline bill management as a vim-modal tree-table. No separate bill detail page — all viewing and editing happens in-place.
 
 **Tree structure:**
 - **Parent rows** — bill header: toggle | Date | Due | Vendor | Ref | Amount | CCY | Status
 - **Child rows** — one per expense line + one GST line below; visible only when parent is unfolded
 
-**Keyboard navigation (NORMAL mode):**
+**Keyboard navigation (NORMAL mode):** Row-oriented (vim line semantics). Selection highlights the complete row — there is no cell-level cursor in NORMAL mode.
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Move down / up (visible rows only; rate-limited to 40 ms) |
-| `h` / `l` | Move left / right between cells |
-| `gg` / `G` | Jump to first / last row |
-| `za` / `Space` | Toggle fold (expand/collapse child rows) |
-| `zo` / `zc` | Open / close current parent |
-| `zR` / `zM` | Expand all / collapse all |
-| `i` / `Enter` | Enter INSERT mode on focused cell |
-| `Esc` | Exit INSERT → NORMAL; revert unsaved cell value |
-| `/` | Focus search input |
-| `:` | Open command bar |
+| `j` / `k` | Move down / up one row (parent or child; no boundary blocking — crosses bill boundaries seamlessly) |
+| `h` / `l` | Switch to previous / next tab |
+| `{` / `}` | Previous / next sidebar page |
+| `Enter` / `Space` | Toggle fold (expand/collapse the bill under the cursor) |
+| `i` | Enter INSERT mode on the focused row (no-op if the bill is posted) |
+| `o` | New bill / line below the current row |
+| `x` | Delete the current row / bill |
+| `p` | Post the draft bill under the cursor |
+| `G` | Jump to last row |
+| `gg` | Scroll to top |
+| `Esc` | No-op (already in NORMAL) |
 
-**Inline editing (INSERT mode):**
+**Inline editing (INSERT mode):** Cell-oriented, scoped to a single row. Entering INSERT (via `i` or double-click on an editable row) renders all editable cells on the row as inputs simultaneously, with focus on the first editable cell. Posted bills are read-only — `i` and double-click are no-ops on them.
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `Shift+Tab` | Move to next / previous editable cell (wraps within the row; does not leave the row) |
+| `Esc` | Save row + exit to NORMAL (selection stays on the same row) |
+| (all other keys) | Disabled — `h`/`j`/`k`/`l`/`{`/`}`/`o`/`x`/`p`/`G`/`gg` are inert |
+
+There is no discard/cancel path: `Esc` always saves. To undo a change, delete the row afterward. Save timing is unambiguous — saving happens on INSERT exit only (no blur-chasing, no auto-save timer).
+
+Editable cells (draft bills are fully editable; posted bills are read-only):
 
 | Cell | Editable | Input type | Via |
 |------|----------|------------|-----|
-| Parent — Due Date (col 2) | All bills | Date input | `bill.update` |
-| Parent — Ref (col 3) | All bills | Text input | `bill.update` |
-| Child — Description (col 0) | All bills | Text input | `journal.entry.update` |
-| Child — GST code (col 3) | Draft bills only | Select dropdown | `journal.entry.update` (updates paired GST entry) |
+| Parent — Due Date | All bills | Date input | `bill.update` |
+| Parent — Ref | All bills | Text input | `bill.update` |
+| Child — Description | All bills | Text input | `journal.entry.update` |
+| Child — GST code | Draft bills only | Select dropdown | `journal.entry.update` (updates paired GST entry) |
 
-- `i` or `Enter` on focused cell → INSERT mode; `Esc` → revert; `Enter` → save and return to NORMAL
+**Mouse interactions** (every keyboard action has a mouse equivalent, and vice versa):
+
+| Action | Mouse |
+|------|-------|
+| Select row | Single click on the row body |
+| Toggle fold | Click the ▸/▾ fold icon on a parent (clicking the row body only selects) |
+| Enter INSERT | Double-click an editable (draft) row |
+| Save + exit INSERT | Click outside the row (saves the current row, then selects the target) |
+| New bill / line | Click the "+" toolbar button |
+| Delete row / bill | Click the delete icon (visible on hover) |
+| Post draft bill | Click the "Post" button on the draft row |
+| Switch tab | Click the tab label |
+| Switch sidebar page | Click a sidebar page |
+| Jump to top / bottom | Scroll |
+
 - Void guard: editing a voided bill shows an error in the top bar status message
-- Tab disabled in INSERT mode (native browser only outside of tree)
 - Status messages appear in `#tb-status-msg` in the top bar (bold, auto-clear after 2.5 s)
 
 **Filter controls** (top bar): vendor (dropdown), description (text search), status, fiscal period. Collapsible "More filters" for amount and currency.
 
 **GST pairing logic:** Expense child rows have `vat_code = null`; GST child rows have `vat_code` set. The GST code dropdown on expense rows edits the *paired* GST journal entry (`expenseLines[i] ↔ gstLines[i]`). Read-only on non-draft bills.
 
-**Modules in `payables.js`:** `treeState` (Set-based open/closed + dirty tracking), `cursor` (row/cell highlight + scroll), `kbd` (keydown dispatcher with mode awareness).
+**Modules in `payables.js`:** `treeState` (Set-based open/closed + dirty tracking), `cursor` (row highlight + scroll), `kbd` (keydown dispatcher with mode awareness).
 
 **Build status:** Steps 1 (tree rendering), 2 (keyboard navigation), and 3 (inline editing) complete. Step 4 (new bill creation inline), 5 (remove legacy routes), and 6 (polish) pending.
 
@@ -577,12 +592,12 @@ DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly
 - [x] Payment matching: mark bill Paid via bank import (link import row → open bill during import)
 - [x] Partial payment tracking and allocation (via foreign currency amount_paid tracking)
 - [x] Bill edit workflow (non-financial fields editable; financial fields require Reverse & Re-enter via `bill.void`)
-- [x] Payables tree-table Step 1 — tree rendering, read-only (click or `za` to fold/unfold)
-- [x] Payables tree-table Step 2 — vim keyboard navigation (`j`/`k`/`h`/`l`/`gg`/`G`/`za`/`zo`/`zc`/`zR`/`zM`)
+- [x] Payables tree-table Step 1 — tree rendering, read-only (click or `Enter`/`Space` to fold/unfold)
+- [x] Payables tree-table Step 2 — vim keyboard navigation (`j`/`k`/`h`/`l`/`{`/`}`/`Enter`/`Space`/`i`/`o`/`x`/`p`/`G`/`gg`/`Esc`)
 - [x] Payables tree-table Step 3 — inline editing of existing bills (parent: Due, Ref; child: Description, GST code)
 - [ ] Payables tree-table Step 4 — new bill creation inline (replaces `bill-new.js`)
 - [ ] Payables tree-table Step 5 — housekeeping: remove `bill-detail.js`, `bill-new.js`, old routes
-- [ ] Payables tree-table Step 6 — polish: `dd` confirm, `yy`/`p`, undo, `:` commands, `zR` bulk-fetch
+- [ ] Payables tree-table Step 6 — polish: undo (`u`), `:` commands, expand-all/collapse-all via command palette
 
 ### Multi-Currency
 - [x] FX rate table (manual entry) — Settings → Exchange Rates tab

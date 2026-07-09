@@ -38,6 +38,7 @@ var cursor = {
       document.activeElement.blur();
     }
     document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
+    document.querySelectorAll('tr.nav-row-focus').forEach(function(r){ r.classList.remove('nav-row-focus'); });
     this.rowEl = rowEl || null;
     this.col = (col != null) ? col : 0;
     if (!rowEl) { return; }
@@ -2166,6 +2167,10 @@ function showPayTab(t) {
     document.getElementById('pay-panel-' + id).style.display = (id === t) ? '' : 'none';
     var tabEl = document.getElementById('pay-tab-' + id);
     if (tabEl) tabEl.classList.toggle('active', id === t);
+  });
+  // Clear stale highlights from both systems when switching tabs
+  document.querySelectorAll('tr.nav-row-focus, tr.bill-row-focus').forEach(function(r){
+    r.classList.remove('nav-row-focus', 'bill-row-focus');
   });
   if (t === 'vendors') { loadVendorTable(); loadVendorAccounts(); loadVendorCurrencies(); }
 }

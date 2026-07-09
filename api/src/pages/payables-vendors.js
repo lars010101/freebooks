@@ -54,7 +54,7 @@ function loadVendorTable() {
       allVendors = Array.isArray(rows) ? rows : [];
       vendorDirtyRows = {};
       renderVendorTable();
-      vendorSelRow = -1;
+      vendorSelRow = allVendors.length ? 0 : -1;
       vendorSelCol = 0;
       updateVendorCursor();
     }).catch(function(e){ vendorMsg('Error loading vendors: ' + e.message, 'err'); });
@@ -120,6 +120,7 @@ function updateVendorCursor() {
   window.fbVendorSelRow = vendorSelRow;
   document.querySelectorAll('#vendors-body tr.vrow-selected').forEach(function(r){ r.classList.remove('vrow-selected'); });
   document.querySelectorAll('#vendors-body td.vcell-selected').forEach(function(td){ td.classList.remove('vcell-selected'); });
+  document.querySelectorAll('tr.nav-row-focus').forEach(function(r){ r.classList.remove('nav-row-focus'); });
   if (vendorSelRow < 0) return;
   var tr = document.querySelector('#vendors-body tr[data-idx="' + vendorSelRow + '"]');
   if (!tr) return;

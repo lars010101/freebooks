@@ -119,15 +119,31 @@ function buildVendorDisplayRow(v, i) {
 function updateVendorCursor() {
   window.fbVendorSelRow = vendorSelRow;
   document.querySelectorAll('#vendors-body tr.vrow-selected').forEach(function(r){ r.classList.remove('vrow-selected'); });
+  document.querySelectorAll('#vendors-body tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
   document.querySelectorAll('#vendors-body td.vcell-selected').forEach(function(td){ td.classList.remove('vcell-selected'); });
   document.querySelectorAll('tr.nav-row-focus').forEach(function(r){ r.classList.remove('nav-row-focus'); });
   if (vendorSelRow < 0) return;
   var tr = document.querySelector('#vendors-body tr[data-idx="' + vendorSelRow + '"]');
   if (!tr) return;
-  tr.classList.add('vrow-selected');
-  var td = tr.querySelector('td[data-col="' + vendorSelCol + '"]');
-  if (td) td.classList.add('vcell-selected');
-  tr.scrollIntoView({ block: 'nearest' });
+  tr.classList.add('bill-row-focus');
+  // Only show vcell-selected when actively editing a cell, not in browse mode
+  if (vendorCellEdit) {
+    var td = tr.querySelector('td[data-col="' + vendorSelCol + '"]');
+    if (td) td.classList.add('vcell-selected');
+  }
+  var pm = document.getElementById('page-main');
+  if (pm) {
+    var rect = tr.getBoundingClientRect();
+    var pmRect = pm.getBoundingClientRect();
+    var pad = 8;
+    if (rect.top < pmRect.top + pad) {
+      pm.scrollBy({ top: rect.top - pmRect.top - pad, behavior: 'instant' });
+    } else if (rect.bottom > pmRect.bottom - pad) {
+      pm.scrollBy({ top: rect.bottom - pmRect.bottom + pad, behavior: 'instant' });
+    }
+  } else {
+    tr.scrollIntoView({ block: 'nearest' });
+  }
 }
 
 function getSelectedTd() {
@@ -205,7 +221,8 @@ function commitVendorCell(save) {
     }
   }
   renderVendorCell(td, vendorSelCol, allVendors[vendorSelRow] || {});
-  td.classList.add('vcell-selected');
+  // Returning to browse mode: refresh row-level highlight and clear any cell highlight
+  updateVendorCursor();
 }
 
 function renderVendorCell(td, col, v) {

@@ -180,6 +180,8 @@ var kbd = {
   _lastMoveTime: 0,
   _ddPending: false,
   _ddTimer: null,
+  _gPending: false,
+  _gTimer: null,
 
   register: function() {
     if (window._fbBillKbdHandler) {
@@ -256,7 +258,7 @@ var kbd = {
     var idx = cursor.currentIndex();
 
     // Only swallow j/k when we have rows to navigate; otherwise let common.js handle
-    var _BILLS_OWNED_KEYS = { 'j':1,'k':1,'i':1,'o':1,'O':1,'a':1,'d':1,'p':1,'G':1,'Enter':1,' ':1,'~':1 };
+    var _BILLS_OWNED_KEYS = { 'j':1,'k':1,'i':1,'o':1,'O':1,'a':1,'d':1,'p':1,'G':1,'g':1,'Enter':1,' ':1,'~':1 };
     if (_BILLS_OWNED_KEYS[e.key]) {
       if ((e.key === 'j' || e.key === 'k') && rows.length === 0) {
         // No rows loaded yet — don't swallow, let common.js try
@@ -435,7 +437,21 @@ var kbd = {
       return;
     }
 
-    if (e.key === 'g') { e.preventDefault(); }
+    if (e.key === 'g') {
+      e.preventDefault();
+      if (!this._gPending) {
+        this._gPending = true;
+        clearTimeout(this._gTimer);
+        var self = this;
+        this._gTimer = setTimeout(function() { self._gPending = false; }, 500);
+        return;
+      }
+      // Double g: scroll to top + highlight first row
+      this._gPending = false;
+      clearTimeout(this._gTimer);
+      if (rows.length) cursor.set(rows[0], 0);
+      return;
+    }
   },
 
   _getParentRow: function() {

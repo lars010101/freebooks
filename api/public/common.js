@@ -340,10 +340,6 @@
 
     // ── h / l → horizontal submenu tab navigation ──
     if (e.key === 'h' || e.key === 'l') {
-      var vendorPanel = document.getElementById('pay-panel-vendors');
-      if (vendorPanel && vendorPanel.style.display !== 'none' && typeof window.fbVendorSelRow !== 'undefined' && window.fbVendorSelRow >= 0) {
-        return;
-      }
       var tabs = Array.from(document.querySelectorAll('.tabs .tab'));
       if (!tabs.length) {
         var hlKey = e.key; // 'h' or 'l'

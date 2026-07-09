@@ -348,7 +348,7 @@ function vendorMsg(msg, type) {
 }
 
 function registerVendorKeyActions() {
-  var VENDOR_KEYS = ['j','k','h','l','i','a','d','~','Enter','Escape','Tab','ArrowDown','ArrowUp'];
+  var VENDOR_KEYS = ['j','k','i','a','d','~','Enter','Escape','Tab','ArrowDown','ArrowUp'];
   document.addEventListener('keydown', function(e) {
     var panel = document.getElementById('pay-panel-vendors');
     if (!panel || panel.style.display === 'none') return;
@@ -397,8 +397,6 @@ function registerVendorKeyActions() {
 
     if (e.key === 'j') { e.preventDefault(); vendorMoveRow(1); }
     else if (e.key === 'k') { e.preventDefault(); vendorMoveRow(-1); }
-    else if (e.key === 'h') { e.preventDefault(); if (vendorSelRow < 0) { showPayTab('bills'); } else { vendorMoveCol(-1); } }
-    else if (e.key === 'l') { e.preventDefault(); vendorMoveCol(1); }
     else if (e.key === 'i') {
       e.preventDefault();
       if (vendorSelCol === 5) vendorToggleActive();

@@ -57,6 +57,39 @@ async function createBill(ctx) {
   const validation = await validateBill(companyId, billForValidation);
   if (!validation.valid) return { created: false, errors: validation.errors, warnings: validation.warnings };
 
+  // --- 1a: Server-side period lock enforcement ---
+  // The client-side openPostReviewPopup() checks allPeriods for an unlocked covering
+  // period, but a direct API call bypasses that. Enforce here so that the bill date
+  // must fall within an unlocked accounting period. Mirrors validateJournalBatch()
+  // period logic (validation.js lines ~73-79).
+  if (bill.date) {
+    const periods = await query(
+      `SELECT period_name, start_date, end_date, locked
+       FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
+             FROM periods WHERE company_id = @companyId) WHERE rn = 1`,
+      { companyId }
+    );
+    const billDateOnly = new Date(String(bill.date).substring(0, 10));
+    const coveringPeriods = periods.filter(
+      (p) => new Date(p.start_date) <= billDateOnly && new Date(p.end_date) >= billDateOnly
+    );
+    if (coveringPeriods.length === 0) {
+      return {
+        created: false,
+        errors: [`Bill date ${bill.date} does not fall within any defined accounting period`],
+        warnings: validation.warnings,
+      };
+    }
+    const lockedPeriods = coveringPeriods.filter((p) => p.locked);
+    if (lockedPeriods.length > 0) {
+      return {
+        created: false,
+        errors: [`Bill date ${bill.date} falls into a locked accounting period (${lockedPeriods.map((p) => p.period_name).join(', ')})`],
+        warnings: validation.warnings,
+      };
+    }
+  }
+
   const companies = await query(
     `SELECT currency, vat_registered FROM companies WHERE company_id = @companyId LIMIT 1`,
     { companyId }
@@ -379,8 +412,8 @@ async function saveDraftBill(ctx) {
     due_date: bill.due_date || null,
     amount: totalAmount,
     currency: bill.currency || 'SGD',
-    fx_rate: 1.0,
-    amount_home: totalAmount,
+    fx_rate: bill.fx_rate || 1.0,
+    amount_home: totalAmount * (bill.fx_rate || 1.0),
     expense_account: (bill.lines && bill.lines[0] && bill.lines[0].expense_account) || bill.expense_account || null,
     ap_account: bill.ap_account || null,
     vat_code: null,

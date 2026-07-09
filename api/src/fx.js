@@ -71,6 +71,7 @@ async function fetchRates(ctx) {
 async function getRate(fromCurrency, toCurrency, date) {
   if (fromCurrency === toCurrency) return 1.0;
 
+  // --- Forward direction: from -> to ---
   const exact = await query(
     `SELECT rate FROM fx_rates WHERE from_currency = @from AND to_currency = @to AND date = @date ORDER BY source = 'manual' DESC, fetched_at DESC LIMIT 1`,
     { from: fromCurrency, to: toCurrency, date }
@@ -82,6 +83,20 @@ async function getRate(fromCurrency, toCurrency, date) {
     { from: fromCurrency, to: toCurrency, date }
   );
   if (nearest.length > 0) return Number(nearest[0].rate);
+
+  // --- Reverse direction: to -> from (invert the rate) ---
+  // If USD->SGD is not found, try SGD->USD and return 1 / rate.
+  const exactReverse = await query(
+    `SELECT rate FROM fx_rates WHERE from_currency = @to AND to_currency = @from AND date = @date ORDER BY source = 'manual' DESC, fetched_at DESC LIMIT 1`,
+    { from: fromCurrency, to: toCurrency, date }
+  );
+  if (exactReverse.length > 0) return 1.0 / Number(exactReverse[0].rate);
+
+  const nearestReverse = await query(
+    `SELECT rate FROM fx_rates WHERE from_currency = @to AND to_currency = @from AND date <= @date ORDER BY date DESC LIMIT 1`,
+    { from: fromCurrency, to: toCurrency, date }
+  );
+  if (nearestReverse.length > 0) return 1.0 / Number(nearestReverse[0].rate);
 
   return null;
 }
@@ -166,20 +181,29 @@ async function getEffectiveRate(ctx) {
 
   const rate = await getRate(fromCurrency, toCurrency, date);
   if (rate === null) {
-    return { rate: null, source: null, rateDate: null };
+    return { rate: null, source: null, rateDate: null, direction: null };
   }
 
-  // Find the actual row to get source and date
-  const rows = await query(
+  // Find the actual row to get source and date — try forward direction first,
+  // then reverse (if getRate found the rate via inversion).
+  let rows = await query(
     `SELECT rate, source, date FROM fx_rates WHERE from_currency = @from AND to_currency = @to AND date <= @date ORDER BY date DESC, source = 'manual' DESC LIMIT 1`,
     { from: fromCurrency, to: toCurrency, date }
   );
-
+  let direction = 'direct';
   if (rows.length === 0) {
-    return { rate: null, source: null, rateDate: null };
+    rows = await query(
+      `SELECT rate, source, date FROM fx_rates WHERE from_currency = @to AND to_currency = @from AND date <= @date ORDER BY date DESC, source = 'manual' DESC LIMIT 1`,
+      { from: fromCurrency, to: toCurrency, date }
+    );
+    direction = 'inverted';
   }
 
-  return { rate: Number(rows[0].rate), source: rows[0].source, rateDate: rows[0].date };
+  if (rows.length === 0) {
+    return { rate: null, source: null, rateDate: null, direction: null };
+  }
+
+  return { rate, source: rows[0].source, rateDate: rows[0].date, direction };
 }
 
 async function revaluationPreview(ctx) {

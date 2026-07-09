@@ -144,6 +144,47 @@ async function validateBill(companyId, bill) {
     warnings.push('Due date is before bill date');
   }
 
+  // --- Fetch company currency (needed for FX rate validation, 1c) ---
+  const companies = await query(
+    `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,
+    { companyId }
+  );
+  const companyCurrency = companies.length > 0 ? companies[0].currency : null;
+
+  // --- 1b: Future-date guard (configurable; defaults to warning) ---
+  // Setting key 'future_date_warning' may be set to 'warning' (default), 'error', or 'none'.
+  // Some businesses pre-date bills legitimately, so we warn by default rather than block.
+  const settingsRows = await query(
+    `SELECT value FROM settings WHERE company_id = @companyId AND key = 'future_date_warning'`,
+    { companyId }
+  );
+  const futureDateMode = (settingsRows.length > 0 && settingsRows[0].value) || 'warning';
+
+  if (bill.date && futureDateMode !== 'none') {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const billDate = new Date(String(bill.date).substring(0, 10));
+    if (billDate > today) {
+      const msg = `Bill date ${bill.date} is in the future`;
+      if (futureDateMode === 'error') {
+        errors.push(msg);
+      } else {
+        warnings.push(msg);
+      }
+    }
+  }
+
+  // --- 1c: FX rate validation for foreign-currency bills ---
+  // A foreign-currency bill without a valid FX rate is a real error (not a warning),
+  // because amount_home would be computed incorrectly. Mirrors the FX check in
+  // validateJournalBatch() (validation.js lines ~85-89).
+  const billCurrency = bill.currency || companyCurrency;
+  if (companyCurrency && billCurrency && billCurrency !== companyCurrency) {
+    if (!bill.fx_rate || Number(bill.fx_rate) <= 0) {
+      errors.push(`Exchange rate required for foreign currency (${billCurrency} \u2192 ${companyCurrency})`);
+    }
+  }
+
   return { valid: errors.length === 0, errors, warnings };
 }
 

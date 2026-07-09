@@ -285,7 +285,7 @@ var kbd = {
         // Seamless bill-boundary crossing: no blocking from child -> previous parent.
         cursor.set(rows[idx - 1], 0);
       }
-      else if (idx === 0) { cursor.clear(); }
+      // Sticky at top: idx === 0 -> no-op (no deselect)
       return;
     }
 

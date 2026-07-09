@@ -344,7 +344,6 @@
       if (vendorPanel && vendorPanel.style.display !== 'none' && typeof window.fbVendorSelRow !== 'undefined' && window.fbVendorSelRow >= 0) {
         return;
       }
-      if (window.fbBillCursorMid) { return; }
       var tabs = Array.from(document.querySelectorAll('.tabs .tab'));
       if (!tabs.length) {
         var hlKey = e.key; // 'h' or 'l'

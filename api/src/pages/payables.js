@@ -131,10 +131,6 @@ ${commonStyle()}
 
   /* Bills keyboard nav */
   tr.bill-row-focus td { background:#f0f4ff; }
-  tr.bill-row-focus td.bill-cell-focus { background:#1a3a6b !important; color:#fff !important; }
-  tr.bill-row-focus td.bill-cell-focus span:not(.avatar):not(.badge) { color:#fff !important; }
-  tr.bill-row-focus td.bill-cell-focus .badge { opacity:0.85; }
-  tr.bill-row-focus td.bill-cell-focus a { color:#fff !important; }
 
   .btn-sm:hover { background:#e8e8e8; }
   .btn-save-draft { background:none; border:none; cursor:pointer; font-size:1rem; padding:2px 6px; color:#bbb; line-height:1; border-radius:4px; }

@@ -38,15 +38,14 @@ var cursor = {
       document.activeElement.blur();
     }
     document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
-    document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
     this.rowEl = rowEl || null;
     this.col = (col != null) ? col : 0;
-    if (!rowEl) { window.fbBillCursorMid = false; return; }
+    if (!rowEl) { return; }
     rowEl.classList.add('bill-row-focus');
+    // cursor.col is kept (clamped) for the transitional per-cell INSERT model;
+    // NORMAL mode no longer highlights a single cell (row-only selection).
     var cells = rowEl.querySelectorAll('td');
     if (this.col >= cells.length) this.col = cells.length - 1;
-    if (cells[this.col]) cells[this.col].classList.add('bill-cell-focus');
-    window.fbBillCursorMid = (this.col < cells.length - 1);
     var pm = document.getElementById('page-main');
     var rows = this.getVisibleRows();
     if (pm && rows.length && rows[0] === rowEl) {
@@ -183,11 +182,14 @@ var kbd = {
 
   register: function() {
     if (window._fbBillKbdHandler) {
-      document.removeEventListener('keydown', window._fbBillKbdHandler);
+      document.removeEventListener('keydown', window._fbBillKbdHandler, true);
     }
     var self = this;
     window._fbBillKbdHandler = function(e) { self._handle(e); };
-    document.addEventListener('keydown', window._fbBillKbdHandler);
+    // Capture phase: this handler runs BEFORE common.js's bubble-phase keydown
+    // listener, so an early stopImmediatePropagation() can keep common.js from
+    // double-processing keys the bills tab owns (see _handle).
+    document.addEventListener('keydown', window._fbBillKbdHandler, true);
   },
 
   _isBillsTabActive: function() {
@@ -242,6 +244,16 @@ var kbd = {
     var tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
 
+    // NORMAL mode (bills tab active, not INSERT, not typing in a field): the bills
+    // tab owns these keys. Stop common.js (registered in the bubble phase) from also
+    // processing them -- previously 'd' crashed common.js fbKeyActions.delete(null),
+    // 'i' focused a stray input, 'a'/'G'/'Enter' double-handled. h/l are intentionally
+    // NOT stopped (common.js owns tab switching); g/{/}//:/Escape are left to common.js
+    // (sidebar nav / search / gg / no-op escape). cursor.col is retained internally for
+    // the transitional INSERT model; Phase 2b will remove it.
+    var _BILLS_OWNED_KEYS = { 'j':1,'k':1,'i':1,'o':1,'O':1,'a':1,'d':1,'p':1,'G':1,'Enter':1,' ':1,'~':1 };
+    if (_BILLS_OWNED_KEYS[e.key]) { e.stopImmediatePropagation(); }
+
     var rows = cursor.getVisibleRows();
     var idx = cursor.currentIndex();
 
@@ -250,8 +262,7 @@ var kbd = {
       var now = Date.now(); if (now - this._lastMoveTime < 40) return; this._lastMoveTime = now;
       if (idx === -1 && rows.length) { cursor.set(rows[0], 0); }
       else if (idx >= 0 && idx < rows.length - 1) {
-        // Block j from crossing bill boundary (child -> next parent)
-        if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child' && rows[idx + 1].dataset.rowType === 'parent') { return; }
+        // Seamless bill-boundary crossing: no blocking from child -> next parent.
         cursor.set(rows[idx + 1], 0);
       }
       return;
@@ -261,28 +272,14 @@ var kbd = {
       e.preventDefault();
       var now2 = Date.now(); if (now2 - this._lastMoveTime < 40) return; this._lastMoveTime = now2;
       if (idx > 0) {
-        // Block k from crossing bill boundary (child -> prev parent)
-        if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child' && rows[idx - 1].dataset.rowType === 'parent') { return; }
+        // Seamless bill-boundary crossing: no blocking from child -> previous parent.
         cursor.set(rows[idx - 1], 0);
       }
       else if (idx === 0) { cursor.clear(); }
       return;
     }
 
-    if (e.key === 'l') {
-      e.preventDefault();
-      if (cursor.rowEl) {
-        var cells = cursor.rowEl.querySelectorAll('td');
-        cursor.set(cursor.rowEl, Math.min(cursor.col + 1, cells.length - 1));
-      }
-      return;
-    }
-
-    if (e.key === 'h') {
-      e.preventDefault();
-      if (cursor.rowEl && cursor.col > 0) { cursor.set(cursor.rowEl, cursor.col - 1); }
-      return;
-    }
+    // h/l no longer move a cell cursor within a row; common.js handles tab switching.
 
     if (e.key === '~') {
       e.preventDefault();
@@ -339,7 +336,6 @@ var kbd = {
           if (draftInp) {
             cursor.mode = 'INSERT';
             document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
-            document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
             draftInp.focus();
           }
         }
@@ -637,7 +633,6 @@ function enterBillCellEdit(rowEl, col) {
   billEditState.fieldType = fieldType;
   cursor.mode = 'INSERT';
 
-  tdEl.classList.remove('bill-cell-focus');
   tdEl.classList.add('vcell-editing');
 
   if (fieldType === 'vatcode') {
@@ -814,7 +809,6 @@ function fbPageInitPayables() {
     }
   };
   window.fbBillNav = true;
-  window.fbBillCursorMid = false;
 
   fetch('/api/' + COMPANY + '/vat-codes')
     .then(function(r){ return r.json(); })
@@ -1338,7 +1332,6 @@ function _wireDraftParentEvents(tr) {
   tr.addEventListener('focusin', function(e) {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
       document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
-      document.querySelectorAll('td.bill-cell-focus').forEach(function(td){ td.classList.remove('bill-cell-focus'); });
     }
   });
 }

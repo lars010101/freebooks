@@ -268,10 +268,9 @@ var kbd = {
         if (document.getElementById('pay-draft-vendor-dd')) { e.preventDefault(); moveDraftVendorDd(dir2); return; }
         if (document.getElementById('pay-draft-ccy-dd'))    { e.preventDefault(); moveDraftCcyDd(dir2); return; }
       }
-      // Swallow navigation keys in INSERT mode (spec: h/j/k/l all inert)
-      var _INSERT_INERT_KEYS = { 'j':1,'k':1,'h':1,'l':1,'o':1,'O':1,'a':1,'d':1,'p':1,'G':1,'g':1,'x':1,'{':1,'}':1,'~':1 };
-      if (_INSERT_INERT_KEYS[e.key]) { e.preventDefault(); return; }
-      return; // all other keys go to input/select (typing)
+      // In INSERT mode, all non-intercepted keys (including h/j/k/l) type into inputs normally.
+      // They are "inert" in the sense that they don't trigger navigation — not that they're blocked.
+      return;
     }
 
     var tag = e.target.tagName;
@@ -361,8 +360,34 @@ var kbd = {
       return;
     }
 
+    // Helper: check if the current row's bill is editable (not void/paid/posted)
+    function _isRowEditable() {
+      if (!cursor.rowEl) return false;
+      var row = cursor.rowEl;
+      // Draft rows (data-draft='true') are always editable
+      if (row.dataset.draft === 'true') return true;
+      // For non-draft rows, check the parent bill's status
+      var statusRow = row;
+      if (row.dataset.rowType === 'child') {
+        var pKey = row.dataset.parentKey || row.dataset.parentId;
+        statusRow = pKey
+          ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') ||
+             document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]'))
+          : null;
+        if (!statusRow) return false;
+      }
+      var st = statusRow.dataset.status || '';
+      // Only draft status is editable; void/paid/posted/partial are read-only
+      return st === 'draft';
+    }
+
     if (e.key === 'i') {
       e.preventDefault();
+      if (!_isRowEditable()) {
+        billEditMsg('Cannot edit — bill is not a draft', 'err');
+        setTimeout(function() { billEditMsg('', ''); }, 2000);
+        return;
+      }
       if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
         if (cursor.rowEl.dataset.rowType === 'parent') {
           var firstInp = cursor.rowEl.querySelector('input, select');
@@ -392,6 +417,12 @@ var kbd = {
     // o = new draft bill (on parent) or new child line (on child)
     if (e.key === 'o') {
       e.preventDefault();
+      // Don't allow adding to voided/posted/paid bills
+      if (cursor.rowEl && !_isRowEditable()) {
+        billEditMsg('Cannot add lines — bill is not a draft', 'err');
+        setTimeout(function() { billEditMsg('', ''); }, 2000);
+        return;
+      }
       if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') {
         createDraftLine(cursor.rowEl);
       } else {
@@ -410,6 +441,11 @@ var kbd = {
     if (e.key === 'a') {
       e.preventDefault();
       e.stopImmediatePropagation();
+      if (cursor.rowEl && !_isRowEditable()) {
+        billEditMsg('Cannot add lines — bill is not a draft', 'err');
+        setTimeout(function() { billEditMsg('', ''); }, 2000);
+        return;
+      }
       if (cursor.rowEl) {
         var isDraftParent = cursor.rowEl.dataset.rowType === 'parent' &&
           (cursor.rowEl.dataset.draft === 'true' || cursor.rowEl.dataset.status === 'draft');
@@ -1328,13 +1364,6 @@ function _wireDraftParentEvents(tr) {
         autoSaveDraftIfReady(tr);
       }, 200);
     });
-    vendorInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Tab' && e.shiftKey) {
-        // Shift+Tab wraps from vendor (first) back to CCY (last)
-        e.preventDefault();
-        if (ccyInputEl) ccyInputEl.focus();
-      }
-    });
   }
   if (dueInputEl) {
     dueInputEl.addEventListener('blur', function() {
@@ -1360,9 +1389,9 @@ function _wireDraftParentEvents(tr) {
       if (e.key === 'ArrowDown') { e.preventDefault(); moveDraftCcyDd(1); return; }
       if (e.key === 'ArrowUp')   { e.preventDefault(); moveDraftCcyDd(-1); return; }
       if (e.key === 'Tab' && !e.shiftKey) {
-        // Tab wraps within the same row — go back to vendor input (first input)
-        e.preventDefault();
-        if (vendorInput) vendorInput.focus();
+        // Tab from CCY → first child row description input (cross to child row)
+        var firstChild = document.querySelector('tr[data-parent-key="' + tr.dataset.draftKey + '"] input.child-desc');
+        if (firstChild) { e.preventDefault(); firstChild.focus(); }
       }
     });
     ccyInputEl.addEventListener('blur', function() {

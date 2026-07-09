@@ -414,20 +414,10 @@ var kbd = {
       return;
     }
 
-    // o = new draft bill (on parent) or new child line (on child)
+    // o = always create a new draft bill (never a child row)
     if (e.key === 'o') {
       e.preventDefault();
-      // Don't allow adding to voided/posted/paid bills
-      if (cursor.rowEl && !_isRowEditable()) {
-        billEditMsg('Cannot add lines — bill is not a draft', 'err');
-        setTimeout(function() { billEditMsg('', ''); }, 2000);
-        return;
-      }
-      if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') {
-        createDraftLine(cursor.rowEl);
-      } else {
-        createDraftBill(cursor.rowEl || null);
-      }
+      createDraftBill(cursor.rowEl || null);
       return;
     }
 
@@ -446,13 +436,9 @@ var kbd = {
         setTimeout(function() { billEditMsg('', ''); }, 2000);
         return;
       }
+      // a = always add a child row (works from parent or child cursor position)
       if (cursor.rowEl) {
-        var isDraftParent = cursor.rowEl.dataset.rowType === 'parent' &&
-          (cursor.rowEl.dataset.draft === 'true' || cursor.rowEl.dataset.status === 'draft');
-        var isDraftChild = cursor.rowEl.dataset.rowType === 'child' &&
-          (cursor.rowEl.dataset.draft === 'true' || cursor.rowEl.dataset.status === 'draft');
-        if (isDraftParent) { insertDraftChildRow(cursor.rowEl, false); }
-        else if (isDraftChild) { insertDraftChildRow(cursor.rowEl, false); }
+        insertDraftChildRow(cursor.rowEl, false);
       }
       return;
     }
@@ -1345,32 +1331,29 @@ function _wireDraftParentEvents(tr) {
       setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150);
       setTimeout(function() {
         var name = vendorInput.value.trim();
-        if (!name) return;
+        if (!name) { autoSaveDraftIfReady(tr); return; }
         if (vendorInput.dataset.vendorName) {
-          vendorInput.classList.remove('req');
           var v = allVendors.find(function(x){ return x.vendor_id === vendorInput.dataset.vendorId; });
           if (v && ccyInputEl && !ccyInputEl.value) { ccyInputEl.value = (v.default_currency || BASE_CURRENCY).toUpperCase(); ccyInputEl.dispatchEvent(new Event('input')); }
           autoSaveDraftIfReady(tr); return;
         }
+        // Try to resolve typed name against master data; if no match, leave the
+        // typed value intact (save-time / server-side validation will gate it).
         var match = allVendors.find(function(x){ return (x.name||'').toLowerCase() === name.toLowerCase(); });
-        if (!match) { billEditMsg('Vendor not in master data \\u2014 select from dropdown', 'err'); vendorInput.classList.add('req'); vendorInput.value = ''; vendorInput.dataset.vendorName = ''; return; }
-        vendorInput.dataset.vendorId = match.vendor_id || '';
-        vendorInput.dataset.vendorName = match.name || '';
-        vendorInput.dataset.apAccount = match.default_ap_account || '201100';
-        vendorInput.dataset.expenseAccount = match.default_expense_account || '400000';
-        vendorInput.value = match.name;
-        vendorInput.classList.remove('req');
-        if (ccyInputEl && !ccyInputEl.value) { ccyInputEl.value = (match.default_currency || BASE_CURRENCY).toUpperCase(); ccyInputEl.dispatchEvent(new Event('input')); }
+        if (match) {
+          vendorInput.dataset.vendorId = match.vendor_id || '';
+          vendorInput.dataset.vendorName = match.name || '';
+          vendorInput.dataset.apAccount = match.default_ap_account || '201100';
+          vendorInput.dataset.expenseAccount = match.default_expense_account || '400000';
+          vendorInput.value = match.name;
+          if (ccyInputEl && !ccyInputEl.value) { ccyInputEl.value = (match.default_currency || BASE_CURRENCY).toUpperCase(); ccyInputEl.dispatchEvent(new Event('input')); }
+        }
         autoSaveDraftIfReady(tr);
       }, 200);
     });
   }
   if (dueInputEl) {
     dueInputEl.addEventListener('blur', function() {
-      var dueVal = dueInputEl.value;
-      var dateVal = dateInputEl ? dateInputEl.value : '';
-      if (dueVal && dateVal && dueVal < dateVal) { billEditMsg('Due date must be \\u2265 bill date', 'err'); dueInputEl.classList.add('req'); dueInputEl.value = ''; return; }
-      if (dueVal) dueInputEl.classList.remove('req');
       autoSaveDraftIfReady(tr);
     });
   }
@@ -1397,16 +1380,7 @@ function _wireDraftParentEvents(tr) {
     ccyInputEl.addEventListener('blur', function() {
       setTimeout(function() { var dd = document.getElementById('pay-draft-ccy-dd'); if (dd) dd.remove(); }, 150);
       var v = ccyInputEl.value.trim().toUpperCase();
-      if (v && vendorCurrenciesList.length) {
-        var valid = vendorCurrenciesList.some(function(c){ return (c.code||'').toUpperCase() === v; });
-        if (!valid) {
-          billEditMsg('"' + v + '" is not a valid currency code — select from the dropdown', 'err');
-          ccyInputEl.value = '';
-          ccyInputEl.classList.add('req');
-          return;
-        }
-        ccyInputEl.classList.remove('req'); ccyInputEl.value = v;
-      }
+      if (v) ccyInputEl.value = v;
       autoSaveDraftIfReady(tr);
     });
   }
@@ -1487,10 +1461,6 @@ function autoSaveChildRow(childRow, parentTr) {
   var descInput = childRow.querySelector('input.child-desc');
   var amtInput  = childRow.querySelectorAll('input')[1];
   var gstSelect = childRow.querySelector('select');
-  var desc = descInput && descInput.value.trim();
-  var amt  = parseFloat(amtInput && amtInput.value) || 0;
-  if (descInput) descInput.classList.toggle('req', !desc);
-  if (amtInput)  amtInput.classList.toggle('req', !(amt > 0));
   updateParentDraftAmount(parentTr);
   autoSaveDraftIfReady(parentTr); // deferred — only saves when focus leaves entire bill
 }

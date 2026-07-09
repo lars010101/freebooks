@@ -207,7 +207,34 @@ var kbd = {
 
     // INSERT mode: intercept control keys only
     if (cursor.mode === 'INSERT') {
-      if (e.key === 'Escape') { e.preventDefault(); exitBillCellEdit(false); return; }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // For draft bills, save and exit INSERT mode directly (billEditState is not set up for drafts)
+        if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
+          // Close any open dropdowns
+          var vDd = document.getElementById('pay-draft-vendor-dd'); if (vDd) vDd.remove();
+          var cDd = document.getElementById('pay-draft-ccy-dd'); if (cDd) cDd.remove();
+          var aDd = document.getElementById('pay-bill-acct-dd'); if (aDd) aDd.remove();
+          // Blur active input
+          if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+          // Save the draft bill
+          var parentRow = cursor.rowEl;
+          if (parentRow.dataset.rowType === 'child') {
+            // Find parent row for child
+            var pKey = parentRow.dataset.parentKey || parentRow.dataset.parentId;
+            parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
+          }
+          if (parentRow && parentRow.dataset.draft === 'true') {
+            saveDraftToDb(parentRow);
+          }
+          cursor.mode = 'NORMAL';
+          // Restore row highlight
+          if (parentRow) cursor.set(parentRow, 0);
+          return;
+        }
+        exitBillCellEdit(false);
+        return;
+      }
       if (e.key === 'Enter') {
         e.preventDefault();
         if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
@@ -241,7 +268,10 @@ var kbd = {
         if (document.getElementById('pay-draft-vendor-dd')) { e.preventDefault(); moveDraftVendorDd(dir2); return; }
         if (document.getElementById('pay-draft-ccy-dd'))    { e.preventDefault(); moveDraftCcyDd(dir2); return; }
       }
-      return; // all other keys go to input/select
+      // Swallow navigation keys in INSERT mode (spec: h/j/k/l all inert)
+      var _INSERT_INERT_KEYS = { 'j':1,'k':1,'h':1,'l':1,'o':1,'O':1,'a':1,'d':1,'p':1,'G':1,'g':1,'x':1,'{':1,'}':1,'~':1 };
+      if (_INSERT_INERT_KEYS[e.key]) { e.preventDefault(); return; }
+      return; // all other keys go to input/select (typing)
     }
 
     var tag = e.target.tagName;
@@ -1298,6 +1328,13 @@ function _wireDraftParentEvents(tr) {
         autoSaveDraftIfReady(tr);
       }, 200);
     });
+    vendorInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Tab' && e.shiftKey) {
+        // Shift+Tab wraps from vendor (first) back to CCY (last)
+        e.preventDefault();
+        if (ccyInputEl) ccyInputEl.focus();
+      }
+    });
   }
   if (dueInputEl) {
     dueInputEl.addEventListener('blur', function() {
@@ -1323,9 +1360,9 @@ function _wireDraftParentEvents(tr) {
       if (e.key === 'ArrowDown') { e.preventDefault(); moveDraftCcyDd(1); return; }
       if (e.key === 'ArrowUp')   { e.preventDefault(); moveDraftCcyDd(-1); return; }
       if (e.key === 'Tab' && !e.shiftKey) {
-        // Tab from CCY -> first child desc input
-        var firstChild = document.querySelector('tr[data-parent-key="' + tr.dataset.draftKey + '"] input.child-desc');
-        if (firstChild) { e.preventDefault(); firstChild.focus(); }
+        // Tab wraps within the same row — go back to vendor input (first input)
+        e.preventDefault();
+        if (vendorInput) vendorInput.focus();
       }
     });
     ccyInputEl.addEventListener('blur', function() {
@@ -1412,6 +1449,11 @@ function updateParentDraftAmount(draftParentTr) {
 var recalcParentAmount = updateParentDraftAmount;
 
 function autoSaveChildRow(childRow, parentTr) {
+  // Don't mark fields red while still in INSERT mode (user is navigating between cells)
+  if (cursor.mode === 'INSERT') {
+    updateParentDraftAmount(parentTr);
+    return;
+  }
   // Validate + highlight; recalc parent total; then try save (deferred focus check)
   var descInput = childRow.querySelector('input.child-desc');
   var amtInput  = childRow.querySelectorAll('input')[1];
@@ -1428,6 +1470,7 @@ function autoSaveDraftIfReady(draftParentTr) {
   // Only auto-save while the row is still in raw draft mode.
   // After convertDraftRowToDisplay runs (dataset.draft deleted), skip.
   if (draftParentTr.dataset.draft !== 'true') return;
+  if (cursor.mode === 'INSERT') return; // Don't auto-save during INSERT — save on Esc
   // Defer so focus has settled — only save if the user has left the draft bill entirely
   var draftKey = draftParentTr.dataset.draftKey || draftParentTr.dataset.billId;
   setTimeout(function() {

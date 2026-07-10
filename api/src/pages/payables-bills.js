@@ -1238,7 +1238,8 @@ function _wireChildRowTab(childRowEl, parentRowEl) {
 }
 
 // Manage the "+" add-row icon on child rows: only the last child row gets it.
-// Call after creating/removing/reordering child rows.
+// Fades when the last child row is empty (no data entered yet).
+// Call after creating/removing/reordering child rows, and on input changes.
 function refreshAddRowIcons(parentRowEl) {
   var parentKey = parentRowEl.dataset.draftKey || parentRowEl.dataset.billId;
   if (!parentKey) return;
@@ -1248,8 +1249,17 @@ function refreshAddRowIcons(parentRowEl) {
     if (!lastCell) return;
     if (idx === allChildren.length - 1) {
       // Last row: add + icon if not already present
-      if (!lastCell.querySelector('.btn-add-row')) {
+      var existingBtn = lastCell.querySelector('.btn-add-row');
+      if (!existingBtn) {
         lastCell.innerHTML = '<button class="btn-add-row" onclick="addRowFromIcon(this)" title="Add line (a)" style="border:none;background:transparent;cursor:pointer;font-size:16px;padding:2px 6px;color:#5b8def">+</button>';
+        existingBtn = lastCell.querySelector('.btn-add-row');
+      }
+      // Fade + icon if this row is empty (no desc and no amount)
+      if (existingBtn) {
+        var descInp = cr.querySelector('input.child-desc');
+        var amtInp = cr.querySelectorAll('input')[1];
+        var hasData = (descInp && descInp.value.trim()) || (amtInp && parseFloat(amtInp.value) > 0);
+        existingBtn.style.opacity = hasData ? '1' : '0.3';
       }
     } else {
       // Non-last row: remove + icon if present
@@ -1275,6 +1285,21 @@ function addRowFromIcon(btnEl) {
                    document.querySelector('tr[data-row-type="parent"][data-bill-id="' + parentKey + '"]');
     if (parentRow) refreshAddRowIcons(parentRow);
   }
+}
+
+// Fade the 💾 save icon based on whether the bill has required fields filled.
+// Faded = not ready to save (missing vendor, date, or due date).
+function refreshSaveIcon(parentRowEl) {
+  if (!parentRowEl || parentRowEl.dataset.draft !== 'true') return;
+  var saveBtn = parentRowEl.querySelector('.btn-save-draft');
+  if (!saveBtn) return;
+  var inputs = parentRowEl.querySelectorAll('input');
+  var vendorInput = parentRowEl.querySelector('input.draft-vendor-input');
+  var dateInput = inputs[1], dueInput = inputs[2];
+  var vendorOk = vendorInput && (vendorInput.dataset.vendorName || vendorInput.value.trim());
+  var dateOk = dateInput && dateInput.value;
+  var dueOk = dueInput && dueInput.value;
+  saveBtn.style.opacity = (vendorOk && dateOk && dueOk) ? '1' : '0.3';
 }
 
 // Render draft child rows from draftLines array
@@ -1312,8 +1337,8 @@ function renderDraftChildRows(parentRow, linesList) {
       }
     }
     var _saveTimer = null;
-    if (descInp) { descInp.addEventListener('blur', function() { syncLine(); autoSaveChildRow(tr, parentRow); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); }); }
-    if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); autoSaveChildRow(tr, parentRow); }); amtInp.addEventListener('input',  function() { syncLine(); updateParentDraftAmount(parentRow); }); }
+    if (descInp) { descInp.addEventListener('blur', function() { syncLine(); autoSaveChildRow(tr, parentRow); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); }); }
+    if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); autoSaveChildRow(tr, parentRow); }); amtInp.addEventListener('input',  function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); }); }
     if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); autoSaveChildRow(tr, parentRow); });
     _wireChildRowTab(tr, parentRow);
     insertAfter.insertAdjacentElement('afterend', tr);
@@ -1353,6 +1378,7 @@ function createDraftBill(refRow) {
   _wireDraftParentEvents(tr);
   treeState.setOpen(draftKey);
   renderDraftChildRows(tr, draftLines[draftKey]);
+  refreshSaveIcon(tr); // initial state: faded (no vendor/date/due yet)
   cursor.set(tr, 0);
   // Auto-enter INSERT on vendor field
   cursor.mode = 'INSERT';
@@ -1396,8 +1422,8 @@ function createDraftLine(childRow) {
     }
   }
   var _t2 = null;
-  if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); descInp2.addEventListener('input', function() { syncLine2(); updateParentDraftAmount(parentRow); }); }
-  if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); amtInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); }); }
+  if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); descInp2.addEventListener('input', function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); }); }
+  if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); amtInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); }); }
   if (gstSel2)  gstSel2.addEventListener('change',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); });
   _wireChildRowTab(tr, parentRow);
   insertAfterEl.insertAdjacentElement('afterend', tr);
@@ -1416,7 +1442,7 @@ function _wireDraftParentEvents(tr) {
   var dueInputEl   = draftInputs2[2];
   var ccyInputEl   = draftInputs2[4];
   if (vendorInput) {
-    vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
+    vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); refreshSaveIcon(tr); });
     vendorInput.addEventListener('keydown', function(e) {
       if (e.key === 'Tab' && e.shiftKey) {
         // Shift+Tab from vendor input → wrap to last child's GST select (bottom of bill)
@@ -1459,7 +1485,9 @@ function _wireDraftParentEvents(tr) {
   if (dueInputEl) {
     dueInputEl.addEventListener('blur', function() {
       autoSaveDraftIfReady(tr);
+      refreshSaveIcon(tr);
     });
+    dueInputEl.addEventListener('input', function() { refreshSaveIcon(tr); });
   }
   if (ccyInputEl) {
     ccyInputEl.addEventListener('input', function() { draftCcyInput(ccyInputEl); });
@@ -1489,7 +1517,8 @@ function _wireDraftParentEvents(tr) {
     });
   }
   var refInputEl = draftInputs2[3];
-  if (dateInputEl) dateInputEl.addEventListener('blur', function() { autoSaveDraftIfReady(tr); });
+  if (dateInputEl) dateInputEl.addEventListener('blur', function() { autoSaveDraftIfReady(tr); refreshSaveIcon(tr); });
+  if (dateInputEl) dateInputEl.addEventListener('input', function() { refreshSaveIcon(tr); });
   if (refInputEl)  refInputEl.addEventListener('blur',  function() { autoSaveDraftIfReady(tr); });
   // Tab from ref -> skip read-only amount, go to CCY
   if (refInputEl && ccyInputEl) {
@@ -1636,8 +1665,8 @@ function insertDraftChildRow(childRow, above) {
   var descInpRef = tr.querySelector('input.child-desc');
   var amtInpRef  = tr.querySelectorAll('input')[1];
   var gstSelRef  = tr.querySelector('select');
-  if (descInpRef) { descInpRef.addEventListener('blur', function() { autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', function() { updateParentDraftAmount(parentTrRef); }); }
-  if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); }); }
+  if (descInpRef) { descInpRef.addEventListener('blur', function() { autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); }); }
+  if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); }); }
   if (gstSelRef)  gstSelRef.addEventListener('change',  function() { autoSaveChildRow(tr, parentTrRef); });
   _wireChildRowTab(tr, parentTrRef);
   cursor.set(tr, 0);

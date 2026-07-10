@@ -1718,9 +1718,8 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   var draftKey = draftParentTr.dataset.draftKey;
 
   draftParentTr.dataset.billId = billId;
-  var wasFoldOpen = draftKey ? treeState.isOpen(draftKey) : false;
   if (draftKey) treeState.setClose(draftKey);
-  if (wasFoldOpen) treeState.setOpen(billId);
+  treeState.setClose(billId); // collapsed after save
   draftParentTr.dataset.vendor = vendor;
   draftParentTr.dataset.date = billDate;
   draftParentTr.dataset.dueDate = dueDate;
@@ -1748,35 +1747,10 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
     + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewForSavedDraft(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
 
   if (draftKey) {
+    // Remove draft child rows from DOM — fold is collapsed after save.
+    // When user expands, toggleBillLines will fetch from server (draft_lines).
     var childRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"][data-draft="true"]'));
-    childRows.forEach(function(childTr) {
-      var descInput = childTr.querySelector('input.child-desc');
-      var amtInputC = childTr.querySelectorAll('input')[1];
-      var gstSelect = childTr.querySelector('select');
-      var desc = descInput ? descInput.value.trim() : '';
-      var childAmt = parseFloat(amtInputC ? amtInputC.value : 0) || 0;
-      var gstCode = gstSelect ? gstSelect.value : '';
-
-      delete childTr.dataset.draft;
-      childTr.dataset.parentId = billId;
-
-      childTr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
-        + '<td style="text-align:right">' + Number(childAmt).toFixed(2) + '</td>'
-        + '<td></td>'
-        + '<td style="font-size:0.75rem;color:#888">Draft</td>';
-      var gstTd = childTr.querySelectorAll('td')[2];
-      var sel = document.createElement('select');
-      sel.style.cssText = 'font-size:0.75rem;border:1px solid #ddd;border-radius:3px;padding:2px 4px;background:#fff;max-width:120px;';
-      var emptyOpt = document.createElement('option'); emptyOpt.value = ''; emptyOpt.textContent = '\\u2014 None \\u2014'; sel.appendChild(emptyOpt);
-      Object.keys(taxCodeMap).forEach(function(code) {
-        var opt = document.createElement('option');
-        opt.value = code; opt.textContent = code;
-        if (code === gstCode) opt.selected = true;
-        sel.appendChild(opt);
-      });
-      sel.addEventListener('change', function() { autoSaveDraftIfReady(draftParentTr); });
-      gstTd.appendChild(sel);
-    });
+    childRows.forEach(function(childTr) { childTr.remove(); });
   }
 
   cursor.mode = 'NORMAL';

@@ -424,6 +424,7 @@ async function saveDraftBill(ctx) {
     description: bill.description || null,
     status: 'draft',
     amount_paid: 0,
+    draft_lines: bill.lines ? JSON.stringify(bill.lines) : null,
     created_at: now,
     created_by: ctx.userEmail || null,
   };

@@ -988,7 +988,7 @@ function toggleBillLines(billId, parentTr) {
         tr.className = 'child-row';
         tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(line.description || '') + '</td>'
           + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
-          + '<td style="font-size:0.75rem;cursor:pointer" title="Edit tax code">' + esc(line.vat_code || '') + '</td>'
+          + '<td style="font-size:0.75rem;cursor:pointer;text-align:center;width:50px" title="Edit tax code">' + esc(line.vat_code || '') + '</td>'
           + '<td></td>';
         insertAfter.insertAdjacentElement('afterend', tr);
         insertAfter = tr;
@@ -1020,7 +1020,7 @@ function toggleBillLines(billId, parentTr) {
       var gstCode = pairedGst ? (pairedGst.vat_code || '') : '';
       tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
-        + '<td style="font-size:0.75rem;cursor:pointer" title="Edit tax code">' + esc(gstCode) + '</td>'
+        + '<td style="font-size:0.75rem;cursor:pointer;text-align:center;width:50px" title="Edit tax code">' + esc(gstCode) + '</td>'
         + '<td></td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);

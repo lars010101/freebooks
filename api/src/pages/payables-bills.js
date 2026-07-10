@@ -1259,7 +1259,13 @@ function refreshAddRowIcons(parentRowEl) {
         var descInp = cr.querySelector('input.child-desc');
         var amtInp = cr.querySelectorAll('input')[1];
         var hasData = (descInp && descInp.value.trim()) || (amtInp && parseFloat(amtInp.value) > 0);
-        existingBtn.style.opacity = hasData ? '1' : '0.3';
+        if (hasData) {
+          existingBtn.style.opacity = '1';
+          existingBtn.style.color = '#5b8def';
+        } else {
+          existingBtn.style.opacity = '0.3';
+          existingBtn.style.color = '#999';
+        }
       }
     } else {
       // Non-last row: remove + icon if present
@@ -1288,7 +1294,7 @@ function addRowFromIcon(btnEl) {
 }
 
 // Fade the 💾 save icon based on whether the bill has required fields filled.
-// Faded = not ready to save (missing vendor, date, or due date).
+// Enabled = colored (blue), disabled = gray and faded.
 function refreshSaveIcon(parentRowEl) {
   if (!parentRowEl || parentRowEl.dataset.draft !== 'true') return;
   var saveBtn = parentRowEl.querySelector('.btn-save-draft');
@@ -1299,7 +1305,14 @@ function refreshSaveIcon(parentRowEl) {
   var vendorOk = vendorInput && (vendorInput.dataset.vendorName || vendorInput.value.trim());
   var dateOk = dateInput && dateInput.value;
   var dueOk = dueInput && dueInput.value;
-  saveBtn.style.opacity = (vendorOk && dateOk && dueOk) ? '1' : '0.3';
+  var ready = vendorOk && dateOk && dueOk;
+  if (ready) {
+    saveBtn.style.opacity = '1';
+    saveBtn.style.color = '#1565c0';
+  } else {
+    saveBtn.style.opacity = '0.3';
+    saveBtn.style.color = '#999';
+  }
 }
 
 // Render draft child rows from draftLines array

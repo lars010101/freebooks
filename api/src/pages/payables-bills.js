@@ -1293,25 +1293,38 @@ function addRowFromIcon(btnEl) {
   }
 }
 
-// Fade the 💾 save icon based on whether the bill has required fields filled.
-// Enabled = colored (blue), disabled = gray and faded.
+// Save icon: active (colored, full opacity) when ANY field has data.
+// Inactive (grayscale + faded) only when the bill is completely empty.
+// No per-field validation — server-side validateBill is the gatekeeper.
 function refreshSaveIcon(parentRowEl) {
   if (!parentRowEl || parentRowEl.dataset.draft !== 'true') return;
   var saveBtn = parentRowEl.querySelector('.btn-save-draft');
   if (!saveBtn) return;
-  var inputs = parentRowEl.querySelectorAll('input');
-  var vendorInput = parentRowEl.querySelector('input.draft-vendor-input');
-  var dateInput = inputs[1], dueInput = inputs[2];
-  var vendorOk = vendorInput && (vendorInput.dataset.vendorName || vendorInput.value.trim());
-  var dateOk = dateInput && dateInput.value;
-  var dueOk = dueInput && dueInput.value;
-  var ready = vendorOk && dateOk && dueOk;
-  if (ready) {
+  // Check if any parent-row input has content (vendor, date, due, ref — NOT ccy which is pre-filled)
+  var parentInputs = parentRowEl.querySelectorAll('input');
+  var hasInput = false;
+  for (var i = 0; i < parentInputs.length; i++) {
+    var inp = parentInputs[i];
+    // Skip CCY input (index 4) — it's pre-filled with base currency
+    if (i === 4) continue;
+    if (inp.value.trim()) { hasInput = true; break; }
+  }
+  // Also check child rows for any description or amount
+  if (!hasInput) {
+    var draftKey = parentRowEl.dataset.draftKey;
+    var childRows = document.querySelectorAll('tr[data-parent-key="' + draftKey + '"][data-draft="true"]');
+    for (var j = 0; j < childRows.length; j++) {
+      var childInputs = childRows[j].querySelectorAll('input');
+      if (childInputs[0] && childInputs[0].value.trim()) { hasInput = true; break; }
+      if (childInputs[1] && childInputs[1].value.trim()) { hasInput = true; break; }
+    }
+  }
+  if (hasInput) {
     saveBtn.style.opacity = '1';
-    saveBtn.style.color = '#1565c0';
+    saveBtn.style.filter = 'none';
   } else {
     saveBtn.style.opacity = '0.3';
-    saveBtn.style.color = '#999';
+    saveBtn.style.filter = 'grayscale(1)';
   }
 }
 
@@ -1350,8 +1363,8 @@ function renderDraftChildRows(parentRow, linesList) {
       }
     }
     var _saveTimer = null;
-    if (descInp) { descInp.addEventListener('blur', function() { syncLine(); autoSaveChildRow(tr, parentRow); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); }); }
-    if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); autoSaveChildRow(tr, parentRow); }); amtInp.addEventListener('input',  function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); }); }
+    if (descInp) { descInp.addEventListener('blur', function() { syncLine(); autoSaveChildRow(tr, parentRow); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
+    if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); autoSaveChildRow(tr, parentRow); }); amtInp.addEventListener('input',  function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
     if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); autoSaveChildRow(tr, parentRow); });
     _wireChildRowTab(tr, parentRow);
     insertAfter.insertAdjacentElement('afterend', tr);
@@ -1391,7 +1404,7 @@ function createDraftBill(refRow) {
   _wireDraftParentEvents(tr);
   treeState.setOpen(draftKey);
   renderDraftChildRows(tr, draftLines[draftKey]);
-  refreshSaveIcon(tr); // initial state: faded (no vendor/date/due yet)
+  refreshSaveIcon(tr); // initial state: grayscale + faded (completely empty bill)
   cursor.set(tr, 0);
   // Auto-enter INSERT on vendor field
   cursor.mode = 'INSERT';
@@ -1435,8 +1448,8 @@ function createDraftLine(childRow) {
     }
   }
   var _t2 = null;
-  if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); descInp2.addEventListener('input', function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); }); }
-  if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); amtInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); }); }
+  if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); descInp2.addEventListener('input', function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
+  if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); amtInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
   if (gstSel2)  gstSel2.addEventListener('change',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); });
   _wireChildRowTab(tr, parentRow);
   insertAfterEl.insertAdjacentElement('afterend', tr);
@@ -1678,8 +1691,8 @@ function insertDraftChildRow(childRow, above) {
   var descInpRef = tr.querySelector('input.child-desc');
   var amtInpRef  = tr.querySelectorAll('input')[1];
   var gstSelRef  = tr.querySelector('select');
-  if (descInpRef) { descInpRef.addEventListener('blur', function() { autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); }); }
-  if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); }); }
+  if (descInpRef) { descInpRef.addEventListener('blur', function() { autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); refreshSaveIcon(parentTrRef); }); }
+  if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); refreshSaveIcon(parentTrRef); }); }
   if (gstSelRef)  gstSelRef.addEventListener('change',  function() { autoSaveChildRow(tr, parentTrRef); });
   _wireChildRowTab(tr, parentTrRef);
   cursor.set(tr, 0);

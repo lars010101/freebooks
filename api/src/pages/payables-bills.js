@@ -217,7 +217,7 @@ var kbd = {
           var aDd = document.getElementById('pay-bill-acct-dd'); if (aDd) aDd.remove();
           // Blur active input
           if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-          // Save the draft bill
+          // Find parent row
           var parentRow = cursor.rowEl;
           if (parentRow.dataset.rowType === 'child') {
             // Find parent row for child
@@ -225,7 +225,12 @@ var kbd = {
             parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
           }
           if (parentRow && parentRow.dataset.draft === 'true') {
-            saveDraftToDb(parentRow);
+            // Check if bill is completely empty — if so, discard instead of saving
+            if (_isDraftEmpty(parentRow)) {
+              _discardDraftBill(parentRow);
+            } else {
+              saveDraftToDb(parentRow);
+            }
           }
           cursor.mode = 'NORMAL';
           // Restore row highlight
@@ -1391,6 +1396,56 @@ function renderDraftChildRows(parentRow, linesList) {
   refreshAddRowIcons(parentRow);
 }
 
+// Check if a draft bill has any data entered (any parent field or child row)
+function _isDraftEmpty(parentRowEl) {
+  if (!parentRowEl || parentRowEl.dataset.draft !== 'true') return false;
+  var parentInputs = parentRowEl.querySelectorAll('input');
+  for (var i = 0; i < parentInputs.length; i++) {
+    if (i === 4) continue; // skip CCY (pre-filled)
+    if (parentInputs[i].value.trim()) return false;
+  }
+  var draftKey = parentRowEl.dataset.draftKey;
+  if (draftKey) {
+    var childRows = document.querySelectorAll('tr[data-parent-key="' + draftKey + '"][data-draft="true"]');
+    for (var j = 0; j < childRows.length; j++) {
+      var childInputs = childRows[j].querySelectorAll('input');
+      if (childInputs[0] && childInputs[0].value.trim()) return false;
+      if (childInputs[1] && childInputs[1].value.trim()) return false;
+    }
+  }
+  return true;
+}
+
+// Discard a draft bill — remove parent and child rows from DOM, clean up state
+function _discardDraftBill(parentRowEl) {
+  var draftKey = parentRowEl.dataset.draftKey;
+  if (draftKey) {
+    delete draftLines[draftKey];
+    treeState.setClose(draftKey);
+    document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]').forEach(function(r) { r.remove(); });
+  }
+  var nextRow = null;
+  var allRows = document.querySelectorAll('tr[data-row-type="parent"]');
+  for (var k = 0; k < allRows.length; k++) {
+    if (allRows[k] === parentRowEl) {
+      nextRow = allRows[k + 1] || (k > 0 ? allRows[k - 1] : null);
+      break;
+    }
+  }
+  parentRowEl.remove();
+  if (nextRow) {
+    cursor.set(nextRow, 0);
+  } else {
+    cursor.clear();
+    // No rows left — render empty state
+    var tbody = document.getElementById('bills-tbody');
+    if (tbody && !tbody.querySelector('tr')) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:32px">No bills found.</td></tr>';
+    }
+  }
+  billEditMsg('', '');
+}
+
 // Create a new draft bill below refRow (or at bottom if null), expand immediately
 function createDraftBill(refRow) {
   var tbody = document.getElementById('bills-tbody');
@@ -1435,6 +1490,8 @@ function createDraftBill(refRow) {
   cursor.mode = 'INSERT';
   var vendorInp = tr.querySelector('input.draft-vendor-input');
   if (vendorInp) setTimeout(function() { vendorInp.focus(); vendorInp.select(); }, 0);
+  // Scroll parent into view at top so both parent and child rows are visible
+  setTimeout(function() { tr.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 10);
 }
 
 // Append new empty child line below current child row

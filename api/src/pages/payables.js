@@ -110,9 +110,9 @@ ${commonStyle()}
   .btn-sm { padding:0 14px; height:32px; font-size:0.8125rem; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
 
   /* Tree table — child rows */
-  .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; padding:19px 18px; }
+  .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; padding:14px 18px; font-size:0.8125rem; }
   .child-ccy { font-size:0.75rem; color:#666; text-align:center; }
-  .child-row td.child-desc { padding-left:2rem; }
+  .child-row td.child-desc { padding-left:60px; color:#666; }
   .child-gst-row td { background:#f5f5f5; }
 
   .draft-input { border:1px solid #ccc; border-radius:4px; padding:5px 8px; font-size:0.875rem; width:100%; box-sizing:border-box; background:#fffef5; font-family:inherit; }

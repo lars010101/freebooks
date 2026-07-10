@@ -980,8 +980,6 @@ function toggleBillLines(billId, parentTr) {
     // Render directly without the expense/GST split used for posted bills.
     var isDraft = parentTr.dataset.status === 'draft';
     if (isDraft) {
-      var pStatus2 = parentTr.dataset.status || '';
-      var pStatusLabel2 = pStatus2.charAt(0).toUpperCase() + pStatus2.slice(1);
       lines.forEach(function(line) {
         var tr = document.createElement('tr');
         tr.dataset.rowType = 'child';
@@ -991,7 +989,7 @@ function toggleBillLines(billId, parentTr) {
         tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(line.description || '') + '</td>'
           + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
           + '<td style="font-size:0.75rem;cursor:pointer" title="Edit tax code">' + esc(line.vat_code || '') + '</td>'
-          + '<td style="font-size:0.75rem;color:#888">' + esc(pStatusLabel2) + '</td>';
+          + '<td></td>';
         insertAfter.insertAdjacentElement('afterend', tr);
         insertAfter = tr;
       });
@@ -1020,12 +1018,10 @@ function toggleBillLines(billId, parentTr) {
       var desc = sepIdx !== -1 ? rawDesc.slice(sepIdx + 3).trim() : rawDesc;
 
       var gstCode = pairedGst ? (pairedGst.vat_code || '') : '';
-      var pStatus = parentTr ? (parentTr.dataset.status || '') : '';
-      var pStatusLabel = pStatus.charAt(0).toUpperCase() + pStatus.slice(1);
       tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
         + '<td style="font-size:0.75rem;cursor:pointer" title="Edit tax code">' + esc(gstCode) + '</td>'
-        + '<td style="font-size:0.75rem;color:#888">' + esc(pStatusLabel) + '</td>';
+        + '<td></td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
       insertAfter = tr;

@@ -976,6 +976,29 @@ function toggleBillLines(billId, parentTr) {
       return;
     }
 
+    // Draft bills: lines are stored as-is in draft_lines JSON (description + amount + vat_code per line).
+    // Render directly without the expense/GST split used for posted bills.
+    var isDraft = parentTr.dataset.status === 'draft';
+    if (isDraft) {
+      var pStatus2 = parentTr.dataset.status || '';
+      var pStatusLabel2 = pStatus2.charAt(0).toUpperCase() + pStatus2.slice(1);
+      lines.forEach(function(line) {
+        var tr = document.createElement('tr');
+        tr.dataset.rowType = 'child';
+        tr.dataset.parentId = billId;
+        tr.dataset.entryId = line.entry_id || '';
+        tr.className = 'child-row';
+        tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(line.description || '') + '</td>'
+          + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
+          + '<td style="font-size:0.75rem;cursor:pointer" title="Edit tax code">' + esc(line.vat_code || '') + '</td>'
+          + '<td style="font-size:0.75rem;color:#888">' + esc(pStatusLabel2) + '</td>';
+        insertAfter.insertAdjacentElement('afterend', tr);
+        insertAfter = tr;
+      });
+      return;
+    }
+
+    // Posted bills: journal entries are split into expense lines and GST lines.
     var expenseLines = lines.filter(function(l){ return !l.vat_code; });
     var gstLines     = lines.filter(function(l){ return !!l.vat_code; });
 

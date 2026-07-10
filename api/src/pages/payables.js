@@ -49,12 +49,17 @@ ${commonStyle()}
 
   /* Table card */
   .table-card { border:1px solid #e8e8e8; border-radius:8px; overflow:visible; }
-  .data-table { width:100%; border-collapse:collapse; font-size:0.875rem; }
+  .data-table { width:100%; border-collapse:collapse; font-size:0.875rem; table-layout:fixed; }
   .data-table thead { position:sticky; top:0; z-index:10; }
   .data-table th { text-align:left; font-size:0.75rem; color:#555; font-weight:600; text-transform:uppercase; letter-spacing:.05em; background:#fafafa; border-bottom:1px solid #e8e8e8; padding:12px 18px; }
   .data-table td { padding:14px 18px; border-bottom:1px solid #f2f2f2; vertical-align:middle; color:#222; }
   .data-table tbody tr:last-child td { border-bottom:none; }
   .data-table tbody tr:hover td { background:#fafafa; }
+  /* Suppress hover on draft rows — bill-row-focus handles highlight */
+  .data-table tbody tr[data-draft="true"]:hover td { background:#fffef5; }
+  .data-table tbody tr[data-draft="true"].child-row:hover td { background:#fffef5; }
+  .data-table tbody tr.bill-row-focus:hover td { background: rgba(61, 100, 148, 0.18) !important; }
+  .data-table tbody tr.bill-row-focus[data-draft="true"]:hover td { background: rgba(61, 100, 148, 0.35) !important; }
   .data-table tbody tr[data-url] { cursor:pointer; }
 
   /* Sortable/filterable column headers */
@@ -152,6 +157,7 @@ ${commonStyle()}
   .child-row td input[type="number"] { width:100%; box-sizing:border-box; }
   tr[data-draft="true"] td { background:#fffef5; }
   tr[data-draft="true"]:hover td { background:#fffbea; }
+  tr[data-draft="true"].child-row td { background:#fffef5; }
 
   /* Row state classes */
   tr[data-row-type="parent"]:hover td { background:#fafafa; }

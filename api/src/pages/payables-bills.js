@@ -228,13 +228,17 @@ var kbd = {
             // Check if bill is completely empty — if so, discard instead of saving
             if (_isDraftEmpty(parentRow)) {
               _discardDraftBill(parentRow);
+              // _discardDraftBill already sets cursor to next row or clears it.
+              // Don't call cursor.set(parentRow) — parentRow is already removed from DOM.
+              cursor.mode = 'NORMAL';
+              return;
             } else {
               saveDraftToDb(parentRow);
             }
           }
           cursor.mode = 'NORMAL';
           // Restore row highlight
-          if (parentRow) cursor.set(parentRow, 0);
+          if (parentRow && parentRow.parentNode) cursor.set(parentRow, 0);
           return;
         }
         exitBillCellEdit(false);
@@ -1362,7 +1366,7 @@ function renderDraftChildRows(parentRow, linesList) {
     tr.dataset.draft = 'true';
     tr.dataset.parentKey = draftKey;
     tr.dataset.lineIdx = String(idx);
-    tr.style.cssText = 'background:#fffef5';
+    tr.className = 'child-row';
     tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
       + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
       + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
@@ -1511,7 +1515,7 @@ function createDraftLine(childRow) {
   tr.dataset.draft = 'true';
   tr.dataset.parentKey = parentKey;
   tr.dataset.lineIdx = String(newIdx);
-  tr.style.cssText = 'background:#fffef5';
+  tr.className = 'child-row';
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
     + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
@@ -1749,7 +1753,7 @@ function insertDraftChildRow(childRow, above) {
   tr.dataset.rowType = 'child';
   tr.dataset.draft = 'true';
   tr.dataset.parentKey = draftKey;
-  tr.style.cssText = 'background:#fffef5';
+  tr.className = 'child-row';
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
     + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'

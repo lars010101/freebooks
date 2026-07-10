@@ -1417,6 +1417,13 @@ function createDraftBill(refRow) {
     var pKey2 = refRow.dataset.parentKey || refRow.dataset.parentId;
     var siblings = pKey2 ? Array.from(document.querySelectorAll('tr[data-parent-key="' + pKey2 + '"]')) : [];
     if (siblings.length) insertAfterRow = siblings[siblings.length - 1];
+  } else if (refRow && refRow.dataset.rowType === 'parent') {
+    // If the parent's fold is open, find its last child row and insert after it.
+    var pKey3 = refRow.dataset.draftKey || refRow.dataset.billId;
+    if (pKey3) {
+      var children = Array.from(document.querySelectorAll('tr[data-parent-key="' + pKey3 + '"], tr[data-parent-id="' + pKey3 + '"]'));
+      if (children.length) insertAfterRow = children[children.length - 1];
+    }
   }
   if (insertAfterRow) { insertAfterRow.parentElement.insertBefore(tr, insertAfterRow.nextElementSibling); }
   else { tbody.appendChild(tr); }

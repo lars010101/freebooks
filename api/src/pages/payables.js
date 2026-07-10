@@ -112,8 +112,32 @@ ${commonStyle()}
   /* Tree table — child rows */
   .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; padding:14px 18px; font-size:0.8125rem; }
   .child-ccy { font-size:0.75rem; color:#666; text-align:center; }
-  .child-row td.child-desc { padding-left:60px; color:#666; }
+  .child-row td.child-desc { padding-left:60px; color:#666; position:relative; }
   .child-gst-row td { background:#f5f5f5; }
+
+  /* Vertical stepper line — connects parent avatar down through child rows */
+  .child-row td.child-desc::before {
+    content:'';
+    position:absolute;
+    left:34px;             /* aligned with parent avatar center (18px padding + 16px) */
+    top:0;
+    bottom:0;
+    width:1px;
+    background:#d0d0d0;
+  }
+  /* Last child: vertical line stops at middle, horizontal connector points to text */
+  .child-row:last-child td.child-desc::before { bottom:50%; }
+  .child-row:last-child td.child-desc::after {
+    content:'';
+    position:absolute;
+    left:34px;
+    top:50%;
+    width:18px;
+    height:1px;
+    background:#d0d0d0;
+  }
+  [data-theme="dark"] .child-row td.child-desc::before,
+  [data-theme="dark"] .child-row:last-child td.child-desc::after { background:#444; }
 
   .draft-input { border:1px solid #ccc; border-radius:4px; padding:5px 8px; font-size:0.875rem; width:100%; box-sizing:border-box; background:#fffef5; font-family:inherit; }
   .draft-input:focus { outline:none; border-color:#1a1a1a; }

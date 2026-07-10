@@ -1459,11 +1459,11 @@ function createDraftBill(refRow) {
   tr.dataset.draftKey = draftKey;
   tr.style.cssText = 'cursor:default';
   var baseCcy = BASE_CURRENCY;
-  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" style="margin-left:10px" data-vendor-id="" data-vendor-name="" data-ap-account="201100" data-expense-account="400000" /></div></td>'
+  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="201100" data-expense-account="400000" /></div></td>'
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
-    + '<td style="text-align:right;color:#aaa;font-style:italic;padding:8px 18px" class="draft-total-amount">0.00</td>'
+    + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
     + '<td><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
   var insertAfterRow = refRow;
@@ -1650,11 +1650,11 @@ function insertDraftParentRow(refRow, above) {
   tr.dataset.draftKey = draftKey;
   tr.style.cssText = 'cursor:default';
   var baseCcy = BASE_CURRENCY;
-  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" style="margin-left:10px" data-vendor-id="" data-vendor-name="" data-ap-account="201100" data-expense-account="400000" /></div></td>'
+  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="201100" data-expense-account="400000" /></div></td>'
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
-    + '<td style="text-align:right;color:#aaa;font-style:italic;padding:8px 18px" class="draft-total-amount">0.00</td>'
+    + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
     + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewPopup(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
   if (refRow && above) {

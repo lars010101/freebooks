@@ -50,6 +50,7 @@ ${commonStyle()}
   /* Table card */
   .table-card { border:1px solid #e8e8e8; border-radius:8px; overflow:visible; }
   .data-table { width:100%; border-collapse:collapse; font-size:0.875rem; }
+  .data-table thead { position:sticky; top:0; z-index:10; }
   .data-table th { text-align:left; font-size:0.75rem; color:#555; font-weight:600; text-transform:uppercase; letter-spacing:.05em; background:#fafafa; border-bottom:1px solid #e8e8e8; padding:12px 18px; }
   .data-table td { padding:14px 18px; border-bottom:1px solid #f2f2f2; vertical-align:middle; color:#222; }
   .data-table tbody tr:last-child td { border-bottom:none; }
@@ -142,6 +143,13 @@ ${commonStyle()}
   .draft-input { border:1px solid #ccc; border-radius:4px; padding:5px 8px; font-size:0.875rem; width:100%; box-sizing:border-box; background:#fffef5; font-family:inherit; }
   .draft-input:focus { outline:none; border-color:#1a1a1a; }
   .draft-input.req { border:2px solid #cc2222; box-shadow:0 0 0 1px #cc2222; }
+  /* Make draft inputs fill their cells properly */
+  .draft-vendor-input { flex:1 !important; min-width:0 !important; margin-left:10px !important; width:auto !important; }
+  .draft-input[type="date"] { width:100%; }
+  /* Amount cell in draft parent — same padding as other cells */
+  tr[data-draft="true"] td.draft-total-amount { padding:14px 18px !important; }
+  /* Draft child row amount input — align with parent amount column */
+  .child-row td input[type="number"] { width:100%; box-sizing:border-box; }
   tr[data-draft="true"] td { background:#fffef5; }
   tr[data-draft="true"]:hover td { background:#fffbea; }
 

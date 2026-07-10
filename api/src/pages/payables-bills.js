@@ -400,7 +400,6 @@ var kbd = {
           var draftInp = draftTd.querySelector('input, select');
           if (draftInp) {
             cursor.mode = 'INSERT';
-            document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
             draftInp.focus();
           }
         }
@@ -1578,11 +1577,8 @@ function _wireDraftParentEvents(tr) {
       if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); ccyInputEl.focus(); }
     });
   }
-  tr.addEventListener('focusin', function(e) {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
-      document.querySelectorAll('tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
-    }
-  });
+  // No focusin handler here — bill-row-focus should persist during INSERT mode
+  // to keep the parent row visually distinct from child rows.
 }
 
 function insertDraftParentRow(refRow, above) {

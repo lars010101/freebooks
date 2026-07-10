@@ -1194,6 +1194,89 @@ function openColFilter(th, col) {
 
 // ========== DRAFT BILL CREATION ==========
 
+// Wire Tab wrapping on child row inputs so that:
+//  - Tab on the last child's GST select creates a new child row if current row has data
+//  - Shift+Tab on the first child's desc input wraps to the parent CCY input
+//  - Tab/Shift+Tab between intermediate fields uses browser default (natural tab order)
+// Also manages the "+" add-row icon: only shown on the last child row.
+function _wireChildRowTab(childRowEl, parentRowEl) {
+  var parentKey = parentRowEl.dataset.draftKey || parentRowEl.dataset.billId;
+  if (!parentKey) return;
+  var descInp = childRowEl.querySelector('input.child-desc');
+  var amtInp  = childRowEl.querySelectorAll('input')[1];
+  var gstSel  = childRowEl.querySelector('select');
+  function handleChildTab(e) {
+    if (e.key !== 'Tab') return;
+    var allChildren = Array.from(document.querySelectorAll('tr[data-parent-key="' + parentKey + '"]'));
+    if (!allChildren.length) return;
+    var isFirst = allChildren[0] === childRowEl;
+    var isLast = allChildren[allChildren.length - 1] === childRowEl;
+    if (!e.shiftKey) {
+      // Forward Tab on last child's last field (GST select):
+      //   - If this row has data (desc or amount), create a new child row and focus it
+      //   - If this row is empty, stay (sticky — don't create empty rows)
+      if (isLast && e.target === gstSel) {
+        e.preventDefault();
+        var hasData = (descInp && descInp.value.trim()) || (amtInp && parseFloat(amtInp.value) > 0);
+        if (hasData) {
+          createDraftLine(childRowEl); // creates new child row below and focuses its desc input
+        }
+      }
+    } else {
+      // Shift+Tab: if first child's first field (desc input), go to parent CCY input
+      if (isFirst && e.target === descInp) {
+        e.preventDefault();
+        var parentInputs = parentRowEl.querySelectorAll('input');
+        var ccyInp = parentInputs[4];
+        if (ccyInp) ccyInp.focus();
+      }
+    }
+  }
+  if (descInp) descInp.addEventListener('keydown', handleChildTab);
+  if (amtInp)  amtInp.addEventListener('keydown', handleChildTab);
+  if (gstSel)  gstSel.addEventListener('keydown', handleChildTab);
+}
+
+// Manage the "+" add-row icon on child rows: only the last child row gets it.
+// Call after creating/removing/reordering child rows.
+function refreshAddRowIcons(parentRowEl) {
+  var parentKey = parentRowEl.dataset.draftKey || parentRowEl.dataset.billId;
+  if (!parentKey) return;
+  var allChildren = Array.from(document.querySelectorAll('tr[data-parent-key="' + parentKey + '"]'));
+  allChildren.forEach(function(cr, idx) {
+    var lastCell = cr.querySelector('td:last-child');
+    if (!lastCell) return;
+    if (idx === allChildren.length - 1) {
+      // Last row: add + icon if not already present
+      if (!lastCell.querySelector('.btn-add-row')) {
+        lastCell.innerHTML = '<button class="btn-add-row" onclick="addRowFromIcon(this)" title="Add line (a)" style="border:none;background:transparent;cursor:pointer;font-size:16px;padding:2px 6px;color:#5b8def">+</button>';
+      }
+    } else {
+      // Non-last row: remove + icon if present
+      var btn = lastCell.querySelector('.btn-add-row');
+      if (btn) lastCell.innerHTML = '';
+    }
+  });
+}
+
+// Mouse click handler for + icon on child rows
+function addRowFromIcon(btnEl) {
+  var row = btnEl.closest ? btnEl.closest('tr') : btnEl.parentElement;
+  while (row && row.tagName !== 'TR') row = row.parentElement;
+  if (!row) return;
+  // Check if this row has data before creating a new one
+  var descInp = row.querySelector('input.child-desc');
+  var amtInp = row.querySelectorAll('input')[1];
+  var hasData = (descInp && descInp.value.trim()) || (amtInp && parseFloat(amtInp.value) > 0);
+  if (hasData) {
+    createDraftLine(row);
+    var parentKey = row.dataset.parentKey || row.dataset.parentId;
+    var parentRow = document.querySelector('tr[data-row-type="parent"][data-draft-key="' + parentKey + '"]') ||
+                   document.querySelector('tr[data-row-type="parent"][data-bill-id="' + parentKey + '"]');
+    if (parentRow) refreshAddRowIcons(parentRow);
+  }
+}
+
 // Render draft child rows from draftLines array
 function renderDraftChildRows(parentRow, linesList) {
   var draftKey = parentRow.dataset.draftKey;
@@ -1232,9 +1315,11 @@ function renderDraftChildRows(parentRow, linesList) {
     if (descInp) { descInp.addEventListener('blur', function() { syncLine(); autoSaveChildRow(tr, parentRow); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); }); }
     if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); autoSaveChildRow(tr, parentRow); }); amtInp.addEventListener('input',  function() { syncLine(); updateParentDraftAmount(parentRow); }); }
     if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); autoSaveChildRow(tr, parentRow); });
+    _wireChildRowTab(tr, parentRow);
     insertAfter.insertAdjacentElement('afterend', tr);
     insertAfter = tr;
   });
+  refreshAddRowIcons(parentRow);
 }
 
 // Create a new draft bill below refRow (or at bottom if null), expand immediately
@@ -1314,8 +1399,13 @@ function createDraftLine(childRow) {
   if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); descInp2.addEventListener('input', function() { syncLine2(); updateParentDraftAmount(parentRow); }); }
   if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); amtInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); }); }
   if (gstSel2)  gstSel2.addEventListener('change',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); });
+  _wireChildRowTab(tr, parentRow);
   insertAfterEl.insertAdjacentElement('afterend', tr);
   cursor.set(tr, 0);
+  refreshAddRowIcons(parentRow);
+  // Focus the new row's desc input so the user can immediately start typing
+  var newDescInp = tr.querySelector('input.child-desc');
+  if (newDescInp) newDescInp.focus();
 }
 
 // Wire all parent-row input events onto a draft parent TR
@@ -1327,6 +1417,20 @@ function _wireDraftParentEvents(tr) {
   var ccyInputEl   = draftInputs2[4];
   if (vendorInput) {
     vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); });
+    vendorInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Tab' && e.shiftKey) {
+        // Shift+Tab from vendor input → wrap to last child's GST select (bottom of bill)
+        var childKey = tr.dataset.draftKey || tr.dataset.billId;
+        if (childKey) {
+          var childRows = document.querySelectorAll('tr[data-parent-key="' + childKey + '"]');
+          if (childRows.length) {
+            var lastChild = childRows[childRows.length - 1];
+            var lastGst = lastChild.querySelector('select');
+            if (lastGst) { e.preventDefault(); lastGst.focus(); }
+          }
+        }
+      }
+    });
     vendorInput.addEventListener('blur', function() {
       setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150);
       setTimeout(function() {
@@ -1535,10 +1639,12 @@ function insertDraftChildRow(childRow, above) {
   if (descInpRef) { descInpRef.addEventListener('blur', function() { autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', function() { updateParentDraftAmount(parentTrRef); }); }
   if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); }); }
   if (gstSelRef)  gstSelRef.addEventListener('change',  function() { autoSaveChildRow(tr, parentTrRef); });
+  _wireChildRowTab(tr, parentTrRef);
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
   var descInput = tr.querySelector('input.child-desc');
   descInput.focus();
+  refreshAddRowIcons(parentTrRef);
 }
 
 // ========== CONVERT DRAFT ROW TO DISPLAY ==========
@@ -1651,7 +1757,10 @@ function saveDraftToDb(draftParentTr) {
   if (!vendorInput && draftParentTr.dataset.billId) {
     var dispBillId = draftParentTr.dataset.billId;
     var dispKey = draftParentTr.dataset.draftKey || dispBillId;
-    var dispLines = Array.from(document.querySelectorAll('tr[data-parent-key="' + dispKey + '"]')).filter(function(cr){ return !!cr.querySelector('input.child-desc'); }).map(function(cr) {
+    var dispLines = Array.from(document.querySelectorAll('tr[data-parent-key="' + dispKey + '"]')).filter(function(cr){ return !!cr.querySelector('input.child-desc'); }).filter(function(cr) {
+      var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[1];
+      return (dIn && dIn.value.trim()) || (aIn && parseFloat(aIn.value) > 0);
+    }).map(function(cr) {
       var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[1]; var gSel = cr.querySelector('select');
       return { description: dIn?dIn.value.trim():'', expense_account: draftParentTr.dataset.expenseAccount||'400000',
         amount: parseFloat(aIn&&aIn.value)||0, vat_code: gSel?(gSel.value||null):null, currency: draftParentTr.dataset.currency||BASE_CURRENCY };
@@ -1710,9 +1819,14 @@ function saveDraftToDb(draftParentTr) {
         var expAcct2 = vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000';
         var ccy2 = ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY;
         // Primary: DOM child rows — reads current input values directly, reliable regardless of syncLine state.
+        // Filter out empty rows (no description AND no amount) — they are discarded at save time.
         var childRows2 = Array.from(document.querySelectorAll('tr[data-parent-key="' + dk + '"]')).filter(function(cr){ return !!cr.querySelector('input.child-desc'); });
         if (childRows2.length) {
-          return childRows2.map(function(cr) {
+          return childRows2.filter(function(cr) {
+            var dIn = cr.querySelector('input.child-desc');
+            var aIn = cr.querySelectorAll('input')[1];
+            return (dIn && dIn.value.trim()) || (aIn && parseFloat(aIn.value) > 0);
+          }).map(function(cr) {
             var dIn = cr.querySelector('input.child-desc');
             var aIn = cr.querySelectorAll('input')[1];
             var gSel = cr.querySelector('select');

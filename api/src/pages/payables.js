@@ -55,11 +55,16 @@ ${commonStyle()}
   .data-table td { padding:14px 18px; border-bottom:1px solid #f2f2f2; vertical-align:middle; color:#222; }
   .data-table tbody tr:last-child td { border-bottom:none; }
   .data-table tbody tr:hover td { background:#fafafa; }
-  /* Suppress hover on draft rows — bill-row-focus handles highlight */
-  .data-table tbody tr[data-draft="true"]:hover td { background:#fffef5; }
-  .data-table tbody tr[data-draft="true"].child-row:hover td { background:#fffef5; }
+  /* Suppress hover when keyboard was last input or in INSERT mode */
+  .data-table tbody.kb-active tr:hover td,
+  .data-table tbody.insert-mode tr:hover td { background:inherit !important; }
+  /* bill-row-focus persists through hover regardless */
   .data-table tbody tr.bill-row-focus:hover td { background: rgba(61, 100, 148, 0.18) !important; }
-  .data-table tbody tr.bill-row-focus[data-draft="true"]:hover td { background: rgba(61, 100, 148, 0.35) !important; }
+  .data-table tbody.kb-active tr.bill-row-focus:hover td,
+  .data-table tbody.insert-mode tr.bill-row-focus:hover td { background: rgba(61, 100, 148, 0.18) !important; }
+  .data-table tbody tr.bill-row-focus[data-draft="true"]:hover td,
+  .data-table tbody.kb-active tr.bill-row-focus[data-draft="true"]:hover td,
+  .data-table tbody.insert-mode tr.bill-row-focus[data-draft="true"]:hover td { background: rgba(61, 100, 148, 0.35) !important; }
   .data-table tbody tr[data-url] { cursor:pointer; }
 
   /* Sortable/filterable column headers */

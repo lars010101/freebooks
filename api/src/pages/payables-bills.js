@@ -31,7 +31,16 @@ var treeState = {
 var cursor = {
   rowEl: null,
   col: 0,
-  mode: 'NORMAL',
+  _mode: 'NORMAL',
+  get mode() { return this._mode; },
+  set mode(val) {
+    this._mode = val;
+    var tbody = document.getElementById('bills-tbody');
+    if (tbody) {
+      if (val === 'INSERT') tbody.classList.add('insert-mode');
+      else tbody.classList.remove('insert-mode');
+    }
+  },
 
   set: function(rowEl, col) {
     if (document.activeElement && document.activeElement !== document.body) {
@@ -193,6 +202,19 @@ var kbd = {
     // listener, so an early stopImmediatePropagation() can keep common.js from
     // double-processing keys the bills tab owns (see _handle).
     document.addEventListener('keydown', window._fbBillKbdHandler, true);
+    // Input tracking: add kb-active on keydown, remove on mousemove
+    // Hover highlight is disabled when kb-active is present or cursor is in INSERT mode
+    if (!window._fbInputTrackerSetup) {
+      window._fbInputTrackerSetup = true;
+      document.addEventListener('keydown', function() {
+        var t = document.getElementById('bills-tbody');
+        if (t) t.classList.add('kb-active');
+      }, true);
+      document.addEventListener('mousemove', function() {
+        var t = document.getElementById('bills-tbody');
+        if (t) t.classList.remove('kb-active');
+      }, true);
+    }
   },
 
   _isBillsTabActive: function() {
@@ -1494,8 +1516,8 @@ function createDraftBill(refRow) {
   cursor.mode = 'INSERT';
   var vendorInp = tr.querySelector('input.draft-vendor-input');
   if (vendorInp) setTimeout(function() { vendorInp.focus(); vendorInp.select(); }, 0);
-  // Scroll parent into view at top so both parent and child rows are visible
-  setTimeout(function() { tr.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 10);
+  // Scroll parent into view only if not fully visible (preserves top-of-page position)
+  setTimeout(function() { tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, 10);
 }
 
 // Append new empty child line below current child row

@@ -428,8 +428,19 @@ var kbd = {
         }
         return;
       }
-      // Saved drafts (status='draft' in DB, no data-draft): per-cell editing
-      // removed — bill-level INSERT not supported for saved drafts.
+      // Saved draft (status='draft' in DB, but data-draft was deleted by
+      // convertDraftRowToDisplay).  Re-render the bill into editable mode.
+      if (cursor.rowEl && cursor.rowEl.dataset.status === 'draft') {
+        var savedParent = cursor.rowEl;
+        if (savedParent.dataset.rowType === 'child') {
+          var spId = savedParent.dataset.parentKey || savedParent.dataset.parentId;
+          savedParent = spId ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + spId + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + spId + '"]')) : null;
+        }
+        if (savedParent && savedParent.dataset.status === 'draft') {
+          convertDisplayToDraft(savedParent);
+        }
+        return;
+      }
       return;
     }
 
@@ -1547,6 +1558,76 @@ function insertDraftChildRow(childRow, above) {
 }
 
 // ========== CONVERT DRAFT ROW TO DISPLAY ==========
+// Re-render a saved draft (display text) back into editable input mode.
+// Called when user presses 'i' on a saved draft bill.
+function convertDisplayToDraft(parentRow) {
+  var billId = parentRow.dataset.billId;
+  if (!billId) return;
+  var vendor = parentRow.dataset.vendor || '';
+  var billDate = parentRow.dataset.date || '';
+  var dueDate = parentRow.dataset.dueDate || '';
+  var vendorRef = parentRow.dataset.vendorRef || '';
+  var currency = (parentRow.dataset.currency || BASE_CURRENCY).toUpperCase();
+  var apAccount = parentRow.dataset.apAccount || '201100';
+  var expenseAccount = parentRow.dataset.expenseAccount || '400000';
+  var draftKey = parentRow.dataset.draftKey || billId;
+
+  // Look up vendor ID from master data by name
+  var vendorObj = allVendors.find(function(v) { return v.name === vendor; });
+  var vendorId = vendorObj ? vendorObj.vendor_id : '';
+
+  // Remove existing display child rows (from toggleBillLines expansion)
+  document.querySelectorAll('tr[data-parent-id="' + billId + '"]').forEach(function(r) { r.remove(); });
+  // Also remove any leftover draft children (shouldn't exist, but clean up)
+  document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]').forEach(function(r) { r.remove(); });
+
+  // Re-render parent row with inputs, pre-filled with saved values
+  parentRow.dataset.draft = 'true';
+  parentRow.dataset.draftKey = draftKey;
+  parentRow.style.cursor = 'default';
+  parentRow.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="' + esc(vendorId) + '" data-vendor-name="' + esc(vendor) + '" data-ap-account="' + esc(apAccount) + '" data-expense-account="' + esc(expenseAccount) + '" /></div></td>'
+    + '<td><input class="draft-input" type="date" placeholder="Date" value="' + billDate + '" /></td>'
+    + '<td><input class="draft-input" type="date" placeholder="Due" value="' + dueDate + '" /></td>'
+    + '<td><input class="draft-input" placeholder="Ref" value="' + esc(vendorRef) + '" /></td>'
+    + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
+    + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + currency + '" /></td>'
+    + '<td><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft">&#128190;</button></td>';
+
+  // Set vendor input value (escaped in innerHTML for attributes, raw for .value)
+  var vInp = parentRow.querySelector('input.draft-vendor-input');
+  if (vInp) vInp.value = vendor;
+
+  // Wire parent input events
+  _wireDraftParentEvents(parentRow);
+
+  // Open fold and fetch draft lines
+  treeState.setOpen(draftKey);
+  parentRow.classList.add('row-expanded');
+  draftLines[draftKey] = [{ desc: '', amount: 0, vatCode: '' }];
+
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'bill.lines', companyId: COMPANY, billId: billId }) })
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    var lines = res.data || res || [];
+    if (!Array.isArray(lines)) lines = [];
+    var draftLineData = lines.map(function(l) {
+      return { desc: l.description || '', amount: parseFloat(l.amount) || 0, vatCode: l.vat_code || '' };
+    });
+    if (!draftLineData.length) draftLineData = [{ desc: '', amount: 0, vatCode: '' }];
+    draftLines[draftKey] = draftLineData;
+    renderDraftChildRows(parentRow, draftLineData);
+    updateParentDraftAmount(parentRow);
+    refreshSaveIcon(parentRow);
+    // Enter INSERT mode, focus first input
+    cursor.mode = 'INSERT';
+    cursor.set(parentRow, 0);
+    var firstInp = parentRow.querySelector('input, select');
+    if (firstInp) firstInp.focus();
+  })
+  .catch(function(e) { billEditMsg(e.message || 'Failed to load draft lines', 'err'); });
+}
+
 function convertDraftRowToDisplay(draftParentTr, billId) {
   var inputs = draftParentTr.querySelectorAll('input');
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');

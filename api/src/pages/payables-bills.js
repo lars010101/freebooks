@@ -2479,6 +2479,13 @@ function showPayTab(t) {
     r.classList.remove('nav-row-focus', 'bill-row-focus');
   });
   if (t === 'vendors') { loadVendorTable(); loadVendorAccounts(); loadVendorCurrencies(); }
+  // When returning to bills, restore cursor to its previous position so the
+  // highlight and scroll position match.  Without this the stale cursor.rowEl
+  // silently points at a row that is off-screen, and the first j/k press
+  // causes a disorienting jump.
+  if (t === 'bills' && cursor.rowEl && cursor.rowEl.parentNode) {
+    cursor.set(cursor.rowEl, cursor.col);
+  }
 }
 `;
 }

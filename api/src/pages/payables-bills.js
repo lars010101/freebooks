@@ -91,15 +91,6 @@ var cursor = {
 var billAccountsList = [];
 var billAcctActiveInput = null;
 
-var billEditState = {
-  rowEl: null,
-  tdEl: null,
-  col: 0,
-  origHtml: null,
-  origValue: null,
-  fieldType: null  // 'text' | 'date' | 'account'
-};
-
 var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8','#e07840','#5c7ae0'];
 
 // ========== ACCOUNT AUTOCOMPLETE (bills tab) ==========
@@ -231,7 +222,7 @@ var kbd = {
     if (cursor.mode === 'INSERT') {
       if (e.key === 'Escape') {
         e.preventDefault();
-        // For draft bills, save and exit INSERT mode directly (billEditState is not set up for drafts)
+        // For draft bills, save and exit INSERT mode directly
         if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
           // Close any open dropdowns
           var vDd = document.getElementById('pay-draft-vendor-dd'); if (vDd) vDd.remove();
@@ -263,7 +254,8 @@ var kbd = {
           if (parentRow && parentRow.parentNode) cursor.set(parentRow, 0);
           return;
         }
-        exitBillCellEdit(false);
+        // Non-draft INSERT mode is no longer possible (bill-level INSERT only
+        // for drafts). Nothing to exit.
         return;
       }
       if (e.key === 'Enter') {
@@ -286,7 +278,8 @@ var kbd = {
           } else { if (ae) ae.blur(); cursor.mode = 'NORMAL'; }
           return;
         }
-        exitBillCellEdit(true); return;
+        // Non-draft INSERT is no longer possible — nothing to exit.
+        return;
       }
       if (e.key === 'Tab') {
         if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
@@ -419,28 +412,24 @@ var kbd = {
         setTimeout(function() { billEditMsg('', ''); }, 2000);
         return;
       }
+      // Bill-level INSERT: open the entire draft bill for editing.
+      // Works from any row (parent or child) of a raw draft (data-draft='true').
+      // Parent and child rows already have inputs rendered, so we just enter
+      // INSERT mode and focus the first parent input — same as createDraftBill.
       if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
-        if (cursor.rowEl.dataset.rowType === 'parent') {
-          var firstInp = cursor.rowEl.querySelector('input, select');
-          if (firstInp) { cursor.mode = 'INSERT'; firstInp.focus(); }
-          return;
+        var parentRow = cursor.rowEl;
+        if (parentRow.dataset.rowType === 'child') {
+          var pKey = parentRow.dataset.parentKey || parentRow.dataset.parentId;
+          parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
         }
-        var draftTds = cursor.rowEl.querySelectorAll('td');
-        var draftTd = draftTds[cursor.col];
-        if (draftTd) {
-          var draftInp = draftTd.querySelector('input, select');
-          if (draftInp) {
-            cursor.mode = 'INSERT';
-            draftInp.focus();
-          }
+        if (parentRow) {
+          var firstInp = parentRow.querySelector('input, select');
+          if (firstInp) { cursor.mode = 'INSERT'; cursor.set(parentRow, 0); firstInp.focus(); }
         }
         return;
       }
-      if (cursor.rowEl) {
-        var tds2 = cursor.rowEl.querySelectorAll('td');
-        var tdFocus = tds2[cursor.col];
-        if (tdFocus) enterBillCellEdit(cursor.rowEl, cursor.col);
-      }
+      // Saved drafts (status='draft' in DB, no data-draft): per-cell editing
+      // removed — bill-level INSERT not supported for saved drafts.
       return;
     }
 
@@ -681,210 +670,7 @@ var kbd = {
   }
 };
 
-// ========== CELL EDITING ==========
-function enterBillCellEdit(rowEl, col) {
-  if (cursor.mode === 'INSERT') return;
-
-  var statusRow = (rowEl.dataset.rowType === 'parent')
-    ? rowEl
-    : document.querySelector('tr[data-row-type="parent"][data-bill-id="' + rowEl.dataset.parentId + '"]');
-  if (statusRow && statusRow.dataset.status === 'void') {
-    billEditMsg('Cannot edit a voided bill', 'err');
-    setTimeout(function() { billEditMsg('', ''); }, 2500);
-    return;
-  }
-
-  var tds = rowEl.querySelectorAll('td');
-  var tdEl = tds[col];
-  if (!tdEl) return;
-
-  var rowType = rowEl.dataset.rowType;
-  var isGst = rowEl.classList.contains('child-gst-row');
-  var fieldType = null;
-  var currentValue = '';
-
-  if (rowType === 'parent') {
-    if (col === 2) {
-      fieldType = 'date';
-      currentValue = rowEl.dataset.dueDate || '';
-    } else if (col === 3) {
-      fieldType = 'text';
-      currentValue = rowEl.dataset.vendorRef || '';
-    } else {
-      return;
-    }
-  } else if (rowType === 'child' && !isGst) {
-    if (col === 0) {
-      fieldType = 'text';
-      currentValue = tdEl.textContent.trim();
-    } else if (col === 3) {
-      if (!rowEl.dataset.gstEntryId) return;
-      var parentBillTr = document.querySelector('tr[data-row-type="parent"][data-bill-id="' + rowEl.dataset.parentId + '"]');
-      var billStatus = parentBillTr ? parentBillTr.dataset.status : '';
-      if (billStatus !== 'draft') return;
-      fieldType = 'vatcode';
-      currentValue = rowEl.dataset.gstVatCode || '';
-    } else {
-      return;
-    }
-  } else {
-    return;
-  }
-
-  billEditState.rowEl = rowEl;
-  billEditState.tdEl = tdEl;
-  billEditState.col = col;
-  billEditState.origHtml = tdEl.innerHTML;
-  billEditState.origValue = currentValue;
-  billEditState.fieldType = fieldType;
-  cursor.mode = 'INSERT';
-
-  tdEl.classList.add('vcell-editing');
-
-  if (fieldType === 'vatcode') {
-    var sel = document.createElement('select');
-    sel.style.cssText = 'width:100%;font-size:0.75rem;font-family:inherit;border:none;outline:none;background:transparent;box-sizing:border-box;';
-    var emptyOpt = document.createElement('option');
-    emptyOpt.value = '';
-    emptyOpt.textContent = '(no tax)';
-    if (!currentValue) emptyOpt.selected = true;
-    sel.appendChild(emptyOpt);
-    Object.keys(taxCodeMap).forEach(function(code) {
-      var opt = document.createElement('option');
-      opt.value = code;
-      opt.textContent = code + ': ' + taxCodeMap[code];
-      if (code === currentValue) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    tdEl.innerHTML = '';
-    tdEl.appendChild(sel);
-    sel.focus();
-    return;
-  }
-
-  var input = document.createElement('input');
-  if (fieldType === 'date') {
-    input.type = 'date';
-    input.style.cssText = 'width:100%;font-size:inherit;font-family:inherit;border:none;outline:none;background:transparent;box-sizing:border-box;';
-  } else {
-    input.type = 'text';
-    input.style.cssText = 'width:100%;font-size:inherit;font-family:inherit;border:none;outline:none;background:transparent;box-sizing:border-box;';
-  }
-  input.setAttribute('autocomplete', 'off');
-  input.value = currentValue;
-  tdEl.innerHTML = '';
-  tdEl.appendChild(input);
-  input.focus();
-  input.select();
-}
-
-function exitBillCellEdit(save) {
-  if (cursor.mode !== 'INSERT') return;
-  cursor.mode = 'NORMAL';
-
-  var dd = document.getElementById('pay-bill-acct-dd');
-  if (dd) dd.remove();
-
-  var rowEl = billEditState.rowEl;
-  var tdEl = billEditState.tdEl;
-  var col = billEditState.col;
-
-  if (!rowEl || !tdEl) { billEditState.rowEl = null; return; }
-
-  if (rowEl && rowEl.dataset.draft === 'true') {
-    if (document.activeElement) document.activeElement.blur();
-    cursor.mode = 'NORMAL';
-    if (!save) {
-      var draftKey = rowEl.dataset.draftKey;
-      var inputs = rowEl.querySelectorAll('input');
-      var allEmpty = Array.from(inputs).every(function(inp){ return !inp.value.trim(); });
-      if (allEmpty && draftKey) {
-        document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]').forEach(function(r){ r.remove(); });
-        rowEl.remove();
-        cursor.clear();
-        tdEl.classList.remove('vcell-editing');
-        billEditState.rowEl = null;
-        return;
-      }
-    }
-    tdEl.classList.remove('vcell-editing');
-    billEditState.rowEl = null;
-    return;
-  }
-
-  var el = tdEl.querySelector('input, select');
-  var newValue = el ? el.value.trim() : billEditState.origValue;
-
-  tdEl.classList.remove('vcell-editing');
-
-  if (!save || newValue === billEditState.origValue) {
-    tdEl.innerHTML = billEditState.origHtml;
-    cursor.set(rowEl, col);
-    billEditState.rowEl = null;
-    return;
-  }
-
-  var rowType = rowEl.dataset.rowType;
-  if (rowType === 'parent') {
-    if (col === 2) {
-      rowEl.dataset.dueDate = newValue;
-      var today2 = new Date().toISOString().slice(0, 10);
-      var isOverdue = newValue && newValue < today2;
-      tdEl.innerHTML = '<span' + (isOverdue ? ' class="overdue-date"' : '') + '>' + fmtDate(newValue) + '</span>';
-    } else if (col === 3) {
-      rowEl.dataset.vendorRef = newValue;
-      var rowUrl = '/' + COMPANY + '/bill/' + rowEl.dataset.billId;
-      tdEl.innerHTML = '<a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(newValue || rowEl.dataset.billId) + '</a>';
-    }
-  } else if (rowType === 'child') {
-    if (col === 0) {
-      tdEl.textContent = newValue;
-    } else if (col === 3) {
-      rowEl.dataset.gstVatCode = newValue;
-      tdEl.textContent = newValue;
-    }
-  }
-
-  cursor.set(rowEl, col);
-
-  var billId = rowType === 'parent' ? rowEl.dataset.billId : rowEl.dataset.parentId;
-  if (rowType === 'parent') {
-    var payload = { action: 'bill.update', companyId: COMPANY, billId: billId };
-    if (col === 2) payload.due_date = newValue;
-    if (col === 3) payload.vendor_ref = newValue;
-    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload) })
-      .then(function(r) { return r.json(); })
-      .then(function(res) {
-        if (res.error) { billEditMsg(res.error, 'err'); }
-        else { billEditMsg('Saved.', 'ok'); setTimeout(function() { billEditMsg('', ''); }, 2500); }
-      })
-      .catch(function(e) { billEditMsg(e.message, 'err'); });
-  } else if (rowType === 'child') {
-    var entryId = (col === 3) ? rowEl.dataset.gstEntryId : rowEl.dataset.entryId;
-    var ep = { action: 'journal.entry.update', companyId: COMPANY, entryId: entryId };
-    if (col === 0) {
-      var fullDesc = rowEl.dataset.fullDesc || '';
-      var si = fullDesc.lastIndexOf(' / ');
-      var prefix = si !== -1 ? fullDesc.slice(0, si) : null;
-      ep.description = prefix ? (prefix + ' / ' + newValue) : newValue;
-      rowEl.dataset.fullDesc = ep.description;
-    } else if (col === 3) {
-      ep.vat_code = newValue;
-    }
-    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(ep) })
-      .then(function(r) { return r.json(); })
-      .then(function(res) {
-        if (res.error) { billEditMsg(res.error, 'err'); }
-        else { billEditMsg('Saved.', 'ok'); setTimeout(function() { billEditMsg('', ''); }, 2500); }
-      })
-      .catch(function(e) { billEditMsg(e.message, 'err'); });
-  }
-
-  billEditState.rowEl = null;
-}
-
+// ========== STATUS MESSAGE ==========
 function billEditMsg(msg, type) {
   var el = document.getElementById('tb-status-msg');
   if (!el) return;
@@ -1412,9 +1198,9 @@ function renderDraftChildRows(parentRow, linesList) {
       }
     }
     var _saveTimer = null;
-    if (descInp) { descInp.addEventListener('blur', function() { syncLine(); autoSaveChildRow(tr, parentRow); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
-    if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); autoSaveChildRow(tr, parentRow); }); amtInp.addEventListener('input',  function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
-    if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); autoSaveChildRow(tr, parentRow); });
+    if (descInp) { descInp.addEventListener('blur', function() { syncLine(); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
+    if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); }); amtInp.addEventListener('input',  function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
+    if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); });
     _wireChildRowTab(tr, parentRow);
     insertAfter.insertAdjacentElement('afterend', tr);
     insertAfter = tr;
@@ -1556,9 +1342,9 @@ function createDraftLine(childRow) {
     }
   }
   var _t2 = null;
-  if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); descInp2.addEventListener('input', function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
-  if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); }); amtInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
-  if (gstSel2)  gstSel2.addEventListener('change',  function() { syncLine2(); autoSaveChildRow(tr, parentRow); });
+  if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); }); descInp2.addEventListener('input', function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
+  if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); }); amtInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
+  if (gstSel2)  gstSel2.addEventListener('change',  function() { syncLine2(); });
   _wireChildRowTab(tr, parentRow);
   insertAfterEl.insertAdjacentElement('afterend', tr);
   cursor.set(tr, 0);
@@ -1595,11 +1381,11 @@ function _wireDraftParentEvents(tr) {
       setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150);
       setTimeout(function() {
         var name = vendorInput.value.trim();
-        if (!name) { autoSaveDraftIfReady(tr); return; }
+        if (!name) return;
         if (vendorInput.dataset.vendorName) {
           var v = allVendors.find(function(x){ return x.vendor_id === vendorInput.dataset.vendorId; });
           if (v && ccyInputEl && !ccyInputEl.value) { ccyInputEl.value = (v.default_currency || BASE_CURRENCY).toUpperCase(); ccyInputEl.dispatchEvent(new Event('input')); }
-          autoSaveDraftIfReady(tr); return;
+          return;
         }
         // Try to resolve typed name against master data; if no match, leave the
         // typed value intact (save-time / server-side validation will gate it).
@@ -1612,13 +1398,11 @@ function _wireDraftParentEvents(tr) {
           vendorInput.value = match.name;
           if (ccyInputEl && !ccyInputEl.value) { ccyInputEl.value = (match.default_currency || BASE_CURRENCY).toUpperCase(); ccyInputEl.dispatchEvent(new Event('input')); }
         }
-        autoSaveDraftIfReady(tr);
       }, 200);
     });
   }
   if (dueInputEl) {
     dueInputEl.addEventListener('blur', function() {
-      autoSaveDraftIfReady(tr);
       refreshSaveIcon(tr);
     });
     dueInputEl.addEventListener('input', function() { refreshSaveIcon(tr); });
@@ -1647,13 +1431,11 @@ function _wireDraftParentEvents(tr) {
       setTimeout(function() { var dd = document.getElementById('pay-draft-ccy-dd'); if (dd) dd.remove(); }, 150);
       var v = ccyInputEl.value.trim().toUpperCase();
       if (v) ccyInputEl.value = v;
-      autoSaveDraftIfReady(tr);
     });
   }
   var refInputEl = draftInputs2[3];
-  if (dateInputEl) dateInputEl.addEventListener('blur', function() { autoSaveDraftIfReady(tr); refreshSaveIcon(tr); });
+  if (dateInputEl) dateInputEl.addEventListener('blur', function() { refreshSaveIcon(tr); });
   if (dateInputEl) dateInputEl.addEventListener('input', function() { refreshSaveIcon(tr); });
-  if (refInputEl)  refInputEl.addEventListener('blur',  function() { autoSaveDraftIfReady(tr); });
   // Tab from ref -> skip read-only amount, go to CCY
   if (refInputEl && ccyInputEl) {
     refInputEl.addEventListener('keydown', function(e) {
@@ -1715,48 +1497,6 @@ function updateParentDraftAmount(draftParentTr) {
 // Alias used by _deleteCurrent
 var recalcParentAmount = updateParentDraftAmount;
 
-function autoSaveChildRow(childRow, parentTr) {
-  // Don't mark fields red while still in INSERT mode (user is navigating between cells)
-  if (cursor.mode === 'INSERT') {
-    updateParentDraftAmount(parentTr);
-    return;
-  }
-  // Validate + highlight; recalc parent total; then try save (deferred focus check)
-  var descInput = childRow.querySelector('input.child-desc');
-  var amtInput  = childRow.querySelectorAll('input')[1];
-  var gstSelect = childRow.querySelector('select');
-  updateParentDraftAmount(parentTr);
-  autoSaveDraftIfReady(parentTr); // deferred — only saves when focus leaves entire bill
-}
-
-function autoSaveDraftIfReady(draftParentTr) {
-  // Only auto-save while the row is still in raw draft mode.
-  // After convertDraftRowToDisplay runs (dataset.draft deleted), skip.
-  if (draftParentTr.dataset.draft !== 'true') return;
-  if (cursor.mode === 'INSERT') return; // Don't auto-save during INSERT — save on Esc
-  // Defer so focus has settled — only save if the user has left the draft bill entirely
-  var draftKey = draftParentTr.dataset.draftKey || draftParentTr.dataset.billId;
-  setTimeout(function() {
-    if (draftParentTr.contains(document.activeElement)) return; // still in parent row
-    // Also check sibling child rows (they are <tr> siblings, not DOM children of parent)
-    if (draftKey) {
-      var childRows = document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]');
-      for (var ci = 0; ci < childRows.length; ci++) {
-        if (childRows[ci].contains(document.activeElement)) return;
-      }
-    }
-    var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
-    var inputs = draftParentTr.querySelectorAll('input');
-    var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];
-    if (!vendorInput || !vendorInput.dataset.vendorName) return;
-    if (!dateInput || !dateInput.value) return;
-    if (!dueInput || !dueInput.value) return;
-    if (!refInput || !refInput.value.trim()) return;
-    if (!ccyInput || !ccyInput.value.trim()) return;
-    saveDraftToDb(draftParentTr);
-  }, 200);
-}
-
 function insertDraftChildRow(childRow, above) {
   var tbody = document.getElementById('bills-tbody');
   if (!tbody) return;
@@ -1796,9 +1536,8 @@ function insertDraftChildRow(childRow, above) {
   var descInpRef = tr.querySelector('input.child-desc');
   var amtInpRef  = tr.querySelectorAll('input')[1];
   var gstSelRef  = tr.querySelector('select');
-  if (descInpRef) { descInpRef.addEventListener('blur', function() { autoSaveChildRow(tr, parentTrRef); }); descInpRef.addEventListener('input', function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); refreshSaveIcon(parentTrRef); }); }
-  if (amtInpRef)  { amtInpRef.addEventListener('blur',  function() { autoSaveChildRow(tr, parentTrRef); }); amtInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); refreshSaveIcon(parentTrRef); }); }
-  if (gstSelRef)  gstSelRef.addEventListener('change',  function() { autoSaveChildRow(tr, parentTrRef); });
+  if (descInpRef) { descInpRef.addEventListener('input', function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); refreshSaveIcon(parentTrRef); }); }
+  if (amtInpRef)  { amtInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); refreshSaveIcon(parentTrRef); }); }
   _wireChildRowTab(tr, parentTrRef);
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';

@@ -1726,8 +1726,23 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
     + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(dueDate) + '</span></td>'
     + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(vendorRef) + '</a></td>'
     + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(amount).toFixed(2) + '</td>'
-    + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px">' + esc(currency) + '</td>'
+    + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px" id="ccy-' + esc(billId) + '">' + esc(currency) + '</td>'
     + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewForSavedDraft(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
+
+  // Populate CCY tooltip with FX rate for non-base currency
+  if (currency && currency.toUpperCase() !== BASE_CURRENCY.toUpperCase()) {
+    var ccyCellEl = document.getElementById('ccy-' + esc(billId));
+    if (ccyCellEl) {
+      ccyCellEl.setAttribute('title', currency + ' \u2014 checking rate\u2026');
+      _getFxRate(currency, billDate).then(function(rate) {
+        if (rate !== null) {
+          ccyCellEl.setAttribute('title', currency + ' \u2192 ' + BASE_CURRENCY + ': ' + rate);
+        } else {
+          ccyCellEl.setAttribute('title', currency + ' \u2014 no rate found for ' + billDate + '. Add in Settings \u2192 Exchange Rates.');
+        }
+      });
+    }
+  }
 
   if (draftKey) {
     // Remove draft child rows from DOM — fold is collapsed after save.
@@ -2286,7 +2301,7 @@ function renderPage() {
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || '') + '</a></td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
-      + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px">' + esc(b.currency || BASE_CURRENCY) + '</td>'
+      + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px" id="ccy-' + esc(String(b.bill_id)) + '" data-bill-date="' + esc(String(b.date||'').slice(0,10)) + '" data-bill-ccy="' + esc(b.currency || BASE_CURRENCY) + '">' + esc(b.currency || BASE_CURRENCY) + '</td>'
       + '<td>' + (b.status === 'draft' ? '<span onclick="openPostReviewForSavedDraft(this.parentElement.parentElement)" style="cursor:pointer">' + statusBadge(b.status, due) + '</span>' : statusBadge(b.status, due)) + '</td>'
       + '</tr>';
   });
@@ -2294,6 +2309,22 @@ function renderPage() {
   if (!tbody) return;
   tbody.innerHTML = html;
   document.getElementById('pagination-row').style.display = 'none';
+
+  // Populate CCY tooltips with FX rates for non-base currency display rows
+  tbody.querySelectorAll('td[id^="ccy-"]').forEach(function(cell) {
+    var ccy = cell.getAttribute('data-bill-ccy') || '';
+    var billDate = cell.getAttribute('data-bill-date') || '';
+    if (ccy && ccy.toUpperCase() !== BASE_CURRENCY.toUpperCase()) {
+      cell.setAttribute('title', ccy + ' \u2014 checking rate\u2026');
+      _getFxRate(ccy, billDate).then(function(rate) {
+        if (rate !== null) {
+          cell.setAttribute('title', ccy + ' \u2192 ' + BASE_CURRENCY + ': ' + rate);
+        } else {
+          cell.setAttribute('title', ccy + ' \u2014 no rate found for ' + (billDate || 'this date') + '. Add in Settings \u2192 Exchange Rates.');
+        }
+      });
+    }
+  });
 
   // Auto-select first row after bills load, so j/k navigation works on initial entry
   if (!cursor.rowEl) {

@@ -99,22 +99,19 @@ There is no discard option. Esc always saves. Click-away always saves. If a user
 
 If Esc is pressed on a completely empty draft (no vendor, no date, no child data), the draft is discarded rather than saved. This prevents empty draft rows from accumulating.
 
-## FX Rate in INSERT Mode
+## FX Rate Handling
 
-### When it appears
-An FX rate input field appears in the draft parent row when the bill currency differs from the company's base currency. If currency === base currency, the field is hidden.
+### No UI input field
+There is no FX rate input field in the draft bill row. The visual layout is identical for base and foreign currency bills. FX rates are managed exclusively in Settings → Exchange Rates (master data).
 
-### Auto-lookup
-When the bill date changes (or when the currency changes), the system automatically queries the `fx_rates` table via the `fx.rates.get` endpoint to find the applicable rate for that currency pair on that date. The returned rate populates the FX rate input. If no rate is found, the field is left empty and the user must enter a rate manually.
+### Rate resolution at post time
+When a bill is posted (`confirmPost`), the system looks up the applicable FX rate from the `fx_rates` table via `fx.rates.get` using the bill's currency and date. If no rate is found, posting is blocked with an error message directing the user to Settings → Exchange Rates. No manual override is available during bill creation.
 
-### Editable override
-The auto-populated rate is editable. The user can override it with any positive decimal value.
+### Tooltip (mouse users)
+When the mouse hovers over the CCY input field (in INSERT mode) and the currency is non-base, the tooltip shows the rate number (e.g. "USD → SGD: 1.34"). The tooltip updates when the date or currency changes. If no rate exists, the tooltip says so.
 
-### Save payload
-The FX rate is included in both `saveDraftToDb` (draft save) and `confirmPost` (post to journal) payloads. The backend uses this rate for `amount_home`, `debit_home`, and `credit_home` calculations. If no rate is provided and the currency differs from base, the backend rejects with a validation error.
-
-### Live amount_home preview
-When a foreign currency is selected and a rate is entered, the parent row shows a live preview of the home-currency equivalent next to the foreign-currency amount total. This updates as child line amounts change.
+### Enter on CCY (keyboard users)
+In INSERT mode, pressing Enter on the CCY input when a non-base currency is entered shows the FX rate in the status message bar (e.g. "FX: 1 USD = 1.34 SGD"). This is the keyboard equivalent of the hover tooltip. If no rate exists, the message indicates this.
 
 ## Foldable Rows
 

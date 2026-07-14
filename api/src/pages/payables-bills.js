@@ -1288,7 +1288,6 @@ function createDraftBill(refRow) {
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td class="fx-rate-cell" style="display:none"><input class="draft-fx-rate" type="number" step="0.0001" placeholder="Rate" style="width:70px;font-size:0.75rem;text-align:right" /></td>'
     + '<td><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
   var insertAfterRow = refRow;
   if (refRow && refRow.dataset.rowType === 'child') {
@@ -1366,56 +1365,38 @@ function createDraftLine(childRow) {
   if (newDescInp) newDescInp.focus();
 }
 
-// FX rate auto-lookup: query fx_rates table for the applicable rate
-function _lookupFxRate(tr, ccyInputEl, dateInputEl) {
-  var fxCell = tr.querySelector('.fx-rate-cell');
-  var fxInput = tr.querySelector('input.draft-fx-rate');
-  if (!fxCell || !fxInput) return;
-  var ccy = ccyInputEl ? ccyInputEl.value.trim().toUpperCase() : '';
-  var billDate = dateInputEl ? dateInputEl.value : '';
-  // Show/hide FX rate cell
-  if (ccy && ccy !== BASE_CURRENCY.toUpperCase()) {
-    fxCell.style.display = '';
-    fxInput.removeAttribute('tabindex');
-  } else {
-    fxCell.style.display = 'none';
-    fxInput.value = '';
-    fxInput.setAttribute('tabindex', '-1');
-    _updateFxPreview(tr);
-    return;
+// Lookup FX rate for a draft bill (background, no UI). Returns a Promise.
+function _getFxRate(ccy, billDate) {
+  if (!ccy || !billDate || ccy.toUpperCase() === BASE_CURRENCY.toUpperCase()) {
+    return Promise.resolve(null);
   }
-  if (!billDate) return; // need date to look up
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+  return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'fx.rates.get', companyId: COMPANY, fromCurrency: ccy, toCurrency: BASE_CURRENCY, date: billDate }) })
   .then(function(r){ return r.json(); })
   .then(function(res){
     var d = res.data || res;
-    if (d && d.rate != null) {
-      fxInput.value = d.rate;
-      _updateFxPreview(tr);
-    }
+    return (d && d.rate != null) ? d.rate : null;
   })
-  .catch(function(){ /* silent — user can enter manually */ });
+  .catch(function(){ return null; });
 }
 
-// Update the live amount_home preview in the draft total cell
-function _updateFxPreview(tr) {
-  var fxInput = tr.querySelector('input.draft-fx-rate');
-  var amtCell = tr.querySelector('.draft-total-amount');
-  if (!amtCell) return;
-  var rate = fxInput ? (parseFloat(fxInput.value) || 0) : 0;
-  var total = parseFloat(amtCell.textContent) || 0;
-  // Remove any existing preview span
-  var prev = amtCell.querySelector('.fx-preview');
-  if (prev) prev.remove();
-  if (rate > 0 && total > 0) {
-    var homeAmt = (total * rate).toFixed(2);
-    var span = document.createElement('span');
-    span.className = 'fx-preview';
-    span.style.cssText = 'display:block;font-size:0.65rem;color:#888;font-style:italic';
-    span.textContent = '\u2248 ' + homeAmt + ' ' + BASE_CURRENCY;
-    amtCell.appendChild(span);
+// Update the CCY input's tooltip with the FX rate (non-base currency only)
+function _updateCcyTooltip(tr, ccyInputEl, dateInputEl) {
+  if (!ccyInputEl) return;
+  var ccy = ccyInputEl.value.trim().toUpperCase();
+  var billDate = dateInputEl ? dateInputEl.value : '';
+  if (!ccy || ccy === BASE_CURRENCY.toUpperCase()) {
+    ccyInputEl.setAttribute('title', ccy);
+    return;
   }
+  ccyInputEl.setAttribute('title', ccy + ' — checking rate\u2026');
+  _getFxRate(ccy, billDate).then(function(rate) {
+    if (rate !== null) {
+      ccyInputEl.setAttribute('title', ccy + ' \u2192 ' + BASE_CURRENCY + ': ' + rate);
+    } else {
+      ccyInputEl.setAttribute('title', ccy + ' — no rate found for ' + (billDate || 'this date') + '. Add in Settings \u2192 Exchange Rates.');
+    }
+  });
 }
 
 // Wire all parent-row input events onto a draft parent TR
@@ -1485,13 +1466,26 @@ function _wireDraftParentEvents(tr) {
     ccyInputEl.addEventListener('keydown', function(e) {
       if (e.key === 'ArrowDown') { e.preventDefault(); moveDraftCcyDd(1); return; }
       if (e.key === 'ArrowUp')   { e.preventDefault(); moveDraftCcyDd(-1); return; }
-      if (e.key === 'Tab' && !e.shiftKey) {
-        // Tab from CCY → FX rate (if visible) → first child row description
-        var fxInput2 = tr.querySelector('input.draft-fx-rate');
-        var fxCell2 = tr.querySelector('.fx-rate-cell');
-        if (fxCell2 && fxCell2.style.display !== 'none' && fxInput2) {
-          e.preventDefault(); fxInput2.focus(); return;
+      if (e.key === 'Enter') {
+        // Show FX rate info for non-base currency (keyboard equivalent of hover tooltip)
+        var entCcy = ccyInputEl.value.trim().toUpperCase();
+        if (entCcy && entCcy !== BASE_CURRENCY.toUpperCase()) {
+          var entDate = dateInputEl ? dateInputEl.value : '';
+          billEditMsg('FX: checking rate for ' + entCcy + '\u2026', '');
+          _getFxRate(entCcy, entDate).then(function(rate) {
+            if (rate !== null) {
+              billEditMsg('FX: 1 ' + entCcy + ' = ' + rate + ' ' + BASE_CURRENCY, 'ok');
+            } else {
+              billEditMsg('FX: no rate for ' + entCcy + ' on ' + (entDate || 'this date') + '. Add in Settings.', 'err');
+            }
+            setTimeout(function() { billEditMsg('', ''); }, 4000);
+          });
+          e.preventDefault();
+          return;
         }
+      }
+      if (e.key === 'Tab' && !e.shiftKey) {
+        // Tab from CCY → first child row description input (cross to child row)
         var firstChild = document.querySelector('tr[data-parent-key="' + tr.dataset.draftKey + '"] input.child-desc');
         if (firstChild) { e.preventDefault(); firstChild.focus(); }
       }
@@ -1503,7 +1497,7 @@ function _wireDraftParentEvents(tr) {
     });
   }
   var refInputEl = draftInputs2[3];
-  if (dateInputEl) dateInputEl.addEventListener('blur', function() { refreshSaveIcon(tr); _lookupFxRate(tr, ccyInputEl, dateInputEl); });
+  if (dateInputEl) dateInputEl.addEventListener('blur', function() { refreshSaveIcon(tr); _updateCcyTooltip(tr, ccyInputEl, dateInputEl); });
   if (dateInputEl) dateInputEl.addEventListener('input', function() { refreshSaveIcon(tr); });
   // Tab from ref -> skip read-only amount, go to CCY
   if (refInputEl && ccyInputEl) {
@@ -1511,17 +1505,11 @@ function _wireDraftParentEvents(tr) {
       if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); ccyInputEl.focus(); }
     });
   }
-  // FX rate: auto-lookup on ccy change, live preview on rate input
-  var fxInput = tr.querySelector('input.draft-fx-rate');
+  // Update CCY tooltip with FX rate info on ccy change
   if (ccyInputEl) {
     ccyInputEl.addEventListener('blur', function() {
-      setTimeout(function() {
-        _lookupFxRate(tr, ccyInputEl, dateInputEl);
-      }, 200);
+      setTimeout(function() { _updateCcyTooltip(tr, ccyInputEl, dateInputEl); }, 200);
     });
-  }
-  if (fxInput) {
-    fxInput.addEventListener('input', function() { _updateFxPreview(tr); });
   }
   // No focusin handler here — bill-row-focus should persist during INSERT mode
   // to keep the parent row visually distinct from child rows.
@@ -1545,7 +1533,6 @@ function insertDraftParentRow(refRow, above) {
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td class="fx-rate-cell" style="display:none"><input class="draft-fx-rate" type="number" step="0.0001" placeholder="Rate" style="width:70px;font-size:0.75rem;text-align:right" /></td>'
     + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewPopup(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
   if (refRow && above) {
     refRow.parentElement.insertBefore(tr, refRow);
@@ -1570,11 +1557,10 @@ function updateParentDraftAmount(draftParentTr) {
     });
   }
   var amtCell = draftParentTr.querySelector('.draft-total-amount');
-  if (amtCell) { amtCell.textContent = total.toFixed(2); _updateFxPreview(draftParentTr); return; }
+  if (amtCell) { amtCell.textContent = total.toFixed(2); return; }
   var tds = draftParentTr.querySelectorAll('td');
   if (tds[4]) tds[4].textContent = total.toFixed(2);
   draftParentTr.dataset.amount = String(total);
-  _updateFxPreview(draftParentTr);
 }
 
 // Alias used by _deleteCurrent
@@ -1663,7 +1649,6 @@ function convertDisplayToDraft(parentRow) {
     + '<td><input class="draft-input" placeholder="Ref" value="' + esc(vendorRef) + '" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + currency + '" /></td>'
-    + '<td class="fx-rate-cell" style="display:none"><input class="draft-fx-rate" type="number" step="0.0001" placeholder="Rate" style="width:70px;font-size:0.75rem;text-align:right" value="' + (parentRow.dataset.fxRate || '') + '" /></td>'
     + '<td><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft">&#128190;</button></td>';
 
   // Set vendor input value (escaped in innerHTML for attributes, raw for .value)
@@ -1672,11 +1657,6 @@ function convertDisplayToDraft(parentRow) {
 
   // Wire parent input events
   _wireDraftParentEvents(parentRow);
-
-  // Show/hide FX rate cell based on currency (initial state)
-  var fxCcyInput = parentRow.querySelector('input.draft-input[placeholder="CCY"]');
-  var fxDateInput2 = parentRow.querySelectorAll('input')[1];
-  if (fxCcyInput) _lookupFxRate(parentRow, fxCcyInput, fxDateInput2);
 
   // Open fold and fetch draft lines
   treeState.setOpen(draftKey);
@@ -1730,9 +1710,6 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   draftParentTr.dataset.amount = String(amount);
   draftParentTr.dataset.currency = currency;
   draftParentTr.dataset.status = 'draft';
-  var fxInputSave = draftParentTr.querySelector('input.draft-fx-rate');
-  if (fxInputSave && fxInputSave.value) draftParentTr.dataset.fxRate = fxInputSave.value;
-  else if (draftParentTr.dataset.fxRate) { /* keep existing if no input (saved draft path) */ }
   var savedVendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   if (savedVendorInput) {
     draftParentTr.dataset.apAccount = savedVendorInput.dataset.apAccount || '201100';
@@ -1806,7 +1783,6 @@ function saveDraftToDb(draftParentTr) {
         date:draftParentTr.dataset.date, due_date:draftParentTr.dataset.dueDate,
         amount:parseFloat(draftParentTr.dataset.amount)||0, currency:draftParentTr.dataset.currency||BASE_CURRENCY,
         ap_account:draftParentTr.dataset.apAccount||'201100', expense_account:draftParentTr.dataset.expenseAccount||'400000',
-        fx_rate: parseFloat(draftParentTr.dataset.fxRate) || null,
         lines:dispLines }}) })
     .then(function(r){ return r.json(); }).then(function(res){
       if (res && res.error) { billEditMsg(res.error, 'err'); return; }
@@ -1849,11 +1825,6 @@ function saveDraftToDb(draftParentTr) {
       currency: ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY,
       ap_account: vendorInput ? (vendorInput.dataset.apAccount || '201100') : '201100',
       expense_account: vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000',
-      fx_rate: (function() {
-        var fxi = draftParentTr.querySelector('input.draft-fx-rate');
-        var fxv = fxi ? (parseFloat(fxi.value) || null) : null;
-        return fxv;
-      })(),
       lines: (function() {
         var dk = draftKeyAmt;
         if (!dk) return null;
@@ -1994,12 +1965,7 @@ function openPostReviewPopup(draftParentTr) {
   }
   window._prvDraftTr = draftParentTr;
   window._prvLines = lines;
-  window._prvMeta = { vendor: vendorName, vendor_ref: refCode, date: billDate, due_date: dueDate, amount: totalAmt, currency: ccy, ap_account: apAccount, expense_account: expAcct, fx_rate: (function() {
-    var fxi = draftParentTr.querySelector('input.draft-fx-rate');
-    var fxv = fxi ? (parseFloat(fxi.value) || null) : null;
-    if (fxv === null && draftParentTr.dataset.fxRate) fxv = parseFloat(draftParentTr.dataset.fxRate) || null;
-    return fxv;
-  })() };
+  window._prvMeta = { vendor: vendorName, vendor_ref: refCode, date: billDate, due_date: dueDate, amount: totalAmt, currency: ccy, ap_account: apAccount, expense_account: expAcct };
   var overlay = document.createElement('div');
   overlay.id = 'post-review-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center';
@@ -2055,45 +2021,69 @@ function confirmPost() {
   var draftTr = window._prvDraftTr;
   var savedBillId = draftTr && draftTr.dataset.billId;
 
-  var action, payload;
-  if (savedBillId) {
-    action = 'bill.draft.post';
-    payload = { action: action, companyId: COMPANY, billId: savedBillId, bill: { lines: lines, ap_account: meta.ap_account, fx_rate: meta.fx_rate } };
-  } else {
-    action = 'bill.create';
-    payload = { action: action, companyId: COMPANY, bill: {
-      vendor: meta.vendor, vendor_ref: meta.vendor_ref, date: meta.date, due_date: meta.due_date,
-      amount: meta.amount, currency: meta.currency, ap_account: meta.ap_account, fx_rate: meta.fx_rate, lines: lines
-    }};
+  // Look up FX rate from master data (fx_rates table) at post time.
+  // No manual override — rate always comes from Settings.
+  var fxRate = null;
+  var ccy = (meta.currency || '').toUpperCase();
+  if (ccy && ccy !== BASE_CURRENCY.toUpperCase()) {
+    fxRate = null; // will be resolved below
   }
 
-  fetch('/api/action', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  })
-    .then(function(r) { return r.json(); })
-    .then(function(res) {
-      if (res.error || (res.data && res.data.error)) {
-        var err = res.error || (res.data && res.data.error);
+  function doPost(rate) {
+    var action, payload;
+    if (savedBillId) {
+      action = 'bill.draft.post';
+      payload = { action: action, companyId: COMPANY, billId: savedBillId, bill: { lines: lines, ap_account: meta.ap_account, fx_rate: rate } };
+    } else {
+      action = 'bill.create';
+      payload = { action: action, companyId: COMPANY, bill: {
+        vendor: meta.vendor, vendor_ref: meta.vendor_ref, date: meta.date, due_date: meta.due_date,
+        amount: meta.amount, currency: meta.currency, ap_account: meta.ap_account, fx_rate: rate, lines: lines
+      }};
+    }
+
+    fetch('/api/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res.error || (res.data && res.data.error)) {
+          var err = res.error || (res.data && res.data.error);
+          var errDiv = document.getElementById('post-review-error');
+          if (errDiv) { errDiv.style.display = 'block'; errDiv.textContent = 'Error: ' + err; }
+          return;
+        }
+        closePostReviewPopup();
+        if (window._prvDraftTr) {
+          var dKey = window._prvDraftTr.dataset.draftKey;
+          if (dKey) document.querySelectorAll('tr[data-parent-key="' + dKey + '"]').forEach(function(r){ r.remove(); });
+          window._prvDraftTr.remove();
+        }
+        loadAllBills();
+        billEditMsg('Bill posted successfully.', 'ok');
+        setTimeout(function() { billEditMsg('', ''); }, 2500);
+      })
+      .catch(function(e) {
         var errDiv = document.getElementById('post-review-error');
-        if (errDiv) { errDiv.style.display = 'block'; errDiv.textContent = 'Error: ' + err; }
+        if (errDiv) { errDiv.style.display = 'block'; errDiv.textContent = 'Error: ' + e.message; }
+      });
+  }
+
+  // Resolve FX rate from master data before posting
+  if (ccy && ccy !== BASE_CURRENCY.toUpperCase()) {
+    _getFxRate(ccy, meta.date).then(function(rate) {
+      if (rate === null) {
+        var errDiv = document.getElementById('post-review-error');
+        if (errDiv) { errDiv.style.display = 'block'; errDiv.textContent = 'No FX rate found for ' + ccy + ' → ' + BASE_CURRENCY + ' on ' + meta.date + '. Add the rate in Settings → Exchange Rates.'; }
         return;
       }
-      closePostReviewPopup();
-      if (window._prvDraftTr) {
-        var dKey = window._prvDraftTr.dataset.draftKey;
-        if (dKey) document.querySelectorAll('tr[data-parent-key="' + dKey + '"]').forEach(function(r){ r.remove(); });
-        window._prvDraftTr.remove();
-      }
-      loadAllBills();
-      billEditMsg('Bill posted successfully.', 'ok');
-      setTimeout(function() { billEditMsg('', ''); }, 2500);
-    })
-    .catch(function(e) {
-      var errDiv = document.getElementById('post-review-error');
-      if (errDiv) { errDiv.style.display = 'block'; errDiv.textContent = 'Error: ' + e.message; }
+      doPost(rate);
     });
+  } else {
+    doPost(null);
+  }
 }
 
 function closePostReviewPopup() {

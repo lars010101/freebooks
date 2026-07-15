@@ -162,8 +162,11 @@ The following elements from the pre-refactor implementation are removed or simpl
 | enterBillCellEdit / exitBillCellEdit | Per-cell editing replaced by bill-level INSERT |
 | billEditState object | No longer needed without per-cell edit |
 | dd double-tap delete | Replaced by single x key |
+| dd double-tap timer (_ddPending, _ddTimer) | No double-key sequences except gg |
 | za/zo/zc/zR/zM fold keys (dead code) | Never implemented; Enter/Space used instead |
-| :w save command | Esc saves on INSERT exit; no command bar needed |
+| :w save command (fbCmdDispatch) | Esc saves on INSERT exit; no command bar needed |
+| ~ hidden shortcut | Removed; use p to post or click Draft badge |
+| _expandAll / _collapseAll | Dead code, never called; removed |
 | Double-key sequence logic for fold | Enter/Space are single-key, no chord ambiguity |
 | j/k boundary blocking | Seamless navigation across bill boundaries |
 

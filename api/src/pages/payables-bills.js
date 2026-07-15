@@ -178,8 +178,6 @@ function hideBillAcctDd() {
 var kbd = {
   _registered: false,
   _lastMoveTime: 0,
-  _ddPending: false,
-  _ddTimer: null,
   _gPending: false,
   _gTimer: null,
 
@@ -311,7 +309,7 @@ var kbd = {
     var idx = cursor.currentIndex();
 
     // Only swallow j/k when we have rows to navigate; otherwise let common.js handle
-    var _BILLS_OWNED_KEYS = { 'j':1,'k':1,'i':1,'o':1,'O':1,'a':1,'d':1,'p':1,'G':1,'g':1,'Enter':1,' ':1,'~':1 };
+    var _BILLS_OWNED_KEYS = { 'j':1,'k':1,'i':1,'o':1,'O':1,'a':1,'x':1,'p':1,'G':1,'g':1,'Enter':1,' ':1 };
     if (_BILLS_OWNED_KEYS[e.key]) {
       if ((e.key === 'j' || e.key === 'k') && rows.length === 0) {
         // No rows loaded yet — don't swallow, let common.js try
@@ -343,15 +341,6 @@ var kbd = {
     }
 
     // h/l no longer move a cell cursor within a row; common.js handles tab switching.
-
-    if (e.key === '~') {
-      e.preventDefault();
-      if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'parent') {
-        var st = cursor.rowEl.dataset.status || '';
-        if (st === 'draft') { openPostReviewPopup(cursor.rowEl); }
-      }
-      return;
-    }
 
     // Enter = fold toggle (parent) or collapse parent (child); saves draft if applicable
     if (e.key === 'Enter') {
@@ -473,18 +462,10 @@ var kbd = {
       return;
     }
 
-    // dd = delete line (child) or delete/void bill (parent)
-    if (e.key === 'd') {
+    // x = delete line (child) or delete/void bill (parent)
+    if (e.key === 'x') {
       e.preventDefault();
-      if (this._ddPending) {
-        clearTimeout(this._ddTimer);
-        this._ddPending = false;
-        this._deleteCurrent();
-      } else {
-        this._ddPending = true;
-        var self = this;
-        this._ddTimer = setTimeout(function() { self._ddPending = false; }, 500);
-      }
+      this._deleteCurrent();
       return;
     }
 
@@ -655,30 +636,6 @@ var kbd = {
     }
   },
 
-  _expandAll: function() {
-    var tbody = document.getElementById('bills-tbody'); if (!tbody) return;
-    tbody.querySelectorAll('tr[data-row-type="parent"]').forEach(function(pr) {
-      if (pr.dataset.draft === 'true') return;
-      var billId = pr.dataset.billId;
-      var hasChildren = !!tbody.querySelector('tr[data-row-type="child"][data-parent-id="' + billId + '"]');
-      if (!hasChildren) { treeState.setOpen(billId); toggleBillLines(billId, pr); }
-    });
-  },
-
-  _collapseAll: function() {
-    var tbody = document.getElementById('bills-tbody'); if (!tbody) return;
-    if (cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') {
-      var pid = cursor.rowEl.dataset.parentId;
-      var pr2 = tbody.querySelector('tr[data-row-type="parent"][data-bill-id="' + pid + '"]');
-      if (pr2) cursor.set(pr2, 0);
-    }
-    tbody.querySelectorAll('tr[data-row-type="parent"]').forEach(function(pr) {
-      if (pr.dataset.draft === 'true') return;
-      var billId = pr.dataset.billId;
-      var hasChildren = !!tbody.querySelector('tr[data-row-type="child"][data-parent-id="' + billId + '"]');
-      if (hasChildren) { treeState.setClose(billId); toggleBillLines(billId, pr); }
-    });
-  }
 };
 
 // ========== STATUS MESSAGE ==========
@@ -700,17 +657,6 @@ function fbPageInitPayables() {
   registerVendorKeyActions();
   kbd.register();
   loadBillAccounts();
-  // Register global command dispatch for vim-style :commands via the top bar
-  window.fbCmdDispatch = function(val) {
-    var cmd = val.replace(/^:/, '').trim();
-    if (cmd === 'w') {
-      var draftRows = Array.from(document.querySelectorAll('tr[data-row-type="parent"][data-draft="true"]'));
-      if (!draftRows.length) { billEditMsg('Nothing to save.', ''); setTimeout(function(){ billEditMsg('', ''); }, 1500); return; }
-      draftRows.forEach(function(row) { saveDraftToDb(row); });
-      billEditMsg('Saving ' + draftRows.length + ' draft(s)\u2026', '');
-      setTimeout(function(){ billEditMsg('', ''); }, 2000);
-    }
-  };
   window.fbBillNav = true;
 
   fetch('/api/' + COMPANY + '/vat-codes')
@@ -731,10 +677,40 @@ function initBillsTable() {
     tbody.addEventListener('click', function(e) {
       if (e.target.closest('a.ref-link')) return;
       if (e.target.closest('.badge')) return;
+      if (e.target.closest('input, select, textarea')) return; // don't toggle fold when clicking inputs
       var parentTr = e.target.closest('tr[data-row-type="parent"]');
       if (parentTr) {
+        // If in INSERT mode, click-outside saves and selects clicked row
+        if (cursor.mode === 'INSERT') {
+          _saveAndExitInsert();
+        }
         var billId = parentTr.dataset.billId;
         if (billId) toggleBillLines(billId, parentTr);
+      }
+    });
+    // Double-click to enter INSERT on editable (draft) rows
+    tbody.addEventListener('dblclick', function(e) {
+      if (e.target.closest('a.ref-link')) return;
+      if (e.target.closest('.badge')) return;
+      var tr = e.target.closest('tr');
+      if (!tr) return;
+      // Find parent row if on a child
+      var parentRow = tr;
+      if (tr.dataset.rowType === 'child') {
+        var pKey = tr.dataset.parentKey || tr.dataset.parentId;
+        parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
+      }
+      if (!parentRow) return;
+      // Only editable if draft status
+      var statusRow = parentRow;
+      if (parentRow.dataset.status !== 'draft' && parentRow.dataset.draft !== 'true') return;
+      cursor.set(parentRow, 0);
+      // Trigger the 'i' handler logic
+      if (parentRow.dataset.draft === 'true') {
+        var firstInp = parentRow.querySelector('input, select');
+        if (firstInp) { cursor.mode = 'INSERT'; firstInp.focus(); }
+      } else if (parentRow.dataset.status === 'draft') {
+        convertDisplayToDraft(parentRow);
       }
     });
   }
@@ -1363,6 +1339,32 @@ function createDraftLine(childRow) {
   // Focus the new row's desc input so the user can immediately start typing
   var newDescInp = tr.querySelector('input.child-desc');
   if (newDescInp) newDescInp.focus();
+}
+
+// Save current draft bill and exit INSERT mode (used by click-outside save)
+function _saveAndExitInsert() {
+  if (cursor.mode !== 'INSERT') return;
+  if (cursor.rowEl) {
+    var parentRow = cursor.rowEl;
+    if (parentRow.dataset.rowType === 'child') {
+      var pKey = parentRow.dataset.parentKey || parentRow.dataset.parentId;
+      parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
+    }
+    if (parentRow && parentRow.dataset.draft === 'true') {
+      var vDd = document.getElementById('pay-draft-vendor-dd'); if (vDd) vDd.remove();
+      var cDd = document.getElementById('pay-draft-ccy-dd'); if (cDd) cDd.remove();
+      var aDd = document.getElementById('pay-bill-acct-dd'); if (aDd) aDd.remove();
+      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+      if (_isDraftEmpty(parentRow)) {
+        _discardDraftBill(parentRow);
+        cursor.mode = 'NORMAL';
+        return;
+      } else {
+        saveDraftToDb(parentRow);
+      }
+    }
+  }
+  cursor.mode = 'NORMAL';
 }
 
 // Lookup FX rate for a draft bill (background, no UI). Returns a Promise.

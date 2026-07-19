@@ -46,7 +46,6 @@ var cursor = {
     var tbody = document.getElementById('bills-tbody');
     if (tbody) {
       if (val === 'INSERT') tbody.classList.add('insert-mode'); else tbody.classList.remove('insert-mode');
-      if (val === 'PREVIEW') tbody.classList.add('preview-mode'); else tbody.classList.remove('preview-mode');
     }
   },
 
@@ -103,10 +102,13 @@ var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8'
 
 // ========== ACCOUNT AUTOCOMPLETE (bills tab) ==========
 function loadBillAccounts() {
-  if (billAccountsList.length) return;
+  if (billAccountsList.length) { _ensureCoaDatalist(); return; }
   fetch('/api/' + COMPANY + '/accounts')
     .then(function(r) { return r.json(); })
-    .then(function(rows) { billAccountsList = Array.isArray(rows) ? rows : []; })
+    .then(function(rows) {
+      billAccountsList = Array.isArray(rows) ? rows : [];
+      _ensureCoaDatalist();
+    })
     .catch(function() {});
 }
 
@@ -223,59 +225,6 @@ var kbd = {
   _handle: function(e) {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     if (!this._isBillsTabActive()) return;
-
-    // PREVIEW mode: p / Enter confirms post, Esc cancels
-    if (cursor.mode === 'PREVIEW') {
-      // If focus is in an account-code input, handle Tab/Esc specially
-      var tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT') {
-        if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); e.target.blur(); _exitPreview(); return; }
-        if (e.key === 'Tab') {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          var inputs = Array.from(document.querySelectorAll('input.preview-acct-input'));
-          if (!inputs.length) return;
-          var curIdx = inputs.indexOf(e.target);
-          if (e.shiftKey) {
-            // Shift+Tab: go to previous input, or wrap to last
-            var prev = curIdx > 0 ? curIdx - 1 : inputs.length - 1;
-            inputs[prev].focus();
-            inputs[prev].select();
-          } else {
-            // Tab: go to next input, or wrap to first
-            var next = curIdx >= 0 && curIdx < inputs.length - 1 ? curIdx + 1 : 0;
-            inputs[next].focus();
-            inputs[next].select();
-          }
-          return;
-        }
-        // Let typing through
-        return;
-      }
-      if (e.key === 'p' || e.key === 'Enter') {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        _confirmPost();
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        _exitPreview();
-        return;
-      }
-      if (e.key === 'Tab') {
-        // Tab when not in an input: focus first account code input
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        var firstInp = document.querySelector('input.preview-acct-input');
-        if (firstInp) { firstInp.focus(); firstInp.select(); }
-        return;
-      }
-      // Block other navigation keys while in preview (not in an input)
-      e.preventDefault();
-      return;
-    }
 
     // INSERT mode: intercept control keys only
     if (cursor.mode === 'INSERT') {
@@ -543,7 +492,7 @@ var kbd = {
           : null;
       }
       if (pRow && (pRow.dataset.draft === 'true' || pRow.dataset.status === 'draft')) {
-        _enterPreview(pRow);
+        _postDirect(pRow);
       }
       return;
     }
@@ -1109,7 +1058,7 @@ function _wireChildRowTab(childRowEl, parentRowEl) {
   var parentKey = parentRowEl.dataset.draftKey || parentRowEl.dataset.billId;
   if (!parentKey) return;
   var descInp = childRowEl.querySelector('input.child-desc');
-  var amtInp  = childRowEl.querySelectorAll('input')[1];
+  var amtInp  = childRowEl.querySelectorAll('input')[2];
   var gstSel  = childRowEl.querySelector('select');
   function handleChildTab(e) {
     if (e.key !== 'Tab') return;
@@ -1133,7 +1082,7 @@ function _wireChildRowTab(childRowEl, parentRowEl) {
       if (isFirst && e.target === descInp) {
         e.preventDefault();
         var parentInputs = parentRowEl.querySelectorAll('input');
-        var ccyInp = parentInputs[4];
+        var ccyInp = parentInputs[5];
         if (ccyInp) ccyInp.focus();
       }
     }
@@ -1163,7 +1112,7 @@ function refreshAddRowIcons(parentRowEl) {
       // Fade + icon if this row is empty (no desc and no amount)
       if (existingBtn) {
         var descInp = cr.querySelector('input.child-desc');
-        var amtInp = cr.querySelectorAll('input')[1];
+        var amtInp = cr.querySelectorAll('input')[2];
         var hasData = (descInp && descInp.value.trim()) || (amtInp && parseFloat(amtInp.value) > 0);
         if (hasData) {
           existingBtn.style.opacity = '1';
@@ -1188,7 +1137,7 @@ function addRowFromIcon(btnEl) {
   if (!row) return;
   // Check if this row has data before creating a new one
   var descInp = row.querySelector('input.child-desc');
-  var amtInp = row.querySelectorAll('input')[1];
+  var amtInp = row.querySelectorAll('input')[2];
   var hasData = (descInp && descInp.value.trim()) || (amtInp && parseFloat(amtInp.value) > 0);
   if (hasData) {
     createDraftLine(row);
@@ -1206,13 +1155,13 @@ function refreshSaveIcon(parentRowEl) {
   if (!parentRowEl || parentRowEl.dataset.draft !== 'true') return;
   var saveBtn = parentRowEl.querySelector('.btn-save-draft');
   if (!saveBtn) return;
-  // Check if any parent-row input has content (vendor, date, due, ref — NOT ccy which is pre-filled)
+  // Check if any parent-row input has content (vendor, date, due, ref — NOT ap/ccy which are pre-filled)
   var parentInputs = parentRowEl.querySelectorAll('input');
   var hasInput = false;
   for (var i = 0; i < parentInputs.length; i++) {
     var inp = parentInputs[i];
-    // Skip CCY input (index 4) — it's pre-filled with base currency
-    if (i === 4) continue;
+    // Skip AP account (index 4) and CCY (index 5) — both pre-filled from defaults
+    if (i === 4 || i === 5) continue;
     if (inp.value.trim()) { hasInput = true; break; }
   }
   // Also check child rows for any description or amount
@@ -1221,8 +1170,9 @@ function refreshSaveIcon(parentRowEl) {
     var childRows = document.querySelectorAll('tr[data-parent-key="' + draftKey + '"][data-draft="true"]');
     for (var j = 0; j < childRows.length; j++) {
       var childInputs = childRows[j].querySelectorAll('input');
+      // childInputs: [0]=desc, [1]=expense-acct (pre-filled), [2]=amount, [3]=gst
       if (childInputs[0] && childInputs[0].value.trim()) { hasInput = true; break; }
-      if (childInputs[1] && childInputs[1].value.trim()) { hasInput = true; break; }
+      if (childInputs[2] && childInputs[2].value.trim()) { hasInput = true; break; }
     }
   }
   if (hasInput) {
@@ -1239,6 +1189,7 @@ function renderDraftChildRows(parentRow, linesList) {
   var draftKey = parentRow.dataset.draftKey;
   var parentInputs = parentRow.querySelectorAll('input');
   var insertAfter = parentRow;
+  _ensureCoaDatalist();
   linesList.forEach(function(line, idx) {
     var tr = document.createElement('tr');
     tr.dataset.rowType = 'child';
@@ -1246,13 +1197,15 @@ function renderDraftChildRows(parentRow, linesList) {
     tr.dataset.parentKey = draftKey;
     tr.dataset.lineIdx = String(idx);
     tr.className = 'child-row';
-    tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
+    tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
+      + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
       + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
       + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
       + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>'
       + '<td></td>';
     var descInp = tr.querySelector('input.child-desc');
-    var amtInp  = tr.querySelectorAll('input')[1];
+    var expInp  = tr.querySelector('input.child-expense-acct');
+    var amtInp  = tr.querySelectorAll('input')[2];
     var gstSel  = tr.querySelector('select');
     var gstInp  = tr.querySelector('input.child-gst');
     Object.keys(taxCodeMap).forEach(function(code) {
@@ -1262,19 +1215,22 @@ function renderDraftChildRows(parentRow, linesList) {
       gstSel.appendChild(opt);
     });
     if (descInp) descInp.value = line.desc || '';
+    if (expInp)  expInp.value  = line.expenseAccount || companyDefaultExpense || '';
     if (amtInp)  amtInp.value  = line.amount ? String(line.amount) : '';
     // Initialise GST amount input from saved override or computed default
     _initChildGst(tr, line);
     function syncLine() {
       if (draftLines[draftKey] && draftLines[draftKey][idx] !== undefined) {
-        draftLines[draftKey][idx].desc    = descInp ? descInp.value.trim() : '';
-        draftLines[draftKey][idx].amount  = parseFloat(amtInp ? amtInp.value : 0) || 0;
-        draftLines[draftKey][idx].vatCode = gstSel ? gstSel.value : '';
+        draftLines[draftKey][idx].desc            = descInp ? descInp.value.trim() : '';
+        draftLines[draftKey][idx].expenseAccount  = expInp ? expInp.value.trim() : '';
+        draftLines[draftKey][idx].amount          = parseFloat(amtInp ? amtInp.value : 0) || 0;
+        draftLines[draftKey][idx].vatCode         = gstSel ? gstSel.value : '';
         if (gstInp) draftLines[draftKey][idx].vatAmountOverride = gstInp.value !== '' ? (parseFloat(gstInp.value) || null) : null;
       }
     }
     var _saveTimer = null;
     if (descInp) { descInp.addEventListener('blur', function() { syncLine(); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
+    if (expInp)  { expInp.addEventListener('blur',  function() { syncLine(); }); expInp.addEventListener('input',  function() { syncLine(); refreshSaveIcon(parentRow); }); }
     if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); }); amtInp.addEventListener('input',  function() { syncLine(); _recomputeChildGst(tr, draftLines[draftKey] ? draftLines[draftKey][idx] : null); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
     if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); _recomputeChildGst(tr, draftLines[draftKey] ? draftLines[draftKey][idx] : null); updateParentDraftAmount(parentRow); });
     if (gstInp)  gstInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); });
@@ -1291,7 +1247,7 @@ function renderDraftChildRows(parentRow, linesList) {
 function _initChildGst(tr, lineObj) {
   var gstSel = tr.querySelector('select');
   var gstInp = tr.querySelector('input.child-gst');
-  var amtInp = tr.querySelectorAll('input')[1];
+  var amtInp = tr.querySelectorAll('input')[2];
   if (!gstSel || !gstInp) return;
   var code = gstSel.value;
   var info = code ? taxCodeRateMap[code] : null;
@@ -1325,7 +1281,7 @@ function _initChildGst(tr, lineObj) {
 function _recomputeChildGst(tr, lineObj) {
   var gstSel = tr.querySelector('select');
   var gstInp = tr.querySelector('input.child-gst');
-  var amtInp = tr.querySelectorAll('input')[1];
+  var amtInp = tr.querySelectorAll('input')[2];
   if (!gstSel || !gstInp) return;
   var code = gstSel.value;
   var info = code ? taxCodeRateMap[code] : null;
@@ -1356,7 +1312,8 @@ function _isDraftEmpty(parentRowEl) {
   if (!parentRowEl || parentRowEl.dataset.draft !== 'true') return false;
   var parentInputs = parentRowEl.querySelectorAll('input');
   for (var i = 0; i < parentInputs.length; i++) {
-    if (i === 4) continue; // skip CCY (pre-filled)
+    // Skip AP account (index 4) and CCY (index 5) — both pre-filled from defaults
+    if (i === 4 || i === 5) continue;
     if (parentInputs[i].value.trim()) return false;
   }
   var draftKey = parentRowEl.dataset.draftKey;
@@ -1364,8 +1321,9 @@ function _isDraftEmpty(parentRowEl) {
     var childRows = document.querySelectorAll('tr[data-parent-key="' + draftKey + '"][data-draft="true"]');
     for (var j = 0; j < childRows.length; j++) {
       var childInputs = childRows[j].querySelectorAll('input');
+      // childInputs: [0]=desc, [1]=expense-acct (pre-filled), [2]=amount, [3]=gst
       if (childInputs[0] && childInputs[0].value.trim()) return false;
-      if (childInputs[1] && childInputs[1].value.trim()) return false;
+      if (childInputs[2] && childInputs[2].value.trim()) return false;
     }
   }
   return true;
@@ -1406,7 +1364,7 @@ function createDraftBill(refRow) {
   var tbody = document.getElementById('bills-tbody');
   if (!tbody) return;
   var draftKey = 'draft-' + Date.now();
-  draftLines[draftKey] = [{ desc: '', amount: 0, vatCode: '', vatAmountOverride: null }];
+  draftLines[draftKey] = [{ desc: '', amount: 0, vatCode: '', vatAmountOverride: null, expenseAccount: companyDefaultExpense || '' }];
   var tr = document.createElement('tr');
   tr.dataset.rowType = 'parent';
   tr.dataset.draft = 'true';
@@ -1414,13 +1372,14 @@ function createDraftBill(refRow) {
   tr.dataset.draftKey = draftKey;
   tr.style.cssText = 'cursor:default';
   var baseCcy = BASE_CURRENCY;
-  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="' + companyDefaultAp + '" data-expense-account="' + companyDefaultExpense + '" /></div></td>'
+  _ensureCoaDatalist();
+  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="' + esc(companyDefaultAp) + '" data-expense-account="' + esc(companyDefaultExpense) + '" /></div></td>'
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
-    + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
+    + '<td><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" /></td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
+    + '<td style="text-align:right;white-space:nowrap"><span class="draft-total-amount" style="color:#aaa;font-style:italic">0.00</span> <button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
   var insertAfterRow = refRow;
   if (refRow && refRow.dataset.rowType === 'child') {
     var pKey2 = refRow.dataset.parentKey || refRow.dataset.parentId;
@@ -1458,7 +1417,7 @@ function createDraftLine(childRow) {
   if (!parentRow) return;
   if (!draftLines[parentKey]) draftLines[parentKey] = [];
   var newIdx = draftLines[parentKey].length;
-  draftLines[parentKey].push({ desc: '', amount: 0, vatCode: '', vatAmountOverride: null });
+  draftLines[parentKey].push({ desc: '', amount: 0, vatCode: '', vatAmountOverride: null, expenseAccount: companyDefaultExpense || '' });
   var siblings = Array.from(document.querySelectorAll('tr[data-parent-key="' + parentKey + '"]'));
   var insertAfterEl = siblings.length ? siblings[siblings.length - 1] : parentRow;
   var tr = document.createElement('tr');
@@ -1467,27 +1426,37 @@ function createDraftLine(childRow) {
   tr.dataset.parentKey = parentKey;
   tr.dataset.lineIdx = String(newIdx);
   tr.className = 'child-row';
-  tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
+  tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
+    + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-    + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>'
+    + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
+    + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>'
     + '<td></td>';
   var gstSel2 = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
     var opt = document.createElement('option'); opt.value = code; opt.textContent = code + ': ' + taxCodeMap[code]; gstSel2.appendChild(opt);
   });
   var descInp2 = tr.querySelector('input.child-desc');
-  var amtInp2  = tr.querySelectorAll('input')[1];
+  var expInp2  = tr.querySelector('input.child-expense-acct');
+  var amtInp2  = tr.querySelectorAll('input')[2];
+  var gstInp2  = tr.querySelector('input.child-gst');
+  if (expInp2) expInp2.value = companyDefaultExpense || '';
+  _initChildGst(tr, draftLines[parentKey][newIdx]);
   function syncLine2() {
     if (draftLines[parentKey] && draftLines[parentKey][newIdx] !== undefined) {
-      draftLines[parentKey][newIdx].desc    = descInp2 ? descInp2.value.trim() : '';
-      draftLines[parentKey][newIdx].amount  = parseFloat(amtInp2 ? amtInp2.value : 0) || 0;
-      draftLines[parentKey][newIdx].vatCode = gstSel2 ? gstSel2.value : '';
+      draftLines[parentKey][newIdx].desc           = descInp2 ? descInp2.value.trim() : '';
+      draftLines[parentKey][newIdx].expenseAccount = expInp2 ? expInp2.value.trim() : '';
+      draftLines[parentKey][newIdx].amount         = parseFloat(amtInp2 ? amtInp2.value : 0) || 0;
+      draftLines[parentKey][newIdx].vatCode        = gstSel2 ? gstSel2.value : '';
+      if (gstInp2) draftLines[parentKey][newIdx].vatAmountOverride = gstInp2.value !== '' ? (parseFloat(gstInp2.value) || null) : null;
     }
   }
   var _t2 = null;
   if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); }); descInp2.addEventListener('input', function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
+  if (expInp2)  { expInp2.addEventListener('blur',  function() { syncLine2(); }); expInp2.addEventListener('input',  function() { syncLine2(); refreshSaveIcon(parentRow); }); }
   if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); }); amtInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
-  if (gstSel2)  gstSel2.addEventListener('change',  function() { syncLine2(); });
+  if (gstSel2)  gstSel2.addEventListener('change',  function() { syncLine2(); _initChildGst(tr, draftLines[parentKey][newIdx]); updateParentDraftAmount(parentRow); });
+  if (gstInp2)  gstInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); });
   _wireChildRowTab(tr, parentRow);
   insertAfterEl.insertAdjacentElement('afterend', tr);
   cursor.set(tr, 0);
@@ -1563,7 +1532,7 @@ function _wireDraftParentEvents(tr) {
   var draftInputs2 = tr.querySelectorAll('input');
   var dateInputEl  = draftInputs2[1];
   var dueInputEl   = draftInputs2[2];
-  var ccyInputEl   = draftInputs2[4];
+  var ccyInputEl   = draftInputs2[5];
   if (vendorInput) {
     vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); refreshSaveIcon(tr); });
     vendorInput.addEventListener('keydown', function(e) {
@@ -1655,14 +1624,16 @@ function _wireDraftParentEvents(tr) {
     });
   }
   var refInputEl = draftInputs2[3];
+  var apInputEl  = draftInputs2[4];
   if (dateInputEl) dateInputEl.addEventListener('blur', function() { refreshSaveIcon(tr); _updateCcyTooltip(tr, ccyInputEl, dateInputEl); });
   if (dateInputEl) dateInputEl.addEventListener('input', function() { refreshSaveIcon(tr); });
-  // Tab from ref -> skip read-only amount, go to CCY
-  if (refInputEl && ccyInputEl) {
+  // Tab from ref -> AP account (natural tab order then continues AP -> CCY)
+  if (refInputEl && apInputEl) {
     refInputEl.addEventListener('keydown', function(e) {
-      if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); ccyInputEl.focus(); }
+      if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); apInputEl.focus(); }
     });
   }
+  if (apInputEl) apInputEl.addEventListener('input', function() { refreshSaveIcon(tr); });
   // Update CCY tooltip with FX rate info on ccy change
   if (ccyInputEl) {
     ccyInputEl.addEventListener('blur', function() {
@@ -1685,13 +1656,14 @@ function insertDraftParentRow(refRow, above) {
   tr.dataset.draftKey = draftKey;
   tr.style.cssText = 'cursor:default';
   var baseCcy = BASE_CURRENCY;
-  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="' + companyDefaultAp + '" data-expense-account="' + companyDefaultExpense + '" /></div></td>'
+  _ensureCoaDatalist();
+  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="' + esc(companyDefaultAp) + '" data-expense-account="' + esc(companyDefaultExpense) + '" /></div></td>'
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
-    + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
+    + '<td><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" /></td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td><span class=\"badge\" style=\"background:#e8e4d0;color:#7a6a00\" title=\"Press p to post draft bill\">Draft</span></td>';
+    + '<td style="text-align:right;white-space:nowrap"><span class="draft-total-amount" style="color:#aaa;font-style:italic">0.00</span> <span class=\"badge\" style=\"background:#e8e4d0;color:#7a6a00\" title=\"Press p to post draft bill\">Draft</span></td>';
   if (refRow && above) {
     refRow.parentElement.insertBefore(tr, refRow);
   } else if (refRow) {
@@ -1712,7 +1684,7 @@ function updateParentDraftAmount(draftParentTr) {
   if (lookupKey) {
     Array.from(document.querySelectorAll('tr[data-parent-key="' + lookupKey + '"]')).forEach(function(cr) {
       var inputs = cr.querySelectorAll('input');
-      var a = cr.querySelector('input.child-desc') ? inputs[1] : null;
+      var a = cr.querySelector('input.child-desc') ? inputs[2] : null;
       var net = parseFloat(a && a.value) || 0;
       var gstInp = cr.querySelector('input.child-gst');
       var gst = (gstInp && gstInp.value !== '' && !gstInp.readOnly) ? (parseFloat(gstInp.value) || 0) : 0;
@@ -1748,9 +1720,11 @@ function insertDraftChildRow(childRow, above) {
   tr.dataset.draft = 'true';
   tr.dataset.parentKey = draftKey;
   tr.className = 'child-row';
-  tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
+  tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
+    + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-    + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>'
+    + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
+    + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>'
     + '<td></td>';
   var gstSelect = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
@@ -1766,10 +1740,15 @@ function insertDraftChildRow(childRow, above) {
   }
   var parentTrRef = parentTr;
   var descInpRef = tr.querySelector('input.child-desc');
-  var amtInpRef  = tr.querySelectorAll('input')[1];
+  var expInpRef  = tr.querySelector('input.child-expense-acct');
+  var amtInpRef  = tr.querySelectorAll('input')[2];
   var gstSelRef  = tr.querySelector('select');
+  var gstInpRef  = tr.querySelector('input.child-gst');
+  if (expInpRef) expInpRef.value = companyDefaultExpense || '';
   if (descInpRef) { descInpRef.addEventListener('input', function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); refreshSaveIcon(parentTrRef); }); }
+  if (expInpRef)  { expInpRef.addEventListener('input',  function() { refreshSaveIcon(parentTrRef); }); }
   if (amtInpRef)  { amtInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); refreshSaveIcon(parentTrRef); }); }
+  if (gstInpRef)  { gstInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); }); }
   _wireChildRowTab(tr, parentTrRef);
   cursor.set(tr, 0);
   cursor.mode = 'INSERT';
@@ -1806,13 +1785,14 @@ function convertDisplayToDraft(parentRow) {
   parentRow.dataset.draft = 'true';
   parentRow.dataset.draftKey = draftKey;
   parentRow.style.cursor = 'default';
+  _ensureCoaDatalist();
   parentRow.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="' + esc(vendorId) + '" data-vendor-name="' + esc(vendor) + '" data-ap-account="' + esc(apAccount) + '" data-expense-account="' + esc(expenseAccount) + '" /></div></td>'
     + '<td><input class="draft-input" type="date" placeholder="Date" value="' + billDate + '" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" value="' + dueDate + '" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" value="' + esc(vendorRef) + '" /></td>'
-    + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
+    + '<td><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(apAccount) + '" title="AP (creditor) account code" /></td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + currency + '" /></td>'
-    + '<td><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft">&#128190;</button></td>';
+    + '<td style="text-align:right;white-space:nowrap"><span class="draft-total-amount" style="color:#aaa;font-style:italic">0.00</span> <button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft">&#128190;</button></td>';
 
   // Set vendor input value (escaped in innerHTML for attributes, raw for .value)
   var vInp = parentRow.querySelector('input.draft-vendor-input');
@@ -1824,7 +1804,7 @@ function convertDisplayToDraft(parentRow) {
   // Open fold and fetch draft lines
   treeState.setOpen(draftKey);
   parentRow.classList.add('row-expanded');
-  draftLines[draftKey] = [{ desc: '', amount: 0, vatCode: '', vatAmountOverride: null }];
+  draftLines[draftKey] = [{ desc: '', amount: 0, vatCode: '', vatAmountOverride: null, expenseAccount: expenseAccount || companyDefaultExpense || '' }];
 
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'bill.lines', companyId: COMPANY, billId: billId }) })
@@ -1834,9 +1814,10 @@ function convertDisplayToDraft(parentRow) {
     if (!Array.isArray(lines)) lines = [];
     var draftLineData = lines.map(function(l) {
       return { desc: l.description || '', amount: parseFloat(l.amount) || 0, vatCode: l.vat_code || '',
-        vatAmountOverride: (l.vat_amount_override != null && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null };
+        vatAmountOverride: (l.vat_amount_override != null && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null,
+        expenseAccount: l.account_code || l.expense_account || expenseAccount || companyDefaultExpense || '' };
     });
-    if (!draftLineData.length) draftLineData = [{ desc: '', amount: 0, vatCode: '', vatAmountOverride: null }];
+    if (!draftLineData.length) draftLineData = [{ desc: '', amount: 0, vatCode: '', vatAmountOverride: null, expenseAccount: expenseAccount || companyDefaultExpense || '' }];
     draftLines[draftKey] = draftLineData;
     renderDraftChildRows(parentRow, draftLineData);
     updateParentDraftAmount(parentRow);
@@ -1853,7 +1834,7 @@ function convertDisplayToDraft(parentRow) {
 function convertDraftRowToDisplay(draftParentTr, billId) {
   var inputs = draftParentTr.querySelectorAll('input');
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
-  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], apInput = inputs[4], ccyInput = inputs[5];
   var vendor = vendorInput ? (vendorInput.dataset.vendorName || vendorInput.value) : '';
   var billDate = dateInput ? dateInput.value : '';
   var dueDate = dueInput ? dueInput.value : '';
@@ -1870,7 +1851,7 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   // included.
   var amount = 0;
   if (draftKeyC) Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyC + '"]')).forEach(function(cr) {
-    var a = cr.querySelectorAll('input')[1];
+    var a = cr.querySelectorAll('input')[2];
     var net = parseFloat(a && a.value) || 0;
     var gIn = cr.querySelector('input.child-gst');
     var gst = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || 0) : 0;
@@ -1889,8 +1870,9 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   draftParentTr.dataset.currency = currency;
   draftParentTr.dataset.status = 'draft';
   var savedVendorInput = draftParentTr.querySelector('input.draft-vendor-input');
+  var savedApInput = draftParentTr.querySelector('input.draft-ap-account');
+  draftParentTr.dataset.apAccount = (savedApInput && savedApInput.value.trim()) || (savedVendorInput && savedVendorInput.dataset.apAccount) || companyDefaultAp || '';
   if (savedVendorInput) {
-    draftParentTr.dataset.apAccount = savedVendorInput.dataset.apAccount || companyDefaultAp || '';
     draftParentTr.dataset.expenseAccount = savedVendorInput.dataset.expenseAccount || companyDefaultExpense || '';
   }
   delete draftParentTr.dataset.draft;
@@ -1957,28 +1939,32 @@ function saveDraftFromIcon(btnEl) {
 function saveDraftToDb(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
-  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[5];
 
   if (!vendorInput && draftParentTr.dataset.billId) {
     var dispBillId = draftParentTr.dataset.billId;
     var dispKey = draftParentTr.dataset.draftKey || dispBillId;
     var dispLines = Array.from(document.querySelectorAll('tr[data-parent-key="' + dispKey + '"]')).filter(function(cr){ return !!cr.querySelector('input.child-desc'); }).filter(function(cr) {
-      var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[1];
+      var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[2];
       return (dIn && dIn.value.trim()) || (aIn && parseFloat(aIn.value) > 0);
     }).map(function(cr) {
-      var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[1]; var gSel = cr.querySelector('select');
+      var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[2]; var gSel = cr.querySelector('select');
       var gIn = cr.querySelector('input.child-gst');
+      var eIn = cr.querySelector('input.child-expense-acct');
+      var expAcct = eIn ? eIn.value.trim() : (draftParentTr.dataset.expenseAccount || companyDefaultExpense || '');
       var vatOverride = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || null) : null;
-      return { description: dIn?dIn.value.trim():'', expense_account: draftParentTr.dataset.expenseAccount||companyDefaultExpense||'',
+      return { description: dIn?dIn.value.trim():'', expense_account: expAcct,
         amount: parseFloat(aIn&&aIn.value)||0, vat_code: gSel?(gSel.value||null):null, currency: draftParentTr.dataset.currency||BASE_CURRENCY,
         vat_amount_override: vatOverride };
     });
+    var apInputA = draftParentTr.querySelector('input.draft-ap-account');
+    var apAcctA = apInputA ? apInputA.value.trim() : (draftParentTr.dataset.apAccount || companyDefaultAp || '');
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
       action:'bill.draft.save', companyId:COMPANY, bill:{ bill_id:dispBillId,
         vendor:draftParentTr.dataset.vendor, vendor_ref:draftParentTr.dataset.vendorRef,
         date:draftParentTr.dataset.date, due_date:draftParentTr.dataset.dueDate,
         amount:parseFloat(draftParentTr.dataset.amount)||0, currency:draftParentTr.dataset.currency||BASE_CURRENCY,
-        ap_account:draftParentTr.dataset.apAccount||companyDefaultAp||'', expense_account:draftParentTr.dataset.expenseAccount||companyDefaultExpense||'',
+        ap_account:apAcctA, expense_account:draftParentTr.dataset.expenseAccount||companyDefaultExpense||'',
         lines:dispLines }}) })
     .then(function(r){ return r.json(); }).then(function(res){
       if (res && res.error) { billEditMsg(res.error, 'err'); return; }
@@ -2002,7 +1988,7 @@ function saveDraftToDb(draftParentTr) {
     var _amtRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyAmt + '"]'));
     if (_amtRows.length > 0) {
       _amtRows.forEach(function(cr) {
-        var a = cr.querySelectorAll('input')[1]; var net = parseFloat(a && a.value) || 0;
+        var a = cr.querySelectorAll('input')[2]; var net = parseFloat(a && a.value) || 0;
         var gIn = cr.querySelector('input.child-gst');
         var gst = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || 0) : 0;
         totalAmt += net + gst;
@@ -2013,6 +1999,8 @@ function saveDraftToDb(draftParentTr) {
   }
 
   var existingBillId = draftParentTr.dataset.billId || null;
+  var apInputMain = draftParentTr.querySelector('input.draft-ap-account');
+  var apAcctMain = apInputMain ? apInputMain.value.trim() : (vendorInput ? (vendorInput.dataset.apAccount || companyDefaultAp || '') : (companyDefaultAp || ''));
   var payload = {
     action: 'bill.draft.save',
     companyId: COMPANY,
@@ -2024,7 +2012,7 @@ function saveDraftToDb(draftParentTr) {
       due_date: dueInput ? dueInput.value : null,
       amount: totalAmt,
       currency: ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY,
-      ap_account: vendorInput ? (vendorInput.dataset.apAccount || companyDefaultAp || '') : (companyDefaultAp || ''),
+      ap_account: apAcctMain,
       expense_account: vendorInput ? (vendorInput.dataset.expenseAccount || companyDefaultExpense || '') : (companyDefaultExpense || ''),
       lines: (function() {
         var dk = draftKeyAmt;
@@ -2037,15 +2025,17 @@ function saveDraftToDb(draftParentTr) {
         if (childRows2.length) {
           return childRows2.filter(function(cr) {
             var dIn = cr.querySelector('input.child-desc');
-            var aIn = cr.querySelectorAll('input')[1];
+            var aIn = cr.querySelectorAll('input')[2];
             return (dIn && dIn.value.trim()) || (aIn && parseFloat(aIn.value) > 0);
           }).map(function(cr) {
             var dIn = cr.querySelector('input.child-desc');
-            var aIn = cr.querySelectorAll('input')[1];
+            var aIn = cr.querySelectorAll('input')[2];
             var gSel = cr.querySelector('select');
             var gIn = cr.querySelector('input.child-gst');
+            var eIn = cr.querySelector('input.child-expense-acct');
+            var lineExp = eIn ? eIn.value.trim() : (expAcct2 || '');
             var vatOverride = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || null) : null;
-            return { description: dIn ? dIn.value.trim() : '', expense_account: expAcct2, currency: ccy2,
+            return { description: dIn ? dIn.value.trim() : '', expense_account: lineExp, currency: ccy2,
               amount: parseFloat(aIn && aIn.value) || 0, vat_code: gSel ? (gSel.value || null) : null,
               vat_amount_override: vatOverride };
           });
@@ -2053,7 +2043,7 @@ function saveDraftToDb(draftParentTr) {
         // Fallback: draftLines — used when fold was closed (DOM rows removed) before auto-save timer fired.
         if (draftLines[dk] && draftLines[dk].some(function(l){ return l.desc || l.amount > 0; })) {
           return draftLines[dk].filter(function(l){ return l.desc || l.amount > 0; }).map(function(l){
-            return { description: l.desc || '', expense_account: expAcct2, currency: ccy2,
+            return { description: l.desc || '', expense_account: l.expenseAccount || expAcct2 || '', currency: ccy2,
               amount: l.amount || 0, vat_code: l.vatCode || null,
               vat_amount_override: (l.vatAmountOverride != null && !isNaN(Number(l.vatAmountOverride))) ? Number(l.vatAmountOverride) : null };
           });
@@ -2088,10 +2078,10 @@ function saveDraftToDb(draftParentTr) {
 function _gatherInlineBillData(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
-  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], apInput = inputs[4], ccyInput = inputs[5];
   var vendorName = vendorInput && vendorInput.dataset.vendorName;
   if (!vendorName && vendorInput) vendorName = vendorInput.value.trim();
-  var apAccount = vendorInput && (vendorInput.dataset.apAccount || companyDefaultAp || '');
+  var apAccount = apInput ? apInput.value.trim() : (vendorInput && (vendorInput.dataset.apAccount || companyDefaultAp || ''));
   var expAcct   = vendorInput && (vendorInput.dataset.expenseAccount || companyDefaultExpense || '');
   var billDate  = dateInput && dateInput.value;
   var dueDate   = dueInput && dueInput.value;
@@ -2104,8 +2094,10 @@ function _gatherInlineBillData(draftParentTr) {
     var childRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]'));
     childRows.forEach(function(cr) {
       var descInput = cr.querySelector('input.child-desc');
-      var amtInputC = cr.querySelectorAll('input')[1];
+      var amtInputC = cr.querySelectorAll('input')[2];
       var gstSelect = cr.querySelector('select');
+      var expIn     = cr.querySelector('input.child-expense-acct');
+      var lineExp   = expIn ? expIn.value.trim() : (expAcct || '');
       var desc = descInput ? descInput.value.trim() : '';
       var amt = parseFloat(amtInputC && amtInputC.value) || 0;
       var vatCode = gstSelect ? gstSelect.value : '';
@@ -2113,7 +2105,7 @@ function _gatherInlineBillData(draftParentTr) {
       var vatOverride = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || null) : null;
       var gst = vatOverride != null ? vatOverride : 0;
       totalAmt += amt + gst;
-      lines.push({ description: desc, expense_account: expAcct, amount: amt, vat_code: vatCode || null, vat_amount_override: vatOverride });
+      lines.push({ description: desc, expense_account: lineExp, amount: amt, vat_code: vatCode || null, vat_amount_override: vatOverride });
     });
   }
   return {
@@ -2123,343 +2115,117 @@ function _gatherInlineBillData(draftParentTr) {
   };
 }
 
-// Enter preview mode: send bill to backend for dry-run journal computation,
-// render the journal lines as child rows in the fold area.
-function _enterPreview(draftParentTr) {
+// ========== DIRECT POST (no preview step) ==========
+// Pressing p on a draft posts directly. Two cases:
+//   1. Inline draft (never saved, has vendor input): gather data + send bill.create (creates AND posts).
+//   2. Saved draft re-edited inline (has billId, no vendor input): save draft first, then bill.draft.post.
+function _postDirect(draftParentTr) {
   if (!draftParentTr) return;
-  var isDbDraft = draftParentTr.dataset.billId && !draftParentTr.querySelector('input.draft-vendor-input');
-  var bill, payload;
-  if (isDbDraft) {
-    var billId = draftParentTr.dataset.billId;
-    payload = { action: 'bill.draft.preview', companyId: COMPANY, billId: billId };
-  } else {
-    bill = _gatherInlineBillData(draftParentTr);
-    // Quick client-side pre-flight checks (full validation runs on the server)
+  var hasVendorInput = !!draftParentTr.querySelector('input.draft-vendor-input');
+  var savedBillId = draftParentTr.dataset.billId;
+
+  if (hasVendorInput) {
+    // Inline draft: gather + bill.create
+    var bill = _gatherInlineBillData(draftParentTr);
     if (!bill.vendor) { billEditMsg('Vendor required — select from dropdown', 'err'); return; }
-    if (!bill.vendor_ref) { billEditMsg('Invoice reference (Ref) is required before posting', 'err'); return; }
     if (!bill.date) { billEditMsg('Bill date is required', 'err'); return; }
     if (!bill.due_date) { billEditMsg('Due date is required', 'err'); return; }
     if (bill.due_date < bill.date) { billEditMsg('Due date must be ≥ bill date', 'err'); return; }
+    if (!bill.vendor_ref) { billEditMsg('Invoice reference (Ref) is required before posting', 'err'); return; }
     if (!bill.amount || bill.amount <= 0) { billEditMsg('Total amount must be > 0', 'err'); return; }
-    payload = { action: 'bill.draft.preview', companyId: COMPANY, bill: bill };
+    if (!bill.lines || !bill.lines.length) { billEditMsg('At least one line item is required', 'err'); return; }
+    var apIn = draftParentTr.querySelector('input.draft-ap-account');
+    if (apIn) bill.ap_account = apIn.value.trim() || bill.ap_account;
+    // Per-line expense accounts and vat_amount_override are already part of bill.lines via _gatherInlineBillData.
+    _sendPost({ action: 'bill.create', companyId: COMPANY, bill: bill }, draftParentTr);
+    return;
   }
 
-  billEditMsg('Computing journal preview…', '');
+  // Saved draft re-edited inline: persist changes via saveDraftToDb, then post.
+  if (!savedBillId) { billEditMsg('No draft to post', 'err'); return; }
+  billEditMsg('Saving draft before post…', '');
+  // Reuse the display-draft save path by temporarily setting draft=true is not needed;
+  // saveDraftToDb detects saved-draft inline edit via dataset.billId && !vendorInput.
+  // We post after the save resolves by chaining.
+  var apInputP = draftParentTr.querySelector('input.draft-ap-account');
+  var apAcctP = apInputP ? apInputP.value.trim() : (draftParentTr.dataset.apAccount || companyDefaultAp || '');
+  // Build the save payload inline (mirrors saveDraftToDb display-draft branch) so we can
+  // chain the post after a successful save without re-reading DOM state.
+  var dispKey = draftParentTr.dataset.draftKey || savedBillId;
+  var dispLines = Array.from(document.querySelectorAll('tr[data-parent-key="' + dispKey + '"]'))
+    .filter(function(cr){ return !!cr.querySelector('input.child-desc'); })
+    .filter(function(cr) {
+      var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[2];
+      return (dIn && dIn.value.trim()) || (aIn && parseFloat(aIn.value) > 0);
+    }).map(function(cr) {
+      var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[2];
+      var gSel = cr.querySelector('select'); var gIn = cr.querySelector('input.child-gst');
+      var eIn = cr.querySelector('input.child-expense-acct');
+      var expAcct = eIn ? eIn.value.trim() : (draftParentTr.dataset.expenseAccount || companyDefaultExpense || '');
+      var vatOverride = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || null) : null;
+      return { description: dIn ? dIn.value.trim() : '', expense_account: expAcct,
+        amount: parseFloat(aIn && aIn.value) || 0, vat_code: gSel ? (gSel.value || null) : null,
+        currency: draftParentTr.dataset.currency || BASE_CURRENCY, vat_amount_override: vatOverride };
+    });
+
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+    action: 'bill.draft.save', companyId: COMPANY, bill: {
+      bill_id: savedBillId, vendor: draftParentTr.dataset.vendor, vendor_ref: draftParentTr.dataset.vendorRef,
+      date: draftParentTr.dataset.date, due_date: draftParentTr.dataset.dueDate,
+      amount: parseFloat(draftParentTr.dataset.amount) || 0, currency: draftParentTr.dataset.currency || BASE_CURRENCY,
+      ap_account: apAcctP, expense_account: draftParentTr.dataset.expenseAccount || companyDefaultExpense || '',
+      lines: dispLines
+    }
+  }) })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res && res.error) { billEditMsg('Save failed: ' + res.error, 'err'); return; }
+      _sendPost({ action: 'bill.draft.post', companyId: COMPANY, billId: savedBillId, bill: { ap_account: apAcctP } }, draftParentTr);
+    })
+    .catch(function(e) { billEditMsg('Save failed: ' + (e.message || 'error'), 'err'); });
+}
+
+// Shared POST dispatcher used by both inline-create and saved-draft paths.
+function _sendPost(payload, draftParentTr) {
+  billEditMsg('Posting…', '');
   fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     .then(function(r) { return r.json(); })
     .then(function(res) {
-      if (res.error) { billEditMsg(res.error, 'err'); return; }
-      var data = res.data || res;
-      if (data.errors && data.errors.length) { billEditMsg(data.errors.join('; '), 'err'); return; }
-      // Show warnings (e.g., account codes not in COA) without blocking the preview
-      if (data.warnings && data.warnings.length) {
-        // Will display after preview renders
-        setTimeout(function() { billEditMsg('⚠ ' + data.warnings.join('; ') + ' — fix account codes below, then press p to post', 'err'); }, 50);
+      var d = res.data || res;
+      if (res.error || (d && d.error) || (d && d.errors && d.errors.length) || (d && d.created === false)) {
+        var err = res.error || (d && d.error) || (d && d.errors && d.errors.join('; ')) || 'Post failed';
+        billEditMsg('Error: ' + err, 'err');
+        return;
       }
-      // Stash state for _confirmPost
-      window._prvDraftTr = draftParentTr;
-      window._prvLines = (isDbDraft ? null : bill.lines);
-      window._prvBillLines = data.bill_lines || (isDbDraft ? null : bill.lines);
-      window._prvApAccount = data.ap_account || (isDbDraft ? null : bill.ap_account);
-      window._prvMeta = isDbDraft ? null : {
-        vendor: bill.vendor, vendor_ref: bill.vendor_ref, date: bill.date, due_date: bill.due_date,
-        amount: bill.amount, currency: bill.currency, ap_account: bill.ap_account, expense_account: bill.expense_account,
-      };
-      window._prvFxRate = data.fx_rate || null;
-      _renderPreviewLines(draftParentTr, data);
+      // Success: remove the draft row and its children, then reload
+      var dKey = draftParentTr.dataset.draftKey;
+      if (dKey) document.querySelectorAll('tr[data-parent-key="' + dKey + '"]').forEach(function(r){ r.remove(); });
+      if (draftParentTr.parentNode) draftParentTr.remove();
+      cursor.mode = 'NORMAL';
+      loadAllBills();
+      billEditMsg('Bill posted successfully.', 'ok');
+      setTimeout(function() { billEditMsg('', ''); }, 2500);
     })
-    .catch(function(e) { billEditMsg(e.message || 'Preview failed', 'err'); });
+    .catch(function(e) { billEditMsg('Error: ' + (e.message || 'Post failed'), 'err'); });
 }
 
-// Resolve account name from billAccountsList by code
-function _acctName(code) {
-  if (!code) return '';
-  var hit = billAccountsList.find(function(a) { return a.account_code === code; });
-  return hit ? hit.account_name : '';
-}
-
-// Render the journal lines as preview rows inside the fold area
-// Expense and AP account codes are editable inputs (issue 3).
-function _renderPreviewLines(parentRow, data) {
-  var lookupKey = parentRow.dataset.draftKey || parentRow.dataset.billId;
-  // Remove existing child rows for this parent (preview replaces the editable/draft view)
-  if (lookupKey) {
-    document.querySelectorAll('tr[data-parent-key="' + lookupKey + '"]').forEach(function(r) { r.remove(); });
-    document.querySelectorAll('tr[data-parent-id="' + lookupKey + '"]').forEach(function(r) { r.remove(); });
+// Create a <datalist> for account code autocomplete in INSERT-mode inputs
+// (parent AP account + child expense account). Populated from billAccountsList.
+function _ensureCoaDatalist() {
+  var dl = document.getElementById('coa-options');
+  if (!dl) {
+    dl = document.createElement('datalist');
+    dl.id = 'coa-options';
+    document.body.appendChild(dl);
   }
-  if (lookupKey) treeState.setOpen(lookupKey);
-
-  // Ensure account datalist exists
-  _ensureAcctDatalist();
-
-  var insertAfter = parentRow;
-  var ccy = data.currency || BASE_CURRENCY;
-  var baseCcy = data.base_currency || BASE_CURRENCY;
-  var fxRate = data.fx_rate || 1.0;
-  var isFx = ccy !== baseCcy;
-
-  // FX header row
-  if (isFx) {
-    var fxTr = document.createElement('tr');
-    fxTr.className = 'preview-row preview-fx-header-row';
-    fxTr.dataset.rowType = 'child';
-    if (lookupKey) { fxTr.dataset.parentKey = lookupKey; fxTr.dataset.parentId = lookupKey; }
-    fxTr.innerHTML = '<td colspan="7" class="preview-fx-header">FX: 1 ' + esc(ccy) + ' = ' + fxRate + ' ' + esc(baseCcy) + '</td>';
-    insertAfter.insertAdjacentElement('afterend', fxTr);
-    insertAfter = fxTr;
-  }
-
-  // Each journal line
-  var billLines = data.bill_lines || [];
-  var expenseIdx = 0; // track which bill line this expense journal line maps to
-  (data.lines || []).forEach(function(line) {
-    var tr = document.createElement('tr');
-    tr.className = 'preview-row';
-    tr.dataset.rowType = 'child';
-    if (lookupKey) { tr.dataset.parentKey = lookupKey; tr.dataset.parentId = lookupKey; }
-    // Only expense and AP account codes are editable in the preview.
-    // VAT lines are read-only — GST amount editing belongs at the bill
-    // line item level (inline .child-gst input in INSERT mode), not here.
-    var isEditable = (line.line_type === 'expense' || line.line_type === 'ap');
-    var acctName = line.account_name || _acctName(line.account_code) || '';
-    var vatLabel = line.line_type === 'vat' && line.vat_code ? ' <span style="color:#888;font-size:0.75rem">[' + esc(line.vat_code) + ']</span>' : '';
-    var dr = Number(line.debit || 0);
-    var cr = Number(line.credit || 0);
-    var amtCell, side;
-    if (dr > 0) {
-      side = 'dr';
-      if (isFx) {
-        amtCell = '<td class="preview-amt preview-amt-dr">' + dr.toFixed(2) + ' ' + esc(ccy) + '<br><span class="preview-amt-home">' + (line.debit_home != null ? Number(line.debit_home).toFixed(2) : (dr * fxRate).toFixed(2)) + ' ' + esc(baseCcy) + '</span></td>';
-      } else {
-        amtCell = '<td class="preview-amt preview-amt-dr">DR ' + dr.toFixed(2) + '</td>';
-      }
-    } else if (cr > 0) {
-      side = 'cr';
-      if (isFx) {
-        amtCell = '<td class="preview-amt preview-amt-cr">' + cr.toFixed(2) + ' ' + esc(ccy) + '<br><span class="preview-amt-home">' + (line.credit_home != null ? Number(line.credit_home).toFixed(2) : (cr * fxRate).toFixed(2)) + ' ' + esc(baseCcy) + '</span></td>';
-      } else {
-        amtCell = '<td class="preview-amt preview-amt-cr">CR ' + cr.toFixed(2) + '</td>';
-      }
-    } else {
-      side = '';
-      amtCell = '<td class="preview-amt"></td>';
-    }
-    var acctCell;
-    if (isEditable) {
-      var inpIdx = line.line_type === 'expense' ? 'exp' + expenseIdx : 'ap';
-      if (line.line_type === 'expense') expenseIdx++;
-      acctCell = '<td colspan="4" class="preview-acct">'
-        + '<input class="preview-acct-input" list="preview-acct-list" value="' + esc(line.account_code || '') + '"'
-        + ' data-line-type="' + esc(line.line_type) + '"'
-        + ' data-line-idx="' + esc(String(inpIdx)) + '"'
-        + ' style="width:120px;font-family:monospace;font-size:0.8125rem;border:1px solid #ddd;border-radius:3px;padding:2px 4px;color:#2255cc"'
-        + ' title="Account code — Tab to next, click to edit" />'
-        + ' <span class="preview-acct-name" style="color:#666">' + esc(acctName) + '</span>' + vatLabel
-        + '<div class="preview-desc">' + esc(line.description || '') + '</div></td>';
-    } else {
-      var acctDisplay = esc(line.account_code || '') + ' — ' + esc(acctName);
-      acctCell = '<td colspan="4" class="preview-acct"><span class="preview-acct-name">' + acctDisplay + vatLabel + '</span><div class="preview-desc">' + esc(line.description || '') + '</div></td>';
-    }
-    tr.innerHTML = acctCell
-      + '<td class="preview-side">' + (side === 'dr' ? 'DR' : (side === 'cr' ? 'CR' : '')) + '</td>'
-      + amtCell
-      + '<td></td>';
-    insertAfter.insertAdjacentElement('afterend', tr);
-    insertAfter = tr;
-  });
-
-  // Update account name display when input changes
-  parentRow.parentElement.querySelectorAll('input.preview-acct-input').forEach(function(inp) {
-    inp.addEventListener('input', function() {
-      var nameSpan = inp.parentElement.querySelector('.preview-acct-name');
-      var hit = billAccountsList.find(function(a) { return a.account_code === inp.value.trim(); });
-      if (nameSpan) nameSpan.textContent = hit ? hit.account_name : '';
-    });
-    inp.addEventListener('focus', function() { inp.select(); });
-  });
-
-  // Totals row
-  var totalTr = document.createElement('tr');
-  totalTr.className = 'preview-row preview-totals';
-  totalTr.dataset.rowType = 'child';
-  if (lookupKey) { totalTr.dataset.parentKey = lookupKey; totalTr.dataset.parentId = lookupKey; }
-  var balCheck = data.balanced ? ' ✓' : ' ✗';
-  var totalDebit = Number(data.total_debit || 0);
-  var totalCredit = Number(data.total_credit || 0);
-  if (isFx) {
-    totalTr.innerHTML = '<td colspan="4" class="preview-totals-label">Total' + balCheck + '</td>'
-      + '<td></td>'
-      + '<td class="preview-amt preview-amt-dr">DR ' + totalDebit.toFixed(2) + ' ' + esc(ccy) + '<br>CR ' + totalCredit.toFixed(2) + ' ' + esc(ccy) + '</td>'
-      + '<td></td>';
-  } else {
-    totalTr.innerHTML = '<td colspan="4" class="preview-totals-label">Total' + balCheck + '</td>'
-      + '<td></td>'
-      + '<td class="preview-amt preview-amt-dr">DR ' + totalDebit.toFixed(2) + ' / CR ' + totalCredit.toFixed(2) + '</td>'
-      + '<td></td>';
-  }
-  insertAfter.insertAdjacentElement('afterend', totalTr);
-
-  cursor.mode = 'PREVIEW';
-  billEditMsg('Post? p or Enter to confirm · Esc to cancel · Tab to edit account codes', '');
-  // Ensure the parent row stays highlighted
-  cursor.set(parentRow, 0);
-}
-
-// Create a <datalist> for account code autocomplete in preview rows
-function _ensureAcctDatalist() {
-  if (document.getElementById('preview-acct-list')) return;
-  var dl = document.createElement('datalist');
-  dl.id = 'preview-acct-list';
+  // (Re)populate options — safe to call after billAccountsList is loaded
+  dl.innerHTML = '';
   billAccountsList.forEach(function(a) {
     var opt = document.createElement('option');
     opt.value = a.account_code;
     opt.label = a.account_name || '';
     dl.appendChild(opt);
   });
-  document.body.appendChild(dl);
-}
-
-// Confirm post: send the actual post/create request to the backend
-function _confirmPost() {
-  var draftTr = window._prvDraftTr;
-  if (!draftTr) { billEditMsg('No draft to post', 'err'); return; }
-  var savedBillId = draftTr.dataset.billId;
-  var meta = window._prvMeta;
-  var lines = window._prvLines;
-  var fxRate = window._prvFxRate;
-
-  // Read edited account codes from preview inputs
-  var billLines = window._prvBillLines || lines || [];
-  var apAccount = window._prvApAccount || (meta ? meta.ap_account : null);
-  var lookupKey = draftTr.dataset.draftKey || draftTr.dataset.billId;
-  if (lookupKey) {
-    var acctInputs = document.querySelectorAll('input.preview-acct-input');
-    acctInputs.forEach(function(inp) {
-      var val = inp.value.trim();
-      if (!val) return;
-      var lt = inp.dataset.lineType;
-      if (lt === 'ap') {
-        apAccount = val;
-      } else if (lt === 'expense') {
-        var idx = parseInt(inp.dataset.lineIdx.replace('exp', ''), 10);
-        if (!isNaN(idx) && billLines[idx]) {
-          billLines[idx].expense_account = val;
-        }
-      }
-    });
-  }
-
-  function doPost(rate) {
-    var action, payload;
-    if (savedBillId) {
-      action = 'bill.draft.post';
-      payload = { action: action, companyId: COMPANY, billId: savedBillId, bill: { lines: billLines, ap_account: apAccount, fx_rate: rate } };
-    } else {
-      action = 'bill.create';
-      payload = { action: action, companyId: COMPANY, bill: {
-        vendor: meta.vendor, vendor_ref: meta.vendor_ref, date: meta.date, due_date: meta.due_date,
-        amount: meta.amount, currency: meta.currency, ap_account: apAccount, fx_rate: rate, lines: billLines
-      }};
-    }
-    billEditMsg('Posting…', '');
-    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      .then(function(r) { return r.json(); })
-      .then(function(res) {
-        var d = res.data || res;
-        // Check for errors: server error, or createBill returning { created: false, errors: [...] }
-        if (res.error || (d && d.error) || (d && d.errors && d.errors.length) || (d && d.created === false)) {
-          var err = res.error || (d && d.error) || (d && d.errors && d.errors.join('; ')) || 'Post failed';
-          billEditMsg('Error: ' + err, 'err');
-          return;
-        }
-        // Success: close preview and reload
-        _clearPreviewRows(draftTr);
-        if (window._prvDraftTr) {
-          var dKey = window._prvDraftTr.dataset.draftKey;
-          if (dKey) document.querySelectorAll('tr[data-parent-key="' + dKey + '"]').forEach(function(r){ r.remove(); });
-          window._prvDraftTr.remove();
-        }
-        window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null; window._prvBillLines = null; window._prvApAccount = null;
-        cursor.mode = 'NORMAL';
-        loadAllBills();
-        billEditMsg('Bill posted successfully.', 'ok');
-        setTimeout(function() { billEditMsg('', ''); }, 2500);
-      })
-      .catch(function(e) {
-        billEditMsg('Error: ' + (e.message || 'Post failed'), 'err');
-      });
-  }
-
-  // FX rate already resolved during _enterPreview; reuse it
-  if (meta && meta.currency && meta.currency.toUpperCase() !== BASE_CURRENCY.toUpperCase() && fxRate == null) {
-    billEditMsg('No FX rate resolved; returning to edit mode', 'err');
-    _exitPreview();
-    return;
-  }
-  doPost(fxRate);
-}
-
-// Remove preview rows only (used internally)
-function _clearPreviewRows(parentRow) {
-  var lookupKey = parentRow.dataset.draftKey || parentRow.dataset.billId;
-  if (lookupKey) {
-    document.querySelectorAll('tr[data-parent-key="' + lookupKey + '"]').forEach(function(r) { if (r.classList.contains('preview-row') || r.classList.contains('preview-totals') || r.classList.contains('preview-fx-header-row')) r.remove(); });
-    document.querySelectorAll('tr[data-parent-id="' + lookupKey + '"]').forEach(function(r) { if (r.classList.contains('preview-row') || r.classList.contains('preview-totals') || r.classList.contains('preview-fx-header-row')) r.remove(); });
-  }
-}
-
-// Exit preview: remove preview rows, re-render normal child rows, return to NORMAL
-function _exitPreview() {
-  var parentRow = window._prvDraftTr || (cursor.rowEl && cursor.rowEl.dataset.rowType === 'parent' ? cursor.rowEl : null);
-  // If cursor is on a preview child row, find the parent
-  if (!parentRow && cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') {
-    var pKey = cursor.rowEl.dataset.parentKey || cursor.rowEl.dataset.parentId;
-    parentRow = pKey
-      ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') ||
-         document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]'))
-      : null;
-  }
-  if (!parentRow) {
-    window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null; window._prvBillLines = null; window._prvApAccount = null;
-    cursor.mode = 'NORMAL';
-    billEditMsg('', '');
-    return;
-  }
-
-  // Remove all preview rows for this parent
-  var lookupKey = parentRow.dataset.draftKey || parentRow.dataset.billId;
-  if (lookupKey) {
-    document.querySelectorAll('tr[data-parent-key="' + lookupKey + '"]').forEach(function(r) { r.remove(); });
-    document.querySelectorAll('tr[data-parent-id="' + lookupKey + '"]').forEach(function(r) { r.remove(); });
-  }
-
-  // Determine if this is an inline draft (has draftKey) or a saved draft (has billId, status='draft')
-  var isInlineDraft = parentRow.dataset.draftKey && parentRow.dataset.draft === 'true';
-  var isSavedDraft = parentRow.dataset.billId && parentRow.dataset.status === 'draft' && !parentRow.dataset.draftKey;
-
-  if (isInlineDraft) {
-    // Inline draft: re-render editable child rows from draftLines
-    var draftKey = parentRow.dataset.draftKey;
-    if (draftKey) {
-      if (!draftLines[draftKey]) draftLines[draftKey] = [{ desc: '', amount: 0, vatCode: '' }];
-      renderDraftChildRows(parentRow, draftLines[draftKey]);
-      updateParentDraftAmount(parentRow);
-    }
-  } else if (isSavedDraft) {
-    // Saved draft: close the fold (treeState was opened by _enterPreview)
-    // The user can re-open with Space to see the saved lines again.
-    treeState.setClose(parentRow.dataset.billId);
-    parentRow.classList.remove('row-expanded');
-  } else {
-    // Fallback: close treeState for whatever key was used
-    if (lookupKey) treeState.setClose(lookupKey);
-    parentRow.classList.remove('row-expanded');
-  }
-
-  window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null; window._prvBillLines = null; window._prvApAccount = null;
-  cursor.mode = 'NORMAL';
-  billEditMsg('', '');
-  cursor.set(parentRow, 0);
 }
 
 function registerBillKeyActions() {

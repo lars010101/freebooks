@@ -273,7 +273,7 @@ ${commonStyle()}
   </div>
 
     <div style="margin-top:6px;text-align:right">
-      <span style="font-size:0.625rem;color:#bbb">jk&nbsp;navigate &nbsp;&middot;&nbsp; Enter&nbsp;fold &nbsp;&middot;&nbsp; i&nbsp;edit &nbsp;&middot;&nbsp; o&nbsp;new bill/line &nbsp;&middot;&nbsp; :w&nbsp;save &nbsp;&middot;&nbsp; p&nbsp;post &nbsp;&middot;&nbsp; dd&nbsp;delete/void &nbsp;&middot;&nbsp; Esc&nbsp;cancel</span>
+      <span style="font-size:0.625rem;color:#bbb">j/k&nbsp;navigate &nbsp;&middot;&nbsp; Enter&nbsp;fold &nbsp;&middot;&nbsp; i&nbsp;edit &nbsp;&middot;&nbsp; o&nbsp;new bill/line &nbsp;&middot;&nbsp; p&nbsp;post &nbsp;&middot;&nbsp; x&nbsp;delete &nbsp;&middot;&nbsp; Esc&nbsp;save/cancel</span>
     </div>
 
   </div><!-- /pay-panel-bills -->

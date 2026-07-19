@@ -68,11 +68,9 @@ async function createBill(ctx) {
   const { companyId, userEmail, body } = ctx;
   const { bill, payment_batch_id } = body;
 
-  // Replace draft: delete the draft record so bill_id can be reused
+  // Replace draft: delete the draft record AFTER validation succeeds
+  // (moved from here to after validateBill — see below)
   const replaceDraftId = body._replaceDraftId;
-  if (replaceDraftId) {
-    await query(`DELETE FROM bills WHERE bill_id=@id AND company_id=@companyId AND status='draft'`, { id: replaceDraftId, companyId });
-  }
 
   if (!bill) throw Object.assign(new Error('bill object required'), { code: 'INVALID_INPUT' });
 
@@ -124,6 +122,11 @@ async function createBill(ctx) {
 
   const validation = await validateBill(companyId, billForValidation);
   if (!validation.valid) return { created: false, errors: validation.errors, warnings: validation.warnings };
+
+  // Validation passed — now safe to delete the draft record
+  if (replaceDraftId) {
+    await query(`DELETE FROM bills WHERE bill_id=@id AND company_id=@companyId AND status='draft'`, { id: replaceDraftId, companyId });
+  }
 
   // --- 1a: Server-side period lock enforcement ---
   // The client-side openPostReviewPopup() checks allPeriods for an unlocked covering

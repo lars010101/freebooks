@@ -2251,8 +2251,10 @@ function _confirmPost() {
     fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function(r) { return r.json(); })
       .then(function(res) {
-        if (res.error || (res.data && res.data.error)) {
-          var err = res.error || (res.data && res.data.error);
+        var d = res.data || res;
+        // Check for errors: server error, or createBill returning { created: false, errors: [...] }
+        if (res.error || (d && d.error) || (d && d.errors && d.errors.length) || (d && d.created === false)) {
+          var err = res.error || (d && d.error) || (d && d.errors && d.errors.join('; ')) || 'Post failed';
           billEditMsg('Error: ' + err, 'err');
           return;
         }

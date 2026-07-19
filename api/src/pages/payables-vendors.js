@@ -449,8 +449,8 @@ function draftVendorInput(input) {
     item.onclick = function() {
       input.dataset.vendorId = v.vendor_id || '';
       input.dataset.vendorName = v.name || '';
-      input.dataset.apAccount = v.default_ap_account || '201100';
-      input.dataset.expenseAccount = v.default_expense_account || '400000';
+      input.dataset.apAccount = v.default_ap_account || companyDefaultAp || '';
+      input.dataset.expenseAccount = v.default_expense_account || companyDefaultExpense || '';
       input.value = v.name || '';
       var tr = input.closest('tr');
       if (tr) {

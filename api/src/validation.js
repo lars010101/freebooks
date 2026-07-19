@@ -131,14 +131,36 @@ async function validateBill(companyId, bill) {
   if (!bill.vendor_ref || bill.vendor_ref.trim() === '') errors.push('Invoice Ref is required');
   if (!bill.amount || bill.amount <= 0) errors.push('Bill amount must be positive');
 
-  const accounts = await query(
-    `SELECT account_code FROM accounts WHERE company_id = @companyId AND account_code IN (@expense, @ap)`,
-    { companyId, expense: bill.expense_account, ap: bill.ap_account }
-  );
-  const foundCodes = new Set(accounts.map((a) => a.account_code));
+  // Blank account codes are reported as "required" rather than running a COA
+  // lookup that would produce a confusing "account undefined does not exist"
+  // message. Company defaults are applied upstream (bills.js) so by the time we
+  // reach here a blank code genuinely means nothing was configured.
+  const expenseAcct = bill.expense_account ? String(bill.expense_account).trim() : '';
+  const apAcct = bill.ap_account ? String(bill.ap_account).trim() : '';
+  if (!expenseAcct) errors.push('Expense account is required');
+  if (!apAcct) errors.push('AP account is required');
 
-  if (!foundCodes.has(bill.expense_account)) errors.push(`Expense account ${bill.expense_account} does not exist in COA`);
-  if (!foundCodes.has(bill.ap_account)) errors.push(`AP account ${bill.ap_account} does not exist in COA`);
+  let foundCodes = new Set();
+  if (expenseAcct || apAcct) {
+    // Pass only the non-empty codes to the IN (...) list to avoid DuckDB
+    // treating an empty string as a real (missing) account code.
+    const codes = [];
+    if (expenseAcct) codes.push(expenseAcct);
+    if (apAcct) codes.push(apAcct);
+    // Deduplicate so a single empty-side scenario doesn't double-bind params.
+    const uniqCodes = Array.from(new Set(codes));
+    const placeholders = uniqCodes.map((_, i) => '@code' + i).join(', ');
+    const params = { companyId };
+    uniqCodes.forEach((c, i) => { params['code' + i] = c; });
+    const accounts = await query(
+      `SELECT account_code FROM accounts WHERE company_id = @companyId AND account_code IN (${placeholders})`,
+      params
+    );
+    foundCodes = new Set(accounts.map((a) => a.account_code));
+  }
+
+  if (expenseAcct && !foundCodes.has(expenseAcct)) errors.push(`Expense account ${expenseAcct} does not exist in COA`);
+  if (apAcct && !foundCodes.has(apAcct)) errors.push(`AP account ${apAcct} does not exist in COA`);
 
   if (bill.due_date && bill.date && new Date(bill.due_date) < new Date(bill.date)) {
     warnings.push('Due date is before bill date');

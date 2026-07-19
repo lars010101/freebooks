@@ -14,6 +14,13 @@ var sortState = { col: null, dir: 'asc' };
 var colFilters = {};
 var taxCodeMap = {}; // vat_code -> description
 
+// Company-level default AP/expense account codes, loaded from settings on page
+// init. Blank ('') when unset — used as fallbacks in place of the old hardcoded
+// '201100' (AP) and '400000' (expense) defaults. Vendor defaults still override
+// these; see _loadCompanyDefaults() and the vendor-selection handler.
+var companyDefaultAp = '';
+var companyDefaultExpense = '';
+
 var draftLines = {}; // { draftKey: [{desc, amount, vatCode}] } -- source of truth for draft child rows
 
 var treeState = {
@@ -673,6 +680,26 @@ function billEditMsg(msg, type) {
 }
 
 // ========== PAGE INIT ==========
+// Fetch company-level default AP/expense account codes from settings and stash
+// them in companyDefaultAp / companyDefaultExpense. These replace the old
+// hardcoded '201100'/'400000' fallbacks. Blank when the company hasn't
+// configured defaults — drafts then render with data-ap-account="" etc. and the
+// backend surfaces a clear "required" validation error at post time.
+function _loadCompanyDefaults() {
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'settings.get', companyId: COMPANY }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      var s = (res && res.data) ? res.data : (res || {});
+      companyDefaultAp = (s.default_ap_account || '').trim();
+      companyDefaultExpense = (s.default_expense_account || '').trim();
+    })
+    .catch(function (e) {
+      // Non-fatal: leave defaults blank (blank fallback behaviour).
+      console.warn('Could not load company default accounts:', e && e.message);
+    });
+}
+
 function fbPageInitPayables() {
   loadVendors();
   loadAllBills();
@@ -682,6 +709,7 @@ function fbPageInitPayables() {
   registerVendorKeyActions();
   kbd.register();
   loadBillAccounts();
+  _loadCompanyDefaults();
   window.fbBillNav = true;
 
   fetch('/api/' + COMPANY + '/vat-codes')
@@ -1283,7 +1311,7 @@ function createDraftBill(refRow) {
   tr.dataset.draftKey = draftKey;
   tr.style.cssText = 'cursor:default';
   var baseCcy = BASE_CURRENCY;
-  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="201100" data-expense-account="400000" /></div></td>'
+  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="' + companyDefaultAp + '" data-expense-account="' + companyDefaultExpense + '" /></div></td>'
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
@@ -1465,8 +1493,8 @@ function _wireDraftParentEvents(tr) {
         if (match) {
           vendorInput.dataset.vendorId = match.vendor_id || '';
           vendorInput.dataset.vendorName = match.name || '';
-          vendorInput.dataset.apAccount = match.default_ap_account || '201100';
-          vendorInput.dataset.expenseAccount = match.default_expense_account || '400000';
+          vendorInput.dataset.apAccount = match.default_ap_account || companyDefaultAp || '';
+          vendorInput.dataset.expenseAccount = match.default_expense_account || companyDefaultExpense || '';
           vendorInput.value = match.name;
           if (ccyInputEl && !ccyInputEl.value) { ccyInputEl.value = (match.default_currency || BASE_CURRENCY).toUpperCase(); ccyInputEl.dispatchEvent(new Event('input')); }
         }
@@ -1554,7 +1582,7 @@ function insertDraftParentRow(refRow, above) {
   tr.dataset.draftKey = draftKey;
   tr.style.cssText = 'cursor:default';
   var baseCcy = BASE_CURRENCY;
-  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="201100" data-expense-account="400000" /></div></td>'
+  tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="' + companyDefaultAp + '" data-expense-account="' + companyDefaultExpense + '" /></div></td>'
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
@@ -1653,8 +1681,8 @@ function convertDisplayToDraft(parentRow) {
   var dueDate = parentRow.dataset.dueDate || '';
   var vendorRef = parentRow.dataset.vendorRef || '';
   var currency = (parentRow.dataset.currency || BASE_CURRENCY).toUpperCase();
-  var apAccount = parentRow.dataset.apAccount || '201100';
-  var expenseAccount = parentRow.dataset.expenseAccount || '400000';
+  var apAccount = parentRow.dataset.apAccount || companyDefaultAp || '';
+  var expenseAccount = parentRow.dataset.expenseAccount || companyDefaultExpense || '';
   var draftKey = parentRow.dataset.draftKey || billId;
 
   // Look up vendor ID from master data by name
@@ -1739,8 +1767,8 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   draftParentTr.dataset.status = 'draft';
   var savedVendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   if (savedVendorInput) {
-    draftParentTr.dataset.apAccount = savedVendorInput.dataset.apAccount || '201100';
-    draftParentTr.dataset.expenseAccount = savedVendorInput.dataset.expenseAccount || '400000';
+    draftParentTr.dataset.apAccount = savedVendorInput.dataset.apAccount || companyDefaultAp || '';
+    draftParentTr.dataset.expenseAccount = savedVendorInput.dataset.expenseAccount || companyDefaultExpense || '';
   }
   delete draftParentTr.dataset.draft;
   draftParentTr.style.cursor = 'pointer';
@@ -1816,7 +1844,7 @@ function saveDraftToDb(draftParentTr) {
       return (dIn && dIn.value.trim()) || (aIn && parseFloat(aIn.value) > 0);
     }).map(function(cr) {
       var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[1]; var gSel = cr.querySelector('select');
-      return { description: dIn?dIn.value.trim():'', expense_account: draftParentTr.dataset.expenseAccount||'400000',
+      return { description: dIn?dIn.value.trim():'', expense_account: draftParentTr.dataset.expenseAccount||companyDefaultExpense||'',
         amount: parseFloat(aIn&&aIn.value)||0, vat_code: gSel?(gSel.value||null):null, currency: draftParentTr.dataset.currency||BASE_CURRENCY };
     });
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
@@ -1824,7 +1852,7 @@ function saveDraftToDb(draftParentTr) {
         vendor:draftParentTr.dataset.vendor, vendor_ref:draftParentTr.dataset.vendorRef,
         date:draftParentTr.dataset.date, due_date:draftParentTr.dataset.dueDate,
         amount:parseFloat(draftParentTr.dataset.amount)||0, currency:draftParentTr.dataset.currency||BASE_CURRENCY,
-        ap_account:draftParentTr.dataset.apAccount||'201100', expense_account:draftParentTr.dataset.expenseAccount||'400000',
+        ap_account:draftParentTr.dataset.apAccount||companyDefaultAp||'', expense_account:draftParentTr.dataset.expenseAccount||companyDefaultExpense||'',
         lines:dispLines }}) })
     .then(function(r){ return r.json(); }).then(function(res){
       if (res && res.error) { billEditMsg(res.error, 'err'); return; }
@@ -1865,12 +1893,12 @@ function saveDraftToDb(draftParentTr) {
       due_date: dueInput ? dueInput.value : null,
       amount: totalAmt,
       currency: ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY,
-      ap_account: vendorInput ? (vendorInput.dataset.apAccount || '201100') : '201100',
-      expense_account: vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000',
+      ap_account: vendorInput ? (vendorInput.dataset.apAccount || companyDefaultAp || '') : (companyDefaultAp || ''),
+      expense_account: vendorInput ? (vendorInput.dataset.expenseAccount || companyDefaultExpense || '') : (companyDefaultExpense || ''),
       lines: (function() {
         var dk = draftKeyAmt;
         if (!dk) return null;
-        var expAcct2 = vendorInput ? (vendorInput.dataset.expenseAccount || '400000') : '400000';
+        var expAcct2 = vendorInput ? (vendorInput.dataset.expenseAccount || companyDefaultExpense || '') : (companyDefaultExpense || '');
         var ccy2 = ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY;
         // Primary: DOM child rows — reads current input values directly, reliable regardless of syncLine state.
         // Filter out empty rows (no description AND no amount) — they are discarded at save time.
@@ -1928,8 +1956,8 @@ function _gatherInlineBillData(draftParentTr) {
   var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];
   var vendorName = vendorInput && vendorInput.dataset.vendorName;
   if (!vendorName && vendorInput) vendorName = vendorInput.value.trim();
-  var apAccount = vendorInput && (vendorInput.dataset.apAccount || '201100');
-  var expAcct   = vendorInput && (vendorInput.dataset.expenseAccount || '400000');
+  var apAccount = vendorInput && (vendorInput.dataset.apAccount || companyDefaultAp || '');
+  var expAcct   = vendorInput && (vendorInput.dataset.expenseAccount || companyDefaultExpense || '');
   var billDate  = dateInput && dateInput.value;
   var dueDate   = dueInput && dueInput.value;
   var refCode   = refInput ? refInput.value.trim() : '';

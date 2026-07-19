@@ -92,6 +92,24 @@ ${commonStyle()}
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <span id="msg-company" class="msg" style="font-size:0.8125rem"></span>
     </div>
+
+    <!-- Default accounts for this company (used as fallbacks on new bills) -->
+    <div style="margin-top:24px;padding:14px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
+      <div style="font-weight:600;margin-bottom:4px">Default Accounts (current company)</div>
+      <div style="font-size:9pt;color:#666;margin-bottom:12px">Used as fallbacks when creating new bills. Vendor-specific defaults still take precedence; leave blank for no default.</div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field-row" style="margin-bottom:0">
+          <label for="default-ap-account">Default AP Account</label>
+          <input type="text" id="default-ap-account" placeholder="account code" style="max-width:200px">
+        </div>
+        <div class="field-row" style="margin-bottom:0">
+          <label for="default-expense-account">Default Expense Account</label>
+          <input type="text" id="default-expense-account" placeholder="account code" style="max-width:200px">
+        </div>
+        <button class="btn-sm" id="btn-save-default-accounts" onclick="saveDefaultAccounts()">Save Defaults</button>
+        <span id="msg-default-accounts" class="msg" style="margin-left:8px"></span>
+      </div>
+    </div>
   </div>
 
   <!-- COA TAB -->
@@ -196,7 +214,7 @@ function showTab(t) {
   document.getElementById('tab-'+t).classList.add('active');
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
-    if (t === 'company')  { loadCompanies(); }
+    if (t === 'company')  { loadCompanies(); loadDefaultAccounts(); }
     if (t === 'periods')  { loadPeriods(); }
     if (t === 'coa')      { loadCoa(); }
     if (t === 'vat')      { loadVat(); }
@@ -979,6 +997,58 @@ function saveApiKey() {
     .then(function(r){ var d = r.data||r; showMsg('msg-fx-provider', r.error||d.error||'API Key saved', !!(r.error||d.error)); })
     .catch(function(e){ showMsg('msg-fx-provider', e.message, true); });
 }
+
+// ========== DEFAULT ACCOUNTS (current company) ==========
+// Reads / writes the 'default_ap_account' and 'default_expense_account' rows in
+// the settings table for the active company. These are used as fallbacks when
+// creating new bills (vendor defaults still take precedence; blank = no default).
+
+function loadDefaultAccounts() {
+  var apInput = document.getElementById('default-ap-account');
+  var expInput = document.getElementById('default-expense-account');
+  if (!apInput || !expInput) return;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'settings.get', companyId: COMPANY }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      var s = (res && res.data) ? res.data : (res || {});
+      apInput.value = s.default_ap_account || '';
+      expInput.value = s.default_expense_account || '';
+    })
+    .catch(function (e) { showMsg('msg-default-accounts', e.message, true); });
+}
+
+function saveDefaultAccounts() {
+  var apInput = document.getElementById('default-ap-account');
+  var expInput = document.getElementById('default-expense-account');
+  if (!apInput || !expInput) return;
+  var apVal = apInput.value.trim();
+  var expVal = expInput.value.trim();
+  var btn = document.getElementById('btn-save-default-accounts');
+  if (btn) { btn.disabled = true; }
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'settings.save', companyId: COMPANY,
+      settings: { default_ap_account: apVal, default_expense_account: expVal }
+    }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      var d = res.data || res;
+      if (res.error || d.error) {
+        showMsg('msg-default-accounts', res.error || d.error, true);
+      } else {
+        showMsg('msg-default-accounts', 'Default accounts saved', false);
+      }
+      if (btn) { btn.disabled = false; }
+    })
+    .catch(function (e) {
+      showMsg('msg-default-accounts', e.message, true);
+      if (btn) { btn.disabled = false; }
+    });
+}
+
+// Populate the default-accounts card on the default-visible Company tab.
+window.addEventListener('DOMContentLoaded', function () { loadDefaultAccounts(); });
 
 // ========== UNSAVED CHANGES PROTECTION ==========
 window.onbeforeunload = function(e) {

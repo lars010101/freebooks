@@ -14,6 +14,37 @@ const { getNextReference } = require('./journal');
 const { validateBill } = require('./validation');
 // computeVatSplit removed — bills now use tax-exclusive direct VAT lookup
 
+// Read company-level default AP and expense account codes from the settings
+// table. Returns { ap: '', expense: '' } when unset (blank fallback).
+async function getCompanyDefaultAccounts(companyId) {
+  const rows = await query(
+    `SELECT key, value FROM settings WHERE company_id = @companyId AND key IN ('default_ap_account', 'default_expense_account')`,
+    { companyId }
+  );
+  const out = { ap: '', expense: '' };
+  for (const r of rows) {
+    if (r.key === 'default_ap_account') out.ap = (r.value || '').trim();
+    if (r.key === 'default_expense_account') out.expense = (r.value || '').trim();
+  }
+  return out;
+}
+
+// Apply company defaults as fallbacks for bill-level ap_account/expense_account
+// and per-line expense_account. Values that are already set are preserved; the
+// result may still be blank ('') when neither the bill nor the company specifies
+// a value (validation surfaces a clear "required" error in that case).
+function applyCompanyDefaults(bill, defaults) {
+  if (!bill) return bill;
+  if (!bill.ap_account) bill.ap_account = defaults.ap || '';
+  if (!bill.expense_account) bill.expense_account = defaults.expense || '';
+  if (Array.isArray(bill.lines)) {
+    bill.lines.forEach(function (l) {
+      if (l && !l.expense_account) l.expense_account = defaults.expense || '';
+    });
+  }
+  return bill;
+}
+
 async function handleBills(ctx, action) {
   switch (action) {
     case 'bill.create': return createBill(ctx);
@@ -72,6 +103,13 @@ async function createBill(ctx) {
     }
   }
   bill.fx_rate = fxRate;
+
+  // Apply company-level default AP/expense accounts as fallbacks for any blank
+  // bill-level or per-line account codes. Company defaults are themselves
+  // optional (blank fallback) — validation will report a clear error if a
+  // required account is still missing.
+  const companyDefaults = await getCompanyDefaultAccounts(companyId);
+  applyCompanyDefaults(bill, companyDefaults);
 
   // Pre-resolve lines for validation (amount + expense_account needed by validateBill)
   const _preLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)
@@ -619,6 +657,11 @@ async function previewBill(ctx) {
     }
   }
   bill.fx_rate = fxRate;
+
+  // Apply company-level default AP/expense accounts as fallbacks for blank
+  // bill-level and per-line account codes (mirrors createBill).
+  const companyDefaults = await getCompanyDefaultAccounts(companyId);
+  applyCompanyDefaults(bill, companyDefaults);
 
   // Pre-resolve lines for validation (same as createBill)
   const _preLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)

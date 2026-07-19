@@ -579,6 +579,11 @@ async function saveDraftBill(ctx) {
   if (!bill) throw Object.assign(new Error('bill required'), { code: 'INVALID_INPUT' });
   // vendor and date optional — allows skeleton draft creation on row init
 
+  // Apply company default accounts (same safety net as createBill) so blank
+  // expense/ap accounts fall back to settings before hitting NOT NULL constraints.
+  const companyDefaults = await getCompanyDefaultAccounts(companyId);
+  applyCompanyDefaults(bill, companyDefaults);
+
   const existing = bill.bill_id
     ? await query(`SELECT bill_id FROM bills WHERE bill_id = @id AND company_id = @cid AND status = 'draft' LIMIT 1`, { id: bill.bill_id, cid: companyId })
     : [];

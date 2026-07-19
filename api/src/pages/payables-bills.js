@@ -2667,7 +2667,7 @@ function renderPage() {
     var isOverdue = active && due && due < today;
     var dueCls = isOverdue ? ' class="overdue-date"' : '';
     var rowUrl = '/' + COMPANY + '/bill/' + b.bill_id;
-    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" data-date="' + esc(b.date||'') + '" data-due-date="' + esc(due || '') + '" data-vendor-ref="' + esc(b.vendor_ref || '') + '" data-amount="' + String(b.amount || 0) + '" data-currency="' + esc(b.currency || BASE_CURRENCY) + '" data-status="' + esc(b.status || '') + '" style="cursor:pointer">'
+    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" data-date="' + esc(b.date||'') + '" data-due-date="' + esc(due || '') + '" data-vendor-ref="' + esc(b.vendor_ref || '') + '" data-amount="' + String(b.amount || 0) + '" data-currency="' + esc(b.currency || BASE_CURRENCY) + '" data-status="' + esc(b.status || '') + '" data-expense-account="' + esc(b.expense_account || '') + '" data-ap-account="' + esc(b.ap_account || '') + '" style="cursor:pointer">'
       + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td style="white-space:nowrap">' + fmtDate(b.date) + '</td>'
       + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'

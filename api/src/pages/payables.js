@@ -178,6 +178,20 @@ ${commonStyle()}
   tr.bill-row-focus[data-draft="true"] td { background: rgba(61, 100, 148, 0.35) !important; }
   [data-theme="dark"] tr.bill-row-focus[data-draft="true"] td { background: rgba(61, 100, 148, 0.50) !important; }
 
+  /* Inline journal preview rows (fold area, replaces popup) */
+  .data-table tbody.preview-mode tr:hover td { background:inherit !important; }
+  tr.preview-row td { background:#f8f9fa; border-bottom:1px solid #f0f0f0; padding:8px 18px; font-size:0.8125rem; vertical-align:top; }
+  tr.preview-row .preview-acct { padding-left:48px; }
+  tr.preview-row .preview-acct-name { color:#2255cc; font-weight:500; }
+  tr.preview-row .preview-desc { color:#888; font-size:0.75rem; margin-top:2px; }
+  tr.preview-row .preview-side { color:#666; font-size:0.75rem; text-align:center; width:50px; font-weight:600; }
+  tr.preview-row .preview-amt { color:#1a1a1a; text-align:right; font-variant-numeric:tabular-nums; }
+  tr.preview-row .preview-amt .preview-amt-home { color:#888; font-size:0.75rem; }
+  tr.preview-row.preview-totals td { font-weight:600; border-top:1px solid #ddd; background:#f0f0f0; }
+  tr.preview-row.preview-totals .preview-totals-label { padding-left:48px; }
+  tr.preview-row.preview-fx-header-row td { background:#fffbea; }
+  tr.preview-row .preview-fx-header { color:#666; font-size:0.8125rem; font-style:italic; }
+
   .btn-sm:hover { background:#e8e8e8; }
   .btn-save-draft { background:none; border:none; cursor:pointer; font-size:1rem; padding:2px 6px; color:#bbb; line-height:1; border-radius:4px; }
   .btn-save-draft:hover { color:#1a1a1a; background:#f0f0f0; }

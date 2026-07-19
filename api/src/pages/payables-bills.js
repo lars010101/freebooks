@@ -37,8 +37,8 @@ var cursor = {
     this._mode = val;
     var tbody = document.getElementById('bills-tbody');
     if (tbody) {
-      if (val === 'INSERT') tbody.classList.add('insert-mode');
-      else tbody.classList.remove('insert-mode');
+      if (val === 'INSERT') tbody.classList.add('insert-mode'); else tbody.classList.remove('insert-mode');
+      if (val === 'PREVIEW') tbody.classList.add('preview-mode'); else tbody.classList.remove('preview-mode');
     }
   },
 
@@ -215,6 +215,25 @@ var kbd = {
   _handle: function(e) {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     if (!this._isBillsTabActive()) return;
+
+    // PREVIEW mode: p / Enter confirms post, Esc cancels
+    if (cursor.mode === 'PREVIEW') {
+      if (e.key === 'p' || e.key === 'Enter') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        _confirmPost();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        _exitPreview();
+        return;
+      }
+      // Block other navigation keys while in preview
+      e.preventDefault();
+      return;
+    }
 
     // INSERT mode: intercept control keys only
     if (cursor.mode === 'INSERT') {
@@ -469,7 +488,7 @@ var kbd = {
       return;
     }
 
-    // p = post bill from any row
+    // p = post bill from any row (NORMAL mode only; PREVIEW handled above)
     if (e.key === 'p') {
       e.preventDefault();
       var pRow = cursor.rowEl;
@@ -483,7 +502,7 @@ var kbd = {
       }
       if (pRow && (pRow.dataset.draft === 'true' || pRow.dataset.status === 'draft')) {
         if (pRow.dataset.status === 'draft' && !pRow.dataset.draft) pRow.dataset.draft = 'true';
-        openPostReviewPopup(pRow);
+        _enterPreview(pRow);
       }
       return;
     }
@@ -1535,7 +1554,7 @@ function insertDraftParentRow(refRow, above) {
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewPopup(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
+    + '<td><span class=\"badge\" style=\"background:#e8e4d0;color:#7a6a00\" title=\"Press p to post draft bill\">Draft</span></td>';
   if (refRow && above) {
     refRow.parentElement.insertBefore(tr, refRow);
   } else if (refRow) {
@@ -1729,7 +1748,7 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
     + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(vendorRef) + '</a></td>'
     + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(amount).toFixed(2) + '</td>'
     + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px" id="ccy-' + esc(billId) + '">' + esc(currency) + '</td>'
-    + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer" onclick="openPostReviewForSavedDraft(this.parentElement.parentElement)" title="Click to post draft bill">Draft</span></td>';
+    + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00" title="Press p to post draft bill">Draft</span></td>';
 
   // Populate CCY tooltip with FX rate for non-base currency
   if (currency && currency.toUpperCase() !== BASE_CURRENCY.toUpperCase()) {
@@ -1894,163 +1913,197 @@ function saveDraftToDb(draftParentTr) {
     .catch(function(e) { billEditMsg(e.message, 'err'); });
 }
 
-// ========== POST REVIEW POPUP ==========
-function openPostReviewPopup(draftParentTr) {
-  var isDbDraft = draftParentTr.dataset.billId && !draftParentTr.querySelector('input.draft-vendor-input');
+// ========== INLINE JOURNAL PREVIEW (replaces popup) ==========
 
-  var vendorName, apAccount, expAcct, billDate, dueDate, totalAmt, ccy, refCode;
+// Resolve the bill data + lines from the DOM for inline drafts.
+function _gatherInlineBillData(draftParentTr) {
+  var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
+  var inputs = draftParentTr.querySelectorAll('input');
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];
+  var vendorName = vendorInput && vendorInput.dataset.vendorName;
+  if (!vendorName && vendorInput) vendorName = vendorInput.value.trim();
+  var apAccount = vendorInput && (vendorInput.dataset.apAccount || '201100');
+  var expAcct   = vendorInput && (vendorInput.dataset.expenseAccount || '400000');
+  var billDate  = dateInput && dateInput.value;
+  var dueDate   = dueInput && dueInput.value;
+  var refCode   = refInput ? refInput.value.trim() : '';
+  var ccy       = ccyInput && (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY);
+  var draftKey  = draftParentTr.dataset.draftKey;
+  var totalAmt = 0;
   var lines = [];
-
-  if (isDbDraft) {
-    vendorName = draftParentTr.dataset.vendor;
-    billDate = draftParentTr.dataset.billDate || draftParentTr.dataset.date;
-    dueDate = draftParentTr.dataset.dueDate || draftParentTr.dataset.due_date;
-    totalAmt = parseFloat(draftParentTr.dataset.amount) || 0;
-    ccy = draftParentTr.dataset.currency || BASE_CURRENCY;
-    refCode = draftParentTr.dataset.vendorRef || '';
-    apAccount = '201100';
-    expAcct = '400000';
-    lines.push({ description: '', expense_account: expAcct, amount: totalAmt, vat_code: null });
-  } else {
-    var vendorInputs = draftParentTr.querySelectorAll('input');
-    var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
-    var dateInput = vendorInputs[1];
-    var dueInput = vendorInputs[2];
-    var refInput = vendorInputs[3];
-    var ccyInput = vendorInputs[4];
-    vendorName = vendorInput && vendorInput.dataset.vendorName;
-    apAccount = vendorInput && (vendorInput.dataset.apAccount || '201100');
-    if (!vendorName && vendorInput) vendorName = vendorInput.value.trim();
-    expAcct = vendorInput && (vendorInput.dataset.expenseAccount || '400000');
-    billDate = dateInput && dateInput.value;
-    dueDate = dueInput && dueInput.value;
-    var draftKeyT = draftParentTr.dataset.draftKey;
-    totalAmt = 0;
-    if (draftKeyT) Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyT + '"]')).forEach(function(cr) { var a = cr.querySelectorAll('input')[1]; totalAmt += parseFloat(a && a.value) || 0; });
-    ccy = ccyInput && (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY);
-    refCode = refInput ? refInput.value.trim() : '';
-    if (!vendorName) { billEditMsg('Vendor required \\u2014 select from dropdown', 'err'); return; }
-    var vendorNameSet = vendorInput && vendorInput.dataset.vendorName;
-    if (!vendorNameSet) { billEditMsg('Select vendor from dropdown (must exist in vendor master)', 'err'); return; }
-
-    var draftKey = draftParentTr.dataset.draftKey;
+  if (draftKey) {
     var childRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKey + '"]'));
-    if (childRows.length > 0) {
-      childRows.forEach(function(cr) {
-        var descInput = cr.querySelector('input.child-desc');
-        var amtInputC = cr.querySelectorAll('input')[1];
-        var gstSelect = cr.querySelector('select');
-        var desc = descInput ? descInput.value.trim() : '';
-        var amt = parseFloat(amtInputC && amtInputC.value) || 0;
-        var vatCode = gstSelect ? gstSelect.value : '';
-        lines.push({ description: desc, expense_account: expAcct, amount: amt, vat_code: vatCode || null });
-      });
-    } else {
-      lines.push({ description: '', expense_account: expAcct, amount: totalAmt, vat_code: null });
-    }
-  }
-
-  if (!vendorName) { billEditMsg('Vendor required', 'err'); return; }
-  if (!refCode) { billEditMsg('Invoice reference (Ref) is required before posting', 'err'); return; }
-  if (!billDate) { billEditMsg('Bill date is required', 'err'); return; }
-  if (!dueDate) { billEditMsg('Due date is required', 'err'); return; }
-  if (dueDate < billDate) { billEditMsg('Due date must be \\u2265 bill date', 'err'); return; }
-  if (!isDbDraft) {
-    var draftKeyP = draftParentTr.dataset.draftKey;
-    if (draftKeyP) {
-      var childRowsP = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyP + '"]'));
-      var hasCompleteChild = childRowsP.some(function(cr) {
-        var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[1]; var gSel = cr.querySelector('select');
-        return dIn && dIn.value.trim() && aIn && parseFloat(aIn.value) > 0 && gSel && gSel.value;
-      });
-      if (!hasCompleteChild) { billEditMsg('Add at least one complete line item (description, amount, tax code) before posting', 'err'); return; }
-    }
-  }
-  if (!totalAmt || totalAmt <= 0) { billEditMsg('Total amount must be > 0', 'err'); return; }
-
-  if (allPeriods.length) {
-    var bd = billDate.slice(0, 10);
-    var coveringPeriod = allPeriods.find(function(p) {
-      return !p.locked && p.start_date <= bd && p.end_date >= bd;
+    childRows.forEach(function(cr) {
+      var descInput = cr.querySelector('input.child-desc');
+      var amtInputC = cr.querySelectorAll('input')[1];
+      var gstSelect = cr.querySelector('select');
+      var desc = descInput ? descInput.value.trim() : '';
+      var amt = parseFloat(amtInputC && amtInputC.value) || 0;
+      var vatCode = gstSelect ? gstSelect.value : '';
+      totalAmt += amt;
+      lines.push({ description: desc, expense_account: expAcct, amount: amt, vat_code: vatCode || null });
     });
-    if (!coveringPeriod) {
-      var lockedMatch = allPeriods.find(function(p) { return p.start_date <= bd && p.end_date >= bd; });
-      if (lockedMatch) { billEditMsg('Bill date falls in a locked period: ' + lockedMatch.period_name, 'err'); }
-      else { billEditMsg('Bill date does not fall within any defined period', 'err'); }
-      return;
-    }
   }
-  window._prvDraftTr = draftParentTr;
-  window._prvLines = lines;
-  window._prvMeta = { vendor: vendorName, vendor_ref: refCode, date: billDate, due_date: dueDate, amount: totalAmt, currency: ccy, ap_account: apAccount, expense_account: expAcct };
-  var overlay = document.createElement('div');
-  overlay.id = 'post-review-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center';
-  var popupContent = '<div style="background:#fff;border-radius:8px;padding:24px;max-width:600px;max-height:80vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
-    + '<h2 style="margin:0 0 16px;font-size:1.25rem">Post Bill</h2>'
-    + '<div style="margin-bottom:16px">'
-    + '<div style="display:flex;gap:24px;font-size:0.875rem;margin-bottom:12px">'
-    + '<div><span style="color:#666">Vendor:</span> <strong>' + esc(vendorName) + '</strong></div>'
-    + '<div><span style="color:#666">Date:</span> <strong>' + fmtDate(billDate) + '</strong></div>'
-    + '</div>'
-    + '<div style="display:flex;gap:24px;font-size:0.875rem">'
-    + '<div><span style="color:#666">Amount:</span> <strong>' + Number(totalAmt).toFixed(2) + ' ' + ccy + '</strong></div>'
-    + '<div><span style="color:#666">Due:</span> <strong>' + fmtDate(window._prvMeta.due_date) + '</strong></div>'
-    + '</div>'
-    + '</div>'
-    + '<div id="post-review-error" style="color:#cc2222;margin-bottom:12px;display:none"></div>'
-    + '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:0.875rem">'
-    + '<thead><tr style="border-bottom:1px solid #ddd"><th style="text-align:left;padding:8px 0">Account</th><th style="text-align:right;padding:8px 0">Debit</th><th style="text-align:right;padding:8px 0">Credit</th></tr></thead>'
-    + '<tbody id="post-review-lines"></tbody>'
-    + '</table>'
-    + '<div style="display:flex;gap:10px;justify-content:flex-end">'
-    + '<button onclick="closePostReviewPopup()" style="padding:8px 16px;background:#f0f0f0;border:1px solid #ccc;border-radius:4px;cursor:pointer">Cancel</button>'
-    + '<button onclick="confirmPost()" style="padding:8px 16px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">Post</button>'
-    + '</div>'
-    + '</div>';
-  overlay.innerHTML = popupContent;
-  document.body.appendChild(overlay);
-  var linesTable = document.getElementById('post-review-lines');
-  lines.forEach(function(line) {
-    var tr = document.createElement('tr');
-    var acctName = billAccountsList.find(function(a) { return a.account_code === line.expense_account; });
-    var acctNameStr = acctName ? acctName.account_name : line.expense_account;
-    tr.innerHTML = '<td style="padding:6px 0"><span style="color:#2255cc">'
-      + esc(line.expense_account) + ' \\u2014 ' + esc(acctNameStr) + '</span></td>'
-      + '<td style="text-align:right;padding:6px 0">' + Number(line.amount).toFixed(2) + '</td>'
-      + '<td style="text-align:right;padding:6px 0">\\u2014</td>';
-    linesTable.appendChild(tr);
-  });
-  var crTr = document.createElement('tr');
-  crTr.style.borderTop = '1px solid #ddd';
-  var crAcctName = billAccountsList.find(function(a) { return a.account_code === apAccount; });
-  var crAcctNameStr = crAcctName ? crAcctName.account_name : apAccount;
-  crTr.innerHTML = '<td style="padding:6px 0;font-weight:600"><span style="color:#2255cc;font-weight:600">'
-    + esc(apAccount) + ' \\u2014 ' + esc(crAcctNameStr) + '</span></td>'
-    + '<td style="text-align:right;padding:6px 0">\\u2014</td>'
-    + '<td style="text-align:right;padding:6px 0;font-weight:600">' + Number(totalAmt).toFixed(2) + '</td>';
-  linesTable.appendChild(crTr);
+  return {
+    vendor: vendorName, vendor_ref: refCode, date: billDate, due_date: dueDate,
+    amount: totalAmt, currency: ccy, ap_account: apAccount, expense_account: expAcct,
+    lines: lines,
+  };
 }
 
-function confirmPost() {
+// Enter preview mode: send bill to backend for dry-run journal computation,
+// render the journal lines as child rows in the fold area.
+function _enterPreview(draftParentTr) {
+  if (!draftParentTr) return;
+  var isDbDraft = draftParentTr.dataset.billId && !draftParentTr.querySelector('input.draft-vendor-input');
+  var bill, payload;
+  if (isDbDraft) {
+    var billId = draftParentTr.dataset.billId;
+    payload = { action: 'bill.draft.preview', companyId: COMPANY, billId: billId };
+  } else {
+    bill = _gatherInlineBillData(draftParentTr);
+    // Quick client-side pre-flight checks (full validation runs on the server)
+    if (!bill.vendor) { billEditMsg('Vendor required \\u2014 select from dropdown', 'err'); return; }
+    if (!bill.vendor_ref) { billEditMsg('Invoice reference (Ref) is required before posting', 'err'); return; }
+    if (!bill.date) { billEditMsg('Bill date is required', 'err'); return; }
+    if (!bill.due_date) { billEditMsg('Due date is required', 'err'); return; }
+    if (bill.due_date < bill.date) { billEditMsg('Due date must be \\u2265 bill date', 'err'); return; }
+    if (!bill.amount || bill.amount <= 0) { billEditMsg('Total amount must be > 0', 'err'); return; }
+    payload = { action: 'bill.draft.preview', companyId: COMPANY, bill: bill };
+  }
+
+  billEditMsg('Computing journal preview\\u2026', '');
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.error) { billEditMsg(res.error, 'err'); return; }
+      var data = res.data || res;
+      if (data.errors && data.errors.length) { billEditMsg(data.errors.join('; '), 'err'); return; }
+      // Stash state for _confirmPost
+      window._prvDraftTr = draftParentTr;
+      window._prvLines = (isDbDraft ? null : bill.lines);
+      window._prvMeta = isDbDraft ? null : {
+        vendor: bill.vendor, vendor_ref: bill.vendor_ref, date: bill.date, due_date: bill.due_date,
+        amount: bill.amount, currency: bill.currency, ap_account: bill.ap_account, expense_account: bill.expense_account,
+      };
+      window._prvFxRate = data.fx_rate || null;
+      _renderPreviewLines(draftParentTr, data);
+    })
+    .catch(function(e) { billEditMsg(e.message || 'Preview failed', 'err'); });
+}
+
+// Resolve account name from billAccountsList by code
+function _acctName(code) {
+  if (!code) return '';
+  var hit = billAccountsList.find(function(a) { return a.account_code === code; });
+  return hit ? hit.account_name : '';
+}
+
+// Render the journal lines as preview rows inside the fold area
+function _renderPreviewLines(parentRow, data) {
+  var lookupKey = parentRow.dataset.draftKey || parentRow.dataset.billId;
+  // Remove existing child rows for this parent (preview replaces the editable/draft view)
+  if (lookupKey) {
+    document.querySelectorAll('tr[data-parent-key="' + lookupKey + '"]').forEach(function(r) { r.remove(); });
+    document.querySelectorAll('tr[data-parent-id="' + lookupKey + '"]').forEach(function(r) { r.remove(); });
+  }
+  if (lookupKey) treeState.setOpen(lookupKey);
+
+  var insertAfter = parentRow;
+  var ccy = data.currency || BASE_CURRENCY;
+  var baseCcy = data.base_currency || BASE_CURRENCY;
+  var fxRate = data.fx_rate || 1.0;
+  var isFx = ccy !== baseCcy;
+
+  // FX header row
+  if (isFx) {
+    var fxTr = document.createElement('tr');
+    fxTr.className = 'preview-row preview-fx-header-row';
+    fxTr.dataset.rowType = 'child';
+    if (lookupKey) { fxTr.dataset.parentKey = lookupKey; fxTr.dataset.parentId = lookupKey; }
+    fxTr.innerHTML = '<td colspan="7" class="preview-fx-header">FX: 1 ' + esc(ccy) + ' = ' + fxRate + ' ' + esc(baseCcy) + '</td>';
+    insertAfter.insertAdjacentElement('afterend', fxTr);
+    insertAfter = fxTr;
+  }
+
+  // Each journal line
+  (data.lines || []).forEach(function(line) {
+    var tr = document.createElement('tr');
+    tr.className = 'preview-row';
+    tr.dataset.rowType = 'child';
+    if (lookupKey) { tr.dataset.parentKey = lookupKey; tr.dataset.parentId = lookupKey; }
+    var acctDisplay = esc(line.account_code || '') + ' \\u2014 ' + esc(line.account_name || _acctName(line.account_code) || '');
+    var vatLabel = line.line_type === 'vat' && line.vat_code ? ' <span style="color:#888;font-size:0.75rem">[' + esc(line.vat_code) + ']</span>' : '';
+    var dr = Number(line.debit || 0);
+    var cr = Number(line.credit || 0);
+    var amtCell, side;
+    if (dr > 0) {
+      side = 'dr';
+      if (isFx) {
+        amtCell = '<td class="preview-amt preview-amt-dr">' + dr.toFixed(2) + ' ' + esc(ccy) + '<br><span class="preview-amt-home">' + (line.debit_home != null ? Number(line.debit_home).toFixed(2) : (dr * fxRate).toFixed(2)) + ' ' + esc(baseCcy) + '</span></td>';
+      } else {
+        amtCell = '<td class="preview-amt preview-amt-dr">DR ' + dr.toFixed(2) + '</td>';
+      }
+    } else if (cr > 0) {
+      side = 'cr';
+      if (isFx) {
+        amtCell = '<td class="preview-amt preview-amt-cr">' + cr.toFixed(2) + ' ' + esc(ccy) + '<br><span class="preview-amt-home">' + (line.credit_home != null ? Number(line.credit_home).toFixed(2) : (cr * fxRate).toFixed(2)) + ' ' + esc(baseCcy) + '</span></td>';
+      } else {
+        amtCell = '<td class="preview-amt preview-amt-cr">CR ' + cr.toFixed(2) + '</td>';
+      }
+    } else {
+      side = '';
+      amtCell = '<td class="preview-amt"></td>';
+    }
+    tr.innerHTML = '<td colspan="4" class="preview-acct"><span class="preview-acct-name">' + acctDisplay + vatLabel + '</span><div class="preview-desc">' + esc(line.description || '') + '</div></td>'
+      + '<td class="preview-side">' + (side === 'dr' ? 'DR' : (side === 'cr' ? 'CR' : '')) + '</td>'
+      + amtCell
+      + '<td></td>';
+    insertAfter.insertAdjacentElement('afterend', tr);
+    insertAfter = tr;
+  });
+
+  // Totals row
+  var totalTr = document.createElement('tr');
+  totalTr.className = 'preview-row preview-totals';
+  totalTr.dataset.rowType = 'child';
+  if (lookupKey) { totalTr.dataset.parentKey = lookupKey; totalTr.dataset.parentId = lookupKey; }
+  var balCheck = data.balanced ? ' \\u2713' : ' \\u2717';
+  var totalDebit = Number(data.total_debit || 0);
+  var totalCredit = Number(data.total_credit || 0);
+  if (isFx) {
+    totalTr.innerHTML = '<td colspan="4" class="preview-totals-label">Total' + balCheck + '</td>'
+      + '<td></td>'
+      + '<td class="preview-amt preview-amt-dr">DR ' + totalDebit.toFixed(2) + ' ' + esc(ccy) + '<br>CR ' + totalCredit.toFixed(2) + ' ' + esc(ccy) + '</td>'
+      + '<td></td>';
+  } else {
+    totalTr.innerHTML = '<td colspan="4" class="preview-totals-label">Total' + balCheck + '</td>'
+      + '<td></td>'
+      + '<td class="preview-amt preview-amt-dr">DR ' + totalDebit.toFixed(2) + ' / CR ' + totalCredit.toFixed(2) + '</td>'
+      + '<td></td>';
+  }
+  insertAfter.insertAdjacentElement('afterend', totalTr);
+
+  cursor.mode = 'PREVIEW';
+  billEditMsg('Post? p or Enter to confirm \\u00b7 Esc to cancel', '');
+  // Ensure the parent row stays highlighted
+  cursor.set(parentRow, 0);
+}
+
+// Confirm post: send the actual post/create request to the backend
+function _confirmPost() {
+  var draftTr = window._prvDraftTr;
+  if (!draftTr) { billEditMsg('No draft to post', 'err'); return; }
+  var savedBillId = draftTr.dataset.billId;
   var meta = window._prvMeta;
   var lines = window._prvLines;
-  var draftTr = window._prvDraftTr;
-  var savedBillId = draftTr && draftTr.dataset.billId;
-
-  // Look up FX rate from master data (fx_rates table) at post time.
-  // No manual override — rate always comes from Settings.
-  var fxRate = null;
-  var ccy = (meta.currency || '').toUpperCase();
-  if (ccy && ccy !== BASE_CURRENCY.toUpperCase()) {
-    fxRate = null; // will be resolved below
-  }
+  var fxRate = window._prvFxRate;
 
   function doPost(rate) {
     var action, payload;
     if (savedBillId) {
       action = 'bill.draft.post';
-      payload = { action: action, companyId: COMPANY, billId: savedBillId, bill: { lines: lines, ap_account: meta.ap_account, fx_rate: rate } };
+      payload = { action: action, companyId: COMPANY, billId: savedBillId, bill: { lines: lines, ap_account: meta ? meta.ap_account : undefined, fx_rate: rate } };
     } else {
       action = 'bill.create';
       payload = { action: action, companyId: COMPANY, bill: {
@@ -2058,63 +2111,129 @@ function confirmPost() {
         amount: meta.amount, currency: meta.currency, ap_account: meta.ap_account, fx_rate: rate, lines: lines
       }};
     }
-
-    fetch('/api/action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
+    billEditMsg('Posting\\u2026', '');
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function(r) { return r.json(); })
       .then(function(res) {
         if (res.error || (res.data && res.data.error)) {
           var err = res.error || (res.data && res.data.error);
-          var errDiv = document.getElementById('post-review-error');
-          if (errDiv) { errDiv.style.display = 'block'; errDiv.textContent = 'Error: ' + err; }
+          billEditMsg('Error: ' + err, 'err');
           return;
         }
-        closePostReviewPopup();
+        // Success: close preview and reload
+        _clearPreviewRows(draftTr);
         if (window._prvDraftTr) {
           var dKey = window._prvDraftTr.dataset.draftKey;
           if (dKey) document.querySelectorAll('tr[data-parent-key="' + dKey + '"]').forEach(function(r){ r.remove(); });
           window._prvDraftTr.remove();
         }
+        window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null;
+        cursor.mode = 'NORMAL';
         loadAllBills();
         billEditMsg('Bill posted successfully.', 'ok');
         setTimeout(function() { billEditMsg('', ''); }, 2500);
       })
       .catch(function(e) {
-        var errDiv = document.getElementById('post-review-error');
-        if (errDiv) { errDiv.style.display = 'block'; errDiv.textContent = 'Error: ' + e.message; }
+        billEditMsg('Error: ' + (e.message || 'Post failed'), 'err');
       });
   }
 
-  // Resolve FX rate from master data before posting
-  if (ccy && ccy !== BASE_CURRENCY.toUpperCase()) {
-    _getFxRate(ccy, meta.date).then(function(rate) {
-      if (rate === null) {
-        var errDiv = document.getElementById('post-review-error');
-        if (errDiv) { errDiv.style.display = 'block'; errDiv.textContent = 'No FX rate found for ' + ccy + ' → ' + BASE_CURRENCY + ' on ' + meta.date + '. Add the rate in Settings → Exchange Rates.'; }
-        return;
-      }
-      doPost(rate);
-    });
-  } else {
-    doPost(null);
+  // FX rate already resolved during _enterPreview; reuse it
+  if (meta && meta.currency && meta.currency.toUpperCase() !== BASE_CURRENCY.toUpperCase() && fxRate == null) {
+    billEditMsg('No FX rate resolved; returning to edit mode', 'err');
+    _exitPreview();
+    return;
+  }
+  doPost(fxRate);
+}
+
+// Remove preview rows only (used internally)
+function _clearPreviewRows(parentRow) {
+  var lookupKey = parentRow.dataset.draftKey || parentRow.dataset.billId;
+  if (lookupKey) {
+    document.querySelectorAll('tr[data-parent-key="' + lookupKey + '"]').forEach(function(r) { if (r.classList.contains('preview-row') || r.classList.contains('preview-totals') || r.classList.contains('preview-fx-header-row')) r.remove(); });
+    document.querySelectorAll('tr[data-parent-id="' + lookupKey + '"]').forEach(function(r) { if (r.classList.contains('preview-row') || r.classList.contains('preview-totals') || r.classList.contains('preview-fx-header-row')) r.remove(); });
   }
 }
 
-function closePostReviewPopup() {
-  var overlay = document.getElementById('post-review-overlay');
-  if (overlay) overlay.remove();
-  window._prvDraftTr = null;
-  window._prvLines = null;
-  window._prvMeta = null;
-}
+// Exit preview: remove preview rows, re-render normal child rows, return to NORMAL
+function _exitPreview() {
+  var parentRow = window._prvDraftTr || (cursor.rowEl && cursor.rowEl.dataset.rowType === 'parent' ? cursor.rowEl : null);
+  // If cursor is on a preview child row, find the parent
+  if (!parentRow && cursor.rowEl && cursor.rowEl.dataset.rowType === 'child') {
+    var pKey = cursor.rowEl.dataset.parentKey || cursor.rowEl.dataset.parentId;
+    parentRow = pKey
+      ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') ||
+         document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]'))
+      : null;
+  }
+  if (!parentRow) {
+    // Clear what we can and bail
+    window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null;
+    cursor.mode = 'NORMAL';
+    billEditMsg('', '');
+    return;
+  }
 
-function openPostReviewForSavedDraft(parentTr) {
-  if (!parentTr || parentTr.dataset.status !== 'draft') return;
-  parentTr.dataset.draft = 'true';
-  openPostReviewPopup(parentTr);
+  // Remove all preview rows for this parent
+  var lookupKey = parentRow.dataset.draftKey || parentRow.dataset.billId;
+  if (lookupKey) {
+    document.querySelectorAll('tr[data-parent-key="' + lookupKey + '"]').forEach(function(r) { r.remove(); });
+    document.querySelectorAll('tr[data-parent-id="' + lookupKey + '"]').forEach(function(r) { r.remove(); });
+  }
+
+  // Re-render normal child rows
+  if (parentRow.dataset.draft === 'true') {
+    // Inline draft: re-render editable child rows from draftLines
+    var draftKey = parentRow.dataset.draftKey;
+    if (draftKey) {
+      if (!draftLines[draftKey]) draftLines[draftKey] = [{ desc: '', amount: 0, vatCode: '' }];
+      renderDraftChildRows(parentRow, draftLines[draftKey]);
+      updateParentDraftAmount(parentRow);
+    }
+  } else {
+    // Saved draft (status='draft'): re-fetch lines via bill.lines action
+    var billId2 = parentRow.dataset.billId;
+    if (billId2) {
+      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'bill.lines', companyId: COMPANY, billId: billId2 }) })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        var lines = res.data || res || [];
+        if (!Array.isArray(lines)) lines = [];
+        parentRow.classList.add('row-expanded');
+        treeState.setOpen(billId2);
+        var insertAfter = parentRow;
+        if (!lines.length) {
+          var emptyTr = document.createElement('tr');
+          emptyTr.dataset.rowType = 'child';
+          emptyTr.dataset.parentId = billId2;
+          emptyTr.className = 'child-row';
+          emptyTr.innerHTML = '<td colspan="7" class="child-desc" style="color:#aaa;font-style:italic">No line items</td>';
+          insertAfter.insertAdjacentElement('afterend', emptyTr);
+          return;
+        }
+        lines.forEach(function(line) {
+          var tr = document.createElement('tr');
+          tr.dataset.rowType = 'child';
+          tr.dataset.parentId = billId2;
+          tr.className = 'child-row';
+          tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(line.description || '') + '</td>'
+            + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
+            + '<td style="font-size:0.75rem;text-align:center;width:50px">' + esc(line.vat_code || '') + '</td>'
+            + '<td></td>';
+          insertAfter.insertAdjacentElement('afterend', tr);
+          insertAfter = tr;
+        });
+      })
+      .catch(function(){ /* ignore */ });
+    }
+  }
+
+  window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null;
+  cursor.mode = 'NORMAL';
+  billEditMsg('', '');
+  cursor.set(parentRow, 0);
 }
 
 function registerBillKeyActions() {
@@ -2304,7 +2423,7 @@ function renderPage() {
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || '') + '</a></td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
       + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px" id="ccy-' + esc(String(b.bill_id)) + '" data-bill-date="' + esc(String(b.date||'').slice(0,10)) + '" data-bill-ccy="' + esc(b.currency || BASE_CURRENCY) + '">' + esc(b.currency || BASE_CURRENCY) + '</td>'
-      + '<td>' + (b.status === 'draft' ? '<span onclick="openPostReviewForSavedDraft(this.parentElement.parentElement)" style="cursor:pointer">' + statusBadge(b.status, due) + '</span>' : statusBadge(b.status, due)) + '</td>'
+      + '<td>' + statusBadge(b.status, due) + '</td>'
       + '</tr>';
   });
   var tbody = document.getElementById('bills-tbody');

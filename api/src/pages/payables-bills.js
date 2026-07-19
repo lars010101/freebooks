@@ -225,11 +225,30 @@ var kbd = {
 
     // PREVIEW mode: p / Enter confirms post, Esc cancels
     if (cursor.mode === 'PREVIEW') {
-      // If focus is in an account-code input, allow typing/Tab; only intercept Esc
+      // If focus is in an account-code input, handle Tab/Esc specially
       var tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'SELECT') {
         if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); e.target.blur(); _exitPreview(); return; }
-        // Let Tab and typing through
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          var inputs = Array.from(document.querySelectorAll('input.preview-acct-input'));
+          if (!inputs.length) return;
+          var curIdx = inputs.indexOf(e.target);
+          if (e.shiftKey) {
+            // Shift+Tab: go to previous input, or wrap to last
+            var prev = curIdx > 0 ? curIdx - 1 : inputs.length - 1;
+            inputs[prev].focus();
+            inputs[prev].select();
+          } else {
+            // Tab: go to next input, or wrap to first
+            var next = curIdx >= 0 && curIdx < inputs.length - 1 ? curIdx + 1 : 0;
+            inputs[next].focus();
+            inputs[next].select();
+          }
+          return;
+        }
+        // Let typing through
         return;
       }
       if (e.key === 'p' || e.key === 'Enter') {
@@ -242,6 +261,14 @@ var kbd = {
         e.preventDefault();
         e.stopImmediatePropagation();
         _exitPreview();
+        return;
+      }
+      if (e.key === 'Tab') {
+        // Tab when not in an input: focus first account code input
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        var firstInp = document.querySelector('input.preview-acct-input');
+        if (firstInp) { firstInp.focus(); firstInp.select(); }
         return;
       }
       // Block other navigation keys while in preview (not in an input)

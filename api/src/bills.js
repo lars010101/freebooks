@@ -742,6 +742,8 @@ async function previewBill(ctx) {
 
   return {
     lines: journalLines,
+    bill_lines: expenseLines.map((l) => ({ expense_account: l.expense_account, amount: Number(l.amount || 0), vat_code: l.vat_code || null, description: l.description || '' })),
+    ap_account: bill.ap_account,
     fx_rate: fxRate,
     currency,
     base_currency: companyCurrency,

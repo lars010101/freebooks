@@ -191,6 +191,7 @@ ${commonStyle()}
   tr.preview-row.preview-totals .preview-totals-label { padding-left:48px; }
   tr.preview-row.preview-fx-header-row td { background:#fffbea; }
   tr.preview-row .preview-fx-header { color:#666; font-size:0.8125rem; font-style:italic; }
+  tr.preview-row input.preview-acct-input:focus { outline:none; border-color:#2255cc; background:#fffef5; }
 
   .btn-sm:hover { background:#e8e8e8; }
   .btn-save-draft { background:none; border:none; cursor:pointer; font-size:1rem; padding:2px 6px; color:#bbb; line-height:1; border-radius:4px; }

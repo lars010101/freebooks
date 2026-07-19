@@ -218,6 +218,13 @@ var kbd = {
 
     // PREVIEW mode: p / Enter confirms post, Esc cancels
     if (cursor.mode === 'PREVIEW') {
+      // If focus is in an account-code input, allow typing/Tab; only intercept Esc
+      var tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT') {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); e.target.blur(); _exitPreview(); return; }
+        // Let Tab and typing through
+        return;
+      }
       if (e.key === 'p' || e.key === 'Enter') {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -230,7 +237,7 @@ var kbd = {
         _exitPreview();
         return;
       }
-      // Block other navigation keys while in preview
+      // Block other navigation keys while in preview (not in an input)
       e.preventDefault();
       return;
     }
@@ -1981,6 +1988,8 @@ function _enterPreview(draftParentTr) {
       // Stash state for _confirmPost
       window._prvDraftTr = draftParentTr;
       window._prvLines = (isDbDraft ? null : bill.lines);
+      window._prvBillLines = data.bill_lines || (isDbDraft ? null : bill.lines);
+      window._prvApAccount = data.ap_account || (isDbDraft ? null : bill.ap_account);
       window._prvMeta = isDbDraft ? null : {
         vendor: bill.vendor, vendor_ref: bill.vendor_ref, date: bill.date, due_date: bill.due_date,
         amount: bill.amount, currency: bill.currency, ap_account: bill.ap_account, expense_account: bill.expense_account,
@@ -1999,6 +2008,7 @@ function _acctName(code) {
 }
 
 // Render the journal lines as preview rows inside the fold area
+// Expense and AP account codes are editable inputs (issue 3).
 function _renderPreviewLines(parentRow, data) {
   var lookupKey = parentRow.dataset.draftKey || parentRow.dataset.billId;
   // Remove existing child rows for this parent (preview replaces the editable/draft view)
@@ -2007,6 +2017,9 @@ function _renderPreviewLines(parentRow, data) {
     document.querySelectorAll('tr[data-parent-id="' + lookupKey + '"]').forEach(function(r) { r.remove(); });
   }
   if (lookupKey) treeState.setOpen(lookupKey);
+
+  // Ensure account datalist exists
+  _ensureAcctDatalist();
 
   var insertAfter = parentRow;
   var ccy = data.currency || BASE_CURRENCY;
@@ -2026,12 +2039,15 @@ function _renderPreviewLines(parentRow, data) {
   }
 
   // Each journal line
+  var billLines = data.bill_lines || [];
+  var expenseIdx = 0; // track which bill line this expense journal line maps to
   (data.lines || []).forEach(function(line) {
     var tr = document.createElement('tr');
     tr.className = 'preview-row';
     tr.dataset.rowType = 'child';
     if (lookupKey) { tr.dataset.parentKey = lookupKey; tr.dataset.parentId = lookupKey; }
-    var acctDisplay = esc(line.account_code || '') + ' \\u2014 ' + esc(line.account_name || _acctName(line.account_code) || '');
+    var isEditable = (line.line_type === 'expense' || line.line_type === 'ap');
+    var acctName = line.account_name || _acctName(line.account_code) || '';
     var vatLabel = line.line_type === 'vat' && line.vat_code ? ' <span style="color:#888;font-size:0.75rem">[' + esc(line.vat_code) + ']</span>' : '';
     var dr = Number(line.debit || 0);
     var cr = Number(line.credit || 0);
@@ -2054,7 +2070,23 @@ function _renderPreviewLines(parentRow, data) {
       side = '';
       amtCell = '<td class="preview-amt"></td>';
     }
-    tr.innerHTML = '<td colspan="4" class="preview-acct"><span class="preview-acct-name">' + acctDisplay + vatLabel + '</span><div class="preview-desc">' + esc(line.description || '') + '</div></td>'
+    var acctCell;
+    if (isEditable) {
+      var inpIdx = line.line_type === 'expense' ? 'exp' + expenseIdx : 'ap';
+      if (line.line_type === 'expense') expenseIdx++;
+      acctCell = '<td colspan="4" class="preview-acct">'
+        + '<input class="preview-acct-input" list="preview-acct-list" value="' + esc(line.account_code || '') + '"'
+        + ' data-line-type="' + esc(line.line_type) + '"'
+        + ' data-line-idx="' + esc(String(inpIdx)) + '"'
+        + ' style="width:120px;font-family:monospace;font-size:0.8125rem;border:1px solid #ddd;border-radius:3px;padding:2px 4px;color:#2255cc"'
+        + ' title="Account code — Tab to next, click to edit" />'
+        + ' <span class="preview-acct-name" style="color:#666">' + esc(acctName) + '</span>' + vatLabel
+        + '<div class="preview-desc">' + esc(line.description || '') + '</div></td>';
+    } else {
+      var acctDisplay = esc(line.account_code || '') + ' \\\\u2014 ' + esc(acctName);
+      acctCell = '<td colspan="4" class="preview-acct"><span class="preview-acct-name">' + acctDisplay + vatLabel + '</span><div class="preview-desc">' + esc(line.description || '') + '</div></td>';
+    }
+    tr.innerHTML = acctCell
       + '<td class="preview-side">' + (side === 'dr' ? 'DR' : (side === 'cr' ? 'CR' : '')) + '</td>'
       + amtCell
       + '<td></td>';
@@ -2062,12 +2094,22 @@ function _renderPreviewLines(parentRow, data) {
     insertAfter = tr;
   });
 
+  // Update account name display when input changes
+  parentRow.parentElement.querySelectorAll('input.preview-acct-input').forEach(function(inp) {
+    inp.addEventListener('input', function() {
+      var nameSpan = inp.parentElement.querySelector('.preview-acct-name');
+      var hit = billAccountsList.find(function(a) { return a.account_code === inp.value.trim(); });
+      if (nameSpan) nameSpan.textContent = hit ? hit.account_name : '';
+    });
+    inp.addEventListener('focus', function() { inp.select(); });
+  });
+
   // Totals row
   var totalTr = document.createElement('tr');
   totalTr.className = 'preview-row preview-totals';
   totalTr.dataset.rowType = 'child';
   if (lookupKey) { totalTr.dataset.parentKey = lookupKey; totalTr.dataset.parentId = lookupKey; }
-  var balCheck = data.balanced ? ' \\u2713' : ' \\u2717';
+  var balCheck = data.balanced ? ' \\\\u2713' : ' \\\\u2717';
   var totalDebit = Number(data.total_debit || 0);
   var totalCredit = Number(data.total_credit || 0);
   if (isFx) {
@@ -2084,9 +2126,23 @@ function _renderPreviewLines(parentRow, data) {
   insertAfter.insertAdjacentElement('afterend', totalTr);
 
   cursor.mode = 'PREVIEW';
-  billEditMsg('Post? p or Enter to confirm \\u00b7 Esc to cancel', '');
+  billEditMsg('Post? p or Enter to confirm \\\\u00b7 Esc to cancel \\\\u00b7 Tab to edit account codes', '');
   // Ensure the parent row stays highlighted
   cursor.set(parentRow, 0);
+}
+
+// Create a <datalist> for account code autocomplete in preview rows
+function _ensureAcctDatalist() {
+  if (document.getElementById('preview-acct-list')) return;
+  var dl = document.createElement('datalist');
+  dl.id = 'preview-acct-list';
+  billAccountsList.forEach(function(a) {
+    var opt = document.createElement('option');
+    opt.value = a.account_code;
+    opt.label = a.account_name || '';
+    dl.appendChild(opt);
+  });
+  document.body.appendChild(dl);
 }
 
 // Confirm post: send the actual post/create request to the backend
@@ -2098,16 +2154,37 @@ function _confirmPost() {
   var lines = window._prvLines;
   var fxRate = window._prvFxRate;
 
+  // Read edited account codes from preview inputs
+  var billLines = window._prvBillLines || lines || [];
+  var apAccount = window._prvApAccount || (meta ? meta.ap_account : null);
+  var lookupKey = draftTr.dataset.draftKey || draftTr.dataset.billId;
+  if (lookupKey) {
+    var acctInputs = document.querySelectorAll('input.preview-acct-input');
+    acctInputs.forEach(function(inp) {
+      var val = inp.value.trim();
+      if (!val) return;
+      var lt = inp.dataset.lineType;
+      if (lt === 'ap') {
+        apAccount = val;
+      } else if (lt === 'expense') {
+        var idx = parseInt(inp.dataset.lineIdx.replace('exp', ''), 10);
+        if (!isNaN(idx) && billLines[idx]) {
+          billLines[idx].expense_account = val;
+        }
+      }
+    });
+  }
+
   function doPost(rate) {
     var action, payload;
     if (savedBillId) {
       action = 'bill.draft.post';
-      payload = { action: action, companyId: COMPANY, billId: savedBillId, bill: { lines: lines, ap_account: meta ? meta.ap_account : undefined, fx_rate: rate } };
+      payload = { action: action, companyId: COMPANY, billId: savedBillId, bill: { lines: billLines, ap_account: apAccount, fx_rate: rate } };
     } else {
       action = 'bill.create';
       payload = { action: action, companyId: COMPANY, bill: {
         vendor: meta.vendor, vendor_ref: meta.vendor_ref, date: meta.date, due_date: meta.due_date,
-        amount: meta.amount, currency: meta.currency, ap_account: meta.ap_account, fx_rate: rate, lines: lines
+        amount: meta.amount, currency: meta.currency, ap_account: apAccount, fx_rate: rate, lines: billLines
       }};
     }
     billEditMsg('Posting\\u2026', '');
@@ -2126,7 +2203,7 @@ function _confirmPost() {
           if (dKey) document.querySelectorAll('tr[data-parent-key="' + dKey + '"]').forEach(function(r){ r.remove(); });
           window._prvDraftTr.remove();
         }
-        window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null;
+        window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null; window._prvBillLines = null; window._prvApAccount = null;
         cursor.mode = 'NORMAL';
         loadAllBills();
         billEditMsg('Bill posted successfully.', 'ok');
@@ -2167,7 +2244,7 @@ function _exitPreview() {
       : null;
   }
   if (!parentRow) {
-    window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null;
+    window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null; window._prvBillLines = null; window._prvApAccount = null;
     cursor.mode = 'NORMAL';
     billEditMsg('', '');
     return;
@@ -2203,7 +2280,7 @@ function _exitPreview() {
     parentRow.classList.remove('row-expanded');
   }
 
-  window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null;
+  window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null; window._prvBillLines = null; window._prvApAccount = null;
   cursor.mode = 'NORMAL';
   billEditMsg('', '');
   cursor.set(parentRow, 0);

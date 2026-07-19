@@ -501,7 +501,6 @@ var kbd = {
           : null;
       }
       if (pRow && (pRow.dataset.draft === 'true' || pRow.dataset.status === 'draft')) {
-        if (pRow.dataset.status === 'draft' && !pRow.dataset.draft) pRow.dataset.draft = 'true';
         _enterPreview(pRow);
       }
       return;
@@ -2168,7 +2167,6 @@ function _exitPreview() {
       : null;
   }
   if (!parentRow) {
-    // Clear what we can and bail
     window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null;
     cursor.mode = 'NORMAL';
     billEditMsg('', '');
@@ -2182,8 +2180,11 @@ function _exitPreview() {
     document.querySelectorAll('tr[data-parent-id="' + lookupKey + '"]').forEach(function(r) { r.remove(); });
   }
 
-  // Re-render normal child rows
-  if (parentRow.dataset.draft === 'true') {
+  // Determine if this is an inline draft (has draftKey) or a saved draft (has billId, status='draft')
+  var isInlineDraft = parentRow.dataset.draftKey && parentRow.dataset.draft === 'true';
+  var isSavedDraft = parentRow.dataset.billId && parentRow.dataset.status === 'draft' && !parentRow.dataset.draftKey;
+
+  if (isInlineDraft) {
     // Inline draft: re-render editable child rows from draftLines
     var draftKey = parentRow.dataset.draftKey;
     if (draftKey) {
@@ -2191,43 +2192,15 @@ function _exitPreview() {
       renderDraftChildRows(parentRow, draftLines[draftKey]);
       updateParentDraftAmount(parentRow);
     }
+  } else if (isSavedDraft) {
+    // Saved draft: close the fold (treeState was opened by _enterPreview)
+    // The user can re-open with Space to see the saved lines again.
+    treeState.setClose(parentRow.dataset.billId);
+    parentRow.classList.remove('row-expanded');
   } else {
-    // Saved draft (status='draft'): re-fetch lines via bill.lines action
-    var billId2 = parentRow.dataset.billId;
-    if (billId2) {
-      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action:'bill.lines', companyId: COMPANY, billId: billId2 }) })
-      .then(function(r){ return r.json(); })
-      .then(function(res){
-        var lines = res.data || res || [];
-        if (!Array.isArray(lines)) lines = [];
-        parentRow.classList.add('row-expanded');
-        treeState.setOpen(billId2);
-        var insertAfter = parentRow;
-        if (!lines.length) {
-          var emptyTr = document.createElement('tr');
-          emptyTr.dataset.rowType = 'child';
-          emptyTr.dataset.parentId = billId2;
-          emptyTr.className = 'child-row';
-          emptyTr.innerHTML = '<td colspan="7" class="child-desc" style="color:#aaa;font-style:italic">No line items</td>';
-          insertAfter.insertAdjacentElement('afterend', emptyTr);
-          return;
-        }
-        lines.forEach(function(line) {
-          var tr = document.createElement('tr');
-          tr.dataset.rowType = 'child';
-          tr.dataset.parentId = billId2;
-          tr.className = 'child-row';
-          tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(line.description || '') + '</td>'
-            + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
-            + '<td style="font-size:0.75rem;text-align:center;width:50px">' + esc(line.vat_code || '') + '</td>'
-            + '<td></td>';
-          insertAfter.insertAdjacentElement('afterend', tr);
-          insertAfter = tr;
-        });
-      })
-      .catch(function(){ /* ignore */ });
-    }
+    // Fallback: close treeState for whatever key was used
+    if (lookupKey) treeState.setClose(lookupKey);
+    parentRow.classList.remove('row-expanded');
   }
 
   window._prvDraftTr = null; window._prvLines = null; window._prvMeta = null; window._prvFxRate = null;

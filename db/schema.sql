@@ -361,6 +361,21 @@ ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
 ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;
 ALTER TABLE bills ADD COLUMN IF NOT EXISTS draft_lines TEXT DEFAULT NULL;
 
+-- MIGRATION: VAT tolerance settings
+-- Seeded at company creation in api/src/setup.js. Backfill here for companies
+-- created before this migration. vat_tolerance = flat amount in home currency
+-- (default 0.50); vat_tolerance_pct = percentage of computed VAT (0.01 = 1%).
+-- Override is accepted when |stated - computed| <= max(flat, pct * computed).
+INSERT INTO settings (company_id, key, value, updated_at)
+SELECT c.company_id, 'vat_tolerance', '0.50', NOW()
+FROM companies c
+WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'vat_tolerance');
+
+INSERT INTO settings (company_id, key, value, updated_at)
+SELECT c.company_id, 'vat_tolerance_pct', '0.01', NOW()
+FROM companies c
+WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'vat_tolerance_pct');
+
 -- =============================================================================
 -- attachments
 -- =============================================================================

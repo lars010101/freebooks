@@ -110,6 +110,24 @@ ${commonStyle()}
         <span id="msg-default-accounts" class="msg" style="margin-left:8px"></span>
       </div>
     </div>
+
+    <!-- VAT tolerance for supplier-stated VAT override (current company) -->
+    <div style="margin-top:16px;padding:14px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
+      <div style="font-weight:600;margin-bottom:4px">VAT Tolerance (current company)</div>
+      <div style="font-size:9pt;color:#666;margin-bottom:12px">When a supplier-stated VAT amount differs from the computed value, the override is accepted (with a warning) when |stated − computed| ≤ max(flat, % × computed). The % field is displayed as a percentage (e.g. 1 = 1%).</div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field-row" style="margin-bottom:0">
+          <label for="vat-tolerance-flat">VAT Tolerance (flat)</label>
+          <input type="number" step="0.01" min="0" id="vat-tolerance-flat" placeholder="0.50" style="max-width:120px">
+        </div>
+        <div class="field-row" style="margin-bottom:0">
+          <label for="vat-tolerance-pct">VAT Tolerance (%)</label>
+          <input type="number" step="0.1" min="0" id="vat-tolerance-pct" placeholder="1" style="max-width:120px">
+        </div>
+        <button class="btn-sm" id="btn-save-vat-tolerance" onclick="saveVatTolerance()">Save Tolerance</button>
+        <span id="msg-vat-tolerance" class="msg" style="margin-left:8px"></span>
+      </div>
+    </div>
   </div>
 
   <!-- COA TAB -->
@@ -1048,7 +1066,73 @@ function saveDefaultAccounts() {
 }
 
 // Populate the default-accounts card on the default-visible Company tab.
-window.addEventListener('DOMContentLoaded', function () { loadDefaultAccounts(); });
+window.addEventListener('DOMContentLoaded', function () { loadDefaultAccounts(); loadVatTolerance(); });
+
+// ========== VAT TOLERANCE (current company) ==========
+// Reads / writes the 'vat_tolerance' (flat) and 'vat_tolerance_pct' rows in the
+// settings table. The % field is displayed as a percentage (1 = 1%) but stored
+// as a decimal fraction (0.01 = 1%) in the DB.
+
+function loadVatTolerance() {
+  var flatInput = document.getElementById('vat-tolerance-flat');
+  var pctInput = document.getElementById('vat-tolerance-pct');
+  if (!flatInput || !pctInput) return;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'settings.get', companyId: COMPANY }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      var s = (res && res.data) ? res.data : (res || {});
+      var flat = parseFloat(s.vat_tolerance);
+      var pct = parseFloat(s.vat_tolerance_pct);
+      flatInput.value = isNaN(flat) ? '' : String(flat);
+      // Display the percentage form (0.01 -> 1)
+      pctInput.value = isNaN(pct) ? '' : String(Math.round(pct * 100 * 100) / 100);
+    })
+    .catch(function (e) { showMsg('msg-vat-tolerance', e.message, true); });
+}
+
+function saveVatTolerance() {
+  var flatInput = document.getElementById('vat-tolerance-flat');
+  var pctInput = document.getElementById('vat-tolerance-pct');
+  if (!flatInput || !pctInput) return;
+  var flatVal = flatInput.value.trim();
+  var pctVal = pctInput.value.trim();
+  // Convert displayed percentage back to decimal fraction for storage
+  var flatNum = parseFloat(flatVal);
+  var pctNum = parseFloat(pctVal);
+  if (flatVal !== '' && (isNaN(flatNum) || flatNum < 0)) {
+    showMsg('msg-vat-tolerance', 'Flat tolerance must be a non-negative number', true);
+    return;
+  }
+  if (pctVal !== '' && (isNaN(pctNum) || pctNum < 0)) {
+    showMsg('msg-vat-tolerance', 'Tolerance % must be a non-negative number', true);
+    return;
+  }
+  // Store: flat as-is; pct as decimal (1 -> 0.01)
+  var flatStore = (flatVal === '') ? '' : String(flatNum);
+  var pctStore = (pctVal === '') ? '' : String(pctNum / 100);
+  var btn = document.getElementById('btn-save-vat-tolerance');
+  if (btn) { btn.disabled = true; }
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'settings.save', companyId: COMPANY,
+      settings: { vat_tolerance: flatStore, vat_tolerance_pct: pctStore }
+    }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      var d = res.data || res;
+      if (res.error || d.error) {
+        showMsg('msg-vat-tolerance', res.error || d.error, true);
+      } else {
+        showMsg('msg-vat-tolerance', 'VAT tolerance saved', false);
+      }
+      if (btn) { btn.disabled = false; }
+    })
+    .catch(function (e) {
+      showMsg('msg-vat-tolerance', e.message, true);
+      if (btn) { btn.disabled = false; }
+    });
+}
 
 // ========== UNSAVED CHANGES PROTECTION ==========
 window.onbeforeunload = function(e) {

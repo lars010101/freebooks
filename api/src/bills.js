@@ -45,6 +45,31 @@ function applyCompanyDefaults(bill, defaults) {
   return bill;
 }
 
+// Read VAT tolerance settings for a company. Returns { flat, pct } where:
+//   flat = flat amount in home currency (default 0.50)
+//   pct  = percentage of computed VAT, 0.01 = 1% (default 0.01)
+// Override is accepted when |stated - computed| <= max(flat, pct * computed).
+async function getVatTolerance(companyId) {
+  const rows = await query(
+    `SELECT key, value FROM settings WHERE company_id = @companyId AND key IN ('vat_tolerance', 'vat_tolerance_pct')`,
+    { companyId }
+  );
+  let flat = 0.50;
+  let pct = 0.01;
+  for (const r of rows) {
+    const v = parseFloat(r.value);
+    if (isNaN(v)) continue;
+    if (r.key === 'vat_tolerance') flat = v;
+    else if (r.key === 'vat_tolerance_pct') pct = v;
+  }
+  return { flat, pct };
+}
+
+// Compute the tolerance for a single line: max(flat, pct * expectedVat).
+function _vatToleranceFor(flat, pct, expectedVat) {
+  return Math.max(flat, expectedVat * pct);
+}
+
 async function handleBills(ctx, action) {
   switch (action) {
     case 'bill.create': return createBill(ctx);
@@ -109,6 +134,9 @@ async function createBill(ctx) {
   // required account is still missing.
   const companyDefaults = await getCompanyDefaultAccounts(companyId);
   applyCompanyDefaults(bill, companyDefaults);
+
+  // VAT tolerance settings (used when supplier-stated VAT override is provided)
+  const vatTolerance = await getVatTolerance(companyId);
 
   // Pre-resolve lines for validation (amount + expense_account needed by validateBill)
   const _preLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)
@@ -262,6 +290,7 @@ async function createBill(ctx) {
   const desc = [bill.vendor, bill.vendor_ref, bill.description].filter(Boolean).join(' / ');
 
   // One DR line per expense line
+  let _billLineIdx = 0;
   for (const expLine of expenseLines) {
     const lineAmount = Number(expLine.amount || 0);
     let lineNet = lineAmount;
@@ -276,10 +305,22 @@ async function createBill(ctx) {
       if (vatRows.length > 0) {
         const vc = vatRows[0];
         const rate = Number(vc.rate);
-        lineVat = Math.round(lineAmount * rate * 100) / 100;
-        // Apply vat_amount_override if provided by the user
-        if (expLine.vat_amount_override !== null && expLine.vat_amount_override !== undefined && !isNaN(Number(expLine.vat_amount_override))) {
+        const expectedVat = Math.round(lineAmount * rate * 100) / 100;
+        // Reverse charge: VAT is self-assessed — ignore any supplier-stated
+        // override and always use the computed amount.
+        if (vc.is_reverse_charge) {
+          lineVat = expectedVat;
+        } else if (expLine.vat_amount_override !== null && expLine.vat_amount_override !== undefined && !isNaN(Number(expLine.vat_amount_override))) {
+          // Supplier-stated VAT override: always accepted, but warn if the
+          // difference exceeds the configured tolerance.
           lineVat = Number(expLine.vat_amount_override);
+          const diff = Math.abs(lineVat - expectedVat);
+          const tol = _vatToleranceFor(vatTolerance.flat, vatTolerance.pct, expectedVat);
+          if (diff > tol) {
+            validation.warnings.push(`Line ${_billLineIdx + 1}: VAT amount ${lineVat.toFixed(2)} differs from computed ${expectedVat.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`);
+          }
+        } else {
+          lineVat = expectedVat;
         }
         const vatInputAccount = expLine.vat_account_override || vc.vat_account_input;
         // lineNet stays = lineAmount (tax-exclusive — the user entered the net amount)
@@ -296,6 +337,7 @@ async function createBill(ctx) {
     }
     const lineDesc = expLine.description ? `${desc} / ${expLine.description}` : desc;
     lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: expLine.expense_account, debit: lineNet, credit: 0, currency, fx_rate: fxRate, debit_home: lineNet * fxRate, credit_home: 0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: lineDesc, reference: apRef, source: 'manual', cost_center: bill.cost_center || null, profit_center: bill.profit_center || null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+    _billLineIdx++;
   }
 
   // Compute post-loop totals: total debit = net + VAT (used for AP credit and bill record)
@@ -449,6 +491,7 @@ async function getBillLines(ctx) {
         vat_code: l.vat_code || null,
         currency: l.currency || null,
         fx_rate: 1,
+        vat_amount_override: (l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null,
       }));
     } catch(e) { return []; }
   }
@@ -632,10 +675,12 @@ async function postDraftBill(ctx) {
           amount: Number(l.amount),
           vat_code: l.vat_code || null,
           description: l.description || '',
+          vat_amount_override: (l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null,
+          vat_account_override: l.vat_account_override || null,
         };
       })
     : [
-        { expense_account: bill.expense_account, amount: bill.amount, vat_code: bill.vat_code || null, description: bill.description || '' },
+        { expense_account: bill.expense_account, amount: bill.amount, vat_code: bill.vat_code || null, description: bill.description || '', vat_amount_override: null, vat_account_override: null },
       ];
 
   // Overrides from the post review popup (e.g. user-edited lines) take precedence
@@ -691,10 +736,12 @@ async function previewBill(ctx) {
             amount: Number(l.amount),
             vat_code: l.vat_code || null,
             description: l.description || '',
+            vat_amount_override: (l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null,
+            vat_account_override: l.vat_account_override || null,
           };
         })
       : [
-          { expense_account: draft.expense_account, amount: Number(draft.amount), vat_code: draft.vat_code || null, description: draft.description || '' },
+          { expense_account: draft.expense_account, amount: Number(draft.amount), vat_code: draft.vat_code || null, description: draft.description || '', vat_amount_override: null, vat_account_override: null },
         ];
     bill = {
       vendor: draft.vendor,
@@ -743,6 +790,9 @@ async function previewBill(ctx) {
   // bill-level and per-line account codes (mirrors createBill).
   const companyDefaults = await getCompanyDefaultAccounts(companyId);
   applyCompanyDefaults(bill, companyDefaults);
+
+  // VAT tolerance settings (used when supplier-stated VAT override is provided)
+  const vatTolerance = await getVatTolerance(companyId);
 
   // Pre-resolve lines for validation (same as createBill)
   const _preLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)
@@ -804,6 +854,7 @@ async function previewBill(ctx) {
 
   // Compute journal lines (mirrors createBill lines 161-207)
   const journalLines = [];
+  let _prvLineIdx = 0;
   for (const expLine of expenseLines) {
     const lineAmount = Number(expLine.amount || 0);
     let lineNet = lineAmount;
@@ -817,9 +868,20 @@ async function previewBill(ctx) {
       if (vatRows.length > 0) {
         const vc = vatRows[0];
         const rate = Number(vc.rate);
-        lineVat = Math.round(lineAmount * rate * 100) / 100;
-        if (expLine.vat_amount_override !== null && expLine.vat_amount_override !== undefined && !isNaN(Number(expLine.vat_amount_override))) {
+        const expectedVat = Math.round(lineAmount * rate * 100) / 100;
+        // Reverse charge: VAT is self-assessed — ignore any supplier-stated
+        // override and always use the computed amount.
+        if (vc.is_reverse_charge) {
+          lineVat = expectedVat;
+        } else if (expLine.vat_amount_override !== null && expLine.vat_amount_override !== undefined && !isNaN(Number(expLine.vat_amount_override))) {
           lineVat = Number(expLine.vat_amount_override);
+          const diff = Math.abs(lineVat - expectedVat);
+          const tol = _vatToleranceFor(vatTolerance.flat, vatTolerance.pct, expectedVat);
+          if (diff > tol) {
+            previewWarnings.push(`Line ${_prvLineIdx + 1}: VAT amount ${lineVat.toFixed(2)} differs from computed ${expectedVat.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`);
+          }
+        } else {
+          lineVat = expectedVat;
         }
         const vatInputAccount = expLine.vat_account_override || vc.vat_account_input;
         if (vc.is_reverse_charge) {
@@ -848,6 +910,7 @@ async function previewBill(ctx) {
       vat_code: null, line_type: 'expense', currency, fx_rate: fxRate,
       debit_home: lineNet * fxRate, credit_home: 0,
     });
+    _prvLineIdx++;
   }
 
   // CR AP line for total debit
@@ -880,7 +943,14 @@ async function previewBill(ctx) {
 
   return {
     lines: journalLines,
-    bill_lines: expenseLines.map((l) => ({ expense_account: l.expense_account, amount: Number(l.amount || 0), vat_code: l.vat_code || null, description: l.description || '' })),
+    bill_lines: expenseLines.map((l) => ({
+      expense_account: l.expense_account,
+      amount: Number(l.amount || 0),
+      vat_code: l.vat_code || null,
+      description: l.description || '',
+      vat_amount_override: (l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null,
+      vat_account_override: l.vat_account_override || null,
+    })),
     ap_account: bill.ap_account,
     fx_rate: fxRate,
     currency,
@@ -889,7 +959,7 @@ async function previewBill(ctx) {
     total_credit: totalCredit,
     balanced,
     errors: [],
-    warnings: validation.warnings,
+    warnings: previewWarnings,
   };
 }
 

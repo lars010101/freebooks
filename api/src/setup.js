@@ -158,6 +158,10 @@ async function addCompany(ctx) {
   await bulkInsert('settings', [
     { company_id: company.company_id, key: 'fx_auto_fetch', value: 'false', updated_at: now },
     { company_id: company.company_id, key: 'backup_destination', value: 'none', updated_at: now },
+    // VAT tolerance for supplier-stated VAT amount override:
+    // override accepted when |stated - computed| <= max(flat, pct * computed).
+    { company_id: company.company_id, key: 'vat_tolerance', value: '0.50', updated_at: now },
+    { company_id: company.company_id, key: 'vat_tolerance_pct', value: '0.01', updated_at: now },
   ]);
 
   // Seed default journals

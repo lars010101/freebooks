@@ -631,9 +631,23 @@ async function previewBill(ctx) {
     expense_account: bill.expense_account || (_preLines[0] && _preLines[0].expense_account),
   };
 
+  // Validate — but don't hard-fail on account existence; the preview is a dry run
+  // and the user can fix account codes in the editable preview rows before posting.
+  // Hard validation happens at post time in createBill.
   const validation = await validateBill(companyId, billForValidation);
-  if (!validation.valid) {
-    return { errors: validation.errors, warnings: validation.warnings, lines: [] };
+  const previewWarnings = validation.warnings || [];
+  // Split errors: structural errors (missing vendor, amount) still block preview.
+  // Account existence errors become warnings — user fixes them in the preview.
+  const blockingErrors = [];
+  (validation.errors || []).forEach(function(err) {
+    if (err.indexOf('does not exist in COA') !== -1) {
+      previewWarnings.push(err);
+    } else {
+      blockingErrors.push(err);
+    }
+  });
+  if (blockingErrors.length) {
+    return { errors: blockingErrors, warnings: previewWarnings, lines: [] };
   }
 
   // Period lock check (mirrors createBill lines 61-92)

@@ -1985,6 +1985,11 @@ function _enterPreview(draftParentTr) {
       if (res.error) { billEditMsg(res.error, 'err'); return; }
       var data = res.data || res;
       if (data.errors && data.errors.length) { billEditMsg(data.errors.join('; '), 'err'); return; }
+      // Show warnings (e.g., account codes not in COA) without blocking the preview
+      if (data.warnings && data.warnings.length) {
+        // Will display after preview renders
+        setTimeout(function() { billEditMsg('⚠ ' + data.warnings.join('; ') + ' — fix account codes below, then press p to post', 'err'); }, 50);
+      }
       // Stash state for _confirmPost
       window._prvDraftTr = draftParentTr;
       window._prvLines = (isDbDraft ? null : bill.lines);

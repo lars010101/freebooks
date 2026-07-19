@@ -1277,7 +1277,7 @@ function renderDraftChildRows(parentRow, linesList) {
     if (descInp) { descInp.addEventListener('blur', function() { syncLine(); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
     if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); }); amtInp.addEventListener('input',  function() { syncLine(); _recomputeChildGst(tr, draftLines[draftKey] ? draftLines[draftKey][idx] : null); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
     if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); _recomputeChildGst(tr, draftLines[draftKey] ? draftLines[draftKey][idx] : null); });
-    if (gstInp)  gstInp.addEventListener('input', function() { syncLine(); });
+    if (gstInp)  gstInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); });
     _wireChildRowTab(tr, parentRow);
     insertAfter.insertAdjacentElement('afterend', tr);
     insertAfter = tr;
@@ -1711,7 +1711,12 @@ function updateParentDraftAmount(draftParentTr) {
   var total = 0;
   if (lookupKey) {
     Array.from(document.querySelectorAll('tr[data-parent-key="' + lookupKey + '"]')).forEach(function(cr) {
-      var a = cr.querySelector('input.child-desc') ? cr.querySelectorAll('input')[1] : null; total += parseFloat(a && a.value) || 0;
+      var inputs = cr.querySelectorAll('input');
+      var a = cr.querySelector('input.child-desc') ? inputs[1] : null;
+      var net = parseFloat(a && a.value) || 0;
+      var gstInp = cr.querySelector('input.child-gst');
+      var gst = (gstInp && gstInp.value !== '' && !gstInp.readOnly) ? (parseFloat(gstInp.value) || 0) : 0;
+      total += net + gst;
     });
   }
   var amtCell = draftParentTr.querySelector('.draft-total-amount');
@@ -1982,9 +1987,14 @@ function saveDraftToDb(draftParentTr) {
   if (draftKeyAmt) {
     var _amtRows = Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyAmt + '"]'));
     if (_amtRows.length > 0) {
-      _amtRows.forEach(function(cr) { var a = cr.querySelectorAll('input')[1]; totalAmt += parseFloat(a && a.value) || 0; });
+      _amtRows.forEach(function(cr) {
+        var a = cr.querySelectorAll('input')[1]; var net = parseFloat(a && a.value) || 0;
+        var gIn = cr.querySelector('input.child-gst');
+        var gst = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || 0) : 0;
+        totalAmt += net + gst;
+      });
     } else if (draftLines[draftKeyAmt]) {
-      draftLines[draftKeyAmt].forEach(function(l){ totalAmt += parseFloat(l.amount) || 0; });
+      draftLines[draftKeyAmt].forEach(function(l){ totalAmt += (parseFloat(l.amount) || 0) + (l.vatAmountOverride != null && !isNaN(Number(l.vatAmountOverride)) ? Number(l.vatAmountOverride) : 0); });
     }
   }
 
@@ -2087,7 +2097,8 @@ function _gatherInlineBillData(draftParentTr) {
       var vatCode = gstSelect ? gstSelect.value : '';
       var gIn = cr.querySelector('input.child-gst');
       var vatOverride = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || null) : null;
-      totalAmt += amt;
+      var gst = vatOverride != null ? vatOverride : 0;
+      totalAmt += amt + gst;
       lines.push({ description: desc, expense_account: expAcct, amount: amt, vat_code: vatCode || null, vat_amount_override: vatOverride });
     });
   }

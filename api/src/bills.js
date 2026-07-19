@@ -68,8 +68,9 @@ async function createBill(ctx) {
   const { companyId, userEmail, body } = ctx;
   const { bill, payment_batch_id } = body;
 
-  // Replace draft: delete the draft record AFTER validation succeeds
-  // (moved from here to after validateBill — see below)
+  // Replace draft: when _replaceDraftId is set, we promote the draft row to
+  // 'posted' via an in-place UPDATE (no DELETE) so the draft's bill_id,
+  // created_at, created_by, and any attachments are preserved. See below.
   const replaceDraftId = body._replaceDraftId;
 
   if (!bill) throw Object.assign(new Error('bill object required'), { code: 'INVALID_INPUT' });
@@ -123,10 +124,9 @@ async function createBill(ctx) {
   const validation = await validateBill(companyId, billForValidation);
   if (!validation.valid) return { created: false, errors: validation.errors, warnings: validation.warnings };
 
-  // Validation passed — now safe to delete the draft record
-  if (replaceDraftId) {
-    await query(`DELETE FROM bills WHERE bill_id=@id AND company_id=@companyId AND status='draft'`, { id: replaceDraftId, companyId });
-  }
+  // Validation passed. When replacing a draft we UPDATE the draft row in-place
+  // (no DELETE) so that bill_id, created_at, created_by, and any attachments
+  // linked to the draft's bill_id are preserved. See the UPDATE calls below.
 
   // --- 1a: Server-side period lock enforcement ---
   // The client-side openPostReviewPopup() checks allPeriods for an unlocked covering
@@ -169,7 +169,9 @@ async function createBill(ctx) {
 
   const firstVatCode = expenseLines[0].vat_code;
 
-  const billId = uuid();
+  // When posting a draft, reuse the draft's bill_id (preserves attachments +
+  // audit trail). Otherwise mint a fresh id for a direct create+post.
+  const billId = replaceDraftId || uuid();
   const now = new Date().toISOString();
 
   const billRow = {
@@ -196,7 +198,43 @@ async function createBill(ctx) {
   };
 
   if (payment_batch_id) {
-    await bulkInsert('bills', [{ ...billRow, status: 'paid', amount_paid: totalAmount }]);
+    if (replaceDraftId) {
+      // UPDATE the draft row in-place (do NOT touch bill_id/company_id/created_at/created_by)
+      await exec(
+        `UPDATE bills SET
+           status='paid', amount_paid=@amount_paid,
+           vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date,
+           amount=@amount, amount_home=@amount_home, currency=@currency, fx_rate=@fx_rate,
+           expense_account=@expense_account, ap_account=@ap_account,
+           vat_code=@vat_code, vat_amount=@vat_amount, net_amount=@net_amount,
+           cost_center=@cost_center, profit_center=@profit_center,
+           description=@description, draft_lines=NULL
+         WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
+        {
+          company_id: companyId,
+          bill_id: billId,
+          vendor: billRow.vendor,
+          vendor_ref: billRow.vendor_ref,
+          date: billRow.date,
+          due_date: billRow.due_date,
+          amount: totalAmount,
+          amount_home: totalAmount * fxRate,
+          currency: billRow.currency,
+          fx_rate: billRow.fx_rate,
+          expense_account: billRow.expense_account,
+          ap_account: billRow.ap_account,
+          vat_code: billRow.vat_code,
+          vat_amount: 0,
+          net_amount: totalAmount,
+          cost_center: billRow.cost_center,
+          profit_center: billRow.profit_center,
+          description: billRow.description,
+          amount_paid: totalAmount,
+        }
+      );
+    } else {
+      await bulkInsert('bills', [{ ...billRow, status: 'paid', amount_paid: totalAmount }]);
+    }
     await bulkInsert('bill_payments', [{
       company_id: companyId,
       payment_id: uuid(),
@@ -269,7 +307,47 @@ async function createBill(ctx) {
   lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: bill.ap_account, debit: 0, credit: totalDebit, currency, fx_rate: fxRate, debit_home: 0, credit_home: totalDebit * fxRate, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, description: `AP: ${desc}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
 
   await bulkInsert('journal_entries', lines);
-  await bulkInsert('bills', [{ ...billRow, amount: totalDebit, amount_home: totalDebit * fxRate, vat_amount: totalVatAmount, net_amount: totalNetAmount, status: 'posted', amount_paid: 0 }]);
+  if (replaceDraftId) {
+    // UPDATE the draft row in-place to 'posted'. Drafts have no journal entries,
+    // so the bulkInsert above is the first time entries are written for this bill_id.
+    // We do NOT touch bill_id, company_id, created_at, or created_by — those stay
+    // as the original draft's values (preserves audit trail + attachments).
+    // The status='draft' guard in the WHERE clause is a safety net: it ensures we
+    // only ever promote a draft, never clobber a posted/paid/void row.
+    await exec(
+      `UPDATE bills SET
+         status='posted',
+         vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date,
+         amount=@amount, amount_home=@amount_home, currency=@currency, fx_rate=@fx_rate,
+         expense_account=@expense_account, ap_account=@ap_account,
+         vat_code=@vat_code, vat_amount=@vat_amount, net_amount=@net_amount,
+         cost_center=@cost_center, profit_center=@profit_center,
+         description=@description, draft_lines=NULL, amount_paid=0
+       WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
+      {
+        company_id: companyId,
+        bill_id: billId,
+        vendor: billRow.vendor,
+        vendor_ref: billRow.vendor_ref,
+        date: billRow.date,
+        due_date: billRow.due_date,
+        amount: totalDebit,
+        amount_home: totalDebit * fxRate,
+        currency: billRow.currency,
+        fx_rate: billRow.fx_rate,
+        expense_account: billRow.expense_account,
+        ap_account: billRow.ap_account,
+        vat_code: billRow.vat_code,
+        vat_amount: totalVatAmount,
+        net_amount: totalNetAmount,
+        cost_center: billRow.cost_center,
+        profit_center: billRow.profit_center,
+        description: billRow.description,
+      }
+    );
+  } else {
+    await bulkInsert('bills', [{ ...billRow, amount: totalDebit, amount_home: totalDebit * fxRate, vat_amount: totalVatAmount, net_amount: totalNetAmount, status: 'posted', amount_paid: 0 }]);
+  }
 
   return { created: true, billId, batchId, status: 'posted', lineCount: lines.length, warnings: validation.warnings };
 }
@@ -582,7 +660,7 @@ async function postDraftBill(ctx) {
         fx_rate: bill.fx_rate,
         lines: finalLines,
       },
-      _replaceDraftId: billId, // signal to createBill to DELETE the draft row first
+      _replaceDraftId: billId, // signal to createBill to UPDATE the draft row in-place
     }
   });
 }

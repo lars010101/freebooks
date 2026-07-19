@@ -1860,8 +1860,22 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   var vendorRef = refInput ? refInput.value.trim() : '';
   var currency = ccyInput ? (ccyInput.value.trim().toUpperCase() || BASE_CURRENCY) : BASE_CURRENCY;
   var draftKeyC = draftParentTr.dataset.draftKey;
+  // Compute gross amount (net + supplier-stated VAT) to match updateParentDraftAmount
+  // and _gatherInlineBillData. Previously this summed only the net input, which made
+  // the display cell AND dataset.amount net-only — so saveDraftBill stored net-only
+  // on the next display-mode save and listBills then rendered net-only on reload.
+  // Convention (mirrors updateParentDraftAmount line 1717-1719): the child-gst input
+  // holds a supplier-stated override when !readOnly; reverse-charge (readOnly) and
+  // empty rows contribute 0. Default computed VAT also has readOnly=false, so it is
+  // included.
   var amount = 0;
-  if (draftKeyC) Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyC + '"]')).forEach(function(cr) { var a = cr.querySelectorAll('input')[1]; amount += parseFloat(a && a.value) || 0; });
+  if (draftKeyC) Array.from(document.querySelectorAll('tr[data-parent-key="' + draftKeyC + '"]')).forEach(function(cr) {
+    var a = cr.querySelectorAll('input')[1];
+    var net = parseFloat(a && a.value) || 0;
+    var gIn = cr.querySelector('input.child-gst');
+    var gst = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || 0) : 0;
+    amount += net + gst;
+  });
   var draftKey = draftParentTr.dataset.draftKey;
 
   draftParentTr.dataset.billId = billId;

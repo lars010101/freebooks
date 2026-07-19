@@ -26,6 +26,7 @@ async function handleBills(ctx, action) {
     case 'bill.update': return updateBill(ctx);
     case 'bill.draft.save': return saveDraftBill(ctx);
     case 'bill.draft.post': return postDraftBill(ctx);
+    case 'bill.draft.delete': return deleteDraftBill(ctx);
     default:
       throw Object.assign(new Error(`Unknown bill action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -439,6 +440,32 @@ async function saveDraftBill(ctx) {
     await bulkInsert('bills', [billRow]);
   }
   return { billId, status: 'draft' };
+}
+
+async function deleteDraftBill(ctx) {
+  const { companyId, body } = ctx;
+  const { billId } = body;
+  if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
+
+  // Verify the bill exists and is a draft (not posted)
+  const rows = await query(
+    `SELECT status FROM bills WHERE company_id = @companyId AND bill_id = @billId`,
+    { companyId, billId }
+  );
+  if (rows.length === 0) {
+    throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
+  }
+  if (rows[0].status !== 'draft') {
+    throw Object.assign(new Error('Only draft bills can be deleted. Use void for posted bills.'), { code: 'INVALID_STATUS' });
+  }
+
+  // Delete the draft bill (draft_lines are stored as a column on bills, so one delete suffices)
+  await exec(
+    `DELETE FROM bills WHERE company_id = @companyId AND bill_id = @billId`,
+    { companyId, billId }
+  );
+
+  return { deleted: true, billId };
 }
 
 async function postDraftBill(ctx) {

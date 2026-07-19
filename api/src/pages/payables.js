@@ -166,7 +166,6 @@ ${commonStyle()}
 
   /* Row state classes */
   tr[data-row-type="parent"]:hover td { background:#fafafa; }
-  tr.row-expanded > td:first-child { color:#1a1a1a; font-weight:600; }
   tr.row-loading { opacity:0.6; }
   .child-row:last-child td { border-bottom:1px solid #e8e8e8; }
   .data-table th:last-child,

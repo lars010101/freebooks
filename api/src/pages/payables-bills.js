@@ -608,7 +608,7 @@ var kbd = {
         // If saved draft (has bill_id), delete from DB
         if (billIdDraft) {
           fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'bill.delete', companyId: COMPANY, billId: billIdDraft }) })
+            body: JSON.stringify({ action: 'bill.draft.delete', companyId: COMPANY, billId: billIdDraft }) })
             .then(function(r) { return r.json(); })
             .then(function(res) { var d = res.data || res; if (res.error || d.error) billEditMsg('Delete failed: ' + (res.error || d.error), 'err'); })
             .catch(function(e) { billEditMsg('Error: ' + e.message, 'err'); });

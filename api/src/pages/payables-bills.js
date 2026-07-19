@@ -2217,13 +2217,10 @@ function _renderPreviewLines(parentRow, data) {
     tr.className = 'preview-row';
     tr.dataset.rowType = 'child';
     if (lookupKey) { tr.dataset.parentKey = lookupKey; tr.dataset.parentId = lookupKey; }
-    var isEditable = (line.line_type === 'expense' || line.line_type === 'ap' || line.line_type === 'vat');
-    // For VAT lines the AMOUNT (debit) is editable, not the account code.
-    // The account code for VAT comes from VAT-code settings and is read-only here.
-    var isVatEditable = (line.line_type === 'vat');
-    // VAT journal line maps to the expense line that preceded it (expenseIdx
-    // was already incremented when the expense DR line was rendered).
-    var vatParentIdx = isVatEditable ? (expenseIdx - 1) : -1;
+    // Only expense and AP account codes are editable in the preview.
+    // VAT lines are read-only — GST amount editing belongs at the bill
+    // line item level (inline .child-gst input in INSERT mode), not here.
+    var isEditable = (line.line_type === 'expense' || line.line_type === 'ap');
     var acctName = line.account_name || _acctName(line.account_code) || '';
     var vatLabel = line.line_type === 'vat' && line.vat_code ? ' <span style="color:#888;font-size:0.75rem">[' + esc(line.vat_code) + ']</span>' : '';
     var dr = Number(line.debit || 0);
@@ -2231,13 +2228,7 @@ function _renderPreviewLines(parentRow, data) {
     var amtCell, side;
     if (dr > 0) {
       side = 'dr';
-      if (isVatEditable) {
-        // Editable VAT amount input — user can override the supplier-stated VAT
-        amtCell = '<td class="preview-amt preview-amt-dr">DR <input class="preview-vat-amt-input" type="number" step="0.01" value="' + dr.toFixed(2) + '"'
-          + ' data-line-type="vat" data-expense-idx="' + esc(String(vatParentIdx)) + '"'
-          + ' style="width:84px;font-family:monospace;font-size:0.8125rem;border:1px solid #ddd;border-radius:3px;padding:2px 4px;text-align:right;color:#2255cc" title="VAT amount — edit to override the supplier-stated value" />'
-          + (isFx ? (' ' + esc(ccy)) : '') + '</td>';
-      } else if (isFx) {
+      if (isFx) {
         amtCell = '<td class="preview-amt preview-amt-dr">' + dr.toFixed(2) + ' ' + esc(ccy) + '<br><span class="preview-amt-home">' + (line.debit_home != null ? Number(line.debit_home).toFixed(2) : (dr * fxRate).toFixed(2)) + ' ' + esc(baseCcy) + '</span></td>';
       } else {
         amtCell = '<td class="preview-amt preview-amt-dr">DR ' + dr.toFixed(2) + '</td>';
@@ -2254,7 +2245,7 @@ function _renderPreviewLines(parentRow, data) {
       amtCell = '<td class="preview-amt"></td>';
     }
     var acctCell;
-    if (isEditable && !isVatEditable) {
+    if (isEditable) {
       var inpIdx = line.line_type === 'expense' ? 'exp' + expenseIdx : 'ap';
       if (line.line_type === 'expense') expenseIdx++;
       acctCell = '<td colspan="4" class="preview-acct">'
@@ -2284,11 +2275,6 @@ function _renderPreviewLines(parentRow, data) {
       var hit = billAccountsList.find(function(a) { return a.account_code === inp.value.trim(); });
       if (nameSpan) nameSpan.textContent = hit ? hit.account_name : '';
     });
-    inp.addEventListener('focus', function() { inp.select(); });
-  });
-
-  // Select-on-focus for editable VAT amount inputs
-  parentRow.parentElement.querySelectorAll('input.preview-vat-amt-input').forEach(function(inp) {
     inp.addEventListener('focus', function() { inp.select(); });
   });
 
@@ -2360,17 +2346,6 @@ function _confirmPost() {
           billLines[idx].expense_account = val;
         }
       }
-    });
-    // Read back VAT amount overrides from preview VAT inputs. Each VAT input
-    // maps to its parent expense line via data-expense-idx; the edited amount
-    // becomes that expense line's vat_amount_override.
-    var vatAmtInputs = document.querySelectorAll('input.preview-vat-amt-input');
-    vatAmtInputs.forEach(function(inp) {
-      var raw = inp.value;
-      if (raw === '' || isNaN(parseFloat(raw))) return;
-      var expIdx = parseInt(inp.dataset.expenseIdx, 10);
-      if (isNaN(expIdx) || !billLines[expIdx]) return;
-      billLines[expIdx].vat_amount_override = parseFloat(raw);
     });
   }
 

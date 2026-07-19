@@ -1082,7 +1082,7 @@ function _wireChildRowTab(childRowEl, parentRowEl) {
       if (isFirst && e.target === descInp) {
         e.preventDefault();
         var parentInputs = parentRowEl.querySelectorAll('input');
-        var ccyInp = parentInputs[5];
+        var ccyInp = parentInputs[4];
         if (ccyInp) ccyInp.focus();
       }
     }
@@ -1377,9 +1377,9 @@ function createDraftBill(refRow) {
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
-    + '<td><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" /></td>'
+    + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td style="text-align:right;white-space:nowrap"><span class="draft-total-amount" style="color:#aaa;font-style:italic">0.00</span> <button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
+    + '<td style="white-space:nowrap"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" style="width:80px" /> <button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
   var insertAfterRow = refRow;
   if (refRow && refRow.dataset.rowType === 'child') {
     var pKey2 = refRow.dataset.parentKey || refRow.dataset.parentId;
@@ -1661,9 +1661,9 @@ function insertDraftParentRow(refRow, above) {
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
-    + '<td><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" /></td>'
+    + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td style="text-align:right;white-space:nowrap"><span class="draft-total-amount" style="color:#aaa;font-style:italic">0.00</span> <span class=\"badge\" style=\"background:#e8e4d0;color:#7a6a00\" title=\"Press p to post draft bill\">Draft</span></td>';
+    + '<td style="white-space:nowrap"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" style="width:80px" /> <span class=\"badge\" style=\"background:#e8e4d0;color:#7a6a00\" title=\"Press p to post draft bill\">Draft</span></td>';
   if (refRow && above) {
     refRow.parentElement.insertBefore(tr, refRow);
   } else if (refRow) {
@@ -1692,9 +1692,7 @@ function updateParentDraftAmount(draftParentTr) {
     });
   }
   var amtCell = draftParentTr.querySelector('.draft-total-amount');
-  if (amtCell) { amtCell.textContent = total.toFixed(2); return; }
-  var tds = draftParentTr.querySelectorAll('td');
-  if (tds[4]) tds[4].textContent = total.toFixed(2);
+  if (amtCell) { amtCell.textContent = total.toFixed(2); }
   draftParentTr.dataset.amount = String(total);
 }
 
@@ -1790,9 +1788,9 @@ function convertDisplayToDraft(parentRow) {
     + '<td><input class="draft-input" type="date" placeholder="Date" value="' + billDate + '" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" value="' + dueDate + '" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" value="' + esc(vendorRef) + '" /></td>'
-    + '<td><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(apAccount) + '" title="AP (creditor) account code" /></td>'
+    + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
     + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + currency + '" /></td>'
-    + '<td style="text-align:right;white-space:nowrap"><span class="draft-total-amount" style="color:#aaa;font-style:italic">0.00</span> <button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft">&#128190;</button></td>';
+    + '<td style="white-space:nowrap"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(apAccount) + '" title="AP (creditor) account code" style="width:80px" /> <button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft">&#128190;</button></td>';
 
   // Set vendor input value (escaped in innerHTML for attributes, raw for .value)
   var vInp = parentRow.querySelector('input.draft-vendor-input');
@@ -1834,7 +1832,7 @@ function convertDisplayToDraft(parentRow) {
 function convertDraftRowToDisplay(draftParentTr, billId) {
   var inputs = draftParentTr.querySelectorAll('input');
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
-  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], apInput = inputs[4], ccyInput = inputs[5];
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4], apInput = inputs[5];
   var vendor = vendorInput ? (vendorInput.dataset.vendorName || vendorInput.value) : '';
   var billDate = dateInput ? dateInput.value : '';
   var dueDate = dueInput ? dueInput.value : '';
@@ -1939,7 +1937,7 @@ function saveDraftFromIcon(btnEl) {
 function saveDraftToDb(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
-  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[5];
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4];
 
   if (!vendorInput && draftParentTr.dataset.billId) {
     var dispBillId = draftParentTr.dataset.billId;
@@ -2078,7 +2076,7 @@ function saveDraftToDb(draftParentTr) {
 function _gatherInlineBillData(draftParentTr) {
   var vendorInput = draftParentTr.querySelector('input.draft-vendor-input');
   var inputs = draftParentTr.querySelectorAll('input');
-  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], apInput = inputs[4], ccyInput = inputs[5];
+  var dateInput = inputs[1], dueInput = inputs[2], refInput = inputs[3], ccyInput = inputs[4], apInput = inputs[5];
   var vendorName = vendorInput && vendorInput.dataset.vendorName;
   if (!vendorName && vendorInput) vendorName = vendorInput.value.trim();
   var apAccount = apInput ? apInput.value.trim() : (vendorInput && (vendorInput.dataset.apAccount || companyDefaultAp || ''));

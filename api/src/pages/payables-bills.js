@@ -1276,7 +1276,7 @@ function renderDraftChildRows(parentRow, linesList) {
     var _saveTimer = null;
     if (descInp) { descInp.addEventListener('blur', function() { syncLine(); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
     if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); }); amtInp.addEventListener('input',  function() { syncLine(); _recomputeChildGst(tr, draftLines[draftKey] ? draftLines[draftKey][idx] : null); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
-    if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); _recomputeChildGst(tr, draftLines[draftKey] ? draftLines[draftKey][idx] : null); });
+    if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); _recomputeChildGst(tr, draftLines[draftKey] ? draftLines[draftKey][idx] : null); updateParentDraftAmount(parentRow); });
     if (gstInp)  gstInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); });
     _wireChildRowTab(tr, parentRow);
     insertAfter.insertAdjacentElement('afterend', tr);

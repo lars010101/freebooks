@@ -49,6 +49,7 @@ const ACTION_ROLES = {
   'bill.update': 'data_entry',
   'bill.draft.save': 'data_entry',
   'bill.draft.post': 'data_entry',
+  'bill.draft.delete': 'data_entry',
   'report.refresh_vat_return': 'viewer',
   'coa.list': 'viewer',
   'coa.save': 'owner',

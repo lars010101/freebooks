@@ -726,9 +726,12 @@ async function previewBill(ctx) {
   const acctCodes = Array.from(new Set(journalLines.map((l) => l.account_code).filter(Boolean)));
   let accountNameMap = {};
   if (acctCodes.length) {
+    const placeholders = acctCodes.map((_, i) => '@code' + i).join(', ');
+    const params = { companyId };
+    acctCodes.forEach((c, i) => { params['code' + i] = c; });
     const acctRows = await query(
-      `SELECT account_code, account_name FROM accounts WHERE company_id = @companyId AND account_code IN (@codes)`,
-      { companyId, codes: acctCodes }
+      `SELECT account_code, account_name FROM accounts WHERE company_id = @companyId AND account_code IN (${placeholders})`,
+      params
     );
     acctRows.forEach((r) => { accountNameMap[r.account_code] = r.account_name; });
   }

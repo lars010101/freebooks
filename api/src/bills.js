@@ -45,6 +45,34 @@ async function createBill(ctx) {
 
   if (!bill) throw Object.assign(new Error('bill object required'), { code: 'INVALID_INPUT' });
 
+  // Resolve company currency + FX rate BEFORE validation (validateBill checks bill.fx_rate)
+  const companies = await query(
+    `SELECT currency, vat_registered FROM companies WHERE company_id = @companyId LIMIT 1`,
+    { companyId }
+  );
+  const company = companies[0];
+  const currency = bill.currency || company.currency;
+
+  let fxRate = 1.0;
+  if (currency !== company.currency) {
+    if (bill.fx_rate && Number(bill.fx_rate) > 0) {
+      fxRate = Number(bill.fx_rate);
+    } else {
+      // Resolve from master data (exact-date-only lookup)
+      const { getRate } = require('./fx');
+      const resolved = await getRate(currency, company.currency, String(bill.date).substring(0, 10));
+      if (resolved === null) {
+        return {
+          created: false,
+          errors: [`No FX rate found for ${currency} \u2192 ${company.currency} on ${bill.date}. Add the rate in Settings \u2192 Exchange Rates.`],
+          warnings: [],
+        };
+      }
+      fxRate = resolved;
+    }
+  }
+  bill.fx_rate = fxRate;
+
   // Pre-resolve lines for validation (amount + expense_account needed by validateBill)
   const _preLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)
     ? bill.lines
@@ -91,14 +119,6 @@ async function createBill(ctx) {
       };
     }
   }
-
-  const companies = await query(
-    `SELECT currency, vat_registered FROM companies WHERE company_id = @companyId LIMIT 1`,
-    { companyId }
-  );
-  const company = companies[0];
-  const currency = bill.currency || company.currency;
-  const fxRate = currency === company.currency ? 1.0 : (bill.fx_rate || 1.0);
 
   // Resolve expense lines: multi-line or legacy single-line
   const expenseLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)
@@ -518,6 +538,7 @@ async function postDraftBill(ctx) {
         ap_account: bill.ap_account,
         expense_account: bill.expense_account,
         description: bill.description,
+        fx_rate: bill.fx_rate,
         lines: finalLines,
       },
       _replaceDraftId: billId, // signal to createBill to DELETE the draft row first
@@ -576,6 +597,29 @@ async function previewBill(ctx) {
     return { errors: ['bill or billId required'], warnings: [], lines: [] };
   }
 
+  // Resolve company currency + FX rate BEFORE validation (validateBill checks bill.fx_rate)
+  const companies = await query(
+    `SELECT currency, vat_registered FROM companies WHERE company_id = @companyId LIMIT 1`,
+    { companyId }
+  );
+  const company = companies[0];
+  const companyCurrency = company.currency;
+  const currency = bill.currency || companyCurrency;
+
+  let fxRate = 1.0;
+  if (currency !== companyCurrency) {
+    const { getRate } = require('./fx');
+    fxRate = await getRate(currency, companyCurrency, String(bill.date).substring(0, 10));
+    if (fxRate === null) {
+      return {
+        errors: [`No FX rate found for ${currency} \u2192 ${companyCurrency} on ${bill.date}. Add the rate in Settings \u2192 Exchange Rates.`],
+        warnings: [],
+        lines: [],
+      };
+    }
+  }
+  bill.fx_rate = fxRate;
+
   // Pre-resolve lines for validation (same as createBill)
   const _preLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)
     ? bill.lines
@@ -610,28 +654,6 @@ async function previewBill(ctx) {
     const lockedPeriods = coveringPeriods.filter((p) => p.locked);
     if (lockedPeriods.length > 0) {
       return { errors: [`Bill date ${bill.date} falls into a locked accounting period (${lockedPeriods.map((p) => p.period_name).join(', ')})`], warnings: validation.warnings, lines: [] };
-    }
-  }
-
-  const companies = await query(
-    `SELECT currency, vat_registered FROM companies WHERE company_id = @companyId LIMIT 1`,
-    { companyId }
-  );
-  const company = companies[0];
-  const companyCurrency = company.currency;
-  const currency = bill.currency || companyCurrency;
-
-  // Resolve FX rate (exact-date-only lookup)
-  let fxRate = 1.0;
-  if (currency !== companyCurrency) {
-    const { getRate } = require('./fx');
-    fxRate = await getRate(currency, companyCurrency, bill.date);
-    if (fxRate === null) {
-      return {
-        errors: [`No FX rate found for ${currency} \u2192 ${companyCurrency} on ${bill.date}. Add the rate in Settings \u2192 Exchange Rates.`],
-        warnings: validation.warnings,
-        lines: [],
-      };
     }
   }
 

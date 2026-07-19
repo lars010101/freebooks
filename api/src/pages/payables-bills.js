@@ -126,7 +126,7 @@ function billAcctInput(input) {
     var item = document.createElement('div');
     item.dataset.acctCode = a.account_code;
     item.dataset.idx = String(mi);
-    item.textContent = a.account_code + ' \\u2014 ' + a.account_name;
+    item.textContent = a.account_code + ' — ' + a.account_name;
     item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-size:11px';
     item.onmouseover = function() { clearBillAcctDdFocus(); item.classList.add('dd-active'); item.style.background = '#e8f0fe'; };
     item.onmouseout  = function() { item.classList.remove('dd-active'); item.style.background = ''; };
@@ -784,7 +784,7 @@ function initBillsTable() {
           sortState.dir = 'asc';
         }
         document.querySelectorAll('.data-table th[data-col] .th-sort').forEach(function(ic) { ic.textContent = ''; ic.classList.remove('on'); });
-        sortIcon.textContent = sortState.dir === 'asc' ? '\\u25b2' : '\\u25bc';
+        sortIcon.textContent = sortState.dir === 'asc' ? '▲' : '▼';
         sortIcon.classList.add('on');
         applyFilters();
       });
@@ -944,7 +944,7 @@ function openColFilter(th, col) {
   } else if (filterType === 'text') {
     var inp2 = document.createElement('input');
     inp2.type = 'text';
-    inp2.placeholder = 'Type to filter\\u2026';
+    inp2.placeholder = 'Type to filter…';
     inp2.value = colFilters[col] || '';
     inp2.style.width = '100%';
     inp2.style.padding = '9px';
@@ -1217,7 +1217,7 @@ function renderDraftChildRows(parentRow, linesList) {
     tr.className = 'child-row';
     tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
       + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-      + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
+      + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>'
       + '<td></td>';
     var descInp = tr.querySelector('input.child-desc');
     var amtInp  = tr.querySelectorAll('input')[1];
@@ -1366,7 +1366,7 @@ function createDraftLine(childRow) {
   tr.className = 'child-row';
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-    + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
+    + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>'
     + '<td></td>';
   var gstSel2 = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
@@ -1642,7 +1642,7 @@ function insertDraftChildRow(childRow, above) {
   tr.className = 'child-row';
   tr.innerHTML = '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
-    + '<td><select class="draft-input" style="background:#fffef5"><option value="">\\u2014 None \\u2014</option></select></td>'
+    + '<td><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select></td>'
     + '<td></td>';
   var gstSelect = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
@@ -1788,12 +1788,12 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   if (currency && currency.toUpperCase() !== BASE_CURRENCY.toUpperCase()) {
     var ccyCellEl = document.getElementById('ccy-' + esc(billId));
     if (ccyCellEl) {
-      ccyCellEl.setAttribute('title', currency + ' \u2014 checking rate\u2026');
+      ccyCellEl.setAttribute('title', currency + ' — checking rate\u2026');
       _getFxRate(currency, billDate).then(function(rate) {
         if (rate !== null) {
           ccyCellEl.setAttribute('title', currency + ' \u2192 ' + BASE_CURRENCY + ': ' + rate);
         } else {
-          ccyCellEl.setAttribute('title', currency + ' \u2014 no rate found for ' + billDate + '. Add in Settings \u2192 Exchange Rates.');
+          ccyCellEl.setAttribute('title', currency + ' — no rate found for ' + billDate + '. Add in Settings \u2192 Exchange Rates.');
         }
       });
     }
@@ -1869,7 +1869,7 @@ function saveDraftToDb(draftParentTr) {
   if (!billDate) { billEditMsg('Bill date required', 'err'); return; }
   var dueDate = dueInput && dueInput.value;
   if (!dueDate) { billEditMsg('Due date required', 'err'); return; }
-  if (dueDate < billDate) { billEditMsg('Due date must be \\u2265 bill date', 'err'); return; }
+  if (dueDate < billDate) { billEditMsg('Due date must be ≥ bill date', 'err'); return; }
   var draftKeyAmt = draftParentTr.dataset.draftKey;
   var totalAmt = 0;
   if (draftKeyAmt) {
@@ -1928,7 +1928,7 @@ function saveDraftToDb(draftParentTr) {
     }
   };
 
-  billEditMsg('Saving draft\\u2026', '');
+  billEditMsg('Saving draft…', '');
   fetch('/api/action', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1997,16 +1997,16 @@ function _enterPreview(draftParentTr) {
   } else {
     bill = _gatherInlineBillData(draftParentTr);
     // Quick client-side pre-flight checks (full validation runs on the server)
-    if (!bill.vendor) { billEditMsg('Vendor required \\u2014 select from dropdown', 'err'); return; }
+    if (!bill.vendor) { billEditMsg('Vendor required — select from dropdown', 'err'); return; }
     if (!bill.vendor_ref) { billEditMsg('Invoice reference (Ref) is required before posting', 'err'); return; }
     if (!bill.date) { billEditMsg('Bill date is required', 'err'); return; }
     if (!bill.due_date) { billEditMsg('Due date is required', 'err'); return; }
-    if (bill.due_date < bill.date) { billEditMsg('Due date must be \\u2265 bill date', 'err'); return; }
+    if (bill.due_date < bill.date) { billEditMsg('Due date must be ≥ bill date', 'err'); return; }
     if (!bill.amount || bill.amount <= 0) { billEditMsg('Total amount must be > 0', 'err'); return; }
     payload = { action: 'bill.draft.preview', companyId: COMPANY, bill: bill };
   }
 
-  billEditMsg('Computing journal preview\\u2026', '');
+  billEditMsg('Computing journal preview…', '');
   fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     .then(function(r) { return r.json(); })
     .then(function(res) {
@@ -2116,7 +2116,7 @@ function _renderPreviewLines(parentRow, data) {
         + ' <span class="preview-acct-name" style="color:#666">' + esc(acctName) + '</span>' + vatLabel
         + '<div class="preview-desc">' + esc(line.description || '') + '</div></td>';
     } else {
-      var acctDisplay = esc(line.account_code || '') + ' \\\\u2014 ' + esc(acctName);
+      var acctDisplay = esc(line.account_code || '') + ' — ' + esc(acctName);
       acctCell = '<td colspan="4" class="preview-acct"><span class="preview-acct-name">' + acctDisplay + vatLabel + '</span><div class="preview-desc">' + esc(line.description || '') + '</div></td>';
     }
     tr.innerHTML = acctCell
@@ -2142,7 +2142,7 @@ function _renderPreviewLines(parentRow, data) {
   totalTr.className = 'preview-row preview-totals';
   totalTr.dataset.rowType = 'child';
   if (lookupKey) { totalTr.dataset.parentKey = lookupKey; totalTr.dataset.parentId = lookupKey; }
-  var balCheck = data.balanced ? ' \\\\u2713' : ' \\\\u2717';
+  var balCheck = data.balanced ? ' ✓' : ' ✗';
   var totalDebit = Number(data.total_debit || 0);
   var totalCredit = Number(data.total_credit || 0);
   if (isFx) {
@@ -2159,7 +2159,7 @@ function _renderPreviewLines(parentRow, data) {
   insertAfter.insertAdjacentElement('afterend', totalTr);
 
   cursor.mode = 'PREVIEW';
-  billEditMsg('Post? p or Enter to confirm \\\\u00b7 Esc to cancel \\\\u00b7 Tab to edit account codes', '');
+  billEditMsg('Post? p or Enter to confirm · Esc to cancel · Tab to edit account codes', '');
   // Ensure the parent row stays highlighted
   cursor.set(parentRow, 0);
 }
@@ -2220,7 +2220,7 @@ function _confirmPost() {
         amount: meta.amount, currency: meta.currency, ap_account: apAccount, fx_rate: rate, lines: billLines
       }};
     }
-    billEditMsg('Posting\\u2026', '');
+    billEditMsg('Posting…', '');
     fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function(r) { return r.json(); })
       .then(function(res) {
@@ -2519,12 +2519,12 @@ function renderPage() {
     var ccy = cell.getAttribute('data-bill-ccy') || '';
     var billDate = cell.getAttribute('data-bill-date') || '';
     if (ccy && ccy.toUpperCase() !== BASE_CURRENCY.toUpperCase()) {
-      cell.setAttribute('title', ccy + ' \u2014 checking rate\u2026');
+      cell.setAttribute('title', ccy + ' — checking rate\u2026');
       _getFxRate(ccy, billDate).then(function(rate) {
         if (rate !== null) {
           cell.setAttribute('title', ccy + ' \u2192 ' + BASE_CURRENCY + ': ' + rate);
         } else {
-          cell.setAttribute('title', ccy + ' \u2014 no rate found for ' + (billDate || 'this date') + '. Add in Settings \u2192 Exchange Rates.');
+          cell.setAttribute('title', ccy + ' — no rate found for ' + (billDate || 'this date') + '. Add in Settings \u2192 Exchange Rates.');
         }
       });
     }
@@ -2558,7 +2558,7 @@ function goPage(p) {
 
 // ========== UTILITY FUNCTIONS ==========
 function vendorCell(name) {
-  if (!name) return '<span style="color:#aaa">\\u2014</span>';
+  if (!name) return '<span style="color:#aaa">—</span>';
   var initials = name.trim().split(/\\s+/).map(function(w){ return w[0]; }).slice(0,2).join('').toUpperCase();
   var color = AVATAR_COLORS[Math.abs(hashStr(name)) % AVATAR_COLORS.length];
   return '<div class="vendor-cell">'
@@ -2574,7 +2574,7 @@ function hashStr(s) {
 }
 
 function fmtDate(d) {
-  if (!d) return '\\u2014';
+  if (!d) return '—';
   var s = String(d).slice(0,10);
   var parts = s.split('-');
   if (parts.length !== 3) return s;

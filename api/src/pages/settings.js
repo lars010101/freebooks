@@ -829,14 +829,16 @@ function renderFxRates(rows) {
 
 function addFxRateRow() {
   var tr = document.createElement('tr');
+  var today = new Date().toISOString().slice(0, 10);
   tr.innerHTML =
-    '<td><input type="date" class="fx-date" style="width:120px"></td>' +
-    '<td><input type="text" class="fx-from" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="USD" list="currency-list"></td>' +
-    '<td><input type="text" class="fx-to" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="SGD" list="currency-list"></td>' +
-    '<td style="text-align:right"><input type="number" class="fx-rate" step="0.000001" style="width:100px" placeholder="1.0"></td>' +
+    '<td><input type="date" class="fx-date" style="width:120px" value="' + today + '"></td>' +
+    '<td><input type="text" class="fx-from" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="e.g. USD" list="currency-list"></td>' +
+    '<td><input type="text" class="fx-to" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="e.g. SGD" list="currency-list"></td>' +
+    '<td style="text-align:right"><input type="number" class="fx-rate" step="0.000001" style="width:100px" placeholder="e.g. 1.35"></td>' +
     '<td><span class="ro">manual</span></td>' +
     '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()" style="font-size:9pt">×</button></td>';
   document.getElementById('fx-rates-body').appendChild(tr);
+  tr.querySelector('.fx-from').focus();
 }
 
 function deleteFxRate(date, from, to, source) {
@@ -862,17 +864,25 @@ function fetchFromEcb() {
 
 function saveFxRates() {
   var newRates = [];
+  var missing = [];
   var rows = Array.from(document.querySelectorAll('#fx-rates-body tr')).filter(function(tr){ return tr.querySelector('.fx-date'); });
-  rows.forEach(function(tr){
+  // clear previous field highlights
+  rows.forEach(function(tr){ ['fx-date','fx-from','fx-to','fx-rate'].forEach(function(c){ var el = tr.querySelector('.'+c); if (el) el.style.borderColor=''; }); });
+  if (!rows.length) { showMsg('msg-fxrates', 'Click "+ Add Rate" first, then fill in date, from, to, and rate', true); return; }
+  rows.forEach(function(tr, i){
     var date = tr.querySelector('.fx-date').value;
     var from = tr.querySelector('.fx-from').value.trim().toUpperCase();
     var to = tr.querySelector('.fx-to').value.trim().toUpperCase();
     var rate = parseFloat(tr.querySelector('.fx-rate').value || 0);
-    if (date && from && to && rate > 0) {
-      newRates.push({ date: date, from_currency: from, to_currency: to, rate: rate });
-    }
+    var miss = [];
+    if (!date) { miss.push('date'); tr.querySelector('.fx-date').style.borderColor='#c33'; }
+    if (!from) { miss.push('from'); tr.querySelector('.fx-from').style.borderColor='#c33'; }
+    if (!to) { miss.push('to'); tr.querySelector('.fx-to').style.borderColor='#c33'; }
+    if (!(rate > 0)) { miss.push('rate'); tr.querySelector('.fx-rate').style.borderColor='#c33'; }
+    if (miss.length) { missing.push('Row ' + (i+1) + ': ' + miss.join(', ')); }
+    else { newRates.push({ date: date, from_currency: from, to_currency: to, rate: rate }); }
   });
-  if (!newRates.length) { showMsg('msg-fxrates', 'No rates to save', true); return; }
+  if (missing.length) { showMsg('msg-fxrates', 'Missing fields — ' + missing.join('; '), true); return; }
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.rates.save', companyId: COMPANY, rates: newRates }) })
     .then(function(r){ return r.json(); }).then(function(r){ var d = r.data||r; showMsg('msg-fxrates', r.error||d.error||('Saved '+newRates.length+' rates'), !!(r.error||d.error)); if (!r.error && !d.error) loadFxRates(); })
     .catch(function(e){ showMsg('msg-fxrates', e.message, true); });

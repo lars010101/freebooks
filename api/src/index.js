@@ -27,81 +27,14 @@ const { auditCall } = require('./audit');
 
 const PORT = process.env.PORT || 3000;
 
-const ACTION_ROLES = {
-  'journal.post': 'data_entry',
-  'journal.reverse': 'data_entry',
-  'journal.list': 'viewer',
-  'journal.import': 'data_entry',
-  'journal.search': 'viewer',
-  'journal.get': 'viewer',
-  'journal.account_lines': 'viewer',
-  'journal.account_balance': 'viewer',
-  'journal.entry.update': 'data_entry',
-  'bank.process': 'data_entry',
-  'bank.approve': 'data_entry',
-  'bank.reconcile.list': 'viewer',
-  'bank.reconcile.clear': 'data_entry',
-  'bank.uncleared.list': 'viewer',
-  'bill.create': 'data_entry',
-  'bill.void': 'data_entry',
-  'bill.list': 'viewer',
-  'bill.match': 'viewer',
-  'bill.lines': 'viewer',
-  'bill.aging': 'viewer',
-  'bill.get': 'viewer',
-  'bill.update': 'data_entry',
-  'bill.draft.save': 'data_entry',
-  'bill.draft.post': 'data_entry',
-  'bill.draft.delete': 'data_entry',
-  'report.refresh_vat_return': 'viewer',
-  'coa.list': 'viewer',
-  'coa.save': 'owner',
-  'coa.update': 'owner',
-  'vat.codes.list': 'viewer',
-  'vat.codes.save': 'owner',
-  'fx.fetch_rates': 'data_entry',
-  'fx.revaluation_preview': 'owner',
-  'fx.revaluation_post': 'owner',
-  'fx.rates.list': 'viewer',
-  'fx.rates.save': 'data_entry',
-  'fx.rates.delete': 'data_entry',
-  'fx.rates.get': 'viewer',
-  'fx.providers.list': 'viewer',
-  'fx.provider.get': 'viewer',
-  'fx.provider.save': 'owner',
-  'mapping.list': 'viewer',
-  'mapping.save': 'data_entry',
-  'center.list': 'viewer',
-  'center.save': 'owner',
-  'journals.list': 'viewer',
-  'journals.save': 'owner',
-  'vendor.list': 'viewer',
-  'vendor.save': 'owner',
-  'vendor.delete': 'owner',
-  'vendor.upsert': 'owner',
-  'settings.get': 'viewer',
-  'settings.save': 'owner',
-  'company.list': 'viewer',
-  'company.save': 'owner',
-  'period.list': 'viewer',
-  'period.save': 'owner',
-  'permissions.list': 'owner',
-  'permissions.save': 'owner',
-  'diag.account': 'owner',
-  'setup.init': 'owner',
-  'setup.add_company': 'owner',
-  'attachment.list': 'viewer',
-  'attachment.delete': 'data_entry',
-  'mapping.upsert': 'data_entry',
-  'mapping.delete': 'data_entry',
-  'period.upsert':  'owner',
-  'period.delete':  'owner',
-  'coa.upsert':     'owner',
-  'coa.delete':     'owner',
-  'vat.codes.upsert': 'owner',
-  'vat.codes.delete': 'owner',
-  'journals.delete':  'owner',
-};
+// P1-1: action metadata is the single source of truth — roles, idempotency,
+// mutability/audit behavior, and param schemas all live in action-catalog.js
+// and are served to agents at GET /api/actions.
+const { ACTIONS } = require('./action-catalog');
+
+const ACTION_ROLES = Object.fromEntries(
+  Object.entries(ACTIONS).map(([name, meta]) => [name, meta.role])
+);
 
 const app = express();
 app.use(cors());
@@ -133,26 +66,20 @@ function fail(res, code, message, details) {
 }
 
 // ── P0-4: audit coverage ─────────────────────────────────────────────────────
-// Actions matching this pattern are reads and are NOT audited; every other
-// (mutating) action writes one audit_log row via auditCall() after success.
-const READONLY_ACTION_RE =
-  /\.(list|get|aging|search|lines|balance)$|^report\.|^diag\.|^fx\.rates\.|^fx\.fetch_rates$|^setup\.init$|^settings\.get$|^permissions\.list$|^company\.list$|^attachment\.list$/;
+// Derived from the catalog: mutating actions are audited unless audit:false.
+function isAuditableAction(action) {
+  const meta = ACTIONS[action];
+  return !!meta && meta.mutating === true && meta.audit !== false;
+}
 
 // ── P0-1: Idempotency ────────────────────────────────────────────────────────
 // Posting actions that must be safe to retry. When the client supplies an
 // Idempotency-Key (header, or body.idempotencyKey fallback), the first
 // response is persisted in idempotency_keys and identical retries replay it
 // instead of re-executing the posting action.
-const IDEMPOTENT_ACTIONS = new Set([
-  'bill.create',
-  'bill.draft.post',
-  'bill.void',
-  'journal.post',
-  'journal.reverse',
-  'journal.import',
-  'bank.process',
-  'fx.revaluation_post',
-]);
+const IDEMPOTENT_ACTIONS = new Set(
+  Object.keys(ACTIONS).filter((name) => ACTIONS[name].idempotent === true)
+);
 
 /**
  * Wrap res.status / res.json / res.end so the final status + payload of a
@@ -218,6 +145,9 @@ app.use('/public', express.static(path.join(__dirname, '../public'), {
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'freebooks-api' }));
 
+// P1-1: machine-readable action catalog — agent self-discovery.
+app.get('/api/actions', (_req, res) => res.json({ ok: true, actions: ACTIONS }));
+
 // Mount HTML report routes (GET /  /:company  /api/:company/report  etc.)
 mountReportRoutes(app);
 
@@ -235,6 +165,18 @@ async function handleApiRequest(req, res) {
     if (userEmail && !action.startsWith('setup.')) {
       const allowed = await checkPermission(userEmail, companyId, requiredRole);
       if (!allowed) return fail(res, 'FORBIDDEN', 'Insufficient permissions');
+    }
+
+    // P1-1: dispatch-level required-parameter validation from the catalog.
+    // Fails fast with every missing field named — before the handler runs.
+    const meta = ACTIONS[action];
+    if (meta && meta.params) {
+      const missing = Object.entries(meta.params)
+        .filter(([name, p]) => p.required && (body[name] === undefined || body[name] === null))
+        .map(([name]) => name);
+      if (missing.length > 0) {
+        return fail(res, 'INVALID_INPUT', `Missing required parameter${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`, { missing });
+      }
     }
 
     // ── P0-1: idempotency check (dispatch-level, before handler execution) ──
@@ -289,7 +231,7 @@ async function handleApiRequest(req, res) {
 
     // P0-4: audit every mutating action after successful execution. Audit
     // failure is logged loudly but must not fail the business request.
-    if (!READONLY_ACTION_RE.test(action)) {
+    if (isAuditableAction(action)) {
       try {
         await auditCall(companyId || null, action, userEmail || 'anonymous', body);
       } catch (auditErr) {

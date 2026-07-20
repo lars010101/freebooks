@@ -23,6 +23,7 @@ const { handleFx } = require('./fx');
 const { handleSetup } = require('./setup');
 const { handleAttachments } = require('./attachments');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
+const { auditCall } = require('./audit');
 
 const PORT = process.env.PORT || 3000;
 
@@ -33,6 +34,8 @@ const ACTION_ROLES = {
   'journal.import': 'data_entry',
   'journal.search': 'viewer',
   'journal.get': 'viewer',
+  'journal.account_lines': 'viewer',
+  'journal.account_balance': 'viewer',
   'journal.entry.update': 'data_entry',
   'bank.process': 'data_entry',
   'bank.approve': 'data_entry',
@@ -50,7 +53,6 @@ const ACTION_ROLES = {
   'bill.draft.save': 'data_entry',
   'bill.draft.post': 'data_entry',
   'bill.draft.delete': 'data_entry',
-  'bill.draft.preview': 'data_entry',
   'report.refresh_vat_return': 'viewer',
   'coa.list': 'viewer',
   'coa.save': 'owner',
@@ -105,6 +107,107 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ── P0-2: Unified error envelope ─────────────────────────────────────────────
+// All failure paths in the /api dispatch flow return:
+//   { ok: false, error: { code, message, details? } }
+// with an HTTP status derived from the error code.
+const ERROR_STATUS = {
+  INVALID_INPUT: 400,
+  VALIDATION: 400,
+  NOT_FOUND: 404,
+  FORBIDDEN: 403,
+  DUPLICATE: 409,
+  CONFLICT: 409,
+  PERIOD_LOCKED: 409,
+  IDEMPOTENCY_KEY_REUSED: 409,
+};
+
+function statusForCode(code) {
+  return ERROR_STATUS[code] || 500;
+}
+
+function fail(res, code, message, details) {
+  const error = { code: code || 'INTERNAL', message: message || 'Internal error' };
+  if (details !== undefined) error.details = details;
+  return res.status(statusForCode(error.code)).json({ ok: false, error });
+}
+
+// ── P0-4: audit coverage ─────────────────────────────────────────────────────
+// Actions matching this pattern are reads and are NOT audited; every other
+// (mutating) action writes one audit_log row via auditCall() after success.
+const READONLY_ACTION_RE =
+  /\.(list|get|aging|search|lines|balance)$|^report\.|^diag\.|^fx\.rates\.|^fx\.fetch_rates$|^setup\.init$|^settings\.get$|^permissions\.list$|^company\.list$|^attachment\.list$/;
+
+// ── P0-1: Idempotency ────────────────────────────────────────────────────────
+// Posting actions that must be safe to retry. When the client supplies an
+// Idempotency-Key (header, or body.idempotencyKey fallback), the first
+// response is persisted in idempotency_keys and identical retries replay it
+// instead of re-executing the posting action.
+const IDEMPOTENT_ACTIONS = new Set([
+  'bill.create',
+  'bill.draft.post',
+  'bill.void',
+  'journal.post',
+  'journal.reverse',
+  'journal.import',
+  'bank.process',
+  'fx.revaluation_post',
+]);
+
+/**
+ * Wrap res.status / res.json / res.end so the final status + payload of a
+ * first-time (MISS) idempotent request is captured and written to
+ * idempotency_keys BEFORE the response is sent. Responses with status >= 500
+ * are never stored (they are safe to retry). Generic at the dispatch level:
+ * covers both the res.end(JSON-string) success path and the
+ * res.status(...).json(...) error path used by handleApiRequest.
+ */
+function wrapIdempotentResponse(res, key, action, companyId) {
+  let capturedStatus = 200;
+  let persistStarted = false; // res.json → res.send → this.end: persist exactly once
+  const origStatus = res.status.bind(res);
+  const origJson = res.json.bind(res);
+  const origEnd = res.end.bind(res);
+
+  res.status = function (code) {
+    capturedStatus = code;
+    return origStatus(code);
+  };
+
+  async function persist(rawJson) {
+    if (persistStarted) return;
+    persistStarted = true;
+    // Only persist 2xx successes. 4xx failures are deterministic and free to
+    // re-execute — storing them would replay a stale error after the client
+    // fixes the payload and retries with the same key. >=500 stays retryable.
+    if (capturedStatus >= 300) return;
+    try {
+      await exec(
+        `INSERT INTO idempotency_keys (key, action, company_id, http_status, response_json)
+         VALUES (@key, @action, @companyId, @status, @json)`,
+        { key, action, companyId: companyId || null, status: capturedStatus, json: rawJson }
+      );
+    } catch (err) {
+      // Concurrent same-key race or DB hiccup — log; the response is still sent.
+      console.error(`Idempotency persist failed for key '${key}' (${action}):`, err.message);
+    }
+  }
+
+  res.json = function (payload) {
+    let raw = null;
+    try { raw = JSON.stringify(payload); } catch { raw = null; }
+    const send = () => origJson(payload);
+    return raw === null ? send() : persist(raw).then(send, send);
+  };
+
+  res.end = function (chunk, encoding) {
+    const raw = typeof chunk === 'string' ? chunk
+      : (Buffer.isBuffer(chunk) ? chunk.toString('utf8') : null);
+    const send = () => origEnd(chunk, encoding);
+    return raw === null ? send() : persist(raw).then(send, send);
+  };
+}
+
 // Serve static files from db directory (e.g., currencies.json)
 const path = require('path');
 app.use('/db', express.static(path.join(__dirname, '../../db')));
@@ -123,15 +226,38 @@ async function handleApiRequest(req, res) {
     const body = req.body;
     const { action, companyId, userEmail } = body;
 
-    if (!action) return res.status(400).json({ error: 'Missing action' });
-    if (!action.startsWith('setup.') && !companyId) return res.status(400).json({ error: 'Missing companyId' });
+    if (!action) return fail(res, 'INVALID_INPUT', 'Missing action');
+    if (!action.startsWith('setup.') && !companyId) return fail(res, 'INVALID_INPUT', 'Missing companyId');
 
     const requiredRole = ACTION_ROLES[action];
-    if (!requiredRole) return res.status(400).json({ error: `Unknown action: ${action}` });
+    if (!requiredRole) return fail(res, 'INVALID_INPUT', `Unknown action: ${action}`);
 
     if (userEmail && !action.startsWith('setup.')) {
       const allowed = await checkPermission(userEmail, companyId, requiredRole);
-      if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+      if (!allowed) return fail(res, 'FORBIDDEN', 'Insufficient permissions');
+    }
+
+    // ── P0-1: idempotency check (dispatch-level, before handler execution) ──
+    // Key from `Idempotency-Key` header, fallback body.idempotencyKey. No key
+    // → normal execution (legacy behavior unchanged).
+    const idemKeyRaw = req.get('Idempotency-Key') || body.idempotencyKey;
+    const idemKey = idemKeyRaw != null && String(idemKeyRaw).trim() !== '' ? String(idemKeyRaw) : null;
+    if (idemKey && IDEMPOTENT_ACTIONS.has(action)) {
+      const existing = await query(
+        `SELECT action, http_status, response_json FROM idempotency_keys WHERE key = @key`,
+        { key: idemKey }
+      );
+      if (existing.length > 0) {
+        const row = existing[0];
+        if (row.action !== action) {
+          // Same key reused for a DIFFERENT action → hard conflict.
+          return fail(res, 'IDEMPOTENCY_KEY_REUSED', `Idempotency key '${idemKey}' was already used for action '${row.action}'`);
+        }
+        // HIT → replay the stored response instead of re-executing.
+        return res.status(row.http_status || 200).set('Idempotent-Replay', 'true').json(JSON.parse(row.response_json));
+      }
+      // MISS → capture + persist the first response before it is sent.
+      wrapIdempotentResponse(res, idemKey, action, companyId);
     }
 
     const ctx = { body, companyId, userEmail };
@@ -158,7 +284,17 @@ async function handleApiRequest(req, res) {
       case 'diag':        result = await handleDiag(ctx, action); break;
       case 'attachment':  result = await handleAttachments(ctx, action); break;
       default:
-        return res.status(400).json({ error: `Unknown module: ${module}` });
+        return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
+    }
+
+    // P0-4: audit every mutating action after successful execution. Audit
+    // failure is logged loudly but must not fail the business request.
+    if (!READONLY_ACTION_RE.test(action)) {
+      try {
+        await auditCall(companyId || null, action, userEmail || 'anonymous', body);
+      } catch (auditErr) {
+        console.error(`Audit log failed for action ${action}:`, auditErr.message);
+      }
     }
 
     res.setHeader('Content-Type', 'application/json');
@@ -167,7 +303,7 @@ async function handleApiRequest(req, res) {
     ));
   } catch (err) {
     console.error('Handler error:', err);
-    res.status(500).json({ error: err.message || 'Internal error', code: err.code || 'INTERNAL' });
+    fail(res, err.code || 'INTERNAL', err.message || 'Internal error', err.details);
   }
 }
 

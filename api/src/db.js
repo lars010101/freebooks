@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { DuckDBInstance } = require('@duckdb/node-api');
 
-const DB_PATH = process.env.DB_PATH || path.join(require('os').homedir(), '.freebooks', 'freebooks.duckdb');
+const DB_PATH = process.env.FREEBOOKS_DB_PATH || process.env.DB_PATH || path.join(require('os').homedir(), '.freebooks', 'freebooks.duckdb');
 const WAL_PATH = DB_PATH + '.wal';
 
 let _instance = null;

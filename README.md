@@ -71,6 +71,14 @@ cd ~/freebooks && git pull && node db/init.js && node api/src/index.js
 
 The server handles `SIGINT`/`SIGTERM` gracefully and checkpoints DuckDB before exit to prevent stale WAL files.
 
+### Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `FREEBOOKS_DB_PATH` | Override the database location (default `~/.freebooks/freebooks.duckdb`). Useful for tests and throwaway instances. |
+| `FREEBOOKS_ADMIN_TOKEN` | Bearer token for `POST /api/admin/query` (arbitrary SQL). **If unset, the endpoint is disabled (403).** Set it only for local admin/debug use: `FREEBOOKS_ADMIN_TOKEN=$(openssl rand -hex 32) node api/src/index.js`, then send `Authorization: Bearer <token>`. |
+| `PORT` | HTTP port (default 3000). |
+
 ---
 
 ## Project Structure

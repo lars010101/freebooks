@@ -23,23 +23,93 @@ async function handleJournal(ctx, action) {
     case 'journal.import':  return importEntries(ctx);
     case 'journal.search':  return searchEntries(ctx);
     case 'journal.get':     return getEntry(ctx);
+    case 'journal.account_lines':   return accountLines(ctx);
+    case 'journal.account_balance': return accountBalance(ctx);
     case 'journal.entry.update': return updateEntryDescription(ctx);
     default:
       throw Object.assign(new Error(`Unknown journal action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
 }
 
-async function updateEntryDescription(ctx) {
+// P0-5: read-only account activity queries for the bank UI. These replace
+// the frontend's former use of the (now-gated) arbitrary-SQL /api/admin/query
+// endpoint. Both return arrays so existing client handlers work unchanged.
+async function accountLines(ctx) {
   const { companyId, body } = ctx;
+  const { account_code } = body;
+  if (!account_code) throw Object.assign(new Error('account_code required'), { code: 'INVALID_INPUT' });
+  return query(
+    `SELECT date, debit, credit FROM journal_entries
+     WHERE company_id = @companyId AND account_code = @account_code
+     ORDER BY date, entry_id`,
+    { companyId, account_code }
+  );
+}
+
+async function accountBalance(ctx) {
+  const { companyId, body } = ctx;
+  const { account_code } = body;
+  if (!account_code) throw Object.assign(new Error('account_code required'), { code: 'INVALID_INPUT' });
+  return query(
+    `SELECT COALESCE(SUM(debit) - SUM(credit), 0) AS balance FROM journal_entries
+     WHERE company_id = @companyId AND account_code = @account_code`,
+    { companyId, account_code }
+  );
+}
+
+async function updateEntryDescription(ctx) {
+  const { companyId, userEmail, body } = ctx;
   const { entryId, description, account_code, vat_code } = body;
   if (!entryId) throw Object.assign(new Error('entryId required'), { code: 'INVALID_INPUT' });
 
+  // P0-3: posted-ledger integrity. Posted entries are append-only in
+  // principle; the limited field edits allowed here (description, account,
+  // vat code) must still respect reversal state and period locks, and must
+  // never bypass the bill void workflow.
+  const entryRows = await query(
+    `SELECT entry_id, batch_id, date, description, account_code, vat_code, bill_id, reverses, reversed_by
+     FROM journal_entries WHERE company_id = @companyId AND entry_id = @entryId LIMIT 1`,
+    { companyId, entryId }
+  );
+  if (!entryRows.length) throw Object.assign(new Error('Journal entry not found'), { code: 'NOT_FOUND' });
+  const entry = entryRows[0];
+
+  if (entry.bill_id) {
+    throw Object.assign(
+      new Error('Entry belongs to a bill — void the bill instead of editing its journal lines'),
+      { code: 'CONFLICT', details: { bill_id: entry.bill_id } }
+    );
+  }
+  if (entry.reversed_by) {
+    throw Object.assign(new Error('Entry has been reversed — post a new entry instead of editing'), { code: 'CONFLICT' });
+  }
+  if (entry.reverses) {
+    throw Object.assign(new Error('Reversal entries cannot be edited'), { code: 'CONFLICT' });
+  }
+
+  const periods = await query(
+    `SELECT period_name, start_date, end_date, locked FROM periods WHERE company_id = @companyId`,
+    { companyId }
+  );
+  const entryDate = new Date(String(entry.date).substring(0, 10));
+  const lockedHit = periods.find(
+    (p) => p.locked && new Date(p.start_date) <= entryDate && new Date(p.end_date) >= entryDate
+  );
+  if (lockedHit) {
+    throw Object.assign(
+      new Error(`Entry date ${String(entry.date).substring(0, 10)} falls into a locked accounting period (${lockedHit.period_name})`),
+      { code: 'PERIOD_LOCKED' }
+    );
+  }
+
   const setParts = [];
   const params = { companyId, entryId };
+  const changes = {};
 
   if (description !== undefined) {
     setParts.push('description = @description');
     params.description = description || null;
+    changes.description = { old: entry.description, new: params.description };
   }
   if (account_code !== undefined) {
     // Validate account exists in this company
@@ -50,10 +120,12 @@ async function updateEntryDescription(ctx) {
     if (!accts.length) throw Object.assign(new Error('Account not found: ' + account_code), { code: 'INVALID_INPUT' });
     setParts.push('account_code = @account_code');
     params.account_code = account_code;
+    changes.account_code = { old: entry.account_code, new: account_code };
   }
   if (vat_code !== undefined) {
     setParts.push('vat_code = @vat_code');
     params.vat_code = vat_code || null;
+    changes.vat_code = { old: entry.vat_code, new: params.vat_code };
   }
 
   if (!setParts.length) return { updated: false };
@@ -62,6 +134,7 @@ async function updateEntryDescription(ctx) {
     `UPDATE journal_entries SET ${setParts.join(', ')} WHERE company_id = @companyId AND entry_id = @entryId`,
     params
   );
+  await auditLog(companyId, 'journal_entries', entryId, 'update', userEmail || 'unknown', changes);
   return { updated: true, entryId };
 }
 
@@ -191,7 +264,12 @@ async function postEntry(ctx) {
   }
 
   const validation = await validateJournalBatch(companyId, enrichedLines);
-  if (!validation.valid) return { posted: false, errors: validation.errors, warnings: validation.warnings };
+  if (!validation.valid) {
+    throw Object.assign(new Error(validation.errors.join('; ')), {
+      code: 'VALIDATION',
+      details: { errors: validation.errors, warnings: validation.warnings },
+    });
+  }
 
   const batchId = uuid();
   const now = new Date().toISOString();
@@ -435,7 +513,12 @@ async function importEntries(ctx) {
   }
 
   if (allErrors.length > 0) {
-    return { imported: 0, failed: allErrors.length, totalEntries: entries.length, errors: allErrors };
+    // Import is all-or-nothing: any entry failure means nothing was inserted.
+    const summary = allErrors.map((e) => `Entry ${e.entry}: ${e.errors.join('; ')}`).join(' | ');
+    throw Object.assign(new Error(`Import failed for ${allErrors.length} of ${entries.length} entries: ${summary}`), {
+      code: 'VALIDATION',
+      details: { errors: allErrors, failed: allErrors.length, totalEntries: entries.length },
+    });
   }
 
   await bulkInsert('journal_entries', allRows);

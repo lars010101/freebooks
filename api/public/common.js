@@ -1,5 +1,33 @@
 
 (function() {
+  // ── P0-2 transitional: error-envelope normalizer ─────────────────────────
+  // Server now returns failures as HTTP 4xx/5xx with
+  //   { ok:false, error:{ code, message, details? } }
+  // Legacy handlers expect `res.error` to be a STRING (they assign it to
+  // textContent) and read data via `res.data || res`. Rewriting the body here
+  // keeps all of them working: error object → message string (details.errors
+  // joined when present — that array carried the specific messages pre-P0-2).
+  // TRANSITIONAL: remove once all call sites migrate to an envelope-native
+  // fbApi helper (roadmap P1-3 shared UI core).
+  var _fbOrigFetch = window.fetch.bind(window);
+  window.fetch = function(url, opts) {
+    var isApi = typeof url === 'string' && (url.indexOf('/api/') === 0 || url === '/api');
+    if (!isApi) return _fbOrigFetch(url, opts);
+    return _fbOrigFetch(url, opts).then(function(r) {
+      return r.json().catch(function() { return null; }).then(function(body) {
+        if (body && body.ok === false && body.error && typeof body.error === 'object') {
+          var e = body.error;
+          body.error = (e.details && Array.isArray(e.details.errors) && e.details.errors.length)
+            ? e.details.errors.join('; ')
+            : (e.message || ('Request failed (' + r.status + ')'));
+        }
+        return { ok: r.ok, status: r.status, headers: r.headers,
+                 json: function() { return Promise.resolve(body); },
+                 text: function() { return Promise.resolve(JSON.stringify(body)); } };
+      });
+    });
+  };
+
   // ── Theme ──
   function fbApplyTheme(t) {
     document.documentElement.setAttribute('data-theme', t);

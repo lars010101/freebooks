@@ -191,7 +191,12 @@ async function postEntry(ctx) {
   }
 
   const validation = await validateJournalBatch(companyId, enrichedLines);
-  if (!validation.valid) return { posted: false, errors: validation.errors, warnings: validation.warnings };
+  if (!validation.valid) {
+    throw Object.assign(new Error(validation.errors.join('; ')), {
+      code: 'VALIDATION',
+      details: { errors: validation.errors, warnings: validation.warnings },
+    });
+  }
 
   const batchId = uuid();
   const now = new Date().toISOString();
@@ -435,7 +440,12 @@ async function importEntries(ctx) {
   }
 
   if (allErrors.length > 0) {
-    return { imported: 0, failed: allErrors.length, totalEntries: entries.length, errors: allErrors };
+    // Import is all-or-nothing: any entry failure means nothing was inserted.
+    const summary = allErrors.map((e) => `Entry ${e.entry}: ${e.errors.join('; ')}`).join(' | ');
+    throw Object.assign(new Error(`Import failed for ${allErrors.length} of ${entries.length} entries: ${summary}`), {
+      code: 'VALIDATION',
+      details: { errors: allErrors, failed: allErrors.length, totalEntries: entries.length },
+    });
   }
 
   await bulkInsert('journal_entries', allRows);

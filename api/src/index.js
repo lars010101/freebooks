@@ -50,7 +50,6 @@ const ACTION_ROLES = {
   'bill.draft.save': 'data_entry',
   'bill.draft.post': 'data_entry',
   'bill.draft.delete': 'data_entry',
-  'bill.draft.preview': 'data_entry',
   'report.refresh_vat_return': 'viewer',
   'coa.list': 'viewer',
   'coa.save': 'owner',
@@ -105,6 +104,31 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ── P0-2: Unified error envelope ─────────────────────────────────────────────
+// All failure paths in the /api dispatch flow return:
+//   { ok: false, error: { code, message, details? } }
+// with an HTTP status derived from the error code.
+const ERROR_STATUS = {
+  INVALID_INPUT: 400,
+  VALIDATION: 400,
+  NOT_FOUND: 404,
+  FORBIDDEN: 403,
+  DUPLICATE: 409,
+  CONFLICT: 409,
+  PERIOD_LOCKED: 409,
+  IDEMPOTENCY_KEY_REUSED: 409,
+};
+
+function statusForCode(code) {
+  return ERROR_STATUS[code] || 500;
+}
+
+function fail(res, code, message, details) {
+  const error = { code: code || 'INTERNAL', message: message || 'Internal error' };
+  if (details !== undefined) error.details = details;
+  return res.status(statusForCode(error.code)).json({ ok: false, error });
+}
+
 // ── P0-1: Idempotency ────────────────────────────────────────────────────────
 // Posting actions that must be safe to retry. When the client supplies an
 // Idempotency-Key (header, or body.idempotencyKey fallback), the first
@@ -144,7 +168,10 @@ function wrapIdempotentResponse(res, key, action, companyId) {
   async function persist(rawJson) {
     if (persistStarted) return;
     persistStarted = true;
-    if (capturedStatus >= 500) return; // server error → retryable, never stored
+    // Only persist 2xx successes. 4xx failures are deterministic and free to
+    // re-execute — storing them would replay a stale error after the client
+    // fixes the payload and retries with the same key. >=500 stays retryable.
+    if (capturedStatus >= 300) return;
     try {
       await exec(
         `INSERT INTO idempotency_keys (key, action, company_id, http_status, response_json)
@@ -190,15 +217,15 @@ async function handleApiRequest(req, res) {
     const body = req.body;
     const { action, companyId, userEmail } = body;
 
-    if (!action) return res.status(400).json({ error: 'Missing action' });
-    if (!action.startsWith('setup.') && !companyId) return res.status(400).json({ error: 'Missing companyId' });
+    if (!action) return fail(res, 'INVALID_INPUT', 'Missing action');
+    if (!action.startsWith('setup.') && !companyId) return fail(res, 'INVALID_INPUT', 'Missing companyId');
 
     const requiredRole = ACTION_ROLES[action];
-    if (!requiredRole) return res.status(400).json({ error: `Unknown action: ${action}` });
+    if (!requiredRole) return fail(res, 'INVALID_INPUT', `Unknown action: ${action}`);
 
     if (userEmail && !action.startsWith('setup.')) {
       const allowed = await checkPermission(userEmail, companyId, requiredRole);
-      if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+      if (!allowed) return fail(res, 'FORBIDDEN', 'Insufficient permissions');
     }
 
     // ── P0-1: idempotency check (dispatch-level, before handler execution) ──
@@ -215,7 +242,7 @@ async function handleApiRequest(req, res) {
         const row = existing[0];
         if (row.action !== action) {
           // Same key reused for a DIFFERENT action → hard conflict.
-          return res.status(409).json({ error: 'IDEMPOTENCY_KEY_REUSED' });
+          return fail(res, 'IDEMPOTENCY_KEY_REUSED', `Idempotency key '${idemKey}' was already used for action '${row.action}'`);
         }
         // HIT → replay the stored response instead of re-executing.
         return res.status(row.http_status || 200).set('Idempotent-Replay', 'true').json(JSON.parse(row.response_json));
@@ -248,7 +275,7 @@ async function handleApiRequest(req, res) {
       case 'diag':        result = await handleDiag(ctx, action); break;
       case 'attachment':  result = await handleAttachments(ctx, action); break;
       default:
-        return res.status(400).json({ error: `Unknown module: ${module}` });
+        return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
     }
 
     res.setHeader('Content-Type', 'application/json');
@@ -257,7 +284,7 @@ async function handleApiRequest(req, res) {
     ));
   } catch (err) {
     console.error('Handler error:', err);
-    res.status(500).json({ error: err.message || 'Internal error', code: err.code || 'INTERNAL' });
+    fail(res, err.code || 'INTERNAL', err.message || 'Internal error', err.details);
   }
 }
 

@@ -83,7 +83,6 @@ async function handleBills(ctx, action) {
     case 'bill.draft.save': return saveDraftBill(ctx);
     case 'bill.draft.post': return postDraftBill(ctx);
     case 'bill.draft.delete': return deleteDraftBill(ctx);
-    case 'bill.draft.preview': return previewBill(ctx);
     default:
       throw Object.assign(new Error(`Unknown bill action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -117,11 +116,8 @@ async function createBill(ctx) {
       const { getRate } = require('./fx');
       const resolved = await getRate(currency, company.currency, String(bill.date).substring(0, 10));
       if (resolved === null) {
-        return {
-          created: false,
-          errors: [`No FX rate found for ${currency} \u2192 ${company.currency} on ${bill.date}. Add the rate in Settings \u2192 Exchange Rates.`],
-          warnings: [],
-        };
+        const errors = [`No FX rate found for ${currency} \u2192 ${company.currency} on ${bill.date}. Add the rate in Settings \u2192 Exchange Rates.`];
+        throw Object.assign(new Error(errors.join('; ')), { code: 'INVALID_INPUT', details: { errors } });
       }
       fxRate = resolved;
     }
@@ -150,7 +146,12 @@ async function createBill(ctx) {
   };
 
   const validation = await validateBill(companyId, billForValidation);
-  if (!validation.valid) return { created: false, errors: validation.errors, warnings: validation.warnings };
+  if (!validation.valid) {
+    throw Object.assign(new Error(validation.errors.join('; ')), {
+      code: 'INVALID_INPUT',
+      details: { errors: validation.errors, warnings: validation.warnings },
+    });
+  }
 
   // Validation passed. When replacing a draft we UPDATE the draft row in-place
   // (no DELETE) so that bill_id, created_at, created_by, and any attachments
@@ -173,19 +174,19 @@ async function createBill(ctx) {
       (p) => new Date(p.start_date) <= billDateOnly && new Date(p.end_date) >= billDateOnly
     );
     if (coveringPeriods.length === 0) {
-      return {
-        created: false,
-        errors: [`Bill date ${bill.date} does not fall within any defined accounting period`],
-        warnings: validation.warnings,
-      };
+      const errors = [`Bill date ${bill.date} does not fall within any defined accounting period`];
+      throw Object.assign(new Error(errors.join('; ')), {
+        code: 'VALIDATION',
+        details: { errors, warnings: validation.warnings },
+      });
     }
     const lockedPeriods = coveringPeriods.filter((p) => p.locked);
     if (lockedPeriods.length > 0) {
-      return {
-        created: false,
-        errors: [`Bill date ${bill.date} falls into a locked accounting period (${lockedPeriods.map((p) => p.period_name).join(', ')})`],
-        warnings: validation.warnings,
-      };
+      const errors = [`Bill date ${bill.date} falls into a locked accounting period (${lockedPeriods.map((p) => p.period_name).join(', ')})`];
+      throw Object.assign(new Error(errors.join('; ')), {
+        code: 'PERIOD_LOCKED',
+        details: { errors, warnings: validation.warnings },
+      });
     }
   }
 
@@ -477,7 +478,8 @@ async function getBillLines(ctx) {
   if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
   // For draft bills, return stored draft_lines JSON instead of journal entries
   const billRows = await query(`SELECT status, draft_lines FROM bills WHERE company_id=@companyId AND bill_id=@billId LIMIT 1`, { companyId, billId });
-  if (billRows.length && billRows[0].status === 'draft') {
+  if (billRows.length === 0) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
+  if (billRows[0].status === 'draft') {
     const raw = billRows[0].draft_lines;
     if (!raw) return [];
     try {
@@ -598,13 +600,16 @@ async function saveDraftBill(ctx) {
     vendor: bill.vendor,
     vendor_ref: bill.vendor_ref || null,
     date: bill.date,
-    due_date: bill.due_date || null,
+    due_date: bill.due_date || bill.date || null,
     amount: totalAmount,
     currency: bill.currency || 'SGD',
     fx_rate: bill.fx_rate || 1.0,
     amount_home: totalAmount * (bill.fx_rate || 1.0),
     expense_account: (bill.lines && bill.lines[0] && bill.lines[0].expense_account) || bill.expense_account || null,
-    ap_account: bill.ap_account || null,
+    // Drafts may legitimately have no AP account yet (3-tier defaults allow
+    // blank until post). Store '' (satisfies NOT NULL) — validateBill treats
+    // blank as missing at post time.
+    ap_account: bill.ap_account || '',
     vat_code: null,
     vat_amount: 0,
     net_amount: totalAmount,
@@ -715,257 +720,5 @@ async function postDraftBill(ctx) {
   });
 }
 
-async function previewBill(ctx) {
-  const { companyId, body } = ctx;
-  const { billId, bill: inlineBill } = body;
-
-  let bill;
-  if (billId) {
-    // Saved draft: read from DB
-    const rows = await query(
-      `SELECT * FROM bills WHERE bill_id=@id AND company_id=@cid AND status='draft' LIMIT 1`,
-      { id: billId, cid: companyId }
-    );
-    if (!rows.length) {
-      return { errors: ['Draft bill not found'], warnings: [], lines: [] };
-    }
-    const draft = rows[0];
-    let draftLines = null;
-    if (draft.draft_lines) {
-      try { draftLines = JSON.parse(draft.draft_lines); } catch (e) { draftLines = null; }
-    }
-    const lines = (Array.isArray(draftLines) && draftLines.length > 0)
-      ? draftLines.map(function (l) {
-          return {
-            expense_account: l.expense_account,
-            amount: Number(l.amount),
-            vat_code: l.vat_code || null,
-            description: l.description || '',
-            vat_amount_override: (l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null,
-            vat_account_override: l.vat_account_override || null,
-          };
-        })
-      : [
-          { expense_account: draft.expense_account, amount: Number(draft.amount), vat_code: draft.vat_code || null, description: draft.description || '', vat_amount_override: null, vat_account_override: null },
-        ];
-    bill = {
-      vendor: draft.vendor,
-      vendor_ref: draft.vendor_ref,
-      date: draft.date,
-      due_date: draft.due_date,
-      amount: Number(draft.amount),
-      currency: draft.currency,
-      ap_account: draft.ap_account,
-      expense_account: draft.expense_account,
-      description: draft.description,
-      lines,
-    };
-  } else {
-    bill = inlineBill;
-  }
-
-  if (!bill) {
-    return { errors: ['bill or billId required'], warnings: [], lines: [] };
-  }
-
-  // Resolve company currency + FX rate BEFORE validation (validateBill checks bill.fx_rate)
-  const companies = await query(
-    `SELECT currency, vat_registered FROM companies WHERE company_id = @companyId LIMIT 1`,
-    { companyId }
-  );
-  const company = companies[0];
-  const companyCurrency = company.currency;
-  const currency = bill.currency || companyCurrency;
-
-  let fxRate = 1.0;
-  if (currency !== companyCurrency) {
-    const { getRate } = require('./fx');
-    fxRate = await getRate(currency, companyCurrency, String(bill.date).substring(0, 10));
-    if (fxRate === null) {
-      return {
-        errors: [`No FX rate found for ${currency} \u2192 ${companyCurrency} on ${bill.date}. Add the rate in Settings \u2192 Exchange Rates.`],
-        warnings: [],
-        lines: [],
-      };
-    }
-  }
-  bill.fx_rate = fxRate;
-
-  // Apply company-level default AP/expense accounts as fallbacks for blank
-  // bill-level and per-line account codes (mirrors createBill).
-  const companyDefaults = await getCompanyDefaultAccounts(companyId);
-  applyCompanyDefaults(bill, companyDefaults);
-
-  // VAT tolerance settings (used when supplier-stated VAT override is provided)
-  const vatTolerance = await getVatTolerance(companyId);
-
-  // Pre-resolve lines for validation (same as createBill)
-  const _preLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)
-    ? bill.lines
-    : [{ expense_account: bill.expense_account, amount: bill.amount, vat_code: bill.vat_code, description: bill.description }];
-  const _preTotal = _preLines.reduce((s, l) => s + Number(l.amount || 0), 0);
-  const billForValidation = {
-    ...bill,
-    amount: bill.amount || _preTotal,
-    expense_account: bill.expense_account || (_preLines[0] && _preLines[0].expense_account),
-  };
-
-  // Validate — but don't hard-fail on account existence; the preview is a dry run
-  // and the user can fix account codes in the editable preview rows before posting.
-  // Hard validation happens at post time in createBill.
-  const validation = await validateBill(companyId, billForValidation);
-  const previewWarnings = validation.warnings || [];
-  // Split errors: structural errors (missing vendor, amount) still block preview.
-  // Account existence errors become warnings — user fixes them in the preview.
-  const blockingErrors = [];
-  (validation.errors || []).forEach(function(err) {
-    if (err.indexOf('does not exist in COA') !== -1) {
-      previewWarnings.push(err);
-    } else {
-      blockingErrors.push(err);
-    }
-  });
-  if (blockingErrors.length) {
-    return { errors: blockingErrors, warnings: previewWarnings, lines: [] };
-  }
-
-  // Period lock check (mirrors createBill lines 61-92)
-  if (bill.date) {
-    const periods = await query(
-      `SELECT period_name, start_date, end_date, locked
-       FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
-             FROM periods WHERE company_id = @companyId) WHERE rn = 1`,
-      { companyId }
-    );
-    const billDateOnly = new Date(String(bill.date).substring(0, 10));
-    const coveringPeriods = periods.filter(
-      (p) => new Date(p.start_date) <= billDateOnly && new Date(p.end_date) >= billDateOnly
-    );
-    if (coveringPeriods.length === 0) {
-      return { errors: [`Bill date ${bill.date} does not fall within any defined accounting period`], warnings: validation.warnings, lines: [] };
-    }
-    const lockedPeriods = coveringPeriods.filter((p) => p.locked);
-    if (lockedPeriods.length > 0) {
-      return { errors: [`Bill date ${bill.date} falls into a locked accounting period (${lockedPeriods.map((p) => p.period_name).join(', ')})`], warnings: validation.warnings, lines: [] };
-    }
-  }
-
-  // Resolve expense lines
-  const expenseLines = (Array.isArray(bill.lines) && bill.lines.length >= 1)
-    ? bill.lines
-    : [{ expense_account: bill.expense_account, amount: bill.amount, vat_code: bill.vat_code, description: bill.description }];
-
-  const desc = [bill.vendor, bill.vendor_ref, bill.description].filter(Boolean).join(' / ');
-
-  // Compute journal lines (mirrors createBill lines 161-207)
-  const journalLines = [];
-  let _prvLineIdx = 0;
-  for (const expLine of expenseLines) {
-    const lineAmount = Number(expLine.amount || 0);
-    let lineNet = lineAmount;
-    let lineVat = 0;
-    if (expLine.vat_code && company.vat_registered) {
-      const vatRows = await query(
-        `SELECT rate, vat_account_input, vat_account_output, is_reverse_charge
-         FROM vat_codes WHERE company_id = @companyId AND vat_code = @vatCode AND is_active = true LIMIT 1`,
-        { companyId, vatCode: expLine.vat_code }
-      );
-      if (vatRows.length > 0) {
-        const vc = vatRows[0];
-        const rate = Number(vc.rate);
-        const expectedVat = Math.round(lineAmount * rate * 100) / 100;
-        // Reverse charge: VAT is self-assessed — ignore any supplier-stated
-        // override and always use the computed amount.
-        if (vc.is_reverse_charge) {
-          lineVat = expectedVat;
-        } else if (expLine.vat_amount_override !== null && expLine.vat_amount_override !== undefined && !isNaN(Number(expLine.vat_amount_override))) {
-          lineVat = Number(expLine.vat_amount_override);
-          const diff = Math.abs(lineVat - expectedVat);
-          const tol = _vatToleranceFor(vatTolerance.flat, vatTolerance.pct, expectedVat);
-          if (diff > tol) {
-            previewWarnings.push(`Line ${_prvLineIdx + 1}: VAT amount ${lineVat.toFixed(2)} differs from computed ${expectedVat.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`);
-          }
-        } else {
-          lineVat = expectedVat;
-        }
-        const vatInputAccount = expLine.vat_account_override || vc.vat_account_input;
-        if (vc.is_reverse_charge) {
-          journalLines.push({
-            account_code: vc.vat_account_input, debit: lineVat, credit: 0, description: `Input VAT RC: ${bill.vendor}`,
-            vat_code: expLine.vat_code, line_type: 'vat', currency, fx_rate: fxRate,
-            debit_home: lineVat * fxRate, credit_home: 0,
-          });
-          journalLines.push({
-            account_code: vc.vat_account_output, debit: 0, credit: lineVat, description: `Output VAT RC: ${bill.vendor}`,
-            vat_code: expLine.vat_code, line_type: 'vat', currency, fx_rate: fxRate,
-            debit_home: 0, credit_home: lineVat * fxRate,
-          });
-        } else {
-          journalLines.push({
-            account_code: vatInputAccount, debit: lineVat, credit: 0, description: `GST Input: ${bill.vendor}`,
-            vat_code: expLine.vat_code, line_type: 'vat', currency, fx_rate: fxRate,
-            debit_home: lineVat * fxRate, credit_home: 0,
-          });
-        }
-      }
-    }
-    const lineDesc = expLine.description ? `${desc} / ${expLine.description}` : desc;
-    journalLines.push({
-      account_code: expLine.expense_account, debit: lineNet, credit: 0, description: lineDesc,
-      vat_code: null, line_type: 'expense', currency, fx_rate: fxRate,
-      debit_home: lineNet * fxRate, credit_home: 0,
-    });
-    _prvLineIdx++;
-  }
-
-  // CR AP line for total debit
-  const totalDebit = journalLines.reduce((s, l) => s + Number(l.debit || 0), 0);
-  journalLines.push({
-    account_code: bill.ap_account, debit: 0, credit: totalDebit, description: `AP: ${desc}`,
-    vat_code: null, line_type: 'ap', currency, fx_rate: fxRate,
-    debit_home: 0, credit_home: totalDebit * fxRate,
-  });
-
-  const totalCredit = journalLines.reduce((s, l) => s + Number(l.credit || 0), 0);
-
-  // Resolve account names by joining accounts table
-  const acctCodes = Array.from(new Set(journalLines.map((l) => l.account_code).filter(Boolean)));
-  let accountNameMap = {};
-  if (acctCodes.length) {
-    const placeholders = acctCodes.map((_, i) => '@code' + i).join(', ');
-    const params = { companyId };
-    acctCodes.forEach((c, i) => { params['code' + i] = c; });
-    const acctRows = await query(
-      `SELECT account_code, account_name FROM accounts WHERE company_id = @companyId AND account_code IN (${placeholders})`,
-      params
-    );
-    acctRows.forEach((r) => { accountNameMap[r.account_code] = r.account_name; });
-  }
-  journalLines.forEach((l) => { l.account_name = accountNameMap[l.account_code] || ''; });
-
-  // Balanced check: total debits equal total credits (within rounding tolerance)
-  const balanced = Math.abs(totalDebit - totalCredit) < 0.005;
-
-  return {
-    lines: journalLines,
-    bill_lines: expenseLines.map((l) => ({
-      expense_account: l.expense_account,
-      amount: Number(l.amount || 0),
-      vat_code: l.vat_code || null,
-      description: l.description || '',
-      vat_amount_override: (l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null,
-      vat_account_override: l.vat_account_override || null,
-    })),
-    ap_account: bill.ap_account,
-    fx_rate: fxRate,
-    currency,
-    base_currency: companyCurrency,
-    total_debit: totalDebit,
-    total_credit: totalCredit,
-    balanced,
-    errors: [],
-    warnings: previewWarnings,
-  };
-}
 
 module.exports = { handleBills };

@@ -130,6 +130,9 @@ async function validateBill(companyId, bill) {
   if (!bill.vendor || bill.vendor.trim() === '') errors.push('Vendor name required');
   if (!bill.vendor_ref || bill.vendor_ref.trim() === '') errors.push('Invoice Ref is required');
   if (!bill.amount || bill.amount <= 0) errors.push('Bill amount must be positive');
+  // bills.due_date is NOT NULL in the schema — fail with a clear 400 here
+  // instead of a DB constraint 500 at insert time.
+  if (!bill.due_date) errors.push('Due date is required');
 
   // Blank account codes are reported as "required" rather than running a COA
   // lookup that would produce a confusing "account undefined does not exist"

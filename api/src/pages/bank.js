@@ -690,8 +690,8 @@ ${commonStyle()}
   });
 
   function checkDuplicates(bankAcct, bankRows) {
-    fetch('/api/admin/query', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ sql: "SELECT date, debit, credit FROM journal_entries WHERE company_id='" + COMPANY + "' AND account_code='" + bankAcct + "'" }) })
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'journal.account_lines', companyId: COMPANY, account_code: bankAcct }) })
       .then(function(r){ return r.json(); })
       .then(function(res){
         var existing = res.data || res.rows || res;
@@ -732,8 +732,8 @@ ${commonStyle()}
   var bookBalanceBefore = null;
 
   function fetchAndShowBalance(bankAcct) {
-    fetch('/api/admin/query', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ sql: "SELECT COALESCE(SUM(debit)-SUM(credit),0) AS balance FROM journal_entries WHERE company_id='" + COMPANY + "' AND account_code='" + bankAcct.replace(/'/g,\'\') + "'" }) })
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'journal.account_balance', companyId: COMPANY, account_code: bankAcct }) })
       .then(function(r){ return r.json(); })
       .then(function(res){
         var rows = res.data || res.rows || res;

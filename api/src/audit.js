@@ -43,4 +43,30 @@ async function auditLog(companyId, tableName, recordId, action, changedBy, chang
   if (rows.length > 0) await bulkInsert('audit_log', rows);
 }
 
-module.exports = { auditLog };
+/**
+ * P0-4: dispatch-level invocation audit. One row per mutating API action:
+ * table_name='api', record_id=<action name>, action='invoke', and the full
+ * request payload (truncated) in new_value. Entity-level auditLog() calls
+ * (journal imports, entry updates) remain for field-level old/new history;
+ * this is the complete-coverage safety net for every other mutation
+ * (bills, settings, COA, permissions, company, VAT codes, FX, bank...).
+ */
+async function auditCall(companyId, action, changedBy, payload) {
+  let json;
+  try { json = JSON.stringify(payload ?? {}); } catch { json = '"<unserializable>"'; }
+  if (json.length > 8000) json = json.slice(0, 8000) + '…[truncated]';
+  await bulkInsert('audit_log', [{
+    company_id: companyId || null,
+    log_id: uuid(),
+    table_name: 'api',
+    record_id: action,
+    action: 'invoke',
+    field_name: null,
+    old_value: null,
+    new_value: json,
+    changed_by: changedBy,
+    changed_at: new Date().toISOString(),
+  }]);
+}
+
+module.exports = { auditLog, auditCall };

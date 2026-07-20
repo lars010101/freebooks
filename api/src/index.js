@@ -23,6 +23,7 @@ const { handleFx } = require('./fx');
 const { handleSetup } = require('./setup');
 const { handleAttachments } = require('./attachments');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
+const { auditCall } = require('./audit');
 
 const PORT = process.env.PORT || 3000;
 
@@ -33,6 +34,8 @@ const ACTION_ROLES = {
   'journal.import': 'data_entry',
   'journal.search': 'viewer',
   'journal.get': 'viewer',
+  'journal.account_lines': 'viewer',
+  'journal.account_balance': 'viewer',
   'journal.entry.update': 'data_entry',
   'bank.process': 'data_entry',
   'bank.approve': 'data_entry',
@@ -128,6 +131,12 @@ function fail(res, code, message, details) {
   if (details !== undefined) error.details = details;
   return res.status(statusForCode(error.code)).json({ ok: false, error });
 }
+
+// ── P0-4: audit coverage ─────────────────────────────────────────────────────
+// Actions matching this pattern are reads and are NOT audited; every other
+// (mutating) action writes one audit_log row via auditCall() after success.
+const READONLY_ACTION_RE =
+  /\.(list|get|aging|search|lines|balance)$|^report\.|^diag\.|^fx\.rates\.|^fx\.fetch_rates$|^setup\.init$|^settings\.get$|^permissions\.list$|^company\.list$|^attachment\.list$/;
 
 // ── P0-1: Idempotency ────────────────────────────────────────────────────────
 // Posting actions that must be safe to retry. When the client supplies an
@@ -276,6 +285,16 @@ async function handleApiRequest(req, res) {
       case 'attachment':  result = await handleAttachments(ctx, action); break;
       default:
         return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
+    }
+
+    // P0-4: audit every mutating action after successful execution. Audit
+    // failure is logged loudly but must not fail the business request.
+    if (!READONLY_ACTION_RE.test(action)) {
+      try {
+        await auditCall(companyId || null, action, userEmail || 'anonymous', body);
+      } catch (auditErr) {
+        console.error(`Audit log failed for action ${action}:`, auditErr.message);
+      }
     }
 
     res.setHeader('Content-Type', 'application/json');

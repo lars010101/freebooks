@@ -92,7 +92,7 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 - **P1-1 Action catalog:** zod schemas per action, `GET /api/actions` machine-readable manifest (self-discovery for agents; basis for contract tests).
 - **P1-2 Seed harness + contract tests:** scripted test-company setup (jurisdiction COA, periods, vendors, bills); `node:test` + supertest suite over the catalog; CI gate (extend workflow beyond docker build).
 - **P1-3 Shared UI core:** one mode manager, one key dispatcher, one nav abstraction, one utils module (`esc`, `fmtDate`, `statusBadge`, autocomplete). Migrate Bills onto it; then Vendors, Journal, Bank, Settings follow the payables pattern. Eliminate the `_fbVimMode`/`cursor._mode` duality.
-- **P1-4 Kill `bill-new.js`** (or rebuild as a thin launcher into the payables flow); route "+ Bill" accordingly.
+- **P1-4 Replace `bill-new.js` with a shared full-page bill editor** (agreed 2026-07-20): the foldable tree-table stays the default creation path for common bills; the new page is the **escape hatch for complex bills** (many lines, attachments, per-line centers). Same INSERT-mode semantics (Tab traversal, Esc saves-and-returns, same bindings), same endpoints, one shared editor component for create-complex and edit. `bill-detail.js` remains the read/management surface for posted documents. Gets its own spec section before implementation.
 - **P1-5 Surface VAT tolerance warnings** in the status bar (no new visual chrome — per magnus's clutter rule).
 - **P1-6 Discoverability:** "?" opens a which-key-style overlay of the current mode's bindings; hints and overlay generated from the same binding table as the dispatcher (single source of truth — cannot go stale); fix or remove the `:` palette.
 

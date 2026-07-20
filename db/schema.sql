@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS accounts (
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS journal_entries (
   company_id      VARCHAR          NOT NULL,
-  entry_id        VARCHAR          NOT NULL,
+  entry_id        VARCHAR          NOT NULL UNIQUE,
   batch_id        VARCHAR          NOT NULL,
   date            DATE             NOT NULL,
   account_code    VARCHAR          NOT NULL,
@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS user_permissions (
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS bills (
   company_id      VARCHAR        NOT NULL,
-  bill_id         VARCHAR        NOT NULL,
+  bill_id         VARCHAR        NOT NULL UNIQUE,
   vendor          VARCHAR        NOT NULL,
   vendor_ref      VARCHAR,
   date            DATE           NOT NULL,
@@ -392,3 +392,17 @@ CREATE TABLE IF NOT EXISTS attachments (
   uploaded_at    TIMESTAMP  NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments(company_id, entity_type, entity_id);
+
+-- =============================================================================
+-- idempotency_keys (P0-1: safe retries for posting actions)
+-- One row per client-supplied Idempotency-Key; stores the first response so
+-- retries replay it instead of re-executing the posting action.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  key           TEXT PRIMARY KEY,
+  action        TEXT NOT NULL,
+  company_id    TEXT,
+  http_status   INTEGER,
+  response_json TEXT NOT NULL,
+  created_at    TIMESTAMP DEFAULT now()
+);

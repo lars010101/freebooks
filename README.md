@@ -1,625 +1,223 @@
 # freeBooks
 
-Open-source double-entry accounting for small companies.
+Open-source, self-hosted double-entry accounting for small companies. Your data stays on your machine in a single DuckDB file — no cloud dependency, no subscription.
 
-**Stack:** Node.js · Express · DuckDB (`@duckdb/node-api`)  
-**License:** AGPL-3.0  
+**Stack:** Node.js · Express · DuckDB (`@duckdb/node-api`)
+**License:** AGPL-3.0
 **Repo:** https://github.com/lars010101/freebooks
 
 ---
 
-## What it is
+## Key Features
 
-A self-hosted web application for bookkeeping and financial reporting. You run it locally; your data stays on your machine in a single DuckDB file. No cloud dependency, no subscription.
-
-Core capabilities:
-- Full double-entry bookkeeping (journal entries, account autocomplete, reversal UI)
-- Auto-generated journal references: `MISC/2026/00001`, `BANK/2026/00003` etc.
-- Financial statements: P&L, Balance Sheet, Cash Flow (indirect, IAS 7), SCE
-- Audit reports: Trial Balance, General Ledger, Journal, Integrity Check
-- Multi-period comparative reports (MoM, YoY by fiscal period)
-- Bank statement CSV import with rule-based auto-matching
-- Bank reconciliation with cleared/uncleared tracking
-- Accounts Payable: vendor master, multi-line bill entry (auto-generates DR Expense / CR AP journal)
-- Payables screen: list all open bills with filters (vendor, status, period, description, amount, currency); click to view bill detail
-- AP Aging report: outstanding payables bucketed by days overdue (Current / 1–30 / 31–60 / 61–90 / 90+); click row to open bill detail
-- Bank import: manual bill allocation — link any import row to an open bill
-- CSV import (COA + journal entries via CSV)
-- Multi-company support
-- Period lock enforcement
-- VAT/GST tracking with jurisdiction-aware tax codes (SG, SE templates)
+- **Full double-entry bookkeeping** — journal batches, account autocomplete, reversal workflow, auto-generated references (`CODE/YYYY/NNNNN`, e.g. `MISC/2026/00001`, `AP/2026/00003`)
+- **Financial statements** — Profit & Loss, Balance Sheet (with live unallocated net income), Cash Flow (indirect, IAS 7), Statement of Changes in Equity
+- **Audit & listing reports** — Trial Balance, General Ledger, Journal, Integrity Check (with RE roll-forward)
+- **Multi-period comparative reports** — month-over-month and year-over-year for P&L, BS, and CF, driven by company-defined fiscal periods
+- **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post)
+- **VAT / GST engine** — tax-exclusive entry, reverse-charge support, supplier-stated VAT override with configurable tolerance, and VAT return generation grouped by report box
+- **Accounts Payable** — vendor master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, and AP Aging report
+- **Accounts Receivable** — invoicing and AR aging (planned; nav and page scaffolding in place)
+- **Bank statement processing** — CSV import with rule-based auto-matching, manual bill allocation linking import rows to open bills (multi-currency aware), and cleared/uncleared reconciliation tracking
+- **Period locking** — locked periods reject all postings; enforced server-side in the validation engine
+- **File attachments** — attach PDFs, images, and documents to bills and journal entries; stored on the local filesystem
+- **Multi-company** — isolated books per company, each with its own chart of accounts, tax codes, periods, and settings
+- **Pluggable FX providers** — ECB and OpenExchangeRates shipped; add a provider by dropping a file into `api/src/fxProviders/`
 
 ---
 
-## Documentation
+## Tech Stack
 
-| Doc | Purpose |
+| Layer | Technology |
 |---|---|
-| `README.md` | Architecture, API reference, design decisions, backlog |
-| [`docs/UI.md`](docs/UI.md) | UI/UX philosophy: typography scale, rem/clamp rules, theming, accessibility |
+| Runtime | Node.js ≥ 20 |
+| HTTP server | Express 4 |
+| Database | DuckDB (single embedded file via `@duckdb/node-api`) |
+| Report queries | DuckDB SQL macros (`db/macros.sql`) |
+| File uploads | Multer |
+| Auth | Email + role-based permissions (`user_permissions` table) |
+| Container | Dockerfile (Wolfi/distrobox base) |
+
+All dependencies live in [`api/package.json`](api/package.json): `express`, `@duckdb/node-api`, `cors`, `dotenv`, `multer`, `uuid`.
 
 ---
 
-## Architecture
-
-```
-Browser
-  ↓ HTTP (port 3000)
-Express API  —  api/src/index.js
-  ↓
-DuckDB  —  ~/.freebooks/freebooks.duckdb
-  ↓
-SQL Macros  —  db/macros.sql
-```
-
-Key source files:
-
-| Path | Purpose |
-|---|---|
-| `api/src/index.js` | Express entry point, action routing, auth |
-| `api/src/reports.js` | Thin router — mounts page modules from `api/src/pages/` |
-| `api/src/bills.js` | Accounts Payable: bill creation (multi-line), void, list, match |
-| `api/src/vendors.js` | Vendor master CRUD |
-| `api/src/pages/` | Page modules (one file per UI page; new pages go here, never back into reports.js) |
-| `api/src/journal.js` | Journal entry posting, reversal, search, reference generation |
-| `api/src/bank.js` | Bank statement processing, approval, reconciliation |
-| `api/src/vat.js` | VAT/GST computation, VAT return |
-| `api/src/fx.js` | FX rate management and provider integration |
-| `api/src/fxProviders/` | Pluggable FX rate providers (ecb.js, openexchangerates.js, etc.) |
-| `api/src/setup.js` | Company creation, COA + VAT template loading |
-| `api/src/validation.js` | Period lock + balance checks before posting |
-| `reports/render.js` | Report HTML generation (PL, BS, CF, SCE, TB, GL, etc.) |
-| `db/schema.sql` | DuckDB table definitions + migration statements |
-| `db/currencies.json` | ISO 4217 currency codes (190 currencies) with `<datalist>` autocomplete |
-| `db/macros.sql` | DuckDB macros: `pl()`, `bs()`, `cf()`, `sce()`, `tb()`, `gl()`, `journal()`, `integrity()`, `re_rollforward()` |
-| `db/init.js` | Loads schema + macros into DuckDB; seeds default journals per company; **Note:** after `git pull` with macro changes, must re-run `node db/init.js` to reload macros into DuckDB |
-| `db/import.js` | One-time CSV import (COA.csv, JOURNAL.csv, MAPPING.csv) |
-| `db/jurisdictions/` | COA + VAT code templates per jurisdiction (SG, SE) |
-
-#### Performance
-
-- **Persistent DuckDB connection**: `makeQuery()` in `common.js` reuses a single module-level DuckDB connection (`_conn`) across all page renders instead of opening/closing per query. Reconnects automatically on error.
-- **Dashboard cache**: the 4-aggregate CTE query on the Dashboard is cached in memory with a 30-second TTL per company.
-
----
-
-## Install & Run
+## Getting Started
 
 ### From scratch
 
 ```bash
 git clone https://github.com/lars010101/freebooks ~/freebooks
 cd ~/freebooks
-npm install --prefix api
-node db/init.js          # creates ~/.freebooks/freebooks.duckdb, seeds journals
-node db/import.js <data-dir>   # import historical CSV data (optional)
-node api/src/index.js    # start server on port 3000
+npm install --prefix api          # install API dependencies
+node db/init.js                   # create ~/.freebooks/freebooks.duckdb + load macros; seeds journals
+node db/import.js <data-dir>      # optional: import historical CSV data (COA, journal, mappings)
+node api/src/index.js             # start server on http://localhost:3000
 ```
 
-Open http://localhost:3000
+Open <http://localhost:3000> — the first run redirects to the new-company wizard.
 
-### Updating (code only)
+### Updating
 
 ```bash
+# code only
 cd ~/freebooks && git pull && node api/src/index.js
-```
 
-### Updating (includes schema changes)
-
-```bash
+# code + schema/macro changes (stop the server first)
 cd ~/freebooks && git pull && node db/init.js && node api/src/index.js
 ```
 
-Note: `node db/init.js` must be run with the server stopped. If the server is running, use `node db/init.js --via-server` instead (applies migrations through the server's existing DB connection, avoids WAL conflict).
+> `node db/init.js` must run with the server stopped (DuckDB holds an exclusive file lock). If the server is already running, use `node db/init.js --via-server` to apply migrations through the live connection.
 
-The server handles SIGINT/SIGTERM (Ctrl+C) gracefully — checkpoints DuckDB before exit to prevent stale WAL files.
-
-### Owner's deployment
-
-- Host: Fedora Atomic laptop, wolfi distrobox
-- Path: `~/freebooks`
+The server handles `SIGINT`/`SIGTERM` gracefully and checkpoints DuckDB before exit to prevent stale WAL files.
 
 ---
 
-## Web UI Pages
-
-| URL | Description |
-|---|---|
-| `/` | Onboarding: redirects to `/setup/new-company` if no companies exist; otherwise client-side redirect to active company (from localStorage) |
-| `/setup/new-company` | New company wizard |
-| `/:company` | **Dashboard** — 4 summary cards (UNLOCKED YR, UNCLEARED TX, Bank Balance, P&L) + report selector |
-| `/:company/settings` | Settings (8 tabs: Periods, Company, COA, Tax Codes, Journals, Bank Mappings, Exchange Rates, Vendors) |
-| `/:company/journal/new` | New JV form (with reversal mode; pre-post attachment queue) |
-| `/:company/bill/new` | Enter Bill form — vendor autocomplete, multi-line expenses, pre-post attachment queue, auto-generates AP journal entry *(legacy — will be removed in Step 5 of tree-table rewrite)* |
-| `/:company/payables` | **Payables tree-table** — vim-modal inline bill management. Parent rows = bill headers; child rows = expense/GST lines. Inline editing, keyboard navigation, fold/unfold. Steps 1–3 complete. |
-| `/:company/bill/:id` | **Bill Detail** — standalone page *(legacy — will be removed in Step 5 of tree-table rewrite)* |
-| `/:company/payables/aging` | Redirects (302) to `/:company/reports?t=ap-aging` |
-| `/:company/reports` | **Reports hub** — full period/type/filter controls in top bar; report renders inline in an iframe. See [Reports Hub](#reports-hub) below. |
-| `/:company/bank` | **Bank** — uncleared transactions list + collapsible CSV import ("Import Statement"). Supports `?mode=uncleared` to auto-load all uncleared transactions across all cash accounts. Step 2: Link Bill panel shows open bills with outstanding amounts and multi-currency support. |
-| `/:company/opening-balances` | Opening balances (setup step; accessible from new company wizard) |
-| `/api/admin/query` | Debug SQL endpoint (POST) |
-
-Notes:
-- `/:company/bank/import` and `/:company/bank/reconcile` both 301-redirect to `/:company/bank`.
-- `/:company/payables/aging` 302-redirects to `/:company/reports?t=ap-aging`.
-
-### Navigation
-
-All pages share a two-panel shell rendered by `navBar(company, activeKey)` in `api/src/pages/common.js`:
-
-**Sidebar** (left, collapsible)
+## Project Structure
 
 ```
-📊 Dashboard  |  🏦 Bank  |  📋 Payables  |  📄 Receivables  |  📈 Reports  |  ⚙ Settings
+freebooks/
+├── api/
+│   ├── package.json            # dependencies + start/dev scripts
+│   ├── public/                 # static assets served at /public
+│   └── src/
+│       ├── index.js            # Express entry point, action routing, auth gate
+│       ├── db.js               # DuckDB connection + query/exec/bulkInsert helpers
+│       ├── auth.js             # permission checking (user_permissions table)
+│       ├── journal.js          # journal posting, reversal, search, reference sequencing
+│       ├── bills.js            # Accounts Payable: create, void, list, match, drafts, aging
+│       ├── vendors.js          # vendor master CRUD
+│       ├── bank.js             # bank statement processing, approval, reconciliation
+│       ├── vat.js              # VAT/GST split, reverse charge, VAT return
+│       ├── fx.js               # FX rate lookup, manual entry, revaluation, provider config
+│       ├── fxProviders/        # pluggable rate providers (ecb.js, openexchangerates.js)
+│       ├── setup.js            # company creation, COA + VAT template loading
+│       ├── validation.js       # period lock + balance + COA + FX rate checks
+│       ├── attachments.js      # file upload/download/delete
+│       ├── audit.js            # audit log helpers
+│       ├── reports.js          # mounts HTML report routes + page modules
+│       └── pages/              # one module per UI page (dashboard, bank, payables, settings, …)
+├── db/
+│   ├── schema.sql              # table definitions + migrations
+│   ├── macros.sql              # DuckDB macros: pl(), bs(), cf(), sce(), tb(), gl(), journal(), integrity()
+│   ├── init.js                 # loads schema + macros, seeds default journals (MISC, BANK, ADJ, AP)
+│   ├── import.js               # one-time CSV import (COA, journal, mappings)
+│   ├── currencies.json         # ISO 4217 currency codes (autocomplete datalist)
+│   └── jurisdictions/          # COA + VAT code templates per jurisdiction (SG, SE, _template)
+├── reports/
+│   ├── render.js               # shared report HTML rendering (P&L, BS, CF, SCE, TB, GL, …)
+│   ├── generate.js             # CLI report generator
+│   └── sources/                # report source data
+├── docs/
+│   ├── UI.md                   # UI/UX philosophy: typography, theming, accessibility
+│   └── payables-ux-spec.md     # Payables tree-table keyboard + mouse UX spec
+├── .github/workflows/build.yml # CI
+└── Dockerfile                  # container image (Wolfi/distrobox)
 ```
 
-- Company name + switcher in sidebar header (click to switch company)
-- Footer: theme toggle + collapse icon (no text labels; theme icon hidden when collapsed)
-- Collapse state and theme persisted in `localStorage`
+---
 
-**Top bar** (right panel header)
+## Database Overview
 
-Context-sensitive per section. Always-present: `+ Journal Entry` button, 🔔, `?`.
-Additional actions per context:
+All data lives in a single DuckDB file (default `~/.freebooks/freebooks.duckdb`). Tables are defined in [`db/schema.sql`](db/schema.sql); every table is partitioned by `company_id` for multi-company isolation.
 
-| Section | Extra buttons |
+| Table | Purpose |
 |---|---|
-| Dashboard | `+ Bill`, `+ Invoice` (placeholder), `+ Statement` |
-| Bank | `+ Statement` |
-| Payables | `+ Bill` |
-| Sales | `+ Invoice` |
-| Reports | Period dropdown, start/end date, MoM, YoY, report type, ⬇ download |
+| `companies` | Company master: name, jurisdiction, currency, reporting standard, fiscal year |
+| `accounts` | Chart of accounts: code, name, type, subtype, cash-flow category, effective dates |
+| `journal_entries` | All posted journal lines (debit/credit + `*_home` home-currency columns, FX rate, VAT, bill link) |
+| `journals` | Journal types per company (MISC, BANK, ADJ, AP, …) |
+| `journal_sequences` | Per-journal, per-year auto-incrementing reference counters |
+| `bills` | Accounts Payable bills (vendor, amounts, currency, FX rate, status, `amount_paid`) |
+| `bill_payments` | Payment allocations linking bills to settlement journal batches |
+| `vendors` | Vendor master with default currency, payment terms, and default expense/AP accounts |
+| `vat_codes` | VAT/GST codes: rate, input/output accounts, report box, reverse-charge flag |
+| `bank_mappings` | Rule-based bank import matching (pattern → offset account, VAT code) |
+| `reconciliations` | Cleared-status tracking per batch/account for bank reconciliation |
+| `fx_rates` | Exchange rates (date, pair, rate, source) — manual or provider-fetched |
+| `periods` | Fiscal periods with `locked` boolean |
+| `settings` | Key/value company settings (FX provider, VAT tolerance, default accounts, …) |
+| `user_permissions` | Email → company → role grants |
+| `centers` | Cost/profit centers |
+| `attachments` | File attachment metadata (entity type/id, filename, storage path) |
+| `audit_log` | Field-level change history |
 
-### Company switching
-
-Click the company name in the sidebar header to open the company switcher dropdown.
-
-### Keyboard shortcuts
-
-freeBooks uses a vim-inspired modal keyboard system. The current mode is shown in the sidebar footer (`NORMAL` / `INSERT`).
-
-#### Modes
-
-| Key | Action |
-|---|---|
-| `Escape` | Enter **Normal** mode — blurs any active input, clears row focus; on bill detail, navigates back to Payables |
-| `i` | **Context-sensitive insert**: if a navigable item is focused, enters edit mode on it; otherwise focuses the first input on the page (generic insert mode) |
-
-#### Normal mode — navigation
-
-| Key | Action |
-|---|---|
-| `{` | Previous sidebar item (navigate to preceding page) |
-| `}` | Next sidebar item (navigate to following page) |
-| `h` | Previous horizontal submenu tab; on bill detail: move left between meta fields (Invoice Ref ↔ Due Date) |
-| `l` | Next horizontal submenu tab; on bill detail: move right between meta fields |
-| `j` | Move focus down — table rows, or between sections on bill detail (meta strip → line items → attachments) |
-| `k` | Move focus up |
-| `Enter` | Activate the focused row (follow its link or trigger click) |
-| `/` | Focus global search |
-| `:` or `Ctrl+K` | Open command palette |
-| `a` | Page-registered "new/add" action (e.g. on bill detail: open file picker to add attachment) |
-| `d` | Page-registered "delete" action on focused row; on bill detail with attachment focused: deletes attachment; with nothing focused: confirms void |
-
-#### Bill Detail page — keyboard navigation
-
-The bill detail page has a unified navigable list:
-
-1. **Meta strip** (one row for j/k): Invoice Ref and Due Date side-by-side
-   - `h` / `l` — move between Invoice Ref and Due Date
-   - `i` — enter edit on the focused meta field
-2. **Bill Line Items** — each line is a j/k row; `i` focuses the description input
-3. **Attachments** — each attachment is a j/k row; `d` deletes the focused attachment
-
-`Escape` — exit back to Payables list.
-
-> Note: only the `gg` double-key sequence is implemented (in the Payables tree-table, where it scrolls to top). No other `g`-prefix jumps (e.g. `gd`/`gb`/`gp`/`gv`/`gr`/`gs`) are wired up.
-
-All navigation keys are suppressed when an input, textarea, or select is focused (Insert mode).
-
-### Dashboard cards
-
-The dashboard shows 4 clickable summary cards before the report selector:
-
-| Card | Color logic | Links to |
-|---|---|---|
-| **UNLOCKED YR** | Green (0–1 unlocked), Orange (2), Red (3+) | Settings → Periods tab |
-| **UNCLEARED TX** | Green (0), Red (>0) | Bank page (uncleared mode) |
-| **Bank Balance** | Neutral | Bank page |
-| **P&L** | Green (profit), Red (loss) | Dashboard |
-
-Card data is cached in memory for 30 seconds per company (`_dashCache` in `company.js`)
-
-### Reports Hub
-
-`/:company/reports` — all report types in one page.
-
-**Top bar controls (left → right):**
-1. Report type dropdown (9 types)
-2. Period dropdown (fiscal periods from DB) + custom start/end date inputs
-3. MoM button (greyed/disabled except for pl, bs, cf)
-4. YoY button (greyed/disabled except for pl, bs, cf)
-5. ⬇ Download icon — dropdown with *Print / PDF* (opens clean report in new tab) and *CSV* (client-side table extraction)
-
-**Behaviour:**
-- Report renders live in an `<iframe>` below the top bar; reloads on any control change
-- Journal Listing and General Ledger have their own on-page account code filter (and journal code filter for Journal)
-- AP Aging uses the end date as "as of" date; vendor rows expand/collapse on click
-- Last used report type, period, and date range persisted in `localStorage` and restored on next visit
-- `?t=<type>` URL param overrides the initial report type (used by the payables redirect)
+Schema also defines reporting views (`v_trial_balance`, `v_pl`, `v_bs`, `v_gl`) and migrations are appended inline to `schema.sql` and applied on every `node db/init.js` run.
 
 ---
 
-## API Actions (POST /api/action)
+## API Overview
 
-All actions use `{ action, companyId, ...body }` request format. Response: `{ ok: true, data: ... }`.
+freeBooks uses a single **action-based API**. All mutations and reads go through one endpoint:
 
-| Action | Description |
+```
+POST /api/action        (also POST /api)
+Body: { "action": "<module>.<verb>", "companyId": "...", "userEmail": "...", ... }
+Response: { "ok": true, "data": ... }   (or { "error": "..." })
+```
+
+The `action` string is split on `.` to dispatch to a module handler (`journal.*`, `bill.*`, `bank.*`, `vat.*`, `fx.*`, `coa.*`, `vendor.*`, `mapping.*`, `period.*`, `settings.*`, `company.*`, `journals.*`, `center.*`, `permissions.*`, `attachment.*`, `setup.*`, `diag.*`, `report.*`).
+
+### Permission levels
+
+Every action maps to a required role in `ACTION_ROLES` (`api/src/index.js`). When `userEmail` is present, the `user_permissions` table is checked before dispatch.
+
+| Role | Can do |
 |---|---|
-| `bill.create` | Create bill + post journal (DR Expense lines / CR AP); accepts `lines[]` array for multi-line |
-| `bill.void` | Void bill + auto-reverse journal |
-| `bill.list` | List bills with filters (status, vendor, date range) |
-| `bill.match` | Find open bills matching amount/vendor/date for bank import allocation |
-| `bill.lines` | Get expense lines for a bill (for bill detail modal) |
-| `bill.update` | Update non-financial fields on a bill: `vendor_ref` (invoice reference) and `due_date` |
-| `bill.aging` | AP Aging report data — outstanding bills with bucket classification |
-| `journal.entry.update` | Update fields on a single journal entry: `description` (all bills), `vat_code` and `account_code` (draft bills only) |
-| `vendor.list` | List vendors with defaults (currency, terms, expense account, AP account) |
-| `vendor.save` | Replace all vendors for company |
-| `vendor.delete` | Delete a single vendor |
-| `journal.post` | Post a journal entry batch (accepts `journalId` for auto-reference) |
-| `journal.reverse` | Reverse a posted batch |
-| `journal.list` | List journal entries |
-| `journal.import` | Bulk import journal lines |
-| `journal.search` | Search batches by reference or description |
-| `journal.get` | Get all lines for a batch |
-| `journals.list` | List journals for a company |
-| `journals.save` | Upsert a journal |
-| `bank.process` | Apply mapping rules to bank rows, return matched/unmatched |
-| `bank.approve` | Post approved bank entries as journal entries; validates account codes; handles FX gain/loss on bill settlement |
-| `bank.reconcile.list` | Get journal entries for an account with cleared status + opening balance |
-| `bank.reconcile.clear` | Toggle cleared status for a batch |
-| `bank.uncleared.list` | Return all uncleared transactions across all Cash accounts (no date filter) |
-| `vat.codes.list` | List VAT/GST codes |
-| `vat.codes.save` | Replace all VAT/GST codes |
-| `vat.return` | Generate VAT return |
-| `company.list` | List companies |
-| `company.save` | Save/update company |
-| `period.list` | List fiscal periods |
-| `period.save` | Replace all fiscal periods (DELETE + INSERT) |
-| `coa.save` | Update chart of accounts |
-| `coa.update` | Update individual accounts |
-| `mapping.list` | List bank mapping rules |
-| `mapping.save` | Replace all bank mapping rules; validates account codes against COA |
-| `setup.add_company` | Create company with COA + VAT template |
-| `settings.get` | Get company settings |
-| `settings.save` | Save company settings |
-| `fx.rates.list` | List FX rates for a base currency (all dates) |
-| `fx.rates.save` | Save/upsert manual FX rates |
-| `fx.rates.delete` | Delete a specific FX rate |
-| `fx.rates.get` | Get effective rate for a currency pair on a date (check DB, fall back to provider) |
-| `fx.providers.list` | List available FX provider plugins |
-| `fx.provider.get` | Get current provider setting and masked API key |
-| `fx.provider.save` | Save provider selection and API key |
-| `attachment.list` | List attachments for an entity (entity_type, entity_id) |
-| `attachment.delete` | Delete an attachment |
+| `viewer` | Read/list actions (reports, lists, lookups) |
+| `data_entry` | Post entries, create/void bills, process bank, save FX rates, save mappings |
+| `owner` | Manage company, COA, VAT codes, journals, periods, vendors, settings, FX provider, permissions |
+
+A few representative actions:
+
+| Action | Min. role |
+|---|---|
+| `journal.post`, `journal.reverse` | `data_entry` |
+| `bill.create`, `bill.void`, `bill.draft.*` | `data_entry` |
+| `bank.process`, `bank.approve` | `data_entry` |
+| `fx.rates.save`, `fx.fetch_rates` | `data_entry` |
+| `coa.save`, `coa.upsert`, `vat.codes.save` | `owner` |
+| `period.save`, `company.save`, `settings.save` | `owner` |
+| `setup.add_company`, `permissions.save` | `owner` |
+| `*.list`, `journal.search`, `bill.match`, `settings.get` | `viewer` |
+
+HTML report pages are served via `GET` routes (`/`, `/:company`, `/:company/reports`, `GET /api/:company/report?type=<type>&start=…&end=…`). File uploads use `POST /api/upload` (multipart) and `GET /api/attachments/:id`.
 
 ---
 
-## Report Types
+## Reports
 
-| type= | Report | Multiperiod |
+All report types render through `reports/render.js` and are available in the Reports hub (`/:company/reports`) or via the report endpoint:
+
+| `type=` | Report | Multiperiod |
 |---|---|---|
 | `pl` | Profit & Loss | MoM + YoY |
 | `bs` | Balance Sheet | MoM + YoY |
-| `cf` | Cash Flow (indirect) | MoM + YoY |
-| `sce` | Statement of Changes in Equity | No |
-| `tb` | Trial Balance | No |
-| `gl` | General Ledger | No |
-| `journal` | Journal | No |
-| `integrity` | Integrity Checks + RE roll-forward | No |
-| `ap-aging` | AP Aging — as of end date, embedded in Reports hub | No |
+| `cf` | Cash Flow (indirect, IAS 7) | MoM + YoY |
+| `sce` | Statement of Changes in Equity | — |
+| `tb` | Trial Balance | — |
+| `gl` | General Ledger | — |
+| `journal` | Journal listing | — |
+| `integrity` | Integrity checks + RE roll-forward | — |
+| `ap-aging` | AP Aging (as-of end date) | — |
 
-MoM and YoY are only available for `pl`, `bs`, and `cf`. All other types ignore the `step` parameter.
-
-All report types are accessible via `GET /api/:company/report?type=<type>&start=YYYY-MM-DD&end=YYYY-MM-DD`.
-`ap-aging` only requires `end` (no `start` needed).
-
-YoY uses the company's defined fiscal periods (not calendar years).
+MoM/YoY apply only to `pl`, `bs`, and `cf`. YoY uses the company's defined fiscal periods. Report logic lives in DuckDB macros (`db/macros.sql`) — changes require re-running `node db/init.js` to reload them.
 
 ---
 
-## Key Design Decisions
+## Supported Jurisdictions
 
-### Closing Model
-P&L accounts accumulate forever; date filtering isolates periods. Closing entry: `DR 999999 / CR 203070` transfers net income to Retained Earnings. Account 999999 has `account_type = 'Closing'` and is excluded from all reports.
+New companies load a Chart of Accounts and VAT/GST code template from `db/jurisdictions/<code>/`. A `_template/` directory is provided as a starting point for adding new jurisdictions.
 
-### CF — NonCash Category (IAS 7.43)
-Non-cash financing activities (e.g. RE capitalisation) use `cf_category = 'NonCash'`. The CF macro includes them in net_change computation (they cancel with the corresponding Financing entry) and displays them in a separate "Non-cash Activities" section.
+| Code | Country | Currency | Reporting standards | VAT name | Tax authority | COA standard |
+|---|---|---|---|---|---|---|
+| `SG` | Singapore | SGD | SFRS, SFRS-SE | GST | IRAS | SFRS |
+| `SE` | Sweden | SEK | K2, K3 | Moms | Skatteverket | BAS |
 
-Tag the RE account after import:
-```sql
-UPDATE accounts SET cf_category = 'NonCash'
-WHERE company_id = 'YOUR_COMPANY' AND account_code = '203070';
-```
-
-### Account Subtype
-`account_subtype` is the single field for section grouping in both BS and P&L reports (replaces the old `bs_category` / `pl_category` split). The macros use `COALESCE(a.account_subtype, a.account_type)` for section headers.
-
-### Journal Sequencing
-References auto-generated as `{CODE}/{YYYY}/{NNNNN}` (5-digit, per journal per year). Stored in `journals` and `journal_sequences` tables. Default journals seeded by `db/init.js`: MISC, BANK, ADJ. The JV form and bank import both let users select the journal; the server generates the next sequence number atomically.
-
-### Multi-Currency — Booking Rate Method for FX Gain/Loss
-When a foreign-currency bill (e.g. USD) is paid in home currency (SGD):
-- Bill stores the **original booking rate** (`fx_rate`): e.g. USD 100 @ SGD 1.25
-- User specifies the foreign amount being settled (defaults to full outstanding)
-- AP is cleared at the **original booking rate**: `settledBooked = settledForeign × bill.fx_rate`
-- FX gain/loss absorbs the remainder: `fxDiff = bankAmount − settledBooked`
-- Journal entry: DR AP (settledBooked) / DR|CR FX G/L (fxDiff) / CR Bank (bankAmount)
-- Bill's `amount_paid` is incremented in **foreign currency** (correct for partial payments and multi-currency tracking)
-- Bank spread and rate differences are absorbed into FX G/L
-- **No payment-date rate needed**; this follows IAS 21 standard practice
-
-### Multi-Currency Reports
-All DuckDB macros (pl, bs, cf, tb, sce, gl, journal, integrity, re_rollforward) use `debit_home`/`credit_home` amounts for financial statement calculations (home currency totals). The `debit`/`credit` columns retain transaction currency amounts for reference. Macros are stored in DuckDB as inline macros — changes require `node db/init.js` to reload them.
-
-### Bank Mappings & COA Validation
-Each mapping rule stores one *offset account* (the non-bank side). At import time, the user provides the bank account code. Amount sign determines the entry:
-- Outflow (negative): DR offset / CR bank  
-- Inflow (positive): DR bank / CR offset
-
-Legacy rules with both debit_account and credit_account set explicitly are still honoured.
-
-Bank account code validated against COA before processing; red error if not found. "Post to Journal" button blocked if any row has invalid/missing DR or CR account.
-
-### Bank Reconciliation
-Cleared entries stored in `reconciliations` table (company_id, batch_id, account_code, cleared_at). The reconcile page shows: Opening Balance (pre-period) + Period Net = Closing Book Balance, compared against the user-entered Statement Closing Balance.
-
-### Bank Import with FX Gain/Loss Handling
-When linking a foreign-currency bill (e.g. USD 100 @ 1.25) to a home-currency bank row (e.g. SGD 127.62):
-- UI shows "Settle: [___] USD" input, defaults to full outstanding foreign amount
-- Live preview: `≈ {homeAmount} {homeCurrency} cleared | FX loss: {fxDiff} {homeCurrency}`
-- On post: 3-line journal entry:
-  - DR AP: `settledForeign × bill.fx_rate` (clears AP at booking rate)
-  - DR|CR FX G/L: `bankAmount − (settledForeign × bill.fx_rate)` (absorbs bank spread and rate differences)
-  - CR Bank: `bankAmount` (actual cash out)
-- Bill's `amount_paid` incremented in **foreign currency** (correct for partial payments)
-- Requires `fx_gain_loss_account` configured in Settings → Company; warns if not set
-- Implements IAS 21 standard: realised gains/losses on payment absorbed into FX G/L; no payment-date rate needed
-
-### Balance Sheet — Unallocated Net Income
-
-The BS report includes a computed *"Unallocated net income / (loss)"* row in the Equity section, representing P&L not yet closed to Retained Earnings. Computed live from Revenue/Expense accounts for the report period. Once the annual closing entry is posted (`DR 999999 / CR RE account`), the P&L clears and this row disappears.
-
-TOTAL EQUITY and TOTAL EQUITY + LIABILITIES are both adjusted to include this amount, ensuring the balance sheet balances during open periods.
-
-### Integrity Report — Unallocated P&L Handling
-
-The `buildIntegrity` function post-processes DuckDB macro results to account for unallocated net income:
-- **BS Balance check**: if the imbalance equals the unallocated P&L exactly, status is upgraded to OK with a note
-- **P&L vs Closing Entry check**: downgraded from FAIL to WARN when P&L is non-zero but no closing entry has been posted ("unallocated, closing entry not yet posted")
-
-## Vendor Master
-
-Stored in the `vendors` table. Fields: name, default currency, payment terms (days), default expense account, default AP account.
-
-Accessible via Settings → Vendors tab. Defaults auto-fill the Enter Bill form when a vendor is selected:
-- Currency → bill currency field
-- Terms(d) → due date = bill date + terms
-- Default Expense Account → first expense line
-- Default AP Account → AP account field
-
-Default expense and AP account fields validated on blur and on `vendor.save` against the company's COA.
-
-## Enter Bill (`/:company/bill/new`)
-
-Form for creating vendor bills. Generates a balanced journal entry on submit:
-- DR line per expense line (expense account, net amount in home currency)
-- DR line per expense line with VAT code (input tax account, GST amount) — one per line, tax-exclusive
-- CR line for AP account (total including VAT in home currency)
-
-Amounts entered are **net ex-VAT** (tax-exclusive). VAT is computed as `lineAmount × rate` and added on top. The GST sub-row appears automatically in the form when a VAT code is selected — account and amount are editable before submitting.
-
-AP journal reference auto-generated: `AP/YYYY/NNNNN`.
-
-Supports multi-line bills and **multi-currency**: vendor autocomplete fills in currency (defaults to company home currency). Currency field has datalist autocomplete from `db/currencies.json` (190 ISO 4217 codes). When currency differs from home currency:
-- FX Rate field appears with "Get Rate" button: auto-fetches from `fx_rates` table on currency change; falls back to ECB API if not in DB
-- Line amounts entered in **foreign currency**; home currency equivalents computed using `fx_rate`
-- Journal lines posted with `debit_home` and `credit_home` amounts
-- Display shows: `≈ {homeCurrency} {homeAmount} @ {rate}` right-aligned below total
-- Bill's `fx_rate` sent to `bill.create` payload
-
-Vendor autocomplete also fills in currency, payment terms (→ due date), default expense account, and default AP account.
-
-Bill status on creation: `posted`. Status transitions:
-- `posted` → `partial` → `paid` (via payment matching)
-- `posted` / `partial` → `void` (via `bill.void` — voids bill, auto-reverses journal, closes modal)
-
-### Payables Tree-Table (`/:company/payables`)
-
-> **See `docs/payables-ux-spec.md` for the complete UX specification** (two-state NORMAL/INSERT model, keyboard + mouse equivalents, fold behavior, removed/simplified elements).
-
-Full inline bill management as a vim-modal tree-table. No separate bill detail page — all viewing and editing happens in-place.
-
-**Tree structure:**
-- **Parent rows** — bill header: toggle | Date | Due | Vendor | Ref | Amount | CCY | Status
-- **Child rows** — one per expense line + one GST line below; visible only when parent is unfolded
-
-**Keyboard navigation (NORMAL mode):** Row-oriented (vim line semantics). Selection highlights the complete row — there is no cell-level cursor in NORMAL mode.
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Move down / up one row (parent or child; no boundary blocking — crosses bill boundaries seamlessly) |
-| `h` / `l` | Switch to previous / next tab |
-| `{` / `}` | Previous / next sidebar page |
-| `Enter` / `Space` | Toggle fold (expand/collapse the bill under the cursor) |
-| `i` | Enter INSERT mode on the focused row (no-op if the bill is posted) |
-| `o` | New bill / line below the current row |
-| `x` | Delete the current row / bill |
-| `p` | Post the draft bill under the cursor |
-| `G` | Jump to last row |
-| `gg` | Scroll to top |
-| `Esc` | No-op (already in NORMAL) |
-
-**Inline editing (INSERT mode):** Cell-oriented, scoped to a single row. Entering INSERT (via `i` or double-click on an editable row) renders all editable cells on the row as inputs simultaneously, with focus on the first editable cell. Posted bills are read-only — `i` and double-click are no-ops on them.
-
-| Key | Action |
-|-----|--------|
-| `Tab` / `Shift+Tab` | Move to next / previous editable cell (wraps within the row; does not leave the row) |
-| `Esc` | Save row + exit to NORMAL (selection stays on the same row) |
-| (all other keys) | Disabled — `h`/`j`/`k`/`l`/`{`/`}`/`o`/`x`/`p`/`G`/`gg` are inert |
-
-There is no discard/cancel path: `Esc` always saves. To undo a change, delete the row afterward. Save timing is unambiguous — saving happens on INSERT exit only (no blur-chasing, no auto-save timer).
-
-Editable cells (draft bills are fully editable; posted bills are read-only):
-
-| Cell | Editable | Input type | Via |
-|------|----------|------------|-----|
-| Parent — Due Date | All bills | Date input | `bill.update` |
-| Parent — Ref | All bills | Text input | `bill.update` |
-| Child — Description | All bills | Text input | `journal.entry.update` |
-| Child — GST code | Draft bills only | Select dropdown | `journal.entry.update` (updates paired GST entry) |
-
-**Mouse interactions** (every keyboard action has a mouse equivalent, and vice versa):
-
-| Action | Mouse |
-|------|-------|
-| Select row | Single click on the row body |
-| Toggle fold | Click the ▸/▾ fold icon on a parent (clicking the row body only selects) |
-| Enter INSERT | Double-click an editable (draft) row |
-| Save + exit INSERT | Click outside the row (saves the current row, then selects the target) |
-| New bill / line | Click the "+" toolbar button |
-| Delete row / bill | Click the delete icon (visible on hover) |
-| Post draft bill | Click the "Post" button on the draft row |
-| Switch tab | Click the tab label |
-| Switch sidebar page | Click a sidebar page |
-| Jump to top / bottom | Scroll |
-
-- Void guard: editing a voided bill shows an error in the top bar status message
-- Status messages appear in `#tb-status-msg` in the top bar (bold, auto-clear after 2.5 s)
-
-**Filter controls** (top bar): vendor (dropdown), description (text search), status, fiscal period. Collapsible "More filters" for amount and currency.
-
-**GST pairing logic:** Expense child rows have `vat_code = null`; GST child rows have `vat_code` set. The GST code dropdown on expense rows edits the *paired* GST journal entry (`expenseLines[i] ↔ gstLines[i]`). Read-only on non-draft bills.
-
-**Modules in `payables.js`:** `treeState` (Set-based open/closed + dirty tracking), `cursor` (row highlight + scroll), `kbd` (keydown dispatcher with mode awareness).
-
-**Build status:** Steps 1 (tree rendering), 2 (keyboard navigation), and 3 (inline editing) complete. Step 4 (new bill creation inline), 5 (remove legacy routes), and 6 (polish) pending.
-
-### AP Aging Report (`/:company/payables/aging`)
-Outstanding payables (status `posted` or `partial`) as of a selected date, bucketed by days overdue:
-- **Current** — due_date ≥ as_of_date (not yet due)
-- **1–30** — 1 to 30 days past due
-- **31–60** — 31 to 60 days past due
-- **61–90** — 61 to 90 days past due
-- **90+** — more than 90 days past due; shown in red
-
-Vendor-grouped summary table; click vendor row to expand individual bills. Click any bill row to open the full bill detail modal. For multi-currency bills, home currency equivalent shown. Balance = `amount - amount_paid` in **foreign currency** (correctly handles partial payments).
-
-### New Company Journal Seeding
-`setup.add_company` seeds 4 default journals on creation: MISC, BANK, ADJ, AP. Bills post through the AP journal (`AP/YYYY/NNNNN` references). `db/init.js` seeds MISC, BANK, ADJ for existing companies.
-
-### File Attachments
-Bills and journal entries support file attachments (PDF, images, Word, Excel, CSV, etc.). Files stored on disk at `~/.freebooks/attachments/{company_id}/{entity_type}/{entity_id}/`; metadata in the `attachments` table.
-
-**Attachment points:**
-- **New Bill form** — "📎 Attachments" section below Create Bill button. Select one or more files; they queue with filename/size/remove controls. On successful bill creation, all queued files upload automatically using the returned bill ID.
-- **New JV form** — same pre-post queue above the Post Entry button. Files are queued before posting and uploaded automatically after the batch ID is returned, then shown in the post-success attachment panel.
-- **Bill detail modal** — view/download/delete existing attachments, or upload new ones at any time.
-
-**API surface:**
-- `POST /api/upload` — multipart form (field `file`, body: `companyId`, `entityType`, `entityId`)
-- `GET /api/attachments/:attachmentId` — stream file inline
-- `attachment.list` action — list attachments for an entity (`entityType`, `entityId`)
-- `attachment.delete` action — delete an attachment by `attachmentId`
-
-Max file size: 50 MB. `multer` is bundled in `api/package.json`; no separate install needed.
-
-### Period Locks
-The `periods.locked` boolean is enforced in `validation.js` on every journal entry post. Locked periods cannot be written to. `period.save` is a full DELETE + INSERT (no row accumulation).
-
-### DuckDB File Lock
-DuckDB holds an exclusive file lock while the server runs. Use `duckdb -readonly <file>` for read-only CLI access, or use `POST /api/admin/query` for ad-hoc queries without stopping the server.
+Each jurisdiction directory contains a `manifest.json`, `coa.json`, and `vat_codes.json`. Add a new jurisdiction by creating a directory with these three files — `setup.init` auto-discovers it.
 
 ---
 
-## cf_category Values
+## License
 
-| Value | Use |
-|---|---|
-| `Cash` | Bank/cash accounts (used for CF opening/closing balance) |
-| `Op-WC` | Operating working capital movements |
-| `Operating` | Direct operating items |
-| `Tax` | Tax payable movements |
-| `Investing` | Investment purchases/disposals |
-| `Financing` | Borrowings, equity issuance, dividends |
-| `NonCash` | Non-cash equity entries — IAS 7.43 disclosure |
-| `Excluded` | Excluded from all CF sections |
-| `NULL` | Revenue/Expense accounts (captured via account_type in net income CTE) |
-
----
-
-## Remaining Work / Backlog
-
-### Settings & Admin
-- [ ] Cost/profit centers management tab in settings
-- [ ] Period lock warning in JV form before submit
-- [ ] Simple auth (single password or token) for LAN/VPN exposure
-
-### Reports
-- [ ] P&L with budget vs actual column
-- [ ] Annual report filing exports
-- [ ] Filing/compliance outputs
-
-### Journal Entry Form
-- [ ] Template entries (recurring journal presets)
-
-### Infrastructure
-- [ ] Automatic `node db/init.js` on server start (detect schema changes)
-- [x] Opening balance wizard for new companies
-- [ ] Backup / export to CSV/SQLite
-
-### Accounts Receivable
-- [ ] Customer master (name, currency, payment terms, default income account, AR account)
-- [ ] Invoice creation: multi-line, VAT-aware, auto-generates DR AR / CR Revenue journal (AR/YYYY/NNNNN reference)
-- [ ] Invoice list / Receivables screen with filters (customer, status, period, amount)
-- [ ] AR Aging report — outstanding receivables bucketed by days overdue
-- [ ] Send invoice by email (PDF export + mailto or SMTP)
-- [ ] Payment matching: mark invoice Paid via bank import (link import row → open invoice)
-- [ ] Partial receipt tracking and allocation
-
-### Accounts Payable
-- [x] Payment matching: mark bill Paid via bank import (link import row → open bill during import)
-- [x] Partial payment tracking and allocation (via foreign currency amount_paid tracking)
-- [x] Bill edit workflow (non-financial fields editable; financial fields require Reverse & Re-enter via `bill.void`)
-- [x] Payables tree-table Step 1 — tree rendering, read-only (click or `Enter`/`Space` to fold/unfold)
-- [x] Payables tree-table Step 2 — vim keyboard navigation (`j`/`k`/`h`/`l`/`{`/`}`/`Enter`/`Space`/`i`/`o`/`x`/`p`/`G`/`gg`/`Esc`)
-- [x] Payables tree-table Step 3 — inline editing of existing bills (parent: Due, Ref; child: Description, GST code)
-- [ ] Payables tree-table Step 4 — new bill creation inline (replaces `bill-new.js`)
-- [ ] Payables tree-table Step 5 — housekeeping: remove `bill-detail.js`, `bill-new.js`, old routes
-- [ ] Payables tree-table Step 6 — polish: undo (`u`), `:` commands, expand-all/collapse-all via command palette
-
-### Multi-Currency
-- [x] FX rate table (manual entry) — Settings → Exchange Rates tab
-- [x] FX provider plugin system (`api/src/fxProviders/` with ECB and OpenExchangeRates shipped)
-- [x] Realised gain/loss on settlement — implemented in bank import Step 2 via booking rate method
-- [ ] FX revaluation at period-end: revalue open AR/AP balances to closing rate, post unrealised gain/loss journal
-
-### Documents & Attachments
-- [x] Attach files (PDF, image, Office docs, CSV) to bills and journal entries
-- [x] Pre-post attachment queue on New Bill and New JV forms (attach before submitting; uploads fire automatically on success)
-- [x] View/download/delete attachments from bill detail modal
-- [x] Storage: local filesystem (`~/.freebooks/attachments/{company_id}/{entity_type}/{entity_id}/`)
-- [ ] Attachments on invoices (AR, not yet built)
-- [ ] Attachment viewer modal in-app (currently opens in new browser tab)
-
-### UX / Navigation
-- [ ] Delete old `bank-import.js` and `bank-reconcile.js` page modules (pending stability confirmation)
-- [ ] Period-end checklist per jurisdiction — template-driven, stored on period row
-- [ ] Period-end notes field on the period row (visible in Periods tab)
-- [ ] `Filings` / `Compliance` nav section for statutory output (VAT return, annual report formats)
-- [ ] Static JS extraction to files with Cache-Control headers (further perf improvement)
-
-### Known Issues
-- [ ] example_se CF categories: accounts 1942, 1941 → Investing; 2990 → Op-WC (not yet confirmed fixed)
-- [ ] MISC/2024/0013 (example_sg) — bad phantom bank entry, may need reversal
+AGPL-3.0. See the project repository for details.

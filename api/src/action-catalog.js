@@ -142,8 +142,8 @@ const ACTIONS = {
   },
   'bill.draft.save': {
     role: 'data_entry', mutating: true,
-    description: 'Save a draft bill (no journal entries). UPDATE-in-place on re-save.',
-    params: { bill: { type: 'object', required: true }, billId: { type: 'string' } },
+    description: 'Save a draft bill (no journal entries). Re-save is UPDATE-in-place keyed on bill.bill_id INSIDE the bill object.',
+    params: { bill: { type: 'object', required: true } },
   },
   'bill.draft.post': {
     role: 'data_entry', mutating: true, idempotent: true,

@@ -39,15 +39,8 @@ var treeState = {
 var cursor = {
   rowEl: null,
   col: 0,
-  _mode: 'NORMAL',
-  get mode() { return this._mode; },
-  set mode(val) {
-    this._mode = val;
-    var tbody = document.getElementById('bills-tbody');
-    if (tbody) {
-      if (val === 'INSERT') tbody.classList.add('insert-mode'); else tbody.classList.remove('insert-mode');
-    }
-  },
+  // mode is backed by FB.mode (single store — P1-3 shared core); see the
+  // Object.defineProperty + FB.mode.onChange wiring right after this object.
 
   set: function(rowEl, col) {
     if (document.activeElement && document.activeElement !== document.body) {
@@ -94,6 +87,19 @@ var cursor = {
     return this.getVisibleRows().indexOf(this.rowEl);
   }
 };
+
+// cursor.mode is backed by FB.mode (P1-3 single mode store): all existing
+// cursor.mode reads/writes transparently hit the shared store. The INSERT
+// tbody class follows via listener (was the old property setter side-effect).
+Object.defineProperty(cursor, 'mode', {
+  get: function() { return FB.mode.get(); },
+  set: function(v) { FB.mode.set(v); }
+});
+FB.mode.onChange(function(v) {
+  var tbody = document.getElementById('bills-tbody');
+  if (!tbody) return;
+  if (v === 'INSERT') tbody.classList.add('insert-mode'); else tbody.classList.remove('insert-mode');
+});
 
 var billAccountsList = [];
 var billAcctActiveInput = null;
@@ -184,23 +190,26 @@ function hideBillAcctDd() {
   setTimeout(function() { var dd = document.getElementById('pay-bill-acct-dd'); if (dd) dd.remove(); }, 150);
 }
 
-// ========== KEYBOARD HANDLER ==========
+// ========== KEYBOARD HANDLER (FB.keys binding table — P1-3 shared core) ==========
+// All bills-tab keys are declared in ONE binding table (_bindings). The table
+// drives both dispatch (FB.keys — a single capture-phase listener installed by
+// fb-core, running before common.js's bubble handler) and the footer hint bar
+// (FB.keys.renderHints), so hints cannot drift from behavior. Unlisted keys
+// fall through: in INSERT they type into inputs ("inert" = no nav action, NOT
+// preventDefault); in NORMAL they reach common.js (h/l tabs, {/} pages,
+// / search, : palette). NORMAL verbs are auto-inert while typing in an input
+// (FB.keys editable-target guard).
 var kbd = {
-  _registered: false,
   _lastMoveTime: 0,
   _gPending: false,
   _gTimer: null,
 
   register: function() {
-    if (window._fbBillKbdHandler) {
-      document.removeEventListener('keydown', window._fbBillKbdHandler, true);
-    }
-    var self = this;
-    window._fbBillKbdHandler = function(e) { self._handle(e); };
-    // Capture phase: this handler runs BEFORE common.js's bubble-phase keydown
-    // listener, so an early stopImmediatePropagation() can keep common.js from
-    // double-processing keys the bills tab owns (see _handle).
-    document.addEventListener('keydown', window._fbBillKbdHandler, true);
+    FB.keys.register('bills', {
+      active: this._isBillsTabActive,
+      getMode: function() { return cursor.mode; },
+      bindings: this._bindings()
+    });
     // Input tracking: add kb-active on keydown, remove on mousemove
     // Hover highlight is disabled when kb-active is present or cursor is in INSERT mode
     if (!window._fbInputTrackerSetup) {
@@ -222,307 +231,268 @@ var kbd = {
     return bills_panel.style.display !== 'none';
   },
 
-  _handle: function(e) {
-    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
-    if (!this._isBillsTabActive()) return;
+  _bindings: function() {
+    var self = this;
+    var draftRow = function() { return !!(cursor.rowEl && cursor.rowEl.dataset.draft === 'true'); };
+    var ddOpen = function() { return !!(document.getElementById('pay-draft-vendor-dd') || document.getElementById('pay-draft-ccy-dd')); };
+    var hasRows = function() { return cursor.getVisibleRows().length > 0; };
+    return [
+      // ── NORMAL: navigation ──
+      // j/k swallow only when rows exist; otherwise common.js may try (it
+      // no-ops on the bills tab via fbBillNav — preserved old semantics).
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+        swallow: hasRows, run: function() { self._move(1); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+        swallow: hasRows, run: function() { self._move(-1); } },
+      { key: 'Enter', mode: 'NORMAL', hint: 'fold', hintBar: true,
+        run: function() { self._normalEnter(); } },
+      { key: ' ', mode: 'NORMAL',
+        run: function() { self._toggleFold(); } },
+      { key: 'G', mode: 'NORMAL',
+        run: function() { var rows = cursor.getVisibleRows(); if (rows.length) cursor.set(rows[rows.length - 1], 0); } },
+      { key: 'g', mode: 'NORMAL',
+        run: function() { self._gg(); } },
+      // ── NORMAL: actions ──
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true,
+        run: function() { self._normalEdit(); } },
+      { key: 'o', mode: 'NORMAL', hint: 'new bill', hintBar: true,
+        run: function() { createDraftBill(cursor.rowEl || null); } },
+      { key: 'O', mode: 'NORMAL',
+        run: function() { if (!cursor.rowEl) createDraftBill(null); else insertDraftParentRow(cursor.rowEl, true); } },
+      { key: 'a', mode: 'NORMAL', hint: 'add line', hintBar: true,
+        run: function() { self._normalAddLine(); } },
+      { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true,
+        run: function() { self._deleteCurrent(); } },
+      { key: 'p', mode: 'NORMAL', hint: 'post', hintBar: true,
+        run: function() { self._normalPost(); } },
+      // ── INSERT (draft bill editing) ──
+      { key: 'Escape', mode: 'INSERT', hint: 'save/cancel', hintBar: true,
+        run: function() { self._insertEscape(); } },
+      { key: 'Enter', mode: 'INSERT',
+        run: function() { self._insertEnter(); } },
+      // Draft rows: native Tab traverses the bill's inputs — not swallowed,
+      // not prevented (matches the old early-return).
+      { key: 'Tab', mode: 'INSERT', when: draftRow, swallow: false, preventDefault: false,
+        run: function() {} },
+      // Non-draft INSERT: Tab blocked (old behavior).
+      { key: 'Tab', mode: 'INSERT',
+        run: function() {} },
+      { key: 'ArrowDown', mode: 'INSERT', when: ddOpen,
+        run: function() { self._insertArrow(1); } },
+      { key: 'ArrowUp', mode: 'INSERT', when: ddOpen,
+        run: function() { self._insertArrow(-1); } }
+    ];
+  },
 
-    // INSERT mode: intercept control keys only
-    if (cursor.mode === 'INSERT') {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        // For draft bills, save and exit INSERT mode directly
-        if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
-          // Close any open dropdowns
-          var vDd = document.getElementById('pay-draft-vendor-dd'); if (vDd) vDd.remove();
-          var cDd = document.getElementById('pay-draft-ccy-dd'); if (cDd) cDd.remove();
-          var aDd = document.getElementById('pay-bill-acct-dd'); if (aDd) aDd.remove();
-          // Blur active input
-          if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-          // Find parent row
-          var parentRow = cursor.rowEl;
-          if (parentRow.dataset.rowType === 'child') {
-            // Find parent row for child
-            var pKey = parentRow.dataset.parentKey || parentRow.dataset.parentId;
-            parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
-          }
-          if (parentRow && parentRow.dataset.draft === 'true') {
-            // Check if bill is completely empty — if so, discard instead of saving
-            if (_isDraftEmpty(parentRow)) {
-              _discardDraftBill(parentRow);
-              // _discardDraftBill already sets cursor to next row or clears it.
-              // Don't call cursor.set(parentRow) — parentRow is already removed from DOM.
-              cursor.mode = 'NORMAL';
-              return;
-            } else {
-              saveDraftToDb(parentRow);
-            }
-          }
-          cursor.mode = 'NORMAL';
-          // Restore row highlight
-          if (parentRow && parentRow.parentNode) cursor.set(parentRow, 0);
-          return;
-        }
-        // Non-draft INSERT mode is no longer possible (bill-level INSERT only
-        // for drafts). Nothing to exit.
-        return;
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
-          var vDd = document.getElementById('pay-draft-vendor-dd');
-          var cDd = document.getElementById('pay-draft-ccy-dd');
-          if (vDd && vDd.querySelector('.dd-active')) {
-            vDd.querySelector('.dd-active').click();
-            var draftInps2 = Array.from(cursor.rowEl.querySelectorAll('input.draft-input, select.draft-input'));
-            if (draftInps2[1]) draftInps2[1].focus();
-            return;
-          }
-          if (cDd && cDd.querySelector('.dd-active')) { cDd.querySelector('.dd-active').click(); return; }
-          var draftInputs = Array.from(cursor.rowEl.querySelectorAll('input.draft-input, select.draft-input'));
-          var ae = document.activeElement;
-          var dIdx = draftInputs.indexOf(ae);
-          if (dIdx >= 0 && dIdx < draftInputs.length - 1) {
-            draftInputs[dIdx + 1].focus();
-          } else { if (ae) ae.blur(); cursor.mode = 'NORMAL'; }
-          return;
-        }
-        // Non-draft INSERT is no longer possible — nothing to exit.
-        return;
-      }
-      if (e.key === 'Tab') {
-        if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
-          return; // let native Tab work for draft rows
-        }
-        e.preventDefault(); return;
-      }
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        var dir2 = e.key === 'ArrowDown' ? 1 : -1;
-        if (document.getElementById('pay-draft-vendor-dd')) { e.preventDefault(); moveDraftVendorDd(dir2); return; }
-        if (document.getElementById('pay-draft-ccy-dd'))    { e.preventDefault(); moveDraftCcyDd(dir2); return; }
-      }
-      // In INSERT mode, all non-intercepted keys (including h/j/k/l) type into inputs normally.
-      // They are "inert" in the sense that they don't trigger navigation — not that they're blocked.
-      return;
-    }
-
-    var tag = e.target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
-
-    // NORMAL mode (bills tab active, not INSERT, not typing in a field): the bills
-    // tab owns these keys. Stop common.js (registered in the bubble phase) from also
-    // processing them -- previously 'd' crashed common.js fbKeyActions.delete(null),
-    // 'i' focused a stray input, 'a'/'G'/'Enter' double-handled. h/l are intentionally
-    // NOT stopped (common.js owns tab switching); g/{/}//:/Escape are left to common.js
-    // (sidebar nav / search / gg / no-op escape). cursor.col is retained internally for
-    // the transitional INSERT model; Phase 2b will remove it.
+  _move: function(dir) {
+    var now = Date.now(); if (now - this._lastMoveTime < 40) return; this._lastMoveTime = now;
     var rows = cursor.getVisibleRows();
     var idx = cursor.currentIndex();
-
-    // Only swallow j/k when we have rows to navigate; otherwise let common.js handle
-    var _BILLS_OWNED_KEYS = { 'j':1,'k':1,'i':1,'o':1,'O':1,'a':1,'x':1,'p':1,'G':1,'g':1,'Enter':1,' ':1 };
-    if (_BILLS_OWNED_KEYS[e.key]) {
-      if ((e.key === 'j' || e.key === 'k') && rows.length === 0) {
-        // No rows loaded yet — don't swallow, let common.js try
-      } else {
-        e.stopImmediatePropagation();
-      }
-    }
-
-    if (e.key === 'j') {
-      e.preventDefault();
-      var now = Date.now(); if (now - this._lastMoveTime < 40) return; this._lastMoveTime = now;
-      if (idx === -1 && rows.length) { cursor.set(rows[0], 0); }
-      else if (idx >= 0 && idx < rows.length - 1) {
-        // Seamless bill-boundary crossing: no blocking from child -> next parent.
-        cursor.set(rows[idx + 1], 0);
-      }
-      return;
-    }
-
-    if (e.key === 'k') {
-      e.preventDefault();
-      var now2 = Date.now(); if (now2 - this._lastMoveTime < 40) return; this._lastMoveTime = now2;
-      if (idx > 0) {
-        // Seamless bill-boundary crossing: no blocking from child -> previous parent.
-        cursor.set(rows[idx - 1], 0);
-      }
+    if (dir > 0) {
+      // Seamless bill-boundary crossing: no blocking from child -> next parent.
+      if (idx === -1 && rows.length) cursor.set(rows[0], 0);
+      else if (idx >= 0 && idx < rows.length - 1) cursor.set(rows[idx + 1], 0);
+    } else {
+      // Seamless bill-boundary crossing: no blocking from child -> previous parent.
+      if (idx > 0) cursor.set(rows[idx - 1], 0);
       // Sticky at top: idx === 0 -> no-op (no deselect)
-      return;
     }
+  },
 
-    // h/l no longer move a cell cursor within a row; common.js handles tab switching.
-
-    // Enter = fold toggle (parent) or collapse parent (child); saves draft if applicable
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (!cursor.rowEl) return;
-      if (cursor.rowEl.dataset.rowType === 'parent') {
-        var isDraftParent = cursor.rowEl.dataset.draft === 'true';
-        var foldKey = isDraftParent ? cursor.rowEl.dataset.draftKey : cursor.rowEl.dataset.billId;
-        var foldIsOpen = foldKey ? treeState.isOpen(foldKey) : false;
-        // Save when folding a raw unsaved draft (not when opening it)
-        if (isDraftParent && foldIsOpen) {
-          saveDraftToDb(cursor.rowEl);
-        }
-        this._toggleFold();
-      } else if (cursor.rowEl.dataset.rowType === 'child') {
-        var childParentKey = cursor.rowEl.dataset.parentKey || cursor.rowEl.dataset.parentId;
-        var childParentRow = childParentKey
-          ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + childParentKey + '"]') ||
-             document.querySelector('tr[data-row-type="parent"][data-bill-id="' + childParentKey + '"]'))
-          : null;
-        if (childParentRow) {
-          // Save when returning from child to parent on a raw unsaved draft
-          if (childParentRow.dataset.draft === 'true') {
-            saveDraftToDb(childParentRow);
-          }
-          this._closeFold(childParentRow);
-          cursor.set(childParentRow, 0);
-        }
-      }
-      return;
-    }
-
-    // Helper: check if the current row's bill is editable (not void/paid/posted)
-    function _isRowEditable() {
-      if (!cursor.rowEl) return false;
-      var row = cursor.rowEl;
-      // Draft rows (data-draft='true') are always editable
-      if (row.dataset.draft === 'true') return true;
-      // For non-draft rows, check the parent bill's status
-      var statusRow = row;
-      if (row.dataset.rowType === 'child') {
-        var pKey = row.dataset.parentKey || row.dataset.parentId;
-        statusRow = pKey
-          ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') ||
-             document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]'))
-          : null;
-        if (!statusRow) return false;
-      }
-      var st = statusRow.dataset.status || '';
-      // Only draft status is editable; void/paid/posted/partial are read-only
-      return st === 'draft';
-    }
-
-    if (e.key === 'i') {
-      e.preventDefault();
-      if (!_isRowEditable()) {
-        billEditMsg('Cannot edit — bill is not a draft', 'err');
-        setTimeout(function() { billEditMsg('', ''); }, 2000);
-        return;
-      }
-      // Bill-level INSERT: open the entire draft bill for editing.
-      // Works from any row (parent or child) of a raw draft (data-draft='true').
-      // Parent and child rows already have inputs rendered, so we just enter
-      // INSERT mode and focus the first parent input — same as createDraftBill.
-      if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
-        var parentRow = cursor.rowEl;
-        if (parentRow.dataset.rowType === 'child') {
-          var pKey = parentRow.dataset.parentKey || parentRow.dataset.parentId;
-          parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
-        }
-        if (parentRow) {
-          var firstInp = parentRow.querySelector('input, select');
-          if (firstInp) { cursor.mode = 'INSERT'; cursor.set(parentRow, 0); firstInp.focus(); }
-        }
-        return;
-      }
-      // Saved draft (status='draft' in DB, but data-draft was deleted by
-      // convertDraftRowToDisplay).  Re-render the bill into editable mode.
-      if (cursor.rowEl && cursor.rowEl.dataset.status === 'draft') {
-        var savedParent = cursor.rowEl;
-        if (savedParent.dataset.rowType === 'child') {
-          var spId = savedParent.dataset.parentKey || savedParent.dataset.parentId;
-          savedParent = spId ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + spId + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + spId + '"]')) : null;
-        }
-        if (savedParent && savedParent.dataset.status === 'draft') {
-          convertDisplayToDraft(savedParent);
-        }
-        return;
-      }
-      return;
-    }
-
-    // o = always create a new draft bill (never a child row)
-    if (e.key === 'o') {
-      e.preventDefault();
-      createDraftBill(cursor.rowEl || null);
-      return;
-    }
-
-    if (e.key === 'O') {
-      e.preventDefault();
-      if (!cursor.rowEl) { createDraftBill(null); }
-      else { insertDraftParentRow(cursor.rowEl, true); }
-      return;
-    }
-
-    if (e.key === 'a') {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      if (cursor.rowEl && !_isRowEditable()) {
-        billEditMsg('Cannot add lines — bill is not a draft', 'err');
-        setTimeout(function() { billEditMsg('', ''); }, 2000);
-        return;
-      }
-      // a = always add a child row (works from parent or child cursor position)
-      if (cursor.rowEl) {
-        insertDraftChildRow(cursor.rowEl, false);
-      }
-      return;
-    }
-
-    // x = delete line (child) or delete/void bill (parent)
-    if (e.key === 'x') {
-      e.preventDefault();
-      this._deleteCurrent();
-      return;
-    }
-
-    // p = post bill from any row (NORMAL mode only; PREVIEW handled above)
-    if (e.key === 'p') {
-      e.preventDefault();
-      var pRow = cursor.rowEl;
-      if (!pRow) return;
-      if (pRow.dataset.rowType === 'child') {
-        var pKey = pRow.dataset.parentKey || pRow.dataset.parentId;
-        pRow = pKey
-          ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') ||
-             document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]'))
-          : null;
-      }
-      if (pRow && (pRow.dataset.draft === 'true' || pRow.dataset.status === 'draft')) {
-        _postDirect(pRow);
-      }
-      return;
-    }
-
-    if (e.key === 'G') {
-      e.preventDefault();
-      if (rows.length) cursor.set(rows[rows.length - 1], 0);
-      return;
-    }
-
-    if (e.key === ' ') {
-      e.preventDefault();
-      this._toggleFold();
-      return;
-    }
-
-    if (e.key === 'g') {
-      e.preventDefault();
-      if (!this._gPending) {
-        this._gPending = true;
-        clearTimeout(this._gTimer);
-        var self = this;
-        this._gTimer = setTimeout(function() { self._gPending = false; }, 500);
-        return;
-      }
-      // Double g: scroll to top + highlight first row
-      this._gPending = false;
+  _gg: function() {
+    if (!this._gPending) {
+      this._gPending = true;
       clearTimeout(this._gTimer);
-      if (rows.length) cursor.set(rows[0], 0);
+      var self = this;
+      this._gTimer = setTimeout(function() { self._gPending = false; }, 500);
       return;
+    }
+    // Double g: scroll to top + highlight first row
+    this._gPending = false;
+    clearTimeout(this._gTimer);
+    var rows = cursor.getVisibleRows();
+    if (rows.length) cursor.set(rows[0], 0);
+  },
+
+  _insertArrow: function(dir) {
+    if (document.getElementById('pay-draft-vendor-dd')) { moveDraftVendorDd(dir); return; }
+    if (document.getElementById('pay-draft-ccy-dd'))    { moveDraftCcyDd(dir); return; }
+  },
+
+  // Esc on a draft bill: save (or discard if empty) and exit to NORMAL.
+  _insertEscape: function() {
+    // For draft bills, save and exit INSERT mode directly
+    if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
+      // Close any open dropdowns
+      var vDd = document.getElementById('pay-draft-vendor-dd'); if (vDd) vDd.remove();
+      var cDd = document.getElementById('pay-draft-ccy-dd'); if (cDd) cDd.remove();
+      var aDd = document.getElementById('pay-bill-acct-dd'); if (aDd) aDd.remove();
+      // Blur active input
+      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+      // Find parent row
+      var parentRow = cursor.rowEl;
+      if (parentRow.dataset.rowType === 'child') {
+        // Find parent row for child
+        var pKey = parentRow.dataset.parentKey || parentRow.dataset.parentId;
+        parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
+      }
+      if (parentRow && parentRow.dataset.draft === 'true') {
+        // Check if bill is completely empty — if so, discard instead of saving
+        if (_isDraftEmpty(parentRow)) {
+          _discardDraftBill(parentRow);
+          // _discardDraftBill already sets cursor to next row or clears it.
+          // Don't call cursor.set(parentRow) — parentRow is already removed from DOM.
+          cursor.mode = 'NORMAL';
+          return;
+        } else {
+          saveDraftToDb(parentRow);
+        }
+      }
+      cursor.mode = 'NORMAL';
+      // Restore row highlight
+      if (parentRow && parentRow.parentNode) cursor.set(parentRow, 0);
+      return;
+    }
+    // Non-draft INSERT mode is no longer possible (bill-level INSERT only
+    // for drafts). Nothing to exit.
+  },
+
+  // Enter in INSERT: pick dropdown item, else advance to next input, else
+  // (on the last input) exit INSERT.
+  _insertEnter: function() {
+    if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
+      var vDd = document.getElementById('pay-draft-vendor-dd');
+      var cDd = document.getElementById('pay-draft-ccy-dd');
+      if (vDd && vDd.querySelector('.dd-active')) {
+        vDd.querySelector('.dd-active').click();
+        var draftInps2 = Array.from(cursor.rowEl.querySelectorAll('input.draft-input, select.draft-input'));
+        if (draftInps2[1]) draftInps2[1].focus();
+        return;
+      }
+      if (cDd && cDd.querySelector('.dd-active')) { cDd.querySelector('.dd-active').click(); return; }
+      var draftInputs = Array.from(cursor.rowEl.querySelectorAll('input.draft-input, select.draft-input'));
+      var ae = document.activeElement;
+      var dIdx = draftInputs.indexOf(ae);
+      if (dIdx >= 0 && dIdx < draftInputs.length - 1) {
+        draftInputs[dIdx + 1].focus();
+      } else { if (ae) ae.blur(); cursor.mode = 'NORMAL'; }
+      return;
+    }
+    // Non-draft INSERT is no longer possible — nothing to exit.
+  },
+
+  // Helper: check if the current row's bill is editable (not void/paid/posted)
+  _isRowEditable: function() {
+    if (!cursor.rowEl) return false;
+    var row = cursor.rowEl;
+    // Draft rows (data-draft='true') are always editable
+    if (row.dataset.draft === 'true') return true;
+    // For non-draft rows, check the parent bill's status
+    var statusRow = row;
+    if (row.dataset.rowType === 'child') {
+      var pKey = row.dataset.parentKey || row.dataset.parentId;
+      statusRow = pKey
+        ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') ||
+           document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]'))
+        : null;
+      if (!statusRow) return false;
+    }
+    var st = statusRow.dataset.status || '';
+    // Only draft status is editable; void/paid/posted/partial are read-only
+    return st === 'draft';
+  },
+
+  // Enter = fold toggle (parent) or collapse parent (child); saves draft if applicable
+  _normalEnter: function() {
+    if (!cursor.rowEl) return;
+    if (cursor.rowEl.dataset.rowType === 'parent') {
+      var isDraftParent = cursor.rowEl.dataset.draft === 'true';
+      var foldKey = isDraftParent ? cursor.rowEl.dataset.draftKey : cursor.rowEl.dataset.billId;
+      var foldIsOpen = foldKey ? treeState.isOpen(foldKey) : false;
+      // Save when folding a raw unsaved draft (not when opening it)
+      if (isDraftParent && foldIsOpen) {
+        saveDraftToDb(cursor.rowEl);
+      }
+      this._toggleFold();
+    } else if (cursor.rowEl.dataset.rowType === 'child') {
+      var childParentKey = cursor.rowEl.dataset.parentKey || cursor.rowEl.dataset.parentId;
+      var childParentRow = childParentKey
+        ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + childParentKey + '"]') ||
+           document.querySelector('tr[data-row-type="parent"][data-bill-id="' + childParentKey + '"]'))
+        : null;
+      if (childParentRow) {
+        // Save when returning from child to parent on a raw unsaved draft
+        if (childParentRow.dataset.draft === 'true') {
+          saveDraftToDb(childParentRow);
+        }
+        this._closeFold(childParentRow);
+        cursor.set(childParentRow, 0);
+      }
+    }
+  },
+
+  _normalEdit: function() {
+    if (!this._isRowEditable()) {
+      billEditMsg('Cannot edit — bill is not a draft', 'err');
+      setTimeout(function() { billEditMsg('', ''); }, 2000);
+      return;
+    }
+    // Bill-level INSERT: open the entire draft bill for editing.
+    // Works from any row (parent or child) of a raw draft (data-draft='true').
+    // Parent and child rows already have inputs rendered, so we just enter
+    // INSERT mode and focus the first parent input — same as createDraftBill.
+    if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
+      var parentRow = cursor.rowEl;
+      if (parentRow.dataset.rowType === 'child') {
+        var pKey = parentRow.dataset.parentKey || parentRow.dataset.parentId;
+        parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
+      }
+      if (parentRow) {
+        var firstInp = parentRow.querySelector('input, select');
+        if (firstInp) { cursor.mode = 'INSERT'; cursor.set(parentRow, 0); firstInp.focus(); }
+      }
+      return;
+    }
+    // Saved draft (status='draft' in DB, but data-draft was deleted by
+    // convertDraftRowToDisplay).  Re-render the bill into editable mode.
+    if (cursor.rowEl && cursor.rowEl.dataset.status === 'draft') {
+      var savedParent = cursor.rowEl;
+      if (savedParent.dataset.rowType === 'child') {
+        var spId = savedParent.dataset.parentKey || savedParent.dataset.parentId;
+        savedParent = spId ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + spId + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + spId + '"]')) : null;
+      }
+      if (savedParent && savedParent.dataset.status === 'draft') {
+        convertDisplayToDraft(savedParent);
+      }
+      return;
+    }
+  },
+
+  // a = always add a child row (works from parent or child cursor position)
+  _normalAddLine: function() {
+    if (cursor.rowEl && !this._isRowEditable()) {
+      billEditMsg('Cannot add lines — bill is not a draft', 'err');
+      setTimeout(function() { billEditMsg('', ''); }, 2000);
+      return;
+    }
+    if (cursor.rowEl) {
+      insertDraftChildRow(cursor.rowEl, false);
+    }
+  },
+
+  // p = post bill from any row (NORMAL mode only)
+  _normalPost: function() {
+    var pRow = cursor.rowEl;
+    if (!pRow) return;
+    if (pRow.dataset.rowType === 'child') {
+      var pKey = pRow.dataset.parentKey || pRow.dataset.parentId;
+      pRow = pKey
+        ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') ||
+           document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]'))
+        : null;
+    }
+    if (pRow && (pRow.dataset.draft === 'true' || pRow.dataset.status === 'draft')) {
+      _postDirect(pRow);
     }
   },
 
@@ -685,6 +655,9 @@ function fbPageInitPayables() {
   registerBillKeyActions();
   registerVendorKeyActions();
   kbd.register();
+  // Footer hint bar is generated from the same binding table that drives
+  // dispatch (P1-3/P1-6: single source of truth — cannot go stale).
+  FB.keys.renderHints('bills', document.getElementById('fb-bills-hints'));
   loadBillAccounts();
   _loadCompanyDefaults();
   window.fbBillNav = true;
@@ -2236,7 +2209,7 @@ function _ensureCoaDatalist() {
 
 function registerBillKeyActions() {
   window.fbKeyActions = {
-    'new': function() { /* a/o key handled by kbd._handle */ },
+    'new': function() { /* a/o key handled by the bills FB.keys bindings */ },
     'delete': function(row) {
       var billId = row.dataset.billId;
       var vendor = row.dataset.vendor || billId;
@@ -2514,9 +2487,7 @@ function showMsg(msg) {
   el.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:32px">' + esc(msg) + '</td></tr>';
 }
 
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+// esc now comes from fb-core.js (window.esc) — P1-3 shared core
 
 // ========== TAB SWITCHER ==========
 function showPayTab(t) {

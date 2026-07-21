@@ -225,17 +225,25 @@
   //
   // Pages register handlers via: window.fbKeyActions = { new, delete, edit }
 
-  var _fbVimMode = 'normal';
+  // P1-3: the mode indicator reads FB.mode (the single mode store, fb-core.js).
+  // fbSetVimMode is kept as the legacy entry point for unmigrated pages.
   window.fbSetVimMode = function(mode) {
-    _fbVimMode = mode;
-    var el = document.getElementById('fb-vim-mode');
-    if (!el) return;
-    el.textContent = mode === 'insert' ? 'INSERT' : 'NORMAL';
-    el.className = mode === 'insert' ? 'insert' : '';
+    if (window.FB) FB.mode.set(mode);
   };
+  if (window.FB) {
+    FB.mode.onChange(function(m) {
+      var el = document.getElementById('fb-vim-mode');
+      if (!el) return;
+      el.textContent = m === 'INSERT' ? 'INSERT' : 'NORMAL';
+      el.className = m === 'INSERT' ? 'insert' : '';
+    });
+  }
 
-  // Auto-track mode on focus in/out
+  // Auto-track mode on focus in/out — legacy behavior for unmigrated pages.
+  // Suspended when an FB.keys binding set is active (migrated pages own their
+  // mode transitions explicitly; focus tracking would fight cursor.mode).
   document.addEventListener('focusin', function(e) {
+    if (window.FB && FB.keys.hasActive()) return;
     var tag = (e.target || {}).tagName || '';
     var type = ((e.target || {}).type || '').toLowerCase();
     var textInput = tag === 'TEXTAREA' ||
@@ -244,6 +252,7 @@
     if (textInput) fbSetVimMode('insert');
   });
   document.addEventListener('focusout', function(e) {
+    if (window.FB && FB.keys.hasActive()) return;
     var tag = (e.target || {}).tagName || '';
     var type = ((e.target || {}).type || '').toLowerCase();
     var textInput = tag === 'TEXTAREA' ||
@@ -449,8 +458,9 @@
     if (e.key === 'd') {
       if (vendorActive) return;
       if (window.fbKeyActions && typeof window.fbKeyActions['delete'] === 'function') {
-        e.preventDefault();
         var focusedRowD = document.querySelector('tr.nav-row-focus');
+        if (!focusedRowD) return; // nothing focused — previously crashed on null.dataset
+        e.preventDefault();
         window.fbKeyActions['delete'](focusedRowD);
       }
       return;

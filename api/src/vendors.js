@@ -140,4 +140,4 @@ async function upsertVendor(ctx) {
   return { saved: true, vendorId };
 }
 
-module.exports = { handleVendors };
+module.exports = { handleVendors, listVendors };

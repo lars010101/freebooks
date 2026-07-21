@@ -17,6 +17,7 @@ const { handleJournal } = require('./journal');
 const { handleBank } = require('./bank');
 const { handleBills } = require('./bills');
 const { handleVendors } = require('./vendors');
+const { handleViews } = require('./views');
 const { handleReports, mountReportRoutes } = require('./reports');
 const { handleVat } = require('./vat');
 const { handleFx } = require('./fx');
@@ -230,6 +231,7 @@ async function handleApiRequest(req, res) {
       case 'bank':        result = await handleBank(ctx, action); break; // bank.process, bank.approve, bank.reconcile.*
       case 'bill':        result = await handleBills(ctx, action); break;
       case 'vendor':      result = await handleVendors(ctx, action); break;
+      case 'view':        result = await handleViews(ctx, action); break; // P1-8 read models
       case 'report':      result = await handleReports(ctx, action); break;
       case 'vat':         result = await handleVat(ctx, action); break;
       case 'fx':          result = await handleFx(ctx, action); break;

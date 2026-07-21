@@ -721,4 +721,4 @@ async function postDraftBill(ctx) {
 }
 
 
-module.exports = { handleBills };
+module.exports = { handleBills, listBills, getBillLines };

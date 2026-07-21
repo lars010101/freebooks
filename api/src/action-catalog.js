@@ -16,9 +16,11 @@
  *   idempotent  true → dispatch honors Idempotency-Key (P0-1)
  *   audit       false → skip audit logging even though mutating (noisy ops)
  *   description human/agent summary
- *   params      { name: { type, required } } — types are advisory
- *               ('string'|'number'|'boolean'|'object'|'array'|'date');
- *               validation enforces presence of required fields only.
+ *   params      { name: { type, required } } — dispatch enforces presence of
+ *               required fields AND declared types ('string'|'number'|'boolean'|
+ *               'object'|'array'|'date'), 400 INVALID_INPUT naming the offender.
+ *               Numeric strings pass 'number' (form-encoded callers); 'date'
+ *               requires a YYYY-MM-DD-prefixed string.
  */
 
 const ACTIONS = {

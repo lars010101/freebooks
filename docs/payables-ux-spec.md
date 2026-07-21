@@ -212,6 +212,7 @@ Validation runs **before** any DB writes. On failure, the draft is untouched and
 
 ### On success
 - "Bill posted successfully" in the status bar
+- If the backend returns tolerance warnings (`data.warnings`, e.g. supplier-stated VAT differs from computed): "Posted with warning: …" in the status bar in warning colour (amber), held longer (6s vs 2.5s) so it can be read. Warnings never block posting and never add new UI chrome — status bar only.
 - Draft row + child rows removed from the DOM
 - Bill list reloads (`loadAllBills`)
 

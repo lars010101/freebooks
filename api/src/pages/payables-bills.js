@@ -652,7 +652,7 @@ function billEditMsg(msg, type) {
   var el = document.getElementById('tb-status-msg');
   if (!el) return;
   el.textContent = msg;
-  el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : '#888';
+  el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : type === 'warn' ? '#b8860b' : '#888';
   el.style.fontWeight = msg ? '700' : '';
 }
 
@@ -2201,8 +2201,16 @@ function _sendPost(payload, draftParentTr) {
       if (draftParentTr.parentNode) draftParentTr.remove();
       cursor.mode = 'NORMAL';
       loadAllBills();
-      billEditMsg('Bill posted successfully.', 'ok');
-      setTimeout(function() { billEditMsg('', ''); }, 2500);
+      // P1-5: backend tolerance warnings (e.g. supplier-stated VAT differs
+      // from computed) must reach the user — status bar only, no new chrome.
+      var warnings = (d && Array.isArray(d.warnings)) ? d.warnings.filter(function(w){ return !!w; }) : [];
+      if (warnings.length) {
+        billEditMsg('Posted with warning: ' + warnings.join('; '), 'warn');
+        setTimeout(function() { billEditMsg('', ''); }, 6000);
+      } else {
+        billEditMsg('Bill posted successfully.', 'ok');
+        setTimeout(function() { billEditMsg('', ''); }, 2500);
+      }
     })
     .catch(function(e) { billEditMsg('Error: ' + (e.message || 'Post failed'), 'err'); });
 }

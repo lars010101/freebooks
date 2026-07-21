@@ -101,7 +101,7 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 - **P2-1** Year-end close routine to retained earnings (replaces live "unallocated net income" injection).
 - **P2-2** FX revaluation: monetary items only (drop Equity).
 - **P2-3** `bill_lines` subledger table + AP-subledger-vs-GL control report.
-- **P2-4** Unify VAT conventions (tax-exclusive everywhere; convert `journal.post` path).
+- **P2-4** Unify VAT/amount conventions (tax-exclusive everywhere; convert `journal.post` path). Also: `bill.draft.save` currently trusts a client-computed `bill.amount` — the server should compute draft totals from lines like `createBill` does at post (found via contract tests).
 - **P2-5** MCP server over the action catalog.
 
 ### P3 — Scope

@@ -450,3 +450,66 @@ Attach once per input at row build. The popup div is created on demand and remov
 ### Testing contract
 
 The popup is plain DOM — headless-verifiable, closing the verifiability gap that datalist created. Per migration step, contract tests assert: open/filter on input, active-class movement with sticky ends, Enter pick, Esc layering (dd first, row save second), click-away close, and theme token presence.
+
+---
+
+## P1-4 — Full-page bill editor (DRAFT 2026-07-22, for magnus review — NOT yet implemented)
+
+### Purpose
+
+Two creation paths, one editor core:
+
+| Path | For | Surface |
+|------|-----|---------|
+| **Tree-table INSERT** (existing, default) | Common bills: 1–3 lines, no attachments | Payables → Bills, `o` |
+| **Full-page editor** (this section) | Complex bills: many lines, attachments, per-line VAT review | `+ Bill` toolbar link, `O` (shift-o) from Bills tab, dblclick on a draft's "edit" affordance |
+
+The full-page editor is the **escape hatch, not a second philosophy**. Same modes, same verbs, same endpoints, same validation authority. Anything the tree-table can do, the editor does identically; the editor adds only what the tree-table structurally cannot (attachments, long line lists, comfortable per-line VAT review).
+
+### Relationship to existing pages
+
+- **`bill-new.js` is deleted** when this ships (its capabilities migrate or are deliberately dropped — see Elimination inventory below).
+- **`bill-detail.js` remains** the read/management surface for posted documents (void, payments, attachment view). The editor handles drafts + create; posted bills are never editable (append-only doctrine — corrections via void/rebill).
+- One shared editor component used for **create-complex** and **edit-draft** (`i` on a saved draft may open the editor instead of inline edit when line count > N — threshold decided below).
+
+### Layout (three zones + status bar)
+
+1. **Header card** — vendor (FB.dropdown, strict-validated), bill date, due date (auto from vendor payment terms, overridable), vendor ref, CCY (FB.dropdown; FX rate hint in the **status bar** on Enter — Phase 2d doctrine, no FX input field anywhere), AP account (FB.dropdown, default vendor → company → blank).
+2. **Lines table** — one row per line: description, expense account (FB.dropdown), amount, VAT code (FB.dropdown), GST amount (auto-computed, overridable — supplier-stated doctrine, tolerance warning at post). Row ops mirror the tree-table: `a` add line below, `x` delete line, `+` icon on last row (gray/faded when empty). No separate GST rows (bill-new's syncGstRow pattern dies).
+3. **Attachments panel** — list + upload + delete (the capability the tree-table lacks; reuses `/api/upload` + `attachment.list`/`attachment.delete`).
+4. **Status bar** — totals (net / GST / gross, server-computed at save), FX rate hint, validation errors naming every missing field.
+
+### Interaction model (identical semantics to the tree-table)
+
+- Page loads in **INSERT mode** (it IS an editing surface); fields focused in traversal order; Tab/Shift+Tab traverse header → lines (Tab from last line's last field adds a line if current has data, sticky if empty).
+- **Esc saves and returns** to the Bills tab (sole save trigger; empty bill discards). Draft first (`bill.draft.save`), then the Bills tab reflects it.
+- **Posting is deliberate and separate**: `p` posts from the editor (direct — `bill.create` for new, save-then-`bill.draft.post` for existing drafts). Server validation errors render in the status bar; editor stays open.
+- `h/l` — NOT bound (fall through to shell tab switch; an unsaved bill prompts save-or-discard via the same tab-switch guard as Vendors).
+- All dropdowns FB.dropdown with `keys` via the page binding table (dropdown bindings precede general INSERT bindings).
+- Hints in `#sb-hints` generated from the page's binding table.
+
+### Data flow
+
+- **Load (edit-draft):** one `view.bills`-style read — bill header + embedded lines (reuse `bill.lines` shape; add `view.bill` only if attachments + header justify it).
+- **Save:** `bill.draft.save` (server computes totals from lines — P2-4 closes the client-total trust gap; the editor NEVER sends `bill.amount`).
+- **Post:** `bill.create` / `bill.draft.post`; FX resolved server-side from master data at post (no rate input, no fetchRate machinery).
+- **VAT:** per-line GST amount editable (supplier-stated, tolerance-warned at post — warnings render in the status bar, never swallowed).
+- **Attachments:** after first save (bill_id exists), uploads bind to the draft; unsaved-new bills stage files client-side until first save (mirrors bill-new's reenter flow, minus its FX hackery).
+
+### Elimination inventory (bill-new.js — what dies and why)
+
+| bill-new.js feature | Fate | Reason |
+|---------------------|------|--------|
+| Manual FX rate input + fetchRate/fetchAndRetry/maybeFillReenter | **Deleted** | Phase 2d doctrine: rate from master data at post; override = Settings → Exchange Rates |
+| Client-side `rebuildJournals()` preview | **Deleted** | Direct-post doctrine (preview was compensation, not safety); server validates at `p` |
+| Dialect-A account/vendor/currency dropdowns | **Deleted** | FB.dropdown everywhere (P1-7) |
+| syncGstRow separate GST rows | **Deleted** | GST lives ON the line (tree-table pattern) |
+| Attachments panel | **Migrates** | The one capability worth keeping — rebuilt in the editor's zone 3 |
+| Form-style page chrome (`rem` typography, card styling) | **Deleted** | Editor uses app tokens/pt, sidebar, hints chrome |
+
+### Decisions (magnus, 2026-07-22)
+
+1. **Entry points:** `+ Bill` toolbar link → the editor (create path). `o` in the Bills list stays the default quick path (tree-table INSERT). `O` (shift-o) from the Bills tab → editor, new bill.
+2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity (answering "do mouse users always get the editor?"): **no** — double-click = inline (mirrors `i`); a hover pencil affordance on draft rows = editor (mirrors `I`), same hover-icon pattern as the delete affordance, no always-visible chrome.
+3. **Attachments on unsaved bills stage client-side** until the first save binds them (bill-new's reenter behavior, minus its FX hackery).
+4. **Per-line cost/profit centers: INCLUDED** (reversing the draft's skip). The ledger already carries them — `journal_entries.cost_center/profit_center`, bill-header fields, `centers` master data, and `createBill` threads header centers into journal lines. Editor adds a per-line center column (FB.dropdown over `center.list`, default from header, overridable); backend extends the `draft_lines` line shape with `cost_center`/`profit_center` and maps line-level centers onto journal lines at post (falling back to header centers when a line has none).

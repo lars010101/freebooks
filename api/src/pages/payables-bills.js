@@ -248,8 +248,15 @@ var kbd = {
         run: function() { self._normalEdit(); } },
       { key: 'o', mode: 'NORMAL', hint: 'new bill', hintBar: true,
         run: function() { createDraftBill(cursor.rowEl || null); } },
-      { key: 'O', mode: 'NORMAL',
-        run: function() { if (!cursor.rowEl) createDraftBill(null); else insertDraftParentRow(cursor.rowEl, true); } },
+      { key: 'O', mode: 'NORMAL', hint: 'new bill (editor)', hintBar: true,
+        run: function() { fbNavigate('/' + COMPANY + '/bill/edit'); } },
+      { key: 'I', mode: 'NORMAL', hint: 'edit in full editor', hintBar: true,
+        run: function() {
+          var el = cursor.rowEl;
+          if (!el || !el.dataset) return;
+          var id = el.dataset.billId;
+          if (id && el.dataset.status === 'draft') fbNavigate('/' + COMPANY + '/bill/edit?id=' + id);
+        } },
       { key: 'a', mode: 'NORMAL', hint: 'add line', hintBar: true,
         run: function() { self._normalAddLine(); } },
       { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true,
@@ -698,7 +705,7 @@ function initBillsTable() {
         if (billId) toggleBillLines(billId, parentTr);
       }
     });
-    // Double-click to enter INSERT on editable (draft) rows
+    // Double-click opens the full-page editor (mouse users always get the editor — Magnus P1-4 decision #2)
     tbody.addEventListener('dblclick', function(e) {
       if (e.target.closest('a.ref-link')) return;
       if (e.target.closest('.badge')) return;
@@ -711,17 +718,11 @@ function initBillsTable() {
         parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
       }
       if (!parentRow) return;
-      // Only editable if draft status
-      var statusRow = parentRow;
+      // Only drafts are editable
       if (parentRow.dataset.status !== 'draft' && parentRow.dataset.draft !== 'true') return;
       cursor.set(parentRow, 0);
-      // Trigger the 'i' handler logic
-      if (parentRow.dataset.draft === 'true') {
-        var firstInp = parentRow.querySelector('input, select');
-        if (firstInp) { cursor.mode = 'INSERT'; firstInp.focus(); }
-      } else if (parentRow.dataset.status === 'draft') {
-        convertDisplayToDraft(parentRow);
-      }
+      var billId = parentRow.dataset.billId;
+      window.fbNavigate('/' + COMPANY + '/bill/edit?id=' + (billId || 'new'));
     });
   }
 

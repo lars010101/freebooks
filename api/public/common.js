@@ -493,7 +493,7 @@
     var company = document.getElementById('app-shell') ? document.getElementById('app-shell').dataset.company : '';
     var cmds = [
       { label: '+ New Journal Entry',  action: function(){ fbNavigate('/' + company + '/journal/new'); } },
-      { label: '+ New Bill',           action: function(){ fbNavigate('/' + company + '/bill/new'); } },
+      { label: '+ New Bill',           action: function(){ fbNavigate('/' + company + '/bill/edit'); } },
       { label: '\u2192 Dashboard',          action: function(){ fbNavigate('/' + company); } },
       { label: '\u2192 Bank',               action: function(){ fbNavigate('/' + company + '/bank'); } },
       { label: '\u2192 Payables',           action: function(){ fbNavigate('/' + company + '/payables'); } },

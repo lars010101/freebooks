@@ -31,7 +31,7 @@ function topBarContext(company, activeKey) {
     dashboard: {
       nav: ``,
       actions: `
-        ${actionBtn('+ Bill', `/${company}/bill/new`, false)}
+        ${actionBtn('+ Bill', `/${company}/bill/edit`, false)}
         <span class="tb-btn" style="opacity:.4;cursor:default" title="Invoicing coming soon">+ Invoice</span>
         ${actionBtn('+ Statement', `/${company}/bank/import`, false)}`
     },
@@ -41,7 +41,7 @@ function topBarContext(company, activeKey) {
     },
     payables: {
       nav: ``,
-      actions: `${actionBtn('+ Bill', `/${company}/bill/new`)}`
+      actions: `${actionBtn('+ Bill', `/${company}/bill/edit`)}`
     },
     receivables: {
       nav: ``,

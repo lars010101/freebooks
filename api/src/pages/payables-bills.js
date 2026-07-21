@@ -1857,7 +1857,7 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
     + '<td style="white-space:nowrap" title="' + esc(String(dueDate||'').slice(0,10)) + '"><span' + dueCls + '>' + fmtDateShort(dueDate) + '</span></td>'
     + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(vendorRef) + '</a></td>'
     + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(amount).toFixed(2) + '</td>'
-    + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px" id="ccy-' + esc(billId) + '">' + esc(currency) + '</td>'
+    + '<td style="font-size:0.75rem;color:#666;width:50px" id="ccy-' + esc(billId) + '">' + esc(currency) + '</td>'
     + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00" title="Press p to post draft bill">Draft</span></td>';
 
   // Populate CCY tooltip with FX rate for non-base currency
@@ -2393,7 +2393,7 @@ function renderPage() {
       + '<td style="white-space:nowrap" title="' + esc(due || '') + '"><span' + dueCls + '>' + fmtDateShort(due) + '</span></td>'
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || '') + '</a></td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
-      + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px" id="ccy-' + esc(String(b.bill_id)) + '" data-bill-date="' + esc(String(b.date||'').slice(0,10)) + '" data-bill-ccy="' + esc(b.currency || BASE_CURRENCY) + '">' + esc(b.currency || BASE_CURRENCY) + '</td>'
+      + '<td style="font-size:0.75rem;color:#666;width:50px" id="ccy-' + esc(String(b.bill_id)) + '" data-bill-date="' + esc(String(b.date||'').slice(0,10)) + '" data-bill-ccy="' + esc(b.currency || BASE_CURRENCY) + '">' + esc(b.currency || BASE_CURRENCY) + '</td>'
       + '<td>' + statusBadge(b.status, due) + '</td>'
       + '</tr>';
   });

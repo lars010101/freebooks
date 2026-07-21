@@ -51,8 +51,8 @@ ${commonStyle()}
   .table-card { border:1px solid #e8e8e8; border-radius:8px; overflow:visible; }
   .data-table { width:100%; border-collapse:collapse; font-size:0.875rem; table-layout:fixed; }
   .data-table thead { position:sticky; top:0; z-index:10; }
-  .data-table th { text-align:left; font-size:0.75rem; color:#555; font-weight:600; text-transform:uppercase; letter-spacing:.05em; background:#fafafa; border-bottom:1px solid #e8e8e8; padding:12px 18px; }
-  .data-table td { padding:14px 18px; border-bottom:1px solid #f2f2f2; vertical-align:middle; color:#222; }
+  .data-table th { text-align:left; font-size:0.75rem; color:#555; font-weight:600; text-transform:uppercase; letter-spacing:.05em; background:#fafafa; border-bottom:1px solid #e8e8e8; padding:12px 12px; }
+  .data-table td { padding:14px 12px; border-bottom:1px solid #f2f2f2; vertical-align:middle; color:#222; }
   /* INSERT mode: tighter side padding so edit inputs (esp. browser date-picker
      chrome, ~110px min) keep working width in the tuned colgroup columns. */
   .data-table tbody.insert-mode td { padding-left:10px; padding-right:10px; }
@@ -75,6 +75,7 @@ ${commonStyle()}
   .data-table th.sortable:hover { background:#f0f0f0; }
   .th-inner { display:flex; align-items:center; gap:4px; }
   .th-sort { font-size:0.6875rem; color:#1a1a1a; width:12px; text-align:center; flex-shrink:0; }
+  .th-sort:empty { display:none; } /* no reserved gap: header label stays flush with cell content */
   .th-filter-btn { margin-left:auto; font-size:0.9375rem; color:#999; padding:3px 6px; border-radius:4px; opacity:0.45; transition:opacity .1s, color .1s; cursor:pointer; line-height:1; }
   th:hover .th-filter-btn { opacity:1; color:#555; }
   th.col-filtered .th-filter-btn { opacity:1; color:#2255cc; }
@@ -268,13 +269,13 @@ ${commonStyle()}
       </colgroup>
       <thead>
         <tr>
-          <th class="sortable" data-col="vendor" data-filter-type="text"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Vendor</span><span class="th-filter-btn" title="Filter by vendor">&#8801;</span></div></th>
-          <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Date</span><span class="th-filter-btn" title="Filter by date">&#8801;</span></div></th>
-          <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Due</span><span class="th-filter-btn" title="Filter by due date">&#8801;</span></div></th>
+          <th class="sortable" data-col="vendor" data-filter-type="text"><div class="th-inner"><span class="th-label">Vendor</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by vendor">&#8801;</span></div></th>
+          <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-label">Date</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by date">&#8801;</span></div></th>
+          <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-label">Due</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by due date">&#8801;</span></div></th>
           <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span><span class="th-filter-btn" title="Filter by reference">&#8801;</span></div></th>
-          <th class="sortable" data-col="amount" data-filter-type="amount" style="text-align:right"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Amount</span><span class="th-filter-btn" title="Filter by amount">&#8801;</span></div></th>
-          <th class="sortable" data-col="currency" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">CCY</span><span class="th-filter-btn" title="Filter by currency">&#8801;</span></div></th>
-          <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Status</span><span class="th-filter-btn" title="Filter by status">&#8801;</span></div></th>
+          <th class="sortable" data-col="amount" data-filter-type="amount" style="text-align:right"><div class="th-inner"><span class="th-label">Amount</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by amount">&#8801;</span></div></th>
+          <th class="sortable" data-col="currency" data-filter-type="list"><div class="th-inner"><span class="th-label">CCY</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by currency">&#8801;</span></div></th>
+          <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-label">Status</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by status">&#8801;</span></div></th>
         </tr>
       </thead>
       <tbody id="bills-tbody">

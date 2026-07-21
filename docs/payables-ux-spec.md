@@ -510,6 +510,47 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 ### Decisions (magnus, 2026-07-22)
 
 1. **Entry points:** `+ Bill` toolbar link → the editor (create path). `o` in the Bills list stays the default quick path (tree-table INSERT). `O` (shift-o) from the Bills tab → editor, new bill.
-2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity (answering "do mouse users always get the editor?"): **no** — double-click = inline (mirrors `i`); a hover pencil affordance on draft rows = editor (mirrors `I`), same hover-icon pattern as the delete affordance, no always-visible chrome.
+2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity: **yes — double-click opens the full editor** (per magnus's chat reply "(Mouse users always get the editor?)"). Revised 2026-07-22 after implementation: originally recorded here as "dblclick = inline + hover pencil = editor"; magnus's message made dblclick the editor entry and the shipped code matches. The pencil affordance was dropped as redundant.
 3. **Attachments on unsaved bills stage client-side** until the first save binds them (bill-new's reenter behavior, minus its FX hackery).
 4. **Per-line cost/profit centers: INCLUDED** (reversing the draft's skip). The ledger already carries them — `journal_entries.cost_center/profit_center`, bill-header fields, `centers` master data, and `createBill` threads header centers into journal lines. Editor adds a per-line center column (FB.dropdown over `center.list`, default from header, overridable); backend extends the `draft_lines` line shape with `cost_center`/`profit_center` and maps line-level centers onto journal lines at post (falling back to header centers when a line has none).
+
+## P1-9 — Payment matching UX (DRAFT 2026-07-22, for magnus review — NOT yet implemented)
+
+*(Approved by magnus as "go ahead with p1-5" 2026-07-22 — the chat label was wrong; P1-5 was already the shipped VAT-warnings item. Roadmap records this as P1-9.)*
+
+### Purpose
+
+Payment today has exactly one path: bank-import auto-match. That leaves four gaps versus standard practice (Xero / QBO / Odoo):
+
+1. **No manual "record payment"** — without a bank feed you cannot pay a bill at all. `bill_payments`, partial-payment status, and the FX settlement journal all exist server-side; no action or UI exposes them outside import.
+2. **Silent amount-only auto-match** — `matchBillRow` falls back to linking a bank row to *any* open bill with the same amount, with no confirm step. Wrong-link risk is real (two bills, same round amount).
+3. **Payment history invisible** — a paid bill shows "Paid" but you cannot see when/how it was paid without querying the DB.
+4. **No unwind** — a wrong match is permanent (bill.void correctly refuses paid bills; there is no payment-void).
+
+### Current state (verified 2026-07-22)
+
+- `approveBankEntries` (bank.js) already does the full settlement: 2-line journal (DR AP / CR bank), 3-line FX gain/loss split for foreign-currency bills, `amount_paid` update in foreign currency, status → `paid`/`partial`, `bill_payments` row (`method: 'bank_match'`). **This is the shared settlement core — new paths must reuse it, not reimplement it.**
+- `bill.match` (catalog, viewer): candidate open bills by amount/currency (+optional vendor/date). **Dormant — no page calls it.**
+- Import matching tiers today: mapping rule (high) → bill exact-amount + vendor/ref substring (medium) → **amount-only fallback (silent)** → unmatched.
+- `p` in Bills list is draft-only (post). On posted/partial rows it is currently a no-op — free to reuse.
+
+### Proposed scope
+
+1. **`bill.payment.record` action** (mutating, idempotent, data_entry role). Params: `billId`, `date`, `bankAccount`, `amount`, `reference?`, `fxRate?` (foreign bills). Validates: bill posted/partial, amount > 0, amount ≤ outstanding (+ε), bank account is a cash/bank account. Settlement goes through the **same extracted core** as import approve (FX split included). `bill_payments.method = 'manual'`.
+2. **Bills list: `p` on a posted/partial bill → inline payment row** (expand below the parent, same pattern as line folds — no modal, no new chrome per the clutter rule). Fields: date (default today), bank account (FB.dropdown over cash/bank accounts, default last-used), amount (default full outstanding, in bill currency; editable for partial), reference (optional). For foreign-currency bills an FX-rate field appears, prefilled from the day's rate. `Enter` confirms (calls `bill.payment.record`, status bar shows result + new status), `Esc` cancels. Mouse parity: a "Pay" affordance on the row's hover (same pattern as delete).
+3. **Payment history on unfold**: unfolding a paid/partial bill appends payment child rows (date, amount, method, reference) below the line rows. Data via a small `bill.payments` viewer action (or folded into `bill.lines` response — pick whichever keeps one round-trip).
+4. **Import hardening**: delete the silent amount-only fallback. Tiers become: rule (high, auto) → exact amount + vendor/ref token in narrative (medium, auto) → **exact amount only (suggested — renders amber, excluded from approve-all, needs per-row `Enter` to confirm or `x` to reject)** → unmatched. Bonus cheap win: vendor_ref as a *whole token* in the narrative promotes a medium match to high.
+5. **`bill.payment.void` action** (mutating, idempotent): reversing journal, `amount_paid` decrement, status restore (`paid`/`partial` → `posted`). `x` on a payment child row triggers it (with the standard undo-toast pattern). Safety valve for wrong matches, manual or import.
+
+### Explicitly deferred
+
+- **Multi-bill settlement** (one payment → N bills, the monthly-statement case): needs an allocation UI; defer to its own phase.
+- **Bank-tab manual match** (`m` on an uncleared line → candidate list via dormant `bill.match`): defer; import flow covers the bulk, and the bank tab hasn't migrated to FB.keys yet (P1-3 remainder).
+- **Tolerance suggestions** (±2% amount window as a suggestion tier): defer until real usage data says it's needed.
+
+### Decisions (pending magnus)
+
+1. Key binding: reuse `p` contextually (post on drafts, pay on posted) — or separate `P`?
+2. Demoting amount-only auto-match to confirm-required is a **behavior change** in import (some rows that auto-linked before now wait for you). Agree?
+3. Payment entry as inline expanding row (proposal) vs the full editor page — inline proposed since a payment is 4 fields, not a document.
+4. Deferred list OK?

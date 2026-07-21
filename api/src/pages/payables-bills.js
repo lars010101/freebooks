@@ -705,7 +705,7 @@ function initBillsTable() {
         if (billId) toggleBillLines(billId, parentTr);
       }
     });
-    // Double-click to enter INSERT on editable (draft) rows
+    // Double-click opens the full-page editor (mouse users always get the editor — Magnus P1-4 decision #2)
     tbody.addEventListener('dblclick', function(e) {
       if (e.target.closest('a.ref-link')) return;
       if (e.target.closest('.badge')) return;
@@ -718,17 +718,11 @@ function initBillsTable() {
         parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
       }
       if (!parentRow) return;
-      // Only editable if draft status
-      var statusRow = parentRow;
+      // Only drafts are editable
       if (parentRow.dataset.status !== 'draft' && parentRow.dataset.draft !== 'true') return;
       cursor.set(parentRow, 0);
-      // Trigger the 'i' handler logic
-      if (parentRow.dataset.draft === 'true') {
-        var firstInp = parentRow.querySelector('input, select');
-        if (firstInp) { cursor.mode = 'INSERT'; firstInp.focus(); }
-      } else if (parentRow.dataset.status === 'draft') {
-        convertDisplayToDraft(parentRow);
-      }
+      var billId = parentRow.dataset.billId;
+      window.fbNavigate('/' + COMPANY + '/bill/edit?id=' + (billId || 'new'));
     });
   }
 

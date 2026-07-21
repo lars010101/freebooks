@@ -248,8 +248,15 @@ var kbd = {
         run: function() { self._normalEdit(); } },
       { key: 'o', mode: 'NORMAL', hint: 'new bill', hintBar: true,
         run: function() { createDraftBill(cursor.rowEl || null); } },
-      { key: 'O', mode: 'NORMAL',
-        run: function() { if (!cursor.rowEl) createDraftBill(null); else insertDraftParentRow(cursor.rowEl, true); } },
+      { key: 'O', mode: 'NORMAL', hint: 'new bill (editor)', hintBar: true,
+        run: function() { fbNavigate('/' + COMPANY + '/bill/edit'); } },
+      { key: 'I', mode: 'NORMAL', hint: 'edit in full editor', hintBar: true,
+        run: function() {
+          var el = cursor.rowEl;
+          if (!el || !el.dataset) return;
+          var id = el.dataset.billId;
+          if (id && el.dataset.status === 'draft') fbNavigate('/' + COMPANY + '/bill/edit?id=' + id);
+        } },
       { key: 'a', mode: 'NORMAL', hint: 'add line', hintBar: true,
         run: function() { self._normalAddLine(); } },
       { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true,

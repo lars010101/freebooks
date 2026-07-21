@@ -337,7 +337,7 @@ async function createBill(ctx) {
       }
     }
     const lineDesc = expLine.description ? `${desc} / ${expLine.description}` : desc;
-    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: expLine.expense_account, debit: lineNet, credit: 0, currency, fx_rate: fxRate, debit_home: lineNet * fxRate, credit_home: 0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: lineDesc, reference: apRef, source: 'manual', cost_center: bill.cost_center || null, profit_center: bill.profit_center || null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: expLine.expense_account, debit: lineNet, credit: 0, currency, fx_rate: fxRate, debit_home: lineNet * fxRate, credit_home: 0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: lineDesc, reference: apRef, source: 'manual', cost_center: expLine.cost_center || bill.cost_center || null, profit_center: expLine.profit_center || bill.profit_center || null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
     _billLineIdx++;
   }
 
@@ -592,7 +592,11 @@ async function saveDraftBill(ctx) {
 
   const billId = (existing.length && bill.bill_id) ? bill.bill_id : uuid();
   const now = new Date().toISOString();
-  const totalAmount = parseFloat(bill.amount) || 0;
+  // P2-4: draft totals are computed server-side from lines (editor never sends
+  // bill.amount); the client value is only a fallback for line-less drafts.
+  const totalAmount = (Array.isArray(bill.lines) && bill.lines.length)
+    ? bill.lines.reduce((s, l) => s + Number(l.amount || 0), 0)
+    : (parseFloat(bill.amount) || 0);
 
   const billRow = {
     company_id: companyId,
@@ -613,8 +617,8 @@ async function saveDraftBill(ctx) {
     vat_code: null,
     vat_amount: 0,
     net_amount: totalAmount,
-    cost_center: null,
-    profit_center: null,
+    cost_center: bill.cost_center || null,
+    profit_center: bill.profit_center || null,
     description: bill.description || null,
     status: 'draft',
     amount_paid: 0,
@@ -626,8 +630,8 @@ async function saveDraftBill(ctx) {
   if (existing.length) {
     // update existing draft
     await query(
-      `UPDATE bills SET vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, description=@description, draft_lines=@draft_lines WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
-      { vendor: billRow.vendor, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, description: billRow.description, draft_lines: bill.lines ? JSON.stringify(bill.lines) : null, bill_id: billId, company_id: companyId }
+      `UPDATE bills SET vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, cost_center=@cost_center, profit_center=@profit_center, description=@description, draft_lines=@draft_lines WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
+      { vendor: billRow.vendor, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, cost_center: billRow.cost_center, profit_center: billRow.profit_center, description: billRow.description, draft_lines: bill.lines ? JSON.stringify(bill.lines) : null, bill_id: billId, company_id: companyId }
     );
   } else {
     await bulkInsert('bills', [billRow]);
@@ -687,6 +691,8 @@ async function postDraftBill(ctx) {
           description: l.description || '',
           vat_amount_override: (l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null,
           vat_account_override: l.vat_account_override || null,
+          cost_center: l.cost_center || null,
+          profit_center: l.profit_center || null,
         };
       })
     : [
@@ -707,10 +713,14 @@ async function postDraftBill(ctx) {
         vendor_ref: bill.vendor_ref,
         date: bill.date,
         due_date: bill.due_date,
-        amount: bill.amount,
+        // Coerce the DECIMAL-string amount from the draft row; 0 → createBill
+        // derives the total from lines instead of failing positivity.
+        amount: Number(bill.amount) || 0,
         currency: bill.currency,
         ap_account: bill.ap_account,
         expense_account: bill.expense_account,
+        cost_center: bill.cost_center || null,
+        profit_center: bill.profit_center || null,
         description: bill.description,
         fx_rate: bill.fx_rate,
         lines: finalLines,

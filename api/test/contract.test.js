@@ -390,3 +390,56 @@ test('view.bank returns cash accounts + journals; reconciliation when accountCod
     assert.equal(typeof r.body.data.reconciliation.openingBalance, 'number', 'openingBalance numeric');
   }
 });
+
+test('per-line centers: line override beats header through draft save + post', async () => {
+  const cs = await api(baseUrl, 'center.save', {
+    companyId: CO,
+    centers: [
+      { center_id: 'CC-OPS', center_type: 'cost', name: 'Operations' },
+      { center_id: 'CC-RND', center_type: 'cost', name: 'R&D' },
+    ],
+  });
+  assert.equal(cs.status, 200, JSON.stringify(cs.body));
+
+  // Header center CC-OPS; line 2 overrides to CC-RND
+  const d = await api(baseUrl, 'bill.draft.save', {
+    companyId: CO,
+    bill: {
+      vendor: 'Acme Pte Ltd', vendor_ref: 'CC-TEST-1', date: '2026-07-21', currency: 'SGD',
+      ap_account: AP, cost_center: 'CC-OPS', status: 'draft',
+      lines: [
+        { description: 'Header center line', expense_account: EXP, amount: 30, vat_code: '' },
+        { description: 'Override center line', expense_account: EXP, amount: 70, vat_code: '', cost_center: 'CC-RND' },
+      ],
+    },
+  });
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+  const draftId = d.body.data.billId;
+
+  // Re-save (UPDATE path) must also persist centers
+  const d2 = await api(baseUrl, 'bill.draft.save', {
+    companyId: CO,
+    bill: {
+      bill_id: draftId,
+      vendor: 'Acme Pte Ltd', vendor_ref: 'CC-TEST-1', date: '2026-07-21', currency: 'SGD',
+      ap_account: AP, cost_center: 'CC-OPS', status: 'draft',
+      lines: [
+        { description: 'Header center line', expense_account: EXP, amount: 30, vat_code: '' },
+        { description: 'Override center line', expense_account: EXP, amount: 70, vat_code: '', cost_center: 'CC-RND' },
+      ],
+    },
+  });
+  assert.equal(d2.status, 200, JSON.stringify(d2.body));
+
+  const p = await api(baseUrl, 'bill.draft.post', { companyId: CO, billId: draftId });
+  assert.equal(p.status, 200, JSON.stringify(p.body));
+
+  const rows = await sql(baseUrl, srv.adminToken,
+    `SELECT description, cost_center FROM journal_entries
+     WHERE company_id='${CO}' AND bill_id='${draftId}' AND debit > 0 ORDER BY description`);
+  const byDesc = Object.fromEntries(rows.map((r) => [String(r.description), r.cost_center]));
+  const headerLine = Object.keys(byDesc).find((k) => k.includes('Header center line'));
+  const overrideLine = Object.keys(byDesc).find((k) => k.includes('Override center line'));
+  assert.equal(String(byDesc[headerLine]), 'CC-OPS', 'line without override inherits header center');
+  assert.equal(String(byDesc[overrideLine]), 'CC-RND', 'line override wins over header');
+});

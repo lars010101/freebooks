@@ -35,6 +35,8 @@
 
 Row selection highlights the complete row (parent or child). No cell-level cursor in NORMAL mode.
 
+**Keyboard hints live in the left sidebar** (`#sb-hints`, below the nav, above the footer) — moved there 2026-07-22 from a footer bar under the table, which keyboard users never saw (the page never scrolls that far with keypresses). The panel is **generated from the same FB.keys binding table that drives dispatch** (`FB.keys.renderHints(name, el, {layout:'list'})`), one `kbd`-chip row per hint, so hints cannot drift from behavior. Pages/tabs render their own set: on Payables, `showPayTab` swaps the panel between Bills (generated) and Vendors (static list until the Vendors tab migrates onto FB.keys). The panel hides when the sidebar is collapsed and on pages that render no hints.
+
 j/k navigation crosses bill boundaries seamlessly:
 - On last child of a bill, j moves to next bill's parent (or first child if that bill is expanded)
 - On first child of a bill, k moves to previous bill's parent (or last child if that bill is expanded)
@@ -105,8 +107,8 @@ If Esc is pressed on a completely empty draft (no vendor, no date, no child data
 ## List Display (NORMAL Mode)
 
 - **Dates are compact:** the year is elided when it is the current calendar year ("21 Jul"); prior/future years show the full date ("15 Dec 2025"). The full ISO date is in the cell's `title` (hover tooltip). Numeric-only formats were rejected (locale-ambiguous for a multi-jurisdiction app); the month-name form stays. (Agreed 2026-07-21.)
-- **Column widths are weighted** via `<colgroup>` (fixed layout): VENDOR 23%, DATE 12.5%, DUE 12.5%, REFERENCE 16%, AMOUNT 14%, CCY 7%, STATUS 15% — vendor carries the most information, CCY only a 3-letter code.
-- **CCY column is conditional** (agreed 2026-07-21): when every visible bill shares one currency it carries no information, so it is hidden via `visibility:collapse` on the `<col>` (space reclaimed, column-track mapping preserved — `display:none` would slide later columns into the wrong track; the CCY th also gets `visibility:hidden` because Chrome leaks the absolutely-positioned filter icon out of a collapsed column) and VENDOR absorbs the width (23%→30%). It returns automatically in INSERT mode (the CCY input lives there) and whenever the list is mixed. Recompute is DOM-driven (`_refreshCcyVisibility`) so in-place row removals (x), Esc-save conversions, and re-renders all stay correct.
+- **Column widths are weighted** via `<colgroup>` (fixed layout), with all weights owned by CSS `col.col-*` classes — never inline styles or JS width juggling — so the `.single-ccy` state can re-weight cleanly: VENDOR 22%, DATE 12.5%, DUE 12.5%, REFERENCE 15%, AMOUNT 14%, CCY 9%, STATUS 15%. Vendor carries the most information; CCY needs the 3-letter code plus header affordances (CCY was widened 7→9% on 2026-07-22: at 7% the corner-pinned filter icon overlapped the "CCY" label at ≤1400px viewports).
+- **CCY column is conditional** (agreed 2026-07-21): when every visible bill shares one currency it carries no information, so it is hidden via `visibility:collapse` on the `<col>` (space reclaimed, column-track mapping preserved — `display:none` would slide later columns into the wrong track; the CCY th also gets `visibility:hidden` because Chrome leaks the absolutely-positioned filter icon out of a collapsed column) and the other columns absorb the width via the `.single-ccy` re-weighting rules. It returns automatically in INSERT mode (the CCY input lives there) and whenever the list is mixed. Recompute is DOM-driven (`_refreshCcyVisibility`) so in-place row removals (x), Esc-save conversions, and re-renders all stay correct. **Exception (2026-07-22): the column never hides while a currency filter is active** — the column's ≡ is the only way to see and clear that filter; hiding it trapped users (a reload was needed to get foreign bills back). With the filter active the column stays, showing the blue filtered ≡; clearing re-hides if the unfiltered list is single-currency.
 - **Child-row VAT code/GST input sits in column 7 (under STATUS)**, not under CCY (moved 2026-07-21 so the CCY column can hide cleanly); the `+` add-row icon lives in the column-6 spacer cell (`td.child-spacer`).
 - **Cell side padding is 12px uniformly** (was 18px); vertical rhythm unchanged (th 12px, td 14px).
 - **Header labels sit flush with cell content** (delta 0): the sort arrow lives AFTER the label and collapses when inactive (`.th-sort:empty{display:none}`), so no reserved icon gap. CCY cells are left-aligned like the header (not centered). The filter icon (≡) is absolutely pinned to the right corner of EVERY header — out of the layout flow, so it never displaces a label.
@@ -120,6 +122,8 @@ If Esc is pressed on a completely empty draft (no vendor, no date, no child data
 | VENDOR | DATE | DUE | REFERENCE | AMOUNT | CCY | STATUS |
 |--------|------|-----|-----------|--------|-----|--------|
 | Vendor input | Date input | Due date input | Ref input | Total (gross, read-only text) | Currency input | AP account input + save button (💾) |
+
+**Input geometry (2026-07-22):** every draft input **fills its cell** (`width:100%`, `box-sizing:border-box`) at a uniform **32px height** — no fixed pixel widths (the CCY input was 50px and the AP input 80px, which truncated the AP account and broke column alignment). The AP-account cell is a flex row (`.draft-ap-cell`: input grows, save icon / Draft badge fixed). The read-only total cell (`.draft-total-amount`) keeps the standard AMOUNT gutter (46px right padding) so the draft total aligns with posted figures — a stale `!important` padding override that killed this gutter was removed. Child-row amount inputs sit in an `td.amt` cell so they inherit the same gutter and align with data rows.
 
 - **Vendor input** (`.draft-vendor-input`) — free-text with dropdown autocomplete; selecting a vendor sets `data-vendor-id`, `data-vendor-name`, `data-ap-account`, and `data-expense-account` from vendor master data.
 - **Total** (`.draft-total-amount`) — read-only text showing the gross amount (net + GST), updated live by `updateParentDraftAmount`. Not an input, so Tab skips it.
@@ -346,3 +350,103 @@ The following elements from earlier implementations are removed or simplified:
 - `_recomputeChildGst()` and `_initChildGst()` manage the GST input: computed default, supplier-stated override, and reverse-charge read-only state.
 - Event handler conflicts between common.js and payables-bills.js resolved by early `stopImmediatePropagation()` in the bills handler (capture phase) when `fbBillNav` is true.
 - `gg` double-key logic is retained (deeply ingrained vim muscle memory); all other double-key sequences are removed.
+
+## Vendors Tab (migrated onto fb-core 2026-07-22, P1-3)
+
+The Vendors tab runs the **same interaction model as Bills** — it was previously a one-off cell-cursor design (`hjkl` cell movement, per-cell edit with `d`/`~` verbs and a stale hand-written hint claiming "hjkl navigate" while `h/l` actually switched tabs). The migration adopted the Bills model wholesale rather than porting the cell model onto fb-core.
+
+### NORMAL mode
+
+| Key | Mouse | Action |
+|-----|-------|--------|
+| j / k | Click row | Move row selection (sticky at top/bottom, never deselects) |
+| gg / G | — | First / last row |
+| Enter or i | Double-click row | Enter INSERT (row-level edit) |
+| a | — | New vendor row at bottom, immediately in INSERT |
+| x | — | Delete vendor (unsaved row drops silently; saved vendor asks `confirm()`) |
+| ~ | Double-click ACTIVE badge | Toggle active/inactive (saved vendors only) |
+| h / l | Click tab | Switch Bills ↔ Vendors (NOT bound by the tab — falls through to common.js, same as Bills) |
+
+### INSERT mode (row-level — the whole row becomes inputs)
+
+Pressing `i`/`Enter`/double-click converts **all five editable cells at once** (Vendor, CCY, Terms, Expense A/C, AP A/C) into uniform 32px `.draft-input` fields; the ACTIVE badge stays read-only. This mirrors Bills' bill-level INSERT ("isn't it simpler to reuse full edit rather than specific line edit?").
+
+- **Tab / Shift+Tab** traverse the inputs (native); **sticky at the ends** — Tab on the last input (AP) and Shift+Tab on the first (name) stay put, no accidental focus escape.
+- **Esc saves** — the only save trigger, same doctrine as Bills (no cancel path). Validation: name required (red `.req` border + message, stays in INSERT); CCY checked against the currency list. On server error the row stays in INSERT with inputs untouched.
+- **Empty new row + Esc discards** (never creates something from nothing).
+- **Enter also saves** (form convention; matches the pre-migration Enter-commit).
+- **Click-away saves**: clicking another row with an edit open saves first, then selects the clicked row. The async save does NOT reset `vendorSelRow` — the cursor stays where the click moved it (a completion-handler stomp that yanked it back was fixed on day one).
+- **Leaving the tab** (h/l/{/}) with an edit open saves-or-discards it first (`showPayTab` calls `vendorSaveAndExit()`).
+- **Autocomplete dropdowns** (CCY, both account fields): ArrowUp/Down navigate, Enter selects, Tab selects-and-stays, Esc closes the dropdown only (a second Esc saves the row). Dropdown-aware bindings precede general ones — FB.keys takes the FIRST key+mode+`when` match.
+- j/k/a/x/~ are inert in INSERT (letters type into inputs, per the editable-target guard and mode-scoped bindings).
+
+### Mechanics
+
+- Mode is the shared `FB.mode` store; keys are the `FB.keys` binding table `'vendors'` (sidebar hints are generated from it — the static `_VENDOR_HINTS` list is gone).
+- Save path: `vendorSaveAndExit()` → validate → `vendor.upsert` → `_renderVendorRowDisplay()` rebuilds just that row (keeps the list stable, no full re-render flash). `_vendorSaving` guards re-entrant Esc during the flight.
+- The old cell-cursor machinery is deleted: `vendorSelCol`, `vendorCellEdit`, `vendorCellPreEdit`, `enterVendorCellEdit`/`commitVendorCell`, `vendorMoveRow`/`vendorMoveCol`, per-cell save-on-nav (`vendorDirtyRows`), and the `VENDOR_KEYS` capture listener.
+- `window.fbVendorSelRow` is still maintained — common.js's j/k deferral reads it.
+
+## FB.dropdown — unified validated autocomplete (PROPOSED 2026-07-22, not yet implemented)
+
+### Problem
+
+Three dropdown mechanisms are in play, and the Bills INSERT row itself mixes all of them:
+
+| Mechanism | Where | Issue |
+|-----------|-------|-------|
+| Native `<datalist>` | Bills INSERT AP/expense accounts (`coa-options`), Settings currency list, Bank account code | Popup is browser chrome: unstylable, ignores the app theme, eats ArrowUp/Down/Enter/Esc **before** FB.keys sees them (bypasses the binding table), and does not render at all in headless Chrome (verified 2026-07-22: standalone page, focused input, ArrowDown — no popup) → unverifiable in the contract-test workflow |
+| Native `<select>` | Bills child-line VAT code, plus ~12 configuration pickers | OS-rendered popup; prefix-only type-ahead, no substring/code+name search — unusable for a large COA inside a keyboard-first row |
+| Custom div dropdowns | 9 copies in 3 visual dialects: Payables (square, `#e8f0fe`), Journal/bill-new (4px radius, `#f0f4ff`, flex code+name), Bank (CSS class, 3px radius, 180px max-height) | Work correctly with FB.keys, but are 9 hand-rolled copies with divergent styling, item caps (10/12/15/20), and filter logic |
+
+### Decision
+
+**One app-specific component: `FB.dropdown` (in fb-core.js, styled from common.css).** Native `<datalist>` is eliminated entirely. Native `<select>` is retained **only** for configuration UI (report type/period, FX provider, import column maps, journal pickers, COA type/subtype/cash-flow, rec-account) — low-frequency, mouse-first, not part of keyboard data entry.
+
+### Visual contract
+
+- Container `.fb-dd`: `position:fixed`, app surface/border tokens, square corners, shadow token, `z-index:9999`, `max-height:200px`, `overflow-y:auto`, font matching the input, `min-width` = input width (160px floor for narrow inputs like CCY).
+- Item `.fb-dd-item`: uniform padding token, `white-space:nowrap`, `cursor:pointer`. Coded entities render two-part: primary (code, semibold) + secondary (name, muted). Single-string entities (vendor names) render primary only.
+- Active item `.fb-dd-active`: theme-aware accent background (replaces hardcoded `#e8f0fe` / `#f0f4ff`; must hold up under both ☀ themes).
+- **All styling via CSS classes.** Inline `cssText` dropdown styling is deleted — that is what makes the component themeable.
+
+### Behavior contract
+
+- Opens on `input` when ≥1 match; closes on 0 matches or empty query. At most one dropdown open app-wide; opening closes the previous.
+- **ArrowDown on a focused, attached field with no dropdown open shows the full list** (capped at 12) — faster discovery without typing.
+- Filter: case-insensitive **contains** match on both code and name. Uniform cap of **12** items.
+- Keyboard routes through FB.keys with `when: ddOpen` guards; dropdown bindings precede general INSERT bindings (FB.keys takes the first key+mode+`when` match):
+  - **ArrowUp/Down** — move the active item, **sticky at both ends** (no wraparound; cursor doctrine).
+  - **Enter** — pick active item (or first when none active), close. Does not advance focus.
+  - **Tab** — pick active item, close, then native traversal continues (**pick-and-advance** — decided 2026-07-22).
+  - **Esc** — closes the dropdown only; a second Esc performs the normal INSERT-exit save.
+- Mouse: hover sets active; `mousedown` preventDefault (input keeps focus); click picks; click-outside and 150ms blur close.
+- Selection side-effects (e.g. vendor pick → fill CCY/AP/expense defaults) live in page-level `onPick` callbacks, never in the component.
+
+### Validation semantics
+
+- **Strict fields** (vendor): value must come from a pick or exact match; free text blocks save with a status-bar error (current behavior, unchanged).
+- **Code fields** (accounts, currency, tax code): free text tolerated while typing; validated at save against the source list; invalid → red `.req` border + message, row stays in INSERT.
+
+### API
+
+```
+FB.dropdown.attach(input, {
+  source: function(query) -> [{ primary, secondary, data }]   // sync, from preloaded lists
+  onPick: function(item, input),
+  cap: 12,                                                     // optional
+  keys: true                                                   // optional — self-bind ArrowUp/Down/Enter/Tab/Esc on the input
+})                                                            // (for pages without FB.keys; FB.keys pages wire via bindings)
+```
+
+Attach once per input at row build. The popup div is created on demand and removed on close; instances are tracked by reference (no global `getElementById` lookups).
+
+### Migration order
+
+1. **P2-1a** — `FB.dropdown` + common.css tokens. Bills INSERT: vendor dd, CCY dd, AP/expense accounts (delete `coa-options` + `_ensureCoaDatalist()`), child-line VAT `<select>` → dropdown.
+2. **P2-1b** — Vendors tab CCY + account dropdowns → component (near-mechanical; same dialect).
+3. **P2-1c** — journal-new `acct-dd`, bank `.acct-dd`, bank-import `bankAcctDropdown`, Settings `currency-list` datalist, Bank account-code datalist → component. Dialects B and C deleted. **bill-new.js is excluded — its dropdowns are rebuilt by the P1-4 full-page editor (decided 2026-07-22).**
+
+### Testing contract
+
+The popup is plain DOM — headless-verifiable, closing the verifiability gap that datalist created. Per migration step, contract tests assert: open/filter on input, active-class movement with sticky ends, Enter pick, Esc layering (dd first, row save second), click-away close, and theme token presence.

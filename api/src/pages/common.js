@@ -9,8 +9,8 @@ function makeQuery() {
 
 // ── CSS ───────────────────────────────────────────────────────────────────────
 function commonStyle() {
-  return `<link rel="stylesheet" href="/public/common.css">
-<script src="/public/fb-core.js"></script>
+  return `<link rel="stylesheet" href="/public/common.css?v=20260721">
+<script src="/public/fb-core.js?v=20260721"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📒</text></svg>">`;
 }
 
@@ -109,6 +109,10 @@ function navBar(company, activeKey) {
     <nav class="sb-nav">
       ${navHtml}
     </nav>
+    <!-- Keyboard hints for the active page/tab, generated from FB.keys binding
+         tables (never hand-maintained). Pages render into this via
+         FB.keys.renderHints(name, document.getElementById('sb-hints'), {layout:'list'}). -->
+    <div class="sb-hints" id="sb-hints"></div>
     <div class="sb-footer">
       <div class="sb-footer-row">
         <button class="sb-icon-action" id="fb-theme-btn" onclick="fbToggleTheme()" title="Toggle theme">

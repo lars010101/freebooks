@@ -4,6 +4,16 @@
 
 ---
 
+## 0. Status update — 2026-07-22
+
+**Landed since the review:** P0-1…P0-5 ✅ (PR #1 — idempotency keys + unique constraints, single error envelope + transitional fetch shim, `journal.entry.update` lockdown, dispatch-level audit on every mutating action, admin endpoint bearer-gated). P1-2 ✅ (seed harness + 17 contract tests, `node --test` in `api/`). P1-3 **half** — fb-core (FB.mode/FB.keys/FB.nav/FB.util) exists; Bills ✅ and Vendors ✅ migrated (Vendors took the Bills model wholesale; cell cursor deleted); Journal, Bank, Settings pending. P1-5 ✅ (VAT warnings surfaced). **Dropdown unification** ✅ (executed under the informal label "P2-1a/b/c" on branch `p2/fb-dropdown` — folded into this roadmap as **P1-7**): one `FB.dropdown` component replaced all 9 custom dropdowns + every data-entry `<datalist>` across Bills, Vendors, journal-new, bank, bank-import, settings. `bill-new.js` deliberately untouched (P1-4 rebuilds it). Also fixed en route: bank-import's entire page script had been a browser SyntaxError since ship (template-escape bug).
+
+**New finding — the gap in the "middleware" answer is the READ side, not a missing layer.** The command side (action RPC) is now hardened and agent-testable as prescribed. But every screen hand-assembles its view model client-side: page load fans out to multiple action calls + per-row follow-ups (bills: vendor.list + bill.list + bill.lines per unfold; bank: accounts + journals + reconciliation + balances; bank-import: accounts + journals + bills). That means N+1 round-trips, duplicated assembly logic in template JS, and no server-side place to put derived data (aging buckets, running balances, match suggestions). **Proposal (P1-8, pending magnus):** complement the command API with page-shaped read endpoints — `GET /api/:company/view/bills`, `/view/bank`, `/view/vendors` — one request per screen, server-joined. CQRS-lite: commands stay action-RPC + idempotent + audited; queries become read models. No new service, no framework — same dispatch pattern, read-only actions. This also gives the contract suite cheap, high-value assertions on what each screen actually displays.
+
+**Open by priority:** P1-1 action catalog/schemas (unlocks MCP, generates contract tests) → P1-8 read models → P1-4 bill editor rebuild (biggest visible UX win; kills the third entry UI) → P1-6 "?" overlay → P1-3 remainder (journal/bank/settings onto FB.keys) → P2 accounting completeness (year-end close, FX reval monetary-only, `bill_lines` subledger, server-computed draft totals, VAT convention unify) → P3 scope (AR, feeds).
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).
@@ -91,7 +101,7 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 
 - **P1-1 Action catalog:** zod schemas per action, `GET /api/actions` machine-readable manifest (self-discovery for agents; basis for contract tests).
 - **P1-2 Seed harness + contract tests:** scripted test-company setup (jurisdiction COA, periods, vendors, bills); `node:test` + supertest suite over the catalog; CI gate (extend workflow beyond docker build).
-- **P1-3 Shared UI core:** one mode manager, one key dispatcher, one nav abstraction, one utils module (`esc`, `fmtDate`, `statusBadge`, autocomplete). Migrate Bills onto it; then Vendors, Journal, Bank, Settings follow the payables pattern. Eliminate the `_fbVimMode`/`cursor._mode` duality.
+- **P1-3 Shared UI core:** one mode manager, one key dispatcher, one nav abstraction, one utils module (`esc`, `fmtDate`, `statusBadge`, autocomplete). Migrate Bills onto it; then Vendors, Journal, Bank, Settings follow the payables pattern. Eliminate the `_fbVimMode`/`cursor._mode` duality. **Status 2026-07-22:** fb-core exists (FB.mode/FB.keys/FB.nav/FB.util); Bills ✅ and Vendors ✅ migrated (Vendors adopted the Bills interaction model wholesale — cell cursor deleted); sidebar hints generated from binding tables on both tabs. Remaining: Journal, Bank, Settings.
 - **P1-4 Replace `bill-new.js` with a shared full-page bill editor** (agreed 2026-07-20): the foldable tree-table stays the default creation path for common bills; the new page is the **escape hatch for complex bills** (many lines, attachments, per-line centers). Same INSERT-mode semantics (Tab traversal, Esc saves-and-returns, same bindings), same endpoints, one shared editor component for create-complex and edit. `bill-detail.js` remains the read/management surface for posted documents. Gets its own spec section before implementation.
 - **P1-5 Surface VAT tolerance warnings** in the status bar (no new visual chrome — per magnus's clutter rule).
 - **P1-6 Discoverability:** "?" opens a which-key-style overlay of the current mode's bindings; hints and overlay generated from the same binding table as the dispatcher (single source of truth — cannot go stale); fix or remove the `:` palette.
@@ -103,6 +113,7 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 - **P2-3** `bill_lines` subledger table + AP-subledger-vs-GL control report.
 - **P2-4** Unify VAT/amount conventions (tax-exclusive everywhere; convert `journal.post` path). Also: `bill.draft.save` currently trusts a client-computed `bill.amount` — the server should compute draft totals from lines like `createBill` does at post (found via contract tests).
 - **P2-5** MCP server over the action catalog.
+- **P2-6 (candidate)** User-editable keybindings in Settings (raised by magnus 2026-07-22). Recommendation: build only AFTER all tabs migrate onto FB.keys — bindings are declarative data, so a remap layer (per-user overrides, conflict detection, reset-to-default) then covers the whole app in one shot. Industry reference: accounting software generally doesn't offer rebinding; power tools (Linear, Superhuman) do — fits the keyboard-first philosophy. Priority pending magnus.
 
 ### P3 — Scope
 

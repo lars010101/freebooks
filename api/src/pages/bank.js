@@ -59,9 +59,6 @@ ${commonStyle()}
   
 
   .bill-row { cursor:pointer; }
-  .acct-dd { position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:180px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2);border-radius:3px; }
-  .acct-dd-item { padding:4px 8px;cursor:pointer;white-space:nowrap; }
-  .acct-dd-item:hover { background:#e8f0fe; }
   .acct-name-hint { font-size:8pt;color:#888;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
   .bill-card { font-size:9pt;line-height:1.6; }
   .bill-card .bc-row { display:flex;align-items:center;gap:4px;margin-bottom:2px; }
@@ -370,14 +367,6 @@ ${commonStyle()}
     .then(function(r){ return r.json(); })
     .then(function(rows){
       rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; });
-      // Populate bank account code datalist
-      var dl = document.getElementById('bank-acct-list');
-      if (dl) rows.forEach(function(a){
-        var opt = document.createElement('option');
-        opt.value = a.account_code;
-        opt.label = a.account_code + ' — ' + a.account_name;
-        dl.appendChild(opt);
-      });
     });
 
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -623,9 +612,9 @@ ${commonStyle()}
         +'<td>'+escHtml(orig.description)+'</td>'
         +'<td class="num" style="color:'+(amt>=0?'#2a8a2a':'#cc2222')+'">'+(amt>=0?'+':'')+fmt(Math.abs(amt))+'</td>'
         +'<td>'+matchTag+'</td>'
-        +'<td style="width:90px"><div style="position:relative"><input class="acct acct-search" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct" autocomplete="off" oninput="acctSearch(this)" onblur="hideAcctDd()">'
+        +'<td style="width:90px"><div style="position:relative"><input class="acct acct-search" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct" autocomplete="off">'
           +'<div class="acct-name-hint">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></div></td>'
-        +'<td style="width:90px"><div style="position:relative"><input class="acct acct-search" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" autocomplete="off" oninput="acctSearch(this)" onblur="hideAcctDd()">'
+        +'<td style="width:90px"><div style="position:relative"><input class="acct acct-search" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" autocomplete="off">'
           +'<div class="acct-name-hint">'+(r.creditAccount ? (accountsMap[r.creditAccount]||'?') : '')+'</div></div></td>'
         +'<td data-bill-cell="'+i+'">'+billCell+'</td>'
         +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'" onchange="updateBalances()"></td>'
@@ -633,6 +622,7 @@ ${commonStyle()}
     }).join('');
     document.querySelectorAll('#review-body .acct').forEach(function(inp){
       if (inp.value) { var nd = inp.nextElementSibling; if(nd) nd.textContent = accountsMap[inp.value]||'?'; }
+      attachAcctDd(inp);
     });
     processedRows.forEach(function(r, i){ if (r.billId) refreshBillCell(i); });
     setWizardStep(3);
@@ -786,59 +776,36 @@ ${commonStyle()}
 
   function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  // ── Account autosearch ──────────────────────────────────────────────────────
-  var _acctDd = null;
-  var _acctDdInput = null;
-
-  function acctSearch(input) {
-    _acctDdInput = input;
-    var q = input.value.trim().toLowerCase();
-    if (_acctDd) { _acctDd.remove(); _acctDd = null; }
-    if (!q) return;
-    var keys = Object.keys(accountsMap);
-    var matches = keys.filter(function(code){
-      return code.toLowerCase().includes(q) || (accountsMap[code]||'').toLowerCase().includes(q);
-    }).slice(0, 12);
-    if (!matches.length) return;
-    var dd = document.createElement('div');
-    dd.className = 'acct-dd';
-    matches.forEach(function(code){
-      var item = document.createElement('div');
-      item.className = 'acct-dd-item';
-      item.textContent = code + ' \u2014 ' + accountsMap[code];
-      item.onmousedown = function(e){ e.preventDefault(); };
-      item.onclick = function(){
-        if (_acctDdInput) {
-          _acctDdInput.value = code;
-          var nd = _acctDdInput.nextElementSibling;
-          if (nd && nd.classList.contains('acct-name-hint')) nd.textContent = accountsMap[code]||'';
-          if (_acctDdInput.classList.contains('bc-fx-acct')) {
-            var ri = parseInt(_acctDdInput.dataset.row);
-            if (!isNaN(ri) && processedRows[ri]) {
-              processedRows[ri].fxAccount = code;
-              var nameEl = _acctDdInput.closest('.bc-row') && _acctDdInput.closest('.bc-row').querySelector('.bc-fx-acct-name');
-              if (nameEl) nameEl.textContent = accountsMap[code]||'';
-            }
-          }
-          _acctDdInput.dispatchEvent(new Event('input', { bubbles:true }));
-        }
-        if (_acctDd) { _acctDd.remove(); _acctDd = null; }
-        _acctDdInput = null;
-      };
-      dd.appendChild(item);
-    });
-    var rect = input.getBoundingClientRect();
-    dd.style.left = rect.left + 'px';
-    dd.style.top = (rect.bottom + 2) + 'px';
-    dd.style.minWidth = Math.max(rect.width, 200) + 'px';
-    document.body.appendChild(dd);
-    _acctDd = dd;
+  // ── Account autosearch (FB.dropdown) ────────────────────────────────────────
+  function pickAcct(code, input) {
+    input.value = code;
+    var nd = input.nextElementSibling;
+    if (nd && nd.classList.contains('acct-name-hint')) nd.textContent = accountsMap[code]||'';
+    if (input.classList.contains('bc-fx-acct')) {
+      var ri = parseInt(input.dataset.row);
+      if (!isNaN(ri) && processedRows[ri]) {
+        processedRows[ri].fxAccount = code;
+        var bcRow = input.closest('.bc-row');
+        var nameEl = bcRow && bcRow.querySelector('.bc-fx-acct-name');
+        if (nameEl) nameEl.textContent = accountsMap[code]||'';
+      }
+    }
+    input.dispatchEvent(new Event('input', { bubbles:true }));
   }
 
-  function hideAcctDd() {
-    setTimeout(function(){
-      if (_acctDd) { _acctDd.remove(); _acctDd = null; }
-    }, 150);
+  function attachAcctDd(input) {
+    if (!input || !window.FB || !FB.dropdown) return;
+    FB.dropdown.attach(input, {
+      keys: true,
+      minWidth: 200,
+      source: function (q) {
+        q = (q || '').toLowerCase();
+        return Object.keys(accountsMap).filter(function (code) {
+          return code.toLowerCase().indexOf(q) >= 0 || (accountsMap[code]||'').toLowerCase().indexOf(q) >= 0;
+        }).map(function (code) { return { primary: code, secondary: accountsMap[code]||'', data: { code: code } }; });
+      },
+      onPick: function (it, inp) { pickAcct(it.primary, inp); }
+    });
   }
 
   // ── Per-row FX rate fetch ───────────────────────────────────────────────────
@@ -1087,13 +1054,14 @@ ${commonStyle()}
           + '<span class="info-icon" data-row="' + rowIdx + '" title="' + escHtml(fxTip) + '">&#9432;</span>'
           + '</div>';
         html += '<div class="bc-row"><span style="color:#777">FX&nbsp;Act:</span>'
-          + '<div style="position:relative"><input type="text" class="bc-input bc-fx-acct" data-row="' + rowIdx + '" value="' + escHtml(fxAcctCode) + '" placeholder="code or name" autocomplete="off" oninput="acctSearch(this)" onblur="hideAcctDd()">'
+          + '<div style="position:relative"><input type="text" class="bc-input bc-fx-acct" data-row="' + rowIdx + '" value="' + escHtml(fxAcctCode) + '" placeholder="code or name" autocomplete="off">'
           + '<div class="acct-name-hint bc-fx-acct-name">' + escHtml(fxAcctName) + '</div></div>'
           + '</div>';
       }
 
       html += '</div>';
       cell.innerHTML = html;
+      attachAcctDd(cell.querySelector('.bc-fx-acct'));
     } else {
       cell.innerHTML = '<button style="border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer;padding:2px 6px;font-size:10pt" '
         + 'onclick="openBillPanel(' + rowIdx + ')">&#128279;</button>';
@@ -1113,7 +1081,6 @@ function showBankTab(t) {
 // ========== BANK MAPPINGS ==========
 var MATCH_TYPES = ['contains','exact','starts_with','regex'];
 var bankMappingAccounts = [];
-var bankMappingActiveInput = null;
 var bankMappingsDirty = false;
 
 function loadBankMappingAccounts() {
@@ -1131,7 +1098,7 @@ function addMappingRow(m) {
   tr.dataset.mappingId = m.mapping_id || '';
   tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" style="width:130px"></td>'
     + '<td><select style="width:90px">' + MATCH_TYPES_LOCAL.map(function(mt){ return '<option'+(mt===(m.match_type||'contains')?' selected':'')+'>'+mt+'</option>'; }).join('') + '</select></td>'
-    + '<td><input type="text" value="'+(m.debit_account||'')+'" style="width:100px" autocomplete="off" oninput="bankMappingAcctInput(this)" onblur="hideBankMappingAcctDd()"></td>'
+    + '<td><input type="text" class="bm-acct" value="'+(m.debit_account||'')+'" style="width:100px" autocomplete="off"></td>'
     + '<td><input type="text" value="'+(m.description_override||'')+'" style="width:140px"></td>'
     + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(m.is_active===true?' checked':'')+' ></td>'
@@ -1154,6 +1121,7 @@ function addMappingRow(m) {
     el.addEventListener('change', function(){ saveBtn.style.opacity='1'; });
   });
   document.getElementById('mappings-body').appendChild(tr);
+  attachMappingAcctDd(tr.querySelector('.bm-acct'));
   return tr;
 }
 function appendBlankMappingRow() {
@@ -1236,47 +1204,23 @@ function loadMappings() {
 
 // saveMappings replaced by per-row saveMappingRow
 
-function bankMappingAcctInput(input) {
-  loadBankMappingAccounts();
-  bankMappingActiveInput = input;
-  var q = input.value.trim().toLowerCase();
-  var dd = document.getElementById('bank-mapping-acct-dd');
-  if (dd) dd.remove();
-  if (!q) return;
-  var matches = bankMappingAccounts.filter(function(a){
-    return (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q);
-  }).slice(0, 12);
-  if (!matches.length) return;
-  var div = document.createElement('div');
-  div.id = 'bank-mapping-acct-dd';
-  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
-  matches.forEach(function(a){
-    var item = document.createElement('div');
-    item.textContent = a.account_code + ' - ' + a.account_name;
-    item.style.cssText = 'padding:4px 8px;cursor:pointer;white-space:nowrap';
-    item.onmouseover = function(){ item.style.background='#e8f0fe'; };
-    item.onmouseout  = function(){ item.style.background=''; };
-    item.onmousedown = function(e){ e.preventDefault(); };
-    item.onclick = function(){
-      if (bankMappingActiveInput) {
-        bankMappingActiveInput.value = a.account_code;
-        bankMappingActiveInput.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      var d = document.getElementById('bank-mapping-acct-dd');
-      if (d) d.remove();
-      bankMappingActiveInput = null;
-    };
-    div.appendChild(item);
+function attachMappingAcctDd(input) {
+  if (!input || !window.FB || !FB.dropdown) return;
+  FB.dropdown.attach(input, {
+    keys: true,
+    minWidth: 200,
+    source: function (q) {
+      loadBankMappingAccounts();
+      q = (q || '').toLowerCase();
+      return bankMappingAccounts.filter(function (a) {
+        return (a.account_code||'').toLowerCase().indexOf(q) >= 0 || (a.account_name||'').toLowerCase().indexOf(q) >= 0;
+      }).map(function (a) { return { primary: a.account_code, secondary: a.account_name, data: a }; });
+    },
+    onPick: function (it, inp) {
+      inp.value = it.primary;
+      inp.dispatchEvent(new Event('input', { bubbles: true })); // lights row save button
+    }
   });
-  var rect = input.getBoundingClientRect();
-  div.style.left = rect.left + 'px';
-  div.style.top  = (rect.bottom + 2) + 'px';
-  div.style.minWidth = rect.width + 'px';
-  document.body.appendChild(div);
-}
-
-function hideBankMappingAcctDd() {
-  setTimeout(function(){ var dd = document.getElementById('bank-mapping-acct-dd'); if (dd) dd.remove(); }, 150);
 }
 <\/script>
 ${layoutEnd()}

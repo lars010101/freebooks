@@ -139,7 +139,10 @@ function wrapIdempotentResponse(res, key, action, companyId) {
 const path = require('path');
 app.use('/db', express.static(path.join(__dirname, '../../db')));
 app.use('/public', express.static(path.join(__dirname, '../public'), {
-  maxAge: '1h',
+  // maxAge 0 + etag: browser revalidates every load (304 when unchanged) —
+  // JS/CSS can never drift out of sync with the server-rendered HTML that
+  // references it. Long maxAge here caused stale-fb-core.js bugs in dev.
+  maxAge: 0,
   etag: true,
 }));
 

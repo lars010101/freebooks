@@ -86,6 +86,25 @@ ${commonStyle()}
      (td.amt), so label right edge == figures right edge == icon left edge. */
   th[data-col="amount"] .th-inner { justify-content:flex-end; padding-right:34px; }
   #bills-table td.amt, #bills-table td.draft-total-amount { padding-right:46px; }
+  /* Column weights (P1-3 density pass, agreed 2026-07-21; CCY widened 7→9%
+     2026-07-22 — at 7% the corner-pinned filter icon overlapped the "CCY"
+     label at ≤1400px viewports). Vendor is information-dense; CCY only needs
+     a 3-letter code + header affordances. */
+  #bills-table col.col-vendor { width:22%; }
+  #bills-table col.col-date   { width:12.5%; }
+  #bills-table col.col-due    { width:12.5%; }
+  #bills-table col.col-ref    { width:15%; }
+  #bills-table col.col-amount { width:14%; }
+  #bills-table col.col-ccy    { width:9%; }
+  #bills-table col.col-status { width:15%; }
+  /* CCY collapsed: redistribute its 9% (vendor +6, ref +1, amount +0.5, status +0.5,
+     dates +0.5 each) so widths still sum to 100%. */
+  #bills-table.single-ccy col.col-vendor { width:28%; }
+  #bills-table.single-ccy col.col-date   { width:13%; }
+  #bills-table.single-ccy col.col-due    { width:13%; }
+  #bills-table.single-ccy col.col-ref    { width:16%; }
+  #bills-table.single-ccy col.col-amount { width:14.5%; }
+  #bills-table.single-ccy col.col-status { width:15.5%; }
   /* Conditional CCY: column hidden when all visible bills share one currency.
      visibility:collapse on the <col> is the spec'd mechanism — the column's
      space is reclaimed WITHOUT breaking column-track mapping (display:none on
@@ -169,15 +188,19 @@ ${commonStyle()}
   [data-theme="dark"] .child-row td.child-desc::before,
   [data-theme="dark"] .child-row:last-child td.child-desc::after { background:#444; }
 
-  .draft-input { border:1px solid #ccc; border-radius:4px; padding:5px 8px; font-size:0.875rem; width:100%; box-sizing:border-box; background:#fffef5; font-family:inherit; }
+  .draft-input { border:1px solid #ccc; border-radius:4px; padding:4px 8px; height:32px; font-size:0.875rem; width:100%; box-sizing:border-box; background:#fffef5; font-family:inherit; }
   .draft-input:focus { outline:none; border-color:#1a1a1a; }
   .draft-input.req { border:2px solid #cc2222; box-shadow:0 0 0 1px #cc2222; }
+  select.draft-input { padding:4px 4px; }
   /* Make draft inputs fill their cells properly */
   .draft-vendor-input { flex:1 !important; min-width:0 !important; margin-left:10px !important; width:auto !important; }
   .draft-input[type="date"] { width:100%; }
-  /* Amount cell in draft parent — same padding as other cells */
-  tr[data-draft="true"] td.draft-total-amount { padding:14px 18px !important; }
-  /* Draft child row amount input — align with parent amount column */
+  /* AP-account cell in the draft parent: input fills the column, save icon fixed */
+  .draft-ap-cell { display:flex; align-items:center; gap:6px; }
+  .draft-ap-cell .draft-input { flex:1; min-width:0; }
+  .draft-ap-cell .btn-save-draft { flex-shrink:0; }
+  /* Draft child row amount input — sits in the AMOUNT column: same gutter as
+     posted figures so the draft row aligns with data rows (td.amt). */
   .child-row td input[type="number"] { width:100%; box-sizing:border-box; }
   tr[data-draft="true"] td { background:#fffef5; }
   tr[data-draft="true"]:hover td { background:#fffbea; }
@@ -230,7 +253,7 @@ ${commonStyle()}
   .data-table tbody td.vcell-editing { background:#fff !important; color:#222 !important; box-shadow:inset 0 0 0 2px #1a3a6b; padding:3px 8px !important; }
   .data-table tbody td.vcell-editing input { border:none; outline:none; background:transparent; font-size:inherit; font-family:'Helvetica Neue',Arial,sans-serif !important; color:#222 !important; padding:0; box-sizing:border-box; }
   #vendors-body input { font-family:'Helvetica Neue',Arial,sans-serif !important; font-size:inherit !important; }
-  #pay-vendor-ccy-dd, #pay-vendor-acct-dd { font-family:'Helvetica Neue',Arial,sans-serif !important; }
+  .fb-dd { font-family:'Helvetica Neue',Arial,sans-serif; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
@@ -270,17 +293,17 @@ ${commonStyle()}
   <!-- Table card -->
   <div class="table-card">
     <table class="data-table" id="bills-table">
-      <!-- Column weighting (P1-3 density pass, agreed 2026-07-21): vendor is the
-           information-dense column; CCY only needs a 3-letter code. Fixed layout
-           reads widths from this colgroup. -->
+      <!-- Column weighting lives in CSS on the col classes (single source of
+           truth — the .single-ccy state re-weights when CCY collapses). Fixed
+           layout reads widths from the colgroup. -->
       <colgroup>
-        <col style="width:23%">   <!-- VENDOR -->
-        <col style="width:12.5%"> <!-- DATE (year-elided "21 Jul" + ISO tooltip) -->
-        <col style="width:12.5%"> <!-- DUE -->
-        <col style="width:16%">   <!-- REFERENCE -->
-        <col style="width:14%">   <!-- AMOUNT (incl. icon-width alignment gutter) -->
-        <col class="col-ccy" style="width:7%">    <!-- CCY -->
-        <col style="width:15%">   <!-- STATUS -->
+        <col class="col-vendor">   <!-- VENDOR -->
+        <col class="col-date">     <!-- DATE (year-elided "21 Jul" + ISO tooltip) -->
+        <col class="col-due">      <!-- DUE -->
+        <col class="col-ref">      <!-- REFERENCE -->
+        <col class="col-amount">   <!-- AMOUNT (incl. icon-width alignment gutter) -->
+        <col class="col-ccy">      <!-- CCY -->
+        <col class="col-status">   <!-- STATUS -->
       </colgroup>
       <thead>
         <tr>
@@ -303,9 +326,8 @@ ${commonStyle()}
     </div>
   </div>
 
-    <div style="margin-top:6px;text-align:right">
-      <span id="fb-bills-hints" style="font-size:0.625rem;color:#bbb">j/k&nbsp;navigate &nbsp;&middot;&nbsp; Enter&nbsp;fold &nbsp;&middot;&nbsp; i&nbsp;edit &nbsp;&middot;&nbsp; o&nbsp;new bill &nbsp;&middot;&nbsp; a&nbsp;add line &nbsp;&middot;&nbsp; p&nbsp;post &nbsp;&middot;&nbsp; x&nbsp;delete &nbsp;&middot;&nbsp; Esc&nbsp;save/cancel</span>
-    </div>
+  <!-- Keyboard hints live in the sidebar (#sb-hints), generated by
+       FB.keys.renderHints from the binding table — never hand-written here. -->
 
   </div><!-- /pay-panel-bills -->
 
@@ -329,7 +351,8 @@ ${commonStyle()}
     </div>
     <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
       <span id="msg-vendors" style="font-size:0.875rem"></span>
-      <span style="margin-left:auto;font-size:0.625rem;color:#bbb">hjkl&nbsp;navigate &nbsp;&middot;&nbsp; i&nbsp;edit cell &nbsp;&middot;&nbsp; a&nbsp;add &nbsp;&middot;&nbsp; d&nbsp;delete &nbsp;&middot;&nbsp; ~&nbsp;toggle active &nbsp;&middot;&nbsp; Enter&nbsp;commit &nbsp;&middot;&nbsp; Esc&nbsp;cancel</span>
+      <!-- Vendors hints are rendered into the sidebar by showPayTab (static
+           list until the Vendors tab migrates onto FB.keys). -->
     </div>
   </div><!-- /pay-panel-vendors -->
 

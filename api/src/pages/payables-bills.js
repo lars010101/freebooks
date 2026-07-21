@@ -103,92 +103,82 @@ FB.mode.onChange(function(v) {
 });
 
 var billAccountsList = [];
-var billAcctActiveInput = null;
 
 var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8','#e07840','#5c7ae0'];
 
 // ========== ACCOUNT AUTOCOMPLETE (bills tab) ==========
 function loadBillAccounts() {
-  if (billAccountsList.length) { _ensureCoaDatalist(); return; }
+  if (billAccountsList.length) return;
   fetch('/api/' + COMPANY + '/accounts')
     .then(function(r) { return r.json(); })
     .then(function(rows) {
       billAccountsList = Array.isArray(rows) ? rows : [];
-      _ensureCoaDatalist();
     })
     .catch(function() {});
 }
 
-function billAcctInput(input) {
-  billAcctActiveInput = input;
-  var q = input.value.trim().toLowerCase();
-  var dd = document.getElementById('pay-bill-acct-dd');
-  if (dd) dd.remove();
-  if (!q) return;
-  var matches = billAccountsList.filter(function(a) {
-    return (a.account_code || '').toLowerCase().includes(q) || (a.account_name || '').toLowerCase().includes(q);
-  }).slice(0, 12);
-  if (!matches.length) return;
-  var div = document.createElement('div');
-  div.id = 'pay-bill-acct-dd';
-  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
-  matches.forEach(function(a, mi) {
-    var item = document.createElement('div');
-    item.dataset.acctCode = a.account_code;
-    item.dataset.idx = String(mi);
-    item.textContent = a.account_code + ' — ' + a.account_name;
-    item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-size:11px';
-    item.onmouseover = function() { clearBillAcctDdFocus(); item.classList.add('dd-active'); item.style.background = '#e8f0fe'; };
-    item.onmouseout  = function() { item.classList.remove('dd-active'); item.style.background = ''; };
-    item.onmousedown = function(e) { e.preventDefault(); };
-    item.onclick = function() {
-      if (billAcctActiveInput) billAcctActiveInput.value = a.account_code;
-      var d = document.getElementById('pay-bill-acct-dd');
-      if (d) d.remove();
-      billAcctActiveInput = null;
-    };
-    div.appendChild(item);
+// ── FB.dropdown sources (P2-1) ─────────────────────────────────────────────
+// Account codes (AP + expense): contains-match on code AND name.
+function _acctSource(q) {
+  q = (q || '').trim().toLowerCase();
+  return billAccountsList.filter(function(a) {
+    if (!q) return true;
+    return (a.account_code || '').toLowerCase().indexOf(q) >= 0 ||
+           (a.account_name || '').toLowerCase().indexOf(q) >= 0;
+  }).map(function(a) {
+    return { primary: a.account_code, secondary: a.account_name || '', data: { code: a.account_code } };
   });
-  var rect = input.getBoundingClientRect();
-  div.style.left = rect.left + 'px';
-  div.style.top = (rect.bottom + 2) + 'px';
-  div.style.minWidth = rect.width + 'px';
-  document.body.appendChild(div);
 }
-
-function clearBillAcctDdFocus() {
-  var dd = document.getElementById('pay-bill-acct-dd');
-  if (!dd) return;
-  dd.querySelectorAll('.dd-active').forEach(function(el) { el.classList.remove('dd-active'); el.style.background = ''; });
+function _attachAcctDropdown(input) {
+  if (!input) return;
+  FB.dropdown.attach(input, {
+    source: _acctSource,
+    onPick: function(item, inp) {
+      inp.value = item.data.code;
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  });
 }
-
-function moveBillAcctDd(dir) {
-  var dd = document.getElementById('pay-bill-acct-dd');
-  if (!dd) return;
-  var items = dd.querySelectorAll('[data-acct-code]');
-  if (!items.length) return;
-  var cur = dd.querySelector('.dd-active');
-  var curIdx = cur ? parseInt(cur.dataset.idx) : -1;
-  var nextIdx = Math.max(0, Math.min(items.length - 1, curIdx + dir));
-  clearBillAcctDdFocus();
-  var next = items[nextIdx];
-  next.classList.add('dd-active'); next.style.background = '#e8f0fe';
-  next.scrollIntoView({ block: 'nearest' });
+// VAT codes: '— None —' plus every code in taxCodeMap (contains-match).
+function _vatSource(q) {
+  q = (q || '').trim().toLowerCase();
+  var items = [];
+  if (!q || 'none'.indexOf(q) >= 0) items.push({ primary: '— None —', data: { code: '' } });
+  Object.keys(taxCodeMap).forEach(function(code) {
+    var name = taxCodeMap[code] || '';
+    if (!q || code.toLowerCase().indexOf(q) >= 0 || name.toLowerCase().indexOf(q) >= 0) {
+      items.push({ primary: code, secondary: name, data: { code: code } });
+    }
+  });
+  return items;
 }
-
-function selectBillAcctDdItem() {
-  var dd = document.getElementById('pay-bill-acct-dd');
-  if (!dd) return false;
-  var cur = dd.querySelector('.dd-active') || dd.querySelector('[data-acct-code]');
-  if (!cur) return false;
-  if (billAcctActiveInput) billAcctActiveInput.value = cur.dataset.acctCode;
-  dd.remove();
-  billAcctActiveInput = null;
-  return true;
+// Wire a VAT-code input: FB.dropdown + commit-on-pick/blur-if-changed.
+// commit() runs the builder-specific sync + GST recompute + parent total.
+function _attachVatDropdown(input, commit) {
+  if (!input) return;
+  input.dataset.lastCode = input.value.trim();
+  function _commit() {
+    input.dataset.lastCode = input.value.trim();
+    commit();
+  }
+  FB.dropdown.attach(input, {
+    source: _vatSource,
+    onPick: function(item, inp) { inp.value = item.data.code; _commit(); }
+  });
+  input.addEventListener('input', function() { input.classList.remove('req'); });
+  input.addEventListener('blur', function() {
+    if (input.value.trim() !== (input.dataset.lastCode || '')) _commit();
+  });
 }
-
-function hideBillAcctDd() {
-  setTimeout(function() { var dd = document.getElementById('pay-bill-acct-dd'); if (dd) dd.remove(); }, 150);
+// Save-time guard: every line's VAT code must be blank or a known tax code.
+function _validateDraftVatCodes(parentTr) {
+  var bad = null;
+  Array.from(parentTr.parentNode.querySelectorAll('tr[data-parent-key="' + (parentTr.dataset.draftKey || parentTr.dataset.billId) + '"] input.child-vat')).forEach(function(inp) {
+    var v = inp.value.trim();
+    if (v && !taxCodeMap[v]) { bad = bad || inp; inp.classList.add('req'); }
+  });
+  if (bad) billEditMsg('Invalid VAT code "' + bad.value.trim() + '" — pick from the dropdown', 'err');
+  return !bad;
 }
 
 // ========== KEYBOARD HANDLER (FB.keys binding table — P1-3 shared core) ==========
@@ -235,7 +225,7 @@ var kbd = {
   _bindings: function() {
     var self = this;
     var draftRow = function() { return !!(cursor.rowEl && cursor.rowEl.dataset.draft === 'true'); };
-    var ddOpen = function() { return !!(document.getElementById('pay-draft-vendor-dd') || document.getElementById('pay-draft-ccy-dd')); };
+    var ddOpen = function() { return FB.dropdown.isOpen(); };
     var hasRows = function() { return cursor.getVisibleRows().length > 0; };
     return [
       // ── NORMAL: navigation ──
@@ -267,21 +257,29 @@ var kbd = {
       { key: 'p', mode: 'NORMAL', hint: 'post', hintBar: true,
         run: function() { self._normalPost(); } },
       // ── INSERT (draft bill editing) ──
+      { key: 'Escape', mode: 'INSERT', when: ddOpen,
+        run: function() { FB.dropdown.close(); } },
       { key: 'Escape', mode: 'INSERT', hint: 'save/cancel', hintBar: true,
         run: function() { self._insertEscape(); } },
       { key: 'Enter', mode: 'INSERT',
         run: function() { self._insertEnter(); } },
+      // ── INSERT: dropdown open ──
+      { key: 'ArrowDown', mode: 'INSERT', when: ddOpen,
+        run: function() { FB.dropdown.move(1); } },
+      { key: 'ArrowUp', mode: 'INSERT', when: ddOpen,
+        run: function() { FB.dropdown.move(-1); } },
+      { key: 'Tab', mode: 'INSERT', when: ddOpen, swallow: false, preventDefault: false,
+        run: function() { FB.dropdown.pick(); } },
+      // ── INSERT: dropdown closed — ArrowDown on a dropdown field opens the full list ──
+      { key: 'ArrowDown', mode: 'INSERT', when: function(e) { return !ddOpen() && FB.dropdown.attachable(e.target); },
+        run: function(e) { FB.dropdown.openFull(e.target); } },
       // Draft rows: native Tab traverses the bill's inputs — not swallowed,
       // not prevented (matches the old early-return).
       { key: 'Tab', mode: 'INSERT', when: draftRow, swallow: false, preventDefault: false,
         run: function() {} },
       // Non-draft INSERT: Tab blocked (old behavior).
       { key: 'Tab', mode: 'INSERT',
-        run: function() {} },
-      { key: 'ArrowDown', mode: 'INSERT', when: ddOpen,
-        run: function() { self._insertArrow(1); } },
-      { key: 'ArrowUp', mode: 'INSERT', when: ddOpen,
-        run: function() { self._insertArrow(-1); } }
+        run: function() {} }
     ];
   },
 
@@ -315,19 +313,11 @@ var kbd = {
     if (rows.length) cursor.set(rows[0], 0);
   },
 
-  _insertArrow: function(dir) {
-    if (document.getElementById('pay-draft-vendor-dd')) { moveDraftVendorDd(dir); return; }
-    if (document.getElementById('pay-draft-ccy-dd'))    { moveDraftCcyDd(dir); return; }
-  },
-
   // Esc on a draft bill: save (or discard if empty) and exit to NORMAL.
   _insertEscape: function() {
     // For draft bills, save and exit INSERT mode directly
     if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
-      // Close any open dropdowns
-      var vDd = document.getElementById('pay-draft-vendor-dd'); if (vDd) vDd.remove();
-      var cDd = document.getElementById('pay-draft-ccy-dd'); if (cDd) cDd.remove();
-      var aDd = document.getElementById('pay-bill-acct-dd'); if (aDd) aDd.remove();
+      FB.dropdown.close();
       // Blur active input
       if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
       // Find parent row
@@ -358,21 +348,33 @@ var kbd = {
     // for drafts). Nothing to exit.
   },
 
-  // Enter in INSERT: pick dropdown item, else advance to next input, else
-  // (on the last input) exit INSERT.
+  // Enter in INSERT: pick open dropdown item; FX-check on the CCY field;
+  // else advance to next input; else (last input) exit INSERT.
   _insertEnter: function() {
     if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
-      var vDd = document.getElementById('pay-draft-vendor-dd');
-      var cDd = document.getElementById('pay-draft-ccy-dd');
-      if (vDd && vDd.querySelector('.dd-active')) {
-        vDd.querySelector('.dd-active').click();
-        var draftInps2 = Array.from(cursor.rowEl.querySelectorAll('input.draft-input, select.draft-input'));
-        if (draftInps2[1]) draftInps2[1].focus();
-        return;
-      }
-      if (cDd && cDd.querySelector('.dd-active')) { cDd.querySelector('.dd-active').click(); return; }
-      var draftInputs = Array.from(cursor.rowEl.querySelectorAll('input.draft-input, select.draft-input'));
+      if (FB.dropdown.isOpen()) { FB.dropdown.pick(); return; }
       var ae = document.activeElement;
+      // FX rate check on Enter in the CCY field (spec §FX Handling). Was dead
+      // since P1-3 — FB.keys swallows Enter at capture before input handlers —
+      // so it lives here now.
+      if (ae && ae.classList && ae.classList.contains('draft-ccy-input')) {
+        var entCcy = ae.value.trim().toUpperCase();
+        if (entCcy && entCcy !== BASE_CURRENCY.toUpperCase()) {
+          var pInps = cursor.rowEl.querySelectorAll('input');
+          var entDate = pInps[1] ? pInps[1].value : '';
+          billEditMsg('FX: checking rate for ' + entCcy + '…', '');
+          _getFxRate(entCcy, entDate).then(function(rate) {
+            if (rate !== null) {
+              billEditMsg('FX: 1 ' + entCcy + ' = ' + rate + ' ' + BASE_CURRENCY, 'ok');
+            } else {
+              billEditMsg('FX: no rate for ' + entCcy + ' on ' + (entDate || 'this date') + '. Add in Settings.', 'err');
+            }
+            setTimeout(function() { billEditMsg('', ''); }, 4000);
+          });
+          return;
+        }
+      }
+      var draftInputs = Array.from(cursor.rowEl.querySelectorAll('input.draft-input'));
       var dIdx = draftInputs.indexOf(ae);
       if (dIdx >= 0 && dIdx < draftInputs.length - 1) {
         draftInputs[dIdx + 1].focus();
@@ -657,9 +659,9 @@ function fbPageInitPayables() {
   registerBillKeyActions();
   registerVendorKeyActions();
   kbd.register();
-  // Footer hint bar is generated from the same binding table that drives
+  // Sidebar hint panel is generated from the same binding table that drives
   // dispatch (P1-3/P1-6: single source of truth — cannot go stale).
-  FB.keys.renderHints('bills', document.getElementById('fb-bills-hints'));
+  renderPayHints('bills');
   loadBillAccounts();
   _loadCompanyDefaults();
   window.fbBillNav = true;
@@ -1034,7 +1036,7 @@ function _wireChildRowTab(childRowEl, parentRowEl) {
   if (!parentKey) return;
   var descInp = childRowEl.querySelector('input.child-desc');
   var amtInp  = childRowEl.querySelectorAll('input')[2];
-  var gstSel  = childRowEl.querySelector('select');
+  var gstSel  = childRowEl.querySelector('input.child-vat');
   function handleChildTab(e) {
     if (e.key !== 'Tab') return;
     var allChildren = Array.from(document.querySelectorAll('tr[data-parent-key="' + parentKey + '"]'));
@@ -1042,7 +1044,7 @@ function _wireChildRowTab(childRowEl, parentRowEl) {
     var isFirst = allChildren[0] === childRowEl;
     var isLast = allChildren[allChildren.length - 1] === childRowEl;
     if (!e.shiftKey) {
-      // Forward Tab on last child's last field (GST select):
+      // Forward Tab on last child's last field (VAT input):
       //   - If this row has data (desc or amount), create a new child row and focus it
       //   - If this row is empty, stay (sticky — don't create empty rows)
       if (isLast && e.target === gstSel) {
@@ -1164,7 +1166,6 @@ function renderDraftChildRows(parentRow, linesList) {
   var draftKey = parentRow.dataset.draftKey;
   var parentInputs = parentRow.querySelectorAll('input');
   var insertAfter = parentRow;
-  _ensureCoaDatalist();
   linesList.forEach(function(line, idx) {
     var tr = document.createElement('tr');
     tr.dataset.rowType = 'child';
@@ -1173,25 +1174,21 @@ function renderDraftChildRows(parentRow, linesList) {
     tr.dataset.lineIdx = String(idx);
     tr.className = 'child-row';
     tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
-      + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
-      + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+      + '<td><input class="draft-input child-expense-acct" placeholder="Expense Acct" title="Expense account code" /></td>'
+      + '<td class="amt"><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
       + '<td class="child-spacer"></td>'
-      + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
+      + '<td style="white-space:nowrap"><input class="draft-input child-vat" placeholder="— None —" title="VAT code" style="width:72px" />'
       + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
     var descInp = tr.querySelector('input.child-desc');
     var expInp  = tr.querySelector('input.child-expense-acct');
     var amtInp  = tr.querySelectorAll('input')[2];
-    var gstSel  = tr.querySelector('select');
+    var gstSel  = tr.querySelector('input.child-vat');
     var gstInp  = tr.querySelector('input.child-gst');
-    Object.keys(taxCodeMap).forEach(function(code) {
-      var opt = document.createElement('option');
-      opt.value = code; opt.textContent = code + ': ' + taxCodeMap[code];
-      if (code === line.vatCode) opt.selected = true;
-      gstSel.appendChild(opt);
-    });
     if (descInp) descInp.value = line.desc || '';
     if (expInp)  expInp.value  = line.expenseAccount || companyDefaultExpense || '';
     if (amtInp)  amtInp.value  = line.amount ? String(line.amount) : '';
+    if (gstSel)  gstSel.value  = line.vatCode || '';
+    _attachAcctDropdown(expInp);
     // Initialise GST amount input from saved override or computed default
     _initChildGst(tr, line);
     function syncLine() {
@@ -1199,15 +1196,15 @@ function renderDraftChildRows(parentRow, linesList) {
         draftLines[draftKey][idx].desc            = descInp ? descInp.value.trim() : '';
         draftLines[draftKey][idx].expenseAccount  = expInp ? expInp.value.trim() : '';
         draftLines[draftKey][idx].amount          = parseFloat(amtInp ? amtInp.value : 0) || 0;
-        draftLines[draftKey][idx].vatCode         = gstSel ? gstSel.value : '';
+        draftLines[draftKey][idx].vatCode         = gstSel ? gstSel.value.trim() : '';
         if (gstInp) draftLines[draftKey][idx].vatAmountOverride = gstInp.value !== '' ? (parseFloat(gstInp.value) || null) : null;
       }
     }
+    _attachVatDropdown(gstSel, function() { syncLine(); _recomputeChildGst(tr, draftLines[draftKey] ? draftLines[draftKey][idx] : null); updateParentDraftAmount(parentRow); });
     var _saveTimer = null;
     if (descInp) { descInp.addEventListener('blur', function() { syncLine(); }); descInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
     if (expInp)  { expInp.addEventListener('blur',  function() { syncLine(); }); expInp.addEventListener('input',  function() { syncLine(); refreshSaveIcon(parentRow); }); }
     if (amtInp)  { amtInp.addEventListener('blur',  function() { syncLine(); }); amtInp.addEventListener('input',  function() { syncLine(); _recomputeChildGst(tr, draftLines[draftKey] ? draftLines[draftKey][idx] : null); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
-    if (gstSel)  gstSel.addEventListener('change',  function() { syncLine(); _recomputeChildGst(tr, draftLines[draftKey] ? draftLines[draftKey][idx] : null); updateParentDraftAmount(parentRow); });
     if (gstInp)  gstInp.addEventListener('input', function() { syncLine(); updateParentDraftAmount(parentRow); });
     _wireChildRowTab(tr, parentRow);
     insertAfter.insertAdjacentElement('afterend', tr);
@@ -1220,7 +1217,7 @@ function renderDraftChildRows(parentRow, linesList) {
 // If the line has a vatAmountOverride (and the code is not reverse charge),
 // restore it; otherwise compute the default from amount × rate.
 function _initChildGst(tr, lineObj) {
-  var gstSel = tr.querySelector('select');
+  var gstSel = tr.querySelector('input.child-vat');
   var gstInp = tr.querySelector('input.child-gst');
   var amtInp = tr.querySelectorAll('input')[2];
   if (!gstSel || !gstInp) return;
@@ -1254,7 +1251,7 @@ function _initChildGst(tr, lineObj) {
 // amount / VAT-code changes. Resets vatAmountOverride to null (recomputed =
 // default, not an override).
 function _recomputeChildGst(tr, lineObj) {
-  var gstSel = tr.querySelector('select');
+  var gstSel = tr.querySelector('input.child-vat');
   var gstInp = tr.querySelector('input.child-gst');
   var amtInp = tr.querySelectorAll('input')[2];
   if (!gstSel || !gstInp) return;
@@ -1347,14 +1344,13 @@ function createDraftBill(refRow) {
   tr.dataset.draftKey = draftKey;
   tr.style.cssText = 'cursor:default';
   var baseCcy = BASE_CURRENCY;
-  _ensureCoaDatalist();
   tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="' + esc(companyDefaultAp) + '" data-expense-account="' + esc(companyDefaultExpense) + '" /></div></td>'
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
-    + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td style="white-space:nowrap"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" style="width:80px" /> <button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
+    + '<td><input class="draft-input draft-ccy-input" style="text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
+    + '<td><div class="draft-ap-cell"><input class="draft-input draft-ap-account" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" /><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></div></td>';
   var insertAfterRow = refRow;
   if (refRow && refRow.dataset.rowType === 'child') {
     var pKey2 = refRow.dataset.parentKey || refRow.dataset.parentId;
@@ -1402,35 +1398,33 @@ function createDraftLine(childRow) {
   tr.dataset.lineIdx = String(newIdx);
   tr.className = 'child-row';
   tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
-    + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
-    + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+    + '<td><input class="draft-input child-expense-acct" placeholder="Expense Acct" title="Expense account code" /></td>'
+    + '<td class="amt"><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
     + '<td class="child-spacer"></td>'
-    + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
+    + '<td style="white-space:nowrap"><input class="draft-input child-vat" placeholder="— None —" title="VAT code" style="width:72px" />'
     + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
-  var gstSel2 = tr.querySelector('select');
-  Object.keys(taxCodeMap).forEach(function(code) {
-    var opt = document.createElement('option'); opt.value = code; opt.textContent = code + ': ' + taxCodeMap[code]; gstSel2.appendChild(opt);
-  });
+  var gstSel2 = tr.querySelector('input.child-vat');
   var descInp2 = tr.querySelector('input.child-desc');
   var expInp2  = tr.querySelector('input.child-expense-acct');
   var amtInp2  = tr.querySelectorAll('input')[2];
   var gstInp2  = tr.querySelector('input.child-gst');
   if (expInp2) expInp2.value = companyDefaultExpense || '';
+  _attachAcctDropdown(expInp2);
   _initChildGst(tr, draftLines[parentKey][newIdx]);
   function syncLine2() {
     if (draftLines[parentKey] && draftLines[parentKey][newIdx] !== undefined) {
       draftLines[parentKey][newIdx].desc           = descInp2 ? descInp2.value.trim() : '';
       draftLines[parentKey][newIdx].expenseAccount = expInp2 ? expInp2.value.trim() : '';
       draftLines[parentKey][newIdx].amount         = parseFloat(amtInp2 ? amtInp2.value : 0) || 0;
-      draftLines[parentKey][newIdx].vatCode        = gstSel2 ? gstSel2.value : '';
+      draftLines[parentKey][newIdx].vatCode        = gstSel2 ? gstSel2.value.trim() : '';
       if (gstInp2) draftLines[parentKey][newIdx].vatAmountOverride = gstInp2.value !== '' ? (parseFloat(gstInp2.value) || null) : null;
     }
   }
+  _attachVatDropdown(gstSel2, function() { syncLine2(); _initChildGst(tr, draftLines[parentKey][newIdx]); updateParentDraftAmount(parentRow); });
   var _t2 = null;
   if (descInp2) { descInp2.addEventListener('blur', function() { syncLine2(); }); descInp2.addEventListener('input', function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
   if (expInp2)  { expInp2.addEventListener('blur',  function() { syncLine2(); }); expInp2.addEventListener('input',  function() { syncLine2(); refreshSaveIcon(parentRow); }); }
   if (amtInp2)  { amtInp2.addEventListener('blur',  function() { syncLine2(); }); amtInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); refreshAddRowIcons(parentRow); refreshSaveIcon(parentRow); }); }
-  if (gstSel2)  gstSel2.addEventListener('change',  function() { syncLine2(); _initChildGst(tr, draftLines[parentKey][newIdx]); updateParentDraftAmount(parentRow); });
   if (gstInp2)  gstInp2.addEventListener('input',  function() { syncLine2(); updateParentDraftAmount(parentRow); });
   _wireChildRowTab(tr, parentRow);
   insertAfterEl.insertAdjacentElement('afterend', tr);
@@ -1451,9 +1445,7 @@ function _saveAndExitInsert() {
       parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
     }
     if (parentRow && parentRow.dataset.draft === 'true') {
-      var vDd = document.getElementById('pay-draft-vendor-dd'); if (vDd) vDd.remove();
-      var cDd = document.getElementById('pay-draft-ccy-dd'); if (cDd) cDd.remove();
-      var aDd = document.getElementById('pay-bill-acct-dd'); if (aDd) aDd.remove();
+      FB.dropdown.close();
       if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
       if (_isDraftEmpty(parentRow)) {
         _discardDraftBill(parentRow);
@@ -1507,25 +1499,49 @@ function _wireDraftParentEvents(tr) {
   var draftInputs2 = tr.querySelectorAll('input');
   var dateInputEl  = draftInputs2[1];
   var dueInputEl   = draftInputs2[2];
-  var ccyInputEl   = draftInputs2[5];
+  var ccyInputEl   = draftInputs2[4]; // DOM order: vendor,date,due,ref,CCY,AP
+  // (was draftInputs2[5] before P2-1 — a swap bug that put the currency
+  //  dropdown on the AP field and left CCY with no dropdown at all)
   if (vendorInput) {
-    vendorInput.addEventListener('input', function() { draftVendorInput(vendorInput); refreshSaveIcon(tr); });
+    // Vendor dropdown (FB.dropdown): pick sets id/name/account datasets and
+    // the row CCY from the vendor default (same side-effects as the old dd).
+    FB.dropdown.attach(vendorInput, {
+      source: function(q) {
+        q = (q || '').trim().toLowerCase();
+        return allVendors.filter(function(v) {
+          if (!q) return true;
+          return (v.name || '').toLowerCase().indexOf(q) >= 0;
+        }).map(function(v) {
+          return { primary: v.name || '', data: { v: v } };
+        });
+      },
+      onPick: function(item, inp) {
+        var v = item.data.v;
+        inp.dataset.vendorId = v.vendor_id || '';
+        inp.dataset.vendorName = v.name || '';
+        inp.dataset.apAccount = v.default_ap_account || companyDefaultAp || '';
+        inp.dataset.expenseAccount = v.default_expense_account || companyDefaultExpense || '';
+        inp.value = v.name || '';
+        if (ccyInputEl) ccyInputEl.value = (v.default_currency || BASE_CURRENCY).toUpperCase();
+        refreshSaveIcon(tr);
+      }
+    });
+    vendorInput.addEventListener('input', function() { refreshSaveIcon(tr); });
     vendorInput.addEventListener('keydown', function(e) {
       if (e.key === 'Tab' && e.shiftKey) {
-        // Shift+Tab from vendor input → wrap to last child's GST select (bottom of bill)
+        // Shift+Tab from vendor input → wrap to last child's VAT input (bottom of bill)
         var childKey = tr.dataset.draftKey || tr.dataset.billId;
         if (childKey) {
           var childRows = document.querySelectorAll('tr[data-parent-key="' + childKey + '"]');
           if (childRows.length) {
             var lastChild = childRows[childRows.length - 1];
-            var lastGst = lastChild.querySelector('select');
+            var lastGst = lastChild.querySelector('input.child-vat');
             if (lastGst) { e.preventDefault(); lastGst.focus(); }
           }
         }
       }
     });
     vendorInput.addEventListener('blur', function() {
-      setTimeout(function() { var dd = document.getElementById('pay-draft-vendor-dd'); if (dd) dd.remove(); }, 150);
       setTimeout(function() {
         var name = vendorInput.value.trim();
         if (!name) return;
@@ -1555,7 +1571,24 @@ function _wireDraftParentEvents(tr) {
     dueInputEl.addEventListener('input', function() { refreshSaveIcon(tr); });
   }
   if (ccyInputEl) {
-    ccyInputEl.addEventListener('input', function() { draftCcyInput(ccyInputEl); });
+    // Currency dropdown (FB.dropdown): contains-match on code or name.
+    FB.dropdown.attach(ccyInputEl, {
+      source: function(q) {
+        q = (q || '').trim().toLowerCase();
+        return vendorCurrenciesList.filter(function(c) {
+          if (!q) return true;
+          return (c.code || '').toLowerCase().indexOf(q) >= 0 ||
+                 (c.name || '').toLowerCase().indexOf(q) >= 0;
+        }).map(function(c) {
+          return { primary: (c.code || '').toUpperCase(), secondary: c.name || '', data: { code: (c.code || '').toUpperCase() } };
+        });
+      },
+      onPick: function(item, inp) {
+        inp.value = item.data.code;
+        inp.classList.remove('req');
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
     ccyInputEl.addEventListener('input', function() {
       var v = ccyInputEl.value.trim().toUpperCase();
       var dk = tr.dataset.draftKey;
@@ -1566,26 +1599,6 @@ function _wireDraftParentEvents(tr) {
       }
     });
     ccyInputEl.addEventListener('keydown', function(e) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); moveDraftCcyDd(1); return; }
-      if (e.key === 'ArrowUp')   { e.preventDefault(); moveDraftCcyDd(-1); return; }
-      if (e.key === 'Enter') {
-        // Show FX rate info for non-base currency (keyboard equivalent of hover tooltip)
-        var entCcy = ccyInputEl.value.trim().toUpperCase();
-        if (entCcy && entCcy !== BASE_CURRENCY.toUpperCase()) {
-          var entDate = dateInputEl ? dateInputEl.value : '';
-          billEditMsg('FX: checking rate for ' + entCcy + '\u2026', '');
-          _getFxRate(entCcy, entDate).then(function(rate) {
-            if (rate !== null) {
-              billEditMsg('FX: 1 ' + entCcy + ' = ' + rate + ' ' + BASE_CURRENCY, 'ok');
-            } else {
-              billEditMsg('FX: no rate for ' + entCcy + ' on ' + (entDate || 'this date') + '. Add in Settings.', 'err');
-            }
-            setTimeout(function() { billEditMsg('', ''); }, 4000);
-          });
-          e.preventDefault();
-          return;
-        }
-      }
       if (e.key === 'Tab' && !e.shiftKey) {
         // Tab from CCY → first child row description input (cross to child row)
         var firstChild = document.querySelector('tr[data-parent-key="' + tr.dataset.draftKey + '"] input.child-desc');
@@ -1593,13 +1606,12 @@ function _wireDraftParentEvents(tr) {
       }
     });
     ccyInputEl.addEventListener('blur', function() {
-      setTimeout(function() { var dd = document.getElementById('pay-draft-ccy-dd'); if (dd) dd.remove(); }, 150);
       var v = ccyInputEl.value.trim().toUpperCase();
       if (v) ccyInputEl.value = v;
     });
   }
   var refInputEl = draftInputs2[3];
-  var apInputEl  = draftInputs2[4];
+  var apInputEl  = draftInputs2[5]; // AP is the 6th input (after CCY) — see ccyInputEl note above
   if (dateInputEl) dateInputEl.addEventListener('blur', function() { refreshSaveIcon(tr); _updateCcyTooltip(tr, ccyInputEl, dateInputEl); });
   if (dateInputEl) dateInputEl.addEventListener('input', function() { refreshSaveIcon(tr); });
   // Tab from ref -> AP account (natural tab order then continues AP -> CCY)
@@ -1608,7 +1620,7 @@ function _wireDraftParentEvents(tr) {
       if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); apInputEl.focus(); }
     });
   }
-  if (apInputEl) apInputEl.addEventListener('input', function() { refreshSaveIcon(tr); });
+  if (apInputEl) { _attachAcctDropdown(apInputEl); apInputEl.addEventListener('input', function() { refreshSaveIcon(tr); }); }
   // Update CCY tooltip with FX rate info on ccy change
   if (ccyInputEl) {
     ccyInputEl.addEventListener('blur', function() {
@@ -1631,14 +1643,13 @@ function insertDraftParentRow(refRow, above) {
   tr.dataset.draftKey = draftKey;
   tr.style.cssText = 'cursor:default';
   var baseCcy = BASE_CURRENCY;
-  _ensureCoaDatalist();
   tr.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="" data-vendor-name="" data-ap-account="' + esc(companyDefaultAp) + '" data-expense-account="' + esc(companyDefaultExpense) + '" /></div></td>'
     + '<td><input class="draft-input" type="date" placeholder="Date" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
-    + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td style="white-space:nowrap"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" style="width:80px" /> <span class=\"badge\" style=\"background:#e8e4d0;color:#7a6a00\" title=\"Press p to post draft bill\">Draft</span></td>';
+    + '<td><input class="draft-input draft-ccy-input" style="text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
+    + '<td><div class="draft-ap-cell"><input class="draft-input draft-ap-account" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" /><span class=\"badge\" style=\"background:#e8e4d0;color:#7a6a00;flex-shrink:0\" title=\"Press p to post draft bill\">Draft</span></div></td>';
   if (refRow && above) {
     refRow.parentElement.insertBefore(tr, refRow);
   } else if (refRow) {
@@ -1694,18 +1705,11 @@ function insertDraftChildRow(childRow, above) {
   tr.dataset.parentKey = draftKey;
   tr.className = 'child-row';
   tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
-    + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
-    + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+    + '<td><input class="draft-input child-expense-acct" placeholder="Expense Acct" title="Expense account code" /></td>'
+    + '<td class="amt"><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
     + '<td class="child-spacer"></td>'
-    + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
+    + '<td style="white-space:nowrap"><input class="draft-input child-vat" placeholder="— None —" title="VAT code" style="width:72px" />'
     + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
-  var gstSelect = tr.querySelector('select');
-  Object.keys(taxCodeMap).forEach(function(code) {
-    var opt = document.createElement('option');
-    opt.value = code;
-    opt.textContent = code + ': ' + taxCodeMap[code];
-    gstSelect.appendChild(opt);
-  });
   if (above) {
     childRow.parentElement.insertBefore(tr, childRow);
   } else {
@@ -1715,9 +1719,11 @@ function insertDraftChildRow(childRow, above) {
   var descInpRef = tr.querySelector('input.child-desc');
   var expInpRef  = tr.querySelector('input.child-expense-acct');
   var amtInpRef  = tr.querySelectorAll('input')[2];
-  var gstSelRef  = tr.querySelector('select');
+  var gstSelRef  = tr.querySelector('input.child-vat');
   var gstInpRef  = tr.querySelector('input.child-gst');
   if (expInpRef) expInpRef.value = companyDefaultExpense || '';
+  _attachAcctDropdown(expInpRef);
+  _attachVatDropdown(gstSelRef, function() { _initChildGst(tr, null); updateParentDraftAmount(parentTrRef); });
   if (descInpRef) { descInpRef.addEventListener('input', function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); refreshSaveIcon(parentTrRef); }); }
   if (expInpRef)  { expInpRef.addEventListener('input',  function() { refreshSaveIcon(parentTrRef); }); }
   if (amtInpRef)  { amtInpRef.addEventListener('input',  function() { updateParentDraftAmount(parentTrRef); refreshAddRowIcons(parentTrRef); refreshSaveIcon(parentTrRef); }); }
@@ -1758,14 +1764,13 @@ function convertDisplayToDraft(parentRow) {
   parentRow.dataset.draft = 'true';
   parentRow.dataset.draftKey = draftKey;
   parentRow.style.cursor = 'default';
-  _ensureCoaDatalist();
   parentRow.innerHTML = '<td><div class="vendor-cell"><span class="avatar" style="background:#ccc;width:32px;height:32px;display:flex;align-items:center;justify-content:center">+</span><input class="draft-input draft-vendor-input" placeholder="Vendor" data-vendor-id="' + esc(vendorId) + '" data-vendor-name="' + esc(vendor) + '" data-ap-account="' + esc(apAccount) + '" data-expense-account="' + esc(expenseAccount) + '" /></div></td>'
     + '<td><input class="draft-input" type="date" placeholder="Date" value="' + billDate + '" /></td>'
     + '<td><input class="draft-input" type="date" placeholder="Due" value="' + dueDate + '" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" value="' + esc(vendorRef) + '" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
-    + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + currency + '" /></td>'
-    + '<td style="white-space:nowrap"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(apAccount) + '" title="AP (creditor) account code" style="width:80px" /> <button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft">&#128190;</button></td>';
+    + '<td><input class="draft-input draft-ccy-input" style="text-align:center;text-transform:uppercase" placeholder="CCY" value="' + currency + '" /></td>'
+    + '<td><div class="draft-ap-cell"><input class="draft-input draft-ap-account" placeholder="AP Acct" value="' + esc(apAccount) + '" title="AP (creditor) account code" /><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft">&#128190;</button></div></td>';
 
   // Set vendor input value (escaped in innerHTML for attributes, raw for .value)
   var vInp = parentRow.querySelector('input.draft-vendor-input');
@@ -1922,17 +1927,18 @@ function saveDraftToDb(draftParentTr) {
       var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[2];
       return (dIn && dIn.value.trim()) || (aIn && parseFloat(aIn.value) > 0);
     }).map(function(cr) {
-      var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[2]; var gSel = cr.querySelector('select');
+      var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[2]; var gSel = cr.querySelector('input.child-vat');
       var gIn = cr.querySelector('input.child-gst');
       var eIn = cr.querySelector('input.child-expense-acct');
       var expAcct = eIn ? eIn.value.trim() : (draftParentTr.dataset.expenseAccount || companyDefaultExpense || '');
       var vatOverride = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || null) : null;
       return { description: dIn?dIn.value.trim():'', expense_account: expAcct,
-        amount: parseFloat(aIn&&aIn.value)||0, vat_code: gSel?(gSel.value||null):null, currency: draftParentTr.dataset.currency||BASE_CURRENCY,
+        amount: parseFloat(aIn&&aIn.value)||0, vat_code: gSel?(gSel.value.trim()||null):null, currency: draftParentTr.dataset.currency||BASE_CURRENCY,
         vat_amount_override: vatOverride };
     });
     var apInputA = draftParentTr.querySelector('input.draft-ap-account');
     var apAcctA = apInputA ? apInputA.value.trim() : (draftParentTr.dataset.apAccount || companyDefaultAp || '');
+    if (!_validateDraftVatCodes(draftParentTr)) return;
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
       action:'bill.draft.save', companyId:COMPANY, bill:{ bill_id:dispBillId,
         vendor:draftParentTr.dataset.vendor, vendor_ref:draftParentTr.dataset.vendorRef,
@@ -1956,6 +1962,7 @@ function saveDraftToDb(draftParentTr) {
   var dueDate = dueInput && dueInput.value;
   if (!dueDate) { billEditMsg('Due date required', 'err'); return; }
   if (dueDate < billDate) { billEditMsg('Due date must be ≥ bill date', 'err'); return; }
+  if (!_validateDraftVatCodes(draftParentTr)) return;
   var draftKeyAmt = draftParentTr.dataset.draftKey;
   var totalAmt = 0;
   if (draftKeyAmt) {
@@ -2004,13 +2011,13 @@ function saveDraftToDb(draftParentTr) {
           }).map(function(cr) {
             var dIn = cr.querySelector('input.child-desc');
             var aIn = cr.querySelectorAll('input')[2];
-            var gSel = cr.querySelector('select');
+            var gSel = cr.querySelector('input.child-vat');
             var gIn = cr.querySelector('input.child-gst');
             var eIn = cr.querySelector('input.child-expense-acct');
             var lineExp = eIn ? eIn.value.trim() : (expAcct2 || '');
             var vatOverride = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || null) : null;
             return { description: dIn ? dIn.value.trim() : '', expense_account: lineExp, currency: ccy2,
-              amount: parseFloat(aIn && aIn.value) || 0, vat_code: gSel ? (gSel.value || null) : null,
+              amount: parseFloat(aIn && aIn.value) || 0, vat_code: gSel ? (gSel.value.trim() || null) : null,
               vat_amount_override: vatOverride };
           });
         }
@@ -2069,12 +2076,12 @@ function _gatherInlineBillData(draftParentTr) {
     childRows.forEach(function(cr) {
       var descInput = cr.querySelector('input.child-desc');
       var amtInputC = cr.querySelectorAll('input')[2];
-      var gstSelect = cr.querySelector('select');
+      var gstSelect = cr.querySelector('input.child-vat');
       var expIn     = cr.querySelector('input.child-expense-acct');
       var lineExp   = expIn ? expIn.value.trim() : (expAcct || '');
       var desc = descInput ? descInput.value.trim() : '';
       var amt = parseFloat(amtInputC && amtInputC.value) || 0;
-      var vatCode = gstSelect ? gstSelect.value : '';
+      var vatCode = gstSelect ? gstSelect.value.trim() : '';
       var gIn = cr.querySelector('input.child-gst');
       var vatOverride = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || null) : null;
       var gst = vatOverride != null ? vatOverride : 0;
@@ -2108,6 +2115,7 @@ function _postDirect(draftParentTr) {
     if (!bill.vendor_ref) { billEditMsg('Invoice reference (Ref) is required before posting', 'err'); return; }
     if (!bill.amount || bill.amount <= 0) { billEditMsg('Total amount must be > 0', 'err'); return; }
     if (!bill.lines || !bill.lines.length) { billEditMsg('At least one line item is required', 'err'); return; }
+    if (!_validateDraftVatCodes(draftParentTr)) return;
     var apIn = draftParentTr.querySelector('input.draft-ap-account');
     if (apIn) bill.ap_account = apIn.value.trim() || bill.ap_account;
     // Per-line expense accounts and vat_amount_override are already part of bill.lines via _gatherInlineBillData.
@@ -2133,12 +2141,12 @@ function _postDirect(draftParentTr) {
       return (dIn && dIn.value.trim()) || (aIn && parseFloat(aIn.value) > 0);
     }).map(function(cr) {
       var dIn = cr.querySelector('input.child-desc'); var aIn = cr.querySelectorAll('input')[2];
-      var gSel = cr.querySelector('select'); var gIn = cr.querySelector('input.child-gst');
+      var gSel = cr.querySelector('input.child-vat'); var gIn = cr.querySelector('input.child-gst');
       var eIn = cr.querySelector('input.child-expense-acct');
       var expAcct = eIn ? eIn.value.trim() : (draftParentTr.dataset.expenseAccount || companyDefaultExpense || '');
       var vatOverride = (gIn && gIn.value !== '' && !gIn.readOnly) ? (parseFloat(gIn.value) || null) : null;
       return { description: dIn ? dIn.value.trim() : '', expense_account: expAcct,
-        amount: parseFloat(aIn && aIn.value) || 0, vat_code: gSel ? (gSel.value || null) : null,
+        amount: parseFloat(aIn && aIn.value) || 0, vat_code: gSel ? (gSel.value.trim() || null) : null,
         currency: draftParentTr.dataset.currency || BASE_CURRENCY, vat_amount_override: vatOverride };
     });
 
@@ -2189,25 +2197,6 @@ function _sendPost(payload, draftParentTr) {
       }
     })
     .catch(function(e) { billEditMsg('Error: ' + (e.message || 'Post failed'), 'err'); });
-}
-
-// Create a <datalist> for account code autocomplete in INSERT-mode inputs
-// (parent AP account + child expense account). Populated from billAccountsList.
-function _ensureCoaDatalist() {
-  var dl = document.getElementById('coa-options');
-  if (!dl) {
-    dl = document.createElement('datalist');
-    dl.id = 'coa-options';
-    document.body.appendChild(dl);
-  }
-  // (Re)populate options — safe to call after billAccountsList is loaded
-  dl.innerHTML = '';
-  billAccountsList.forEach(function(a) {
-    var opt = document.createElement('option');
-    opt.value = a.account_code;
-    opt.label = a.account_name || '';
-    dl.appendChild(opt);
-  });
 }
 
 function registerBillKeyActions() {
@@ -2376,7 +2365,9 @@ function applyFilters() {
 // Conditional CCY column: when every visible bill shares one currency the
 // column carries no information — hide it (agreed 2026-07-21). It returns
 // automatically in INSERT mode (the CCY input lives there) and whenever the
-// list is mixed. Vendor absorbs the freed width.
+// list is mixed. EXCEPTION (2026-07-22): never hide while a currency filter
+// is active — the column's ≡ is the only way to SEE and CLEAR that filter;
+// hiding it trapped users (had to reload to get foreign bills back).
 // _refreshCcyVisibility is DOM-driven (reads the currently rendered parent
 // rows) so it stays correct after in-place row removals (x delete), row
 // conversions (Esc save), and full re-renders alike.
@@ -2384,13 +2375,10 @@ var _singleCcy = false;
 function _applyCcyColVisibility() {
   var tbl = document.getElementById('bills-table');
   if (!tbl) return;
-  var hide = _singleCcy && cursor.mode !== 'INSERT';
+  var hide = _singleCcy && !colFilters.currency && cursor.mode !== 'INSERT';
   tbl.classList.toggle('single-ccy', hide);
-  // Vendor absorbs the freed width; the col collapse handles the hiding.
-  var cols = tbl.querySelectorAll('colgroup col');
-  if (cols.length === 7) {
-    cols[0].style.width = hide ? '30%' : '23%';
-  }
+  // Column widths are owned by CSS (col.col-* classes + .single-ccy
+  // re-weighting rules) — no JS width juggling here.
 }
 function _refreshCcyVisibility() {
   var ccys = {};
@@ -2535,12 +2523,18 @@ function showMsg(msg) {
 
 // ========== TAB SWITCHER ==========
 function showPayTab(t) {
+  // Leaving Vendors with a row open in INSERT: save-or-discard it first
+  // (tab switch is the click-away/Esc equivalent — one save doctrine).
+  if (t !== 'vendors' && typeof vendorEditRow !== 'undefined' && vendorEditRow >= 0) {
+    vendorSaveAndExit();
+  }
   window.fbBillNav = (t === 'bills');
   ['bills','vendors'].forEach(function(id) {
     document.getElementById('pay-panel-' + id).style.display = (id === t) ? '' : 'none';
     var tabEl = document.getElementById('pay-tab-' + id);
     if (tabEl) tabEl.classList.toggle('active', id === t);
   });
+  renderPayHints(t);
   // Clear stale highlights from both systems when switching tabs
   document.querySelectorAll('tr.nav-row-focus, tr.bill-row-focus').forEach(function(r){
     r.classList.remove('nav-row-focus', 'bill-row-focus');
@@ -2553,6 +2547,14 @@ function showPayTab(t) {
   if (t === 'bills' && cursor.rowEl && cursor.rowEl.parentNode) {
     cursor.set(cursor.rowEl, cursor.col);
   }
+}
+
+// Sidebar keyboard hints for the active Payables tab. Both tabs render from
+// their FB.keys binding tables (cannot drift from behavior).
+function renderPayHints(tab) {
+  var el = document.getElementById('sb-hints');
+  if (!el) return;
+  FB.keys.renderHints(tab === 'vendors' ? 'vendors' : 'bills', el, { layout: 'list' });
 }
 `;
 }

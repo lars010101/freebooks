@@ -90,10 +90,7 @@ ${commonStyle()}
       <tr id="row-credit" style="display:none"><td style="padding:5px 14px 5px 0">&nbsp;&nbsp;Credit column (inflow/deposit)</td><td><select id="col-cred" class="col-map"></select></td></tr>
       <tr><td style="padding:5px 14px 5px 0"><b>Bank account code</b></td>
         <td style="position:relative">
-          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" autocomplete="off" readonly
-            onfocus="this.removeAttribute('readonly'); onBankAcctInput(this);"
-            oninput="onBankAcctInput(this)"
-            onblur="hideBankAcctDropdown()">
+          <input type="text" id="bank-acct" class="acct" style="width:90px" placeholder="101414" autocomplete="off">
           <span id="bank-acct-hint" style="font-size:9pt;color:#888;margin-left:8px">The asset account for this bank</span>
         </td></tr>
     </table>
@@ -145,7 +142,6 @@ ${commonStyle()}
   var openBills = [];
   var billPanelRowIdx = -1;
 
-  var bankAcctDropdown = null;
   fetch('/api/' + COMPANY + '/accounts')
     .then(function(r){ return r.json(); })
     .then(function(rows){
@@ -163,64 +159,28 @@ ${commonStyle()}
     .then(function(res){ journalsList = res.data || res; })
     .catch(function(){});
 
-  function showBankAcctDropdown(input, matches) {
-    hideBankAcctDropdown();
-    if (!matches.length) return;
-    var rect = input.getBoundingClientRect();
-    var div = document.createElement('div');
-    div.id = 'bank-acct-dd';
-    div.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;'
-      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;min-width:240px;font-size:10pt;'
-      + 'top:'+(rect.bottom+2)+'px;left:'+rect.left+'px';
-    matches.slice(0, 20).forEach(function(a) {
-      var row = document.createElement('div');
-      row.style.cssText = 'padding:6px 10px;cursor:pointer;display:flex;gap:10px;align-items:baseline';
-      row.innerHTML = '<span style="font-weight:600;color:#333;min-width:60px">'+a.code+'</span>'
-        +'<span style="color:#666">'+a.name+'</span>';
-      row.onmousedown = function(e) {
-        e.preventDefault();
-        document.getElementById('bank-acct').value = a.code;
+  // Bank account picker — FB.dropdown (source reads accountsMap live; the
+  // init fetch above populates it, late arrivals still match)
+  (function attachBankAcctDd() {
+    if (!window.FB || !FB.dropdown) return;
+    FB.dropdown.attach(document.getElementById('bank-acct'), {
+      keys: true,
+      minWidth: 240,
+      source: function (q) {
+        q = (q || '').toLowerCase();
+        return Object.keys(accountsMap).sort().map(function (code) {
+          return { code: code, name: accountsMap[code] || '' };
+        }).filter(function (a) {
+          return a.code.toLowerCase().indexOf(q) >= 0 || a.name.toLowerCase().indexOf(q) >= 0;
+        }).map(function (a) { return { primary: a.code, secondary: a.name, data: a }; });
+      },
+      onPick: function (it, inp) {
+        inp.value = it.primary;
         var hint = document.getElementById('bank-acct-hint');
-        if (hint) hint.textContent = a.name;
-        hideBankAcctDropdown();
-      };
-      row.onmouseover = function() { row.style.background='#f0f4ff'; };
-      row.onmouseout = function() { row.style.background=''; };
-      div.appendChild(row);
+        if (hint) hint.textContent = it.secondary || '';
+      }
     });
-    document.body.appendChild(div);
-    bankAcctDropdown = div;
-  }
-
-  function hideBankAcctDropdown() {
-    if (bankAcctDropdown) { bankAcctDropdown.remove(); bankAcctDropdown = null; }
-  }
-
-  function onBankAcctInput(input) {
-    var q = input.value.trim().toLowerCase();
-    if (Object.keys(accountsMap).length === 0) {
-      // Accounts not loaded yet — fetch now then retry
-      fetch('/api/' + COMPANY + '/accounts')
-        .then(function(r){ return r.json(); })
-        .then(function(rows){
-          rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; });
-          onBankAcctInput(input);
-        }).catch(function(){});
-      return;
-    }
-    var allAccounts = Object.keys(accountsMap).sort().map(function(code) {
-      return { code: code, name: accountsMap[code] || '' };
-    });
-    if (!q) {
-      showBankAcctDropdown(input, allAccounts.slice(0, 20));
-      return;
-    }
-    var matches = allAccounts.filter(function(a) {
-      return a.code.toLowerCase().startsWith(q) || a.code.toLowerCase().includes(q)
-        || a.name.toLowerCase().includes(q);
-    });
-    showBankAcctDropdown(input, matches);
-  }
+  })();
 
   function processCSVText(text) {
     var statusEl = document.getElementById('file-status');
@@ -668,7 +628,7 @@ ${commonStyle()}
       + filtered.slice(0,50).map(function(b, i){
           var outstanding = parseFloat(b.outstanding_amount||b.amount||0);
           return '<tr style="cursor:pointer;border-bottom:1px solid #f0f0f0" '
-            +'onmouseover="this.style.background=\'#f0f4ff\'" onmouseout="this.style.background=\'\'\'" '
+            +'onmouseover="this.style.background=\\'#f0f4ff\\'" onmouseout="this.style.background=\\'\\'\\'" '
             +'onclick="selectBill('+JSON.stringify(b)+')" >'
             +'<td style="padding:5px 8px">'+escHtml(b.vendor_name||b.vendor_id||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(b.vendor_ref||'')+'</td>'

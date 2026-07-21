@@ -386,3 +386,66 @@ Pressing `i`/`Enter`/double-click converts **all five editable cells at once** (
 - Save path: `vendorSaveAndExit()` → validate → `vendor.upsert` → `_renderVendorRowDisplay()` rebuilds just that row (keeps the list stable, no full re-render flash). `_vendorSaving` guards re-entrant Esc during the flight.
 - The old cell-cursor machinery is deleted: `vendorSelCol`, `vendorCellEdit`, `vendorCellPreEdit`, `enterVendorCellEdit`/`commitVendorCell`, `vendorMoveRow`/`vendorMoveCol`, per-cell save-on-nav (`vendorDirtyRows`), and the `VENDOR_KEYS` capture listener.
 - `window.fbVendorSelRow` is still maintained — common.js's j/k deferral reads it.
+
+## FB.dropdown — unified validated autocomplete (PROPOSED 2026-07-22, not yet implemented)
+
+### Problem
+
+Three dropdown mechanisms are in play, and the Bills INSERT row itself mixes all of them:
+
+| Mechanism | Where | Issue |
+|-----------|-------|-------|
+| Native `<datalist>` | Bills INSERT AP/expense accounts (`coa-options`), Settings currency list, Bank account code | Popup is browser chrome: unstylable, ignores the app theme, eats ArrowUp/Down/Enter/Esc **before** FB.keys sees them (bypasses the binding table), and does not render at all in headless Chrome (verified 2026-07-22: standalone page, focused input, ArrowDown — no popup) → unverifiable in the contract-test workflow |
+| Native `<select>` | Bills child-line VAT code, plus ~12 configuration pickers | OS-rendered popup; prefix-only type-ahead, no substring/code+name search — unusable for a large COA inside a keyboard-first row |
+| Custom div dropdowns | 9 copies in 3 visual dialects: Payables (square, `#e8f0fe`), Journal/bill-new (4px radius, `#f0f4ff`, flex code+name), Bank (CSS class, 3px radius, 180px max-height) | Work correctly with FB.keys, but are 9 hand-rolled copies with divergent styling, item caps (10/12/15/20), and filter logic |
+
+### Decision
+
+**One app-specific component: `FB.dropdown` (in fb-core.js, styled from common.css).** Native `<datalist>` is eliminated entirely. Native `<select>` is retained **only** for configuration UI (report type/period, FX provider, import column maps, journal pickers, COA type/subtype/cash-flow, rec-account) — low-frequency, mouse-first, not part of keyboard data entry.
+
+### Visual contract
+
+- Container `.fb-dd`: `position:fixed`, app surface/border tokens, square corners, shadow token, `z-index:9999`, `max-height:200px`, `overflow-y:auto`, font matching the input, `min-width` = input width (160px floor for narrow inputs like CCY).
+- Item `.fb-dd-item`: uniform padding token, `white-space:nowrap`, `cursor:pointer`. Coded entities render two-part: primary (code, semibold) + secondary (name, muted). Single-string entities (vendor names) render primary only.
+- Active item `.fb-dd-active`: theme-aware accent background (replaces hardcoded `#e8f0fe` / `#f0f4ff`; must hold up under both ☀ themes).
+- **All styling via CSS classes.** Inline `cssText` dropdown styling is deleted — that is what makes the component themeable.
+
+### Behavior contract
+
+- Opens on `input` when ≥1 match; closes on 0 matches or empty query. At most one dropdown open app-wide; opening closes the previous.
+- **ArrowDown on a focused, attached field with no dropdown open shows the full list** (capped at 12) — faster discovery without typing.
+- Filter: case-insensitive **contains** match on both code and name. Uniform cap of **12** items.
+- Keyboard routes through FB.keys with `when: ddOpen` guards; dropdown bindings precede general INSERT bindings (FB.keys takes the first key+mode+`when` match):
+  - **ArrowUp/Down** — move the active item, **sticky at both ends** (no wraparound; cursor doctrine).
+  - **Enter** — pick active item (or first when none active), close. Does not advance focus.
+  - **Tab** — pick active item, close, then native traversal continues (**pick-and-advance** — decided 2026-07-22).
+  - **Esc** — closes the dropdown only; a second Esc performs the normal INSERT-exit save.
+- Mouse: hover sets active; `mousedown` preventDefault (input keeps focus); click picks; click-outside and 150ms blur close.
+- Selection side-effects (e.g. vendor pick → fill CCY/AP/expense defaults) live in page-level `onPick` callbacks, never in the component.
+
+### Validation semantics
+
+- **Strict fields** (vendor): value must come from a pick or exact match; free text blocks save with a status-bar error (current behavior, unchanged).
+- **Code fields** (accounts, currency, tax code): free text tolerated while typing; validated at save against the source list; invalid → red `.req` border + message, row stays in INSERT.
+
+### API
+
+```
+FB.dropdown.attach(input, {
+  source: function(query) -> [{ primary, secondary, data }]   // sync, from preloaded lists
+  onPick: function(item, input),
+  cap: 12                                                      // optional
+})
+```
+
+Attach once per input at row build. The popup div is created on demand and removed on close; instances are tracked by reference (no global `getElementById` lookups).
+
+### Migration order
+
+1. **P2-1a** — `FB.dropdown` + common.css tokens. Bills INSERT: vendor dd, CCY dd, AP/expense accounts (delete `coa-options` + `_ensureCoaDatalist()`), child-line VAT `<select>` → dropdown.
+2. **P2-1b** — Vendors tab CCY + account dropdowns → component (near-mechanical; same dialect).
+3. **P2-1c** — journal-new `acct-dd`, bank `.acct-dd`, bank-import `bankAcctDropdown`, Settings `currency-list` datalist, Bank account-code datalist → component. Dialects B and C deleted. **bill-new.js is excluded — its dropdowns are rebuilt by the P1-4 full-page editor (decided 2026-07-22).**
+
+### Testing contract
+
+The popup is plain DOM — headless-verifiable, closing the verifiability gap that datalist created. Per migration step, contract tests assert: open/filter on input, active-class movement with sticky ends, Enter pick, Esc layering (dd first, row save second), click-away close, and theme token presence.

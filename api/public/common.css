@@ -18,6 +18,7 @@
   --tb-border:   #e4e8ee;
   --tb-text:     #18243a;
   --accent:      #18293f;
+  --dd-active:   #e8f0fe;
 }
 [data-theme="dark"] {
   --bg:          #0e1520;
@@ -35,6 +36,7 @@
   --tb-border:   #253348;
   --tb-text:     #dce4f2;
   --accent:      #3d6494;
+  --dd-active:   rgba(110,160,255,.18);
 }
 
 html, body { height:100%; }
@@ -454,4 +456,29 @@ tr.nav-row-focus > td input { color: #fff !important; background: transparent !i
   color: #fff;
   border-color: var(--accent);
 }
+
+/* FB.dropdown — the one validated autocomplete (P2-1). Theme-aware via tokens;
+   pages must NOT style dropdowns inline. */
+.fb-dd {
+  position: fixed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  z-index: 9999;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 0.8125rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,.2);
+}
+.fb-dd-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  color: var(--text);
+}
+.fb-dd-item.fb-dd-active { background: var(--dd-active); }
+.fb-dd-primary { font-weight: 600; }
+.fb-dd-secondary { color: var(--text-muted); font-weight: 400; }
 .tb-toggle-btn:hover:not(.tb-active) { background: var(--bg); color: var(--text); }

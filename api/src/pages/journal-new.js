@@ -150,93 +150,42 @@ ${commonStyle()}
       + vatCodes.map(v => '<option value="'+v.vat_code+'"'+(v.vat_code===current?' selected':'')+'>'+v.vat_code+' \u2014 '+v.description+'</option>').join('');
   }
 
-  // ── Account autocomplete ──────────────────────────────────────────────────
-  var acctDropdown = null;
-  var acctDropdownTarget = null;
-
+  // ── Account autocomplete (FB.dropdown) ────────────────────────────────────
   function getAccountList() {
     return Object.keys(accountsMap).map(code => ({ code, name: accountsMap[code] }));
   }
 
-  function showAcctDropdown(input, matches) {
-    hideAcctDropdown();
-    if (!matches.length) return;
-    var rect = input.getBoundingClientRect();
-    var div = document.createElement('div');
-    div.id = 'acct-dd';
-    div.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;'
-      + 'box-shadow:0 3px 10px rgba(0,0,0,.15);max-height:220px;overflow-y:auto;min-width:280px;font-size:10pt;'
-      + 'top:'+(rect.bottom+2)+'px;left:'+rect.left+'px';
-    matches.slice(0, 20).forEach(function(a) {
-      var row = document.createElement('div');
-      row.style.cssText = 'padding:6px 10px;cursor:pointer;display:flex;gap:10px;align-items:baseline';
-      row.innerHTML = '<span style="font-weight:600;color:#333;min-width:70px">'+a.code+'</span>'
-        +'<span style="color:#666">'+a.name+'</span>';
-      row.onmousedown = function(e) {
-        e.preventDefault();
-        selectAccount(a.code, a.name, acctDropdownTarget);
-      };
-      row.onmouseover = function() { row.style.background='#f0f4ff'; };
-      row.onmouseout  = function() { row.style.background=''; };
-      div.appendChild(row);
-    });
-    document.body.appendChild(div);
-    acctDropdown = div;
-    acctDropdownTarget = input;
-  }
-
-  function hideAcctDropdown() {
-    if (acctDropdown) { acctDropdown.remove(); acctDropdown = null; }
-    acctDropdownTarget = null;
-  }
-
-  function selectAccount(code, name, input) {
-    hideAcctDropdown();
+  function pickAccount(acct, input) {
     var tr = input.closest('tr');
     var codeInput = tr.querySelector('.acct-input');
     var nameInput = tr.querySelector('.acct-name-input');
-    codeInput.value = code;
-    nameInput.value = name;
+    codeInput.value = acct.code;
+    nameInput.value = acct.name;
     codeInput.style.color = '';
     nameInput.style.color = '#555';
   }
 
-  function onCodeInput(input) {
-    var q = input.value.trim().toLowerCase();
-    if (!q) { hideAcctDropdown(); return; }
-    var matches = getAccountList().filter(a =>
-      a.code.toLowerCase().startsWith(q) || a.code.toLowerCase().includes(q)
-    ).sort((a, b) => a.code.localeCompare(b.code));
-    // Sync name field if exact match
-    var tr = input.closest('tr');
-    var nameInput = tr.querySelector('.acct-name-input');
-    if (accountsMap[input.value.trim()]) {
-      nameInput.value = accountsMap[input.value.trim()];
-      nameInput.style.color = '#555';
-    } else {
-      nameInput.value = '';
-    }
-    showAcctDropdown(input, matches);
+  function attachAcctDd(input) {
+    if (!window.FB || !FB.dropdown) return;
+    FB.dropdown.attach(input, {
+      keys: true,
+      minWidth: 280,
+      source: function (q) {
+        q = (q || '').toLowerCase();
+        return getAccountList().filter(function (a) {
+          return a.code.toLowerCase().indexOf(q) >= 0 || a.name.toLowerCase().indexOf(q) >= 0;
+        }).map(function (a) { return { primary: a.code, secondary: a.name, data: a }; });
+      },
+      onPick: function (it, inp) { pickAccount(it.data, inp); }
+    });
   }
-
-  function onNameInput(input) {
-    var q = input.value.trim().toLowerCase();
-    if (!q) { hideAcctDropdown(); return; }
-    var matches = getAccountList().filter(a => a.name.toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    showAcctDropdown(input, matches);
-  }
-
-  document.addEventListener('click', function(e) {
-    if (acctDropdown && !acctDropdown.contains(e.target)) hideAcctDropdown();
-  });
   // ──────────────────────────────────────────────────────────────────────────
 
   function addLine() {
     var tr = document.createElement('tr');
     tr.innerHTML =
-      '<td><input type="text" class="acct-input" oninput="onCodeInput(this)" onblur="hideAcctDropdown()" style="width:90px" placeholder="101414"></td>'
-      +'<td><input type="text" class="acct-name-input" oninput="onNameInput(this)" onblur="hideAcctDropdown()" style="width:160px;color:#555;border:1px solid #ddd;border-radius:3px;padding:3px 6px;font-size:10pt" placeholder="search by name"></td>'
+      '<td><input type="text" class="acct-input" style="width:90px" placeholder="101414"></td>'
+      +'<td><input type="text" class="acct-name-input" style="width:160px;color:#555;border:1px solid #ddd;border-radius:3px;padding:3px 6px;font-size:10pt" placeholder="search by name"></td>'
       +'<td><input type="number" class="debit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="number" class="credit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="text" class="desc-input" style="width:160px" placeholder="optional"></td>'
@@ -244,6 +193,19 @@ ${commonStyle()}
       +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove(); updateTotals()">&times;</button></td>';
     document.getElementById('lines-body').appendChild(tr);
     populateTaxSelect(tr.querySelector('.tax-select'));
+    var codeIn = tr.querySelector('.acct-input');
+    attachAcctDd(codeIn);
+    attachAcctDd(tr.querySelector('.acct-name-input'));
+    // Exact code typed → sync the name field (preserved from onCodeInput)
+    codeIn.addEventListener('input', function () {
+      var nameInput = tr.querySelector('.acct-name-input');
+      if (accountsMap[codeIn.value.trim()]) {
+        nameInput.value = accountsMap[codeIn.value.trim()];
+        nameInput.style.color = '#555';
+      } else {
+        nameInput.value = '';
+      }
+    });
     return tr;
   }
 

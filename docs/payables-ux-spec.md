@@ -434,8 +434,9 @@ Three dropdown mechanisms are in play, and the Bills INSERT row itself mixes all
 FB.dropdown.attach(input, {
   source: function(query) -> [{ primary, secondary, data }]   // sync, from preloaded lists
   onPick: function(item, input),
-  cap: 12                                                      // optional
-})
+  cap: 12,                                                     // optional
+  keys: true                                                   // optional — self-bind ArrowUp/Down/Enter/Tab/Esc on the input
+})                                                            // (for pages without FB.keys; FB.keys pages wire via bindings)
 ```
 
 Attach once per input at row build. The popup div is created on demand and removed on close; instances are tracked by reference (no global `getElementById` lookups).

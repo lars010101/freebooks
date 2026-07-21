@@ -316,6 +316,35 @@
         _openWith(inst, q);
       });
       input.addEventListener('blur', function () { setTimeout(function () { _close(inst); }, 150); });
+      // opts.keys: self-bind the behavior-contract keys on the input — for
+      // pages that do not route through FB.keys (journal-new, bank,
+      // bank-import, settings). FB.keys pages leave this off and wire
+      // move/pick/close via their binding tables instead.
+      if (opts.keys) {
+        input.addEventListener('keydown', function (e) {
+          var mine = (_open === inst) && inst.el;
+          if (mine) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              var n = inst.items.length;
+              var i = inst.activeIdx + (e.key === 'ArrowDown' ? 1 : -1);
+              if (i < 0) i = 0;
+              if (i > n - 1) i = n - 1; // sticky at both ends
+              _setActive(inst, i);
+              e.preventDefault();
+            } else if (e.key === 'Enter') {
+              if (_pick(inst)) e.preventDefault();
+            } else if (e.key === 'Tab') {
+              _pick(inst); // pick-and-advance: native traversal proceeds
+            } else if (e.key === 'Escape') {
+              _close(inst);
+              e.stopPropagation(); // page handler sees only the SECOND Esc
+            }
+          } else if (e.key === 'ArrowDown' && !input.value.trim()) {
+            _openWith(inst, ''); // full list on ArrowDown-over-empty
+            e.preventDefault();
+          }
+        });
+      }
       input.__fbdd = inst;
       return inst;
     }

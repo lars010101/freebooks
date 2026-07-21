@@ -355,7 +355,7 @@ function addCompanyRow(co, isNew) {
 
   tr.innerHTML = '<td>' + idCell + '</td>'
     + '<td><input type="text" value="' + (co.company_name || '').replace(/"/g, '&quot;') + '" style="width:160px"></td>'
-    + '<td><input type="text" value="' + (co.base_currency || co.currency || '') + '" maxlength="3" style="width:60px" list="currency-list" oninput="this.value=this.value.toUpperCase()"></td>'
+    + '<td><input type="text" class="co-ccy" value="' + (co.base_currency || co.currency || '') + '" maxlength="3" style="width:60px" oninput="this.value=this.value.toUpperCase()"></td>'
     + '<td><input type="text" value="' + (co.jurisdiction || '') + '" maxlength="10" style="width:55px"></td>'
     + '<td><input type="text" value="' + (co.tax_id || '').replace(/"/g, '&quot;') + '" style="width:120px"></td>'
     + '<td><input type="text" value="' + (co.reporting_standard || '').replace(/"/g, '&quot;') + '" style="width:80px"></td>'
@@ -390,6 +390,7 @@ function addCompanyRow(co, isNew) {
   });
 
   document.getElementById('company-body').appendChild(tr);
+  attachCcyDd(tr.querySelector('.co-ccy'));
   return tr;
 }
 
@@ -808,7 +809,7 @@ function loadJournals() {
 (function() {
   var params = new URLSearchParams(window.location.search);
   var tab = params.get('tab');
-  loadCurrencyDatalist();
+  loadCurrencyList();
   showTab(tab || 'company');
 })();
 
@@ -868,12 +869,14 @@ function addFxRateRow() {
   var today = new Date().toISOString().slice(0, 10);
   tr.innerHTML =
     '<td><input type="date" class="fx-date" style="width:120px" value="' + today + '"></td>' +
-    '<td><input type="text" class="fx-from" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="e.g. USD" list="currency-list"></td>' +
-    '<td><input type="text" class="fx-to" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="e.g. SGD" list="currency-list"></td>' +
+    '<td><input type="text" class="fx-from" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="e.g. USD"></td>' +
+    '<td><input type="text" class="fx-to" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="e.g. SGD"></td>' +
     '<td style="text-align:right"><input type="number" class="fx-rate" step="0.000001" style="width:100px" placeholder="e.g. 1.35"></td>' +
     '<td><span class="ro">manual</span></td>' +
     '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()" style="font-size:9pt">×</button></td>';
   document.getElementById('fx-rates-body').appendChild(tr);
+  attachCcyDd(tr.querySelector('.fx-from'));
+  attachCcyDd(tr.querySelector('.fx-to'));
   tr.querySelector('.fx-from').focus();
 }
 
@@ -924,26 +927,30 @@ function saveFxRates() {
     .catch(function(e){ showMsg('msg-fxrates', e.message, true); });
 }
 
-// ========== CURRENCY DATALIST ==========
-function loadCurrencyDatalist() {
+// ========== CURRENCY LIST (FB.dropdown source) ==========
+var currencyList = [];
+function loadCurrencyList() {
   fetch('/db/currencies.json')
     .then(function(r){ return r.json(); })
-    .then(function(currencies){
-      var datalist = document.getElementById('currency-list');
-      if (!datalist) {
-        datalist = document.createElement('datalist');
-        datalist.id = 'currency-list';
-        document.body.appendChild(datalist);
-      }
-      datalist.innerHTML = '';
-      currencies.forEach(function(c){
-        var opt = document.createElement('option');
-        opt.value = c.code;
-        opt.textContent = c.code + ' — ' + c.name;
-        datalist.appendChild(opt);
-      });
-    })
+    .then(function(currencies){ currencyList = currencies; })
     .catch(function(e){ console.error('Failed to load currencies:', e); });
+}
+
+function attachCcyDd(input) {
+  if (!input || !window.FB || !FB.dropdown) return;
+  FB.dropdown.attach(input, {
+    keys: true,
+    source: function (q) {
+      q = (q || '').toLowerCase();
+      return currencyList.filter(function (c) {
+        return c.code.toLowerCase().indexOf(q) >= 0 || (c.name || '').toLowerCase().indexOf(q) >= 0;
+      }).map(function (c) { return { primary: c.code, secondary: c.name, data: c }; });
+    },
+    onPick: function (it, inp) {
+      inp.value = it.primary;
+      inp.dispatchEvent(new Event('input', { bubbles: true })); // light row-save affordances
+    }
+  });
 }
 
 // ========== FX PROVIDER MANAGEMENT ==========

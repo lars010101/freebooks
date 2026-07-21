@@ -76,6 +76,13 @@ ${commonStyle()}
   .th-inner { display:flex; align-items:center; gap:4px; }
   .th-sort { font-size:0.6875rem; color:#1a1a1a; width:12px; text-align:center; flex-shrink:0; }
   .th-sort:empty { display:none; } /* no reserved gap: header label stays flush with cell content */
+  /* AMOUNT header: label flush right so its text edge matches the right-aligned
+     figures; filter affordance moves left of the label (numeric-header norm). */
+  th[data-col="amount"] .th-inner { justify-content:flex-end; }
+  th[data-col="amount"] .th-filter-btn { margin-left:0; }
+  /* Conditional CCY: column hidden when all visible bills share one currency */
+  #bills-table.single-ccy th[data-col="currency"],
+  #bills-table.single-ccy td.ccy-cell { display:none; }
   .th-filter-btn { margin-left:auto; font-size:0.9375rem; color:#999; padding:3px 6px; border-radius:4px; opacity:0.45; transition:opacity .1s, color .1s; cursor:pointer; line-height:1; }
   th:hover .th-filter-btn { opacity:1; color:#555; }
   th.col-filtered .th-filter-btn { opacity:1; color:#2255cc; }
@@ -254,7 +261,7 @@ ${commonStyle()}
 
   <!-- Table card -->
   <div class="table-card">
-    <table class="data-table">
+    <table class="data-table" id="bills-table">
       <!-- Column weighting (P1-3 density pass, agreed 2026-07-21): vendor is the
            information-dense column; CCY only needs a 3-letter code. Fixed layout
            reads widths from this colgroup. -->
@@ -273,7 +280,7 @@ ${commonStyle()}
           <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-label">Date</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by date">&#8801;</span></div></th>
           <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-label">Due</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by due date">&#8801;</span></div></th>
           <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span><span class="th-filter-btn" title="Filter by reference">&#8801;</span></div></th>
-          <th class="sortable" data-col="amount" data-filter-type="amount" style="text-align:right"><div class="th-inner"><span class="th-label">Amount</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by amount">&#8801;</span></div></th>
+          <th class="sortable" data-col="amount" data-filter-type="amount"><div class="th-inner"><span class="th-filter-btn" title="Filter by amount">&#8801;</span><span class="th-sort"></span><span class="th-label">Amount</span></div></th>
           <th class="sortable" data-col="currency" data-filter-type="list"><div class="th-inner"><span class="th-label">CCY</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by currency">&#8801;</span></div></th>
           <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-label">Status</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by status">&#8801;</span></div></th>
         </tr>

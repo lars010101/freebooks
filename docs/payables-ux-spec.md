@@ -106,8 +106,11 @@ If Esc is pressed on a completely empty draft (no vendor, no date, no child data
 
 - **Dates are compact:** the year is elided when it is the current calendar year ("21 Jul"); prior/future years show the full date ("15 Dec 2025"). The full ISO date is in the cell's `title` (hover tooltip). Numeric-only formats were rejected (locale-ambiguous for a multi-jurisdiction app); the month-name form stays. (Agreed 2026-07-21.)
 - **Column widths are weighted** via `<colgroup>` (fixed layout): VENDOR 24%, DATE 12.5%, DUE 12.5%, REFERENCE 18%, AMOUNT 11%, CCY 7%, STATUS 15% — vendor carries the most information, CCY only a 3-letter code.
+- **CCY column is conditional** (agreed 2026-07-21): when every visible bill shares one currency it carries no information, so it is hidden and VENDOR absorbs the width (24%→31%). It returns automatically in INSERT mode (the CCY input lives there) and whenever the list is mixed. Recompute is DOM-driven (`_refreshCcyVisibility`) so in-place row removals (x), Esc-save conversions, and re-renders all stay correct.
+- **Child-row VAT code/GST input sits in column 7 (under STATUS)**, not under CCY (moved 2026-07-21 so the CCY column can hide cleanly); the `+` add-row icon lives in the column-6 spacer cell (`td.child-spacer`).
 - **Cell side padding is 12px uniformly** (was 18px); vertical rhythm unchanged (th 12px, td 14px).
-- **Header labels sit flush with cell content** (delta 0): the sort arrow lives AFTER the label and collapses when inactive (`.th-sort:empty{display:none}`), so no reserved icon gap. CCY cells are left-aligned like the header (not centered). AMOUNT keeps the Xero pattern: label left, figures right.
+- **Header labels sit flush with cell content** (delta 0): the sort arrow lives AFTER the label and collapses when inactive (`.th-sort:empty{display:none}`), so no reserved icon gap. CCY cells are left-aligned like the header (not centered).
+- **AMOUNT header label is flush RIGHT** with the figures (delta 0); its filter icon (≡) sits left of the label — the numeric-header norm.
 - **INSERT-mode rows use tighter side padding** (10px vs 12px) so edit inputs — especially the browser date-picker chrome — keep working width in the weighted columns.
 
 ## Bill Layout (INSERT Mode)

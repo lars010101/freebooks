@@ -99,6 +99,7 @@ FB.mode.onChange(function(v) {
   var tbody = document.getElementById('bills-tbody');
   if (!tbody) return;
   if (v === 'INSERT') tbody.classList.add('insert-mode'); else tbody.classList.remove('insert-mode');
+  _applyCcyColVisibility(); // CCY column returns while editing (CCY input)
 });
 
 var billAccountsList = [];
@@ -584,6 +585,7 @@ var kbd = {
         cursor.rowEl.remove();
         var afterRows = cursor.getVisibleRows();
         if (afterRows.length) cursor.set(afterRows[Math.max(0, nxtIdx - 1)] || afterRows[0], 0); else cursor.clear();
+        _refreshCcyVisibility(); // currency mix may have changed with this draft gone
         // If saved draft (has bill_id), delete from DB
         if (billIdDraft) {
           fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -797,8 +799,8 @@ function toggleBillLines(billId, parentTr) {
         tr.className = 'child-row';
         tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(line.description || '') + '</td>'
           + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
-          + '<td style="font-size:0.75rem;cursor:pointer;text-align:center;width:50px" title="Edit tax code">' + esc(line.vat_code || '') + '</td>'
-          + '<td></td>';
+          + '<td class="child-spacer"></td>'
+          + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(line.vat_code || '') + '</td>';
         insertAfter.insertAdjacentElement('afterend', tr);
         insertAfter = tr;
       });
@@ -829,8 +831,8 @@ function toggleBillLines(billId, parentTr) {
       var gstCode = pairedGst ? (pairedGst.vat_code || '') : '';
       tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
-        + '<td style="font-size:0.75rem;cursor:pointer;text-align:center;width:50px" title="Edit tax code">' + esc(gstCode) + '</td>'
-        + '<td></td>';
+        + '<td class="child-spacer"></td>'
+        + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(gstCode) + '</td>';
 
       insertAfter.insertAdjacentElement('afterend', tr);
       insertAfter = tr;
@@ -848,7 +850,7 @@ function toggleBillLines(billId, parentTr) {
 
       gstTr.innerHTML = '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + gstLabel + '</td>'
         + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#888">' + Number(line.amount || 0).toFixed(2) + '</td>'
-        + '<td></td>'
+        + '<td class="child-spacer"></td>'
         + '<td></td>';
 
       insertAfter.insertAdjacentElement('afterend', gstTr);
@@ -1073,7 +1075,7 @@ function refreshAddRowIcons(parentRowEl) {
   if (!parentKey) return;
   var allChildren = Array.from(document.querySelectorAll('tr[data-parent-key="' + parentKey + '"]'));
   allChildren.forEach(function(cr, idx) {
-    var lastCell = cr.querySelector('td:last-child');
+    var lastCell = cr.querySelector('td.child-spacer') || cr.querySelector('td:last-child');
     if (!lastCell) return;
     if (idx === allChildren.length - 1) {
       // Last row: add + icon if not already present
@@ -1173,9 +1175,9 @@ function renderDraftChildRows(parentRow, linesList) {
     tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
       + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
       + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+      + '<td class="child-spacer"></td>'
       + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
-      + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>'
-      + '<td></td>';
+      + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
     var descInp = tr.querySelector('input.child-desc');
     var expInp  = tr.querySelector('input.child-expense-acct');
     var amtInp  = tr.querySelectorAll('input')[2];
@@ -1402,9 +1404,9 @@ function createDraftLine(childRow) {
   tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+    + '<td class="child-spacer"></td>'
     + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
-    + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>'
-    + '<td></td>';
+    + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
   var gstSel2 = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
     var opt = document.createElement('option'); opt.value = code; opt.textContent = code + ': ' + taxCodeMap[code]; gstSel2.appendChild(opt);
@@ -1694,9 +1696,9 @@ function insertDraftChildRow(childRow, above) {
   tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
     + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+    + '<td class="child-spacer"></td>'
     + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
-    + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>'
-    + '<td></td>';
+    + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
   var gstSelect = tr.querySelector('select');
   Object.keys(taxCodeMap).forEach(function(code) {
     var opt = document.createElement('option');
@@ -1857,7 +1859,7 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
     + '<td style="white-space:nowrap" title="' + esc(String(dueDate||'').slice(0,10)) + '"><span' + dueCls + '>' + fmtDateShort(dueDate) + '</span></td>'
     + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(vendorRef) + '</a></td>'
     + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(amount).toFixed(2) + '</td>'
-    + '<td style="font-size:0.75rem;color:#666;width:50px" id="ccy-' + esc(billId) + '">' + esc(currency) + '</td>'
+    + '<td class="ccy-cell" style="font-size:0.75rem;color:#666;width:50px" id="ccy-' + esc(billId) + '">' + esc(currency) + '</td>'
     + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00" title="Press p to post draft bill">Draft</span></td>';
 
   // Populate CCY tooltip with FX rate for non-base currency
@@ -1886,6 +1888,7 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   var lastCol = draftParentTr.querySelectorAll('td').length - 1;
   cursor.set(draftParentTr, lastCol);
   draftParentTr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  _refreshCcyVisibility(); // currency may have changed during the edit
 }
 
 // ========== SAVE DRAFT FROM ICON ==========
@@ -2370,6 +2373,33 @@ function applyFilters() {
   renderPage();
 }
 
+// Conditional CCY column: when every visible bill shares one currency the
+// column carries no information — hide it (agreed 2026-07-21). It returns
+// automatically in INSERT mode (the CCY input lives there) and whenever the
+// list is mixed. Vendor absorbs the freed width.
+// _refreshCcyVisibility is DOM-driven (reads the currently rendered parent
+// rows) so it stays correct after in-place row removals (x delete), row
+// conversions (Esc save), and full re-renders alike.
+var _singleCcy = false;
+function _applyCcyColVisibility() {
+  var tbl = document.getElementById('bills-table');
+  if (!tbl) return;
+  var hide = _singleCcy && cursor.mode !== 'INSERT';
+  tbl.classList.toggle('single-ccy', hide);
+  var cols = tbl.querySelectorAll('colgroup col');
+  if (cols.length === 7) {
+    cols[5].style.width = hide ? '0' : '7%';
+    cols[0].style.width = hide ? '31%' : '24%';
+  }
+}
+function _refreshCcyVisibility() {
+  var ccys = {};
+  var rows = document.querySelectorAll('#bills-tbody tr[data-row-type="parent"]');
+  rows.forEach(function(tr) { ccys[tr.dataset.currency || ''] = 1; });
+  _singleCcy = rows.length > 0 && Object.keys(ccys).length === 1;
+  _applyCcyColVisibility();
+}
+
 function renderPage() {
   cursor.clear();
   var rows = filteredBills;
@@ -2377,6 +2407,7 @@ function renderPage() {
   if (!rows.length) {
     showMsg('No bills found.');
     document.getElementById('pagination-row').style.display = 'none';
+    _refreshCcyVisibility();
     return;
   }
 
@@ -2393,7 +2424,7 @@ function renderPage() {
       + '<td style="white-space:nowrap" title="' + esc(due || '') + '"><span' + dueCls + '>' + fmtDateShort(due) + '</span></td>'
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || '') + '</a></td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
-      + '<td style="font-size:0.75rem;color:#666;width:50px" id="ccy-' + esc(String(b.bill_id)) + '" data-bill-date="' + esc(String(b.date||'').slice(0,10)) + '" data-bill-ccy="' + esc(b.currency || BASE_CURRENCY) + '">' + esc(b.currency || BASE_CURRENCY) + '</td>'
+      + '<td class="ccy-cell" style="font-size:0.75rem;color:#666;width:50px" id="ccy-' + esc(String(b.bill_id)) + '" data-bill-date="' + esc(String(b.date||'').slice(0,10)) + '" data-bill-ccy="' + esc(b.currency || BASE_CURRENCY) + '">' + esc(b.currency || BASE_CURRENCY) + '</td>'
       + '<td>' + statusBadge(b.status, due) + '</td>'
       + '</tr>';
   });
@@ -2401,6 +2432,7 @@ function renderPage() {
   if (!tbody) return;
   tbody.innerHTML = html;
   document.getElementById('pagination-row').style.display = 'none';
+  _refreshCcyVisibility();
 
   // Populate CCY tooltips with FX rates for non-base currency display rows
   tbody.querySelectorAll('td[id^="ccy-"]').forEach(function(cell) {

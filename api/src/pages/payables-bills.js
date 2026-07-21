@@ -798,7 +798,7 @@ function toggleBillLines(billId, parentTr) {
         tr.dataset.entryId = line.entry_id || '';
         tr.className = 'child-row';
         tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(line.description || '') + '</td>'
-          + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
+          + '<td class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
           + '<td class="child-spacer"></td>'
           + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(line.vat_code || '') + '</td>';
         insertAfter.insertAdjacentElement('afterend', tr);
@@ -830,7 +830,7 @@ function toggleBillLines(billId, parentTr) {
 
       var gstCode = pairedGst ? (pairedGst.vat_code || '') : '';
       tr.innerHTML = '<td colspan="4" class="child-desc">' + esc(desc) + '</td>'
-        + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
+        + '<td class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(line.amount || 0).toFixed(2) + '</td>'
         + '<td class="child-spacer"></td>'
         + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(gstCode) + '</td>';
 
@@ -849,7 +849,7 @@ function toggleBillLines(billId, parentTr) {
       var gstLabel = codeDesc ? esc(line.vat_code) + ': ' + esc(codeDesc) : esc(line.vat_code || 'GST/VAT');
 
       gstTr.innerHTML = '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + gstLabel + '</td>'
-        + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#888">' + Number(line.amount || 0).toFixed(2) + '</td>'
+        + '<td class="amt" style="text-align:right;font-variant-numeric:tabular-nums;color:#888">' + Number(line.amount || 0).toFixed(2) + '</td>'
         + '<td class="child-spacer"></td>'
         + '<td></td>';
 
@@ -1858,7 +1858,7 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
     + '<td style="white-space:nowrap" title="' + esc(String(billDate||'').slice(0,10)) + '">' + fmtDateShort(billDate) + '</td>'
     + '<td style="white-space:nowrap" title="' + esc(String(dueDate||'').slice(0,10)) + '"><span' + dueCls + '>' + fmtDateShort(dueDate) + '</span></td>'
     + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(vendorRef) + '</a></td>'
-    + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(amount).toFixed(2) + '</td>'
+    + '<td class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(amount).toFixed(2) + '</td>'
     + '<td class="ccy-cell" style="font-size:0.75rem;color:#666;width:50px" id="ccy-' + esc(billId) + '">' + esc(currency) + '</td>'
     + '<td><span class="badge" style="background:#e8e4d0;color:#7a6a00" title="Press p to post draft bill">Draft</span></td>';
 
@@ -2386,10 +2386,10 @@ function _applyCcyColVisibility() {
   if (!tbl) return;
   var hide = _singleCcy && cursor.mode !== 'INSERT';
   tbl.classList.toggle('single-ccy', hide);
+  // Vendor absorbs the freed width; the col collapse handles the hiding.
   var cols = tbl.querySelectorAll('colgroup col');
   if (cols.length === 7) {
-    cols[5].style.width = hide ? '0' : '7%';
-    cols[0].style.width = hide ? '31%' : '24%';
+    cols[0].style.width = hide ? '30%' : '23%';
   }
 }
 function _refreshCcyVisibility() {
@@ -2423,7 +2423,7 @@ function renderPage() {
       + '<td style="white-space:nowrap" title="' + esc(String(b.date||'').slice(0,10)) + '">' + fmtDateShort(b.date) + '</td>'
       + '<td style="white-space:nowrap" title="' + esc(due || '') + '"><span' + dueCls + '>' + fmtDateShort(due) + '</span></td>'
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || '') + '</a></td>'
-      + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
+      + '<td class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
       + '<td class="ccy-cell" style="font-size:0.75rem;color:#666;width:50px" id="ccy-' + esc(String(b.bill_id)) + '" data-bill-date="' + esc(String(b.date||'').slice(0,10)) + '" data-bill-ccy="' + esc(b.currency || BASE_CURRENCY) + '">' + esc(b.currency || BASE_CURRENCY) + '</td>'
       + '<td>' + statusBadge(b.status, due) + '</td>'
       + '</tr>';

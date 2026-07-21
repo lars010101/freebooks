@@ -2534,6 +2534,11 @@ function showMsg(msg) {
 
 // ========== TAB SWITCHER ==========
 function showPayTab(t) {
+  // Leaving Vendors with a row open in INSERT: save-or-discard it first
+  // (tab switch is the click-away/Esc equivalent — one save doctrine).
+  if (t !== 'vendors' && typeof vendorEditRow !== 'undefined' && vendorEditRow >= 0) {
+    vendorSaveAndExit();
+  }
   window.fbBillNav = (t === 'bills');
   ['bills','vendors'].forEach(function(id) {
     document.getElementById('pay-panel-' + id).style.display = (id === t) ? '' : 'none';
@@ -2555,24 +2560,12 @@ function showPayTab(t) {
   }
 }
 
-// Sidebar keyboard hints for the active Payables tab. Bills renders from its
-// FB.keys binding table (cannot drift from behavior); Vendors is a static
-// list UNTIL the Vendors tab migrates onto FB.keys — keep it in sync with
-// payables-vendors.js bindings manually until then.
-var _VENDOR_HINTS = [
-  ['hjkl', 'navigate'], ['i', 'edit cell'], ['a', 'add'], ['d', 'delete'],
-  ['~', 'toggle active'], ['Enter', 'commit'], ['Esc', 'cancel']
-];
+// Sidebar keyboard hints for the active Payables tab. Both tabs render from
+// their FB.keys binding tables (cannot drift from behavior).
 function renderPayHints(tab) {
   var el = document.getElementById('sb-hints');
   if (!el) return;
-  if (tab === 'bills') {
-    FB.keys.renderHints('bills', el, { layout: 'list' });
-  } else {
-    el.innerHTML = _VENDOR_HINTS.map(function(h) {
-      return '<div class="fb-hint-row"><kbd>' + esc(h[0]) + '</kbd><span>' + esc(h[1]) + '</span></div>';
-    }).join('');
-  }
+  FB.keys.renderHints(tab === 'vendors' ? 'vendors' : 'bills', el, { layout: 'list' });
 }
 `;
 }

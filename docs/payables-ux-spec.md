@@ -350,3 +350,39 @@ The following elements from earlier implementations are removed or simplified:
 - `_recomputeChildGst()` and `_initChildGst()` manage the GST input: computed default, supplier-stated override, and reverse-charge read-only state.
 - Event handler conflicts between common.js and payables-bills.js resolved by early `stopImmediatePropagation()` in the bills handler (capture phase) when `fbBillNav` is true.
 - `gg` double-key logic is retained (deeply ingrained vim muscle memory); all other double-key sequences are removed.
+
+## Vendors Tab (migrated onto fb-core 2026-07-22, P1-3)
+
+The Vendors tab runs the **same interaction model as Bills** — it was previously a one-off cell-cursor design (`hjkl` cell movement, per-cell edit with `d`/`~` verbs and a stale hand-written hint claiming "hjkl navigate" while `h/l` actually switched tabs). The migration adopted the Bills model wholesale rather than porting the cell model onto fb-core.
+
+### NORMAL mode
+
+| Key | Mouse | Action |
+|-----|-------|--------|
+| j / k | Click row | Move row selection (sticky at top/bottom, never deselects) |
+| gg / G | — | First / last row |
+| Enter or i | Double-click row | Enter INSERT (row-level edit) |
+| a | — | New vendor row at bottom, immediately in INSERT |
+| x | — | Delete vendor (unsaved row drops silently; saved vendor asks `confirm()`) |
+| ~ | Double-click ACTIVE badge | Toggle active/inactive (saved vendors only) |
+| h / l | Click tab | Switch Bills ↔ Vendors (NOT bound by the tab — falls through to common.js, same as Bills) |
+
+### INSERT mode (row-level — the whole row becomes inputs)
+
+Pressing `i`/`Enter`/double-click converts **all five editable cells at once** (Vendor, CCY, Terms, Expense A/C, AP A/C) into uniform 32px `.draft-input` fields; the ACTIVE badge stays read-only. This mirrors Bills' bill-level INSERT ("isn't it simpler to reuse full edit rather than specific line edit?").
+
+- **Tab / Shift+Tab** traverse the inputs (native); **sticky at the ends** — Tab on the last input (AP) and Shift+Tab on the first (name) stay put, no accidental focus escape.
+- **Esc saves** — the only save trigger, same doctrine as Bills (no cancel path). Validation: name required (red `.req` border + message, stays in INSERT); CCY checked against the currency list. On server error the row stays in INSERT with inputs untouched.
+- **Empty new row + Esc discards** (never creates something from nothing).
+- **Enter also saves** (form convention; matches the pre-migration Enter-commit).
+- **Click-away saves**: clicking another row with an edit open saves first, then selects the clicked row. The async save does NOT reset `vendorSelRow` — the cursor stays where the click moved it (a completion-handler stomp that yanked it back was fixed on day one).
+- **Leaving the tab** (h/l/{/}) with an edit open saves-or-discards it first (`showPayTab` calls `vendorSaveAndExit()`).
+- **Autocomplete dropdowns** (CCY, both account fields): ArrowUp/Down navigate, Enter selects, Tab selects-and-stays, Esc closes the dropdown only (a second Esc saves the row). Dropdown-aware bindings precede general ones — FB.keys takes the FIRST key+mode+`when` match.
+- j/k/a/x/~ are inert in INSERT (letters type into inputs, per the editable-target guard and mode-scoped bindings).
+
+### Mechanics
+
+- Mode is the shared `FB.mode` store; keys are the `FB.keys` binding table `'vendors'` (sidebar hints are generated from it — the static `_VENDOR_HINTS` list is gone).
+- Save path: `vendorSaveAndExit()` → validate → `vendor.upsert` → `_renderVendorRowDisplay()` rebuilds just that row (keeps the list stable, no full re-render flash). `_vendorSaving` guards re-entrant Esc during the flight.
+- The old cell-cursor machinery is deleted: `vendorSelCol`, `vendorCellEdit`, `vendorCellPreEdit`, `enterVendorCellEdit`/`commitVendorCell`, `vendorMoveRow`/`vendorMoveCol`, per-cell save-on-nav (`vendorDirtyRows`), and the `VENDOR_KEYS` capture listener.
+- `window.fbVendorSelRow` is still maintained — common.js's j/k deferral reads it.

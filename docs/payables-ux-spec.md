@@ -102,6 +102,12 @@ There is no discard option. Esc always saves (or discards if empty). Click-away 
 
 If Esc is pressed on a completely empty draft (no vendor, no date, no child data), the draft is discarded rather than saved (`_isDraftEmpty` → `_discardDraftBill`). This prevents empty draft rows from accumulating.
 
+## List Display (NORMAL Mode)
+
+- **Dates are compact:** the year is elided when it is the current calendar year ("21 Jul"); prior/future years show the full date ("15 Dec 2025"). The full ISO date is in the cell's `title` (hover tooltip). Numeric-only formats were rejected (locale-ambiguous for a multi-jurisdiction app); the month-name form stays. (Agreed 2026-07-21.)
+- **Column widths are weighted** via `<colgroup>` (fixed layout): VENDOR 24%, DATE 12.5%, DUE 12.5%, REFERENCE 18%, AMOUNT 11%, CCY 7%, STATUS 15% — vendor carries the most information, CCY only a 3-letter code.
+- **INSERT-mode rows use tighter side padding** (10px vs 14/18px) so edit inputs — especially the browser date-picker chrome — keep working width in the weighted columns.
+
 ## Bill Layout (INSERT Mode)
 
 ### Parent Row (7 columns matching table headers)

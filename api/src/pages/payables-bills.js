@@ -1853,8 +1853,8 @@ function convertDraftRowToDisplay(draftParentTr, billId) {
   var dueCls = isOverdue ? ' class="overdue-date"' : '';
   var rowUrl = '/' + COMPANY + '/bill/' + billId;
   draftParentTr.innerHTML = '<td>' + vendorCell(vendor) + '</td>'
-    + '<td style="white-space:nowrap">' + fmtDate(billDate) + '</td>'
-    + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(dueDate) + '</span></td>'
+    + '<td style="white-space:nowrap" title="' + esc(String(billDate||'').slice(0,10)) + '">' + fmtDateShort(billDate) + '</td>'
+    + '<td style="white-space:nowrap" title="' + esc(String(dueDate||'').slice(0,10)) + '"><span' + dueCls + '>' + fmtDateShort(dueDate) + '</span></td>'
     + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(vendorRef) + '</a></td>'
     + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(amount).toFixed(2) + '</td>'
     + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px" id="ccy-' + esc(billId) + '">' + esc(currency) + '</td>'
@@ -2389,8 +2389,8 @@ function renderPage() {
     var rowUrl = '/' + COMPANY + '/bill/' + b.bill_id;
     html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" data-date="' + esc(b.date||'') + '" data-due-date="' + esc(due || '') + '" data-vendor-ref="' + esc(b.vendor_ref || '') + '" data-amount="' + String(b.amount || 0) + '" data-currency="' + esc(b.currency || BASE_CURRENCY) + '" data-status="' + esc(b.status || '') + '" data-expense-account="' + esc(b.expense_account || '') + '" data-ap-account="' + esc(b.ap_account || '') + '" style="cursor:pointer">'
       + '<td>' + vendorCell(b.vendor) + '</td>'
-      + '<td style="white-space:nowrap">' + fmtDate(b.date) + '</td>'
-      + '<td style="white-space:nowrap"><span' + dueCls + '>' + fmtDate(due) + '</span></td>'
+      + '<td style="white-space:nowrap" title="' + esc(String(b.date||'').slice(0,10)) + '">' + fmtDateShort(b.date) + '</td>'
+      + '<td style="white-space:nowrap" title="' + esc(due || '') + '"><span' + dueCls + '>' + fmtDateShort(due) + '</span></td>'
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || '') + '</a></td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
       + '<td style="font-size:0.75rem;color:#666;text-align:center;width:50px" id="ccy-' + esc(String(b.bill_id)) + '" data-bill-date="' + esc(String(b.date||'').slice(0,10)) + '" data-bill-ccy="' + esc(b.currency || BASE_CURRENCY) + '">' + esc(b.currency || BASE_CURRENCY) + '</td>'
@@ -2468,6 +2468,18 @@ function fmtDate(d) {
   if (parts.length !== 3) return s;
   var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return parts[2] + ' ' + months[parseInt(parts[1],10)-1] + ' ' + parts[0];
+}
+
+// Compact list-row date: elide the year when it is the current calendar year
+// ("21 Jul"); full "21 Jul 2025" otherwise. The full ISO date sits in the
+// cell's title (hover tooltip) — density without losing the unambiguous
+// month-name format. Agreed with magnus 2026-07-21.
+function fmtDateShort(d) {
+  if (!d) return '—';
+  var s = String(d).slice(0, 10);
+  var yr = new Date().toISOString().slice(0, 4);
+  if (s.slice(0, 4) === yr) return fmtDate(s).replace(' ' + yr, '');
+  return fmtDate(s);
 }
 
 function statusBadge(status, dueDate) {

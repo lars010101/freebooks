@@ -53,6 +53,9 @@ ${commonStyle()}
   .data-table thead { position:sticky; top:0; z-index:10; }
   .data-table th { text-align:left; font-size:0.75rem; color:#555; font-weight:600; text-transform:uppercase; letter-spacing:.05em; background:#fafafa; border-bottom:1px solid #e8e8e8; padding:12px 18px; }
   .data-table td { padding:14px 18px; border-bottom:1px solid #f2f2f2; vertical-align:middle; color:#222; }
+  /* INSERT mode: tighter side padding so edit inputs (esp. browser date-picker
+     chrome, ~110px min) keep working width in the tuned colgroup columns. */
+  .data-table tbody.insert-mode td { padding-left:10px; padding-right:10px; }
   .data-table tbody tr:last-child td { border-bottom:none; }
   .data-table tbody tr:hover td { background:#fafafa; }
   /* Suppress hover when keyboard was last input or in INSERT mode */
@@ -251,6 +254,18 @@ ${commonStyle()}
   <!-- Table card -->
   <div class="table-card">
     <table class="data-table">
+      <!-- Column weighting (P1-3 density pass, agreed 2026-07-21): vendor is the
+           information-dense column; CCY only needs a 3-letter code. Fixed layout
+           reads widths from this colgroup. -->
+      <colgroup>
+        <col style="width:24%">   <!-- VENDOR -->
+        <col style="width:12.5%"> <!-- DATE (year-elided "21 Jul" + ISO tooltip) -->
+        <col style="width:12.5%"> <!-- DUE -->
+        <col style="width:18%">   <!-- REFERENCE -->
+        <col style="width:11%">   <!-- AMOUNT -->
+        <col style="width:7%">    <!-- CCY -->
+        <col style="width:15%">   <!-- STATUS -->
+      </colgroup>
       <thead>
         <tr>
           <th class="sortable" data-col="vendor" data-filter-type="text"><div class="th-inner"><span class="th-sort"></span><span class="th-label">Vendor</span><span class="th-filter-btn" title="Filter by vendor">&#8801;</span></div></th>

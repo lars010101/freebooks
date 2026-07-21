@@ -109,6 +109,10 @@ function navBar(company, activeKey) {
     <nav class="sb-nav">
       ${navHtml}
     </nav>
+    <!-- Keyboard hints for the active page/tab, generated from FB.keys binding
+         tables (never hand-maintained). Pages render into this via
+         FB.keys.renderHints(name, document.getElementById('sb-hints'), {layout:'list'}). -->
+    <div class="sb-hints" id="sb-hints"></div>
     <div class="sb-footer">
       <div class="sb-footer-row">
         <button class="sb-icon-action" id="fb-theme-btn" onclick="fbToggleTheme()" title="Toggle theme">

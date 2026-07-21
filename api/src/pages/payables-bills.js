@@ -657,9 +657,9 @@ function fbPageInitPayables() {
   registerBillKeyActions();
   registerVendorKeyActions();
   kbd.register();
-  // Footer hint bar is generated from the same binding table that drives
+  // Sidebar hint panel is generated from the same binding table that drives
   // dispatch (P1-3/P1-6: single source of truth — cannot go stale).
-  FB.keys.renderHints('bills', document.getElementById('fb-bills-hints'));
+  renderPayHints('bills');
   loadBillAccounts();
   _loadCompanyDefaults();
   window.fbBillNav = true;
@@ -1174,7 +1174,7 @@ function renderDraftChildRows(parentRow, linesList) {
     tr.className = 'child-row';
     tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
       + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
-      + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+      + '<td class="amt"><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
       + '<td class="child-spacer"></td>'
       + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
       + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
@@ -1353,8 +1353,8 @@ function createDraftBill(refRow) {
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
-    + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td style="white-space:nowrap"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" style="width:80px" /> <button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></td>';
+    + '<td><input class="draft-input draft-ccy-input" style="text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
+    + '<td><div class="draft-ap-cell"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" /><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft (s)">&#128190;</button></div></td>';
   var insertAfterRow = refRow;
   if (refRow && refRow.dataset.rowType === 'child') {
     var pKey2 = refRow.dataset.parentKey || refRow.dataset.parentId;
@@ -1403,7 +1403,7 @@ function createDraftLine(childRow) {
   tr.className = 'child-row';
   tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
-    + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+    + '<td class="amt"><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
     + '<td class="child-spacer"></td>'
     + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
     + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
@@ -1637,8 +1637,8 @@ function insertDraftParentRow(refRow, above) {
     + '<td><input class="draft-input" type="date" placeholder="Due" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
-    + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
-    + '<td style="white-space:nowrap"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" style="width:80px" /> <span class=\"badge\" style=\"background:#e8e4d0;color:#7a6a00\" title=\"Press p to post draft bill\">Draft</span></td>';
+    + '<td><input class="draft-input" style="text-align:center;text-transform:uppercase" placeholder="CCY" value="' + baseCcy + '" /></td>'
+    + '<td><div class="draft-ap-cell"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(companyDefaultAp) + '" title="AP (creditor) account code" /><span class=\"badge\" style=\"background:#e8e4d0;color:#7a6a00;flex-shrink:0\" title=\"Press p to post draft bill\">Draft</span></div></td>';
   if (refRow && above) {
     refRow.parentElement.insertBefore(tr, refRow);
   } else if (refRow) {
@@ -1695,7 +1695,7 @@ function insertDraftChildRow(childRow, above) {
   tr.className = 'child-row';
   tr.innerHTML = '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" /></td>'
     + '<td><input class="draft-input child-expense-acct" list="coa-options" placeholder="Expense Acct" title="Expense account code" /></td>'
-    + '<td><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
+    + '<td class="amt"><input class="draft-input" type="number" step="0.01" placeholder="0.00" style="text-align:right" /></td>'
     + '<td class="child-spacer"></td>'
     + '<td style="white-space:nowrap"><select class="draft-input" style="background:#fffef5"><option value="">— None —</option></select>'
     + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" style="display:none;width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
@@ -1764,8 +1764,8 @@ function convertDisplayToDraft(parentRow) {
     + '<td><input class="draft-input" type="date" placeholder="Due" value="' + dueDate + '" /></td>'
     + '<td><input class="draft-input" placeholder="Ref" value="' + esc(vendorRef) + '" /></td>'
     + '<td style="text-align:right;color:#aaa;font-style:italic" class="draft-total-amount">0.00</td>'
-    + '<td><input class="draft-input" style="width:50px;text-align:center;text-transform:uppercase" placeholder="CCY" value="' + currency + '" /></td>'
-    + '<td style="white-space:nowrap"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(apAccount) + '" title="AP (creditor) account code" style="width:80px" /> <button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft">&#128190;</button></td>';
+    + '<td><input class="draft-input" style="text-align:center;text-transform:uppercase" placeholder="CCY" value="' + currency + '" /></td>'
+    + '<td><div class="draft-ap-cell"><input class="draft-input draft-ap-account" list="coa-options" placeholder="AP Acct" value="' + esc(apAccount) + '" title="AP (creditor) account code" /><button class="btn-save-draft" onclick="saveDraftFromIcon(this)" title="Save draft">&#128190;</button></div></td>';
 
   // Set vendor input value (escaped in innerHTML for attributes, raw for .value)
   var vInp = parentRow.querySelector('input.draft-vendor-input');
@@ -2376,7 +2376,9 @@ function applyFilters() {
 // Conditional CCY column: when every visible bill shares one currency the
 // column carries no information — hide it (agreed 2026-07-21). It returns
 // automatically in INSERT mode (the CCY input lives there) and whenever the
-// list is mixed. Vendor absorbs the freed width.
+// list is mixed. EXCEPTION (2026-07-22): never hide while a currency filter
+// is active — the column's ≡ is the only way to SEE and CLEAR that filter;
+// hiding it trapped users (had to reload to get foreign bills back).
 // _refreshCcyVisibility is DOM-driven (reads the currently rendered parent
 // rows) so it stays correct after in-place row removals (x delete), row
 // conversions (Esc save), and full re-renders alike.
@@ -2384,13 +2386,10 @@ var _singleCcy = false;
 function _applyCcyColVisibility() {
   var tbl = document.getElementById('bills-table');
   if (!tbl) return;
-  var hide = _singleCcy && cursor.mode !== 'INSERT';
+  var hide = _singleCcy && !colFilters.currency && cursor.mode !== 'INSERT';
   tbl.classList.toggle('single-ccy', hide);
-  // Vendor absorbs the freed width; the col collapse handles the hiding.
-  var cols = tbl.querySelectorAll('colgroup col');
-  if (cols.length === 7) {
-    cols[0].style.width = hide ? '30%' : '23%';
-  }
+  // Column widths are owned by CSS (col.col-* classes + .single-ccy
+  // re-weighting rules) — no JS width juggling here.
 }
 function _refreshCcyVisibility() {
   var ccys = {};
@@ -2541,6 +2540,7 @@ function showPayTab(t) {
     var tabEl = document.getElementById('pay-tab-' + id);
     if (tabEl) tabEl.classList.toggle('active', id === t);
   });
+  renderPayHints(t);
   // Clear stale highlights from both systems when switching tabs
   document.querySelectorAll('tr.nav-row-focus, tr.bill-row-focus').forEach(function(r){
     r.classList.remove('nav-row-focus', 'bill-row-focus');
@@ -2552,6 +2552,26 @@ function showPayTab(t) {
   // causes a disorienting jump.
   if (t === 'bills' && cursor.rowEl && cursor.rowEl.parentNode) {
     cursor.set(cursor.rowEl, cursor.col);
+  }
+}
+
+// Sidebar keyboard hints for the active Payables tab. Bills renders from its
+// FB.keys binding table (cannot drift from behavior); Vendors is a static
+// list UNTIL the Vendors tab migrates onto FB.keys — keep it in sync with
+// payables-vendors.js bindings manually until then.
+var _VENDOR_HINTS = [
+  ['hjkl', 'navigate'], ['i', 'edit cell'], ['a', 'add'], ['d', 'delete'],
+  ['~', 'toggle active'], ['Enter', 'commit'], ['Esc', 'cancel']
+];
+function renderPayHints(tab) {
+  var el = document.getElementById('sb-hints');
+  if (!el) return;
+  if (tab === 'bills') {
+    FB.keys.renderHints('bills', el, { layout: 'list' });
+  } else {
+    el.innerHTML = _VENDOR_HINTS.map(function(h) {
+      return '<div class="fb-hint-row"><kbd>' + esc(h[0]) + '</kbd><span>' + esc(h[1]) + '</span></div>';
+    }).join('');
   }
 }
 `;

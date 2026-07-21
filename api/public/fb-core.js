@@ -149,13 +149,16 @@
       if (!set) return [];
       return set.bindings.filter(function (b) { return b.hintBar && b.hint; });
     },
-    // Renders "j/k navigate · Enter fold · i edit · …" from the binding table
-    // itself — the hint bar is generated, never hand-maintained (P1-6 seed).
-    renderHints: function (name, el) {
+    // Renders hints from the binding table itself — never hand-maintained.
+    // layout 'inline' (default): "j/k navigate  ·  Enter fold  ·  …" single line.
+    // layout 'list': one row per hint (<div class="fb-hint-row"><kbd>…</kbd>
+    // <span>…</span></div>) — used by the sidebar hint panel (#sb-hints).
+    renderHints: function (name, el, opts) {
       if (!el) return;
+      var layout = opts && opts.layout === 'list' ? 'list' : 'inline';
       var LABELS = { 'Escape': 'Esc', ' ': 'Space', 'ArrowDown': '↓', 'ArrowUp': '↑' };
       var hs = keys.hints(name);
-      var parts = [];
+      var groups = [];
       for (var i = 0; i < hs.length; i++) {
         var cur = hs[i];
         var keysLabel = LABELS[cur.key] || cur.key;
@@ -164,9 +167,15 @@
           i++;
           keysLabel += '/' + (LABELS[hs[i].key] || hs[i].key);
         }
-        parts.push(keysLabel + ' ' + cur.hint);
+        groups.push({ keys: keysLabel, hint: cur.hint });
       }
-      el.textContent = parts.join('  ·  ');
+      if (layout === 'list') {
+        el.innerHTML = groups.map(function (g) {
+          return '<div class="fb-hint-row"><kbd>' + esc(g.keys) + '</kbd><span>' + esc(g.hint) + '</span></div>';
+        }).join('');
+      } else {
+        el.textContent = groups.map(function (g) { return g.keys + ' ' + g.hint; }).join('  ·  ');
+      }
     }
   };
 

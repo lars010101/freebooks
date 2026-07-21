@@ -149,6 +149,38 @@ body {
   flex-shrink: 0;
 }
 
+/* ---- Keyboard hints panel (below nav, above footer) ---- */
+/* Content is generated per page/tab from FB.keys binding tables. */
+.sb-hints {
+  padding: 10px 18px 12px;
+  border-top: 1px solid rgba(255,255,255,.07);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.sb-hints:empty { display: none; border-top: none; }
+#sidebar.sb-collapsed .sb-hints { display: none; }
+.fb-hint-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2.5px 0;
+  font-size: 0.6875rem;
+  color: rgba(220,228,242,.42);
+  white-space: nowrap;
+}
+.fb-hint-row kbd {
+  font-family: 'SF Mono', 'Fira Mono', monospace;
+  font-size: 0.625rem;
+  color: rgba(220,228,242,.65);
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 3px;
+  padding: 1px 5px;
+  min-width: 34px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
 /* ---- Vim mode indicator ---- */
 #fb-vim-mode {
   font-size: 9px;

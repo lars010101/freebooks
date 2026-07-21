@@ -158,6 +158,18 @@ const ACTIONS = {
     params: { billId: { type: 'string', required: true } },
   },
 
+  // ── Read models (P1-8) ───────────────────────────────────────────────────
+  'view.bills': {
+    role: 'viewer', mutating: false,
+    description: 'Read model: Payables Bills tab in one call — vendors + bills with embedded lines (draft JSON parsed, posted journal lines). Same filters as bill.list.',
+    params: { status: { type: 'string' }, vendor: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, limit: { type: 'number' }, offset: { type: 'number' } },
+  },
+  'view.bank': {
+    role: 'viewer', mutating: false,
+    description: 'Read model: Bank tab in one call — cash accounts + journals + (when accountCode) reconciliation rows and opening balance.',
+    params: { accountCode: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' } },
+  },
+
   // ── Reports / VAT ────────────────────────────────────────────────────────
   'report.refresh_vat_return': {
     role: 'viewer', mutating: true,

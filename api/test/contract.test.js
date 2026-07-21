@@ -103,6 +103,7 @@ test('permission check: unknown userEmail → 403', async () => {
   assert.equal(body.error.code, 'FORBIDDEN');
 });
 
+
 // ── Bill lifecycle + validation ─────────────────────────────────────────────
 
 function validBill(overrides = {}) {
@@ -337,4 +338,55 @@ test('trial balance report balances (CSV)', async () => {
   }
   assert.ok(Math.abs(dr - cr) < 0.01, `TB balanced: DR ${dr} = CR ${cr}`);
   assert.ok(dr > 0, 'TB has activity');
+});
+// ── Read models (P1-8) ──────────────────────────────────────────────────────
+
+test('view.bills returns vendors + bills with embedded lines (posted AND draft)', async () => {
+  // Posted bill
+  const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'INV-VIEW-1' }) });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  // Draft bill with two lines
+  const d = await api(baseUrl, 'bill.draft.save', {
+    companyId: CO,
+    bill: {
+      vendor: 'Acme Pte Ltd', vendor_ref: 'DRAFT-VIEW-1', date: '2026-07-21', currency: 'SGD',
+      ap_account: AP, status: 'draft',
+      lines: [
+        { description: 'L1', expense_account: EXP, amount: 40, vat_code: '' },
+        { description: 'L2', expense_account: EXP, amount: 60, vat_code: '' },
+      ],
+    },
+  });
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+
+  const v = await api(baseUrl, 'view.bills', { companyId: CO, vendor: 'Acme' });
+  assert.equal(v.status, 200, JSON.stringify(v.body));
+  assert.ok(Array.isArray(v.body.data.vendors), 'vendors array');
+  assert.ok(v.body.data.vendors.length >= 1, 'seeded vendor present');
+  const byRef = Object.fromEntries(v.body.data.bills.map((b) => [b.vendor_ref, b]));
+  const posted = byRef['INV-VIEW-1'];
+  const draft = byRef['DRAFT-VIEW-1'];
+  assert.ok(posted, 'posted bill in view');
+  assert.ok(Array.isArray(posted.lines) && posted.lines.length >= 1, 'posted bill has embedded journal lines');
+  assert.equal(posted.lines[0].account_code, EXP, 'posted line is the expense line');
+  assert.ok(draft, 'draft bill in view');
+  assert.equal(draft.lines.length, 2, 'draft lines parsed from draft_lines JSON');
+  assert.equal(draft.lines[1].description, 'L2');
+  assert.equal(draft.lines[0].account_code, EXP, 'draft line maps expense_account → account_code');
+});
+
+test('view.bank returns cash accounts + journals; reconciliation when accountCode given', async () => {
+  const v = await api(baseUrl, 'view.bank', { companyId: CO });
+  assert.equal(v.status, 200, JSON.stringify(v.body));
+  assert.ok(Array.isArray(v.body.data.accounts), 'accounts array');
+  assert.ok(Array.isArray(v.body.data.journals) && v.body.data.journals.length >= 1, 'seeded journals present');
+  assert.equal(v.body.data.reconciliation, null, 'no accountCode → no reconciliation block');
+
+  const cash = v.body.data.accounts[0];
+  if (cash) {
+    const r = await api(baseUrl, 'view.bank', { companyId: CO, accountCode: cash.account_code, dateFrom: '2026-07-01', dateTo: '2026-07-31' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body.data.reconciliation.rows), 'reconciliation rows array');
+    assert.equal(typeof r.body.data.reconciliation.openingBalance, 'number', 'openingBalance numeric');
+  }
 });

@@ -484,4 +484,4 @@ async function listAllUncleared(ctx) {
   return { rows: rows.map(r => ({ ...r, cleared: false })) };
 }
 
-module.exports = { handleBank };
+module.exports = { handleBank, listReconcile };

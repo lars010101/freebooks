@@ -780,7 +780,7 @@ input[type=date].meta-input { font-size:0.9375rem; min-width:130px; white-space:
     });
   }
 
-  function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  // esc now comes from fb-core.js (window.esc) — P1-3 shared core
 
   function syncGstRow(parentTr) {
     var amtEl = parentTr.querySelector('.lamount');

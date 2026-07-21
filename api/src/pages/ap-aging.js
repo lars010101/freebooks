@@ -293,9 +293,7 @@ function fmt(n) {
   return Number(n).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
 }
 
-function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+// esc now comes from fb-core.js (window.esc) — P1-3 shared core
 <\/script>
 ${layoutEnd()}
 </body>

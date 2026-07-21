@@ -250,7 +250,7 @@ ${commonStyle()}
     postBtn.disabled = !(hasLines && balanced);
   }
 
-  function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  // esc now comes from fb-core.js (window.esc) — P1-3 shared core
 
   function collectLines() {
     var date = document.getElementById('ob-date').value;

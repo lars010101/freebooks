@@ -368,13 +368,7 @@ window.fbKeyActions = {
   }
 };
 
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-function escAttr(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-}
-
+// esc/escAttr now come from fb-core.js (window.esc) — P1-3 shared core
 function statusBadge(status, dueDate) {
   var today = new Date().toISOString().slice(0,10);
   var isOverdue = (status === 'posted' || status === 'partial') && dueDate && String(dueDate).slice(0,10) < today;
@@ -454,10 +448,10 @@ function loadLines() {
     var html = '';
     lines.forEach(function(l){
       html += '<tr>'
-        + '<td><input type="text" value="' + escAttr(l.description||'') + '" '
+        + '<td><input type="text" value="' + esc(l.description||'') + '" '
         + 'class="line-desc-input" '
         + 'title="Click to edit description" '
-        + 'data-entry-id="' + escAttr(l.entry_id||'') + '" '
+        + 'data-entry-id="' + esc(l.entry_id||'') + '" '
         + 'onchange="updateLineDesc(&apos;' + esc(l.entry_id||'') + '&apos;, this.value)">'
         + '</td>'
         + '<td style="text-align:right">' + Number(l.amount||0).toFixed(2) + '</td>'

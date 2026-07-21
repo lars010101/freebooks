@@ -253,7 +253,7 @@ ${commonStyle()}
   .data-table tbody td.vcell-editing { background:#fff !important; color:#222 !important; box-shadow:inset 0 0 0 2px #1a3a6b; padding:3px 8px !important; }
   .data-table tbody td.vcell-editing input { border:none; outline:none; background:transparent; font-size:inherit; font-family:'Helvetica Neue',Arial,sans-serif !important; color:#222 !important; padding:0; box-sizing:border-box; }
   #vendors-body input { font-family:'Helvetica Neue',Arial,sans-serif !important; font-size:inherit !important; }
-  #pay-vendor-ccy-dd, #pay-vendor-acct-dd { font-family:'Helvetica Neue',Arial,sans-serif !important; }
+  .fb-dd { font-family:'Helvetica Neue',Arial,sans-serif; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}

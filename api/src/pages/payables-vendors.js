@@ -11,8 +11,6 @@ function vendorsTabJS() {
 // an empty new row discards), x deletes, ~ toggles active. h/l are NOT bound
 // here — they fall through to common.js and switch tabs, same as Bills.
 var vendorAccountsList = [];
-var vendorAcctActiveInput = null;
-var vendorCcyActiveInput = null;
 var vendorCurrenciesList = [];
 var allVendors = [];
 var vendorSelRow = -1;
@@ -177,12 +175,44 @@ function enterVendorRowEdit(idx) {
     input.setAttribute('autocomplete', 'off');
     input.value = vals[col];
     if (col === 1) {
-      input.oninput = function(){ vendorCcyActiveInput = input; payVendorCcyInput(input); };
-      input.onblur  = function(){ hidePayVendorCcyDd(); };
+      // CCY dropdown (FB.dropdown): contains-match on code or name.
+      loadVendorCurrencies();
+      FB.dropdown.attach(input, {
+        source: function(q) {
+          q = (q || '').trim().toLowerCase();
+          return vendorCurrenciesList.filter(function(c) {
+            if (!q) return true;
+            return (c.code || '').toLowerCase().indexOf(q) >= 0 ||
+                   (c.name || '').toLowerCase().indexOf(q) >= 0;
+          }).map(function(c) {
+            return { primary: (c.code || '').toUpperCase(), secondary: c.name || '', data: { code: (c.code || '').toUpperCase() } };
+          });
+        },
+        onPick: function(item, inp) {
+          inp.value = item.data.code;
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      });
     }
     if (col === 3 || col === 4) {
-      input.oninput = function(){ vendorAcctActiveInput = input; payVendorAcctInput(input); };
-      input.onblur  = function(){ hidePayVendorAcctDd(); };
+      // Account dropdown (FB.dropdown): contains-match on code or name.
+      loadVendorAccounts();
+      FB.dropdown.attach(input, {
+        source: function(q) {
+          q = (q || '').trim().toLowerCase();
+          return vendorAccountsList.filter(function(a) {
+            if (!q) return true;
+            return (a.account_code || '').toLowerCase().indexOf(q) >= 0 ||
+                   (a.account_name || '').toLowerCase().indexOf(q) >= 0;
+          }).map(function(a) {
+            return { primary: a.account_code, secondary: a.account_name || '', data: { code: a.account_code } };
+          });
+        },
+        onPick: function(item, inp) {
+          inp.value = item.data.code;
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      });
     }
     td.appendChild(input);
   });
@@ -351,9 +381,7 @@ function registerVendorKeyActions() {
     var panel = document.getElementById('pay-panel-vendors');
     return !!panel && panel.style.display !== 'none';
   }
-  var ddOpen = function() {
-    return !!(document.getElementById('pay-vendor-acct-dd') || document.getElementById('pay-vendor-ccy-dd'));
-  };
+  var ddOpen = function() { return FB.dropdown.isOpen(); };
   var hasRows = function() { return allVendors.length > 0; };
   var _editTr = function() {
     return vendorEditRow >= 0 ? document.querySelector('#vendors-body tr[data-idx="' + vendorEditRow + '"]') : null;
@@ -410,27 +438,21 @@ function registerVendorKeyActions() {
         run: function() { vendorToggleActive(); } },
       // ── INSERT: autocomplete dropdown open ──
       { key: 'ArrowDown', mode: 'INSERT', when: ddOpen,
-        run: function() {
-          if (document.getElementById('pay-vendor-acct-dd')) moveVendorAcctDd(1); else moveVendorCcyDd(1);
-        } },
+        run: function() { FB.dropdown.move(1); } },
       { key: 'ArrowUp', mode: 'INSERT', when: ddOpen,
-        run: function() {
-          if (document.getElementById('pay-vendor-acct-dd')) moveVendorAcctDd(-1); else moveVendorCcyDd(-1);
-        } },
+        run: function() { FB.dropdown.move(-1); } },
       { key: 'Enter', mode: 'INSERT', when: ddOpen,
-        run: function() {
-          if (document.getElementById('pay-vendor-acct-dd')) selectVendorAcctDdItem(); else selectVendorCcyDdItem();
-        } },
-      { key: 'Tab', mode: 'INSERT', when: ddOpen,
-        run: function() {
-          if (document.getElementById('pay-vendor-acct-dd')) selectVendorAcctDdItem(); else selectVendorCcyDdItem();
-        } },
+        run: function() { FB.dropdown.pick(); } },
+      // Tab = pick-and-advance: pick the active item, then let native Tab
+      // traversal continue — except at the sticky ends (last/first input),
+      // where traversal stays blocked.
+      { key: 'Tab', mode: 'INSERT', when: ddOpen, swallow: false, preventDefault: false,
+        run: function(e) { FB.dropdown.pick(); if (e.shiftKey ? onFirstInput() : onLastInput()) e.preventDefault(); } },
       { key: 'Escape', mode: 'INSERT', when: ddOpen,
-        run: function() {
-          var d1 = document.getElementById('pay-vendor-acct-dd'); if (d1) d1.remove();
-          var d2 = document.getElementById('pay-vendor-ccy-dd'); if (d2) d2.remove();
-          vendorAcctActiveInput = null;
-        } },
+        run: function() { FB.dropdown.close(); } },
+      // ── INSERT: dropdown closed — ArrowDown on a dropdown field opens the full list ──
+      { key: 'ArrowDown', mode: 'INSERT', when: function(e) { return !ddOpen() && FB.dropdown.attachable(e.target); },
+        run: function(e) { FB.dropdown.openFull(e.target); } },
       // ── INSERT: general ──
       { key: 'Escape', mode: 'INSERT', hint: 'save', hintBar: true,
         run: function() { vendorSaveAndExit(); } },
@@ -453,266 +475,6 @@ function registerVendorKeyActions() {
   });
 }
 
-// ========== DRAFT VENDOR DROPDOWN (shared with bills tab) ==========
-function draftVendorInput(input) {
-  var q = input.value.trim().toLowerCase();
-  var dd = document.getElementById('pay-draft-vendor-dd');
-  if (dd) dd.remove();
-  if (!q) return;
-  var matches = allVendors.filter(function(v) {
-    return (v.name || '').toLowerCase().includes(q);
-  }).slice(0, 12);
-  if (!matches.length) return;
-  var div = document.createElement('div');
-  div.id = 'pay-draft-vendor-dd';
-  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:0.8125rem;box-shadow:0 2px 6px rgba(0,0,0,.2)';
-  matches.forEach(function(v, i) {
-    var item = document.createElement('div');
-    item.dataset.vendorId = v.vendor_id || '';
-    item.dataset.idx = String(i);
-    item.textContent = v.name || '';
-    item.style.cssText = 'padding:8px 12px;cursor:pointer;white-space:nowrap';
-    item.onmouseover = function() { clearDraftVendorDdFocus(); item.classList.add('dd-active'); item.style.background = '#e8f0fe'; };
-    item.onmouseout = function() { item.classList.remove('dd-active'); item.style.background = ''; };
-    item.onmousedown = function(e) { e.preventDefault(); };
-    item.onclick = function() {
-      input.dataset.vendorId = v.vendor_id || '';
-      input.dataset.vendorName = v.name || '';
-      input.dataset.apAccount = v.default_ap_account || companyDefaultAp || '';
-      input.dataset.expenseAccount = v.default_expense_account || companyDefaultExpense || '';
-      input.value = v.name || '';
-      var tr = input.closest('tr');
-      if (tr) {
-        var ccyInputs = tr.querySelectorAll('input');
-        if (ccyInputs[4]) ccyInputs[4].value = (v.default_currency || BASE_CURRENCY).toUpperCase();
-      }
-      var dd2 = document.getElementById('pay-draft-vendor-dd');
-      if (dd2) dd2.remove();
-    };
-    div.appendChild(item);
-  });
-  var rect = input.getBoundingClientRect();
-  div.style.left = rect.left + 'px';
-  div.style.top = (rect.bottom + 2) + 'px';
-  div.style.minWidth = rect.width + 'px';
-  document.body.appendChild(div);
-}
-
-function moveDraftVendorDd(dir) {
-  var dd = document.getElementById('pay-draft-vendor-dd');
-  if (!dd) return;
-  var items = Array.from(dd.querySelectorAll('div[data-vendor-id]'));
-  var cur = dd.querySelector('.dd-active');
-  var curIdx = cur ? parseInt(cur.dataset.idx) : -1;
-  var nextIdx = Math.max(0, Math.min(items.length - 1, curIdx + dir));
-  items.forEach(function(el) { el.classList.remove('dd-active'); el.style.background = ''; });
-  var next = items[nextIdx];
-  if (next) { next.classList.add('dd-active'); next.style.background = '#e8f0fe'; next.scrollIntoView({ block: 'nearest' }); }
-}
-
-function clearDraftVendorDdFocus() {
-  var dd = document.getElementById('pay-draft-vendor-dd');
-  if (!dd) return;
-  dd.querySelectorAll('.dd-active').forEach(function(el) { el.classList.remove('dd-active'); el.style.background = ''; });
-}
-
-function draftCcyInput(input) {
-  var q = input.value.trim().toUpperCase();
-  var dd = document.getElementById('pay-draft-ccy-dd');
-  if (dd) dd.remove();
-  if (!q || !vendorCurrenciesList.length) return;
-  var matches = vendorCurrenciesList.filter(function(c){
-    var code = (c.code || '').toUpperCase();
-    return code.startsWith(q) || (c.name || '').toLowerCase().includes(q.toLowerCase());
-  }).slice(0, 10);
-  if (!matches.length) return;
-  var div = document.createElement('div');
-  div.id = 'pay-draft-ccy-dd';
-  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:0.8125rem;box-shadow:0 2px 6px rgba(0,0,0,.2)';
-  matches.forEach(function(c) {
-    var item = document.createElement('div');
-    item.textContent = (c.code || '').toUpperCase() + ' \\u2014 ' + (c.name || '');
-    item.style.cssText = 'padding:8px 12px;cursor:pointer;white-space:nowrap';
-    item.onmouseover = function() { item.style.background = '#e8f0fe'; };
-    item.onmouseout  = function() { item.style.background = ''; };
-    item.onmousedown = function(e) { e.preventDefault(); };
-    item.onclick = function() {
-      input.value = (c.code || '').toUpperCase();
-      input.classList.remove('req');
-      var dd2 = document.getElementById('pay-draft-ccy-dd');
-      if (dd2) dd2.remove();
-    };
-    div.appendChild(item);
-  });
-  var rect = input.getBoundingClientRect();
-  div.style.left = rect.left + 'px';
-  div.style.top = (rect.bottom + 2) + 'px';
-  div.style.minWidth = '160px';
-  document.body.appendChild(div);
-}
-
-function moveDraftCcyDd(dir) {
-  var dd = document.getElementById('pay-draft-ccy-dd');
-  if (!dd) return;
-  var items = Array.from(dd.querySelectorAll('div'));
-  var cur = dd.querySelector('.dd-active');
-  var curIdx = items.indexOf(cur);
-  var nextIdx = Math.max(0, Math.min(items.length - 1, (curIdx < 0 ? (dir > 0 ? 0 : items.length - 1) : curIdx + dir)));
-  items.forEach(function(el) { el.classList.remove('dd-active'); el.style.background = ''; });
-  var next = items[nextIdx];
-  if (next) { next.classList.add('dd-active'); next.style.background = '#e8f0fe'; next.scrollIntoView({ block: 'nearest' }); }
-}
-
-// ── Currency autocomplete (vendor tab) ───────────────────────────────
-function payVendorCcyInput(input) {
-  loadVendorCurrencies();
-  vendorCcyActiveInput = input;
-  var q = input.value.trim().toUpperCase();
-  var dd = document.getElementById('pay-vendor-ccy-dd');
-  if (dd) dd.remove();
-  if (!q) return;
-  var matches = vendorCurrenciesList.filter(function(c){
-    return (c.code||'').toUpperCase().startsWith(q) || (c.name||'').toUpperCase().includes(q);
-  }).slice(0, 10);
-  if (!matches.length) return;
-  var div = document.createElement('div');
-  div.id = 'pay-vendor-ccy-dd';
-  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:220px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2);min-width:200px';
-  matches.forEach(function(c, i){
-    var item = document.createElement('div');
-    item.dataset.ccyCode = c.code;
-    item.dataset.idx = String(i);
-    item.textContent = c.code + '  \\u2014  ' + (c.name || '');
-    item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap';
-    item.onmouseover = function(){ clearVendorCcyDdFocus(); item.classList.add('dd-active'); item.style.background='#e8f0fe'; };
-    item.onmouseout  = function(){ item.classList.remove('dd-active'); item.style.background=''; };
-    item.onmousedown = function(e){ e.preventDefault(); };
-    item.onclick = function(){
-      input.value = c.code;
-      var dd2 = document.getElementById('pay-vendor-ccy-dd');
-      if (dd2) dd2.remove();
-    };
-    div.appendChild(item);
-  });
-  var rect = input.getBoundingClientRect();
-  div.style.left = rect.left + 'px';
-  div.style.top  = (rect.bottom + 2) + 'px';
-  document.body.appendChild(div);
-}
-
-function clearVendorCcyDdFocus() {
-  var dd = document.getElementById('pay-vendor-ccy-dd');
-  if (!dd) return;
-  dd.querySelectorAll('.dd-active').forEach(function(el){ el.classList.remove('dd-active'); el.style.background=''; });
-}
-
-function moveVendorCcyDd(dir) {
-  var dd = document.getElementById('pay-vendor-ccy-dd');
-  if (!dd) return;
-  var items = dd.querySelectorAll('[data-ccy-code]');
-  if (!items.length) return;
-  var cur = dd.querySelector('.dd-active');
-  var curIdx = cur ? parseInt(cur.dataset.idx) : -1;
-  var nextIdx = Math.max(0, Math.min(items.length - 1, curIdx + dir));
-  clearVendorCcyDdFocus();
-  var next = items[nextIdx];
-  next.classList.add('dd-active'); next.style.background = '#e8f0fe';
-  next.scrollIntoView({ block: 'nearest' });
-}
-
-function selectVendorCcyDdItem() {
-  var dd = document.getElementById('pay-vendor-ccy-dd');
-  if (!dd) return false;
-  var cur = dd.querySelector('.dd-active') || dd.querySelector('[data-ccy-code]');
-  if (!cur) return false;
-  if (vendorCcyActiveInput) vendorCcyActiveInput.value = cur.dataset.ccyCode;
-  dd.remove();
-  vendorCcyActiveInput = null;
-  return true;
-}
-
-function hidePayVendorCcyDd() {
-  setTimeout(function(){ var dd = document.getElementById('pay-vendor-ccy-dd'); if (dd) dd.remove(); }, 150);
-}
-
-// ── Account autocomplete (vendor tab) ───────────────────────────────
-function clearVendorAcctDdFocus() {
-  var dd = document.getElementById('pay-vendor-acct-dd');
-  if (!dd) return;
-  dd.querySelectorAll('.dd-active').forEach(function(el){ el.classList.remove('dd-active'); el.style.background=''; });
-}
-
-function moveVendorAcctDd(dir) {
-  var dd = document.getElementById('pay-vendor-acct-dd');
-  if (!dd) return;
-  var items = dd.querySelectorAll('[data-acct-code]');
-  if (!items.length) return;
-  var cur = dd.querySelector('.dd-active');
-  var curIdx = cur ? parseInt(cur.dataset.idx) : -1;
-  var nextIdx = Math.max(0, Math.min(items.length - 1, curIdx + dir));
-  clearVendorAcctDdFocus();
-  var next = items[nextIdx];
-  next.classList.add('dd-active'); next.style.background = '#e8f0fe';
-  next.scrollIntoView({ block: 'nearest' });
-}
-
-function selectVendorAcctDdItem() {
-  var dd = document.getElementById('pay-vendor-acct-dd');
-  if (!dd) return false;
-  var cur = dd.querySelector('.dd-active') || dd.querySelector('[data-acct-code]');
-  if (!cur) return false;
-  if (vendorAcctActiveInput) {
-    vendorAcctActiveInput.value = cur.dataset.acctCode;
-    vendorAcctActiveInput.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-  dd.remove(); vendorAcctActiveInput = null;
-  return true;
-}
-
-function payVendorAcctInput(input) {
-  loadVendorAccounts();
-  vendorAcctActiveInput = input;
-  var q = input.value.trim().toLowerCase();
-  var dd = document.getElementById('pay-vendor-acct-dd');
-  if (dd) dd.remove();
-  if (!q) return;
-  var matches = vendorAccountsList.filter(function(a){
-    return (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q);
-  }).slice(0, 12);
-  if (!matches.length) return;
-  var div = document.createElement('div');
-  div.id = 'pay-vendor-acct-dd';
-  div.style.cssText = 'position:fixed;background:#fff;border:1px solid #ccc;z-index:9999;max-height:200px;overflow-y:auto;font-size:11px;box-shadow:0 2px 6px rgba(0,0,0,.2)';
-  matches.forEach(function(a, mi){
-    var item = document.createElement('div');
-    item.dataset.acctCode = a.account_code;
-    item.dataset.idx = String(mi);
-    item.textContent = a.account_code + ' \\u2014 ' + a.account_name;
-    item.style.cssText = 'padding:6px 10px;cursor:pointer;white-space:nowrap;font-size:11px';
-    item.onmouseover = function(){ clearVendorAcctDdFocus(); item.classList.add('dd-active'); item.style.background='#e8f0fe'; };
-    item.onmouseout  = function(){ item.classList.remove('dd-active'); item.style.background=''; };
-    item.onmousedown = function(e){ e.preventDefault(); };
-    item.onclick = function(){
-      if (vendorAcctActiveInput) {
-        vendorAcctActiveInput.value = a.account_code;
-        vendorAcctActiveInput.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      var d = document.getElementById('pay-vendor-acct-dd');
-      if (d) d.remove();
-      vendorAcctActiveInput = null;
-    };
-    div.appendChild(item);
-  });
-  var rect = input.getBoundingClientRect();
-  div.style.left = rect.left + 'px';
-  div.style.top  = (rect.bottom + 2) + 'px';
-  div.style.minWidth = rect.width + 'px';
-  document.body.appendChild(div);
-}
-
-function hidePayVendorAcctDd() {
-  setTimeout(function(){ var dd = document.getElementById('pay-vendor-acct-dd'); if (dd) dd.remove(); }, 150);
-}
 `;
 }
 

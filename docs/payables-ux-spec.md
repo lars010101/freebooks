@@ -507,9 +507,9 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 | Attachments panel | **Migrates** | The one capability worth keeping — rebuilt in the editor's zone 3 |
 | Form-style page chrome (`rem` typography, card styling) | **Deleted** | Editor uses app tokens/pt, sidebar, hints chrome |
 
-### Open questions for magnus
+### Decisions (magnus, 2026-07-22)
 
-1. **Entry point:** toolbar `+ Bill` link currently → bill-new. Proposal: `+ Bill` opens the **editor** (create path), tree-table stays default via `o` in the list. `O` from Bills tab also opens editor. Agree?
-2. **Inline-edit threshold:** `i` on a saved draft with > N lines opens the editor instead of inline INSERT. Proposal: N = 5. Or keep `i` always inline and editor only via explicit entry points?
-3. **Attachments on unsaved bill:** stage client-side until first save (bill-new behavior) or force save-then-attach (simpler, one less state)? I lean stage-client-side (fewer forced round-trips).
-4. **Per-line cost centers:** bill-new doesn't have them either. Skip for now (centers exist in schema/settings only)?
+1. **Entry points:** `+ Bill` toolbar link → the editor (create path). `o` in the Bills list stays the default quick path (tree-table INSERT). `O` (shift-o) from the Bills tab → editor, new bill.
+2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity (answering "do mouse users always get the editor?"): **no** — double-click = inline (mirrors `i`); a hover pencil affordance on draft rows = editor (mirrors `I`), same hover-icon pattern as the delete affordance, no always-visible chrome.
+3. **Attachments on unsaved bills stage client-side** until the first save binds them (bill-new's reenter behavior, minus its FX hackery).
+4. **Per-line cost/profit centers: INCLUDED** (reversing the draft's skip). The ledger already carries them — `journal_entries.cost_center/profit_center`, bill-header fields, `centers` master data, and `createBill` threads header centers into journal lines. Editor adds a per-line center column (FB.dropdown over `center.list`, default from header, overridable); backend extends the `draft_lines` line shape with `cost_center`/`profit_center` and maps line-level centers onto journal lines at post (falling back to header centers when a line has none).

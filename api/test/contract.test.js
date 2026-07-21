@@ -74,6 +74,29 @@ test('missing required params are named (catalog validation)', async () => {
   assert.deepEqual(j.body.error.details.missing, ['lines']);
 });
 
+test('param type mismatches are named (catalog strict types)', async () => {
+  // lines must be an array — a string 400s with the field + expected type named
+  const r = await api(baseUrl, 'journal.post', { companyId: CO, lines: 'not-an-array' });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.error.code, 'INVALID_INPUT');
+  assert.match(r.body.error.details.typeMismatch[0], /lines \(expected array/);
+
+  // bill must be an object — a string 400s
+  const b = await api(baseUrl, 'bill.create', { companyId: CO, bill: 'x' });
+  assert.equal(b.status, 400);
+  assert.match(b.body.error.details.typeMismatch[0], /bill \(expected object/);
+
+  // amount accepts numeric strings (form-encoded callers) — passes dispatch,
+  // then fails INSIDE bill.match (or succeeds) but never with a type 400
+  const m = await api(baseUrl, 'bill.match', { companyId: CO, amount: '100.50', currency: 'SGD' });
+  assert.notEqual(m.status, 400, 'numeric string must pass the number type check');
+
+  // date must look like YYYY-MM-DD — garbage 400s
+  const d = await api(baseUrl, 'fx.rates.get', { companyId: CO, fromCurrency: 'USD', toCurrency: 'SGD', date: 'yesterday' });
+  assert.equal(d.status, 400);
+  assert.match(d.body.error.details.typeMismatch[0], /date \(expected date/);
+});
+
 test('permission check: unknown userEmail → 403', async () => {
   const { status, body } = await api(baseUrl, 'bill.list', { companyId: CO, userEmail: 'stranger@x' });
   assert.equal(status, 403);

@@ -180,6 +180,22 @@ async function handleApiRequest(req, res) {
       if (missing.length > 0) {
         return fail(res, 'INVALID_INPUT', `Missing required parameter${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`, { missing });
       }
+      // P1-1 (strict): declared types are enforced, not advisory. Numeric
+      // strings are accepted for 'number' (form-encoded callers) and coerced.
+      const TYPE_CHECK = {
+        string: (v) => typeof v === 'string',
+        number: (v) => (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))),
+        boolean: (v) => typeof v === 'boolean' || v === 'true' || v === 'false',
+        object: (v) => v !== null && typeof v === 'object' && !Array.isArray(v),
+        array: (v) => Array.isArray(v),
+        date: (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v),
+      };
+      const badType = Object.entries(meta.params)
+        .filter(([name, p]) => body[name] !== undefined && body[name] !== null && p.type && TYPE_CHECK[p.type] && !TYPE_CHECK[p.type](body[name]))
+        .map(([name, p]) => `${name} (expected ${p.type}, got ${Array.isArray(body[name]) ? 'array' : typeof body[name]})`);
+      if (badType.length > 0) {
+        return fail(res, 'INVALID_INPUT', `Parameter type mismatch: ${badType.join(', ')}`, { typeMismatch: badType });
+      }
     }
 
     // ── P0-1: idempotency check (dispatch-level, before handler execution) ──

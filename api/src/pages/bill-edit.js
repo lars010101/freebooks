@@ -165,10 +165,19 @@ Promise.all([
     addLine({});
   }
   wireHeader();
-  document.getElementById('be-vendor').focus();
   if (S.billId) document.getElementById('be-title').innerHTML = 'Edit draft bill <span style="color:#888;font-weight:400;font-size:10pt">— full editor</span>';
   updateTotals();
   takeSnapshot(); // baseline for dirty tracking
+}).catch(function (e) {
+  // Surface init failures in the status bar instead of dying silently —
+  // a rejected fetch previously left the page static-HTML-only with no focus.
+  msg('Load error: ' + (e && e.message ? e.message : e), 'err');
+}).finally(function () {
+  // Focus asserts unconditionally (even on wiring failure) and re-asserts
+  // after paint to win any race with fbNavigate's post-swap work.
+  var v = document.getElementById('be-vendor');
+  if (v) v.focus();
+  setTimeout(function () { var v2 = document.getElementById('be-vendor'); if (v2) v2.focus(); }, 50);
 });
 
 async function prefillFromDraft(id) {

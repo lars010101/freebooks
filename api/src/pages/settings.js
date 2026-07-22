@@ -46,7 +46,7 @@ ${commonStyle()}
   button.btn-primary:hover { background:#333; }
   button.btn-primary:disabled { background:#ccc; color:#666; cursor:not-allowed; }
   /* Periods modal-edit doctrine (docs/settings-ux-spec.md) */
-  #tab-periods tbody td { cursor:text; }
+  #tab-periods tbody td, #tab-coa tbody td, #tab-vat tbody td, #tab-journals tbody td { cursor:text; }
   tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 #d97706; }
   .dirty-val { color:#b45309; }
   tr.row-editing > td { background:#fffbeb; }
@@ -73,9 +73,9 @@ ${commonStyle()}
   <div class="tabs">
     <div class="tab active" onclick="showTab('company')">Company</div>
     <div class="tab" onclick="showTab('periods')">Periods<span id="tab-dot-periods" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" onclick="showTab('coa')">Chart of Accounts</div>
-    <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes</div>
-    <div class="tab" onclick="showTab('journals')">Journals</div>
+    <div class="tab" onclick="showTab('coa')">Chart of Accounts<span id="tab-dot-coa" style="display:none;color:#d97706"> ●</span></div>
+    <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span></div>
+    <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('fxrates')">Exchange Rates</div>
   </div>
 
@@ -254,10 +254,16 @@ function showTab(t) {
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
-  // Sidebar hints: Periods renders its FB.keys binding table (cannot drift);
+  // Sidebar hints: migrated tabs render their FB.keys binding table (cannot drift);
   // unmigrated tabs show no hints.
   var hintEl = document.getElementById('sb-hints');
-  if (hintEl) { if (t === 'periods') renderPeriodHints(); else hintEl.innerHTML = ''; }
+  if (hintEl) {
+    if (t === 'periods') renderPeriodHints();
+    else if (t === 'coa') renderCoaHints();
+    else if (t === 'vat') renderVatHints();
+    else if (t === 'journals') renderJournalHints();
+    else hintEl.innerHTML = '';
+  }
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
     if (t === 'company')  { loadCompanies(); loadDefaultAccounts(); }
@@ -856,259 +862,817 @@ function loadCompanies() {
     .catch(function (e) { console.error('loadCompanies:', e); });
 }
 
-// ========== COA ==========
-var coaData = [];
+// ========== COA — modal edit doctrine (docs/settings-ux-spec.md) ==========
+var coaSaved = [];
+var coaDirty = {};
+var coaGhostN = 0;
+var coaEditIdx = -1;
+var coaNav = null;
+var coaFilterQ = '';
 var SUBTYPES = ['','Current Asset','Non-Current Asset','Current Liability','Non-Current Liability','Equity','Revenue','COGS','Operating Expense','Non-Operating Expense','Closing'];
 var CF_CATS_COA = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded'];
 var ACCT_TYPES = ['Asset','Liability','Equity','Revenue','Expense','Closing'];
-function addCoaRow(a, isNew) {
-  isNew = isNew || false;
-  var tr = document.createElement('tr');
-  tr.dataset.accountCode = isNew ? '' : (a.account_code || '');
-  tr.dataset.isNew = isNew ? '1' : '0';
-  var codeCell = isNew
-    ? '<input type="text" value="" style="width:80px">'
-    : '<span class="ro">' + a.account_code + '</span>';
-  var typeCell = isNew
-    ? '<select style="width:90px">' + ACCT_TYPES.map(function(t){ return '<option>'+t+'</option>'; }).join('') + '</select>'
-    : '<span class="ro">' + (a.account_type||'') + '</span>';
-  var subtypeOpts = SUBTYPES.map(function(s){ return '<option value="'+s+'"'+(s===(a.account_subtype||'')?' selected':'')+'>'+s+'</option>'; }).join('');
-  var cfOpts = CF_CATS_COA.map(function(c){ return '<option value="'+c+'"'+(c===(a.cf_category||'')?' selected':'')+'>'+c+'</option>'; }).join('');
-  tr.innerHTML = '<td>' + codeCell + '</td>'
-    + '<td><input type="text" value="'+(a.account_name||'').replace(/"/g,'&quot;')+'" style="width:200px"></td>'
-    + '<td>' + typeCell + '</td>'
-    + '<td><select style="width:140px">'+subtypeOpts+'</select></td>'
-    + '<td><select style="width:100px">'+cfOpts+'</select></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(a.is_active===true?' checked':'')+' ></td>'
-    + '<td style="white-space:nowrap;text-align:right"></td>';
-  var saveBtn = document.createElement('button');
-  saveBtn.className = 'btn-sm';
-  saveBtn.innerHTML = '\u{1F4BE}';
-  saveBtn.title = 'Save';
-  saveBtn.style.cssText = 'opacity:'+(isNew?'1':'0.35')+';margin-right:4px';
-  saveBtn.onclick = function(){ saveCoaRow(tr); };
-  var delBtn = document.createElement('button');
-  delBtn.className = 'btn-sm danger';
-  delBtn.innerHTML = '\u2715';
-  delBtn.title = 'Delete';
-  delBtn.onclick = function(){ deleteCoaRow(tr); };
-  tr.cells[tr.cells.length-1].appendChild(saveBtn);
-  tr.cells[tr.cells.length-1].appendChild(delBtn);
-  tr.querySelectorAll('input,select').forEach(function(el){
-    el.addEventListener('input', function(){ saveBtn.style.opacity='1'; if(isNew&&el===tr.cells[0].querySelector('input')&&el.value.trim()){appendBlankCoaRow();} });
-    el.addEventListener('change', function(){ saveBtn.style.opacity='1'; });
+
+function coaRows() { return Array.from(document.querySelectorAll('#coa-body tr')); }
+
+function coaMerged() {
+  var out = coaSaved.map(function(a) {
+    var d = coaDirty[a.account_code];
+    if (d) return { account_code: a.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype, cf_category: d.cf_category, is_active: d.is_active, _dirty: true, _key: a.account_code, _isNew: false };
+    return { account_code: a.account_code, account_name: a.account_name, account_type: a.account_type, account_subtype: a.account_subtype, cf_category: a.cf_category, is_active: a.is_active, _dirty: false, _key: a.account_code, _isNew: false };
   });
-  document.getElementById('coa-body').appendChild(tr);
-  return tr;
+  Object.keys(coaDirty).forEach(function(k) {
+    var d = coaDirty[k];
+    if (d && d.isNew) out.push({ account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype, cf_category: d.cf_category, is_active: d.is_active, _dirty: true, _key: k, _isNew: true });
+  });
+  var q = coaFilterQ.toLowerCase();
+  if (q) out = out.filter(function(a){ return (a.account_code||'').toLowerCase().indexOf(q) >= 0 || (a.account_name||'').toLowerCase().indexOf(q) >= 0; });
+  return out;
 }
-function appendBlankCoaRow() {
+
+function coaAnyDirty() { return coaEditIdx >= 0 || Object.keys(coaDirty).length > 0; }
+
+function syncCoaChrome() {
+  var dirty = coaAnyDirty();
+  var dot = document.getElementById('tab-dot-coa');
+  if (dot) dot.style.display = dirty ? '' : 'none';
+  if (dirty) markDirty('coa'); else resetDirty('coa');
+}
+
+function validateCoaBuf(d) {
+  if (!d.account_code || !d.account_name || !d.account_type) return 'Code, name and type required';
+  return null;
+}
+
+function renderCoa(focusKey) {
   var tbody = document.getElementById('coa-body');
-  var rows = tbody ? tbody.querySelectorAll('tr') : [];
-  if (rows.length>0){ var li=rows[rows.length-1].cells[0].querySelector('input'); if(li&&!li.value.trim()) return; }
-  addCoaRow({}, true);
+  if (!tbody) return;
+  var merged = coaMerged();
+  tbody.innerHTML = merged.map(function(a, i) {
+    var code = a.account_code ? esc(a.account_code) : '<span class="pe-ro">—</span>';
+    var name = a.account_name ? esc(a.account_name) : '<span class="pe-ro">—</span>';
+    var type = a.account_type ? esc(a.account_type) : '<span class="pe-ro">—</span>';
+    var subtype = a.account_subtype ? esc(a.account_subtype) : '<span class="pe-ro">—</span>';
+    var cf = a.cf_category ? esc(a.cf_category) : '<span class="pe-ro">—</span>';
+    var active = a.is_active ? 'Yes' : 'No';
+    if (a._dirty) {
+      code = '<span class="dirty-val">' + code + '</span>';
+      name = '<span class="dirty-val">' + name + '</span>';
+      type = '<span class="dirty-val">' + type + '</span>';
+      subtype = '<span class="dirty-val">' + subtype + '</span>';
+      cf = '<span class="dirty-val">' + cf + '</span>';
+      active = '<span class="dirty-val">' + active + '</span>';
+    }
+    var actions = a._dirty
+      ? '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeCoaRowAt(' + i + ')">✓</a> <a class="chip chip-cancel" title="revert (u)" onclick="event.stopPropagation();revertCoaRowAt(' + i + ')">✕</a>'
+      : '';
+    return '<tr' + (a._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(a._key) + '">'
+      + '<td data-field="code">' + code + '</td>'
+      + '<td data-field="name">' + name + '</td>'
+      + '<td data-field="type">' + type + '</td>'
+      + '<td data-field="subtype">' + subtype + '</td>'
+      + '<td data-field="cf">' + cf + '</td>'
+      + '<td data-field="active" style="text-align:center">' + active + '</td>'
+      + '<td class="row-actions">' + actions + '</td></tr>';
+  }).join('');
+  Array.from(tbody.querySelectorAll('tr')).forEach(function(tr) {
+    tr.addEventListener('click', function(e) {
+      if (coaNav) coaNav.set(tr);
+      var td = e.target.closest('td');
+      if (!td || td.classList.contains('row-actions')) return;
+      enterCoaEdit(+tr.dataset.idx, td.dataset.field || undefined);
+    });
+  });
+  if (coaNav) {
+    var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
+    coaNav.set(target || coaRows()[0] || null);
+  }
 }
-function saveCoaRow(tr) {
-  var isNew = tr.dataset.isNew === '1';
-  var codeEl = tr.cells[0].querySelector('input,span.ro');
-  var nameEl = tr.cells[1].querySelector('input');
-  var typeEl = tr.cells[2].querySelector('select,span.ro');
-  var subtypeEl = tr.cells[3].querySelector('select');
-  var cfEl = tr.cells[4].querySelector('select');
-  var activeEl = tr.cells[5].querySelector('input[type=checkbox]');
-  var code = (codeEl && codeEl.value !== undefined ? codeEl.value : codeEl.textContent).trim();
-  var name = nameEl ? nameEl.value.trim() : '';
-  var type = (typeEl && typeEl.value !== undefined ? typeEl.value : typeEl.textContent).trim();
-  if (!code||!name||!type) { var m=document.getElementById('msg-coa'); if(m){m.textContent='Code, name and type required';m.className='msg err';} return; }
-  var account = { account_code: code, account_name: name, account_type: type, account_subtype: subtypeEl?subtypeEl.value||null:null, cf_category: cfEl?cfEl.value||null:null, is_active: activeEl?activeEl.checked:true };
-  var saveBtn = tr.querySelector('button.btn-sm:not(.danger)');
-  if (saveBtn) { saveBtn.innerHTML='\u23F3'; saveBtn.disabled=true; }
+
+function enterCoaEdit(idx, field) {
+  if (coaEditIdx === idx) return;
+  if (coaEditIdx >= 0) exitCoaEdit();
+  var d = coaMerged()[idx];
+  var tr = coaRows()[idx];
+  if (!d || !tr) return;
+  coaEditIdx = idx;
+  var codeHtml = d._isNew
+    ? '<input type="text" class="ce-code" value="' + esc(d.account_code || '') + '" style="width:80px">'
+    : '<span class="pe-ro">' + esc(d.account_code) + '</span>';
+  var typeOpts = ACCT_TYPES.map(function(t){ return '<option value="'+t+'"'+(t===d.account_type?' selected':'')+'>'+t+'</option>'; }).join('');
+  var subtypeOpts = SUBTYPES.map(function(s){ return '<option value="'+s+'"'+(s===(d.account_subtype||'')?' selected':'')+'>'+(s||'- none -')+'</option>'; }).join('');
+  var cfOpts = CF_CATS_COA.map(function(c){ return '<option value="'+c+'"'+(c===(d.cf_category||'')?' selected':'')+'>'+(c||'- none -')+'</option>'; }).join('');
+  tr.innerHTML = '<td data-field="code">' + codeHtml + '</td>'
+    + '<td data-field="name"><input type="text" class="ce-name" value="' + esc(d.account_name || '') + '" style="width:200px"></td>'
+    + '<td data-field="type"><select class="ce-type" style="width:90px">' + typeOpts + '</select></td>'
+    + '<td data-field="subtype"><select class="ce-subtype" style="width:140px">' + subtypeOpts + '</select></td>'
+    + '<td data-field="cf"><select class="ce-cf" style="width:100px">' + cfOpts + '</select></td>'
+    + '<td data-field="active" style="text-align:center"><input type="checkbox" class="ce-active"' + (d.is_active ? ' checked' : '') + '></td>'
+    + '<td class="row-actions">'
+    + '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeCoaRowAt(' + idx + ')">✓</a> '
+    + '<a class="chip chip-cancel" title="exit (Esc)" onclick="event.stopPropagation();exitCoaEdit()">✕</a></td>';
+  tr.classList.add('row-editing');
+  if (window.FB && FB.mode) FB.mode.set('INSERT');
+  window.fbEditActive = true;
+  var sel = { code: '.ce-code', name: '.ce-name', type: '.ce-type', subtype: '.ce-subtype', cf: '.ce-cf', active: '.ce-active' }[field]
+    || (d._isNew ? '.ce-code' : '.ce-name');
+  var target = tr.querySelector(sel) || tr.querySelector('input,select');
+  if (target) { target.focus(); if (target.select) target.select(); }
+  syncCoaChrome();
+}
+
+function exitCoaEdit() {
+  if (coaEditIdx < 0) return;
+  var d = coaMerged()[coaEditIdx];
+  var tr = coaRows()[coaEditIdx];
+  if (d && tr) {
+    var codeIn = tr.querySelector('.ce-code');
+    var name = tr.querySelector('.ce-name').value.trim();
+    var type = tr.querySelector('.ce-type').value;
+    var subtype = tr.querySelector('.ce-subtype').value || null;
+    var cf = tr.querySelector('.ce-cf').value || null;
+    var active = tr.querySelector('.ce-active').checked;
+    if (d._isNew) {
+      var code = codeIn ? codeIn.value.trim() : '';
+      if (code || name || type) {
+        coaDirty[d._key] = { account_code: code, account_name: name, account_type: type, account_subtype: subtype, cf_category: cf, is_active: active, isNew: true };
+      } else {
+        delete coaDirty[d._key];
+      }
+    } else {
+      var saved = null;
+      for (var i = 0; i < coaSaved.length; i++) if (coaSaved[i].account_code === d._key) saved = coaSaved[i];
+      var same = saved && name === saved.account_name && type === saved.account_type
+        && (subtype||null) === (saved.account_subtype||null)
+        && (cf||null) === (saved.cf_category||null)
+        && active === !!saved.is_active;
+      if (same) delete coaDirty[d._key];
+      else coaDirty[d._key] = { account_code: d._key, account_name: name, account_type: type, account_subtype: subtype, cf_category: cf, is_active: active, isNew: false };
+    }
+  }
+  var key = d ? d._key : null;
+  coaEditIdx = -1;
+  if (window.FB && FB.mode) FB.mode.set('NORMAL');
+  window.fbEditActive = false;
+  renderCoa(key);
+  syncCoaChrome();
+}
+
+function writeCoaRowAt(idx) {
+  if (coaEditIdx >= 0) exitCoaEdit();
+  var d = coaMerged()[idx];
+  if (!d || !d._dirty) return;
+  var err = validateCoaBuf(d);
+  if (err) { showMsg('msg-coa', err, true); return; }
+  var account = { account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype||null, cf_category: d.cf_category||null, is_active: !!d.is_active };
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'coa.upsert', companyId: COMPANY, account: account }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
-      var d=res.data||res; var m=document.getElementById('msg-coa');
-      if (d.error||res.error) { if(m){m.textContent=d.error||res.error;m.className='msg err';} if(saveBtn){saveBtn.innerHTML='\u{1F4BE}';saveBtn.disabled=false;} }
-      else {
-        tr.dataset.accountCode=code; tr.dataset.isNew='0';
-        if(saveBtn){saveBtn.innerHTML='\u2713';saveBtn.style.opacity='0.35';saveBtn.disabled=false;setTimeout(function(){saveBtn.innerHTML='\u{1F4BE}';},1500);}
-        if(m){m.textContent='Saved';m.className='msg ok';setTimeout(function(){m.textContent='';},2000);}
-      }
+      var dd = res.data||res;
+      if (dd.error||res.error) { showMsg('msg-coa', dd.error||res.error, true); return; }
+      delete coaDirty[d._key];
+      showMsg('msg-coa', 'Saved', false);
+      loadCoa(d._isNew ? d.account_code : d._key);
     })
-    .catch(function(e){ var m=document.getElementById('msg-coa'); if(m){m.textContent=e.message;m.className='msg err';} if(saveBtn){saveBtn.innerHTML='\u{1F4BE}';saveBtn.disabled=false;} });
+    .catch(function(e){ showMsg('msg-coa', e.message, true); });
 }
-function deleteCoaRow(tr) {
-  var accountCode = tr.dataset.accountCode;
-  if (!accountCode) { tr.remove(); appendBlankCoaRow(); return; }
-  if (!confirm('Delete account "'+accountCode+'"? This will fail if the account has transactions.')) return;
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'coa.delete', companyId: COMPANY, accountCode: accountCode }) })
+
+function revertCoaRowAt(idx) {
+  if (coaEditIdx >= 0) exitCoaEdit();
+  var d = coaMerged()[idx];
+  if (!d || !d._dirty) return;
+  delete coaDirty[d._key];
+  renderCoa(d._isNew ? null : d._key);
+  syncCoaChrome();
+}
+
+function focusedCoaIdx() { var tr = coaNav && coaNav.current(); return tr ? +tr.dataset.idx : -1; }
+function focusedCoaDirty() { var idx = focusedCoaIdx(); var d = idx >= 0 ? coaMerged()[idx] : null; return !!(d && d._dirty); }
+function editFocusedCoa() { var idx = focusedCoaIdx(); enterCoaEdit(idx >= 0 ? idx : 0); }
+function writeFocusedCoa() { var idx = focusedCoaIdx(); if (idx >= 0) writeCoaRowAt(idx); }
+function revertFocusedCoa() { var idx = focusedCoaIdx(); if (idx >= 0) revertCoaRowAt(idx); }
+
+function deleteFocusedCoa() {
+  var idx = focusedCoaIdx();
+  if (idx < 0) return;
+  var d = coaMerged()[idx];
+  if (!d) return;
+  if (d._isNew) { delete coaDirty[d._key]; renderCoa(); syncCoaChrome(); return; }
+  if (!confirm('Delete account "' + d.account_code + '"? This will fail if the account has transactions.')) return;
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'coa.delete', companyId: COMPANY, accountCode: d._key }) })
     .then(function(r){ return r.json(); })
-    .then(function(res){ var d=res.data||res; if(d.error||res.error){var m=document.getElementById('msg-coa');if(m){m.textContent=d.error||res.error;m.className='msg err';}}else{tr.remove();appendBlankCoaRow();} })
-    .catch(function(e){ var m=document.getElementById('msg-coa'); if(m){m.textContent=e.message;m.className='msg err';} });
+    .then(function(res){
+      var dd = res.data||res;
+      if (dd.error||res.error) { showMsg('msg-coa', dd.error||res.error, true); return; }
+      delete coaDirty[d._key];
+      loadCoa();
+    })
+    .catch(function(e){ showMsg('msg-coa', e.message, true); });
 }
-function loadCoa() {
+
+function newCoaRow() {
+  if (coaEditIdx >= 0) exitCoaEdit();
+  var key = '_new_' + (++coaGhostN);
+  coaDirty[key] = { account_code: '', account_name: '', account_type: 'Asset', account_subtype: null, cf_category: null, is_active: true, isNew: true };
+  renderCoa(key);
+  enterCoaEdit(coaRows().length - 1, 'code');
+}
+
+function advanceCoaField() {
+  var tr = coaRows()[coaEditIdx];
+  if (!tr) return;
+  var inputs = Array.from(tr.querySelectorAll('input,select'));
+  var i = inputs.indexOf(document.activeElement);
+  if (i >= 0 && i < inputs.length - 1) { inputs[i + 1].focus(); if (inputs[i + 1].select) inputs[i + 1].select(); }
+}
+function coaTabSticky(e) {
+  var tr = coaRows()[coaEditIdx];
+  if (!tr) return false;
+  var inputs = Array.from(tr.querySelectorAll('input,select'));
+  if (!inputs.length) return false;
+  var i = inputs.indexOf(document.activeElement);
+  return e.shiftKey ? i === 0 : i === inputs.length - 1;
+}
+
+function renderCoaHints() {
+  var el = document.getElementById('sb-hints');
+  if (!el || !(window.FB && FB.keys)) return;
+  FB.keys.renderHints('settings-coa', el, { layout: 'list' });
+}
+
+function loadCoa(focusKey) {
+  var tbody = document.getElementById('coa-body');
+  if (!tbody) return;
   fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
-    coaData = rows;
-    document.getElementById('coa-body').innerHTML = '';
-    rows.forEach(function(a){ addCoaRow(a, false); });
-    appendBlankCoaRow();
-  });
-}
-function filterCoa() {
-  var q = document.getElementById('coa-search').value.toLowerCase();
-  var filtered = q ? coaData.filter(function(a){ return (a.account_code||'').toLowerCase().includes(q) || (a.account_name||'').toLowerCase().includes(q); }) : coaData;
-  document.getElementById('coa-body').innerHTML = '';
-  filtered.forEach(function(a){ addCoaRow(a, false); });
-  appendBlankCoaRow();
-}
-// saveCoa replaced by per-row saveCoaRow
-
-// ========== VAT/GST CODES ==========
-function addVatRow(vc) {
-  vc = vc || {};
-  var isNew = !vc.vat_code;
-  var tr = document.createElement('tr');
-  tr.dataset.vatCode = vc.vat_code || '';
-  tr.innerHTML = '<td><input type="text" value="'+(vc.vat_code||'')+'" style="width:60px"></td>'
-    + '<td><input type="text" value="'+(vc.description||'').replace(/"/g,'&quot;')+'" style="width:160px"></td>'
-    + '<td><input type="number" step="0.01" value="'+(vc.rate||0)+'" style="width:55px"></td>'
-    + '<td><input type="text" value="'+(vc.input_account||vc.vat_account_input||'')+'" style="width:70px"></td>'
-    + '<td><input type="text" value="'+(vc.output_account||vc.vat_account_output||'')+'" style="width:70px"></td>'
-    + '<td><input type="text" value="'+(vc.report_box||'')+'" style="width:50px"></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(vc.is_reverse_charge?' checked':'')+' ></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(vc.is_active===true?' checked':'')+' ></td>'
-    + '<td style="white-space:nowrap;text-align:right"></td>';
-  var saveBtn = document.createElement('button');
-  saveBtn.className = 'btn-sm';
-  saveBtn.innerHTML = '\u{1F4BE}';
-  saveBtn.title = 'Save';
-  saveBtn.style.cssText = 'opacity:'+(isNew?'1':'0.35')+';margin-right:4px';
-  saveBtn.onclick = function(){ saveVatRow(tr); };
-  var delBtn = document.createElement('button');
-  delBtn.className = 'btn-sm danger';
-  delBtn.innerHTML = '\u2715';
-  delBtn.title = 'Delete';
-  delBtn.onclick = function(){ deleteVatRow(tr); };
-  tr.cells[tr.cells.length-1].appendChild(saveBtn);
-  tr.cells[tr.cells.length-1].appendChild(delBtn);
-  tr.querySelectorAll('input').forEach(function(el){
-    el.addEventListener('input', function(){ saveBtn.style.opacity='1'; if(isNew&&el===tr.cells[0].querySelector('input')&&el.value.trim()){isNew=false;appendBlankVatRow();} });
-    el.addEventListener('change', function(){ saveBtn.style.opacity='1'; });
-  });
-  document.getElementById('vat-body').appendChild(tr);
-  return tr;
-}
-function appendBlankVatRow() {
-  var tbody=document.getElementById('vat-body');
-  var rows=tbody?tbody.querySelectorAll('tr'):[];
-  if(rows.length>0){var li=rows[rows.length-1].cells[0].querySelector('input');if(li&&!li.value.trim())return;}
-  addVatRow({});
-}
-function saveVatRow(tr) {
-  var inputs = tr.querySelectorAll('input[type=text],input[type=number]');
-  var checks = tr.querySelectorAll('input[type=checkbox]');
-  var code = inputs[0].value.trim();
-  if (!code) { var m=document.getElementById('msg-vat'); if(m){m.textContent='VAT code required';m.className='msg err';} return; }
-  var vatCode = { vat_code: tr.dataset.vatCode || code, description: inputs[1].value.trim()||null, rate: parseFloat(inputs[2].value)||0, input_account: inputs[3].value.trim()||null, output_account: inputs[4].value.trim()||null, report_box: inputs[5].value.trim()||null, is_reverse_charge: checks[0].checked, is_active: checks[1].checked };
-  var saveBtn=tr.querySelector('button.btn-sm:not(.danger)');
-  if(saveBtn){saveBtn.innerHTML='\u23F3';saveBtn.disabled=true;}
-  fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'vat.codes.upsert',companyId:COMPANY,vatCode:vatCode})})
-    .then(function(r){return r.json();})
-    .then(function(res){var d=res.data||res;var m=document.getElementById('msg-vat');
-      if(d.error||res.error){if(m){m.textContent=d.error||res.error;m.className='msg err';}if(saveBtn){saveBtn.innerHTML='\u{1F4BE}';saveBtn.disabled=false;}}
-      else{tr.dataset.vatCode=code;if(saveBtn){saveBtn.innerHTML='\u2713';saveBtn.style.opacity='0.35';saveBtn.disabled=false;setTimeout(function(){saveBtn.innerHTML='\u{1F4BE}';},1500);}if(m){m.textContent='Saved';m.className='msg ok';setTimeout(function(){m.textContent='';},2000);}}
-    })
-    .catch(function(e){var m=document.getElementById('msg-vat');if(m){m.textContent=e.message;m.className='msg err';}if(saveBtn){saveBtn.innerHTML='\u{1F4BE}';saveBtn.disabled=false;}});
-}
-function deleteVatRow(tr) {
-  var vatCode=tr.dataset.vatCode;
-  if(!vatCode){tr.remove();appendBlankVatRow();return;}
-  if(!confirm('Delete VAT code "'+vatCode+'"?'))return;
-  fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'vat.codes.delete',companyId:COMPANY,vatCode:vatCode})})
-    .then(function(r){return r.json();})
-    .then(function(res){var d=res.data||res;if(d.error||res.error){var m=document.getElementById('msg-vat');if(m){m.textContent=d.error||res.error;m.className='msg err';}}else{tr.remove();appendBlankVatRow();}})
-    .catch(function(e){var m=document.getElementById('msg-vat');if(m){m.textContent=e.message;m.className='msg err';}});
-}
-function loadVat() {
-  document.getElementById('vat-body').innerHTML = '';
-  fetch('/api/'+COMPANY+'/vat-codes').then(function(r){ return r.json(); }).then(function(rows){
-    if (Array.isArray(rows)) rows.forEach(addVatRow);
-    appendBlankVatRow();
-  });
-}
-// saveVat replaced by per-row saveVatRow
-
-// ========== JOURNALS ==========
-function addJournalRow(j) {
-  j = j || {};
-  var isNew = !j.journal_id;
-  var tr = document.createElement('tr');
-  tr.dataset.journalId = j.journal_id || '';
-  tr.innerHTML = '<td><input type="text" value="'+(j.code||'')+'" style="width:70px" oninput="this.value=this.value.toUpperCase()"></td>'
-    + '<td><input type="text" value="'+(j.name||'')+'" style="width:180px"></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(j.active===true?' checked':'')+' ></td>'
-    + '<td style="white-space:nowrap;text-align:right"></td>';
-  var saveBtn=document.createElement('button');
-  saveBtn.className='btn-sm';
-  saveBtn.innerHTML='\u{1F4BE}';
-  saveBtn.title='Save';
-  saveBtn.style.cssText='opacity:'+(isNew?'1':'0.35')+';margin-right:4px';
-  saveBtn.onclick=function(){saveJournalRow(tr);};
-  var delBtn=document.createElement('button');
-  delBtn.className='btn-sm danger';
-  delBtn.innerHTML='\u2715';
-  delBtn.title='Delete (soft)';
-  delBtn.onclick=function(){deleteJournalRow(tr);};
-  tr.cells[tr.cells.length-1].appendChild(saveBtn);
-  tr.cells[tr.cells.length-1].appendChild(delBtn);
-  tr.querySelectorAll('input').forEach(function(el){
-    el.addEventListener('input',function(){saveBtn.style.opacity='1';if(isNew&&el===tr.cells[0].querySelector('input')&&el.value.trim()){isNew=false;appendBlankJournalRow();}});
-    el.addEventListener('change',function(){saveBtn.style.opacity='1';});
-  });
-  document.getElementById('journals-body').appendChild(tr);
-  return tr;
-}
-function appendBlankJournalRow(){
-  var tbody=document.getElementById('journals-body');
-  var rows=tbody?tbody.querySelectorAll('tr'):[];
-  if(rows.length>0){var li=rows[rows.length-1].cells[0].querySelector('input');if(li&&!li.value.trim())return;}
-  addJournalRow({});
-}
-function saveJournalRow(tr){
-  var inputs=tr.querySelectorAll('input[type=text]');
-  var cb=tr.querySelector('input[type=checkbox]');
-  var code=inputs[0].value.trim().toUpperCase();
-  var name=inputs[1].value.trim();
-  if(!code||!name){var m=document.getElementById('msg-journals');if(m){m.textContent='Code and name required';m.className='msg err';}return;}
-  var journal={journal_id:tr.dataset.journalId||null,code:code,name:name,active:cb?cb.checked:true};
-  var saveBtn=tr.querySelector('button.btn-sm:not(.danger)');
-  if(saveBtn){saveBtn.innerHTML='\u23F3';saveBtn.disabled=true;}
-  fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'journals.save',companyId:COMPANY,journal:journal})})
-    .then(function(r){return r.json();})
-    .then(function(res){var d=res.data||res;var m=document.getElementById('msg-journals');
-      if(d.error||res.error){if(m){m.textContent=d.error||res.error;m.className='msg err';}if(saveBtn){saveBtn.innerHTML='\u{1F4BE}';saveBtn.disabled=false;}}
-      else{if(d.journalId)tr.dataset.journalId=d.journalId;if(saveBtn){saveBtn.innerHTML='\u2713';saveBtn.style.opacity='0.35';saveBtn.disabled=false;setTimeout(function(){saveBtn.innerHTML='\u{1F4BE}';},1500);}if(m){m.textContent='Saved';m.className='msg ok';setTimeout(function(){m.textContent='';},2000);}}
-    })
-    .catch(function(e){var m=document.getElementById('msg-journals');if(m){m.textContent=e.message;m.className='msg err';}if(saveBtn){saveBtn.innerHTML='\u{1F4BE}';saveBtn.disabled=false;}});
-}
-function deleteJournalRow(tr){
-  var journalId=tr.dataset.journalId;
-  if(!journalId){tr.remove();appendBlankJournalRow();return;}
-  var code=tr.cells[0].querySelector('input').value.trim();
-  if(!confirm('Deactivate journal "'+code+'"? (soft delete \u2014 existing references preserved)'))return;
-  fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'journals.delete',companyId:COMPANY,journalId:journalId})})
-    .then(function(r){return r.json();})
-    .then(function(res){var d=res.data||res;if(d.error||res.error){var m=document.getElementById('msg-journals');if(m){m.textContent=d.error||res.error;m.className='msg err';}}else{tr.remove();appendBlankJournalRow();}})
-    .catch(function(e){var m=document.getElementById('msg-journals');if(m){m.textContent=e.message;m.className='msg err';}});
-}
-function loadJournals() {
-  document.getElementById('journals-body').innerHTML = '';
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); }).then(function(res){
-      var rows = res.data||res;
-      if (Array.isArray(rows)) rows.forEach(addJournalRow);
-      appendBlankJournalRow();
+    coaSaved = (Array.isArray(rows) ? rows : []).map(function(a){
+      return { account_code: a.account_code, account_name: a.account_name, account_type: a.account_type, account_subtype: a.account_subtype||null, cf_category: a.cf_category||null, is_active: a.is_active === true };
     });
+    renderCoa(focusKey);
+    syncCoaChrome();
+  }).catch(function(e){ console.error('loadCoa:', e); });
 }
-// saveJournals replaced by per-row saveJournalRow
+
+function filterCoa() {
+  var el = document.getElementById('coa-search');
+  coaFilterQ = el ? el.value : '';
+  if (coaEditIdx >= 0) { coaEditIdx = -1; if (window.FB && FB.mode) FB.mode.set('NORMAL'); window.fbEditActive = false; }
+  renderCoa();
+  syncCoaChrome();
+}
+
+// Register immediately — see Periods IIFE comment for rationale.
+(function() {
+  if (!(window.FB && FB.keys)) return;
+  coaNav = FB.nav.create({ rows: coaRows, focusClass: 'nav-row-focus' });
+  if (FB.keys.unregister) FB.keys.unregister('settings-coa');
+  FB.keys.register('settings-coa', {
+    active: function() { var p = document.getElementById('tab-coa'); return !!(p && p.classList.contains('active')); },
+    getMode: function() { return coaEditIdx >= 0 ? 'INSERT' : 'NORMAL'; },
+    bindings: [
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { coaNav.move(1); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { coaNav.move(-1); } },
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedCoa },
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedCoa },
+      { key: 'o', mode: 'NORMAL', hint: 'new row', hintBar: true, run: newCoaRow },
+      { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedCoa },
+      { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedCoaDirty, run: writeFocusedCoa },
+      { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedCoaDirty, run: revertFocusedCoa },
+      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitCoaEdit },
+      { key: 'Enter', mode: 'INSERT', run: advanceCoaField },
+      { key: 'Tab', mode: 'INSERT', when: coaTabSticky, run: function() {} },
+      { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function() {} }
+    ]
+  });
+})();
+
+// ========== VAT/GST CODES — modal edit doctrine ==========
+var vatSaved = [];
+var vatDirty = {};
+var vatGhostN = 0;
+var vatEditIdx = -1;
+var vatNav = null;
+
+function vatRows() { return Array.from(document.querySelectorAll('#vat-body tr')); }
+
+function vatMerged() {
+  var out = vatSaved.map(function(v) {
+    var d = vatDirty[v.vat_code];
+    if (d) return { vat_code: v.vat_code, description: d.description, rate: d.rate, input_account: d.input_account, output_account: d.output_account, report_box: d.report_box, is_reverse_charge: d.is_reverse_charge, is_active: d.is_active, _dirty: true, _key: v.vat_code, _isNew: false };
+    return { vat_code: v.vat_code, description: v.description, rate: v.rate, input_account: v.input_account, output_account: v.output_account, report_box: v.report_box, is_reverse_charge: v.is_reverse_charge, is_active: v.is_active, _dirty: false, _key: v.vat_code, _isNew: false };
+  });
+  Object.keys(vatDirty).forEach(function(k) {
+    var d = vatDirty[k];
+    if (d && d.isNew) out.push({ vat_code: d.vat_code, description: d.description, rate: d.rate, input_account: d.input_account, output_account: d.output_account, report_box: d.report_box, is_reverse_charge: d.is_reverse_charge, is_active: d.is_active, _dirty: true, _key: k, _isNew: true });
+  });
+  return out;
+}
+
+function vatAnyDirty() { return vatEditIdx >= 0 || Object.keys(vatDirty).length > 0; }
+
+function syncVatChrome() {
+  var dirty = vatAnyDirty();
+  var dot = document.getElementById('tab-dot-vat');
+  if (dot) dot.style.display = dirty ? '' : 'none';
+  if (dirty) markDirty('vat'); else resetDirty('vat');
+}
+
+function renderVat(focusKey) {
+  var tbody = document.getElementById('vat-body');
+  if (!tbody) return;
+  var merged = vatMerged();
+  tbody.innerHTML = merged.map(function(v, i) {
+    var code = v.vat_code ? esc(v.vat_code) : '<span class="pe-ro">—</span>';
+    var desc = v.description ? esc(v.description) : '<span class="pe-ro">—</span>';
+    var rate = v.rate != null ? esc(String(v.rate)) : '<span class="pe-ro">—</span>';
+    var input = v.input_account ? esc(v.input_account) : '<span class="pe-ro">—</span>';
+    var output = v.output_account ? esc(v.output_account) : '<span class="pe-ro">—</span>';
+    var rbox = v.report_box ? esc(v.report_box) : '<span class="pe-ro">—</span>';
+    if (v._dirty) {
+      code = '<span class="dirty-val">' + code + '</span>';
+      desc = '<span class="dirty-val">' + desc + '</span>';
+      rate = '<span class="dirty-val">' + rate + '</span>';
+      input = '<span class="dirty-val">' + input + '</span>';
+      output = '<span class="dirty-val">' + output + '</span>';
+      rbox = '<span class="dirty-val">' + rbox + '</span>';
+    }
+    var actions = v._dirty
+      ? '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeVatRowAt(' + i + ')">✓</a> <a class="chip chip-cancel" title="revert (u)" onclick="event.stopPropagation();revertVatRowAt(' + i + ')">✕</a>'
+      : '';
+    return '<tr' + (v._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(v._key) + '">'
+      + '<td data-field="code">' + code + '</td>'
+      + '<td data-field="desc">' + desc + '</td>'
+      + '<td data-field="rate">' + rate + '</td>'
+      + '<td data-field="input">' + input + '</td>'
+      + '<td data-field="output">' + output + '</td>'
+      + '<td data-field="rbox">' + rbox + '</td>'
+      + '<td data-field="rc" style="text-align:center">' + (v.is_reverse_charge ? 'Yes' : 'No') + '</td>'
+      + '<td data-field="active" style="text-align:center">' + (v.is_active ? 'Yes' : 'No') + '</td>'
+      + '<td class="row-actions">' + actions + '</td></tr>';
+  }).join('');
+  Array.from(tbody.querySelectorAll('tr')).forEach(function(tr) {
+    tr.addEventListener('click', function(e) {
+      if (vatNav) vatNav.set(tr);
+      var td = e.target.closest('td');
+      if (!td || td.classList.contains('row-actions')) return;
+      enterVatEdit(+tr.dataset.idx, td.dataset.field || undefined);
+    });
+  });
+  if (vatNav) {
+    var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
+    vatNav.set(target || vatRows()[0] || null);
+  }
+}
+
+function enterVatEdit(idx, field) {
+  if (vatEditIdx === idx) return;
+  if (vatEditIdx >= 0) exitVatEdit();
+  var d = vatMerged()[idx];
+  var tr = vatRows()[idx];
+  if (!d || !tr) return;
+  vatEditIdx = idx;
+  var codeHtml = d._isNew
+    ? '<input type="text" class="ve-code" value="' + esc(d.vat_code || '') + '" style="width:60px">'
+    : '<span class="pe-ro">' + esc(d.vat_code) + '</span>';
+  tr.innerHTML = '<td data-field="code">' + codeHtml + '</td>'
+    + '<td data-field="desc"><input type="text" class="ve-desc" value="' + esc(d.description || '') + '" style="width:160px"></td>'
+    + '<td data-field="rate"><input type="number" step="0.01" class="ve-rate" value="' + (d.rate != null ? d.rate : 0) + '" style="width:55px"></td>'
+    + '<td data-field="input"><input type="text" class="ve-input" value="' + esc(d.input_account || '') + '" style="width:70px"></td>'
+    + '<td data-field="output"><input type="text" class="ve-output" value="' + esc(d.output_account || '') + '" style="width:70px"></td>'
+    + '<td data-field="rbox"><input type="text" class="ve-rbox" value="' + esc(d.report_box || '') + '" style="width:50px"></td>'
+    + '<td data-field="rc" style="text-align:center"><input type="checkbox" class="ve-rc"' + (d.is_reverse_charge ? ' checked' : '') + '></td>'
+    + '<td data-field="active" style="text-align:center"><input type="checkbox" class="ve-active"' + (d.is_active ? ' checked' : '') + '></td>'
+    + '<td class="row-actions">'
+    + '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeVatRowAt(' + idx + ')">✓</a> '
+    + '<a class="chip chip-cancel" title="exit (Esc)" onclick="event.stopPropagation();exitVatEdit()">✕</a></td>';
+  tr.classList.add('row-editing');
+  if (window.FB && FB.mode) FB.mode.set('INSERT');
+  window.fbEditActive = true;
+  var sel = { code: '.ve-code', desc: '.ve-desc', rate: '.ve-rate', input: '.ve-input', output: '.ve-output', rbox: '.ve-rbox' }[field]
+    || (d._isNew ? '.ve-code' : '.ve-desc');
+  var target = tr.querySelector(sel) || tr.querySelector('input');
+  if (target) { target.focus(); if (target.select) target.select(); }
+  syncVatChrome();
+}
+
+function exitVatEdit() {
+  if (vatEditIdx < 0) return;
+  var d = vatMerged()[vatEditIdx];
+  var tr = vatRows()[vatEditIdx];
+  if (d && tr) {
+    var codeIn = tr.querySelector('.ve-code');
+    var desc = tr.querySelector('.ve-desc').value.trim();
+    var rate = parseFloat(tr.querySelector('.ve-rate').value) || 0;
+    var input = tr.querySelector('.ve-input').value.trim();
+    var output = tr.querySelector('.ve-output').value.trim();
+    var rbox = tr.querySelector('.ve-rbox').value.trim();
+    var rc = tr.querySelector('.ve-rc').checked;
+    var active = tr.querySelector('.ve-active').checked;
+    if (d._isNew) {
+      var code = codeIn ? codeIn.value.trim() : '';
+      if (code || desc || input || output) {
+        vatDirty[d._key] = { vat_code: code, description: desc, rate: rate, input_account: input, output_account: output, report_box: rbox, is_reverse_charge: rc, is_active: active, isNew: true };
+      } else {
+        delete vatDirty[d._key];
+      }
+    } else {
+      var saved = null;
+      for (var i = 0; i < vatSaved.length; i++) if (vatSaved[i].vat_code === d._key) saved = vatSaved[i];
+      var same = saved && desc === (saved.description || '') && rate === (saved.rate || 0) && input === (saved.input_account || '') && output === (saved.output_account || '') && rbox === (saved.report_box || '') && rc === !!saved.is_reverse_charge && active === !!saved.is_active;
+      if (same) delete vatDirty[d._key];
+      else vatDirty[d._key] = { vat_code: d._key, description: desc, rate: rate, input_account: input, output_account: output, report_box: rbox, is_reverse_charge: rc, is_active: active, isNew: false };
+    }
+  }
+  var key = d ? d._key : null;
+  vatEditIdx = -1;
+  if (window.FB && FB.mode) FB.mode.set('NORMAL');
+  window.fbEditActive = false;
+  renderVat(key);
+  syncVatChrome();
+}
+
+function writeVatRowAt(idx) {
+  if (vatEditIdx >= 0) exitVatEdit();
+  var d = vatMerged()[idx];
+  if (!d || !d._dirty) return;
+  if (!d.vat_code) { showMsg('msg-vat', 'VAT code required', true); return; }
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'vat.codes.upsert', companyId: COMPANY,
+      vatCode: { vat_code: d._isNew ? d.vat_code : d._key, description: d.description || null, rate: d.rate || 0, input_account: d.input_account || null, output_account: d.output_account || null, report_box: d.report_box || null, is_reverse_charge: !!d.is_reverse_charge, is_active: !!d.is_active } }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var dd = res.data || res;
+      if (dd.error || res.error) { showMsg('msg-vat', dd.error || res.error, true); return; }
+      delete vatDirty[d._key];
+      showMsg('msg-vat', 'Saved', false);
+      loadVat(d._isNew ? d.vat_code : d._key);
+    })
+    .catch(function(e){ showMsg('msg-vat', e.message, true); });
+}
+
+function revertVatRowAt(idx) {
+  if (vatEditIdx >= 0) exitVatEdit();
+  var d = vatMerged()[idx];
+  if (!d || !d._dirty) return;
+  delete vatDirty[d._key];
+  renderVat(d._isNew ? null : d._key);
+  syncVatChrome();
+}
+
+function focusedVatIdx() {
+  var tr = vatNav && vatNav.current();
+  return tr ? +tr.dataset.idx : -1;
+}
+function focusedVatDirty() {
+  var idx = focusedVatIdx();
+  var d = idx >= 0 ? vatMerged()[idx] : null;
+  return !!(d && d._dirty);
+}
+function editFocusedVat() { var idx = focusedVatIdx(); enterVatEdit(idx >= 0 ? idx : 0); }
+function writeFocusedVat() { var idx = focusedVatIdx(); if (idx >= 0) writeVatRowAt(idx); }
+function revertFocusedVat() { var idx = focusedVatIdx(); if (idx >= 0) revertVatRowAt(idx); }
+
+function deleteFocusedVat() {
+  var idx = focusedVatIdx();
+  if (idx < 0) return;
+  var d = vatMerged()[idx];
+  if (!d) return;
+  if (d._isNew) { delete vatDirty[d._key]; renderVat(); syncVatChrome(); return; }
+  if (!confirm('Delete VAT code "' + d.vat_code + '"?')) return;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'vat.codes.delete', companyId: COMPANY, vatCode: d._key }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var dd = res.data || res;
+      if (dd.error || res.error) { showMsg('msg-vat', dd.error || res.error, true); return; }
+      delete vatDirty[d._key];
+      loadVat();
+    })
+    .catch(function(e){ showMsg('msg-vat', e.message, true); });
+}
+
+function newVatRow() {
+  if (vatEditIdx >= 0) exitVatEdit();
+  var key = '_new_' + (++vatGhostN);
+  vatDirty[key] = { vat_code: '', description: '', rate: 0, input_account: '', output_account: '', report_box: '', is_reverse_charge: false, is_active: true, isNew: true };
+  renderVat(key);
+  enterVatEdit(vatRows().length - 1, 'code');
+}
+
+function advanceVatField() {
+  var tr = vatRows()[vatEditIdx];
+  if (!tr) return;
+  var inputs = Array.from(tr.querySelectorAll('input'));
+  var i = inputs.indexOf(document.activeElement);
+  if (i >= 0 && i < inputs.length - 1) { inputs[i + 1].focus(); if (inputs[i + 1].select) inputs[i + 1].select(); }
+}
+function vatTabSticky(e) {
+  var tr = vatRows()[vatEditIdx];
+  if (!tr) return false;
+  var inputs = Array.from(tr.querySelectorAll('input'));
+  if (!inputs.length) return false;
+  var i = inputs.indexOf(document.activeElement);
+  return e.shiftKey ? i === 0 : i === inputs.length - 1;
+}
+
+function renderVatHints() {
+  var el = document.getElementById('sb-hints');
+  if (!el || !(window.FB && FB.keys)) return;
+  FB.keys.renderHints('settings-vat', el, { layout: 'list' });
+}
+
+function loadVat(focusKey) {
+  var tbody = document.getElementById('vat-body');
+  if (!tbody) return;
+  fetch('/api/' + COMPANY + '/vat-codes')
+    .then(function(r){ return r.json(); })
+    .then(function(rows){
+      vatSaved = (Array.isArray(rows) ? rows : []).map(function(v){
+        return { vat_code: v.vat_code, description: v.description || '', rate: v.rate || 0, input_account: v.input_account || v.vat_account_input || '', output_account: v.output_account || v.vat_account_output || '', report_box: v.report_box || '', is_reverse_charge: !!v.is_reverse_charge, is_active: !!v.is_active };
+      });
+      renderVat(focusKey);
+      syncVatChrome();
+    })
+    .catch(function(e){ console.error('loadVat:', e); });
+}
+
+// Register immediately — same soft-nav rationale as settings-periods.
+(function() {
+  if (!(window.FB && FB.keys)) return;
+  vatNav = FB.nav.create({ rows: vatRows, focusClass: 'nav-row-focus' });
+  if (FB.keys.unregister) FB.keys.unregister('settings-vat');
+  FB.keys.register('settings-vat', {
+    active: function() { var p = document.getElementById('tab-vat'); return !!(p && p.classList.contains('active')); },
+    getMode: function() { return vatEditIdx >= 0 ? 'INSERT' : 'NORMAL'; },
+    bindings: [
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { vatNav.move(1); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { vatNav.move(-1); } },
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedVat },
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedVat },
+      { key: 'o', mode: 'NORMAL', hint: 'new row', hintBar: true, run: newVatRow },
+      { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedVat },
+      { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedVatDirty, run: writeFocusedVat },
+      { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedVatDirty, run: revertFocusedVat },
+      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitVatEdit },
+      { key: 'Enter', mode: 'INSERT', run: advanceVatField },
+      { key: 'Tab', mode: 'INSERT', when: vatTabSticky, run: function() {} },
+      { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function() {} }
+    ]
+  });
+})();
+
+// ========== JOURNALS — modal edit doctrine ==========
+var journalsSaved = [];
+var journalsDirty = {};
+var journalsGhostN = 0;
+var journalsEditIdx = -1;
+var journalsNav = null;
+
+function journalsRows() { return Array.from(document.querySelectorAll('#journals-body tr')); }
+
+function journalsMerged() {
+  var out = journalsSaved.map(function(j) {
+    var d = journalsDirty[j.journal_id];
+    if (d) return { journal_id: j.journal_id, code: d.code, name: d.name, active: d.active, _dirty: true, _key: j.journal_id, _isNew: false };
+    return { journal_id: j.journal_id, code: j.code, name: j.name, active: j.active, _dirty: false, _key: j.journal_id, _isNew: false };
+  });
+  Object.keys(journalsDirty).forEach(function(k) {
+    var d = journalsDirty[k];
+    if (d && d.isNew) out.push({ journal_id: '', code: d.code, name: d.name, active: d.active, _dirty: true, _key: k, _isNew: true });
+  });
+  return out;
+}
+
+function journalsAnyDirty() { return journalsEditIdx >= 0 || Object.keys(journalsDirty).length > 0; }
+
+function syncJournalsChrome() {
+  var dirty = journalsAnyDirty();
+  var dot = document.getElementById('tab-dot-journals');
+  if (dot) dot.style.display = dirty ? '' : 'none';
+  if (dirty) markDirty('journals'); else resetDirty('journals');
+}
+
+function renderJournals(focusKey) {
+  var tbody = document.getElementById('journals-body');
+  if (!tbody) return;
+  var merged = journalsMerged();
+  tbody.innerHTML = merged.map(function(j, i) {
+    var code = j.code ? esc(j.code) : '<span class="pe-ro">—</span>';
+    var name = j.name ? esc(j.name) : '<span class="pe-ro">—</span>';
+    if (j._dirty) {
+      code = '<span class="dirty-val">' + code + '</span>';
+      name = '<span class="dirty-val">' + name + '</span>';
+    }
+    var actions = j._dirty
+      ? '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeJournalRowAt(' + i + ')">✓</a> <a class="chip chip-cancel" title="revert (u)" onclick="event.stopPropagation();revertJournalRowAt(' + i + ')">✕</a>'
+      : '';
+    return '<tr' + (j._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(j._key) + '">'
+      + '<td data-field="code">' + code + '</td>'
+      + '<td data-field="name">' + name + '</td>'
+      + '<td data-field="active" style="text-align:center">' + (j.active ? 'Yes' : 'No') + '</td>'
+      + '<td class="row-actions">' + actions + '</td></tr>';
+  }).join('');
+  Array.from(tbody.querySelectorAll('tr')).forEach(function(tr) {
+    tr.addEventListener('click', function(e) {
+      if (journalsNav) journalsNav.set(tr);
+      var td = e.target.closest('td');
+      if (!td || td.classList.contains('row-actions')) return;
+      enterJournalEdit(+tr.dataset.idx, td.dataset.field || undefined);
+    });
+  });
+  if (journalsNav) {
+    var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
+    journalsNav.set(target || journalsRows()[0] || null);
+  }
+}
+
+function enterJournalEdit(idx, field) {
+  if (journalsEditIdx === idx) return;
+  if (journalsEditIdx >= 0) exitJournalEdit();
+  var d = journalsMerged()[idx];
+  var tr = journalsRows()[idx];
+  if (!d || !tr) return;
+  journalsEditIdx = idx;
+  var codeHtml = d._isNew
+    ? '<input type="text" class="je-code" value="' + esc(d.code || '') + '" style="width:70px" oninput="this.value=this.value.toUpperCase()">'
+    : '<span class="pe-ro">' + esc(d.code) + '</span>';
+  tr.innerHTML = '<td data-field="code">' + codeHtml + '</td>'
+    + '<td data-field="name"><input type="text" class="je-name" value="' + esc(d.name || '') + '" style="width:180px"></td>'
+    + '<td data-field="active" style="text-align:center"><input type="checkbox" class="je-active"' + (d.active ? ' checked' : '') + '></td>'
+    + '<td class="row-actions">'
+    + '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeJournalRowAt(' + idx + ')">✓</a> '
+    + '<a class="chip chip-cancel" title="exit (Esc)" onclick="event.stopPropagation();exitJournalEdit()">✕</a></td>';
+  tr.classList.add('row-editing');
+  if (window.FB && FB.mode) FB.mode.set('INSERT');
+  window.fbEditActive = true;
+  var sel = { code: '.je-code', name: '.je-name' }[field]
+    || (d._isNew ? '.je-code' : '.je-name');
+  var target = tr.querySelector(sel) || tr.querySelector('input');
+  if (target) { target.focus(); if (target.select) target.select(); }
+  syncJournalsChrome();
+}
+
+function exitJournalEdit() {
+  if (journalsEditIdx < 0) return;
+  var d = journalsMerged()[journalsEditIdx];
+  var tr = journalsRows()[journalsEditIdx];
+  if (d && tr) {
+    var codeIn = tr.querySelector('.je-code');
+    var name = tr.querySelector('.je-name').value.trim();
+    var active = tr.querySelector('.je-active').checked;
+    if (d._isNew) {
+      var code = codeIn ? codeIn.value.trim().toUpperCase() : '';
+      if (code || name) {
+        journalsDirty[d._key] = { code: code, name: name, active: active, isNew: true };
+      } else {
+        delete journalsDirty[d._key];
+      }
+    } else {
+      var saved = null;
+      for (var i = 0; i < journalsSaved.length; i++) if (journalsSaved[i].journal_id === d._key) saved = journalsSaved[i];
+      var same = saved && name === saved.name && active === !!saved.active;
+      if (same) delete journalsDirty[d._key];
+      else journalsDirty[d._key] = { code: saved ? saved.code : d._key, name: name, active: active, isNew: false };
+    }
+  }
+  var key = d ? d._key : null;
+  journalsEditIdx = -1;
+  if (window.FB && FB.mode) FB.mode.set('NORMAL');
+  window.fbEditActive = false;
+  renderJournals(key);
+  syncJournalsChrome();
+}
+
+function writeJournalRowAt(idx) {
+  if (journalsEditIdx >= 0) exitJournalEdit();
+  var d = journalsMerged()[idx];
+  if (!d || !d._dirty) return;
+  if (!d.code || !d.name) { showMsg('msg-journals', 'Code and name required', true); return; }
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'journals.save', companyId: COMPANY,
+      journal: { journal_id: d._isNew ? null : d._key, code: d.code, name: d.name, active: !!d.active } }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var dd = res.data || res;
+      if (dd.error || res.error) { showMsg('msg-journals', dd.error || res.error, true); return; }
+      delete journalsDirty[d._key];
+      showMsg('msg-journals', 'Saved', false);
+      loadJournals(d._isNew ? (dd.journalId || d.code) : d._key);
+    })
+    .catch(function(e){ showMsg('msg-journals', e.message, true); });
+}
+
+function revertJournalRowAt(idx) {
+  if (journalsEditIdx >= 0) exitJournalEdit();
+  var d = journalsMerged()[idx];
+  if (!d || !d._dirty) return;
+  delete journalsDirty[d._key];
+  renderJournals(d._isNew ? null : d._key);
+  syncJournalsChrome();
+}
+
+function focusedJournalIdx() {
+  var tr = journalsNav && journalsNav.current();
+  return tr ? +tr.dataset.idx : -1;
+}
+function focusedJournalDirty() {
+  var idx = focusedJournalIdx();
+  var d = idx >= 0 ? journalsMerged()[idx] : null;
+  return !!(d && d._dirty);
+}
+function editFocusedJournal() { var idx = focusedJournalIdx(); enterJournalEdit(idx >= 0 ? idx : 0); }
+function writeFocusedJournal() { var idx = focusedJournalIdx(); if (idx >= 0) writeJournalRowAt(idx); }
+function revertFocusedJournal() { var idx = focusedJournalIdx(); if (idx >= 0) revertJournalRowAt(idx); }
+
+function deleteFocusedJournal() {
+  var idx = focusedJournalIdx();
+  if (idx < 0) return;
+  var d = journalsMerged()[idx];
+  if (!d) return;
+  if (d._isNew) { delete journalsDirty[d._key]; renderJournals(); syncJournalsChrome(); return; }
+  if (!confirm('Deactivate journal "' + d.code + '"? (soft delete — existing references preserved)')) return;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'journals.delete', companyId: COMPANY, journalId: d._key }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var dd = res.data || res;
+      if (dd.error || res.error) { showMsg('msg-journals', dd.error || res.error, true); return; }
+      delete journalsDirty[d._key];
+      loadJournals();
+    })
+    .catch(function(e){ showMsg('msg-journals', e.message, true); });
+}
+
+function newJournalRow() {
+  if (journalsEditIdx >= 0) exitJournalEdit();
+  var key = '_new_' + (++journalsGhostN);
+  journalsDirty[key] = { code: '', name: '', active: true, isNew: true };
+  renderJournals(key);
+  enterJournalEdit(journalsRows().length - 1, 'code');
+}
+
+function advanceJournalField() {
+  var tr = journalsRows()[journalsEditIdx];
+  if (!tr) return;
+  var inputs = Array.from(tr.querySelectorAll('input'));
+  var i = inputs.indexOf(document.activeElement);
+  if (i >= 0 && i < inputs.length - 1) { inputs[i + 1].focus(); if (inputs[i + 1].select) inputs[i + 1].select(); }
+}
+function journalTabSticky(e) {
+  var tr = journalsRows()[journalsEditIdx];
+  if (!tr) return false;
+  var inputs = Array.from(tr.querySelectorAll('input'));
+  if (!inputs.length) return false;
+  var i = inputs.indexOf(document.activeElement);
+  return e.shiftKey ? i === 0 : i === inputs.length - 1;
+}
+
+function renderJournalHints() {
+  var el = document.getElementById('sb-hints');
+  if (!el || !(window.FB && FB.keys)) return;
+  FB.keys.renderHints('settings-journals', el, { layout: 'list' });
+}
+
+function loadJournals(focusKey) {
+  var tbody = document.getElementById('journals-body');
+  if (!tbody) return;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'journals.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var rows = res.data || res;
+      journalsSaved = (Array.isArray(rows) ? rows : []).map(function(j){
+        return { journal_id: j.journal_id, code: j.code || '', name: j.name || '', active: !!j.active };
+      });
+      renderJournals(focusKey);
+      syncJournalsChrome();
+    })
+    .catch(function(e){ console.error('loadJournals:', e); });
+}
+
+// Register immediately — same soft-nav rationale as settings-periods.
+(function() {
+  if (!(window.FB && FB.keys)) return;
+  journalsNav = FB.nav.create({ rows: journalsRows, focusClass: 'nav-row-focus' });
+  if (FB.keys.unregister) FB.keys.unregister('settings-journals');
+  FB.keys.register('settings-journals', {
+    active: function() { var p = document.getElementById('tab-journals'); return !!(p && p.classList.contains('active')); },
+    getMode: function() { return journalsEditIdx >= 0 ? 'INSERT' : 'NORMAL'; },
+    bindings: [
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { journalsNav.move(1); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { journalsNav.move(-1); } },
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedJournal },
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedJournal },
+      { key: 'o', mode: 'NORMAL', hint: 'new row', hintBar: true, run: newJournalRow },
+      { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedJournal },
+      { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedJournalDirty, run: writeFocusedJournal },
+      { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedJournalDirty, run: revertFocusedJournal },
+      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitJournalEdit },
+      { key: 'Enter', mode: 'INSERT', run: advanceJournalField },
+      { key: 'Tab', mode: 'INSERT', when: journalTabSticky, run: function() {} },
+      { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function() {} }
+    ]
+  });
+})();
 
 // ========== HANDLE ?tab= URL PARAM ==========
 (function() {

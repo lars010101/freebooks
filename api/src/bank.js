@@ -45,7 +45,7 @@ async function processBankStatement(ctx) {
   let openBills = [];
   if (company.accounting_method !== 'cash') {
     openBills = await query(
-      `SELECT bill_id, vendor, vendor_ref, amount_home, amount_paid,
+      `SELECT bill_id, vendor, vendor_ref, amount_home, amount_paid, ap_account,
               (amount_home - amount_paid) AS outstanding, due_date
        FROM bills
        WHERE company_id = @companyId AND status IN ('posted', 'partial')
@@ -59,6 +59,19 @@ async function processBankStatement(ctx) {
     { companyId }
   );
   const bankAccount = settingsRows.length > 0 ? settingsRows[0].value : (bodyBankAccount || null);
+
+  // P1-9 dual path: unvoided manual payments with their bank (credit) leg —
+  // an import row matching one must NOT re-post (would double-count the bank side)
+  let manualPayments = [];
+  if (bankAccount) {
+    manualPayments = await query(
+      `SELECT bp.payment_id, bp.batch_id, bp.bill_id, bp.date, je.account_code, je.credit
+       FROM bill_payments bp
+       JOIN journal_entries je ON je.batch_id = bp.batch_id AND je.company_id = bp.company_id
+       WHERE bp.company_id = @companyId AND bp.method = 'manual' AND bp.voided_at IS NULL AND je.credit > 0`,
+      { companyId }
+    );
+  }
 
   const processed = [];
   for (const row of bankRows) {
@@ -77,6 +90,27 @@ async function processBankStatement(ctx) {
 
     const amount = Math.abs(row.amount);
     const isInflow = row.amount > 0;
+
+    // P1-9: row evidences an already-recorded manual payment (exact date + amount
+    // + this bank account) → tag for clearing on approve, never re-post.
+    if (bankAccount && !isInflow) {
+      const mp = manualPayments.find((p) =>
+        p.account_code === bankAccount &&
+        Math.abs(Number(p.credit) - amount) < 0.01 &&
+        String(p.date).substring(0, 10) === String(row.date).substring(0, 10)
+      );
+      if (mp) {
+        result.matchType = 'recorded_payment';
+        result.matchConfidence = 'high';
+        result.paymentId = mp.payment_id;
+        result.paymentBatchId = mp.batch_id;
+        result.billId = mp.bill_id;
+        result.bankAccount = bankAccount;
+        result.description = `Already recorded: ${row.description}`;
+        processed.push(result);
+        continue;
+      }
+    }
 
     const mapping = matchMapping(mappings, row.description);
     if (mapping) {
@@ -102,14 +136,16 @@ async function processBankStatement(ctx) {
     }
 
     if (!result.matchType && openBills.length > 0) {
-      const bill = matchBillRow(openBills, row.description, amount);
-      if (bill) {
-        result.matchType = 'bill';
-        result.matchConfidence = 'medium';
-        result.billId = bill.bill_id;
-        result.description = `Payment: ${bill.vendor} ${bill.vendor_ref || ''}`.trim();
-        result.debitAccount = isInflow ? bankAccount : (bill.ap_account || null);
-        result.creditAccount = isInflow ? (bill.ap_account || null) : bankAccount;
+      const m = matchBillRow(openBills, row.description, amount);
+      if (m) {
+        // P1-9 import hardening: amount-only matches become confirm-required
+        // suggestions ('bill_suggest'), never silent auto-links.
+        result.matchType = m.tier === 'suggest' ? 'bill_suggest' : 'bill';
+        result.matchConfidence = m.tier;
+        result.billId = m.bill.bill_id;
+        result.description = `Payment: ${m.bill.vendor} ${m.bill.vendor_ref || ''}`.trim();
+        result.debitAccount = isInflow ? bankAccount : (m.bill.ap_account || null);
+        result.creditAccount = isInflow ? (m.bill.ap_account || null) : bankAccount;
       }
     }
 
@@ -127,6 +163,8 @@ async function processBankStatement(ctx) {
       total: processed.length,
       ruleMatched: processed.filter((p) => p.matchType === 'rule').length,
       billMatched: processed.filter((p) => p.matchType === 'bill').length,
+      billSuggest: processed.filter((p) => p.matchType === 'bill_suggest').length,
+      recordedPayment: processed.filter((p) => p.matchType === 'recorded_payment').length,
       unmatched: processed.filter((p) => !p.matchType).length,
     },
   };
@@ -157,11 +195,17 @@ function matchBillRow(openBills, description, amount) {
     if (Math.abs(outstanding - amount) < 0.01) {
       const vendor = (bill.vendor || '').toUpperCase();
       const ref = (bill.vendor_ref || '').toUpperCase();
-      if ((vendor && desc.includes(vendor)) || (ref && desc.includes(ref))) return bill;
+      // vendor_ref as a WHOLE TOKEN in the narrative promotes the match to high
+      if (ref) {
+        const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
+        if (token.test(desc)) return { bill, tier: 'high' };
+      }
+      if ((vendor && desc.includes(vendor)) || (ref && desc.includes(ref))) return { bill, tier: 'medium' };
     }
   }
+  // Amount-only fallback: returned as a suggestion tier — confirm-required (P1-9)
   for (const bill of openBills) {
-    if (Math.abs(Number(bill.outstanding) - amount) < 0.01) return bill;
+    if (Math.abs(Number(bill.outstanding) - amount) < 0.01) return { bill, tier: 'suggest' };
   }
   return null;
 }
@@ -223,6 +267,7 @@ async function approveBankEntries(ctx) {
   // Pre-allocate references grouped by year — 3 DB calls per year instead of 3 per entry
   const entriesByYear = {};
   for (const entry of entries) {
+    if (entry.recordedPayment) continue; // clearing-only entries post nothing — no reference needed
     const yr = parseInt(String(entry.date).substring(0, 4), 10);
     if (!entriesByYear[yr]) entriesByYear[yr] = [];
     entriesByYear[yr].push(entry);
@@ -248,10 +293,23 @@ async function approveBankEntries(ctx) {
     const now = new Date().toISOString();
 
     try {
+      // P1-9: row matched an already-recorded manual payment — clear the payment's
+      // bank leg in reconciliations, never re-post the journal.
+      if (entry.recordedPayment && entry.paymentBatchId) {
+        await exec(
+          `INSERT INTO reconciliations (company_id, batch_id, account_code, cleared_at, cleared_by)
+           VALUES (@companyId, @batchId, @accountCode, NOW(), @clearedBy)
+           ON CONFLICT DO NOTHING`,
+          { companyId, batchId: entry.paymentBatchId, accountCode: entry.bankAccount, clearedBy: userEmail || 'user' }
+        );
+        results.push({ index: i, cleared: true, recordedPayment: true });
+        continue;
+      }
+
       const reference = referenceMap.get(i) || null;
 
       // Bill settlements go through the shared settlement core (P1-9) — no generic pre-post
-      if (entry.billId) {
+      if (entry.billId && !entry.recordedPayment) {
         const s = await settleBillPayment({
           companyId, userEmail, billId: entry.billId,
           bankAccount: entry.creditAccount,

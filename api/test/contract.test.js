@@ -595,3 +595,68 @@ test('bill.payment.void: reverses journal, restores bill, refuses double-void', 
   assert.equal(again.status, 409);
   assert.match(again.body.error.message, /already voided/);
 });
+
+test('bank.process: amount-only match demoted to suggestion; vendor/ref tiers', async () => {
+  // Distinct amount (101) so only this test's bill matches by amount
+  const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'INV-TIER-A', amount: 101, lines: [{ description: 'x', expense_account: EXP, amount: 101, vat_code: '' }] }) });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+
+  const proc = await api(baseUrl, 'bank.process', {
+    companyId: CO,
+    bankAccount: '1020',
+    rows: [
+      { date: '2026-07-21', description: 'GIRO TRANSFER 998877', amount: -101 },        // amount-only → suggest
+      { date: '2026-07-21', description: 'PAYMENT ACME PTE LTD', amount: -101 },        // vendor substring → medium
+      { date: '2026-07-21', description: 'TRF INV-TIER-A 9988', amount: -101 },         // ref whole token → high
+      { date: '2026-07-21', description: 'TRF INV-TIER-A99', amount: -101 },           // ref glued to digits: substring, not token → medium
+    ],
+  });
+  assert.equal(proc.status, 200, JSON.stringify(proc.body));
+  const p = proc.body.data.processed;
+  assert.equal(p[0].matchType, 'bill_suggest', 'amount-only is a suggestion, not an auto-match');
+  assert.equal(p[0].matchConfidence, 'suggest');
+  assert.ok(p[0].billId, 'suggestion carries the candidate billId');
+  assert.equal(p[1].matchType, 'bill');
+  assert.equal(p[1].matchConfidence, 'medium');
+  assert.equal(p[2].matchType, 'bill');
+  assert.equal(p[2].matchConfidence, 'high', 'vendor_ref whole token promotes to high');
+  assert.equal(p[3].matchConfidence, 'medium', 'ref substring without token boundary stays medium');
+  assert.equal(proc.body.data.summary.billSuggest, 1);
+  assert.equal(proc.body.data.summary.billMatched, 3);
+});
+
+test('bank.process + approve: import row matching a recorded manual payment clears, never re-posts', async () => {
+  const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'PAY-REC-1' }) });
+  const billId = c.body.data.billId;
+  const pay = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: '2026-07-21', bankAccount: '1020', amount: 100 });
+  assert.equal(pay.status, 200, JSON.stringify(pay.body));
+
+  const before = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND bill_id='${billId}'`);
+
+  const proc = await api(baseUrl, 'bank.process', {
+    companyId: CO,
+    bankAccount: '1020',
+    rows: [{ date: '2026-07-21', description: 'GIRO ACME PAY-REC-1', amount: -100 }],
+  });
+  assert.equal(proc.status, 200, JSON.stringify(proc.body));
+  const row = proc.body.data.processed[0];
+  assert.equal(row.matchType, 'recorded_payment', 'tagged as already-recorded');
+  assert.ok(row.paymentBatchId, 'payment batch attached for clearing');
+
+  const ap = await api(baseUrl, 'bank.approve', {
+    companyId: CO,
+    entries: [{ date: '2026-07-21', description: row.description, amount: -100, recordedPayment: true, paymentBatchId: row.paymentBatchId, bankAccount: '1020' }],
+  });
+  assert.equal(ap.status, 200, JSON.stringify(ap.body));
+  assert.equal(ap.body.data.results[0].recordedPayment, true);
+  assert.equal(ap.body.data.results[0].cleared, true);
+
+  const after = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND bill_id='${billId}'`);
+  assert.equal(Number(after[0].c), Number(before[0].c), 'no new journal lines — no double-count');
+
+  const rec = await sql(baseUrl, srv.adminToken,
+    `SELECT account_code FROM reconciliations WHERE company_id='CT' AND batch_id='${row.paymentBatchId}'`);
+  assert.equal(String(rec[0].account_code), '1020', 'payment bank leg cleared in reconciliations');
+});

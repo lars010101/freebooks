@@ -280,7 +280,12 @@
 
     // ── Escape: exit to Normal mode; or page escape action if already in normal mode ──
     if (e.key === 'Escape') {
-      document.querySelectorAll('tr.nav-row-focus').forEach(function(r) { r.classList.remove('nav-row-focus'); });
+      // On FB.keys-migrated pages the active binding set owns Escape semantics
+      // and the FB.nav cursor — do NOT strip row highlights behind its back
+      // (stripping left an invisible cursor; boundary-sticky j/k then looked dead).
+      if (!(window.FB && FB.keys.hasActive && FB.keys.hasActive())) {
+        document.querySelectorAll('tr.nav-row-focus').forEach(function(r) { r.classList.remove('nav-row-focus'); });
+      }
       if (inInput) {
         ae.blur();
         fbSetVimMode('normal');

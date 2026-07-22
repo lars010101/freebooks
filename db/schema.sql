@@ -160,8 +160,12 @@ CREATE TABLE IF NOT EXISTS bill_payments (
   bill_id    VARCHAR        NOT NULL,
   batch_id   VARCHAR        NOT NULL,
   amount     DECIMAL(18,4)  NOT NULL,
+  amount_foreign DECIMAL(18,4),
   date       DATE           NOT NULL,
   method     VARCHAR        NOT NULL,
+  reference  VARCHAR,
+  voided_at  TIMESTAMP,
+  voided_by  VARCHAR,
   created_at TIMESTAMP      NOT NULL DEFAULT NOW()
 );
 
@@ -360,6 +364,14 @@ ALTER TABLE accounts DROP COLUMN IF EXISTS pl_category;
 ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
 ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;
 ALTER TABLE bills ADD COLUMN IF NOT EXISTS draft_lines TEXT DEFAULT NULL;
+
+-- MIGRATION (P1-9): payment subledger extensions — manual payments carry an
+-- optional reference; foreign-currency settlements record the foreign amount
+-- for exact unwind; voids mark the row instead of deleting (append-only).
+ALTER TABLE bill_payments ADD COLUMN IF NOT EXISTS amount_foreign DECIMAL(18,4);
+ALTER TABLE bill_payments ADD COLUMN IF NOT EXISTS reference VARCHAR;
+ALTER TABLE bill_payments ADD COLUMN IF NOT EXISTS voided_at TIMESTAMP;
+ALTER TABLE bill_payments ADD COLUMN IF NOT EXISTS voided_by VARCHAR;
 
 -- MIGRATION: VAT tolerance settings
 -- Seeded at company creation in api/src/setup.js. Backfill here for companies

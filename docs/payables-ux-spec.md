@@ -514,7 +514,7 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 3. **Attachments on unsaved bills stage client-side** until the first save binds them (bill-new's reenter behavior, minus its FX hackery).
 4. **Per-line cost/profit centers: INCLUDED** (reversing the draft's skip). The ledger already carries them — `journal_entries.cost_center/profit_center`, bill-header fields, `centers` master data, and `createBill` threads header centers into journal lines. Editor adds a per-line center column (FB.dropdown over `center.list`, default from header, overridable); backend extends the `draft_lines` line shape with `cost_center`/`profit_center` and maps line-level centers onto journal lines at post (falling back to header centers when a line has none).
 
-## P1-9 — Payment matching UX (DRAFT 2026-07-22, for magnus review — NOT yet implemented)
+## P1-9 — Payment matching UX (APPROVED 2026-07-22 — backend landed, UI in progress)
 
 *(Approved by magnus as "go ahead with p1-5" 2026-07-22 — the chat label was wrong; P1-5 was already the shipped VAT-warnings item. Roadmap records this as P1-9.)*
 
@@ -550,7 +550,12 @@ Payment today has exactly one path: bank-import auto-match. That leaves four gap
 
 ### Decisions (magnus, 2026-07-22)
 
-1. **Pay-on-bill itself is under question** — magnus: "why pay on bill? shouldn't it be just the bank import?" Awaiting his decision between import-only (drop scope items 1–2) and the industry-standard dual path. The `p` vs `P` binding question is moot until resolved.
+1. **Dual path approved ("go for B").** Pay-on-bill exists alongside bank-import matching (industry standard: Xero/QBO/Odoo all have both). Consequence — new scope item 6: **import rows matching an already-recorded manual payment must not re-post** (would double-count CR Bank). `bank.process` tags them `recorded_payment`; `bank.approve` clears the existing payment's bank leg via a `reconciliations` row — no new journal. Binding: **`p` contextual** (post on drafts, pay on posted/partial) — one key, the row's status disambiguates.
 2. Import hardening (silent amount-only auto-match demoted to confirm-required suggestion): **agreed.**
-3. Payment entry as inline expanding row, if pay-on-bill survives: **agreed** — inline, not the full editor.
+3. Payment entry as inline expanding row: **agreed** — inline, not the full editor.
 4. Deferred list (multi-bill settlement, bank-tab manual match, tolerance tiers): **OK.**
+
+### Implementation status (2026-07-22)
+
+- **Backend ✅** — shared settlement core (`api/src/settlement.js`) extracted from import approve; import path refactored onto it (behavior mirrored branch-for-branch). New actions: `bill.payment.record` (data_entry, idempotent; cash-account + period-lock + outstanding validation; FX via booking-rate split), `bill.payments` (viewer history), `bill.payment.void` (idempotent; journal reversal + status restore + append-only void mark). `bill_payments` extended: `amount_foreign`, `reference`, `voided_at`, `voided_by`. 5 contract tests added — suite 26/26 green. Fixed en route: ERROR_STATUS gap — INVALID_STATUS/INVALID_ACCOUNT/ALREADY_REVERSED et al. returned HTTP 500; now 409/400.
+- **Pending:** import hardening (item 4) + recorded-payment recognition (item 6) in `bank.process`/`bank.approve`; then UI — inline payment row (item 2), payment history on unfold (item 3), amber suggestion tier in import.

@@ -157,6 +157,21 @@ const ACTIONS = {
     description: 'Hard-delete a draft bill (drafts only, never posted).',
     params: { billId: { type: 'string', required: true } },
   },
+  'bill.payment.record': {
+    role: 'data_entry', mutating: true, idempotent: true,
+    description: 'Record a manual payment against a posted/partial bill (shared settlement core; FX split via booking-rate method). amount is in bill currency.',
+    params: { billId: { type: 'string', required: true }, date: { type: 'date', required: true }, bankAccount: { type: 'string', required: true }, amount: { type: 'number', required: true }, reference: { type: 'string' }, fxRate: { type: 'number' } },
+  },
+  'bill.payments': {
+    role: 'viewer', mutating: false,
+    description: 'Payment history for a bill (amounts, method, reference, voided state).',
+    params: { billId: { type: 'string', required: true } },
+  },
+  'bill.payment.void': {
+    role: 'data_entry', mutating: true, idempotent: true,
+    description: 'Void a bill payment — reverses the settlement journal, decrements amount_paid, restores bill status.',
+    params: { paymentId: { type: 'string', required: true } },
+  },
 
   // ── Read models (P1-8) ───────────────────────────────────────────────────
   'view.bills': {

@@ -108,8 +108,8 @@ var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8'
 
 // ========== ACCOUNT AUTOCOMPLETE (bills tab) ==========
 function loadBillAccounts() {
-  if (billAccountsList.length) return;
-  fetch('/api/' + COMPANY + '/accounts')
+  if (billAccountsList.length) return Promise.resolve();
+  return fetch('/api/' + COMPANY + '/accounts')
     .then(function(r) { return r.json(); })
     .then(function(rows) {
       billAccountsList = Array.isArray(rows) ? rows : [];
@@ -138,6 +138,121 @@ function _attachAcctDropdown(input) {
       inp.dispatchEvent(new Event('input', { bubbles: true }));
     }
   });
+}
+
+// ========== P1-9: INLINE PAYMENT ROW (pay-on-bill) ==========
+// Cash/bank accounts only (cf_category='Cash' is the app-wide marker).
+function _cashSource(q) {
+  q = (q || '').trim().toLowerCase();
+  return billAccountsList.filter(function(a) {
+    if (a.cf_category !== 'Cash' || a.is_active === false) return false;
+    if (!q) return true;
+    return (a.account_code || '').toLowerCase().indexOf(q) >= 0 ||
+           (a.account_name || '').toLowerCase().indexOf(q) >= 0;
+  }).map(function(a) {
+    return { primary: a.account_code, secondary: a.account_name || '', data: { code: a.account_code } };
+  });
+}
+function _attachCashDropdown(input) {
+  if (!input) return;
+  FB.dropdown.attach(input, {
+    source: _cashSource,
+    onPick: function(item, inp) {
+      inp.value = item.data.code;
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  });
+}
+function payRowOpen() { return !!document.querySelector('tr[data-pay-row="true"]'); }
+
+function openPayRow(parentTr) {
+  if (!parentTr || parentTr.dataset.rowType !== 'parent') return;
+  if (payRowOpen()) return; // one payment row at a time
+  var billId = parentTr.dataset.billId;
+  if (!billId) return;
+  var status = parentTr.dataset.status || '';
+  if (status !== 'posted' && status !== 'partial') return;
+  if (!billAccountsList.length) { loadBillAccounts().then(function() { openPayRow(parentTr); }); return; }
+
+  var ccy = parentTr.dataset.currency || BASE_CURRENCY;
+  var outstanding = Math.max(0, Math.round(((parseFloat(parentTr.dataset.amount) || 0) - (parseFloat(parentTr.dataset.amountPaid) || 0)) * 100) / 100);
+  var today = new Date().toISOString().slice(0, 10);
+  var foreign = ccy.toUpperCase() !== BASE_CURRENCY.toUpperCase();
+
+  var tr = document.createElement('tr');
+  tr.dataset.rowType = 'child';
+  tr.dataset.parentId = billId;
+  tr.dataset.payRow = 'true';
+  tr.className = 'child-row pay-row';
+  tr._idem = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('pay-' + Date.now() + '-' + Math.random());
+  tr.innerHTML = '<td colspan="7" class="pay-cell">'
+    + '<span class="pay-lbl">Pay</span>'
+    + '<input type="date" class="draft-input pay-date" value="' + today + '" title="Payment date">'
+    + '<input class="draft-input pay-acct" placeholder="e.g. 1020" title="Bank/cash account">'
+    + '<input class="draft-input pay-amount" type="number" step="0.01" min="0" value="' + outstanding.toFixed(2) + '" title="Amount in ' + esc(ccy) + '">'
+    + '<span class="pay-ccy">' + esc(ccy) + '</span>'
+    + '<input class="draft-input pay-ref" placeholder="e.g. bank ref" title="Payment reference (optional)">'
+    + (foreign ? '<input class="draft-input pay-fx" type="number" step="0.0001" min="0" placeholder="e.g. 1.35" title="FX rate ' + esc(ccy) + ' → ' + esc(BASE_CURRENCY) + ' at payment date">' : '')
+    + '<span class="pay-hint"><a class="pay-ok" title="Record payment">Enter ✓</a> · <a class="pay-cancel" title="Cancel">Esc ✕</a></span>'
+    + '</td>';
+  parentTr.insertAdjacentElement('afterend', tr);
+
+  var acctIn = tr.querySelector('.pay-acct');
+  acctIn.value = localStorage.getItem('fb.payAccount.' + COMPANY) || '';
+  _attachCashDropdown(acctIn);
+  tr.querySelector('.pay-ok').addEventListener('click', function(e) { e.stopPropagation(); submitPayRow(); });
+  tr.querySelector('.pay-cancel').addEventListener('click', function(e) { e.stopPropagation(); closePayRow(); });
+  if (foreign) {
+    _getFxRate(ccy, today).then(function(rate) {
+      var fxIn = tr.querySelector('.pay-fx');
+      if (fxIn && rate != null && !fxIn.value) fxIn.value = rate;
+    });
+  }
+  cursor.mode = 'INSERT';
+  var amtIn = tr.querySelector('.pay-amount');
+  amtIn.focus();
+  amtIn.select();
+}
+
+function closePayRow() {
+  var tr = document.querySelector('tr[data-pay-row="true"]');
+  if (tr) tr.remove();
+  cursor.mode = 'NORMAL';
+}
+
+function submitPayRow() {
+  var tr = document.querySelector('tr[data-pay-row="true"]');
+  if (!tr || tr._submitting) return;
+  var billId = tr.dataset.parentId;
+  var date = tr.querySelector('.pay-date').value;
+  var acct = tr.querySelector('.pay-acct').value.trim();
+  var amt = parseFloat(tr.querySelector('.pay-amount').value);
+  var ref = tr.querySelector('.pay-ref').value.trim();
+  var fxIn = tr.querySelector('.pay-fx');
+  var fxRate = (fxIn && fxIn.value !== '') ? parseFloat(fxIn.value) : null;
+  if (!date) { billEditMsg('Payment date required', 'err'); return; }
+  if (!acct) { billEditMsg('Bank account required', 'err'); tr.querySelector('.pay-acct').focus(); return; }
+  if (!(amt > 0)) { billEditMsg('Amount must be greater than zero', 'err'); return; }
+  tr._submitting = true;
+  billEditMsg('Recording payment…', '');
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': tr._idem },
+    body: JSON.stringify({ action: 'bill.payment.record', companyId: COMPANY, billId: billId, date: date,
+      bankAccount: acct, amount: amt, reference: ref || undefined, fxRate: fxRate != null ? fxRate : undefined }) })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    tr._submitting = false;
+    var d = res.data || res;
+    if (res.error || (d && d.error)) {
+      billEditMsg('Payment failed: ' + (res.error || d.error), 'err');
+      return;
+    }
+    localStorage.setItem('fb.payAccount.' + COMPANY, acct);
+    closePayRow();
+    billEditMsg('Payment recorded — bill ' + (d.status || 'updated'), 'ok');
+    setTimeout(function() { billEditMsg('', ''); }, 3000);
+    loadAllBills();
+  })
+  .catch(function(e) { tr._submitting = false; billEditMsg('Payment failed: ' + e.message, 'err'); });
 }
 // VAT codes: '— None —' plus every code in taxCodeMap (contains-match).
 function _vatSource(q) {
@@ -261,11 +376,18 @@ var kbd = {
         run: function() { self._normalAddLine(); } },
       { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true,
         run: function() { self._deleteCurrent(); } },
-      { key: 'p', mode: 'NORMAL', hint: 'post', hintBar: true,
+      { key: 'p', mode: 'NORMAL', hint: 'post/pay', hintBar: true,
         run: function() { self._normalPost(); } },
       // ── INSERT (draft bill editing) ──
       { key: 'Escape', mode: 'INSERT', when: ddOpen,
         run: function() { FB.dropdown.close(); } },
+      // P1-9: payment row bindings — before general INSERT bindings (priority order)
+      { key: 'Enter', mode: 'INSERT', when: payRowOpen,
+        run: function() { if (FB.dropdown.isOpen()) { FB.dropdown.pick(); return; } submitPayRow(); } },
+      { key: 'Escape', mode: 'INSERT', when: payRowOpen, hint: 'cancel', hintBar: false,
+        run: function() { closePayRow(); } },
+      { key: 'Tab', mode: 'INSERT', when: payRowOpen, swallow: false, preventDefault: false,
+        run: function() {} },
       { key: 'Escape', mode: 'INSERT', hint: 'save/cancel', hintBar: true,
         run: function() { self._insertEscape(); } },
       { key: 'Enter', mode: 'INSERT',
@@ -503,6 +625,11 @@ var kbd = {
     }
     if (pRow && (pRow.dataset.draft === 'true' || pRow.dataset.status === 'draft')) {
       _postDirect(pRow);
+      return;
+    }
+    // P1-9: contextual p — on posted/partial bills it opens the inline payment row
+    if (pRow && (pRow.dataset.status === 'posted' || pRow.dataset.status === 'partial')) {
+      openPayRow(pRow);
     }
   },
 
@@ -567,6 +694,24 @@ var kbd = {
     if (!cursor.rowEl) return;
     var rowType = cursor.rowEl.dataset.rowType;
     if (rowType === 'child') {
+      // P1-9: payment history row → void the payment (append-only subledger)
+      if (cursor.rowEl.dataset.paymentId) {
+        var payId = cursor.rowEl.dataset.paymentId;
+        if (cursor.rowEl.dataset.voided === 'true') { billEditMsg('Payment already voided', 'err'); return; }
+        if (!confirm('Void this payment? A reversal journal entry will be created.')) return;
+        fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'bill.payment.void', companyId: COMPANY, paymentId: payId }) })
+          .then(function(r) { return r.json(); })
+          .then(function(res) {
+            var d = res.data || res;
+            if (res.error || (d && d.error)) { billEditMsg('Void failed: ' + (res.error || d.error), 'err'); return; }
+            billEditMsg('Payment voided — bill ' + (d.newStatus || ''), 'ok');
+            setTimeout(function() { billEditMsg('', ''); }, 3000);
+            loadAllBills();
+          })
+          .catch(function(e) { billEditMsg('Void failed: ' + e.message, 'err'); });
+        return;
+      }
       var parentKey = cursor.rowEl.dataset.parentKey || cursor.rowEl.dataset.parentId;
       if (cursor.rowEl.dataset.draft === 'true' && parentKey && draftLines[parentKey]) {
         var lineIdx = parseInt(cursor.rowEl.dataset.lineIdx);
@@ -859,6 +1004,39 @@ function toggleBillLines(billId, parentTr) {
       insertAfter.insertAdjacentElement('afterend', gstTr);
       insertAfter = gstTr;
     });
+
+    // P1-9: payment history on unfold (paid/partial bills) — parallel fetch,
+    // appended after the journal lines. Deviation from spec: separate call, not
+    // folded into bill.lines (keeps the viewer action's array shape unchanged).
+    var payStatus = parentTr.dataset.status || '';
+    if (payStatus === 'paid' || payStatus === 'partial') {
+      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'bill.payments', companyId: COMPANY, billId: billId }) })
+      .then(function(r){ return r.json(); })
+      .then(function(pres){
+        var payments = pres.data || pres || [];
+        if (!Array.isArray(payments)) payments = [];
+        var anchor = insertAfter;
+        payments.forEach(function(pmt) {
+          var ptr = document.createElement('tr');
+          ptr.dataset.rowType = 'child';
+          ptr.dataset.parentId = billId;
+          ptr.dataset.paymentId = pmt.payment_id;
+          ptr.dataset.voided = pmt.voided_at ? 'true' : 'false';
+          ptr.className = 'child-row payment-history-row';
+          var voided = !!pmt.voided_at;
+          var meth = pmt.method === 'manual' ? 'manual' : 'bank match';
+          ptr.innerHTML = '<td colspan="4" class="child-desc' + (voided ? ' pay-voided' : '') + '">'
+            + 'Payment ' + fmtDateShort(pmt.date) + ' · ' + esc(meth) + (pmt.reference ? ' · ' + esc(pmt.reference) : '') + (voided ? ' · voided' : '') + '</td>'
+            + '<td class="amt' + (voided ? ' pay-voided' : '') + '" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(pmt.amount || 0).toFixed(2) + '</td>'
+            + '<td class="child-spacer"></td>'
+            + '<td></td>';
+          anchor.insertAdjacentElement('afterend', ptr);
+          anchor = ptr;
+        });
+      })
+      .catch(function() {});
+    }
   })
   .catch(function(e){
     parentTr.classList.remove('row-loading');
@@ -2407,14 +2585,14 @@ function renderPage() {
     var isOverdue = active && due && due < today;
     var dueCls = isOverdue ? ' class="overdue-date"' : '';
     var rowUrl = '/' + COMPANY + '/bill/' + b.bill_id;
-    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" data-date="' + esc(b.date||'') + '" data-due-date="' + esc(due || '') + '" data-vendor-ref="' + esc(b.vendor_ref || '') + '" data-amount="' + String(b.amount || 0) + '" data-currency="' + esc(b.currency || BASE_CURRENCY) + '" data-status="' + esc(b.status || '') + '" data-expense-account="' + esc(b.expense_account || '') + '" data-ap-account="' + esc(b.ap_account || '') + '" style="cursor:pointer">'
+    html += '<tr data-row-type="parent" data-bill-id="' + esc(String(b.bill_id)) + '" data-vendor="' + esc(b.vendor||'') + '" data-date="' + esc(b.date||'') + '" data-due-date="' + esc(due || '') + '" data-vendor-ref="' + esc(b.vendor_ref || '') + '" data-amount="' + String(b.amount || 0) + '" data-amount-paid="' + String(b.amount_paid || 0) + '" data-currency="' + esc(b.currency || BASE_CURRENCY) + '" data-status="' + esc(b.status || '') + '" data-expense-account="' + esc(b.expense_account || '') + '" data-ap-account="' + esc(b.ap_account || '') + '" style="cursor:pointer">'
       + '<td>' + vendorCell(b.vendor) + '</td>'
       + '<td style="white-space:nowrap" title="' + esc(String(b.date||'').slice(0,10)) + '">' + fmtDateShort(b.date) + '</td>'
       + '<td style="white-space:nowrap" title="' + esc(due || '') + '"><span' + dueCls + '>' + fmtDateShort(due) + '</span></td>'
       + '<td><a href="' + rowUrl + '" class="ref-link" onclick="event.stopPropagation()">' + esc(b.vendor_ref || '') + '</a></td>'
       + '<td class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(b.amount||0).toFixed(2) + '</td>'
       + '<td class="ccy-cell" style="font-size:0.75rem;color:#666;width:50px" id="ccy-' + esc(String(b.bill_id)) + '" data-bill-date="' + esc(String(b.date||'').slice(0,10)) + '" data-bill-ccy="' + esc(b.currency || BASE_CURRENCY) + '">' + esc(b.currency || BASE_CURRENCY) + '</td>'
-      + '<td>' + statusBadge(b.status, due) + '</td>'
+      + '<td>' + statusBadge(b.status, due) + ((b.status === 'posted' || b.status === 'partial') ? '<button class="pay-afford" title="Record payment (p)" onclick="event.stopPropagation();openPayRow(this.parentNode.parentNode)">Pay</button>' : '') + '</td>'
       + '</tr>';
   });
   var tbody = document.getElementById('bills-tbody');

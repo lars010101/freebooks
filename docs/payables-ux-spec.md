@@ -562,3 +562,30 @@ Payment today has exactly one path: bank-import auto-match. That leaves four gap
 - **Bills-tab UI ✅** — `p` on posted/partial opens the inline payment row (colspan fold-pattern row: date default today, bank-account FB.dropdown over `cf_category='Cash'` with last-used default, amount default outstanding in bill ccy, optional reference, FX-rate field for foreign bills prefilled from the day's rate). Enter records (`Idempotency-Key` per row open), Esc cancels, dropdown-open Enter picks before submit (binding priority), mode INSERT↔NORMAL. Mouse parity: hover-only "Pay" affordance on posted/partial parent rows (no chrome at rest; there was no pre-existing delete hover icon on this table — the spec's "same pattern as delete" resolved to the 💾-style inline icon). Unfold of paid/partial bills appends payment-history child rows (date · method · reference · amount; voided struck through) via a parallel `bill.payments` fetch — deviation from spec's one-round-trip: kept separate to preserve `bill.lines`' array shape. `x` on a payment row voids via `bill.payment.void` (confirm, status-bar result, list reload). Sidebar hint updated: `p` = post/pay. Verified live: record → Paid, history rows, void → posted + reversal journal, ledger balanced. Template-escape trap hit and fixed: inline onclick row lookup uses `parentNode.parentNode` (no nested quotes in template strings).
 - **Bank-import UI ✅** — `bill_suggest` rows render amber (`bill?` tag, amber left border) **pre-skipped** (confirm = uncheck Skip; reject = leave it), excluded from approve-all; `recorded_payment` rows render blue (`recorded` tag, "already recorded — clears on approve" note, included in approve as clearing entries). Summary line gains suggestion/recorded counts. `checkDuplicates` now excludes both tiers (a recorded payment is *expected* in the ledger — dup-warn would mislabel and fight the clearing flow). Verified live against throwaway DB: 3-row process renders all three tiers; contract suite 28/28.
 - **P1-9 COMPLETE** — all six scope items shipped. Remaining deferred list unchanged (multi-bill settlement, bank-tab manual match, tolerance tiers).
+
+## P1-6 — Discoverability: `?` overlay + dead-palette removal (SHIPPED 2026-07-22)
+
+### Purpose
+
+Keyboard-first UX fails if bindings are undiscoverable. The review found the `?` button handler-less and the `:` command palette dispatching to an undefined `fbCmdDispatch` — discoverability was dead. P1-3 had already made the sidebar hint panel generated from the FB.keys binding tables; P1-6 completes the pattern with an on-demand exhaustive reference.
+
+### Shipped behavior
+
+1. **`?` (Shift+/) opens a which-key-style overlay** of the active page's binding set. Two columns — NORMAL | INSERT — listing **every binding that carries a `hint`** (exhaustive), where the sidebar panel remains the curated `hintBar` subset. Same binding table, same adjacent-same-hint grouping (`j/k navigate`) as dispatch and sidebar — one source of truth, the overlay **cannot go stale**. Modifier-gated bindings (e.g. Ctrl+Enter) are probed through their `when()` and labeled explicitly.
+2. **Trigger guards:** NORMAL mode only, and never while typing in an input/textarea/select/contenteditable (same guard that keeps NORMAL verbs inert) — a literal `?` typed into a description field stays text. On pages with no FB.keys set (journal/bank/settings/dashboard), `?` is a silent no-op.
+3. **While open, the overlay swallows every key** (capture-phase, before page bindings and common.js's bubble handler). Close on `Esc`, `?`, or backdrop click. Focus is restored to the previously focused element.
+4. **Mouse parity:** the topbar `?` button (previously handler-less) toggles the same overlay via `FB.keys.help.toggle()` — deliberately not mode-gated (read-only documentation).
+5. **`:` palette removed, not fixed.** The search-bar `:`-prefix dispatch called an undefined function (would `console.log` and swallow the command), and `fbOpenCmdPalette` was a self-admitted no-op stub — doubly dead code, deleted per standing rule 6. The search bar keeps its real behaviors (Enter blurs, Esc clears+blurs; filtering is each page's oninput). A real command palette is separate scope (P2-6 territory).
+
+### Decisions (2026-07-22)
+
+1. Overlay is exhaustive, sidebar stays curated — two surfaces, one table. Rationale: the sidebar must stay scannable; the overlay answers "what can I press here, exactly?"
+2. NORMAL-mode-only keyboard trigger. INSERT-mode users are typing; typing wins. The INSERT column is still *shown* so INSERT bindings are discoverable.
+3. Palette removed rather than repaired: it never worked, and a real one deserves its own design (fuzzy commands, recent actions) — not a P1-6 side quest.
+
+### Implementation status (2026-07-22)
+
+- fb-core.js: `_activeSet()` resolves the dispatch-owning set; `FB.keys.help` (open/close/toggle/isOpen); shared `_groupHints()` used by both sidebar renderHints and the overlay; `?` trigger in `_dispatch` after page bindings.
+- common.css: `#fb-keys-overlay` panel styles reusing `.fb-hint-row` markup with a light-panel palette.
+- common.js: dead palette deleted (~70 LOC); topbar `?` button wired (`#tb-help-btn`); cache-buster bumped `?v=20260722`.
+- Verified live (throwaway DB): overlay opens on Bills + bill-edit, columns/labels match sidebar superset, Esc/`?`/backdrop close, typing `?` in an inline field stays text, journal page no-op. Contract suite 28/28.

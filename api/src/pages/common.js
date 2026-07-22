@@ -9,8 +9,8 @@ function makeQuery() {
 
 // ── CSS ───────────────────────────────────────────────────────────────────────
 function commonStyle() {
-  return `<link rel="stylesheet" href="/public/common.css?v=20260721">
-<script src="/public/fb-core.js?v=20260721"></script>
+  return `<link rel="stylesheet" href="/public/common.css?v=20260722">
+<script src="/public/fb-core.js?v=20260722"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📒</text></svg>">`;
 }
 
@@ -131,7 +131,7 @@ function navBar(company, activeKey) {
       <div class="tb-left">
         <div class="tb-global-controls">
           <div class="tb-search-wrap">
-            <input type="text" id="tb-global-search" class="tb-search" placeholder="⌘  Search (/) or Command (:) …" autocomplete="off" tabindex="-1">
+            <input type="text" id="tb-global-search" class="tb-search" placeholder="⌘  Search (/) …" autocomplete="off" tabindex="-1">
           </div>
           <span id="tb-status-msg" class="tb-status-msg"></span>
         </div>
@@ -140,7 +140,7 @@ function navBar(company, activeKey) {
         ${ctx.actions}
         <a href="/${company}/journal/new" class="tb-btn">+ Journal Entry</a>
         <button class="tb-icon-btn" title="Notifications">🔔</button>
-        <button class="tb-icon-btn" title="Help">?</button>
+        <button class="tb-icon-btn" id="tb-help-btn" title="Keyboard shortcuts (?)">?</button>
       </div>
     </header>
     <main id="page-main">`;

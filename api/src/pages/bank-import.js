@@ -34,6 +34,10 @@ ${commonStyle()}
   .tag.hi  { background:#d4edda; color:#155724; }
   .tag.med { background:#fff3cd; color:#856404; }
   .tag.lo  { background:#f8d7da; color:#721c24; }
+  .tag.sug { background:#ffeeba; color:#856404; }
+  .tag.rec { background:#dbe5f1; color:#2f5496; }
+  table.review-table tr.suggested td:first-child { border-left:3px solid #e0a800; }
+  table.review-table tr.recorded td:first-child { border-left:3px solid #6c8ebf; }
   input.acct { width:75px; padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
   select.col-map { padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
 </style>
@@ -395,7 +399,9 @@ ${commonStyle()}
       '<b>'+processedRows.length+'</b> rows: '
       + '<span style="color:#2a8a2a">'+(summary.ruleMatched||0)+' rule-matched</span>, '
       + '<span style="color:#856404">'+(summary.billMatched||0)+' bill-matched</span>, '
-      + '<span style="color:#cc8800">'+(summary.unmatched||0)+' unmatched</span>';
+      + '<span style="color:#cc8800">'+(summary.unmatched||0)+' unmatched</span>'
+      + ((summary.billSuggest||0) ? ' &nbsp;<span style="color:#856404;font-weight:600">'+summary.billSuggest+' amount-only suggestion'+(summary.billSuggest>1?'s':'')+' pre-skipped — uncheck Skip to confirm</span>' : '')
+      + ((summary.recordedPayment||0) ? ' &nbsp;<span style="color:#2f5496;font-weight:600">'+summary.recordedPayment+' already recorded — will clear on approve</span>' : '');
     document.getElementById('step-review').style.display = '';
     setWizardStep(3);
     document.getElementById('review-body').innerHTML = processedRows.map(function(r, i) {
@@ -403,25 +409,34 @@ ${commonStyle()}
       var amt = parseFloat(orig.amount);
       var matchTag = r.matchType === 'rule' ? '<span class="tag hi">rule</span>'
         : r.matchType === 'bill' ? '<span class="tag med">bill</span>'
+        : r.matchType === 'bill_suggest' ? '<span class="tag sug">bill?</span>'
+        : r.matchType === 'recorded_payment' ? '<span class="tag rec">recorded</span>'
         : '<span class="tag lo">manual</span>';
-      var cls = r.matchType ? 'matched' : 'unmatched';
+      var cls = r.matchType === 'bill_suggest' ? 'suggested'
+        : r.matchType === 'recorded_payment' ? 'recorded'
+        : r.matchType ? 'matched' : 'unmatched';
       var billCell = r.billId
         ? '<span style="color:#2a8a2a;font-size:9pt">\u2713 '+escHtml((r.vendorShort||String(r.billId)).slice(0,10))+'</span>'
           +' <button style="border:none;background:none;cursor:pointer;color:#888;font-size:9pt" '
           +'onclick="unlinkBill('+i+')" title="Unlink bill">\u00d7</button>'
         : '<button style="border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer;padding:2px 6px;font-size:10pt" '
           +'onclick="openBillPanel('+i+')">&#128279;</button>';
+      var drCell = '<td style="width:90px"><input class="acct" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct" oninput="updateAcctName(this)">'
+        +'<div style="font-size:8pt;color:#333;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></td>';
+      var crCell = '<td style="width:90px"><input class="acct" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" oninput="updateAcctName(this)">'
+        +'<div style="font-size:8pt;color:#333;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.creditAccount ? (accountsMap[r.creditAccount]||'?') : '')+'</div></td>';
+      if (r.matchType === 'recorded_payment') {
+        drCell = '<td colspan="2" style="font-size:8.5pt;color:#2f5496;font-style:italic">already recorded — clears on approve</td>';
+        crCell = '';
+      }
       return '<tr class="'+cls+'" data-i="'+i+'">'
         +'<td>'+orig.date+'</td>'
         +'<td>'+escHtml(orig.description)+'</td>'
         +'<td class="num" style="color:'+(amt>=0?'#2a8a2a':'#cc2222')+'">'+(amt>=0?'+':'')+fmt(Math.abs(amt))+'</td>'
         +'<td>'+matchTag+'</td>'
         +'<td style="width:80px;text-align:center" data-bill-cell="'+i+'">'+billCell+'</td>'
-        +'<td style="width:90px"><input class="acct" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct" oninput="updateAcctName(this)">'
-          +'<div style="font-size:8pt;color:#333;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></td>'
-        +'<td style="width:90px"><input class="acct" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" oninput="updateAcctName(this)">'
-          +'<div style="font-size:8pt;color:#333;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+(r.creditAccount ? (accountsMap[r.creditAccount]||'?') : '')+'</div></td>'
-        +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'" onchange="updateBalances()"></td>'
+        + drCell + crCell
+        +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'" onchange="updateBalances()"'+(r.matchType === 'bill_suggest' ? ' checked' : '')+'></td>'
         +'</tr>';
     }).join('');
     // Populate journal dropdown now that the element is visible
@@ -468,6 +483,9 @@ ${commonStyle()}
         document.querySelectorAll('#review-body tr').forEach(function(tr, i) {
           var r = processedRows[i];
           if (!r) return;
+          // P1-9: recorded payments are EXPECTED in the ledger (that is the point —
+          // approve clears them), and suggestions are already pre-skipped above.
+          if (r.matchType === 'recorded_payment' || r.matchType === 'bill_suggest') return;
           var sig = r.original.date + '|' + Math.abs(parseFloat(r.original.amount)).toFixed(2);
           if (sigs.has(sig)) {
 
@@ -538,6 +556,12 @@ ${commonStyle()}
       var skip = tr.querySelector('[data-skip]').checked;
       if (skip) return;
       var r = processedRows[i];
+      // P1-9: recorded payments post nothing — approve clears their bank leg
+      if (r.matchType === 'recorded_payment' && r.paymentBatchId) {
+        entries.push({ date: r.original.date, description: r.description || r.original.description,
+          amount: r.original.amount, recordedPayment: true, paymentBatchId: r.paymentBatchId, bankAccount: r.bankAccount });
+        return;
+      }
       var dr = tr.querySelector('[data-field=dr]').value.trim();
       var cr = tr.querySelector('[data-field=cr]').value.trim();
       if (!dr || !cr) return;

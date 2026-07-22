@@ -1,5 +1,7 @@
 'use strict';
 const { queryPositional } = require('../db');
+const fs = require('fs');
+const path = require('path');
 
 function makeQuery() {
   return function query(sql, params = []) {
@@ -7,10 +9,20 @@ function makeQuery() {
   };
 }
 
+// ── Asset versioning ──────────────────────────────────────────────────────────
+// ?v= tracks each public file's mtime, so the buster changes exactly when the
+// file does — manual date bumps get forgotten and stale fb-core.js breaks pages
+// (wireHeader throws → no focus, no dropdowns). maxAge:0+etag on /public makes
+// this belt-and-braces, but it also defeats proxy/service-worker caches.
+function assetV(file) {
+  try { return fs.statSync(path.join(__dirname, '..', '..', 'public', file)).mtimeMs; }
+  catch (e) { return Date.now(); }
+}
+
 // ── CSS ───────────────────────────────────────────────────────────────────────
 function commonStyle() {
-  return `<link rel="stylesheet" href="/public/common.css?v=20260722">
-<script src="/public/fb-core.js?v=20260722"></script>
+  return `<link rel="stylesheet" href="/public/common.css?v=${assetV('common.css')}">
+<script src="/public/fb-core.js?v=${assetV('fb-core.js')}"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📒</text></svg>">`;
 }
 
@@ -151,7 +163,7 @@ function layoutEnd() {
   return `    </main>
   </div>
 </div>
-<script src="/public/common.js"></script>`;
+<script src="/public/common.js?v=${assetV('common.js')}"></script>`;
 }
 
 module.exports = { makeQuery, commonStyle, navBar, layoutEnd };

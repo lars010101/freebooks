@@ -12,6 +12,8 @@ const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
 const { getNextReference } = require('./journal');
 const { validateBill } = require('./validation');
+const { settleBillPayment } = require('./settlement');
+const { getRate } = require('./fx');
 // computeVatSplit removed — bills now use tax-exclusive direct VAT lookup
 
 // Read company-level default AP and expense account codes from the settings
@@ -83,6 +85,9 @@ async function handleBills(ctx, action) {
     case 'bill.draft.save': return saveDraftBill(ctx);
     case 'bill.draft.post': return postDraftBill(ctx);
     case 'bill.draft.delete': return deleteDraftBill(ctx);
+    case 'bill.payment.record': return recordBillPayment(ctx);
+    case 'bill.payment.void':   return voidBillPayment(ctx);
+    case 'bill.payments':       return listBillPayments(ctx);
     default:
       throw Object.assign(new Error(`Unknown bill action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -429,6 +434,173 @@ async function voidBill(ctx) {
   );
 
   return { voided: true, billId };
+}
+
+/**
+ * bill.payment.record — manual pay-on-bill (P1-9 dual path).
+ * Settles through the SAME core as bank-import approve (FX split included).
+ * amount is in the BILL's currency; for foreign bills the home-currency bank
+ * amount is derived from fxRate (param) or the day's master-data rate.
+ */
+async function recordBillPayment(ctx) {
+  const { companyId, userEmail, body } = ctx;
+  const { billId, date, bankAccount, amount, reference = null, fxRate = null } = body;
+
+  const billRows = await query(
+    `SELECT * FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
+    { companyId, billId }
+  );
+  if (billRows.length === 0) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
+  const bill = billRows[0];
+
+  if (bill.status === 'draft') throw Object.assign(new Error('Bill is still a draft — post it before recording a payment'), { code: 'INVALID_STATUS' });
+  if (bill.status === 'void') throw Object.assign(new Error('Bill is void'), { code: 'INVALID_STATUS' });
+  if (bill.status === 'paid') throw Object.assign(new Error('Bill is already fully paid'), { code: 'INVALID_STATUS' });
+
+  const amt = Number(amount);
+  if (!(amt > 0)) throw Object.assign(new Error('amount must be greater than zero'), { code: 'VALIDATION' });
+  const round4 = (n) => Math.round(n * 10000) / 10000;
+  const outstandingBefore = round4(Number(bill.amount) - Number(bill.amount_paid));
+  if (amt > outstandingBefore + 0.005) {
+    throw Object.assign(new Error(`Amount ${amt} exceeds outstanding ${outstandingBefore} ${bill.currency}`), { code: 'VALIDATION' });
+  }
+
+  // Bank account must be an active cash/bank account (cf_category='Cash' is the app-wide marker)
+  const acct = await query(
+    `SELECT account_code, cf_category FROM accounts WHERE company_id = @companyId AND account_code = @bankAccount AND is_active = true LIMIT 1`,
+    { companyId, bankAccount }
+  );
+  if (acct.length === 0) throw Object.assign(new Error(`Unknown or inactive account: ${bankAccount}`), { code: 'INVALID_ACCOUNT' });
+  if (acct[0].cf_category !== 'Cash') {
+    throw Object.assign(new Error(`Not a cash/bank account (cf_category must be 'Cash'): ${bankAccount}`), { code: 'INVALID_ACCOUNT' });
+  }
+
+  // Period lock — mirrors createBill's server-side enforcement
+  const periods = await query(
+    `SELECT period_name, start_date, end_date, locked
+     FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
+           FROM periods WHERE company_id = @companyId) WHERE rn = 1`,
+    { companyId }
+  );
+  const payDate = new Date(String(date).substring(0, 10));
+  const covering = periods.filter((p) => new Date(p.start_date) <= payDate && new Date(p.end_date) >= payDate);
+  if (covering.length === 0) {
+    throw Object.assign(new Error(`Payment date ${date} does not fall within any defined accounting period`), { code: 'VALIDATION' });
+  }
+  const locked = covering.filter((p) => p.locked);
+  if (locked.length > 0) {
+    throw Object.assign(new Error(`Payment date ${date} falls into a locked accounting period (${locked.map((p) => p.period_name).join(', ')})`), { code: 'PERIOD_LOCKED' });
+  }
+
+  const companies = await query(
+    `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,
+    { companyId }
+  );
+  const homeCurrency = companies[0]?.currency || 'USD';
+  const bankJournals = await query(
+    `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'BANK' AND active = true LIMIT 1`,
+    { companyId }
+  );
+  const journalId = bankJournals[0]?.journal_id || null;
+
+  const isForeign = bill.currency && bill.currency !== homeCurrency;
+  let bankAmount;
+  let settledForeign = null;
+  if (isForeign) {
+    settledForeign = amt;
+    let rate = fxRate != null ? Number(fxRate) : null;
+    if (rate == null) {
+      rate = await getRate(bill.currency, homeCurrency, String(date).substring(0, 10));
+      if (rate == null) {
+        throw Object.assign(new Error(`No FX rate for ${bill.currency} on ${String(date).substring(0, 10)} — add it in Settings → Exchange Rates`), { code: 'VALIDATION' });
+      }
+    }
+    bankAmount = round4(settledForeign * rate);
+  } else {
+    bankAmount = amt;
+  }
+
+  const s = await settleBillPayment({
+    companyId, userEmail, billId,
+    bankAccount,
+    homeCurrency,
+    bankAmount,
+    date: String(date).substring(0, 10),
+    description: `Payment: ${bill.vendor} ${bill.vendor_ref || ''}`.trim(),
+    settledForeign,
+    method: 'manual',
+    source: 'manual_payment',
+    journalId,
+    paymentReference: reference,
+  });
+
+  const newPaid = round4(Number(bill.amount_paid) + (settledForeign ?? bankAmount));
+  const out = {
+    paymentId: s.paymentId,
+    batchId: s.batchId,
+    status: s.newStatus,
+    amountPaid: newPaid,
+    outstanding: round4(Number(bill.amount) - newPaid),
+  };
+  if (s.warning) out.warning = s.warning;
+  return out;
+}
+
+/** bill.payments (viewer) — payment history for a bill. */
+async function listBillPayments(ctx) {
+  const { companyId, body } = ctx;
+  const { billId } = body;
+  return query(
+    `SELECT payment_id, bill_id, batch_id, amount, amount_foreign, date, method, reference, voided_at
+     FROM bill_payments WHERE company_id = @companyId AND bill_id = @billId
+     ORDER BY date, created_at`,
+    { companyId, billId }
+  );
+}
+
+/**
+ * bill.payment.void — unwind a payment (P1-9 safety valve).
+ * Reverses the settlement journal batch, decrements amount_paid, restores
+ * bill status, and marks the bill_payments row voided (append-only subledger).
+ */
+async function voidBillPayment(ctx) {
+  const { companyId, userEmail, body } = ctx;
+  const { paymentId } = body;
+
+  const rows = await query(
+    `SELECT * FROM bill_payments WHERE company_id = @companyId AND payment_id = @paymentId LIMIT 1`,
+    { companyId, paymentId }
+  );
+  if (rows.length === 0) throw Object.assign(new Error('Payment not found'), { code: 'NOT_FOUND' });
+  const payment = rows[0];
+  if (payment.voided_at) throw Object.assign(new Error('Payment already voided'), { code: 'INVALID_STATUS' });
+
+  const billRows = await query(
+    `SELECT * FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
+    { companyId, billId: payment.bill_id }
+  );
+  if (billRows.length === 0) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
+  const bill = billRows[0];
+  if (bill.status === 'void') throw Object.assign(new Error('Bill is void'), { code: 'INVALID_STATUS' });
+
+  // Reverse the settlement journal (period-lock + double-reverse guards live in journal.reverse)
+  const { handleJournal } = require('./journal');
+  await handleJournal({ ...ctx, body: { batchId: payment.batch_id } }, 'journal.reverse');
+
+  // amount_paid is tracked in the bill's currency: unwind by the foreign amount when present
+  const decrement = Number(payment.amount_foreign != null ? payment.amount_foreign : payment.amount);
+  const newPaid = Math.max(0, Math.round((Number(bill.amount_paid) - decrement) * 10000) / 10000);
+  const newStatus = newPaid <= 0.005 ? 'posted' : 'partial';
+  await exec(
+    `UPDATE bills SET amount_paid = @newPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
+    { companyId, billId: payment.bill_id, newPaid, newStatus }
+  );
+  await exec(
+    `UPDATE bill_payments SET voided_at = NOW(), voided_by = @voidedBy WHERE company_id = @companyId AND payment_id = @paymentId`,
+    { companyId, paymentId, voidedBy: userEmail || 'user' }
+  );
+
+  return { voided: true, paymentId, newStatus, amountPaid: newPaid };
 }
 
 async function listBills(ctx) {

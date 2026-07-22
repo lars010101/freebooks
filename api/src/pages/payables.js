@@ -238,6 +238,28 @@ ${commonStyle()}
   .btn-sm:hover { background:#e8e8e8; }
   .btn-save-draft { background:none; border:none; cursor:pointer; font-size:1rem; padding:2px 6px; color:#bbb; line-height:1; border-radius:4px; }
   .btn-save-draft:hover { color:#1a1a1a; background:#f0f0f0; }
+  /* P1-9: hover-only Pay affordance on posted/partial parent rows — no chrome at rest */
+  .pay-afford { display:none; margin-left:6px; font-size:8pt; padding:1px 6px; border:1px solid #5b8def; background:#fff; color:#5b8def; border-radius:3px; cursor:pointer; line-height:1.4; }
+  .pay-afford:hover { background:#5b8def; color:#fff; }
+  .data-table tbody tr:hover .pay-afford { display:inline-block; }
+  .data-table tbody.kb-active tr:hover .pay-afford,
+  .data-table tbody.insert-mode tr:hover .pay-afford { display:none; }
+  /* P1-9: inline payment row */
+  .pay-row td.pay-cell { padding:6px 12px 6px 60px; background:#f6f9ff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pay-row .pay-lbl { font-weight:600; font-size:8pt; color:#5b8def; text-transform:uppercase; letter-spacing:0.4px; margin-right:8px; }
+  tr.pay-row td.pay-cell input.draft-input { height:26px; font-size:9pt; margin-right:6px; width:auto; display:inline-block; }
+  tr.pay-row td.pay-cell input.pay-date { width:130px; }
+  tr.pay-row td.pay-cell input.pay-acct { width:90px; }
+  tr.pay-row td.pay-cell input.pay-amount { width:90px; text-align:right; }
+  tr.pay-row td.pay-cell input.pay-ref { width:110px; }
+  tr.pay-row td.pay-cell input.pay-fx { width:70px; text-align:right; }
+  .pay-row .pay-ccy { font-size:8pt; color:#666; margin-right:6px; }
+  .pay-row .pay-hint { font-size:8pt; color:#999; margin-left:8px; }
+  .pay-row .pay-hint a { color:#5b8def; cursor:pointer; text-decoration:none; }
+  .pay-row .pay-hint a:hover { text-decoration:underline; }
+  /* P1-9: payment history rows on unfold */
+  .payment-history-row td { font-size:8pt; color:#555; font-style:italic; }
+  .payment-history-row .pay-voided { text-decoration:line-through; color:#aaa; }
   .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:0.9375rem; font-weight:600; cursor:pointer; }
   button.btn-primary:hover { background:#333; }

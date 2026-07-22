@@ -8,6 +8,7 @@ const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
 const { expandVatLines } = require('./vat');
 const { getNextReference, getNextReferenceBatch } = require('./journal');
+const { settleBillPayment } = require('./settlement');
 
 async function handleBank(ctx, action) {
   switch (action) {
@@ -44,7 +45,7 @@ async function processBankStatement(ctx) {
   let openBills = [];
   if (company.accounting_method !== 'cash') {
     openBills = await query(
-      `SELECT bill_id, vendor, vendor_ref, amount_home, amount_paid,
+      `SELECT bill_id, vendor, vendor_ref, amount_home, amount_paid, ap_account,
               (amount_home - amount_paid) AS outstanding, due_date
        FROM bills
        WHERE company_id = @companyId AND status IN ('posted', 'partial')
@@ -58,6 +59,19 @@ async function processBankStatement(ctx) {
     { companyId }
   );
   const bankAccount = settingsRows.length > 0 ? settingsRows[0].value : (bodyBankAccount || null);
+
+  // P1-9 dual path: unvoided manual payments with their bank (credit) leg —
+  // an import row matching one must NOT re-post (would double-count the bank side)
+  let manualPayments = [];
+  if (bankAccount) {
+    manualPayments = await query(
+      `SELECT bp.payment_id, bp.batch_id, bp.bill_id, bp.date, je.account_code, je.credit
+       FROM bill_payments bp
+       JOIN journal_entries je ON je.batch_id = bp.batch_id AND je.company_id = bp.company_id
+       WHERE bp.company_id = @companyId AND bp.method = 'manual' AND bp.voided_at IS NULL AND je.credit > 0`,
+      { companyId }
+    );
+  }
 
   const processed = [];
   for (const row of bankRows) {
@@ -76,6 +90,27 @@ async function processBankStatement(ctx) {
 
     const amount = Math.abs(row.amount);
     const isInflow = row.amount > 0;
+
+    // P1-9: row evidences an already-recorded manual payment (exact date + amount
+    // + this bank account) → tag for clearing on approve, never re-post.
+    if (bankAccount && !isInflow) {
+      const mp = manualPayments.find((p) =>
+        p.account_code === bankAccount &&
+        Math.abs(Number(p.credit) - amount) < 0.01 &&
+        String(p.date).substring(0, 10) === String(row.date).substring(0, 10)
+      );
+      if (mp) {
+        result.matchType = 'recorded_payment';
+        result.matchConfidence = 'high';
+        result.paymentId = mp.payment_id;
+        result.paymentBatchId = mp.batch_id;
+        result.billId = mp.bill_id;
+        result.bankAccount = bankAccount;
+        result.description = `Already recorded: ${row.description}`;
+        processed.push(result);
+        continue;
+      }
+    }
 
     const mapping = matchMapping(mappings, row.description);
     if (mapping) {
@@ -101,14 +136,16 @@ async function processBankStatement(ctx) {
     }
 
     if (!result.matchType && openBills.length > 0) {
-      const bill = matchBillRow(openBills, row.description, amount);
-      if (bill) {
-        result.matchType = 'bill';
-        result.matchConfidence = 'medium';
-        result.billId = bill.bill_id;
-        result.description = `Payment: ${bill.vendor} ${bill.vendor_ref || ''}`.trim();
-        result.debitAccount = isInflow ? bankAccount : (bill.ap_account || null);
-        result.creditAccount = isInflow ? (bill.ap_account || null) : bankAccount;
+      const m = matchBillRow(openBills, row.description, amount);
+      if (m) {
+        // P1-9 import hardening: amount-only matches become confirm-required
+        // suggestions ('bill_suggest'), never silent auto-links.
+        result.matchType = m.tier === 'suggest' ? 'bill_suggest' : 'bill';
+        result.matchConfidence = m.tier;
+        result.billId = m.bill.bill_id;
+        result.description = `Payment: ${m.bill.vendor} ${m.bill.vendor_ref || ''}`.trim();
+        result.debitAccount = isInflow ? bankAccount : (m.bill.ap_account || null);
+        result.creditAccount = isInflow ? (m.bill.ap_account || null) : bankAccount;
       }
     }
 
@@ -126,6 +163,8 @@ async function processBankStatement(ctx) {
       total: processed.length,
       ruleMatched: processed.filter((p) => p.matchType === 'rule').length,
       billMatched: processed.filter((p) => p.matchType === 'bill').length,
+      billSuggest: processed.filter((p) => p.matchType === 'bill_suggest').length,
+      recordedPayment: processed.filter((p) => p.matchType === 'recorded_payment').length,
       unmatched: processed.filter((p) => !p.matchType).length,
     },
   };
@@ -156,11 +195,17 @@ function matchBillRow(openBills, description, amount) {
     if (Math.abs(outstanding - amount) < 0.01) {
       const vendor = (bill.vendor || '').toUpperCase();
       const ref = (bill.vendor_ref || '').toUpperCase();
-      if ((vendor && desc.includes(vendor)) || (ref && desc.includes(ref))) return bill;
+      // vendor_ref as a WHOLE TOKEN in the narrative promotes the match to high
+      if (ref) {
+        const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
+        if (token.test(desc)) return { bill, tier: 'high' };
+      }
+      if ((vendor && desc.includes(vendor)) || (ref && desc.includes(ref))) return { bill, tier: 'medium' };
     }
   }
+  // Amount-only fallback: returned as a suggestion tier — confirm-required (P1-9)
   for (const bill of openBills) {
-    if (Math.abs(Number(bill.outstanding) - amount) < 0.01) return bill;
+    if (Math.abs(Number(bill.outstanding) - amount) < 0.01) return { bill, tier: 'suggest' };
   }
   return null;
 }
@@ -219,16 +264,10 @@ async function approveBankEntries(ctx) {
     bankJournalId = bankJournals.length > 0 ? bankJournals[0].journal_id : null;
   }
 
-  // Pre-fetch FX gain/loss account once
-  const fxSettings = await query(
-    `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_gain_loss_account' LIMIT 1`,
-    { companyId }
-  );
-  const fxAccount = fxSettings[0]?.value || null;
-
   // Pre-allocate references grouped by year — 3 DB calls per year instead of 3 per entry
   const entriesByYear = {};
   for (const entry of entries) {
+    if (entry.recordedPayment) continue; // clearing-only entries post nothing — no reference needed
     const yr = parseInt(String(entry.date).substring(0, 4), 10);
     if (!entriesByYear[yr]) entriesByYear[yr] = [];
     entriesByYear[yr].push(entry);
@@ -254,7 +293,49 @@ async function approveBankEntries(ctx) {
     const now = new Date().toISOString();
 
     try {
+      // P1-9: row matched an already-recorded manual payment — clear the payment's
+      // bank leg in reconciliations, never re-post the journal.
+      if (entry.recordedPayment && entry.paymentBatchId) {
+        await exec(
+          `INSERT INTO reconciliations (company_id, batch_id, account_code, cleared_at, cleared_by)
+           VALUES (@companyId, @batchId, @accountCode, NOW(), @clearedBy)
+           ON CONFLICT DO NOTHING`,
+          { companyId, batchId: entry.paymentBatchId, accountCode: entry.bankAccount, clearedBy: userEmail || 'user' }
+        );
+        results.push({ index: i, cleared: true, recordedPayment: true });
+        continue;
+      }
+
       const reference = referenceMap.get(i) || null;
+
+      // Bill settlements go through the shared settlement core (P1-9) — no generic pre-post
+      if (entry.billId && !entry.recordedPayment) {
+        const s = await settleBillPayment({
+          companyId, userEmail, billId: entry.billId,
+          bankAccount: entry.creditAccount,
+          homeCurrency,
+          bankAmount: amount,
+          date: entry.date,
+          reference,
+          description: entry.description,
+          settledForeign: entry.settledForeign != null ? Number(entry.settledForeign) : null,
+          billPayRate: entry.billPayRate ? Number(entry.billPayRate) : null,
+          method: 'bank_match',
+          source: 'bank_import',
+          journalId: bankJournalId,
+          currency: entry.currency || homeCurrency,
+          fxRate: entry.fxRate || 1.0,
+        });
+        if (s.warning) {
+          results.push({ index: i, batchId: s.batchId, posted: true, warning: s.warning });
+        }
+        if (s.fxDiff !== undefined) {
+          results.push({ index: i, batchId: s.batchId, posted: true, fxDiff: s.fxDiff, settledForeign: s.settledForeign, settledBooked: s.settledBooked });
+        } else {
+          results.push({ index: i, batchId: s.batchId, posted: true });
+        }
+        continue;
+      }
 
       let lines = [
         { account_code: entry.debitAccount, debit: amount, credit: 0, date: entry.date, description: entry.description, vat_code: entry.vatCode || null, cost_center: entry.costCenter || null, profit_center: entry.profitCenter || null },
@@ -299,90 +380,6 @@ async function approveBankEntries(ctx) {
 
       // Post the normal 2-line journal first
       await bulkInsert('journal_entries', journalRows);
-
-      // FX gain/loss: if this payment settles a foreign-currency bill, split the journal
-      if (entry.billId) {
-        const billRows = await query(
-          `SELECT amount, amount_home, amount_paid, currency, fx_rate, ap_account FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
-          { companyId, billId: entry.billId }
-        );
-        const bill = billRows[0];
-
-        if (bill && bill.currency && bill.currency !== homeCurrency && entry.settledForeign != null) {
-
-          const settledForeign = Number(entry.settledForeign);
-          const bookingRate = entry.billPayRate ? Number(entry.billPayRate) : (Number(bill.fx_rate) || 1);
-          const settledBooked = Math.round(settledForeign * bookingRate * 10000) / 10000;
-          const bankAmount = amount; // already Math.abs'd
-          const fxDiff = Math.round((bankAmount - settledBooked) * 10000) / 10000;
-          // fxDiff > 0 = loss (paid more SGD than booked), fxDiff < 0 = gain (paid less)
-
-          if (fxAccount && Math.abs(fxDiff) > 0.005) {
-            // Replace 2-line journal with 3-line FX journal
-            await exec(
-              `DELETE FROM journal_entries WHERE batch_id = @batchId AND company_id = @companyId`,
-              { batchId, companyId }
-            );
-
-            const fxLines = [
-              { account_code: entry.debitAccount, debit: settledBooked, credit: 0, description: entry.description },
-              { account_code: fxAccount, debit: fxDiff > 0 ? fxDiff : 0, credit: fxDiff < 0 ? Math.abs(fxDiff) : 0, description: 'FX ' + (fxDiff > 0 ? 'loss' : 'gain') + ': ' + bill.currency + ' payment' },
-              { account_code: entry.creditAccount, debit: 0, credit: bankAmount, description: entry.description },
-            ];
-
-            const fxJournalRows = fxLines.map((line) => ({
-              company_id: companyId, entry_id: uuid(), batch_id: batchId,
-              date: entry.date, account_code: line.account_code,
-              debit: line.debit, credit: line.credit,
-              currency: homeCurrency, fx_rate: 1.0,
-              debit_home: line.debit, credit_home: line.credit,
-              vat_code: null, vat_amount: 0, vat_amount_home: 0,
-              net_amount: 0, net_amount_home: 0,
-              description: line.description,
-              reference, source: 'bank_import',
-              cost_center: null, profit_center: null,
-              reverses: null, reversed_by: null,
-              bill_id: entry.billId, created_by: userEmail, created_at: now,
-            }));
-            await bulkInsert('journal_entries', fxJournalRows);
-          } else if (!fxAccount && Math.abs(fxDiff) > 0.005) {
-            results.push({ index: i, batchId, posted: true, warning: 'FX diff ' + Math.abs(fxDiff).toFixed(2) + ' ' + homeCurrency + ' not posted — configure FX Gain/Loss account in Settings → Company' });
-          }
-
-          // Update bill: amount_paid in FOREIGN currency
-          const newAmountPaid = Number(bill.amount_paid) + settledForeign;
-          const billAmount = Number(bill.amount);
-          const newStatus = newAmountPaid >= billAmount ? 'paid' : 'partial';
-          await exec(
-            `UPDATE bills SET amount_paid = @newAmountPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
-            { companyId, billId: entry.billId, newAmountPaid, newStatus }
-          );
-
-          // bill_payments still uses bankAmount (SGD paid)
-          await bulkInsert('bill_payments', [{
-            company_id: companyId, payment_id: uuid(), bill_id: entry.billId,
-            batch_id: batchId, amount: bankAmount, date: entry.date, method: 'bank_match', created_at: now,
-          }]);
-
-          results.push({ index: i, batchId, posted: true, fxDiff, settledForeign, settledBooked });
-          continue; // skip the generic bill handling below
-        }
-
-        // Non-FX path — inside the block, bill is in scope
-        if (bill) {
-          await bulkInsert('bill_payments', [{
-            company_id: companyId, payment_id: uuid(), bill_id: entry.billId,
-            batch_id: batchId, amount, date: entry.date, method: 'bank_match', created_at: now,
-          }]);
-          const newAmountPaid = Number(bill.amount_paid) + amount;
-          const billTotal = Number(bill.amount_home);
-          const newStatus = newAmountPaid >= billTotal - 0.005 ? 'paid' : 'partial';
-          await exec(
-            `UPDATE bills SET amount_paid = @newAmountPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
-            { companyId, billId: entry.billId, newAmountPaid, newStatus }
-          );
-        }
-      }
 
       results.push({ index: i, batchId, posted: true });
     } catch (err) {

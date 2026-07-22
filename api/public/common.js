@@ -348,6 +348,15 @@
       clearTimeout(_gTimer);
     }
 
+    // ── Edit-active guard (docs/settings-ux-spec.md §2) ─────────────────────
+    // While any page has a row edit open (window.fbEditActive), ALL read-mode
+    // verbs are inert — regardless of focus. Closes the checkbox/select-focus
+    // hole the text-input guard cannot see (e.g. Locked checkbox mid-edit).
+    if (window.fbEditActive && (e.key === 'i' || e.key === 'h' || e.key === 'l' || e.key === '{' || e.key === '}' || e.key === 'j' || e.key === 'k')) {
+      e.preventDefault();
+      return;
+    }
+
     // ── i → Insert mode: edit focused nav row, or focus first input in page-main ──
     if (e.key === 'i') {
       e.preventDefault();
@@ -371,7 +380,11 @@
       var sbNewIdx = e.key === '}' ? sbActiveIdx + 1 : sbActiveIdx - 1;
       sbNewIdx = Math.max(0, Math.min(sbItems.length - 1, sbNewIdx));
       e.preventDefault();
-      fbNavigate(sbItems[sbNewIdx].getAttribute('href'));
+      var sbHref = sbItems[sbNewIdx].getAttribute('href');
+      // Leave-veto (docs/settings-ux-spec.md §4): a page with unsaved work may
+      // intercept page navigation and route it through its save/discard modal.
+      if (typeof window.fbBeforeTabSwitch === 'function' && window.fbBeforeTabSwitch(sbHref) === false) return;
+      fbNavigate(sbHref);
       return;
     }
 

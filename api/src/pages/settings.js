@@ -45,6 +45,23 @@ ${commonStyle()}
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
   button.btn-primary:hover { background:#333; }
   button.btn-primary:disabled { background:#ccc; color:#666; cursor:not-allowed; }
+  /* Periods modal-edit doctrine (docs/settings-ux-spec.md) */
+  #tab-periods tbody td { cursor:text; }
+  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 #d97706; }
+  .dirty-val { color:#b45309; }
+  tr.row-editing > td { background:#fffbeb; }
+  .row-actions { white-space:nowrap; text-align:right; }
+  .chip { cursor:pointer; padding:2px 8px; border:1px solid #ccc; border-radius:3px; font-size:10pt; user-select:none; }
+  .chip:hover { background:#f0f0f0; }
+  .chip-ok { color:#2a8a2a; border-color:#2a8a2a; }
+  .chip-cancel { color:#cc2222; border-color:#cc2222; }
+  .pe-ro { color:#888; }
+  .fb-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; z-index:1000; }
+  .fb-modal { background:#fff; border-radius:6px; padding:20px 24px; min-width:340px; box-shadow:0 8px 30px rgba(0,0,0,0.18); }
+  .fb-modal-title { font-weight:600; margin-bottom:8px; }
+  .fb-modal-body { font-size:10pt; color:#555; margin-bottom:14px; }
+  .fb-modal-err { color:#cc2222; font-size:10pt; margin-bottom:8px; }
+  .fb-modal-btns { display:flex; gap:10px; justify-content:flex-end; }
 </style>
 </head>
 <body>${navBar(company, 'settings')}
@@ -55,7 +72,7 @@ ${commonStyle()}
 
   <div class="tabs">
     <div class="tab active" onclick="showTab('company')">Company</div>
-    <div class="tab" onclick="showTab('periods')">Periods</div>
+    <div class="tab" onclick="showTab('periods')">Periods<span id="tab-dot-periods" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('coa')">Chart of Accounts</div>
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes</div>
     <div class="tab" onclick="showTab('journals')">Journals</div>
@@ -219,9 +236,16 @@ function resetDirty(tab) {
 
 function showTab(t) {
   var cur = document.querySelector('.tab-panel.active');
-  if (cur) {
-    var curTab = cur.id.replace('tab-','');
-    if (dirtyTabs.has(curTab) && curTab !== t) {
+  var curTab = cur ? cur.id.replace('tab-','') : '';
+  if (curTab && curTab !== t) {
+    // Modal doctrine (docs/settings-ux-spec.md §4): dirty period rows route
+    // through the Save/Discard/Stay modal. Buffers are page-global, so the
+    // guard fires when leaving ANY tab, not just Periods.
+    if (typeof periodsAnyDirty === 'function' && periodsAnyDirty()) {
+      openPeriodLeaveModal(function(){ showTab(t); });
+      return;
+    }
+    if (dirtyTabs.has(curTab)) {
       if (!confirm('You have unsaved changes. Discard?')) return;
       resetDirty(curTab);
     }
@@ -230,6 +254,10 @@ function showTab(t) {
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
+  // Sidebar hints: Periods renders its FB.keys binding table (cannot drift);
+  // unmigrated tabs show no hints.
+  var hintEl = document.getElementById('sb-hints');
+  if (hintEl) { if (t === 'periods') renderPeriodHints(); else hintEl.innerHTML = ''; }
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
     if (t === 'company')  { loadCompanies(); loadDefaultAccounts(); }
@@ -259,85 +287,355 @@ function wireDirty(tr, tab) {
 }
 
 // ========== PERIODS ==========
-function addPeriodRow(p) {
-  p = p || {};
-  var isNew = !p.period_id && !p.period_name;
-  var tr = document.createElement('tr');
-  tr.dataset.periodId = p.period_id || p.period_name || '';
-  tr.innerHTML = '<td><input type="text" value="'+(p.period_name||p.period_id||'')+'" style="width:100px"></td>'
-    + '<td><input type="date" value="'+(p.start_date?p.start_date.slice(0,10):'')+'" style="width:130px"></td>'
-    + '<td><input type="date" value="'+(p.end_date?p.end_date.slice(0,10):'')+'" style="width:130px"></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(p.locked?' checked':'')+' ></td>'
-    + '<td style="white-space:nowrap;text-align:right"></td>';
-  var saveBtn = document.createElement('button');
-  saveBtn.className = 'btn-sm';
-  saveBtn.innerHTML = '\u{1F4BE}';
-  saveBtn.title = 'Save';
-  saveBtn.style.cssText = 'opacity:'+(isNew?'1':'0.35')+';margin-right:4px';
-  saveBtn.onclick = function(){ savePeriodRow(tr); };
-  var delBtn = document.createElement('button');
-  delBtn.className = 'btn-sm danger';
-  delBtn.innerHTML = '\u2715';
-  delBtn.title = 'Delete';
-  delBtn.onclick = function(){ deletePeriodRow(tr); };
-  tr.cells[tr.cells.length-1].appendChild(saveBtn);
-  tr.cells[tr.cells.length-1].appendChild(delBtn);
-  tr.querySelectorAll('input').forEach(function(el){
-    el.addEventListener('input', function(){ saveBtn.style.opacity='1'; if(isNew&&el===tr.cells[0].querySelector('input')&&el.value.trim()){isNew=false;appendBlankPeriodRow();} });
-    el.addEventListener('change', function(){ saveBtn.style.opacity='1'; });
+// ========== PERIODS — modal edit doctrine (docs/settings-ux-spec.md) ==========
+// Read-first rows. Esc never saves: it exits edit mode leaving a dirty buffer;
+// w writes, u reverts. Period names are immutable on saved rows (server upsert
+// keys on period_name — rename needs delete+create; a deliberate feature later).
+var periodsSaved = [];          // last-saved rows from the server
+var periodsDirty = {};          // key → { period_name, start_date, end_date, locked, isNew }
+var periodGhostN = 0;           // new-row key counter
+var periodEditIdx = -1;         // row index currently in edit mode (-1 = none)
+var periodNav = null;
+
+function periodRows() { return Array.from(document.querySelectorAll('#periods-body tr')); }
+
+// Merged view: saved rows overlaid with their dirty buffers, then dirty ghosts.
+function periodMerged() {
+  var out = periodsSaved.map(function(p) {
+    var d = periodsDirty[p.period_id];
+    if (d) return { period_id: p.period_id, period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: d.locked, _dirty: true, _key: p.period_id, _isNew: false };
+    return { period_id: p.period_id, period_name: p.period_name, start_date: p.start_date, end_date: p.end_date, locked: p.locked, _dirty: false, _key: p.period_id, _isNew: false };
   });
-  document.getElementById('periods-body').appendChild(tr);
-  return tr;
+  Object.keys(periodsDirty).forEach(function(k) {
+    var d = periodsDirty[k];
+    if (d && d.isNew) out.push({ period_id: '', period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: d.locked, _dirty: true, _key: k, _isNew: true });
+  });
+  return out;
 }
-function appendBlankPeriodRow() {
-  var tbody = document.getElementById('periods-body');
-  var rows = tbody ? tbody.querySelectorAll('tr') : [];
-  if (rows.length>0){ var li=rows[rows.length-1].cells[0].querySelector('input'); if(li&&!li.value.trim()) return; }
-  addPeriodRow({});
+
+function periodsAnyDirty() { return periodEditIdx >= 0 || Object.keys(periodsDirty).length > 0; }
+
+function syncPeriodsChrome() {
+  var dirty = periodsAnyDirty();
+  var dot = document.getElementById('tab-dot-periods');
+  if (dot) dot.style.display = dirty ? '' : 'none';
+  if (dirty) markDirty('periods'); else resetDirty('periods');
 }
-function savePeriodRow(tr) {
-  var inputs = tr.querySelectorAll('input');
-  var nameVal = inputs[0].value.trim();
-  var startVal = inputs[1].value;
-  var endVal = inputs[2].value;
-  if (!nameVal||!startVal||!endVal) { var m=document.getElementById('msg-periods'); if(m){m.textContent='Name, start and end required';m.className='msg err';} return; }
-  var period = { period_id: tr.dataset.periodId || nameVal, period_name: nameVal, start_date: startVal, end_date: endVal, locked: inputs[3].checked };
-  var saveBtn = tr.querySelector('button.btn-sm:not(.danger)');
-  if (saveBtn) { saveBtn.innerHTML='\u23F3'; saveBtn.disabled=true; }
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'period.upsert', companyId: COMPANY, period: period }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var d=res.data||res; var m=document.getElementById('msg-periods');
-      if (d.error||res.error) { if(m){m.textContent=d.error||res.error;m.className='msg err';} if(saveBtn){saveBtn.innerHTML='\u{1F4BE}';saveBtn.disabled=false;} }
-      else { tr.dataset.periodId=nameVal; if(saveBtn){saveBtn.innerHTML='\u2713';saveBtn.style.opacity='0.35';saveBtn.disabled=false;setTimeout(function(){saveBtn.innerHTML='\u{1F4BE}';},1500);} if(m){m.textContent='Saved';m.className='msg ok';setTimeout(function(){m.textContent='';},2000);} }
-    })
-    .catch(function(e){ var m=document.getElementById('msg-periods'); if(m){m.textContent=e.message;m.className='msg err';} if(saveBtn){saveBtn.innerHTML='\u{1F4BE}';saveBtn.disabled=false;} });
+
+function validatePeriodBuf(d) {
+  if (!d.period_name || !d.start_date || !d.end_date) return 'Name, start and end required';
+  if (d.start_date > d.end_date) return 'Start date must be on or before end date';
+  return null;
 }
-function deletePeriodRow(tr) {
-  var periodId = tr.dataset.periodId;
-  if (!periodId) { tr.remove(); appendBlankPeriodRow(); return; }
-  var name = tr.cells[0].querySelector('input').value.trim();
-  if (!confirm('Delete period "'+name+'"?')) return;
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'period.delete', companyId: COMPANY, periodId: periodId }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){ var d=res.data||res; if(d.error||res.error){var m=document.getElementById('msg-periods');if(m){m.textContent=d.error||res.error;m.className='msg err';}}else{tr.remove();appendBlankPeriodRow();} })
-    .catch(function(e){ var m=document.getElementById('msg-periods'); if(m){m.textContent=e.message;m.className='msg err';} });
-}
-// savePeriods replaced by per-row savePeriodRow
-function loadPeriods() {
+
+function renderPeriods(focusKey) {
   var tbody = document.getElementById('periods-body');
   if (!tbody) return;
-  tbody.innerHTML = '';
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'period.list', companyId: COMPANY }) })
+  var merged = periodMerged();
+  tbody.innerHTML = merged.map(function(p, i) {
+    var name = p.period_name ? esc(p.period_name) : '<span class="pe-ro">—</span>';
+    var start = p.start_date ? esc(FB.util.fmtDate(p.start_date)) : '<span class="pe-ro">—</span>';
+    var end = p.end_date ? esc(FB.util.fmtDate(p.end_date)) : '<span class="pe-ro">—</span>';
+    if (p._dirty) {
+      name = '<span class="dirty-val">' + name + '</span>';
+      start = '<span class="dirty-val">' + start + '</span>';
+      end = '<span class="dirty-val">' + end + '</span>';
+    }
+    var actions = p._dirty
+      ? '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writePeriodRowAt(' + i + ')">✓</a> <a class="chip chip-cancel" title="revert (u)" onclick="event.stopPropagation();revertPeriodRowAt(' + i + ')">✕</a>'
+      : '';
+    return '<tr' + (p._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(p._key) + '">'
+      + '<td data-field="name">' + name + '</td>'
+      + '<td data-field="start">' + start + '</td>'
+      + '<td data-field="end">' + end + '</td>'
+      + '<td data-field="locked" style="text-align:center"><input type="checkbox" disabled' + (p.locked ? ' checked' : '') + '></td>'
+      + '<td class="row-actions">' + actions + '</td></tr>';
+  }).join('');
+  Array.from(tbody.querySelectorAll('tr')).forEach(function(tr) {
+    tr.addEventListener('click', function(e) {
+      if (periodNav) periodNav.set(tr);
+      var td = e.target.closest('td');
+      if (!td || td.classList.contains('row-actions')) return;
+      enterPeriodEdit(+tr.dataset.idx, td.dataset.field || undefined);
+    });
+  });
+  if (periodNav) {
+    var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
+    periodNav.set(target || periodRows()[0] || null);
+  }
+}
+
+function enterPeriodEdit(idx, field) {
+  if (periodEditIdx === idx) return;
+  if (periodEditIdx >= 0) exitPeriodEdit(); // click-away: exit, dirty buffer kept
+  var d = periodMerged()[idx];
+  var tr = periodRows()[idx];
+  if (!d || !tr) return;
+  periodEditIdx = idx;
+  var nameHtml = d._isNew
+    ? '<input type="text" class="pe-name" value="' + esc(d.period_name || '') + '" style="width:110px">'
+    : '<span class="pe-ro">' + esc(d.period_name) + '</span>';
+  tr.innerHTML = '<td data-field="name">' + nameHtml + '</td>'
+    + '<td data-field="start"><input type="date" class="pe-start" value="' + esc(d.start_date || '') + '"></td>'
+    + '<td data-field="end"><input type="date" class="pe-end" value="' + esc(d.end_date || '') + '"></td>'
+    + '<td data-field="locked" style="text-align:center"><input type="checkbox" class="pe-locked"' + (d.locked ? ' checked' : '') + '></td>'
+    + '<td class="row-actions">'
+    + '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writePeriodRowAt(' + idx + ')">✓</a> '
+    + '<a class="chip chip-cancel" title="exit (Esc)" onclick="event.stopPropagation();exitPeriodEdit()">✕</a></td>';
+  tr.classList.add('row-editing');
+  if (window.FB && FB.mode) FB.mode.set('INSERT');
+  window.fbEditActive = true;
+  var sel = { name: '.pe-name', start: '.pe-start', end: '.pe-end', locked: '.pe-locked' }[field]
+    || (d._isNew ? '.pe-name' : '.pe-start');
+  var target = tr.querySelector(sel) || tr.querySelector('input');
+  if (target) { target.focus(); if (target.select) target.select(); }
+  syncPeriodsChrome();
+}
+
+function exitPeriodEdit() {
+  if (periodEditIdx < 0) return;
+  var d = periodMerged()[periodEditIdx];
+  var tr = periodRows()[periodEditIdx];
+  if (d && tr) {
+    var nameIn = tr.querySelector('.pe-name');
+    var start = tr.querySelector('.pe-start').value;
+    var end = tr.querySelector('.pe-end').value;
+    var locked = tr.querySelector('.pe-locked').checked;
+    if (d._isNew) {
+      var name = nameIn ? nameIn.value.trim() : '';
+      if (name || start || end || locked) {
+        periodsDirty[d._key] = { period_name: name, start_date: start, end_date: end, locked: locked, isNew: true };
+      } else {
+        delete periodsDirty[d._key]; // untouched new row vanishes — nothing from nothing
+      }
+    } else {
+      var saved = null;
+      for (var i = 0; i < periodsSaved.length; i++) if (periodsSaved[i].period_id === d._key) saved = periodsSaved[i];
+      var same = saved && start === saved.start_date && end === saved.end_date && locked === !!saved.locked;
+      if (same) delete periodsDirty[d._key]; // restored saved values — not dirty
+      else periodsDirty[d._key] = { period_name: saved ? saved.period_name : d._key, start_date: start, end_date: end, locked: locked, isNew: false };
+    }
+  }
+  var key = d ? d._key : null;
+  periodEditIdx = -1;
+  if (window.FB && FB.mode) FB.mode.set('NORMAL');
+  window.fbEditActive = false;
+  renderPeriods(key);
+  syncPeriodsChrome();
+}
+
+function writePeriodRowAt(idx) {
+  if (periodEditIdx >= 0) exitPeriodEdit(); // ✓ chip from edit mode = Esc then w
+  var d = periodMerged()[idx];
+  if (!d || !d._dirty) return;
+  var err = validatePeriodBuf(d);
+  if (err) { showMsg('msg-periods', err, true); return; }
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'period.upsert', companyId: COMPANY,
+      period: { period_id: d._isNew ? d.period_name : d._key, period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: !!d.locked } }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var dd = res.data || res;
+      if (dd.error || res.error) { showMsg('msg-periods', dd.error || res.error, true); return; } // stays dirty, values intact
+      delete periodsDirty[d._key];
+      showMsg('msg-periods', 'Saved', false);
+      loadPeriods(d._isNew ? d.period_name : d._key);
+    })
+    .catch(function(e){ showMsg('msg-periods', e.message, true); });
+}
+
+function revertPeriodRowAt(idx) {
+  if (periodEditIdx >= 0) exitPeriodEdit();
+  var d = periodMerged()[idx];
+  if (!d || !d._dirty) return;
+  delete periodsDirty[d._key];
+  renderPeriods(d._isNew ? null : d._key);
+  syncPeriodsChrome();
+}
+
+function focusedPeriodIdx() {
+  var tr = periodNav && periodNav.current();
+  return tr ? +tr.dataset.idx : -1;
+}
+function focusedPeriodDirty() {
+  var idx = focusedPeriodIdx();
+  var d = idx >= 0 ? periodMerged()[idx] : null;
+  return !!(d && d._dirty);
+}
+function editFocusedPeriod() { var idx = focusedPeriodIdx(); enterPeriodEdit(idx >= 0 ? idx : 0); }
+function writeFocusedPeriod() { var idx = focusedPeriodIdx(); if (idx >= 0) writePeriodRowAt(idx); }
+function revertFocusedPeriod() { var idx = focusedPeriodIdx(); if (idx >= 0) revertPeriodRowAt(idx); }
+
+function deleteFocusedPeriod() {
+  var idx = focusedPeriodIdx();
+  if (idx < 0) return;
+  var d = periodMerged()[idx];
+  if (!d) return;
+  if (d._isNew) { delete periodsDirty[d._key]; renderPeriods(); syncPeriodsChrome(); return; }
+  if (!confirm('Delete period "' + d.period_name + '"?')) return;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'period.delete', companyId: COMPANY, periodId: d._key }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var dd = res.data || res;
+      if (dd.error || res.error) { showMsg('msg-periods', dd.error || res.error, true); return; } // INVALID_STATE shown verbatim
+      delete periodsDirty[d._key];
+      loadPeriods();
+    })
+    .catch(function(e){ showMsg('msg-periods', e.message, true); });
+}
+
+function newPeriodRow() {
+  if (periodEditIdx >= 0) exitPeriodEdit();
+  var key = '_new_' + (++periodGhostN);
+  periodsDirty[key] = { period_name: '', start_date: '', end_date: '', locked: false, isNew: true };
+  renderPeriods(key);
+  enterPeriodEdit(periodRows().length - 1, 'name');
+}
+
+// Edit-mode field movement: Enter/Tab/Shift+Tab move, sticky at ends — never save.
+function advancePeriodField() {
+  var tr = periodRows()[periodEditIdx];
+  if (!tr) return;
+  var inputs = Array.from(tr.querySelectorAll('input'));
+  var i = inputs.indexOf(document.activeElement);
+  if (i >= 0 && i < inputs.length - 1) { inputs[i + 1].focus(); if (inputs[i + 1].select) inputs[i + 1].select(); }
+}
+function periodTabSticky(e) {
+  var tr = periodRows()[periodEditIdx];
+  if (!tr) return false;
+  var inputs = Array.from(tr.querySelectorAll('input'));
+  if (!inputs.length) return false;
+  var i = inputs.indexOf(document.activeElement);
+  return e.shiftKey ? i === 0 : i === inputs.length - 1;
+}
+
+// Save/Discard/Stay leave modal (spec §4).
+function closePeriodLeaveModal() {
+  var ov = document.getElementById('period-leave-overlay');
+  if (ov) ov.remove();
+}
+function openPeriodLeaveModal(proceed) {
+  closePeriodLeaveModal();
+  var ov = document.createElement('div');
+  ov.id = 'period-leave-overlay';
+  ov.className = 'fb-modal-overlay';
+  ov.innerHTML = '<div class="fb-modal">'
+    + '<div class="fb-modal-title">Unsaved changes</div>'
+    + '<div class="fb-modal-body">Period rows have unsaved changes.</div>'
+    + '<div class="fb-modal-err" id="period-leave-err"></div>'
+    + '<div class="fb-modal-btns">'
+    + '<button class="btn-sm danger" id="pl-discard">Discard</button>'
+    + '<button class="btn-sm" id="pl-stay">Stay</button>'
+    + '<button class="btn-primary" id="pl-save">Save</button>'
+    + '</div></div>';
+  ov.addEventListener('click', function(e){ if (e.target === ov) closePeriodLeaveModal(); });
+  document.body.appendChild(ov);
+  document.getElementById('pl-stay').onclick = closePeriodLeaveModal;
+  document.getElementById('pl-discard').onclick = function() {
+    if (periodEditIdx >= 0) { periodEditIdx = -1; if (window.FB && FB.mode) FB.mode.set('NORMAL'); window.fbEditActive = false; }
+    periodsDirty = {};
+    renderPeriods();
+    syncPeriodsChrome();
+    closePeriodLeaveModal();
+    proceed();
+  };
+  document.getElementById('pl-save').onclick = function() {
+    if (periodEditIdx >= 0) exitPeriodEdit();
+    var keys = Object.keys(periodsDirty);
+    if (!keys.length) { closePeriodLeaveModal(); proceed(); return; }
+    var errEl = document.getElementById('period-leave-err');
+    var chain = Promise.resolve();
+    var failed = null;
+    keys.forEach(function(k) {
+      chain = chain.then(function() {
+        if (failed) return;
+        var d = periodsDirty[k];
+        if (!d) return;
+        var verr = validatePeriodBuf(d);
+        if (verr) { failed = verr; return; }
+        return fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'period.upsert', companyId: COMPANY,
+            period: { period_id: d.isNew ? d.period_name : k, period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: !!d.locked } }) })
+          .then(function(r){ return r.json(); })
+          .then(function(res){ var dd = res.data || res; if (dd.error || res.error) failed = dd.error || res.error; })
+          .catch(function(e){ failed = e.message; });
+      });
+    });
+    chain.then(function() {
+      if (failed) { if (errEl) errEl.textContent = failed; return; } // modal stays open
+      periodsDirty = {};
+      syncPeriodsChrome();
+      closePeriodLeaveModal();
+      loadPeriods();
+      proceed();
+    });
+  };
+}
+
+function renderPeriodHints() {
+  var el = document.getElementById('sb-hints');
+  if (!el || !(window.FB && FB.keys)) return;
+  FB.keys.renderHints('settings-periods', el, { layout: 'list' });
+}
+
+function loadPeriods(focusKey) {
+  var tbody = document.getElementById('periods-body');
+  if (!tbody) return;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'period.list', companyId: COMPANY }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       var rows = res.data || res;
-      if (Array.isArray(rows)) rows.forEach(function(p){ addPeriodRow(p); });
-      appendBlankPeriodRow();
+      periodsSaved = (Array.isArray(rows) ? rows : []).map(function(p){
+        return { period_id: p.period_id, period_name: p.period_id, start_date: String(p.start_date || '').slice(0, 10), end_date: String(p.end_date || '').slice(0, 10), locked: !!p.locked };
+      });
+      renderPeriods(focusKey);
+      syncPeriodsChrome();
     })
     .catch(function(e){ console.error('loadPeriods:', e); });
 }
+
+// Leave-veto for {/} page navigation (common.js consults this before fbNavigate).
+window.fbBeforeTabSwitch = function(href) {
+  if (!periodsAnyDirty()) return true;
+  openPeriodLeaveModal(function(){ fbNavigate(href); });
+  return false;
+};
+
+// Sidebar link clicks get the same treatment — mouse parity for {/}.
+document.addEventListener('click', function(e) {
+  var a = e.target && e.target.closest ? e.target.closest('.sb-nav a[href]') : null;
+  if (!a) return;
+  if (periodsAnyDirty()) {
+    e.preventDefault();
+    e.stopPropagation();
+    openPeriodLeaveModal(function(){ fbNavigate(a.getAttribute('href')); });
+  }
+}, true);
+
+window.addEventListener('DOMContentLoaded', function() {
+  if (!(window.FB && FB.keys)) return;
+  periodNav = FB.nav.create({ rows: periodRows, focusClass: 'nav-row-focus' });
+  FB.keys.register('settings-periods', {
+    active: function() { var p = document.getElementById('tab-periods'); return !!(p && p.classList.contains('active')); },
+    getMode: function() { return periodEditIdx >= 0 ? 'INSERT' : 'NORMAL'; },
+    bindings: [
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { periodNav.move(1); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { periodNav.move(-1); } },
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedPeriod },
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedPeriod },
+      { key: 'o', mode: 'NORMAL', hint: 'new row', hintBar: true, run: newPeriodRow },
+      { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedPeriod },
+      { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedPeriodDirty, run: writeFocusedPeriod },
+      { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedPeriodDirty, run: revertFocusedPeriod },
+      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitPeriodEdit },
+      { key: 'Enter', mode: 'INSERT', run: advancePeriodField },
+      { key: 'Tab', mode: 'INSERT', when: periodTabSticky, run: function() {} },
+      { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function() {} }
+    ]
+  });
+});
 
 // ========== COMPANY ==========
 var companiesData = [];

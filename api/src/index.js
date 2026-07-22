@@ -582,6 +582,26 @@ async function handleSettings(ctx, action) {
   if (action === 'period.delete') {
     const { periodId } = body;
     if (!periodId) throw Object.assign(new Error('periodId required'), { code: 'INVALID_INPUT' });
+    // Referenced-check (docs/settings-ux-spec.md §5): periods relate to journal
+    // entries by date-range containment — refuse to delete a period whose range
+    // contains entries, or the period-lock structure is orphaned.
+    const prow = await query(
+      `SELECT start_date, end_date FROM periods WHERE company_id = @companyId AND period_name = @periodId ORDER BY created_at DESC LIMIT 1`,
+      { companyId, periodId }
+    );
+    if (prow.length > 0) {
+      const cnt = await query(
+        `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM journal_entries WHERE company_id = @companyId AND date BETWEEN @start AND @end`,
+        { companyId, start: prow[0].start_date, end: prow[0].end_date }
+      );
+      const n = cnt.length > 0 ? Number(cnt[0].n) : 0;
+      if (n > 0) {
+        throw Object.assign(
+          new Error(`Cannot delete period "${periodId}": ${n} journal entries fall within its date range.`),
+          { code: 'INVALID_STATE' }
+        );
+      }
+    }
     await exec(`DELETE FROM periods WHERE company_id = @companyId AND period_name = @periodId`, { companyId, periodId });
     return { deleted: true };
   }

@@ -614,9 +614,16 @@ document.addEventListener('click', function(e) {
   }
 }, true);
 
-window.addEventListener('DOMContentLoaded', function() {
+// Register immediately — fb-core.js loads in <head> (see commonStyle()), so FB.keys
+// is already present. Under fbNavigate soft-nav this inline script re-executes after
+// DOMContentLoaded has already fired, so a DOMContentLoaded listener would never run
+// and j/k bindings would silently die on the second visit (repro: Settings →
+// Payables → Settings → l → j dead). Guard against double-registration via
+// FB.keys.unregister before re-registering.
+(function() {
   if (!(window.FB && FB.keys)) return;
   periodNav = FB.nav.create({ rows: periodRows, focusClass: 'nav-row-focus' });
+  if (FB.keys.unregister) FB.keys.unregister('settings-periods');
   FB.keys.register('settings-periods', {
     active: function() { var p = document.getElementById('tab-periods'); return !!(p && p.classList.contains('active')); },
     getMode: function() { return periodEditIdx >= 0 ? 'INSERT' : 'NORMAL'; },
@@ -635,7 +642,7 @@ window.addEventListener('DOMContentLoaded', function() {
       { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function() {} }
     ]
   });
-});
+})();
 
 // ========== COMPANY ==========
 var companiesData = [];

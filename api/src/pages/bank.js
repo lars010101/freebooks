@@ -34,44 +34,7 @@ ${commonStyle()}
   .summary-bar { display:flex; gap:24px; padding:12px 16px; background:#f8f8f8; border:1px solid #e0e0e0; border-radius:6px; margin-bottom:16px; font-size:10pt; }
   .summary-bar .lbl { color:#888; font-size:9pt; }
   .summary-bar .val { font-weight:700; font-size:12pt; }
-  
-  .step { background:var(--surface,#fff); border:1px solid var(--border,#e8e8e8); border-radius:0.5rem; padding:1.25rem 1.5rem; margin-bottom:1rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
-  .step h3 { margin:0 0 0.875rem; font-size:0.9375rem; color:var(--text); font-weight:600; }
-  .wz-step .wz-num { display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;border-radius:50%;background:var(--border,#e0e0e0);color:var(--text-muted,#888);font-size:0.8rem;font-weight:700;flex-shrink:0; }
-  .wz-step .wz-label { font-size:0.875rem;color:var(--text-muted,#888);font-weight:500; }
-  .wz-step.active .wz-num { background:var(--accent,#1a1a1a);color:#fff; }
-  .wz-step.active .wz-label { color:var(--text);font-weight:600; }
-  .wz-step.done .wz-num { background:#2a8a2a;color:#fff; }
-  .wz-step.done .wz-label { color:var(--text-muted,#888); }
-  .wz-connector { flex:1;height:2px;background:var(--border,#e0e0e0);margin:0 0.5rem;max-width:4rem; }
-  table.review-table { width:100%; border-collapse:collapse; font-size:9.5pt; }
-  table.review-table th { background:#f0f0f0; padding:5px 7px; text-align:left; font-size:9pt; border:1px solid #ddd; }
-  table.review-table td { padding:4px 6px; border:1px solid #eee; vertical-align:middle; }
-  table.review-table tr.matched td:first-child { border-left:3px solid #2a8a2a; }
-  table.review-table tr.unmatched td:first-child { border-left:3px solid #cc8800; }
-  table.review-table tr.skipped td { opacity:.5; }
-  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:8.5pt; font-weight:600; }
-  .tag.hi  { background:#d4edda; color:#155724; }
-  .tag.med { background:#fff3cd; color:#856404; }
-  .tag.lo  { background:#f8d7da; color:#721c24; }
-  input.acct { width:75px; padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
-  select.col-map { padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
-  
 
-  .bill-row { cursor:pointer; }
-  .acct-name-hint { font-size:8pt;color:#888;margin-top:2px;max-width:86px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
-  .bill-card { font-size:9pt;line-height:1.6; }
-  .bill-card .bc-row { display:flex;align-items:center;gap:4px;margin-bottom:2px; }
-  .bill-card input.bc-input { font-size:9pt;padding:1px 4px;border:1px solid #ccc;border-radius:3px; }
-  .bill-card input.bc-settle { width:65px; }
-  .bill-card input.bc-rate { width:65px; }
-  .bill-card input.bc-fx-acct { width:90px; }
-  .bill-card .bc-get-rate { font-size:8pt;padding:1px 5px;border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer; }
-  .bill-card .bc-unlink { border:none;background:none;cursor:pointer;color:#aaa;font-size:12pt;line-height:1;padding:0 2px; }
-  .bill-card .bc-unlink:hover { color:#cc2222; }
-  .bc-fx-acct-name { font-size:8pt;color:#888;max-width:120px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
-  .info-icon { cursor:help;color:#999;font-size:10pt;margin-left:2px; }
-  .bill-row:hover td { background:#f0f4ff; }
   .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
   .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:10pt; color:#555; border-bottom:3px solid transparent; margin-bottom:-2px; }
   .tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
@@ -85,9 +48,6 @@ ${commonStyle()}
   .msg { margin-top:10px; font-size:10pt; }
   .msg.ok { color:#2a8a2a; }
   .msg.err { color:#cc2222; }
-  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
-  button.btn-primary:hover { background:#333; }
-  button.btn-primary:disabled { background:#ccc; color:#666; cursor:not-allowed; }
 </style>
 </head>
 <body>${navBar(company, 'bank')}
@@ -158,8 +118,6 @@ ${commonStyle()}
   var _unclearedMode = (new URLSearchParams(window.location.search)).get('mode') === 'uncleared';
 
   function setRecStatus(msg) { var el = document.getElementById('rec-status'); if (el) el.textContent = msg; }
-  function setParseStatus(msg) { var el = document.getElementById('parse-status'); if (el) el.textContent = msg; }
-  function setPostStatus(msg) { var el = document.getElementById('post-status'); if (el) el.textContent = msg; }
 
   // ── Reconciliation JS ────────────────────────────────────────────────────────
   var recRows = [];
@@ -254,6 +212,7 @@ ${commonStyle()}
         +'<td style="text-align:center"><input type="checkbox"'+(r.cleared?' checked':'')+' onchange="toggleCleared(this)" ></td>'
         +'</tr>';
     }).join('');
+    recNav.clear();
     updateSummary();
   }
 
@@ -275,7 +234,8 @@ ${commonStyle()}
     }).join('');
     setRecStatus(recRows.length
       ? recRows.length + ' uncleared transaction' + (recRows.length === 1 ? '' : 's')
-      : 'No uncleared transactions \u2713');
+      : 'No uncleared transactions ✓');
+    recNav.clear();
   }
 
   function toggleAllCleared(hdrCb) {
@@ -310,8 +270,14 @@ ${commonStyle()}
         cb.disabled = false;
         var tr = cb.closest('tr');
         var i = parseInt(tr.dataset.i);
-        recRows[i].cleared = cleared;
-        tr.className = cleared ? 'cleared' : '';
+        // data-i is the index into the FILTERED display rows — resolve the
+        // row object through getFilteredRows() (same references as recRows);
+        // indexing recRows directly is wrong when a filter hides rows.
+        var rowObj = getFilteredRows()[i];
+        if (rowObj) rowObj.cleared = cleared;
+        // classList.toggle, not className assignment — the latter wipes
+        // nav-row-focus when the row was cleared via the keyboard cursor.
+        tr.classList.toggle('cleared', cleared);
         updateSummary();
         // Sync header checkbox
         var hdrCb = document.getElementById('hdr-clear-all');
@@ -354,719 +320,58 @@ ${commonStyle()}
     setRecStatus('');
   }
 
-  // ── Import JS ───────────────────────────────────────────────────────────────
-  var csvRows = [];
-  var headers = [];
-  var processedRows = [];
-  var accountsMap = {};
-  var journalsList = [];
-  var openBills = [];
-  var billPanelRowIdx = -1;
-
-  fetch('/api/' + COMPANY + '/accounts')
-    .then(function(r){ return r.json(); })
-    .then(function(rows){
-      rows.forEach(function(a){ accountsMap[a.account_code] = a.account_name; });
-    });
-
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){ journalsList = res.data || res; })
-    .catch(function(){});
-
-  function processCSVText(text) {
-    var statusEl = document.getElementById('file-status');
-    try {
-      var lines = text.split(String.fromCharCode(10)).filter(function(l) { return l.trim().length > 0; });
-      if (lines.length < 2) { statusEl.style.color='#cc2222'; statusEl.textContent = 'Error: need at least a header row + 1 data row'; return; }
-      var firstLine = lines[0];
-      var sep = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
-      headers = parseCSVRow(firstLine, sep);
-      csvRows = lines.slice(1).map(function(l) { return parseCSVRow(l, sep); }).filter(function(r) { return r.some(function(c) { return c.trim(); }); });
-      statusEl.style.color = '#2a8a2a';
-      statusEl.textContent = '\u2713 Loaded ' + csvRows.length + ' rows | Columns: ' + headers.join(', ');
-      populateColDropdowns();
-      setWizardStep(2);
-      document.getElementById('step2').style.display = '';
-      document.getElementById('step2').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } catch(err) {
-      statusEl.style.color = '#cc2222';
-      statusEl.textContent = 'Error: ' + err.message;
-    }
-  }
-
-  function onPasteLoad() {
-    var text = document.getElementById('csv-paste').value.trim();
-    if (!text) { document.getElementById('file-status').textContent = 'Nothing pasted yet'; return; }
-    processCSVText(text);
-  }
-
-  function onFileLoad() {
-    var statusEl = document.getElementById('file-status');
-    var file = document.getElementById('csv-file').files[0];
-    if (!file) { statusEl.style.color='#cc2222'; statusEl.textContent = 'No file selected'; return; }
-    statusEl.style.color = '#888'; statusEl.textContent = 'Reading…';
-    var reader = new FileReader();
-    reader.onerror = function() { statusEl.style.color='#cc2222'; statusEl.textContent = 'File read error'; };
-    reader.onload = function(e) { processCSVText(e.target.result); };
-    reader.readAsText(file);
-  }
-
-  function parseCSVRow(line, sep) {
-    sep = sep || ',';
-    var result = [], cur = '', inQ = false;
-    for (var i = 0; i < line.length; i++) {
-      var c = line[i];
-      if (c === '"') { inQ = !inQ; }
-      else if (c === sep && !inQ) { result.push(cur.trim()); cur = ''; }
-      else cur += c;
-    }
-    result.push(cur.trim());
-    return result;
-  }
-
-  var STORAGE_KEY = 'freebooks_import_' + COMPANY;
-
-  function saveImportPrefs() {
-    try {
-      var prefs = {
-        amtType: document.getElementById('amt-type').value,
-        bankAcct: document.getElementById('bank-acct').value,
-        journalId: document.getElementById('import-journal').value,
-        colDate: document.getElementById('col-date').selectedIndex,
-        colDesc: document.getElementById('col-desc').selectedIndex,
-        colAmt:  document.getElementById('col-amt').selectedIndex,
-        colDeb:  document.getElementById('col-deb').selectedIndex,
-        colCred: document.getElementById('col-cred').selectedIndex,
-        colHeaders: headers.join(',')
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-    } catch(e) {}
-  }
-
-  function restoreImportPrefs() {
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      var prefs = JSON.parse(raw);
-      if (prefs.colHeaders === headers.join(',')) {
-        var ids = ['col-date','col-desc','col-amt','col-deb','col-cred'];
-        var saved = [prefs.colDate, prefs.colDesc, prefs.colAmt, prefs.colDeb, prefs.colCred];
-        ids.forEach(function(id, i) { if (saved[i] != null) document.getElementById(id).selectedIndex = saved[i]; });
-      }
-      if (prefs.amtType) { document.getElementById('amt-type').value = prefs.amtType; toggleAmtCols(); }
-      if (prefs.bankAcct) {
-        document.getElementById('bank-acct').value = prefs.bankAcct;
-        // Validate restored account against current company COA
-        // accountsMap may not be loaded yet — defer to next tick
-        setTimeout(function() {
-          var code = prefs.bankAcct;
-          var input = document.getElementById('bank-acct');
-          if (code && Object.keys(accountsMap).length > 0 && !accountsMap[code]) {
-            input.value = '';
-            input.style.borderColor = '';
-            var errEl = document.getElementById('bank-acct-error');
-            if (errEl) { errEl.textContent = 'Saved account ' + code + ' not in this company’s COA — cleared.'; errEl.style.display = ''; }
-          }
-        }, 600);
-      }
-    } catch(e) {}
-  }
-
-  function populateColDropdowns() {
-    var ids = ['col-date','col-desc','col-amt','col-deb','col-cred'];
-    var guesses = { 'col-date': /date/i, 'col-desc': /desc|narr|ref|detail|memo/i,
-      'col-amt': /amount|amt/i, 'col-deb': /debit|dr|withdraw|out/i, 'col-cred': /credit|cr|deposit|in/i };
-    ids.forEach(function(id) {
-      var sel = document.getElementById(id);
-      sel.innerHTML = headers.map(function(h,i){ return '<option value="'+i+'"'+(guesses[id]&&guesses[id].test(h)?' selected':'')+'>'+h+'</option>'; }).join('');
-    });
-    restoreImportPrefs();
-  }
-
-  function toggleAmtCols() {
-    var split = document.getElementById('amt-type').value === 'split';
-    document.getElementById('row-single').style.display = split ? 'none' : '';
-    document.getElementById('row-debit').style.display = split ? '' : 'none';
-    document.getElementById('row-credit').style.display = split ? '' : 'none';
-  }
-
-  // CHANGE 1: Validate bank account code
-  function validateBankAcctCode() {
-    var code = document.getElementById('bank-acct').value.trim();
-    var errorEl = document.getElementById('bank-acct-error');
-    var okEl = document.getElementById('bank-acct-ok');
-    if (!code) {
-      errorEl.style.display = 'none';
-      okEl.style.display = 'none';
-      return true;
-    }
-    var found = accountsMap[code];
-    if (!found) {
-      errorEl.style.display = '';
-      okEl.style.display = 'none';
-      return false;
-    }
-    errorEl.style.display = 'none';
-    okEl.style.display = '';
-    return true;
-  }
-
-  function parseAndProcess() {
-    var di = parseInt(document.getElementById('col-date').value);
-    var dsi = parseInt(document.getElementById('col-desc').value);
-    var bankAcct = document.getElementById('bank-acct').value.trim();
-    var split = document.getElementById('amt-type').value === 'split';
-    if (!bankAcct) { setParseStatus('Bank account required'); return; }
-    // CHANGE 1: Validate bank account code before processing
-    if (!validateBankAcctCode()) {
-      setParseStatus('Account ' + bankAcct + ' not found in Chart of Accounts');
-      return;
-    }
-
-    var bankRows = [];
-    csvRows.forEach(function(row) {
-      var dateRaw = row[di] || '';
-      var desc = row[dsi] || '';
-      var amount;
-      if (split) {
-        var deb = parseFloat((row[parseInt(document.getElementById('col-deb').value)]||'').replace(/,/g,'')) || 0;
-        var cred = parseFloat((row[parseInt(document.getElementById('col-cred').value)]||'').replace(/,/g,'')) || 0;
-        amount = cred - deb;
-      } else {
-        amount = parseFloat((row[parseInt(document.getElementById('col-amt').value)]||'').replace(/,/g,'')) || 0;
-      }
-      if (deb === 0 && cred === 0 && amount === 0) return;
-      var date = normalizeDate(dateRaw);
-      if (!date) return;
-      bankRows.push({ date, description: desc || '(no description)', amount, bankAccount: bankAcct });
-    });
-
-    saveImportPrefs();
-    var skipped = csvRows.length - bankRows.length;
-    if (bankRows.length === 0) {
-      setParseStatus('No valid rows found (' + csvRows.length + ' rows read, all skipped). Check date column and amount columns.');
-      return;
-    }
-    setParseStatus('Processing ' + bankRows.length + ' rows (' + skipped + ' skipped)…');
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'bank.process', companyId: COMPANY, bankAccount: bankAcct, rows: bankRows }) })
-      .then(r => r.json()).then(res => {
-        var d = res.data || res;
-        if (res.error || d.error) { setParseStatus(res.error || d.error); return; }
-        processedRows = d.processed || [];
-        setParseStatus('');
-        renderReview(d);
-        fetchAndShowBalance(bankAcct);
-        checkDuplicates(bankAcct, bankRows);
-        fetchOpenBills();
-      })
-      .catch(e => { setParseStatus(e.message); });
-  }
-
-  var MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
-  function normalizeDate(s) {
-    if (!s) return null;
-    s = s.trim();
-    if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s)) return s;
-    if (/^[0-9]{8}$/.test(s)) return s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8);
-    var m = s.match(/^([0-9]{1,2})[ \-]([A-Za-z]{3})[ \-]([0-9]{2,4})$/);
-    if (m) {
-      var mon = MONTHS[m[2].toLowerCase()];
-      if (mon) {
-        var yr = m[3].length === 2 ? '20' + m[3] : m[3];
-        return yr + '-' + String(mon).padStart(2,'0') + '-' + m[1].padStart(2,'0');
-      }
-    }
-    s = s.replace(/[\/.]/g, '-');
-    var p = s.split('-');
-    if (p.length === 3) {
-      if (p[0].length === 4) return s;
-      if (p[2].length === 4) return p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0');
-      if (parseInt(p[0]) > 12) return '20'+p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0');
-      return '20'+p[2]+'-'+p[0].padStart(2,'0')+'-'+p[1].padStart(2,'0');
-    }
-    return null;
-  }
-
-  function renderReview(d) {
-    var summary = d.summary || {};
-    document.getElementById('import-summary').innerHTML =
-      '<b>'+processedRows.length+'</b> rows: '
-      + '<span style="color:#2a8a2a">'+(summary.ruleMatched||0)+' rule-matched</span>, '
-      + '<span style="color:#856404">'+(summary.billMatched||0)+' bill-matched</span>, '
-      + '<span style="color:#cc8800">'+(summary.unmatched||0)+' unmatched</span>';
-    document.getElementById('review-body').innerHTML = processedRows.map(function(r, i) {
-      var orig = r.original;
-      var amt = parseFloat(orig.amount);
-      var matchTag = r.matchType === 'rule' ? '<span class="tag hi">rule</span>'
-        : r.matchType === 'bill' ? '<span class="tag med">bill</span>'
-        : '<span class="tag lo">manual</span>';
-      var cls = r.matchType ? 'matched' : 'unmatched';
-      var billCell = r.billId
-        ? '' // filled by refreshBillCell after render
-        : '<button style="border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer;padding:2px 6px;font-size:10pt" '
-          +'onclick="openBillPanel('+i+')">&#128279;</button>';
-      return '<tr class="'+cls+'" data-i="'+i+'">'+'<td>'+orig.date+'</td>'
-        +'<td>'+escHtml(orig.description)+'</td>'
-        +'<td class="num" style="color:'+(amt>=0?'#2a8a2a':'#cc2222')+'">'+(amt>=0?'+':'')+fmt(Math.abs(amt))+'</td>'
-        +'<td>'+matchTag+'</td>'
-        +'<td style="width:90px"><div style="position:relative"><input class="acct acct-search" data-field="dr" value="'+(r.debitAccount||'')+'" placeholder="DR acct" autocomplete="off">'
-          +'<div class="acct-name-hint">'+(r.debitAccount ? (accountsMap[r.debitAccount]||'?') : '')+'</div></div></td>'
-        +'<td style="width:90px"><div style="position:relative"><input class="acct acct-search" data-field="cr" value="'+(r.creditAccount||'')+'" placeholder="CR acct" autocomplete="off">'
-          +'<div class="acct-name-hint">'+(r.creditAccount ? (accountsMap[r.creditAccount]||'?') : '')+'</div></div></td>'
-        +'<td data-bill-cell="'+i+'">'+billCell+'</td>'
-        +'<td style="text-align:center"><input type="checkbox" data-skip="'+i+'" onchange="updateBalances()"></td>'
-        +'</tr>';
-    }).join('');
-    document.querySelectorAll('#review-body .acct').forEach(function(inp){
-      if (inp.value) { var nd = inp.nextElementSibling; if(nd) nd.textContent = accountsMap[inp.value]||'?'; }
-      attachAcctDd(inp);
-    });
-    processedRows.forEach(function(r, i){ if (r.billId) refreshBillCell(i); });
-    setWizardStep(3);
-    document.getElementById('step-review').style.display = '';
-    var jSel = document.getElementById('import-journal');
-    if (Array.isArray(journalsList) && journalsList.length) {
-      jSel.innerHTML = journalsList.map(function(j){
-        return '<option value="'+j.journal_id+'">'+j.code+' \u2014 '+j.name+'</option>';
-      }).join('');
-      var bank = journalsList.find(function(j){ return j.code === 'BANK'; });
-      if (bank) jSel.value = bank.journal_id;
-      try {
-        var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-        if (saved.journalId) jSel.value = saved.journalId;
-      } catch(e) {}
-    } else {
-      setTimeout(function(){
-        if (Array.isArray(journalsList) && journalsList.length) {
-          jSel.innerHTML = journalsList.map(function(j){ return '<option value="'+j.journal_id+'">'+j.code+' \u2014 '+j.name+'</option>'; }).join('');
-          var b = journalsList.find(function(j){ return j.code === 'BANK'; });
-          if (b) jSel.value = b.journal_id;
-        } else {
-          jSel.innerHTML = '<option value="">— no journals found —</option>';
-        }
-      }, 800);
-    }
-  }
-
-  // Event delegation for bill cell inputs
-  document.addEventListener('input', function(e) {
-    var settle = e.target.closest('.settle-input');
-    if (settle) {
-      var rowIdx = parseInt(settle.dataset.row);
-      var r = processedRows[rowIdx];
-      if (r) { r.settledForeign = parseFloat(settle.value) || 0; updateFxPreview(rowIdx); }
-      return;
-    }
-    var rateInp = e.target.closest('.bc-rate');
-    if (rateInp && !rateInp.classList.contains('bc-fx-acct')) {
-      var rowIdx2 = parseInt(rateInp.dataset.row);
-      var r2 = processedRows[rowIdx2];
-      if (r2) { r2.billPayRate = parseFloat(rateInp.value) || r2.billBookingRate; updateFxPreview(rowIdx2); }
-      return;
-    }
-    var fxAcct = e.target.closest('.bc-fx-acct');
-    if (fxAcct) {
-      var rowIdx3 = parseInt(fxAcct.dataset.row);
-      var r3 = processedRows[rowIdx3];
-      if (r3) r3.fxAccount = fxAcct.value.trim();
-    }
-  });
-  document.addEventListener('click', function(e) {
-    var btn = e.target.closest('.bill-get-rate');
-    if (btn) fetchBillRate(parseInt(btn.dataset.row));
+  // ── FB.keys: Transactions tab (P1-3 remainder — payables pattern) ─────────
+  // Row cursor over #rec-body via FB.nav (sticky boundaries, scroll-into-view,
+  // nav-row-focus class styled app-wide). Mappings tab stays unmigrated —
+  // it is a per-row-input edit table, not a vim list (see spec §P1-3).
+  var recNav = FB.nav.create({
+    rows: function() { return Array.from(document.querySelectorAll('#rec-body tr')); }
   });
 
-  function checkDuplicates(bankAcct, bankRows) {
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action: 'journal.account_lines', companyId: COMPANY, account_code: bankAcct }) })
-      .then(function(r){ return r.json(); })
-      .then(function(res){
-        var existing = res.data || res.rows || res;
-        if (!Array.isArray(existing)) return;
-        var sigs = new Set();
-        existing.forEach(function(e) {
-          var net = parseFloat(e.debit||0) - parseFloat(e.credit||0);
-          sigs.add(String(e.date).slice(0,10) + '|' + Math.abs(net).toFixed(2));
-        });
-        var dupCount = 0;
-        document.querySelectorAll('#review-body tr').forEach(function(tr, i) {
-          var r = processedRows[i];
-          if (!r) return;
-          var sig = r.original.date + '|' + Math.abs(parseFloat(r.original.amount)).toFixed(2);
-          if (sigs.has(sig)) {
-            tr.style.opacity = '0.55';
-            tr.querySelector('[data-skip]').checked = true;
-            var warn = tr.querySelector('.dup-warn');
-            if (!warn) {
-              var td = tr.querySelector('td');
-              var w = document.createElement('div');
-              w.className = 'dup-warn';
-              w.style.cssText = 'font-size:8pt;color:#856404;font-weight:600';
-              w.textContent = 'possible duplicate';
-              td.appendChild(w);
-            }
-            dupCount++;
-          }
-        });
-        if (dupCount > 0) {
-          var msg = document.getElementById('import-summary');
-          msg.innerHTML += ' &nbsp;<span style="color:#856404;font-weight:600">\u26a0 '+dupCount+' possible duplicate'+(dupCount>1?'s':'')+' pre-skipped — uncheck Skip to include</span>';
-          updateBalances();
-        }
-      }).catch(function(){});
+  function _txnVisible() {
+    var p = document.getElementById('bank-panel-txn');
+    return p && p.style.display !== 'none';
+  }
+  function _txnInputFocused() {
+    var ae = document.activeElement;
+    if (!ae || !_txnVisible()) return false;
+    return document.getElementById('bank-panel-txn').contains(ae)
+      && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA');
+  }
+  function _focusedRowCb() {
+    var tr = recNav.current();
+    return tr ? tr.querySelector('input[type=checkbox]') : null;
   }
 
-  var bookBalanceBefore = null;
+  FB.keys.register('bank', {
+    active: _txnVisible,
+    getMode: function() { return _txnInputFocused() ? 'INSERT' : 'NORMAL'; },
+    bindings: [
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+        swallow: function() { return recNav.current() || document.querySelector('#rec-body tr'); },
+        run: function() { recNav.move(1); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+        swallow: function() { return recNav.current() || document.querySelector('#rec-body tr'); },
+        run: function() { recNav.move(-1); } },
+      { key: 'c', mode: 'NORMAL', hint: 'clear/unclear', hintBar: true,
+        swallow: _focusedRowCb,
+        run: function() {
+          var cb = _focusedRowCb();
+          if (!cb || cb.disabled) return;
+          cb.checked = !cb.checked;
+          toggleCleared(cb);
+        } },
+      { key: 'Escape', mode: 'NORMAL', hint: 'clear focus', hintBar: true,
+        swallow: function() { return !!recNav.current(); },
+        run: function() { recNav.clear(); } },
+      { key: 'Escape', mode: 'INSERT', hint: 'back',
+        run: function() { if (document.activeElement) document.activeElement.blur(); } }
+    ]
+  });
+  FB.keys.renderHints('bank', document.getElementById('sb-hints'), { layout: 'list' });
 
-  function fetchAndShowBalance(bankAcct) {
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action: 'journal.account_balance', companyId: COMPANY, account_code: bankAcct }) })
-      .then(function(r){ return r.json(); })
-      .then(function(res){
-        var rows = res.data || res.rows || res;
-        if (Array.isArray(rows) && rows.length > 0) {
-          bookBalanceBefore = parseFloat(rows[0].balance || 0);
-          document.getElementById('balance-bar').style.display = 'flex';
-          updateBalances();
-        }
-      }).catch(function(){});
-  }
-
-  function updateBalances() {
-    if (bookBalanceBefore === null) return;
-    var net = 0;
-    document.querySelectorAll('#review-body tr').forEach(function(tr, i) {
-      var skip = tr.querySelector('[data-skip]').checked;
-      if (!skip && processedRows[i]) net += parseFloat(processedRows[i].original.amount || 0);
-    });
-    var after = bookBalanceBefore + net;
-    document.getElementById('bal-before').textContent = fmt(bookBalanceBefore);
-    document.getElementById('bal-net').textContent = (net >= 0 ? '+' : '') + fmt(net);
-    document.getElementById('bal-net').style.color = net >= 0 ? '#2a8a2a' : '#cc2222';
-    document.getElementById('bal-after').textContent = fmt(after);
-  }
-
-  function setWizardStep(n) {
-    for (var i = 1; i <= 3; i++) {
-      var el = document.getElementById('wz-step-' + i);
-      if (!el) continue;
-      el.classList.remove('active','done');
-      if (i < n) el.classList.add('done');
-      else if (i === n) el.classList.add('active');
-    }
-  }
-
-  function onDropFile(e) {
-    e.preventDefault();
-    document.getElementById('drop-zone').style.borderColor = '';
-    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function(ev) {
-      var s = document.getElementById('csv-paste-section');
-      s.style.display = '';
-      document.getElementById('csv-paste').value = ev.target.result;
-      onPasteLoad();
-    };
-    reader.readAsText(file);
-  }
 
   function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-  function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  // ── Account autosearch (FB.dropdown) ────────────────────────────────────────
-  function pickAcct(code, input) {
-    input.value = code;
-    var nd = input.nextElementSibling;
-    if (nd && nd.classList.contains('acct-name-hint')) nd.textContent = accountsMap[code]||'';
-    if (input.classList.contains('bc-fx-acct')) {
-      var ri = parseInt(input.dataset.row);
-      if (!isNaN(ri) && processedRows[ri]) {
-        processedRows[ri].fxAccount = code;
-        var bcRow = input.closest('.bc-row');
-        var nameEl = bcRow && bcRow.querySelector('.bc-fx-acct-name');
-        if (nameEl) nameEl.textContent = accountsMap[code]||'';
-      }
-    }
-    input.dispatchEvent(new Event('input', { bubbles:true }));
-  }
-
-  function attachAcctDd(input) {
-    if (!input || !window.FB || !FB.dropdown) return;
-    FB.dropdown.attach(input, {
-      keys: true,
-      minWidth: 200,
-      source: function (q) {
-        q = (q || '').toLowerCase();
-        return Object.keys(accountsMap).filter(function (code) {
-          return code.toLowerCase().indexOf(q) >= 0 || (accountsMap[code]||'').toLowerCase().indexOf(q) >= 0;
-        }).map(function (code) { return { primary: code, secondary: accountsMap[code]||'', data: { code: code } }; });
-      },
-      onPick: function (it, inp) { pickAcct(it.primary, inp); }
-    });
-  }
-
-  // ── Per-row FX rate fetch ───────────────────────────────────────────────────
-  function fetchBillRate(rowIdx) {
-    var r = processedRows[rowIdx];
-    if (!r || !r.billCurrency || r.billCurrency === HOME_CURRENCY) return;
-    var btn = document.querySelector('.bill-get-rate[data-row="'+rowIdx+'"]');
-    if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'fx.rates.get', companyId: COMPANY,
-        fromCurrency: r.billCurrency, toCurrency: HOME_CURRENCY, date: r.original.date }) })
-      .then(function(res){ return res.json(); })
-      .then(function(res){
-        var d = res.data || res;
-        var rate = d && d.rate ? parseFloat(d.rate) : null;
-        if (rate) {
-          r.billPayRate = rate;
-          var rateInp = document.querySelector('.bc-rate[data-row="'+rowIdx+'"]');
-          if (rateInp) rateInp.value = rate.toFixed(4);
-          updateFxPreview(rowIdx);
-        }
-        if (btn) { btn.disabled = false; btn.textContent = 'Get'; }
-      })
-      .catch(function(){ if (btn) { btn.disabled = false; btn.textContent = 'Get'; } });
-  }
-
-  function updateFxPreview(rowIdx) {
-    var r = processedRows[rowIdx];
-    if (!r) return;
-    var settled = parseFloat(r.settledForeign) || 0;
-    var bookRate = parseFloat(r.billBookingRate) || 1;
-    var payRate = r.billPayRate ? parseFloat(r.billPayRate) : bookRate;
-    var settledBooked = settled * bookRate;
-    var settledActual = settled * payRate;
-    var fxDiff = settledActual - settledBooked;
-    var icon = document.querySelector('.info-icon[data-row="'+rowIdx+'"]');
-    if (icon) {
-      icon.title = '\u2248 '+settledActual.toFixed(2)+' '+HOME_CURRENCY+' at pay rate | FX '+(fxDiff>=0?'gain':'loss')+': '+Math.abs(fxDiff).toFixed(2)+' '+HOME_CURRENCY;
-    }
-  }
-
-  function updateAcctName(input) {
-    var code = input.value.trim();
-    var nameDiv = input.nextElementSibling;
-    if (!nameDiv) return;
-    nameDiv.textContent = code ? (accountsMap[code] || (code.length >= 4 ? '?' : '')) : '';
-    nameDiv.style.color = (code && !accountsMap[code] && code.length >= 4) ? '#cc2222' : '#888';
-  }
-
-  function postApproved() {
-    var entries = [];
-    var problemRows = [];
-    document.querySelectorAll('#review-body tr').forEach(function(tr, i) {
-      var skip = tr.querySelector('[data-skip]').checked;
-      if (skip) return;
-      var r = processedRows[i];
-      var dr = tr.querySelector('[data-field=dr]').value.trim();
-      var cr = tr.querySelector('[data-field=cr]').value.trim();
-      if (!dr || !cr) {
-        problemRows.push(i + 1);
-        return;
-      }
-      // CHANGE 2: Validate accounts exist in accountsMap
-      if (!accountsMap[dr] || !accountsMap[cr]) {
-        problemRows.push(i + 1);
-        return;
-      }
-      entries.push({ date: r.original.date, description: r.description || r.original.description,
-        amount: r.original.amount, debitAccount: dr, creditAccount: cr,
-        vatCode: r.vatCode || null, billId: r.billId || null,
-        settledForeign: r.billCurrency && r.billCurrency !== HOME_CURRENCY ? (r.settledForeign || null) : null,
-        billPayRate: r.billPayRate || null,
-        fxAccount: r.fxAccount || null });
-    });
-    if (problemRows.length > 0) {
-      setPostStatus('Invalid accounts on rows: ' + problemRows.join(', ') + '. Fill in debit & credit accounts.');
-      document.getElementById('post-status').style.color = '#cc2222';
-      return;
-    }
-    if (!entries.length) { setPostStatus('Nothing to post'); return; }
-    var journalId = document.getElementById('import-journal').value;
-    if (!journalId) { setPostStatus('Select a journal first'); return; }
-    setPostStatus('Posting '+entries.length+' entries…');
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'bank.approve', companyId: COMPANY, journalId, entries }) })
-      .then(r => r.json()).then(res => {
-        var d = res.data || res;
-        if (res.error || d.error) { setPostStatus(res.error||d.error); return; }
-        var n = d.posted || 0, failed = d.failed || 0;
-        var jName = document.getElementById('import-journal').options[document.getElementById('import-journal').selectedIndex];
-        var jLabel = jName ? jName.text : journalId;
-        document.getElementById('step-review').innerHTML =
-          '<div style="padding:28px;text-align:center">'
-          +'<div style="font-size:28pt;color:#2a8a2a;margin-bottom:10px">&#10003;</div>'
-          +'<div style="font-size:14pt;font-weight:700;margin-bottom:8px">Import complete</div>'
-          +'<div style="font-size:11pt;color:#555;margin-bottom:24px">'
-            +n+' entr'+(n===1?'y':'ies')+' posted to <b>'+escHtml(jLabel)+'</b>.'
-            +(failed ? ' <span style="color:#cc2222">'+failed+' failed.</span>' : '')
-          +'</div>'
-          +'<div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">'
-            +'<a href="/'+COMPANY+'/bank" style="display:inline-block;padding:10px 22px;background:#1a1a1a;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">&larr; Back to Bank</a>'
-            +'<a href="/'+COMPANY+'/bank" style="display:inline-block;padding:10px 22px;background:#555;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">Import Another Statement</a>'
-          +'</div></div>';
-      })
-      .catch(e => { setPostStatus(e.message); });
-  }
-
-  function fetchOpenBills() {
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'bill.list', companyId: COMPANY }) })
-      .then(function(r){ return r.json(); })
-      .then(function(res){
-        var bills = res.data || res;
-        if (Array.isArray(bills)) openBills = bills.filter(function(b){ return b.status === 'posted' || b.status === 'partial'; });
-      }).catch(function(){});
-  }
-
-  function openBillPanel(rowIdx) {
-    billPanelRowIdx = rowIdx;
-    var r = processedRows[rowIdx];
-    var orig = r ? r.original : {};
-    document.getElementById('bill-panel-row-label').textContent =
-      '— row '+(rowIdx+1)+': '+(orig.date||'')+' '+(orig.description||'').slice(0,40);
-    document.getElementById('bill-panel-search').value = '';
-    renderBillPanelList();
-    document.getElementById('bill-panel').style.display = '';
-    document.getElementById('bill-panel-search').focus();
-  }
-
-  function closeBillPanel() {
-    var panel = document.getElementById('bill-panel');
-    if (panel) panel.style.display = 'none';
-    billPanelRowIdx = -1;
-  }
-
-  document.addEventListener('keydown', function(e){
-    if (e.key === 'Escape') closeBillPanel();
-  });
-
-  var _filteredBills = [];
-  function renderBillPanelList() {
-    var q = document.getElementById('bill-panel-search').value.trim().toLowerCase();
-    _filteredBills = openBills.filter(function(b){
-      if (!q) return true;
-      return (b.vendor_name||'').toLowerCase().includes(q)
-        || (b.vendor_ref||'').toLowerCase().includes(q)
-        || (b.bill_id||'').toLowerCase().includes(q);
-    });
-    var list = document.getElementById('bill-panel-list');
-    if (!_filteredBills.length) {
-      list.innerHTML = '<div style="padding:10px 14px;color:#888;font-size:10pt">'+(openBills.length?'No matching bills':'No open bills loaded')+'</div>';
-      return;
-    }
-    list.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:9.5pt">'
-      +'<thead><tr style="background:#f0f0f0">'
-      +'<th style="padding:5px 8px;text-align:left">Vendor</th>'
-      +'<th style="padding:5px 8px;text-align:left">Ref</th>'
-      +'<th style="padding:5px 8px;text-align:left">Date</th>'
-      +'<th style="padding:5px 8px;text-align:right">Outstanding</th>'
-      +'<th style="padding:5px 8px;text-align:left">Ccy</th>'
-      +'</tr></thead><tbody>'
-      + _filteredBills.slice(0,50).map(function(b, i){
-          var outstanding = parseFloat((parseFloat(b.amount||0)-parseFloat(b.amount_paid||0)));
-          return '<tr class="bill-row" data-idx="'+i+'">'
-            +'<td style="padding:5px 8px">'+escHtml(b.vendor||'')+'</td>'
-            +'<td style="padding:5px 8px;color:#555">'+escHtml(b.vendor_ref||'')+'</td>'
-            +'<td style="padding:5px 8px;color:#555">'+escHtml(String(b.date||'').slice(0,10))+'</td>'
-            +'<td style="padding:5px 8px;text-align:right;font-weight:600">'+outstanding.toFixed(2)+(b.currency&&b.currency!==HOME_CURRENCY&&b.amount_home?'<br><span style="font-size:8.5pt;color:#888">≈ '+parseFloat(b.amount_home).toFixed(2)+' '+HOME_CURRENCY+'</span>':'')+\'</td>\'
-            +\'<td style="padding:5px 8px;font-size:9pt;color:#555">\'+escHtml(b.currency||\'\')+\'</td>\'
-            +'</tr>';
-        }).join('')
-      +'</tbody></table>';
-    list.onclick = function(e) {
-      var tr = e.target.closest('tr.bill-row');
-      if (!tr) return;
-      var idx = parseInt(tr.dataset.idx);
-      if (!isNaN(idx) && _filteredBills[idx]) selectBill(_filteredBills[idx]);
-    };
-  }
-  function selectBill(bill) {
-    if (billPanelRowIdx < 0 || !processedRows[billPanelRowIdx]) return;
-    var r = processedRows[billPanelRowIdx];
-    r.billId = bill.bill_id;
-    r.vendorShort = (bill.vendor_name||bill.vendor_id||'').slice(0,10);
-    r.billCurrency = bill.currency;
-    r.billBookingRate = parseFloat(bill.fx_rate || 1);
-    r.billOutstanding = parseFloat(bill.amount || 0) - parseFloat(bill.amount_paid || 0);
-    r.settledForeign = r.billOutstanding;
-    if (bill.ap_account) {
-      var tr = document.querySelector('#review-body tr[data-i="'+billPanelRowIdx+'"]');
-      if (tr) {
-        var drInput = tr.querySelector('[data-field=dr]');
-        var crInput = tr.querySelector('[data-field=cr]');
-        if (drInput) { drInput.value = bill.ap_account; updateAcctName(drInput); }
-      }
-    }
-    refreshBillCell(billPanelRowIdx);
-    closeBillPanel();
-  }
-
-  function unlinkBill(rowIdx) {
-    if (!processedRows[rowIdx]) return;
-    processedRows[rowIdx].billId = null;
-    processedRows[rowIdx].vendorShort = null;
-    processedRows[rowIdx].billCurrency = null;
-    processedRows[rowIdx].billBookingRate = null;
-    processedRows[rowIdx].billOutstanding = null;
-    processedRows[rowIdx].settledForeign = null;
-    refreshBillCell(rowIdx);
-  }
-
-  function refreshBillCell(rowIdx) {
-    var cell = document.querySelector('[data-bill-cell="'+rowIdx+'"]');
-    if (!cell) return;
-    var r = processedRows[rowIdx];
-    if (r && r.billId) {
-      var isFx = !!(r.billCurrency && r.billCurrency !== HOME_CURRENCY);
-      var unpaid = typeof r.billOutstanding === 'number' ? r.billOutstanding.toFixed(2) : '\u2014';
-      var ccy = escHtml(r.billCurrency || HOME_CURRENCY);
-      var vendor = escHtml((r.vendorShort || '').slice(0, 18));
-      if (!r.billPayRate) r.billPayRate = r.billBookingRate || 1;
-      var fxAcctCode = r.fxAccount || '';
-      var fxAcctName = fxAcctCode ? (accountsMap[fxAcctCode] || '') : '';
-
-      var html = '<div class="bill-card">';
-      html += '<div class="bc-row" style="justify-content:space-between">'
-        + '<span style="font-weight:600;color:#444">' + vendor + '</span>'
-        + '<button class="bc-unlink" onclick="unlinkBill(' + rowIdx + ')" title="Unlink">\u00d7</button>'
-        + '</div>';
-      html += '<div class="bc-row"><span style="color:#777">Unpaid:</span>&nbsp;<b>' + unpaid + '&nbsp;' + ccy + '</b></div>';
-
-      if (isFx) {
-        var payRate = (r.billPayRate || r.billBookingRate || 1);
-        var settled = (r.settledForeign != null ? r.settledForeign : (r.billOutstanding || 0));
-        var settledBooked = settled * (r.billBookingRate || 1);
-        var settledActual = settled * payRate;
-        var fxDiff = settledActual - settledBooked;
-        var fxTip = '\u2248 ' + settledActual.toFixed(2) + ' ' + HOME_CURRENCY + ' at pay rate | FX ' + (fxDiff >= 0 ? 'gain' : 'loss') + ': ' + Math.abs(fxDiff).toFixed(2) + ' ' + HOME_CURRENCY;
-
-        html += '<div class="bc-row"><span style="color:#777">Settle:</span>'
-          + '<input type="number" class="bc-input bc-settle settle-input" data-row="' + rowIdx + '" value="' + settled.toFixed(2) + '" step="0.01" min="0">&nbsp;'
-          + ccy + '</div>';
-        html += '<div class="bc-row"><span style="color:#777">Rate:</span>'
-          + '<input type="number" class="bc-input bc-rate" data-row="' + rowIdx + '" value="' + payRate.toFixed(4) + '" step="0.0001" min="0">'
-          + '<button class="bc-get-rate bill-get-rate" data-row="' + rowIdx + '">Get</button>'
-          + '<span class="info-icon" data-row="' + rowIdx + '" title="' + escHtml(fxTip) + '">&#9432;</span>'
-          + '</div>';
-        html += '<div class="bc-row"><span style="color:#777">FX&nbsp;Act:</span>'
-          + '<div style="position:relative"><input type="text" class="bc-input bc-fx-acct" data-row="' + rowIdx + '" value="' + escHtml(fxAcctCode) + '" placeholder="code or name" autocomplete="off">'
-          + '<div class="acct-name-hint bc-fx-acct-name">' + escHtml(fxAcctName) + '</div></div>'
-          + '</div>';
-      }
-
-      html += '</div>';
-      cell.innerHTML = html;
-      attachAcctDd(cell.querySelector('.bc-fx-acct'));
-    } else {
-      cell.innerHTML = '<button style="border:1px solid #aaa;background:#f8f8f8;border-radius:3px;cursor:pointer;padding:2px 6px;font-size:10pt" '
-        + 'onclick="openBillPanel(' + rowIdx + ')">&#128279;</button>';
-    }
-  }
 
 // ========== BANK TAB SWITCHER ==========
 function showBankTab(t) {
@@ -1076,6 +381,13 @@ function showBankTab(t) {
     if (tabEl) tabEl.classList.toggle('active', id === t);
   });
   if (t === 'mappings') { loadMappings(); loadBankMappingAccounts(); }
+  // Sidebar hints follow the active tab: txn has an FB.keys set; mappings
+  // (per-row-input edit table) is not migrated — clear rather than mislead.
+  var hints = document.getElementById('sb-hints');
+  if (hints) {
+    if (t === 'txn') FB.keys.renderHints('bank', hints, { layout: 'list' });
+    else hints.innerHTML = '';
+  }
 }
 
 // ========== BANK MAPPINGS ==========

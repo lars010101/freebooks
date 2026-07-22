@@ -575,7 +575,7 @@ Keyboard-first UX fails if bindings are undiscoverable. The review found the `?`
 2. **Trigger guards:** NORMAL mode only, and never while typing in an input/textarea/select/contenteditable (same guard that keeps NORMAL verbs inert) — a literal `?` typed into a description field stays text. On pages with no FB.keys set (journal/bank/settings/dashboard), `?` is a silent no-op.
 3. **While open, the overlay swallows every key** (capture-phase, before page bindings and common.js's bubble handler). Close on `Esc`, `?`, or backdrop click. Focus is restored to the previously focused element.
 4. **Mouse parity:** the topbar `?` button (previously handler-less) toggles the same overlay via `FB.keys.help.toggle()` — deliberately not mode-gated (read-only documentation).
-5. **`:` palette removed, not fixed.** The search-bar `:`-prefix dispatch called an undefined function (would `console.log` and swallow the command), and `fbOpenCmdPalette` was a self-admitted no-op stub — doubly dead code, deleted per standing rule 6. The search bar keeps its real behaviors (Enter blurs, Esc clears+blurs; filtering is each page's oninput). A real command palette is separate scope (P2-6 territory).
+5. **`:` palette removed, not fixed.** The search-bar `:`-prefix dispatch called an undefined function (would `console.log` and swallow the command), and `fbOpenCmdPalette` was a self-admitted no-op stub — doubly dead code, deleted per standing rule 6. The search bar keeps its real behaviors (Enter blurs, Esc clears+blurs; filtering is each page's oninput). The command-line *concept* is not rejected — its proper replacement is specced as **P1-10**.
 
 ### Decisions (2026-07-22)
 
@@ -589,3 +589,50 @@ Keyboard-first UX fails if bindings are undiscoverable. The review found the `?`
 - common.css: `#fb-keys-overlay` panel styles reusing `.fb-hint-row` markup with a light-panel palette.
 - common.js: dead palette deleted (~70 LOC); topbar `?` button wired (`#tb-help-btn`); cache-buster bumped `?v=20260722`.
 - Verified live (throwaway DB): overlay opens on Bills + bill-edit, columns/labels match sidebar superset, Esc/`?`/backdrop close, typing `?` in an inline field stays text, journal page no-op. Contract suite 28/28.
+
+## P1-10 — Command palette: `:` written commands (SPEC 2026-07-22, for magnus review — NOT yet implemented)
+
+*(Raised by magnus 2026-07-22 after P1-6 removed the dead `:` stub: "the idea with `:` is to allow written commands by the user, such as `:new bill"." Agreed: the concept is vim-native and fits the keyboard-first philosophy; what was deleted was a non-functional stub. Spec now, build later — after the P1-3 remainder.)*
+
+### Purpose
+
+Single-key verbs cover the frequent actions; written commands cover the rest:
+
+1. **Key-less actions** — things too rare to deserve a binding ("lock period", "post FX revaluation", "go bank"). Today these are mouse-only or URL-only.
+2. **Discoverability by typing** — "new bill" instead of memorizing `o`. The palette doubles as a teacher: every row shows the key equivalent next to the command.
+3. **Mouse parity for keyboard-first design** — clickable command list, no new chrome at rest (clutter rule).
+
+### Current state
+
+- P1-6 deleted the dead stub: search-bar `:` dispatch → undefined `fbCmdDispatch` (commands were silently swallowed); `fbOpenCmdPalette` a no-op with a hardcoded 7-item navigation list. Nothing functional was lost.
+- `/` fuzzy search is intact (focus search from NORMAL, page-level oninput filtering). This spec does not touch it.
+- FB.keys binding tables already name every page verb (`hint`) and hold its executor (`run`) — a command registry can be **derived**, not hand-written.
+
+### Proposed behavior
+
+1. **Trigger:** `:` in NORMAL mode, never while typing in a field (same guard as `?`). Mouse-parity entry: typing `:` as the first character in the topbar search input opens the palette instead of filtering (preserves the original design's entry point — now actually implemented).
+2. **Presentation:** center overlay (same visual family as the `?` overlay): an input at top, fuzzy candidate list below, max ~10 rows. Each row: command label · its key equivalent as `kbd` (when one exists) · scope tag (`page` / `global`). Footer: `↑/↓ move · Enter run · Esc close`. Rows are clickable.
+3. **Command sources — derived, single source of truth:**
+   - **Page verbs** = NORMAL-mode bindings with a `hint` from the active FB.keys set. Executing one calls the binding's `run` — identical effect to pressing the key, against the current focus/context. No command duplicates a binding by hand.
+   - **Global registry** = one small explicit list for navigation ("go bills / bank / reports / settings / dashboard") and key-less API actions (v1 proposal: "new journal entry", "new vendor", "lock period", "post FX revaluation"). Global commands call API actions through `fbApi` with `Idempotency-Key` — standing rule 3 applies; the palette introduces **no new backend surface**.
+4. **Matching:** fuzzy subsequence over label + key equivalent; ranking = recency (localStorage) then exactness. `↑/↓` (and `Ctrl-n`/`Ctrl-p`, vim convention) move selection; `Enter` executes and closes; `Esc` cancels. While open, keys route to the palette input — page bindings inert (same swallow pattern as the `?` overlay).
+5. **Empty state:** "no matching commands" — never silently dead.
+
+### Explicitly deferred
+
+- Command arguments (`:bill INV-123`, `:goto 2026-06`), aliases, chaining.
+- Frecency beyond simple localStorage recency.
+- `?`-overlay cross-link ("press `:` to run any command" footer line) — evaluate after both ship.
+- Mobile/touch considerations.
+
+### Open decisions (for magnus)
+
+1. **Presentation:** center overlay (recommended — the candidate list is the point; matches the `?` overlay family) vs vim bottom command-line (more vim-purist, weaker discoverability).
+2. **Search-bar `:` entry point:** recommended yes (mouse parity without new chrome; honors the original intent). Alternative: palette strictly keyboard-triggered.
+3. **Global registry v1 contents:** proposed = navigation + "new journal entry" + "new vendor" + "lock period" + "post FX revaluation". Add/remove?
+
+### Relationship to other items
+
+- **P2-6 (user-editable keybindings):** both treat binding tables as data. A remap layer automatically renames the palette's key labels — palette needs no separate work when P2-6 lands.
+- **P1-3 remainder:** build P1-10 AFTER Journal/Bank/Settings migrate onto FB.keys, so derived page verbs cover the whole app in one shot instead of special-casing three legacy pages.
+- **P1-6:** removed the dead stub; this is its proper replacement.

@@ -95,20 +95,20 @@ ${commonStyle()}
       </tr></thead>
       <tbody id="be-lines-body"></tbody>
     </table>
-    <div class="be-add-row" id="be-add-row">+ add line</div>
+    <div class="be-add-row" id="be-add-row">+ add line (a)</div>
   </div>
 
   <div class="be-card">
     <h3>Attachments</h3>
     <div id="be-attach-list"></div>
     <input type="file" id="be-file" style="display:none">
-    <button class="btn-plain" id="be-attach-btn" type="button">📎 attach file</button>
+    <button class="btn-plain" id="be-attach-btn" type="button">📎 attach file (A)</button>
     <span style="font-size:8.5pt;color:#888;margin-left:8px">files stage locally until the first save</span>
   </div>
 
   <div class="be-status">
-    <button class="btn-primary" id="be-post" type="button">Post bill (Ctrl+Enter)</button>
-    <button class="btn-plain" id="be-save" type="button">Save draft (Esc)</button>
+    <button class="btn-primary" id="be-post" type="button">Post bill (p)</button>
+    <button class="btn-plain" id="be-save" type="button">Back (q)</button>
     <span class="be-msg" id="be-msg"></span>
     <div class="be-totals">
       <span>Net <b id="be-tot-net">0.00</b></span>
@@ -132,6 +132,7 @@ const S = {
   billId: editId || null,
   stagedFiles: [],       // File objects staged pre-first-save
   saving: false,
+  savedSnapshot: null,   // JSON of last-saved (or initial) form state
 };
 
 function msg(text, cls) {
@@ -167,6 +168,7 @@ Promise.all([
   document.getElementById('be-vendor').focus();
   if (S.billId) document.getElementById('be-title').innerHTML = 'Edit draft bill <span style="color:#888;font-weight:400;font-size:10pt">— full editor</span>';
   updateTotals();
+  takeSnapshot(); // baseline for dirty tracking
 });
 
 async function prefillFromDraft(id) {
@@ -393,6 +395,10 @@ function validateClient(bill, forPost) {
   return missing;
 }
 
+// ── Dirty tracking (snapshot after load + after each save) ──────────────────
+function takeSnapshot() { S.savedSnapshot = JSON.stringify(gatherBill()); }
+function isDirty() { return JSON.stringify(gatherBill()) !== S.savedSnapshot; }
+
 // ── Save / post ─────────────────────────────────────────────────────────────
 async function saveDraft(quiet) {
   if (S.saving) return null;
@@ -407,6 +413,7 @@ async function saveDraft(quiet) {
     const r = await apiAction('bill.draft.save', { bill });
     S.billId = r.billId;
     await uploadStaged();
+    takeSnapshot();
     if (!quiet) msg('Draft saved', 'ok');
     return r.billId;
   } catch (e) {
@@ -439,12 +446,24 @@ async function postBill() {
   } finally { S.saving = false; }
 }
 
-// Esc = save draft and return to Bills (sole save trigger)
-async function escSaveAndReturn() {
+// Esc = exit edit mode (vim doctrine: Esc exits, w writes, never conflate)
+function exitToNormal() {
+  if (document.activeElement) document.activeElement.blur();
+  FB.mode.set('normal');
+}
+
+// q = quit (no save). Dirty → confirm discard (same guard as Vendors).
+function quitEditor() {
   const bill = gatherBill();
-  if (!bill.vendor && !bill.lines.length) { window.location.href = '/' + COMPANY + '/payables'; return; } // empty → discard
-  const id = await saveDraft(true);
-  if (id) window.location.href = '/' + COMPANY + '/payables';
+  if (!bill.vendor && !bill.lines.length) { window.location.href = '/' + COMPANY + '/payables'; return; } // empty → exit silently
+  if (isDirty() && !confirm('Unsaved changes — discard?')) return;
+  window.location.href = '/' + COMPANY + '/payables';
+}
+
+function enterInsert() {
+  FB.mode.set('insert');
+  const vendor = document.getElementById('be-vendor');
+  if (vendor) vendor.focus();
 }
 
 // ── Attachments (staged until first save) ───────────────────────────────────
@@ -489,23 +508,38 @@ async function loadAttachments() {
 }
 
 // ── Buttons + keys ──────────────────────────────────────────────────────────
-document.getElementById('be-save').onclick = () => escSaveAndReturn();
+document.getElementById('be-save').onclick = () => quitEditor();
 document.getElementById('be-post').onclick = () => postBill();
 
+// Page loads in INSERT (it IS an editing surface); Esc exits to NORMAL.
 FB.mode.set('insert');
+FB.keys.unregister('bill-edit'); // soft-nav re-execution guard
 FB.keys.register('bill-edit', {
   active: () => true,
   getMode: () => FB.mode.get(),
   bindings: [
-    // Dropdown keys first (contract: dd bindings precede general)
+    // ── INSERT: dropdown keys first (contract: dd bindings precede general) ──
     { key: 'ArrowDown', mode: 'INSERT', when: () => FB.dropdown.isOpen(), swallow: true, run: () => FB.dropdown.move(1) },
     { key: 'ArrowUp', mode: 'INSERT', when: () => FB.dropdown.isOpen(), swallow: true, run: () => FB.dropdown.move(-1) },
     { key: 'Enter', mode: 'INSERT', when: () => FB.dropdown.isOpen(), swallow: true, run: () => FB.dropdown.pick() },
     { key: 'Escape', mode: 'INSERT', when: () => FB.dropdown.isOpen(), swallow: true, run: () => FB.dropdown.close() },
-    // Page commands
-    { key: 'Escape', mode: 'INSERT', hint: 'save + back', hintBar: true, swallow: true, run: escSaveAndReturn },
-    { key: 'Enter', mode: 'INSERT', when: (e) => e.ctrlKey || e.metaKey, hint: 'post', hintBar: true, swallow: true, run: postBill },
-    { key: 'p', mode: 'INSERT', when: (e) => !(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')), hint: 'post', hintBar: true, swallow: true, run: postBill },
+    // ── INSERT: Esc exits to NORMAL (no save — vim doctrine) ──
+    { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, swallow: true, run: exitToNormal },
+    // ── NORMAL: page commands ──
+    { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: enterInsert },
+    { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: false, run: enterInsert },
+    { key: 'w', mode: 'NORMAL', hint: 'write draft', hintBar: true, swallow: true,
+      run: () => saveDraft(false) },
+    { key: 'p', mode: 'NORMAL', hint: 'post bill', hintBar: true, swallow: true, run: postBill },
+    { key: 'a', mode: 'NORMAL', hint: 'add line', hintBar: true, swallow: true,
+      run: () => {
+        const tr = addLine({});
+        FB.mode.set('insert');
+        tr.querySelector('.bl-desc').focus();
+      } },
+    { key: 'A', mode: 'NORMAL', hint: 'attach file', hintBar: true, swallow: true,
+      run: () => document.getElementById('be-file').click() },
+    { key: 'q', mode: 'NORMAL', hint: 'quit', hintBar: true, swallow: true, run: quitEditor },
   ],
 });
 FB.keys.renderHints('bill-edit', document.getElementById('sb-hints'), { layout: 'list' });

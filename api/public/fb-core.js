@@ -3,9 +3,10 @@
  * Single source of truth for:
  *   FB.mode  — one vim-mode store (NORMAL/INSERT) with change listeners.
  *   FB.keys  — one capture-phase key dispatcher driven by per-page binding
- *              tables. The same table drives dispatch AND hint rendering
- *              (FB.keys.renderHints), so footer hints cannot drift from
- *              behavior (roadmap P1-6 seed).
+ *              tables. The same table drives dispatch, hint rendering
+ *              (FB.keys.renderHints) and the `?` which-key overlay
+ *              (FB.keys.help, roadmap P1-6), so hints cannot drift from
+ *              behavior.
  *   FB.nav   — generic row-navigation helper for list tabs (adopted as each
  *              tab migrates; Bills keeps its tuned cursor for now).
  *   FB.util  — esc/escAttr/fmtDate/today. `window.esc` is exposed as a legacy
@@ -102,8 +103,28 @@
     return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || !!t.isContentEditable;
   }
 
+  // The set that currently owns dispatch: first registered set whose active()
+  // passes (a set without active() is always live, mirroring _dispatch). The
+  // help overlay and the `?` trigger resolve their binding table through this
+  // — same source of truth as dispatch, so the overlay cannot go stale.
+  function _activeSet() {
+    for (var i = 0; i < _order.length; i++) {
+      var set = _sets[_order[i]];
+      if (set && (!set.active || set.active())) return { name: _order[i], set: set };
+    }
+    return null;
+  }
+
   function _dispatch(e) {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+    // Help overlay open: swallow EVERY key — page bindings and common.js's
+    // bubble handler stay inert until it closes (Esc / `?` / backdrop click).
+    if (help.isOpen()) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      if (e.key === 'Escape' || e.key === '?') help.close();
+      return;
+    }
     for (var i = 0; i < _order.length; i++) {
       var set = _sets[_order[i]];
       if (!set) continue;
@@ -120,9 +141,121 @@
       if (b.run) b.run(e);
       return;
     }
+    // `?` (Shift+/) opens the which-key overlay — after page bindings so a
+    // page could claim the key (none do). NORMAL mode only, and never while
+    // typing in a field: the same guard that keeps NORMAL verbs inert, so a
+    // literal `?` in a description field stays text. No active hint-bearing
+    // set (journal/bank/settings/dashboard) → silent no-op.
+    if (e.key === '?') {
+      var cur = _activeSet();
+      if (!cur) return;
+      var cm = cur.set.getMode ? cur.set.getMode() : 'NORMAL';
+      if (cm !== 'NORMAL' || _isEditableTarget(e)) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      help.open();
+    }
   }
 
   document.addEventListener('keydown', _dispatch, true); // capture: before common.js bubble handler
+
+  var KEY_LABELS = { 'Escape': 'Esc', ' ': 'Space', 'ArrowDown': '↓', 'ArrowUp': '↑' };
+
+  // Shared hint grouping (sidebar hint panel AND the `?` overlay): consecutive
+  // bindings that share one hint collapse into a single row ("j/k navigate"),
+  // so both surfaces speak the same labels. Modifier-gated bindings get an
+  // explicit prefix ("Ctrl+Enter post") so the label tells the truth.
+  function _groupHints(bs) {
+    var groups = [];
+    for (var i = 0; i < bs.length; i++) {
+      var cur = bs[i];
+      var keysLabel = _keyLabel(cur);
+      while (i + 1 < bs.length && bs[i + 1].hint === cur.hint) {
+        i++;
+        keysLabel += '/' + _keyLabel(bs[i]);
+      }
+      groups.push({ keys: keysLabel, hint: cur.hint });
+    }
+    return groups;
+  }
+
+  function _keyLabel(b) {
+    var base = KEY_LABELS[b.key] || b.key;
+    if (b.when && (b.key === 'Enter' || b.key === ' ')) {
+      try {
+        if (b.when({ key: b.key, ctrlKey: true })) return 'Ctrl+' + base;
+        if (b.when({ key: b.key, metaKey: true })) return 'Cmd+' + base;
+      } catch (e) { /* probing a when() must never break hint rendering */ }
+    }
+    return base;
+  }
+
+  // ── `?` help overlay (roadmap P1-6) ───────────────────────────────────────
+  // Which-key-style overlay of the ACTIVE binding set — EXHAUSTIVE (every
+  // binding carrying a hint, NORMAL and INSERT sections), where the sidebar
+  // panel is the curated hintBar subset. Same table, same grouping → cannot
+  // drift from dispatch. The keyboard trigger lives in _dispatch (NORMAL
+  // mode + not-typing guard); help.open() is the mouse-parity entry point
+  // (topbar `?` button) and is deliberately not mode-gated — read-only
+  // documentation, closable with Esc like any overlay.
+  var help = (function () {
+    var _el = null;
+    var _prevFocus = null;
+
+    function _rows(groups) {
+      return groups.map(function (g) {
+        return '<div class="fb-hint-row"><kbd>' + esc(g.keys) + '</kbd><span>' + esc(g.hint) + '</span></div>';
+      }).join('');
+    }
+
+    function open() {
+      if (_el) return true;
+      var cur = _activeSet();
+      if (!cur) return false; // no FB.keys set on this page — silent no-op
+      var hinted = cur.set.bindings.filter(function (b) { return !!b.hint; });
+      if (!hinted.length) return false;
+      var normal = hinted.filter(function (b) { return (b.mode || 'NORMAL') === 'NORMAL'; });
+      var insert = hinted.filter(function (b) { return (b.mode || 'NORMAL') === 'INSERT'; });
+      var footer = _rows([{ keys: '?', hint: 'close' }, { keys: 'Esc', hint: 'close' }]);
+      _prevFocus = document.activeElement;
+      _el = document.createElement('div');
+      _el.id = 'fb-keys-overlay';
+      _el.innerHTML =
+        '<div class="fb-keys-panel" role="dialog" aria-label="Keyboard shortcuts">' +
+          '<div class="fb-keys-title">Keyboard shortcuts <span class="fb-keys-page">' + esc(cur.name) + '</span></div>' +
+          '<div class="fb-keys-cols">' +
+            '<div class="fb-keys-col"><div class="fb-keys-mode">NORMAL</div>' +
+              (normal.length ? _rows(_groupHints(normal)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
+            '</div>' +
+            '<div class="fb-keys-col"><div class="fb-keys-mode">INSERT</div>' +
+              (insert.length ? _rows(_groupHints(insert)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
+            '</div>' +
+          '</div>' +
+          '<div class="fb-keys-footer">' + footer + '</div>' +
+        '</div>';
+      _el.addEventListener('click', function (ev) { if (ev.target === _el) close(); });
+      document.body.appendChild(_el);
+      if (_prevFocus && _prevFocus.blur) _prevFocus.blur();
+      return true;
+    }
+
+    function close() {
+      if (!_el) return;
+      _el.remove();
+      _el = null;
+      if (_prevFocus && _prevFocus.focus && document.contains(_prevFocus)) {
+        try { _prevFocus.focus(); } catch (e) {}
+      }
+      _prevFocus = null;
+    }
+
+    return {
+      open: open,
+      close: close,
+      isOpen: function () { return !!_el; },
+      toggle: function () { if (_el) close(); else open(); }
+    };
+  })();
 
   var keys = {
     register: function (name, def) {
@@ -156,19 +289,7 @@
     renderHints: function (name, el, opts) {
       if (!el) return;
       var layout = opts && opts.layout === 'list' ? 'list' : 'inline';
-      var LABELS = { 'Escape': 'Esc', ' ': 'Space', 'ArrowDown': '↓', 'ArrowUp': '↑' };
-      var hs = keys.hints(name);
-      var groups = [];
-      for (var i = 0; i < hs.length; i++) {
-        var cur = hs[i];
-        var keysLabel = LABELS[cur.key] || cur.key;
-        // Group consecutive bindings that share one hint (j/k, {/}).
-        while (i + 1 < hs.length && hs[i + 1].hint === cur.hint) {
-          i++;
-          keysLabel += '/' + (LABELS[hs[i].key] || hs[i].key);
-        }
-        groups.push({ keys: keysLabel, hint: cur.hint });
-      }
+      var groups = _groupHints(keys.hints(name));
       if (layout === 'list') {
         el.innerHTML = groups.map(function (g) {
           return '<div class="fb-hint-row"><kbd>' + esc(g.keys) + '</kbd><span>' + esc(g.hint) + '</span></div>';
@@ -176,7 +297,11 @@
       } else {
         el.textContent = groups.map(function (g) { return g.keys + ' ' + g.hint; }).join('  ·  ');
       }
-    }
+    },
+    // `?` keyboard-shortcut overlay (P1-6) — exhaustive which-key view of the
+    // active binding set. Keyboard trigger is in _dispatch; this is the
+    // programmatic/mouse-parity handle (topbar `?` button).
+    help: help
   };
 
   // ── generic row navigation (for tabs as they migrate) ─────────────────────

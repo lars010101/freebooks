@@ -470,74 +470,25 @@
     if (e.key === 'e') { return; }
   });
 
-  // Wire up tb-global-search: Enter dispatches commands when value starts with ':'
+  // tb-global-search: Enter blurs, Escape clears+blurs. Filtering itself is
+  // each page's oninput handler. (The old `:`-prefix command dispatch is
+  // gone — it called an undefined fbCmdDispatch; dead code, P1-6.)
   document.addEventListener('DOMContentLoaded', function() {
     var gs = document.getElementById('tb-global-search');
-    if (!gs) return;
-    gs.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') { gs.value = ''; gs.blur(); return; }
-      if (e.key === 'Enter') {
-        var val = gs.value.trim();
-        gs.value = ''; gs.blur();
-        if (val.startsWith(':')) {
-          if (window.fbCmdDispatch) { window.fbCmdDispatch(val); }
-          else { console.log('Command:', val); }
-        }
-        // else: search handled by page-level oninput handler
-      }
-    });
-  });
-
-  // fbOpenCmdPalette kept as no-op (replaced by search bar command mode)
-  window.fbOpenCmdPalette = window.fbOpenCmdPalette || function() {
-    var company = document.getElementById('app-shell') ? document.getElementById('app-shell').dataset.company : '';
-    var cmds = [
-      { label: '+ New Journal Entry',  action: function(){ fbNavigate('/' + company + '/journal/new'); } },
-      { label: '+ New Bill',           action: function(){ fbNavigate('/' + company + '/bill/edit'); } },
-      { label: '\u2192 Dashboard',          action: function(){ fbNavigate('/' + company); } },
-      { label: '\u2192 Bank',               action: function(){ fbNavigate('/' + company + '/bank'); } },
-      { label: '\u2192 Payables',           action: function(){ fbNavigate('/' + company + '/payables'); } },
-      { label: '\u2192 Reports',            action: function(){ fbNavigate('/' + company + '/reports'); } },
-      { label: '\u2192 Settings',           action: function(){ fbNavigate('/' + company + '/settings'); } },
-    ];
-    var existing = document.getElementById('fb-cmd-modal');
-    if (existing) { existing.remove(); return; }
-    var overlay = document.createElement('div');
-    overlay.id = 'fb-cmd-modal';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9000;background:rgba(0,0,0,.4);display:flex;align-items:flex-start;justify-content:center;padding-top:15vh';
-    overlay.onclick = function(e){ if(e.target===overlay) overlay.remove(); };
-    var box = document.createElement('div');
-    box.style.cssText = 'background:#fff;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:420px;max-width:90vw;overflow:hidden';
-    var inp = document.createElement('input');
-    inp.type = 'text';
-    inp.placeholder = 'Type a command\u2026';
-    inp.style.cssText = 'width:100%;padding:14px 18px;font-size:1rem;border:none;border-bottom:1px solid #e8e8e8;outline:none;box-sizing:border-box';
-    var list = document.createElement('div');
-    function renderList(q) {
-      list.innerHTML = '';
-      cmds.filter(function(c){ return !q || c.label.toLowerCase().includes(q.toLowerCase()); }).forEach(function(c) {
-        var item = document.createElement('div');
-        item.textContent = c.label;
-        item.style.cssText = 'padding:12px 18px;cursor:pointer;font-size:0.9375rem;border-bottom:1px solid #f5f5f5';
-        item.onmouseover = function(){ item.style.background='#f0f4ff'; };
-        item.onmouseout  = function(){ item.style.background=''; };
-        item.onclick = function(){ overlay.remove(); c.action(); };
-        list.appendChild(item);
+    if (gs) {
+      gs.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { gs.value = ''; gs.blur(); }
+        if (e.key === 'Enter') { gs.blur(); }
       });
     }
-    renderList('');
-    inp.oninput = function(){ renderList(inp.value); };
-    inp.onkeydown = function(e){
-      if(e.key==='Escape') overlay.remove();
-      if(e.key==='Enter') {
-        var first = list.querySelector('div');
-        if(first) first.click();
-      }
-    };
-    box.appendChild(inp);
-    box.appendChild(list);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-    setTimeout(function(){ inp.focus(); }, 50);
-  };
+    // Topbar `?` button — mouse parity for the `?` keyboard overlay (P1-6).
+    // No-op on pages without an FB.keys binding set (help.toggle returns
+    // false silently there).
+    var helpBtn = document.getElementById('tb-help-btn');
+    if (helpBtn) {
+      helpBtn.addEventListener('click', function() {
+        if (window.FB && FB.keys && FB.keys.help) FB.keys.help.toggle();
+      });
+    }
+  });
 })();

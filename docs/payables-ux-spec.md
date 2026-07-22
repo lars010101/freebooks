@@ -562,3 +562,83 @@ Payment today has exactly one path: bank-import auto-match. That leaves four gap
 - **Bills-tab UI ✅** — `p` on posted/partial opens the inline payment row (colspan fold-pattern row: date default today, bank-account FB.dropdown over `cf_category='Cash'` with last-used default, amount default outstanding in bill ccy, optional reference, FX-rate field for foreign bills prefilled from the day's rate). Enter records (`Idempotency-Key` per row open), Esc cancels, dropdown-open Enter picks before submit (binding priority), mode INSERT↔NORMAL. Mouse parity: hover-only "Pay" affordance on posted/partial parent rows (no chrome at rest; there was no pre-existing delete hover icon on this table — the spec's "same pattern as delete" resolved to the 💾-style inline icon). Unfold of paid/partial bills appends payment-history child rows (date · method · reference · amount; voided struck through) via a parallel `bill.payments` fetch — deviation from spec's one-round-trip: kept separate to preserve `bill.lines`' array shape. `x` on a payment row voids via `bill.payment.void` (confirm, status-bar result, list reload). Sidebar hint updated: `p` = post/pay. Verified live: record → Paid, history rows, void → posted + reversal journal, ledger balanced. Template-escape trap hit and fixed: inline onclick row lookup uses `parentNode.parentNode` (no nested quotes in template strings).
 - **Bank-import UI ✅** — `bill_suggest` rows render amber (`bill?` tag, amber left border) **pre-skipped** (confirm = uncheck Skip; reject = leave it), excluded from approve-all; `recorded_payment` rows render blue (`recorded` tag, "already recorded — clears on approve" note, included in approve as clearing entries). Summary line gains suggestion/recorded counts. `checkDuplicates` now excludes both tiers (a recorded payment is *expected* in the ledger — dup-warn would mislabel and fight the clearing flow). Verified live against throwaway DB: 3-row process renders all three tiers; contract suite 28/28.
 - **P1-9 COMPLETE** — all six scope items shipped. Remaining deferred list unchanged (multi-bill settlement, bank-tab manual match, tolerance tiers).
+
+## P1-6 — Discoverability: `?` overlay + dead-palette removal (SHIPPED 2026-07-22)
+
+### Purpose
+
+Keyboard-first UX fails if bindings are undiscoverable. The review found the `?` button handler-less and the `:` command palette dispatching to an undefined `fbCmdDispatch` — discoverability was dead. P1-3 had already made the sidebar hint panel generated from the FB.keys binding tables; P1-6 completes the pattern with an on-demand exhaustive reference.
+
+### Shipped behavior
+
+1. **`?` (Shift+/) opens a which-key-style overlay** of the active page's binding set. Two columns — NORMAL | INSERT — listing **every binding that carries a `hint`** (exhaustive), where the sidebar panel remains the curated `hintBar` subset. Same binding table, same adjacent-same-hint grouping (`j/k navigate`) as dispatch and sidebar — one source of truth, the overlay **cannot go stale**. Modifier-gated bindings (e.g. Ctrl+Enter) are probed through their `when()` and labeled explicitly.
+2. **Trigger guards:** NORMAL mode only, and never while typing in an input/textarea/select/contenteditable (same guard that keeps NORMAL verbs inert) — a literal `?` typed into a description field stays text. On pages with no FB.keys set (journal/bank/settings/dashboard), `?` is a silent no-op.
+3. **While open, the overlay swallows every key** (capture-phase, before page bindings and common.js's bubble handler). Close on `Esc`, `?`, or backdrop click. Focus is restored to the previously focused element.
+4. **Mouse parity:** the topbar `?` button (previously handler-less) toggles the same overlay via `FB.keys.help.toggle()` — deliberately not mode-gated (read-only documentation).
+5. **`:` palette removed, not fixed.** The search-bar `:`-prefix dispatch called an undefined function (would `console.log` and swallow the command), and `fbOpenCmdPalette` was a self-admitted no-op stub — doubly dead code, deleted per standing rule 6. The search bar keeps its real behaviors (Enter blurs, Esc clears+blurs; filtering is each page's oninput). The command-line *concept* is not rejected — its proper replacement is specced as **P1-10**.
+
+### Decisions (2026-07-22)
+
+1. Overlay is exhaustive, sidebar stays curated — two surfaces, one table. Rationale: the sidebar must stay scannable; the overlay answers "what can I press here, exactly?"
+2. NORMAL-mode-only keyboard trigger. INSERT-mode users are typing; typing wins. The INSERT column is still *shown* so INSERT bindings are discoverable.
+3. Palette removed rather than repaired: it never worked, and a real one deserves its own design (fuzzy commands, recent actions) — not a P1-6 side quest.
+
+### Implementation status (2026-07-22)
+
+- fb-core.js: `_activeSet()` resolves the dispatch-owning set; `FB.keys.help` (open/close/toggle/isOpen); shared `_groupHints()` used by both sidebar renderHints and the overlay; `?` trigger in `_dispatch` after page bindings.
+- common.css: `#fb-keys-overlay` panel styles reusing `.fb-hint-row` markup with a light-panel palette.
+- common.js: dead palette deleted (~70 LOC); topbar `?` button wired (`#tb-help-btn`); cache-buster bumped `?v=20260722`.
+- Verified live (throwaway DB): overlay opens on Bills + bill-edit, columns/labels match sidebar superset, Esc/`?`/backdrop close, typing `?` in an inline field stays text, journal page no-op. Contract suite 28/28.
+
+## P1-10 — Command palette: `:` written commands (SPEC 2026-07-22, for magnus review — NOT yet implemented)
+
+*(Raised by magnus 2026-07-22 after P1-6 removed the dead `:` stub: "the idea with `:` is to allow written commands by the user, such as `:new bill"." Agreed: the concept is vim-native and fits the keyboard-first philosophy; what was deleted was a non-functional stub. Spec now, build later — after the P1-3 remainder.)*
+
+### Purpose
+
+Single-key verbs cover the frequent actions; written commands cover the rest:
+
+1. **Key-less actions** — things too rare to deserve a binding ("lock period", "post FX revaluation", "go bank"). Today these are mouse-only or URL-only.
+2. **Discoverability by typing** — "new bill" instead of memorizing `o`. The palette doubles as a teacher: every row shows the key equivalent next to the command.
+3. **Mouse parity for keyboard-first design** — clickable command list, no new chrome at rest (clutter rule).
+
+### Current state
+
+- P1-6 deleted the dead stub: search-bar `:` dispatch → undefined `fbCmdDispatch` (commands were silently swallowed); `fbOpenCmdPalette` a no-op with a hardcoded 7-item navigation list. Nothing functional was lost.
+- `/` fuzzy search is intact (focus search from NORMAL, page-level oninput filtering). This spec does not touch it.
+- FB.keys binding tables already name every page verb (`hint`) and hold its executor (`run`) — a command registry can be **derived**, not hand-written.
+
+### Proposed behavior
+
+1. **One input, two modes — no new chrome.** The existing topbar input is the single entry point. `/` places the cursor there in **search mode** (unchanged behavior: per-page fuzzy filtering). `:` places the cursor there in **command mode**: matching commands appear in a dropdown directly below the input. No overlay, no bottom bar. The input shows a `:` prefix in command mode so the mode is visible. At build time the placeholder returns to "Search (/) or Command (:) …" — restored only once it's true again.
+2. **Mode is set by HOW you got there, not by content.** Entering via mouse click is always search mode — written commands are a keyboard-user feature. (Mouse parity for commands is deliberately waived, magnus 2026-07-22.)
+3. **Command sources — derived, single source of truth:**
+   - **Page verbs** = NORMAL-mode bindings with a `hint` from the active FB.keys set. Executing one calls the binding's `run` — identical effect to pressing the key, against the current focus/context.
+   - **API actions** = the action catalog (`GET /api/actions`, P1-1) — **all** API-accessible functions are represented (magnus 2026-07-22), each with an explicit disposition:
+     - **Execute directly** — actions that need no parameters beyond current context (e.g. period lock, FX revaluation post). Executed via `fbApi` with `Idempotency-Key` — standing rule 3; no new backend surface.
+     - **Navigate to form** — actions requiring input (e.g. `bill.create` → open the bill editor; `journal.post` → open journal-new). A command can't collect a bill's lines in a dropdown; routing to the form is the honest execution.
+     - **Excluded** — raw data viewers (`bill.list`, `vendor.list`, …) are meaningless as commands; their data is reached via navigation or the page verbs.
+     The disposition map is small, explicit, and lives next to the catalog — new actions default to navigate-to-form, so the palette grows automatically with the API.
+4. **Matching:** fuzzy subsequence over label + key equivalent; ranking = recency (localStorage) then exactness. `↑/↓` (and `Ctrl-n`/`Ctrl-p`, vim convention) move in the dropdown; `Enter` executes (first match if none selected) and closes; `Esc` clears and blurs (the search bar's existing Esc behavior). While the input has focus, page bindings are inert — as today.
+5. **Row content:** command label · key equivalent as `kbd` where one exists · scope tag (`page` / `api`). The palette doubles as a keyboard teacher.
+6. **Empty state:** "no matching commands" — never silently dead.
+
+### Explicitly deferred
+
+- Command arguments (`:bill INV-123`, `:goto 2026-06`), aliases, chaining.
+- Frecency beyond simple localStorage recency.
+- `/`-mode search-hits dropdown (today search filters per page in place; a unified hits dropdown is separate scope if ever wanted).
+- `?`-overlay cross-link ("press `:` to run any command" footer line) — evaluate after both ship.
+- Mobile/touch considerations.
+
+### Decisions (magnus, 2026-07-22)
+
+1. **No separate popup or bottom bar.** The existing topbar input hosts both modes; `hits in a dropdown below the input`. (Overrides the spec draft's center-overlay proposal.)
+2. **Mouse entry is always search.** Commands are keyboard-only; no `:`-prefix detection for mouse-entered text.
+3. **All API-accessible functions available** — via the action catalog with the execute/navigate/excluded disposition map (item 3 above), not a hand-picked registry.
+
+### Relationship to other items
+
+- **P2-6 (user-editable keybindings):** both treat binding tables as data. A remap layer automatically renames the palette's key labels — palette needs no separate work when P2-6 lands.
+- **P1-3 remainder:** build P1-10 AFTER Journal/Bank/Settings migrate onto FB.keys, so derived page verbs cover the whole app in one shot instead of special-casing three legacy pages.
+- **P1-6:** removed the dead stub; this is its proper replacement.

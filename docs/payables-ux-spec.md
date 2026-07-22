@@ -610,26 +610,32 @@ Single-key verbs cover the frequent actions; written commands cover the rest:
 
 ### Proposed behavior
 
-1. **Trigger:** `:` in NORMAL mode, never while typing in a field (same guard as `?`). Mouse-parity entry: typing `:` as the first character in the topbar search input opens the palette instead of filtering (preserves the original design's entry point — now actually implemented).
-2. **Presentation:** center overlay (same visual family as the `?` overlay): an input at top, fuzzy candidate list below, max ~10 rows. Each row: command label · its key equivalent as `kbd` (when one exists) · scope tag (`page` / `global`). Footer: `↑/↓ move · Enter run · Esc close`. Rows are clickable.
+1. **One input, two modes — no new chrome.** The existing topbar input is the single entry point. `/` places the cursor there in **search mode** (unchanged behavior: per-page fuzzy filtering). `:` places the cursor there in **command mode**: matching commands appear in a dropdown directly below the input. No overlay, no bottom bar. The input shows a `:` prefix in command mode so the mode is visible. At build time the placeholder returns to "Search (/) or Command (:) …" — restored only once it's true again.
+2. **Mode is set by HOW you got there, not by content.** Entering via mouse click is always search mode — written commands are a keyboard-user feature. (Mouse parity for commands is deliberately waived, magnus 2026-07-22.)
 3. **Command sources — derived, single source of truth:**
-   - **Page verbs** = NORMAL-mode bindings with a `hint` from the active FB.keys set. Executing one calls the binding's `run` — identical effect to pressing the key, against the current focus/context. No command duplicates a binding by hand.
-   - **Global registry** = one small explicit list for navigation ("go bills / bank / reports / settings / dashboard") and key-less API actions (v1 proposal: "new journal entry", "new vendor", "lock period", "post FX revaluation"). Global commands call API actions through `fbApi` with `Idempotency-Key` — standing rule 3 applies; the palette introduces **no new backend surface**.
-4. **Matching:** fuzzy subsequence over label + key equivalent; ranking = recency (localStorage) then exactness. `↑/↓` (and `Ctrl-n`/`Ctrl-p`, vim convention) move selection; `Enter` executes and closes; `Esc` cancels. While open, keys route to the palette input — page bindings inert (same swallow pattern as the `?` overlay).
-5. **Empty state:** "no matching commands" — never silently dead.
+   - **Page verbs** = NORMAL-mode bindings with a `hint` from the active FB.keys set. Executing one calls the binding's `run` — identical effect to pressing the key, against the current focus/context.
+   - **API actions** = the action catalog (`GET /api/actions`, P1-1) — **all** API-accessible functions are represented (magnus 2026-07-22), each with an explicit disposition:
+     - **Execute directly** — actions that need no parameters beyond current context (e.g. period lock, FX revaluation post). Executed via `fbApi` with `Idempotency-Key` — standing rule 3; no new backend surface.
+     - **Navigate to form** — actions requiring input (e.g. `bill.create` → open the bill editor; `journal.post` → open journal-new). A command can't collect a bill's lines in a dropdown; routing to the form is the honest execution.
+     - **Excluded** — raw data viewers (`bill.list`, `vendor.list`, …) are meaningless as commands; their data is reached via navigation or the page verbs.
+     The disposition map is small, explicit, and lives next to the catalog — new actions default to navigate-to-form, so the palette grows automatically with the API.
+4. **Matching:** fuzzy subsequence over label + key equivalent; ranking = recency (localStorage) then exactness. `↑/↓` (and `Ctrl-n`/`Ctrl-p`, vim convention) move in the dropdown; `Enter` executes (first match if none selected) and closes; `Esc` clears and blurs (the search bar's existing Esc behavior). While the input has focus, page bindings are inert — as today.
+5. **Row content:** command label · key equivalent as `kbd` where one exists · scope tag (`page` / `api`). The palette doubles as a keyboard teacher.
+6. **Empty state:** "no matching commands" — never silently dead.
 
 ### Explicitly deferred
 
 - Command arguments (`:bill INV-123`, `:goto 2026-06`), aliases, chaining.
 - Frecency beyond simple localStorage recency.
+- `/`-mode search-hits dropdown (today search filters per page in place; a unified hits dropdown is separate scope if ever wanted).
 - `?`-overlay cross-link ("press `:` to run any command" footer line) — evaluate after both ship.
 - Mobile/touch considerations.
 
-### Open decisions (for magnus)
+### Decisions (magnus, 2026-07-22)
 
-1. **Presentation:** center overlay (recommended — the candidate list is the point; matches the `?` overlay family) vs vim bottom command-line (more vim-purist, weaker discoverability).
-2. **Search-bar `:` entry point:** recommended yes (mouse parity without new chrome; honors the original intent). Alternative: palette strictly keyboard-triggered.
-3. **Global registry v1 contents:** proposed = navigation + "new journal entry" + "new vendor" + "lock period" + "post FX revaluation". Add/remove?
+1. **No separate popup or bottom bar.** The existing topbar input hosts both modes; `hits in a dropdown below the input`. (Overrides the spec draft's center-overlay proposal.)
+2. **Mouse entry is always search.** Commands are keyboard-only; no `:`-prefix detection for mouse-entered text.
+3. **All API-accessible functions available** — via the action catalog with the execute/navigate/excluded disposition map (item 3 above), not a hand-picked registry.
 
 ### Relationship to other items
 

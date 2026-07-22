@@ -108,7 +108,7 @@ ${commonStyle()}
 
   <div class="be-status">
     <button class="btn-primary" id="be-post" type="button">Post bill (p)</button>
-    <button class="btn-plain" id="be-save" type="button">Save + back (q)</button>
+    <button class="btn-plain" id="be-save" type="button">Back (q)</button>
     <span class="be-msg" id="be-msg"></span>
     <div class="be-totals">
       <span>Net <b id="be-tot-net">0.00</b></span>
@@ -132,6 +132,7 @@ const S = {
   billId: editId || null,
   stagedFiles: [],       // File objects staged pre-first-save
   saving: false,
+  savedSnapshot: null,   // JSON of last-saved (or initial) form state
 };
 
 function msg(text, cls) {
@@ -167,6 +168,7 @@ Promise.all([
   document.getElementById('be-vendor').focus();
   if (S.billId) document.getElementById('be-title').innerHTML = 'Edit draft bill <span style="color:#888;font-weight:400;font-size:10pt">— full editor</span>';
   updateTotals();
+  takeSnapshot(); // baseline for dirty tracking
 });
 
 async function prefillFromDraft(id) {
@@ -393,6 +395,10 @@ function validateClient(bill, forPost) {
   return missing;
 }
 
+// ── Dirty tracking (snapshot after load + after each save) ──────────────────
+function takeSnapshot() { S.savedSnapshot = JSON.stringify(gatherBill()); }
+function isDirty() { return JSON.stringify(gatherBill()) !== S.savedSnapshot; }
+
 // ── Save / post ─────────────────────────────────────────────────────────────
 async function saveDraft(quiet) {
   if (S.saving) return null;
@@ -407,6 +413,7 @@ async function saveDraft(quiet) {
     const r = await apiAction('bill.draft.save', { bill });
     S.billId = r.billId;
     await uploadStaged();
+    takeSnapshot();
     if (!quiet) msg('Draft saved', 'ok');
     return r.billId;
   } catch (e) {
@@ -445,12 +452,12 @@ function exitToNormal() {
   FB.mode.set('normal');
 }
 
-// q = save draft and return to Bills
-async function saveAndReturn() {
+// q = quit (no save). Dirty → confirm discard (same guard as Vendors).
+function quitEditor() {
   const bill = gatherBill();
-  if (!bill.vendor && !bill.lines.length) { window.location.href = '/' + COMPANY + '/payables'; return; } // empty → discard
-  const id = await saveDraft(true);
-  if (id) window.location.href = '/' + COMPANY + '/payables';
+  if (!bill.vendor && !bill.lines.length) { window.location.href = '/' + COMPANY + '/payables'; return; } // empty → exit silently
+  if (isDirty() && !confirm('Unsaved changes — discard?')) return;
+  window.location.href = '/' + COMPANY + '/payables';
 }
 
 function enterInsert() {
@@ -501,7 +508,7 @@ async function loadAttachments() {
 }
 
 // ── Buttons + keys ──────────────────────────────────────────────────────────
-document.getElementById('be-save').onclick = () => saveAndReturn();
+document.getElementById('be-save').onclick = () => quitEditor();
 document.getElementById('be-post').onclick = () => postBill();
 
 // Page loads in INSERT (it IS an editing surface); Esc exits to NORMAL.
@@ -532,7 +539,7 @@ FB.keys.register('bill-edit', {
       } },
     { key: 'A', mode: 'NORMAL', hint: 'attach file', hintBar: true, swallow: true,
       run: () => document.getElementById('be-file').click() },
-    { key: 'q', mode: 'NORMAL', hint: 'save + back', hintBar: true, swallow: true, run: saveAndReturn },
+    { key: 'q', mode: 'NORMAL', hint: 'quit', hintBar: true, swallow: true, run: quitEditor },
   ],
 });
 FB.keys.renderHints('bill-edit', document.getElementById('sb-hints'), { layout: 'list' });

@@ -510,7 +510,7 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 ### Decisions (magnus, 2026-07-22)
 
 1. **Entry points:** `+ Bill` toolbar link → the editor (create path). `o` in the Bills list stays the default quick path (tree-table INSERT). `O` (shift-o) from the Bills tab → editor, new bill.
-2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity: **yes — double-click opens the full editor** (per magnus's chat reply "(Mouse users always get the editor?)"). Revised 2026-07-22 after implementation: originally recorded here as "dblclick = inline + hover pencil = editor"; magnus's message made dblclick the editor entry and the shipped code matches. The pencil affordance was dropped as redundant.
+2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity: **double-click opens the full editor** — mouse users always get the editor (magnus, 2026-07-22). Shipped code matches; there is no hover-edit affordance.
 3. **Attachments on unsaved bills stage client-side** until the first save binds them (bill-new's reenter behavior, minus its FX hackery).
 4. **Per-line cost/profit centers: INCLUDED** (reversing the draft's skip). The ledger already carries them — `journal_entries.cost_center/profit_center`, bill-header fields, `centers` master data, and `createBill` threads header centers into journal lines. Editor adds a per-line center column (FB.dropdown over `center.list`, default from header, overridable); backend extends the `draft_lines` line shape with `cost_center`/`profit_center` and maps line-level centers onto journal lines at post (falling back to header centers when a line has none).
 
@@ -548,9 +548,9 @@ Payment today has exactly one path: bank-import auto-match. That leaves four gap
 - **Bank-tab manual match** (`m` on an uncleared line → candidate list via dormant `bill.match`): defer; import flow covers the bulk, and the bank tab hasn't migrated to FB.keys yet (P1-3 remainder).
 - **Tolerance suggestions** (±2% amount window as a suggestion tier): defer until real usage data says it's needed.
 
-### Decisions (pending magnus)
+### Decisions (magnus, 2026-07-22)
 
-1. Key binding: reuse `p` contextually (post on drafts, pay on posted) — or separate `P`?
-2. Demoting amount-only auto-match to confirm-required is a **behavior change** in import (some rows that auto-linked before now wait for you). Agree?
-3. Payment entry as inline expanding row (proposal) vs the full editor page — inline proposed since a payment is 4 fields, not a document.
-4. Deferred list OK?
+1. **Pay-on-bill itself is under question** — magnus: "why pay on bill? shouldn't it be just the bank import?" Awaiting his decision between import-only (drop scope items 1–2) and the industry-standard dual path. The `p` vs `P` binding question is moot until resolved.
+2. Import hardening (silent amount-only auto-match demoted to confirm-required suggestion): **agreed.**
+3. Payment entry as inline expanding row, if pay-on-bill survives: **agreed** — inline, not the full editor.
+4. Deferred list (multi-bill settlement, bank-tab manual match, tolerance tiers): **OK.**

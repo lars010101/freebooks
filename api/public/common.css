@@ -453,6 +453,22 @@ tr.fb-ghost-row.bill-row-focus .fb-ghost-label {
 .fb-ghost-row input::placeholder { color: #9aa3ad; font-style: italic; opacity: 1; }
 .fb-ghost-row .fb-ghost-chip { opacity: .35; pointer-events: none; }
 
+/* P3 add row: the single create affordance, pinned at the BOTTOM of every
+   FB.list table (QuickBooks/Xero "+ Add line" pattern). Plain muted text —
+   not an input replica. Reachable via click, j (sticky past the last data
+   row) and G. */
+.fb-add-row td {
+  color: #7a828c !important;
+  padding: 8px 12px !important;
+  border-top: 1px dashed var(--border) !important;
+  cursor: pointer;
+  user-select: none;
+}
+.fb-add-row:hover td { background: #eceff2; color: var(--accent) !important; }
+/* Keyboard cursor landing on the add row must stay visible. */
+tr.fb-add-row.nav-row-focus td,
+tr.fb-add-row.bill-row-focus td { background: var(--accent) !important; color: rgba(255,255,255,.85) !important; }
+
 /* Unsaved inline-draft edits left behind by Esc (write with w) */
 tr.fb-draft-dirty td { background: #fffbf0; }
 body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }

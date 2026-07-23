@@ -716,7 +716,7 @@ if (!fxSaveBtn) {
   document.body.appendChild(s);
 }
 // ========== EXCHANGE RATES — FB.list (P3 consolidated) ==========
-// Manual rates are staged via the ghost row (i / click), written with w or all
+// Manual rates are staged via the add row (i / click), written with w or all
 // at once with Save Rates. ECB-sourced rows are read-only (no edit, no delete).
 var fxList = FB.list.create({
   keysId: 'settings-fxrates',
@@ -784,7 +784,7 @@ function fetchFromEcb() {
 }
 
 function saveFxRates() {
-  if (!fxList.anyDirty()) { showMsg('msg-fxrates', 'Open the top row first (i or click), then fill in date, from, to, and rate', true); return; }
+  if (!fxList.anyDirty()) { showMsg('msg-fxrates', 'Open the add row first (i or click), then fill in date, from, to, and rate', true); return; }
   fxList.writeAllDirty().then(function(ok) {
     if (ok) showMsg('msg-fxrates', 'Rates saved', false);
     else showMsg('msg-fxrates', 'Some rates could not be saved', true);

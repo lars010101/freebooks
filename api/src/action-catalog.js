@@ -379,4 +379,49 @@ const ACTIONS = {
   },
 };
 
+// ── P1-10 command-palette dispositions ─────────────────────────────────────
+// Small, explicit, next to the catalog (spec: payables-ux-spec.md §P1-10):
+//   'execute'  — parameterless beyond companyId; palette executes via
+//                POST /api/action with Idempotency-Key (standing rule 3).
+//   'navigate' — needs input; palette routes to the owning form (+ route).
+//   (absent)   — excluded: reads (data viewers) and actions needing context
+//                the palette cannot supply (ids, lines, amounts) — those are
+//                covered by page verbs in context (x on a row, p on a bill).
+// New actions default to nothing shown until given an explicit disposition —
+// adding a route here is what makes the palette grow with the API.
+const PALETTE = {
+  // Execute directly
+  'fx.fetch_rates':         { palette: 'execute' },
+  // Navigate to form
+  'journal.post':           { palette: 'navigate', route: '/journal/new' },
+  'journal.import':         { palette: 'navigate', route: '/journal/new' },
+  'bill.create':            { palette: 'navigate', route: '/bill/edit' },
+  'bill.draft.save':        { palette: 'navigate', route: '/bill/edit' },
+  'bank.process':           { palette: 'navigate', route: '/bank/import' },
+  'coa.save':               { palette: 'navigate', route: '/settings' },
+  'coa.update':             { palette: 'navigate', route: '/settings' },
+  'coa.upsert':             { palette: 'navigate', route: '/settings' },
+  'vat.codes.save':         { palette: 'navigate', route: '/settings' },
+  'vat.codes.upsert':       { palette: 'navigate', route: '/settings' },
+  'vendor.save':            { palette: 'navigate', route: '/payables' },
+  'vendor.upsert':          { palette: 'navigate', route: '/payables' },
+  'period.save':            { palette: 'navigate', route: '/settings' },
+  'period.upsert':          { palette: 'navigate', route: '/settings' },
+  'journals.save':          { palette: 'navigate', route: '/settings' },
+  'mapping.save':           { palette: 'navigate', route: '/bank' },
+  'mapping.upsert':         { palette: 'navigate', route: '/bank' },
+  'center.save':            { palette: 'navigate', route: '/settings' },
+  'fx.rates.save':          { palette: 'navigate', route: '/settings' },
+  'fx.provider.save':       { palette: 'navigate', route: '/settings' },
+  'fx.revaluation_post':    { palette: 'navigate', route: '/settings' },
+  'settings.save':          { palette: 'navigate', route: '/settings' },
+  'company.save':           { palette: 'navigate', route: '/settings' },
+  'permissions.save':       { palette: 'navigate', route: '/settings' },
+  'report.refresh_vat_return': { palette: 'navigate', route: '/reports' },
+  'setup.add_company':      { palette: 'navigate', route: '/setup/new-company', absolute: true },
+};
+for (const [n, p] of Object.entries(PALETTE)) {
+  if (ACTIONS[n]) Object.assign(ACTIONS[n], p);
+}
+
 module.exports = { ACTIONS };

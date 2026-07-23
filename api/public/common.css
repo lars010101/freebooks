@@ -418,21 +418,33 @@ tr.nav-row-focus > td input { color: #fff !important; background: transparent !i
 .tb-dyn-plus { padding-left: 8px; padding-right: 8px; margin-right: -4px; font-weight: 600; }
 .tb-dyn-chip { margin-right: 10px; }
 
-/* P2 ghost row: persistent empty create-row pinned under thead.
-   Single create affordance — o focuses it, mouse clicks into it. */
-.fb-ghost-row td,
-.fb-ghost-cell {
-  color: var(--muted, #999) !important;
-  font-style: italic;
-  background: var(--surface);
+/* P2 ghost row: persistent FADED entry-row pinned under thead. Display-only —
+   looks like a proper row but is not open to entry. i / click transforms it
+   into the active input row (the single create affordance). */
+.fb-ghost-row td {
+  background: #f4f6f8;
   border-bottom: 1px dashed var(--border) !important;
   padding: 10px 12px !important;
   user-select: none;
 }
-.fb-ghost-row:hover td { background: var(--bg) !important; color: var(--text) !important; }
-.fb-ghost-cell kbd {
-  font-style: normal; font-size: 9pt; opacity: .7;
-  border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; margin-left: 4px;
+.fb-ghost-row .fb-ghost-ph { color: #9aa3ad; font-style: italic; }
+.fb-ghost-row .fb-ghost-badge { background: #e8ebee; color: #9aa3ad; }
+.fb-ghost-row input[type="checkbox"] { opacity: .35; }
+.fb-ghost-row:hover td { background: #eceff2; }
+/* Keyboard cursor landing on the ghost row must stay visible. */
+tr.fb-ghost-row.nav-row-focus td,
+tr.fb-ghost-row.bill-row-focus td { background: var(--accent) !important; }
+tr.fb-ghost-row.nav-row-focus .fb-ghost-ph,
+tr.fb-ghost-row.bill-row-focus .fb-ghost-ph,
+tr.fb-ghost-row.nav-row-focus .fb-ghost-badge,
+tr.fb-ghost-row.bill-row-focus .fb-ghost-badge {
+  color: rgba(255,255,255,.8) !important; background: transparent; font-style: italic;
+}
+/* Bank mappings: the ghost there is a real input row kept disabled until entered. */
+.fb-ghost-row input:not([type="checkbox"]),
+.fb-ghost-row select {
+  color: #9aa3ad !important; font-style: italic;
+  background: transparent !important; border-color: transparent !important;
 }
 
 /* Unsaved inline-draft edits left behind by Esc (write with w) */

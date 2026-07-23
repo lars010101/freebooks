@@ -428,6 +428,8 @@ tr.nav-row-focus > td input { color: #fff !important; background: transparent !i
   user-select: none;
 }
 .fb-ghost-row .fb-ghost-ph { color: #9aa3ad; font-style: italic; }
+/* P3: the ghost row's single create-slot label (first cell). */
+.fb-ghost-row .fb-ghost-label { color: #9aa3ad; font-style: italic; user-select: none; }
 .fb-ghost-row .fb-ghost-badge { background: #e8ebee; color: #9aa3ad; }
 .fb-ghost-row input[type="checkbox"] { opacity: .35; }
 .fb-ghost-row:hover td { background: #eceff2; }
@@ -437,7 +439,9 @@ tr.fb-ghost-row.bill-row-focus td { background: var(--accent) !important; }
 tr.fb-ghost-row.nav-row-focus .fb-ghost-ph,
 tr.fb-ghost-row.bill-row-focus .fb-ghost-ph,
 tr.fb-ghost-row.nav-row-focus .fb-ghost-badge,
-tr.fb-ghost-row.bill-row-focus .fb-ghost-badge {
+tr.fb-ghost-row.bill-row-focus .fb-ghost-badge,
+tr.fb-ghost-row.nav-row-focus .fb-ghost-label,
+tr.fb-ghost-row.bill-row-focus .fb-ghost-label {
   color: rgba(255,255,255,.8) !important; background: transparent; font-style: italic;
 }
 /* Bank mappings: the ghost there is a real input row kept disabled until entered. */

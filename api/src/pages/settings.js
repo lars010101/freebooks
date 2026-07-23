@@ -237,11 +237,11 @@ function showTab(t) {
   var cur = document.querySelector('.tab-panel.active');
   var curTab = cur ? cur.id.replace('tab-','') : '';
   if (curTab && curTab !== t) {
-    // Modal doctrine (docs/settings-ux-spec.md §4): dirty period rows route
-    // through the Save/Discard/Stay modal. Buffers are page-global, so the
-    // guard fires when leaving ANY tab, not just Periods.
-    if (typeof periodsAnyDirty === 'function' && periodsAnyDirty()) {
-      openPeriodLeaveModal(function(){ showTab(t); });
+    // Modal doctrine (docs/settings-ux-spec.md §4): dirty rows in ANY FB.list
+    // tab route through the Save/Discard/Stay modal. Buffers are page-global,
+    // so the guard fires when leaving ANY tab.
+    if (window.FB && FB.list && FB.list.anyDirty()) {
+      FB.list.guard(function(){ showTab(t); });
       return;
     }
     if (dirtyTabs.has(curTab)) {
@@ -292,382 +292,57 @@ function wireDirty(tr, tab) {
   });
 }
 
-// ========== PERIODS ==========
-// ========== PERIODS — modal edit doctrine (docs/settings-ux-spec.md) ==========
-// Read-first rows. Esc never saves: it exits edit mode leaving a dirty buffer;
-// w writes, u reverts. Period names are immutable on saved rows (server upsert
-// keys on period_name — rename needs delete+create; a deliberate feature later).
-var periodsSaved = [];          // last-saved rows from the server
-var periodsDirty = {};          // key → { period_name, start_date, end_date, locked, isNew }
-var periodGhostN = 0;           // new-row key counter
-var periodEditIdx = -1;         // row index currently in edit mode (-1 = none)
-var periodNav = null;
-
-function periodRows() { return Array.from(document.querySelectorAll('#periods-body tr:not(.fb-ghost-row)')); }
-// Nav rows INCLUDE the pinned ghost row so j/k can land on it (i opens it).
-function periodNavRows() { return Array.from(document.querySelectorAll('#periods-body tr')); }
-
-// Merged view: saved rows overlaid with their dirty buffers, then dirty ghosts.
-function periodMerged() {
-  var out = periodsSaved.map(function(p) {
-    var d = periodsDirty[p.period_id];
-    if (d) return { period_id: p.period_id, period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: d.locked, _dirty: true, _key: p.period_id, _isNew: false };
-    return { period_id: p.period_id, period_name: p.period_name, start_date: p.start_date, end_date: p.end_date, locked: p.locked, _dirty: false, _key: p.period_id, _isNew: false };
-  });
-  Object.keys(periodsDirty).forEach(function(k) {
-    var d = periodsDirty[k];
-    // P2 pinned-top: new (unsaved) rows lead the list, directly under the ghost row.
-    if (d && d.isNew) out.unshift({ period_id: '', period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: d.locked, _dirty: true, _key: k, _isNew: true });
-  });
-  return out;
-}
-
-function periodsAnyDirty() { return periodEditIdx >= 0 || Object.keys(periodsDirty).length > 0; }
-
-function syncPeriodsChrome() {
-  var dirty = periodsAnyDirty();
-  var dot = document.getElementById('tab-dot-periods');
-  if (dot) dot.style.display = dirty ? '' : 'none';
-  if (dirty) markDirty('periods'); else resetDirty('periods');
-}
-
-function validatePeriodBuf(d) {
-  if (!d.period_name || !d.start_date || !d.end_date) return 'Name, start and end required';
-  if (d.start_date > d.end_date) return 'Start date must be on or before end date';
-  return null;
-}
-
-function renderPeriods(focusKey) {
-  var tbody = document.getElementById('periods-body');
-  if (!tbody) return;
-  var merged = periodMerged();
-  // P2: ghost row pinned-top — a FADED display-only entry row (i / click opens it).
-  var ghostHtml = '<tr class="fb-ghost-row" style="cursor:text">'
-    + '<td><span class="fb-ghost-ph">Period name</span></td>'
-    + '<td><span class="fb-ghost-ph">Start date</span></td>'
-    + '<td><span class="fb-ghost-ph">End date</span></td>'
-    + '<td style="text-align:center"><input type="checkbox" disabled></td>'
-    + '<td></td></tr>';
-  tbody.innerHTML = ghostHtml + merged.map(function(p, i) {
-    var name = p.period_name ? esc(p.period_name) : '<span class="pe-ro">—</span>';
-    var start = p.start_date ? esc(FB.util.fmtDate(p.start_date)) : '<span class="pe-ro">—</span>';
-    var end = p.end_date ? esc(FB.util.fmtDate(p.end_date)) : '<span class="pe-ro">—</span>';
-    if (p._dirty) {
-      name = '<span class="dirty-val">' + name + '</span>';
-      start = '<span class="dirty-val">' + start + '</span>';
-      end = '<span class="dirty-val">' + end + '</span>';
-    }
-    var actions = p._dirty
-      ? '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writePeriodRowAt(' + i + ')">✓</a> <a class="chip chip-cancel" title="revert (u)" onclick="event.stopPropagation();revertPeriodRowAt(' + i + ')">✕</a>'
-      : '';
-    return '<tr' + (p._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(p._key) + '">'
-      + '<td data-field="name">' + name + '</td>'
-      + '<td data-field="start">' + start + '</td>'
-      + '<td data-field="end">' + end + '</td>'
-      + '<td data-field="locked" style="text-align:center"><input type="checkbox" disabled' + (p.locked ? ' checked' : '') + '></td>'
-      + '<td class="row-actions">' + actions + '</td></tr>';
-  }).join('');
-  Array.from(tbody.querySelectorAll('tr:not(.fb-ghost-row)')).forEach(function(tr) {
-    tr.addEventListener('click', function(e) {
-      if (periodNav) periodNav.set(tr);
-      var td = e.target.closest('td');
-      if (!td || td.classList.contains('row-actions')) return;
-      enterPeriodEdit(+tr.dataset.idx, td.dataset.field || undefined);
-    });
-  });
-  var ghost = tbody.querySelector('.fb-ghost-row');
-  if (ghost) ghost.addEventListener('click', function() { newPeriodRow(); });
-  if (periodNav) {
-    var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
-    periodNav.set(target || periodNavRows()[0] || null); // default: ghost row (top)
+// ========== PERIODS — FB.list (P3 consolidated) ==========
+// Esc never saves: it exits edit mode leaving a dirty buffer; w writes,
+// u reverts. Period names are immutable on saved rows (server upsert keys on
+// period_name — rename needs delete+create; a deliberate feature later).
+var periodsList = FB.list.create({
+  keysId: 'settings-periods',
+  active: function() { var p = document.getElementById('tab-periods'); return !!(p && p.classList.contains('active')); },
+  tbody: 'periods-body',
+  msg: 'msg-periods',
+  companyId: function() { return COMPANY; },
+  columns: [
+    { field: 'period_name', type: 'text', width: 110, ro: 'saved' },
+    { field: 'start_date', type: 'date', width: null,
+      display: function(v) { return v ? esc(FB.util.fmtDate(v)) : '<span class="pe-ro">—</span>'; } },
+    { field: 'end_date', type: 'date', width: null,
+      display: function(v) { return v ? esc(FB.util.fmtDate(v)) : '<span class="pe-ro">—</span>'; } },
+    { field: 'locked', type: 'checkbox', align: 'center',
+      display: function(v) { return '<input type="checkbox" disabled' + (v ? ' checked' : '') + '>'; } }
+  ],
+  blank: function() { return { period_name: '', start_date: '', end_date: '', locked: false }; },
+  isBlank: function(b) { return !b.period_name && !b.start_date && !b.end_date && !b.locked; },
+  same: function(b, s) {
+    return b.start_date === s.start_date && b.end_date === s.end_date && b.locked === !!s.locked;
+  },
+  validate: function(d) {
+    if (!d.period_name || !d.start_date || !d.end_date) return 'Name, start and end required';
+    if (d.start_date > d.end_date) return 'Start date must be on or before end date';
+    return null;
+  },
+  firstField: function(isNew) { return isNew ? 'period_name' : 'start_date'; },
+  track: 'period',
+  list: { action: 'period.list',
+    map: function(p) { return { period_id: p.period_id, period_name: p.period_id, start_date: String(p.start_date || '').slice(0, 10), end_date: String(p.end_date || '').slice(0, 10), locked: !!p.locked, _key: p.period_id }; } },
+  save: { action: 'period.upsert',
+    body: function(d) { return { period: { period_id: d._isNew ? d.period_name : d._key, period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: !!d.locked } }; },
+    focusKey: function(d) { return d._isNew ? d.period_name : d._key; } },
+  del: { action: 'period.delete',
+    body: function(key) { return { periodId: key }; },
+    confirm: function(d) { return 'Delete period "' + d.period_name + '"?'; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-periods');
+    if (dot) dot.style.display = dirty ? '' : 'none';
+    if (dirty) markDirty('periods'); else resetDirty('periods');
   }
-}
+});
 
-function enterPeriodEdit(idx, field) {
-  if (periodEditIdx === idx) return;
-  if (periodEditIdx >= 0) exitPeriodEdit(); // click-away: exit, dirty buffer kept
-  var d = periodMerged()[idx];
-  var tr = periodRows()[idx];
-  if (!d || !tr) return;
-  periodEditIdx = idx;
-  var nameHtml = d._isNew
-    ? '<input type="text" class="pe-name" value="' + esc(d.period_name || '') + '" style="width:110px">'
-    : '<span class="pe-ro">' + esc(d.period_name) + '</span>';
-  tr.innerHTML = '<td data-field="name">' + nameHtml + '</td>'
-    + '<td data-field="start"><input type="date" class="pe-start" value="' + esc(d.start_date || '') + '"></td>'
-    + '<td data-field="end"><input type="date" class="pe-end" value="' + esc(d.end_date || '') + '"></td>'
-    + '<td data-field="locked" style="text-align:center"><input type="checkbox" class="pe-locked"' + (d.locked ? ' checked' : '') + '></td>'
-    + '<td class="row-actions">'
-    + '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writePeriodRowAt(' + idx + ')">✓</a> '
-    + '<a class="chip chip-cancel" title="exit (Esc)" onclick="event.stopPropagation();exitPeriodEdit()">✕</a></td>';
-  tr.classList.add('row-editing');
-  if (window.FB && FB.mode) FB.mode.set('INSERT');
-  window.fbEditActive = true;
-  var sel = { name: '.pe-name', start: '.pe-start', end: '.pe-end', locked: '.pe-locked' }[field]
-    || (d._isNew ? '.pe-name' : '.pe-start');
-  var target = tr.querySelector(sel) || tr.querySelector('input');
-  if (target) { target.focus(); if (target.select) target.select(); }
-  syncPeriodsChrome();
-}
-
-function exitPeriodEdit() {
-  if (periodEditIdx < 0) return;
-  var d = periodMerged()[periodEditIdx];
-  var tr = periodRows()[periodEditIdx];
-  if (d && tr) {
-    var nameIn = tr.querySelector('.pe-name');
-    var start = tr.querySelector('.pe-start').value;
-    var end = tr.querySelector('.pe-end').value;
-    var locked = tr.querySelector('.pe-locked').checked;
-    if (d._isNew) {
-      var name = nameIn ? nameIn.value.trim() : '';
-      if (name || start || end || locked) {
-        periodsDirty[d._key] = { period_name: name, start_date: start, end_date: end, locked: locked, isNew: true };
-      } else {
-        delete periodsDirty[d._key]; // untouched new row vanishes — nothing from nothing
-      }
-    } else {
-      var saved = null;
-      for (var i = 0; i < periodsSaved.length; i++) if (periodsSaved[i].period_id === d._key) saved = periodsSaved[i];
-      var same = saved && start === saved.start_date && end === saved.end_date && locked === !!saved.locked;
-      if (same) delete periodsDirty[d._key]; // restored saved values — not dirty
-      else periodsDirty[d._key] = { period_name: saved ? saved.period_name : d._key, start_date: start, end_date: end, locked: locked, isNew: false };
-    }
-  }
-  var key = d ? d._key : null;
-  periodEditIdx = -1;
-  if (window.FB && FB.mode) FB.mode.set('NORMAL');
-  window.fbEditActive = false;
-  renderPeriods(key);
-  syncPeriodsChrome();
-}
-
-function writePeriodRowAt(idx) {
-  if (periodEditIdx >= 0) exitPeriodEdit(); // ✓ chip from edit mode = Esc then w
-  var d = periodMerged()[idx];
-  if (!d || !d._dirty) return;
-  var err = validatePeriodBuf(d);
-  if (err) { showMsg('msg-periods', err, true); return; }
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'period.upsert', companyId: COMPANY,
-      period: { period_id: d._isNew ? d.period_name : d._key, period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: !!d.locked } }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var dd = res.data || res;
-      if (dd.error || res.error) { showMsg('msg-periods', dd.error || res.error, true); return; } // stays dirty, values intact
-      delete periodsDirty[d._key];
-      showMsg('msg-periods', 'Saved', false);
-      loadPeriods(d._isNew ? d.period_name : d._key);
-    })
-    .catch(function(e){ showMsg('msg-periods', e.message, true); });
-}
-
-function revertPeriodRowAt(idx) {
-  if (periodEditIdx >= 0) exitPeriodEdit();
-  var d = periodMerged()[idx];
-  if (!d || !d._dirty) return;
-  delete periodsDirty[d._key];
-  renderPeriods(d._isNew ? null : d._key);
-  syncPeriodsChrome();
-}
-
-function focusedPeriodIdx() {
-  var tr = periodNav && periodNav.current();
-  if (!tr || tr.classList.contains('fb-ghost-row')) return -1;
-  var i = +tr.dataset.idx;
-  return isNaN(i) ? -1 : i;
-}
-function focusedPeriodDirty() {
-  var idx = focusedPeriodIdx();
-  var d = idx >= 0 ? periodMerged()[idx] : null;
-  return !!(d && d._dirty);
-}
-function editFocusedPeriod() {
-  var tr = periodNav && periodNav.current();
-  if (tr && tr.classList.contains('fb-ghost-row')) { newPeriodRow(); return; } // i on ghost = create
-  var idx = focusedPeriodIdx();
-  enterPeriodEdit(idx >= 0 ? idx : 0);
-}
-function writeFocusedPeriod() { var idx = focusedPeriodIdx(); if (idx >= 0) writePeriodRowAt(idx); }
-function revertFocusedPeriod() { var idx = focusedPeriodIdx(); if (idx >= 0) revertPeriodRowAt(idx); }
-
-function deleteFocusedPeriod() {
-  var idx = focusedPeriodIdx();
-  if (idx < 0) return;
-  var d = periodMerged()[idx];
-  if (!d) return;
-  if (d._isNew) { delete periodsDirty[d._key]; renderPeriods(); syncPeriodsChrome(); return; }
-  if (!confirm('Delete period "' + d.period_name + '"?')) return;
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'period.delete', companyId: COMPANY, periodId: d._key }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var dd = res.data || res;
-      if (dd.error || res.error) { showMsg('msg-periods', dd.error || res.error, true); return; } // INVALID_STATE shown verbatim
-      delete periodsDirty[d._key];
-      loadPeriods();
-    })
-    .catch(function(e){ showMsg('msg-periods', e.message, true); });
-}
-
-function newPeriodRow() {
-  if (periodEditIdx >= 0) exitPeriodEdit();
-  var key = '_new_' + (++periodGhostN);
-  periodsDirty[key] = { period_name: '', start_date: '', end_date: '', locked: false, isNew: true };
-  renderPeriods(key);
-  enterPeriodEdit(0, 'name'); // new rows unshift to index 0 (pinned-top)
-  if (window.FB && FB.track) FB.track.create('period');
-}
-
-// Edit-mode field movement: Enter/Tab/Shift+Tab move, sticky at ends — never save.
-function advancePeriodField() {
-  var tr = periodRows()[periodEditIdx];
-  if (!tr) return;
-  var inputs = Array.from(tr.querySelectorAll('input'));
-  var i = inputs.indexOf(document.activeElement);
-  if (i >= 0 && i < inputs.length - 1) { inputs[i + 1].focus(); if (inputs[i + 1].select) inputs[i + 1].select(); }
-}
-function periodTabSticky(e) {
-  var tr = periodRows()[periodEditIdx];
-  if (!tr) return false;
-  var inputs = Array.from(tr.querySelectorAll('input'));
-  if (!inputs.length) return false;
-  var i = inputs.indexOf(document.activeElement);
-  return e.shiftKey ? i === 0 : i === inputs.length - 1;
-}
-
-// Save/Discard/Stay leave modal (spec §4).
-function closePeriodLeaveModal() {
-  var ov = document.getElementById('period-leave-overlay');
-  if (ov) ov.remove();
-}
-function openPeriodLeaveModal(proceed) {
-  closePeriodLeaveModal();
-  var ov = document.createElement('div');
-  ov.id = 'period-leave-overlay';
-  ov.className = 'fb-modal-overlay';
-  ov.innerHTML = '<div class="fb-modal">'
-    + '<div class="fb-modal-title">Unsaved changes</div>'
-    + '<div class="fb-modal-body">Period rows have unsaved changes.</div>'
-    + '<div class="fb-modal-err" id="period-leave-err"></div>'
-    + '<div class="fb-modal-btns">'
-    + '<button class="btn-sm danger" id="pl-discard">Discard</button>'
-    + '<button class="btn-sm" id="pl-stay">Stay</button>'
-    + '<button class="btn-primary" id="pl-save">Save</button>'
-    + '</div></div>';
-  ov.addEventListener('click', function(e){ if (e.target === ov) closePeriodLeaveModal(); });
-  document.body.appendChild(ov);
-  document.getElementById('pl-stay').onclick = closePeriodLeaveModal;
-  document.getElementById('pl-discard').onclick = function() {
-    if (periodEditIdx >= 0) { periodEditIdx = -1; if (window.FB && FB.mode) FB.mode.set('NORMAL'); window.fbEditActive = false; }
-    periodsDirty = {};
-    renderPeriods();
-    syncPeriodsChrome();
-    closePeriodLeaveModal();
-    proceed();
-  };
-  document.getElementById('pl-save').onclick = function() {
-    if (periodEditIdx >= 0) exitPeriodEdit();
-    var keys = Object.keys(periodsDirty);
-    if (!keys.length) { closePeriodLeaveModal(); proceed(); return; }
-    var errEl = document.getElementById('period-leave-err');
-    var chain = Promise.resolve();
-    var failed = null;
-    keys.forEach(function(k) {
-      chain = chain.then(function() {
-        if (failed) return;
-        var d = periodsDirty[k];
-        if (!d) return;
-        var verr = validatePeriodBuf(d);
-        if (verr) { failed = verr; return; }
-        return fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'period.upsert', companyId: COMPANY,
-            period: { period_id: d.isNew ? d.period_name : k, period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: !!d.locked } }) })
-          .then(function(r){ return r.json(); })
-          .then(function(res){ var dd = res.data || res; if (dd.error || res.error) failed = dd.error || res.error; })
-          .catch(function(e){ failed = e.message; });
-      });
-    });
-    chain.then(function() {
-      if (failed) { if (errEl) errEl.textContent = failed; return; } // modal stays open
-      periodsDirty = {};
-      syncPeriodsChrome();
-      closePeriodLeaveModal();
-      loadPeriods();
-      proceed();
-    });
-  };
-}
-
+function loadPeriods(focusKey) { periodsList.load(focusKey); }
 function renderPeriodHints() {
   var el = document.getElementById('sb-hints');
-  if (!el || !(window.FB && FB.keys)) return;
-  FB.keys.renderHints('settings-periods', el, { layout: 'list' });
+  if (el) periodsList.renderHints(el);
 }
-
-function loadPeriods(focusKey) {
-  var tbody = document.getElementById('periods-body');
-  if (!tbody) return;
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'period.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var rows = res.data || res;
-      periodsSaved = (Array.isArray(rows) ? rows : []).map(function(p){
-        return { period_id: p.period_id, period_name: p.period_id, start_date: String(p.start_date || '').slice(0, 10), end_date: String(p.end_date || '').slice(0, 10), locked: !!p.locked };
-      });
-      renderPeriods(focusKey);
-      syncPeriodsChrome();
-    })
-    .catch(function(e){ console.error('loadPeriods:', e); });
-}
-
-// Leave-veto for {/} page navigation (common.js consults this before fbNavigate).
-window.fbBeforeTabSwitch = function(href) {
-  if (!periodsAnyDirty()) return true;
-  openPeriodLeaveModal(function(){ fbNavigate(href); });
-  return false;
-};
-
-// Sidebar link clicks get the same treatment — mouse parity for {/}.
-document.addEventListener('click', function(e) {
-  var a = e.target && e.target.closest ? e.target.closest('.sb-nav a[href]') : null;
-  if (!a) return;
-  if (periodsAnyDirty()) {
-    e.preventDefault();
-    e.stopPropagation();
-    openPeriodLeaveModal(function(){ fbNavigate(a.getAttribute('href')); });
-  }
-}, true);
-
-// Register immediately — fb-core.js loads in <head> (see commonStyle()), so FB.keys
-// is already present. Under fbNavigate soft-nav this inline script re-executes after
-// DOMContentLoaded has already fired, so a DOMContentLoaded listener would never run
-// and j/k bindings would silently die on the second visit (repro: Settings →
-// Payables → Settings → l → j dead). Guard against double-registration via
-// FB.keys.unregister before re-registering.
-(function() {
-  if (!(window.FB && FB.keys)) return;
-  periodNav = FB.nav.create({ rows: periodNavRows, focusClass: 'nav-row-focus' });
-  if (FB.keys.unregister) FB.keys.unregister('settings-periods');
-  FB.keys.register('settings-periods', {
-    active: function() { var p = document.getElementById('tab-periods'); return !!(p && p.classList.contains('active')); },
-    getMode: function() { return periodEditIdx >= 0 ? 'INSERT' : 'NORMAL'; },
-    bindings: [
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { periodNav.move(1); } },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { periodNav.move(-1); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedPeriod },
-      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedPeriod },
-      { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedPeriod },
-      { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedPeriodDirty, run: writeFocusedPeriod },
-      { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedPeriodDirty, run: revertFocusedPeriod },
-      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitPeriodEdit },
-      { key: 'Enter', mode: 'INSERT', run: advancePeriodField },
-      { key: 'Tab', mode: 'INSERT', when: periodTabSticky, run: function() {} },
-      { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function() {} }
-    ]
-  });
-})();
 
 // ========== COMPANY ==========
 var companiesData = [];
@@ -881,873 +556,155 @@ function loadCompanies() {
     .catch(function (e) { console.error('loadCompanies:', e); });
 }
 
-// ========== COA — modal edit doctrine (docs/settings-ux-spec.md) ==========
-var coaSaved = [];
-var coaDirty = {};
-var coaGhostN = 0;
-var coaEditIdx = -1;
-var coaNav = null;
-var coaFilterQ = '';
-var SUBTYPES = ['','Current Asset','Non-Current Asset','Current Liability','Non-Current Liability','Equity','Revenue','COGS','Operating Expense','Non-Operating Expense','Closing'];
+// ========== COA — FB.list (P3 consolidated) ==========
 var CF_CATS_COA = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded'];
 var ACCT_TYPES = ['Asset','Liability','Equity','Revenue','Expense','Closing'];
+var SUBTYPES = ['','Current Asset','Non-Current Asset','Current Liability','Non-Current Liability','Equity','Revenue','COGS','Operating Expense','Non-Operating Expense','Closing'];
 
-function coaRows() { return Array.from(document.querySelectorAll('#coa-body tr:not(.fb-ghost-row)')); }
-// Nav rows INCLUDE the pinned ghost row so j/k can land on it (i opens it).
-function coaNavRows() { return Array.from(document.querySelectorAll('#coa-body tr')); }
-
-function coaMerged() {
-  var out = coaSaved.map(function(a) {
-    var d = coaDirty[a.account_code];
-    if (d) return { account_code: a.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype, cf_category: d.cf_category, is_active: d.is_active, _dirty: true, _key: a.account_code, _isNew: false };
-    return { account_code: a.account_code, account_name: a.account_name, account_type: a.account_type, account_subtype: a.account_subtype, cf_category: a.cf_category, is_active: a.is_active, _dirty: false, _key: a.account_code, _isNew: false };
-  });
-  Object.keys(coaDirty).forEach(function(k) {
-    var d = coaDirty[k];
-    if (d && d.isNew) out.unshift({ account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype, cf_category: d.cf_category, is_active: d.is_active, _dirty: true, _key: k, _isNew: true }); // P2 pinned-top
-  });
-  var q = coaFilterQ.toLowerCase();
-  if (q) out = out.filter(function(a){ return (a.account_code||'').toLowerCase().indexOf(q) >= 0 || (a.account_name||'').toLowerCase().indexOf(q) >= 0; });
-  return out;
-}
-
-function coaAnyDirty() { return coaEditIdx >= 0 || Object.keys(coaDirty).length > 0; }
-
-function syncCoaChrome() {
-  var dirty = coaAnyDirty();
-  var dot = document.getElementById('tab-dot-coa');
-  if (dot) dot.style.display = dirty ? '' : 'none';
-  if (dirty) markDirty('coa'); else resetDirty('coa');
-}
-
-function validateCoaBuf(d) {
-  if (!d.account_code || !d.account_name || !d.account_type) return 'Code, name and type required';
-  return null;
-}
-
-function renderCoa(focusKey) {
-  var tbody = document.getElementById('coa-body');
-  if (!tbody) return;
-  var merged = coaMerged();
-  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text">'
-    + '<td><span class="fb-ghost-ph">Code</span></td>'
-    + '<td><span class="fb-ghost-ph">Account name</span></td>'
-    + '<td><span class="fb-ghost-ph">Type</span></td>'
-    + '<td><span class="fb-ghost-ph">Subtype</span></td>'
-    + '<td><span class="fb-ghost-ph">CF category</span></td>'
-    + '<td style="text-align:center"><input type="checkbox" disabled checked></td>'
-    + '<td></td></tr>' + merged.map(function(a, i) {
-    var code = a.account_code ? esc(a.account_code) : '<span class="pe-ro">—</span>';
-    var name = a.account_name ? esc(a.account_name) : '<span class="pe-ro">—</span>';
-    var type = a.account_type ? esc(a.account_type) : '<span class="pe-ro">—</span>';
-    var subtype = a.account_subtype ? esc(a.account_subtype) : '<span class="pe-ro">—</span>';
-    var cf = a.cf_category ? esc(a.cf_category) : '<span class="pe-ro">—</span>';
-    var active = a.is_active ? 'Yes' : 'No';
-    if (a._dirty) {
-      code = '<span class="dirty-val">' + code + '</span>';
-      name = '<span class="dirty-val">' + name + '</span>';
-      type = '<span class="dirty-val">' + type + '</span>';
-      subtype = '<span class="dirty-val">' + subtype + '</span>';
-      cf = '<span class="dirty-val">' + cf + '</span>';
-      active = '<span class="dirty-val">' + active + '</span>';
-    }
-    var actions = a._dirty
-      ? '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeCoaRowAt(' + i + ')">✓</a> <a class="chip chip-cancel" title="revert (u)" onclick="event.stopPropagation();revertCoaRowAt(' + i + ')">✕</a>'
-      : '';
-    return '<tr' + (a._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(a._key) + '">'
-      + '<td data-field="code">' + code + '</td>'
-      + '<td data-field="name">' + name + '</td>'
-      + '<td data-field="type">' + type + '</td>'
-      + '<td data-field="subtype">' + subtype + '</td>'
-      + '<td data-field="cf">' + cf + '</td>'
-      + '<td data-field="active" style="text-align:center">' + active + '</td>'
-      + '<td class="row-actions">' + actions + '</td></tr>';
-  }).join('');
-  Array.from(tbody.querySelectorAll('tr:not(.fb-ghost-row)')).forEach(function(tr) {
-    tr.addEventListener('click', function(e) {
-      if (coaNav) coaNav.set(tr);
-      var td = e.target.closest('td');
-      if (!td || td.classList.contains('row-actions')) return;
-      enterCoaEdit(+tr.dataset.idx, td.dataset.field || undefined);
-    });
-  });
-  var coaGhost = tbody.querySelector('.fb-ghost-row');
-  if (coaGhost) coaGhost.addEventListener('click', function() { newCoaRow(); });
-  if (coaNav) {
-    var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
-    coaNav.set(target || coaNavRows()[0] || null); // default: ghost row (top)
+var coaList = FB.list.create({
+  keysId: 'settings-coa',
+  active: function() { var p = document.getElementById('tab-coa'); return !!(p && p.classList.contains('active')); },
+  tbody: 'coa-body',
+  msg: 'msg-coa',
+  companyId: function() { return COMPANY; },
+  columns: [
+    { field: 'account_code', type: 'text', width: 80, ro: 'saved' },
+    { field: 'account_name', type: 'text', width: 200 },
+    { field: 'account_type', type: 'select', width: 90, options: ACCT_TYPES },
+    { field: 'account_subtype', type: 'select', width: 140, options: SUBTYPES, nullable: true },
+    { field: 'cf_category', type: 'select', width: 100, options: CF_CATS_COA, nullable: true },
+    { field: 'is_active', type: 'checkbox', align: 'center',
+      display: function(v) { return v ? 'Yes' : 'No'; } }
+  ],
+  blank: function() { return { account_code: '', account_name: '', account_type: 'Asset', account_subtype: null, cf_category: null, is_active: true }; },
+  isBlank: function(b) { return !b.account_code && !b.account_name; },
+  same: function(b, s) {
+    return b.account_name === s.account_name && b.account_type === s.account_type
+      && (b.account_subtype || null) === (s.account_subtype || null)
+      && (b.cf_category || null) === (s.cf_category || null)
+      && b.is_active === !!s.is_active;
+  },
+  validate: function(d) { return (d.account_code && d.account_name && d.account_type) ? null : 'Code, name and type required'; },
+  firstField: function(isNew) { return isNew ? 'account_code' : 'account_name'; },
+  track: 'account',
+  filter: function(a, q) {
+    q = q.toLowerCase();
+    return (a.account_code || '').toLowerCase().indexOf(q) >= 0 || (a.account_name || '').toLowerCase().indexOf(q) >= 0;
+  },
+  list: { url: function() { return '/api/' + COMPANY + '/accounts'; },
+    map: function(a) { return { account_code: a.account_code, account_name: a.account_name, account_type: a.account_type, account_subtype: a.account_subtype || null, cf_category: a.cf_category || null, is_active: a.is_active === true, _key: a.account_code }; } },
+  save: { action: 'coa.upsert',
+    body: function(d) { return { account: { account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype || null, cf_category: d.cf_category || null, is_active: !!d.is_active } }; },
+    focusKey: function(d) { return d._isNew ? d.account_code : d._key; } },
+  del: { action: 'coa.delete',
+    body: function(key) { return { accountCode: key }; },
+    confirm: function(d) { return 'Delete account "' + d.account_code + '"? This will fail if the account has transactions.'; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-coa');
+    if (dot) dot.style.display = dirty ? '' : 'none';
+    if (dirty) markDirty('coa'); else resetDirty('coa');
   }
-}
+});
 
-function enterCoaEdit(idx, field) {
-  if (coaEditIdx === idx) return;
-  if (coaEditIdx >= 0) exitCoaEdit();
-  var d = coaMerged()[idx];
-  var tr = coaRows()[idx];
-  if (!d || !tr) return;
-  coaEditIdx = idx;
-  var codeHtml = d._isNew
-    ? '<input type="text" class="ce-code" value="' + esc(d.account_code || '') + '" style="width:80px">'
-    : '<span class="pe-ro">' + esc(d.account_code) + '</span>';
-  var typeOpts = ACCT_TYPES.map(function(t){ return '<option value="'+t+'"'+(t===d.account_type?' selected':'')+'>'+t+'</option>'; }).join('');
-  var subtypeOpts = SUBTYPES.map(function(s){ return '<option value="'+s+'"'+(s===(d.account_subtype||'')?' selected':'')+'>'+(s||'- none -')+'</option>'; }).join('');
-  var cfOpts = CF_CATS_COA.map(function(c){ return '<option value="'+c+'"'+(c===(d.cf_category||'')?' selected':'')+'>'+(c||'- none -')+'</option>'; }).join('');
-  tr.innerHTML = '<td data-field="code">' + codeHtml + '</td>'
-    + '<td data-field="name"><input type="text" class="ce-name" value="' + esc(d.account_name || '') + '" style="width:200px"></td>'
-    + '<td data-field="type"><select class="ce-type" style="width:90px">' + typeOpts + '</select></td>'
-    + '<td data-field="subtype"><select class="ce-subtype" style="width:140px">' + subtypeOpts + '</select></td>'
-    + '<td data-field="cf"><select class="ce-cf" style="width:100px">' + cfOpts + '</select></td>'
-    + '<td data-field="active" style="text-align:center"><input type="checkbox" class="ce-active"' + (d.is_active ? ' checked' : '') + '></td>'
-    + '<td class="row-actions">'
-    + '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeCoaRowAt(' + idx + ')">✓</a> '
-    + '<a class="chip chip-cancel" title="exit (Esc)" onclick="event.stopPropagation();exitCoaEdit()">✕</a></td>';
-  tr.classList.add('row-editing');
-  if (window.FB && FB.mode) FB.mode.set('INSERT');
-  window.fbEditActive = true;
-  var sel = { code: '.ce-code', name: '.ce-name', type: '.ce-type', subtype: '.ce-subtype', cf: '.ce-cf', active: '.ce-active' }[field]
-    || (d._isNew ? '.ce-code' : '.ce-name');
-  var target = tr.querySelector(sel) || tr.querySelector('input,select');
-  if (target) { target.focus(); if (target.select) target.select(); }
-  syncCoaChrome();
-}
-
-function exitCoaEdit() {
-  if (coaEditIdx < 0) return;
-  var d = coaMerged()[coaEditIdx];
-  var tr = coaRows()[coaEditIdx];
-  if (d && tr) {
-    var codeIn = tr.querySelector('.ce-code');
-    var name = tr.querySelector('.ce-name').value.trim();
-    var type = tr.querySelector('.ce-type').value;
-    var subtype = tr.querySelector('.ce-subtype').value || null;
-    var cf = tr.querySelector('.ce-cf').value || null;
-    var active = tr.querySelector('.ce-active').checked;
-    if (d._isNew) {
-      var code = codeIn ? codeIn.value.trim() : '';
-      if (code || name || type) {
-        coaDirty[d._key] = { account_code: code, account_name: name, account_type: type, account_subtype: subtype, cf_category: cf, is_active: active, isNew: true };
-      } else {
-        delete coaDirty[d._key];
-      }
-    } else {
-      var saved = null;
-      for (var i = 0; i < coaSaved.length; i++) if (coaSaved[i].account_code === d._key) saved = coaSaved[i];
-      var same = saved && name === saved.account_name && type === saved.account_type
-        && (subtype||null) === (saved.account_subtype||null)
-        && (cf||null) === (saved.cf_category||null)
-        && active === !!saved.is_active;
-      if (same) delete coaDirty[d._key];
-      else coaDirty[d._key] = { account_code: d._key, account_name: name, account_type: type, account_subtype: subtype, cf_category: cf, is_active: active, isNew: false };
-    }
-  }
-  var key = d ? d._key : null;
-  coaEditIdx = -1;
-  if (window.FB && FB.mode) FB.mode.set('NORMAL');
-  window.fbEditActive = false;
-  renderCoa(key);
-  syncCoaChrome();
-}
-
-function writeCoaRowAt(idx) {
-  if (coaEditIdx >= 0) exitCoaEdit();
-  var d = coaMerged()[idx];
-  if (!d || !d._dirty) return;
-  var err = validateCoaBuf(d);
-  if (err) { showMsg('msg-coa', err, true); return; }
-  var account = { account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype||null, cf_category: d.cf_category||null, is_active: !!d.is_active };
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'coa.upsert', companyId: COMPANY, account: account }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var dd = res.data||res;
-      if (dd.error||res.error) { showMsg('msg-coa', dd.error||res.error, true); return; }
-      delete coaDirty[d._key];
-      showMsg('msg-coa', 'Saved', false);
-      loadCoa(d._isNew ? d.account_code : d._key);
-    })
-    .catch(function(e){ showMsg('msg-coa', e.message, true); });
-}
-
-function revertCoaRowAt(idx) {
-  if (coaEditIdx >= 0) exitCoaEdit();
-  var d = coaMerged()[idx];
-  if (!d || !d._dirty) return;
-  delete coaDirty[d._key];
-  renderCoa(d._isNew ? null : d._key);
-  syncCoaChrome();
-}
-
-function focusedCoaIdx() {
-  var tr = coaNav && coaNav.current();
-  if (!tr || tr.classList.contains('fb-ghost-row')) return -1;
-  var i = +tr.dataset.idx;
-  return isNaN(i) ? -1 : i;
-}
-function focusedCoaDirty() { var idx = focusedCoaIdx(); var d = idx >= 0 ? coaMerged()[idx] : null; return !!(d && d._dirty); }
-function editFocusedCoa() {
-  var tr = coaNav && coaNav.current();
-  if (tr && tr.classList.contains('fb-ghost-row')) { newCoaRow(); return; } // i on ghost = create
-  var idx = focusedCoaIdx();
-  enterCoaEdit(idx >= 0 ? idx : 0);
-}
-function writeFocusedCoa() { var idx = focusedCoaIdx(); if (idx >= 0) writeCoaRowAt(idx); }
-function revertFocusedCoa() { var idx = focusedCoaIdx(); if (idx >= 0) revertCoaRowAt(idx); }
-
-function deleteFocusedCoa() {
-  var idx = focusedCoaIdx();
-  if (idx < 0) return;
-  var d = coaMerged()[idx];
-  if (!d) return;
-  if (d._isNew) { delete coaDirty[d._key]; renderCoa(); syncCoaChrome(); return; }
-  if (!confirm('Delete account "' + d.account_code + '"? This will fail if the account has transactions.')) return;
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'coa.delete', companyId: COMPANY, accountCode: d._key }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var dd = res.data||res;
-      if (dd.error||res.error) { showMsg('msg-coa', dd.error||res.error, true); return; }
-      delete coaDirty[d._key];
-      loadCoa();
-    })
-    .catch(function(e){ showMsg('msg-coa', e.message, true); });
-}
-
-function newCoaRow() {
-  if (coaEditIdx >= 0) exitCoaEdit();
-  var key = '_new_' + (++coaGhostN);
-  coaDirty[key] = { account_code: '', account_name: '', account_type: 'Asset', account_subtype: null, cf_category: null, is_active: true, isNew: true };
-  renderCoa(key);
-  enterCoaEdit(0, 'code'); // new rows unshift to index 0 (pinned-top)
-  if (window.FB && FB.track) FB.track.create('account');
-}
-
-function advanceCoaField() {
-  var tr = coaRows()[coaEditIdx];
-  if (!tr) return;
-  var inputs = Array.from(tr.querySelectorAll('input,select'));
-  var i = inputs.indexOf(document.activeElement);
-  if (i >= 0 && i < inputs.length - 1) { inputs[i + 1].focus(); if (inputs[i + 1].select) inputs[i + 1].select(); }
-}
-function coaTabSticky(e) {
-  var tr = coaRows()[coaEditIdx];
-  if (!tr) return false;
-  var inputs = Array.from(tr.querySelectorAll('input,select'));
-  if (!inputs.length) return false;
-  var i = inputs.indexOf(document.activeElement);
-  return e.shiftKey ? i === 0 : i === inputs.length - 1;
-}
-
-function renderCoaHints() {
-  var el = document.getElementById('sb-hints');
-  if (!el || !(window.FB && FB.keys)) return;
-  FB.keys.renderHints('settings-coa', el, { layout: 'list' });
-}
-
-function loadCoa(focusKey) {
-  var tbody = document.getElementById('coa-body');
-  if (!tbody) return;
-  fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
-    coaSaved = (Array.isArray(rows) ? rows : []).map(function(a){
-      return { account_code: a.account_code, account_name: a.account_name, account_type: a.account_type, account_subtype: a.account_subtype||null, cf_category: a.cf_category||null, is_active: a.is_active === true };
-    });
-    renderCoa(focusKey);
-    syncCoaChrome();
-  }).catch(function(e){ console.error('loadCoa:', e); });
-}
-
+function loadCoa(focusKey) { coaList.load(focusKey); }
 function filterCoa() {
   var el = document.getElementById('coa-search');
-  coaFilterQ = el ? el.value : '';
-  if (coaEditIdx >= 0) { coaEditIdx = -1; if (window.FB && FB.mode) FB.mode.set('NORMAL'); window.fbEditActive = false; }
-  renderCoa();
-  syncCoaChrome();
+  coaList.setFilter(el ? el.value : '');
+}
+function renderCoaHints() {
+  var el = document.getElementById('sb-hints');
+  if (el) coaList.renderHints(el);
 }
 
-// Register immediately — see Periods IIFE comment for rationale.
-(function() {
-  if (!(window.FB && FB.keys)) return;
-  coaNav = FB.nav.create({ rows: coaNavRows, focusClass: 'nav-row-focus' });
-  if (FB.keys.unregister) FB.keys.unregister('settings-coa');
-  FB.keys.register('settings-coa', {
-    active: function() { var p = document.getElementById('tab-coa'); return !!(p && p.classList.contains('active')); },
-    getMode: function() { return coaEditIdx >= 0 ? 'INSERT' : 'NORMAL'; },
-    bindings: [
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { coaNav.move(1); } },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { coaNav.move(-1); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedCoa },
-      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedCoa },
-      { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedCoa },
-      { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedCoaDirty, run: writeFocusedCoa },
-      { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedCoaDirty, run: revertFocusedCoa },
-      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitCoaEdit },
-      { key: 'Enter', mode: 'INSERT', run: advanceCoaField },
-      { key: 'Tab', mode: 'INSERT', when: coaTabSticky, run: function() {} },
-      { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function() {} }
-    ]
-  });
-})();
-
-// ========== VAT/GST CODES — modal edit doctrine ==========
-var vatSaved = [];
-var vatDirty = {};
-var vatGhostN = 0;
-var vatEditIdx = -1;
-var vatNav = null;
-
-function vatRows() { return Array.from(document.querySelectorAll('#vat-body tr:not(.fb-ghost-row)')); }
-// Nav rows INCLUDE the pinned ghost row so j/k can land on it (i opens it).
-function vatNavRows() { return Array.from(document.querySelectorAll('#vat-body tr')); }
-
-function vatMerged() {
-  var out = vatSaved.map(function(v) {
-    var d = vatDirty[v.vat_code];
-    if (d) return { vat_code: v.vat_code, description: d.description, rate: d.rate, input_account: d.input_account, output_account: d.output_account, report_box: d.report_box, is_reverse_charge: d.is_reverse_charge, is_active: d.is_active, _dirty: true, _key: v.vat_code, _isNew: false };
-    return { vat_code: v.vat_code, description: v.description, rate: v.rate, input_account: v.input_account, output_account: v.output_account, report_box: v.report_box, is_reverse_charge: v.is_reverse_charge, is_active: v.is_active, _dirty: false, _key: v.vat_code, _isNew: false };
-  });
-  Object.keys(vatDirty).forEach(function(k) {
-    var d = vatDirty[k];
-    if (d && d.isNew) out.unshift({ vat_code: d.vat_code, description: d.description, rate: d.rate, input_account: d.input_account, output_account: d.output_account, report_box: d.report_box, is_reverse_charge: d.is_reverse_charge, is_active: d.is_active, _dirty: true, _key: k, _isNew: true }); // P2 pinned-top
-  });
-  return out;
-}
-
-function vatAnyDirty() { return vatEditIdx >= 0 || Object.keys(vatDirty).length > 0; }
-
-function syncVatChrome() {
-  var dirty = vatAnyDirty();
-  var dot = document.getElementById('tab-dot-vat');
-  if (dot) dot.style.display = dirty ? '' : 'none';
-  if (dirty) markDirty('vat'); else resetDirty('vat');
-}
-
-function renderVat(focusKey) {
-  var tbody = document.getElementById('vat-body');
-  if (!tbody) return;
-  var merged = vatMerged();
-  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text">'
-    + '<td><span class="fb-ghost-ph">Code</span></td>'
-    + '<td><span class="fb-ghost-ph">Description</span></td>'
-    + '<td><span class="fb-ghost-ph">Rate %</span></td>'
-    + '<td><span class="fb-ghost-ph">Input acct</span></td>'
-    + '<td><span class="fb-ghost-ph">Output acct</span></td>'
-    + '<td><span class="fb-ghost-ph">Report box</span></td>'
-    + '<td style="text-align:center"><input type="checkbox" disabled></td>'
-    + '<td style="text-align:center"><input type="checkbox" disabled checked></td>'
-    + '<td></td></tr>' + merged.map(function(v, i) {
-    var code = v.vat_code ? esc(v.vat_code) : '<span class="pe-ro">—</span>';
-    var desc = v.description ? esc(v.description) : '<span class="pe-ro">—</span>';
-    var rate = v.rate != null ? esc(String(v.rate)) : '<span class="pe-ro">—</span>';
-    var input = v.input_account ? esc(v.input_account) : '<span class="pe-ro">—</span>';
-    var output = v.output_account ? esc(v.output_account) : '<span class="pe-ro">—</span>';
-    var rbox = v.report_box ? esc(v.report_box) : '<span class="pe-ro">—</span>';
-    if (v._dirty) {
-      code = '<span class="dirty-val">' + code + '</span>';
-      desc = '<span class="dirty-val">' + desc + '</span>';
-      rate = '<span class="dirty-val">' + rate + '</span>';
-      input = '<span class="dirty-val">' + input + '</span>';
-      output = '<span class="dirty-val">' + output + '</span>';
-      rbox = '<span class="dirty-val">' + rbox + '</span>';
-    }
-    var actions = v._dirty
-      ? '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeVatRowAt(' + i + ')">✓</a> <a class="chip chip-cancel" title="revert (u)" onclick="event.stopPropagation();revertVatRowAt(' + i + ')">✕</a>'
-      : '';
-    return '<tr' + (v._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(v._key) + '">'
-      + '<td data-field="code">' + code + '</td>'
-      + '<td data-field="desc">' + desc + '</td>'
-      + '<td data-field="rate">' + rate + '</td>'
-      + '<td data-field="input">' + input + '</td>'
-      + '<td data-field="output">' + output + '</td>'
-      + '<td data-field="rbox">' + rbox + '</td>'
-      + '<td data-field="rc" style="text-align:center">' + (v.is_reverse_charge ? 'Yes' : 'No') + '</td>'
-      + '<td data-field="active" style="text-align:center">' + (v.is_active ? 'Yes' : 'No') + '</td>'
-      + '<td class="row-actions">' + actions + '</td></tr>';
-  }).join('');
-  Array.from(tbody.querySelectorAll('tr:not(.fb-ghost-row)')).forEach(function(tr) {
-    tr.addEventListener('click', function(e) {
-      if (vatNav) vatNav.set(tr);
-      var td = e.target.closest('td');
-      if (!td || td.classList.contains('row-actions')) return;
-      enterVatEdit(+tr.dataset.idx, td.dataset.field || undefined);
-    });
-  });
-  var vatGhost = tbody.querySelector('.fb-ghost-row');
-  if (vatGhost) vatGhost.addEventListener('click', function() { newVatRow(); });
-  if (vatNav) {
-    var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
-    vatNav.set(target || vatNavRows()[0] || null); // default: ghost row (top)
+// ========== VAT/GST CODES — FB.list (P3 consolidated) ==========
+var vatList = FB.list.create({
+  keysId: 'settings-vat',
+  active: function() { var p = document.getElementById('tab-vat'); return !!(p && p.classList.contains('active')); },
+  tbody: 'vat-body',
+  msg: 'msg-vat',
+  companyId: function() { return COMPANY; },
+  columns: [
+    { field: 'vat_code', type: 'text', width: 60, ro: 'saved' },
+    { field: 'description', type: 'text', width: 160 },
+    { field: 'rate', type: 'number', step: '0.01', width: 55 },
+    { field: 'input_account', type: 'text', width: 70 },
+    { field: 'output_account', type: 'text', width: 70 },
+    { field: 'report_box', type: 'text', width: 50 },
+    { field: 'is_reverse_charge', type: 'checkbox', align: 'center',
+      display: function(v) { return v ? 'Yes' : 'No'; } },
+    { field: 'is_active', type: 'checkbox', align: 'center',
+      display: function(v) { return v ? 'Yes' : 'No'; } }
+  ],
+  blank: function() { return { vat_code: '', description: '', rate: 0, input_account: '', output_account: '', report_box: '', is_reverse_charge: false, is_active: true }; },
+  isBlank: function(b) { return !b.vat_code && !b.description && !b.input_account && !b.output_account; },
+  same: function(b, s) {
+    return b.description === (s.description || '') && b.rate === (s.rate || 0)
+      && b.input_account === (s.input_account || '') && b.output_account === (s.output_account || '')
+      && b.report_box === (s.report_box || '') && b.is_reverse_charge === !!s.is_reverse_charge && b.is_active === !!s.is_active;
+  },
+  validate: function(d) { return d.vat_code ? null : 'VAT code required'; },
+  firstField: function(isNew) { return isNew ? 'vat_code' : 'description'; },
+  track: 'tax-code',
+  list: { url: function() { return '/api/' + COMPANY + '/vat-codes'; },
+    map: function(v) { return { vat_code: v.vat_code, description: v.description || '', rate: v.rate || 0, input_account: v.input_account || v.vat_account_input || '', output_account: v.output_account || v.vat_account_output || '', report_box: v.report_box || '', is_reverse_charge: !!v.is_reverse_charge, is_active: !!v.is_active, _key: v.vat_code }; } },
+  save: { action: 'vat.codes.upsert',
+    body: function(d) { return { vatCode: { vat_code: d._isNew ? d.vat_code : d._key, description: d.description || null, rate: d.rate || 0, input_account: d.input_account || null, output_account: d.output_account || null, report_box: d.report_box || null, is_reverse_charge: !!d.is_reverse_charge, is_active: !!d.is_active } }; },
+    focusKey: function(d) { return d._isNew ? d.vat_code : d._key; } },
+  del: { action: 'vat.codes.delete',
+    body: function(key) { return { vatCode: key }; },
+    confirm: function(d) { return 'Delete VAT code "' + d.vat_code + '"?'; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-vat');
+    if (dot) dot.style.display = dirty ? '' : 'none';
+    if (dirty) markDirty('vat'); else resetDirty('vat');
   }
-}
+});
 
-function enterVatEdit(idx, field) {
-  if (vatEditIdx === idx) return;
-  if (vatEditIdx >= 0) exitVatEdit();
-  var d = vatMerged()[idx];
-  var tr = vatRows()[idx];
-  if (!d || !tr) return;
-  vatEditIdx = idx;
-  var codeHtml = d._isNew
-    ? '<input type="text" class="ve-code" value="' + esc(d.vat_code || '') + '" style="width:60px">'
-    : '<span class="pe-ro">' + esc(d.vat_code) + '</span>';
-  tr.innerHTML = '<td data-field="code">' + codeHtml + '</td>'
-    + '<td data-field="desc"><input type="text" class="ve-desc" value="' + esc(d.description || '') + '" style="width:160px"></td>'
-    + '<td data-field="rate"><input type="number" step="0.01" class="ve-rate" value="' + (d.rate != null ? d.rate : 0) + '" style="width:55px"></td>'
-    + '<td data-field="input"><input type="text" class="ve-input" value="' + esc(d.input_account || '') + '" style="width:70px"></td>'
-    + '<td data-field="output"><input type="text" class="ve-output" value="' + esc(d.output_account || '') + '" style="width:70px"></td>'
-    + '<td data-field="rbox"><input type="text" class="ve-rbox" value="' + esc(d.report_box || '') + '" style="width:50px"></td>'
-    + '<td data-field="rc" style="text-align:center"><input type="checkbox" class="ve-rc"' + (d.is_reverse_charge ? ' checked' : '') + '></td>'
-    + '<td data-field="active" style="text-align:center"><input type="checkbox" class="ve-active"' + (d.is_active ? ' checked' : '') + '></td>'
-    + '<td class="row-actions">'
-    + '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeVatRowAt(' + idx + ')">✓</a> '
-    + '<a class="chip chip-cancel" title="exit (Esc)" onclick="event.stopPropagation();exitVatEdit()">✕</a></td>';
-  tr.classList.add('row-editing');
-  if (window.FB && FB.mode) FB.mode.set('INSERT');
-  window.fbEditActive = true;
-  var sel = { code: '.ve-code', desc: '.ve-desc', rate: '.ve-rate', input: '.ve-input', output: '.ve-output', rbox: '.ve-rbox' }[field]
-    || (d._isNew ? '.ve-code' : '.ve-desc');
-  var target = tr.querySelector(sel) || tr.querySelector('input');
-  if (target) { target.focus(); if (target.select) target.select(); }
-  syncVatChrome();
-}
-
-function exitVatEdit() {
-  if (vatEditIdx < 0) return;
-  var d = vatMerged()[vatEditIdx];
-  var tr = vatRows()[vatEditIdx];
-  if (d && tr) {
-    var codeIn = tr.querySelector('.ve-code');
-    var desc = tr.querySelector('.ve-desc').value.trim();
-    var rate = parseFloat(tr.querySelector('.ve-rate').value) || 0;
-    var input = tr.querySelector('.ve-input').value.trim();
-    var output = tr.querySelector('.ve-output').value.trim();
-    var rbox = tr.querySelector('.ve-rbox').value.trim();
-    var rc = tr.querySelector('.ve-rc').checked;
-    var active = tr.querySelector('.ve-active').checked;
-    if (d._isNew) {
-      var code = codeIn ? codeIn.value.trim() : '';
-      if (code || desc || input || output) {
-        vatDirty[d._key] = { vat_code: code, description: desc, rate: rate, input_account: input, output_account: output, report_box: rbox, is_reverse_charge: rc, is_active: active, isNew: true };
-      } else {
-        delete vatDirty[d._key];
-      }
-    } else {
-      var saved = null;
-      for (var i = 0; i < vatSaved.length; i++) if (vatSaved[i].vat_code === d._key) saved = vatSaved[i];
-      var same = saved && desc === (saved.description || '') && rate === (saved.rate || 0) && input === (saved.input_account || '') && output === (saved.output_account || '') && rbox === (saved.report_box || '') && rc === !!saved.is_reverse_charge && active === !!saved.is_active;
-      if (same) delete vatDirty[d._key];
-      else vatDirty[d._key] = { vat_code: d._key, description: desc, rate: rate, input_account: input, output_account: output, report_box: rbox, is_reverse_charge: rc, is_active: active, isNew: false };
-    }
-  }
-  var key = d ? d._key : null;
-  vatEditIdx = -1;
-  if (window.FB && FB.mode) FB.mode.set('NORMAL');
-  window.fbEditActive = false;
-  renderVat(key);
-  syncVatChrome();
-}
-
-function writeVatRowAt(idx) {
-  if (vatEditIdx >= 0) exitVatEdit();
-  var d = vatMerged()[idx];
-  if (!d || !d._dirty) return;
-  if (!d.vat_code) { showMsg('msg-vat', 'VAT code required', true); return; }
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'vat.codes.upsert', companyId: COMPANY,
-      vatCode: { vat_code: d._isNew ? d.vat_code : d._key, description: d.description || null, rate: d.rate || 0, input_account: d.input_account || null, output_account: d.output_account || null, report_box: d.report_box || null, is_reverse_charge: !!d.is_reverse_charge, is_active: !!d.is_active } }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var dd = res.data || res;
-      if (dd.error || res.error) { showMsg('msg-vat', dd.error || res.error, true); return; }
-      delete vatDirty[d._key];
-      showMsg('msg-vat', 'Saved', false);
-      loadVat(d._isNew ? d.vat_code : d._key);
-    })
-    .catch(function(e){ showMsg('msg-vat', e.message, true); });
-}
-
-function revertVatRowAt(idx) {
-  if (vatEditIdx >= 0) exitVatEdit();
-  var d = vatMerged()[idx];
-  if (!d || !d._dirty) return;
-  delete vatDirty[d._key];
-  renderVat(d._isNew ? null : d._key);
-  syncVatChrome();
-}
-
-function focusedVatIdx() {
-  var tr = vatNav && vatNav.current();
-  if (!tr || tr.classList.contains('fb-ghost-row')) return -1;
-  var i = +tr.dataset.idx;
-  return isNaN(i) ? -1 : i;
-}
-function focusedVatDirty() {
-  var idx = focusedVatIdx();
-  var d = idx >= 0 ? vatMerged()[idx] : null;
-  return !!(d && d._dirty);
-}
-function editFocusedVat() {
-  var tr = vatNav && vatNav.current();
-  if (tr && tr.classList.contains('fb-ghost-row')) { newVatRow(); return; } // i on ghost = create
-  var idx = focusedVatIdx();
-  enterVatEdit(idx >= 0 ? idx : 0);
-}
-function writeFocusedVat() { var idx = focusedVatIdx(); if (idx >= 0) writeVatRowAt(idx); }
-function revertFocusedVat() { var idx = focusedVatIdx(); if (idx >= 0) revertVatRowAt(idx); }
-
-function deleteFocusedVat() {
-  var idx = focusedVatIdx();
-  if (idx < 0) return;
-  var d = vatMerged()[idx];
-  if (!d) return;
-  if (d._isNew) { delete vatDirty[d._key]; renderVat(); syncVatChrome(); return; }
-  if (!confirm('Delete VAT code "' + d.vat_code + '"?')) return;
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'vat.codes.delete', companyId: COMPANY, vatCode: d._key }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var dd = res.data || res;
-      if (dd.error || res.error) { showMsg('msg-vat', dd.error || res.error, true); return; }
-      delete vatDirty[d._key];
-      loadVat();
-    })
-    .catch(function(e){ showMsg('msg-vat', e.message, true); });
-}
-
-function newVatRow() {
-  if (vatEditIdx >= 0) exitVatEdit();
-  var key = '_new_' + (++vatGhostN);
-  vatDirty[key] = { vat_code: '', description: '', rate: 0, input_account: '', output_account: '', report_box: '', is_reverse_charge: false, is_active: true, isNew: true };
-  renderVat(key);
-  enterVatEdit(0, 'code'); // new rows unshift to index 0 (pinned-top)
-  if (window.FB && FB.track) FB.track.create('tax-code');
-}
-
-function advanceVatField() {
-  var tr = vatRows()[vatEditIdx];
-  if (!tr) return;
-  var inputs = Array.from(tr.querySelectorAll('input'));
-  var i = inputs.indexOf(document.activeElement);
-  if (i >= 0 && i < inputs.length - 1) { inputs[i + 1].focus(); if (inputs[i + 1].select) inputs[i + 1].select(); }
-}
-function vatTabSticky(e) {
-  var tr = vatRows()[vatEditIdx];
-  if (!tr) return false;
-  var inputs = Array.from(tr.querySelectorAll('input'));
-  if (!inputs.length) return false;
-  var i = inputs.indexOf(document.activeElement);
-  return e.shiftKey ? i === 0 : i === inputs.length - 1;
-}
-
+function loadVat(focusKey) { vatList.load(focusKey); }
 function renderVatHints() {
   var el = document.getElementById('sb-hints');
-  if (!el || !(window.FB && FB.keys)) return;
-  FB.keys.renderHints('settings-vat', el, { layout: 'list' });
+  if (el) vatList.renderHints(el);
 }
 
-function loadVat(focusKey) {
-  var tbody = document.getElementById('vat-body');
-  if (!tbody) return;
-  fetch('/api/' + COMPANY + '/vat-codes')
-    .then(function(r){ return r.json(); })
-    .then(function(rows){
-      vatSaved = (Array.isArray(rows) ? rows : []).map(function(v){
-        return { vat_code: v.vat_code, description: v.description || '', rate: v.rate || 0, input_account: v.input_account || v.vat_account_input || '', output_account: v.output_account || v.vat_account_output || '', report_box: v.report_box || '', is_reverse_charge: !!v.is_reverse_charge, is_active: !!v.is_active };
-      });
-      renderVat(focusKey);
-      syncVatChrome();
-    })
-    .catch(function(e){ console.error('loadVat:', e); });
-}
-
-// Register immediately — same soft-nav rationale as settings-periods.
-(function() {
-  if (!(window.FB && FB.keys)) return;
-  vatNav = FB.nav.create({ rows: vatNavRows, focusClass: 'nav-row-focus' });
-  if (FB.keys.unregister) FB.keys.unregister('settings-vat');
-  FB.keys.register('settings-vat', {
-    active: function() { var p = document.getElementById('tab-vat'); return !!(p && p.classList.contains('active')); },
-    getMode: function() { return vatEditIdx >= 0 ? 'INSERT' : 'NORMAL'; },
-    bindings: [
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { vatNav.move(1); } },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { vatNav.move(-1); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedVat },
-      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedVat },
-      { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedVat },
-      { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedVatDirty, run: writeFocusedVat },
-      { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedVatDirty, run: revertFocusedVat },
-      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitVatEdit },
-      { key: 'Enter', mode: 'INSERT', run: advanceVatField },
-      { key: 'Tab', mode: 'INSERT', when: vatTabSticky, run: function() {} },
-      { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function() {} }
-    ]
-  });
-})();
-
-// ========== JOURNALS — modal edit doctrine ==========
-var journalsSaved = [];
-var journalsDirty = {};
-var journalsGhostN = 0;
-var journalsEditIdx = -1;
-var journalsNav = null;
-
-function journalsRows() { return Array.from(document.querySelectorAll('#journals-body tr:not(.fb-ghost-row)')); }
-// Nav rows INCLUDE the pinned ghost row so j/k can land on it (i opens it).
-function journalsNavRows() { return Array.from(document.querySelectorAll('#journals-body tr')); }
-
-function journalsMerged() {
-  var out = journalsSaved.map(function(j) {
-    var d = journalsDirty[j.journal_id];
-    if (d) return { journal_id: j.journal_id, code: d.code, name: d.name, active: d.active, _dirty: true, _key: j.journal_id, _isNew: false };
-    return { journal_id: j.journal_id, code: j.code, name: j.name, active: j.active, _dirty: false, _key: j.journal_id, _isNew: false };
-  });
-  Object.keys(journalsDirty).forEach(function(k) {
-    var d = journalsDirty[k];
-    if (d && d.isNew) out.unshift({ journal_id: '', code: d.code, name: d.name, active: d.active, _dirty: true, _key: k, _isNew: true }); // P2 pinned-top
-  });
-  return out;
-}
-
-function journalsAnyDirty() { return journalsEditIdx >= 0 || Object.keys(journalsDirty).length > 0; }
-
-function syncJournalsChrome() {
-  var dirty = journalsAnyDirty();
-  var dot = document.getElementById('tab-dot-journals');
-  if (dot) dot.style.display = dirty ? '' : 'none';
-  if (dirty) markDirty('journals'); else resetDirty('journals');
-}
-
-function renderJournals(focusKey) {
-  var tbody = document.getElementById('journals-body');
-  if (!tbody) return;
-  var merged = journalsMerged();
-  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text">'
-    + '<td><span class="fb-ghost-ph">Code</span></td>'
-    + '<td><span class="fb-ghost-ph">Name</span></td>'
-    + '<td style="text-align:center"><input type="checkbox" disabled checked></td>'
-    + '<td></td></tr>' + merged.map(function(j, i) {
-    var code = j.code ? esc(j.code) : '<span class="pe-ro">—</span>';
-    var name = j.name ? esc(j.name) : '<span class="pe-ro">—</span>';
-    if (j._dirty) {
-      code = '<span class="dirty-val">' + code + '</span>';
-      name = '<span class="dirty-val">' + name + '</span>';
-    }
-    var actions = j._dirty
-      ? '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeJournalRowAt(' + i + ')">✓</a> <a class="chip chip-cancel" title="revert (u)" onclick="event.stopPropagation();revertJournalRowAt(' + i + ')">✕</a>'
-      : '';
-    return '<tr' + (j._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(j._key) + '">'
-      + '<td data-field="code">' + code + '</td>'
-      + '<td data-field="name">' + name + '</td>'
-      + '<td data-field="active" style="text-align:center">' + (j.active ? 'Yes' : 'No') + '</td>'
-      + '<td class="row-actions">' + actions + '</td></tr>';
-  }).join('');
-  Array.from(tbody.querySelectorAll('tr:not(.fb-ghost-row)')).forEach(function(tr) {
-    tr.addEventListener('click', function(e) {
-      if (journalsNav) journalsNav.set(tr);
-      var td = e.target.closest('td');
-      if (!td || td.classList.contains('row-actions')) return;
-      enterJournalEdit(+tr.dataset.idx, td.dataset.field || undefined);
-    });
-  });
-  var jGhost = tbody.querySelector('.fb-ghost-row');
-  if (jGhost) jGhost.addEventListener('click', function() { newJournalRow(); });
-  if (journalsNav) {
-    var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
-    journalsNav.set(target || journalsNavRows()[0] || null); // default: ghost row (top)
+// ========== JOURNALS — FB.list (P3 consolidated) ==========
+var journalsList = FB.list.create({
+  keysId: 'settings-journals',
+  active: function() { var p = document.getElementById('tab-journals'); return !!(p && p.classList.contains('active')); },
+  tbody: 'journals-body',
+  msg: 'msg-journals',
+  companyId: function() { return COMPANY; },
+  columns: [
+    { field: 'code', type: 'text', width: 70, ro: 'saved', uppercase: true },
+    { field: 'name', type: 'text', width: 180 },
+    { field: 'active', type: 'checkbox', align: 'center',
+      display: function(v) { return v ? 'Yes' : 'No'; } }
+  ],
+  blank: function() { return { code: '', name: '', active: true }; },
+  isBlank: function(b) { return !b.code && !b.name; },
+  same: function(b, s) { return b.name === s.name && b.active === !!s.active; },
+  validate: function(d) { return (d.code && d.name) ? null : 'Code and name required'; },
+  firstField: function(isNew) { return isNew ? 'code' : 'name'; },
+  track: 'journal-type',
+  list: { action: 'journals.list',
+    map: function(j) { return { journal_id: j.journal_id, code: j.code || '', name: j.name || '', active: !!j.active, _key: j.journal_id }; } },
+  save: { action: 'journals.save',
+    body: function(d) { return { journal: { journal_id: d._isNew ? null : d._key, code: d.code, name: d.name, active: !!d.active } }; },
+    focusKey: function(d, res) { return d._isNew ? (res.journalId || d.code) : d._key; } },
+  del: { action: 'journals.delete',
+    body: function(key) { return { journalId: key }; },
+    confirm: function(d) { return 'Deactivate journal "' + d.code + '"? (soft delete — existing references preserved)'; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-journals');
+    if (dot) dot.style.display = dirty ? '' : 'none';
+    if (dirty) markDirty('journals'); else resetDirty('journals');
   }
-}
+});
 
-function enterJournalEdit(idx, field) {
-  if (journalsEditIdx === idx) return;
-  if (journalsEditIdx >= 0) exitJournalEdit();
-  var d = journalsMerged()[idx];
-  var tr = journalsRows()[idx];
-  if (!d || !tr) return;
-  journalsEditIdx = idx;
-  var codeHtml = d._isNew
-    ? '<input type="text" class="je-code" value="' + esc(d.code || '') + '" style="width:70px" oninput="this.value=this.value.toUpperCase()">'
-    : '<span class="pe-ro">' + esc(d.code) + '</span>';
-  tr.innerHTML = '<td data-field="code">' + codeHtml + '</td>'
-    + '<td data-field="name"><input type="text" class="je-name" value="' + esc(d.name || '') + '" style="width:180px"></td>'
-    + '<td data-field="active" style="text-align:center"><input type="checkbox" class="je-active"' + (d.active ? ' checked' : '') + '></td>'
-    + '<td class="row-actions">'
-    + '<a class="chip chip-ok" title="write (w)" onclick="event.stopPropagation();writeJournalRowAt(' + idx + ')">✓</a> '
-    + '<a class="chip chip-cancel" title="exit (Esc)" onclick="event.stopPropagation();exitJournalEdit()">✕</a></td>';
-  tr.classList.add('row-editing');
-  if (window.FB && FB.mode) FB.mode.set('INSERT');
-  window.fbEditActive = true;
-  var sel = { code: '.je-code', name: '.je-name' }[field]
-    || (d._isNew ? '.je-code' : '.je-name');
-  var target = tr.querySelector(sel) || tr.querySelector('input');
-  if (target) { target.focus(); if (target.select) target.select(); }
-  syncJournalsChrome();
-}
-
-function exitJournalEdit() {
-  if (journalsEditIdx < 0) return;
-  var d = journalsMerged()[journalsEditIdx];
-  var tr = journalsRows()[journalsEditIdx];
-  if (d && tr) {
-    var codeIn = tr.querySelector('.je-code');
-    var name = tr.querySelector('.je-name').value.trim();
-    var active = tr.querySelector('.je-active').checked;
-    if (d._isNew) {
-      var code = codeIn ? codeIn.value.trim().toUpperCase() : '';
-      if (code || name) {
-        journalsDirty[d._key] = { code: code, name: name, active: active, isNew: true };
-      } else {
-        delete journalsDirty[d._key];
-      }
-    } else {
-      var saved = null;
-      for (var i = 0; i < journalsSaved.length; i++) if (journalsSaved[i].journal_id === d._key) saved = journalsSaved[i];
-      var same = saved && name === saved.name && active === !!saved.active;
-      if (same) delete journalsDirty[d._key];
-      else journalsDirty[d._key] = { code: saved ? saved.code : d._key, name: name, active: active, isNew: false };
-    }
-  }
-  var key = d ? d._key : null;
-  journalsEditIdx = -1;
-  if (window.FB && FB.mode) FB.mode.set('NORMAL');
-  window.fbEditActive = false;
-  renderJournals(key);
-  syncJournalsChrome();
-}
-
-function writeJournalRowAt(idx) {
-  if (journalsEditIdx >= 0) exitJournalEdit();
-  var d = journalsMerged()[idx];
-  if (!d || !d._dirty) return;
-  if (!d.code || !d.name) { showMsg('msg-journals', 'Code and name required', true); return; }
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'journals.save', companyId: COMPANY,
-      journal: { journal_id: d._isNew ? null : d._key, code: d.code, name: d.name, active: !!d.active } }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var dd = res.data || res;
-      if (dd.error || res.error) { showMsg('msg-journals', dd.error || res.error, true); return; }
-      delete journalsDirty[d._key];
-      showMsg('msg-journals', 'Saved', false);
-      loadJournals(d._isNew ? (dd.journalId || d.code) : d._key);
-    })
-    .catch(function(e){ showMsg('msg-journals', e.message, true); });
-}
-
-function revertJournalRowAt(idx) {
-  if (journalsEditIdx >= 0) exitJournalEdit();
-  var d = journalsMerged()[idx];
-  if (!d || !d._dirty) return;
-  delete journalsDirty[d._key];
-  renderJournals(d._isNew ? null : d._key);
-  syncJournalsChrome();
-}
-
-function focusedJournalIdx() {
-  var tr = journalsNav && journalsNav.current();
-  if (!tr || tr.classList.contains('fb-ghost-row')) return -1;
-  var i = +tr.dataset.idx;
-  return isNaN(i) ? -1 : i;
-}
-function focusedJournalDirty() {
-  var idx = focusedJournalIdx();
-  var d = idx >= 0 ? journalsMerged()[idx] : null;
-  return !!(d && d._dirty);
-}
-function editFocusedJournal() {
-  var tr = journalsNav && journalsNav.current();
-  if (tr && tr.classList.contains('fb-ghost-row')) { newJournalRow(); return; } // i on ghost = create
-  var idx = focusedJournalIdx();
-  enterJournalEdit(idx >= 0 ? idx : 0);
-}
-function writeFocusedJournal() { var idx = focusedJournalIdx(); if (idx >= 0) writeJournalRowAt(idx); }
-function revertFocusedJournal() { var idx = focusedJournalIdx(); if (idx >= 0) revertJournalRowAt(idx); }
-
-function deleteFocusedJournal() {
-  var idx = focusedJournalIdx();
-  if (idx < 0) return;
-  var d = journalsMerged()[idx];
-  if (!d) return;
-  if (d._isNew) { delete journalsDirty[d._key]; renderJournals(); syncJournalsChrome(); return; }
-  if (!confirm('Deactivate journal "' + d.code + '"? (soft delete — existing references preserved)')) return;
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'journals.delete', companyId: COMPANY, journalId: d._key }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var dd = res.data || res;
-      if (dd.error || res.error) { showMsg('msg-journals', dd.error || res.error, true); return; }
-      delete journalsDirty[d._key];
-      loadJournals();
-    })
-    .catch(function(e){ showMsg('msg-journals', e.message, true); });
-}
-
-function newJournalRow() {
-  if (journalsEditIdx >= 0) exitJournalEdit();
-  var key = '_new_' + (++journalsGhostN);
-  journalsDirty[key] = { code: '', name: '', active: true, isNew: true };
-  renderJournals(key);
-  enterJournalEdit(0, 'code'); // new rows unshift to index 0 (pinned-top)
-  if (window.FB && FB.track) FB.track.create('journal-type');
-}
-
-function advanceJournalField() {
-  var tr = journalsRows()[journalsEditIdx];
-  if (!tr) return;
-  var inputs = Array.from(tr.querySelectorAll('input'));
-  var i = inputs.indexOf(document.activeElement);
-  if (i >= 0 && i < inputs.length - 1) { inputs[i + 1].focus(); if (inputs[i + 1].select) inputs[i + 1].select(); }
-}
-function journalTabSticky(e) {
-  var tr = journalsRows()[journalsEditIdx];
-  if (!tr) return false;
-  var inputs = Array.from(tr.querySelectorAll('input'));
-  if (!inputs.length) return false;
-  var i = inputs.indexOf(document.activeElement);
-  return e.shiftKey ? i === 0 : i === inputs.length - 1;
-}
-
+function loadJournals(focusKey) { journalsList.load(focusKey); }
 function renderJournalHints() {
   var el = document.getElementById('sb-hints');
-  if (!el || !(window.FB && FB.keys)) return;
-  FB.keys.renderHints('settings-journals', el, { layout: 'list' });
+  if (el) journalsList.renderHints(el);
 }
-
-function loadJournals(focusKey) {
-  var tbody = document.getElementById('journals-body');
-  if (!tbody) return;
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'journals.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var rows = res.data || res;
-      journalsSaved = (Array.isArray(rows) ? rows : []).map(function(j){
-        return { journal_id: j.journal_id, code: j.code || '', name: j.name || '', active: !!j.active };
-      });
-      renderJournals(focusKey);
-      syncJournalsChrome();
-    })
-    .catch(function(e){ console.error('loadJournals:', e); });
-}
-
-// Register immediately — same soft-nav rationale as settings-periods.
-(function() {
-  if (!(window.FB && FB.keys)) return;
-  journalsNav = FB.nav.create({ rows: journalsNavRows, focusClass: 'nav-row-focus' });
-  if (FB.keys.unregister) FB.keys.unregister('settings-journals');
-  FB.keys.register('settings-journals', {
-    active: function() { var p = document.getElementById('tab-journals'); return !!(p && p.classList.contains('active')); },
-    getMode: function() { return journalsEditIdx >= 0 ? 'INSERT' : 'NORMAL'; },
-    bindings: [
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { journalsNav.move(1); } },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { journalsNav.move(-1); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedJournal },
-      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedJournal },
-      { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedJournal },
-      { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedJournalDirty, run: writeFocusedJournal },
-      { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedJournalDirty, run: revertFocusedJournal },
-      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitJournalEdit },
-      { key: 'Enter', mode: 'INSERT', run: advanceJournalField },
-      { key: 'Tab', mode: 'INSERT', when: journalTabSticky, run: function() {} },
-      { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function() {} }
-    ]
-  });
-})();
 
 // ── FX Rates tab keyboard (P2) ────────────────────────────────────────────
 (function() {

@@ -257,6 +257,252 @@
     };
   })();
 
+  // ── FB.palette — `:` written commands (roadmap P1-10) ────────────────────
+  // The topbar input hosts two modes: `/` search (per-page filtering,
+  // unchanged) and `:` command. Mode is set by HOW you got there (keyboard
+  // `:` → command; click → search — magnus decision 2), not by content.
+  // Commands derive from two sources, no hand-written registry:
+  //   page verbs — NORMAL-mode hinted bindings of the active FB.keys set;
+  //                executing calls the binding's own run (same as the key).
+  //   api        — catalog entries carrying a palette disposition (execute
+  //                via POST /api/action + Idempotency-Key; navigate → form).
+  // Ranking = localStorage recency, then fuzzy exactness. Rows show the key
+  // equivalent — the palette doubles as a keyboard teacher (spec item 5).
+  var palette = (function () {
+    var _input = null;
+    var _command = false;      // mode: false = search, true = command
+    var _el = null;            // dropdown element
+    var _items = [];           // current matches
+    var _activeIdx = -1;
+    var _catalog = null;       // /api/actions manifest (fetched once)
+    var _wired = false;
+
+    var RECENT_KEY = 'fb.palette.recent';
+    var CAP = 12;
+
+    function _company() { return location.pathname.split('/')[1] || ''; }
+
+    // ── sources ─────────────────────────────────────────────────────────────
+    function _pageVerbs() {
+      var cur = _activeSet();
+      if (!cur) return [];
+      var seen = {}, out = [];
+      cur.set.bindings.forEach(function (b) {
+        if ((b.mode || 'NORMAL') !== 'NORMAL') return;
+        if (!b.hint || seen[b.hint]) return;
+        seen[b.hint] = true;
+        out.push({
+          id: 'page:' + cur.name + ':' + b.hint,
+          label: b.hint, key: _keyLabel(b), scope: 'page',
+          exec: function () { b.run({ key: b.key }); }
+        });
+      });
+      return out;
+    }
+
+    function _apiCommands() {
+      if (!_catalog) return [];
+      var out = [];
+      Object.keys(_catalog).forEach(function (name) {
+        var meta = _catalog[name] || {};
+        if (meta.palette === 'execute') {
+          out.push({
+            id: 'api:' + name, label: meta.description || name, key: '', scope: 'api',
+            exec: function () { _runApi(name); }
+          });
+        } else if (meta.palette === 'navigate' && meta.route) {
+          out.push({
+            id: 'api:' + name, label: meta.description || name, key: '', scope: 'api',
+            exec: function () {
+              if (meta.absolute) window.location.href = meta.route; // company-less (e.g. /setup)
+              else window.fbNavigate('/' + _company() + meta.route);
+            }
+          });
+        }
+      });
+      return out;
+    }
+
+    function _fetchCatalog() {
+      if (_catalog) return;
+      fetch('/api/actions').then(function (r) { return r.json(); }).then(function (res) {
+        if (res && res.actions) { _catalog = res.actions; if (_el) _query(_rawQuery()); }
+      }).catch(function () { /* palette works page-verbs-only without it */ });
+    }
+
+    // ── fuzzy matching + ranking ────────────────────────────────────────────
+    function _fuzzy(q, text) {
+      q = q.toLowerCase(); text = String(text || '').toLowerCase();
+      if (!q) return 0;
+      var ti = 0, score = 0, last = -2;
+      for (var qi = 0; qi < q.length; qi++) {
+        var at = text.indexOf(q[qi], ti);
+        if (at === -1) return null;
+        score += (at - ti);
+        if (at === last + 1) score -= 1;      // consecutive bonus
+        last = at; ti = at + 1;
+      }
+      if (text.indexOf(q) === 0) score -= 10; // prefix bonus
+      return score;
+    }
+
+    function _recent() {
+      try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch (e) { return []; }
+    }
+    function _pushRecent(id) {
+      var r = _recent().filter(function (x) { return x !== id; });
+      r.unshift(id);
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(r.slice(0, 20))); } catch (e) {}
+    }
+
+    function _match(q) {
+      var recent = _recent();
+      var all = _pageVerbs().concat(_apiCommands());
+      var scored = [];
+      all.forEach(function (c) {
+        var s = _fuzzy(q, c.label);
+        var sk = c.key ? _fuzzy(q, c.key) : null;
+        if (s === null) s = sk;
+        else if (sk !== null) s = Math.min(s, sk);
+        if (s === null) return;
+        var ri = recent.indexOf(c.id);
+        scored.push({ c: c, score: (ri >= 0 ? ri - 100 : 0) + s });
+      });
+      scored.sort(function (a, b) { return a.score - b.score; });
+      return scored.slice(0, CAP).map(function (x) { return x.c; });
+    }
+
+    // ── dropdown UI ─────────────────────────────────────────────────────────
+    function _open() {
+      if (_el || !_input) return;
+      _el = document.createElement('div');
+      _el.className = 'fb-palette';
+      var wrap = _input.closest('.tb-search-wrap') || _input.parentElement;
+      if (wrap) wrap.style.position = wrap.style.position || 'relative';
+      (wrap || document.body).appendChild(_el);
+    }
+    function _close() { if (_el) { _el.remove(); _el = null; } _activeIdx = -1; _items = []; }
+
+    function _render() {
+      if (!_el) return;
+      if (!_items.length) {
+        _el.innerHTML = '<div class="fb-palette-empty">no matching commands</div>';
+        return;
+      }
+      _el.innerHTML = _items.map(function (c, i) {
+        return '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
+          '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
+          (c.key ? '<kbd>' + esc(c.key) + '</kbd>' : '') +
+          '<span class="fb-palette-scope">' + esc(c.scope) + '</span>' +
+        '</div>';
+      }).join('');
+      Array.prototype.forEach.call(_el.children, function (row) {
+        row.onmousedown = function (e) { e.preventDefault(); }; // keep input focus
+        row.onclick = function () { _execute(_items[Number(row.dataset.i)]); };
+        row.onmouseover = function () { _activeIdx = Number(row.dataset.i); _render(); };
+      });
+      var act = _el.children[_activeIdx];
+      if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
+    }
+
+    function _move(d) {
+      if (!_items.length) return;
+      var i = _activeIdx + d;
+      if (i < 0) i = 0;
+      if (i > _items.length - 1) i = _items.length - 1; // sticky, vim doctrine
+      _activeIdx = i;
+      _render();
+    }
+
+    function _rawQuery() {
+      var v = _input ? _input.value : '';
+      return v.charAt(0) === ':' ? v.slice(1) : v;
+    }
+    function _query(q) {
+      _items = _match(q.trim());
+      _activeIdx = _items.length ? 0 : -1;
+      _render();
+    }
+
+    function _execute(item) {
+      if (!item) return;
+      _pushRecent(item.id);
+      _exitCommand();
+      item.exec();
+    }
+
+    function _runApi(name) {
+      var idk = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random();
+      fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idk },
+        body: JSON.stringify({ action: name, companyId: _company() })
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        var el = document.getElementById('tb-status-msg');
+        if (!el) return;
+        if (res && res.ok === false) el.textContent = name + ': ' + ((res.error && res.error.message) || 'error');
+        else el.textContent = name + ' — done';
+      }).catch(function () {});
+    }
+
+    // ── mode transitions ────────────────────────────────────────────────────
+    function enterCommand() {
+      if (!_input) return;
+      _command = true;
+      _fetchCatalog();
+      _input.value = ':';
+      _input.focus();
+      _input.setSelectionRange(1, 1);
+      _open();
+      _query('');
+    }
+    function _exitCommand() {
+      _command = false;
+      _close();
+      if (_input) { _input.value = ''; _input.blur(); }
+    }
+
+    // ── wiring (called once from common.js with the persistent topbar input) ─
+    function wire(input) {
+      if (_wired || !input) return;
+      _wired = true;
+      _input = input;
+      // Capture phase: command-mode keys must beat the input's other bubble
+      // listeners (Enter-blurs / Esc-clears) — those stay for search mode.
+      input.addEventListener('keydown', function (e) {
+        if (!_command) return;
+        if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) { e.preventDefault(); e.stopImmediatePropagation(); _move(1); }
+        else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) { e.preventDefault(); e.stopImmediatePropagation(); _move(-1); }
+        else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); _exitCommand(); }
+      }, true);
+      input.addEventListener('input', function () {
+        if (!_command) return;
+        // Deleting the ':' prefix drops back to search mode (honest state).
+        if (_input.value.charAt(0) !== ':') { _command = false; _close(); return; }
+        _query(_rawQuery());
+      });
+      input.addEventListener('blur', function () {
+        if (!_command) return;
+        // Small delay so a row click (mousedown-prevented, so blur shouldn't
+        // fire — belt and braces) can still execute first.
+        setTimeout(function () { if (_command) _exitCommand(); }, 150);
+      });
+      input.addEventListener('focus', function () {
+        // Mouse/keyboard entry that isn't enterCommand is always search mode
+        // (magnus decision 2) — no ':'-prefix detection on typed content.
+        if (!_command) _close();
+      });
+    }
+
+    return {
+      wire: wire,
+      enterCommand: enterCommand,
+      isCommand: function () { return _command; },
+      isOpen: function () { return !!_el; }
+    };
+  })();
+
   var keys = {
     register: function (name, def) {
       _sets[name] = def;
@@ -497,7 +743,8 @@
     mode: mode,
     keys: keys,
     nav: nav,
-    dropdown: dropdown
+    dropdown: dropdown,
+    palette: palette
   };
 
   // Legacy global so template-string pages can drop their local esc copies.

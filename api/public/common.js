@@ -303,11 +303,10 @@
       return;
     }
 
-    // ── : or Ctrl+K → focus search bar in command mode ──
+    // ── : or Ctrl+K → command mode on the topbar input (P1-10) ──
     if ((!inInput && e.key === ':') || (e.ctrlKey && e.key === 'k')) {
       e.preventDefault();
-      var sc = document.getElementById('tb-global-search');
-      if (sc) { sc.value = ':'; sc.focus(); sc.setSelectionRange(1, 1); }
+      if (window.FB && FB.palette) FB.palette.enterCommand();
       return;
     }
 
@@ -488,12 +487,13 @@
     if (e.key === 'e') { return; }
   });
 
-  // tb-global-search: Enter blurs, Escape clears+blurs. Filtering itself is
-  // each page's oninput handler. (The old `:`-prefix command dispatch is
-  // gone — it called an undefined fbCmdDispatch; dead code, P1-6.)
+  // tb-global-search: Enter blurs, Escape clears+blurs in SEARCH mode; in
+  // COMMAND mode FB.palette's capture-phase handler owns Enter/Esc/arrows
+  // (P1-10). Filtering itself is each page's oninput handler.
   document.addEventListener('DOMContentLoaded', function() {
     var gs = document.getElementById('tb-global-search');
     if (gs) {
+      if (window.FB && FB.palette) FB.palette.wire(gs);
       gs.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') { gs.value = ''; gs.blur(); }
         if (e.key === 'Enter') { gs.blur(); }

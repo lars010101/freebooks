@@ -93,21 +93,68 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 - `rowStyle(d)` — ECB rows dimmed.
 - `extraBindings` / `focusClass` / `onFocus` — screen verbs + compat globals (`fbVendorSelRow`).
 
-## 8. Leave-guard
+## 8. Filtering — one pattern, two paths
+
+**Status 2026-07-23: filter design agreed with Magnus.** Per-column filtering is a framework feature, declared per column. The Bills `≡` implementation is the reference UX; it is **deleted — not ported — when Bills migrates to FB.list** (see §11 backlog).
+
+**One filter state, two ways to drive it:** a per-column dropdown (mouse) and a command box (keyboard) render the same filter state; editing either updates the other.
+
+### Column config
+
+New optional `filterType` per column (addition to the `columns[]` config in §6):
+
+| `filterType` | Dropdown control |
+|---|---|
+| `'text'` | single text input — case-insensitive substring match |
+| `'date'` | date input with on / before / after operators |
+| `'amount'` | operator (`>`, `<`, `=`, `≥`, `≤`) + value |
+| `'list'` | scrollable distinct-values list, headed by "All (clear filter)" |
+| *(omitted)* | column is non-filterable |
+
+New optional screen-level `hint: 'string'` renders register notes in the sidebar under that tab's keyboard help — the **only sanctioned location** for register notes (no bespoke paragraphs under tables).
+
+### Mouse path — the ≡ dropdown
+
+An `≡` button is absolutely pinned to the right corner of every filterable column header. Clicking it opens the type-appropriate dropdown (table above). While a filter on that column is active, the header shows the active filter state and the filter controls stay visible.
+
+### Keyboard path — the command box
+
+- **`/` opens the command box.** Plain terms are a case-insensitive cross-column fuzzy row filter.
+- If a column header has focus (`h`/`l` moves across headers), `/` opens the box **pre-filled with that column's qualifier prefix** (e.g. `vendor:`), cursor placed after the colon.
+- **Tab inside the box toggles scope** — *This list* (default on a list screen) ↔ *Everywhere*. In *Everywhere* scope, qualifiers become entity selectors (`bill:`, `vendor:`, `account:`). **Only *This list* scope is built now; *Everywhere* is architected-for, not built.**
+
+### Grammar
+
+- Plain terms = case-insensitive cross-column fuzzy row filter. This **supersedes all per-screen search boxes** (e.g. COA's `#coa-search`) — screens stop rendering their own filter inputs; the existing `filter(row, q)` predicate config (§6) remains the mechanism the box's plain-text mode drives.
+- Qualifiers `field:value` filter one column.
+- Operator syntax: `amount:>100`, `date:<2026-07`.
+- Multiple terms/qualifiers AND-combine.
+
+### One filter state, two views
+
+Dropdown choices and the box expression are two renderings of the same filter state; editing either updates the other.
+
+### Verbs
+
+- **`c` clears all filters** (established verb from Bank).
+- **List-level actions:** non-row-editing register actions (e.g. Fetch Rates) may be declared as list-level verbs — a key plus one small button in the list header for mouse parity. They must not edit existing rows.
+
+## 9. Leave-guard
 
 One shared modal per page across all mounted FB.list instances: switching tab/page or sidebar-navigating with any editing-or-dirty row opens **Save / Discard / Stay**. Save = write all dirty rows, proceed only when all succeed; Discard = revert all, proceed; Stay = abort. Hooks: the page's own tab-switch function, `window.fbBeforeTabSwitch` (common.js `{/}` path), and a capture-phase sidebar click handler (mouse parity).
 
-## 9. Bills — Option A (interim doctrine, 2026-07-22)
+## 10. Bills — Option A (interim doctrine, 2026-07-22)
 
 Until Bills migrates onto FB.list (`tree: true`), its bespoke `_insertEscape` follows the same doctrine: **Esc exits INSERT only** — a non-empty inline draft stays as a DOM-marked dirty buffer (`fb-draft-dirty`); `w` persists it (zero drafts server-side until then). Esc on an empty draft discards it.
 
-## 10. Migration backlog (in order)
+## 11. Migration backlog (in order)
 
 1. **Bank Mappings → FB.list.** Then delete the legacy `.fb-ghost-row` CSS (kept only for bank.js) and the `activateMappingGhost` machinery.
-2. **Bills → FB.list with `tree: true`.** Fold/unfold becomes a row property of the same machine; the bill editor screen stays separate. Last bespoke list surface in the app.
-3. **Receivables** built on FB.list from day one (roadmap P3-1).
+2. **Column filters + command box into FB.list** (§8). Landing filters first means Bills' ~450 lines of bespoke filter code are deleted, not ported.
+3. **Bills → FB.list with `tree: true`.** Fold/unfold becomes a row property of the same machine; the bill editor screen stays separate. Last bespoke list surface in the app.
+4. **Receivables** built on FB.list from day one (roadmap P3-1).
 
-## 11. Testing contract
+## 12. Testing contract
 
 - API side unchanged: contract tests (`npm test` in `api/`) cover actions, not pixels.
 - Per migration: live browser verification of the framework cycle on ONE representative screen is sufficient — the behavior is shared code. Cycle: create-from-add-row → Esc-blank vanishes → create → Esc-dirty → `w` lands server-side. Plus screen-specific extras only (dropdown attachers, read-only predicates).

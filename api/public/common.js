@@ -179,6 +179,9 @@
         var newTbRight = doc.querySelector('.tb-right');
         var oldTbRight = document.querySelector('.tb-right');
         if (newTbRight && oldTbRight) oldTbRight.innerHTML = newTbRight.innerHTML;
+        // Re-render dynamic slots + track the arrival as a visit
+        if (window.FB && FB.track && typeof fbSectionOfPath === 'function') FB.track.visit(fbSectionOfPath(url));
+        if (typeof window.fbRenderTopSlots === 'function') window.fbRenderTopSlots(url);
 
         // Call page-specific init if registered
         if (typeof window.fbPageInit === 'function') window.fbPageInit();
@@ -194,6 +197,78 @@
     var target = (e.state && e.state.fbUrl) || window.location.pathname;
     window.fbNavigate(target);
   });
+
+  // ── P2: usage tracking + dynamic topbar slots ────────────────────────────
+  // FB.track: all-time counters in localStorage (no decay — user can clear cache).
+  //   visit:<section>   — page loads (and soft-nav arrivals) per section
+  //   create:<action>   — successful create executions (screen-level, tracked on save)
+  // Dynamic topbar: [+][screen₁] [+][screen₂] ranked by visits, current section
+  // skipped (sub-screens count as parent: bill-edit/detail → payables, bank/* → bank).
+  // Each pair = create shortcut (the object's create route) + screen nav chip.
+  (function() {
+    var LS_KEY = 'fb-usage';
+    function read() { try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return {}; } }
+    function write(d) { try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) {} }
+
+    // section of a path: /co/bill/edit → payables; /co/bank/import → bank; /co/journal/new → journal-new
+    window.fbSectionOfPath = function (path) {
+      var m = String(path || '').match(/^\/[^/]+\/([^/?]+)/);
+      if (!m) return 'dashboard';
+      var seg = m[1];
+      if (seg === 'bill') return 'payables';
+      if (seg === 'journal') return 'journal-new';
+      return seg; // bank, payables, receivables, reports, settings, opening-balances
+    };
+    function sectionOf(path) { return window.fbSectionOfPath(path); }
+
+    window.FB = window.FB || {};
+    FB.track = {
+      visit: function (section) { var d = read(); var k = 'visit:' + section; d[k] = (d[k] || 0) + 1; write(d); },
+      create: function (action) { var d = read(); var k = 'create:' + action; d[k] = (d[k] || 0) + 1; write(d); },
+      _all: read
+    };
+
+    // Create route per section (plus-icon target) — only sections with a create object
+    var CREATE_ROUTES = {
+      'payables':   { label: 'Bill',      path: '/bill/edit' },
+      'bank':       { label: 'Statement', path: '/bank/import' },
+      'settings':   { label: 'Account',   path: '/settings?tab=coa&new=1' }
+    };
+    var SECTION_LABELS = {
+      'dashboard': 'Dashboard', 'bank': 'Bank', 'payables': 'Payables',
+      'receivables': 'Receivables', 'reports': 'Reports', 'settings': 'Settings',
+      'opening-balances': 'Opening Balances', 'journal-new': 'Journal Entry'
+    };
+
+    function company() { return (document.getElementById('app-shell') || {}).dataset ? document.getElementById('app-shell').dataset.company : ''; }
+
+    window.fbRenderTopSlots = function (pathOverride) {
+      var host = document.getElementById('tb-dyn-slots');
+      if (!host) return;
+      var d = read(), cur = sectionOf(pathOverride || location.pathname), co = company();
+      var ranked = Object.keys(SECTION_LABELS)
+        .map(function (s) { return { s: s, n: d['visit:' + s] || 0 }; })
+        .filter(function (x) { return x.n > 0 && x.s !== cur && x.s !== 'journal-new'; })
+        .sort(function (a, b) { return b.n - a.n; });
+      // Cold start: no visits yet → seed with payables + bank
+      if (!Object.keys(d).some(function (k) { return k.indexOf('visit:') === 0; })) {
+        ranked = [{ s: 'payables' }, { s: 'bank' }];
+      }
+      var html = '';
+      ranked.slice(0, 2).forEach(function (x) {
+        var href = '/' + co + (x.s === 'dashboard' ? '' : '/' + x.s);
+        var cr = CREATE_ROUTES[x.s];
+        if (cr) html += '<a class="tb-btn tb-btn-quiet tb-dyn-plus" title="New ' + cr.label + '" href="/' + co + cr.path + '">+</a>';
+        html += '<a class="tb-btn tb-btn-quiet tb-dyn-chip" href="' + href + '">' + SECTION_LABELS[x.s] + '</a>';
+      });
+      host.innerHTML = html;
+    };
+
+    // Track initial load + render slots
+    FB.track.visit(sectionOf(location.pathname));
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', window.fbRenderTopSlots);
+    else window.fbRenderTopSlots();
+  })();
 
   // Intercept sidebar link clicks → SPA navigation (same as { } keyboard nav)
   document.addEventListener('click', function(e) {

@@ -39,42 +39,17 @@ function topBarContext(company, activeKey) {
     return `<a href="${href}" class="tb-btn${primary ? ' tb-btn-primary' : ''}">${label}</a>`;
   }
 
+  void actionBtn; // retained for potential future static slots
+
   const ctx = {
-    dashboard: {
-      nav: ``,
-      actions: `
-        ${actionBtn('+ Bill', `/${company}/bill/edit`, false)}
-        <span class="tb-btn" style="opacity:.4;cursor:default" title="Invoicing coming soon">+ Invoice</span>
-        ${actionBtn('+ Statement', `/${company}/bank/import`, false)}`
-    },
-    bank: {
-      nav: ``,
-      actions: `${actionBtn('+ Statement', `/${company}/bank/import`)}`
-    },
-    payables: {
-      nav: ``,
-      actions: `${actionBtn('+ Bill', `/${company}/bill/edit`)}`
-    },
-    receivables: {
-      nav: ``,
-      actions: `${actionBtn('+ Invoice', '#', false)}`
-    },
-    reports: {
-      nav: ``,
-      actions: ''
-    },
-    auditor: {
-      nav: ``,
-      actions: ''
-    },
-    settings: {
-      nav: ``,
-      actions: ''
-    },
-    newjv: {
-      nav: '',
-      actions: ''
-    }
+    dashboard:  { nav: ``, actions: '' },
+    bank:       { nav: ``, actions: '' },
+    payables:   { nav: ``, actions: '' },
+    receivables:{ nav: ``, actions: '' },
+    reports:    { nav: ``, actions: '' },
+    auditor:    { nav: ``, actions: '' },
+    settings:   { nav: ``, actions: '' },
+    newjv:      { nav: '',  actions: '' }
   };
 
   return ctx[activeKey] || { nav: '', actions: '' };
@@ -149,8 +124,9 @@ function navBar(company, activeKey) {
         </div>
       </div>
       <div class="tb-right">
+        <span id="tb-dyn-slots"></span>
         ${ctx.actions}
-        <a href="/${company}/journal/new" class="tb-btn">+ Journal Entry</a>
+        <a href="/${company}/journal/new" class="tb-btn tb-btn-quiet">+ Journal Entry</a>
         <button class="tb-icon-btn" title="Notifications">🔔</button>
         <button class="tb-icon-btn" id="tb-help-btn" title="Keyboard shortcuts (?)">?</button>
       </div>

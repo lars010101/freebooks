@@ -378,6 +378,9 @@ var kbd = {
         run: function() { self._deleteCurrent(); } },
       { key: 'p', mode: 'NORMAL', hint: 'post/pay', hintBar: true,
         run: function() { self._normalPost(); } },
+      { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true,
+        when: function() { return !!(cursor.rowEl && cursor.rowEl.dataset.draft === 'true' && cursor.rowEl.classList.contains('fb-draft-dirty')); },
+        run: function() { self._writeFocusedDraft(); } },
       // ── INSERT (draft bill editing) ──
       { key: 'Escape', mode: 'INSERT', when: ddOpen,
         run: function() { FB.dropdown.close(); } },
@@ -388,7 +391,7 @@ var kbd = {
         run: function() { closePayRow(); } },
       { key: 'Tab', mode: 'INSERT', when: payRowOpen, swallow: false, preventDefault: false,
         run: function() {} },
-      { key: 'Escape', mode: 'INSERT', hint: 'save/cancel', hintBar: true,
+      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true,
         run: function() { self._insertEscape(); } },
       { key: 'Enter', mode: 'INSERT',
         run: function() { self._insertEnter(); } },
@@ -442,31 +445,31 @@ var kbd = {
     if (rows.length) cursor.set(rows[0], 0);
   },
 
-  // Esc on a draft bill: save (or discard if empty) and exit to NORMAL.
+  // Esc on a draft bill: exit INSERT only — NEVER saves (doctrine: Esc exits
+  // edit mode; w writes). In-memory edits stay in the row as a dirty buffer;
+  // w persists them. Empty draft Esc still discards (nothing to leave dirty).
   _insertEscape: function() {
-    // For draft bills, save and exit INSERT mode directly
     if (cursor.rowEl && cursor.rowEl.dataset.draft === 'true') {
       FB.dropdown.close();
-      // Blur active input
+      // Blur active input — values remain in the DOM inputs (the dirty buffer)
       if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
       // Find parent row
       var parentRow = cursor.rowEl;
       if (parentRow.dataset.rowType === 'child') {
-        // Find parent row for child
         var pKey = parentRow.dataset.parentKey || parentRow.dataset.parentId;
         parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
       }
       if (parentRow && parentRow.dataset.draft === 'true') {
-        // Check if bill is completely empty — if so, discard instead of saving
+        // Completely empty: discard (nothing entered — Esc never creates
+        // something from nothing, and there is no buffer worth keeping).
         if (_isDraftEmpty(parentRow)) {
           _discardDraftBill(parentRow);
-          // _discardDraftBill already sets cursor to next row or clears it.
-          // Don't call cursor.set(parentRow) — parentRow is already removed from DOM.
           cursor.mode = 'NORMAL';
           return;
-        } else {
-          saveDraftToDb(parentRow);
         }
+        // Non-empty: mark dirty so the row shows an unsaved-edits affordance
+        // and w can target it. Values are already in the row's inputs.
+        parentRow.classList.add('fb-draft-dirty');
       }
       cursor.mode = 'NORMAL';
       // Restore row highlight
@@ -475,6 +478,19 @@ var kbd = {
     }
     // Non-draft INSERT mode is no longer possible (bill-level INSERT only
     // for drafts). Nothing to exit.
+  },
+
+  // w on a focused dirty draft: persist it (the doctrine's write verb).
+  _writeFocusedDraft: function() {
+    var parentRow = cursor.rowEl;
+    if (parentRow && parentRow.dataset.rowType === 'child') {
+      var pKey = parentRow.dataset.parentKey || parentRow.dataset.parentId;
+      parentRow = pKey ? (document.querySelector('tr[data-row-type="parent"][data-draft-key="' + pKey + '"]') || document.querySelector('tr[data-row-type="parent"][data-bill-id="' + pKey + '"]')) : null;
+    }
+    if (parentRow && parentRow.dataset.draft === 'true') {
+      saveDraftToDb(parentRow);
+      parentRow.classList.remove('fb-draft-dirty');
+    }
   },
 
   // Enter in INSERT: pick open dropdown item; FX-check on the CCY field;
@@ -1514,6 +1530,12 @@ function _discardDraftBill(parentRowEl) {
 function createDraftBill(refRow) {
   var tbody = document.getElementById('bills-tbody');
   if (!tbody) return;
+  // Guard: the "No bills found." placeholder row has no parent <tbody> wiring
+  // and must not be used as an insert anchor — drop it and append fresh.
+  if (refRow && !refRow.dataset.rowType) refRow = null;
+  // Clear the empty-state placeholder so the new draft row is alone in the body.
+  var placeholder = tbody.querySelector('tr:not([data-row-type])');
+  if (placeholder && !placeholder.dataset.billId && !placeholder.dataset.draft) placeholder.remove();
   var draftKey = 'draft-' + Date.now();
   draftLines[draftKey] = [{ desc: '', amount: 0, vatCode: '', vatAmountOverride: null, expenseAccount: companyDefaultExpense || '' }];
   var tr = document.createElement('tr');

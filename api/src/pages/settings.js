@@ -262,6 +262,7 @@ function showTab(t) {
     else if (t === 'coa') renderCoaHints();
     else if (t === 'vat') renderVatHints();
     else if (t === 'journals') renderJournalHints();
+    else if (t === 'fxrates') FB.keys.renderHints('settings-fxrates', hintEl, { layout: 'list' });
     else hintEl.innerHTML = '';
   }
   if (!tabLoaded[t]) {
@@ -303,7 +304,7 @@ var periodGhostN = 0;           // new-row key counter
 var periodEditIdx = -1;         // row index currently in edit mode (-1 = none)
 var periodNav = null;
 
-function periodRows() { return Array.from(document.querySelectorAll('#periods-body tr')); }
+function periodRows() { return Array.from(document.querySelectorAll('#periods-body tr:not(.fb-ghost-row)')); }
 
 // Merged view: saved rows overlaid with their dirty buffers, then dirty ghosts.
 function periodMerged() {
@@ -314,7 +315,8 @@ function periodMerged() {
   });
   Object.keys(periodsDirty).forEach(function(k) {
     var d = periodsDirty[k];
-    if (d && d.isNew) out.push({ period_id: '', period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: d.locked, _dirty: true, _key: k, _isNew: true });
+    // P2 pinned-top: new (unsaved) rows lead the list, directly under the ghost row.
+    if (d && d.isNew) out.unshift({ period_id: '', period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: d.locked, _dirty: true, _key: k, _isNew: true });
   });
   return out;
 }
@@ -338,7 +340,9 @@ function renderPeriods(focusKey) {
   var tbody = document.getElementById('periods-body');
   if (!tbody) return;
   var merged = periodMerged();
-  tbody.innerHTML = merged.map(function(p, i) {
+  // P2: ghost row pinned-top — the single create affordance (o / click).
+  var ghostHtml = '<tr class="fb-ghost-row" style="cursor:text"><td colspan="5" class="fb-ghost-cell">+ New period <kbd>o</kbd></td></tr>';
+  tbody.innerHTML = ghostHtml + merged.map(function(p, i) {
     var name = p.period_name ? esc(p.period_name) : '<span class="pe-ro">—</span>';
     var start = p.start_date ? esc(FB.util.fmtDate(p.start_date)) : '<span class="pe-ro">—</span>';
     var end = p.end_date ? esc(FB.util.fmtDate(p.end_date)) : '<span class="pe-ro">—</span>';
@@ -357,7 +361,7 @@ function renderPeriods(focusKey) {
       + '<td data-field="locked" style="text-align:center"><input type="checkbox" disabled' + (p.locked ? ' checked' : '') + '></td>'
       + '<td class="row-actions">' + actions + '</td></tr>';
   }).join('');
-  Array.from(tbody.querySelectorAll('tr')).forEach(function(tr) {
+  Array.from(tbody.querySelectorAll('tr:not(.fb-ghost-row)')).forEach(function(tr) {
     tr.addEventListener('click', function(e) {
       if (periodNav) periodNav.set(tr);
       var td = e.target.closest('td');
@@ -365,6 +369,8 @@ function renderPeriods(focusKey) {
       enterPeriodEdit(+tr.dataset.idx, td.dataset.field || undefined);
     });
   });
+  var ghost = tbody.querySelector('.fb-ghost-row');
+  if (ghost) ghost.addEventListener('click', function() { newPeriodRow(); });
   if (periodNav) {
     var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
     periodNav.set(target || periodRows()[0] || null);
@@ -496,7 +502,8 @@ function newPeriodRow() {
   var key = '_new_' + (++periodGhostN);
   periodsDirty[key] = { period_name: '', start_date: '', end_date: '', locked: false, isNew: true };
   renderPeriods(key);
-  enterPeriodEdit(periodRows().length - 1, 'name');
+  enterPeriodEdit(0, 'name'); // new rows unshift to index 0 (pinned-top)
+  if (window.FB && FB.track) FB.track.create('period');
 }
 
 // Edit-mode field movement: Enter/Tab/Shift+Tab move, sticky at ends — never save.
@@ -873,7 +880,7 @@ var SUBTYPES = ['','Current Asset','Non-Current Asset','Current Liability','Non-
 var CF_CATS_COA = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded'];
 var ACCT_TYPES = ['Asset','Liability','Equity','Revenue','Expense','Closing'];
 
-function coaRows() { return Array.from(document.querySelectorAll('#coa-body tr')); }
+function coaRows() { return Array.from(document.querySelectorAll('#coa-body tr:not(.fb-ghost-row)')); }
 
 function coaMerged() {
   var out = coaSaved.map(function(a) {
@@ -883,7 +890,7 @@ function coaMerged() {
   });
   Object.keys(coaDirty).forEach(function(k) {
     var d = coaDirty[k];
-    if (d && d.isNew) out.push({ account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype, cf_category: d.cf_category, is_active: d.is_active, _dirty: true, _key: k, _isNew: true });
+    if (d && d.isNew) out.unshift({ account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype, cf_category: d.cf_category, is_active: d.is_active, _dirty: true, _key: k, _isNew: true }); // P2 pinned-top
   });
   var q = coaFilterQ.toLowerCase();
   if (q) out = out.filter(function(a){ return (a.account_code||'').toLowerCase().indexOf(q) >= 0 || (a.account_name||'').toLowerCase().indexOf(q) >= 0; });
@@ -908,7 +915,7 @@ function renderCoa(focusKey) {
   var tbody = document.getElementById('coa-body');
   if (!tbody) return;
   var merged = coaMerged();
-  tbody.innerHTML = merged.map(function(a, i) {
+  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text"><td colspan="7" class="fb-ghost-cell">+ New account <kbd>o</kbd></td></tr>' + merged.map(function(a, i) {
     var code = a.account_code ? esc(a.account_code) : '<span class="pe-ro">—</span>';
     var name = a.account_name ? esc(a.account_name) : '<span class="pe-ro">—</span>';
     var type = a.account_type ? esc(a.account_type) : '<span class="pe-ro">—</span>';
@@ -935,7 +942,7 @@ function renderCoa(focusKey) {
       + '<td data-field="active" style="text-align:center">' + active + '</td>'
       + '<td class="row-actions">' + actions + '</td></tr>';
   }).join('');
-  Array.from(tbody.querySelectorAll('tr')).forEach(function(tr) {
+  Array.from(tbody.querySelectorAll('tr:not(.fb-ghost-row)')).forEach(function(tr) {
     tr.addEventListener('click', function(e) {
       if (coaNav) coaNav.set(tr);
       var td = e.target.closest('td');
@@ -943,6 +950,8 @@ function renderCoa(focusKey) {
       enterCoaEdit(+tr.dataset.idx, td.dataset.field || undefined);
     });
   });
+  var coaGhost = tbody.querySelector('.fb-ghost-row');
+  if (coaGhost) coaGhost.addEventListener('click', function() { newCoaRow(); });
   if (coaNav) {
     var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
     coaNav.set(target || coaRows()[0] || null);
@@ -1075,7 +1084,8 @@ function newCoaRow() {
   var key = '_new_' + (++coaGhostN);
   coaDirty[key] = { account_code: '', account_name: '', account_type: 'Asset', account_subtype: null, cf_category: null, is_active: true, isNew: true };
   renderCoa(key);
-  enterCoaEdit(coaRows().length - 1, 'code');
+  enterCoaEdit(0, 'code'); // new rows unshift to index 0 (pinned-top)
+  if (window.FB && FB.track) FB.track.create('account');
 }
 
 function advanceCoaField() {
@@ -1152,7 +1162,7 @@ var vatGhostN = 0;
 var vatEditIdx = -1;
 var vatNav = null;
 
-function vatRows() { return Array.from(document.querySelectorAll('#vat-body tr')); }
+function vatRows() { return Array.from(document.querySelectorAll('#vat-body tr:not(.fb-ghost-row)')); }
 
 function vatMerged() {
   var out = vatSaved.map(function(v) {
@@ -1162,7 +1172,7 @@ function vatMerged() {
   });
   Object.keys(vatDirty).forEach(function(k) {
     var d = vatDirty[k];
-    if (d && d.isNew) out.push({ vat_code: d.vat_code, description: d.description, rate: d.rate, input_account: d.input_account, output_account: d.output_account, report_box: d.report_box, is_reverse_charge: d.is_reverse_charge, is_active: d.is_active, _dirty: true, _key: k, _isNew: true });
+    if (d && d.isNew) out.unshift({ vat_code: d.vat_code, description: d.description, rate: d.rate, input_account: d.input_account, output_account: d.output_account, report_box: d.report_box, is_reverse_charge: d.is_reverse_charge, is_active: d.is_active, _dirty: true, _key: k, _isNew: true }); // P2 pinned-top
   });
   return out;
 }
@@ -1180,7 +1190,7 @@ function renderVat(focusKey) {
   var tbody = document.getElementById('vat-body');
   if (!tbody) return;
   var merged = vatMerged();
-  tbody.innerHTML = merged.map(function(v, i) {
+  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text"><td colspan="9" class="fb-ghost-cell">+ New tax code <kbd>o</kbd></td></tr>' + merged.map(function(v, i) {
     var code = v.vat_code ? esc(v.vat_code) : '<span class="pe-ro">—</span>';
     var desc = v.description ? esc(v.description) : '<span class="pe-ro">—</span>';
     var rate = v.rate != null ? esc(String(v.rate)) : '<span class="pe-ro">—</span>';
@@ -1209,7 +1219,7 @@ function renderVat(focusKey) {
       + '<td data-field="active" style="text-align:center">' + (v.is_active ? 'Yes' : 'No') + '</td>'
       + '<td class="row-actions">' + actions + '</td></tr>';
   }).join('');
-  Array.from(tbody.querySelectorAll('tr')).forEach(function(tr) {
+  Array.from(tbody.querySelectorAll('tr:not(.fb-ghost-row)')).forEach(function(tr) {
     tr.addEventListener('click', function(e) {
       if (vatNav) vatNav.set(tr);
       var td = e.target.closest('td');
@@ -1217,6 +1227,8 @@ function renderVat(focusKey) {
       enterVatEdit(+tr.dataset.idx, td.dataset.field || undefined);
     });
   });
+  var vatGhost = tbody.querySelector('.fb-ghost-row');
+  if (vatGhost) vatGhost.addEventListener('click', function() { newVatRow(); });
   if (vatNav) {
     var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
     vatNav.set(target || vatRows()[0] || null);
@@ -1355,7 +1367,8 @@ function newVatRow() {
   var key = '_new_' + (++vatGhostN);
   vatDirty[key] = { vat_code: '', description: '', rate: 0, input_account: '', output_account: '', report_box: '', is_reverse_charge: false, is_active: true, isNew: true };
   renderVat(key);
-  enterVatEdit(vatRows().length - 1, 'code');
+  enterVatEdit(0, 'code'); // new rows unshift to index 0 (pinned-top)
+  if (window.FB && FB.track) FB.track.create('tax-code');
 }
 
 function advanceVatField() {
@@ -1427,7 +1440,7 @@ var journalsGhostN = 0;
 var journalsEditIdx = -1;
 var journalsNav = null;
 
-function journalsRows() { return Array.from(document.querySelectorAll('#journals-body tr')); }
+function journalsRows() { return Array.from(document.querySelectorAll('#journals-body tr:not(.fb-ghost-row)')); }
 
 function journalsMerged() {
   var out = journalsSaved.map(function(j) {
@@ -1437,7 +1450,7 @@ function journalsMerged() {
   });
   Object.keys(journalsDirty).forEach(function(k) {
     var d = journalsDirty[k];
-    if (d && d.isNew) out.push({ journal_id: '', code: d.code, name: d.name, active: d.active, _dirty: true, _key: k, _isNew: true });
+    if (d && d.isNew) out.unshift({ journal_id: '', code: d.code, name: d.name, active: d.active, _dirty: true, _key: k, _isNew: true }); // P2 pinned-top
   });
   return out;
 }
@@ -1455,7 +1468,7 @@ function renderJournals(focusKey) {
   var tbody = document.getElementById('journals-body');
   if (!tbody) return;
   var merged = journalsMerged();
-  tbody.innerHTML = merged.map(function(j, i) {
+  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text"><td colspan="4" class="fb-ghost-cell">+ New journal <kbd>o</kbd></td></tr>' + merged.map(function(j, i) {
     var code = j.code ? esc(j.code) : '<span class="pe-ro">—</span>';
     var name = j.name ? esc(j.name) : '<span class="pe-ro">—</span>';
     if (j._dirty) {
@@ -1471,7 +1484,7 @@ function renderJournals(focusKey) {
       + '<td data-field="active" style="text-align:center">' + (j.active ? 'Yes' : 'No') + '</td>'
       + '<td class="row-actions">' + actions + '</td></tr>';
   }).join('');
-  Array.from(tbody.querySelectorAll('tr')).forEach(function(tr) {
+  Array.from(tbody.querySelectorAll('tr:not(.fb-ghost-row)')).forEach(function(tr) {
     tr.addEventListener('click', function(e) {
       if (journalsNav) journalsNav.set(tr);
       var td = e.target.closest('td');
@@ -1479,6 +1492,8 @@ function renderJournals(focusKey) {
       enterJournalEdit(+tr.dataset.idx, td.dataset.field || undefined);
     });
   });
+  var jGhost = tbody.querySelector('.fb-ghost-row');
+  if (jGhost) jGhost.addEventListener('click', function() { newJournalRow(); });
   if (journalsNav) {
     var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
     journalsNav.set(target || journalsRows()[0] || null);
@@ -1607,7 +1622,8 @@ function newJournalRow() {
   var key = '_new_' + (++journalsGhostN);
   journalsDirty[key] = { code: '', name: '', active: true, isNew: true };
   renderJournals(key);
-  enterJournalEdit(journalsRows().length - 1, 'code');
+  enterJournalEdit(0, 'code'); // new rows unshift to index 0 (pinned-top)
+  if (window.FB && FB.track) FB.track.create('journal-type');
 }
 
 function advanceJournalField() {
@@ -1673,6 +1689,53 @@ function loadJournals(focusKey) {
     ]
   });
 })();
+
+// ── FX Rates tab keyboard (P2) ────────────────────────────────────────────
+(function() {
+  if (!(window.FB && FB.keys)) return;
+  var fxSel = -1;
+  function fxRows() { return Array.from(document.querySelectorAll('#fx-rates-body tr')); }
+  function fxCursor() { fxRows().forEach(function(r, i) { r.classList.toggle('bill-row-focus', i === fxSel); }); }
+  if (FB.keys.unregister) FB.keys.unregister('settings-fxrates');
+  FB.keys.register('settings-fxrates', {
+    active: function() { var p = document.getElementById('tab-fxrates'); return !!(p && p.classList.contains('active')); },
+    getMode: function() {
+      var ae = document.activeElement;
+      return (ae && ae.closest && ae.closest('#fx-rates-body')) ? 'INSERT' : 'NORMAL';
+    },
+    bindings: [
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+        swallow: function() { return fxRows().length > 0; },
+        run: function() { var n = fxRows().length; if (!n) return; fxSel = Math.min(fxSel + 1, n - 1); fxCursor(); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+        swallow: function() { return fxRows().length > 0; },
+        run: function() { fxSel = Math.max(fxSel - 1, 0); fxCursor(); } },
+      { key: 'o', mode: 'NORMAL', hint: 'new rate', hintBar: true,
+        run: function() { addFxRateRow(); } },
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true,
+        swallow: function() { return fxSel >= 0; },
+        run: function() {
+          var tr = fxRows()[fxSel];
+          var inp = tr && tr.querySelector('input');
+          if (inp) inp.focus();
+        } },
+      { key: 'Escape', mode: 'INSERT', hint: 'back',
+        run: function() { if (document.activeElement) document.activeElement.blur(); } }
+    ]
+  });
+})();
+
+// Ghost-row mouse affordance for FX: the staged manual row IS the create target;
+// clicking its non-input area focuses the from-currency field.
+document.addEventListener('click', function(e) {
+  var p = document.getElementById('tab-fxrates');
+  if (!(p && p.classList.contains('active'))) return;
+  var tr = e.target && e.target.closest ? e.target.closest('#fx-rates-body tr') : null;
+  if (!tr || !tr.querySelector('input.fx-from')) return;
+  if (['INPUT','SELECT','BUTTON'].indexOf(e.target.tagName) >= 0) return;
+  var inp = tr.querySelector('input.fx-from');
+  if (inp) inp.focus();
+});
 
 // ========== HANDLE ?tab= URL PARAM ==========
 (function() {
@@ -1743,10 +1806,13 @@ function addFxRateRow() {
     '<td style="text-align:right"><input type="number" class="fx-rate" step="0.000001" style="width:100px" placeholder="e.g. 1.35"></td>' +
     '<td><span class="ro">manual</span></td>' +
     '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()" style="font-size:9pt">×</button></td>';
-  document.getElementById('fx-rates-body').appendChild(tr);
+  // P2 pinned-top: staged manual rows lead the table
+  var tbody = document.getElementById('fx-rates-body');
+  tbody.insertBefore(tr, tbody.firstChild);
   attachCcyDd(tr.querySelector('.fx-from'));
   attachCcyDd(tr.querySelector('.fx-to'));
   tr.querySelector('.fx-from').focus();
+  if (window.FB && FB.track) FB.track.create('fx-rate');
 }
 
 function deleteFxRate(date, from, to, source) {

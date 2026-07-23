@@ -370,6 +370,63 @@ ${commonStyle()}
   });
   FB.keys.renderHints('bank', document.getElementById('sb-hints'), { layout: 'list' });
 
+  // ── Mappings tab keyboard (P2): ghost-row create + row nav ──────────────
+  function _mappingsVisible() {
+    var p = document.getElementById('bank-panel-mappings');
+    return !!(p && p.style.display !== 'none');
+  }
+  function _mappingRows() {
+    return Array.from(document.querySelectorAll('#mappings-body tr'));
+  }
+  var _mapSel = -1;
+  function _mapCursor() {
+    _mappingRows().forEach(function(r, i) { r.classList.toggle('bill-row-focus', i === _mapSel); });
+  }
+  FB.keys.register('bank-mappings', {
+    active: _mappingsVisible,
+    getMode: function() {
+      var ae = document.activeElement;
+      return (ae && ae.closest && ae.closest('#mappings-body')) ? 'INSERT' : 'NORMAL';
+    },
+    bindings: [
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+        swallow: function() { return _mappingRows().length > 0; },
+        run: function() { var n = _mappingRows().length; if (!n) return; _mapSel = Math.min(_mapSel + 1, n - 1); _mapCursor(); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+        swallow: function() { return _mappingRows().length > 0; },
+        run: function() { _mapSel = Math.max(_mapSel - 1, 0); _mapCursor(); } },
+      { key: 'o', mode: 'NORMAL', hint: 'new mapping', hintBar: true,
+        run: function() {
+          var tr = prependBlankMappingRow();
+          if (!tr) return;
+          tr.classList.remove('fb-ghost-row');
+          var inp = tr.cells[0].querySelector('input');
+          if (inp) { inp.focus(); }
+          if (window.FB && FB.track) FB.track.create('mapping');
+        } },
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true,
+        swallow: function() { return _mapSel >= 0; },
+        run: function() {
+          var tr = _mappingRows()[_mapSel];
+          if (!tr) return;
+          var inp = tr.cells[0].querySelector('input');
+          if (inp) inp.focus();
+        } },
+      { key: 'Escape', mode: 'INSERT', hint: 'back',
+        run: function() { if (document.activeElement) document.activeElement.blur(); } }
+    ]
+  });
+
+  // Ghost-row mouse affordance: clicking anywhere on the blank top row focuses
+  // its pattern input (row itself is the create target).
+  document.getElementById('mappings-body').addEventListener('click', function(e) {
+    var tr = e.target.closest ? e.target.closest('tr.fb-ghost-row') : null;
+    if (!tr) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'BUTTON') return;
+    var inp = tr.cells[0].querySelector('input');
+    if (inp) inp.focus();
+  });
+
 
   function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
@@ -381,12 +438,11 @@ function showBankTab(t) {
     if (tabEl) tabEl.classList.toggle('active', id === t);
   });
   if (t === 'mappings') { loadMappings(); loadBankMappingAccounts(); }
-  // Sidebar hints follow the active tab: txn has an FB.keys set; mappings
-  // (per-row-input edit table) is not migrated — clear rather than mislead.
+  // Sidebar hints follow the active tab's FB.keys set.
   var hints = document.getElementById('sb-hints');
   if (hints) {
     if (t === 'txn') FB.keys.renderHints('bank', hints, { layout: 'list' });
-    else hints.innerHTML = '';
+    else FB.keys.renderHints('bank-mappings', hints, { layout: 'list' });
   }
 }
 
@@ -436,14 +492,25 @@ function addMappingRow(m) {
   attachMappingAcctDd(tr.querySelector('.bm-acct'));
   return tr;
 }
-function appendBlankMappingRow() {
+// P2 pinned-top: the blank create-row leads the table (single create affordance,
+// always visible, mouse + keyboard 'o' target). Returns the existing blank when
+// one is already at the top untouched.
+function prependBlankMappingRow() {
   var tbody = document.getElementById('mappings-body');
-  var rows = tbody ? tbody.querySelectorAll('tr') : [];
-  if (rows.length > 0) {
-    var lastInput = rows[rows.length-1].cells[0].querySelector('input');
-    if (lastInput && !lastInput.value.trim()) return;
+  if (!tbody) return null;
+  var first = tbody.querySelector('tr');
+  if (first && !first.dataset.mappingId) {
+    var fi = first.cells[0].querySelector('input');
+    if (fi && !fi.value.trim()) return first; // already there, untouched
   }
-  addMappingRow({});
+  var tr = addMappingRow({});
+  tbody.insertBefore(tr, tbody.firstChild);
+  tr.classList.add('fb-ghost-row');
+  return tr;
+}
+function appendBlankMappingRow() {
+  // Legacy callers (post-save/delete replenishment) now repin at top instead.
+  return prependBlankMappingRow();
 }
 function saveMappingRow(tr) {
   var inputs = tr.querySelectorAll('input');
@@ -504,7 +571,7 @@ function loadMappings() {
       if (res.error) throw new Error(res.error);
       if (!Array.isArray(rows)) throw new Error('Unexpected response: ' + JSON.stringify(res).slice(0, 100));
       rows.forEach(addMappingRow);
-      appendBlankMappingRow();
+      prependBlankMappingRow();
       bankMappingsDirty = false;
       if (msgEl) { msgEl.textContent = rows.length ? '' : 'No rules yet.'; msgEl.className = 'msg'; }
     })

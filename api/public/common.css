@@ -411,6 +411,33 @@ tr.nav-row-focus > td input { color: #fff !important; background: transparent !i
 .tb-btn:hover { background: var(--bg); }
 .tb-btn.tb-btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .tb-btn.tb-btn-primary:hover { opacity: .88; }
+/* Quiet variant: permanent/secondary topbar actions (+ Journal Entry, dynamic slots) */
+.tb-btn.tb-btn-quiet { opacity: .72; }
+.tb-btn.tb-btn-quiet:hover { opacity: 1; }
+/* Dynamic slot pair: + icon snug against its screen chip */
+.tb-dyn-plus { padding-left: 8px; padding-right: 8px; margin-right: -4px; font-weight: 600; }
+.tb-dyn-chip { margin-right: 10px; }
+
+/* P2 ghost row: persistent empty create-row pinned under thead.
+   Single create affordance — o focuses it, mouse clicks into it. */
+.fb-ghost-row td,
+.fb-ghost-cell {
+  color: var(--muted, #999) !important;
+  font-style: italic;
+  background: var(--surface);
+  border-bottom: 1px dashed var(--border) !important;
+  padding: 10px 12px !important;
+  user-select: none;
+}
+.fb-ghost-row:hover td { background: var(--bg) !important; color: var(--text) !important; }
+.fb-ghost-cell kbd {
+  font-style: normal; font-size: 9pt; opacity: .7;
+  border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; margin-left: 4px;
+}
+
+/* Unsaved inline-draft edits left behind by Esc (write with w) */
+tr.fb-draft-dirty td { background: #fffbf0; }
+body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 .tb-icon-btn {
   width: 32px; height: 32px;
   border: 1px solid var(--border);

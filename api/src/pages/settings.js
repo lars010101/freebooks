@@ -329,7 +329,7 @@ var periodsList = FB.list.create({
     body: function(d) { return { period: { period_id: d._isNew ? d.period_name : d._key, period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: !!d.locked } }; },
     focusKey: function(d) { return d._isNew ? d.period_name : d._key; } },
   del: { action: 'period.delete',
-    body: function(key) { return { periodId: key }; },
+    body: function(d) { return { periodId: d._key }; },
     confirm: function(d) { return 'Delete period "' + d.period_name + '"?'; } },
   onChrome: function(dirty) {
     var dot = document.getElementById('tab-dot-periods');
@@ -597,7 +597,7 @@ var coaList = FB.list.create({
     body: function(d) { return { account: { account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype || null, cf_category: d.cf_category || null, is_active: !!d.is_active } }; },
     focusKey: function(d) { return d._isNew ? d.account_code : d._key; } },
   del: { action: 'coa.delete',
-    body: function(key) { return { accountCode: key }; },
+    body: function(d) { return { accountCode: d._key }; },
     confirm: function(d) { return 'Delete account "' + d.account_code + '"? This will fail if the account has transactions.'; } },
   onChrome: function(dirty) {
     var dot = document.getElementById('tab-dot-coa');
@@ -651,7 +651,7 @@ var vatList = FB.list.create({
     body: function(d) { return { vatCode: { vat_code: d._isNew ? d.vat_code : d._key, description: d.description || null, rate: d.rate || 0, input_account: d.input_account || null, output_account: d.output_account || null, report_box: d.report_box || null, is_reverse_charge: !!d.is_reverse_charge, is_active: !!d.is_active } }; },
     focusKey: function(d) { return d._isNew ? d.vat_code : d._key; } },
   del: { action: 'vat.codes.delete',
-    body: function(key) { return { vatCode: key }; },
+    body: function(d) { return { vatCode: d._key }; },
     confirm: function(d) { return 'Delete VAT code "' + d.vat_code + '"?'; } },
   onChrome: function(dirty) {
     var dot = document.getElementById('tab-dot-vat');
@@ -691,7 +691,7 @@ var journalsList = FB.list.create({
     body: function(d) { return { journal: { journal_id: d._isNew ? null : d._key, code: d.code, name: d.name, active: !!d.active } }; },
     focusKey: function(d, res) { return d._isNew ? (res.journalId || d.code) : d._key; } },
   del: { action: 'journals.delete',
-    body: function(key) { return { journalId: key }; },
+    body: function(d) { return { journalId: d._key }; },
     confirm: function(d) { return 'Deactivate journal "' + d.code + '"? (soft delete — existing references preserved)'; } },
   onChrome: function(dirty) {
     var dot = document.getElementById('tab-dot-journals');
@@ -706,71 +706,7 @@ function renderJournalHints() {
   if (el) journalsList.renderHints(el);
 }
 
-// ── FX Rates tab keyboard (P2) ────────────────────────────────────────────
-(function() {
-  if (!(window.FB && FB.keys)) return;
-  var fxSel = -1;
-  function fxRows() { return Array.from(document.querySelectorAll('#fx-rates-body tr')); }
-  function fxCursor() { fxRows().forEach(function(r, i) { r.classList.toggle('bill-row-focus', i === fxSel); }); }
-  if (FB.keys.unregister) FB.keys.unregister('settings-fxrates');
-  FB.keys.register('settings-fxrates', {
-    active: function() { var p = document.getElementById('tab-fxrates'); return !!(p && p.classList.contains('active')); },
-    getMode: function() {
-      var ae = document.activeElement;
-      return (ae && ae.closest && ae.closest('#fx-rates-body')) ? 'INSERT' : 'NORMAL';
-    },
-    bindings: [
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true,
-        swallow: function() { return fxRows().length > 0; },
-        run: function() { var n = fxRows().length; if (!n) return; fxSel = Math.min(fxSel + 1, n - 1); fxCursor(); } },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
-        swallow: function() { return fxRows().length > 0; },
-        run: function() { fxSel = Math.max(fxSel - 1, 0); fxCursor(); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true,
-        swallow: function() { return fxSel >= 0; },
-        run: function() {
-          var tr = fxRows()[fxSel];
-          if (!tr) return;
-          if (tr.classList.contains('fb-ghost-row')) { addFxRateRow(); return; } // i on ghost = create
-          var inp = tr.querySelector('input');
-          if (inp) inp.focus();
-        } },
-      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true,
-        swallow: function() { return fxSel >= 0; },
-        run: function() {
-          var tr = fxRows()[fxSel];
-          if (!tr) return;
-          if (tr.classList.contains('fb-ghost-row')) { addFxRateRow(); return; } // Enter on ghost = create
-          var inp = tr.querySelector('input');
-          if (inp) inp.focus();
-        } },
-      { key: 'Escape', mode: 'INSERT', hint: 'back',
-        run: function() { if (document.activeElement) document.activeElement.blur(); } }
-    ]
-  });
-})();
 
-// Ghost-row mouse affordance for FX: clicking the faded ghost stages a manual
-// row; clicking a staged row's non-input area focuses its from-currency field.
-document.addEventListener('click', function(e) {
-  var p = document.getElementById('tab-fxrates');
-  if (!(p && p.classList.contains('active'))) return;
-  var tr = e.target && e.target.closest ? e.target.closest('#fx-rates-body tr') : null;
-  if (!tr) return;
-  if (tr.classList.contains('fb-ghost-row')) { addFxRateRow(); return; }
-  if (!tr.querySelector('input.fx-from')) return;
-  if (['INPUT','SELECT','BUTTON'].indexOf(e.target.tagName) >= 0) return;
-  var inp = tr.querySelector('input.fx-from');
-  if (inp) inp.focus();
-});
-
-// ========== HANDLE ?tab= URL PARAM ==========
-(function() {
-  var params = new URLSearchParams(window.location.search);
-  var tab = params.get('tab');
-  loadCurrencyList();
-  showTab(tab || 'company');
-})();
 
 // Wire FX rates save button
 var fxSaveBtn = document.querySelector('#fx-rates-body');
@@ -779,9 +715,47 @@ if (!fxSaveBtn) {
   s.textContent = '(function(){ var tbody = document.getElementById("fx-rates-body"); if (tbody && !tbody.dataset.fxWired) { tbody.dataset.fxWired = true; var frm = tbody.parentElement.parentElement; var btn = document.createElement("button"); btn.className = "btn-primary"; btn.textContent = "Save Rates"; btn.onclick = saveFxRates; frm.appendChild(btn); } })();';
   document.body.appendChild(s);
 }
-// ========== EXCHANGE RATES ==========
-var fxRatesData = [];
-var baseCurrencies = new Set();
+// ========== EXCHANGE RATES — FB.list (P3 consolidated) ==========
+// Manual rates are staged via the ghost row (i / click), written with w or all
+// at once with Save Rates. ECB-sourced rows are read-only (no edit, no delete).
+var fxList = FB.list.create({
+  keysId: 'settings-fxrates',
+  active: function() { var p = document.getElementById('tab-fxrates'); return !!(p && p.classList.contains('active')); },
+  tbody: 'fx-rates-body',
+  msg: 'msg-fxrates',
+  companyId: function() { return COMPANY; },
+  focusClass: 'bill-row-focus',
+  columns: [
+    { field: 'date', type: 'date', width: 120 },
+    { field: 'from_currency', type: 'text', width: 60, uppercase: true, attach: attachCcyDd },
+    { field: 'to_currency', type: 'text', width: 60, uppercase: true, attach: attachCcyDd },
+    { field: 'rate', type: 'number', step: '0.000001', width: 100,
+      display: function(v) { return (v !== null && v !== undefined && v !== '') ? Number(v).toFixed(6) : '<span class="pe-ro">—</span>'; } },
+    { field: 'source', ro: 'always' }
+  ],
+  blank: function() { return { date: new Date().toISOString().slice(0, 10), from_currency: '', to_currency: '', rate: '', source: 'manual' }; },
+  isBlank: function(b) { return !b.from_currency && !b.to_currency && !b.rate; },
+  same: function() { return true; }, // saved rows are read-only — never edited
+  editable: function(d) { return d._isNew; },
+  deletable: function(d) { return d.source !== 'ecb'; },
+  rowStyle: function(d) { return d.source === 'ecb' ? 'opacity:0.6' : ''; },
+  validate: function(d) {
+    if (!d.date || !d.from_currency || !d.to_currency) return 'Date, from and to required';
+    if (!(Number(d.rate) > 0)) return 'Rate must be greater than 0';
+    return null;
+  },
+  firstField: function() { return 'from_currency'; },
+  track: 'fx-rate',
+  list: { action: 'fx.rates.list',
+    body: function() { var c = window._companyCurrency || ''; return c ? { baseCurrency: c } : {}; },
+    map: function(r) { return { date: r.date ? String(r.date).slice(0, 10) : '', from_currency: r.from_currency || '', to_currency: r.to_currency || '', rate: Number(r.rate), source: r.source || 'manual', _key: String(r.date).slice(0, 10) + '|' + r.from_currency + '|' + r.to_currency + '|' + (r.source || 'manual') }; } },
+  save: { action: 'fx.rates.save',
+    body: function(d) { return { rates: [{ date: d.date, from_currency: d.from_currency, to_currency: d.to_currency, rate: Number(d.rate) }] }; },
+    focusKey: function(d) { return d._key; } },
+  del: { action: 'fx.rates.delete',
+    body: function(d) { return { date: d.date, from_currency: d.from_currency, to_currency: d.to_currency, source: d.source }; },
+    confirm: function() { return 'Delete this rate?'; } }
+});
 
 function loadBaseCurrencies() {
   // Update the display of current company's base currency
@@ -792,72 +766,8 @@ function loadBaseCurrencies() {
   }
 }
 
-function loadFxRates() {
-  var compCcy = window._companyCurrency || '';
-  var params = { action:'fx.rates.list', companyId: COMPANY };
-  if (compCcy) params.baseCurrency = compCcy;
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(params) })
-    .then(function(r){ return r.json(); }).then(function(res){
-      fxRatesData = res.data || res;
-      renderFxRates(Array.isArray(fxRatesData) ? fxRatesData : []);
-      loadBaseCurrencies();
-    }).catch(function(){});
-}
+function loadFxRates() { fxList.load().then(loadBaseCurrencies); }
 
-function renderFxRates(rows) {
-  var tbody = document.getElementById('fx-rates-body');
-  tbody.innerHTML = '';
-  // P2: faded display-only ghost row pinned-top (i / click stages a manual rate).
-  var ghost = document.createElement('tr');
-  ghost.className = 'fb-ghost-row';
-  ghost.style.cursor = 'text';
-  ghost.innerHTML = '<td><span class="fb-ghost-ph">Date</span></td>'
-    + '<td><span class="fb-ghost-ph">From</span></td>'
-    + '<td><span class="fb-ghost-ph">To</span></td>'
-    + '<td style="text-align:right"><span class="fb-ghost-ph">Rate</span></td>'
-    + '<td><span class="fb-ghost-ph">Source</span></td><td></td>';
-  tbody.appendChild(ghost);
-  rows.forEach(function(r){
-    var tr = document.createElement('tr');
-    var isEcb = r.source === 'ecb';
-    if (isEcb) tr.style.opacity = '0.6';
-    var date = r.date ? String(r.date).slice(0, 10) : '';
-    tr.innerHTML =
-      '<td><span class="ro">' + date + '</span></td>' +
-      '<td><span class="ro">' + (r.from_currency || '') + '</span></td>' +
-      '<td><span class="ro">' + (r.to_currency || '') + '</span></td>' +
-      '<td style="text-align:right"><span class="ro">' + (Number(r.rate).toFixed(6)) + '</span></td>' +
-      '<td><span class="ro">' + (r.source || '') + '</span></td>' +
-      '<td>' + (isEcb ? '' : '<button class="btn-sm danger" onclick="deleteFxRate(&apos;' + date + '&apos;, &apos;' + r.from_currency + '&apos;, &apos;' + r.to_currency + '&apos;, &apos;' + r.source + '&apos;)" style="font-size:9pt">×</button>') + '</td>';
-    tbody.appendChild(tr);
-  });
-}
-
-function addFxRateRow() {
-  var tr = document.createElement('tr');
-  var today = new Date().toISOString().slice(0, 10);
-  tr.innerHTML =
-    '<td><input type="date" class="fx-date" style="width:120px" value="' + today + '"></td>' +
-    '<td><input type="text" class="fx-from" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="e.g. USD"></td>' +
-    '<td><input type="text" class="fx-to" maxlength="3" style="width:60px;text-transform:uppercase" placeholder="e.g. SGD"></td>' +
-    '<td style="text-align:right"><input type="number" class="fx-rate" step="0.000001" style="width:100px" placeholder="e.g. 1.35"></td>' +
-    '<td><span class="ro">manual</span></td>' +
-    '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()" style="font-size:9pt">×</button></td>';
-  // P2 pinned-top: staged manual rows lead the table, directly under the ghost.
-  var tbody = document.getElementById('fx-rates-body');
-  tbody.insertBefore(tr, tbody.children[1] || null);
-  attachCcyDd(tr.querySelector('.fx-from'));
-  attachCcyDd(tr.querySelector('.fx-to'));
-  tr.querySelector('.fx-from').focus();
-  if (window.FB && FB.track) FB.track.create('fx-rate');
-}
-
-function deleteFxRate(date, from, to, source) {
-  if (!confirm('Delete this rate?')) return;
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.rates.delete', companyId: COMPANY, date: date, from_currency: from, to_currency: to, source: source }) })
-    .then(function(r){ return r.json(); }).then(function(r){ if (!r.error && !r.data.error) loadFxRates(); else showMsg('msg-fxrates', r.error || r.data.error, true); })
-    .catch(function(e){ showMsg('msg-fxrates', e.message, true); });
-}
 
 function fetchFromEcb() {
   var baseCcy = window._companyCurrency || '';
@@ -874,29 +784,11 @@ function fetchFromEcb() {
 }
 
 function saveFxRates() {
-  var newRates = [];
-  var missing = [];
-  var rows = Array.from(document.querySelectorAll('#fx-rates-body tr')).filter(function(tr){ return tr.querySelector('.fx-date'); });
-  // clear previous field highlights
-  rows.forEach(function(tr){ ['fx-date','fx-from','fx-to','fx-rate'].forEach(function(c){ var el = tr.querySelector('.'+c); if (el) el.style.borderColor=''; }); });
-  if (!rows.length) { showMsg('msg-fxrates', 'Open the top row first (i or click), then fill in date, from, to, and rate', true); return; }
-  rows.forEach(function(tr, i){
-    var date = tr.querySelector('.fx-date').value;
-    var from = tr.querySelector('.fx-from').value.trim().toUpperCase();
-    var to = tr.querySelector('.fx-to').value.trim().toUpperCase();
-    var rate = parseFloat(tr.querySelector('.fx-rate').value || 0);
-    var miss = [];
-    if (!date) { miss.push('date'); tr.querySelector('.fx-date').style.borderColor='#c33'; }
-    if (!from) { miss.push('from'); tr.querySelector('.fx-from').style.borderColor='#c33'; }
-    if (!to) { miss.push('to'); tr.querySelector('.fx-to').style.borderColor='#c33'; }
-    if (!(rate > 0)) { miss.push('rate'); tr.querySelector('.fx-rate').style.borderColor='#c33'; }
-    if (miss.length) { missing.push('Row ' + (i+1) + ': ' + miss.join(', ')); }
-    else { newRates.push({ date: date, from_currency: from, to_currency: to, rate: rate }); }
+  if (!fxList.anyDirty()) { showMsg('msg-fxrates', 'Open the top row first (i or click), then fill in date, from, to, and rate', true); return; }
+  fxList.writeAllDirty().then(function(ok) {
+    if (ok) showMsg('msg-fxrates', 'Rates saved', false);
+    else showMsg('msg-fxrates', 'Some rates could not be saved', true);
   });
-  if (missing.length) { showMsg('msg-fxrates', 'Missing fields — ' + missing.join('; '), true); return; }
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.rates.save', companyId: COMPANY, rates: newRates }) })
-    .then(function(r){ return r.json(); }).then(function(r){ var d = r.data||r; showMsg('msg-fxrates', r.error||d.error||('Saved '+newRates.length+' rates'), !!(r.error||d.error)); if (!r.error && !d.error) loadFxRates(); })
-    .catch(function(e){ showMsg('msg-fxrates', e.message, true); });
 }
 
 // ========== CURRENCY LIST (FB.dropdown source) ==========
@@ -1122,6 +1014,14 @@ window.onbeforeunload = function(e) {
   }
 };
 
+
+// ========== HANDLE ?tab= URL PARAM ==========
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var tab = params.get('tab');
+  loadCurrencyList();
+  showTab(tab || 'company');
+})();
 </script>
 ${layoutEnd()}
 </body>

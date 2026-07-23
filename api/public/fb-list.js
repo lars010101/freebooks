@@ -20,24 +20,32 @@
  *   msg        element id for status/error messages (optional)
  *   companyId  fn → company id for /api/action payloads
  *   columns    [{ field, type, width, align, ro, uppercase, step, options,
- *                 nullable, display }]
+ *                 nullable, display, attach }]
  *              field    buffer property name (also data-field + input class)
  *              type     'text' (default) | 'date' | 'number' | 'checkbox' | 'select'
  *              ro       'saved' → read-only when editing a SAVED row (key col)
+ *                       'always' → display-only in BOTH modes (badges, source)
  *              options  select values: ['a','b'] or [{value,label}]; '' = '- none -'
  *              nullable select: '' harvests as null
  *              display  fn(value, row) → HTML for view mode (default: esc or —)
+ *              attach   fn(input, tr) — post-build hook (FB.dropdown, etc.)
  *   blank()    → new-row buffer defaults
  *   isBlank(b) → true when a NEW buffer is untouched (vanishes on Esc)
  *   same(b, s) → true when buffer matches saved row (dirty dropped)
  *   validate(d)→ error string | null
+ *   editable(d)→ bool (default true); false = row never enters edit (ECB rates)
+ *   deletable(d)→ bool (default true); false = x is a no-op on that row
+ *   rowStyle(d)→ cssText for the <tr> (e.g. opacity for ECB rows)
  *   firstField(isNew) → field to focus when entering edit
  *   track      FB.track.create name for creates (optional)
  *   label      ghost-row text (default 'Edit me to add new entry')
  *   list       { action } | { url } + map(raw) → saved row incl. _key
  *   save       { action, body(d) → payload extras, focusKey(d, res) → key }
- *   del        { action, body(key) → payload extras, confirm(d) → string } | null
+ *   del        { action, body(d) → payload extras, confirm(d) → string } | null
  *   onChrome   fn(anyDirty) — tab dot / dirty-tab bookkeeping (optional)
+ *   onFocus    fn(tr) — nav focus hook (compat globals; optional)
+ *   focusClass nav highlight class (default 'nav-row-focus')
+ *   extraBindings fn(api) → [bindings] appended to the NORMAL set (optional)
  *   filter     fn(row, q) → bool (optional; enables setFilter)
  *
  * Instance: { load, render, anyDirty, mounted, writeAllDirty, discardAll,
@@ -101,13 +109,51 @@
     function syncChrome() { if (cfg.onChrome) cfg.onChrome(anyDirty()); }
 
     // ── Render ───────────────────────────────────────────────────────────
+    // The ghost row is a GRAYED-OUT REPLICA of the live edit row: same inputs
+    // (disabled), selects at their defaults, checkbox, grayed ✓/✕. While a new
+    // row is being created the ghost IS the edit row (navy) — on exit it fades
+    // back to the grayed replica.
+    function ghostCell(c, d, isFirstText) {
+      var val = d[c.field];
+      if (c.ro === 'always') return c.display ? c.display(val, d) : defaultDisplay(val);
+      var cls = 'fb-e-' + c.field;
+      var w = c.width ? ' style="width:' + c.width + 'px"' : '';
+      if (c.type === 'checkbox') {
+        return '<input type="checkbox" class="' + cls + '" disabled' + (val ? ' checked' : '') + '>';
+      }
+      if (c.type === 'date') {
+        return '<input type="date" class="' + cls + '" disabled' + w + '>';
+      }
+      if (c.type === 'number') {
+        return '<input type="number" class="' + cls + '" value="' + (val != null ? val : 0) + '" disabled'
+          + (c.step ? ' step="' + c.step + '"' : '') + w + '>';
+      }
+      if (c.type === 'select') {
+        var opts = (c.options || []).map(function (o) {
+          var v = typeof o === 'string' ? o : o.value;
+          var label = typeof o === 'string' ? (o || '- none -') : o.label;
+          return '<option value="' + esc(v) + '"' + (v === (val || '') ? ' selected' : '') + '>' + esc(label) + '</option>';
+        }).join('');
+        return '<select class="' + cls + '" disabled' + w + '>' + opts + '</select>';
+      }
+      return '<input type="text" class="' + cls + '" value="" disabled' + w
+        + (isFirstText ? ' placeholder="' + esc(cfg.label || 'Edit me to add new entry') + '"' : '') + '>';
+    }
     function ghostHtml() {
-      var tds = cfg.columns.map(function (c, i) {
-        return i === 0
-          ? '<td><span class="fb-ghost-label">' + esc(cfg.label || 'Edit me to add new entry') + '</span></td>'
-          : '<td></td>';
+      var d = Object.assign(cfg.blank(), { _isNew: true });
+      var firstTextSeen = false;
+      var tds = cfg.columns.map(function (c) {
+        var isFirstText = false;
+        if (!firstTextSeen && (!c.type || c.type === 'text')) { isFirstText = true; firstTextSeen = true; }
+        return '<td data-field="' + c.field + '"' + (c.align === 'center' ? ' style="text-align:center"' : '') + '>' + ghostCell(c, d, isFirstText) + '</td>';
       }).join('');
-      return '<tr class="fb-ghost-row" style="cursor:text">' + tds + '<td></td></tr>';
+      return '<tr class="fb-ghost-row" style="cursor:text">' + tds
+        + '<td class="row-actions"><a class="chip chip-ok fb-ghost-chip" tabindex="-1">✓</a> '
+        + '<a class="chip chip-cancel fb-ghost-chip" tabindex="-1">✕</a></td></tr>';
+    }
+    function hideGhost(tb) {
+      var g = tb.querySelector('.fb-ghost-row');
+      if (g) g.style.display = 'none';
     }
     function defaultDisplay(v) {
       return (v !== null && v !== undefined && v !== '') ? esc(String(v)) : '<span class="pe-ro">—</span>';
@@ -121,7 +167,8 @@
       var actions = d._dirty
         ? '<a class="chip chip-ok" title="write (w)" data-act="write">✓</a> <a class="chip chip-cancel" title="revert (u)" data-act="revert">✕</a>'
         : '';
-      return '<tr' + (d._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(String(d._key)) + '">'
+      return '<tr' + (d._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(String(d._key)) + '"'
+        + (cfg.rowStyle ? ' style="' + cfg.rowStyle(d) + '"' : '') + '>'
         + cells + '<td class="row-actions">' + actions + '</td></tr>';
     }
     function wireChips(tb) {
@@ -146,6 +193,8 @@
           if (nav) nav.set(tr);
           var td = e.target.closest('td');
           if (!td || td.classList.contains('row-actions')) return;
+          var d = merged()[+tr.dataset.idx];
+          if (cfg.editable && d && !cfg.editable(d)) return; // read-only row
           enterEdit(+tr.dataset.idx, td.dataset.field || undefined);
         });
       });
@@ -161,6 +210,7 @@
     // ── Edit ─────────────────────────────────────────────────────────────
     function editCell(c, d) {
       var val = d[c.field];
+      if (c.ro === 'always') return c.display ? c.display(val, d) : defaultDisplay(val);
       if (c.ro === 'saved' && !d._isNew) {
         return '<span class="pe-ro">' + esc(val == null ? '' : String(val)) + '</span>';
       }
@@ -187,10 +237,13 @@
       return '<input type="text" class="' + cls + '" value="' + esc(val == null ? '' : String(val)) + '"' + w
         + (c.uppercase ? ' oninput="this.value=this.value.toUpperCase()"' : '') + '>';
     }
-    function editable(c, d) { return !(c.ro === 'saved' && !d._isNew); }
+    function editable(c, d) { return !(c.ro === 'saved' && !d._isNew) && c.ro !== 'always'; }
 
     function enterEdit(idx, field) {
       if (editIdx === idx) return;
+      var d0 = merged()[idx];
+      if (!d0) return;
+      if (cfg.editable && !cfg.editable(d0)) return; // read-only row (e.g. ECB rate)
       if (editIdx >= 0) exitEdit(); // click-away: exit, dirty buffer kept
       var d = merged()[idx];
       var tr = rows()[idx];
@@ -203,6 +256,13 @@
         + '<a class="chip chip-cancel" title="exit (Esc)" data-act="exit">✕</a></td>';
       wireChips(tbody());
       tr.classList.add('row-editing');
+      if (d._isNew) hideGhost(tbody()); // ghost transforms INTO the edit row
+      cfg.columns.forEach(function (c) {
+        if (c.attach && editable(c, d)) {
+          var inp = tr.querySelector('.fb-e-' + c.field);
+          if (inp) c.attach(inp, tr);
+        }
+      });
       if (window.FB && FB.mode) FB.mode.set('INSERT');
       window.fbEditActive = true;
       var f = (field && cfg.columns.some(function (c) { return c.field === field && editable(c, d); }))
@@ -282,8 +342,9 @@
       if (!d) return;
       if (d._isNew) { delete dirty[d._key]; render(); syncChrome(); return; }
       if (!cfg.del) return;
+      if (cfg.deletable && !cfg.deletable(d)) return; // read-only row (e.g. ECB rate)
       if (!confirm(cfg.del.confirm(d))) return;
-      post(cfg.del.action, cfg.del.body(d._key)).then(function (res) {
+      post(cfg.del.action, cfg.del.body(d)).then(function (res) {
         var dd = res.data || res;
         if ((dd && dd.error) || res.error) { msg(dd.error || res.error, true); return; } // verbatim (INVALID_STATE etc.)
         delete dirty[d._key];
@@ -311,6 +372,7 @@
         saved = (Array.isArray(rowsData) ? rowsData : []).map(cfg.list.map);
         render(focusKey);
         syncChrome();
+        if (cfg.onLoaded) cfg.onLoaded(saved);
       }).catch(function (e) { console.error('FB.list load:', e); });
     }
 
@@ -330,6 +392,8 @@
       var tr = nav && nav.current();
       if (tr && tr.classList.contains('fb-ghost-row')) { newRow(); return; } // i on ghost = create
       var idx = focusedIdx();
+      var d = idx >= 0 ? merged()[idx] : null;
+      if (d && cfg.editable && !cfg.editable(d)) return; // read-only row
       enterEdit(idx >= 0 ? idx : 0);
     }
     function advanceField() {
@@ -349,6 +413,17 @@
     }
 
     // ── Keys ─────────────────────────────────────────────────────────────
+    function firstEditInput() {
+      var tr = rows()[editIdx];
+      return tr ? tr.querySelector('input,select') : null;
+    }
+    function lastEditInput() {
+      var tr = rows()[editIdx];
+      if (!tr) return null;
+      var inputs = tr.querySelectorAll('input,select');
+      return inputs.length ? inputs[inputs.length - 1] : null;
+    }
+    var ddOpen = function () { return !!(window.FB && FB.dropdown && FB.dropdown.isOpen()); };
     var bindings = [
       { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { nav.move(1); } },
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { nav.move(-1); } },
@@ -356,6 +431,21 @@
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocused },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) writeAt(i); } },
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
+      // ── INSERT: dropdown open (dropdown-specific bindings precede general ones —
+      // FB.keys takes the FIRST binding whose key+mode+when match) ──
+      { key: 'ArrowDown', mode: 'INSERT', when: ddOpen, run: function () { FB.dropdown.move(1); } },
+      { key: 'ArrowUp', mode: 'INSERT', when: ddOpen, run: function () { FB.dropdown.move(-1); } },
+      { key: 'Enter', mode: 'INSERT', when: ddOpen, run: function () { FB.dropdown.pick(); } },
+      { key: 'Tab', mode: 'INSERT', when: ddOpen, swallow: false, preventDefault: false,
+        run: function (e) {
+          FB.dropdown.pick();
+          if (e.shiftKey ? document.activeElement === firstEditInput() : document.activeElement === lastEditInput()) e.preventDefault();
+        } },
+      { key: 'Escape', mode: 'INSERT', when: ddOpen, run: function () { FB.dropdown.close(); } },
+      // ── INSERT: dropdown closed — ArrowDown on a dropdown field opens the list ──
+      { key: 'ArrowDown', mode: 'INSERT', when: function (e) { return !ddOpen() && FB.dropdown && FB.dropdown.attachable(e.target); },
+        run: function (e) { FB.dropdown.openFull(e.target); } },
+      // ── INSERT: general ──
       { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitEdit },
       { key: 'Enter', mode: 'INSERT', run: advanceField },
       { key: 'Tab', mode: 'INSERT', when: tabSticky, run: function () {} },
@@ -366,15 +456,15 @@
     }
     function registerKeys() {
       if (!(window.FB && FB.keys)) return;
-      nav = FB.nav.create({ rows: navRows, focusClass: 'nav-row-focus' });
+      nav = FB.nav.create({ rows: navRows, focusClass: cfg.focusClass || 'nav-row-focus', onFocus: cfg.onFocus || undefined });
       if (FB.keys.unregister) FB.keys.unregister(cfg.keysId);
+      var all = cfg.extraBindings ? bindings.concat(cfg.extraBindings(api)) : bindings;
       FB.keys.register(cfg.keysId, {
         active: cfg.active,
         getMode: function () { return editIdx >= 0 ? 'INSERT' : 'NORMAL'; },
-        bindings: bindings
+        bindings: all
       });
     }
-    registerKeys();
     wireLeaveGuard();
 
     var api = {
@@ -391,9 +481,11 @@
         syncChrome();
       },
       nav: function () { return nav; },
+      focusedRow: function () { var i = focusedIdx(); return i >= 0 ? merged()[i] : null; },
       writeAllDirty: writeAllDirty,
       discardAll: discardAll
     };
+    registerKeys();
     instances.push(api);
     return api;
 

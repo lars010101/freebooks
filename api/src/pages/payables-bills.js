@@ -2724,10 +2724,11 @@ function showMsg(msg) {
 
 // ========== TAB SWITCHER ==========
 function showPayTab(t) {
-  // Leaving Vendors with a row open in INSERT: save-or-discard it first
-  // (tab switch is the click-away/Esc equivalent — one save doctrine).
-  if (t !== 'vendors' && typeof vendorEditRow !== 'undefined' && vendorEditRow >= 0) {
-    vendorSaveAndExit();
+  // Leaving a tab with dirty rows routes through the shared Save/Discard/Stay
+  // modal (FB.list leave-guard; Esc never auto-saves).
+  if (window.FB && FB.list && FB.list.anyDirty()) {
+    FB.list.guard(function(){ showPayTab(t); });
+    return;
   }
   window.fbBillNav = (t === 'bills');
   ['bills','vendors'].forEach(function(id) {

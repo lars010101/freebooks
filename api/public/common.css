@@ -444,12 +444,14 @@ tr.fb-ghost-row.nav-row-focus .fb-ghost-label,
 tr.fb-ghost-row.bill-row-focus .fb-ghost-label {
   color: rgba(255,255,255,.8) !important; background: transparent; font-style: italic;
 }
-/* Bank mappings: the ghost there is a real input row kept disabled until entered. */
+/* Ghost replica: same chrome as a live edit row, faded (not navy). */
 .fb-ghost-row input:not([type="checkbox"]),
 .fb-ghost-row select {
-  color: #9aa3ad !important; font-style: italic;
-  background: transparent !important; border-color: transparent !important;
+  opacity: .55;
+  pointer-events: none;
 }
+.fb-ghost-row input::placeholder { color: #9aa3ad; font-style: italic; opacity: 1; }
+.fb-ghost-row .fb-ghost-chip { opacity: .35; pointer-events: none; }
 
 /* Unsaved inline-draft edits left behind by Esc (write with w) */
 tr.fb-draft-dirty td { background: #fffbf0; }

@@ -395,20 +395,21 @@ ${commonStyle()}
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
         swallow: function() { return _mappingRows().length > 0; },
         run: function() { _mapSel = Math.max(_mapSel - 1, 0); _mapCursor(); } },
-      { key: 'o', mode: 'NORMAL', hint: 'new mapping', hintBar: true,
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true,
+        swallow: function() { return _mapSel >= 0; },
         run: function() {
-          var tr = prependBlankMappingRow();
+          var tr = _mappingRows()[_mapSel];
           if (!tr) return;
-          tr.classList.remove('fb-ghost-row');
+          if (tr.classList.contains('fb-ghost-row')) { activateMappingGhost(tr); return; } // i on ghost = create
           var inp = tr.cells[0].querySelector('input');
-          if (inp) { inp.focus(); }
-          if (window.FB && FB.track) FB.track.create('mapping');
+          if (inp) inp.focus();
         } },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true,
         swallow: function() { return _mapSel >= 0; },
         run: function() {
           var tr = _mappingRows()[_mapSel];
           if (!tr) return;
+          if (tr.classList.contains('fb-ghost-row')) { activateMappingGhost(tr); return; } // Enter on ghost = create
           var inp = tr.cells[0].querySelector('input');
           if (inp) inp.focus();
         } },
@@ -417,14 +418,12 @@ ${commonStyle()}
     ]
   });
 
-  // Ghost-row mouse affordance: clicking anywhere on the blank top row focuses
-  // its pattern input (row itself is the create target).
+  // Ghost-row mouse affordance: clicking anywhere on the faded ghost row
+  // activates it (inputs are disabled, so every click lands on the row itself).
   document.getElementById('mappings-body').addEventListener('click', function(e) {
     var tr = e.target.closest ? e.target.closest('tr.fb-ghost-row') : null;
     if (!tr) return;
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'BUTTON') return;
-    var inp = tr.cells[0].querySelector('input');
-    if (inp) inp.focus();
+    activateMappingGhost(tr);
   });
 
 
@@ -464,10 +463,10 @@ function addMappingRow(m) {
   var MATCH_TYPES_LOCAL = ['contains','exact','starts_with','regex'];
   var tr = document.createElement('tr');
   tr.dataset.mappingId = m.mapping_id || '';
-  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" style="width:130px"></td>'
+  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="Pattern" style="width:130px"></td>'
     + '<td><select style="width:90px">' + MATCH_TYPES_LOCAL.map(function(mt){ return '<option'+(mt===(m.match_type||'contains')?' selected':'')+'>'+mt+'</option>'; }).join('') + '</select></td>'
-    + '<td><input type="text" class="bm-acct" value="'+(m.debit_account||'')+'" style="width:100px" autocomplete="off"></td>'
-    + '<td><input type="text" value="'+(m.description_override||'')+'" style="width:140px"></td>'
+    + '<td><input type="text" class="bm-acct" value="'+(m.debit_account||'')+'" placeholder="Debit account" style="width:100px" autocomplete="off"></td>'
+    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="Description" style="width:140px"></td>'
     + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
     + '<td style="text-align:center"><input type="checkbox"'+(m.is_active===true?' checked':'')+' ></td>'
     + '<td style="white-space:nowrap;text-align:right"></td>';
@@ -492,21 +491,32 @@ function addMappingRow(m) {
   attachMappingAcctDd(tr.querySelector('.bm-acct'));
   return tr;
 }
-// P2 pinned-top: the blank create-row leads the table (single create affordance,
-// always visible, mouse + keyboard 'o' target). Returns the existing blank when
-// one is already at the top untouched.
+// P2 pinned-top: the ghost row leads the table — a FADED, display-only entry
+// row (inputs disabled). i / Enter / click activates it (single create
+// affordance, always visible, mouse + keyboard parity).
 function prependBlankMappingRow() {
   var tbody = document.getElementById('mappings-body');
   if (!tbody) return null;
   var first = tbody.querySelector('tr');
+  if (first && first.classList.contains('fb-ghost-row')) return first; // ghost already pinned
   if (first && !first.dataset.mappingId) {
     var fi = first.cells[0].querySelector('input');
-    if (fi && !fi.value.trim()) return first; // already there, untouched
+    if (fi && !fi.value.trim()) return first; // activated blank, still untouched
   }
   var tr = addMappingRow({});
   tbody.insertBefore(tr, tbody.firstChild);
   tr.classList.add('fb-ghost-row');
+  tr.querySelectorAll('input,select,button').forEach(function(el){ el.disabled = true; });
   return tr;
+}
+// Ghost → active input row: enable the fields, drop the faded styling, focus.
+function activateMappingGhost(tr) {
+  if (!tr || !tr.classList.contains('fb-ghost-row')) return;
+  tr.classList.remove('fb-ghost-row');
+  tr.querySelectorAll('input,select,button').forEach(function(el){ el.disabled = false; });
+  var inp = tr.cells[0].querySelector('input');
+  if (inp) inp.focus();
+  if (window.FB && FB.track) FB.track.create('mapping');
 }
 function appendBlankMappingRow() {
   // Legacy callers (post-save/delete replenishment) now repin at top instead.

@@ -80,14 +80,20 @@ function renderVendorTable() {
   });
 }
 
-// Ghost row: persistent empty create-row pinned under thead. Click or 'o'
-// converts it into a real (unsaved) vendor row in INSERT at the top of the list.
+// Ghost row: persistent FADED display-only entry-row pinned under thead. It is
+// not open to entry — i (while the cursor is on it) or a click transforms it
+// into a real (unsaved) vendor row in INSERT at the top of the list.
 function buildVendorGhostRow() {
   var tr = document.createElement('tr');
   tr.className = 'fb-ghost-row';
   tr.dataset.ghost = '1';
   tr.style.cursor = 'text';
-  tr.innerHTML = '<td colspan="6" class="fb-ghost-cell">+ New vendor <kbd>o</kbd></td>';
+  tr.innerHTML = '<td><span class="fb-ghost-ph">Vendor name</span></td>'
+    + '<td style="text-align:center"><span class="fb-ghost-ph">CCY</span></td>'
+    + '<td style="text-align:center"><span class="fb-ghost-ph">Terms</span></td>'
+    + '<td><span class="fb-ghost-ph">Expense account</span></td>'
+    + '<td><span class="fb-ghost-ph">AP account</span></td>'
+    + '<td style="text-align:center"><span class="badge fb-ghost-badge">Active</span></td>';
   tr.addEventListener('click', function() { vendorAddNew(); });
   return tr;
 }
@@ -141,8 +147,10 @@ function buildVendorDisplayRow(v, i) {
 function updateVendorCursor() {
   window.fbVendorSelRow = vendorSelRow;
   document.querySelectorAll('#vendors-body tr.bill-row-focus').forEach(function(r){ r.classList.remove('bill-row-focus'); });
-  if (vendorSelRow < 0) return;
-  var tr = document.querySelector('#vendors-body tr[data-idx="' + vendorSelRow + '"]');
+  // vendorSelRow === -1 means the cursor sits on the pinned ghost row.
+  var tr = vendorSelRow < 0
+    ? document.querySelector('#vendors-body tr.fb-ghost-row')
+    : document.querySelector('#vendors-body tr[data-idx="' + vendorSelRow + '"]');
   if (!tr) return;
   tr.classList.add('bill-row-focus');
   var pm = document.getElementById('page-main');
@@ -421,13 +429,13 @@ function registerVendorKeyActions() {
       // ── NORMAL ──
       { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, swallow: hasRows,
         run: function() {
-          if (vendorSelRow < 0) vendorSelRow = 0;
+          if (vendorSelRow < 0) vendorSelRow = 0; // ghost → first vendor
           else if (vendorSelRow < allVendors.length - 1) vendorSelRow++;
           updateVendorCursor();
         } },
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, swallow: hasRows,
         run: function() {
-          if (vendorSelRow > 0) vendorSelRow--;
+          if (vendorSelRow >= 0) vendorSelRow--; // row 0 → ghost (-1)
           updateVendorCursor();
         } },
       { key: 'G', mode: 'NORMAL', swallow: hasRows,
@@ -442,14 +450,18 @@ function registerVendorKeyActions() {
           }
           _vgPending = false;
           clearTimeout(_vgTimer);
-          if (allVendors.length) { vendorSelRow = 0; updateVendorCursor(); }
+          vendorSelRow = -1; updateVendorCursor(); // gg → ghost row (top)
         } },
-      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, swallow: hasRows,
-        run: function() { if (vendorSelRow >= 0) enterVendorRowEdit(vendorSelRow); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, swallow: hasRows,
-        run: function() { if (vendorSelRow >= 0) enterVendorRowEdit(vendorSelRow); } },
-      { key: 'o', mode: 'NORMAL', hint: 'new vendor', hintBar: true,
-        run: function() { vendorAddNew(); } },
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true,
+        run: function() {
+          if (vendorSelRow < 0) { vendorAddNew(); return; } // Enter on ghost = create
+          enterVendorRowEdit(vendorSelRow);
+        } },
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true,
+        run: function() {
+          if (vendorSelRow < 0) { vendorAddNew(); return; } // i on ghost = create
+          enterVendorRowEdit(vendorSelRow);
+        } },
       { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, swallow: hasRows,
         run: function() { vendorDeleteSelected(); } },
       { key: '~', mode: 'NORMAL', hint: 'toggle active', hintBar: true, swallow: hasRows,

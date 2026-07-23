@@ -208,7 +208,6 @@ ${commonStyle()}
       <tbody id="fx-rates-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button class="btn-sm" onclick="addFxRateRow()">+ Add Rate</button>
       <button id="btn-save-fxrates" class="btn-primary" onclick="saveFxRates()">Save Rates</button>
       <span id="msg-fxrates" class="msg"></span>
     </div>
@@ -305,6 +304,8 @@ var periodEditIdx = -1;         // row index currently in edit mode (-1 = none)
 var periodNav = null;
 
 function periodRows() { return Array.from(document.querySelectorAll('#periods-body tr:not(.fb-ghost-row)')); }
+// Nav rows INCLUDE the pinned ghost row so j/k can land on it (i opens it).
+function periodNavRows() { return Array.from(document.querySelectorAll('#periods-body tr')); }
 
 // Merged view: saved rows overlaid with their dirty buffers, then dirty ghosts.
 function periodMerged() {
@@ -340,8 +341,13 @@ function renderPeriods(focusKey) {
   var tbody = document.getElementById('periods-body');
   if (!tbody) return;
   var merged = periodMerged();
-  // P2: ghost row pinned-top — the single create affordance (o / click).
-  var ghostHtml = '<tr class="fb-ghost-row" style="cursor:text"><td colspan="5" class="fb-ghost-cell">+ New period <kbd>o</kbd></td></tr>';
+  // P2: ghost row pinned-top — a FADED display-only entry row (i / click opens it).
+  var ghostHtml = '<tr class="fb-ghost-row" style="cursor:text">'
+    + '<td><span class="fb-ghost-ph">Period name</span></td>'
+    + '<td><span class="fb-ghost-ph">Start date</span></td>'
+    + '<td><span class="fb-ghost-ph">End date</span></td>'
+    + '<td style="text-align:center"><input type="checkbox" disabled></td>'
+    + '<td></td></tr>';
   tbody.innerHTML = ghostHtml + merged.map(function(p, i) {
     var name = p.period_name ? esc(p.period_name) : '<span class="pe-ro">—</span>';
     var start = p.start_date ? esc(FB.util.fmtDate(p.start_date)) : '<span class="pe-ro">—</span>';
@@ -373,7 +379,7 @@ function renderPeriods(focusKey) {
   if (ghost) ghost.addEventListener('click', function() { newPeriodRow(); });
   if (periodNav) {
     var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
-    periodNav.set(target || periodRows()[0] || null);
+    periodNav.set(target || periodNavRows()[0] || null); // default: ghost row (top)
   }
 }
 
@@ -467,14 +473,21 @@ function revertPeriodRowAt(idx) {
 
 function focusedPeriodIdx() {
   var tr = periodNav && periodNav.current();
-  return tr ? +tr.dataset.idx : -1;
+  if (!tr || tr.classList.contains('fb-ghost-row')) return -1;
+  var i = +tr.dataset.idx;
+  return isNaN(i) ? -1 : i;
 }
 function focusedPeriodDirty() {
   var idx = focusedPeriodIdx();
   var d = idx >= 0 ? periodMerged()[idx] : null;
   return !!(d && d._dirty);
 }
-function editFocusedPeriod() { var idx = focusedPeriodIdx(); enterPeriodEdit(idx >= 0 ? idx : 0); }
+function editFocusedPeriod() {
+  var tr = periodNav && periodNav.current();
+  if (tr && tr.classList.contains('fb-ghost-row')) { newPeriodRow(); return; } // i on ghost = create
+  var idx = focusedPeriodIdx();
+  enterPeriodEdit(idx >= 0 ? idx : 0);
+}
 function writeFocusedPeriod() { var idx = focusedPeriodIdx(); if (idx >= 0) writePeriodRowAt(idx); }
 function revertFocusedPeriod() { var idx = focusedPeriodIdx(); if (idx >= 0) revertPeriodRowAt(idx); }
 
@@ -635,7 +648,7 @@ document.addEventListener('click', function(e) {
 // FB.keys.unregister before re-registering.
 (function() {
   if (!(window.FB && FB.keys)) return;
-  periodNav = FB.nav.create({ rows: periodRows, focusClass: 'nav-row-focus' });
+  periodNav = FB.nav.create({ rows: periodNavRows, focusClass: 'nav-row-focus' });
   if (FB.keys.unregister) FB.keys.unregister('settings-periods');
   FB.keys.register('settings-periods', {
     active: function() { var p = document.getElementById('tab-periods'); return !!(p && p.classList.contains('active')); },
@@ -645,7 +658,6 @@ document.addEventListener('click', function(e) {
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { periodNav.move(-1); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedPeriod },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedPeriod },
-      { key: 'o', mode: 'NORMAL', hint: 'new row', hintBar: true, run: newPeriodRow },
       { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedPeriod },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedPeriodDirty, run: writeFocusedPeriod },
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedPeriodDirty, run: revertFocusedPeriod },
@@ -881,6 +893,8 @@ var CF_CATS_COA = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','
 var ACCT_TYPES = ['Asset','Liability','Equity','Revenue','Expense','Closing'];
 
 function coaRows() { return Array.from(document.querySelectorAll('#coa-body tr:not(.fb-ghost-row)')); }
+// Nav rows INCLUDE the pinned ghost row so j/k can land on it (i opens it).
+function coaNavRows() { return Array.from(document.querySelectorAll('#coa-body tr')); }
 
 function coaMerged() {
   var out = coaSaved.map(function(a) {
@@ -915,7 +929,14 @@ function renderCoa(focusKey) {
   var tbody = document.getElementById('coa-body');
   if (!tbody) return;
   var merged = coaMerged();
-  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text"><td colspan="7" class="fb-ghost-cell">+ New account <kbd>o</kbd></td></tr>' + merged.map(function(a, i) {
+  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text">'
+    + '<td><span class="fb-ghost-ph">Code</span></td>'
+    + '<td><span class="fb-ghost-ph">Account name</span></td>'
+    + '<td><span class="fb-ghost-ph">Type</span></td>'
+    + '<td><span class="fb-ghost-ph">Subtype</span></td>'
+    + '<td><span class="fb-ghost-ph">CF category</span></td>'
+    + '<td style="text-align:center"><input type="checkbox" disabled checked></td>'
+    + '<td></td></tr>' + merged.map(function(a, i) {
     var code = a.account_code ? esc(a.account_code) : '<span class="pe-ro">—</span>';
     var name = a.account_name ? esc(a.account_name) : '<span class="pe-ro">—</span>';
     var type = a.account_type ? esc(a.account_type) : '<span class="pe-ro">—</span>';
@@ -954,7 +975,7 @@ function renderCoa(focusKey) {
   if (coaGhost) coaGhost.addEventListener('click', function() { newCoaRow(); });
   if (coaNav) {
     var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
-    coaNav.set(target || coaRows()[0] || null);
+    coaNav.set(target || coaNavRows()[0] || null); // default: ghost row (top)
   }
 }
 
@@ -1055,9 +1076,19 @@ function revertCoaRowAt(idx) {
   syncCoaChrome();
 }
 
-function focusedCoaIdx() { var tr = coaNav && coaNav.current(); return tr ? +tr.dataset.idx : -1; }
+function focusedCoaIdx() {
+  var tr = coaNav && coaNav.current();
+  if (!tr || tr.classList.contains('fb-ghost-row')) return -1;
+  var i = +tr.dataset.idx;
+  return isNaN(i) ? -1 : i;
+}
 function focusedCoaDirty() { var idx = focusedCoaIdx(); var d = idx >= 0 ? coaMerged()[idx] : null; return !!(d && d._dirty); }
-function editFocusedCoa() { var idx = focusedCoaIdx(); enterCoaEdit(idx >= 0 ? idx : 0); }
+function editFocusedCoa() {
+  var tr = coaNav && coaNav.current();
+  if (tr && tr.classList.contains('fb-ghost-row')) { newCoaRow(); return; } // i on ghost = create
+  var idx = focusedCoaIdx();
+  enterCoaEdit(idx >= 0 ? idx : 0);
+}
 function writeFocusedCoa() { var idx = focusedCoaIdx(); if (idx >= 0) writeCoaRowAt(idx); }
 function revertFocusedCoa() { var idx = focusedCoaIdx(); if (idx >= 0) revertCoaRowAt(idx); }
 
@@ -1133,7 +1164,7 @@ function filterCoa() {
 // Register immediately — see Periods IIFE comment for rationale.
 (function() {
   if (!(window.FB && FB.keys)) return;
-  coaNav = FB.nav.create({ rows: coaRows, focusClass: 'nav-row-focus' });
+  coaNav = FB.nav.create({ rows: coaNavRows, focusClass: 'nav-row-focus' });
   if (FB.keys.unregister) FB.keys.unregister('settings-coa');
   FB.keys.register('settings-coa', {
     active: function() { var p = document.getElementById('tab-coa'); return !!(p && p.classList.contains('active')); },
@@ -1143,7 +1174,6 @@ function filterCoa() {
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { coaNav.move(-1); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedCoa },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedCoa },
-      { key: 'o', mode: 'NORMAL', hint: 'new row', hintBar: true, run: newCoaRow },
       { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedCoa },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedCoaDirty, run: writeFocusedCoa },
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedCoaDirty, run: revertFocusedCoa },
@@ -1163,6 +1193,8 @@ var vatEditIdx = -1;
 var vatNav = null;
 
 function vatRows() { return Array.from(document.querySelectorAll('#vat-body tr:not(.fb-ghost-row)')); }
+// Nav rows INCLUDE the pinned ghost row so j/k can land on it (i opens it).
+function vatNavRows() { return Array.from(document.querySelectorAll('#vat-body tr')); }
 
 function vatMerged() {
   var out = vatSaved.map(function(v) {
@@ -1190,7 +1222,16 @@ function renderVat(focusKey) {
   var tbody = document.getElementById('vat-body');
   if (!tbody) return;
   var merged = vatMerged();
-  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text"><td colspan="9" class="fb-ghost-cell">+ New tax code <kbd>o</kbd></td></tr>' + merged.map(function(v, i) {
+  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text">'
+    + '<td><span class="fb-ghost-ph">Code</span></td>'
+    + '<td><span class="fb-ghost-ph">Description</span></td>'
+    + '<td><span class="fb-ghost-ph">Rate %</span></td>'
+    + '<td><span class="fb-ghost-ph">Input acct</span></td>'
+    + '<td><span class="fb-ghost-ph">Output acct</span></td>'
+    + '<td><span class="fb-ghost-ph">Report box</span></td>'
+    + '<td style="text-align:center"><input type="checkbox" disabled></td>'
+    + '<td style="text-align:center"><input type="checkbox" disabled checked></td>'
+    + '<td></td></tr>' + merged.map(function(v, i) {
     var code = v.vat_code ? esc(v.vat_code) : '<span class="pe-ro">—</span>';
     var desc = v.description ? esc(v.description) : '<span class="pe-ro">—</span>';
     var rate = v.rate != null ? esc(String(v.rate)) : '<span class="pe-ro">—</span>';
@@ -1231,7 +1272,7 @@ function renderVat(focusKey) {
   if (vatGhost) vatGhost.addEventListener('click', function() { newVatRow(); });
   if (vatNav) {
     var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
-    vatNav.set(target || vatRows()[0] || null);
+    vatNav.set(target || vatNavRows()[0] || null); // default: ghost row (top)
   }
 }
 
@@ -1332,14 +1373,21 @@ function revertVatRowAt(idx) {
 
 function focusedVatIdx() {
   var tr = vatNav && vatNav.current();
-  return tr ? +tr.dataset.idx : -1;
+  if (!tr || tr.classList.contains('fb-ghost-row')) return -1;
+  var i = +tr.dataset.idx;
+  return isNaN(i) ? -1 : i;
 }
 function focusedVatDirty() {
   var idx = focusedVatIdx();
   var d = idx >= 0 ? vatMerged()[idx] : null;
   return !!(d && d._dirty);
 }
-function editFocusedVat() { var idx = focusedVatIdx(); enterVatEdit(idx >= 0 ? idx : 0); }
+function editFocusedVat() {
+  var tr = vatNav && vatNav.current();
+  if (tr && tr.classList.contains('fb-ghost-row')) { newVatRow(); return; } // i on ghost = create
+  var idx = focusedVatIdx();
+  enterVatEdit(idx >= 0 ? idx : 0);
+}
 function writeFocusedVat() { var idx = focusedVatIdx(); if (idx >= 0) writeVatRowAt(idx); }
 function revertFocusedVat() { var idx = focusedVatIdx(); if (idx >= 0) revertVatRowAt(idx); }
 
@@ -1411,7 +1459,7 @@ function loadVat(focusKey) {
 // Register immediately — same soft-nav rationale as settings-periods.
 (function() {
   if (!(window.FB && FB.keys)) return;
-  vatNav = FB.nav.create({ rows: vatRows, focusClass: 'nav-row-focus' });
+  vatNav = FB.nav.create({ rows: vatNavRows, focusClass: 'nav-row-focus' });
   if (FB.keys.unregister) FB.keys.unregister('settings-vat');
   FB.keys.register('settings-vat', {
     active: function() { var p = document.getElementById('tab-vat'); return !!(p && p.classList.contains('active')); },
@@ -1421,7 +1469,6 @@ function loadVat(focusKey) {
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { vatNav.move(-1); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedVat },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedVat },
-      { key: 'o', mode: 'NORMAL', hint: 'new row', hintBar: true, run: newVatRow },
       { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedVat },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedVatDirty, run: writeFocusedVat },
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedVatDirty, run: revertFocusedVat },
@@ -1441,6 +1488,8 @@ var journalsEditIdx = -1;
 var journalsNav = null;
 
 function journalsRows() { return Array.from(document.querySelectorAll('#journals-body tr:not(.fb-ghost-row)')); }
+// Nav rows INCLUDE the pinned ghost row so j/k can land on it (i opens it).
+function journalsNavRows() { return Array.from(document.querySelectorAll('#journals-body tr')); }
 
 function journalsMerged() {
   var out = journalsSaved.map(function(j) {
@@ -1468,7 +1517,11 @@ function renderJournals(focusKey) {
   var tbody = document.getElementById('journals-body');
   if (!tbody) return;
   var merged = journalsMerged();
-  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text"><td colspan="4" class="fb-ghost-cell">+ New journal <kbd>o</kbd></td></tr>' + merged.map(function(j, i) {
+  tbody.innerHTML = '<tr class="fb-ghost-row" style="cursor:text">'
+    + '<td><span class="fb-ghost-ph">Code</span></td>'
+    + '<td><span class="fb-ghost-ph">Name</span></td>'
+    + '<td style="text-align:center"><input type="checkbox" disabled checked></td>'
+    + '<td></td></tr>' + merged.map(function(j, i) {
     var code = j.code ? esc(j.code) : '<span class="pe-ro">—</span>';
     var name = j.name ? esc(j.name) : '<span class="pe-ro">—</span>';
     if (j._dirty) {
@@ -1496,7 +1549,7 @@ function renderJournals(focusKey) {
   if (jGhost) jGhost.addEventListener('click', function() { newJournalRow(); });
   if (journalsNav) {
     var target = focusKey != null ? tbody.querySelector('tr[data-key="' + focusKey + '"]') : null;
-    journalsNav.set(target || journalsRows()[0] || null);
+    journalsNav.set(target || journalsNavRows()[0] || null); // default: ghost row (top)
   }
 }
 
@@ -1587,14 +1640,21 @@ function revertJournalRowAt(idx) {
 
 function focusedJournalIdx() {
   var tr = journalsNav && journalsNav.current();
-  return tr ? +tr.dataset.idx : -1;
+  if (!tr || tr.classList.contains('fb-ghost-row')) return -1;
+  var i = +tr.dataset.idx;
+  return isNaN(i) ? -1 : i;
 }
 function focusedJournalDirty() {
   var idx = focusedJournalIdx();
   var d = idx >= 0 ? journalsMerged()[idx] : null;
   return !!(d && d._dirty);
 }
-function editFocusedJournal() { var idx = focusedJournalIdx(); enterJournalEdit(idx >= 0 ? idx : 0); }
+function editFocusedJournal() {
+  var tr = journalsNav && journalsNav.current();
+  if (tr && tr.classList.contains('fb-ghost-row')) { newJournalRow(); return; } // i on ghost = create
+  var idx = focusedJournalIdx();
+  enterJournalEdit(idx >= 0 ? idx : 0);
+}
 function writeFocusedJournal() { var idx = focusedJournalIdx(); if (idx >= 0) writeJournalRowAt(idx); }
 function revertFocusedJournal() { var idx = focusedJournalIdx(); if (idx >= 0) revertJournalRowAt(idx); }
 
@@ -1668,7 +1728,7 @@ function loadJournals(focusKey) {
 // Register immediately — same soft-nav rationale as settings-periods.
 (function() {
   if (!(window.FB && FB.keys)) return;
-  journalsNav = FB.nav.create({ rows: journalsRows, focusClass: 'nav-row-focus' });
+  journalsNav = FB.nav.create({ rows: journalsNavRows, focusClass: 'nav-row-focus' });
   if (FB.keys.unregister) FB.keys.unregister('settings-journals');
   FB.keys.register('settings-journals', {
     active: function() { var p = document.getElementById('tab-journals'); return !!(p && p.classList.contains('active')); },
@@ -1678,7 +1738,6 @@ function loadJournals(focusKey) {
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function() { journalsNav.move(-1); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedJournal },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocusedJournal },
-      { key: 'o', mode: 'NORMAL', hint: 'new row', hintBar: true, run: newJournalRow },
       { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocusedJournal },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedJournalDirty, run: writeFocusedJournal },
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedJournalDirty, run: revertFocusedJournal },
@@ -1710,13 +1769,22 @@ function loadJournals(focusKey) {
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
         swallow: function() { return fxRows().length > 0; },
         run: function() { fxSel = Math.max(fxSel - 1, 0); fxCursor(); } },
-      { key: 'o', mode: 'NORMAL', hint: 'new rate', hintBar: true,
-        run: function() { addFxRateRow(); } },
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true,
+        swallow: function() { return fxSel >= 0; },
+        run: function() {
+          var tr = fxRows()[fxSel];
+          if (!tr) return;
+          if (tr.classList.contains('fb-ghost-row')) { addFxRateRow(); return; } // i on ghost = create
+          var inp = tr.querySelector('input');
+          if (inp) inp.focus();
+        } },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true,
         swallow: function() { return fxSel >= 0; },
         run: function() {
           var tr = fxRows()[fxSel];
-          var inp = tr && tr.querySelector('input');
+          if (!tr) return;
+          if (tr.classList.contains('fb-ghost-row')) { addFxRateRow(); return; } // Enter on ghost = create
+          var inp = tr.querySelector('input');
           if (inp) inp.focus();
         } },
       { key: 'Escape', mode: 'INSERT', hint: 'back',
@@ -1725,13 +1793,15 @@ function loadJournals(focusKey) {
   });
 })();
 
-// Ghost-row mouse affordance for FX: the staged manual row IS the create target;
-// clicking its non-input area focuses the from-currency field.
+// Ghost-row mouse affordance for FX: clicking the faded ghost stages a manual
+// row; clicking a staged row's non-input area focuses its from-currency field.
 document.addEventListener('click', function(e) {
   var p = document.getElementById('tab-fxrates');
   if (!(p && p.classList.contains('active'))) return;
   var tr = e.target && e.target.closest ? e.target.closest('#fx-rates-body tr') : null;
-  if (!tr || !tr.querySelector('input.fx-from')) return;
+  if (!tr) return;
+  if (tr.classList.contains('fb-ghost-row')) { addFxRateRow(); return; }
+  if (!tr.querySelector('input.fx-from')) return;
   if (['INPUT','SELECT','BUTTON'].indexOf(e.target.tagName) >= 0) return;
   var inp = tr.querySelector('input.fx-from');
   if (inp) inp.focus();
@@ -1780,6 +1850,16 @@ function loadFxRates() {
 function renderFxRates(rows) {
   var tbody = document.getElementById('fx-rates-body');
   tbody.innerHTML = '';
+  // P2: faded display-only ghost row pinned-top (i / click stages a manual rate).
+  var ghost = document.createElement('tr');
+  ghost.className = 'fb-ghost-row';
+  ghost.style.cursor = 'text';
+  ghost.innerHTML = '<td><span class="fb-ghost-ph">Date</span></td>'
+    + '<td><span class="fb-ghost-ph">From</span></td>'
+    + '<td><span class="fb-ghost-ph">To</span></td>'
+    + '<td style="text-align:right"><span class="fb-ghost-ph">Rate</span></td>'
+    + '<td><span class="fb-ghost-ph">Source</span></td><td></td>';
+  tbody.appendChild(ghost);
   rows.forEach(function(r){
     var tr = document.createElement('tr');
     var isEcb = r.source === 'ecb';
@@ -1806,9 +1886,9 @@ function addFxRateRow() {
     '<td style="text-align:right"><input type="number" class="fx-rate" step="0.000001" style="width:100px" placeholder="e.g. 1.35"></td>' +
     '<td><span class="ro">manual</span></td>' +
     '<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()" style="font-size:9pt">×</button></td>';
-  // P2 pinned-top: staged manual rows lead the table
+  // P2 pinned-top: staged manual rows lead the table, directly under the ghost.
   var tbody = document.getElementById('fx-rates-body');
-  tbody.insertBefore(tr, tbody.firstChild);
+  tbody.insertBefore(tr, tbody.children[1] || null);
   attachCcyDd(tr.querySelector('.fx-from'));
   attachCcyDd(tr.querySelector('.fx-to'));
   tr.querySelector('.fx-from').focus();
@@ -1842,7 +1922,7 @@ function saveFxRates() {
   var rows = Array.from(document.querySelectorAll('#fx-rates-body tr')).filter(function(tr){ return tr.querySelector('.fx-date'); });
   // clear previous field highlights
   rows.forEach(function(tr){ ['fx-date','fx-from','fx-to','fx-rate'].forEach(function(c){ var el = tr.querySelector('.'+c); if (el) el.style.borderColor=''; }); });
-  if (!rows.length) { showMsg('msg-fxrates', 'Click "+ Add Rate" first, then fill in date, from, to, and rate', true); return; }
+  if (!rows.length) { showMsg('msg-fxrates', 'Open the top row first (i or click), then fill in date, from, to, and rate', true); return; }
   rows.forEach(function(tr, i){
     var date = tr.querySelector('.fx-date').value;
     var from = tr.querySelector('.fx-from').value.trim().toUpperCase();

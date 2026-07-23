@@ -10,7 +10,6 @@ const { query, exec, bulkInsert } = require('./db');
 async function handleVat(ctx, action) {
   switch (action) {
     case 'vat.codes.list': return listVatCodes(ctx);
-    case 'vat.codes.save': return saveVatCodes(ctx);
     case 'vat.codes.upsert': return upsertVatCode(ctx);
     case 'vat.codes.delete': return deleteVatCode(ctx);
     default:
@@ -113,33 +112,6 @@ async function generateVatReturn(ctx) {
 async function listVatCodes(ctx) {
   const { companyId } = ctx;
   return query(`SELECT * FROM vat_codes WHERE company_id = @companyId ORDER BY vat_code`, { companyId });
-}
-
-async function saveVatCodes(ctx) {
-  const { companyId, body } = ctx;
-  const { vatCodes } = body;
-  if (!vatCodes || !Array.isArray(vatCodes)) {
-    throw Object.assign(new Error('vatCodes array required'), { code: 'INVALID_INPUT' });
-  }
-
-  await exec(`DELETE FROM vat_codes WHERE company_id = @companyId`, { companyId });
-
-  const rows = vatCodes.map((vc) => ({
-    company_id: companyId,
-    vat_code: vc.vat_code,
-    description: vc.description,
-    rate: vc.rate,
-    vat_account_input: vc.vat_account_input || null,
-    vat_account_output: vc.vat_account_output || null,
-    report_box: vc.report_box || null,
-    is_reverse_charge: vc.is_reverse_charge || false,
-    is_active: vc.is_active !== false,
-    effective_from: vc.effective_from,
-    effective_to: vc.effective_to || null,
-  }));
-
-  if (rows.length > 0) await bulkInsert('vat_codes', rows);
-  return { saved: rows.length };
 }
 
 async function upsertVatCode(ctx) {

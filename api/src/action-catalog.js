@@ -217,11 +217,6 @@ const ACTIONS = {
 
   // ── VAT codes ────────────────────────────────────────────────────────────
   'vat.codes.list': { role: 'viewer', mutating: false, description: 'List VAT/GST codes.' },
-  'vat.codes.save': {
-    role: 'owner', mutating: true,
-    description: 'Replace VAT codes (bulk).',
-    params: { vatCodes: { type: 'array', required: true } },
-  },
   'vat.codes.upsert': {
     role: 'owner', mutating: true,
     description: 'Insert or update one VAT code.',
@@ -401,7 +396,6 @@ const PALETTE = {
   'coa.save':               { palette: 'navigate', route: '/settings' },
   'coa.update':             { palette: 'navigate', route: '/settings' },
   'coa.upsert':             { palette: 'navigate', route: '/settings' },
-  'vat.codes.save':         { palette: 'navigate', route: '/settings' },
   'vat.codes.upsert':       { palette: 'navigate', route: '/settings' },
   'vendor.save':            { palette: 'navigate', route: '/payables' },
   'vendor.upsert':          { palette: 'navigate', route: '/payables' },

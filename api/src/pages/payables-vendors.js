@@ -93,7 +93,7 @@ var vendorsList = FB.list.create({
     window.fbVendorSelRow = (tr && !tr.classList.contains('fb-add-row')) ? +tr.dataset.idx : -1;
   },
   columns: [
-    { field: 'name', type: 'text', width: 180 },
+    { field: 'name', type: 'text', width: 180, filterType: 'text' },
     { field: 'default_currency', type: 'text', width: 40, align: 'center', uppercase: true, attach: vendorAttachCcy },
     { field: 'payment_terms_days', type: 'number', width: 55, align: 'center' },
     { field: 'default_expense_account', type: 'text', width: 130, attach: vendorAttachAcct },

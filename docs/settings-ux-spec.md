@@ -2,6 +2,8 @@
 
 Status: **RATIFIED 2026-07-22** (magnus, Slack design thread). Pilot: **Periods tab**. Companion to `payables-ux-spec.md`; where they conflict, this doc wins (it post-dates and revises the Payables Esc doctrine — see §7).
 
+**Update 2026-07-23:** the pilot pattern is now app-wide — every flat register runs on the shared **FB.list** machine, and the create slot changed (`o` retired → bottom `+ Add entry` row). See **`fb-list-ux-spec.md`** for the add-row design, full verb table, config contract, and migration backlog. The lifecycle doctrine below (§1–§2) is unchanged and restated there.
+
 ## 1. Core doctrine
 
 **Esc never saves.** Esc exits edit mode; the row's unsaved changes stay in memory as a *dirty buffer* (vim's file/insert/dirty-buffer model). There is exactly **one save path**: the `w` verb.
@@ -42,7 +44,7 @@ Enforcement is two-layered:
 |---|---|---|
 | read | `j`/`k` | navigate rows, sticky ends (`FB.nav`) |
 | read | `i` / Enter / double-click | enter edit mode, first field focused |
-| read | `o` | new blank row in edit mode |
+| read | add row (bottom) | `+ Add entry` — click, or `j` past the last row / `G`, then `i`/Enter/click to create (fb-list-ux-spec §2; `o` retired 2026-07-23) |
 | read | `x` | delete row — confirm; server refuses when referenced (§5) |
 | read, dirty row | **`w` / `✓` chip** | **write — the only save** |
 | read, dirty row | `u` / `✕` chip | revert to saved values |
@@ -84,8 +86,8 @@ New guard in `period.delete`: count `journal_entries WHERE company_id = @company
    - Company tab → slim **current-company** record only; the all-companies grid moves to `admin.js`.
    - **Default Accounts** panel → becomes a **Default flag column** in the COA tab (—/AP/Expense dropdown in edit mode; single-holder enforced server-side in the same write).
    - **VAT Tolerance** panel → moves into the Tax Codes tab (read-first panel, same read/edit/write grammar).
-2. **Payables doctrine alignment** (follow-up): Bills `_insertEscape` currently saves non-empty drafts on Esc; Vendors Esc upserts master data. Both violate "Esc never saves" and must migrate to the `w`/`u` doctrine + leave-warning. `payables-ux-spec.md` gets a revision note then.
-3. Remaining Settings tabs migration order after pilot: COA (highest stakes) → Journals → Tax Codes → Exchange Rates → Company (slim).
+2. **Payables doctrine alignment** ✅ **DONE 2026-07-23**: Bills `_insertEscape` no longer saves on Esc (Option A — Esc exits INSERT only, non-empty draft stays as a `fb-draft-dirty` buffer, `w` persists); Vendors migrated onto FB.list (Esc exits, `w`/`u` doctrine + shared leave-guard). Both now follow "Esc never saves". See fb-list-ux-spec §9.
+3. Remaining Settings tabs migration order after pilot: COA (highest stakes) → Journals → Tax Codes → Exchange Rates → Company (slim). **Status 2026-07-23: COA, Journals, Tax Codes, Exchange Rates all DONE on FB.list; Company tab slim-down (item 1) remains.**
 
 ## 8. What this does NOT change
 

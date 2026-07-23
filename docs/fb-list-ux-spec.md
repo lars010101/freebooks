@@ -1,0 +1,113 @@
+# FB.list UX Spec — the one list machine
+
+Status: **RATIFIED 2026-07-23** (magnus, Slack design thread). Supersedes the ghost-row create slot (rejected same date). Companions: `settings-ux-spec.md` (Esc doctrine origin — §3 restates, does not revise it), `payables-ux-spec.md` (Bills tree-table; migrates onto FB.list last).
+
+---
+
+## 1. Purpose
+
+One component — `FB.list` (`api/public/fb-list.js`) — owns ALL behavior for every flat register in the app: the add row, navigation, edit lifecycle, dirty buffers, delete, leave-guard. A screen declares columns + actions + a handful of predicates; it implements **no interaction code of its own**. Behavior therefore cannot drift between tabs.
+
+**Migrated:** Settings (Periods, COA, Tax Codes, Journals), Vendors, FX Rates.
+**Pending:** Bank Mappings; Bills (needs `tree: true` — fold is a *property*, not a separate universe). The Bills *editor* screen stays separate (grid vs form is legitimate).
+
+## 2. The add row (single create affordance)
+
+A plain muted text row pinned at the **bottom** of the list, reading `+ Add entry` (config `label`) — one td spanning all columns, dashed top border, pointer cursor. **Not** an input replica: the grayed-out replica ("ghost row", 2026-07-22) read as a fake row and was rejected by magnus 2026-07-23. Industry reference: QuickBooks "Add lines", Xero "Add a new line".
+
+- **Reachable by:** click; `j` (sticky past the last data row); `G` (bottom). `gg` returns to the first row.
+- **`i` / Enter / click** on it: the add row transforms in place into the live navy edit row (INSERT mode, first field focused). It is hidden while a NEW row is being edited and reappears on exit.
+- New and dirty-new rows **append at the bottom**, right above the add row — creation grows from the bottom, where the eye already is.
+- `o` is **retired** on FB.list screens (the add row is the only create path). `o`/`O` remains "new master object" on Bills until its migration.
+
+## 3. Row lifecycle (doctrine restated from settings-ux-spec §1)
+
+**Esc never saves.** Exactly one save path: `w`.
+
+```
+clean ──i/Enter/click──▶ editing ──Esc──▶ dirty ──w──▶ clean (saved)
+                            │             │
+                            │             └──u──▶ clean (reverted)
+                            │
+                            └── Esc on an untouched NEW row ──▶ vanishes;
+                                cursor returns to the add row
+```
+
+- Read-first: rows render as text; edit mode turns ONE row into inputs. Typing touches the in-memory buffer only.
+- **Enter never saves** — in INSERT it advances fields (sticky ends); Tab / Shift+Tab the same.
+- Dirty row: amber indication; `x` on a dirty-new row discards it (cursor → add row).
+- After Esc-blank or discarding a new row, the cursor lands on the **add row**, not the top of the list.
+
+## 4. Verb table (every FB.list screen)
+
+| Mode | Key | Action |
+|---|---|---|
+| read | `j`/`k` | navigate rows, sticky ends; the add row is a nav position (bottom) |
+| read | `gg` / `G` | first row / bottom (= add row) — framework-level since 2026-07-23 |
+| read | `i` / Enter / click cell | edit focused row; on the add row = create |
+| read | `x` | delete — confirm for saved rows; no-op on `deletable:false` rows (e.g. ECB rates); discards dirty-new rows |
+| read, dirty | `w` / `✓` chip | **write — the only save** |
+| read, dirty | `u` / `✕` chip | revert to saved values |
+| edit | Enter / Tab / Shift+Tab | next / prev field, sticky ends — never saves |
+| edit | Esc | dropdown open → close dropdown; otherwise exit to read, buffer stays dirty |
+| any | `h`/`l` · `{`/`}` · `?` | shared chrome via common.js / FB.keys |
+
+Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle active) — nowhere else.
+
+## 5. Verb convention (app-wide, ratified 2026-07-22)
+
+- `o`/`O` = **new** master object (opens a new top-level entity — bill on Bills).
+- `a`/`A` = **add** child to an existing parent (bill line, attachment).
+- On master-only FB.list screens `a` is unbound; create is the add row's job.
+
+## 6. Config contract
+
+| Option | Meaning |
+|---|---|
+| `keysId` / `active()` | FB.keys registration name; tab-visibility predicate |
+| `tbody` / `msg` | table body element id; status-message element id |
+| `companyId()` | company id for `/api/action` payloads |
+| `columns[]` | `field` (buffer property + input class), `type` (`text`/`date`/`number`/`checkbox`/`select`), `width`, `align`, `ro` (`'saved'` = key column read-only on saved rows; `'always'` = display-only), `uppercase`, `step`, `options` (`''` renders `- none -`), `nullable`, `display(v,row)` (view-mode HTML), `attach(input,tr)` (post-build hook — FB.dropdown attachers) |
+| `blank()` / `isBlank(b)` | new-row defaults; untouched-new predicate (vanish on Esc) |
+| `same(b,s)` | buffer matches saved row → dirty dropped |
+| `validate(d)` | error string \| null — runs on `w`, failure keeps the buffer |
+| `editable(d)` / `deletable(d)` | row predicates (default true) — false = never enters edit / `x` no-op (ECB rates) |
+| `rowStyle(d)` | cssText for the `<tr>` (e.g. ECB dim) |
+| `firstField(isNew)` | field to focus when entering edit |
+| `track` | FB.track.create name (optional) |
+| `label` | add-row text (default `+ Add entry`) |
+| `list` | `{ action }` or `{ url }` + `map(raw)` → saved row incl. `_key` |
+| `save` | `{ action, body(d), focusKey(d,res) }` |
+| `del` | `{ action, body(d), confirm(d) }` \| null |
+| `onChrome(anyDirty)` | tab dot / dirty bookkeeping (optional) |
+| `onLoaded(saved)` | post-load hook (e.g. compat globals) (optional) |
+| `focusClass` / `onFocus(tr)` | nav highlight class (default `nav-row-focus`); focus hook (optional) |
+| `extraBindings(api)` | screen-specific NORMAL bindings (optional) |
+| `filter(row,q)` | enables `api.setFilter(q)` (optional) |
+
+## 7. Extensions inventory (added for Vendors/FX, 2026-07-23)
+
+- `attach` — per-column post-build hook (CCY/account dropdown pickers).
+- `ro: 'always'` — display-only column in both modes (Active badge, FX source).
+- `editable(d)` / `deletable(d)` — FX ECB rows are read-only and undeletable.
+- `rowStyle(d)` — ECB rows dimmed.
+- `extraBindings` / `focusClass` / `onFocus` — screen verbs + compat globals (`fbVendorSelRow`).
+
+## 8. Leave-guard
+
+One shared modal per page across all mounted FB.list instances: switching tab/page or sidebar-navigating with any editing-or-dirty row opens **Save / Discard / Stay**. Save = write all dirty rows, proceed only when all succeed; Discard = revert all, proceed; Stay = abort. Hooks: the page's own tab-switch function, `window.fbBeforeTabSwitch` (common.js `{/}` path), and a capture-phase sidebar click handler (mouse parity).
+
+## 9. Bills — Option A (interim doctrine, 2026-07-22)
+
+Until Bills migrates onto FB.list (`tree: true`), its bespoke `_insertEscape` follows the same doctrine: **Esc exits INSERT only** — a non-empty inline draft stays as a DOM-marked dirty buffer (`fb-draft-dirty`); `w` persists it (zero drafts server-side until then). Esc on an empty draft discards it.
+
+## 10. Migration backlog (in order)
+
+1. **Bank Mappings → FB.list.** Then delete the legacy `.fb-ghost-row` CSS (kept only for bank.js) and the `activateMappingGhost` machinery.
+2. **Bills → FB.list with `tree: true`.** Fold/unfold becomes a row property of the same machine; the bill editor screen stays separate. Last bespoke list surface in the app.
+3. **Receivables** built on FB.list from day one (roadmap P3-1).
+
+## 11. Testing contract
+
+- API side unchanged: contract tests (`npm test` in `api/`) cover actions, not pixels.
+- Per migration: live browser verification of the framework cycle on ONE representative screen is sufficient — the behavior is shared code. Cycle: create-from-add-row → Esc-blank vanishes → create → Esc-dirty → `w` lands server-side. Plus screen-specific extras only (dropdown attachers, read-only predicates).

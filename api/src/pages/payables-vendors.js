@@ -4,14 +4,13 @@ function vendorsTabJS() {
   return `
 // ========== VENDORS — FB.list (P3 consolidated) ==========
 // The Vendors register is a declarative FB.list config. The framework owns the
-// ghost row, nav (j/k incl. ghost), edit lifecycle (i/Enter/click), dirty
-// buffers (w writes, u reverts, Esc exits WITHOUT saving — fixing the old
-// Esc-auto-saves doctrine violation), x delete with confirm, and the shared
-// leave-guard modal. Screen-specific extras (~ toggle active, gg/G) are
+// add row, nav (j/k incl. add row, gg/G), edit lifecycle (i/Enter/click),
+// dirty buffers (w writes, u reverts, Esc exits WITHOUT saving — fixing the
+// old Esc-auto-saves doctrine violation), x delete with confirm, and the
+// shared leave-guard modal. Screen-specific extras (~ toggle active) are
 // declared via extraBindings.
 var vendorAccountsList = [];
 var vendorCurrenciesList = [];
-var _vgPending = false, _vgTimer = null;
 window.allVendors = []; // read by payables-bills.js bill vendor dropdown
 
 function loadVendorAccounts() {
@@ -91,7 +90,7 @@ var vendorsList = FB.list.create({
   focusClass: 'bill-row-focus',
   onFocus: function(tr) {
     // common.js's j/k deferral reads this: >= 0 means vendor nav owns j/k.
-    window.fbVendorSelRow = (tr && !tr.classList.contains('fb-ghost-row')) ? +tr.dataset.idx : -1;
+    window.fbVendorSelRow = (tr && !tr.classList.contains('fb-add-row')) ? +tr.dataset.idx : -1;
   },
   columns: [
     { field: 'name', type: 'text', width: 180 },
@@ -132,24 +131,6 @@ var vendorsList = FB.list.create({
     confirm: function(d) { return 'Delete vendor "' + (d.name || d._key) + '"?'; } },
   extraBindings: function(api) {
     return [
-      { key: 'G', mode: 'NORMAL',
-        run: function() {
-          var trs = document.querySelectorAll('#vendors-body tr');
-          if (trs.length) api.nav().set(trs[trs.length - 1]);
-        } },
-      { key: 'g', mode: 'NORMAL',
-        run: function() {
-          if (!_vgPending) {
-            _vgPending = true;
-            clearTimeout(_vgTimer);
-            _vgTimer = setTimeout(function(){ _vgPending = false; }, 500);
-            return;
-          }
-          _vgPending = false;
-          clearTimeout(_vgTimer);
-          var first = document.querySelector('#vendors-body tr'); // ghost row (top)
-          if (first) api.nav().set(first);
-        } },
       { key: '~', mode: 'NORMAL', hint: 'toggle active', hintBar: true,
         when: function() { var d = api.focusedRow(); return !!(d && !d._isNew); },
         run: function() {

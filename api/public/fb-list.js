@@ -3,12 +3,13 @@
  *
  * Every flat list in the app (Settings registers, Vendors, …) is the same
  * machine:
- *   - a pinned ghost row (the single create slot) saying "Edit me to add new
- *     entry", opened with i / Enter / click — never open for entry itself
- *   - saved rows overlaid with dirty buffers (merged view, new pinned top)
+ *   - an add row (the single create slot) pinned at the BOTTOM of the list,
+ *     saying "+ Add entry" — opened with i / Enter / click, reachable with
+ *     j (sticky past the last data row) and G; never open for entry itself
+ *   - saved rows overlaid with dirty buffers (merged view, new rows bottom)
  *   - row-level INSERT edit (i / Enter / click), Esc exits — never saves
  *   - w writes a dirty row, u reverts it, x deletes (confirm for saved rows)
- *   - j/k nav includes the ghost row (sticky at top)
+ *   - j/k nav includes the add row (sticky at bottom); gg/G jump top/bottom
  *   - a shared leave-guard modal when navigating away with unsaved rows
  *
  * A screen declares columns + actions; the framework owns ALL behavior.
@@ -38,7 +39,7 @@
  *   rowStyle(d)→ cssText for the <tr> (e.g. opacity for ECB rows)
  *   firstField(isNew) → field to focus when entering edit
  *   track      FB.track.create name for creates (optional)
- *   label      ghost-row text (default 'Edit me to add new entry')
+ *   label      add-row text (default '+ Add entry')
  *   list       { action } | { url } + map(raw) → saved row incl. _key
  *   save       { action, body(d) → payload extras, focusKey(d, res) → key }
  *   del        { action, body(d) → payload extras, confirm(d) → string } | null
@@ -73,12 +74,14 @@
     var saved = [];
     var dirty = {};
     var editIdx = -1;
-    var ghostN = 0;
+    var newN = 0;
     var filterQ = '';
     var nav = null;
+    var _gPending = false, _gTimer = null; // gg sequence
+    var ADD_ROW = '_add_row'; // render(focusKey) sentinel: focus the add row
 
     function tbody() { return el(cfg.tbody); }
-    function rows() { return Array.from(tbody().querySelectorAll('tr:not(.fb-ghost-row)')); }
+    function rows() { return Array.from(tbody().querySelectorAll('tr:not(.fb-add-row)')); }
     function navRows() { return Array.from(tbody().querySelectorAll('tr')); }
     function msg(t, e) { showMsg(cfg.msg, t, e); }
 
@@ -90,7 +93,8 @@
     }
 
     // ── Model ────────────────────────────────────────────────────────────
-    // Saved rows overlaid with their dirty buffers; dirty-new pinned top.
+    // Saved rows overlaid with their dirty buffers; dirty-new appended at the
+    // bottom (the add-row slot — new entries grow from the bottom).
     function merged() {
       var out = saved.map(function (s) {
         var d = dirty[s._key];
@@ -99,7 +103,7 @@
       });
       Object.keys(dirty).forEach(function (k) {
         var d = dirty[k];
-        if (d && d.isNew) out.unshift(Object.assign({}, d, { _dirty: true, _key: k, _isNew: true }));
+        if (d && d.isNew) out.push(Object.assign({}, d, { _dirty: true, _key: k, _isNew: true }));
       });
       if (filterQ && cfg.filter) out = out.filter(function (r) { return cfg.filter(r, filterQ); });
       return out;
@@ -109,50 +113,17 @@
     function syncChrome() { if (cfg.onChrome) cfg.onChrome(anyDirty()); }
 
     // ── Render ───────────────────────────────────────────────────────────
-    // The ghost row is a GRAYED-OUT REPLICA of the live edit row: same inputs
-    // (disabled), selects at their defaults, checkbox, grayed ✓/✕. While a new
-    // row is being created the ghost IS the edit row (navy) — on exit it fades
-    // back to the grayed replica.
-    function ghostCell(c, d, isFirstText) {
-      var val = d[c.field];
-      if (c.ro === 'always') return c.display ? c.display(val, d) : defaultDisplay(val);
-      var cls = 'fb-e-' + c.field;
-      var w = c.width ? ' style="width:' + c.width + 'px"' : '';
-      if (c.type === 'checkbox') {
-        return '<input type="checkbox" class="' + cls + '" disabled' + (val ? ' checked' : '') + '>';
-      }
-      if (c.type === 'date') {
-        return '<input type="date" class="' + cls + '" disabled' + w + '>';
-      }
-      if (c.type === 'number') {
-        return '<input type="number" class="' + cls + '" value="' + (val != null ? val : 0) + '" disabled'
-          + (c.step ? ' step="' + c.step + '"' : '') + w + '>';
-      }
-      if (c.type === 'select') {
-        var opts = (c.options || []).map(function (o) {
-          var v = typeof o === 'string' ? o : o.value;
-          var label = typeof o === 'string' ? (o || '- none -') : o.label;
-          return '<option value="' + esc(v) + '"' + (v === (val || '') ? ' selected' : '') + '>' + esc(label) + '</option>';
-        }).join('');
-        return '<select class="' + cls + '" disabled' + w + '>' + opts + '</select>';
-      }
-      return '<input type="text" class="' + cls + '" value="" disabled' + w
-        + (isFirstText ? ' placeholder="' + esc(cfg.label || 'Edit me to add new entry') + '"' : '') + '>';
+    // The ADD ROW is the single create affordance, pinned at the BOTTOM of the
+    // list (QuickBooks/Xero "+ Add line" pattern): a plain muted text row, not
+    // a grayed input replica. Reachable by click, j (sticky past the last data
+    // row) and G. While a new row is being created the add row IS the edit row
+    // (navy) — on exit it reappears at the bottom.
+    function addRowHtml() {
+      return '<tr class="fb-add-row"><td class="fb-add-cell" colspan="' + (cfg.columns.length + 1) + '">'
+        + esc(cfg.label || '+ Add entry') + '</td></tr>';
     }
-    function ghostHtml() {
-      var d = Object.assign(cfg.blank(), { _isNew: true });
-      var firstTextSeen = false;
-      var tds = cfg.columns.map(function (c) {
-        var isFirstText = false;
-        if (!firstTextSeen && (!c.type || c.type === 'text')) { isFirstText = true; firstTextSeen = true; }
-        return '<td data-field="' + c.field + '"' + (c.align === 'center' ? ' style="text-align:center"' : '') + '>' + ghostCell(c, d, isFirstText) + '</td>';
-      }).join('');
-      return '<tr class="fb-ghost-row" style="cursor:text">' + tds
-        + '<td class="row-actions"><a class="chip chip-ok fb-ghost-chip" tabindex="-1">✓</a> '
-        + '<a class="chip chip-cancel fb-ghost-chip" tabindex="-1">✕</a></td></tr>';
-    }
-    function hideGhost(tb) {
-      var g = tb.querySelector('.fb-ghost-row');
+    function hideAddRow(tb) {
+      var g = tb.querySelector('.fb-add-row');
       if (g) g.style.display = 'none';
     }
     function defaultDisplay(v) {
@@ -187,7 +158,7 @@
       var tb = tbody();
       if (!tb) return;
       var m = merged();
-      tb.innerHTML = ghostHtml() + m.map(rowHtml).join('');
+      tb.innerHTML = m.map(rowHtml).join('') + addRowHtml(); // add row pinned bottom
       rows().forEach(function (tr) {
         tr.addEventListener('click', function (e) {
           if (nav) nav.set(tr);
@@ -199,11 +170,12 @@
         });
       });
       wireChips(tb);
-      var g = tb.querySelector('.fb-ghost-row');
+      var g = tb.querySelector('.fb-add-row');
       if (g) g.addEventListener('click', function () { newRow(); });
       if (nav) {
-        var target = focusKey != null ? tb.querySelector('tr[data-key="' + focusKey + '"]') : null;
-        nav.set(target || navRows()[0] || null); // default: ghost row (top)
+        var target = focusKey === ADD_ROW ? g
+          : (focusKey != null ? tb.querySelector('tr[data-key="' + focusKey + '"]') : null);
+        nav.set(target || navRows()[0] || null); // default: first row
       }
     }
 
@@ -256,7 +228,7 @@
         + '<a class="chip chip-cancel" title="exit (Esc)" data-act="exit">✕</a></td>';
       wireChips(tbody());
       tr.classList.add('row-editing');
-      if (d._isNew) hideGhost(tbody()); // ghost transforms INTO the edit row
+      if (d._isNew) hideAddRow(tbody()); // the add row transforms INTO the edit row
       cfg.columns.forEach(function (c) {
         if (c.attach && editable(c, d)) {
           var inp = tr.querySelector('.fb-e-' + c.field);
@@ -278,6 +250,7 @@
       if (editIdx < 0) return;
       var d = merged()[editIdx];
       var tr = rows()[editIdx];
+      var vanished = false; // untouched new row discarded → cursor returns to the add row
       if (d && tr) {
         var buf = {};
         cfg.columns.forEach(function (c) {
@@ -293,7 +266,7 @@
         });
         if (d._isNew) {
           if (!cfg.isBlank(buf)) dirty[d._key] = Object.assign(buf, { isNew: true });
-          else delete dirty[d._key]; // nothing from nothing
+          else { delete dirty[d._key]; vanished = true; } // nothing from nothing
         } else {
           var s = null;
           for (var i = 0; i < saved.length; i++) if (saved[i]._key === d._key) s = saved[i];
@@ -305,7 +278,7 @@
       editIdx = -1;
       if (window.FB && FB.mode) FB.mode.set('NORMAL');
       window.fbEditActive = false;
-      render(key);
+      render(vanished ? ADD_ROW : key);
       syncChrome();
     }
 
@@ -331,7 +304,7 @@
       var d = merged()[idx];
       if (!d || !d._dirty) return;
       delete dirty[d._key];
-      render(d._isNew ? null : d._key);
+      render(d._isNew ? ADD_ROW : d._key); // discarded new row → cursor on the add row
       syncChrome();
     }
 
@@ -340,7 +313,7 @@
       if (idx < 0) return;
       var d = merged()[idx];
       if (!d) return;
-      if (d._isNew) { delete dirty[d._key]; render(); syncChrome(); return; }
+      if (d._isNew) { delete dirty[d._key]; render(ADD_ROW); syncChrome(); return; }
       if (!cfg.del) return;
       if (cfg.deletable && !cfg.deletable(d)) return; // read-only row (e.g. ECB rate)
       if (!confirm(cfg.del.confirm(d))) return;
@@ -354,10 +327,14 @@
 
     function newRow() {
       if (editIdx >= 0) exitEdit();
-      var key = '_new_' + (++ghostN);
+      var key = '_new_' + (++newN);
       dirty[key] = Object.assign(cfg.blank(), { isNew: true });
       render(key);
-      enterEdit(0, cfg.firstField(true)); // new rows unshift to index 0 (pinned top)
+      // New rows append at the bottom, right where the add row was. Look the
+      // index up by key — an active filter could otherwise mis-target row 0.
+      var m = merged(), idx = -1;
+      for (var i = 0; i < m.length; i++) if (m[i]._key === key) { idx = i; break; }
+      if (idx >= 0) enterEdit(idx, cfg.firstField(true));
       if (window.FB && FB.track && cfg.track) FB.track.create(cfg.track);
     }
 
@@ -379,7 +356,7 @@
     // ── Cursor + field movement ──────────────────────────────────────────
     function focusedIdx() {
       var tr = nav && nav.current();
-      if (!tr || tr.classList.contains('fb-ghost-row')) return -1;
+      if (!tr || tr.classList.contains('fb-add-row')) return -1;
       var i = +tr.dataset.idx;
       return isNaN(i) ? -1 : i;
     }
@@ -390,7 +367,7 @@
     }
     function editFocused() {
       var tr = nav && nav.current();
-      if (tr && tr.classList.contains('fb-ghost-row')) { newRow(); return; } // i on ghost = create
+      if (tr && tr.classList.contains('fb-add-row')) { newRow(); return; } // i on the add row = create
       var idx = focusedIdx();
       var d = idx >= 0 ? merged()[idx] : null;
       if (d && cfg.editable && !cfg.editable(d)) return; // read-only row
@@ -431,6 +408,13 @@
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocused },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) writeAt(i); } },
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
+      { key: 'G', mode: 'NORMAL', run: function () { nav.last(); } }, // bottom = add row
+      { key: 'g', mode: 'NORMAL', run: function () {
+          if (_gPending) { _gPending = false; clearTimeout(_gTimer); nav.first(); return; }
+          _gPending = true;
+          clearTimeout(_gTimer);
+          _gTimer = setTimeout(function () { _gPending = false; }, 500);
+        } },
       // ── INSERT: dropdown open (dropdown-specific bindings precede general ones —
       // FB.keys takes the FIRST binding whose key+mode+when match) ──
       { key: 'ArrowDown', mode: 'INSERT', when: ddOpen, run: function () { FB.dropdown.move(1); } },

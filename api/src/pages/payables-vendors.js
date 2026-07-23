@@ -65,14 +65,31 @@ function loadVendorTable() {
 function renderVendorTable() {
   var tbody = document.getElementById('vendors-body');
   if (!tbody) return;
+  tbody.innerHTML = '';
+  // P2: ghost row pinned-top is the single create affordance (o focuses it,
+  // mouse clicks into it). It is NOT part of allVendors — exists purely in DOM.
+  tbody.appendChild(buildVendorGhostRow());
   if (!allVendors.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">No vendors yet. Press <b>a</b> to add one.</td></tr>';
+    var emptyTr = document.createElement('tr');
+    emptyTr.innerHTML = '<td colspan="6" style="text-align:center;color:#aaa;padding:24px">No vendors yet.</td>';
+    tbody.appendChild(emptyTr);
     return;
   }
-  tbody.innerHTML = '';
   allVendors.forEach(function(v, i) {
     tbody.appendChild(buildVendorDisplayRow(v, i));
   });
+}
+
+// Ghost row: persistent empty create-row pinned under thead. Click or 'o'
+// converts it into a real (unsaved) vendor row in INSERT at the top of the list.
+function buildVendorGhostRow() {
+  var tr = document.createElement('tr');
+  tr.className = 'fb-ghost-row';
+  tr.dataset.ghost = '1';
+  tr.style.cursor = 'text';
+  tr.innerHTML = '<td colspan="6" class="fb-ghost-cell">+ New vendor <kbd>o</kbd></td>';
+  tr.addEventListener('click', function() { vendorAddNew(); });
+  return tr;
 }
 
 function buildVendorDisplayRow(v, i) {
@@ -308,14 +325,15 @@ function _renderVendorRowDisplay(idx) {
 
 function vendorAddNew() {
   if (vendorEditRow >= 0) { if (!vendorSaveAndExit()) return; }
-  allVendors.push({ vendor_id: '', name: '', default_currency: '', payment_terms_days: 30,
+  // P2 pinned-top: new vendor enters at the head of the list (where the ghost
+  // row sits), sorts into place on next reload. Creates count for topbar ranking.
+  allVendors.unshift({ vendor_id: '', name: '', default_currency: '', payment_terms_days: 30,
     default_expense_account: '', default_ap_account: '', is_active: true });
   renderVendorTable();
-  vendorSelRow = allVendors.length - 1;
+  vendorSelRow = 0;
   updateVendorCursor();
-  var tbody = document.getElementById('vendors-body');
-  if (tbody && tbody.lastElementChild) tbody.lastElementChild.scrollIntoView({ block: 'nearest' });
-  enterVendorRowEdit(vendorSelRow);
+  enterVendorRowEdit(0);
+  if (window.FB && FB.track) FB.track.create('vendor');
 }
 
 function vendorToggleActive() {
@@ -430,7 +448,7 @@ function registerVendorKeyActions() {
         run: function() { if (vendorSelRow >= 0) enterVendorRowEdit(vendorSelRow); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, swallow: hasRows,
         run: function() { if (vendorSelRow >= 0) enterVendorRowEdit(vendorSelRow); } },
-      { key: 'a', mode: 'NORMAL', hint: 'add', hintBar: true,
+      { key: 'o', mode: 'NORMAL', hint: 'new vendor', hintBar: true,
         run: function() { vendorAddNew(); } },
       { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, swallow: hasRows,
         run: function() { vendorDeleteSelected(); } },

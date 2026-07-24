@@ -141,11 +141,9 @@
     // query (drives the screen's existing filter(row,q) predicate). Editing
     // either view re-renders the other. Both are AND-combined in merged().
     var colFilters = {};
-    var boxOpen = false;
-    var toolbarEl = null, boxInput = null;
+    var toolbarEl = null;
     var headersWired = false;
     var ddEl = null;
-    var _boxTimer = null;
     // Drop any stray dropdown left by a prior instance on soft-nav re-exec.
     Array.prototype.forEach.call(document.querySelectorAll('.fb-col-filter-dd'), function (e) { e.remove(); });
 
@@ -412,96 +410,47 @@
       setTimeout(function () { document.addEventListener('mousedown', onDdOutside, true); }, 0);
     }
 
-    // ── Command box (keyboard path) + actions bar ──
+    // ── Actions bar (list-level verbs, spec §8) ──
     function ensureToolbar() {
       var table = tbody() && tbody().closest('table');
-      if (!table || !table.parentNode) return;
+      if (!table || !table.parentNode || !cfg.actions || !cfg.actions.length) return;
       if (toolbarEl) return;
       // Re-exec safety: drop a stale toolbar left immediately before this table.
       var prev = table.previousElementSibling;
       if (prev && prev.classList.contains('fb-list-toolbar')) prev.remove();
       toolbarEl = document.createElement('div');
       toolbarEl.className = 'fb-list-toolbar';
-      var box = document.createElement('div');
-      box.className = 'fb-cmd-box';
-      boxInput = document.createElement('input');
-      boxInput.type = 'text';
-      boxInput.className = 'fb-cmd-input';
-      boxInput.placeholder = '/ filter — terms + field:value  (amount:>100, date:<2026-07)';
-      boxInput.setAttribute('aria-label', 'Filter command box');
-      wireBoxInput();
-      box.appendChild(boxInput);
-      toolbarEl.appendChild(box);
-      if (cfg.actions && cfg.actions.length) {
-        var acts = document.createElement('div');
-        acts.className = 'fb-list-actions';
-        cfg.actions.forEach(function (a) {
-          var b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'fb-list-action-btn';
-          b.textContent = a.label;
-          b.title = a.label + ' (' + a.key + ')';
-          b.addEventListener('click', function () { if (editIdx >= 0) exitEdit(); a.handler(api); });
-          acts.appendChild(b);
-        });
-        toolbarEl.appendChild(acts);
-      }
+      var acts = document.createElement('div');
+      acts.className = 'fb-list-actions';
+      cfg.actions.forEach(function (a) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'fb-list-action-btn';
+        b.textContent = a.label;
+        b.title = a.label + ' (' + a.key + ')';
+        b.addEventListener('click', function () { if (editIdx >= 0) exitEdit(); a.handler(api); });
+        acts.appendChild(b);
+      });
+      toolbarEl.appendChild(acts);
       table.parentNode.insertBefore(toolbarEl, table);
-      syncBox();
     }
-    function syncBox() {
-      if (!boxInput || !toolbarEl) return;
-      if (!boxOpen) boxInput.value = buildBoxExpr();
-      toolbarEl.classList.toggle('fb-filters-active', anyFilterActive());
-      toolbarEl.style.display = (boxOpen || anyFilterActive()) ? '' : 'none';
-    }
-    function prefillForSlash() {
-      var table = tbody() && tbody().closest('table');
-      if (!table) return null;
-      var ae = document.activeElement;
-      if (ae && ae.tagName === 'TH' && table.contains(ae)) {
-        var f = ae.getAttribute('data-field');
-        if (f) return f + ':';
-      }
-      return null;
-    }
-    function openBox(prefill) {
-      ensureToolbar();
-      if (!boxInput) return;
-      boxOpen = true;
-      boxInput.value = (prefill != null) ? prefill : buildBoxExpr();
-      syncBox();
-      boxInput.focus();
-      var len = boxInput.value.length;
-      try { boxInput.setSelectionRange(len, len); } catch (e) {}
-    }
-    function closeBox() {
-      boxOpen = false;
-      syncBox();
-      if (boxInput && document.activeElement === boxInput) boxInput.blur();
-    }
-    function applyBoxLive() {
-      parseBoxExpr(boxInput.value);
-      render();
-      syncHeaderState();
-      syncBox();
-    }
-    function wireBoxInput() {
-      boxInput.addEventListener('input', function () {
-        clearTimeout(_boxTimer);
-        _boxTimer = setTimeout(applyBoxLive, 150);
-      });
-      boxInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); clearTimeout(_boxTimer); applyBoxLive(); closeBox(); }
-        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeBox(); }
-      });
-      boxInput.addEventListener('focus', function () { boxOpen = true; syncBox(); });
+
+    // ── Topbar mirror (spec §8, unified-search model 2026-07-23) ──
+    // The topbar global search is THE one filter input: a value starting with
+    // '/' is a screen-limited filter expression for the visible FB.list. This
+    // mirrors filter state into it (when the user is not typing in it) so the
+    // ≡ dropdowns and the topbar are two views of the same state.
+    function syncTopbar() {
+      var gs = document.getElementById('tb-global-search');
+      if (!gs || document.activeElement === gs) return;
+      if (anyFilterActive()) gs.value = '/' + buildBoxExpr();
+      else if (gs.value.charAt(0) === '/') gs.value = '';
     }
     function clearAllFilters() {
-      colFilters = {}; filterQ = ''; boxOpen = false;
+      colFilters = {}; filterQ = '';
       onFilterChanged();
     }
-    function onFilterChanged() { render(); syncHeaderState(); syncBox(); }
+    function onFilterChanged() { render(); syncHeaderState(); syncTopbar(); }
 
     // ── Render ───────────────────────────────────────────────────────────
     // The ADD ROW is the single create affordance, pinned at the BOTTOM of the
@@ -549,7 +498,7 @@
       var tb = tbody();
       if (!tb) return;
       wireHeaders();
-      if (cfg.actions || filterableCols().length) ensureToolbar();
+      if (cfg.actions) ensureToolbar();
       var m = merged();
       tb.innerHTML = m.map(rowHtml).join('') + addRowHtml(); // add row pinned bottom
       rows().forEach(function (tr) {
@@ -801,9 +750,20 @@
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocused },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) writeAt(i); } },
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
-      { key: 'G', mode: 'NORMAL', run: function () { nav.last(); } }, // bottom = add row
+      // G/gg: cursor to bottom/top AND page to absolute bottom/top (Bills parity —
+      // scrollIntoView 'nearest' alone under-scrolls long lists in #page-main).
+      { key: 'G', mode: 'NORMAL', run: function () {
+          nav.last(); // bottom = add row
+          var pm = document.getElementById('page-main');
+          if (pm) pm.scrollTo(0, pm.scrollHeight);
+        } },
       { key: 'g', mode: 'NORMAL', run: function () {
-          if (_gPending) { _gPending = false; clearTimeout(_gTimer); nav.first(); return; }
+          if (_gPending) {
+            _gPending = false; clearTimeout(_gTimer); nav.first();
+            var pm = document.getElementById('page-main');
+            if (pm) pm.scrollTo(0, 0);
+            return;
+          }
           _gPending = true;
           clearTimeout(_gTimer);
           _gTimer = setTimeout(function () { _gPending = false; }, 500);
@@ -832,7 +792,6 @@
       bindings.splice(4, 0, { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocused });
     }
     if (hasFilterSurface()) {
-      bindings.push({ key: '/', mode: 'NORMAL', hint: 'filter box', hintBar: true, run: function () { openBox(prefillForSlash()); } });
       bindings.push({ key: 'c', mode: 'NORMAL', hint: 'clear filters', hintBar: true, when: anyFilterActive, run: clearAllFilters });
     }
     if (cfg.actions) {
@@ -873,13 +832,23 @@
         }
       },
       clearFilters: clearAllFilters,
-      openFilterBox: function (prefill) { openBox(prefill || null); },
+      hasFilterSurface: hasFilterSurface,
+      anyFilterActive: anyFilterActive,
+      visible: function () { var t = tbody(); return !!(t && t.offsetParent); },
+      // Topbar-routed filter expression (unified-search model): parse + apply
+      // without touching the topbar input the user is typing in.
+      applyFilterExpr: function (str) {
+        parseBoxExpr(str || '');
+        render();
+        syncHeaderState();
+      },
+      filterExpr: function () { return buildBoxExpr(); },
       setFilter: function (q) {
         filterQ = q || ''; // plain-text portion only — column filters are preserved
         if (editIdx >= 0) { editIdx = -1; if (window.FB && FB.mode) FB.mode.set('NORMAL'); window.fbEditActive = false; }
         render();
         syncHeaderState();
-        syncBox();
+        syncTopbar();
         syncChrome();
       },
       nav: function () { return nav; },
@@ -983,6 +952,15 @@
     create: create,
     // Page-level guard API: in-page tab switches use the same modal as page nav.
     anyDirty: function () { return dirtyInstances().length > 0; },
-    guard: function (proceed) { openLeaveModal(proceed); }
+    guard: function (proceed) { openLeaveModal(proceed); },
+    // Unified-search routing (2026-07-23): the topbar global search routes
+    // '/…' expressions to the currently visible filterable list instance.
+    visible: function () {
+      for (var i = 0; i < instances.length; i++) {
+        var inst = instances[i];
+        if (inst.mounted() && inst.visible() && inst.hasFilterSurface()) return inst;
+      }
+      return null;
+    }
   };
 })();

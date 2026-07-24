@@ -206,7 +206,6 @@ ${commonStyle()}
       <tbody id="fx-rates-body"></tbody>
     </table>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button id="btn-save-fxrates" class="btn-primary" onclick="saveFxRates()">Save Rates</button>
       <span id="msg-fxrates" class="msg"></span>
     </div>
   </div>
@@ -703,16 +702,10 @@ function renderJournalHints() {
 
 
 
-// Wire FX rates save button
-var fxSaveBtn = document.querySelector('#fx-rates-body');
-if (!fxSaveBtn) {
-  var s = document.createElement('script');
-  s.textContent = '(function(){ var tbody = document.getElementById("fx-rates-body"); if (tbody && !tbody.dataset.fxWired) { tbody.dataset.fxWired = true; var frm = tbody.parentElement.parentElement; var btn = document.createElement("button"); btn.className = "btn-primary"; btn.textContent = "Save Rates"; btn.onclick = saveFxRates; frm.appendChild(btn); } })();';
-  document.body.appendChild(s);
-}
 // ========== EXCHANGE RATES — FB.list (P3 consolidated) ==========
-// Manual rates are staged via the add row (i / click), written with w or all
-// at once with Save Rates. ECB-sourced rows are read-only (no edit, no delete).
+// One register like every other: rows stage via the add row or edit in place,
+// w writes. Any user write flips the row's source to 'manual' (2026-07-23 —
+// ECB rows are no longer read-only; the legacy bulk Save Rates button is gone).
 var fxList = FB.list.create({
   keysId: 'settings-fxrates',
   active: function() { var p = document.getElementById('tab-fxrates'); return !!(p && p.classList.contains('active')); },
@@ -730,10 +723,14 @@ var fxList = FB.list.create({
   ],
   blank: function() { return { date: new Date().toISOString().slice(0, 10), from_currency: '', to_currency: '', rate: '', source: 'manual' }; },
   isBlank: function(b) { return !b.from_currency && !b.to_currency && !b.rate; },
-  same: function() { return true; }, // saved rows are read-only — never edited
-  editable: function(d) { return d._isNew; },
-  deletable: function(d) { return d.source !== 'ecb'; },
-  rowStyle: function(d) { return d.source === 'ecb' ? 'opacity:0.6' : ''; },
+  same: function(b, s) {
+    return String(b.date) === String(s.date) && b.from_currency === s.from_currency
+      && b.to_currency === s.to_currency && Number(b.rate) === Number(s.rate);
+  },
+  // All rows editable + deletable like every other register. A user write
+  // flips the row's source to 'manual': the client sends the ORIGINAL saved
+  // key (date|from|to|source) and the server replaces that row, so editing an
+  // ECB row converts it instead of duplicating it.
   validate: function(d) {
     if (!d.date || !d.from_currency || !d.to_currency) return 'Date, from and to required';
     if (!(Number(d.rate) > 0)) return 'Rate must be greater than 0';
@@ -748,7 +745,14 @@ var fxList = FB.list.create({
     body: function() { var c = window._companyCurrency || ''; return c ? { baseCurrency: c } : {}; },
     map: function(r) { return { date: r.date ? String(r.date).slice(0, 10) : '', from_currency: r.from_currency || '', to_currency: r.to_currency || '', rate: Number(r.rate), source: r.source || 'manual', _key: String(r.date).slice(0, 10) + '|' + r.from_currency + '|' + r.to_currency + '|' + (r.source || 'manual') }; } },
   save: { action: 'fx.rates.save',
-    body: function(d) { return { rates: [{ date: d.date, from_currency: d.from_currency, to_currency: d.to_currency, rate: Number(d.rate) }] }; },
+    body: function(d) {
+      var r = { date: d.date, from_currency: d.from_currency, to_currency: d.to_currency, rate: Number(d.rate) };
+      if (!d._isNew && d._key) {
+        var p = String(d._key).split('|'); // original saved key: date|from|to|source
+        if (p.length === 4) r.original = { date: p[0], from_currency: p[1], to_currency: p[2], source: p[3] };
+      }
+      return { rates: [r] };
+    },
     focusKey: function(d) { return d._key; } },
   del: { action: 'fx.rates.delete',
     body: function(d) { return { date: d.date, from_currency: d.from_currency, to_currency: d.to_currency, source: d.source }; },
@@ -782,11 +786,9 @@ function fetchFromEcb() {
 }
 
 function saveFxRates() {
-  if (!fxList.anyDirty()) { showMsg('msg-fxrates', 'Open the add row first (i or click), then fill in date, from, to, and rate', true); return; }
-  fxList.writeAllDirty().then(function(ok) {
-    if (ok) showMsg('msg-fxrates', 'Rates saved', false);
-    else showMsg('msg-fxrates', 'Some rates could not be saved', true);
-  });
+  // Legacy bulk-save removed 2026-07-23 (one save path: w). Kept as a thin
+  // shim so any stale onclick cannot ReferenceError; the button itself is gone.
+  fxList.writeAllDirty();
 }
 
 // ========== CURRENCY LIST (FB.dropdown source) ==========

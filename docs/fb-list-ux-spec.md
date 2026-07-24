@@ -65,7 +65,7 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | Option | Meaning |
 |---|---|
 | `keysId` / `active()` | FB.keys registration name; tab-visibility predicate |
-| `tbody` / `msg` | table body element id; status-message element id |
+| `tbody` | table body element id |
 | `companyId()` | company id for `/api/action` payloads |
 | `columns[]` | `field` (buffer property + input class), `type` (`text`/`date`/`number`/`checkbox`/`select`), `width`, `align`, `ro` (`'saved'` = key column read-only on saved rows; `'always'` = display-only), `uppercase`, `step`, `options` (`''` renders `- none -`), `nullable`, `display(v,row)` (view-mode HTML), `attach(input,tr)` (post-build hook — FB.dropdown attachers) |
 | `blank()` / `isBlank(b)` | new-row defaults; untouched-new predicate (vanish on Esc) |
@@ -84,6 +84,8 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `focusClass` / `onFocus(tr)` | nav highlight class (default `nav-row-focus`); focus hook (optional) |
 | `extraBindings(api)` | screen-specific NORMAL bindings (optional) |
 | `filter(row,q)` | enables `api.setFilter(q)` (optional) |
+
+**Status messages (retired 2026-07-23):** the per-screen `msg` span config is gone. All transient feedback ("Saved", validation errors) routes through **`FB.status.show(text, sev)`** (fb-core) into the single topbar slot `#tb-status-msg`. Severity: `true`/`'err'` red, `'warn'` amber, falsy green/neutral. **Never auto-dismisses** — a message stays until the next one replaces it (vim cmdline semantics). Distinct channel from the 🔔 (persistent alerts, fx-automation-spec §7).
 
 ## 7. Extensions inventory (added for Vendors/FX, 2026-07-23)
 

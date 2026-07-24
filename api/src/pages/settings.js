@@ -85,9 +85,6 @@ ${commonStyle()}
       <thead><tr><th>Period Name</th><th>Start Date</th><th>End Date</th><th>Locked</th><th></th></tr></thead>
       <tbody id="periods-body"></tbody>
     </table>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <span id="msg-periods" class="msg" style="font-size:0.8125rem"></span>
-    </div>
   </div>
 
   <!-- COMPANY TAB -->
@@ -106,9 +103,6 @@ ${commonStyle()}
       </tr></thead>
       <tbody id="company-body"></tbody>
     </table>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <span id="msg-company" class="msg" style="font-size:0.8125rem"></span>
-    </div>
 
     <!-- Default accounts for this company (used as fallbacks on new bills) -->
     <div style="margin-top:24px;padding:14px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
@@ -124,7 +118,6 @@ ${commonStyle()}
           <input type="text" id="default-expense-account" placeholder="account code" style="max-width:200px">
         </div>
         <button class="btn-sm" id="btn-save-default-accounts" onclick="saveDefaultAccounts()">Save Defaults</button>
-        <span id="msg-default-accounts" class="msg" style="margin-left:8px"></span>
       </div>
     </div>
 
@@ -142,7 +135,6 @@ ${commonStyle()}
           <input type="number" step="0.1" min="0" id="vat-tolerance-pct" placeholder="1" style="max-width:120px">
         </div>
         <button class="btn-sm" id="btn-save-vat-tolerance" onclick="saveVatTolerance()">Save Tolerance</button>
-        <span id="msg-vat-tolerance" class="msg" style="margin-left:8px"></span>
       </div>
     </div>
 
@@ -160,7 +152,6 @@ ${commonStyle()}
           <input type="password" id="fx-provider-apikey" placeholder="Enter API key" style="max-width:300px">
         </div>
         <button class="btn-sm" id="btn-save-fx-provider" onclick="saveFxProvider()">Save Provider</button>
-        <span id="msg-fx-provider" class="msg" style="margin-left:8px"></span>
       </div>
       <div id="fx-provider-desc" style="font-size:9pt;color:#666;margin:6px 0 0 0"></div>
     </div>
@@ -172,9 +163,6 @@ ${commonStyle()}
       <thead><tr><th>Code</th><th>Account Name</th><th>Type</th><th>Subtype</th><th>CF Category</th><th>Active</th><th></th></tr></thead>
       <tbody id="coa-body"></tbody>
     </table>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <span id="msg-coa" class="msg" style="font-size:0.8125rem"></span>
-    </div>
   </div>
 
   <!-- JOURNALS TAB -->
@@ -183,9 +171,6 @@ ${commonStyle()}
       <thead><tr><th>Code</th><th>Name</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="journals-body"></tbody>
     </table>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <span id="msg-journals" class="msg" style="font-size:0.8125rem"></span>
-    </div>
   </div>
 
   <!-- VAT/GST CODES TAB -->
@@ -194,9 +179,6 @@ ${commonStyle()}
       <thead><tr><th>Code</th><th>Description</th><th>Rate %</th><th>Input Acct</th><th>Output Acct</th><th>Report Box</th><th style="text-align:center">Rev.Chg</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="vat-body"></tbody>
     </table>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <span id="msg-vat" class="msg" style="font-size:0.8125rem"></span>
-    </div>
   </div>
 
   <!-- EXCHANGE RATES TAB -->
@@ -205,9 +187,6 @@ ${commonStyle()}
       <thead><tr><th>Date</th><th>From</th><th>To</th><th style="text-align:right">Rate</th><th>Source</th><th></th></tr></thead>
       <tbody id="fx-rates-body"></tbody>
     </table>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <span id="msg-fxrates" class="msg"></span>
-    </div>
   </div>
 </div>
 
@@ -273,10 +252,10 @@ function showTab(t) {
 }
 
 function showMsg(id, msg, isErr) {
-  var el = document.getElementById(id);
-  el.textContent = msg;
-  el.className = 'msg ' + (isErr ? 'err' : 'ok');
-  if (!isErr) setTimeout(function(){ el.textContent = ''; }, 3000);
+  // The ONE status channel (2026-07-23): the topbar slot via FB.status.
+  // Per-screen spans retired; never auto-dismisses — a message stays until
+  // the next one replaces it. The id arg is accepted for back-compat.
+  if (window.FB && FB.status) FB.status.show(msg, isErr);
 }
 
 function wireDirty(tr, tab) {
@@ -297,7 +276,6 @@ var periodsList = FB.list.create({
   keysId: 'settings-periods',
   active: function() { var p = document.getElementById('tab-periods'); return !!(p && p.classList.contains('active')); },
   tbody: 'periods-body',
-  msg: 'msg-periods',
   companyId: function() { return COMPANY; },
   columns: [
     { field: 'period_name', type: 'text', width: 110, ro: 'saved', filterType: 'text' },
@@ -562,7 +540,6 @@ var coaList = FB.list.create({
   keysId: 'settings-coa',
   active: function() { var p = document.getElementById('tab-coa'); return !!(p && p.classList.contains('active')); },
   tbody: 'coa-body',
-  msg: 'msg-coa',
   companyId: function() { return COMPANY; },
   columns: [
     { field: 'account_code', type: 'text', width: 80, ro: 'saved', filterType: 'text' },
@@ -614,7 +591,6 @@ var vatList = FB.list.create({
   keysId: 'settings-vat',
   active: function() { var p = document.getElementById('tab-vat'); return !!(p && p.classList.contains('active')); },
   tbody: 'vat-body',
-  msg: 'msg-vat',
   companyId: function() { return COMPANY; },
   columns: [
     { field: 'vat_code', type: 'text', width: 60, ro: 'saved', filterType: 'text' },
@@ -664,7 +640,6 @@ var journalsList = FB.list.create({
   keysId: 'settings-journals',
   active: function() { var p = document.getElementById('tab-journals'); return !!(p && p.classList.contains('active')); },
   tbody: 'journals-body',
-  msg: 'msg-journals',
   companyId: function() { return COMPANY; },
   hint: 'Journal codes appear in the reference sequence (e.g. MISC/2026/0001). Codes should be short uppercase strings.',
   columns: [
@@ -710,7 +685,6 @@ var fxList = FB.list.create({
   keysId: 'settings-fxrates',
   active: function() { var p = document.getElementById('tab-fxrates'); return !!(p && p.classList.contains('active')); },
   tbody: 'fx-rates-body',
-  msg: 'msg-fxrates',
   companyId: function() { return COMPANY; },
   columns: [
     { field: 'date', type: 'date', width: 120, filterType: 'date' },

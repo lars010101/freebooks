@@ -1031,6 +1031,10 @@
       var d = idx >= 0 ? merged()[idx] : null;
       return !!(d && d._dirty);
     }
+    // Local focusedRow (Task 4): the focused merged() row, or null on the add
+    // row / empty list. Tree bindings (Space fold, `a` add-child) resolve the
+    // focused bill through this; the add row yields null (Space/`a` inert there).
+    function focusedRow() { var i = focusedIdx(); return i >= 0 ? merged()[i] : null; }
     function editFocused() {
       var tr = nav && nav.current();
       if (tr && tr.classList.contains('fb-add-row')) { newRow(); return; } // i on the add row = create
@@ -1061,6 +1065,67 @@
       if (!inputs.length) return false;
       var i = inputs.indexOf(document.activeElement);
       return e.shiftKey ? i === 0 : i === inputs.length - 1;
+    }
+
+    // ── `a` verb: add a child line to the focused draft bill (Task 4) ──
+    // cfg.addChild(parent) returns a blank line object (screen provides the
+    // shape). The framework harvests the bill's current DOM inputs into the
+    // dirty buffer (without vanishing a blank new bill), appends the line,
+    // re-renders, re-enters edit, and focuses the new (last) child's first
+    // field. If the bill is not yet in edit mode, `a` enters edit first (opens
+    // the fold + fetches children for a saved draft); the user presses `a`
+    // again once the children are rendered. Inert on posted bills.
+    function addChildLine() {
+      if (!cfg.tree) return;
+      var d = focusedRow();
+      if (!d) return;
+      var res = billParentOf(d);
+      if (!res) return;
+      var parent = res.parent;
+      if (cfg.editable && !cfg.editable(parent)) return; // posted: no-op
+      if (!cfg.addChild) { editFocused(); return; }       // no line-shape hook → just enter edit
+      var key = parent._key;
+      // Not yet editing this bill → enter edit (opens fold, fetches children).
+      if (editIdx < 0 || editKey !== key) { editFocused(); return; }
+      var tr = rows()[editIdx];
+      if (!tr) return;
+      // Harvest current parent + child inputs into the buffer (always keep —
+      // never vanish a bill the user is actively adding a line to).
+      var buf = {};
+      cfg.columns.forEach(function (c) {
+        var inp = tr.querySelector('.fb-e-' + c.field);
+        if (!inp) { buf[c.field] = parent[c.field]; return; } // ro column: keep
+        if (c.type === 'checkbox') buf[c.field] = inp.checked;
+        else if (c.type === 'number') buf[c.field] = parseFloat(inp.value) || 0;
+        else if (c.type === 'select') buf[c.field] = c.nullable ? (inp.value || null) : inp.value;
+        else { var v = inp.value.trim(); buf[c.field] = c.uppercase ? v.toUpperCase() : v; }
+      });
+      var lines = [];
+      if (cfg.harvestChild) {
+        var kidTrs = childTrsFor(tr, key);
+        for (var i = 0; i < kidTrs.length; i++) lines.push(cfg.harvestChild(kidTrs[i]));
+      }
+      lines.push(cfg.addChild(parent));
+      buf.lines = lines;
+      buf._isBill = true;
+      dirty[key] = Object.assign(buf, { isNew: !!parent._isNew });
+      // Clear edit state (we'll re-enter) to avoid exitEdit re-harvesting.
+      editIdx = -1; editKey = null;
+      if (window.FB && FB.mode) FB.mode.set('NORMAL');
+      window.fbEditActive = false;
+      cfg.fold(parent, true); // ensure the new child renders
+      render(key);
+      var m = merged(), idx = -1;
+      for (var j = 0; j < m.length; j++) if (m[j]._key === key && !m[j]._childOf) { idx = j; break; }
+      if (idx < 0) return;
+      enterEdit(idx, cfg.firstField(parent._isNew));
+      // Focus the last child's first input (the newly appended line).
+      var ptr = rows()[idx];
+      if (ptr) {
+        var ks = childTrsFor(ptr, key);
+        var last = ks[ks.length - 1];
+        if (last) { var f = last.querySelector('input,select'); if (f) { f.focus(); if (f.select) f.select(); } }
+      }
     }
 
     // ── Keys ─────────────────────────────────────────────────────────────
@@ -1135,11 +1200,50 @@
         bindings.push({ key: a.key, mode: 'NORMAL', hint: a.label, hintBar: true, run: function () { if (editIdx >= 0) exitEdit(); a.handler(api); } });
       });
     }
+    if (cfg.tree) {
+      // Space = FOLD (vim fold semantics, Task 4): toggles the bill under the
+      // cursor — on a parent folds that bill, on a child folds its parent;
+      // inert on the add row (focusedRow() returns null there). Mouse parity
+      // is the ▸/▾ caret in rowHtml. Enter = edit everywhere is already wired
+      // (Task 3 — editFocused resolves child→parent; posted bills no-op).
+      bindings.push({ key: ' ', mode: 'NORMAL', hint: 'fold', hintBar: true,
+        when: function () { return !!focusedRow(); },
+        run: function () {
+          var d = focusedRow();
+          if (d) toggleFold(d._childOf ? rowByKey(d._childOf) : d);
+        } });
+      // `a` = add child line to the focused draft bill (Task 4). cfg.addChild
+      // provides the blank line shape; the framework appends it + focuses the
+      // new child's first field. Guarded on the parent's editability (drafts).
+      bindings.push({ key: 'a', mode: 'NORMAL', hint: 'add line', hintBar: true,
+        when: function () {
+          var d = focusedRow();
+          if (!d) return false;
+          var p = d._childOf ? rowByKey(d._childOf) : d;
+          return !!(p && (!cfg.editable || cfg.editable(p)));
+        },
+        run: addChildLine });
+    }
     function registerKeys() {
       if (!(window.FB && FB.keys)) return;
       nav = FB.nav.create({ rows: navRows, focusClass: cfg.focusClass || 'nav-row-focus', onFocus: cfg.onFocus || undefined });
       if (FB.keys.unregister) FB.keys.unregister(cfg.keysId);
-      var all = cfg.extraBindings ? bindings.concat(cfg.extraBindings(api)) : bindings;
+      var all = bindings.slice();
+      if (cfg.extraInsertBindings) {
+        // Prepend the screen's INSERT bindings ahead of the GENERAL INSERT set
+        // (the unguarded INSERT Escape/Enter/Tab at the tail of `bindings`), so
+        // tree sub-modes (Bills' inline pay row) win over field-advance. The
+        // dropdown bindings (guarded by `when: ddOpen`) stay first — dropdown
+        // parity is preserved. (Task 4.)
+        var ei = cfg.extraInsertBindings(api) || [];
+        var gi = -1;
+        for (var bi = 0; bi < all.length; bi++) {
+          if (all[bi].mode === 'INSERT' && !all[bi].when) { gi = bi; break; }
+        }
+        if (gi < 0) gi = all.length;
+        Array.prototype.splice.apply(all, [gi, 0].concat(ei));
+      }
+      if (cfg.extraBindings) all = all.concat(cfg.extraBindings(api));
       FB.keys.register(cfg.keysId, {
         active: cfg.active,
         getMode: function () { return editIdx >= 0 ? 'INSERT' : 'NORMAL'; },
@@ -1188,7 +1292,7 @@
         syncChrome();
       },
       nav: function () { return nav; },
-      focusedRow: function () { var i = focusedIdx(); return i >= 0 ? merged()[i] : null; },
+      focusedRow: focusedRow,
       writeAllDirty: writeAllDirty,
       discardAll: discardAll
     };

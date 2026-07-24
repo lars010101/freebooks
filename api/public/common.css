@@ -723,6 +723,15 @@ th:hover .fb-filter-btn { opacity: 1; color: var(--text-muted); }
 th .fb-filter-btn.fb-filter-active,
 th.fb-col-filtered .fb-filter-btn { opacity: 1; color: var(--accent); font-weight: 700; }
 
+/* Sortable column header (Task 5b) — lifted from payables.js page CSS. The
+   framework owns the sort affordance; the ▲/▼ arrow renders AFTER the label
+   in a .th-sort span and collapses when inactive (:empty → display:none, so
+   no reserved icon gap). Deletion of the duplicate rules from the Bills page
+   CSS is a later phase. */
+th.fb-th-sortable { cursor: pointer; user-select: none; }
+.th-sort { font-size: 0.6875rem; color: var(--text); width: 12px; text-align: center; flex-shrink: 0; }
+.th-sort:empty { display: none; } /* no reserved gap: header label stays flush with cell content */
+
 /* Column filter dropdown — dark-theme consistent with .fb-dd / .fb-palette */
 .fb-col-filter-dd {
   background: var(--surface);

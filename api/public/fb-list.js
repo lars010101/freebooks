@@ -39,6 +39,16 @@
  *                       declared explicitly; filterType: null opts out.
  *                       Drives the ≡ header dropdown + the '/field:value'
  *                       command-box qualifier for this column (spec §8).
+ *              sortable true → this column's header is click-sortable
+ *                       (asc → desc → none cycle; `none` restores server /
+ *                       `saved` order via re-render, never a re-fetch).
+ *                       Default OFF (only Bills declares it). Single-column:
+ *                       sorting one column clears any other. Mouse-only (no
+ *                       verb); j/k/G/gg operate on the sorted+filtered seq.
+ *                       View concern: sorts the filtered set, never mutates
+ *                       `saved`; suspended while any row/bill is dirty (same
+ *                       doctrine as the filter bypass). Tree: parents are
+ *                       sorted, children follow their parent.
  *              label    optional column header label (used by the ≡ tooltip)
  *   blank()    → new-row buffer defaults
  *   isBlank(b) → true when a NEW buffer is untouched (vanishes on Esc)
@@ -143,6 +153,7 @@
     var _gPending = false, _gTimer = null; // gg sequence
     var ADD_ROW = '_add_row'; // render(focusKey) sentinel: focus the add row
     var folded = {}; // tree: foldKey → bool (open=true); flat lists never read this
+    var sortState = { field: null, dir: null }; // Task 5b: single-col sort; dir 'asc'|'desc'|null (none = server order)
 
     function tbody() { return el(cfg.tbody); }
     function rows() { return Array.from(tbody().querySelectorAll('tr:not(.fb-add-row)')); }
@@ -273,6 +284,14 @@
           });
         }
         if (hasColFilters()) out = out.filter(function (r) { return keepRow(r) || applyColFilters(r); });
+      }
+      // ── View sort (Task 5b) — optional per-column `sortable`. Composes with
+      // filters (sorts the filtered set); never mutates `saved`. Suspended
+      // while any row/bill is dirty (same doctrine as the filter bypass —
+      // dirty data is never reordered out from under the user). Single-key
+      // (one column at a time). Tree: parents sorted, children follow.
+      if (sortState.field && sortState.dir && !anyDirty()) {
+        out = cfg.tree ? applyViewSortTree(out) : applyViewSort(out);
       }
       return out;
     }
@@ -449,10 +468,28 @@
       var ths = table.querySelectorAll('thead th');
       for (var i = 0; i < cfg.columns.length && i < ths.length; i++) {
         var col = cfg.columns[i], th = ths[i];
+        th.setAttribute('data-field', col.field); // canonical field ref (sort + filter)
+        // Sortable header (Task 5b): ensure a .th-sort arrow span exists AFTER
+        // the label and wire the asc→desc→none cycle. Guarded by class so a
+        // re-wire on persistent ths doesn't stack handlers / duplicate spans.
+        if (col.sortable && !th.classList.contains('fb-th-sortable')) {
+          th.classList.add('fb-th-sortable');
+          if (!th.querySelector('.th-sort')) {
+            var sp = document.createElement('span');
+            sp.className = 'th-sort';
+            th.appendChild(sp); // appended after the label; collapses when empty
+          }
+          (function (thEl, field) {
+            thEl.addEventListener('click', function (e) {
+              if (e.target.closest && e.target.closest('.fb-filter-btn')) return; // filter btn owns its clicks
+              if (editIdx >= 0) exitEdit(); // never lose a dirty buffer to a mouse sort
+              cycleSort(field);
+            });
+          })(th, col.field);
+        }
         if (!col.filterType || th.querySelector('.fb-filter-btn')) continue;
         th.classList.add('fb-th-filterable');
         th.setAttribute('tabindex', '0');
-        th.setAttribute('data-field', col.field);
         (function (thEl, field, label) {
           var btn = document.createElement('span');
           btn.className = 'fb-filter-btn';
@@ -469,6 +506,7 @@
       }
       headersWired = true;
       syncHeaderState();
+      syncSortHeaders();
     }
     function filterSummary(col, cf) {
       if (col.filterType === 'text' || col.filterType === 'list') return String(cf.value);
@@ -490,6 +528,79 @@
             : 'Filter by ' + (col.label || col.field));
         }
       });
+    }
+
+    // ── Per-column sort (Task 5b) ──
+    // Optional, per-column `sortable: true`. Single-key sort: clicking a
+    // sortable header cycles asc → desc → none; `none` clears the sort and
+    // restores server (`saved`) order — a re-render, NEVER a re-fetch. The
+    // ▲/▼ arrow renders AFTER the label in a `.th-sort` span and collapses
+    // when inactive (`.th-sort:empty{display:none}`). Mouse-only (no verb);
+    // j/k/G/gg operate on the sorted+filtered sequence. Sort is a VIEW
+    // concern: it composes with filters (sorts the filtered set), never
+    // mutates `saved`, and is suspended while any row/bill is dirty (same
+    // doctrine as the filter bypass — dirty data is never reordered out from
+    // under the user). Tree: parents are sorted; children follow their parent.
+    function syncSortHeaders() {
+      var table = tbody() && tbody().closest('table');
+      if (!table) return;
+      cfg.columns.forEach(function (col) {
+        if (!col.sortable) return;
+        var th = table.querySelector('thead th[data-field="' + col.field + '"]');
+        if (!th) return;
+        var ic = th.querySelector('.th-sort');
+        if (!ic) return;
+        ic.textContent = (sortState.field === col.field && sortState.dir)
+          ? (sortState.dir === 'asc' ? '\u25B2' : '\u25BC') : ''; // ▲ / ▼ / '' (collapses)
+      });
+    }
+    function cycleSort(field) {
+      if (sortState.field !== field) { sortState.field = field; sortState.dir = 'asc'; }
+      else if (sortState.dir === 'asc') sortState.dir = 'desc';
+      else { sortState.field = null; sortState.dir = null; } // none → restore server order
+      syncSortHeaders();
+      render();
+    }
+    function sortCmp(col, dir, a, b) {
+      var av = a[col.field], bv = b[col.field];
+      if (col.type === 'number') { av = Number(av); bv = Number(bv); }
+      else { av = String(av == null ? '' : av).toLowerCase(); bv = String(bv == null ? '' : bv).toLowerCase(); }
+      if (av < bv) return -dir;
+      if (av > bv) return dir;
+      return 0;
+    }
+    function applyViewSort(arr) {
+      var col = colByName(sortState.field);
+      if (!col) return arr;
+      var dir = sortState.dir === 'desc' ? -1 : 1;
+      var indexed = arr.map(function (r, i) { return [r, i]; });
+      indexed.sort(function (a, b) {
+        var c = sortCmp(col, dir, a[0], b[0]);
+        return c !== 0 ? c : (a[1] - b[1]); // stable tiebreak (ES5 safety)
+      });
+      return indexed.map(function (p) { return p[0]; });
+    }
+    function applyViewSortTree(arr) {
+      var col = colByName(sortState.field);
+      if (!col) return arr;
+      var dir = sortState.dir === 'desc' ? -1 : 1;
+      // Group the flat sequence into parent-blocks (a parent + its trailing
+      // children); sort blocks by the PARENT's key; children stay attached to
+      // their parent (order within a block unchanged).
+      var blocks = [], cur = null;
+      for (var i = 0; i < arr.length; i++) {
+        var r = arr[i];
+        if (!r._childOf) { cur = { parent: r, kids: [] }; blocks.push(cur); }
+        else if (cur) cur.kids.push(r);
+      }
+      var ib = blocks.map(function (b, i) { return [b, i]; });
+      ib.sort(function (a, b) {
+        var c = sortCmp(col, dir, a[0].parent, b[0].parent);
+        return c !== 0 ? c : (a[1] - b[1]);
+      });
+      var out = [];
+      ib.forEach(function (p) { out.push(p[0].parent); p[0].kids.forEach(function (k) { out.push(k); }); });
+      return out;
     }
 
     // ── Column filter dropdown (mouse path) ──
@@ -640,7 +751,7 @@
       colFilters = {}; filterQ = '';
       onFilterChanged();
     }
-    function onFilterChanged() { render(); syncHeaderState(); syncTopbar(); }
+    function onFilterChanged() { render(); syncHeaderState(); syncSortHeaders(); syncTopbar(); }
 
     // ── Render ───────────────────────────────────────────────────────────
     // The ADD ROW is the single create affordance, pinned at the BOTTOM of the

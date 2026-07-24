@@ -918,6 +918,9 @@
         var inner = cfg.editChildRowHtml ? cfg.editChildRowHtml(parent, kids[ci], ci) : '';
         kidTrs[ci].innerHTML = inner;
         kidTrs[ci].classList.add('row-editing');
+        // cfg.attachChild(tr, parent, idx) — post-build hook for child-row
+        // dropdowns/behaviors (mirrors the column-level `attach` hook).
+        if (cfg.attachChild) cfg.attachChild(kidTrs[ci], parent, ci);
       }
       wireChips(tbody());
       cfg.columns.forEach(function (c) {
@@ -1448,6 +1451,7 @@
       },
       nav: function () { return nav; },
       focusedRow: focusedRow,
+      addChild: addChildLine, // tree: same flow as the `a` verb (Tab-spawn uses it)
       writeAllDirty: writeAllDirty,
       discardAll: discardAll
     };

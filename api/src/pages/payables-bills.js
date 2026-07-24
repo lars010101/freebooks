@@ -2972,6 +2972,35 @@ function billsChildRowHtml(parent, child, idx) {
   return '<td colspan="8" class="child-desc"></td>';
 }
 
+// Live gross-total refresh on the parent row while child lines are edited
+// (Task 6d; replaces the old updateParentDraftAmount which read the old DOM
+// model). Walks up from a child row to its parent, sums net + GST per line
+// (override value wins; otherwise amount × rate), rewrites the amount cell.
+function billRefreshParentTotal(childTr) {
+  if (!childTr || !childTr.dataset || !childTr.dataset.childOf) return;
+  var key = childTr.dataset.childOf;
+  var ptr = childTr.previousElementSibling;
+  while (ptr && ptr.dataset && ptr.dataset.childOf === key) ptr = ptr.previousElementSibling;
+  if (!ptr) return;
+  var gross = 0;
+  var sib = ptr.nextElementSibling;
+  while (sib && sib.dataset && sib.dataset.childOf === key) {
+    var amt = parseFloat((sib.querySelector('.child-amt') || {}).value) || 0;
+    var code = ((sib.querySelector('.child-vat') || {}).value || '').trim();
+    var gstInp = sib.querySelector('.child-gst');
+    var info = code ? taxCodeRateMap[code] : null;
+    var gst = 0;
+    if (info) {
+      gst = (gstInp && gstInp.value !== '') ? (parseFloat(gstInp.value) || 0)
+        : Math.round(amt * Number(info.rate) * 100) / 100;
+    }
+    gross += amt + gst;
+    sib = sib.nextElementSibling;
+  }
+  var cell = ptr.querySelector('td[data-field="amount"]');
+  if (cell) cell.innerHTML = '<span class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + gross.toFixed(2) + '</span>';
+}
+
 var billsList = FB.list.create({
   keysId: 'bills',
   active: function () {
@@ -3091,7 +3120,79 @@ var billsList = FB.list.create({
     }
     return true;
   },
-  firstField: function (isNew) { return 'vendor'; }
+  firstField: function (isNew) { return 'vendor'; },
+  // ── Task 6d: child-line edit unit ──
+  // EDIT-mode child row (framework owns the <tr> shell). Input ORDER matters:
+  // _initChildGst/_recomputeChildGst address the amount input positionally as
+  // querySelectorAll('input')[2]. Desc colspan 4 (not the old 3): the framework
+  // table has a row-actions column (8 cells total).
+  editChildRowHtml: function (parent, child, idx) {
+    var gstShown = child.vat_code ? '' : 'display:none;';
+    var gstVal = (child.vat_amount_override != null) ? Number(child.vat_amount_override).toFixed(2) : '';
+    return '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" value="' + esc(child.description || '') + '" /></td>'
+      + '<td><input class="draft-input child-expense-acct" placeholder="Expense Acct" title="Expense account code" value="' + esc(child.expense_account || '') + '" /></td>'
+      + '<td class="amt"><input class="draft-input child-amt" type="number" step="0.01" placeholder="0.00" value="' + (child.amount ? Number(child.amount).toFixed(2) : '') + '" style="text-align:right" /></td>'
+      + '<td class="child-spacer"></td>'
+      + '<td style="white-space:nowrap"><input class="draft-input child-vat" placeholder="— None —" title="VAT code" value="' + esc(child.vat_code || '') + '" style="width:72px" />'
+      + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" value="' + gstVal + '" style="' + gstShown + 'width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
+  },
+  // Post-build hook per child row (framework calls it after innerHTML): wire
+  // the account + VAT dropdowns, GST visibility/recompute, live parent-total
+  // refresh, and the Tab-spawn / Shift+Tab field flow (payables spec).
+  attachChild: function (tr, parent, idx) {
+    var expInp = tr.querySelector('.child-expense-acct');
+    if (expInp) _attachAcctDropdown(expInp);
+    var vatInp = tr.querySelector('.child-vat');
+    var amtInp = tr.querySelector('.child-amt');
+    var gstInp = tr.querySelector('.child-gst');
+    var lineObj = { vatAmountOverride: (gstInp && gstInp.value !== '') ? (parseFloat(gstInp.value) || null) : null };
+    if (vatInp) _attachVatDropdown(vatInp, function () { _initChildGst(tr, lineObj); billRefreshParentTotal(tr); });
+    if (amtInp) amtInp.addEventListener('input', function () { _recomputeChildGst(tr, lineObj); billRefreshParentTotal(tr); });
+    if (gstInp) gstInp.addEventListener('input', function () {
+      lineObj.vatAmountOverride = gstInp.value !== '' ? (parseFloat(gstInp.value) || null) : null;
+      billRefreshParentTotal(tr);
+    });
+    _initChildGst(tr, lineObj);
+    tr.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab') return;
+      var sib = tr.nextElementSibling;
+      var isLast = !sib || !sib.dataset || sib.dataset.childOf !== String(parent._key);
+      var gstHidden = gstInp && gstInp.style.display === 'none';
+      // Forward Tab on the last child's last field (GST when visible, else VAT):
+      // spawn a new line when this one has data; sticky when empty.
+      if (!e.shiftKey && isLast && (e.target === gstInp || (gstHidden && e.target === vatInp))) {
+        e.preventDefault();
+        var desc = tr.querySelector('.child-desc');
+        var hasData = (desc && desc.value.trim() !== '') || (amtInp && (parseFloat(amtInp.value) || 0) > 0);
+        if (hasData && billsList && billsList.addChild) billsList.addChild();
+        return;
+      }
+      // Shift+Tab on the FIRST child's desc → back to the parent's last input.
+      if (e.shiftKey && e.target.classList.contains('child-desc')) {
+        var prev = tr.previousElementSibling;
+        var isFirst = !(prev && prev.dataset && prev.dataset.childOf === String(parent._key));
+        if (isFirst) {
+          e.preventDefault();
+          if (prev) { var pin = prev.querySelector('.fb-e-vendor_ref') || prev.querySelector('input'); if (pin) pin.focus(); }
+        }
+      }
+    });
+  },
+  // Read one child row's inputs back into a line object (framework exitEditTree).
+  harvestChild: function (tr) {
+    var g = tr.querySelector('.child-gst');
+    return {
+      description: ((tr.querySelector('.child-desc') || {}).value || '').trim(),
+      expense_account: ((tr.querySelector('.child-expense-acct') || {}).value || '').trim(),
+      amount: parseFloat((tr.querySelector('.child-amt') || {}).value) || 0,
+      vat_code: ((tr.querySelector('.child-vat') || {}).value || '').trim(),
+      vat_amount_override: (g && g.value !== '') ? (parseFloat(g.value) || null) : null
+    };
+  },
+  // a-verb / Tab-spawn: the framework appends this shape to the bill buffer.
+  addChild: function (parent) {
+    return { description: '', expense_account: companyDefaultExpense || '', amount: 0, vat_code: '', vat_amount_override: null, currency: parent.currency || BASE_CURRENCY };
+  }
   // save / del / validate / editable / deletable / extraBindings — Tasks 6e/6f
 });
 

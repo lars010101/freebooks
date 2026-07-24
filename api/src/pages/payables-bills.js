@@ -2742,6 +2742,156 @@ function payAffordHtml(r) {
 // while the old machinery still owns rendering.
 function billAttachVendor(input, tr) { /* Task 6d: vendor dropdown */ }
 
+// ========== Task 6b — children accessor + childRowHtml (lazy fold) ==========
+// billChildCache[_key] = { lines: [...], payments: [...], fetched: bool,
+//   fetching: bool }. The framework calls cfg.children(row) SYNCHRONOUSLY
+// during render (merged()→childrenOf), so this accessor returns the cached
+// rows when already resolved and otherwise returns [] and kicks off a
+// background fetch of bill.lines (+ bill.payments for posted/partial/paid).
+// On resolution the cache is filled and billsList.render() re-runs so the
+// fold re-renders with the now-pre-resolved children (the next children()
+// call returns them synchronously). This is the pre-resolved pattern: the
+// first unfold shows an empty fold that fills in on the next render tick.
+var billChildCache = {};
+
+function billsChildren(row) {
+  var k = row._key;
+  var c = billChildCache[k];
+  if (c && c.fetched) return billsMergeChildRows(c, row);
+  // First touch (or a fetch is already in flight): return [] now and trigger
+  // a re-render when the data lands. Idempotent — only the first call spawns
+  // the fetch; later calls while fetching just re-read the (still-empty)
+  // cache and return [].
+  if (!c) {
+    billChildCache[k] = { lines: [], payments: [], fetched: false, fetching: true };
+    billsFetchChildren(row);
+  }
+  return [];
+}
+
+function billsFetchChildren(row) {
+  var k = row._key;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'bill.lines', companyId: COMPANY, billId: row.bill_id }) })
+  .then(function (r) { return r.json(); })
+  .then(function (res) {
+    var lines = (res && res.data) ? res.data : (res || []);
+    if (!Array.isArray(lines)) lines = [];
+    var entry = billChildCache[k] || (billChildCache[k] = { lines: [], payments: [], fetched: false });
+    entry.lines = lines;
+    var needsPayments = row.status === 'posted' || row.status === 'partial' || row.status === 'paid';
+    if (!needsPayments) { entry.fetched = true; entry.fetching = false; billsList.render(); return; }
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'bill.payments', companyId: COMPANY, billId: row.bill_id }) })
+    .then(function (pr) { return pr.json(); })
+    .then(function (pres) {
+      var payments = (pres && pres.data) ? pres.data : (pres || []);
+      if (!Array.isArray(payments)) payments = [];
+      entry.payments = payments;
+      entry.fetched = true; entry.fetching = false;
+      billsList.render();
+    })
+    .catch(function () { entry.fetched = true; entry.fetching = false; billsList.render(); });
+  })
+  .catch(function () {
+    var entry = billChildCache[k];
+    if (entry) { entry.fetched = true; entry.fetching = false; }
+    billsList.render();
+  });
+}
+
+// billsMergeChildRows(cache, parent) — builds the flat ordered list of child
+// row objects the framework flattens under the parent. Mirrors the row order
+// emitted by today's toggleBillLines (L918–1058): draft → line rows; posted →
+// expense lines (VAT cell = paired GST code), then GST sub-rows, then payment
+// history rows. Each child carries a _kind tag the renderer switches on.
+function billsMergeChildRows(cache, parent) {
+  var lines = cache.lines || [];
+  var payments = cache.payments || [];
+  if (!lines.length && !payments.length) return [{ _kind: 'empty' }];
+  var out = [];
+  if (parent.status === 'draft') {
+    lines.forEach(function (l) {
+      out.push({ _kind: 'draft-line', entry_id: l.entry_id || '',
+        description: l.description || '', amount: Number(l.amount || 0),
+        vat_code: l.vat_code || '' });
+    });
+    return out;
+  }
+  // Posted: expense lines (no vat_code) paired with GST lines (vat_code set),
+  // then GST sub-rows, then payment history.
+  var expenseLines = lines.filter(function (l) { return !l.vat_code; });
+  var gstLines = lines.filter(function (l) { return !!l.vat_code; });
+  expenseLines.forEach(function (line, idx) {
+    var pairedGst = gstLines[idx] || null;
+    var rawDesc = line.description || '';
+    var sepIdx = rawDesc.lastIndexOf(' / ');
+    var desc = sepIdx !== -1 ? rawDesc.slice(sepIdx + 3).trim() : rawDesc;
+    out.push({ _kind: 'expense', entry_id: line.entry_id || '',
+      description: desc, account_code: line.account_code || '',
+      amount: Number(line.amount || 0),
+      gstVatCode: pairedGst ? (pairedGst.vat_code || '') : '' });
+  });
+  gstLines.forEach(function (line) {
+    var codeDesc = taxCodeMap[line.vat_code];
+    var label = codeDesc ? line.vat_code + ': ' + codeDesc : (line.vat_code || 'GST/VAT');
+    out.push({ _kind: 'gst', entry_id: line.entry_id || '',
+      vat_code: line.vat_code || '', amount: Number(line.amount || 0),
+      label: label });
+  });
+  payments.forEach(function (pmt) {
+    out.push({ _kind: 'payment', payment_id: pmt.payment_id || '',
+      date: pmt.date || '', method: pmt.method || '',
+      reference: pmt.reference || '', amount: Number(pmt.amount || 0),
+      voided: !!pmt.voided_at });
+  });
+  return out;
+}
+
+// billsChildRowHtml(parent, child, idx) — view-mode child <tr> INNER html (the
+// framework owns the <tr> shell: data-idx, data-child-of, row-dirty). Replicates
+// today's toggleBillLines cell layout: a wide description cell (colspan), a
+// right-aligned amount cell, a spacer cell, and a narrow VAT-code cell.
+// DEVIATION: the framework's parent rows emit one <td> per column (7) PLUS a
+// row-actions cell (8 total), whereas the old bespoke Bills table had 7
+// columns. Child rows therefore span 8 column-widths to keep the grid
+// aligned — the leading colspan is bumped from 4 to 5 to absorb the framework's
+// actions column. The + add-line icon on the last child is edit-mode only
+// (Task 6d).
+function billsChildRowHtml(parent, child, idx) {
+  function amtCell(n, extra) {
+    var s = 'text-align:right;font-variant-numeric:tabular-nums' + (extra ? ';' + extra : '');
+    return '<td class="amt" style="' + s + '">' + Number(n || 0).toFixed(2) + '</td>';
+  }
+  var spacer = '<td class="child-spacer"></td>';
+  if (child._kind === 'empty') {
+    return '<td colspan="8" class="child-desc" style="color:#aaa;font-style:italic">No line items</td>';
+  }
+  if (child._kind === 'draft-line') {
+    return '<td colspan="5" class="child-desc">' + esc(child.description || '') + '</td>'
+      + amtCell(child.amount) + spacer
+      + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(child.vat_code || '') + '</td>';
+  }
+  if (child._kind === 'expense') {
+    return '<td colspan="5" class="child-desc">' + esc(child.description || '') + '</td>'
+      + amtCell(child.amount) + spacer
+      + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(child.gstVatCode || '') + '</td>';
+  }
+  if (child._kind === 'gst') {
+    return '<td colspan="5" class="child-desc" style="color:#888;font-style:italic">' + esc(child.label || '') + '</td>'
+      + amtCell(child.amount, 'color:#888') + spacer + '<td></td>';
+  }
+  if (child._kind === 'payment') {
+    var v = child.voided;
+    var meth = child.method === 'manual' ? 'manual' : 'bank match';
+    var txt = 'Payment ' + fmtDateShort(child.date) + ' \u00b7 ' + esc(meth)
+      + (child.reference ? ' \u00b7 ' + esc(child.reference) : '') + (v ? ' \u00b7 voided' : '');
+    return '<td colspan="5" class="child-desc' + (v ? ' pay-voided' : '') + '">' + txt + '</td>'
+      + amtCell(child.amount, v ? 'color:#888' : '') + spacer + '<td></td>';
+  }
+  return '<td colspan="8" class="child-desc"></td>';
+}
+
 var billsList = FB.list.create({
   keysId: 'bills',
   active: function () {
@@ -2800,16 +2950,18 @@ var billsList = FB.list.create({
       };
     } },
   // Pre-resolved lazy children: the framework calls children(row)
-  // SYNCHRONOUSLY during render/edit, so this returns already-cached lines
-  // (or [] on first touch) and triggers a background fetch that re-renders
-  // on resolution. Filled in Task 6b.
-  children: function (row) { return []; },
+  // SYNCHRONOUSLY during render, so billsChildren returns already-cached lines
+  // (or [] on first touch) and triggers a background fetch that re-renders on
+  // resolution. childRowHtml renders the view-mode child <tr> inner HTML.
+  // (Task 6b.)
+  children: billsChildren,
+  childRowHtml: billsChildRowHtml,
   onLoaded: function (saved) {
     _refreshCcyVisibility();
     loadFxRatesForKpi(function (rm) { computeKpis(saved, rm); });
   }
   // blank / isBlank / firstField / save / del / editable / deletable /
-  // extraBindings / childRowHtml — Tasks 6b–6f
+  // extraBindings — Tasks 6c–6f
 });
 
 // ========== TAB SWITCHER ==========

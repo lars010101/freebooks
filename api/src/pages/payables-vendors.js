@@ -85,7 +85,6 @@ var vendorsList = FB.list.create({
     return !!panel && panel.style.display !== 'none';
   },
   tbody: 'vendors-body',
-  msg: 'msg-vendors',
   companyId: function() { return COMPANY; },
   focusClass: 'bill-row-focus',
   onFocus: function(tr) {

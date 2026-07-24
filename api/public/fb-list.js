@@ -66,12 +66,9 @@
   var instances = []; // live lists — the shared leave-guard consults these
 
   function el(id) { return document.getElementById(id); }
-  function showMsg(id, text, isErr) {
-    var m = el(id);
-    if (!m) return;
-    m.textContent = text || '';
-    m.style.color = isErr ? '#cc2222' : '#2a8a2a';
-  }
+  // The ONE status channel (2026-07-23): topbar slot via FB.status — per-screen
+  // msg spans are retired; cfg.msg is accepted for back-compat but unused.
+  function showMsg(id, text, isErr) { if (window.FB && FB.status) FB.status.show(text, isErr); }
 
   function create(cfg) {
     // Replace any prior instance with the same keysId (soft-nav re-execution).

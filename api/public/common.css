@@ -374,6 +374,9 @@ tr.nav-row-focus > td input { color: #fff !important; background: transparent !i
 .tb-cmd-btn { padding:6px 12px; border:1px solid var(--border); border-radius:6px; font-size:0.875rem; background:var(--surface-alt,#f5f5f5); color:var(--text); cursor:pointer; white-space:nowrap; }
 .tb-cmd-btn:hover { background:var(--border); }
 .tb-status-msg { padding:6px 12px; font-size:0.8125rem; color:#888; min-width:160px; white-space:nowrap; display:inline-block; }
+.tb-status-msg.ok { color: #2a8a2a; }
+.tb-status-msg.err { color: #cc2222; font-weight: 500; }
+.tb-status-msg.warn { color: #b8860b; font-weight: 500; }
 
 /* Top bar nav links */
 .tb-nav-link {

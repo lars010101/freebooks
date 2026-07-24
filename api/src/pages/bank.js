@@ -103,9 +103,6 @@ ${commonStyle()}
       <thead><tr><th>Pattern</th><th>Match</th><th>Offset Account <small style="font-weight:400;color:#888">(expense/income - bank side auto-assigned)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="mappings-body"></tbody>
     </table>
-    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-      <span id="msg-mappings" class="msg" style="font-size:0.8125rem"></span>
-    </div>
     <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.<br>
     Set the <b>offset account</b> (expense for outflows, income for inflows). The bank account is supplied at import time and assigned automatically based on the amount sign.</p>
   </div><!-- /bank-panel-mappings -->
@@ -528,8 +525,7 @@ function saveMappingRow(tr) {
   var pattern = inputs[0].value.trim();
   var debitAcct = inputs[1].value.trim();
   if (!pattern || !debitAcct) {
-    var m = document.getElementById('msg-mappings');
-    if (m) { m.textContent='Pattern and account required'; m.className='msg err'; }
+    if (window.FB && FB.status) FB.status.show('Pattern and account required', true);
     return;
   }
   var mapping = { mapping_id: tr.dataset.mappingId || null, pattern: pattern, match_type: sel ? sel.value : 'contains', debit_account: debitAcct, description_override: inputs[2].value.trim() || null, priority: parseInt(inputs[3].value)||100, is_active: inputs[4].checked };
@@ -539,19 +535,17 @@ function saveMappingRow(tr) {
     .then(function(r){ return r.json(); })
     .then(function(res){
       var d = res.data||res;
-      var m = document.getElementById('msg-mappings');
       if (d.error||res.error) {
-        if (m) { m.textContent=d.error||res.error; m.className='msg err'; }
+        if (window.FB && FB.status) FB.status.show(d.error||res.error, true);
         if (saveBtn) { saveBtn.innerHTML='\u{1F4BE}'; saveBtn.disabled=false; }
       } else {
         if (d.mappingId) tr.dataset.mappingId = d.mappingId;
         if (saveBtn) { saveBtn.innerHTML='\u2713'; saveBtn.style.opacity='0.35'; saveBtn.disabled=false; setTimeout(function(){ saveBtn.innerHTML='\u{1F4BE}'; },1500); }
-        if (m) { m.textContent='Saved'; m.className='msg ok'; setTimeout(function(){ m.textContent=''; },2000); }
+        if (window.FB && FB.status) FB.status.show('Saved');
       }
     })
     .catch(function(e){
-      var m = document.getElementById('msg-mappings');
-      if (m) { m.textContent=e.message; m.className='msg err'; }
+      if (window.FB && FB.status) FB.status.show(e.message, true);
       if (saveBtn) { saveBtn.innerHTML='\u{1F4BE}'; saveBtn.disabled=false; }
     });
 }
@@ -564,15 +558,14 @@ function deleteMappingRow(tr) {
     .then(function(r){ return r.json(); })
     .then(function(res){
       var d = res.data||res;
-      if (d.error||res.error) { var m=document.getElementById('msg-mappings'); if(m){m.textContent=d.error||res.error;m.className='msg err';} }
+      if (d.error||res.error) { if (window.FB && FB.status) FB.status.show(d.error||res.error, true); }
       else { tr.remove(); appendBlankMappingRow(); }
     })
-    .catch(function(e){ var m=document.getElementById('msg-mappings'); if(m){m.textContent=e.message;m.className='msg err';} });
+    .catch(function(e){ if (window.FB && FB.status) FB.status.show(e.message, true); });
 }
 
 function loadMappings() {
-  var msgEl = document.getElementById('msg-mappings');
-  if (msgEl) { msgEl.textContent = 'Loading…'; msgEl.className = 'msg'; }
+  if (window.FB && FB.status) FB.status.show('Loading…');
   document.getElementById('mappings-body').innerHTML = '';
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mapping.list', companyId: COMPANY }) })
     .then(function(r){ return r.json(); })
@@ -583,10 +576,10 @@ function loadMappings() {
       rows.forEach(addMappingRow);
       prependBlankMappingRow();
       bankMappingsDirty = false;
-      if (msgEl) { msgEl.textContent = rows.length ? '' : 'No rules yet.'; msgEl.className = 'msg'; }
+      if (window.FB && FB.status) FB.status.show(rows.length ? 'Mappings loaded' : 'No rules yet.');
     })
     .catch(function(e){
-      if (msgEl) { msgEl.textContent = 'Error: ' + e.message; msgEl.className = 'msg err'; }
+      if (window.FB && FB.status) FB.status.show('Error: ' + e.message, true);
       console.error('loadMappings failed:', e);
     });
 }

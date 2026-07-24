@@ -791,11 +791,8 @@ var kbd = {
 
 // ========== STATUS MESSAGE ==========
 function billEditMsg(msg, type) {
-  var el = document.getElementById('tb-status-msg');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : type === 'warn' ? '#b8860b' : '#888';
-  el.style.fontWeight = msg ? '700' : '';
+  // Routes through the ONE status channel (2026-07-23); local styling retired.
+  if (window.FB && FB.status) FB.status.show(msg, type === 'err' ? 'err' : type === 'warn' ? 'warn' : false);
 }
 
 // ========== PAGE INIT ==========

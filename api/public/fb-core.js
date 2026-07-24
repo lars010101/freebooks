@@ -738,13 +738,33 @@
     };
   })();
 
+  // ── FB.status — the ONE transient-feedback channel (agreed 2026-07-23) ──
+  // Every "Saved"/error message app-wide writes to the single topbar slot
+  // (#tb-status-msg). NEVER auto-dismisses: a message stays until the next one
+  // replaces it. Per-screen msg spans are retired. Distinct from the 🔔
+  // (persistent alerts, fx-automation-spec §7): transient feedback vs
+  // persistent notifications are two channels, two lifetimes.
+  var status = {
+    // sev: true | 'err' → red; 'warn' → amber; falsy → green confirmation /
+    // neutral text. Never auto-dismisses.
+    show: function (text, sev) {
+      var el = document.getElementById('tb-status-msg');
+      if (!el) return;
+      el.textContent = text || '';
+      el.className = 'tb-status-msg'
+        + ((sev === true || sev === 'err') ? ' err' : (sev === 'warn' ? ' warn' : (text ? ' ok' : '')));
+    },
+    clear: function () { status.show(''); }
+  };
+
   window.FB = {
     util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today },
     mode: mode,
     keys: keys,
     nav: nav,
     dropdown: dropdown,
-    palette: palette
+    palette: palette,
+    status: status
   };
 
   // Legacy global so template-string pages can drop their local esc copies.

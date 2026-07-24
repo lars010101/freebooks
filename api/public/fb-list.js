@@ -82,6 +82,7 @@
     var saved = [];
     var dirty = {};
     var editIdx = -1;
+    var editKey = null; // _key of the in-edit row — filters must never hide it (2026-07-23)
     var newN = 0;
     var filterQ = '';
     var nav = null;
@@ -113,12 +114,17 @@
         var d = dirty[k];
         if (d && d.isNew) out.push(Object.assign({}, d, { _dirty: true, _key: k, _isNew: true }));
       });
-      if (filterQ && cfg.filter) out = out.filter(function (r) { return cfg.filter(r, filterQ); });
+      // Edit/dirty rows ALWAYS bypass filters (2026-07-23): a row in edit
+      // mode — including the freshly created add-entry row — must never be
+      // hidden by the active filter. After w it re-submits to the filter.
+      function keepRow(r) { return r._dirty || (editKey !== null && r._key === editKey); }
+      if (filterQ && cfg.filter) out = out.filter(function (r) { return keepRow(r) || cfg.filter(r, filterQ); });
       else if (filterQ) {
         // spec §8 auto default: no screen predicate → case-insensitive
         // cross-column substring; whitespace terms AND-combine.
         var terms = filterQ.toLowerCase().split(/\s+/).filter(Boolean);
         out = out.filter(function (r) {
+          if (keepRow(r)) return true;
           return terms.every(function (t) {
             return cfg.columns.some(function (c) {
               var v = r[c.field];
@@ -127,19 +133,19 @@
           });
         });
       }
-      if (hasColFilters()) out = out.filter(applyColFilters);
+      if (hasColFilters()) out = out.filter(function (r) { return keepRow(r) || applyColFilters(r); });
       return out;
     }
     function anyDirty() { return editIdx >= 0 || Object.keys(dirty).length > 0; }
     function mounted() { return !!tbody(); }
     function syncChrome() { if (cfg.onChrome) cfg.onChrome(anyDirty()); }
 
-    // ── Column filters + command box (spec §8) ───────────────────────────
-    // One filter state, two views: per-column ≡ dropdowns (mouse) and a `/`
-    // command box (keyboard) render the SAME state. `colFilters` maps a
-    // column field → { op, value }; `filterQ` is the plain-text cross-column
-    // query (drives the screen's existing filter(row,q) predicate). Editing
-    // either view re-renders the other. Both are AND-combined in merged().
+    // ── Column filters (spec §8) ─────────────────────────────────────────
+    // One filter state, two views: per-column ≡ dropdowns (mouse) and the
+    // topbar '/…' expression (keyboard) render the SAME state. `colFilters`
+    // maps a column field → { op, value }; `filterQ` is the plain-text
+    // cross-column query. Both are AND-combined in merged(); edit/dirty rows
+    // always bypass (never hidden while edited).
     var colFilters = {};
     var toolbarEl = null;
     var headersWired = false;
@@ -563,6 +569,7 @@
       var tr = rows()[idx];
       if (!d || !tr) return;
       editIdx = idx;
+      editKey = d._key;
       tr.innerHTML = cfg.columns.map(function (c) {
         return '<td data-field="' + c.field + '"' + (c.align === 'center' ? ' style="text-align:center"' : '') + '>' + editCell(c, d) + '</td>';
       }).join('')
@@ -618,6 +625,7 @@
       }
       var key = d ? d._key : null;
       editIdx = -1;
+      editKey = null;
       if (window.FB && FB.mode) FB.mode.set('NORMAL');
       window.fbEditActive = false;
       render(vanished ? ADD_ROW : key);
@@ -792,6 +800,10 @@
       bindings.splice(4, 0, { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocused });
     }
     if (hasFilterSurface()) {
+      // Esc peels one layer at a time (never writes): open filter dropdown →
+      // close it; active filters → clear them; otherwise inert (falls through).
+      bindings.push({ key: 'Escape', mode: 'NORMAL', when: function () { return !!ddEl; }, run: closeColDropdown });
+      bindings.push({ key: 'Escape', mode: 'NORMAL', when: anyFilterActive, run: clearAllFilters });
       bindings.push({ key: 'c', mode: 'NORMAL', hint: 'clear filters', hintBar: true, when: anyFilterActive, run: clearAllFilters });
     }
     if (cfg.actions) {
@@ -845,7 +857,7 @@
       filterExpr: function () { return buildBoxExpr(); },
       setFilter: function (q) {
         filterQ = q || ''; // plain-text portion only — column filters are preserved
-        if (editIdx >= 0) { editIdx = -1; if (window.FB && FB.mode) FB.mode.set('NORMAL'); window.fbEditActive = false; }
+        if (editIdx >= 0) { editIdx = -1; editKey = null; if (window.FB && FB.mode) FB.mode.set('NORMAL'); window.fbEditActive = false; }
         render();
         syncHeaderState();
         syncTopbar();
@@ -877,7 +889,7 @@
     }
 
     function discardAll() {
-      if (editIdx >= 0) { editIdx = -1; if (window.FB && FB.mode) FB.mode.set('NORMAL'); window.fbEditActive = false; }
+      if (editIdx >= 0) { editIdx = -1; editKey = null; if (window.FB && FB.mode) FB.mode.set('NORMAL'); window.fbEditActive = false; }
       dirty = {};
       render();
       syncChrome();

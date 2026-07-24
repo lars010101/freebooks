@@ -712,7 +712,6 @@ var fxList = FB.list.create({
   tbody: 'fx-rates-body',
   msg: 'msg-fxrates',
   companyId: function() { return COMPANY; },
-  focusClass: 'bill-row-focus',
   columns: [
     { field: 'date', type: 'date', width: 120, filterType: 'date' },
     { field: 'from_currency', type: 'text', width: 60, uppercase: true, attach: attachCcyDd, filterType: 'list' },

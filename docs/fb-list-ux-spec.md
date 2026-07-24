@@ -140,6 +140,8 @@ Dropdown choices and the topbar expression are two renderings of the same filter
 ### Verbs
 
 - **`c` clears all filters** (established verb from Bank).
+- **NORMAL-mode `Esc` peels one layer, never writes:** open ≡ dropdown → close it; active filters → clear them; otherwise inert. (INSERT-mode Esc is unchanged: exits edit, dirty buffer stays — "Esc never saves" governs row data; filters are view state.)
+- **Edit/dirty rows always bypass filters:** a row in edit mode — including the freshly created add-entry row — is never hidden by the active filter. After `w` the row re-submits to the filter (and vanishes from view if it no longer matches — correct).
 - **List-level actions:** non-row-editing register actions (e.g. Fetch Rates) may be declared as list-level verbs — a key plus one small button in the list header for mouse parity. They must not edit existing rows.
 
 ## 9. Leave-guard

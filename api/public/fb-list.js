@@ -212,25 +212,68 @@
       // Edit/dirty rows ALWAYS bypass filters (2026-07-23): a row in edit
       // mode — including the freshly created add-entry row — must never be
       // hidden by the active filter. After w it re-submits to the filter.
-      // (Tree filter semantics — children follow their parent; a dirty/editing
-      //  bill bypasses as a unit — are wired in Task 5.)
       function keepRow(r) { return r._dirty || (editKey !== null && r._key === editKey); }
-      if (filterQ && cfg.filter) out = out.filter(function (r) { return keepRow(r) || cfg.filter(r, filterQ); });
-      else if (filterQ) {
-        // spec §8 auto default: no screen predicate → case-insensitive
-        // cross-column substring; whitespace terms AND-combine.
-        var terms = filterQ.toLowerCase().split(/\s+/).filter(Boolean);
-        out = out.filter(function (r) {
-          if (keepRow(r)) return true;
-          return terms.every(function (t) {
-            return cfg.columns.some(function (c) {
-              var v = r[c.field];
-              return v !== null && v !== undefined && String(v).toLowerCase().indexOf(t) >= 0;
+      if (cfg.tree) {
+        // ── Tree filter semantics (Task 5) ──
+        // Column filters (≡ dropdowns) + the topbar query evaluate on PARENT
+        // rows ONLY — parents carry the column fields; children don't. A child
+        // follows its parent's visibility: it is kept iff its parent survived
+        // filtering. The flatten above guarantees parents precede their
+        // children in `out`, so parentOk is already settled by the time we
+        // reach a child. Fold state is untouched by filtering. A
+        // dirty/editing bill bypasses AS A UNIT: the parent's `_dirty` flag
+        // (inherited by its children in the flatten) and the editKey keep the
+        // whole bill — parent + every line — visible. Because the flatten only
+        // emits children of parents present in `out`, a parent the filter drops
+        // takes its children with it; no stale child rows leak into the DOM
+        // (render() rebuilds tbody from this list). colMatches / the box-expr
+        // grammar are unchanged — they already operate on a row's column fields;
+        // in tree mode they are only ever called on parents (below).
+        function keepBill(r) {
+          if (r._dirty) return true;                       // dirty bill (parent OR its children)
+          if (editKey !== null && (r._key === editKey || r._childOf === editKey)) return true;
+          return false;
+        }
+        if (filterQ || hasColFilters()) {
+          var parentOk = {}; // parent _key → true when the parent survived
+          out = out.filter(function (r) {
+            if (r._childOf) return !!parentOk[r._childOf] || keepBill(r); // child follows parent
+            if (keepBill(r)) { parentOk[r._key] = true; return true; }    // unit bypass
+            var pass = true;
+            if (filterQ && cfg.filter) pass = !!cfg.filter(r, filterQ);
+            else if (filterQ) {
+              // spec §8 auto default: cross-column substring; terms AND-combine.
+              var terms = filterQ.toLowerCase().split(/\s+/).filter(Boolean);
+              pass = terms.every(function (t) {
+                return cfg.columns.some(function (c) {
+                  var v = r[c.field];
+                  return v !== null && v !== undefined && String(v).toLowerCase().indexOf(t) >= 0;
+                });
+              });
+            }
+            if (pass && hasColFilters()) pass = applyColFilters(r); // parents only
+            if (pass) parentOk[r._key] = true;
+            return pass;
+          });
+        }
+      } else {
+        if (filterQ && cfg.filter) out = out.filter(function (r) { return keepRow(r) || cfg.filter(r, filterQ); });
+        else if (filterQ) {
+          // spec §8 auto default: no screen predicate → case-insensitive
+          // cross-column substring; whitespace terms AND-combine.
+          var terms = filterQ.toLowerCase().split(/\s+/).filter(Boolean);
+          out = out.filter(function (r) {
+            if (keepRow(r)) return true;
+            return terms.every(function (t) {
+              return cfg.columns.some(function (c) {
+                var v = r[c.field];
+                return v !== null && v !== undefined && String(v).toLowerCase().indexOf(t) >= 0;
+              });
             });
           });
-        });
+        }
+        if (hasColFilters()) out = out.filter(function (r) { return keepRow(r) || applyColFilters(r); });
       }
-      if (hasColFilters()) out = out.filter(function (r) { return keepRow(r) || applyColFilters(r); });
       return out;
     }
     function anyDirty() { return editIdx >= 0 || Object.keys(dirty).length > 0; }

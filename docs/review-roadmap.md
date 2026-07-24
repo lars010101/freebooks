@@ -131,6 +131,7 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 
 - **P3-1** AR/invoicing module built on the payables pattern (customers, invoices, AR aging, receipts).
 - **P3-2** Bank feeds (beyond CSV import).
+- **P3-3** FX rate automation (agreed with magnus 2026-07-23, spec'd NOT built): `fx_tracking` company flag, provider `fetchRange`, period-create backfill hook, FX status column on Periods (coverage vs provider publication days — never naive weekdays), 6h gap scanner, and a minimal notifications subsystem (table + actions + 🔔 badge/dropdown). Spec: `docs/fx-automation-spec.md`.
 
 ---
 

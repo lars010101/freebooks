@@ -127,11 +127,12 @@
       // children(row) → child rows for a parent (may fetch; framework caches
       // per-_key). Default: no children (a tree with only parents = flat).
       if (!cfg.children) cfg.children = function (row) { return []; };
-      // Fold-state hooks — default: a `_key`-keyed `folded` map (open=true).
-      // Override only if fold state must live elsewhere.
+      // Fold-state hooks — default: a `_key`-keyed `folded` map storing CLOSED
+      // state (truthy = folded/closed; absent key = open). fold(row, open)
+      // takes OPEN semantics — callers pass intent, the map stores the inverse.
       if (!cfg.foldKey) cfg.foldKey = function (row) { return row._key; };
       if (!cfg.isFolded) cfg.isFolded = function (row) { return folded[cfg.foldKey(row)]; };
-      if (!cfg.fold) cfg.fold = function (row, open) { folded[cfg.foldKey(row)] = !!open; };
+      if (!cfg.fold) cfg.fold = function (row, open) { folded[cfg.foldKey(row)] = !open; };
       // editChildRowHtml(parent, child, idx) → edit-mode HTML for a child <tr>.
       // Default: reuse the view-mode childRowHtml (screens with editable child
       // fields override). The framework owns the <tr> shell + data attributes.
@@ -152,7 +153,7 @@
     var nav = null;
     var _gPending = false, _gTimer = null; // gg sequence
     var ADD_ROW = '_add_row'; // render(focusKey) sentinel: focus the add row
-    var folded = {}; // tree: foldKey → bool (open=true); flat lists never read this
+    var folded = {}; // tree: foldKey → closed-state (truthy=folded; absent=open); flat lists never read this
     var sortState = { field: null, dir: null }; // Task 5b: single-col sort; dir 'asc'|'desc'|null (none = server order)
 
     function tbody() { return el(cfg.tbody); }

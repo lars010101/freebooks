@@ -3129,13 +3129,23 @@ var billsList = FB.list.create({
     if ((b.currency || '') !== (s.currency || '')) return false;
     if ((b.ap_account || '') !== (s.ap_account || '')) return false;
     if ((b.expense_account || '') !== (s.expense_account || '')) return false;
-    var bl = b.lines || [], sl = s.lines || [];
-    if (bl.length !== sl.length) return false;
-    for (var i = 0; i < bl.length; i++) {
-      if (!sl[i]) return false;
-      if ((bl[i].description || '') !== (sl[i].description || '')) return false;
-      if (Number(bl[i].amount || 0) !== Number(sl[i].amount || 0)) return false;
-      if ((bl[i].vat_code || '') !== (sl[i].vat_code || '')) return false;
+    var bl = b.lines || [];
+    // Saved rows from bill.list.map carry no lines array; when absent, compare
+    // against the fetched server lines in billChildCache (the rows the re-edit
+    // rendered from). Only reachable for drafts — posted bills aren't editable.
+    var sl = s.lines;
+    if (!sl) {
+      var cache = billChildCache[s._key];
+      sl = (cache && cache.fetched) ? (cache.lines || []) : null;
+    }
+    if (sl) {
+      if (bl.length !== sl.length) return false;
+      for (var i = 0; i < bl.length; i++) {
+        if (!sl[i]) return false;
+        if ((bl[i].description || '') !== (sl[i].description || '')) return false;
+        if (Number(bl[i].amount || 0) !== Number(sl[i].amount || 0)) return false;
+        if ((bl[i].vat_code || '') !== (sl[i].vat_code || '')) return false;
+      }
     }
     return true;
   },

@@ -1,11 +1,13 @@
 # Payables UX Specification
 
+> **2026-07-24 rev. 4 — Bills migrated onto `FB.list` (`tree: true`).** The bespoke Bills interaction machinery (render/draft/filter/nav/fold) is deleted; the Bills tab is now a declarative `FB.list.create(cfg)` call. This spec's Bills-specific sections now describe the framework-native behavior (see `fb-list-ux-spec.md`). The bill editor screen (`bill-edit.js`) and the bill-detail page remain separate. The pre-interim "Esc always saves / no cancel path" doctrine is **superseded** — `Esc` never saves; `w` is the only save path (FB.list §3 doctrine).
+
 ## Design Principles
 
 1. Two modes only: NORMAL (browsing) and INSERT (editing). No ambiguous middle state.
 2. Every keyboard action has a mouse equivalent and vice versa. No interaction requires both. No interaction is available through only one input method.
 3. NORMAL mode is row-oriented (vim line semantics). INSERT mode is bill-oriented — the entire draft bill (parent + all child lines) opens for editing simultaneously.
-4. Save timing is unambiguous: exiting INSERT mode saves. No blur-chasing, no timers, no deferred checks.
+4. Save timing is unambiguous: `Esc` never saves — it exits INSERT only. `w` is the only save path (one `bill.draft.save` carrying header + all lines). `u` reverts. No blur-chasing, no timers, no deferred checks. (FB.list §3 doctrine, adopted 2026-07-24.)
 5. Per-line accounts: each child line carries its own expense account; the parent row carries the AP (creditor) account. Both use COA datalist autocomplete.
 6. Tax-exclusive entry: the user types the net amount per line; GST is computed on top. The supplier-stated VAT can override the computed default.
 
@@ -21,17 +23,18 @@
 | l | Click tab label | Switch to right tab |
 | { | Click sidebar page | Previous sidebar page |
 | } | Click sidebar page | Next sidebar page |
-| Enter | Click ▸/▾ fold icon on parent | Toggle fold (expand/collapse bill) |
-| Space | Click ▸/▾ fold icon on parent | Toggle fold (alias) |
+| Enter | Double-click row | **Edit** — whole-bill INSERT on drafts (no-op on posted bills); create on the `+ Add bill` row |
+| Space | Click ▸/▾ fold icon on parent | **Fold** — toggle the fold of the bill under the cursor (parent folds itself; a child folds its parent); inert on the add row (vim fold semantics) |
 | i | Double-click editable row | Enter INSERT mode (opens entire draft bill for editing) |
-| o | Click "+" toolbar button | New bill below current row |
-| O | — | New bill above current row |
-| a | — | Append new child line to current draft bill |
-| x | Click delete icon (on hover) | Delete current child line / delete draft bill / void posted bill |
-| p | Click "Post" button on draft | Post draft bill directly (no preview step) |
-| G | Scroll to bottom | Jump to last row |
+| I | — | Open the focused draft bill in the full-page editor (`bill-edit.js`); no-op on posted bills |
+| a | — | Append new child line to the focused draft bill |
+| x | Click delete icon (on hover) | Delete draft bill / delete current child line / void posted bill (confirm) / void payment (on a payment-history child) |
+| p | Click "Post"/"Pay" affordance | Post draft bill directly (no preview step); on posted/partial bills open the inline pay row |
+| G | Scroll to bottom | Jump to last row (= add row) |
 | gg | Scroll to top | Scroll to top |
 | Esc | — | No-op (already in NORMAL) |
+
+`o`/`O` are **retired** on Bills (2026-07-24) — the `+ Add bill` row is the only create path; the full-page editor is reached via `I` or the ref-link / double-click.
 
 Row selection highlights the complete row (parent or child). No cell-level cursor in NORMAL mode.
 
@@ -45,28 +48,33 @@ j/k navigation crosses bill boundaries seamlessly:
 
 | Key | Mouse | Action |
 |-----|-------|--------|
-| Tab | Click cell in bill | Move to next editable cell |
+| Tab | Click cell in bill | Move to next editable cell (sticky at the ends) |
 | Shift+Tab | Click cell in bill | Move to previous editable cell |
-| Enter | — | Move to next input within the bill (or exit INSERT if on the last field) |
-| Esc | Click outside bill | Save bill + exit to NORMAL |
-| (all other keys) | — | Type into the focused input (h/j/k/l/{/}/o/x/p/G/gg all inert) |
+| Enter | — | Move to next input within the bill (sticky at the last field; never saves) |
+| Esc | — | Exit INSERT only — **never saves**; the dirty bill stays (amber). `w` persists. |
+| w | Click 💾 chip | Write the whole bill (header + all lines) in ONE server write — the only save (read, dirty state) |
+| u | — | Revert the whole bill to saved values (read, dirty state) |
+| x | — | On a dirty-new bill, discard it — cursor → add row |
+| (all other keys) | — | Type into the focused input (h/j/k/l/{/}/a/o/x/p/G/gg all inert) |
 
-Entering INSERT mode (via `i` on any row of a draft bill):
-- **All** editable cells on the bill are already rendered as inputs (parent fields + child fields). `i` simply sets `cursor.mode = 'INSERT'` and focuses the first parent input (vendor).
+**Dirty bill = amber.** The framework's whole-bill dirty buffer (keyed by the parent `_key`) carries the header + every child line as one unit; the bill (parent + its open children) renders amber until `w` or `u`.
+
+Entering INSERT mode (via `i`/Enter on any row of a draft bill):
+- **All** editable cells on the bill are rendered as inputs (parent fields + child fields) and the framework enters INSERT mode (`FB.mode`); focus lands on the first parent input (vendor).
 - h/j/k/l/{/} are inert (they type into inputs).
 - Tab/Shift+Tab move between cells across the entire bill (parent → children).
 
-**New (unsaved) drafts:** `createDraftBill()` renders the parent row + first child row with all inputs, opens the fold, and auto-enters INSERT mode with focus on the vendor input.
+**New (unsaved) drafts:** activating the `+ Add bill` row (Enter/click) transforms it in place into the whole-bill INSERT unit — parent + first child rendered as inputs, fold open, focus on the vendor input — and enters INSERT mode.
 
-**Saved drafts (status='draft', already in DB):** `convertDisplayToDraft()` re-renders the parent row from display text back into editable inputs (pre-filled with saved values), fetches draft lines from the server, and renders child rows with editable inputs. The `data-draft` attribute is re-set to `'true'` so subsequent Esc saves correctly.
+**Saved drafts (status='draft', already in DB):** `i`/Enter on a draft (parent or child) re-enters the whole-bill edit unit — the parent + its open children re-render as inputs pre-filled with saved values, draft lines re-fetched from the server. The framework's whole-bill dirty buffer carries header + every child line as one unit.
 
-Exiting INSERT mode (via Esc or click-outside):
-- If the bill is completely empty, it is discarded instead of saved (`_discardDraftBill`)
-- Otherwise the entire bill is saved to database (`saveDraftToDb`)
-- Cells return to display state (`convertDraftRowToDisplay`)
-- Returns to NORMAL mode with selection on the parent row
+Exiting INSERT mode (Esc; or click-outside — see below):
+- Esc **never saves.** It exits INSERT only; every input across the parent + open children is harvested into the framework's whole-bill dirty buffer (keyed by the parent `_key`) and the bill re-renders as display text marked dirty (amber).
+- If the bill is completely empty (framework `isBlank`), it vanishes instead — cursor → add row.
+- The dirty bill stays until `w` (write — the only save, one `bill.draft.save` carrying header + all lines) or `u` (revert).
+- Returns to NORMAL mode with selection on the parent row.
 
-Posted bills: `i` and double-click are no-ops. The row is read-only. No INSERT mode is entered.
+Posted bills: `i`/Enter and double-click are no-ops (the framework's `editable` predicate is false). The row is read-only. No INSERT mode is entered.
 
 ### Tab Behavior at Bill Boundaries
 
@@ -79,30 +87,17 @@ Tab navigates across all editable cells in the bill. The forward flow for a bill
 
 This keeps the user inside the bill editing flow. Creating a new line is natural — just Tab past the last field. No need to Esc → `a` → `i` to add a line.
 
-### Click-Outside Save (Mouse Esc Equivalent)
+### Click-Outside (Mouse Esc Equivalent)
 
-When a mouse user is in INSERT mode and clicks another row, two things happen atomically:
-1. Current bill is saved (Esc equivalent)
-2. Clicked row is selected (j/k equivalent)
+When a mouse user is in INSERT mode and clicks another row, the bill exits INSERT (Esc equivalent — **never saves**; the dirty buffer stays, amber) and the clicked row is selected (j/k equivalent). No intermediate NORMAL state should be visible; the dirty bill remains until `w`/`u`. This is the framework's leave-guard parity: click-away does not silently persist.
 
-No intermediate NORMAL state should be visible. Implementation:
-```js
-function onRowClick(rowEl) {
-  if (cursor.mode === 'INSERT') {
-    saveCurrentBill();
-    exitInsertMode();
-  }
-  selectRow(rowEl);
-}
-```
+### Esc never saves; `u` reverts (FB.list §3 doctrine)
 
-### No Cancel / Discard Path
-
-There is no discard option. Esc always saves (or discards if empty). Click-away always saves. If a user wants to undo changes, they delete the row afterward. An undo mechanism (u key / undo button) may be added in a future revision but is out of scope for this spec.
+Esc exits INSERT only — it never persists. The dirty bill stays (amber) until `w` (the only save, one `bill.draft.save` for the whole bill) or `u` (revert to saved values). `x` on a dirty-new bill discards it (cursor → add row). This is the framework-native doctrine shared by every FB.list screen (see `fb-list-ux-spec.md` §3); the pre-interim "Esc always saves / no cancel path" doctrine is superseded (2026-07-24).
 
 ### Empty Bill Discard
 
-If Esc is pressed on a completely empty draft (no vendor, no date, no child data), the draft is discarded rather than saved (`_isDraftEmpty` → `_discardDraftBill`). This prevents empty draft rows from accumulating.
+If Esc is pressed on a completely empty draft (no vendor, no date, no child data — framework `isBlank`), the draft vanishes rather than entering the dirty state — cursor → add row. This prevents empty draft rows from accumulating.
 
 ## List Display (NORMAL Mode)
 
@@ -128,7 +123,7 @@ If Esc is pressed on a completely empty draft (no vendor, no date, no child data
 - **Vendor input** (`.draft-vendor-input`) — free-text with dropdown autocomplete; selecting a vendor sets `data-vendor-id`, `data-vendor-name`, `data-ap-account`, and `data-expense-account` from vendor master data.
 - **Total** (`.draft-total-amount`) — read-only text showing the gross amount (net + GST), updated live by `updateParentDraftAmount`. Not an input, so Tab skips it.
 - **AP account input** (`.draft-ap-account`) — COA datalist autocomplete (`list="coa-options"`). Pre-filled from vendor default > company default > blank.
-- **Save button** (💾, `.btn-save-draft`) — in the STATUS column. Grayscale/faded when the bill is completely empty; full colour when any field has data. Clicking saves the draft (`saveDraftFromIcon`).
+- **Save chip** (💾, the `w` verb's mouse affordance) — in the STATUS column. Grayscale/faded when the bill is completely empty; full colour when any field has data. Clicking writes the whole bill (one `bill.draft.save`). Esc never saves.
 
 ### Child Row
 
@@ -145,14 +140,14 @@ If Esc is pressed on a completely empty draft (no vendor, no date, no child data
 
 ## Parent Total (Gross = Net + GST)
 
-The parent row's AMOUNT cell shows the gross total (sum of each line's net + GST). This is computed identically in four places:
+The parent row's AMOUNT cell shows the gross total (sum of each line's net + GST). This is computed identically in four contexts (the bespoke functions are gone; the framework hooks carry the same formula):
 
-| Function | Context | Formula |
-|----------|---------|---------|
-| `updateParentDraftAmount` | Live display during INSERT editing | Σ (net + GST) over child rows |
-| `saveDraftToDb` | Save payload (`totalAmt`) | Σ (net + GST) over child rows |
-| `_gatherInlineBillData` | Direct-post payload (`totalAmt`) | Σ (net + GST) over child rows |
-| `convertDraftRowToDisplay` | Display after saving | Σ (net + GST) over child rows |
+| Context | Where it lives | Formula |
+|---------|---------------|---------|
+| Live display during INSERT editing | `updateParentDraftAmount` (child renderer input/change handler) | Σ (net + GST) over child rows |
+| Save payload (`totalAmt`) | `cfg.save.body(bill)` (`w` verb → `bill.draft.save`) | Σ (net + GST) over child rows |
+| Direct-post payload (`totalAmt`) | Bills `p` extraBinding → `bill.create` body | Σ (net + GST) over child rows |
+| Display after saving | `cfg.list.map` (re-render from server row) | Σ (net + GST) over child rows |
 
 GST is the `.child-gst` input value. Read-only reverse-charge GST inputs are excluded from the user-facing total (the backend self-assesses them separately).
 
@@ -164,7 +159,7 @@ Both the AP account (parent) and the expense account (per child line) are resolv
 2. **Company default** — from Settings (`default_ap_account`, `default_expense_account`), loaded on page init into `companyDefaultAp` / `companyDefaultExpense`.
 3. **Blank** — no default; validation surfaces a clear "account is required" error.
 
-`renderPage` emits `data-expense-account` and `data-ap-account` on each parent row's HTML for saved bills. `saveDraftBill` (backend) applies company defaults as a safety net via `applyCompanyDefaults` before persistence. A blank account produces a "required" validation error (not "does not exist in COA").
+The framework's column `display`/`attach` hooks emit `data-expense-account` and `data-ap-account` on each parent row's HTML for saved bills. `saveDraftBill` (backend) applies company defaults as a safety net via `applyCompanyDefaults` before persistence. A blank account produces a "required" validation error (not "does not exist in COA").
 
 ## VAT/GST Handling
 
@@ -203,11 +198,11 @@ tolerance = max(flat, pct × expectedVat)
 ### Direct post (no preview)
 Pressing `p` posts the bill **directly** — no preview step, no confirmation dialog. The backend validates; on error, the draft remains intact.
 
-Two cases in `_postDirect`:
+The `p` verb (Bills `extraBinding`) routes to one of two server actions depending on the bill's state:
 
-1. **Inline draft (never saved, has vendor input):** gathers data via `_gatherInlineBillData`, runs client-side guards (vendor, date, due date ≥ date, ref, amount > 0, at least one line), then sends `bill.create` (creates AND posts in one call).
+1. **Inline unsaved draft (no `bill_id`):** the framework's whole-bill buffer is gathered by the `p` handler, client-side guards run (vendor, date, due date ≥ date, ref, amount > 0, at least one line), then it sends `bill.create` (creates AND posts in one call).
 
-2. **Saved draft re-edited inline (has `billId`, no vendor input):** saves the draft first (`bill.draft.save`), then sends `bill.draft.post` which delegates to `createBill` with `_replaceDraftId`.
+2. **Saved draft re-edited (has `bill_id`):** saves the draft first (`bill.draft.save` via `cfg.save.body`), then sends `bill.draft.post` which delegates to `createBill` with `_replaceDraftId`.
 
 ### Client-side guards (inline draft)
 - Vendor required (selected from dropdown)
@@ -229,7 +224,7 @@ Validation runs **before** any DB writes. On failure, the draft is untouched and
 - "Bill posted successfully" in the status bar
 - If the backend returns tolerance warnings (`data.warnings`, e.g. supplier-stated VAT differs from computed): "Posted with warning: …" in the status bar in warning colour (amber), held longer (6s vs 2.5s) so it can be read. Warnings never block posting and never add new UI chrome — status bar only.
 - Draft row + child rows removed from the DOM
-- Bill list reloads (`loadAllBills`)
+- Bill list reloads (framework `cfg.list` re-fetch via `billsList.load()`)
 
 ### On error
 - Error message in the status bar
@@ -265,22 +260,22 @@ When a bill is posted, the backend resolves the FX rate from the `fx_rates` tabl
 - If no exact-date rate exists, posting is **blocked** with an error directing the user to Settings → Exchange Rates. No manual override is available during bill creation.
 
 ### Tooltip (mouse users)
-When the mouse hovers over the CCY cell (in both INSERT and display modes) and the currency is non-base, the tooltip shows the rate (e.g. "USD → SGD: 1.34"). The tooltip updates when the date or currency changes. If no rate exists, the tooltip says so. `renderPage` populates these tooltips asynchronously for display rows.
+When the mouse hovers over the CCY cell (in both INSERT and display modes) and the currency is non-base, the tooltip shows the rate (e.g. "USD → SGD: 1.34"). The tooltip updates when the date or currency changes. If no rate exists, the tooltip says so. The framework's column `display`/`attach` hooks populate these tooltips asynchronously for display rows.
 
 ### Enter on CCY (keyboard users)
 In INSERT mode, pressing Enter on the CCY input when a non-base currency is entered shows the FX rate in the status bar (e.g. "FX: 1 USD = 1.34 SGD"). If no rate exists, the message indicates this.
 
 ## Foldable Rows
 
-### Fold Toggle
-- Enter or Space (keyboard): toggle fold on parent row under cursor
+### Fold Toggle (Space — vim fold semantics)
+- Space (keyboard): toggle the fold of the bill under the cursor — on a parent it folds that bill; on a child it folds the parent; inert on the add row. (Enter is **edit**, not fold — see NORMAL table.)
 - Click ▸/▾ icon (mouse): toggle fold on that parent
 - Clicking the parent row body (not the icon) selects the row — does NOT toggle fold
 
 ### Fold Behavior
-- **Expand:** for drafts, renders child rows from the in-memory `draftLines` cache (auto-created if empty); for saved bills, fetches line items from the server (first time) and caches by `bill_id`. Parent gets the `row-expanded` CSS class.
-- **Collapse:** removes child rows from DOM. Parent loses `row-expanded` class. If the cursor was on a child, it moves to the parent.
-- Client-side line cache: once fetched, line items are cached by bill ID. Subsequent expands render from cache instantly. Cache invalidates on save/post.
+- **Expand:** children render from the framework's per-`_key` child cache — drafts render the in-memory dirty buffer's child array; saved bills lazy-fetch `bill.lines` (+ `bill.payments` for paid/partial) on first unfold and cache. Parent gets the fold-open indicator (▾).
+- **Collapse:** removes child rows from the DOM. Parent loses the open indicator. If the cursor was on a child, it moves to the parent.
+- Framework child cache: once fetched, children are cached by the parent `_key`. Subsequent unfolds render from cache instantly. The cache invalidates on save/post.
 
 ### Expand All / Collapse All
 `_expandAll` / `_collapseAll` have been **removed**. There is no bulk expand/collapse. If needed, it may be reintroduced via a future command palette. Out of scope for this spec.
@@ -301,16 +296,19 @@ In INSERT mode, pressing Enter on the CCY input when a non-base currency is ente
 
 Hover background highlight is only active when:
 - NOT in INSERT mode, AND
-- Mouse was the last input (keyboard activity suppresses hover via `kb-active` class on tbody)
+- Mouse was the last input (keyboard activity suppresses hover — the framework drops hover styling while keyboard nav is active)
 
-When the keyboard is used (j/k/etc), hover is suppressed. When the mouse is moved, hover is re-enabled. This prevents the white hover background from conflicting with the blue cursor highlight during keyboard navigation.
+When the keyboard is used (j/k/etc), hover is suppressed. When the mouse is moved, hover is re-enabled. This prevents the white hover background from conflicting with the cursor highlight during keyboard navigation.
 
 ## Cursor Model
 
-- `cursor.mode` is a getter/setter that auto-toggles CSS classes: setting it to `'INSERT'` adds `insert-mode` to the tbody; setting it to `'NORMAL'` removes it.
-- `kb-active` class is added to the tbody on keydown and removed on mousemove — suppresses hover highlight during keyboard navigation.
-- Tab switching (`showPayTab`) re-applies the row highlight and scrolls to the last cursor position.
-- `cursor.col` is retained as internal state for Tab navigation positioning but has no visual effect in NORMAL mode (row-only selection).
+*(2026-07-24: the bespoke `cursor` object is deleted — `FB.list`'s `nav` owns row focus; `FB.mode` owns mode. The notes below map the old behavior to where it now lives.)*
+
+- Mode is the shared `FB.mode` store; the framework's edit-lifecycle toggles the `insert-mode` class on the tbody on enter/exit. (The legacy `cursor.mode` getter/setter is gone.)
+- Row focus is the framework's `nav` cursor — `nav-row-focus` on the focused `<tr>` (config `focusClass`), moved on j/k, cleared/re-applied by the framework on tab switch.
+- Keyboard-vs-mouse hover suppression is the framework's standard behavior (hover highlight is dropped while keyboard nav is active).
+- Tab switching (`showPayTab`, retained as the tab shell) re-applies the framework cursor on the Bills tab and scrolls to the last position.
+- Per-cell Tab positioning is internal to the framework child-renderer's Tab wiring; NORMAL mode is row-only selection (no cell cursor).
 
 ## Removed / Simplified
 
@@ -321,34 +319,35 @@ The following elements from earlier implementations are removed or simplified:
 | Cell-level cursor in NORMAL mode (h/l within row) | Row-only selection; h/l reserved for tab switching |
 | `fbBillCursorMid` flag | No longer needed; h/l always means tab switch |
 | `bill-cell-focus` CSS (dark blue cell highlight) | No cell cursor in NORMAL mode |
-| `autoSaveDraftIfReady` 200ms timer | Save triggers on INSERT exit (Esc), not on blur |
-| `autoSaveChildRow` | Same — save on Esc, not on blur |
+| `autoSaveDraftIfReady` 200ms timer | Save is explicit (`w`), never on blur (2026-07-24: Esc never saves) |
+| `autoSaveChildRow` | Same — save is explicit, not on blur |
 | `enterBillCellEdit` / `exitBillCellEdit` | Per-cell editing replaced by bill-level INSERT |
 | `billEditState` object | No longer needed without per-cell edit |
 | `dd` double-tap delete | Replaced by single `x` key |
 | `dd` double-tap timer (`_ddPending`, `_ddTimer`) | No double-key sequences except `gg` |
 | `za/zo/zc/zR/zM` fold keys (dead code) | Never implemented; Enter/Space used instead |
-| `:w` save command (`fbCmdDispatch`) | Esc saves on INSERT exit; no command bar needed |
+| `:w` save command (`fbCmdDispatch`) | `w` is the save verb; no command bar needed |
 | `~` hidden shortcut | Removed; use `p` to post |
 | `_expandAll` / `_collapseAll` | Removed; no bulk expand/collapse |
 | Preview step (`_enterPreview` / `_exitPreview` / `_renderPreviewLines` / `_confirmPost`) | Removed; direct post on `p` |
 | `bill.draft.preview` backend endpoint | Dead code; frontend no longer calls it |
 | Popup posting (`openPostReviewPopup` / `confirmPost` / `closePostReviewPopup`) | Removed entirely |
-| Blur-chasing save timers | Save happens only on Esc (or click-outside) |
+| Blur-chasing save timers | Save is explicit (`w`), never on blur/click-away |
 | j/k boundary blocking | Seamless navigation across bill boundaries |
 
 ## Implementation Notes
 
-- Bill-level INSERT rendering reuses `createDraftBill()` for new drafts and `convertDisplayToDraft()` for saved drafts. Both render parent + children with all inputs simultaneously.
-- Tab navigation is wired via `_wireChildRowTab()` — forward Tab on last child's GST select creates a new row; Shift+Tab on first child's desc goes to parent CCY.
-- Save-on-INSERT-exit uses `saveDraftToDb()` — one trigger, one code path, no timers.
-- `convertDraftRowToDisplay()` converts editable inputs back to display text after save, removing the `data-draft` attribute.
-- `_gatherInlineBillData()` collects the full bill (parent fields + per-line expense accounts + `vat_amount_override`) for direct posting of unsaved inline drafts.
-- `_postDirect()` routes to `bill.create` (inline drafts) or `bill.draft.save` → `bill.draft.post` (saved drafts), then `_sendPost()` handles the response.
-- `_ensureCoaDatalist()` builds a shared `<datalist id="coa-options">` from the chart of accounts for AP and expense account autocomplete.
-- `updateParentDraftAmount()` recomputes the parent total live on every input/change in a child row.
-- `_recomputeChildGst()` and `_initChildGst()` manage the GST input: computed default, supplier-stated override, and reverse-charge read-only state.
-- Event handler conflicts between common.js and payables-bills.js resolved by early `stopImmediatePropagation()` in the bills handler (capture phase) when `fbBillNav` is true.
+*(2026-07-24: the bespoke machinery below is deleted — Bills runs on `FB.list` (`tree: true`). Behavior now lives in the framework + the Bills `cfg` in `payables-bills.js`. Notes retained as a map to where each behavior now lives.)*
+
+- Whole-bill INSERT is the framework's tree edit unit — `cfg.blank()` (new drafts: parent + first child, fold open, vendor focus) and re-entry on a saved draft via the `editable` predicate + re-render of inputs. Both render parent + children with all inputs simultaneously.
+- Tab navigation (forward Tab on the last child's last field spawns a new line; Shift+Tab on the first child's desc goes to parent CCY) is now the framework child-renderer's Tab wiring.
+- Save is the `w` verb → `cfg.save.body(bill)` — one `bill.draft.save` carrying header + all lines, the only save path. Esc never saves.
+- After save, the framework re-renders the bill from `cfg.list.map` (display text); the dirty buffer is dropped.
+- Direct post (`p` verb) routes to `bill.create` (inline unsaved drafts: create+post in one call) or `bill.draft.save` → `bill.draft.post` (saved drafts), via the Bills `extraBindings` `p` handler.
+- Account autocomplete (AP + expense) is the column `attach` hooks (FB.dropdown over the COA); the shared `coa-options` datalist is gone.
+- `updateParentDraftAmount` (live parent total) runs from the child renderer's input/change handlers.
+- GST recompute (`_recomputeChildGst` / `_initChildGst`) stays — computed default, supplier-stated override, reverse-charge read-only state — called from the child renderer / line sync.
+- j/k dispatch is owned by the framework's `FB.keys` registration (`'bills'`, capture phase); common.js's bubble handler is no longer reached for Bills. The `fbBillNav` capture-phase special-case in common.js is removed (2026-07-24) — the standard key dispatch path now applies to Bills like any other FB.list screen.
 - `gg` double-key logic is retained (deeply ingrained vim muscle memory); all other double-key sequences are removed.
 
 ## Vendors Tab (migrated onto fb-core 2026-07-22, P1-3)

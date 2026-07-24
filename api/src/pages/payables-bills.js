@@ -737,45 +737,43 @@ function billsMergeChildRows(cache, parent) {
 }
 
 // billsChildRowHtml(parent, child, idx) — view-mode child <tr> INNER html (the
-// framework owns the <tr> shell: data-idx, data-child-of, row-dirty). Replicates
-// today's toggleBillLines cell layout: a wide description cell (colspan), a
-// right-aligned amount cell, a spacer cell, and a narrow VAT-code cell.
-// DEVIATION: the framework's parent rows emit one <td> per column (7) PLUS a
-// row-actions cell (8 total), whereas the old bespoke Bills table had 7
-// columns. Child rows therefore span 8 column-widths to keep the grid
-// aligned — the leading colspan is bumped from 4 to 5 to absorb the framework's
-// actions column. The + add-line icon on the last child is edit-mode only
-// (Task 6d).
+// framework owns the <tr> shell: data-idx, data-child-of, row-dirty).
+// Grid: parent has 7 columns + row-actions = 8 column-widths.
+// Child layout: desc colspan=4 (cols 0-3), amount (col 4, aligns under AMOUNT),
+// spacer (col 5, CCY), tax/empty (col 6, Status), empty (col 7, actions).
 function billsChildRowHtml(parent, child, idx) {
   function amtCell(n, extra) {
     var s = 'text-align:right;font-variant-numeric:tabular-nums' + (extra ? ';' + extra : '');
     return '<td class="amt" style="' + s + '">' + Number(n || 0).toFixed(2) + '</td>';
   }
   var spacer = '<td class="child-spacer"></td>';
+  var empty = '<td></td>';
   if (child._kind === 'empty') {
     return '<td colspan="8" class="child-desc" style="color:#aaa;font-style:italic">No line items</td>';
   }
   if (child._kind === 'draft-line') {
-    return '<td colspan="5" class="child-desc">' + esc(child.description || '') + '</td>'
+    return '<td colspan="4" class="child-desc">' + esc(child.description || '') + '</td>'
       + amtCell(child.amount) + spacer
-      + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(child.vat_code || '') + '</td>';
+      + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(child.vat_code || '') + '</td>'
+      + empty;
   }
   if (child._kind === 'expense') {
-    return '<td colspan="5" class="child-desc">' + esc(child.description || '') + '</td>'
+    return '<td colspan="4" class="child-desc">' + esc(child.description || '') + '</td>'
       + amtCell(child.amount) + spacer
-      + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(child.gstVatCode || '') + '</td>';
+      + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(child.gstVatCode || '') + '</td>'
+      + empty;
   }
   if (child._kind === 'gst') {
-    return '<td colspan="5" class="child-desc" style="color:#888;font-style:italic">' + esc(child.label || '') + '</td>'
-      + amtCell(child.amount, 'color:#888') + spacer + '<td></td>';
+    return '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + esc(child.label || '') + '</td>'
+      + amtCell(child.amount, 'color:#888') + spacer + '<td></td>' + empty;
   }
   if (child._kind === 'payment') {
     var v = child.voided;
     var meth = child.method === 'manual' ? 'manual' : 'bank match';
     var txt = 'Payment ' + fmtDateShort(child.date) + ' \u00b7 ' + esc(meth)
       + (child.reference ? ' \u00b7 ' + esc(child.reference) : '') + (v ? ' \u00b7 voided' : '');
-    return '<td colspan="5" class="child-desc' + (v ? ' pay-voided' : '') + '">' + txt + '</td>'
-      + amtCell(child.amount, v ? 'color:#888' : '') + spacer + '<td></td>';
+    return '<td colspan="4" class="child-desc' + (v ? ' pay-voided' : '') + '">' + txt + '</td>'
+      + amtCell(child.amount, v ? 'color:#888' : '') + spacer + '<td></td>' + empty;
   }
   return '<td colspan="8" class="child-desc"></td>';
 }
@@ -995,17 +993,19 @@ var billsList = FB.list.create({
   // ── Task 6d: child-line edit unit ──
   // EDIT-mode child row (framework owns the <tr> shell). Input ORDER matters:
   // _initChildGst/_recomputeChildGst address the amount input positionally as
-  // querySelectorAll('input')[2]. Desc colspan 4 (not the old 3): the framework
-  // table has a row-actions column (8 cells total).
+  // querySelectorAll('input')[2]. Grid matches view mode: desc colspan=3 (cols
+  // 0-2), expense-acct (col 3), amount (col 4), spacer (col 5), vat (col 6),
+  // empty (col 7, actions) — 8 column-widths total.
   editChildRowHtml: function (parent, child, idx) {
     var gstShown = child.vat_code ? '' : 'display:none;';
     var gstVal = (child.vat_amount_override != null) ? Number(child.vat_amount_override).toFixed(2) : '';
-    return '<td colspan="4"><input class="draft-input child-desc" placeholder="Line item description" value="' + esc(child.description || '') + '" /></td>'
+    return '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" value="' + esc(child.description || '') + '" /></td>'
       + '<td><input class="draft-input child-expense-acct" placeholder="Expense Acct" title="Expense account code" value="' + esc(child.expense_account || '') + '" /></td>'
       + '<td class="amt"><input class="draft-input child-amt" type="number" step="0.01" placeholder="0.00" value="' + (child.amount ? Number(child.amount).toFixed(2) : '') + '" style="text-align:right" /></td>'
       + '<td class="child-spacer"></td>'
       + '<td style="white-space:nowrap"><input class="draft-input child-vat" placeholder="— None —" title="VAT code" value="' + esc(child.vat_code || '') + '" style="width:72px" />'
-      + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" value="' + gstVal + '" style="' + gstShown + 'width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>';
+      + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" value="' + gstVal + '" style="' + gstShown + 'width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>'
+      + '<td></td>';
   },
   // Post-build hook per child row (framework calls it after innerHTML): wire
   // the account + VAT dropdowns, GST visibility/recompute, live parent-total

@@ -410,6 +410,40 @@ a filter.
 
 ---
 
+## Task 5b — FB.list: optional per-column `sortable` (framework-owned sort)
+
+**Objective:** Preserve Bills' spec'd header-sort behavior as a framework
+feature (added 2026-07-24 after plan review — dropping it would regress
+payables-ux-spec behavior; bespoke sort is deleted in Task 7).
+
+**Files:** `api/public/fb-list.js` — `wireHeaders`/`syncHeaderState` area +
+render entry; `api/public/common.css` if the `.th-sort` rules don't already
+exist there (check — Bills' rules may live in page CSS to be lifted).
+
+**Behavior:**
+- Column config gains optional `sortable: true` (default off — only Bills
+  declares it today).
+- A sortable column header gets a click handler (mouse parity with the
+  deleted bespoke sort) cycling **asc → desc → none**; `none` restores
+  server order (`saved` array order — re-render from `saved`, do not
+  re-fetch).
+- The ▲/▼ arrow renders AFTER the label and collapses when inactive:
+  `.th-sort:empty{display:none}` (payables spec). Only one column sorted at
+  a time (single-key sort, matching the deleted bespoke behavior).
+- Sort is a VIEW concern: it composes with filters (sort the filtered set),
+  never reorders `saved`, and a dirty/editing bill stays in place (sorting
+  is suspended while any bill is dirty — same doctrine as the filter
+  bypass).
+- Keyboard: no dedicated verb (sort was mouse-only on Bills; parity
+  preserved). `G`/`gg`/j/k operate on the sorted+filtered sequence.
+
+**Verification:** `npm test` green. Manual: click a sortable header cycles
+asc/desc/none; arrow collapses at `none`; order returns to server order.
+
+**Commit:** `FB.list: optional per-column sortable headers (asc/desc/none cycle)`
+
+---
+
 ## Task 6 — Bills screen: declare the `FB.list.create(cfg)` (tree: true)
 
 **Objective:** Replace the bespoke Bills render/draft/nav/fold/filter machinery
@@ -655,6 +689,11 @@ cfg.editable = function (d) { return d.status === 'draft'; };     // i/Enter no-
 cfg.deletable = function (d) { return d.status === 'draft'; };    // framework x → cfg.del (draft delete)
 cfg.extraBindings = function (api) {
   return [
+    { key: 'I', mode: 'NORMAL', hint: 'edit in full editor',
+      run: function () {
+        var d = api.focusedRow(); if (!d || d.status !== 'draft') return;
+        FB.navigate('/' + COMPANY + '/bill/edit?id=' + encodeURIComponent(d._key));
+      } },
     { key: 'p', mode: 'NORMAL', hint: 'post/pay', hintBar: true,
       run: function () {
         var d = api.focusedRow(); if (!d) return;
@@ -973,17 +1012,19 @@ sensible default noted) before/while implementing — NOT silently.
    **Confirm:** losing the `O` shortcut to the blank editor is acceptable (the
    editor is still reachable by URL/double-click). *(Default: retire `O` per
    the contract.)*
-5. **`I` (edit in full editor, L368–374) — not mentioned in the contract.**
-   Today `I` opens the full editor for the focused draft. The contract's verb
-   table does not list `I`. **Confirm:** drop `I` (the double-click + ref-link
-   remain), or keep it as a Bills-only extraBinding. *(Default: drop, per
-   "contract is the spec".)*
-6. **Sort.** The current Bills table has bespoke sort (click header ▲/▼,
-   `sortState`, L887–907 + L2545–2557). FB.list has no sort verb in the
-   ratified contract or the fb-list spec. **Confirm:** sort is dropped on Bills
-   (the framework renders in server order, `bill.list` ORDER BY date DESC);
-   the `sortable` header affordance is removed. *(Default: drop sort — it is
-   not in the contract and the framework has no sort feature.)*
+5. **`I` (edit in full editor, L368–374) — DECIDED 2026-07-24: KEEP.**
+   `I` is navigation (list → full editor for the focused draft), not a create
+   path, so it is unaffected by the `o`/`O` retirement. Implemented as a
+   Bills-only `extraBindings` entry in Task 6f: opens the full editor for the
+   focused draft bill; no-op on posted bills.
+6. **Sort — DECIDED 2026-07-24: KEEP, framework-owned.** The current Bills
+   table has bespoke sort (click header ▲/▼, `sortState`, L887–907 +
+   L2545–2557) and sort is spec'd in payables-ux-spec — dropping it would be a
+   behavior regression. New **Task 5b** adds optional `sortable: true` per
+   column to FB.list: header click cycles asc → desc → none (server order =
+   `bill.list` ORDER BY date DESC), ▲/▼ arrow after the label, collapses when
+   inactive (`.th-sort:empty{display:none}` per payables spec). Framework-owned
+   per the unified-code doctrine; only Bills declares it today.
 7. **`bill.list` returns drafts AND posted/partial/paid/void in one call.**
    The framework renders them all in one flat list (today's behavior). No
    server change. **Confirm:** no status segmentation (e.g. a separate drafts

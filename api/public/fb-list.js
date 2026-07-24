@@ -68,6 +68,10 @@
  *   children(row) → child rows for a parent (may fetch; framework caches per-_key).
  *   foldKey(row)/isFolded(row)/fold(row,open) — fold-state hooks (default _key).
  *   childRowHtml(parent, child, idx) — view-mode HTML for a child <tr> (Task 2).
+ *   editChildRowHtml(parent, child, idx) — edit-mode HTML for a child <tr>
+ *              (default: reuse childRowHtml). Framework owns the <tr> shell.
+ *   harvestChild(tr) → line object from a child <tr>'s inputs (Task 3). Required
+ *              for tree edit; when absent, child fields are not harvested.
  *   addChild(row) — the `a` verb: append a child to the focused draft bill (T4).
  *   extraInsertBindings(api) → [INSERT bindings] prepended ahead of the general
  *              INSERT set (tree screens with pay-row-style sub-modes) (Task 4).
@@ -118,6 +122,15 @@
       if (!cfg.foldKey) cfg.foldKey = function (row) { return row._key; };
       if (!cfg.isFolded) cfg.isFolded = function (row) { return folded[cfg.foldKey(row)]; };
       if (!cfg.fold) cfg.fold = function (row, open) { folded[cfg.foldKey(row)] = !!open; };
+      // editChildRowHtml(parent, child, idx) → edit-mode HTML for a child <tr>.
+      // Default: reuse the view-mode childRowHtml (screens with editable child
+      // fields override). The framework owns the <tr> shell + data attributes.
+      if (!cfg.editChildRowHtml && cfg.childRowHtml)
+        cfg.editChildRowHtml = cfg.childRowHtml;
+      // harvestChild(tr) → line object from a child <tr>'s inputs (Task 3).
+      // Required for tree edit; when absent the framework leaves the child
+      // line's fields as-is in the bill buffer (no input harvest). Screens
+      // with editable child fields (Bills) provide it.
     }
 
     var saved = [];
@@ -234,6 +247,38 @@
       if (!cfg.tree || !row) return;
       cfg.fold(row, !cfg.isFolded(row));
       render(row._key);
+    }
+
+    // ── Tree edit resolution (Task 3) ──
+    // In tree mode, editing a row means editing the WHOLE bill. A child row
+    // resolves to its parent; the parent's index in merged() is its editIdx.
+    // Returns { parent: <row>, parentIdx: <int> } or null (not editable / gone).
+    function billParentOf(d) {
+      if (!cfg.tree || !d) return null;
+      var parent, m, i;
+      if (d._childOf) {
+        parent = rowByKey(d._childOf);
+        if (!parent) return null;
+      } else {
+        parent = d;
+      }
+      m = merged();
+      for (i = 0; i < m.length; i++) {
+        if (m[i]._key === parent._key && !m[i]._childOf) return { parent: parent, parentIdx: i };
+      }
+      return null;
+    }
+    // DOM: the open child <tr>s that follow a parent <tr> (data-child-of match).
+    function childTrsFor(parentTr, parentKey) {
+      var out = [], sib = parentTr && parentTr.nextElementSibling;
+      while (sib) {
+        if (!sib.classList || !sib.classList.contains('fb-add-row')) {
+          if (sib.dataset && sib.dataset.childOf === String(parentKey)) out.push(sib);
+          else break; // a non-child row ends this bill's block
+        }
+        sib = sib.nextElementSibling;
+      }
+      return out;
     }
 
     // ── Column filters (spec §8) ─────────────────────────────────────────
@@ -633,7 +678,12 @@
           var td = e.target.closest('td');
           if (!td || td.classList.contains('row-actions')) return;
           var d = merged()[+tr.dataset.idx];
-          if (cfg.editable && d && !cfg.editable(d)) return; // read-only row
+          if (cfg.tree && d && d._childOf) {
+            // Tree (Task 3): a child click opens the whole bill — gate on the
+            // parent's editability, not the child's (children have no status).
+            var pp = rowByKey(d._childOf);
+            if (pp && cfg.editable && !cfg.editable(pp)) return;
+          } else if (cfg.editable && d && !cfg.editable(d)) return; // read-only row
           enterEdit(+tr.dataset.idx, td.dataset.field || undefined);
         });
       });
@@ -679,10 +729,63 @@
     }
     function editable(c, d) { return !(c.ro === 'saved' && !d._isNew) && c.ro !== 'always'; }
 
+    // ── Tree whole-bill edit (Task 3) ──
+    // Entering edit on any row of a draft bill opens the WHOLE bill: the parent
+    // row is rewritten as header inputs (editCell machinery) and each open
+    // child row is rewritten via cfg.editChildRowHtml. editIdx tracks the
+    // PARENT's index in merged(); editKey = parent._key. Esc never saves.
+    function enterEditTree(idx, field, d0) {
+      var res = billParentOf(d0);
+      if (!res) return;
+      var parent = res.parent, parentIdx = res.parentIdx;
+      if (cfg.editable && !cfg.editable(parent)) return; // posted bill: read-only
+      if (editIdx >= 0) exitEdit(); // click-away: keep the prior bill's dirty buffer
+      if (editKey === parent._key) return; // already editing this bill
+      // Whole-bill doctrine: unfold so every child line is editable in place.
+      if (cfg.isFolded(parent)) { cfg.fold(parent, true); render(parent._key); }
+      var tr = rows()[parentIdx];
+      if (!tr) return;
+      editIdx = parentIdx;
+      editKey = parent._key;
+      // Parent row → header inputs (same editCell machinery as flat lists).
+      tr.innerHTML = cfg.columns.map(function (c) {
+        return '<td data-field="' + c.field + '"' + (c.align === 'center' ? ' style="text-align:center"' : '') + '>' + editCell(c, parent) + '</td>';
+      }).join('')
+        + '<td class="row-actions"><a class="chip chip-ok" title="write (w)" data-act="write">✓</a> '
+        + '<a class="chip chip-cancel" title="exit (Esc)" data-act="exit">✕</a></td>';
+      tr.classList.add('row-editing');
+      if (parent._isNew) hideAddRow(tbody()); // add row transforms INTO the edit row
+      // Open child rows → edit-mode HTML (cfg.editChildRowHtml). The framework
+      // owns the <tr> shell (data-idx/data-child-of); the screen writes cells.
+      var kids = childrenOf(parent);
+      var kidTrs = childTrsFor(tr, parent._key);
+      for (var ci = 0; ci < kidTrs.length && ci < kids.length; ci++) {
+        var inner = cfg.editChildRowHtml ? cfg.editChildRowHtml(parent, kids[ci], ci) : '';
+        kidTrs[ci].innerHTML = inner;
+        kidTrs[ci].classList.add('row-editing');
+      }
+      wireChips(tbody());
+      cfg.columns.forEach(function (c) {
+        if (c.attach && editable(c, parent)) {
+          var inp = tr.querySelector('.fb-e-' + c.field);
+          if (inp) c.attach(inp, tr);
+        }
+      });
+      if (window.FB && FB.mode) FB.mode.set('INSERT');
+      window.fbEditActive = true;
+      var f = (field && cfg.columns.some(function (c) { return c.field === field && editable(c, parent); }))
+        ? field : cfg.firstField(parent._isNew);
+      var target = tr.querySelector('.fb-e-' + f) || tr.querySelector('input,select');
+      if (target) { target.focus(); if (target.select) target.select(); }
+      syncChrome();
+    }
+
     function enterEdit(idx, field) {
-      if (editIdx === idx) return;
+      if (editIdx === idx && !cfg.tree) return;
       var d0 = merged()[idx];
       if (!d0) return;
+      // Tree: edit the WHOLE bill — resolve child → parent (Task 3).
+      if (cfg.tree) return enterEditTree(idx, field, d0);
       if (cfg.editable && !cfg.editable(d0)) return; // read-only row (e.g. ECB rate)
       if (editIdx >= 0) exitEdit(); // click-away: exit, dirty buffer kept
       var d = merged()[idx];
@@ -715,8 +818,53 @@
 
     // Esc: harvest inputs into the dirty buffer — NEVER saves. An untouched
     // new row vanishes; a saved row restored to its values drops its buffer.
+    // Tree (Task 3): harvest the WHOLE bill — parent header inputs PLUS each
+    // open child row's inputs (cfg.harvestChild) — into ONE bill buffer keyed
+    // by the parent _key, carrying { lines: [...], _isBill: true }.
+    function exitEditTree() {
+      var d = merged()[editIdx]; // the parent (editIdx tracks the parent)
+      var tr = rows()[editIdx];
+      var key = d ? d._key : null;
+      var vanished = false;
+      if (d && tr) {
+        var buf = {};
+        cfg.columns.forEach(function (c) {
+          var inp = tr.querySelector('.fb-e-' + c.field);
+          if (!inp) { buf[c.field] = d[c.field]; return; } // ro column: keep
+          if (c.type === 'checkbox') buf[c.field] = inp.checked;
+          else if (c.type === 'number') buf[c.field] = parseFloat(inp.value) || 0;
+          else if (c.type === 'select') buf[c.field] = c.nullable ? (inp.value || null) : inp.value;
+          else { var v = inp.value.trim(); buf[c.field] = c.uppercase ? v.toUpperCase() : v; }
+        });
+        // Lines: harvest each open child <tr> (screen-provided cfg.harvestChild).
+        var lines = [];
+        if (cfg.harvestChild) {
+          var kidTrs = childTrsFor(tr, d._key);
+          for (var i = 0; i < kidTrs.length; i++) lines.push(cfg.harvestChild(kidTrs[i]));
+        }
+        buf.lines = lines;
+        buf._isBill = true;
+        if (d._isNew) {
+          if (!cfg.isBlank(buf)) dirty[d._key] = Object.assign(buf, { isNew: true });
+          else { delete dirty[d._key]; vanished = true; } // nothing from nothing
+        } else {
+          var s = null;
+          for (var j = 0; j < saved.length; j++) if (saved[j]._key === d._key) s = saved[j];
+          if (s && cfg.same(buf, s)) delete dirty[d._key];
+          else dirty[d._key] = Object.assign(buf, { isNew: false });
+        }
+      }
+      editIdx = -1;
+      editKey = null;
+      if (window.FB && FB.mode) FB.mode.set('NORMAL');
+      window.fbEditActive = false;
+      render(vanished ? ADD_ROW : key);
+      syncChrome();
+    }
+
     function exitEdit() {
       if (editIdx < 0) return;
+      if (cfg.tree) return exitEditTree();
       var d = merged()[editIdx];
       var tr = rows()[editIdx];
       var vanished = false; // untouched new row discarded → cursor returns to the add row
@@ -757,6 +905,24 @@
       if (editIdx >= 0) exitEdit();
       var d = merged()[idx];
       if (!d || !d._dirty) return Promise.resolve(true);
+      // Tree (Task 3): resolve to the bill; write the WHOLE bill (header +
+      // lines) in ONE cfg.save call. The buffer lives at dirty[parent._key].
+      if (cfg.tree) {
+        var res = billParentOf(d);
+        if (!res) return Promise.resolve(true);
+        var bill = dirty[res.parent._key];
+        if (!bill) return Promise.resolve(true);
+        var berr = cfg.validate(bill);
+        if (berr) { msg(berr, true); return Promise.resolve(false); }
+        return post(cfg.save.action, cfg.save.body(bill)).then(function (r2) {
+          var dd2 = r2.data || r2;
+          if ((dd2 && dd2.error) || r2.error) { msg(dd2.error || r2.error, true); return false; } // stays dirty
+          delete dirty[res.parent._key];
+          msg('Saved', false);
+          load(cfg.save.focusKey ? cfg.save.focusKey(bill, dd2) : res.parent._key);
+          return true;
+        }).catch(function (e) { msg(e.message, true); return false; });
+      }
       var err = cfg.validate(d);
       if (err) { msg(err, true); return Promise.resolve(false); }
       return post(cfg.save.action, cfg.save.body(d)).then(function (res) {
@@ -773,6 +939,16 @@
       if (editIdx >= 0) exitEdit();
       var d = merged()[idx];
       if (!d || !d._dirty) return;
+      // Tree (Task 3): revert the WHOLE bill buffer keyed by the parent.
+      if (cfg.tree) {
+        var res = billParentOf(d);
+        if (!res) return;
+        var wasNew = dirty[res.parent._key] && dirty[res.parent._key].isNew;
+        delete dirty[res.parent._key];
+        render(wasNew ? ADD_ROW : res.parent._key);
+        syncChrome();
+        return;
+      }
       delete dirty[d._key];
       render(d._isNew ? ADD_ROW : d._key); // discarded new row → cursor on the add row
       syncChrome();
@@ -783,6 +959,23 @@
       if (idx < 0) return;
       var d = merged()[idx];
       if (!d) return;
+      // Tree (Task 3): x on any row of a draft deletes the WHOLE bill.
+      if (cfg.tree) {
+        var res = billParentOf(d);
+        if (!res) return;
+        var parent = res.parent;
+        if (parent._isNew) { delete dirty[parent._key]; render(ADD_ROW); syncChrome(); return; }
+        if (!cfg.del) return;
+        if (cfg.deletable && !cfg.deletable(parent)) return;
+        if (!confirm(cfg.del.confirm(parent))) return;
+        post(cfg.del.action, cfg.del.body(parent)).then(function (r2) {
+          var dd = r2.data || r2;
+          if ((dd && dd.error) || r2.error) { msg(dd.error || r2.error, true); return; }
+          delete dirty[parent._key];
+          load();
+        }).catch(function (e) { msg(e.message, true); });
+        return;
+      }
       if (d._isNew) { delete dirty[d._key]; render(ADD_ROW); syncChrome(); return; }
       if (!cfg.del) return;
       if (cfg.deletable && !cfg.deletable(d)) return; // read-only row (e.g. ECB rate)
@@ -798,12 +991,15 @@
     function newRow() {
       if (editIdx >= 0) exitEdit();
       var key = '_new_' + (++newN);
-      dirty[key] = Object.assign(cfg.blank(), { isNew: true });
+      dirty[key] = Object.assign(cfg.blank(), { isNew: true, _isBill: !!cfg.tree });
+      // Tree (Task 3): open the new bill's fold so its child lines render and
+      // the whole-bill edit unit shows parent + first child inputs.
+      if (cfg.tree) cfg.fold({ _key: key }, true);
       render(key);
       // New rows append at the bottom, right where the add row was. Look the
       // index up by key — an active filter could otherwise mis-target row 0.
       var m = merged(), idx = -1;
-      for (var i = 0; i < m.length; i++) if (m[i]._key === key) { idx = i; break; }
+      for (var i = 0; i < m.length; i++) if (m[i]._key === key && !m[i]._childOf) { idx = i; break; }
       if (idx >= 0) enterEdit(idx, cfg.firstField(true));
       if (window.FB && FB.track && cfg.track) FB.track.create(cfg.track);
     }
@@ -840,6 +1036,14 @@
       if (tr && tr.classList.contains('fb-add-row')) { newRow(); return; } // i on the add row = create
       var idx = focusedIdx();
       var d = idx >= 0 ? merged()[idx] : null;
+      // Tree (Task 3): edit resolves to the bill; a posted bill is a no-op
+      // (editable false on the parent). Enter on a child opens the whole bill.
+      if (cfg.tree) {
+        var res = d ? billParentOf(d) : null;
+        if (res && cfg.editable && !cfg.editable(res.parent)) return; // posted: no-op
+        enterEdit(idx >= 0 ? idx : 0);
+        return;
+      }
       if (d && cfg.editable && !cfg.editable(d)) return; // read-only row
       enterEdit(idx >= 0 ? idx : 0);
     }

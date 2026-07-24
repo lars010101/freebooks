@@ -2736,11 +2736,76 @@ function payAffordHtml(r) {
 }
 
 // billAttachVendor(input, tr) — column 'attach' hook for the vendor field in
-// edit mode. Stub for 6a: the real vendor dropdown (today's
-// _wireDraftParentEvents vendor branch) is refactored here in Task 6d when
-// edit mode is wired. 'attach' only fires in INSERT, so a no-op is inert
-// while the old machinery still owns rendering.
-function billAttachVendor(input, tr) { /* Task 6d: vendor dropdown */ }
+// edit mode (Task 6c). Reproduces today's _wireDraftParentEvents vendor branch
+// (L1703–1763) as a column attach: FB.dropdown over allVendors; on pick (and on
+// blur-resolve of a typed name) the input's data-* datasets are populated with
+// the vendor id / name / default AP / default expense / default currency, and
+// the displayed CCY cell is synced. The framework owns the dirty chip, so the
+// old refreshSaveIcon(tr) calls are gone; the Shift+Tab wrap to the last
+// child's VAT input is Task 6d (Tab wiring). 'attach' only fires in INSERT, so
+// this is inert while the old machinery still owns rendering.
+//
+// DEV NOTE: ap_account / expense_account / vendor_id / currency are not cfg
+// columns (the 6a cfg has 7 display columns; AP/expense travel on the vendor
+// input's datasets, as in the old DOM). The framework harvests only declared
+// columns on Esc, so flowing these datasets into the bill save payload is
+// finalized in Task 6e (cfg.save.body / a harvest hook). For 6c the attach
+// faithfully reproduces the vendor-pick UX and stores the defaults for 6e.
+function billAttachVendor(input, tr) {
+  if (!input) return;
+  FB.dropdown.attach(input, {
+    source: function (q) {
+      q = (q || '').trim().toLowerCase();
+      return (allVendors || []).filter(function (v) {
+        if (!q) return true;
+        return (v.name || '').toLowerCase().indexOf(q) >= 0;
+      }).map(function (v) {
+        return { primary: v.name || '', data: { v: v } };
+      });
+    },
+    onPick: function (item, inp) {
+      var v = item.data.v;
+      inp.dataset.vendorId = v.vendor_id || '';
+      inp.dataset.vendorName = v.name || '';
+      inp.dataset.apAccount = v.default_ap_account || companyDefaultAp || '';
+      inp.dataset.expenseAccount = v.default_expense_account || companyDefaultExpense || '';
+      inp.dataset.vendorCurrency = (v.default_currency || BASE_CURRENCY).toUpperCase();
+      inp.value = v.name || '';
+      billSyncVendorCcy(tr, inp.dataset.vendorCurrency);
+    }
+  });
+  // Blur: resolve a typed (non-picked) name against master data; if it matches
+  // a vendor, populate the same datasets + CCY. Leave typed-but-unknown values
+  // intact for server-side validation (today's L1742–1763 behavior).
+  input.addEventListener('blur', function () {
+    setTimeout(function () {
+      var name = input.value.trim();
+      if (!name) return;
+      if (input.dataset.vendorName) return; // already resolved via pick
+      var match = (allVendors || []).find(function (x) {
+        return (x.name || '').toLowerCase() === name.toLowerCase();
+      });
+      if (match) {
+        input.dataset.vendorId = match.vendor_id || '';
+        input.dataset.vendorName = match.name || '';
+        input.dataset.apAccount = match.default_ap_account || companyDefaultAp || '';
+        input.dataset.expenseAccount = match.default_expense_account || companyDefaultExpense || '';
+        input.dataset.vendorCurrency = (match.default_currency || BASE_CURRENCY).toUpperCase();
+        input.value = match.name;
+        billSyncVendorCcy(tr, input.dataset.vendorCurrency);
+      }
+    }, 200);
+  });
+}
+
+// billSyncVendorCcy(tr, ccy) — update the displayed CCY cell. The currency
+// column is ro:'always', so in edit mode it renders its display() HTML (a
+// <span class="ccy-cell">). Picking a vendor updates that span to the vendor's
+// default currency for visual parity with today's CCY-input side-effect.
+function billSyncVendorCcy(tr, ccy) {
+  var span = tr && tr.querySelector('.ccy-cell');
+  if (span) span.textContent = ccy;
+}
 
 // ========== Task 6b — children accessor + childRowHtml (lazy fold) ==========
 // billChildCache[_key] = { lines: [...], payments: [...], fetched: bool,
@@ -2755,6 +2820,21 @@ function billAttachVendor(input, tr) { /* Task 6d: vendor dropdown */ }
 var billChildCache = {};
 
 function billsChildren(row) {
+  // New / dirty draft (Task 6c): the in-buffer lines ARE the children — no
+  // fetch. The framework's newRow() seeds cfg.blank().lines (one empty line);
+  // a/Tab append to it; Esc harvest rewrites it. Mapping mirrors the
+  // draft-line shape billsMergeChildRows emits for saved drafts, so
+  // billsChildRowHtml renders them uniformly. row._dirty is true for both
+  // new (baseRows sets _dirty:true on isNew) and saved-draft-in-edit buffers,
+  // and only those carry a lines array (bill.list.map sets none), so this
+  // branch is inert for plain saved rows (which fall through to the fetch).
+  if (row._dirty && Array.isArray(row.lines)) {
+    return row.lines.map(function (l) {
+      return { _kind: 'draft-line', entry_id: l.entry_id || '',
+        description: l.description || '', amount: Number(l.amount || 0),
+        vat_code: l.vat_code || '' };
+    });
+  }
   var k = row._key;
   var c = billChildCache[k];
   if (c && c.fetched) return billsMergeChildRows(c, row);
@@ -2959,9 +3039,60 @@ var billsList = FB.list.create({
   onLoaded: function (saved) {
     _refreshCcyVisibility();
     loadFxRatesForKpi(function (rm) { computeKpis(saved, rm); });
-  }
-  // blank / isBlank / firstField / save / del / editable / deletable /
-  // extraBindings — Tasks 6c–6f
+  },
+  // Task 6c — blank / isBlank / same / firstField. The framework calls these
+  // when the + Add bill row is activated (newRow -> cfg.blank -> enterEdit ->
+  // cfg.firstField) and on Esc of a new buffer (cfg.isBlank -> vanish or keep
+  // dirty). same runs on Esc of a SAVED-draft re-edit (compare buffer vs saved
+  // row; drop dirty if equal) — inert until 6d/6e wire saved-draft re-edit.
+  // blank mirrors today's createDraftBill (L1526-1578): parent fields empty
+  // except currency/ap_account/expense_account seeded from company defaults,
+  // status 'draft', and ONE empty line (description/amount/vat_code blank,
+  // expense_account + currency seeded). isBlank mirrors _isDraftEmpty
+  // (L1474-1494): true when vendor/date/ref all empty AND no line has a
+  // description or positive amount (pre-filled defaults do not count).
+  blank: function () {
+    return { _isBill: true, isNew: true, vendor: '', date: '', due_date: '',
+      vendor_ref: '', amount: 0, currency: BASE_CURRENCY,
+      ap_account: companyDefaultAp, expense_account: companyDefaultExpense,
+      status: 'draft',
+      lines: [ { description: '', expense_account: companyDefaultExpense,
+        amount: 0, vat_code: '', vat_amount_override: null,
+        currency: BASE_CURRENCY } ] };
+  },
+  isBlank: function (b) {
+    if (!b.vendor && !b.date && !b.vendor_ref) {
+      return !(b.lines || []).some(function (l) {
+        return l.description || (parseFloat(l.amount) > 0);
+      });
+    }
+    return false;
+  },
+  // same(b, s): header fields equal AND lines deep-equal
+  // (description/amount/vat_code). s is a saved row from bill.list.map (no
+  // lines array until 6e loads them on re-edit); when s has no lines, a
+  // header-only match is treated as same so a freshly opened saved draft with
+  // no edits drops dirty. 6e refines this once saved-draft lines are loaded.
+  same: function (b, s) {
+    if ((b.vendor || '') !== (s.vendor || '')) return false;
+    if (String(b.date || '') !== String(s.date || '')) return false;
+    if (String(b.due_date || '') !== String(s.due_date || '')) return false;
+    if ((b.vendor_ref || '') !== (s.vendor_ref || '')) return false;
+    if ((b.currency || '') !== (s.currency || '')) return false;
+    if ((b.ap_account || '') !== (s.ap_account || '')) return false;
+    if ((b.expense_account || '') !== (s.expense_account || '')) return false;
+    var bl = b.lines || [], sl = s.lines || [];
+    if (bl.length !== sl.length) return false;
+    for (var i = 0; i < bl.length; i++) {
+      if (!sl[i]) return false;
+      if ((bl[i].description || '') !== (sl[i].description || '')) return false;
+      if (Number(bl[i].amount || 0) !== Number(sl[i].amount || 0)) return false;
+      if ((bl[i].vat_code || '') !== (sl[i].vat_code || '')) return false;
+    }
+    return true;
+  },
+  firstField: function (isNew) { return 'vendor'; }
+  // save / del / validate / editable / deletable / extraBindings — Tasks 6e/6f
 });
 
 // ========== TAB SWITCHER ==========

@@ -3001,6 +3001,25 @@ function billRefreshParentTotal(childTr) {
   if (cell) cell.innerHTML = '<span class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + gross.toFixed(2) + '</span>';
 }
 
+// Task 6e — bill-level save/del helpers (used by cfg.validate / cfg.save).
+// billLineNonEmpty mirrors the saveDraftToDb / _gatherInlineBillData row
+// filter: a line counts when it has a description OR a positive amount
+// (prefilled defaults — expense account, currency — do not keep a row).
+function billLineNonEmpty(l) {
+  return !!(l && ((l.description || '').trim() || (parseFloat(l.amount) > 0)));
+}
+// billSumGross sums net + GST per line, matching the live parent total shown
+// by billRefreshParentTotal (override value wins; amount x rate otherwise is
+// already materialised into vat_amount_override by harvestChild). Reverse-
+// charge GST is included because it is part of the gross the user sees.
+function billSumGross(lines) {
+  var t = 0;
+  (lines || []).forEach(function (l) {
+    t += (parseFloat(l.amount) || 0) + (parseFloat(l.vat_amount_override) || 0);
+  });
+  return t;
+}
+
 var billsList = FB.list.create({
   keysId: 'bills',
   active: function () {
@@ -3192,8 +3211,62 @@ var billsList = FB.list.create({
   // a-verb / Tab-spawn: the framework appends this shape to the bill buffer.
   addChild: function (parent) {
     return { description: '', expense_account: companyDefaultExpense || '', amount: 0, vat_code: '', vat_amount_override: null, currency: parent.currency || BASE_CURRENCY };
+  },
+  // Task 6e — bill-level draft validation. Mirrors saveDraftToDb guards
+  // (L2156-2163) plus the per-line checks the post path enforces: vendor
+  // from the dropdown, bill date present, due date present and not before
+  // the bill date, at least one non-empty line, an expense account on every
+  // line, numeric line amounts, and every VAT code blank or known. Returns
+  // an error string or null.
+  validate: function (b) {
+    if (!b.vendor) return 'Select vendor from dropdown before saving';
+    if (!b.date) return 'Bill date required';
+    if (!b.due_date) return 'Due date required';
+    if (b.due_date < b.date) return 'Due date must be ≥ bill date';
+    var lines = (b.lines || []).filter(billLineNonEmpty);
+    if (!lines.length) return 'At least one line item is required';
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      if (!(l.expense_account || '').trim()) return 'Each line needs an expense account';
+      if (isNaN(parseFloat(l.amount))) return 'Line amounts must be numeric';
+      var vc = (l.vat_code || '').trim();
+      if (vc && !taxCodeMap[vc]) return 'Invalid VAT code "' + vc + '" — pick from the dropdown';
+    }
+    return null;
+  },
+  // Task 6e — ONE bill.draft.save write carries header + all lines. body maps
+  // the bill buffer to the exact payload shape saveDraftToDb /
+  // _gatherInlineBillData sends (field names identical; the server action is
+  // unchanged). The framework merges { action, companyId } around body.
+  // focusKey returns the saved bill's key so the cursor lands on it after the
+  // post-save reload (saved draft re-renders as display, fold closes).
+  save: {
+    action: 'bill.draft.save',
+    body: function (b) {
+      return { bill: {
+        bill_id: b._isNew ? null : b._key,
+        vendor: b.vendor, vendor_ref: b.vendor_ref, date: b.date, due_date: b.due_date,
+        amount: billSumGross(b.lines), currency: b.currency, ap_account: b.ap_account,
+        expense_account: b.expense_account,
+        lines: (b.lines || []).filter(billLineNonEmpty).map(function (l) {
+          return { description: l.description, expense_account: l.expense_account,
+            amount: l.amount, vat_code: l.vat_code || null,
+            vat_amount_override: l.vat_amount_override, currency: b.currency };
+        })
+      } };
+    },
+    focusKey: function (b, res) { return b._isNew ? (res.billId || b._key) : b._key; }
+  },
+  // Task 6e — draft delete. confirm prompts before the framework posts
+  // bill.draft.delete; body sends the saved draft's _key as billId. cfg.
+  // deletable (Task 6f) restricts x to drafts; the framework drops unsaved
+  // new buffers without calling del.
+  del: {
+    action: 'bill.draft.delete',
+    body: function (b) { return { billId: b._key }; },
+    confirm: function (b) { return 'Delete draft bill from "' + (b.vendor || '?') + '"?'; }
   }
-  // save / del / validate / editable / deletable / extraBindings — Tasks 6e/6f
+  // editable / deletable / extraBindings — Task 6f
 });
 
 // ========== TAB SWITCHER ==========

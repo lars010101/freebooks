@@ -63,6 +63,14 @@
  *   actions    [{ key, label, handler(api) }] — list-level verbs; each gets a
  *              NORMAL-mode key binding + a small mouse-parity button above the
  *              table (title shows the key). Must not edit existing rows.
+ *   ── tree mode (opt-in, Bills) ──
+ *   tree       boolean — enable parent/child rows + fold state (default false).
+ *   children(row) → child rows for a parent (may fetch; framework caches per-_key).
+ *   foldKey(row)/isFolded(row)/fold(row,open) — fold-state hooks (default _key).
+ *   childRowHtml(parent, child, idx) — view-mode HTML for a child <tr> (Task 2).
+ *   addChild(row) — the `a` verb: append a child to the focused draft bill (T4).
+ *   extraInsertBindings(api) → [INSERT bindings] prepended ahead of the general
+ *              INSERT set (tree screens with pay-row-style sub-modes) (Task 4).
  *
  * Instance: { load, render, anyDirty, mounted, writeAllDirty, discardAll,
  *            renderHints, setFilter, nav }
@@ -96,6 +104,22 @@
       }
     });
 
+    // ── Tree mode opt-in (2026-07-24, Bills → FB.list) ──
+    // tree: true enables parent/child rows: merged() flattens parents + open
+    // children; fold state is keyed by row._key; childRowHtml renders children.
+    // Flat lists (tree falsy) are untouched — the default.
+    cfg.tree = !!cfg.tree;
+    if (cfg.tree) {
+      // children(row) → child rows for a parent (may fetch; framework caches
+      // per-_key). Default: no children (a tree with only parents = flat).
+      if (!cfg.children) cfg.children = function (row) { return []; };
+      // Fold-state hooks — default: a `_key`-keyed `folded` map (open=true).
+      // Override only if fold state must live elsewhere.
+      if (!cfg.foldKey) cfg.foldKey = function (row) { return row._key; };
+      if (!cfg.isFolded) cfg.isFolded = function (row) { return folded[cfg.foldKey(row)]; };
+      if (!cfg.fold) cfg.fold = function (row, open) { folded[cfg.foldKey(row)] = !!open; };
+    }
+
     var saved = [];
     var dirty = {};
     var editIdx = -1;
@@ -105,6 +129,7 @@
     var nav = null;
     var _gPending = false, _gTimer = null; // gg sequence
     var ADD_ROW = '_add_row'; // render(focusKey) sentinel: focus the add row
+    var folded = {}; // tree: foldKey → bool (open=true); flat lists never read this
 
     function tbody() { return el(cfg.tbody); }
     function rows() { return Array.from(tbody().querySelectorAll('tr:not(.fb-add-row)')); }

@@ -1,6 +1,6 @@
 # FB.list UX Spec — the one list machine
 
-Status: **RATIFIED 2026-07-23** (magnus, Slack design thread). Supersedes the ghost-row create slot (rejected same date). Companions: `settings-ux-spec.md` (Esc doctrine origin — §3 restates, does not revise it), `payables-ux-spec.md` (Bills tree-table; migrates onto FB.list last).
+Status: **RATIFIED 2026-07-23** (magnus, Slack design thread). Supersedes the ghost-row create slot (rejected same date). Companions: `settings-ux-spec.md` (Esc doctrine origin — §3 restates, does not revise it), `payables-ux-spec.md` (Bills tree-table). Bills `tree: true` ratified 2026-07-24.
 
 ---
 
@@ -8,8 +8,8 @@ Status: **RATIFIED 2026-07-23** (magnus, Slack design thread). Supersedes the gh
 
 One component — `FB.list` (`api/public/fb-list.js`) — owns ALL behavior for every flat register in the app: the add row, navigation, edit lifecycle, dirty buffers, delete, leave-guard. A screen declares columns + actions + a handful of predicates; it implements **no interaction code of its own**. Behavior therefore cannot drift between tabs.
 
-**Migrated:** Settings (Periods, COA, Tax Codes, Journals), Vendors, FX Rates.
-**Pending:** Bank Mappings; Bills (needs `tree: true` — fold is a *property*, not a separate universe). The Bills *editor* screen stays separate (grid vs form is legitimate).
+**Migrated:** Settings (Periods, COA, Tax Codes, Journals), Vendors, FX Rates, **Bills (`tree: true`, 2026-07-24)**.
+**Pending:** Bank Mappings — the last bespoke list.
 
 ## 2. The add row (single create affordance)
 
@@ -18,7 +18,7 @@ A plain muted text row pinned at the **bottom** of the list, reading `+ Add entr
 - **Reachable by:** click; `j` (sticky past the last data row); `G` (bottom). `gg` returns to the first row.
 - **`i` / Enter / click** on it: the add row transforms in place into the live navy edit row (INSERT mode, first field focused). It is hidden while a NEW row is being edited and reappears on exit.
 - New and dirty-new rows **append at the bottom**, right above the add row — creation grows from the bottom, where the eye already is.
-- `o` is **retired** on FB.list screens (the add row is the only create path). `o`/`O` remains "new master object" on Bills until its migration.
+- `o` is **retired** on every FB.list screen, Bills included (the add row is the only create path).
 
 ## 3. Row lifecycle (doctrine restated from settings-ux-spec §1)
 
@@ -44,7 +44,9 @@ clean ──i/Enter/click──▶ editing ──Esc──▶ dirty ──w─�
 |---|---|---|
 | read | `j`/`k` | navigate rows, sticky ends; the add row is a nav position (bottom) |
 | read | `gg` / `G` | first row / bottom (= add row) — framework-level since 2026-07-23 |
-| read | `i` / Enter / click cell | edit focused row; on the add row = create |
+| read | `i` / Enter / click cell | edit focused row; on the add row = create. Tree mode: on a child = edit the parent bill (whole-bill unit); on a posted bill = no-op (`editable` false) |
+| read, tree | `Space` / click ▸ | fold — toggle the parent under the cursor (children lazy-fetch on first open); inert on the add row |
+| read, tree | `a` | add child to the focused draft bill (§5's `a` = add child) |
 | read | `x` | delete — confirm for saved rows; no-op on `deletable:false` rows (e.g. ECB rates); discards dirty-new rows |
 | read, dirty | `w` / `✓` chip | **write — the only save** |
 | read, dirty | `u` / `✕` chip | revert to saved values |
@@ -67,7 +69,7 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `keysId` / `active()` | FB.keys registration name; tab-visibility predicate |
 | `tbody` | table body element id |
 | `companyId()` | company id for `/api/action` payloads |
-| `columns[]` | `field` (buffer property + input class), `type` (`text`/`date`/`number`/`checkbox`/`select`), `width`, `align`, `ro` (`'saved'` = key column read-only on saved rows; `'always'` = display-only), `uppercase`, `step`, `options` (`''` renders `- none -`), `nullable`, `display(v,row)` (view-mode HTML), `attach(input,tr)` (post-build hook — FB.dropdown attachers) |
+| `columns[]` | `field` (buffer property + input class), `type` (`text`/`date`/`number`/`checkbox`/`select`), `width`, `align`, `ro` (`'saved'` = key column read-only on saved rows; `'always'` = display-only), `uppercase`, `step`, `options` (`''` renders `- none -`), `nullable`, `display(v,row)` (view-mode HTML), `attach(input,tr)` (post-build hook — FB.dropdown attachers), `sortable` (framework-owned asc/desc/none header cycle — view sort, never reorders buffers) |
 | `blank()` / `isBlank(b)` | new-row defaults; untouched-new predicate (vanish on Esc) |
 | `same(b,s)` | buffer matches saved row → dirty dropped |
 | `validate(d)` | error string \| null — runs on `w`, failure keeps the buffer |
@@ -84,8 +86,22 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `focusClass` / `onFocus(tr)` | nav highlight class (default `nav-row-focus`); focus hook (optional) |
 | `extraBindings(api)` | screen-specific NORMAL bindings (optional) |
 | `filter(row,q)` | enables `api.setFilter(q)` (optional) |
+| `tree` | tree mode flag — rows are parents with foldable children (Bills) |
+| `children(row)` | child accessor — lazy fetch + caching is the screen's job (Bills: `bill.lines` / `bill.payments`) |
+| `foldKey(row)` / `isFolded(row)` / `fold(row, open)` | fold state — defaults: `row._key` + an internal closed-state map |
+| `childRowHtml(parent, child, idx)` / `editChildRowHtml` | view-mode child `<tr>` inner HTML; edit-mode override (defaults to `childRowHtml`) |
+| `addChild(parent)` / `attachChild(tr, parent, idx)` | the `a` verb — append a child line in edit; post-render child-row hook |
+| `hint` | register note rendered in the sidebar under the tab's keyboard help — the only sanctioned note location |
 
+In tree mode `editable`/`deletable` gate the **whole-parent edit unit**: `i` on parent or child opens the parent with all children; `save.body(d)` carries header + lines in ONE write; `u` reverts all.
 **Status messages (retired 2026-07-23):** the per-screen `msg` span config is gone. All transient feedback ("Saved", validation errors) routes through **`FB.status.show(text, sev)`** (fb-core) into the single topbar slot `#tb-status-msg`. Severity: `true`/`'err'` red, `'warn'` amber, falsy green/neutral. **Never auto-dismisses** — a message stays until the next one replaces it (vim cmdline semantics). Distinct channel from the 🔔 (persistent alerts, fx-automation-spec §7).
+
+### 6.1 Tree mode — fold / filter / edit-unit semantics
+
+- The visible sequence is parents + **open** children, flattened; `j`/`k` walk the flattened sequence (sticky ends), the add row stays bottom.
+- Column filters evaluate on **parents**; children follow their parent's visibility.
+- Fold state is a row property, **untouched by filters** — a folded bill stays folded when a filter applies and clears.
+- A dirty/editing parent bypasses filters **as a unit** — parent and all children stay visible until `w`/`u`.
 
 ## 7. Extensions inventory (added for Vendors/FX, 2026-07-23)
 
@@ -97,7 +113,7 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 
 ## 8. Filtering — one pattern, two paths
 
-**Status 2026-07-23 (rev. 2): filter design agreed with Magnus; keyboard path revised to the unified topbar model (no framework command box) after live feedback. G/gg on FB.list screens scroll #page-main to absolute bottom/top (Bills parity).** Per-column filtering is a framework feature, declared per column. The Bills `≡` implementation is the reference UX; it is **deleted — not ported — when Bills migrates to FB.list** (see §11 backlog).
+**Status 2026-07-23 (rev. 2): filter design agreed with Magnus; keyboard path revised to the unified topbar model (no framework command box) after live feedback. G/gg on FB.list screens scroll #page-main to absolute bottom/top (Bills parity).** Per-column filtering is a framework feature, declared per column. The Bills bespoke `≡` was the reference UX; it was **deleted — not ported — when Bills migrated** (2026-07-24).
 
 **2026-07-24 (rev. 3): sensible default.** Columns are now **filterable by default** — at list init, any column whose `filterType` is still `undefined` gets `'text'`. Checkbox columns default to **non-filterable** (`null`) — the framework has no boolean filter UI yet, so a text box against a checkbox would be noise. A screen opts an individual column out by declaring `filterType: null` (the existing truthiness checks throughout the module honor it). Screens therefore declare only the **special** types — `'list'`, `'date'`, `'amount'` — where the column semantics call for them; redundant `filterType: 'text'` declarations were removed from every audited screen.
 
@@ -152,15 +168,15 @@ Dropdown choices and the topbar expression are two renderings of the same filter
 
 One shared modal per page across all mounted FB.list instances: switching tab/page or sidebar-navigating with any editing-or-dirty row opens **Save / Discard / Stay**. Save = write all dirty rows, proceed only when all succeed; Discard = revert all, proceed; Stay = abort. Hooks: the page's own tab-switch function, `window.fbBeforeTabSwitch` (common.js `{/}` path), and a capture-phase sidebar click handler (mouse parity).
 
-## 10. Bills — Option A (interim doctrine, 2026-07-22)
+## 10. Bills — migrated
 
-Until Bills migrates onto FB.list (`tree: true`), its bespoke `_insertEscape` follows the same doctrine: **Esc exits INSERT only** — a non-empty inline draft stays as a DOM-marked dirty buffer (`fb-draft-dirty`); `w` persists it (zero drafts server-side until then). Esc on an empty draft discards it.
+Bills migrated onto FB.list (`tree: true`) 2026-07-24; the interim Option-A doctrine previously in this section is **superseded** — Bills follows the framework-native §3 doctrine (Esc never saves; `w` writes the whole bill in one request; dirty = amber buffer).
 
 ## 11. Migration backlog (in order)
 
-1. **Bank Mappings → FB.list.** Then delete the legacy `.fb-ghost-row` CSS (kept only for bank.js) and the `activateMappingGhost` machinery.
-2. **Column filters + command box into FB.list** (§8). Landing filters first means Bills' ~450 lines of bespoke filter code are deleted, not ported.
-3. **Bills → FB.list with `tree: true`.** Fold/unfold becomes a row property of the same machine; the bill editor screen stays separate. Last bespoke list surface in the app.
+1. **Bank Mappings → FB.list.** Then delete the legacy `.fb-ghost-row` CSS (kept only for bank.js) and the `activateMappingGhost` machinery. **Now the last bespoke list.**
+2. ~~**Column filters + command box into FB.list** (§8).~~ Done 2026-07-23 — Bills' ~450 lines of bespoke filter code were deleted, not ported.
+3. ~~**Bills → FB.list with `tree: true`.**~~ Done 2026-07-24 — fold/unfold is a row property of the same machine.
 4. **Receivables** built on FB.list from day one (roadmap P3-1).
 
 ## 12. Testing contract

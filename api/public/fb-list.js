@@ -146,7 +146,13 @@
     // ── Model ────────────────────────────────────────────────────────────
     // Saved rows overlaid with their dirty buffers; dirty-new appended at the
     // bottom (the add-row slot — new entries grow from the bottom).
-    function merged() {
+    // Tree mode (cfg.tree): parents + their OPEN children flattened in sequence;
+    // folded parents emit no children. Each child carries `_childOf` (parent
+    // _key) and inherits the parent's `_dirty` so a dirty bill's children stay
+    // amber and bypass filters as a unit. Children are produced by
+    // cfg.children(row) — lazy fetch + caching is the screen's responsibility
+    // (Bills caches bill.lines per _key); the framework calls it per render.
+    function baseRows() {
       var out = saved.map(function (s) {
         var d = dirty[s._key];
         if (d) return Object.assign({}, d, { _dirty: true, _key: s._key, _isNew: false });
@@ -156,9 +162,45 @@
         var d = dirty[k];
         if (d && d.isNew) out.push(Object.assign({}, d, { _dirty: true, _key: k, _isNew: true }));
       });
+      return out;
+    }
+    function rowByKey(key) {
+      for (var i = 0; i < saved.length; i++) {
+        if (saved[i]._key === key) {
+          var d = dirty[key];
+          return d ? Object.assign({}, saved[i], d, { _key: key, _isNew: false, _dirty: true }) : saved[i];
+        }
+      }
+      if (dirty[key] && dirty[key].isNew) return Object.assign({}, dirty[key], { _key: key, _isNew: true, _dirty: true });
+      return null;
+    }
+    function childrenOf(r) {
+      if (!cfg.tree) return [];
+      var kids = cfg.children(r) || [];
+      return Array.isArray(kids) ? kids : [];
+    }
+    function merged() {
+      var base = baseRows();
+      var out;
+      if (cfg.tree) {
+        out = [];
+        base.forEach(function (r) {
+          out.push(r);
+          if (!cfg.isFolded(r)) {
+            var kids = childrenOf(r);
+            for (var ci = 0; ci < kids.length; ci++) {
+              out.push(Object.assign({}, kids[ci], { _childOf: r._key, _dirty: r._dirty }));
+            }
+          }
+        });
+      } else {
+        out = base;
+      }
       // Edit/dirty rows ALWAYS bypass filters (2026-07-23): a row in edit
       // mode — including the freshly created add-entry row — must never be
       // hidden by the active filter. After w it re-submits to the filter.
+      // (Tree filter semantics — children follow their parent; a dirty/editing
+      //  bill bypasses as a unit — are wired in Task 5.)
       function keepRow(r) { return r._dirty || (editKey !== null && r._key === editKey); }
       if (filterQ && cfg.filter) out = out.filter(function (r) { return keepRow(r) || cfg.filter(r, filterQ); });
       else if (filterQ) {
@@ -181,6 +223,18 @@
     function anyDirty() { return editIdx >= 0 || Object.keys(dirty).length > 0; }
     function mounted() { return !!tbody(); }
     function syncChrome() { if (cfg.onChrome) cfg.onChrome(anyDirty()); }
+
+    // ── Fold (tree) ──
+    // toggleFold flips a parent's fold state and re-renders. On unfold, if the
+    // screen's cfg.children fetches lazily (Bills: bill.lines), the fetch fires
+    // inside merged()→childrenOf on the re-render; the screen re-renders again
+    // when data resolves. Space (Task 4) and the ▸/▾ caret (mouse parity) both
+    // route through here.
+    function toggleFold(row) {
+      if (!cfg.tree || !row) return;
+      cfg.fold(row, !cfg.isFolded(row));
+      render(row._key);
+    }
 
     // ── Column filters (spec §8) ─────────────────────────────────────────
     // One filter state, two views: per-column ≡ dropdowns (mouse) and the
@@ -518,10 +572,26 @@
       return (v !== null && v !== undefined && v !== '') ? esc(String(v)) : '<span class="pe-ro">—</span>';
     }
     function rowHtml(d, i) {
-      var cells = cfg.columns.map(function (c) {
+      // Tree: a child row delegates its cell layout to cfg.childRowHtml. The
+      // framework owns the <tr> shell (data-idx for nav, data-child-of, dirty
+      // class) so the screen only writes cell HTML. Children render a different
+      // layout from parents (Bills: description / expense-account / amount /
+      // VAT-code / GST-amount) per the ratified contract.
+      if (cfg.tree && d._childOf) {
+        var parent = rowByKey(d._childOf);
+        var inner = cfg.childRowHtml ? cfg.childRowHtml(parent, d, i) : '';
+        return '<tr data-idx="' + i + '" data-child-of="' + esc(String(d._childOf)) + '"'
+          + (d._dirty ? ' class="row-dirty"' : '') + '>' + inner + '</tr>';
+      }
+      var cells = cfg.columns.map(function (c, ci) {
         var v = c.display ? c.display(d[c.field], d) : defaultDisplay(d[c.field]);
         if (d._dirty) v = '<span class="dirty-val">' + v + '</span>';
-        return '<td data-field="' + c.field + '"' + (c.align === 'center' ? ' style="text-align:center"' : '') + '>' + v + '</td>';
+        // Tree: fold caret leads the first cell (▸ folded / ▾ open). Mouse
+        // parity for Space; inert on the add row (rendered separately).
+        var caret = (cfg.tree && ci === 0)
+          ? '<span class="fb-fold" data-fold="1" title="fold (Space)">' + (cfg.isFolded(d) ? '&#9656;' : '&#9662;') + '</span>'
+          : '';
+        return '<td data-field="' + c.field + '"' + (c.align === 'center' ? ' style="text-align:center"' : '') + '>' + caret + v + '</td>';
       }).join('');
       var actions = d._dirty
         ? '<a class="chip chip-ok" title="write (w)" data-act="write">✓</a> <a class="chip chip-cancel" title="revert (u)" data-act="revert">✕</a>'
@@ -551,6 +621,14 @@
       tb.innerHTML = m.map(rowHtml).join('') + addRowHtml(); // add row pinned bottom
       rows().forEach(function (tr) {
         tr.addEventListener('click', function (e) {
+          // Tree: ▸/▾ caret toggles fold (mouse parity for Space). Stops
+          // propagation so the same click does not also enter edit.
+          if (cfg.tree && e.target.closest && e.target.closest('.fb-fold')) {
+            e.stopPropagation();
+            var fd = merged()[+tr.dataset.idx];
+            if (fd) toggleFold(fd);
+            return;
+          }
           if (nav) nav.set(tr);
           var td = e.target.closest('td');
           if (!td || td.classList.contains('row-actions')) return;

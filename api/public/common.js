@@ -492,7 +492,6 @@
       if (vendorPanelJK && vendorPanelJK.style.display !== 'none' && typeof window.fbVendorSelRow !== 'undefined' && window.fbVendorSelRow >= 0) {
         return;
       }
-      if (window.fbBillNav) { return; }
       // Allow page to intercept j/k (e.g. for mixed table+div navigation)
       if (window.fbKeyActions && typeof window.fbKeyActions[e.key] === 'function') {
         e.preventDefault();

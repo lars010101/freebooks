@@ -794,7 +794,7 @@
         var caret = (cfg.tree && ci === 0)
           ? '<span class="fb-fold" data-fold="1" title="fold (Space)">' + (cfg.isFolded(d) ? '&#9656;' : '&#9662;') + '</span>'
           : '';
-        return '<td data-field="' + c.field + '"' + (c.align === 'center' ? ' style="text-align:center"' : '') + '>' + caret + v + '</td>';
+        return '<td data-field="' + c.field + '"' + (c.align ? ' style="text-align:' + c.align + '"' : '') + '>' + caret + v + '</td>';
       }).join('');
       var actions = d._dirty
         ? '<a class="chip chip-ok" title="write (w)" data-act="write">✓</a> <a class="chip chip-cancel" title="revert (u)" data-act="revert">✕</a>'
@@ -818,6 +818,19 @@
     function render(focusKey) {
       var tb = tbody();
       if (!tb) return;
+      // Cursor preservation (2026-07-24, Magnus): a BARE render() — async
+      // child-fetch resolution, chrome refresh — must not move the cursor.
+      // Capture the focused row's key BEFORE the rebuild destroys the <tr>;
+      // the add row re-acquires via the ADD_ROW sentinel. Explicit focusKey
+      // callers (save/revert/nav) are untouched.
+      var preserveKey = null, preserveAdd = false;
+      if (focusKey == null) {
+        var curTr = tb.querySelector('tr.' + (cfg.focusClass || 'nav-row-focus'));
+        if (curTr) {
+          if (curTr.classList.contains('fb-add-row')) preserveAdd = true;
+          else if (curTr.dataset && curTr.dataset.key != null) preserveKey = curTr.dataset.key;
+        }
+      }
       wireHeaders();
       if (cfg.actions) ensureToolbar();
       var m = merged();
@@ -849,9 +862,10 @@
       var g = tb.querySelector('.fb-add-row');
       if (g) g.addEventListener('click', function () { newRow(); });
       if (nav) {
-        var target = focusKey === ADD_ROW ? g
-          : (focusKey != null ? tb.querySelector('tr[data-key="' + focusKey + '"]') : null);
-        nav.set(target || navRows()[0] || null); // default: first row
+        var effKey = focusKey != null ? focusKey : preserveKey;
+        var target = (focusKey === ADD_ROW || preserveAdd) ? g
+          : (effKey != null ? tb.querySelector('tr[data-key="' + effKey + '"]') : null);
+        nav.set(target || navRows()[0] || null); // vanished row → first row
       }
       // onChrome also fires per-render (filter changes re-render): screens
       // with render-dependent chrome (Bills' single-ccy column) stay correct.

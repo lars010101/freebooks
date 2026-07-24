@@ -716,6 +716,13 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 
 /* ≡ header filter button — absolutely pinned to the right corner of the th */
 th.fb-th-filterable { position: relative; }
+/* Filterable headers reserve a 24px zone at the right edge for the pinned ≡
+   (2026-07-24, Magnus: ≡ overlapped the narrow Vendors CCY/Terms labels).
+   Specificity beats page-level `.data-table th` shorthands. Pages reserving
+   icon space inside a .th-inner (Bills' amount header) subtract the 24px. */
+.data-table th.fb-th-filterable { padding-right: 24px; }
+/* Header labels never wrap (2026-07-24, Magnus: "TERMS (D)" wrapped). */
+.data-table thead th { white-space: nowrap; }
 th .fb-filter-btn {
   position: absolute;
   right: 4px;

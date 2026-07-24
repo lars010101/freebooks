@@ -76,16 +76,18 @@ ${commonStyle()}
   .th-inner { display:flex; align-items:center; gap:4px; position:relative; }
   .th-sort { font-size:0.6875rem; color:#1a1a1a; width:12px; text-align:center; flex-shrink:0; }
   .th-sort:empty { display:none; } /* no reserved gap: header label stays flush with cell content */
-  /* Filter affordance: pinned to the right corner of EVERY header, outside the
-     flex flow, so it never displaces a label from its column's content edge. */
-  .th-filter-btn { position:absolute; right:3px; top:50%; transform:translateY(-50%); margin-left:0; font-size:0.9375rem; color:#999; padding:3px 6px; border-radius:4px; opacity:0.45; transition:opacity .1s, color .1s; cursor:pointer; line-height:1; }
-  th:hover .th-filter-btn { opacity:1; color:#555; }
-  th.col-filtered .th-filter-btn { opacity:1; color:#2255cc; }
+  /* The ≡ filter affordance is the framework's .fb-filter-btn (common.css) —
+     the bespoke .th-filter-btn spans were deleted 2026-07-24 (double icon). */
   /* AMOUNT header: label hugs the corner icon (flush right with the figures).
-     The icon-width reserve lives in the header AND in the figure cells
-     (td.amt), so label right edge == figures right edge == icon left edge. */
-  th[data-col="amount"] .th-inner { justify-content:flex-end; padding-right:34px; }
-  #bills-table td.amt, #bills-table td.draft-total-amount { padding-right:46px; }
+     Reserve math: th padding-right 24px (filterable, common.css) + th-inner
+     22px = 46px == the amount cell's 46px (rule below), so label right edge
+     == figures right edge == icon left edge. */
+  th[data-col="amount"] .th-inner { justify-content:flex-end; padding-right:22px; }
+  /* Figure reserve: 46px right padding on amount cells, matching the header's
+     24+22px — label right edge == figures right edge == ≡ left edge. Targets
+     data-field because the framework's td carries no .amt class (the span
+     does); the old td.amt selector went dead in the FB.list migration. */
+  #bills-table td[data-field="amount"], #bills-table td.draft-total-amount { padding-right:46px; }
   /* Column weights (P1-3 density pass, agreed 2026-07-21; CCY widened 7→9%
      2026-07-22 — at 7% the corner-pinned filter icon overlapped the "CCY"
      label at ≤1400px viewports). Vendor is information-dense; CCY only needs
@@ -332,13 +334,13 @@ ${commonStyle()}
       </colgroup>
       <thead>
         <tr>
-          <th class="sortable" data-col="vendor" data-filter-type="text"><div class="th-inner"><span class="th-label">Vendor</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by vendor">&#8801;</span></div></th>
-          <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-label">Date</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by date">&#8801;</span></div></th>
-          <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-label">Due</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by due date">&#8801;</span></div></th>
-          <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span><span class="th-filter-btn" title="Filter by reference">&#8801;</span></div></th>
-          <th class="sortable" data-col="amount" data-filter-type="amount"><div class="th-inner"><span class="th-label">Amount</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by amount">&#8801;</span></div></th>
-          <th class="sortable" data-col="currency" data-filter-type="list"><div class="th-inner"><span class="th-label">CCY</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by currency">&#8801;</span></div></th>
-          <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-label">Status</span><span class="th-sort"></span><span class="th-filter-btn" title="Filter by status">&#8801;</span></div></th>
+          <th class="sortable" data-col="vendor" data-filter-type="text"><div class="th-inner"><span class="th-label">Vendor</span><span class="th-sort"></span></div></th>
+          <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-label">Date</span><span class="th-sort"></span></div></th>
+          <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-label">Due</span><span class="th-sort"></span></div></th>
+          <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span></div></th>
+          <th class="sortable" data-col="amount" data-filter-type="amount"><div class="th-inner"><span class="th-label">Amount</span><span class="th-sort"></span></div></th>
+          <th class="sortable" data-col="currency" data-filter-type="list"><div class="th-inner"><span class="th-label">CCY</span><span class="th-sort"></span></div></th>
+          <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-label">Status</span><span class="th-sort"></span></div></th>
         </tr>
       </thead>
       <tbody id="bills-tbody">
@@ -362,8 +364,8 @@ ${commonStyle()}
         <thead>
           <tr>
             <th>Vendor</th>
-            <th style="width:60px;text-align:center">CCY</th>
-            <th style="width:90px;text-align:center">Terms (d)</th>
+            <th style="width:70px;text-align:center">CCY</th>
+            <th style="width:110px;text-align:center">Terms (d)</th>
             <th style="width:140px">Expense A/C</th>
             <th style="width:140px">AP A/C</th>
             <th style="width:90px;text-align:center">Active</th>

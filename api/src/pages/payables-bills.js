@@ -890,7 +890,7 @@ var billsList = FB.list.create({
         var id = String(r.bill_id || r._key || '');
         return '<a href="/' + esc(COMPANY) + '/bill/' + esc(id) + '" class="ref-link" onclick="event.stopPropagation()">' + esc(v || '') + '</a>';
       } },
-    { field: 'amount', type: 'number', ro: 'always', sortable: true, filterType: 'amount',
+    { field: 'amount', type: 'number', ro: 'always', sortable: true, filterType: 'amount', align: 'right',
       display: function (v) {
         return '<span class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(v || 0).toFixed(2) + '</span>';
       } },

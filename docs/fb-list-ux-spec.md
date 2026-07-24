@@ -80,17 +80,18 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `label` | add-row text (default `+ Add entry`) |
 | `list` | `{ action }` or `{ url }` + `map(raw)` → saved row incl. `_key` |
 | `save` | `{ action, body(d), focusKey(d,res) }` |
-| `del` | `{ action, body(d), confirm(d) }` \| null |
-| `onChrome(anyDirty)` | tab dot / dirty bookkeeping (optional) |
+| `del` | `{ action, body(d), confirm(d) }` \| null — optional `deleted(d)`: success message (default `'Deleted'`) |
+| `onChrome(anyDirty)` | tab dot / dirty bookkeeping + render-dependent chrome (Bills' single-CCY column) — fires after **every** render (optional) |
 | `onLoaded(saved)` | post-load hook (e.g. compat globals) (optional) |
 | `focusClass` / `onFocus(tr)` | nav highlight class (default `nav-row-focus`); focus hook (optional) |
 | `extraBindings(api)` | screen-specific NORMAL bindings (optional) |
 | `filter(row,q)` | enables `api.setFilter(q)` (optional) |
 | `tree` | tree mode flag — rows are parents with foldable children (Bills) |
 | `children(row)` | child accessor — lazy fetch + caching is the screen's job (Bills: `bill.lines` / `bill.payments`) |
-| `foldKey(row)` / `isFolded(row)` / `fold(row, open)` | fold state — defaults: `row._key` + an internal closed-state map |
+| `foldKey(row)` / `isFolded(row)` / `fold(row, open)` | fold state — defaults: `row._key` + an internal **open-state** map (absent key = **folded** — collapsed-by-default) |
 | `childRowHtml(parent, child, idx)` / `editChildRowHtml` | view-mode child `<tr>` inner HTML; edit-mode override (defaults to `childRowHtml`) |
 | `addChild(parent)` / `attachChild(tr, parent, idx)` | the `a` verb — append a child line in edit; post-render child-row hook |
+| `harvestExtra(tr, row, buf)` | merge non-column payload fields into the edit buffer (Bills: `vendor_id`/`ap_account`/`expense_account` travel on the vendor input's dataset) (optional) |
 | `hint` | register note rendered in the sidebar under the tab's keyboard help — the only sanctioned note location |
 
 In tree mode `editable`/`deletable` gate the **whole-parent edit unit**: `i` on parent or child opens the parent with all children; `save.body(d)` carries header + lines in ONE write; `u` reverts all.
@@ -99,6 +100,7 @@ In tree mode `editable`/`deletable` gate the **whole-parent edit unit**: `i` on 
 ### 6.1 Tree mode — fold / filter / edit-unit semantics
 
 - The visible sequence is parents + **open** children, flattened; `j`/`k` walk the flattened sequence (sticky ends), the add row stays bottom.
+- **Collapsed-by-default (2026-07-24, Magnus):** a fresh list renders parents folded (▸); children lazy-fetch on first open. Entering edit opens the fold; `w` (save) and `u` (revert) collapse it — a saved bill renders as one collapsed line.
 - Column filters evaluate on **parents**; children follow their parent's visibility.
 - Fold state is a row property, **untouched by filters** — a folded bill stays folded when a filter applies and clears.
 - A dirty/editing parent bypasses filters **as a unit** — parent and all children stay visible until `w`/`u`.

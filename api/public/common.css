@@ -667,6 +667,18 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 
 /* ---- FB.list column filters + command box (spec §8) ---- */
 /* One filter state, two views: per-column ≡ dropdowns + a `/` command box.   */
+/* FB.list tree fold caret — inline with the first cell's content (spec §6.1).
+   Screens whose first column renders a block-level cell (Bills' .vendor-cell)
+   must make it inline-flex so it shares the caret's line. */
+.fb-fold {
+  display: inline-block;
+  width: 14px;
+  cursor: pointer;
+  color: var(--muted, #888);
+  user-select: none;
+  vertical-align: middle;
+}
+.fb-fold:hover { color: inherit; }
 .fb-list-toolbar {
   display: flex;
   align-items: center;

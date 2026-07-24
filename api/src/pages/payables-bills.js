@@ -449,15 +449,21 @@ var _singleCcy = false;
 function _applyCcyColVisibility() {
   var tbl = document.getElementById('bills-table');
   if (!tbl) return;
-  var hide = _singleCcy && FB.mode.get() !== 'INSERT';
+  // Never hide while ANY filter is active — a hidden column's ≡ is the only
+  // way to see/clear its filter (2026-07-22 doctrine, restored post-migration).
+  var filtering = !!(window.billsList && billsList.anyFilterActive && billsList.anyFilterActive());
+  var hide = _singleCcy && FB.mode.get() !== 'INSERT' && !filtering;
   tbl.classList.toggle('single-ccy', hide);
   // Column widths are owned by CSS (col.col-* classes + .single-ccy
   // re-weighting rules) — no JS width juggling here.
 }
-function _refreshCcyVisibility() {
+// Data-driven: the framework's rows carry no data-currency attributes, so
+// read the mapped saved rows (onLoaded) instead of the DOM. Re-applied per
+// render via cfg.onChrome (mode flips, filter changes, edits).
+function _refreshCcyVisibility(saved) {
+  var rows = saved || [];
   var ccys = {};
-  var rows = document.querySelectorAll('#bills-tbody tr[data-row-type="parent"]');
-  rows.forEach(function(tr) { ccys[tr.dataset.currency || ''] = 1; });
+  rows.forEach(function (r) { ccys[(r.currency || '').toUpperCase()] = 1; });
   _singleCcy = rows.length > 0 && Object.keys(ccys).length === 1;
   _applyCcyColVisibility();
 }
@@ -689,9 +695,14 @@ function billsMergeChildRows(cache, parent) {
   var out = [];
   if (parent.status === 'draft') {
     lines.forEach(function (l) {
+      // Round-trip: the server returns account_code; the edit renderer and
+      // harvest speak expense_account. Map both + the VAT override or a
+      // reload-then-edit shows an empty account and fails validation.
       out.push({ _kind: 'draft-line', entry_id: l.entry_id || '',
         description: l.description || '', amount: Number(l.amount || 0),
-        vat_code: l.vat_code || '' });
+        expense_account: l.expense_account || l.account_code || '',
+        vat_code: l.vat_code || '',
+        vat_amount_override: (l.vat_amount_override != null) ? l.vat_amount_override : null });
     });
     return out;
   }
@@ -903,7 +914,8 @@ var billsList = FB.list.create({
         _key: b.bill_id, bill_id: b.bill_id, vendor: b.vendor || '', date: b.date || '',
         due_date: b.due_date || '', vendor_ref: b.vendor_ref || '', amount: b.amount || 0,
         amount_paid: b.amount_paid || 0, currency: b.currency || BASE_CURRENCY, status: b.status || '',
-        ap_account: b.ap_account || '', expense_account: b.expense_account || '', _isBill: true
+        ap_account: b.ap_account || '', expense_account: b.expense_account || '',
+        vendor_id: b.vendor_id || '', _isBill: true
       };
     } },
   // Pre-resolved lazy children: the framework calls children(row)
@@ -914,9 +926,10 @@ var billsList = FB.list.create({
   children: billsChildren,
   childRowHtml: billsChildRowHtml,
   onLoaded: function (saved) {
-    _refreshCcyVisibility();
+    _refreshCcyVisibility(saved);
     loadFxRatesForKpi(function (rm) { computeKpis(saved, rm); });
   },
+  onChrome: function () { _applyCcyColVisibility(); },
   // Task 6c — blank / isBlank / same / firstField. The framework calls these
   // when the + Add bill row is activated (newRow -> cfg.blank -> enterEdit ->
   // cfg.firstField) and on Esc of a new buffer (cfg.isBlank -> vanish or keep
@@ -1047,6 +1060,18 @@ var billsList = FB.list.create({
       vat_amount_override: (g && g.value !== '') ? (parseFloat(g.value) || null) : null
     };
   },
+  // Non-column payload fields: vendor_id / ap_account / expense_account travel
+  // on the vendor input's dataset (set on pick/blur-resolve). Untouched edit →
+  // dataset empty → fall back to the row's saved values. Without this the
+  // buffer drops AP/expense on every save (duplicate-save bug's silent twin).
+  harvestExtra: function (tr, row, buf) {
+    var vin = tr.querySelector('.fb-e-vendor');
+    var ds = (vin && vin.dataset) || {};
+    buf.vendor_id = ds.vendorId || row.vendor_id || '';
+    buf.ap_account = ds.apAccount || row.ap_account || '';
+    buf.expense_account = ds.expenseAccount || row.expense_account || '';
+    if (ds.vendorCurrency) buf.currency = ds.vendorCurrency;
+  },
   // a-verb / Tab-spawn: the framework appends this shape to the bill buffer.
   addChild: function (parent) {
     return { description: '', expense_account: companyDefaultExpense || '', amount: 0, vat_code: '', vat_amount_override: null, currency: parent.currency || BASE_CURRENCY };
@@ -1076,7 +1101,8 @@ var billsList = FB.list.create({
   del: {
     action: 'bill.draft.delete',
     body: function (b) { return { billId: b._key }; },
-    confirm: function (b) { return 'Delete draft bill from "' + (b.vendor || '?') + '"?'; }
+    confirm: function (b) { return 'Delete draft bill from "' + (b.vendor || '?') + '"?'; },
+    deleted: function () { return 'Draft deleted'; }
   },
   // Task 6f — drafts are the only editable/deletable bills; everything else
   // is a verb (post / pay / void), never an edit.

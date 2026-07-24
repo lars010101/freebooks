@@ -7,7 +7,7 @@ const { vendorsTabJS } = require('./payables-vendors');
 async function handlePayablesPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  const [co] = await query(`SELECT jurisdiction, base_currency FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
+  const [co] = await query(`SELECT jurisdiction, currency AS base_currency FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
   const taxLabel = (co && co.jurisdiction === 'SG') ? 'GST' : 'VAT';
   const baseCurrency = (co && co.base_currency) || 'SGD';
   res.send(buildPayablesPage(company, taxLabel, baseCurrency));
@@ -113,6 +113,9 @@ ${commonStyle()}
      of the collapsed column (it painted over the STATUS label). */
   #bills-table.single-ccy col.col-ccy { visibility: collapse; }
   #bills-table.single-ccy th[data-col="currency"] { visibility: hidden; }
+  /* Chrome leaks the collapsed track's cell text (width 0, paint remains) —
+     hide the cells too. data-field (not nth-child): column order is cfg-owned. */
+  #bills-table.single-ccy td[data-field="currency"] { visibility: hidden; }
   .col-filter-dd { position:fixed; background:#fff; border:1px solid #ddd; border-radius:6px; z-index:9999; min-width:180px; box-shadow:0 4px 12px rgba(0,0,0,.12); overflow:hidden; padding:10px; }
   .col-filter-dd-item { padding:8px 14px; cursor:pointer; font-size:0.8125rem; white-space:nowrap; border-radius:4px; }
   .col-filter-dd-item:hover { background:#f5f5f5; }
@@ -127,7 +130,7 @@ ${commonStyle()}
   .col-filter-dd-apply:hover { background:#333; }
 
   /* Vendor avatar */
-  .vendor-cell { display:flex; align-items:center; gap:10px; }
+  .vendor-cell { display:inline-flex; align-items:center; gap:10px; }
   .avatar { width:32px; height:32px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:700; color:#fff; flex-shrink:0; }
 
   /* Badge */

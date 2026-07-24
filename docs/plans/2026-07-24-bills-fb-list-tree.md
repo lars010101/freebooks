@@ -611,7 +611,7 @@ cfg.addChild = function (parent) {
   // mirrors createDraftLine L1580–1634 but operates on the framework dirty buffer
 };
 // editChildRowHtml(parent, child, idx, isLast) → inputs for desc / expense-acct / amount / VAT + GST, with attachers wired (Task 3 enterEdit calls this)
-// Tab wiring: forward Tab on last child's last field (GST) with data → addChild + focus; Shift+Tab on first child desc → parent CCY. Retain _wireChildRowTab logic.
+// Tab wiring: forward Tab on last child's last field (GST) with data → addChild + focus; Shift+Tab on first child desc → parent's last input (vendor ref — CCY/AP are not row inputs). Retain _wireChildRowTab logic.
 // The + icon on the last child → addChild (mouse parity for `a`).
 ```
 - GST recompute (`_recomputeChildGst`) stays; called on amount/VAT-code input.
@@ -619,8 +619,8 @@ cfg.addChild = function (parent) {
   via the column `attach` hooks (6a) + a bill-level post-build hook.
 
 **Verification:** Browser: `i` on a saved draft re-renders it editable; `a`
-adds a line; Tab past last GST spawns a line; Shift+Tab wraps to parent CCY;
-Esc exits (dirty amber); `w` saves.
+adds a line; Tab past last GST spawns a line; Shift+Tab wraps to the parent's
+last input (vendor ref); Esc exits (dirty amber); `w` saves.
 
 **Commit:** `Bills: child edit renderer + a add-child + Tab-spawn-new-line`
 
@@ -943,7 +943,7 @@ node api/src/index.js   # from repo root; server on its usual port
    vanishes, cursor → add row.
 5. **Edit unit (i):** `i` on a draft (parent or child) opens the whole bill;
    `a` adds a child line; Tab past the last child's GST spawns a line;
-   Shift+Tab wraps to parent CCY; Esc exits (dirty amber, NOT saved); `w`
+   Shift+Tab wraps to the parent's last input (vendor ref); Esc exits (dirty amber, NOT saved); `w`
    saves the whole bill in ONE `bill.draft.save` (Network tab: one request);
    the saved draft re-renders collapsed. `u` reverts a dirty bill.
 6. **Filters (≡ + topbar `/`):** a column filter on Vendor hides non-matching

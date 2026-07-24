@@ -127,12 +127,13 @@
       // children(row) → child rows for a parent (may fetch; framework caches
       // per-_key). Default: no children (a tree with only parents = flat).
       if (!cfg.children) cfg.children = function (row) { return []; };
-      // Fold-state hooks — default: a `_key`-keyed `folded` map storing CLOSED
-      // state (truthy = folded/closed; absent key = open). fold(row, open)
-      // takes OPEN semantics — callers pass intent, the map stores the inverse.
+      // Fold-state hooks — default: a `_key`-keyed map storing OPEN state
+      // (truthy = unfolded; absent key = FOLDED — collapsed-by-default, so a
+      // fresh list renders parents only and children lazy-fetch on first
+      // unfold). fold(row, open) takes OPEN semantics and stores it directly.
       if (!cfg.foldKey) cfg.foldKey = function (row) { return row._key; };
-      if (!cfg.isFolded) cfg.isFolded = function (row) { return folded[cfg.foldKey(row)]; };
-      if (!cfg.fold) cfg.fold = function (row, open) { folded[cfg.foldKey(row)] = !open; };
+      if (!cfg.isFolded) cfg.isFolded = function (row) { return !folded[cfg.foldKey(row)]; };
+      if (!cfg.fold) cfg.fold = function (row, open) { folded[cfg.foldKey(row)] = !!open; };
       // editChildRowHtml(parent, child, idx) → edit-mode HTML for a child <tr>.
       // Default: reuse the view-mode childRowHtml (screens with editable child
       // fields override). The framework owns the <tr> shell + data attributes.
@@ -153,7 +154,7 @@
     var nav = null;
     var _gPending = false, _gTimer = null; // gg sequence
     var ADD_ROW = '_add_row'; // render(focusKey) sentinel: focus the add row
-    var folded = {}; // tree: foldKey → closed-state (truthy=folded; absent=open); flat lists never read this
+    var folded = {}; // tree: foldKey → open-state (truthy=unfolded; absent=folded — collapsed-by-default); flat lists never read this
     var sortState = { field: null, dir: null }; // Task 5b: single-col sort; dir 'asc'|'desc'|null (none = server order)
 
     function tbody() { return el(cfg.tbody); }
@@ -308,7 +309,9 @@
     // route through here.
     function toggleFold(row) {
       if (!cfg.tree || !row) return;
-      cfg.fold(row, !cfg.isFolded(row));
+      // open-intent: new open = current CLOSED state (isFolded). Passing
+      // !isFolded re-stores the current state and the toggle is a no-op.
+      cfg.fold(row, !!cfg.isFolded(row));
       render(row._key);
     }
 
@@ -850,6 +853,9 @@
           : (focusKey != null ? tb.querySelector('tr[data-key="' + focusKey + '"]') : null);
         nav.set(target || navRows()[0] || null); // default: first row
       }
+      // onChrome also fires per-render (filter changes re-render): screens
+      // with render-dependent chrome (Bills' single-ccy column) stay correct.
+      syncChrome();
     }
 
     // ── Edit ─────────────────────────────────────────────────────────────
@@ -994,6 +1000,9 @@
           else if (c.type === 'select') buf[c.field] = c.nullable ? (inp.value || null) : inp.value;
           else { var v = inp.value.trim(); buf[c.field] = c.uppercase ? v.toUpperCase() : v; }
         });
+        // Non-column payload fields (Bills: vendor_id/ap/expense travel on the
+        // vendor input's dataset) — the screen merges them into the buffer.
+        if (cfg.harvestExtra) cfg.harvestExtra(tr, d, buf);
         // Lines: harvest each open child <tr> (screen-provided cfg.harvestChild).
         var lines = [];
         if (cfg.harvestChild) {
@@ -1003,13 +1012,16 @@
         buf.lines = lines;
         buf._isBill = true;
         if (d._isNew) {
-          if (!cfg.isBlank(buf)) dirty[d._key] = Object.assign(buf, { isNew: true });
+          // Buffers carry the parent identity (_key/_isNew): screen save.body
+          // builders read them to decide INSERT vs UPDATE. Missing _key was
+          // the duplicate-on-save bug (every edit→w INSERTed a new bill).
+          if (!cfg.isBlank(buf)) dirty[d._key] = Object.assign(buf, { _key: d._key, _isNew: true, isNew: true });
           else { delete dirty[d._key]; vanished = true; } // nothing from nothing
         } else {
           var s = null;
           for (var j = 0; j < saved.length; j++) if (saved[j]._key === d._key) s = saved[j];
           if (s && cfg.same(buf, s)) delete dirty[d._key];
-          else dirty[d._key] = Object.assign(buf, { isNew: false });
+          else dirty[d._key] = Object.assign(buf, { _key: d._key, _isNew: false, isNew: false });
         }
       }
       editIdx = -1;
@@ -1077,7 +1089,12 @@
           if ((dd2 && dd2.error) || r2.error) { msg(dd2.error || r2.error, true); return false; } // stays dirty
           delete dirty[res.parent._key];
           msg('Saved', false);
-          load(cfg.save.focusKey ? cfg.save.focusKey(bill, dd2) : res.parent._key);
+          var fkey = cfg.save.focusKey ? cfg.save.focusKey(bill, dd2) : res.parent._key;
+          load(fkey).then(function () {
+            // Collapse-on-save: a saved bill renders as one collapsed line.
+            var savedRow = rowByKey(fkey);
+            if (savedRow) { cfg.fold(savedRow, false); render(fkey); }
+          });
           return true;
         }).catch(function (e) { msg(e.message, true); return false; });
       }
@@ -1103,6 +1120,7 @@
         if (!res) return;
         var wasNew = dirty[res.parent._key] && dirty[res.parent._key].isNew;
         delete dirty[res.parent._key];
+        if (!wasNew) cfg.fold(res.parent, false); // collapse-on-revert
         render(wasNew ? ADD_ROW : res.parent._key);
         syncChrome();
         return;
@@ -1130,6 +1148,7 @@
           var dd = r2.data || r2;
           if ((dd && dd.error) || r2.error) { msg(dd.error || r2.error, true); return; }
           delete dirty[parent._key];
+          msg(typeof cfg.del.deleted === 'function' ? cfg.del.deleted(parent) : (cfg.del.deleted || 'Deleted'), false);
           load();
         }).catch(function (e) { msg(e.message, true); });
         return;
@@ -1142,6 +1161,7 @@
         var dd = res.data || res;
         if ((dd && dd.error) || res.error) { msg(dd.error || res.error, true); return; } // verbatim (INVALID_STATE etc.)
         delete dirty[d._key];
+        msg(typeof cfg.del.deleted === 'function' ? cfg.del.deleted(d) : (cfg.del.deleted || 'Deleted'), false);
         load();
       }).catch(function (e) { msg(e.message, true); });
     }
@@ -1243,10 +1263,18 @@
       if (cfg.editable && !cfg.editable(parent)) return; // posted: no-op
       if (!cfg.addChild) { editFocused(); return; }       // no line-shape hook → just enter edit
       var key = parent._key;
-      // Not yet editing this bill → enter edit (opens fold, fetches children).
-      if (editIdx < 0 || editKey !== key) { editFocused(); return; }
+      // Not yet editing this bill → enter edit first, then FALL THROUGH to
+      // the append (vim `a` = append: one press adds the line). Exception: a
+      // saved bill whose children are still fetching renders no child rows —
+      // appending now would harvest an empty line set and clobber the
+      // incoming fetch on save. In that case stay in plain edit; the user
+      // repeats `a` once lines are in. (New bills always render their blank
+      // first child, and zero-line saved drafts cannot exist server-side, so
+      // "no child rows + no resolved children" ⇔ fetch in flight.)
+      if (editIdx < 0 || editKey !== key) { editFocused(); }
       var tr = rows()[editIdx];
       if (!tr) return;
+      if (!parent._isNew && childTrsFor(tr, key).length === 0 && childrenOf(parent).length === 0) return;
       // Harvest current parent + child inputs into the buffer (always keep —
       // never vanish a bill the user is actively adding a line to).
       var buf = {};
@@ -1258,6 +1286,7 @@
         else if (c.type === 'select') buf[c.field] = c.nullable ? (inp.value || null) : inp.value;
         else { var v = inp.value.trim(); buf[c.field] = c.uppercase ? v.toUpperCase() : v; }
       });
+      if (cfg.harvestExtra) cfg.harvestExtra(tr, parent, buf);
       var lines = [];
       if (cfg.harvestChild) {
         var kidTrs = childTrsFor(tr, key);
@@ -1266,7 +1295,7 @@
       lines.push(cfg.addChild(parent));
       buf.lines = lines;
       buf._isBill = true;
-      dirty[key] = Object.assign(buf, { isNew: !!parent._isNew });
+      dirty[key] = Object.assign(buf, { _key: key, _isNew: !!parent._isNew, isNew: !!parent._isNew });
       // Clear edit state (we'll re-enter) to avoid exitEdit re-harvesting.
       editIdx = -1; editKey = null;
       if (window.FB && FB.mode) FB.mode.set('NORMAL');
@@ -1509,9 +1538,9 @@
       + '<div class="fb-modal-body">Rows have unsaved changes.</div>'
       + '<div class="fb-modal-err" id="fb-list-leave-err"></div>'
       + '<div class="fb-modal-btns">'
+      + '<button class="btn-primary" id="fbl-save">Save</button>'
       + '<button class="btn-sm danger" id="fbl-discard">Discard</button>'
       + '<button class="btn-sm" id="fbl-stay">Stay</button>'
-      + '<button class="btn-primary" id="fbl-save">Save</button>'
       + '</div></div>';
     ov.addEventListener('click', function (e) { if (e.target === ov) closeLeaveModal(); });
     document.body.appendChild(ov);

@@ -423,7 +423,15 @@ async function voidBill(ctx) {
     );
     const { handleJournal } = require('./journal');
     for (const entry of entries) {
-      await handleJournal({ ...ctx, body: { batchId: entry.batch_id } }, 'journal.reverse');
+      try {
+        await handleJournal({ ...ctx, body: { batchId: entry.batch_id } }, 'journal.reverse');
+      } catch (e) {
+        // Payment-void reversals share the bill_id tag: a bill whose payment
+        // was voided returns to 'posted', and this loop would otherwise
+        // double-reverse that batch and fail the whole void.
+        if (e && e.code === 'ALREADY_REVERSED') continue;
+        throw e;
+      }
     }
   }
 

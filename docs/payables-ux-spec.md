@@ -80,10 +80,12 @@ Posted bills: `i`/Enter and double-click are no-ops (the framework's `editable` 
 
 Tab navigates across all editable cells in the bill. The forward flow for a bill is:
 
-**Parent:** vendor → date → due → ref → (skip read-only total) → CCY → AP account → **first child:** description → expense account → amount → VAT code select → GST amount → **next child:** description → … → last child GST amount
+**Parent:** vendor → date → due → ref → **first child:** description → expense account → amount → VAT code select → GST amount → **next child:** description → … → last child GST amount
+
+(The parent's total and CCY are read-only in edit — the total is computed from the lines and CCY follows the picked vendor. AP/expense accounts default from the vendor pick and travel on the vendor input's dataset; they are not row inputs.)
 
 - **Forward Tab on the last child's last field (GST amount):** If the current child has data (description or amount), a **new child row is created** (`createDraftLine`) and focus moves to its description input. If the child is empty, Tab stays (sticky — no empty rows created).
-- **Shift+Tab** flows in reverse. On the first child's description field, focus moves back to the parent's CCY input.
+- **Shift+Tab** flows in reverse. On the first child's description field, focus moves back to the parent's last input (vendor ref).
 
 This keeps the user inside the bill editing flow. Creating a new line is natural — just Tab past the last field. No need to Esc → `a` → `i` to add a line.
 
@@ -340,7 +342,7 @@ The following elements from earlier implementations are removed or simplified:
 *(2026-07-24: the bespoke machinery below is deleted — Bills runs on `FB.list` (`tree: true`). Behavior now lives in the framework + the Bills `cfg` in `payables-bills.js`. Notes retained as a map to where each behavior now lives.)*
 
 - Whole-bill INSERT is the framework's tree edit unit — `cfg.blank()` (new drafts: parent + first child, fold open, vendor focus) and re-entry on a saved draft via the `editable` predicate + re-render of inputs. Both render parent + children with all inputs simultaneously.
-- Tab navigation (forward Tab on the last child's last field spawns a new line; Shift+Tab on the first child's desc goes to parent CCY) is now the framework child-renderer's Tab wiring.
+- Tab navigation (forward Tab on the last child's last field spawns a new line; Shift+Tab on the first child's desc goes to the parent's last input — vendor ref) is now the framework child-renderer's Tab wiring.
 - Save is the `w` verb → `cfg.save.body(bill)` — one `bill.draft.save` carrying header + all lines, the only save path. Esc never saves.
 - After save, the framework re-renders the bill from `cfg.list.map` (display text); the dirty buffer is dropped.
 - Direct post (`p` verb) routes to `bill.create` (inline unsaved drafts: create+post in one call) or `bill.draft.save` → `bill.draft.post` (saved drafts), via the Bills `extraBindings` `p` handler.

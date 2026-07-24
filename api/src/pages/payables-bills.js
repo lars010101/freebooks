@@ -2719,6 +2719,99 @@ function showMsg(msg) {
 
 // esc now comes from fb-core.js (window.esc) — P1-3 shared core
 
+// ========== FB.list cfg (Bills -> tree) — Task 6a skeleton ==========
+// The bespoke render/draft/filter/fold/nav machinery STAYS in place for now
+// (Task 7 deletes it); this declarative 'billsList' coexists with the old code
+// and is not yet wired into page init (the fbPageInitPayables trim that calls
+// billsList.load() belongs to a later sub-task). Names that collide with the
+// old machinery are namespaced (billsList vs the old allBills/loadAllBills).
+//
+// payAffordHtml(r) — the hover "Pay" affordance on posted/partial bills
+// (extracted from the old renderPage cell, L2614). Opens the inline pay row
+// (P1-9, retained). The click is delegated from the framework render surface;
+// the inline onclick keeps it self-contained until the render handover.
+function payAffordHtml(r) {
+  var id = String(r.bill_id || r._key || '');
+  return '<button class="pay-afford" title="Record payment (p)" onclick="event.stopPropagation();openPayRow(this.parentNode.parentNode)">Pay</button>';
+}
+
+// billAttachVendor(input, tr) — column 'attach' hook for the vendor field in
+// edit mode. Stub for 6a: the real vendor dropdown (today's
+// _wireDraftParentEvents vendor branch) is refactored here in Task 6d when
+// edit mode is wired. 'attach' only fires in INSERT, so a no-op is inert
+// while the old machinery still owns rendering.
+function billAttachVendor(input, tr) { /* Task 6d: vendor dropdown */ }
+
+var billsList = FB.list.create({
+  keysId: 'bills',
+  active: function () {
+    var p = document.getElementById('pay-panel-bills');
+    return !!p && p.style.display !== 'none';
+  },
+  tbody: 'bills-tbody',
+  companyId: function () { return COMPANY; },
+  focusClass: 'bill-row-focus',
+  onFocus: function (tr) { /* compat: old window.fbBillNav drops in Task 7 */ },
+  tree: true,
+  columns: [
+    { field: 'vendor', type: 'text', attach: billAttachVendor, sortable: true,
+      display: function (v, r) { return vendorCell(r.vendor || v || ''); }, label: 'Vendor' },
+    { field: 'date', type: 'date', sortable: true, filterType: 'date',
+      display: function (v) {
+        return '<span style="white-space:nowrap" title="' + esc(String(v || '').slice(0, 10)) + '">' + fmtDateShort(v) + '</span>';
+      } },
+    { field: 'due_date', type: 'date', sortable: true, filterType: 'date',
+      display: function (v, r) {
+        var due = v ? String(v).slice(0, 10) : '';
+        var active = r.status === 'posted' || r.status === 'partial';
+        var overdue = active && due && due < today;
+        return '<span style="white-space:nowrap" title="' + esc(due) + '"><span' + (overdue ? ' class="overdue-date"' : '') + '>' + fmtDateShort(due) + '</span></span>';
+      } },
+    { field: 'vendor_ref', type: 'text', filterType: 'text',
+      display: function (v, r) {
+        var id = String(r.bill_id || r._key || '');
+        return '<a href="/' + esc(COMPANY) + '/bill/' + esc(id) + '" class="ref-link" onclick="event.stopPropagation()">' + esc(v || '') + '</a>';
+      } },
+    { field: 'amount', type: 'number', ro: 'always', sortable: true, filterType: 'amount',
+      display: function (v) {
+        return '<span class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(v || 0).toFixed(2) + '</span>';
+      } },
+    { field: 'currency', type: 'text', ro: 'always', sortable: true, filterType: 'list',
+      display: function (v, r) {
+        var ccy = v || BASE_CURRENCY;
+        // data-bill-date/data-bill-ccy carry the FX-tooltip inputs (_getFxRate
+        // population is wired when the framework takes over rendering).
+        return '<span class="ccy-cell" style="font-size:0.75rem;color:#666" data-bill-date="' + esc(String(r.date || '').slice(0, 10)) + '" data-bill-ccy="' + esc(ccy) + '">' + esc(ccy) + '</span>';
+      } },
+    { field: 'status', type: 'text', ro: 'always', sortable: true, filterType: 'list',
+      display: function (v, r) {
+        var due = r.due_date ? String(r.due_date).slice(0, 10) : null;
+        return statusBadge(v, due) + ((v === 'posted' || v === 'partial') ? payAffordHtml(r) : '');
+      } }
+  ],
+  label: '+ Add bill',
+  list: { action: 'bill.list',
+    map: function (b) {
+      return {
+        _key: b.bill_id, bill_id: b.bill_id, vendor: b.vendor || '', date: b.date || '',
+        due_date: b.due_date || '', vendor_ref: b.vendor_ref || '', amount: b.amount || 0,
+        amount_paid: b.amount_paid || 0, currency: b.currency || BASE_CURRENCY, status: b.status || '',
+        ap_account: b.ap_account || '', expense_account: b.expense_account || '', _isBill: true
+      };
+    } },
+  // Pre-resolved lazy children: the framework calls children(row)
+  // SYNCHRONOUSLY during render/edit, so this returns already-cached lines
+  // (or [] on first touch) and triggers a background fetch that re-renders
+  // on resolution. Filled in Task 6b.
+  children: function (row) { return []; },
+  onLoaded: function (saved) {
+    _refreshCcyVisibility();
+    loadFxRatesForKpi(function (rm) { computeKpis(saved, rm); });
+  }
+  // blank / isBlank / firstField / save / del / editable / deletable /
+  // extraBindings / childRowHtml — Tasks 6b–6f
+});
+
 // ========== TAB SWITCHER ==========
 function showPayTab(t) {
   // Leaving a tab with dirty rows routes through the shared Save/Discard/Stay

@@ -278,7 +278,7 @@ var periodsList = FB.list.create({
   tbody: 'periods-body',
   companyId: function() { return COMPANY; },
   columns: [
-    { field: 'period_name', type: 'text', width: 110, ro: 'saved', filterType: 'text' },
+    { field: 'period_name', type: 'text', width: 110, ro: 'saved' },
     { field: 'start_date', type: 'date', width: null, filterType: 'date',
       display: function(v) { return v ? esc(FB.util.fmtDate(v)) : '<span class="pe-ro">—</span>'; } },
     { field: 'end_date', type: 'date', width: null, filterType: 'date',
@@ -542,11 +542,11 @@ var coaList = FB.list.create({
   tbody: 'coa-body',
   companyId: function() { return COMPANY; },
   columns: [
-    { field: 'account_code', type: 'text', width: 80, ro: 'saved', filterType: 'text' },
-    { field: 'account_name', type: 'text', width: 200, filterType: 'text' },
-    { field: 'account_type', type: 'select', width: 90, options: ACCT_TYPES },
-    { field: 'account_subtype', type: 'select', width: 140, options: SUBTYPES, nullable: true },
-    { field: 'cf_category', type: 'select', width: 100, options: CF_CATS_COA, nullable: true },
+    { field: 'account_code', type: 'text', width: 80, ro: 'saved' },
+    { field: 'account_name', type: 'text', width: 200 },
+    { field: 'account_type', type: 'select', width: 90, options: ACCT_TYPES, filterType: 'list' },
+    { field: 'account_subtype', type: 'select', width: 140, options: SUBTYPES, nullable: true, filterType: 'list' },
+    { field: 'cf_category', type: 'select', width: 100, options: CF_CATS_COA, nullable: true, filterType: 'list' },
     { field: 'is_active', type: 'checkbox', align: 'center',
       display: function(v) { return v ? 'Yes' : 'No'; } }
   ],
@@ -593,9 +593,9 @@ var vatList = FB.list.create({
   tbody: 'vat-body',
   companyId: function() { return COMPANY; },
   columns: [
-    { field: 'vat_code', type: 'text', width: 60, ro: 'saved', filterType: 'text' },
-    { field: 'description', type: 'text', width: 160, filterType: 'text' },
-    { field: 'rate', type: 'number', step: '0.01', width: 55 },
+    { field: 'vat_code', type: 'text', width: 60, ro: 'saved' },
+    { field: 'description', type: 'text', width: 160 },
+    { field: 'rate', type: 'number', step: '0.01', width: 55, filterType: 'amount' },
     { field: 'input_account', type: 'text', width: 70 },
     { field: 'output_account', type: 'text', width: 70 },
     { field: 'report_box', type: 'text', width: 50 },
@@ -643,8 +643,8 @@ var journalsList = FB.list.create({
   companyId: function() { return COMPANY; },
   hint: 'Journal codes appear in the reference sequence (e.g. MISC/2026/0001). Codes should be short uppercase strings.',
   columns: [
-    { field: 'code', type: 'text', width: 70, ro: 'saved', uppercase: true, filterType: 'text' },
-    { field: 'name', type: 'text', width: 180, filterType: 'text' },
+    { field: 'code', type: 'text', width: 70, ro: 'saved', uppercase: true },
+    { field: 'name', type: 'text', width: 180 },
     { field: 'active', type: 'checkbox', align: 'center',
       display: function(v) { return v ? 'Yes' : 'No'; } }
   ],
@@ -691,8 +691,8 @@ var fxList = FB.list.create({
     { field: 'from_currency', type: 'text', width: 60, uppercase: true, attach: attachCcyDd, filterType: 'list' },
     { field: 'to_currency', type: 'text', width: 60, uppercase: true, attach: attachCcyDd, filterType: 'list' },
     { field: 'rate', type: 'number', step: '0.000001', width: 100,
-      display: function(v) { return (v !== null && v !== undefined && v !== '') ? Number(v).toFixed(6) : '<span class="pe-ro">—</span>'; } },
-    { field: 'source', ro: 'always' }
+      display: function(v) { return (v !== null && v !== undefined && v !== '') ? Number(v).toFixed(6) : '<span class="pe-ro">—</span>'; }, filterType: 'amount' },
+    { field: 'source', ro: 'always', filterType: 'list' }
   ],
   blank: function() { return { date: new Date().toISOString().slice(0, 10), from_currency: '', to_currency: '', rate: '', source: 'manual' }; },
   isBlank: function(b) { return !b.from_currency && !b.to_currency && !b.rate; },

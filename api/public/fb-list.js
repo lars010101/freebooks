@@ -1401,7 +1401,12 @@
         if (gi < 0) gi = all.length;
         Array.prototype.splice.apply(all, [gi, 0].concat(ei));
       }
-      if (cfg.extraBindings) all = all.concat(cfg.extraBindings(api));
+      // Screen bindings PREPEND the built-ins (Task 6f): FB.keys takes the
+      // first key+mode+when match, so screen verbs (Bills' p/x/I, pay-row
+      // Enter/Esc) override same-key built-ins; built-ins remain the fallback
+      // when a screen binding's `when` guard declines. Non-overlapping screen
+      // keys (Vendors ~, FX f) are unaffected.
+      if (cfg.extraBindings) all = cfg.extraBindings(api).concat(all);
       FB.keys.register(cfg.keysId, {
         active: cfg.active,
         getMode: function () { return editIdx >= 0 ? 'INSERT' : 'NORMAL'; },
@@ -1451,6 +1456,8 @@
       },
       nav: function () { return nav; },
       focusedRow: focusedRow,
+      rowByKey: rowByKey, // tree: resolve _childOf → parent row (screen verbs)
+      writeFocused: function () { var i = focusedIdx(); return i >= 0 ? writeAt(i) : Promise.resolve(false); },
       addChild: addChildLine, // tree: same flow as the `a` verb (Tab-spawn uses it)
       writeAllDirty: writeAllDirty,
       discardAll: discardAll

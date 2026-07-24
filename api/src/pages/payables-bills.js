@@ -165,17 +165,19 @@ function _attachCashDropdown(input) {
 }
 function payRowOpen() { return !!document.querySelector('tr[data-pay-row="true"]'); }
 
-function openPayRow(parentTr) {
-  if (!parentTr || parentTr.dataset.rowType !== 'parent') return;
+// Data-driven form (Task 6f): anchor row + bill data object. The legacy
+// dataset-reading wrapper follows (old machinery; Task 7 deletes it).
+function openPayRowData(anchorTr, d) {
+  if (!anchorTr || !d) return;
   if (payRowOpen()) return; // one payment row at a time
-  var billId = parentTr.dataset.billId;
+  var billId = d.bill_id;
   if (!billId) return;
-  var status = parentTr.dataset.status || '';
+  var status = d.status || '';
   if (status !== 'posted' && status !== 'partial') return;
-  if (!billAccountsList.length) { loadBillAccounts().then(function() { openPayRow(parentTr); }); return; }
+  if (!billAccountsList.length) { loadBillAccounts().then(function() { openPayRowData(anchorTr, d); }); return; }
 
-  var ccy = parentTr.dataset.currency || BASE_CURRENCY;
-  var outstanding = Math.max(0, Math.round(((parseFloat(parentTr.dataset.amount) || 0) - (parseFloat(parentTr.dataset.amountPaid) || 0)) * 100) / 100);
+  var ccy = d.currency || BASE_CURRENCY;
+  var outstanding = Math.max(0, Math.round(((parseFloat(d.amount) || 0) - (parseFloat(d.amount_paid) || 0)) * 100) / 100);
   var today = new Date().toISOString().slice(0, 10);
   var foreign = ccy.toUpperCase() !== BASE_CURRENCY.toUpperCase();
 
@@ -195,7 +197,7 @@ function openPayRow(parentTr) {
     + (foreign ? '<input class="draft-input pay-fx" type="number" step="0.0001" min="0" placeholder="e.g. 1.35" title="FX rate ' + esc(ccy) + ' → ' + esc(BASE_CURRENCY) + ' at payment date">' : '')
     + '<span class="pay-hint"><a class="pay-ok" title="Record payment">Enter ✓</a> · <a class="pay-cancel" title="Cancel">Esc ✕</a></span>'
     + '</td>';
-  parentTr.insertAdjacentElement('afterend', tr);
+  anchorTr.insertAdjacentElement('afterend', tr);
 
   var acctIn = tr.querySelector('.pay-acct');
   acctIn.value = localStorage.getItem('fb.payAccount.' + COMPANY) || '';
@@ -212,6 +214,18 @@ function openPayRow(parentTr) {
   var amtIn = tr.querySelector('.pay-amount');
   amtIn.focus();
   amtIn.select();
+}
+
+// Legacy wrapper (old machinery reads dataset attrs; Task 7 deletes it).
+function openPayRow(parentTr) {
+  if (!parentTr || parentTr.dataset.rowType !== 'parent') return;
+  openPayRowData(parentTr, {
+    bill_id: parentTr.dataset.billId,
+    status: parentTr.dataset.status || '',
+    currency: parentTr.dataset.currency || BASE_CURRENCY,
+    amount: parentTr.dataset.amount,
+    amount_paid: parentTr.dataset.amountPaid
+  });
 }
 
 function closePayRow() {
@@ -249,8 +263,8 @@ function submitPayRow() {
     localStorage.setItem('fb.payAccount.' + COMPANY, acct);
     closePayRow();
     billEditMsg('Payment recorded — bill ' + (d.status || 'updated'), 'ok');
-    setTimeout(function() { billEditMsg('', ''); }, 3000);
-    loadAllBills();
+    billChildCache = {}; // lines/payments stale after payment (Task 6f)
+    billsList.load();
   })
   .catch(function(e) { tr._submitting = false; billEditMsg('Payment failed: ' + e.message, 'err'); });
 }
@@ -3020,6 +3034,38 @@ function billSumGross(lines) {
   return t;
 }
 
+// Named bill-level validate + save-body (Task 6f hoists them so extraBindings
+// can call them for the post flow; the cfg references the same functions).
+function billValidateBuf(b) {
+  if (!b.vendor) return 'Select vendor from dropdown before saving';
+  if (!b.date) return 'Bill date required';
+  if (!b.due_date) return 'Due date required';
+  if (b.due_date < b.date) return 'Due date must be ≥ bill date';
+  var lines = (b.lines || []).filter(billLineNonEmpty);
+  if (!lines.length) return 'At least one line item is required';
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i];
+    if (!(l.expense_account || '').trim()) return 'Each line needs an expense account';
+    if (isNaN(parseFloat(l.amount))) return 'Line amounts must be numeric';
+    var vc = (l.vat_code || '').trim();
+    if (vc && !taxCodeMap[vc]) return 'Invalid VAT code "' + vc + '" — pick from the dropdown';
+  }
+  return null;
+}
+function billSaveBody(b) {
+  return { bill: {
+    bill_id: b._isNew ? null : b._key,
+    vendor: b.vendor, vendor_ref: b.vendor_ref, date: b.date, due_date: b.due_date,
+    amount: billSumGross(b.lines), currency: b.currency, ap_account: b.ap_account,
+    expense_account: b.expense_account,
+    lines: (b.lines || []).filter(billLineNonEmpty).map(function (l) {
+      return { description: l.description, expense_account: l.expense_account,
+        amount: l.amount, vat_code: l.vat_code || null,
+        vat_amount_override: l.vat_amount_override, currency: b.currency };
+    })
+  } };
+}
+
 var billsList = FB.list.create({
   keysId: 'bills',
   active: function () {
@@ -3228,22 +3274,7 @@ var billsList = FB.list.create({
   // the bill date, at least one non-empty line, an expense account on every
   // line, numeric line amounts, and every VAT code blank or known. Returns
   // an error string or null.
-  validate: function (b) {
-    if (!b.vendor) return 'Select vendor from dropdown before saving';
-    if (!b.date) return 'Bill date required';
-    if (!b.due_date) return 'Due date required';
-    if (b.due_date < b.date) return 'Due date must be ≥ bill date';
-    var lines = (b.lines || []).filter(billLineNonEmpty);
-    if (!lines.length) return 'At least one line item is required';
-    for (var i = 0; i < lines.length; i++) {
-      var l = lines[i];
-      if (!(l.expense_account || '').trim()) return 'Each line needs an expense account';
-      if (isNaN(parseFloat(l.amount))) return 'Line amounts must be numeric';
-      var vc = (l.vat_code || '').trim();
-      if (vc && !taxCodeMap[vc]) return 'Invalid VAT code "' + vc + '" — pick from the dropdown';
-    }
-    return null;
-  },
+  validate: billValidateBuf,
   // Task 6e — ONE bill.draft.save write carries header + all lines. body maps
   // the bill buffer to the exact payload shape saveDraftToDb /
   // _gatherInlineBillData sends (field names identical; the server action is
@@ -3252,19 +3283,7 @@ var billsList = FB.list.create({
   // post-save reload (saved draft re-renders as display, fold closes).
   save: {
     action: 'bill.draft.save',
-    body: function (b) {
-      return { bill: {
-        bill_id: b._isNew ? null : b._key,
-        vendor: b.vendor, vendor_ref: b.vendor_ref, date: b.date, due_date: b.due_date,
-        amount: billSumGross(b.lines), currency: b.currency, ap_account: b.ap_account,
-        expense_account: b.expense_account,
-        lines: (b.lines || []).filter(billLineNonEmpty).map(function (l) {
-          return { description: l.description, expense_account: l.expense_account,
-            amount: l.amount, vat_code: l.vat_code || null,
-            vat_amount_override: l.vat_amount_override, currency: b.currency };
-        })
-      } };
-    },
+    body: billSaveBody,
     focusKey: function (b, res) { return b._isNew ? (res.billId || b._key) : b._key; }
   },
   // Task 6e — draft delete. confirm prompts before the framework posts
@@ -3276,7 +3295,121 @@ var billsList = FB.list.create({
     body: function (b) { return { billId: b._key }; },
     confirm: function (b) { return 'Delete draft bill from "' + (b.vendor || '?') + '"?'; }
   }
-  // editable / deletable / extraBindings — Task 6f
+  // Task 6f — drafts are the only editable/deletable bills; everything else
+  // is a verb (post / pay / void), never an edit.
+  editable: function (d) { return d.status === 'draft'; },
+  deletable: function (d) { return d.status === 'draft'; },
+  // Screen verbs (framework PREPENDS these; guards keep built-ins as fallback).
+  extraBindings: function (api) {
+    function parentOf(d) { return d && d._childOf ? api.rowByKey(d._childOf) : d; }
+    function reloadBills() { billChildCache = {}; billsList.load(); }
+    // Anchor for the pay row: the focused parent <tr> in the framework table.
+    function focusedParentTr() {
+      var tb = document.getElementById('bills-tbody');
+      var tr = tb && tb.querySelector('tr.bill-row-focus');
+      while (tr && tr.dataset && tr.dataset.childOf) tr = tr.previousElementSibling;
+      return tr || null;
+    }
+    function voidBill(p) {
+      if (p.status === 'void') { FB.status.show('Bill is already void — cannot be modified.', true); return; }
+      if (p.status === 'paid') { FB.status.show('Bill is fully paid — reversal must be done via a credit note or payment reversal.', true); return; }
+      var vendor = p.vendor || p.bill_id;
+      var msg = p.status === 'partial'
+        ? 'Bill from "' + vendor + '" is partially paid. Reversing will void the bill but will not reverse the payment. Continue?'
+        : 'Reverse bill from "' + vendor + '"? A reversal journal entry will be created. This cannot be undone.';
+      if (!confirm(msg)) return;
+      fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'bill.void', companyId: COMPANY, billId: p.bill_id }) })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          var d = res.data || res;
+          if (res.error || (d && d.error)) { FB.status.show('Cannot void: ' + (res.error || d.error), true); return; }
+          FB.status.show('Bill voided', false); reloadBills();
+        })
+        .catch(function (e) { FB.status.show('Error: ' + e.message, true); });
+    }
+    function voidPayment(child) {
+      if (child.voided === true || child.voided === 'true' || child.voided_at) { FB.status.show('Payment already voided', true); return; }
+      if (!confirm('Void this payment? A reversal journal entry will be created.')) return;
+      fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'bill.payment.void', companyId: COMPANY, paymentId: child.payment_id }) })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          var d = res.data || res;
+          if (res.error || (d && d.error)) { FB.status.show('Void failed: ' + (res.error || d.error), true); return; }
+          FB.status.show('Payment voided — bill ' + (d.newStatus || ''), false); reloadBills();
+        })
+        .catch(function (e) { FB.status.show('Void failed: ' + e.message, true); });
+    }
+    function postDraft(p) {
+      // p on a draft: new bill → bill.create; saved draft → save-if-dirty, then bill.draft.post.
+      if (p._isNew) {
+        var err = billValidateBuf(p);
+        if (err) { FB.status.show(err, true); return; }
+        var body = billSaveBody(p);
+        delete body.bill.bill_id;
+        FB.status.show('Posting…', false);
+        fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'bill.create', companyId: COMPANY, bill: body.bill }) })
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            var d = res.data || res;
+            if (res.error || (d && d.error)) { FB.status.show('Post failed: ' + (res.error || d.error), true); return; }
+            FB.status.show('Bill posted', false); reloadBills();
+          })
+          .catch(function (e) { FB.status.show('Post failed: ' + e.message, true); });
+        return;
+      }
+      var sendPost = function () {
+        FB.status.show('Posting…', false);
+        fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'bill.draft.post', companyId: COMPANY, billId: p.bill_id,
+            bill: { ap_account: p.ap_account || companyDefaultAp || '' } }) })
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            var d = res.data || res;
+            if (res.error || (d && d.error)) { FB.status.show('Post failed: ' + (res.error || d.error), true); return; }
+            FB.status.show('Bill posted', false); reloadBills();
+          })
+          .catch(function (e) { FB.status.show('Post failed: ' + e.message, true); });
+      };
+      if (p._dirty) api.writeFocused().then(function (ok) { if (ok) sendPost(); });
+      else sendPost();
+    }
+    return [
+      // Pay-row sub-mode (NORMAL mode; the pay row is DOM-injected, not a bill edit).
+      { key: 'Enter', mode: 'NORMAL', when: payRowOpen, run: submitPayRow },
+      { key: 'Escape', mode: 'NORMAL', when: payRowOpen, run: closePayRow },
+      { key: 'I', mode: 'NORMAL', hint: 'edit in full editor',
+        when: function () { var p = parentOf(api.focusedRow()); return !!(p && p.status === 'draft'); },
+        run: function () {
+          var p = parentOf(api.focusedRow());
+          fbNavigate('/' + COMPANY + '/bill/edit?id=' + encodeURIComponent(p.bill_id));
+        } },
+      { key: 'p', mode: 'NORMAL', hint: 'post/pay', hintBar: true,
+        when: function () { return !payRowOpen() && !!parentOf(api.focusedRow()); },
+        run: function () {
+          var p = parentOf(api.focusedRow()); if (!p) return;
+          if (p.status === 'posted' || p.status === 'partial') {
+            var tr = focusedParentTr(); if (tr) openPayRowData(tr, p);
+            return;
+          }
+          if (p.status === 'draft') postDraft(p);
+        } },
+      { key: 'x', mode: 'NORMAL', hint: 'void', hintBar: true,
+        when: function () {
+          var d = api.focusedRow(); if (!d) return false;
+          if (d._kind === 'payment') return true; // payment-history child → void payment
+          var p = parentOf(d);
+          return !!(p && !p._isNew && p.status && p.status !== 'draft'); // posted/partial/paid/void → void bill
+        },
+        run: function () {
+          var d = api.focusedRow(); if (!d) return;
+          if (d._kind === 'payment') { voidPayment(d); return; }
+          var p = parentOf(d); if (p) voidBill(p);
+        } }
+    ];
+  }
 });
 
 // ========== TAB SWITCHER ==========

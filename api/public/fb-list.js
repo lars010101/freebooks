@@ -114,6 +114,19 @@
         if (d && d.isNew) out.push(Object.assign({}, d, { _dirty: true, _key: k, _isNew: true }));
       });
       if (filterQ && cfg.filter) out = out.filter(function (r) { return cfg.filter(r, filterQ); });
+      else if (filterQ) {
+        // spec §8 auto default: no screen predicate → case-insensitive
+        // cross-column substring; whitespace terms AND-combine.
+        var terms = filterQ.toLowerCase().split(/\s+/).filter(Boolean);
+        out = out.filter(function (r) {
+          return terms.every(function (t) {
+            return cfg.columns.some(function (c) {
+              var v = r[c.field];
+              return v !== null && v !== undefined && String(v).toLowerCase().indexOf(t) >= 0;
+            });
+          });
+        });
+      }
       if (hasColFilters()) out = out.filter(applyColFilters);
       return out;
     }

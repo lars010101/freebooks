@@ -95,9 +95,9 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 
 ## 8. Filtering — one pattern, two paths
 
-**Status 2026-07-23: filter design agreed with Magnus.** Per-column filtering is a framework feature, declared per column. The Bills `≡` implementation is the reference UX; it is **deleted — not ported — when Bills migrates to FB.list** (see §11 backlog).
+**Status 2026-07-23 (rev. 2): filter design agreed with Magnus; keyboard path revised to the unified topbar model (no framework command box) after live feedback. G/gg on FB.list screens scroll #page-main to absolute bottom/top (Bills parity).** Per-column filtering is a framework feature, declared per column. The Bills `≡` implementation is the reference UX; it is **deleted — not ported — when Bills migrates to FB.list** (see §11 backlog).
 
-**One filter state, two ways to drive it:** a per-column dropdown (mouse) and a command box (keyboard) render the same filter state; editing either updates the other.
+**One filter state, two ways to drive it:** a per-column dropdown (mouse) and the topbar search input (keyboard) render the same filter state; editing either updates the other.
 
 ### Column config
 
@@ -117,22 +117,25 @@ New optional screen-level `hint: 'string'` renders register notes in the sidebar
 
 An `≡` button is absolutely pinned to the right corner of every filterable column header. Clicking it opens the type-appropriate dropdown (table above). While a filter on that column is active, the header shows the active filter state and the filter controls stay visible.
 
-### Keyboard path — the command box
+### Keyboard path — the topbar (unified search, revised 2026-07-23)
 
-- **`/` opens the command box.** Plain terms are a case-insensitive cross-column fuzzy row filter.
-- If a column header has focus (`h`/`l` moves across headers), `/` opens the box **pre-filled with that column's qualifier prefix** (e.g. `vendor:`), cursor placed after the colon.
-- **Tab inside the box toggles scope** — *This list* (default on a list screen) ↔ *Everywhere*. In *Everywhere* scope, qualifiers become entity selectors (`bill:`, `vendor:`, `account:`). **Only *This list* scope is built now; *Everywhere* is architected-for, not built.**
+**One input for everything.** `/` focuses the topbar global search — always, on every screen (the framework no longer renders its own command box; the topbar IS the box). Scope is expressed by the value's leading character:
+
+- **Value starts with `/`** → **screen-limited filter expression**, routed to the visible FB.list (`FB.list.visible()`). So `//` starts a screen filter. Plain terms + the full qualifier grammar apply. The list re-filters live as you type.
+- **Anything else** → the **global search** (app-wide; the future scope Magnus flagged — no separate scope toggle needed, the prefix IS the scope).
+
+Mirror rules (one state, two views): ≡ dropdown edits write `/expression` into the topbar **when the user is not typing in it**; `c` clears filters AND the mirror; Esc in the topbar clears value + filters + blurs; Enter keeps the filter and blurs. Deleting the leading `/` disengages the screen filter (clears it) — the transition out of filter context is explicit user intent.
 
 ### Grammar
 
-- Plain terms = case-insensitive cross-column fuzzy row filter. This **supersedes all per-screen search boxes** (e.g. COA's `#coa-search`) — screens stop rendering their own filter inputs; the existing `filter(row, q)` predicate config (§6) remains the mechanism the box's plain-text mode drives.
+- Plain terms = case-insensitive cross-column fuzzy row filter. This **supersedes all per-screen search boxes** (e.g. COA's `#coa-search`) — screens stop rendering their own filter inputs; the existing `filter(row, q)` predicate config (§6) remains the mechanism plain-text mode drives when declared (otherwise the framework auto-matches across all column fields).
 - Qualifiers `field:value` filter one column.
 - Operator syntax: `amount:>100`, `date:<2026-07`.
 - Multiple terms/qualifiers AND-combine.
 
 ### One filter state, two views
 
-Dropdown choices and the box expression are two renderings of the same filter state; editing either updates the other.
+Dropdown choices and the topbar expression are two renderings of the same filter state; editing either updates the other.
 
 ### Verbs
 

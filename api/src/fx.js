@@ -118,16 +118,26 @@ async function saveRates(ctx) {
   const now = new Date().toISOString();
 
   for (const rate of rates) {
-    const { date, from_currency, to_currency, rate: rateValue } = rate;
+    const { date, from_currency, to_currency, rate: rateValue, original } = rate;
     if (!date || !from_currency || !to_currency || rateValue === undefined) {
       throw Object.assign(new Error('date, from_currency, to_currency, and rate required'), { code: 'INVALID_INPUT' });
     }
 
-    // Delete existing manual rates with same key
-    await exec(
-      `DELETE FROM fx_rates WHERE date = @date AND from_currency = @from AND to_currency = @to AND source = 'manual'`,
-      { date, from: from_currency, to: to_currency }
-    );
+    if (original && original.date && original.from_currency && original.to_currency && original.source) {
+      // User edited an existing register row: replace the ORIGINAL row (any
+      // source, e.g. ecb) — the write flips it to 'manual' instead of leaving
+      // a duplicate alongside the provider-sourced one (2026-07-23).
+      await exec(
+        `DELETE FROM fx_rates WHERE date = @d AND from_currency = @f AND to_currency = @t AND source = @s`,
+        { d: original.date, f: original.from_currency, t: original.to_currency, s: original.source }
+      );
+    } else {
+      // Delete existing manual rates with same key
+      await exec(
+        `DELETE FROM fx_rates WHERE date = @date AND from_currency = @from AND to_currency = @to AND source = 'manual'`,
+        { date, from: from_currency, to: to_currency }
+      );
+    }
 
     // Insert new manual rate
     await bulkInsert('fx_rates', [{

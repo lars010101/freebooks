@@ -569,11 +569,31 @@
     var gs = document.getElementById('tb-global-search');
     if (gs) {
       if (window.FB && FB.palette) FB.palette.wire(gs);
+      // Unified search/filter (2026-07-23): ONE input — a value starting with
+      // '/' is a screen-limited filter expression routed to the visible FB.list
+      // (terms + field:value qualifiers); anything else is the global search.
+      // `/` focuses the box (above), so `//` starts a screen filter.
+      var lastWasFilter = false;
+      gs.addEventListener('input', function() {
+        if (!(window.FB && FB.list && FB.list.visible)) return;
+        var inst = FB.list.visible();
+        var isFilter = gs.value.charAt(0) === '/';
+        if (isFilter && inst) inst.applyFilterExpr(gs.value.slice(1));
+        else if (lastWasFilter && inst && inst.anyFilterActive()) inst.clearFilters();
+        lastWasFilter = isFilter;
+      });
       gs.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') { gs.value = ''; gs.blur(); }
+        if (e.key === 'Escape') {
+          gs.value = ''; gs.blur(); lastWasFilter = false;
+          if (window.FB && FB.list && FB.list.visible) {
+            var inst = FB.list.visible();
+            if (inst && inst.anyFilterActive()) inst.clearFilters();
+          }
+        }
         if (e.key === 'Enter') { gs.blur(); }
       });
     }
+
     // Topbar `?` button — mouse parity for the `?` keyboard overlay (P1-6).
     // No-op on pages without an FB.keys binding set (help.toggle returns
     // false silently there).

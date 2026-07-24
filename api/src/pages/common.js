@@ -119,7 +119,7 @@ function navBar(company, activeKey) {
       <div class="tb-left">
         <div class="tb-global-controls">
           <div class="tb-search-wrap">
-            <input type="text" id="tb-global-search" class="tb-search" placeholder="Search (/) or Command (:) …" autocomplete="off" tabindex="-1">
+            <input type="text" id="tb-global-search" class="tb-search" placeholder="Search (/) or Command (:) — leading / filters this list …" autocomplete="off" tabindex="-1">
           </div>
           <span id="tb-status-msg" class="tb-status-msg"></span>
         </div>

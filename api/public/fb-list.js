@@ -30,8 +30,15 @@
  *              nullable select: '' harvests as null
  *              display  fn(value, row) → HTML for view mode (default: esc or —)
  *              attach   fn(input, tr) — post-build hook (FB.dropdown, etc.)
- *              filterType 'text'|'date'|'amount'|'list' — opts into the ≡ header
- *                       dropdown + command-box qualifier for this column (spec §8)
+ *              filterType 'text' (the DEFAULT for every non-checkbox column) |
+ *                       'date' | 'amount' | 'list' | null (opt-out).
+ *                       On list init, any column whose filterType is still
+ *                       undefined gets 'text' — except checkbox columns,
+ *                       which default to null (no boolean filter UI). The
+ *                       special types 'list'/'date'/'amount' must be
+ *                       declared explicitly; filterType: null opts out.
+ *                       Drives the ≡ header dropdown + the '/field:value'
+ *                       command-box qualifier for this column (spec §8).
  *              label    optional column header label (used by the ≡ tooltip)
  *   blank()    → new-row buffer defaults
  *   isBlank(b) → true when a NEW buffer is untouched (vanishes on Esc)
@@ -75,6 +82,19 @@
     for (var z = instances.length - 1; z >= 0; z--) {
       if (instances[z].keysId === cfg.keysId) instances.splice(z, 1);
     }
+
+    // Sensible default: every column is filterable by default. Columns with
+    // no declared filterType get 'text' (the substring dropdown); checkbox
+    // columns default to null — the framework has no boolean filter UI yet,
+    // so a text box against a checkbox would be noise. Screens opt out of an
+    // individual column by declaring filterType: null (the existing
+    // truthiness checks throughout this module honor it). Only the special
+    // types ('list'/'date'/'amount') need an explicit declaration. (2026-07-24)
+    cfg.columns.forEach(function (c) {
+      if (c.filterType === undefined) {
+        c.filterType = c.type === 'checkbox' ? null : 'text';
+      }
+    });
 
     var saved = [];
     var dirty = {};

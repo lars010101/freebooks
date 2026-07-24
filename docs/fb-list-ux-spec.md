@@ -99,19 +99,21 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 
 **Status 2026-07-23 (rev. 2): filter design agreed with Magnus; keyboard path revised to the unified topbar model (no framework command box) after live feedback. G/gg on FB.list screens scroll #page-main to absolute bottom/top (Bills parity).** Per-column filtering is a framework feature, declared per column. The Bills `≡` implementation is the reference UX; it is **deleted — not ported — when Bills migrates to FB.list** (see §11 backlog).
 
+**2026-07-24 (rev. 3): sensible default.** Columns are now **filterable by default** — at list init, any column whose `filterType` is still `undefined` gets `'text'`. Checkbox columns default to **non-filterable** (`null`) — the framework has no boolean filter UI yet, so a text box against a checkbox would be noise. A screen opts an individual column out by declaring `filterType: null` (the existing truthiness checks throughout the module honor it). Screens therefore declare only the **special** types — `'list'`, `'date'`, `'amount'` — where the column semantics call for them; redundant `filterType: 'text'` declarations were removed from every audited screen.
+
 **One filter state, two ways to drive it:** a per-column dropdown (mouse) and the topbar search input (keyboard) render the same filter state; editing either updates the other.
 
 ### Column config
 
-New optional `filterType` per column (addition to the `columns[]` config in §6):
+Optional `filterType` per column (addition to the `columns[]` config in §6). The default is `'text'`; screens declare only the special types and opt out with `null`:
 
 | `filterType` | Dropdown control |
 |---|---|
-| `'text'` | single text input — case-insensitive substring match |
+| `'text'` *(default)* | single text input — case-insensitive substring match |
 | `'date'` | date input with on / before / after operators |
 | `'amount'` | operator (`>`, `<`, `=`, `≥`, `≤`) + value |
 | `'list'` | scrollable distinct-values list, headed by "All (clear filter)" |
-| *(omitted)* | column is non-filterable |
+| `null` | column is non-filterable (explicit opt-out; also the auto-default for `type: 'checkbox'`) |
 
 New optional screen-level `hint: 'string'` renders register notes in the sidebar under that tab's keyboard help — the **only sanctioned location** for register notes (no bespoke paragraphs under tables).
 

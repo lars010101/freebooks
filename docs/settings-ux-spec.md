@@ -2,6 +2,8 @@
 
 Status: **RATIFIED 2026-07-22** (magnus, Slack design thread). Pilot: **Periods tab**. Companion to `payables-ux-spec.md`; where they conflict, this doc wins (it post-dates and revises the Payables Esc doctrine — see §7).
 
+**Update 2026-07-23:** the pilot pattern is now app-wide — every flat register runs on the shared **FB.list** machine, and the create slot changed (`o` retired → bottom `+ Add entry` row). See **`fb-list-ux-spec.md`** for the add-row design, full verb table, config contract, and migration backlog. The lifecycle doctrine below (§1–§2) is unchanged and restated there.
+
 ## 1. Core doctrine
 
 **Esc never saves.** Esc exits edit mode; the row's unsaved changes stay in memory as a *dirty buffer* (vim's file/insert/dirty-buffer model). There is exactly **one save path**: the `w` verb.
@@ -42,7 +44,7 @@ Enforcement is two-layered:
 |---|---|---|
 | read | `j`/`k` | navigate rows, sticky ends (`FB.nav`) |
 | read | `i` / Enter / double-click | enter edit mode, first field focused |
-| read | `o` | new blank row in edit mode |
+| read | add row (bottom) | `+ Add entry` — click, or `j` past the last row / `G`, then `i`/Enter/click to create (fb-list-ux-spec §2; `o` retired 2026-07-23) |
 | read | `x` | delete row — confirm; server refuses when referenced (§5) |
 | read, dirty row | **`w` / `✓` chip** | **write — the only save** |
 | read, dirty row | `u` / `✕` chip | revert to saved values |
@@ -80,12 +82,18 @@ New guard in `period.delete`: count `journal_entries WHERE company_id = @company
 
 ## 7. Out of pilot scope (agreed in the same thread)
 
+**Status 2026-07-23: the settings panel-consistency decisions below (items 2–5) agreed with Magnus.**
+
 1. **Tab content restructure** (lands with each tab's own migration):
-   - Company tab → slim **current-company** record only; the all-companies grid moves to `admin.js`.
-   - **Default Accounts** panel → becomes a **Default flag column** in the COA tab (—/AP/Expense dropdown in edit mode; single-holder enforced server-side in the same write).
+   - **Company tab** → slim **current-company** record only; the all-companies grid moves to `admin.js` (stays as spec'd). The slimmed current-company record **gains the FX provider config** — provider `<select>` + API key, behind an explicit **Save** button (auto-save-on-select is abolished; one-save-path doctrine).
+   - **Default Accounts** panel → becomes a **Default flag column** in the COA tab (—/AP/Expense dropdown in edit mode; single-holder enforced server-side in the same write). **Single-holder enforcement clears the previous holder server-side in the same write; the UI must visibly refresh the cleared row so the change doesn't read as a no-op.**
    - **VAT Tolerance** panel → moves into the Tax Codes tab (read-first panel, same read/edit/write grammar).
-2. **Payables doctrine alignment** (follow-up): Bills `_insertEscape` currently saves non-empty drafts on Esc; Vendors Esc upserts master data. Both violate "Esc never saves" and must migrate to the `w`/`u` doctrine + leave-warning. `payables-ux-spec.md` gets a revision note then.
-3. Remaining Settings tabs migration order after pilot: COA (highest stakes) → Journals → Tax Codes → Exchange Rates → Company (slim).
+2. **Tax Codes tab — delete the stale hint.** The bottom hint *"Saving replaces all codes. Existing journal entry tax tags on transactions are preserved."* is stale from the retired bulk-save era. Actual save is per-row `vat.codes.upsert` — identical doctrine to all registers. The now-dead `vat.codes.save` server action (`api/src/vat.js`, DELETE+reinsert) is removed so the API surface matches supported behavior. *(Spec entry only — code removal happens with implementation.)*
+3. **Journals tab — hint to the sidebar.** The in-body hint (*"Journal codes appear in the reference sequence (e.g. MISC/2026/0001). Codes should be short uppercase strings."*) moves into the sidebar via the FB.list `hint:` config (fb-list-ux-spec §8) — the only sanctioned location for register notes. Text preserved: journal code = reference prefix, short uppercase, read-only once saved.
+4. **COA tab — delete `#coa-search` when framework filters land.** The framework column filters (fb-list-ux-spec §8) supersede per-screen search boxes; Code and Name columns get `filterType: 'text'`.
+5. **Exchange Rates tab — panel moves, Fetch Rates stays.** The FX provider `<select>` + API-key row move to the Company tab (item 1) with an explicit Save button; auto-save-on-select is abolished (one-save-path doctrine). **Fetch Rates stays on the Exchange Rates tab** as a list-level action (fb-list-ux-spec §8): `f` verb + one small header button (mouse parity); it imports new rows and must not edit existing ones.
+6. **Payables doctrine alignment** ✅ **DONE 2026-07-23**: Bills `_insertEscape` no longer saves on Esc (Option A — Esc exits INSERT only, non-empty draft stays as a `fb-draft-dirty` buffer, `w` persists); Vendors migrated onto FB.list (Esc exits, `w`/`u` doctrine + shared leave-guard). Both now follow "Esc never saves". See fb-list-ux-spec §10.
+7. Remaining Settings tabs migration order after pilot: COA (highest stakes) → Journals → Tax Codes → Exchange Rates → Company (slim). **Status 2026-07-23: COA, Journals, Tax Codes, Exchange Rates all DONE on FB.list; Company tab slim-down (item 1) + the panel-consistency fixes (items 2–5) remain.**
 
 ## 8. What this does NOT change
 

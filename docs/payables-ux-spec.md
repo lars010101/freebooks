@@ -453,7 +453,7 @@ The popup is plain DOM — headless-verifiable, closing the verifiability gap th
 
 ---
 
-## P1-4 — Full-page bill editor (DRAFT 2026-07-22, for magnus review — NOT yet implemented)
+## P1-4 — Full-page bill editor (SHIPPED 2026-07-22 — bill-new.js deleted, −1490 LOC)
 
 ### Purpose
 
@@ -514,7 +514,7 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 3. **Attachments on unsaved bills stage client-side** until the first save binds them (bill-new's reenter behavior, minus its FX hackery).
 4. **Per-line cost/profit centers: INCLUDED** (reversing the draft's skip). The ledger already carries them — `journal_entries.cost_center/profit_center`, bill-header fields, `centers` master data, and `createBill` threads header centers into journal lines. Editor adds a per-line center column (FB.dropdown over `center.list`, default from header, overridable); backend extends the `draft_lines` line shape with `cost_center`/`profit_center` and maps line-level centers onto journal lines at post (falling back to header centers when a line has none).
 
-## P1-9 — Payment matching UX (APPROVED 2026-07-22 — backend landed, UI in progress)
+## P1-9 — Payment matching UX (DONE 2026-07-22 — backend + Bills UI + import confirm-flow landed)
 
 *(Approved by magnus as "go ahead with p1-5" 2026-07-22 — the chat label was wrong; P1-5 was already the shipped VAT-warnings item. Roadmap records this as P1-9.)*
 
@@ -591,7 +591,7 @@ Keyboard-first UX fails if bindings are undiscoverable. The review found the `?`
 - **P1-3 remainder — Bank ✅ (2026-07-22, branch `p1/fb-core-remainder`).** Transactions tab onto FB.keys/FB.nav: `j/k` row cursor (sticky boundaries, `nav-row-focus`, scroll-into-view), `c` clear/unclear focused row (same `bank.reconcile.clear` action as the checkbox), `Esc` clear focus; INSERT-mode `Esc` blurs filter inputs back to NORMAL. Sidebar hints generated from the binding table; hints follow tab switches (cleared on Mappings — honest absence, not stale chrome). **Dead code deleted:** the entire legacy import block lived in bank.js referencing DOM that exists only in bank-import.js — ~714 JS lines (processCSVText … refreshBillCell, incl. the page's only keydown handler) + dead CSS (review-table, wizard, bill-card, tags) gone per rule 6. **Bugs fixed en route:** (1) `toggleCleared` mutated `recRows[i]` by *display* index — wrong row whenever the Cleared/Uncleared filter hid rows; now resolves the row object through `getFilteredRows()`. (2) `toggleCleared` assigned `tr.className`, wiping `nav-row-focus` on keyboard toggles; now `classList.toggle('cleared')`. **Deferred:** Mappings tab (per-row-input edit table — not a vim list; candidate for the P1-10 palette instead). Verified live: cursor, toggle persistence, focus retention, overlay, hints. Suite 28/28.
 - Verified live (throwaway DB): overlay opens on Bills + bill-edit, columns/labels match sidebar superset, Esc/`?`/backdrop close, typing `?` in an inline field stays text, journal page no-op. Contract suite 28/28.
 
-## P1-10 — Command palette: `:` written commands (SPEC 2026-07-22, for magnus review — NOT yet implemented)
+## P1-10 — Command palette: `:` written commands (DONE 2026-07-23 — spec below as designed; built commit `d1c2110`)
 
 *(Raised by magnus 2026-07-22 after P1-6 removed the dead `:` stub: "the idea with `:` is to allow written commands by the user, such as `:new bill"." Agreed: the concept is vim-native and fits the keyboard-first philosophy; what was deleted was a non-functional stub. Spec now, build later — after the P1-3 remainder.)*
 

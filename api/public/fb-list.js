@@ -21,7 +21,7 @@
  *   msg        element id for status/error messages (optional)
  *   companyId  fn → company id for /api/action payloads
  *   columns    [{ field, type, width, align, ro, uppercase, step, options,
- *                 nullable, display, attach }]
+ *                 nullable, display, attach, filterType }]
  *              field    buffer property name (also data-field + input class)
  *              type     'text' (default) | 'date' | 'number' | 'checkbox' | 'select'
  *              ro       'saved' → read-only when editing a SAVED row (key col)
@@ -30,6 +30,9 @@
  *              nullable select: '' harvests as null
  *              display  fn(value, row) → HTML for view mode (default: esc or —)
  *              attach   fn(input, tr) — post-build hook (FB.dropdown, etc.)
+ *              filterType 'text'|'date'|'amount'|'list' — opts into the ≡ header
+ *                       dropdown + command-box qualifier for this column (spec §8)
+ *              label    optional column header label (used by the ≡ tooltip)
  *   blank()    → new-row buffer defaults
  *   isBlank(b) → true when a NEW buffer is untouched (vanishes on Esc)
  *   same(b, s) → true when buffer matches saved row (dirty dropped)
@@ -47,7 +50,12 @@
  *   onFocus    fn(tr) — nav focus hook (compat globals; optional)
  *   focusClass nav highlight class (default 'nav-row-focus')
  *   extraBindings fn(api) → [bindings] appended to the NORMAL set (optional)
- *   filter     fn(row, q) → bool (optional; enables setFilter)
+ *   filter     fn(row, q) → bool (optional; enables setFilter + plain-text box mode)
+ *   hint       string — register note rendered in the sidebar under keyboard
+ *              help (the only sanctioned location for per-register notes)
+ *   actions    [{ key, label, handler(api) }] — list-level verbs; each gets a
+ *              NORMAL-mode key binding + a small mouse-parity button above the
+ *              table (title shows the key). Must not edit existing rows.
  *
  * Instance: { load, render, anyDirty, mounted, writeAllDirty, discardAll,
  *            renderHints, setFilter, nav }
@@ -106,11 +114,394 @@
         if (d && d.isNew) out.push(Object.assign({}, d, { _dirty: true, _key: k, _isNew: true }));
       });
       if (filterQ && cfg.filter) out = out.filter(function (r) { return cfg.filter(r, filterQ); });
+      else if (filterQ) {
+        // spec §8 auto default: no screen predicate → case-insensitive
+        // cross-column substring; whitespace terms AND-combine.
+        var terms = filterQ.toLowerCase().split(/\s+/).filter(Boolean);
+        out = out.filter(function (r) {
+          return terms.every(function (t) {
+            return cfg.columns.some(function (c) {
+              var v = r[c.field];
+              return v !== null && v !== undefined && String(v).toLowerCase().indexOf(t) >= 0;
+            });
+          });
+        });
+      }
+      if (hasColFilters()) out = out.filter(applyColFilters);
       return out;
     }
     function anyDirty() { return editIdx >= 0 || Object.keys(dirty).length > 0; }
     function mounted() { return !!tbody(); }
     function syncChrome() { if (cfg.onChrome) cfg.onChrome(anyDirty()); }
+
+    // ── Column filters + command box (spec §8) ───────────────────────────
+    // One filter state, two views: per-column ≡ dropdowns (mouse) and a `/`
+    // command box (keyboard) render the SAME state. `colFilters` maps a
+    // column field → { op, value }; `filterQ` is the plain-text cross-column
+    // query (drives the screen's existing filter(row,q) predicate). Editing
+    // either view re-renders the other. Both are AND-combined in merged().
+    var colFilters = {};
+    var boxOpen = false;
+    var toolbarEl = null, boxInput = null;
+    var headersWired = false;
+    var ddEl = null;
+    var _boxTimer = null;
+    // Drop any stray dropdown left by a prior instance on soft-nav re-exec.
+    Array.prototype.forEach.call(document.querySelectorAll('.fb-col-filter-dd'), function (e) { e.remove(); });
+
+    function colByName(field) {
+      for (var i = 0; i < cfg.columns.length; i++) if (cfg.columns[i].field === field) return cfg.columns[i];
+      return null;
+    }
+    function filterableCols() { return cfg.columns.filter(function (c) { return c.filterType; }); }
+    function hasFilterSurface() { return !!cfg.filter || filterableCols().length > 0; }
+    function hasColFilters() { return Object.keys(colFilters).length > 0; }
+    function anyFilterActive() { return !!filterQ || hasColFilters(); }
+
+    // ── Predicates ──
+    function colMatches(row, col, f) {
+      var v = row[col.field];
+      if (col.filterType === 'text') {
+        return String(v == null ? '' : v).toLowerCase().indexOf(String(f.value).toLowerCase()) !== -1;
+      }
+      if (col.filterType === 'list') {
+        return String(v == null ? '' : v) === String(f.value);
+      }
+      if (col.filterType === 'date') {
+        var dv = String(v == null ? '' : v).slice(0, 10);
+        var fv = String(f.value).slice(0, 10);
+        if (!dv || !fv) return false;
+        if (f.op === '<') return dv < fv;
+        if (f.op === '>') return dv > fv;
+        if (f.op === '<=') return dv <= fv;
+        if (f.op === '>=') return dv >= fv;
+        return dv === fv; // 'on'
+      }
+      if (col.filterType === 'amount') {
+        var nv = Number(v);
+        if (!isFinite(nv)) return false;
+        var av = Number(f.value);
+        if (!isFinite(av)) return false;
+        switch (f.op) {
+          case '>': return nv > av;
+          case '<': return nv < av;
+          case '=': return nv === av;
+          case '>=': return nv >= av;
+          case '<=': return nv <= av;
+        }
+        return false;
+      }
+      return true;
+    }
+    function applyColFilters(row) {
+      for (var f in colFilters) {
+        var col = colByName(f);
+        if (col && !colMatches(row, col, colFilters[f])) return false;
+      }
+      return true;
+    }
+
+    // ── Box expression <-> state ──
+    // Plain tokens (no field:) join into filterQ; `field:value` qualifiers map
+    // to colFilters. Operator syntax: amount:>100, amount:<=50, date:<2026-07,
+    // date:>=2026-01-01. Quoted values keep spaces: vendor:"Acme Corp".
+    function tokenize(str) {
+      var out = [], i = 0, s = String(str || ''), n = s.length, cur = '';
+      function push() { if (cur) { out.push(cur); cur = ''; } }
+      while (i < n) {
+        var ch = s[i];
+        if (ch === '"') { i++; while (i < n && s[i] !== '"') { cur += s[i]; i++; } i++; continue; }
+        if (/\s/.test(ch)) { push(); while (i < n && /\s/.test(s[i])) i++; continue; }
+        cur += ch; i++;
+      }
+      push();
+      return out;
+    }
+    function buildBoxExpr() {
+      var parts = [];
+      if (filterQ) parts.push(filterQ);
+      Object.keys(colFilters).forEach(function (f) {
+        var cf = colFilters[f], col = colByName(f);
+        if (!col || !cf) return;
+        if (col.filterType === 'text' || col.filterType === 'list') parts.push(f + ':' + cf.value);
+        else parts.push(f + ':' + cf.op + cf.value);
+      });
+      return parts.join(' ');
+    }
+    function parseBoxExpr(str) {
+      colFilters = {};
+      var plain = [];
+      tokenize(str).forEach(function (tok) {
+        var ci = tok.indexOf(':');
+        if (ci <= 0) { plain.push(tok); return; }
+        var field = tok.slice(0, ci), rest = tok.slice(ci + 1);
+        var col = colByName(field);
+        if (!col || !col.filterType) { plain.push(tok); return; }
+        if (col.filterType === 'amount') {
+          var m = rest.match(/^([<>]=?|=)(.+)$/);
+          if (!m) { plain.push(tok); return; }
+          var v = Number(m[2]);
+          if (!isFinite(v)) { plain.push(tok); return; }
+          colFilters[field] = { op: m[1], value: v };
+        } else if (col.filterType === 'date') {
+          var dm = rest.match(/^(<=|>=|<|>)(.+)$/);
+          colFilters[field] = { op: dm ? dm[1] : '=', value: dm ? dm[2] : rest };
+        } else {
+          colFilters[field] = { op: col.filterType === 'list' ? '=' : '~', value: rest };
+        }
+      });
+      filterQ = plain.join(' ');
+    }
+
+    // ── Header ≡ buttons ──
+    function wireHeaders() {
+      if (headersWired) return;
+      var table = tbody() && tbody().closest('table');
+      if (!table) return;
+      var ths = table.querySelectorAll('thead th');
+      for (var i = 0; i < cfg.columns.length && i < ths.length; i++) {
+        var col = cfg.columns[i], th = ths[i];
+        if (!col.filterType || th.querySelector('.fb-filter-btn')) continue;
+        th.classList.add('fb-th-filterable');
+        th.setAttribute('tabindex', '0');
+        th.setAttribute('data-field', col.field);
+        (function (thEl, field, label) {
+          var btn = document.createElement('span');
+          btn.className = 'fb-filter-btn';
+          btn.innerHTML = '&#8801;';
+          btn.setAttribute('role', 'button');
+          btn.setAttribute('title', 'Filter by ' + label);
+          btn.addEventListener('click', function (e) {
+            e.stopPropagation(); e.preventDefault();
+            if (editIdx >= 0) exitEdit(); // never lose a dirty buffer to a mouse filter
+            openColDropdown(thEl, field);
+          });
+          thEl.appendChild(btn);
+        })(th, col.field, col.label || col.field);
+      }
+      headersWired = true;
+      syncHeaderState();
+    }
+    function filterSummary(col, cf) {
+      if (col.filterType === 'text' || col.filterType === 'list') return String(cf.value);
+      return cf.op + ' ' + cf.value;
+    }
+    function syncHeaderState() {
+      var table = tbody() && tbody().closest('table');
+      if (!table) return;
+      cfg.columns.forEach(function (col) {
+        var th = table.querySelector('thead th[data-field="' + col.field + '"]');
+        if (!th) return;
+        var active = !!colFilters[col.field];
+        th.classList.toggle('fb-col-filtered', active);
+        var btn = th.querySelector('.fb-filter-btn');
+        if (btn) {
+          btn.classList.toggle('fb-filter-active', active);
+          btn.setAttribute('title', active
+            ? (col.label || col.field) + ': ' + filterSummary(col, colFilters[col.field])
+            : 'Filter by ' + (col.label || col.field));
+        }
+      });
+    }
+
+    // ── Column filter dropdown (mouse path) ──
+    function closeColDropdown() {
+      if (ddEl) { ddEl.remove(); ddEl = null; }
+      document.removeEventListener('mousedown', onDdOutside, true);
+    }
+    function onDdOutside(e) { if (ddEl && !ddEl.contains(e.target)) closeColDropdown(); }
+    function openColDropdown(th, field) {
+      closeColDropdown();
+      var col = colByName(field);
+      if (!col) return;
+      // Clicking ≡ on an already-filtered column clears it (bills UX).
+      if (colFilters[field]) { delete colFilters[field]; onFilterChanged(); return; }
+      var dd = document.createElement('div');
+      dd.className = 'fb-col-filter-dd';
+      dd.dataset.field = field;
+      var ft = col.filterType;
+
+      if (ft === 'text') {
+        var inp = document.createElement('input');
+        inp.type = 'text'; inp.placeholder = 'Type to filter…'; inp.className = 'fb-cf-input';
+        function textApply() {
+          var v = inp.value.trim();
+          if (v) colFilters[field] = { op: '~', value: v };
+          closeColDropdown(); onFilterChanged();
+        }
+        inp.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') textApply();
+          else if (e.key === 'Escape') { e.stopPropagation(); closeColDropdown(); }
+        });
+        dd.appendChild(inp);
+        setTimeout(function () { inp.focus(); }, 10);
+
+      } else if (ft === 'date') {
+        var opSel = document.createElement('select');
+        opSel.className = 'fb-cf-op';
+        opSel.innerHTML = '<option value="=">on</option><option value="<">before</option><option value=">">after</option>';
+        var dInp = document.createElement('input');
+        dInp.type = 'date'; dInp.className = 'fb-cf-input';
+        function dateApply() {
+          if (dInp.value) colFilters[field] = { op: opSel.value, value: dInp.value };
+          closeColDropdown(); onFilterChanged();
+        }
+        dInp.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') dateApply();
+          else if (e.key === 'Escape') { e.stopPropagation(); closeColDropdown(); }
+        });
+        dInp.addEventListener('change', dateApply);
+        dd.appendChild(opSel); dd.appendChild(dInp);
+        setTimeout(function () { dInp.focus(); if (dInp.showPicker) dInp.showPicker(); }, 10);
+
+      } else if (ft === 'amount') {
+        var aOp = document.createElement('select');
+        aOp.className = 'fb-cf-op';
+        aOp.innerHTML = '<option value=">">&gt;</option><option value="<">&lt;</option><option value="=">=</option><option value=">=">&ge;</option><option value="<=">&le;</option>';
+        var aInp = document.createElement('input');
+        aInp.type = 'number'; aInp.step = '0.01'; aInp.placeholder = '0.00'; aInp.className = 'fb-cf-input';
+        function amtApply() {
+          if (aInp.value !== '') {
+            var v = Number(aInp.value);
+            if (isFinite(v)) colFilters[field] = { op: aOp.value, value: v };
+          }
+          closeColDropdown(); onFilterChanged();
+        }
+        aInp.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') amtApply();
+          else if (e.key === 'Escape') { e.stopPropagation(); closeColDropdown(); }
+        });
+        dd.appendChild(aOp); dd.appendChild(aInp);
+        setTimeout(function () { aInp.focus(); }, 10);
+
+      } else if (ft === 'list') {
+        var vals = [];
+        saved.forEach(function (r) {
+          var v = r[col.field];
+          if (v == null || v === '') return;
+          v = String(v);
+          if (vals.indexOf(v) === -1) vals.push(v);
+        });
+        vals.sort();
+        var wrap = document.createElement('div');
+        wrap.className = 'fb-cf-list';
+        var clear = document.createElement('div');
+        clear.className = 'fb-cf-item fb-cf-clear';
+        clear.textContent = 'All (clear filter)';
+        clear.addEventListener('click', function () { delete colFilters[field]; closeColDropdown(); onFilterChanged(); });
+        wrap.appendChild(clear);
+        vals.forEach(function (v) {
+          var it = document.createElement('div');
+          it.className = 'fb-cf-item';
+          it.textContent = v;
+          it.addEventListener('click', function () {
+            colFilters[field] = { op: '=', value: v };
+            closeColDropdown(); onFilterChanged();
+          });
+          wrap.appendChild(it);
+        });
+        dd.appendChild(wrap);
+      }
+
+      var rect = th.getBoundingClientRect();
+      dd.style.position = 'fixed';
+      dd.style.top = (rect.bottom + 4) + 'px';
+      dd.style.left = Math.max(4, rect.right - 220) + 'px';
+      document.body.appendChild(dd);
+      ddEl = dd;
+      setTimeout(function () { document.addEventListener('mousedown', onDdOutside, true); }, 0);
+    }
+
+    // ── Command box (keyboard path) + actions bar ──
+    function ensureToolbar() {
+      var table = tbody() && tbody().closest('table');
+      if (!table || !table.parentNode) return;
+      if (toolbarEl) return;
+      // Re-exec safety: drop a stale toolbar left immediately before this table.
+      var prev = table.previousElementSibling;
+      if (prev && prev.classList.contains('fb-list-toolbar')) prev.remove();
+      toolbarEl = document.createElement('div');
+      toolbarEl.className = 'fb-list-toolbar';
+      var box = document.createElement('div');
+      box.className = 'fb-cmd-box';
+      boxInput = document.createElement('input');
+      boxInput.type = 'text';
+      boxInput.className = 'fb-cmd-input';
+      boxInput.placeholder = '/ filter — terms + field:value  (amount:>100, date:<2026-07)';
+      boxInput.setAttribute('aria-label', 'Filter command box');
+      wireBoxInput();
+      box.appendChild(boxInput);
+      toolbarEl.appendChild(box);
+      if (cfg.actions && cfg.actions.length) {
+        var acts = document.createElement('div');
+        acts.className = 'fb-list-actions';
+        cfg.actions.forEach(function (a) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'fb-list-action-btn';
+          b.textContent = a.label;
+          b.title = a.label + ' (' + a.key + ')';
+          b.addEventListener('click', function () { if (editIdx >= 0) exitEdit(); a.handler(api); });
+          acts.appendChild(b);
+        });
+        toolbarEl.appendChild(acts);
+      }
+      table.parentNode.insertBefore(toolbarEl, table);
+      syncBox();
+    }
+    function syncBox() {
+      if (!boxInput || !toolbarEl) return;
+      if (!boxOpen) boxInput.value = buildBoxExpr();
+      toolbarEl.classList.toggle('fb-filters-active', anyFilterActive());
+      toolbarEl.style.display = (boxOpen || anyFilterActive()) ? '' : 'none';
+    }
+    function prefillForSlash() {
+      var table = tbody() && tbody().closest('table');
+      if (!table) return null;
+      var ae = document.activeElement;
+      if (ae && ae.tagName === 'TH' && table.contains(ae)) {
+        var f = ae.getAttribute('data-field');
+        if (f) return f + ':';
+      }
+      return null;
+    }
+    function openBox(prefill) {
+      ensureToolbar();
+      if (!boxInput) return;
+      boxOpen = true;
+      boxInput.value = (prefill != null) ? prefill : buildBoxExpr();
+      syncBox();
+      boxInput.focus();
+      var len = boxInput.value.length;
+      try { boxInput.setSelectionRange(len, len); } catch (e) {}
+    }
+    function closeBox() {
+      boxOpen = false;
+      syncBox();
+      if (boxInput && document.activeElement === boxInput) boxInput.blur();
+    }
+    function applyBoxLive() {
+      parseBoxExpr(boxInput.value);
+      render();
+      syncHeaderState();
+      syncBox();
+    }
+    function wireBoxInput() {
+      boxInput.addEventListener('input', function () {
+        clearTimeout(_boxTimer);
+        _boxTimer = setTimeout(applyBoxLive, 150);
+      });
+      boxInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); clearTimeout(_boxTimer); applyBoxLive(); closeBox(); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeBox(); }
+      });
+      boxInput.addEventListener('focus', function () { boxOpen = true; syncBox(); });
+    }
+    function clearAllFilters() {
+      colFilters = {}; filterQ = ''; boxOpen = false;
+      onFilterChanged();
+    }
+    function onFilterChanged() { render(); syncHeaderState(); syncBox(); }
 
     // ── Render ───────────────────────────────────────────────────────────
     // The ADD ROW is the single create affordance, pinned at the BOTTOM of the
@@ -157,6 +548,8 @@
     function render(focusKey) {
       var tb = tbody();
       if (!tb) return;
+      wireHeaders();
+      if (cfg.actions || filterableCols().length) ensureToolbar();
       var m = merged();
       tb.innerHTML = m.map(rowHtml).join('') + addRowHtml(); // add row pinned bottom
       rows().forEach(function (tr) {
@@ -438,6 +831,15 @@
     if (cfg.del) {
       bindings.splice(4, 0, { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocused });
     }
+    if (hasFilterSurface()) {
+      bindings.push({ key: '/', mode: 'NORMAL', hint: 'filter box', hintBar: true, run: function () { openBox(prefillForSlash()); } });
+      bindings.push({ key: 'c', mode: 'NORMAL', hint: 'clear filters', hintBar: true, when: anyFilterActive, run: clearAllFilters });
+    }
+    if (cfg.actions) {
+      cfg.actions.forEach(function (a) {
+        bindings.push({ key: a.key, mode: 'NORMAL', hint: a.label, hintBar: true, run: function () { if (editIdx >= 0) exitEdit(); a.handler(api); } });
+      });
+    }
     function registerKeys() {
       if (!(window.FB && FB.keys)) return;
       nav = FB.nav.create({ rows: navRows, focusClass: cfg.focusClass || 'nav-row-focus', onFocus: cfg.onFocus || undefined });
@@ -457,11 +859,27 @@
       render: render,
       anyDirty: anyDirty,
       mounted: mounted,
-      renderHints: function (hintEl) { if (window.FB && FB.keys) FB.keys.renderHints(cfg.keysId, hintEl, { layout: 'list' }); },
+      renderHints: function (hintEl) {
+        if (window.FB && FB.keys) FB.keys.renderHints(cfg.keysId, hintEl, { layout: 'list' });
+        // spec §8: the only sanctioned home for register notes — a small note
+        // appended under the tab's keyboard help, framework-automatic.
+        if (cfg.hint && hintEl) {
+          var old = hintEl.querySelector('.fb-hint-note');
+          if (old) old.remove();
+          var note = document.createElement('div');
+          note.className = 'fb-hint-note';
+          note.textContent = cfg.hint;
+          hintEl.appendChild(note);
+        }
+      },
+      clearFilters: clearAllFilters,
+      openFilterBox: function (prefill) { openBox(prefill || null); },
       setFilter: function (q) {
-        filterQ = q || '';
+        filterQ = q || ''; // plain-text portion only — column filters are preserved
         if (editIdx >= 0) { editIdx = -1; if (window.FB && FB.mode) FB.mode.set('NORMAL'); window.fbEditActive = false; }
         render();
+        syncHeaderState();
+        syncBox();
         syncChrome();
       },
       nav: function () { return nav; },

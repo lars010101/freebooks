@@ -145,11 +145,29 @@ ${commonStyle()}
         <span id="msg-vat-tolerance" class="msg" style="margin-left:8px"></span>
       </div>
     </div>
+
+    <!-- FX rate provider for this company (drives Fetch Rates on Exchange Rates tab) -->
+    <div style="margin-top:16px;padding:14px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
+      <div style="font-weight:600;margin-bottom:4px">FX Rate Provider (current company)</div>
+      <div style="font-size:9pt;color:#666;margin-bottom:12px">Select the source for the 📡 Fetch Rates action on the Exchange Rates tab. API-key providers require a key before fetching.</div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field-row" style="margin-bottom:0">
+          <label for="fx-provider-select">Provider</label>
+          <select id="fx-provider-select" onchange="onFxProviderChange()" style="max-width:300px"></select>
+        </div>
+        <div id="fx-api-key-row" class="field-row" style="display:none;margin-bottom:0">
+          <label id="fx-api-key-label">API Key</label>
+          <input type="password" id="fx-provider-apikey" placeholder="Enter API key" style="max-width:300px">
+        </div>
+        <button class="btn-sm" id="btn-save-fx-provider" onclick="saveFxProvider()">Save Provider</button>
+        <span id="msg-fx-provider" class="msg" style="margin-left:8px"></span>
+      </div>
+      <div id="fx-provider-desc" style="font-size:9pt;color:#666;margin:6px 0 0 0"></div>
+    </div>
   </div>
 
   <!-- COA TAB -->
   <div id="tab-coa" class="tab-panel">
-    <input type="text" class="search-bar" id="coa-search" placeholder="Filter by code or name..." oninput="filterCoa()">
     <table class="edit-table" id="coa-table">
       <thead><tr><th>Code</th><th>Account Name</th><th>Type</th><th>Subtype</th><th>CF Category</th><th>Active</th><th></th></tr></thead>
       <tbody id="coa-body"></tbody>
@@ -168,7 +186,6 @@ ${commonStyle()}
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <span id="msg-journals" class="msg" style="font-size:0.8125rem"></span>
     </div>
-    <p style="margin-top:8px;font-size:9pt;color:#888">Journal codes appear in the reference sequence (e.g. MISC/2026/0001). Codes should be short uppercase strings.</p>
   </div>
 
   <!-- VAT/GST CODES TAB -->
@@ -180,29 +197,10 @@ ${commonStyle()}
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <span id="msg-vat" class="msg" style="font-size:0.8125rem"></span>
     </div>
-    <p style="margin-top:8px;font-size:9pt;color:#888">Saving replaces all codes. Existing journal entry tax tags on transactions are preserved.</p>
   </div>
 
   <!-- EXCHANGE RATES TAB -->
   <div id="tab-fxrates" class="tab-panel">
-    <div style="margin-bottom:16px;padding:12px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
-      <div style="font-weight:600;margin-bottom:10px">FX Rate Provider</div>
-      <div class="field-row">
-        <label>Provider</label>
-        <select id="fx-provider-select" onchange="onFxProviderChange()" style="max-width:300px"></select>
-      </div>
-      <div id="fx-provider-desc" style="font-size:9pt;color:#666;margin:6px 0 10px 0"></div>
-      <div id="fx-api-key-row" class="field-row" style="display:none">
-        <label id="fx-api-key-label">API Key</label>
-        <input type="password" id="fx-provider-apikey" placeholder="Enter API key" style="max-width:300px">
-      </div>
-      <button class="btn-sm" id="btn-save-apikey" onclick="saveApiKey()" style="display:none">Save API Key</button>
-      <span id="msg-fx-provider" class="msg" style="margin-left:8px"></span>
-    </div>
-    <div style="margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button class="btn-primary" onclick="fetchFromEcb()">📡 Fetch Rates</button>
-      <span id="current-base-currency" style="font-size:10pt;color:#666"></span>
-    </div>
     <table class="edit-table" id="fx-rates-table">
       <thead><tr><th>Date</th><th>From</th><th>To</th><th style="text-align:right">Rate</th><th>Source</th><th></th></tr></thead>
       <tbody id="fx-rates-body"></tbody>
@@ -266,12 +264,12 @@ function showTab(t) {
   }
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
-    if (t === 'company')  { loadCompanies(); loadDefaultAccounts(); }
+    if (t === 'company')  { loadCompanies(); loadDefaultAccounts(); loadFxProviders(); }
     if (t === 'periods')  { loadPeriods(); }
     if (t === 'coa')      { loadCoa(); }
     if (t === 'vat')      { loadVat(); }
     if (t === 'journals') { loadJournals(); }
-    if (t === 'fxrates')  { loadFxProviders(); loadFxRates(); loadBaseCurrencies(); }
+    if (t === 'fxrates')  { loadFxRates(); loadBaseCurrencies(); }
   }
 }
 
@@ -303,10 +301,10 @@ var periodsList = FB.list.create({
   msg: 'msg-periods',
   companyId: function() { return COMPANY; },
   columns: [
-    { field: 'period_name', type: 'text', width: 110, ro: 'saved' },
-    { field: 'start_date', type: 'date', width: null,
+    { field: 'period_name', type: 'text', width: 110, ro: 'saved', filterType: 'text' },
+    { field: 'start_date', type: 'date', width: null, filterType: 'date',
       display: function(v) { return v ? esc(FB.util.fmtDate(v)) : '<span class="pe-ro">—</span>'; } },
-    { field: 'end_date', type: 'date', width: null,
+    { field: 'end_date', type: 'date', width: null, filterType: 'date',
       display: function(v) { return v ? esc(FB.util.fmtDate(v)) : '<span class="pe-ro">—</span>'; } },
     { field: 'locked', type: 'checkbox', align: 'center',
       display: function(v) { return '<input type="checkbox" disabled' + (v ? ' checked' : '') + '>'; } }
@@ -568,8 +566,8 @@ var coaList = FB.list.create({
   msg: 'msg-coa',
   companyId: function() { return COMPANY; },
   columns: [
-    { field: 'account_code', type: 'text', width: 80, ro: 'saved' },
-    { field: 'account_name', type: 'text', width: 200 },
+    { field: 'account_code', type: 'text', width: 80, ro: 'saved', filterType: 'text' },
+    { field: 'account_name', type: 'text', width: 200, filterType: 'text' },
     { field: 'account_type', type: 'select', width: 90, options: ACCT_TYPES },
     { field: 'account_subtype', type: 'select', width: 140, options: SUBTYPES, nullable: true },
     { field: 'cf_category', type: 'select', width: 100, options: CF_CATS_COA, nullable: true },
@@ -607,10 +605,6 @@ var coaList = FB.list.create({
 });
 
 function loadCoa(focusKey) { coaList.load(focusKey); }
-function filterCoa() {
-  var el = document.getElementById('coa-search');
-  coaList.setFilter(el ? el.value : '');
-}
 function renderCoaHints() {
   var el = document.getElementById('sb-hints');
   if (el) coaList.renderHints(el);
@@ -624,8 +618,8 @@ var vatList = FB.list.create({
   msg: 'msg-vat',
   companyId: function() { return COMPANY; },
   columns: [
-    { field: 'vat_code', type: 'text', width: 60, ro: 'saved' },
-    { field: 'description', type: 'text', width: 160 },
+    { field: 'vat_code', type: 'text', width: 60, ro: 'saved', filterType: 'text' },
+    { field: 'description', type: 'text', width: 160, filterType: 'text' },
     { field: 'rate', type: 'number', step: '0.01', width: 55 },
     { field: 'input_account', type: 'text', width: 70 },
     { field: 'output_account', type: 'text', width: 70 },
@@ -673,9 +667,10 @@ var journalsList = FB.list.create({
   tbody: 'journals-body',
   msg: 'msg-journals',
   companyId: function() { return COMPANY; },
+  hint: 'Journal codes appear in the reference sequence (e.g. MISC/2026/0001). Codes should be short uppercase strings.',
   columns: [
-    { field: 'code', type: 'text', width: 70, ro: 'saved', uppercase: true },
-    { field: 'name', type: 'text', width: 180 },
+    { field: 'code', type: 'text', width: 70, ro: 'saved', uppercase: true, filterType: 'text' },
+    { field: 'name', type: 'text', width: 180, filterType: 'text' },
     { field: 'active', type: 'checkbox', align: 'center',
       display: function(v) { return v ? 'Yes' : 'No'; } }
   ],
@@ -726,9 +721,9 @@ var fxList = FB.list.create({
   companyId: function() { return COMPANY; },
   focusClass: 'bill-row-focus',
   columns: [
-    { field: 'date', type: 'date', width: 120 },
-    { field: 'from_currency', type: 'text', width: 60, uppercase: true, attach: attachCcyDd },
-    { field: 'to_currency', type: 'text', width: 60, uppercase: true, attach: attachCcyDd },
+    { field: 'date', type: 'date', width: 120, filterType: 'date' },
+    { field: 'from_currency', type: 'text', width: 60, uppercase: true, attach: attachCcyDd, filterType: 'list' },
+    { field: 'to_currency', type: 'text', width: 60, uppercase: true, attach: attachCcyDd, filterType: 'list' },
     { field: 'rate', type: 'number', step: '0.000001', width: 100,
       display: function(v) { return (v !== null && v !== undefined && v !== '') ? Number(v).toFixed(6) : '<span class="pe-ro">—</span>'; } },
     { field: 'source', ro: 'always' }
@@ -746,6 +741,9 @@ var fxList = FB.list.create({
   },
   firstField: function() { return 'from_currency'; },
   track: 'fx-rate',
+  actions: [
+    { key: 'f', label: '📡 Fetch Rates', handler: function (api) { fetchFromEcb(); } }
+  ],
   list: { action: 'fx.rates.list',
     body: function() { var c = window._companyCurrency || ''; return c ? { baseCurrency: c } : {}; },
     map: function(r) { return { date: r.date ? String(r.date).slice(0, 10) : '', from_currency: r.from_currency || '', to_currency: r.to_currency || '', rate: Number(r.rate), source: r.source || 'manual', _key: String(r.date).slice(0, 10) + '|' + r.from_currency + '|' + r.to_currency + '|' + (r.source || 'manual') }; } },
@@ -856,16 +854,14 @@ function onFxProviderChange() {
   if (!provider) return;
   document.getElementById('fx-provider-desc').textContent = provider.description || '';
   var apiKeyRow = document.getElementById('fx-api-key-row');
-  var apiKeyBtn = document.getElementById('btn-save-apikey');
   if (provider.requiresApiKey) {
     apiKeyRow.style.display = 'flex';
-    if (apiKeyBtn) apiKeyBtn.style.display = '';
     document.getElementById('fx-api-key-label').textContent = provider.apiKeyLabel || 'API Key';
   } else {
     apiKeyRow.style.display = 'none';
-    if (apiKeyBtn) apiKeyBtn.style.display = 'none';
   }
-  saveProviderSelection();
+  // Auto-save on select is abolished (settings-ux-spec §7): the explicit
+  // Save Provider button persists the selection (and API key, if shown).
 }
 
 function saveProviderSelection() {
@@ -885,6 +881,20 @@ function saveApiKey() {
     .then(function(r){ return r.json(); })
     .then(function(r){ var d = r.data||r; showMsg('msg-fx-provider', r.error||d.error||'API Key saved', !!(r.error||d.error)); })
     .catch(function(e){ showMsg('msg-fx-provider', e.message, true); });
+}
+
+// Explicit Save Provider button (settings-ux-spec §7): persists the selected
+// provider and, when the API-key row is visible, the entered key. Reuses the
+// existing saveProviderSelection / saveApiKey logic behind one button —
+// auto-save on provider-select is abolished.
+function saveFxProvider() {
+  saveProviderSelection();
+  var apiKeyRow = document.getElementById('fx-api-key-row');
+  if (apiKeyRow && apiKeyRow.style.display !== 'none') {
+    saveApiKey();
+  } else {
+    showMsg('msg-fx-provider', 'Provider saved', false);
+  }
 }
 
 // ========== DEFAULT ACCOUNTS (current company) ==========

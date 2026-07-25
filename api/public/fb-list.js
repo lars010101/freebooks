@@ -923,8 +923,10 @@
       editIdx = parentIdx;
       editKey = parent._key;
       // Parent row → header inputs (same editCell machinery as flat lists).
+      // Align mirrors view mode (797): right-aligned ro columns (amount) must
+      // keep their alignment in edit mode or figures jump to the cell's left.
       tr.innerHTML = cfg.columns.map(function (c) {
-        return '<td data-field="' + c.field + '"' + (c.align === 'center' ? ' style="text-align:center"' : '') + '>' + editCell(c, parent) + '</td>';
+        return '<td data-field="' + c.field + '"' + (c.align ? ' style="text-align:' + c.align + '"' : '') + '>' + editCell(c, parent) + '</td>';
       }).join('')
         + '<td class="row-actions"><a class="chip chip-ok" title="write (w)" data-act="write">✓</a> '
         + '<a class="chip chip-cancel" title="exit (Esc)" data-act="exit">✕</a></td>';
@@ -988,7 +990,7 @@
       editIdx = idx;
       editKey = d._key;
       tr.innerHTML = cfg.columns.map(function (c) {
-        return '<td data-field="' + c.field + '"' + (c.align === 'center' ? ' style="text-align:center"' : '') + '>' + editCell(c, d) + '</td>';
+        return '<td data-field="' + c.field + '"' + (c.align ? ' style="text-align:' + c.align + '"' : '') + '>' + editCell(c, d) + '</td>';
       }).join('')
         + '<td class="row-actions"><a class="chip chip-ok" title="write (w)" data-act="write">✓</a> '
         + '<a class="chip chip-cancel" title="exit (Esc)" data-act="exit">✕</a></td>';

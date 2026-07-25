@@ -271,13 +271,17 @@ body {
 #sidebar.sb-collapsed #fb-vim-mode { opacity: 0; }
 
 /* ---- Table row keyboard focus ---- */
-tr.nav-row-focus > td {
+/* :not(.row-editing) — a row in edit mode shows the edit band and boxed
+   inputs regardless of entry path (keyboard i vs mouse click). Without the
+   exclusion, keyboard-entered edit rows kept the dark band and the !important
+   rules below stripped input borders/backgrounds (2026-07-25). */
+tr.nav-row-focus:not(.row-editing) > td {
   background: var(--accent) !important;
   color: #fff !important;
   outline: none;
 }
-tr.nav-row-focus > td a { color: #fff !important; }
-tr.nav-row-focus > td input { color: #fff !important; background: transparent !important; border-color: transparent !important; }
+tr.nav-row-focus:not(.row-editing) > td a { color: #fff !important; }
+tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; background: transparent !important; border-color: transparent !important; }
 
 /* ---- Attachment row keyboard focus ---- */
 .attach-row.nav-attach-focus { background: #1a1a1a !important; }
@@ -753,12 +757,33 @@ th.fb-th-sortable { cursor: pointer; user-select: none; }
 
 /* FB.list edit inputs: constrain to cell width (2026-07-24, Magnus: ref input
    overflowed into the amount cell — browser default size=20 makes text inputs
-   ~180px regardless of cell width). All fb-e-* inputs fill their td. */
+   ~180px regardless of cell width). All fb-e-* inputs fill their td.
+   Metrics mirror .draft-input (height 32px, 4px 8px padding, 0.875rem) so
+   framework edit rows are the same size as tree child rows — 2026-07-25,
+   Magnus: parent edit row was smaller/tighter than its child rows; if any
+   size difference exists, the parent must be the larger entry. Theme vars
+   instead of draft-input's hard-coded cream so dark mode stays sane. */
 tr.row-editing td input[class^="fb-e-"],
 tr.row-editing td select[class^="fb-e-"] {
   width: 100%;
   box-sizing: border-box;
   max-width: 100%;
+}
+tr.row-editing td input[class^="fb-e-"]:not([type="checkbox"]),
+tr.row-editing td select[class^="fb-e-"] {
+  height: 32px;
+  padding: 4px 8px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+tr.row-editing td input[class^="fb-e-"]:not([type="checkbox"]):focus,
+tr.row-editing td select[class^="fb-e-"]:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* Column filter dropdown — dark-theme consistent with .fb-dd / .fb-palette */

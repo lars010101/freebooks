@@ -90,7 +90,7 @@ ${commonStyle()}
      Child rows: td.amt is the amount cell (no data-field), needs same reserve
      so child figures align with parent figures and the header label. */
   #bills-table td[data-field="amount"], #bills-table td.draft-total-amount,
-  #bills-table tr[data-child-of] td.amt { padding-right:46px; }
+  #bills-table tr[data-child-of]:not(.row-editing) td.amt { padding-right:46px; }
   /* Column weights (P1-3 density pass, agreed 2026-07-21; CCY widened 7→9%
      2026-07-22 — at 7% the corner-pinned filter icon overlapped the "CCY"
      label at ≤1400px viewports). Vendor is information-dense; CCY only needs

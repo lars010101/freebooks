@@ -20,7 +20,24 @@
 
 **FB.list consolidation** (P1-3 follow-through; branch `p3/fb-list-consolidation`, PR #20): ONE list machine (`api/public/fb-list.js`) now owns every flat register — Settings (Periods, COA, Tax Codes, Journals) ✅, Vendors ✅ (also fixes its Esc-*saves* doctrine violation), FX Rates ✅ (ECB rows read-only via `editable`/`deletable` predicates). **Add row** ✅: the ghost input-replica was rejected by magnus (2026-07-23) and replaced with a muted `+ Add entry` text row pinned at the list **bottom** (QuickBooks/Xero pattern) — reachable by click, `j` (sticky), `G`; `gg`/`G` are now framework-level. Shared leave-guard modal ✅ (Save/Discard/Stay across all lists on a page). Bills **Option A** ✅: Esc exits INSERT only (no more Esc-saves on Bills), `w` writes the dirty buffer. **Verb convention ratified:** `o`/`O` = new master, `a`/`A` = add child. Contract documented in **`docs/fb-list-ux-spec.md`** (new, ratified 2026-07-23).
 
-**Open by priority:** Bank Mappings → FB.list (+ delete legacy ghost CSS/`activateMappingGhost`) → Bills → FB.list with `tree: true` (fold = row property; last bespoke list surface) → P2 accounting completeness (P2-1 year-end close, P2-2 FX reval monetary-only, P2-3 `bill_lines` subledger, P2-4 VAT convention unify + server-computed draft totals, P2-5 MCP server, P2-6 rebinding — priority pending magnus) → P3 scope (AR, feeds).
+**Open by priority:** Bank Mappings → FB.list (+ delete legacy ghost CSS/`activateMappingGhost`) → Bills → FB.list with `tree: true` (fold = row property; last bespoke list surface) → P2 accounting completeness (P2-1 year-end close, P2-2 FX reval monetary-only, P2-3 `bill_lines` subledger, P2-4 VAT convention unify + server-computed draft totals, P2-5 MCP server, P2-6 rebinding — priority pending magnus) → P3 scope (AR, feeds). *(Superseded by §0c — Bills migration done 2026-07-24.)*
+
+---
+
+## 0c. Status update — 2026-07-25
+
+**Column filters + settings consistency ("the four decisions")** — ratified 2026-07-23 (Slack design thread; `c4b1a52`), implemented same day and framework-shipped. **None of this is open:**
+
+- ≡ per-column header filters + `/` command box + `hint:` config + list-level actions in FB.list (`c57561c`, fb-list-ux-spec §8); filterable-by-default columns (`c8f0420`); plain-text cross-column substring default when no screen predicate (`2f91935`); tree filters evaluate on parents, children follow (`9da098c`).
+- Settings adoption (`659f79b`): COA's separate filter box deleted (Code/Name use `filterType: 'text'`); GST stale joint-save hint deleted **and** dead `vat.codes.save` server action removed (`37f372f`); Journals hint → sidebar via `hint:` config; FX provider + API key → Company tab with explicit Save (auto-save-on-select abolished); Fetch Rates stays on Exchange Rates as the `f` verb + header button.
+
+**Bills → FB.list `tree: true`** ✅ done 2026-07-24 (PRs #30–#35): fold = row property; Bills' bespoke render/draft/filter/nav machinery (~450 lines of filter code included) **deleted, not ported**; post-migration alignment/edit-mode fixes through `efa17f1`. **Bank Mappings is now the last bespoke list.**
+
+**FB.dropdown** ✅ implemented 2026-07-21 (`6c5cdc4`, `fb-core.js`) — the "PROPOSED / not yet implemented" header in payables-ux-spec.md was stale and is corrected.
+
+**Audit trail gap closed** (2026-07-25, PR #36): `setup.add_company` is audited under the created company (was silently dropped on the NOT NULL constraint).
+
+**Open by priority:** Bank Mappings → FB.list (+ delete legacy ghost CSS/`activateMappingGhost`) → P2 accounting completeness (P2-1 year-end close, P2-2 FX reval monetary-only, P2-3 `bill_lines` subledger, P2-4 VAT convention unify + server-computed draft totals, P2-5 MCP server, P2-6 rebinding — priority pending magnus) → P3 scope (AR, feeds).
 
 ---
 

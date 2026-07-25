@@ -751,6 +751,16 @@ th.fb-th-sortable { cursor: pointer; user-select: none; }
 .th-sort { font-size: 0.6875rem; color: var(--text); width: 12px; text-align: center; flex-shrink: 0; }
 .th-sort:empty { display: none; } /* no reserved gap: header label stays flush with cell content */
 
+/* FB.list edit inputs: constrain to cell width (2026-07-24, Magnus: ref input
+   overflowed into the amount cell — browser default size=20 makes text inputs
+   ~180px regardless of cell width). All fb-e-* inputs fill their td. */
+tr.row-editing td input[class^="fb-e-"],
+tr.row-editing td select[class^="fb-e-"] {
+  width: 100%;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
 /* Column filter dropdown — dark-theme consistent with .fb-dd / .fb-palette */
 .fb-col-filter-dd {
   background: var(--surface);

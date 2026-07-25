@@ -635,7 +635,9 @@ function billsChildren(row) {
     return row.lines.map(function (l) {
       return { _kind: 'draft-line', entry_id: l.entry_id || '',
         description: l.description || '', amount: Number(l.amount || 0),
-        vat_code: l.vat_code || '' };
+        expense_account: l.expense_account || '',
+        vat_code: l.vat_code || '',
+        vat_amount_override: (l.vat_amount_override != null) ? l.vat_amount_override : null };
     });
   }
   var k = row._key;
@@ -889,8 +891,17 @@ var billsList = FB.list.create({
         return '<a href="/' + esc(COMPANY) + '/bill/' + esc(id) + '" class="ref-link" onclick="event.stopPropagation()">' + esc(v || '') + '</a>';
       } },
     { field: 'amount', type: 'number', ro: 'always', sortable: true, filterType: 'amount', align: 'right',
-      display: function (v) {
-        return '<span class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(v || 0).toFixed(2) + '</span>';
+      display: function (v, r) {
+        // For dirty draft bills the parent amount is the gross sum of the
+        // in-buffer lines (net + GST override); the buffer's amount field is
+        // stale (0 for new bills, last-saved for re-edited drafts). Recompute
+        // from lines so re-renders (Tab-spawn, focus changes, fold toggles)
+        // keep the parent total in sync with billRefreshParentTotal's live DOM.
+        var amt = v || 0;
+        if (r && r._dirty && Array.isArray(r.lines) && r.lines.length) {
+          amt = billSumGross(r.lines);
+        }
+        return '<span class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(amt).toFixed(2) + '</span>';
       } },
     { field: 'currency', type: 'text', ro: 'always', sortable: true, filterType: 'list',
       display: function (v, r) {

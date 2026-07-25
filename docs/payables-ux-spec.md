@@ -388,7 +388,7 @@ Pressing `i`/`Enter`/double-click converts **all five editable cells at once** (
 - The old cell-cursor machinery is deleted: `vendorSelCol`, `vendorCellEdit`, `vendorCellPreEdit`, `enterVendorCellEdit`/`commitVendorCell`, `vendorMoveRow`/`vendorMoveCol`, per-cell save-on-nav (`vendorDirtyRows`), and the `VENDOR_KEYS` capture listener.
 - `window.fbVendorSelRow` is still maintained — common.js's j/k deferral reads it.
 
-## FB.dropdown — unified validated autocomplete (PROPOSED 2026-07-22, not yet implemented)
+## FB.dropdown — unified validated autocomplete (IMPLEMENTED 2026-07-21, commit `6c5cdc4` — `fb-core.js`; proposal dated 2026-07-22)
 
 ### Problem
 

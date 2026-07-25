@@ -914,8 +914,8 @@
       if (!res) return;
       var parent = res.parent, parentIdx = res.parentIdx;
       if (cfg.editable && !cfg.editable(parent)) return; // posted bill: read-only
+      if (editKey === parent._key) return; // already editing this bill — no-op
       if (editIdx >= 0) exitEdit(); // click-away: keep the prior bill's dirty buffer
-      if (editKey === parent._key) return; // already editing this bill
       // Whole-bill doctrine: unfold so every child line is editable in place.
       if (cfg.isFolded(parent)) { cfg.fold(parent, true); render(parent._key); }
       var tr = rows()[parentIdx];
@@ -951,10 +951,26 @@
       });
       if (window.FB && FB.mode) FB.mode.set('INSERT');
       window.fbEditActive = true;
-      var f = (field && cfg.columns.some(function (c) { return c.field === field && editable(c, parent); }))
-        ? field : cfg.firstField(parent._isNew);
-      var target = tr.querySelector('.fb-e-' + f) || tr.querySelector('input,select');
-      if (target) { target.focus(); if (target.select) target.select(); }
+      // Focus: if the user clicked a child row, focus THAT child's first input
+      // (not the parent's first field — the click target is the intent).
+      if (d0._childOf) {
+        // Identify which child was clicked by its _key within the parent's children
+        var clickedKids = childrenOf(parent);
+        var clickedTrs = childTrsFor(tr, parent._key);
+        var targetKid = -1;
+        for (var cki = 0; cki < clickedKids.length; cki++) {
+          if (clickedKids[cki] === d0) { targetKid = cki; break; }
+        }
+        if (targetKid >= 0 && targetKid < clickedTrs.length) {
+          var firstInp = clickedTrs[targetKid].querySelector('input,select');
+          if (firstInp) { firstInp.focus(); if (firstInp.select) firstInp.select(); }
+        }
+      } else {
+        var f = (field && cfg.columns.some(function (c) { return c.field === field && editable(c, parent); }))
+          ? field : cfg.firstField(parent._isNew);
+        var target = tr.querySelector('.fb-e-' + f) || tr.querySelector('input,select');
+        if (target) { target.focus(); if (target.select) target.select(); }
+      }
       syncChrome();
     }
 
@@ -1256,6 +1272,18 @@
       var inputs = Array.from(tr.querySelectorAll('input,select'));
       if (!inputs.length) return false;
       var i = inputs.indexOf(document.activeElement);
+      // Tree: Tab at the parent's last input flows into the first child's first
+      // input (and Shift+Tab at the parent's first input flows back to the
+      // previous bill/row) — do NOT swallow. The child rows' own Tab handler
+      // (attachChild) manages the last-child spawn case.
+      if (cfg.tree) {
+        var activeTr = document.activeElement && document.activeElement.closest
+          ? document.activeElement.closest('tr') : null;
+        if (activeTr && !activeTr.dataset.childOf) {
+          // Focus is in the PARENT row — let Tab flow naturally into children.
+          if (!e.shiftKey && i === inputs.length - 1) return false;
+        }
+      }
       return e.shiftKey ? i === 0 : i === inputs.length - 1;
     }
 

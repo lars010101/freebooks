@@ -261,7 +261,18 @@ async function handleApiRequest(req, res) {
     // failure is logged loudly but must not fail the business request.
     if (isAuditableAction(action)) {
       try {
-        await auditCall(companyId || null, action, userEmail || 'anonymous', body);
+        // setup.* actions run without a companyId by design (dispatch exempts
+        // them). audit_log.company_id is NOT NULL, so the row was silently
+        // dropped for every setup action — including setup.add_company, the
+        // most audit-worthy event in the system (who created which company,
+        // when, with what jurisdiction/currency). Derive the company being
+        // created from the payload so the creation event is audited under it.
+        // setup.init (schema bootstrap, no company anywhere) stays NULL and
+        // remains intentionally unaudited.
+        const auditCompanyId = companyId
+          || (body && body.company && body.company.company_id)
+          || null;
+        await auditCall(auditCompanyId, action, userEmail || 'anonymous', body);
       } catch (auditErr) {
         console.error(`Audit log failed for action ${action}:`, auditErr.message);
       }

@@ -774,9 +774,43 @@ async function saveDraftBill(ctx) {
   const now = new Date().toISOString();
   // P2-4: draft totals are computed server-side from lines (editor never sends
   // bill.amount); the client value is only a fallback for line-less drafts.
-  const totalAmount = (Array.isArray(bill.lines) && bill.lines.length)
-    ? bill.lines.reduce((s, l) => s + Number(l.amount || 0), 0)
-    : (parseFloat(bill.amount) || 0);
+  // The total is GROSS (net + GST) so the parent row matches the live editor
+  // total. GST per line: supplier-stated override wins, otherwise amount ×
+  // rate looked up from vat_codes (reverse-charge GST is included in gross).
+  let totalAmount;
+  if (Array.isArray(bill.lines) && bill.lines.length) {
+    // Build a rate cache for the VAT codes referenced by the lines.
+    const seenCodes = Array.from(new Set(
+      bill.lines.map(l => (l && l.vat_code ? String(l.vat_code).trim() : '')).filter(Boolean)
+    ));
+    const rateCache = {};
+    if (seenCodes.length) {
+      const placeholders = seenCodes.map((_, i) => `@vc${i}`).join(',');
+      const params = { companyId };
+      seenCodes.forEach((c, i) => { params[`vc${i}`] = c; });
+      const rateRows = await query(
+        `SELECT vat_code, rate FROM vat_codes WHERE company_id = @companyId AND vat_code IN (${placeholders}) AND is_active = true`,
+        params
+      );
+      for (const r of rateRows) rateCache[r.vat_code] = Number(r.rate);
+    }
+    totalAmount = bill.lines.reduce((s, l) => {
+      const amt = Number(l.amount || 0);
+      let gst = 0;
+      const ov = l.vat_amount_override;
+      if (ov !== null && ov !== undefined && ov !== '' && !isNaN(Number(ov))) {
+        gst = Number(ov);
+      } else {
+        const code = (l.vat_code || '').trim();
+        if (code && rateCache[code] !== undefined) {
+          gst = Math.round(amt * rateCache[code] * 100) / 100;
+        }
+      }
+      return s + amt + gst;
+    }, 0);
+  } else {
+    totalAmount = parseFloat(bill.amount) || 0;
+  }
 
   const billRow = {
     company_id: companyId,

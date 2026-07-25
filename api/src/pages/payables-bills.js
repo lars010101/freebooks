@@ -817,13 +817,25 @@ function billLineNonEmpty(l) {
   return !!(l && ((l.description || '').trim() || (parseFloat(l.amount) > 0)));
 }
 // billSumGross sums net + GST per line, matching the live parent total shown
-// by billRefreshParentTotal (override value wins; amount x rate otherwise is
-// already materialised into vat_amount_override by harvestChild). Reverse-
-// charge GST is included because it is part of the gross the user sees.
+// by billRefreshParentTotal. The override value wins when present; otherwise
+// GST is computed as amount × rate via taxCodeRateMap (harvestChild only
+// materialises vat_amount_override when the user types a GST value, so the
+// default case must be computed here). Reverse-charge GST is included
+// because it is part of the gross the user sees.
 function billSumGross(lines) {
   var t = 0;
   (lines || []).forEach(function (l) {
-    t += (parseFloat(l.amount) || 0) + (parseFloat(l.vat_amount_override) || 0);
+    var amt = parseFloat(l.amount) || 0;
+    var gst = 0;
+    var ov = parseFloat(l.vat_amount_override);
+    if (!isNaN(ov)) {
+      gst = ov;
+    } else {
+      var code = (l.vat_code || '').trim();
+      var info = code ? taxCodeRateMap[code] : null;
+      if (info) gst = Math.round(amt * Number(info.rate) * 100) / 100;
+    }
+    t += amt + gst;
   });
   return t;
 }

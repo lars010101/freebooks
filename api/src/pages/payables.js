@@ -86,8 +86,11 @@ ${commonStyle()}
   /* Figure reserve: 46px right padding on amount cells, matching the header's
      24+22px — label right edge == figures right edge == ≡ left edge. Targets
      data-field because the framework's td carries no .amt class (the span
-     does); the old td.amt selector went dead in the FB.list migration. */
-  #bills-table td[data-field="amount"], #bills-table td.draft-total-amount { padding-right:46px; }
+     does); the old td.amt selector went dead in the FB.list migration.
+     Child rows: td.amt is the amount cell (no data-field), needs same reserve
+     so child figures align with parent figures and the header label. */
+  #bills-table td[data-field="amount"], #bills-table td.draft-total-amount,
+  #bills-table tr[data-child-of] td.amt { padding-right:46px; }
   /* Column weights (P1-3 density pass, agreed 2026-07-21; CCY widened 7→9%
      2026-07-22 — at 7% the corner-pinned filter icon overlapped the "CCY"
      label at ≤1400px viewports). Vendor is information-dense; CCY only needs

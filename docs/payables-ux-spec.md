@@ -167,15 +167,16 @@ The framework's column `display`/`attach` hooks emit `data-expense-account` and 
 ### Tax-exclusive entry
 The user enters the **net** amount per line. VAT (GST) is computed on top: `expectedVat = Math.round(amount × rate × 100) / 100`. Lines carry **no VAT amount state** — the only per-line tax field is the VAT **code** select. (Redesign 2026-07-26: the per-line GST amount input and its auto-compute/override machinery were removed.)
 
-### Bill footer: Net / VAT / Gross
-In INSERT mode the bill unit renders one footer row after the last child line:
-- **Net** — Σ line amounts (read-only).
-- **VAT** (`.bill-vat-stated`) — pre-filled with the computed total (Σ per-line `amount × rate`) and **editable**: typing the VAT total from the supplier's invoice makes it *stated* (visual marker; sent as `vat_amount_stated`). Clearing the cell returns it to computed. This is the **only** VAT override surface — there are no per-line VAT amounts (agreed 2026-07-26).
-- **Gross** — Net + VAT (stated ?? computed); equals the parent row's AMOUNT total.
-- Tab flow: last child's VAT code select → footer VAT cell → (Tab again) new child row's description. The "Tab past the last field creates a new child" rule is preserved — the footer cell sits in the chain and is never a dead end.
+### Bill footer: one row per VAT code (NORMAL + INSERT)
+The bill renders **one footer row per VAT code** used on its lines, in BOTH read-only (fold open) and edit mode (revised 2026-07-26 per review):
+- The row label is the code + its description (e.g. `SE25: Standard rate 25%`); the amount is that code's VAT (posted bills: the posted grouped tax line; drafts: computed). Two codes → two footer rows.
+- When a stated VAT total exists, the rounding delta is applied to the largest standard code's row (mirrors the posting rule) so the footer rows always sum to the stated total.
+- Reverse-charge codes appear as their own rows (self-assessed — never part of the gross owed to the vendor).
+- Net/Gross are not repeated in the footer: gross lives on the parent row's AMOUNT cell. (The full-page editor has no parent row, so it keeps its Net/Gross readout.)
+- There is no tax-lines drill-down — the per-code footer rows ARE the tax display.
 
-### Tax lines preview
-Below the footer, a read-only collapsible **Tax lines** group shows exactly what will post: one row per VAT code (code, tax GL account, amount), including the reverse-charge DR-input / CR-output pairs. This is the SAP-style tax-line-items view; amounts update live as lines are edited.
+### Stated-VAT cell (INSERT only)
+Edit mode adds ONE editable row (`.bill-vat-stated`) after the per-code rows: pre-filled with the computed total (Σ per-line `amount × rate` over standard codes); typing the VAT total from the supplier's invoice makes it *stated* (amber; sent as `vat_amount_stated`); clearing returns it to computed. This is the **only** VAT override surface — there are no per-line VAT amounts (agreed 2026-07-26). Tab flow: last child's VAT code select → stated-VAT cell → (Tab again) new child row's description — the cell sits in the chain and is never a dead end.
 
 ### Tolerance check (backend)
 When `vat_amount_stated` is provided, the backend compares it to the computed VAT total (non-reverse-charge lines only):
@@ -194,7 +195,7 @@ tolerance = max(flat, pct × expectedVatTotal)
 
 ### Journal entries (backend)
 - **Standard VAT:** one DR to the VAT code's input account **per VAT code** (grouped across lines; previously per expense line) — the per-code split is what per-rate / GST-return reporting reads, so codes are never merged into one lump. If stated ≠ computed, the rounding delta is added to the **largest** tax line by computed amount (agreed 2026-07-26) so the journal always sums to the stated total. The delta is allocated **only among standard (non-RC) lines with computed VAT > 0**; if no such line exists (e.g. all lines zero-rated/exempt), the stated amount is ignored and a warning is emitted — a stated VAT total on an all-zero-rated bill is almost always a wrong-code data-entry error. With one stated total and multiple taxable codes the true per-code split of a variance is unknowable; largest-line allocation keeps any per-box misstatement bounded by the tolerance check.
-- **Reverse charge:** DR input VAT + CR output VAT per RC code (net zero), always the computed amount — RC lines never absorb stated-VAT deltas (self-assessed amounts must be exact). No per-line RC UI exists anymore; the pairs are visible in the Tax lines preview.
+- **Reverse charge:** DR input VAT + CR output VAT per RC code (net zero), always the computed amount — RC lines never absorb stated-VAT deltas (self-assessed amounts must be exact). No per-line RC UI exists anymore; the pairs appear as per-code footer rows.
 - One DR to the expense account per line (debit = net amount).
 - One CR to the AP account for the total (net + VAT).
 - The tax GL account comes **only** from the VAT code (`vat_codes.vat_account_input` / `vat_account_output`) — per-line account overrides are removed (agreed 2026-07-26).

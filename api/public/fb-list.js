@@ -80,6 +80,10 @@
  *   childRowHtml(parent, child, idx) — view-mode HTML for a child <tr> (Task 2).
  *   editChildRowHtml(parent, child, idx) — edit-mode HTML for a child <tr>
  *              (default: reuse childRowHtml). Framework owns the <tr> shell.
+ *   editFooterRowHtml(parent) / attachFooter(tr, parent) — optional ONE
+ *              bill-level row rendered after the last edit child (Bills:
+ *              stated-VAT footer). Tagged data-footer-of (NOT data-child-of)
+ *              so childTrsFor harvest never sees it; render() removes it.
  *   harvestChild(tr) → line object from a child <tr>'s inputs (Task 3). Required
  *              for tree edit; when absent, child fields are not harvested.
  *   addChild(row) — the `a` verb: append a child to the focused draft bill (T4).
@@ -943,6 +947,18 @@
         // cfg.attachChild(tr, parent, idx) — post-build hook for child-row
         // dropdowns/behaviors (mirrors the column-level `attach` hook).
         if (cfg.attachChild) cfg.attachChild(kidTrs[ci], parent, ci);
+      }
+      // Optional bill-level edit footer (cfg.editFooterRowHtml/attachFooter):
+      // ONE row after the last edit child (Bills: stated-VAT cell + tax-lines
+      // preview). data-footer-of — NOT data-child-of — keeps it out of
+      // childTrsFor harvest; render() rebuilds remove it on exit.
+      if (cfg.editFooterRowHtml && kidTrs.length) {
+        var ftr = document.createElement('tr');
+        ftr.className = 'fb-edit-footer';
+        ftr.dataset.footerOf = String(parent._key);
+        ftr.innerHTML = cfg.editFooterRowHtml(parent);
+        kidTrs[kidTrs.length - 1].insertAdjacentElement('afterend', ftr);
+        if (cfg.attachFooter) cfg.attachFooter(ftr, parent);
       }
       wireChips(tbody());
       cfg.columns.forEach(function (c) {

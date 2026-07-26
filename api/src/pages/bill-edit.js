@@ -88,7 +88,6 @@ ${commonStyle()}
         <th style="width:16%">Expense account</th>
         <th style="width:10%">Amount</th>
         <th style="width:10%">VAT code</th>
-        <th style="width:10%">GST amt</th>
         <th style="width:12%">Cost center</th>
         <th style="width:12%">Profit center</th>
         <th style="width:2%"></th>
@@ -112,7 +111,7 @@ ${commonStyle()}
     <span class="be-msg" id="be-msg"></span>
     <div class="be-totals">
       <span>Net <b id="be-tot-net">0.00</b></span>
-      <span>GST <b id="be-tot-gst">0.00</b></span>
+      <span title="Supplier-stated VAT total — pre-filled computed; edit to match the supplier invoice; clear to return to computed">GST <input id="be-tot-gst" class="bill-vat-stated" type="number" step="0.01" style="width:90px;text-align:right"></span>
       <span>Gross <b id="be-tot-gross">0.00</b></span>
     </div>
   </div>
@@ -191,12 +190,16 @@ async function prefillFromDraft(id) {
   document.getElementById('be-ref').value = bill.vendor_ref || '';
   document.getElementById('be-ccy').value = bill.currency || '';
   document.getElementById('be-ap').value = bill.ap_account || '';
+  if (Number(bill.vat_amount) > 0) { // drafts: stated VAT total (0 = none)
+    const el = document.getElementById('be-tot-gst');
+    el.dataset.stated = '1';
+    el.value = Number(bill.vat_amount).toFixed(2);
+  }
   (lines || []).forEach(l => addLine({
     description: l.description || '',
     expense_account: l.account_code || '',
     amount: l.amount || '',
     vat_code: l.vat_code || '',
-    vat_amount_override: (l.vat_amount_override != null ? l.vat_amount_override : ''),
   }));
   if (!(lines || []).length) addLine({});
   loadAttachments();
@@ -289,7 +292,6 @@ function addLine(data) {
     '<td><input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off"></td>' +
     '<td><input class="bl-amt" type="number" step="0.01" min="0" value="' + (data.amount !== '' && data.amount != null ? data.amount : '') + '"></td>' +
     '<td><input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—"></td>' +
-    '<td><input class="bl-gst" type="number" step="0.01" value="' + (data.vat_amount_override !== '' && data.vat_amount_override != null ? data.vat_amount_override : '') + '" placeholder="auto"></td>' +
     '<td><input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off"></td>' +
     '<td><input class="bl-pc" value="' + FB.util.escAttr(data.profit_center || '') + '" autocomplete="off"></td>' +
     '<td><button class="be-line-x" type="button" title="delete line">×</button></td>';
@@ -299,7 +301,7 @@ function addLine(data) {
   attachCenter(tr.querySelector('.bl-cc'), 'cost');
   attachCenter(tr.querySelector('.bl-pc'), 'profit');
   tr.querySelector('.be-line-x').onclick = () => { tr.remove(); updateTotals(); refreshAddRow(); };
-  tr.querySelectorAll('input').forEach(i => i.addEventListener('input', () => { autoGst(tr); updateTotals(); refreshAddRow(); }));
+  tr.querySelectorAll('input').forEach(i => i.addEventListener('input', () => { updateTotals(); refreshAddRow(); }));
   refreshAddRow();
   return tr;
 }
@@ -307,18 +309,6 @@ function vatRateOf(code) {
   const v = S.vatCodes.find(x => x.vat_code === code);
   return v ? Number(v.rate != null ? v.rate : (v.rate_percent || 0)) : 0;
 }
-function autoGst(tr) {
-  // Auto-fill GST from VAT rate unless the user overrode the field
-  const gst = tr.querySelector('.bl-gst');
-  if (gst.dataset.overridden === '1') return;
-  const amt = parseFloat(tr.querySelector('.bl-amt').value) || 0;
-  const code = tr.querySelector('.bl-vat').value;
-  const rate = code ? vatRateOf(code) : 0;
-  gst.value = rate ? (amt * rate).toFixed(2) : '';
-}
-document.getElementById('be-lines-body').addEventListener('input', (e) => {
-  if (e.target.classList.contains('bl-gst')) e.target.dataset.overridden = e.target.value !== '' ? '1' : '';
-});
 function lastLineHasData() {
   const rows = document.querySelectorAll('#be-lines-body tr');
   if (!rows.length) return false;
@@ -361,19 +351,33 @@ function collectLines() {
     expense_account: tr.querySelector('.bl-acct').value.trim(),
     amount: parseFloat(tr.querySelector('.bl-amt').value) || 0,
     vat_code: tr.querySelector('.bl-vat').value.trim() || '',
-    vat_amount_override: tr.querySelector('.bl-gst').value !== '' ? parseFloat(tr.querySelector('.bl-gst').value) : null,
     cost_center: tr.querySelector('.bl-cc').value.trim() || null,
     profit_center: tr.querySelector('.bl-pc').value.trim() || null,
   })).filter(l => l.description || l.amount || l.expense_account);
 }
 function updateTotals() {
+  // VAT is computed per line from its code (lines carry no VAT amounts —
+  // redesign 2026-07-26); the footer cell shows the computed total unless the
+  // user typed a supplier-stated amount. Reverse-charge is self-assessed and
+  // never part of the gross owed to the vendor.
   const lines = collectLines();
   const net = lines.reduce((s, l) => s + l.amount, 0);
-  const gst = lines.reduce((s, l) => s + (l.vat_amount_override != null ? l.vat_amount_override : l.amount * vatRateOf(l.vat_code)), 0);
+  const computed = lines.reduce((s, l) => {
+    const v = S.vatCodes.find(x => x.vat_code === l.vat_code);
+    return (v && !v.is_reverse_charge) ? s + Math.round(l.amount * vatRateOf(l.vat_code) * 100) / 100 : s;
+  }, 0);
+  const el = document.getElementById('be-tot-gst');
+  const stated = (el.dataset.stated === '1' && el.value !== '') ? (parseFloat(el.value) || 0) : null;
+  const gst = stated !== null ? stated : computed;
+  if (el.dataset.stated !== '1') el.value = gst.toFixed(2);
+  el.style.color = stated !== null ? '#b26a00' : '';
   document.getElementById('be-tot-net').textContent = net.toFixed(2);
-  document.getElementById('be-tot-gst').textContent = gst.toFixed(2);
   document.getElementById('be-tot-gross').textContent = (net + gst).toFixed(2);
 }
+document.getElementById('be-tot-gst').addEventListener('input', (e) => {
+  e.target.dataset.stated = e.target.value !== '' ? '1' : '';
+  updateTotals();
+});
 
 // ── Gather + validate ───────────────────────────────────────────────────────
 function gatherBill() {
@@ -385,6 +389,7 @@ function gatherBill() {
     vendor_ref: document.getElementById('be-ref').value.trim(),
     currency: document.getElementById('be-ccy').value.trim().toUpperCase() || undefined,
     ap_account: document.getElementById('be-ap').value.trim() || undefined,
+    vat_amount_stated: (function () { const el = document.getElementById('be-tot-gst'); return (el.dataset.stated === '1' && el.value !== '') ? (parseFloat(el.value) || 0) : null; })(),
     lines: collectLines(),
     // NO amount — server computes (P2-4)
   };

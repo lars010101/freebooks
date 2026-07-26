@@ -285,71 +285,6 @@ function fbPageInitPayables() {
 }
 window.addEventListener('DOMContentLoaded', fbPageInitPayables);
 window.fbPageInit = fbPageInitPayables;
-// Initialise the GST amount input for a child row from a saved line object.
-// If the line has a vatAmountOverride (and the code is not reverse charge),
-// restore it; otherwise compute the default from amount × rate.
-function _initChildGst(tr, lineObj) {
-  var gstSel = tr.querySelector('input.child-vat');
-  var gstInp = tr.querySelector('input.child-gst');
-  var amtInp = tr.querySelectorAll('input')[2];
-  if (!gstSel || !gstInp) return;
-  var code = gstSel.value;
-  var info = code ? taxCodeRateMap[code] : null;
-  if (!code || !info) {
-    gstInp.style.display = 'none';
-    gstInp.value = '';
-    return;
-  }
-  gstInp.style.display = '';
-  var hasOverride = lineObj && lineObj.vatAmountOverride != null && !isNaN(Number(lineObj.vatAmountOverride));
-  if (info.is_reverse_charge) {
-    var amtRc = parseFloat(amtInp ? amtInp.value : 0) || 0;
-    gstInp.value = (Math.round(amtRc * Number(info.rate) * 100) / 100).toFixed(2);
-    gstInp.readOnly = true;
-    gstInp.title = 'Reverse charge — VAT is self-assessed (override disabled)';
-    gstInp.style.backgroundColor = '#f0f0f0';
-    if (lineObj) lineObj.vatAmountOverride = null;
-  } else if (hasOverride) {
-    gstInp.value = Number(lineObj.vatAmountOverride).toFixed(2);
-    gstInp.readOnly = false;
-    gstInp.title = 'Supplier-stated VAT amount (override computed value)';
-    gstInp.style.backgroundColor = '';
-  } else {
-    _recomputeChildGst(tr, lineObj);
-  }
-}
-
-// Recompute the GST amount from amount × rate and update the input. Called on
-// amount / VAT-code changes. Resets vatAmountOverride to null (recomputed =
-// default, not an override).
-function _recomputeChildGst(tr, lineObj) {
-  var gstSel = tr.querySelector('input.child-vat');
-  var gstInp = tr.querySelector('input.child-gst');
-  var amtInp = tr.querySelectorAll('input')[2];
-  if (!gstSel || !gstInp) return;
-  var code = gstSel.value;
-  var info = code ? taxCodeRateMap[code] : null;
-  if (!code || !info) {
-    gstInp.style.display = 'none';
-    gstInp.value = '';
-    if (lineObj) lineObj.vatAmountOverride = null;
-    return;
-  }
-  var amount = parseFloat(amtInp ? amtInp.value : 0) || 0;
-  var computed = Math.round(amount * Number(info.rate) * 100) / 100;
-  gstInp.style.display = '';
-  gstInp.value = computed.toFixed(2);
-  if (info.is_reverse_charge) {
-    gstInp.readOnly = true;
-    gstInp.title = 'Reverse charge — VAT is self-assessed (override disabled)';
-    gstInp.style.backgroundColor = '#f0f0f0';
-  } else {
-    gstInp.readOnly = false;
-    gstInp.title = 'Supplier-stated VAT amount (override computed value)';
-    gstInp.style.backgroundColor = '';
-  }
-  if (lineObj) lineObj.vatAmountOverride = null;
-}
 // Lookup FX rate for a draft bill (background, no UI). Returns a Promise.
 function _getFxRate(ccy, billDate) {
   if (!ccy || !billDate || ccy.toUpperCase() === BASE_CURRENCY.toUpperCase()) {
@@ -636,8 +571,7 @@ function billsChildren(row) {
       return { _kind: 'draft-line', entry_id: l.entry_id || '',
         description: l.description || '', amount: Number(l.amount || 0),
         expense_account: l.expense_account || '',
-        vat_code: l.vat_code || '',
-        vat_amount_override: (l.vat_amount_override != null) ? l.vat_amount_override : null };
+        vat_code: l.vat_code || '' };
     });
   }
   var k = row._key;
@@ -688,8 +622,8 @@ function billsFetchChildren(row) {
 // billsMergeChildRows(cache, parent) — builds the flat ordered list of child
 // row objects the framework flattens under the parent. Mirrors the row order
 // emitted by today's toggleBillLines (L918–1058): draft → line rows; posted →
-// expense lines (VAT cell = paired GST code), then GST sub-rows, then payment
-// history rows. Each child carries a _kind tag the renderer switches on.
+// expense lines, then the grouped tax lines (one DR per VAT code — 2026-07-26),
+// then payment history rows. Each child carries a _kind tag the renderer switches on.
 function billsMergeChildRows(cache, parent) {
   var lines = cache.lines || [];
   var payments = cache.payments || [];
@@ -698,29 +632,26 @@ function billsMergeChildRows(cache, parent) {
   if (parent.status === 'draft') {
     lines.forEach(function (l) {
       // Round-trip: the server returns account_code; the edit renderer and
-      // harvest speak expense_account. Map both + the VAT override or a
-      // reload-then-edit shows an empty account and fails validation.
+      // harvest speak expense_account. Map both or a reload-then-edit shows
+      // an empty account and fails validation.
       out.push({ _kind: 'draft-line', entry_id: l.entry_id || '',
         description: l.description || '', amount: Number(l.amount || 0),
         expense_account: l.expense_account || l.account_code || '',
-        vat_code: l.vat_code || '',
-        vat_amount_override: (l.vat_amount_override != null) ? l.vat_amount_override : null });
+        vat_code: l.vat_code || '' });
     });
     return out;
   }
-  // Posted: expense lines (no vat_code) paired with GST lines (vat_code set),
-  // then GST sub-rows, then payment history.
+  // Posted: expense lines (journal expense rows carry no vat_code), then the
+  // GROUPED tax lines (one DR per VAT code — 2026-07-26), then payment history.
   var expenseLines = lines.filter(function (l) { return !l.vat_code; });
   var gstLines = lines.filter(function (l) { return !!l.vat_code; });
-  expenseLines.forEach(function (line, idx) {
-    var pairedGst = gstLines[idx] || null;
+  expenseLines.forEach(function (line) {
     var rawDesc = line.description || '';
     var sepIdx = rawDesc.lastIndexOf(' / ');
     var desc = sepIdx !== -1 ? rawDesc.slice(sepIdx + 3).trim() : rawDesc;
     out.push({ _kind: 'expense', entry_id: line.entry_id || '',
       description: desc, account_code: line.account_code || '',
-      amount: Number(line.amount || 0),
-      gstVatCode: pairedGst ? (pairedGst.vat_code || '') : '' });
+      amount: Number(line.amount || 0) });
   });
   gstLines.forEach(function (line) {
     var codeDesc = taxCodeMap[line.vat_code];
@@ -762,7 +693,7 @@ function billsChildRowHtml(parent, child, idx) {
   if (child._kind === 'expense') {
     return '<td colspan="4" class="child-desc">' + esc(child.description || '') + '</td>'
       + amtCell(child.amount) + spacer
-      + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(child.gstVatCode || '') + '</td>'
+      + '<td></td>'
       + empty;
   }
   if (child._kind === 'gst') {
@@ -780,33 +711,130 @@ function billsChildRowHtml(parent, child, idx) {
   return '<td colspan="8" class="child-desc"></td>';
 }
 
-// Live gross-total refresh on the parent row while child lines are edited
-// (Task 6d; replaces the old updateParentDraftAmount which read the old DOM
-// model). Walks up from a child row to its parent, sums net + GST per line
-// (override value wins; otherwise amount × rate), rewrites the amount cell.
+// Live totals refresh while child lines are edited: parent AMOUNT shows gross
+// = net + (stated ?? computed VAT); the footer cells show Net / VAT / Gross.
+// VAT is computed per line from its code (amount × rate) — lines carry no VAT
+// amount state (redesign 2026-07-26). Reverse-charge VAT is self-assessed and
+// never part of the gross owed to the vendor.
 function billRefreshParentTotal(childTr) {
   if (!childTr || !childTr.dataset || !childTr.dataset.childOf) return;
   var key = childTr.dataset.childOf;
   var ptr = childTr.previousElementSibling;
   while (ptr && ptr.dataset && ptr.dataset.childOf === key) ptr = ptr.previousElementSibling;
   if (!ptr) return;
-  var gross = 0;
+  var net = 0, stdVat = 0;
   var sib = ptr.nextElementSibling;
   while (sib && sib.dataset && sib.dataset.childOf === key) {
     var amt = parseFloat((sib.querySelector('.child-amt') || {}).value) || 0;
     var code = ((sib.querySelector('.child-vat') || {}).value || '').trim();
-    var gstInp = sib.querySelector('.child-gst');
     var info = code ? taxCodeRateMap[code] : null;
-    var gst = 0;
-    if (info) {
-      gst = (gstInp && gstInp.value !== '') ? (parseFloat(gstInp.value) || 0)
-        : Math.round(amt * Number(info.rate) * 100) / 100;
-    }
-    gross += amt + gst;
+    net += amt;
+    if (info && !info.is_reverse_charge) stdVat += Math.round(amt * Number(info.rate) * 100) / 100;
     sib = sib.nextElementSibling;
   }
+  var ftr = ptr.parentNode.querySelector('tr.fb-edit-footer[data-footer-of="' + key + '"]');
+  var statedInp = ftr && ftr.querySelector('.bill-vat-stated');
+  var stated = (statedInp && statedInp.dataset.stated === '1' && statedInp.value !== '') ? (parseFloat(statedInp.value) || 0) : null;
+  var vat = (stated !== null) ? stated : stdVat;
+  var gross = net + vat;
   var cell = ptr.querySelector('td[data-field="amount"]');
   if (cell) cell.innerHTML = '<span class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + gross.toFixed(2) + '</span>';
+  if (ftr) billRenderFooter(ftr, key, net, vat, gross);
+}
+
+// ── Bill footer (INSERT mode): Net / VAT / Gross + collapsible tax-lines ──
+// preview (redesign 2026-07-26). The VAT cell is pre-filled with the computed
+// total and is the ONLY VAT override surface: typing makes it "stated"
+// (stored on the bill buffer as vat_amount_stated, amber tint); clearing
+// returns it to computed. Tax lines show exactly what will post per VAT code.
+function billFooterHtml(parent) {
+  return '<td colspan="3" style="color:#666;font-size:0.85em">Totals — Net <b class="bf-net">0.00</b> · Gross <b class="bf-gross">0.00</b></td>'
+    + '<td></td>'
+    + '<td class="amt"><input class="draft-input bill-vat-stated" type="number" step="0.01" title="Supplier-stated VAT total — pre-filled computed; edit to match the supplier invoice; clear to return to computed" style="text-align:right" /></td>'
+    + '<td class="child-spacer"></td>'
+    + '<td style="font-size:0.75rem"><a href="javascript:void(0)" class="bf-tax-toggle" style="color:#888">▸ Tax lines</a></td>'
+    + '<td></td>';
+}
+function billTaxPreviewHtml(key, tbodyEl) {
+  var std = {}, rc = {};
+  Array.from(tbodyEl.querySelectorAll('tr[data-child-of="' + key + '"]')).forEach(function (tr) {
+    var amt = parseFloat((tr.querySelector('.child-amt') || {}).value) || 0;
+    var code = ((tr.querySelector('.child-vat') || {}).value || '').trim();
+    var info = code ? taxCodeRateMap[code] : null;
+    if (!info) return;
+    var v = Math.round(amt * Number(info.rate) * 100) / 100;
+    if (info.is_reverse_charge) rc[code] = (rc[code] || 0) + v; else std[code] = (std[code] || 0) + v;
+  });
+  var parts = [];
+  Object.keys(std).forEach(function (c) { if (std[c] > 0) parts.push(c + ': DR ' + std[c].toFixed(2)); });
+  Object.keys(rc).forEach(function (c) { if (rc[c] > 0) parts.push(c + ': DR ' + rc[c].toFixed(2) + ' / CR ' + rc[c].toFixed(2) + ' (self-assessed)'); });
+  return parts.length ? parts.join(' · ') : 'No tax lines';
+}
+function billRenderFooter(ftr, key, net, vat, gross) {
+  var n = ftr.querySelector('.bf-net'); if (n) n.textContent = net.toFixed(2);
+  var g = ftr.querySelector('.bf-gross'); if (g) g.textContent = gross.toFixed(2);
+  var inp = ftr.querySelector('.bill-vat-stated');
+  if (inp) {
+    if (inp.dataset.stated !== '1') inp.value = vat.toFixed(2);
+    inp.style.color = inp.dataset.stated === '1' ? '#b26a00' : '';
+  }
+  var pv = ftr.nextElementSibling;
+  if (pv && pv.classList.contains('fb-tax-preview-row') && pv.style.display !== 'none' && pv.firstElementChild) {
+    pv.firstElementChild.innerHTML = billTaxPreviewHtml(key, ftr.parentNode);
+  }
+}
+function billAttachFooter(ftr, parent) {
+  var key = String(parent._key);
+  var inp = ftr.querySelector('.bill-vat-stated');
+  // Restore stated from the buffer (survives Tab-spawn re-renders); a saved
+  // draft's stated total arrives in bills.vat_amount (0 = none).
+  var saved = (parent.vat_amount_stated != null && !isNaN(Number(parent.vat_amount_stated))) ? Number(parent.vat_amount_stated)
+    : (parent.status === 'draft' && Number(parent.vat_amount) > 0 ? Number(parent.vat_amount) : null);
+  function anyChildTr() {
+    var k = ftr.previousElementSibling;
+    while (k && !(k.dataset && k.dataset.childOf)) k = k.previousElementSibling;
+    return k;
+  }
+  if (inp) {
+    if (saved !== null) { inp.dataset.stated = '1'; inp.value = saved.toFixed(2); }
+    inp.addEventListener('input', function () {
+      if (inp.value === '') { delete inp.dataset.stated; parent.vat_amount_stated = null; }
+      else { inp.dataset.stated = '1'; parent.vat_amount_stated = parseFloat(inp.value) || 0; }
+      var kid = anyChildTr();
+      if (kid) billRefreshParentTotal(kid);
+    });
+  }
+  // Collapsible tax-lines preview row (a second <tr>; render() removes it).
+  var pv = document.createElement('tr');
+  pv.className = 'fb-tax-preview-row';
+  pv.style.display = 'none';
+  pv.innerHTML = '<td colspan="8" style="color:#888;font-size:0.75rem;font-style:italic;padding-left:24px"></td>';
+  ftr.insertAdjacentElement('afterend', pv);
+  var tog = ftr.querySelector('.bf-tax-toggle');
+  if (tog) tog.addEventListener('click', function () {
+    var open = pv.style.display !== 'none';
+    pv.style.display = open ? 'none' : '';
+    tog.textContent = (open ? '▸' : '▾') + ' Tax lines';
+    if (!open && pv.firstElementChild) pv.firstElementChild.innerHTML = billTaxPreviewHtml(key, ftr.parentNode);
+  });
+  // Tab from the stated-VAT cell → new child row (same hasData rule as the
+  // child chain); Shift+Tab → back to the last child's VAT code input.
+  ftr.addEventListener('keydown', function (e) {
+    if (e.key !== 'Tab' || e.target !== inp) return;
+    e.preventDefault();
+    var last = anyChildTr();
+    if (e.shiftKey) {
+      var v = last && last.querySelector('.child-vat');
+      if (v) v.focus();
+      return;
+    }
+    var desc = last && last.querySelector('.child-desc');
+    var amt = last && last.querySelector('.child-amt');
+    var hasData = (desc && desc.value.trim() !== '') || (amt && (parseFloat(amt.value) || 0) > 0);
+    if (hasData && billsList && billsList.addChild) billsList.addChild();
+  });
+  var kid = anyChildTr();
+  if (kid) billRefreshParentTotal(kid);
 }
 
 // Task 6e — bill-level save/del helpers (used by cfg.validate / cfg.save).
@@ -816,27 +844,20 @@ function billRefreshParentTotal(childTr) {
 function billLineNonEmpty(l) {
   return !!(l && ((l.description || '').trim() || (parseFloat(l.amount) > 0)));
 }
-// billSumGross sums net + GST per line, matching the live parent total shown
-// by billRefreshParentTotal. The override value wins when present; otherwise
-// GST is computed as amount × rate via taxCodeRateMap (harvestChild only
-// materialises vat_amount_override when the user types a GST value, so the
-// default case must be computed here). Reverse-charge GST is included
-// because it is part of the gross the user sees.
-function billSumGross(lines) {
-  var t = 0;
+// billSumGross sums net + VAT, matching the live parent total shown by
+// billRefreshParentTotal: VAT is computed per line from its code (lines carry
+// no VAT amounts — 2026-07-26), the bill-level stated total wins when given,
+// and reverse-charge VAT is excluded (self-assessed, never owed to the vendor).
+function billSumGross(lines, stated) {
+  var net = 0, stdVat = 0;
   (lines || []).forEach(function (l) {
     var amt = parseFloat(l.amount) || 0;
-    var gst = 0;
-    var ov = parseFloat(l.vat_amount_override);
-    if (!isNaN(ov)) {
-      gst = ov;
-    } else {
-      var code = (l.vat_code || '').trim();
-      var info = code ? taxCodeRateMap[code] : null;
-      if (info) gst = Math.round(amt * Number(info.rate) * 100) / 100;
-    }
-    t += amt + gst;
+    net += amt;
+    var code = (l.vat_code || '').trim();
+    var info = code ? taxCodeRateMap[code] : null;
+    if (info && !info.is_reverse_charge) stdVat += Math.round(amt * Number(info.rate) * 100) / 100;
   });
+  var t = net + ((stated != null && !isNaN(Number(stated))) ? Number(stated) : stdVat);
   return t;
 }
 
@@ -862,12 +883,12 @@ function billSaveBody(b) {
   return { bill: {
     bill_id: b._isNew ? null : b._key,
     vendor: b.vendor, vendor_ref: b.vendor_ref, date: b.date, due_date: b.due_date,
-    amount: billSumGross(b.lines), currency: b.currency, ap_account: b.ap_account,
+    amount: billSumGross(b.lines, b.vat_amount_stated), currency: b.currency, ap_account: b.ap_account,
     expense_account: b.expense_account,
+    vat_amount_stated: (b.vat_amount_stated != null && !isNaN(Number(b.vat_amount_stated))) ? Number(b.vat_amount_stated) : null,
     lines: (b.lines || []).filter(billLineNonEmpty).map(function (l) {
       return { description: l.description, expense_account: l.expense_account,
-        amount: l.amount, vat_code: l.vat_code || null,
-        vat_amount_override: l.vat_amount_override, currency: b.currency };
+        amount: l.amount, vat_code: l.vat_code || null, currency: b.currency };
     })
   } };
 }
@@ -989,6 +1010,10 @@ var billsList = FB.list.create({
     if (String(b.date || '') !== String(s.date || '')) return false;
     if (String(b.due_date || '') !== String(s.due_date || '')) return false;
     if ((b.vendor_ref || '') !== (s.vendor_ref || '')) return false;
+    // Bill-level stated VAT (footer cell) is part of the dirty comparison.
+    var _bSt = (b.vat_amount_stated != null && !isNaN(Number(b.vat_amount_stated))) ? Number(b.vat_amount_stated) : null;
+    var _sSt = (Number(s.vat_amount) > 0) ? Number(s.vat_amount) : null;
+    if (_bSt !== _sSt) return false;
     if ((b.currency || '') !== (s.currency || '')) return false;
     if ((b.ap_account || '') !== (s.ap_account || '')) return false;
     if ((b.expense_account || '') !== (s.expense_account || '')) return false;
@@ -1014,51 +1039,41 @@ var billsList = FB.list.create({
   },
   firstField: function (isNew) { return 'vendor'; },
   // ── Task 6d: child-line edit unit ──
-  // EDIT-mode child row (framework owns the <tr> shell). Input ORDER matters:
-  // _initChildGst/_recomputeChildGst address the amount input positionally as
-  // querySelectorAll('input')[2]. Grid matches view mode: desc colspan=3 (cols
-  // 0-2), expense-acct (col 3), amount (col 4), spacer (col 5), vat (col 6),
-  // empty (col 7, actions) — 8 column-widths total.
+  // EDIT-mode child row (framework owns the <tr> shell). Lines carry only the
+  // VAT code — VAT amounts are always computed (redesign 2026-07-26: the
+  // per-line GST input was removed; the stated VAT lives in the bill footer).
+  // Grid matches view mode: desc colspan=3 (cols 0-2), expense-acct (col 3),
+  // amount (col 4), spacer (col 5), vat (col 6), empty (col 7, actions).
   editChildRowHtml: function (parent, child, idx) {
-    var gstShown = child.vat_code ? '' : 'display:none;';
-    var gstVal = (child.vat_amount_override != null) ? Number(child.vat_amount_override).toFixed(2) : '';
     return '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" value="' + esc(child.description || '') + '" /></td>'
       + '<td><input class="draft-input child-expense-acct" placeholder="Expense Acct" title="Expense account code" value="' + esc(child.expense_account || '') + '" /></td>'
       + '<td class="amt"><input class="draft-input child-amt" type="number" step="0.01" placeholder="0.00" value="' + (child.amount ? Number(child.amount).toFixed(2) : '') + '" style="text-align:right" /></td>'
       + '<td class="child-spacer"></td>'
-      + '<td style="white-space:nowrap"><input class="draft-input child-vat" placeholder="— None —" title="VAT code" value="' + esc(child.vat_code || '') + '" style="width:72px" />'
-      + '<input class="draft-input child-gst" type="number" step="0.01" placeholder="GST" value="' + gstVal + '" style="' + gstShown + 'width:72px;margin-top:2px;text-align:right" title="Supplier-stated VAT amount" /></td>'
+      + '<td><input class="draft-input child-vat" placeholder="— None —" title="VAT code" value="' + esc(child.vat_code || '') + '" style="width:72px" /></td>'
       + '<td></td>';
   },
+  editFooterRowHtml: billFooterHtml,
   // Post-build hook per child row (framework calls it after innerHTML): wire
-  // the account + VAT dropdowns, GST visibility/recompute, live parent-total
-  // refresh, and the Tab-spawn / Shift+Tab field flow (payables spec).
+  // the account + VAT dropdowns, the live totals refresh, and the Tab /
+  // Shift+Tab field flow (payables spec).
   attachChild: function (tr, parent, idx) {
     var expInp = tr.querySelector('.child-expense-acct');
     if (expInp) _attachAcctDropdown(expInp);
     var vatInp = tr.querySelector('.child-vat');
     var amtInp = tr.querySelector('.child-amt');
-    var gstInp = tr.querySelector('.child-gst');
-    var lineObj = { vatAmountOverride: (gstInp && gstInp.value !== '') ? (parseFloat(gstInp.value) || null) : null };
-    if (vatInp) _attachVatDropdown(vatInp, function () { _initChildGst(tr, lineObj); billRefreshParentTotal(tr); });
-    if (amtInp) amtInp.addEventListener('input', function () { _recomputeChildGst(tr, lineObj); billRefreshParentTotal(tr); });
-    if (gstInp) gstInp.addEventListener('input', function () {
-      lineObj.vatAmountOverride = gstInp.value !== '' ? (parseFloat(gstInp.value) || null) : null;
-      billRefreshParentTotal(tr);
-    });
-    _initChildGst(tr, lineObj);
+    if (vatInp) _attachVatDropdown(vatInp, function () { billRefreshParentTotal(tr); });
+    if (amtInp) amtInp.addEventListener('input', function () { billRefreshParentTotal(tr); });
     tr.addEventListener('keydown', function (e) {
       if (e.key !== 'Tab') return;
       var sib = tr.nextElementSibling;
       var isLast = !sib || !sib.dataset || sib.dataset.childOf !== String(parent._key);
-      var gstHidden = gstInp && gstInp.style.display === 'none';
-      // Forward Tab on the last child's last field (GST when visible, else VAT):
-      // spawn a new line when this one has data; sticky when empty.
-      if (!e.shiftKey && isLast && (e.target === gstInp || (gstHidden && e.target === vatInp))) {
+      // Forward Tab on the last child's last field (VAT code) → the bill
+      // footer's stated-VAT cell (the footer is the next stop in the chain).
+      if (!e.shiftKey && isLast && e.target === vatInp) {
         e.preventDefault();
-        var desc = tr.querySelector('.child-desc');
-        var hasData = (desc && desc.value.trim() !== '') || (amtInp && (parseFloat(amtInp.value) || 0) > 0);
-        if (hasData && billsList && billsList.addChild) billsList.addChild();
+        var ftr = tr.parentNode.querySelector('tr.fb-edit-footer[data-footer-of="' + String(parent._key) + '"]');
+        var finp = ftr && ftr.querySelector('.bill-vat-stated');
+        if (finp) { finp.focus(); finp.select(); }
         return;
       }
       // Shift+Tab on the FIRST child's desc → back to the parent's last input.
@@ -1072,15 +1087,14 @@ var billsList = FB.list.create({
       }
     });
   },
+  attachFooter: billAttachFooter,
   // Read one child row's inputs back into a line object (framework exitEditTree).
   harvestChild: function (tr) {
-    var g = tr.querySelector('.child-gst');
     return {
       description: ((tr.querySelector('.child-desc') || {}).value || '').trim(),
       expense_account: ((tr.querySelector('.child-expense-acct') || {}).value || '').trim(),
       amount: parseFloat((tr.querySelector('.child-amt') || {}).value) || 0,
-      vat_code: ((tr.querySelector('.child-vat') || {}).value || '').trim(),
-      vat_amount_override: (g && g.value !== '') ? (parseFloat(g.value) || null) : null
+      vat_code: ((tr.querySelector('.child-vat') || {}).value || '').trim()
     };
   },
   // Non-column payload fields: vendor_id / ap_account / expense_account travel
@@ -1090,6 +1104,7 @@ var billsList = FB.list.create({
   harvestExtra: function (tr, row, buf) {
     var vin = tr.querySelector('.fb-e-vendor');
     var ds = (vin && vin.dataset) || {};
+    buf.vat_amount_stated = (row.vat_amount_stated != null && !isNaN(Number(row.vat_amount_stated))) ? Number(row.vat_amount_stated) : null;
     buf.vendor_id = ds.vendorId || row.vendor_id || '';
     buf.ap_account = ds.apAccount || row.ap_account || '';
     buf.expense_account = ds.expenseAccount || row.expense_account || '';
@@ -1097,7 +1112,7 @@ var billsList = FB.list.create({
   },
   // a-verb / Tab-spawn: the framework appends this shape to the bill buffer.
   addChild: function (parent) {
-    return { description: '', expense_account: companyDefaultExpense || '', amount: 0, vat_code: '', vat_amount_override: null, currency: parent.currency || BASE_CURRENCY };
+    return { description: '', expense_account: companyDefaultExpense || '', amount: 0, vat_code: '', currency: parent.currency || BASE_CURRENCY };
   },
   // Task 6e — bill-level draft validation. Mirrors saveDraftToDb guards
   // (L2156-2163) plus the per-line checks the post path enforces: vendor
@@ -1187,7 +1202,10 @@ var billsList = FB.list.create({
           .then(function (res) {
             var d = res.data || res;
             if (res.error || (d && d.error)) { FB.status.show('Post failed: ' + (res.error || d.error), true); return; }
-            FB.status.show('Bill posted', false); reloadBills();
+            var _w = (d && d.warnings) || [];
+            if (_w.length) FB.status.show('Posted with warning: ' + _w.join(' · '), 'warn');
+            else FB.status.show('Bill posted', false);
+            reloadBills();
           })
           .catch(function (e) { FB.status.show('Post failed: ' + e.message, true); });
         return;
@@ -1201,7 +1219,10 @@ var billsList = FB.list.create({
           .then(function (res) {
             var d = res.data || res;
             if (res.error || (d && d.error)) { FB.status.show('Post failed: ' + (res.error || d.error), true); return; }
-            FB.status.show('Bill posted', false); reloadBills();
+            var _w = (d && d.warnings) || [];
+            if (_w.length) FB.status.show('Posted with warning: ' + _w.join(' · '), 'warn');
+            else FB.status.show('Bill posted', false);
+            reloadBills();
           })
           .catch(function (e) { FB.status.show('Post failed: ' + e.message, true); });
       };

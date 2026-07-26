@@ -9,7 +9,7 @@
 3. NORMAL mode is row-oriented (vim line semantics). INSERT mode is bill-oriented — the entire draft bill (parent + all child lines) opens for editing simultaneously.
 4. Save timing is unambiguous: `Esc` never saves — it exits INSERT only. `w` is the only save path (one `bill.draft.save` carrying header + all lines). `u` reverts. No blur-chasing, no timers, no deferred checks. (FB.list §3 doctrine, adopted 2026-07-24.)
 5. Per-line accounts: each child line carries its own expense account; the parent row carries the AP (creditor) account. Both use COA datalist autocomplete.
-6. Tax-exclusive entry: the user types the net amount per line; GST is computed on top. The supplier-stated VAT can override the computed default.
+6. Tax-exclusive entry: the user types the net amount per line; VAT is computed on top from the line's VAT code — lines carry no VAT amount state. The only override surface is the bill-level stated VAT (editable footer cell, agreed 2026-07-26).
 
 ## Two-State Model
 
@@ -80,11 +80,11 @@ Posted bills: `i`/Enter and double-click are no-ops (the framework's `editable` 
 
 Tab navigates across all editable cells in the bill. The forward flow for a bill is:
 
-**Parent:** vendor → date → due → ref → **first child:** description → expense account → amount → VAT code select → GST amount → **next child:** description → … → last child GST amount
+**Parent:** vendor → date → due → ref → **first child:** description → expense account → amount → VAT code select → **next child:** description → … → last child VAT code select → **footer:** stated-VAT cell
 
 (The parent's total and CCY are read-only in edit — the total is computed from the lines and CCY follows the picked vendor. AP/expense accounts default from the vendor pick and travel on the vendor input's dataset; they are not row inputs.)
 
-- **Forward Tab on the last child's last field (GST amount):** If the current child has data (description or amount), a **new child row is created** (`createDraftLine`) and focus moves to its description input. If the child is empty, Tab stays (sticky — no empty rows created).
+- **Forward Tab on the last child's last field (VAT code select):** focus moves to the bill footer's stated-VAT cell. **Forward Tab on the stated-VAT cell:** if the current child has data (description or amount), a **new child row is created** (`createDraftLine`) and focus moves to its description input. If the child is empty, Tab stays (sticky — no empty rows created).
 - **Shift+Tab** flows in reverse. On the first child's description field, focus moves back to the parent's last input (vendor ref).
 
 This keeps the user inside the bill editing flow. Creating a new line is natural — just Tab past the last field. No need to Esc → `a` → `i` to add a line.
@@ -106,7 +106,7 @@ If Esc is pressed on a completely empty draft (no vendor, no date, no child data
 - **Dates are compact:** the year is elided when it is the current calendar year ("21 Jul"); prior/future years show the full date ("15 Dec 2025"). The full ISO date is in the cell's `title` (hover tooltip). Numeric-only formats were rejected (locale-ambiguous for a multi-jurisdiction app); the month-name form stays. (Agreed 2026-07-21.)
 - **Column widths are weighted** via `<colgroup>` (fixed layout), with all weights owned by CSS `col.col-*` classes — never inline styles or JS width juggling — so the `.single-ccy` state can re-weight cleanly: VENDOR 22%, DATE 12.5%, DUE 12.5%, REFERENCE 15%, AMOUNT 14%, CCY 9%, STATUS 15%. Vendor carries the most information; CCY needs the 3-letter code plus header affordances (CCY was widened 7→9% on 2026-07-22: at 7% the corner-pinned filter icon overlapped the "CCY" label at ≤1400px viewports).
 - **CCY column is conditional** (agreed 2026-07-21): when every visible bill shares one currency it carries no information, so it is hidden via `visibility:collapse` on the `<col>` (space reclaimed, column-track mapping preserved — `display:none` would slide later columns into the wrong track; the CCY th also gets `visibility:hidden` because Chrome leaks the absolutely-positioned filter icon out of a collapsed column) and the other columns absorb the width via the `.single-ccy` re-weighting rules. It returns automatically in INSERT mode (the CCY input lives there) and whenever the list is mixed. Recompute is DOM-driven (`_refreshCcyVisibility`) so in-place row removals (x), Esc-save conversions, and re-renders all stay correct. **Exception (2026-07-22): the column never hides while a currency filter is active** — the column's ≡ is the only way to see and clear that filter; hiding it trapped users (a reload was needed to get foreign bills back). With the filter active the column stays, showing the blue filtered ≡; clearing re-hides if the unfiltered list is single-currency.
-- **Child-row VAT code/GST input sits in column 7 (under STATUS)**, not under CCY (moved 2026-07-21 so the CCY column can hide cleanly); the `+` add-row icon lives in the column-6 spacer cell (`td.child-spacer`).
+- **Child-row VAT code select sits in column 7 (under STATUS)**, not under CCY (moved 2026-07-21 so the CCY column can hide cleanly); the `+` add-row icon lives in the column-6 spacer cell (`td.child-spacer`).
 - **Cell side padding is 12px uniformly** (was 18px); vertical rhythm unchanged (th 12px, td 14px).
 - **Header labels sit flush with cell content** (delta 0): the sort arrow lives AFTER the label and collapses when inactive (`.th-sort:empty{display:none}`), so no reserved icon gap. CCY cells are left-aligned like the header (not centered). The filter icon (≡) is absolutely pinned to the right corner of EVERY header — out of the layout flow, so it never displaces a label.
 - **AMOUNT header label is flush RIGHT** with the figures (delta 0): the label hugs the corner icon, and the figure cells (`td.amt`, `td.draft-total-amount`) carry the same icon-width reserve (46px right padding) so label right edge == figures right edge == icon left edge. AMOUNT column is 14% wide to keep 6-figure amounts on one line.
@@ -129,20 +129,19 @@ If Esc is pressed on a completely empty draft (no vendor, no date, no child data
 
 ### Child Row
 
-| Description (colspan=3) | Expense Acct | Amount | VAT Code + GST | [action] |
-|-------------------------|--------------|--------|-----------------|----------|
-| Description input | Expense account input (COA datalist) | Amount input (number) | VAT code select + GST amount input (stacked) | add-row icon (+) on last child |
+| Description (colspan=3) | Expense Acct | Amount | VAT Code | [action] |
+|-------------------------|--------------|--------|----------|----------|
+| Description input | Expense account input (COA datalist) | Amount input (number) | VAT code select | add-row icon (+) on last child |
 
 - **Description** (`.child-desc`) — `colspan=3` (reduced from 4 in earlier versions to make room for the expense account column).
 - **Expense account** (`.child-expense-acct`) — COA datalist autocomplete (`list="coa-options"`). Pre-filled from vendor default > company default > blank.
 - **Amount** — numeric input; the net (tax-exclusive) amount for the line.
 - **VAT code** (`<select>`) — dropdown of active VAT codes, plus "— None —".
-- **GST amount** (`.child-gst`) — appears when a VAT code is selected. See [VAT/GST Handling](#vatgst-handling) below.
 - **Add-row icon** (+) — appears only on the last child row. Fades when that row is empty. Clicking creates a new child line (`addRowFromIcon` → `createDraftLine`).
 
 ## Parent Total (Gross = Net + GST)
 
-The parent row's AMOUNT cell shows the gross total (sum of each line's net + GST). This is computed identically in four contexts (the bespoke functions are gone; the framework hooks carry the same formula):
+The parent row's AMOUNT cell shows the gross total (sum of each line's net + computed VAT; when a stated VAT total is entered in the bill footer, gross = net + stated). This is computed identically in four contexts (the bespoke functions are gone; the framework hooks carry the same formula):
 
 | Context | Where it lives | Formula |
 |---------|---------------|---------|
@@ -151,7 +150,7 @@ The parent row's AMOUNT cell shows the gross total (sum of each line's net + GST
 | Direct-post payload (`totalAmt`) | Bills `p` extraBinding → `bill.create` body | Σ (net + GST) over child rows |
 | Display after saving | `cfg.list.map` (re-render from server row) | Σ (net + GST) over child rows |
 
-GST is the `.child-gst` input value. Read-only reverse-charge GST inputs are excluded from the user-facing total (the backend self-assesses them separately).
+GST is computed from each line's VAT code (no per-line VAT amount input; see [VAT/GST Handling](#vatgst-handling) below). Reverse-charge lines are computed-only and excluded from the user-facing total (the backend self-assesses them separately).
 
 ## Account Defaults (3-Tier Precedence)
 
@@ -166,34 +165,45 @@ The framework's column `display`/`attach` hooks emit `data-expense-account` and 
 ## VAT/GST Handling
 
 ### Tax-exclusive entry
-The user enters the **net** amount per line. VAT (GST) is computed on top: `expectedVat = Math.round(amount × rate × 100) / 100`.
+The user enters the **net** amount per line. VAT (GST) is computed on top: `expectedVat = Math.round(amount × rate × 100) / 100`. Lines carry **no VAT amount state** — the only per-line tax field is the VAT **code** select. (Redesign 2026-07-26: the per-line GST amount input and its auto-compute/override machinery were removed.)
 
-### GST amount input (`.child-gst`)
-- Appears when a VAT code is selected; hidden when "— None —" is chosen.
-- **Auto-computed default** — set by `_recomputeChildGst` on amount or VAT-code change: `Math.round(amount × rate × 100) / 100`.
-- **Supplier-stated override** — the user can type the GST amount shown on the supplier's invoice. This overrides the computed default. The override is stored as `vat_amount_override` on the line and sent to the backend.
-- **Reverse charge codes** — the GST input is **read-only** (self-assessed). The computed amount is always used; any override is cleared (`vatAmountOverride = null`). The input has a grey background and tooltip "Reverse charge — VAT is self-assessed (override disabled)".
+### Bill footer: Net / VAT / Gross
+In INSERT mode the bill unit renders one footer row after the last child line:
+- **Net** — Σ line amounts (read-only).
+- **VAT** (`.bill-vat-stated`) — pre-filled with the computed total (Σ per-line `amount × rate`) and **editable**: typing the VAT total from the supplier's invoice makes it *stated* (visual marker; sent as `vat_amount_stated`). Clearing the cell returns it to computed. This is the **only** VAT override surface — there are no per-line VAT amounts (agreed 2026-07-26).
+- **Gross** — Net + VAT (stated ?? computed); equals the parent row's AMOUNT total.
+- Tab flow: last child's VAT code select → footer VAT cell → (Tab again) new child row's description. The "Tab past the last field creates a new child" rule is preserved — the footer cell sits in the chain and is never a dead end.
+
+### Tax lines preview
+Below the footer, a read-only collapsible **Tax lines** group shows exactly what will post: one row per VAT code (code, tax GL account, amount), including the reverse-charge DR-input / CR-output pairs. This is the SAP-style tax-line-items view; amounts update live as lines are edited.
 
 ### Tolerance check (backend)
-When a supplier-stated VAT override is provided (and the code is not reverse charge), the backend compares the stated amount to the computed amount:
+When `vat_amount_stated` is provided, the backend compares it to the computed VAT total (non-reverse-charge lines only):
 
 ```
-tolerance = max(flat, pct × expectedVat)
+tolerance = max(flat, pct × expectedVatTotal)
 ```
 
-- If `|stated − computed| > tolerance`, a **warning** is added (does NOT block posting). The warning message includes the line number, stated amount, computed amount, and the difference, e.g.:
-  > Line 1: VAT amount 12.00 differs from computed 11.50 by 0.50 — verify supplier invoice
+- If `|stated − computed| > tolerance`, a **warning** is added (does NOT block posting), e.g.:
+  > Stated VAT 12.00 differs from computed 11.50 by 0.50 — verify supplier invoice
 - If within tolerance, no warning.
 
-**Settings** (Company tab):
+**Settings** (Company tab, unchanged):
 - `vat_tolerance` — flat amount in home currency (default `0.50`)
 - `vat_tolerance_pct` — percentage of expected VAT, `0.01` = 1% (default `0.01`)
 
 ### Journal entries (backend)
-- **Standard VAT:** one DR to the GST input account per expense line (debit = lineVat).
-- **Reverse charge:** DR input VAT + CR output VAT (net cash effect zero; both reported), using the computed amount.
+- **Standard VAT:** one DR to the VAT code's input account **per VAT code** (grouped across lines; previously per expense line). If stated ≠ computed, the rounding delta is added to the **largest** tax line (agreed 2026-07-26) so the journal always sums to the stated total.
+- **Reverse charge:** DR input VAT + CR output VAT per RC code (net zero), always the computed amount — RC lines never absorb stated-VAT deltas (self-assessed amounts must be exact). No per-line RC UI exists anymore; the pairs are visible in the Tax lines preview.
 - One DR to the expense account per line (debit = net amount).
 - One CR to the AP account for the total (net + VAT).
+- The tax GL account comes **only** from the VAT code (`vat_codes.vat_account_input` / `vat_account_output`) — per-line account overrides are removed (agreed 2026-07-26).
+- One shared server-side tax-line generator serves both the bills path and the generic journal path (`vat.js`) — no parallel tax math.
+
+### API / migration
+- `bill.lines[].vat_amount_override` and `bill.lines[].vat_account_override` are removed from the payload; the server ignores them if sent.
+- New optional header field `vat_amount_stated` (number | null) on `bill.create` / `bill.draft.save`.
+- Legacy drafts (`bills.draft_lines` JSON holding per-line overrides): on first save after upgrade, Σ(override ?? computed) becomes `vat_amount_stated` when it differs from the computed total — no legacy override is silently lost.
 
 ## Posting Flow
 
@@ -348,7 +358,7 @@ The following elements from earlier implementations are removed or simplified:
 - Direct post (`p` verb) routes to `bill.create` (inline unsaved drafts: create+post in one call) or `bill.draft.save` → `bill.draft.post` (saved drafts), via the Bills `extraBindings` `p` handler.
 - Account autocomplete (AP + expense) is the column `attach` hooks (FB.dropdown over the COA); the shared `coa-options` datalist is gone.
 - `updateParentDraftAmount` (live parent total) runs from the child renderer's input/change handlers.
-- GST recompute (`_recomputeChildGst` / `_initChildGst`) stays — computed default, supplier-stated override, reverse-charge read-only state — called from the child renderer / line sync.
+- VAT recompute (`_recomputeChildVat`) stays — computed from the line's VAT code (no per-line amount state); called from the child renderer / line sync. Stated-VAT override lives at the bill footer (`.bill-vat-stated`), not per line (redesign 2026-07-26).
 - j/k dispatch is owned by the framework's `FB.keys` registration (`'bills'`, capture phase); common.js's bubble handler is no longer reached for Bills. The `fbBillNav` capture-phase special-case in common.js is removed (2026-07-24) — the standard key dispatch path now applies to Bills like any other FB.list screen.
 - `gg` double-key logic is retained (deeply ingrained vim muscle memory); all other double-key sequences are removed.
 
@@ -476,7 +486,7 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 ### Layout (three zones + status bar)
 
 1. **Header card** — vendor (FB.dropdown, strict-validated), bill date, due date (auto from vendor payment terms, overridable), vendor ref, CCY (FB.dropdown; FX rate hint in the **status bar** on Enter — Phase 2d doctrine, no FX input field anywhere), AP account (FB.dropdown, default vendor → company → blank).
-2. **Lines table** — one row per line: description, expense account (FB.dropdown), amount, VAT code (FB.dropdown), GST amount (auto-computed, overridable — supplier-stated doctrine, tolerance warning at post). Row ops mirror the tree-table: `a` add line below, `x` delete line, `+` icon on last row (gray/faded when empty). No separate GST rows (bill-new's syncGstRow pattern dies).
+2. **Lines table** — one row per line: description, expense account (FB.dropdown), amount, VAT code (FB.dropdown); VAT is computed from the code (no per-line VAT amount input). Bill footer carries the editable stated-VAT cell (supplier-stated doctrine, tolerance warning at post). Row ops mirror the tree-table: `a` add line below, `x` delete line, `+` icon on last row (gray/faded when empty). No separate GST rows (bill-new's syncGstRow pattern dies).
 3. **Attachments panel** — list + upload + delete (the capability the tree-table lacks; reuses `/api/upload` + `attachment.list`/`attachment.delete`).
 4. **Status bar** — totals (net / GST / gross, server-computed at save), FX rate hint, validation errors naming every missing field.
 
@@ -494,7 +504,7 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 - **Load (edit-draft):** one `view.bills`-style read — bill header + embedded lines (reuse `bill.lines` shape; add `view.bill` only if attachments + header justify it).
 - **Save:** `bill.draft.save` (server computes totals from lines — P2-4 closes the client-total trust gap; the editor NEVER sends `bill.amount`).
 - **Post:** `bill.create` / `bill.draft.post`; FX resolved server-side from master data at post (no rate input, no fetchRate machinery).
-- **VAT:** per-line GST amount editable (supplier-stated, tolerance-warned at post — warnings render in the status bar, never swallowed).
+- **VAT:** computed from each line's VAT code; bill-level stated-VAT override in the footer (tolerance-warned at post — warnings render in the status bar, never swallowed).
 - **Attachments:** after first save (bill_id exists), uploads bind to the draft; unsaved-new bills stage files client-side until first save (mirrors bill-new's reenter flow, minus its FX hackery).
 
 ### Elimination inventory (bill-new.js — what dies and why)
@@ -504,7 +514,7 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 | Manual FX rate input + fetchRate/fetchAndRetry/maybeFillReenter | **Deleted** | Phase 2d doctrine: rate from master data at post; override = Settings → Exchange Rates |
 | Client-side `rebuildJournals()` preview | **Deleted** | Direct-post doctrine (preview was compensation, not safety); server validates at `p` |
 | Dialect-A account/vendor/currency dropdowns | **Deleted** | FB.dropdown everywhere (P1-7) |
-| syncGstRow separate GST rows | **Deleted** | GST lives ON the line (tree-table pattern) |
+| syncGstRow separate GST rows | **Deleted** | VAT computed from the line's VAT code (no per-line VAT amount); stated-VAT override at the bill footer (redesign 2026-07-26) |
 | Attachments panel | **Migrates** | The one capability worth keeping — rebuilt in the editor's zone 3 |
 | Form-style page chrome (`rem` typography, card styling) | **Deleted** | Editor uses app tokens/pt, sidebar, hints chrome |
 

@@ -88,7 +88,7 @@
 - **Divergent implementations:** Vendors uses cell-nav with different verbs (`d`/`~` vs `x`); `bill-new.js` is a **third, conflicting bill-entry UI** still linked from "+ Bill" and violates the spec (manual FX-rate input); settings/journal/bank/dashboard are old form-style with `pt` typography violations; receivables is a 34-line stub.
 - **Fragile duality:** `cursor._mode` (page) vs `_fbVimMode` (common.js) coexist via capture-phase `stopImmediatePropagation`.
 - **Discoverability broken:** "?" button has no handler; `:` palette dispatches to undefined `fbCmdDispatch`; footer hints stale ("o new bill/line"); no help overlay.
-- **Warnings swallowed:** backend VAT tolerance warnings are returned but never rendered (`_sendPost` handles errors only).
+- ~~**Warnings swallowed**~~ **Fixed 2026-07-26** (VAT redesign): post paths render `data.warnings` in the status bar ("Posted with warning: …", warn level). The same redesign fixed a latent RC bug: reverse-charge bills previously posted **unbalanced journals** (AP credit included self-assessed RC VAT; `bills.vat_amount` double-counted RC) — AP is now net + standard VAT only.
 - **Duplication:** `esc`/`fmtDate`/`statusBadge`/account-autocomplete/keyboard-nav reimplemented 3–4× each across pages.
 - **Dead code:** `bill.draft.preview` endpoint + `.preview-row` CSS, pagination in `payables-bills.js`, `.bak` files, `fbOpenCmdPalette` no-op.
 

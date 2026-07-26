@@ -65,7 +65,7 @@
 - Void-not-delete: posted bills void with automatic journal reversal; paid/partial bills refuse void. Journal entries never deleted — reversal entries only, double-reverse guarded.
 - Period lock enforced server-side (`validation.js`, `bills.js`, `journal.reverse`, import).
 - Draft→post is UPDATE-in-place: preserves `bill_id`, `created_at`, attachments.
-- Tax-exclusive bill entry; supplier-stated VAT override with tolerance `max(flat, pct×expected)` — warn, not block; reverse-charge read-only.
+- Tax-exclusive bill entry; VAT always computed from the line's VAT code (no per-line VAT amounts); bill-level stated-VAT override (editable footer cell) with tolerance `max(flat, pct×expected)` — warn, not block; tax posted as separate journal lines grouped per VAT code, rounding delta on largest line; reverse-charge computed-only DR/CR pairs (redesign ratified 2026-07-26).
 - Exact-date-only FX resolution; settlement FX gain/loss via booking-rate method; `integrity()` macro as detective control.
 
 **Gaps (evidence):**

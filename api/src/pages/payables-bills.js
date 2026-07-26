@@ -567,12 +567,13 @@ function billsChildren(row) {
   // and only those carry a lines array (bill.list.map sets none), so this
   // branch is inert for plain saved rows (which fall through to the fetch).
   if (row._dirty && Array.isArray(row.lines)) {
-    return row.lines.map(function (l) {
+    var _dl = row.lines.map(function (l) {
       return { _kind: 'draft-line', entry_id: l.entry_id || '',
         description: l.description || '', amount: Number(l.amount || 0),
         expense_account: l.expense_account || '',
         vat_code: l.vat_code || '' };
     });
+    return _dl.concat(billCodeFooterRows(row.lines, row.vat_amount_stated));
   }
   var k = row._key;
   var c = billChildCache[k];
@@ -639,7 +640,7 @@ function billsMergeChildRows(cache, parent) {
         expense_account: l.expense_account || l.account_code || '',
         vat_code: l.vat_code || '' });
     });
-    return out;
+    return out.concat(billCodeFooterRows(lines, Number(parent.vat_amount) > 0 ? Number(parent.vat_amount) : null));
   }
   // Posted: expense lines (journal expense rows carry no vat_code), then the
   // GROUPED tax lines (one DR per VAT code — 2026-07-26), then payment history.
@@ -722,12 +723,13 @@ function billRefreshParentTotal(childTr) {
   var ptr = childTr.previousElementSibling;
   while (ptr && ptr.dataset && ptr.dataset.childOf === key) ptr = ptr.previousElementSibling;
   if (!ptr) return;
-  var net = 0, stdVat = 0;
+  var lines = [], net = 0, stdVat = 0;
   var sib = ptr.nextElementSibling;
   while (sib && sib.dataset && sib.dataset.childOf === key) {
     var amt = parseFloat((sib.querySelector('.child-amt') || {}).value) || 0;
     var code = ((sib.querySelector('.child-vat') || {}).value || '').trim();
     var info = code ? taxCodeRateMap[code] : null;
+    lines.push({ amount: amt, vat_code: code });
     net += amt;
     if (info && !info.is_reverse_charge) stdVat += Math.round(amt * Number(info.rate) * 100) / 100;
     sib = sib.nextElementSibling;
@@ -735,53 +737,80 @@ function billRefreshParentTotal(childTr) {
   var ftr = ptr.parentNode.querySelector('tr.fb-edit-footer[data-footer-of="' + key + '"]');
   var statedInp = ftr && ftr.querySelector('.bill-vat-stated');
   var stated = (statedInp && statedInp.dataset.stated === '1' && statedInp.value !== '') ? (parseFloat(statedInp.value) || 0) : null;
-  var vat = (stated !== null) ? stated : stdVat;
-  var gross = net + vat;
+  var gross = net + ((stated !== null) ? stated : stdVat);
   var cell = ptr.querySelector('td[data-field="amount"]');
   if (cell) cell.innerHTML = '<span class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + gross.toFixed(2) + '</span>';
-  if (ftr) billRenderFooter(ftr, key, net, vat, gross);
+  if (ftr) billRenderFooter(ftr, key, lines, stated, stdVat);
 }
 
-// ── Bill footer (INSERT mode): Net / VAT / Gross + collapsible tax-lines ──
-// preview (redesign 2026-07-26). The VAT cell is pre-filled with the computed
-// total and is the ONLY VAT override surface: typing makes it "stated"
-// (stored on the bill buffer as vat_amount_stated, amber tint); clearing
-// returns it to computed. Tax lines show exactly what will post per VAT code.
+// ── Bill footer (2026-07-26, rev): ONE footer row per VAT code, visible in ──
+// BOTH read-only (fold open) and edit mode. Each row states the code + its
+// description and the code's VAT amount. When a stated VAT total exists, the
+// delta is applied to the largest standard code (mirrors the posting rule) so
+// the rows always sum to the stated total. Reverse-charge codes get their own
+// rows (self-assessed — never part of the gross owed to the vendor).
+function billCodeFooterRows(lines, stated) {
+  var std = {}, rc = {}, order = [];
+  (lines || []).forEach(function (l) {
+    var code = ((l && l.vat_code) || '').trim();
+    if (!code) return;
+    var info = taxCodeRateMap[code];
+    if (!info) return;
+    var v = Math.round((parseFloat(l.amount) || 0) * Number(info.rate) * 100) / 100;
+    var bucket = info.is_reverse_charge ? rc : std;
+    if (!(code in bucket)) order.push(code);
+    bucket[code] = (bucket[code] || 0) + v;
+  });
+  var stdTotal = Object.keys(std).reduce(function (s, c) { return s + std[c]; }, 0);
+  var _st = (stated != null && !isNaN(Number(stated))) ? Number(stated) : null;
+  if (_st !== null && stdTotal > 0) {
+    var largest = null;
+    Object.keys(std).forEach(function (c) { if (std[c] > 0 && (largest === null || std[c] >= std[largest])) largest = c; });
+    if (largest !== null) std[largest] = Math.round((std[largest] + (_st - stdTotal)) * 100) / 100;
+  }
+  var rows = [];
+  order.forEach(function (code) {
+    var info = taxCodeRateMap[code];
+    var amt = info.is_reverse_charge ? rc[code] : std[code];
+    if (!amt) return;
+    var codeDesc = taxCodeMap[code];
+    rows.push({ _kind: 'gst', entry_id: '', vat_code: code, amount: amt,
+      label: codeDesc ? code + ': ' + codeDesc : code });
+  });
+  return rows;
+}
+
+// The edit-mode footer row carries ONLY the stated-VAT cell (the sole VAT
+// override surface): pre-filled computed, amber when stated, cleared = back
+// to computed. Net/Gross are not duplicated here — gross lives on the parent
+// row's AMOUNT cell.
 function billFooterHtml(parent) {
-  return '<td colspan="3" style="color:#666;font-size:0.85em">Totals — Net <b class="bf-net">0.00</b> · Gross <b class="bf-gross">0.00</b></td>'
+  return '<td colspan="3" style="color:#666;font-size:0.85em">VAT (supplier-stated total — pre-filled computed; edit to match the invoice; clear to return to computed)</td>'
     + '<td></td>'
-    + '<td class="amt"><input class="draft-input bill-vat-stated" type="number" step="0.01" title="Supplier-stated VAT total — pre-filled computed; edit to match the supplier invoice; clear to return to computed" style="text-align:right" /></td>'
+    + '<td class="amt"><input class="draft-input bill-vat-stated" type="number" step="0.01" title="Supplier-stated VAT total" style="text-align:right" /></td>'
     + '<td class="child-spacer"></td>'
-    + '<td style="font-size:0.75rem"><a href="javascript:void(0)" class="bf-tax-toggle" style="color:#888">▸ Tax lines</a></td>'
+    + '<td></td>'
     + '<td></td>';
 }
-function billTaxPreviewHtml(key, tbodyEl) {
-  var std = {}, rc = {};
-  Array.from(tbodyEl.querySelectorAll('tr[data-child-of="' + key + '"]')).forEach(function (tr) {
-    var amt = parseFloat((tr.querySelector('.child-amt') || {}).value) || 0;
-    var code = ((tr.querySelector('.child-vat') || {}).value || '').trim();
-    var info = code ? taxCodeRateMap[code] : null;
-    if (!info) return;
-    var v = Math.round(amt * Number(info.rate) * 100) / 100;
-    if (info.is_reverse_charge) rc[code] = (rc[code] || 0) + v; else std[code] = (std[code] || 0) + v;
-  });
-  var parts = [];
-  Object.keys(std).forEach(function (c) { if (std[c] > 0) parts.push(c + ': DR ' + std[c].toFixed(2)); });
-  Object.keys(rc).forEach(function (c) { if (rc[c] > 0) parts.push(c + ': DR ' + rc[c].toFixed(2) + ' / CR ' + rc[c].toFixed(2) + ' (self-assessed)'); });
-  return parts.length ? parts.join(' · ') : 'No tax lines';
-}
-function billRenderFooter(ftr, key, net, vat, gross) {
-  var n = ftr.querySelector('.bf-net'); if (n) n.textContent = net.toFixed(2);
-  var g = ftr.querySelector('.bf-gross'); if (g) g.textContent = gross.toFixed(2);
+
+// Rebuild the per-code footer rows ahead of the stated-VAT row and prefill
+// the stated cell with the computed total while it is untouched.
+function billRenderFooter(ftr, key, lines, stated, stdVat) {
   var inp = ftr.querySelector('.bill-vat-stated');
   if (inp) {
-    if (inp.dataset.stated !== '1') inp.value = vat.toFixed(2);
+    if (inp.dataset.stated !== '1') inp.value = stdVat.toFixed(2);
     inp.style.color = inp.dataset.stated === '1' ? '#b26a00' : '';
   }
-  var pv = ftr.nextElementSibling;
-  if (pv && pv.classList.contains('fb-tax-preview-row') && pv.style.display !== 'none' && pv.firstElementChild) {
-    pv.firstElementChild.innerHTML = billTaxPreviewHtml(key, ftr.parentNode);
-  }
+  Array.from(ftr.parentNode.querySelectorAll('tr.fb-code-footer[data-footer-of="' + key + '"]')).forEach(function (tr) { tr.remove(); });
+  billCodeFooterRows(lines, stated).forEach(function (r) {
+    var tr = document.createElement('tr');
+    tr.className = 'fb-code-footer child-row';
+    tr.dataset.footerOf = key;
+    tr.innerHTML = '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + esc(r.label) + '</td>'
+      + '<td class="amt" style="text-align:right;font-variant-numeric:tabular-nums;color:#888">' + r.amount.toFixed(2) + '</td>'
+      + '<td class="child-spacer"></td><td></td><td></td>';
+    ftr.parentNode.insertBefore(tr, ftr);
+  });
 }
 function billAttachFooter(ftr, parent) {
   var key = String(parent._key);
@@ -804,19 +833,6 @@ function billAttachFooter(ftr, parent) {
       if (kid) billRefreshParentTotal(kid);
     });
   }
-  // Collapsible tax-lines preview row (a second <tr>; render() removes it).
-  var pv = document.createElement('tr');
-  pv.className = 'fb-tax-preview-row';
-  pv.style.display = 'none';
-  pv.innerHTML = '<td colspan="8" style="color:#888;font-size:0.75rem;font-style:italic;padding-left:24px"></td>';
-  ftr.insertAdjacentElement('afterend', pv);
-  var tog = ftr.querySelector('.bf-tax-toggle');
-  if (tog) tog.addEventListener('click', function () {
-    var open = pv.style.display !== 'none';
-    pv.style.display = open ? 'none' : '';
-    tog.textContent = (open ? '▸' : '▾') + ' Tax lines';
-    if (!open && pv.firstElementChild) pv.firstElementChild.innerHTML = billTaxPreviewHtml(key, ftr.parentNode);
-  });
   // Tab from the stated-VAT cell → new child row (same hasData rule as the
   // child chain); Shift+Tab → back to the last child's VAT code input.
   ftr.addEventListener('keydown', function (e) {

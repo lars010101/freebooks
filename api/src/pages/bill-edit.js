@@ -110,6 +110,7 @@ ${commonStyle()}
     <button class="btn-plain" id="be-save" type="button">Back (q)</button>
     <span class="be-msg" id="be-msg"></span>
     <div class="be-totals">
+      <div id="be-code-rows" style="width:100%;font-size:8.5pt;color:#888;font-style:italic"></div>
       <span>Net <b id="be-tot-net">0.00</b></span>
       <span title="Supplier-stated VAT total — pre-filled computed; edit to match the supplier invoice; clear to return to computed">GST <input id="be-tot-gst" class="bill-vat-stated" type="number" step="0.01" style="width:90px;text-align:right"></span>
       <span>Gross <b id="be-tot-gross">0.00</b></span>
@@ -357,18 +358,37 @@ function collectLines() {
 }
 function updateTotals() {
   // VAT is computed per line from its code (lines carry no VAT amounts —
-  // redesign 2026-07-26); the footer cell shows the computed total unless the
-  // user typed a supplier-stated amount. Reverse-charge is self-assessed and
-  // never part of the gross owed to the vendor.
+  // redesign 2026-07-26). One footer row per VAT code states the code + its
+  // description and amount; a stated total applies its delta to the largest
+  // standard code (mirrors the posting rule) so the rows sum to the stated
+  // total. Reverse-charge is self-assessed and never part of the gross.
   const lines = collectLines();
   const net = lines.reduce((s, l) => s + l.amount, 0);
-  const computed = lines.reduce((s, l) => {
-    const v = S.vatCodes.find(x => x.vat_code === l.vat_code);
-    return (v && !v.is_reverse_charge) ? s + Math.round(l.amount * vatRateOf(l.vat_code) * 100) / 100 : s;
-  }, 0);
   const el = document.getElementById('be-tot-gst');
   const stated = (el.dataset.stated === '1' && el.value !== '') ? (parseFloat(el.value) || 0) : null;
-  const gst = stated !== null ? stated : computed;
+  const std = {}, rc = {}, order = [];
+  lines.forEach(l => {
+    const v = S.vatCodes.find(x => x.vat_code === l.vat_code);
+    if (!v) return;
+    const amt = Math.round(l.amount * vatRateOf(l.vat_code) * 100) / 100;
+    const bucket = v.is_reverse_charge ? rc : std;
+    if (!(l.vat_code in bucket)) order.push(l.vat_code);
+    bucket[l.vat_code] = (bucket[l.vat_code] || 0) + amt;
+  });
+  const stdTotal = Object.keys(std).reduce((s, c) => s + std[c], 0);
+  if (stated !== null && stdTotal > 0) {
+    let largest = null;
+    Object.keys(std).forEach(c => { if (std[c] > 0 && (largest === null || std[c] >= std[largest])) largest = c; });
+    if (largest !== null) std[largest] = Math.round((std[largest] + (stated - stdTotal)) * 100) / 100;
+  }
+  const rowsEl = document.getElementById('be-code-rows');
+  if (rowsEl) rowsEl.innerHTML = order.map(c => {
+    const v = S.vatCodes.find(x => x.vat_code === c);
+    const amt = v.is_reverse_charge ? rc[c] : std[c];
+    if (!amt) return '';
+    return '<div>' + FB.util.esc(c + ': ' + (v.description || c)) + ' — ' + amt.toFixed(2) + '</div>';
+  }).join('');
+  const gst = stated !== null ? stated : stdTotal;
   if (el.dataset.stated !== '1') el.value = gst.toFixed(2);
   el.style.color = stated !== null ? '#b26a00' : '';
   document.getElementById('be-tot-net').textContent = net.toFixed(2);

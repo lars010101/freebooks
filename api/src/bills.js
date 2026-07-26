@@ -50,7 +50,9 @@ function applyCompanyDefaults(bill, defaults) {
 // Read VAT tolerance settings for a company. Returns { flat, pct } where:
 //   flat = flat amount in home currency (default 0.50)
 //   pct  = percentage of computed VAT, 0.01 = 1% (default 0.01)
-// Override is accepted when |stated - computed| <= max(flat, pct * computed).
+// The bill-level stated VAT total is always accepted; a warning is emitted when
+// |stated - computed| > max(flat, pct * computed), computed = Σ over standard
+// (non-reverse-charge) lines. Redesign 2026-07-26.
 async function getVatTolerance(companyId) {
   const rows = await query(
     `SELECT key, value FROM settings WHERE company_id = @companyId AND key IN ('vat_tolerance', 'vat_tolerance_pct')`,
@@ -67,10 +69,6 @@ async function getVatTolerance(companyId) {
   return { flat, pct };
 }
 
-// Compute the tolerance for a single line: max(flat, pct * expectedVat).
-function _vatToleranceFor(flat, pct, expectedVat) {
-  return Math.max(flat, expectedVat * pct);
-}
 
 async function handleBills(ctx, action) {
   switch (action) {
@@ -136,7 +134,7 @@ async function createBill(ctx) {
   const companyDefaults = await getCompanyDefaultAccounts(companyId);
   applyCompanyDefaults(bill, companyDefaults);
 
-  // VAT tolerance settings (used when supplier-stated VAT override is provided)
+  // VAT tolerance settings (used when a bill-level stated VAT total is provided)
   const vatTolerance = await getVatTolerance(companyId);
 
   // Pre-resolve lines for validation (amount + expense_account needed by validateBill)
@@ -295,14 +293,15 @@ async function createBill(ctx) {
   const lines = [];
   const desc = [bill.vendor, bill.vendor_ref, bill.description].filter(Boolean).join(' / ');
 
-  // One DR line per expense line
-  let _billLineIdx = 0;
+  // One DR line per expense line. VAT is accumulated per VAT code and posted
+  // as GROUPED tax lines after the loop (redesign 2026-07-26: computed-only
+  // line tax, bill-level stated VAT, one tax journal line per code).
+  const stdTaxByCode = {}; // standard code -> { account, computed, net }
+  const rcTaxByCode = {};  // reverse-charge code -> { inputAccount, outputAccount, computed, net }
   for (const expLine of expenseLines) {
     const lineAmount = Number(expLine.amount || 0);
-    let lineNet = lineAmount;
-    let lineVat = 0;
+    const lineNet = lineAmount; // tax-exclusive — the user entered the net amount
     if (expLine.vat_code && company.vat_registered) {
-      // Tax-exclusive: net = lineAmount, vat = lineAmount × rate (added on top)
       const vatRows = await query(
         `SELECT rate, vat_account_input, vat_account_output, is_reverse_charge
          FROM vat_codes WHERE company_id = @companyId AND vat_code = @vatCode AND is_active = true LIMIT 1`,
@@ -310,46 +309,70 @@ async function createBill(ctx) {
       );
       if (vatRows.length > 0) {
         const vc = vatRows[0];
-        const rate = Number(vc.rate);
-        const expectedVat = Math.round(lineAmount * rate * 100) / 100;
-        // Reverse charge: VAT is self-assessed — ignore any supplier-stated
-        // override and always use the computed amount.
+        const expectedVat = Math.round(lineAmount * Number(vc.rate) * 100) / 100;
         if (vc.is_reverse_charge) {
-          lineVat = expectedVat;
-        } else if (expLine.vat_amount_override !== null && expLine.vat_amount_override !== undefined && !isNaN(Number(expLine.vat_amount_override))) {
-          // Supplier-stated VAT override: always accepted, but warn if the
-          // difference exceeds the configured tolerance.
-          lineVat = Number(expLine.vat_amount_override);
-          const diff = Math.abs(lineVat - expectedVat);
-          const tol = _vatToleranceFor(vatTolerance.flat, vatTolerance.pct, expectedVat);
-          if (diff > tol) {
-            validation.warnings.push(`Line ${_billLineIdx + 1}: VAT amount ${lineVat.toFixed(2)} differs from computed ${expectedVat.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`);
-          }
+          const b = rcTaxByCode[expLine.vat_code] || (rcTaxByCode[expLine.vat_code] = { inputAccount: vc.vat_account_input, outputAccount: vc.vat_account_output, computed: 0, net: 0 });
+          b.computed += expectedVat;
+          b.net += lineNet;
         } else {
-          lineVat = expectedVat;
-        }
-        const vatInputAccount = expLine.vat_account_override || vc.vat_account_input;
-        // lineNet stays = lineAmount (tax-exclusive — the user entered the net amount)
-
-        if (vc.is_reverse_charge) {
-          // Reverse charge: DR input VAT, CR output VAT (net effect zero on cash, but both reported)
-          lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: vc.vat_account_input, debit: lineVat, credit: 0, currency, fx_rate: fxRate, debit_home: lineVat * fxRate, credit_home: 0, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: `Input VAT RC: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
-          lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: vc.vat_account_output, debit: 0, credit: lineVat, currency, fx_rate: fxRate, debit_home: 0, credit_home: lineVat * fxRate, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: 0, net_amount_home: 0, description: `Output VAT RC: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
-        } else {
-          // Standard input VAT: DR GST input account (one entry per expense line)
-          lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: vatInputAccount, debit: lineVat, credit: 0, currency, fx_rate: fxRate, debit_home: lineVat * fxRate, credit_home: 0, vat_code: expLine.vat_code, vat_amount: lineVat, vat_amount_home: lineVat * fxRate, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: `GST Input: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+          const b = stdTaxByCode[expLine.vat_code] || (stdTaxByCode[expLine.vat_code] = { account: vc.vat_account_input, computed: 0, net: 0 });
+          b.computed += expectedVat;
+          b.net += lineNet;
         }
       }
     }
     const lineDesc = expLine.description ? `${desc} / ${expLine.description}` : desc;
     lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: expLine.expense_account, debit: lineNet, credit: 0, currency, fx_rate: fxRate, debit_home: lineNet * fxRate, credit_home: 0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: lineDesc, reference: apRef, source: 'manual', cost_center: expLine.cost_center || bill.cost_center || null, profit_center: expLine.profit_center || bill.profit_center || null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
-    _billLineIdx++;
   }
 
-  // Compute post-loop totals: total debit = net + VAT (used for AP credit and bill record)
-  const totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
-  const totalVatAmount = lines.filter(l => l.vat_amount > 0).reduce((s, l) => s + Number(l.vat_amount || 0), 0);
+  // Bill-level supplier-stated VAT (redesign 2026-07-26) — the only override
+  // surface. Compared against Σ computed over standard (non-RC) codes; the
+  // delta lands on the largest computed tax line. RC lines never absorb it.
+  const computedStdTotal = Math.round(Object.values(stdTaxByCode).reduce((s, b) => s + b.computed, 0) * 100) / 100;
+  const _statedRaw = bill.vat_amount_stated;
+  const statedVat = (_statedRaw !== null && _statedRaw !== undefined && _statedRaw !== '' && !isNaN(Number(_statedRaw))) ? Number(_statedRaw) : null;
+  if (statedVat !== null) {
+    const eligible = Object.keys(stdTaxByCode).filter((c) => stdTaxByCode[c].computed > 0);
+    if (eligible.length === 0) {
+      validation.warnings.push('Stated VAT ignored — no taxable (non-reverse-charge) lines on this bill; check VAT codes');
+    } else {
+      const diff = Math.abs(statedVat - computedStdTotal);
+      const tol = Math.max(vatTolerance.flat, computedStdTotal * vatTolerance.pct);
+      if (diff > tol) {
+        validation.warnings.push(`Stated VAT ${statedVat.toFixed(2)} differs from computed ${computedStdTotal.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`);
+      }
+      const largest = eligible.reduce((a, b) => (stdTaxByCode[a].computed >= stdTaxByCode[b].computed ? a : b));
+      stdTaxByCode[largest].computed += Math.round((statedVat - computedStdTotal) * 100) / 100;
+    }
+  }
+
+  // Grouped tax lines: one DR per standard VAT code; RC pairs per RC code.
+  // Zero-amount tax rows are not written (a zero-rated code produces no row).
+  let totalStdVat = 0;
+  let totalRcVat = 0;
+  for (const code of Object.keys(stdTaxByCode)) {
+    const b = stdTaxByCode[code];
+    const amt = Math.round(b.computed * 100) / 100;
+    if (amt === 0) continue;
+    totalStdVat += amt;
+    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: b.account, debit: amt, credit: 0, currency, fx_rate: fxRate, debit_home: amt * fxRate, credit_home: 0, vat_code: code, vat_amount: amt, vat_amount_home: amt * fxRate, net_amount: b.net, net_amount_home: b.net * fxRate, description: `GST Input: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+  }
+  for (const code of Object.keys(rcTaxByCode)) {
+    const b = rcTaxByCode[code];
+    const amt = Math.round(b.computed * 100) / 100;
+    if (amt === 0) continue;
+    totalRcVat += amt;
+    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: b.inputAccount, debit: amt, credit: 0, currency, fx_rate: fxRate, debit_home: amt * fxRate, credit_home: 0, vat_code: code, vat_amount: amt, vat_amount_home: amt * fxRate, net_amount: b.net, net_amount_home: b.net * fxRate, description: `Input VAT RC: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: b.outputAccount, debit: 0, credit: amt, currency, fx_rate: fxRate, debit_home: 0, credit_home: amt * fxRate, vat_code: code, vat_amount: amt, vat_amount_home: amt * fxRate, net_amount: 0, net_amount_home: 0, description: `Output VAT RC: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+  }
+
+  // Totals for the AP credit and the bill record. AP owes net + standard VAT
+  // only: reverse-charge VAT is self-assessed (its DR/CR pair nets to zero
+  // inside the journal) and is never owed to the vendor. bills.vat_amount
+  // counts DR tax rows only (standard incl. stated delta + RC input).
   const totalNetAmount = lines.filter(l => l.net_amount > 0 && !l.vat_code).reduce((s, l) => s + Number(l.net_amount || 0), 0) || totalAmount;
+  const totalVatAmount = totalStdVat + totalRcVat;
+  const totalDebit = totalNetAmount + totalStdVat;
 
   // Single CR AP line for total (net + VAT)
   lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: bill.ap_account, debit: 0, credit: totalDebit, currency, fx_rate: fxRate, debit_home: 0, credit_home: totalDebit * fxRate, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, description: `AP: ${desc}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
@@ -774,40 +797,57 @@ async function saveDraftBill(ctx) {
   const now = new Date().toISOString();
   // P2-4: draft totals are computed server-side from lines (editor never sends
   // bill.amount); the client value is only a fallback for line-less drafts.
-  // The total is GROSS (net + GST) so the parent row matches the live editor
-  // total. GST per line: supplier-stated override wins, otherwise amount ×
-  // rate looked up from vat_codes (reverse-charge GST is included in gross).
+  // The total is GROSS (net + VAT) so the parent row matches the live editor
+  // total. VAT per line is always computed (amount × rate from vat_codes) —
+  // the only override surface is the bill-level stated VAT total (redesign
+  // 2026-07-26). Reverse-charge VAT is self-assessed and never owed to the
+  // vendor, so it is NOT part of the bill gross.
   let totalAmount;
+  let statedForDraft = null;
   if (Array.isArray(bill.lines) && bill.lines.length) {
-    // Build a rate cache for the VAT codes referenced by the lines.
+    // Build a rate/RC cache for the VAT codes referenced by the lines.
     const seenCodes = Array.from(new Set(
       bill.lines.map(l => (l && l.vat_code ? String(l.vat_code).trim() : '')).filter(Boolean)
     ));
-    const rateCache = {};
+    const rateCache = {}; // code -> { rate, rc }
     if (seenCodes.length) {
       const placeholders = seenCodes.map((_, i) => `@vc${i}`).join(',');
       const params = { companyId };
       seenCodes.forEach((c, i) => { params[`vc${i}`] = c; });
       const rateRows = await query(
-        `SELECT vat_code, rate FROM vat_codes WHERE company_id = @companyId AND vat_code IN (${placeholders}) AND is_active = true`,
+        `SELECT vat_code, rate, is_reverse_charge FROM vat_codes WHERE company_id = @companyId AND vat_code IN (${placeholders}) AND is_active = true`,
         params
       );
-      for (const r of rateRows) rateCache[r.vat_code] = Number(r.rate);
+      for (const r of rateRows) rateCache[r.vat_code] = { rate: Number(r.rate), rc: !!r.is_reverse_charge };
     }
-    totalAmount = bill.lines.reduce((s, l) => {
+    let netTotal = 0, stdComputed = 0, legacyStatedSum = 0, sawLegacyOverride = false;
+    for (const l of bill.lines) {
       const amt = Number(l.amount || 0);
-      let gst = 0;
+      netTotal += amt;
+      const code = (l && l.vat_code ? String(l.vat_code).trim() : '');
+      const info = code ? rateCache[code] : undefined;
+      const computed = info ? Math.round(amt * info.rate * 100) / 100 : 0;
+      if (info && info.rc) continue; // RC: self-assessed, always computed, never stated
+      stdComputed += computed;
       const ov = l.vat_amount_override;
       if (ov !== null && ov !== undefined && ov !== '' && !isNaN(Number(ov))) {
-        gst = Number(ov);
+        legacyStatedSum += Number(ov);
+        sawLegacyOverride = true;
       } else {
-        const code = (l.vat_code || '').trim();
-        if (code && rateCache[code] !== undefined) {
-          gst = Math.round(amt * rateCache[code] * 100) / 100;
-        }
+        legacyStatedSum += computed;
       }
-      return s + amt + gst;
-    }, 0);
+    }
+    // Bill-level stated VAT: the explicit field wins; otherwise lift legacy
+    // per-line overrides (pre-2026-07-26 drafts) so they are not silently lost.
+    const raw = bill.vat_amount_stated;
+    if (raw !== null && raw !== undefined && raw !== '' && !isNaN(Number(raw))) {
+      statedForDraft = Number(raw);
+    } else if (sawLegacyOverride && Math.round((legacyStatedSum - stdComputed) * 100) / 100 !== 0) {
+      statedForDraft = Math.round(legacyStatedSum * 100) / 100;
+    }
+    // Stated VAT only counts toward gross when taxable (non-RC) lines exist —
+    // mirrors createBill, which ignores stated otherwise (with a warning).
+    totalAmount = netTotal + ((statedForDraft !== null && stdComputed > 0) ? statedForDraft : stdComputed);
   } else {
     totalAmount = parseFloat(bill.amount) || 0;
   }
@@ -829,7 +869,7 @@ async function saveDraftBill(ctx) {
     // blank as missing at post time.
     ap_account: bill.ap_account || '',
     vat_code: null,
-    vat_amount: 0,
+    vat_amount: statedForDraft !== null ? statedForDraft : 0, // drafts: holds the bill-level stated VAT total (0 = none)
     net_amount: totalAmount,
     cost_center: bill.cost_center || null,
     profit_center: bill.profit_center || null,
@@ -844,8 +884,8 @@ async function saveDraftBill(ctx) {
   if (existing.length) {
     // update existing draft
     await query(
-      `UPDATE bills SET vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, cost_center=@cost_center, profit_center=@profit_center, description=@description, draft_lines=@draft_lines WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
-      { vendor: billRow.vendor, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, cost_center: billRow.cost_center, profit_center: billRow.profit_center, description: billRow.description, draft_lines: bill.lines ? JSON.stringify(bill.lines) : null, bill_id: billId, company_id: companyId }
+      `UPDATE bills SET vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, vat_amount=@vat_amount, cost_center=@cost_center, profit_center=@profit_center, description=@description, draft_lines=@draft_lines WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
+      { vendor: billRow.vendor, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, vat_amount: billRow.vat_amount, cost_center: billRow.cost_center, profit_center: billRow.profit_center, description: billRow.description, draft_lines: bill.lines ? JSON.stringify(bill.lines) : null, bill_id: billId, company_id: companyId }
     );
   } else {
     await bulkInsert('bills', [billRow]);
@@ -903,20 +943,52 @@ async function postDraftBill(ctx) {
           amount: Number(l.amount),
           vat_code: l.vat_code || null,
           description: l.description || '',
-          vat_amount_override: (l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null,
-          vat_account_override: l.vat_account_override || null,
           cost_center: l.cost_center || null,
           profit_center: l.profit_center || null,
         };
       })
     : [
-        { expense_account: bill.expense_account, amount: bill.amount, vat_code: bill.vat_code || null, description: bill.description || '', vat_amount_override: null, vat_account_override: null },
+        { expense_account: bill.expense_account, amount: bill.amount, vat_code: bill.vat_code || null, description: bill.description || '' },
       ];
 
   // Overrides from the post review popup (e.g. user-edited lines) take precedence
   const finalLines = (overrides && Array.isArray(overrides.lines) && overrides.lines.length > 0)
     ? overrides.lines
     : resolvedLines;
+
+  // Bill-level stated VAT (redesign 2026-07-26). Precedence: explicit value
+  // from the post popup → value stored on the draft row at save time
+  // (bills.vat_amount holds the stated total for drafts; 0 = none) → lift
+  // legacy per-line overrides from pre-redesign draft JSON so the
+  // supplier-stated total is not silently lost.
+  let statedForPost = null;
+  const _rawStated = overrides && overrides.vat_amount_stated;
+  if (_rawStated !== null && _rawStated !== undefined && _rawStated !== '' && !isNaN(Number(_rawStated))) {
+    statedForPost = Number(_rawStated);
+  } else if (Number(draft.vat_amount) > 0) {
+    statedForPost = Number(draft.vat_amount);
+  } else if (Array.isArray(draftLines) && draftLines.some(l => l && l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override)))) {
+    const _codes = Array.from(new Set(draftLines.map(l => (l && l.vat_code ? String(l.vat_code).trim() : '')).filter(Boolean)));
+    const _info = {};
+    if (_codes.length) {
+      const _ph = _codes.map((_, i) => `@c${i}`).join(',');
+      const _params = { companyId };
+      _codes.forEach((c, i) => { _params[`c${i}`] = c; });
+      const _rows = await query(`SELECT vat_code, rate, is_reverse_charge FROM vat_codes WHERE company_id = @companyId AND vat_code IN (${_ph}) AND is_active = true`, _params);
+      for (const r of _rows) _info[r.vat_code] = { rate: Number(r.rate), rc: !!r.is_reverse_charge };
+    }
+    let _lifted = 0, _computedStd = 0;
+    for (const l of draftLines) {
+      const _amt = Number(l.amount || 0);
+      const _ci = l.vat_code ? _info[String(l.vat_code).trim()] : undefined;
+      if (_ci && _ci.rc) continue; // RC overrides were always ignored (read-only)
+      const _computed = _ci ? Math.round(_amt * _ci.rate * 100) / 100 : 0;
+      _computedStd += _computed;
+      const _ov = l.vat_amount_override;
+      _lifted += (_ov !== null && _ov !== undefined && !isNaN(Number(_ov))) ? Number(_ov) : _computed;
+    }
+    if (Math.round((_lifted - _computedStd) * 100) / 100 !== 0) statedForPost = Math.round(_lifted * 100) / 100;
+  }
 
   // Reuse createBill logic by delegating
   return createBill({
@@ -938,6 +1010,7 @@ async function postDraftBill(ctx) {
         description: bill.description,
         fx_rate: bill.fx_rate,
         lines: finalLines,
+        vat_amount_stated: statedForPost,
       },
       _replaceDraftId: billId, // signal to createBill to UPDATE the draft row in-place
     }

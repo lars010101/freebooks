@@ -193,7 +193,7 @@ tolerance = max(flat, pct × expectedVatTotal)
 - `vat_tolerance_pct` — percentage of expected VAT, `0.01` = 1% (default `0.01`)
 
 ### Journal entries (backend)
-- **Standard VAT:** one DR to the VAT code's input account **per VAT code** (grouped across lines; previously per expense line). If stated ≠ computed, the rounding delta is added to the **largest** tax line (agreed 2026-07-26) so the journal always sums to the stated total.
+- **Standard VAT:** one DR to the VAT code's input account **per VAT code** (grouped across lines; previously per expense line) — the per-code split is what per-rate / GST-return reporting reads, so codes are never merged into one lump. If stated ≠ computed, the rounding delta is added to the **largest** tax line by computed amount (agreed 2026-07-26) so the journal always sums to the stated total. The delta is allocated **only among standard (non-RC) lines with computed VAT > 0**; if no such line exists (e.g. all lines zero-rated/exempt), the stated amount is ignored and a warning is emitted — a stated VAT total on an all-zero-rated bill is almost always a wrong-code data-entry error. With one stated total and multiple taxable codes the true per-code split of a variance is unknowable; largest-line allocation keeps any per-box misstatement bounded by the tolerance check.
 - **Reverse charge:** DR input VAT + CR output VAT per RC code (net zero), always the computed amount — RC lines never absorb stated-VAT deltas (self-assessed amounts must be exact). No per-line RC UI exists anymore; the pairs are visible in the Tax lines preview.
 - One DR to the expense account per line (debit = net amount).
 - One CR to the AP account for the total (net + VAT).

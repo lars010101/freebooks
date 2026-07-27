@@ -37,7 +37,19 @@
 
 **Audit trail gap closed** (2026-07-25, PR #36): `setup.add_company` is audited under the created company (was silently dropped on the NOT NULL constraint).
 
-**Open by priority:** Bank Mappings → FB.list (+ delete legacy ghost CSS/`activateMappingGhost`) → P2 accounting completeness (P2-1 year-end close, P2-2 FX reval monetary-only, P2-3 `bill_lines` subledger, P2-4 VAT convention unify + server-computed draft totals, P2-5 MCP server, P2-6 rebinding — priority pending magnus) → P3 scope (AR, feeds).
+**Open by priority:** Bank Mappings → FB.list (+ delete legacy ghost CSS/`activateMappingGhost`) → P2 accounting completeness (P2-1 year-end close, P2-2 FX reval monetary-only, P2-3 `bill_lines` subledger, P2-4 VAT convention unify + server-computed draft totals, P2-5 MCP server, P2-6 rebinding — priority pending magnus) → P3 scope (AR, feeds). *(Superseded by §0d — 2026-07-27.)*
+
+---
+
+## 0d. Status update — 2026-07-27
+
+**VAT/GST entry-model redesign ✅ (2026-07-26, PRs #40–#43):** SAP-style — bill lines carry only a tax code, amounts always computed, tax posts as separate journal lines grouped per code; stated-VAT override = editable bill-footer cell (bill-level only; tolerance `max(0.50, 1%)`, warn-not-block; delta on the largest code's row); per-line overrides dropped; reverse-charge = computed-only DR/CR pairs. Latent bug fixed: RC bills previously posted **unbalanced journals** (AP credit included self-assessed RC VAT). Post warnings (`data.warnings`) now render in the status bar. Full contract: payables-ux-spec §VAT/GST Handling.
+
+**Settings finalization ✅ (PRs #46–#47):** Company tab = FB.list **attribute/value grid** (`canAdd: false` fixed rows, per-row typed editors, server-authoritative `company.attr.list`/`company.attr.save`) — rows incl. VAT Tolerance flat/%, Multi-Currency (`fx_tracking`), FX Provider (per-company, `manual` first-class), FX API Key; the tolerance + provider panels are deleted; danger zone → `company.delete` (last-company + posted-books guards); COA **Default flag** column (single-holder enforced in the same write). **Relevance flags** gate the app (`vat_registered`, `fx_tracking`): tabs hidden + `h`/`l` skips, bills/journal/bill-detail tax + currency surfaces gated, CCY locked to base when `'off'`. FB.list framework gains `canAdd` + column `editor(row)` (now in fb-list-ux-spec §6). settings-ux-spec §7 items 1–9 all closed.
+
+**Dashboard/Reports delineation ✅ (spec PR #44, impl PR #48 — `docs/reports-dashboard-spec.md`):** Dashboard = KPI cards + drill-through only (embedded report viewer removed; pt typography → rem/CSS-vars); card figures computed via `pl()`/`bs()` macros — single computation path with Reports, also fixing the old card SQL's mixed-transaction-currency sums. New `api/src/report-registry.js` = single declarative report list driving the hub dropdown (categorized optgroups), MoM/YoY enablement and start-date behavior; `?t=` drill-through selects + auto-loads. Registry is the foundation for the annual-report composite + authority export adapters (spec §5/§6 — unbuilt).
+
+**Open by priority:** Bank Mappings → FB.list (the last bespoke list; + delete legacy ghost CSS/`activateMappingGhost`) → Receivables (AR; FB.list from day one) → P2 accounting completeness (P2-1 year-end close, P2-2 FX reval monetary-only, P2-3 `bill_lines` subledger, P2-4 VAT convention unify + server-computed draft totals, P2-5 MCP server, P2-6 rebinding — priority pending magnus) → P3 scope (feeds). FX automation core (fx-automation-spec build-order items 1, 3–5) remains **specced, awaiting scheduling**.
 
 ---
 

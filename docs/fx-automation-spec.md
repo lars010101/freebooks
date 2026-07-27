@@ -1,7 +1,7 @@
-# FX Rate Automation — spec (agreed 2026-07-23, NOT BUILT YET)
+# FX Rate Automation — spec (agreed 2026-07-23; groundwork shipped 2026-07-27, automation core not built)
 
 Replaces manual `f` / 📡 Fetch Rates with automatic, coverage-driven rate management.
-Design agreed with Magnus 2026-07-23. **Status: spec only — do not build until scheduled.**
+Design agreed with Magnus 2026-07-23. **Status 2026-07-27: groundwork shipped (PRs #46/#47) — build-order item 2 ✅: `fx_tracking` setting + per-company provider/`manual`/API-key rows on the Company attribute grid, install-level config adopted per-company on first read, relevance gating live (Exchange Rates tab hidden + currency fields locked to base when `'off'`). Automation core NOT built (items 1, 3–5: `fx.coverage` + `fetchRange`, Periods status column, notifications, scanner) — do not build until scheduled.**
 
 **Revision 2026-07-27 (ratified, Magnus, Slack Settings thread):**
 1. **Provider config is install-level, not per-company.** One provider + API key for the whole installation: the rate table is global, so per-company providers only produced duplicate fetches and last-writer-wins on shared rows. Provider UI is a read-first panel with explicit Save on the **Exchange Rates tab** (placement rev. 2, 2026-07-27: no admin page is built — deferred until install-level surface area accumulates). Revises §1, §6.
@@ -84,7 +84,7 @@ The topbar bell is currently chrome-only. v1:
 ## Build order when scheduled
 
 1. `fetchRange` (ECB) + `fx.coverage` + unit tests on the diff logic.
-2. `fx_tracking` setting + per-company provider config as rows on the Company attribute grid (rev. 3; supersedes the install-level Exchange Rates panel); Period hook (§4) gated on provider ≠ `manual`.
+2. ✅ **DONE 2026-07-27 (PRs #46/#47):** `fx_tracking` setting + per-company provider config as rows on the Company attribute grid (rev. 3; supersedes the install-level Exchange Rates panel); Period hook (§4) gated on provider ≠ `manual`.
 3. Periods FX status column (§5).
 4. Notifications table + actions + bell UI (§7).
 5. Scanner (§6) wiring 2–4 together; dedupe rule; scan-cadence env var.

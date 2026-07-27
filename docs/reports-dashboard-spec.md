@@ -53,3 +53,5 @@ A single declarative registry drives all report surfaces:
 2. Rewire Dashboard cards onto `db/macros.sql` (kill bespoke SQL).
 3. Migrate Dashboard to fb-core typography/UI core (flagged in `review-roadmap.md` as old form-style with pt violations).
 4. Introduce the report registry; move hub dropdown + palette entries onto it.
+
+**Status 2026-07-27 (items 1–4 shipped):** Dashboard viewer removed → grouped drill-through links per registry category; cards re-wired onto `pl()`/`bs()` — also fixes the old card SQL's mixed-transaction-currency sums (macros use `debit_home`/`credit_home`); Dashboard typography now rem/CSS-vars per `UI.md`; `api/src/report-registry.js` introduced — hub dropdown (categorized optgroups), MoM/YoY enablement and start-date requirements all derive from it. Palette has no per-report surface to migrate (reports aren't actions; the VAT return stays a `report.*` action). Hub fix bundled: `?t=` drill-through now reflects in the dropdown and auto-loads the report (plain visits still load manually).

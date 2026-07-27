@@ -85,7 +85,7 @@
 ### 2.3 UX state
 
 - **Reference standard:** Payables → Bills (vim-modal tree-table, bill-level INSERT, direct `p` post, per-line AP/expense accounts, supplier-stated VAT override).
-- **Divergent implementations:** Vendors uses cell-nav with different verbs (`d`/`~` vs `x`); `bill-new.js` is a **third, conflicting bill-entry UI** still linked from "+ Bill" and violates the spec (manual FX-rate input); settings/journal/bank/dashboard are old form-style with `pt` typography violations; receivables is a 34-line stub.
+- **Divergent implementations:** Vendors uses cell-nav with different verbs (`d`/`~` vs `x`); `bill-new.js` is a **third, conflicting bill-entry UI** still linked from "+ Bill" and violates the spec (manual FX-rate input); settings/journal/bank are old form-style with `pt` typography violations; receivables is a 34-line stub. (Dashboard removed from this list 2026-07-27: viewer stripped, cards on macros, rem/CSS-vars — reports-dashboard-spec §7.)
 - **Fragile duality:** `cursor._mode` (page) vs `_fbVimMode` (common.js) coexist via capture-phase `stopImmediatePropagation`.
 - **Discoverability broken:** "?" button has no handler; `:` palette dispatches to undefined `fbCmdDispatch`; footer hints stale ("o new bill/line"); no help overlay.
 - ~~**Warnings swallowed**~~ **Fixed 2026-07-26** (VAT redesign): post paths render `data.warnings` in the status bar ("Posted with warning: …", warn level). The same redesign fixed a latent RC bug: reverse-charge bills previously posted **unbalanced journals** (AP credit included self-assessed RC VAT; `bills.vat_amount` double-counted RC) — AP is now net + standard VAT only.

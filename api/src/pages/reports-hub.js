@@ -1,8 +1,20 @@
 'use strict';
 const { navBar, layoutEnd, commonStyle } = require('./common');
+const { REPORT_REGISTRY, reportsByCategory } = require('../report-registry');
 
 async function handleReportsHubPage(req, res) {
   const company = req.params.company;
+
+  // Dropdown + client behavior driven by the report registry
+  // (docs/reports-dashboard-spec.md §4) — add a report there, not here.
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const typeOptgroups = reportsByCategory().map(g =>
+    `<optgroup label="${esc(g.label)}">` +
+    g.reports.map(r => `<option value="${r.id}">${esc(r.label)}</option>`).join('') +
+    `</optgroup>`
+  ).join('\n      ');
+  const rptMeta = {};
+  for (const r of REPORT_REGISTRY) rptMeta[r.id] = { multiperiod: !!r.multiperiod, needsStart: !!r.needsStart };
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -21,15 +33,7 @@ ${commonStyle()}
   <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:0.75rem 3rem; border-bottom:1px solid var(--border,#e8e8e8); flex-shrink:0;">
     <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbOnTypeChange()">
       <option value="" disabled selected>Select report…</option>
-      <option value="pl">Profit &amp; Loss</option>
-      <option value="bs">Balance Sheet</option>
-      <option value="cf">Cash Flow</option>
-      <option value="sce">Statement of Equity</option>
-      <option value="tb">Trial Balance</option>
-      <option value="gl">General Ledger</option>
-      <option value="journal">Journal Listing</option>
-      <option value="integrity">Integrity Check</option>
-      <option value="ap-aging">AP Aging</option>
+      ${typeOptgroups}
     </select>
     <div class="tb-divider"></div>
     <select id="rpt-period" class="tb-select" style="min-width:110px" onchange="fbOnPeriodChange()" title="Period"><option value="">—</option></select>
@@ -57,11 +61,12 @@ ${layoutEnd()}
   var company = ${JSON.stringify(company)};
 
   /* ── State ── */
-  var MOM_YOY_TYPES = ['pl', 'bs', 'cf'];
+  var RPT_META = ${JSON.stringify(rptMeta)};
   var currentType = '';
-  /* Handle ?t= URL param (e.g. redirect from payables/aging) */
+  /* Handle ?t= URL param (drill-through, e.g. from dashboard or payables/aging) */
   var urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('t')) { currentType = urlParams.get('t'); localStorage.setItem('fb-rpt-type', currentType); }
+  var drillThrough = !!urlParams.get('t');
+  if (drillThrough) { currentType = urlParams.get('t'); localStorage.setItem('fb-rpt-type', currentType); }
 
   var currentStep = localStorage.getItem('fb-rpt-step') || '';
   var savedPeriod = localStorage.getItem('fb-rpt-period') || '';
@@ -70,12 +75,14 @@ ${layoutEnd()}
 
   /* ── Type dropdown ── */
   var typeEl = document.getElementById('rpt-type');
+  /* Reflect drill-through selection in the dropdown */
+  if (currentType && typeEl) { typeEl.value = currentType; }
 
-  /* ── MoM/YoY buttons: enable only for pl/bs/cf ── */
+  /* ── MoM/YoY buttons: enable only for multiperiod reports (registry) ── */
   function updateStepButtons() {
     var momBtn = document.getElementById('rpt-mom');
     var yoyBtn = document.getElementById('rpt-yoy');
-    var supported = MOM_YOY_TYPES.indexOf(currentType) !== -1;
+    var supported = !!(RPT_META[currentType] && RPT_META[currentType].multiperiod);
     if (!supported) { currentStep = ''; localStorage.setItem('fb-rpt-step', ''); }
     [momBtn, yoyBtn].forEach(function(btn) {
       if (!btn) return;
@@ -127,13 +134,16 @@ ${layoutEnd()}
         document.getElementById('rpt-end').value   = e0;
         periodEl.value = s0 + '|' + e0;
       }
-      // Don't auto-load — user selects params then report fires on interaction
+      // Drill-through (?t=) is explicit navigation intent — load immediately;
+      // plain visits stay manual (user picks params, report fires on interaction)
+      if (drillThrough) fbLoadReport();
     })
     .catch(function() {
       if (savedStart && savedEnd) {
         document.getElementById('rpt-start').value = savedStart;
         document.getElementById('rpt-end').value   = savedEnd;
       }
+      if (drillThrough) fbLoadReport();
     });
 
   /* ── Helpers ── */
@@ -148,14 +158,15 @@ ${layoutEnd()}
     var start = (document.getElementById('rpt-start') || {}).value || '';
     var end   = (document.getElementById('rpt-end')   || {}).value || '';
     if (!currentType || !end) return null;
-    if (currentType === 'ap-aging') {
-      return '/api/' + company + '/report?type=ap-aging&end=' + encodeURIComponent(end);
+    /* As-of reports (registry needsStart:false, e.g. AP Aging) need end only */
+    if (RPT_META[currentType] && !RPT_META[currentType].needsStart) {
+      return '/api/' + company + '/report?type=' + encodeURIComponent(currentType) + '&end=' + encodeURIComponent(end);
     }
     if (!start) return null;
     var url = '/api/' + company + '/report?type=' + encodeURIComponent(currentType)
             + '&start=' + encodeURIComponent(start)
             + '&end='   + encodeURIComponent(end);
-    if (currentStep && MOM_YOY_TYPES.indexOf(currentType) !== -1) url += '&step=' + currentStep;
+    if (currentStep && RPT_META[currentType] && RPT_META[currentType].multiperiod) url += '&step=' + currentStep;
     return url;
   }
 
@@ -220,7 +231,7 @@ ${layoutEnd()}
   };
 
   window.fbToggleComparison = function(mode) {
-    if (MOM_YOY_TYPES.indexOf(currentType) === -1) return;
+    if (!(RPT_META[currentType] && RPT_META[currentType].multiperiod)) return;
     currentStep = (currentStep === mode) ? '' : mode;
     localStorage.setItem('fb-rpt-step', currentStep);
     updateStepButtons();

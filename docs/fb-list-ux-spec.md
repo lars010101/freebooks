@@ -69,7 +69,7 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `keysId` / `active()` | FB.keys registration name; tab-visibility predicate |
 | `tbody` | table body element id |
 | `companyId()` | company id for `/api/action` payloads |
-| `columns[]` | `field` (buffer property + input class), `type` (`text`/`date`/`number`/`checkbox`/`select`), `width`, `align` (`'center'`/`'right'` → view-cell `text-align`; numbers right-aligned), `ro` (`'saved'` = key column read-only on saved rows; `'always'` = display-only), `uppercase`, `step`, `options` (`''` renders `- none -`), `nullable`, `display(v,row)` (view-mode HTML), `attach(input,tr)` (post-build hook — FB.dropdown attachers), `sortable` (framework-owned asc/desc/none header cycle — view sort, never reorders buffers) |
+| `columns[]` | `field` (buffer property + input class), `type` (`text`/`date`/`number`/`checkbox`/`select`), `width`, `align` (`'center'`/`'right'` → view-cell `text-align`; numbers right-aligned), `ro` (`'saved'` = key column read-only on saved rows; `'always'` = display-only), `uppercase`, `step`, `options` (`''` renders `- none -`), `nullable`, `display(v,row)` (view-mode HTML), `attach(input,tr)` (post-build hook — FB.dropdown attachers), `sortable` (framework-owned asc/desc/none header cycle — view sort, never reorders buffers), `editor(row)` (per-row editor override → `{type?, options?, step?, nullable?, uppercase?}` — attribute/value grids: one Value column edits strings/numbers/booleans/choices depending on the row; added 2026-07-27) |
 | `blank()` / `isBlank(b)` | new-row defaults; untouched-new predicate (vanish on Esc) |
 | `same(b,s)` | buffer matches saved row → dirty dropped |
 | `validate(d)` | error string \| null — runs on `w`, failure keeps the buffer |
@@ -78,6 +78,7 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `firstField(isNew)` | field to focus when entering edit |
 | `track` | FB.track.create name (optional) |
 | `label` | add-row text (default `+ Add entry`) |
+| `canAdd` | `false` = fixed-row register — no add row, no create verb; every row critical, rows never added/removed (Company attribute grid; added 2026-07-27). Omit `blank()` with it. Default `true` |
 | `list` | `{ action }` or `{ url }` + `map(raw)` → saved row incl. `_key` |
 | `save` | `{ action, body(d), focusKey(d,res) }` |
 | `del` | `{ action, body(d), confirm(d) }` \| null — optional `deleted(d)`: success message (default `'Deleted'`) |

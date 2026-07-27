@@ -580,6 +580,33 @@ async function handleSettings(ctx, action) {
     return { saved: rows.length };
   }
 
+  // settings-ux-spec §7 item 1 (rev 2026-07-27): danger-zone delete of the
+  // CURRENT company (ctx.companyId is the target). Guards, in order:
+  //   (1) cannot delete the LAST remaining company;
+  //   (2) cannot delete a company that has journal entries — books are not
+  //       droppable by one modal; only setup-only companies can be removed.
+  // On success the client redirects to a surviving company.
+  if (action === 'company.delete') {
+    const all = await query(`SELECT DISTINCT company_id FROM companies ORDER BY company_id`);
+    if (all.length <= 1) {
+      throw Object.assign(new Error('Cannot delete the last remaining company.'), { code: 'INVALID_STATE' });
+    }
+    const cnt = await query(`SELECT COUNT(*) AS n FROM journal_entries WHERE company_id = @companyId`, { companyId });
+    const n = Number((cnt[0] && cnt[0].n) || 0);
+    if (n > 0) {
+      throw Object.assign(new Error(`Cannot delete company "${companyId}": it has ${n} journal entries. Only companies without posted books can be deleted.`), { code: 'INVALID_STATE' });
+    }
+    // Cascade the setup-only residue (children before the companies row).
+    // fx_rates is intentionally untouched — the rate table is installation-global.
+    const TABLES = ['bill_payments', 'bills', 'attachments', 'reconciliations', 'bank_mappings',
+      'centers', 'vat_codes', 'periods', 'journal_sequences', 'journals', 'accounts',
+      'settings', 'user_permissions', 'idempotency_keys', 'vendors', 'audit_log', 'companies'];
+    for (const t of TABLES) {
+      await exec(`DELETE FROM ${t} WHERE company_id = @companyId`, { companyId });
+    }
+    return { deleted: companyId, remaining: all.filter((c) => c.company_id !== companyId).map((c) => c.company_id) };
+  }
+
   if (action === 'period.list') {
     const rows = await query(
       `SELECT period_name, start_date, end_date, locked

@@ -76,7 +76,7 @@ ${commonStyle()}
     <div class="tab" onclick="showTab('coa')">Chart of Accounts<span id="tab-dot-coa" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" onclick="showTab('fxrates')">Exchange Rates</div>
+    <div class="tab" id="tab-fxrates-label" onclick="showTab('fxrates')">Exchange Rates</div>
   </div>
 
   <!-- PERIODS TAB -->
@@ -274,7 +274,30 @@ function resetDirty(tab) {
   if (btn) btn.disabled = true;
 }
 
+// settings-ux-spec §7 item 9 + fx-automation-spec §1: relevance flags gate
+// whole Settings tabs. vat_registered=false hides Tax Codes (and with it the
+// VAT Tolerance panel); fx_tracking='off' hides Exchange Rates. Tabs stay in
+// the DOM (display:none) so showTab's index math is unaffected; h/l skips them
+// via common.js. If the active tab becomes hidden, fall back to Company.
+function applyRelevanceFlags(c) {
+  var vatOn = !c || c.vat_registered !== false; // default: show while unknown
+  var fxOn = !c || c.fx_tracking !== 'off';
+  var vatTab = document.getElementById('tab-vat-label');
+  var fxTab = document.getElementById('tab-fxrates-label');
+  if (vatTab) vatTab.style.display = vatOn ? '' : 'none';
+  if (fxTab) fxTab.style.display = fxOn ? '' : 'none';
+  var active = document.querySelector('.tab-panel.active');
+  if (active && ((active.id === 'tab-vat' && !vatOn) || (active.id === 'tab-fxrates' && !fxOn))) {
+    showTab('company');
+  }
+}
+
 function showTab(t) {
+  // Relevance-flag gate (settings-ux-spec §7 item 9 + fx-automation-spec §1):
+  // hidden tabs are not navigable — h/l already skips them (common.js), this
+  // guards programmatic/direct calls.
+  var labelEl = document.getElementById(t === 'vat' ? 'tab-vat-label' : (t === 'fxrates' ? 'tab-fxrates-label' : ''));
+  if (labelEl && labelEl.style.display === 'none') return;
   var cur = document.querySelector('.tab-panel.active');
   var curTab = cur ? cur.id.replace('tab-','') : '';
   if (curTab && curTab !== t) {
@@ -506,9 +529,12 @@ var companyRecordPanel = (function () {
             // the current company after a (re)load.
             if (current.jurisdiction) {
               var vn = VAT_NAMES[current.jurisdiction] || 'Tax';
-              var lbl = el('tab-vat-label'); if (lbl) lbl.textContent = vn + ' Codes';
+              var lbl = el('tab-vat-label');
+              // Preserve the dirty-dot span (textContent would wipe it).
+              if (lbl) lbl.innerHTML = vn + ' Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span>';
             }
             window._companyCurrency = current.currency;
+            applyRelevanceFlags(current);
             renderRead();
             showRead();
           });

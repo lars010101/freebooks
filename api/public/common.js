@@ -485,7 +485,9 @@
 
     // ── h / l → horizontal submenu tab navigation ──
     if (e.key === 'h' || e.key === 'l') {
-      var tabs = Array.from(document.querySelectorAll('.tabs .tab'));
+      // Hidden tabs (display:none — e.g. relevance-flag-gated Settings tabs)
+      // are skipped: invisible means not navigable.
+      var tabs = Array.from(document.querySelectorAll('.tabs .tab')).filter(function(t){ return t.offsetParent !== null || getComputedStyle(t).display !== 'none'; });
       if (!tabs.length) {
         var hlKey = e.key; // 'h' or 'l'
         if (window.fbKeyActions && typeof window.fbKeyActions[hlKey] === 'function') {

@@ -452,7 +452,8 @@ var mappingsList = FB.list.create({
     { field: 'debit_account', type: 'text', width: 140, attach: mappingAttachAcct },
     { field: 'description_override', type: 'text', width: 170, nullable: true },
     { field: 'priority', type: 'number', width: 60, align: 'right' },
-    { field: 'is_active', type: 'checkbox', align: 'center' }
+    { field: 'is_active', type: 'checkbox', align: 'center',
+      display: function(v) { return v ? 'Yes' : 'No'; } }
   ],
   blank: function() { return { pattern: '', match_type: 'contains', debit_account: '', description_override: '', priority: 100, is_active: true }; },
   isBlank: function(b) { return !b.pattern && !b.debit_account; },

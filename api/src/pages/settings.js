@@ -104,23 +104,6 @@ ${commonStyle()}
       <tbody id="company-body"></tbody>
     </table>
 
-    <!-- Default accounts for this company (used as fallbacks on new bills) -->
-    <div style="margin-top:24px;padding:14px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
-      <div style="font-weight:600;margin-bottom:4px">Default Accounts (current company)</div>
-      <div style="font-size:9pt;color:#666;margin-bottom:12px">Used as fallbacks when creating new bills. Vendor-specific defaults still take precedence; leave blank for no default.</div>
-      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
-        <div class="field-row" style="margin-bottom:0">
-          <label for="default-ap-account">Default AP Account</label>
-          <input type="text" id="default-ap-account" placeholder="account code" style="max-width:200px">
-        </div>
-        <div class="field-row" style="margin-bottom:0">
-          <label for="default-expense-account">Default Expense Account</label>
-          <input type="text" id="default-expense-account" placeholder="account code" style="max-width:200px">
-        </div>
-        <button class="btn-sm" id="btn-save-default-accounts" onclick="saveDefaultAccounts()">Save Defaults</button>
-      </div>
-    </div>
-
     <!-- VAT tolerance for supplier-stated VAT override (current company) -->
     <div style="margin-top:16px;padding:14px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
       <div style="font-weight:600;margin-bottom:4px">VAT Tolerance (current company)</div>
@@ -143,7 +126,7 @@ ${commonStyle()}
   <!-- COA TAB -->
   <div id="tab-coa" class="tab-panel">
     <table class="edit-table" id="coa-table">
-      <thead><tr><th>Code</th><th>Account Name</th><th>Type</th><th>Subtype</th><th>CF Category</th><th>Active</th><th></th></tr></thead>
+      <thead><tr><th>Code</th><th>Account Name</th><th>Type</th><th>Subtype</th><th>CF Category</th><th>Active</th><th>Default</th><th></th></tr></thead>
       <tbody id="coa-body"></tbody>
     </table>
   </div>
@@ -256,7 +239,7 @@ function showTab(t) {
   }
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
-    if (t === 'company')  { loadCompanies(); loadDefaultAccounts(); }
+    if (t === 'company')  { loadCompanies(); }
     if (t === 'periods')  { loadPeriods(); }
     if (t === 'coa')      { loadCoa(); }
     if (t === 'vat')      { loadVat(); }
@@ -562,15 +545,19 @@ var coaList = FB.list.create({
     { field: 'account_subtype', type: 'select', width: 140, options: SUBTYPES, nullable: true, filterType: 'list' },
     { field: 'cf_category', type: 'select', width: 100, options: CF_CATS_COA, nullable: true, filterType: 'list' },
     { field: 'is_active', type: 'checkbox', align: 'center',
-      display: function(v) { return v ? 'Yes' : 'No'; } }
+      display: function(v) { return v ? 'Yes' : 'No'; } },
+    { field: 'default_role', type: 'select', width: 70, nullable: true, align: 'center',
+      options: ['', 'AP', 'Expense'],
+      display: function(v) { return v ? v : '—'; } }
   ],
-  blank: function() { return { account_code: '', account_name: '', account_type: 'Asset', account_subtype: null, cf_category: null, is_active: true }; },
+  blank: function() { return { account_code: '', account_name: '', account_type: 'Asset', account_subtype: null, cf_category: null, is_active: true, default_role: null }; },
   isBlank: function(b) { return !b.account_code && !b.account_name; },
   same: function(b, s) {
     return b.account_name === s.account_name && b.account_type === s.account_type
       && (b.account_subtype || null) === (s.account_subtype || null)
       && (b.cf_category || null) === (s.cf_category || null)
-      && b.is_active === !!s.is_active;
+      && b.is_active === !!s.is_active
+      && (b.default_role || null) === (s.default_role || null);
   },
   validate: function(d) { return (d.account_code && d.account_name && d.account_type) ? null : 'Code, name and type required'; },
   firstField: function(isNew) { return isNew ? 'account_code' : 'account_name'; },
@@ -580,9 +567,9 @@ var coaList = FB.list.create({
     return (a.account_code || '').toLowerCase().indexOf(q) >= 0 || (a.account_name || '').toLowerCase().indexOf(q) >= 0;
   },
   list: { url: function() { return '/api/' + COMPANY + '/accounts'; },
-    map: function(a) { return { account_code: a.account_code, account_name: a.account_name, account_type: a.account_type, account_subtype: a.account_subtype || null, cf_category: a.cf_category || null, is_active: a.is_active === true, _key: a.account_code }; } },
+    map: function(a) { return { account_code: a.account_code, account_name: a.account_name, account_type: a.account_type, account_subtype: a.account_subtype || null, cf_category: a.cf_category || null, is_active: a.is_active === true, default_role: a.default_role || null, _key: a.account_code }; } },
   save: { action: 'coa.upsert',
-    body: function(d) { return { account: { account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype || null, cf_category: d.cf_category || null, is_active: !!d.is_active } }; },
+    body: function(d) { return { account: { account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype || null, cf_category: d.cf_category || null, is_active: !!d.is_active, default_role: d.default_role || null } }; },
     focusKey: function(d) { return d._isNew ? d.account_code : d._key; } },
   del: { action: 'coa.delete',
     body: function(d) { return { accountCode: d._key }; },
@@ -965,57 +952,15 @@ var fxProviderPanel = (function () {
 })();
 
 
-// ========== DEFAULT ACCOUNTS (current company) ==========
-// Reads / writes the 'default_ap_account' and 'default_expense_account' rows in
-// the settings table for the active company. These are used as fallbacks when
-// creating new bills (vendor defaults still take precedence; blank = no default).
+// ========== DEFAULT ACCOUNTS — removed (settings-ux-spec §7 item 1) ==========
+// Default AP/Expense accounts are now managed per-row on the COA tab via the
+// account-level default_role flag (server-side single-holder enforcement).
+// The legacy "Default Accounts (current company)" panel, loadDefaultAccounts(),
+// and saveDefaultAccounts() have been removed from the Company tab.
+// loadVatTolerance remains (a later task relocates the VAT Tolerance panel).
 
-function loadDefaultAccounts() {
-  var apInput = document.getElementById('default-ap-account');
-  var expInput = document.getElementById('default-expense-account');
-  if (!apInput || !expInput) return;
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'settings.get', companyId: COMPANY }) })
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      var s = (res && res.data) ? res.data : (res || {});
-      apInput.value = s.default_ap_account || '';
-      expInput.value = s.default_expense_account || '';
-    })
-    .catch(function (e) { showMsg('msg-default-accounts', e.message, true); });
-}
-
-function saveDefaultAccounts() {
-  var apInput = document.getElementById('default-ap-account');
-  var expInput = document.getElementById('default-expense-account');
-  if (!apInput || !expInput) return;
-  var apVal = apInput.value.trim();
-  var expVal = expInput.value.trim();
-  var btn = document.getElementById('btn-save-default-accounts');
-  if (btn) { btn.disabled = true; }
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: 'settings.save', companyId: COMPANY,
-      settings: { default_ap_account: apVal, default_expense_account: expVal }
-    }) })
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      var d = res.data || res;
-      if (res.error || d.error) {
-        showMsg('msg-default-accounts', res.error || d.error, true);
-      } else {
-        showMsg('msg-default-accounts', 'Default accounts saved', false);
-      }
-      if (btn) { btn.disabled = false; }
-    })
-    .catch(function (e) {
-      showMsg('msg-default-accounts', e.message, true);
-      if (btn) { btn.disabled = false; }
-    });
-}
-
-// Populate the default-accounts card on the default-visible Company tab.
-window.addEventListener('DOMContentLoaded', function () { loadDefaultAccounts(); loadVatTolerance(); });
+// Populate the VAT tolerance card on the default-visible Company tab.
+window.addEventListener('DOMContentLoaded', function () { loadVatTolerance(); });
 
 // ========== VAT TOLERANCE (current company) ==========
 // Reads / writes the 'vat_tolerance' (flat) and 'vat_tolerance_pct' rows in the

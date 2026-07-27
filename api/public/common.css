@@ -425,45 +425,13 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
 .tb-dyn-plus { padding-left: 8px; padding-right: 8px; margin-right: -4px; font-weight: 600; }
 .tb-dyn-chip { margin-right: 10px; }
 
-/* P2 ghost row: persistent FADED entry-row pinned under thead. Display-only —
-   looks like a proper row but is not open to entry. i / click transforms it
-   into the active input row (the single create affordance). */
-.fb-ghost-row td {
-  background: #f4f6f8;
-  border-bottom: 1px dashed var(--border) !important;
-  padding: 10px 12px !important;
-  user-select: none;
-}
-.fb-ghost-row .fb-ghost-ph { color: #9aa3ad; font-style: italic; }
-/* P3: the ghost row's single create-slot label (first cell). */
-.fb-ghost-row .fb-ghost-label { color: #9aa3ad; font-style: italic; user-select: none; }
-.fb-ghost-row .fb-ghost-badge { background: #e8ebee; color: #9aa3ad; }
-.fb-ghost-row input[type="checkbox"] { opacity: .35; }
-.fb-ghost-row:hover td { background: #eceff2; }
-/* Keyboard cursor landing on the ghost row must stay visible. */
-tr.fb-ghost-row.nav-row-focus td,
-tr.fb-ghost-row.bill-row-focus td { background: var(--accent) !important; }
-tr.fb-ghost-row.nav-row-focus .fb-ghost-ph,
-tr.fb-ghost-row.bill-row-focus .fb-ghost-ph,
-tr.fb-ghost-row.nav-row-focus .fb-ghost-badge,
-tr.fb-ghost-row.bill-row-focus .fb-ghost-badge,
-tr.fb-ghost-row.nav-row-focus .fb-ghost-label,
-tr.fb-ghost-row.bill-row-focus .fb-ghost-label {
-  color: rgba(255,255,255,.8) !important; background: transparent; font-style: italic;
-}
-/* Ghost replica: same chrome as a live edit row, faded (not navy). */
-.fb-ghost-row input:not([type="checkbox"]),
-.fb-ghost-row select {
-  opacity: .55;
-  pointer-events: none;
-}
-.fb-ghost-row input::placeholder { color: #9aa3ad; font-style: italic; opacity: 1; }
-.fb-ghost-row .fb-ghost-chip { opacity: .35; pointer-events: none; }
-
 /* P3 add row: the single create affordance, pinned at the BOTTOM of every
    FB.list table (QuickBooks/Xero "+ Add line" pattern). Plain muted text —
    not an input replica. Reachable via click, j (sticky past the last data
-   row) and G. */
+   row) and G. (The legacy P2 ghost-row input-replica — `.fb-ghost-row`,
+   kept only for bank.js's old per-row-input Mappings table — was deleted
+   2026-07-27 when Mappings migrated onto FB.list; the framework add row
+   is a different mechanism.) */
 .fb-add-row td {
   color: #7a828c !important;
   padding: 8px 12px !important;

@@ -8,8 +8,8 @@ Status: **RATIFIED 2026-07-23** (magnus, Slack design thread). Supersedes the gh
 
 One component — `FB.list` (`api/public/fb-list.js`) — owns ALL behavior for every flat register in the app: the add row, navigation, edit lifecycle, dirty buffers, delete, leave-guard. A screen declares columns + actions + a handful of predicates; it implements **no interaction code of its own**. Behavior therefore cannot drift between tabs.
 
-**Migrated:** Settings (Periods, COA, Tax Codes, Journals), Vendors, FX Rates, **Bills (`tree: true`, 2026-07-24)**.
-**Pending:** Bank Mappings — the last bespoke list.
+**Migrated:** Settings (Periods, COA, Tax Codes, Journals), Vendors, FX Rates, **Bills (`tree: true`, 2026-07-24)**, **Bank Mappings (2026-07-27)**.
+**Pending:** — (every list in the app now runs on the one FB.list machine).
 
 ## 2. The add row (single create affordance)
 
@@ -178,7 +178,7 @@ Bills migrated onto FB.list (`tree: true`) 2026-07-24; the interim Option-A doct
 
 ## 11. Migration backlog (in order)
 
-1. **Bank Mappings → FB.list.** Then delete the legacy `.fb-ghost-row` CSS (kept only for bank.js) and the `activateMappingGhost` machinery. **Now the last bespoke list.**
+1. ~~**Bank Mappings → FB.list.**~~ Done 2026-07-27 — flat register; ghost-row machinery + `.fb-ghost-row` CSS deleted. **The last bespoke list — every list in the app now runs on the one FB.list machine.**
 2. ~~**Column filters + command box into FB.list** (§8).~~ Done 2026-07-23 — Bills' ~450 lines of bespoke filter code were deleted, not ported.
 3. ~~**Bills → FB.list with `tree: true`.**~~ Done 2026-07-24 — fold/unfold is a row property of the same machine.
 4. **Receivables** built on FB.list from day one (roadmap P3-1).

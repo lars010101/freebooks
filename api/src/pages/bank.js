@@ -99,12 +99,18 @@ ${commonStyle()}
   </div><!-- /bank-panel-txn -->
 
   <div id="bank-panel-mappings" style="display:none">
+    <!-- BANK MAPPINGS — FB.list flat register (migrated 2026-07-27; the
+         app's last bespoke list). The framework owns the add row (bottom
+         "+ Add entry"), j/k nav (incl. add row, gg/G), edit lifecycle
+         (i/Enter/click), dirty buffers (w writes, u reverts, Esc exits
+         WITHOUT saving), x delete with confirm, and the shared leave-guard
+         modal. Sidebar hints come from mappingsList.renderHints. -->
     <table class="edit-table" id="mappings-table">
-      <thead><tr><th>Pattern</th><th>Match</th><th>Offset Account <small style="font-weight:400;color:#888">(expense/income - bank side auto-assigned)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th><th></th></tr></thead>
-      <tbody id="mappings-body"></tbody>
+      <thead><tr><th>Pattern</th><th>Match</th><th>Offset Account <small style="font-weight:400;color:#888">(expense/income - bank side auto-assigned)</small></th><th>Description Override</th><th>Priority</th><th style="text-align:center">Active</th></tr></thead>
+      <tbody id="mappings-body">
+        <tr><td colspan="6" style="text-align:center;color:#aaa;padding:24px">Loading…</td></tr>
+      </tbody>
     </table>
-    <p style="margin-top:8px;font-size:9pt;color:#888">Rules are applied in priority order (lower = higher priority). Match types: <em>contains</em>, <em>exact</em>, <em>starts_with</em>, <em>regex</em>.<br>
-    Set the <b>offset account</b> (expense for outflows, income for inflows). The bank account is supplied at import time and assigned automatically based on the amount sign.</p>
   </div><!-- /bank-panel-mappings -->
 
 </div>
@@ -319,8 +325,9 @@ ${commonStyle()}
 
   // ── FB.keys: Transactions tab (P1-3 remainder — payables pattern) ─────────
   // Row cursor over #rec-body via FB.nav (sticky boundaries, scroll-into-view,
-  // nav-row-focus class styled app-wide). Mappings tab stays unmigrated —
-  // it is a per-row-input edit table, not a vim list (see spec §P1-3).
+  // nav-row-focus class styled app-wide). The Mappings tab is an FB.list
+  // register (see BANK MAPPINGS below) with its own keys namespace
+  // ('bank-mappings'), registered by FB.list at create time.
   var recNav = FB.nav.create({
     rows: function() { return Array.from(document.querySelectorAll('#rec-body tr')); }
   });
@@ -367,61 +374,9 @@ ${commonStyle()}
   });
   FB.keys.renderHints('bank', document.getElementById('sb-hints'), { layout: 'list' });
 
-  // ── Mappings tab keyboard (P2): ghost-row create + row nav ──────────────
-  function _mappingsVisible() {
-    var p = document.getElementById('bank-panel-mappings');
-    return !!(p && p.style.display !== 'none');
-  }
-  function _mappingRows() {
-    return Array.from(document.querySelectorAll('#mappings-body tr'));
-  }
-  var _mapSel = -1;
-  function _mapCursor() {
-    _mappingRows().forEach(function(r, i) { r.classList.toggle('bill-row-focus', i === _mapSel); });
-  }
-  FB.keys.register('bank-mappings', {
-    active: _mappingsVisible,
-    getMode: function() {
-      var ae = document.activeElement;
-      return (ae && ae.closest && ae.closest('#mappings-body')) ? 'INSERT' : 'NORMAL';
-    },
-    bindings: [
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true,
-        swallow: function() { return _mappingRows().length > 0; },
-        run: function() { var n = _mappingRows().length; if (!n) return; _mapSel = Math.min(_mapSel + 1, n - 1); _mapCursor(); } },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
-        swallow: function() { return _mappingRows().length > 0; },
-        run: function() { _mapSel = Math.max(_mapSel - 1, 0); _mapCursor(); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true,
-        swallow: function() { return _mapSel >= 0; },
-        run: function() {
-          var tr = _mappingRows()[_mapSel];
-          if (!tr) return;
-          if (tr.classList.contains('fb-ghost-row')) { activateMappingGhost(tr); return; } // i on ghost = create
-          var inp = tr.cells[0].querySelector('input');
-          if (inp) inp.focus();
-        } },
-      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true,
-        swallow: function() { return _mapSel >= 0; },
-        run: function() {
-          var tr = _mappingRows()[_mapSel];
-          if (!tr) return;
-          if (tr.classList.contains('fb-ghost-row')) { activateMappingGhost(tr); return; } // Enter on ghost = create
-          var inp = tr.cells[0].querySelector('input');
-          if (inp) inp.focus();
-        } },
-      { key: 'Escape', mode: 'INSERT', hint: 'back',
-        run: function() { if (document.activeElement) document.activeElement.blur(); } }
-    ]
-  });
-
-  // Ghost-row mouse affordance: clicking anywhere on the faded ghost row
-  // activates it (inputs are disabled, so every click lands on the row itself).
-  document.getElementById('mappings-body').addEventListener('click', function(e) {
-    var tr = e.target.closest ? e.target.closest('tr.fb-ghost-row') : null;
-    if (!tr) return;
-    activateMappingGhost(tr);
-  });
+  // ── Mappings tab keyboard: now owned by FB.list (see BANK MAPPINGS below).
+  // The bespoke ghost-row cursor + click listener were deleted with the
+  // per-row-input table when Mappings migrated onto FB.list (2026-07-27).
 
 
   function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -433,177 +388,98 @@ function showBankTab(t) {
     var tabEl = document.getElementById('bank-tab-' + id);
     if (tabEl) tabEl.classList.toggle('active', id === t);
   });
-  if (t === 'mappings') { loadMappings(); loadBankMappingAccounts(); }
-  // Sidebar hints follow the active tab's FB.keys set.
+  if (t === 'mappings') mappingsList.load();
+  // Sidebar hints follow the active tab's FB.keys set. The Mappings tab's
+  // bindings are auto-registered by FB.list at create time; mappingsList
+  // .renderHints emits the j/k/i/Enter/x/w/Esc table into #sb-hints.
   var hints = document.getElementById('sb-hints');
   if (hints) {
     if (t === 'txn') FB.keys.renderHints('bank', hints, { layout: 'list' });
-    else FB.keys.renderHints('bank-mappings', hints, { layout: 'list' });
+    else mappingsList.renderHints(hints);
   }
 }
 
-// ========== BANK MAPPINGS ==========
-var MATCH_TYPES = ['contains','exact','starts_with','regex'];
+// ========== BANK MAPPINGS — FB.list flat register (migrated 2026-07-27;
+// the app's LAST bespoke list — every list now runs on the one FB.list
+// machine, fb-list-ux-spec §1). ==========
+// Bank-import mapping rules: pattern -> offset (debit) account. The framework
+// owns the add row (bottom "+ Add entry"), nav (j/k incl. add row, gg/G), edit
+// lifecycle (i/Enter/click), dirty buffers (w writes, u reverts, Esc exits
+// WITHOUT saving), x delete with confirm, column = filters, and the shared
+// leave-guard modal. Server actions (untouched): mapping.list / mapping.upsert
+// / mapping.delete. The legacy per-row-input table, ghost create-row pinned at
+// top, activateMappingGhost machinery, bespoke 'bank-mappings' keys block, and
+// #mappings-body ghost-row click listener were all deleted with this migration.
 var bankMappingAccounts = [];
-var bankMappingsDirty = false;
-
 function loadBankMappingAccounts() {
   if (bankMappingAccounts.length) return;
   fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
     bankMappingAccounts = Array.isArray(rows) ? rows : [];
-  });
+  }).catch(function(){});
 }
-
-function addMappingRow(m) {
-  m = m || {};
-  var isNew = !m.mapping_id;
-  var MATCH_TYPES_LOCAL = ['contains','exact','starts_with','regex'];
-  var tr = document.createElement('tr');
-  tr.dataset.mappingId = m.mapping_id || '';
-  tr.innerHTML = '<td><input type="text" value="'+(m.pattern||'')+'" placeholder="Pattern" style="width:130px"></td>'
-    + '<td><select style="width:90px">' + MATCH_TYPES_LOCAL.map(function(mt){ return '<option'+(mt===(m.match_type||'contains')?' selected':'')+'>'+mt+'</option>'; }).join('') + '</select></td>'
-    + '<td><input type="text" class="bm-acct" value="'+(m.debit_account||'')+'" placeholder="Debit account" style="width:100px" autocomplete="off"></td>'
-    + '<td><input type="text" value="'+(m.description_override||'')+'" placeholder="Description" style="width:140px"></td>'
-    + '<td><input type="number" value="'+(m.priority||100)+'" style="width:55px"></td>'
-    + '<td style="text-align:center"><input type="checkbox"'+(m.is_active===true?' checked':'')+' ></td>'
-    + '<td style="white-space:nowrap;text-align:right"></td>';
-  var saveBtn = document.createElement('button');
-  saveBtn.className = 'btn-sm';
-  saveBtn.innerHTML = '\u{1F4BE}';
-  saveBtn.title = 'Save';
-  saveBtn.style.cssText = 'opacity:' + (isNew ? '1' : '0.35') + ';margin-right:4px';
-  saveBtn.onclick = function() { saveMappingRow(tr); };
-  var delBtn = document.createElement('button');
-  delBtn.className = 'btn-sm danger';
-  delBtn.innerHTML = '\u2715';
-  delBtn.title = 'Delete';
-  delBtn.onclick = function() { deleteMappingRow(tr); };
-  tr.cells[tr.cells.length-1].appendChild(saveBtn);
-  tr.cells[tr.cells.length-1].appendChild(delBtn);
-  tr.querySelectorAll('input,select').forEach(function(el){
-    el.addEventListener('input', function(){ saveBtn.style.opacity='1'; if(isNew && el===tr.cells[0].querySelector('input') && el.value.trim()){ isNew=false; appendBlankMappingRow(); } });
-    el.addEventListener('change', function(){ saveBtn.style.opacity='1'; });
-  });
-  document.getElementById('mappings-body').appendChild(tr);
-  attachMappingAcctDd(tr.querySelector('.bm-acct'));
-  return tr;
-}
-// P2 pinned-top: the ghost row leads the table — a FADED, display-only entry
-// row (inputs disabled). i / Enter / click activates it (single create
-// affordance, always visible, mouse + keyboard parity).
-function prependBlankMappingRow() {
-  var tbody = document.getElementById('mappings-body');
-  if (!tbody) return null;
-  var first = tbody.querySelector('tr');
-  if (first && first.classList.contains('fb-ghost-row')) return first; // ghost already pinned
-  if (first && !first.dataset.mappingId) {
-    var fi = first.cells[0].querySelector('input');
-    if (fi && !fi.value.trim()) return first; // activated blank, still untouched
-  }
-  var tr = addMappingRow({});
-  tbody.insertBefore(tr, tbody.firstChild);
-  tr.classList.add('fb-ghost-row');
-  tr.querySelectorAll('input,select,button').forEach(function(el){ el.disabled = true; });
-  return tr;
-}
-// Ghost → active input row: enable the fields, drop the faded styling, focus.
-function activateMappingGhost(tr) {
-  if (!tr || !tr.classList.contains('fb-ghost-row')) return;
-  tr.classList.remove('fb-ghost-row');
-  tr.querySelectorAll('input,select,button').forEach(function(el){ el.disabled = false; });
-  var inp = tr.cells[0].querySelector('input');
-  if (inp) inp.focus();
-  if (window.FB && FB.track) FB.track.create('mapping');
-}
-function appendBlankMappingRow() {
-  // Legacy callers (post-save/delete replenishment) now repin at top instead.
-  return prependBlankMappingRow();
-}
-function saveMappingRow(tr) {
-  var inputs = tr.querySelectorAll('input');
-  var sel = tr.querySelector('select');
-  var pattern = inputs[0].value.trim();
-  var debitAcct = inputs[1].value.trim();
-  if (!pattern || !debitAcct) {
-    if (window.FB && FB.status) FB.status.show('Pattern and account required', true);
-    return;
-  }
-  var mapping = { mapping_id: tr.dataset.mappingId || null, pattern: pattern, match_type: sel ? sel.value : 'contains', debit_account: debitAcct, description_override: inputs[2].value.trim() || null, priority: parseInt(inputs[3].value)||100, is_active: inputs[4].checked };
-  var saveBtn = tr.querySelector('button.btn-sm:not(.danger)');
-  if (saveBtn) { saveBtn.innerHTML='\u23F3'; saveBtn.disabled=true; }
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mapping.upsert', companyId: COMPANY, mapping: mapping }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var d = res.data||res;
-      if (d.error||res.error) {
-        if (window.FB && FB.status) FB.status.show(d.error||res.error, true);
-        if (saveBtn) { saveBtn.innerHTML='\u{1F4BE}'; saveBtn.disabled=false; }
-      } else {
-        if (d.mappingId) tr.dataset.mappingId = d.mappingId;
-        if (saveBtn) { saveBtn.innerHTML='\u2713'; saveBtn.style.opacity='0.35'; saveBtn.disabled=false; setTimeout(function(){ saveBtn.innerHTML='\u{1F4BE}'; },1500); }
-        if (window.FB && FB.status) FB.status.show('Saved');
-      }
-    })
-    .catch(function(e){
-      if (window.FB && FB.status) FB.status.show(e.message, true);
-      if (saveBtn) { saveBtn.innerHTML='\u{1F4BE}'; saveBtn.disabled=false; }
-    });
-}
-function deleteMappingRow(tr) {
-  var mappingId = tr.dataset.mappingId;
-  if (!mappingId) { tr.remove(); appendBlankMappingRow(); return; }
-  var pattern = tr.cells[0].querySelector('input').value.trim();
-  if (!confirm('Delete mapping "'+pattern+'"?')) return;
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mapping.delete', companyId: COMPANY, mappingId: mappingId }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var d = res.data||res;
-      if (d.error||res.error) { if (window.FB && FB.status) FB.status.show(d.error||res.error, true); }
-      else { tr.remove(); appendBlankMappingRow(); }
-    })
-    .catch(function(e){ if (window.FB && FB.status) FB.status.show(e.message, true); });
-}
-
-function loadMappings() {
-  if (window.FB && FB.status) FB.status.show('Loading…');
-  document.getElementById('mappings-body').innerHTML = '';
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mapping.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var rows = res.data || res;
-      if (res.error) throw new Error(res.error);
-      if (!Array.isArray(rows)) throw new Error('Unexpected response: ' + JSON.stringify(res).slice(0, 100));
-      rows.forEach(addMappingRow);
-      prependBlankMappingRow();
-      bankMappingsDirty = false;
-      if (window.FB && FB.status) FB.status.show(rows.length ? 'Mappings loaded' : 'No rules yet.');
-    })
-    .catch(function(e){
-      if (window.FB && FB.status) FB.status.show('Error: ' + e.message, true);
-      console.error('loadMappings failed:', e);
-    });
-}
-
-// saveMappings replaced by per-row saveMappingRow
-
-function attachMappingAcctDd(input) {
-  if (!input || !window.FB || !FB.dropdown) return;
-  FB.dropdown.attach(input, {
-    keys: true,
-    minWidth: 200,
-    source: function (q) {
-      loadBankMappingAccounts();
-      q = (q || '').toLowerCase();
-      return bankMappingAccounts.filter(function (a) {
-        return (a.account_code||'').toLowerCase().indexOf(q) >= 0 || (a.account_name||'').toLowerCase().indexOf(q) >= 0;
-      }).map(function (a) { return { primary: a.account_code, secondary: a.account_name, data: a }; });
+function mappingAttachAcct(inp) {
+  loadBankMappingAccounts();
+  FB.dropdown.attach(inp, {
+    source: function(q) {
+      q = (q || '').trim().toLowerCase();
+      return bankMappingAccounts.filter(function(a) {
+        if (!q) return true;
+        return (a.account_code || '').toLowerCase().indexOf(q) >= 0 ||
+               (a.account_name || '').toLowerCase().indexOf(q) >= 0;
+      }).map(function(a) {
+        return { primary: a.account_code, secondary: a.account_name || '', data: { code: a.account_code } };
+      });
     },
-    onPick: function (it, inp) {
-      inp.value = it.primary;
-      inp.dispatchEvent(new Event('input', { bubbles: true })); // lights row save button
+    onPick: function(item, input) {
+      input.value = item.data.code;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
     }
   });
 }
+
+var mappingsList = FB.list.create({
+  keysId: 'bank-mappings',
+  active: function() {
+    var p = document.getElementById('bank-panel-mappings');
+    return !!(p && p.style.display !== 'none');
+  },
+  tbody: 'mappings-body',
+  companyId: function() { return COMPANY; },
+  hint: 'Bank-import mapping rules. Lower priority = applied first. Match types: contains, exact, starts_with, regex. The offset account is the expense (outflow) / income (inflow) side; the bank account is supplied at import time from the amount sign.',
+  columns: [
+    { field: 'pattern', type: 'text', width: 150, sortable: true },
+    { field: 'match_type', type: 'select', width: 100, options: ['contains','exact','starts_with','regex'], filterType: 'list' },
+    { field: 'debit_account', type: 'text', width: 140, attach: mappingAttachAcct },
+    { field: 'description_override', type: 'text', width: 170, nullable: true },
+    { field: 'priority', type: 'number', width: 60, align: 'right' },
+    { field: 'is_active', type: 'checkbox', align: 'center' }
+  ],
+  blank: function() { return { pattern: '', match_type: 'contains', debit_account: '', description_override: '', priority: 100, is_active: true }; },
+  isBlank: function(b) { return !b.pattern && !b.debit_account; },
+  same: function(b, s) {
+    return b.pattern === (s.pattern || '')
+      && b.match_type === (s.match_type || 'contains')
+      && b.debit_account === (s.debit_account || '')
+      && (b.description_override || '') === (s.description_override || '')
+      && (b.priority != null ? b.priority : 100) === (s.priority != null ? s.priority : 100)
+      && b.is_active === !!s.is_active;
+  },
+  validate: function(d) {
+    if (!d.pattern) return 'Pattern required.';
+    if (!d.debit_account) return 'Offset account required.';
+    return null;
+  },
+  firstField: function() { return 'pattern'; },
+  track: 'mapping',
+  list: { action: 'mapping.list',
+    map: function(m) { return { mapping_id: m.mapping_id, pattern: m.pattern || '', match_type: m.match_type || 'contains', debit_account: m.debit_account || '', description_override: m.description_override || '', priority: m.priority != null ? m.priority : 100, is_active: m.is_active !== false, _key: m.mapping_id }; } },
+  save: { action: 'mapping.upsert',
+    body: function(d) { return { mapping: { mapping_id: d._isNew ? null : d._key, pattern: d.pattern, match_type: d.match_type || 'contains', debit_account: d.debit_account, description_override: d.description_override || null, priority: parseInt(d.priority, 10) || 100, is_active: d.is_active !== false } }; },
+    focusKey: function(d, res) { return d._isNew ? (res.mappingId || d._key) : d._key; } },
+  del: { action: 'mapping.delete',
+    body: function(d) { return { mappingId: d._key }; },
+    confirm: function(d) { return 'Delete mapping "' + (d.pattern || d._key) + '"?'; } }
+});
 <\/script>
 ${layoutEnd()}
 </body>

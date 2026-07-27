@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, navBar, layoutEnd } = require('./common');
+const { commonStyle, navBar, layoutEnd, getRelevanceFlags } = require('./common');
 const { query } = require('../db');
 
 async function handleBillDetailPage(req, res) {
@@ -10,10 +10,13 @@ async function handleBillDetailPage(req, res) {
     { cid: company }
   ).catch(() => [{}]);
   const taxLabel = (co && co.jurisdiction === 'SG') ? 'GST' : 'VAT';
-  res.send(buildBillDetailPage(company, id, taxLabel));
+  const flags = await getRelevanceFlags(company);
+  res.send(buildBillDetailPage(company, id, taxLabel, flags));
 }
 
-function buildBillDetailPage(company, billId, taxLabel = 'VAT') {
+function buildBillDetailPage(company, billId, taxLabel = 'VAT', flags) {
+  // settings-ux-spec §7 item 9: vatRegistered=false drops the tax column.
+  const vatOn = !flags || flags.vatRegistered !== false;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -213,7 +216,7 @@ ${commonStyle()}
         <tr>
           <th>Description</th>
           <th style="text-align:right;min-width:100px">Amount</th>
-          <th style="min-width:90px">${taxLabel}</th>
+          ${vatOn ? '<th style="min-width:90px">' + taxLabel + '</th>' : ''}
           <th style="min-width:80px">Currency</th>
         </tr>
       </thead>
@@ -255,6 +258,7 @@ ${commonStyle()}
 
 <script>
 var COMPANY = '${company}';
+var VAT_ON = ${vatOn ? 'true' : 'false'};
 var BILL_ID = '${billId}';
 var billData = null;
 var accountsCache = null;
@@ -455,7 +459,7 @@ function loadLines() {
         + 'onchange="updateLineDesc(&apos;' + esc(l.entry_id||'') + '&apos;, this.value)">'
         + '</td>'
         + '<td style="text-align:right">' + Number(l.amount||0).toFixed(2) + '</td>'
-        + '<td style="color:#555">' + esc(l.vat_code||'') + '</td>'
+        + (VAT_ON ? '<td style="color:#555">' + esc(l.vat_code||'') + '</td>' : '')
         + '<td class="currency-blue">' + esc(l.currency||'') + '</td>'
         + '</tr>';
     });

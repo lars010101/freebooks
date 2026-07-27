@@ -15,19 +15,26 @@
  * - Line delete is a per-row × icon (mouse); keyboard line-delete pending
  *   magnus's call (x would type).
  */
-const { makeQuery, commonStyle, navBar, layoutEnd } = require('./common');
+const { makeQuery, commonStyle, navBar, layoutEnd, getRelevanceFlags } = require('./common');
 
 async function handleBillEditPage(req, res) {
   const { company } = req.params;
   try {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(buildBillEditPage(company, req.query.id || null));
+    const flags = await getRelevanceFlags(company);
+    res.send(buildBillEditPage(company, req.query.id || null, flags));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }
 
-function buildBillEditPage(company, editId) {
+function buildBillEditPage(company, editId, flags) {
+  // Relevance flags (settings-ux-spec §7 item 9 + fx-automation-spec §1):
+  // vatOn=false drops the VAT code column / stated-GST total / per-code rows;
+  // fxOn=false locks the CCY field to the company base currency.
+  const vatOn = !flags || flags.vatRegistered !== false;
+  const fxOn = !flags || flags.fxTracking !== 'off';
+  const baseCcy = (flags && flags.baseCurrency) || '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -75,7 +82,9 @@ ${commonStyle()}
       <div class="be-field"><label>Bill date *</label><input id="be-date" type="date"></div>
       <div class="be-field"><label>Due date</label><input id="be-due" type="date"></div>
       <div class="be-field"><label>Vendor ref</label><input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></div>
-      <div class="be-field"><label>CCY</label><input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase"></div>
+      <div class="be-field"><label>CCY</label>${fxOn
+        ? '<input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase">'
+        : '<input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase" value="' + baseCcy + '" readonly tabindex="-1" title="Single-currency company (fx_tracking off) — locked to base currency">'}</div>
       <div class="be-field"><label>AP account</label><input id="be-ap" autocomplete="off"></div>
     </div>
   </div>
@@ -87,7 +96,7 @@ ${commonStyle()}
         <th style="width:28%">Description</th>
         <th style="width:16%">Expense account</th>
         <th style="width:10%">Amount</th>
-        <th style="width:10%">VAT code</th>
+        ${vatOn ? '<th style="width:10%">VAT code</th>' : ''}
         <th style="width:12%">Cost center</th>
         <th style="width:12%">Profit center</th>
         <th style="width:2%"></th>
@@ -110,9 +119,9 @@ ${commonStyle()}
     <button class="btn-plain" id="be-save" type="button">Back (q)</button>
     <span class="be-msg" id="be-msg"></span>
     <div class="be-totals">
-      <div id="be-code-rows" style="width:100%;font-size:8.5pt;color:#888;font-style:italic"></div>
+      <div id="be-code-rows" style="width:100%;font-size:8.5pt;color:#888;font-style:italic${vatOn ? '' : ';display:none'}"></div>
       <span>Net <b id="be-tot-net">0.00</b></span>
-      <span title="Supplier-stated VAT total — pre-filled computed; edit to match the supplier invoice; clear to return to computed">GST <input id="be-tot-gst" class="bill-vat-stated" type="number" step="0.01" style="width:90px;text-align:right"></span>
+      ${vatOn ? '<span title="Supplier-stated VAT total — pre-filled computed; edit to match the supplier invoice; clear to return to computed">GST <input id="be-tot-gst" class="bill-vat-stated" type="number" step="0.01" style="width:90px;text-align:right"></span>' : ''}
       <span>Gross <b id="be-tot-gross">0.00</b></span>
     </div>
   </div>
@@ -123,6 +132,8 @@ ${commonStyle()}
 (function () {
 'use strict';
 const COMPANY = ${JSON.stringify(company)};
+const VAT_ON = ${vatOn ? 'true' : 'false'};
+const FX_ON = ${fxOn ? 'true' : 'false'};
 // Server-embedded: fbNavigate re-executes this script BEFORE pushState, so
 // window.location.search still holds the OLD page's query at parse time.
 const editId = ${JSON.stringify(editId)};
@@ -154,7 +165,7 @@ function apiAction(action, payload) {
 Promise.all([
   apiAction('vendor.list').then(d => { S.vendors = d || []; }),
   apiAction('coa.list').then(d => { S.accounts = d || []; }),
-  apiAction('vat.codes.list').then(d => { S.vatCodes = d || []; }),
+  ...(VAT_ON ? [apiAction('vat.codes.list').then(d => { S.vatCodes = d || []; })] : []),
   apiAction('center.list').then(d => { S.centers = d || []; }),
   fetch('/db/currencies.json').then(r => r.json()).then(d => { S.currencies = d || []; }),
 ]).then(async () => {
@@ -191,7 +202,7 @@ async function prefillFromDraft(id) {
   document.getElementById('be-ref').value = bill.vendor_ref || '';
   document.getElementById('be-ccy').value = bill.currency || '';
   document.getElementById('be-ap').value = bill.ap_account || '';
-  if (Number(bill.vat_amount) > 0) { // drafts: stated VAT total (0 = none)
+  if (VAT_ON && Number(bill.vat_amount) > 0) { // drafts: stated VAT total (0 = none); element absent when vat_registered=false
     const el = document.getElementById('be-tot-gst');
     el.dataset.stated = '1';
     el.value = Number(bill.vat_amount).toFixed(2);
@@ -218,7 +229,7 @@ function wireHeader() {
     onPick: (it, inp) => {
       inp.value = it.primary;
       const v = it.data;
-      if (v.default_currency && !document.getElementById('be-ccy').value) document.getElementById('be-ccy').value = v.default_currency;
+      if (FX_ON && v.default_currency && !document.getElementById('be-ccy').value) document.getElementById('be-ccy').value = v.default_currency;
       if (v.default_ap_account && !document.getElementById('be-ap').value) document.getElementById('be-ap').value = v.default_ap_account;
       if (v.payment_terms_days) {
         const d = document.getElementById('be-date').value;
@@ -292,13 +303,13 @@ function addLine(data) {
     '<td><input class="bl-desc" value="' + FB.util.escAttr(data.description || '') + '" placeholder="line description"></td>' +
     '<td><input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off"></td>' +
     '<td><input class="bl-amt" type="number" step="0.01" min="0" value="' + (data.amount !== '' && data.amount != null ? data.amount : '') + '"></td>' +
-    '<td><input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—"></td>' +
+    (VAT_ON ? '<td><input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—"></td>' : '') +
     '<td><input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off"></td>' +
     '<td><input class="bl-pc" value="' + FB.util.escAttr(data.profit_center || '') + '" autocomplete="off"></td>' +
     '<td><button class="be-line-x" type="button" title="delete line">×</button></td>';
   tbody.appendChild(tr);
   attachAcct(tr.querySelector('.bl-acct'));
-  attachVat(tr.querySelector('.bl-vat'));
+  if (VAT_ON) attachVat(tr.querySelector('.bl-vat'));
   attachCenter(tr.querySelector('.bl-cc'), 'cost');
   attachCenter(tr.querySelector('.bl-pc'), 'profit');
   tr.querySelector('.be-line-x').onclick = () => { tr.remove(); updateTotals(); refreshAddRow(); };
@@ -351,7 +362,7 @@ function collectLines() {
     description: tr.querySelector('.bl-desc').value.trim(),
     expense_account: tr.querySelector('.bl-acct').value.trim(),
     amount: parseFloat(tr.querySelector('.bl-amt').value) || 0,
-    vat_code: tr.querySelector('.bl-vat').value.trim() || '',
+    vat_code: (function(){ var s = tr.querySelector('.bl-vat'); return s ? (s.value.trim() || '') : ''; })(),
     cost_center: tr.querySelector('.bl-cc').value.trim() || null,
     profit_center: tr.querySelector('.bl-pc').value.trim() || null,
   })).filter(l => l.description || l.amount || l.expense_account);

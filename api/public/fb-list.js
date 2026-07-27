@@ -1115,7 +1115,10 @@
       var tr = rows()[editIdx];
       var vanished = false; // untouched new row discarded → cursor returns to the add row
       if (d && tr) {
-        var buf = {};
+        // Seed the buffer with the row's own props FIRST (per-row editor
+        // shapes, readonly, server display strings) so a dirty row keeps its
+        // identity — then harvest the editable column inputs over it.
+        var buf = Object.assign({}, d);
         cfg.columns.forEach(function (c) { harvestCell(c, d, tr, buf); });
         if (d._isNew) {
           if (!cfg.isBlank(buf)) dirty[d._key] = Object.assign(buf, { isNew: true });

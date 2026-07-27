@@ -1264,7 +1264,13 @@
         render(focusKey);
         syncChrome();
         if (cfg.onLoaded) cfg.onLoaded(saved);
-      }).catch(function (e) { console.error('FB.list load:', e); });
+      }).catch(function (e) {
+        // Never fail silently: an unreachable backend must not read as an
+        // empty register (Magnus 2026-07-27 — "COA shows no accounts" was a
+        // dead API server, not missing data). One status channel, like saves.
+        console.error('FB.list load:', e);
+        msg('Load failed: ' + (e && e.message ? e.message : 'server unreachable'), true);
+      });
     }
 
     // ── Cursor + field movement ──────────────────────────────────────────

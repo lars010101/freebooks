@@ -335,6 +335,15 @@ const ACTIONS = {
     role: 'owner', mutating: true,
     description: 'Delete the current company (danger zone). Refused when it is the last remaining company or has posted journal entries; cascades setup-only residue otherwise.',
   },
+  'company.attr.list': {
+    role: 'viewer', mutating: false,
+    description: 'List the current company\'s attribute rows for the Company settings grid (server-side registry: labels, display strings, per-row editor shapes).',
+  },
+  'company.attr.save': {
+    role: 'owner', mutating: true,
+    description: 'Write ONE company attribute (server-authoritative validation). key ∈ company_name|currency|jurisdiction|tax_id|reporting_standard|vat_registered|multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct|fx_gain_loss_account.',
+    params: { key: { type: 'string', required: true }, value: { required: true } },
+  },
   'period.list': { role: 'viewer', mutating: false, description: 'List accounting periods.' },
   'period.save': {
     role: 'owner', mutating: true,

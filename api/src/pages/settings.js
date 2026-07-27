@@ -71,7 +71,7 @@ ${commonStyle()}
   </div>
 
   <div class="tabs">
-    <div class="tab active" onclick="showTab('company')">Company</div>
+    <div class="tab active" onclick="showTab('company')">Company<span id="tab-dot-company" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('periods')">Periods<span id="tab-dot-periods" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('coa')">Chart of Accounts<span id="tab-dot-coa" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span></div>
@@ -87,60 +87,20 @@ ${commonStyle()}
     </table>
   </div>
 
-  <!-- COMPANY TAB — slim CURRENT-company record (settings-ux-spec §7 item 1
-       rev 2026-07-27 final). The all-companies grid is DELETED; company
-       management dissolves into the top-left switcher (create via the
-       "+ New company" link appended to the dropdown in common.js), this slim
-       record (edit), and the danger-zone delete below. Read-first panel like
-       fxProviderPanel/vatTolerancePanel: read mode renders all values as text;
-       Edit reveals inputs; Esc cancels without saving; explicit Save writes
-       company.save [one company] + settings.save {fx_gain_loss_account,
-       fx_tracking}. Company ID is immutable (read-only text in both modes).
-       Owns its own minimal edit state (NOT FB.mode); sits OUTSIDE any FB.list
-       tbody tree. -->
+  <!-- COMPANY TAB — FB.list attribute/value grid (settings-ux-spec §7 item 1
+       rev. 3, supersedes the slim record form). One FIXED row per company
+       attribute (canAdd: false — no add, no delete; every row is critical).
+       Columns Attribute | Value | Type; only the Value cell edits, with a
+       per-row editor (text/number/checkbox/select) resolved from the
+       server-sent row shape. w writes ONE attribute via company.attr.save
+       (server-authoritative validation); u reverts; Esc never saves. The
+       all-companies grid stays deleted: switch via the top-left switcher,
+       create via its "+ New company" link, delete via the danger zone below. -->
   <div id="tab-company" class="tab-panel active">
-    <div id="company-record-panel" class="company-record-panel"
-         style="margin-bottom:14px;padding:16px 20px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
-      <div class="cr-read" style="display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap">
-        <div style="font-weight:700;font-size:11pt;min-width:120px">Company Record</div>
-        <div id="cr-read-grid" style="display:grid;grid-template-columns:auto auto;gap:6px 18px;font-size:10pt;color:#333;flex:1;min-width:300px"></div>
-        <button type="button" class="btn-sm cr-edit-btn" onclick="companyRecordPanel.edit()">Edit</button>
-      </div>
-      <div id="cr-edit" class="cr-edit" style="display:none;flex-direction:column;gap:12px">
-        <div style="display:grid;grid-template-columns:auto auto;gap:10px 18px;align-items:center;font-size:10pt">
-          <div style="font-weight:600;color:#555">Company ID</div>
-          <div><span id="cr-edit-id" class="ro" style="display:inline-block;min-width:120px"></span></div>
-          <div style="font-weight:600;color:#555"><label for="cr-name">Company Name</label></div>
-          <div><input type="text" id="cr-name" style="max-width:280px;width:100%"></div>
-          <div style="font-weight:600;color:#555"><label for="cr-currency">Currency</label></div>
-          <div><input type="text" id="cr-currency" maxlength="3" style="max-width:80px" oninput="this.value=this.value.toUpperCase()"></div>
-          <div style="font-weight:600;color:#555"><label for="cr-jurisdiction">Jurisdiction</label></div>
-          <div><select id="cr-jurisdiction" style="max-width:200px">
-            <option value="SG">SG — Singapore</option>
-            <option value="SE">SE — Sweden</option>
-          </select></div>
-          <div style="font-weight:600;color:#555"><label for="cr-taxid">Tax ID</label></div>
-          <div><input type="text" id="cr-taxid" style="max-width:200px"></div>
-          <div style="font-weight:600;color:#555"><label for="cr-standard">Reporting Standard</label></div>
-          <div><select id="cr-standard" style="max-width:200px">
-            <option value="IFRS">IFRS</option>
-            <option value="SFRS">SFRS</option>
-            <option value="K2">K2</option>
-            <option value="K3">K3</option>
-          </select></div>
-          <div style="font-weight:600;color:#555">VAT Registered</div>
-          <div><label><input type="checkbox" id="cr-vat"> <span style="color:#666;font-size:9pt">vat_registered</span></label></div>
-          <div style="font-weight:600;color:#555">Track FX rates</div>
-          <div><label><input type="checkbox" id="cr-fxtrack"> <span style="color:#666;font-size:9pt">fx_tracking (off/auto)</span></label></div>
-          <div style="font-weight:600;color:#555"><label for="cr-fxacct">FX Gain/Loss Account</label></div>
-          <div><input type="text" id="cr-fxacct" placeholder="account code" style="max-width:160px"></div>
-        </div>
-        <div style="display:flex;gap:10px">
-          <button type="button" class="btn-sm" id="cr-save-btn" onclick="companyRecordPanel.save()">Save</button>
-          <button type="button" class="btn-sm" onclick="companyRecordPanel.cancel()">Cancel</button>
-        </div>
-      </div>
-    </div>
+    <table class="edit-table" id="company-attrs-table">
+      <thead><tr><th>Attribute</th><th>Value</th><th>Type</th><th></th></tr></thead>
+      <tbody id="company-attrs-body"></tbody>
+    </table>
 
     <!-- DANGER ZONE — settings-ux-spec §7 item 1 rev 2026-07-27 final.
          Deletes the CURRENT company via company.delete. Server guards:
@@ -153,7 +113,7 @@ ${commonStyle()}
       <div style="font-weight:700;color:#cc2222;font-size:10pt;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Danger Zone</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap">
         <div style="font-size:10pt;color:#333">Delete this company and all of its books. This is permanent and cannot be undone.</div>
-        <button type="button" class="btn-sm danger" id="cr-delete-btn" onclick="companyRecordPanel.confirmDelete()">Delete this company</button>
+        <button type="button" class="btn-sm danger" id="cr-delete-btn" onclick="companyDanger.confirmDelete()">Delete this company</button>
       </div>
     </div>
   </div>
@@ -174,80 +134,21 @@ ${commonStyle()}
     </table>
   </div>
 
-  <!-- VAT/GST CODES TAB -->
+  <!-- VAT/GST CODES TAB — the VAT Tolerance panel is GONE (settings-ux-spec §7
+       item 1 rev. 3): tolerance lives on the Company attribute grid as two
+       typed Number rows. This tab is only the codes register. -->
   <div id="tab-vat" class="tab-panel">
-    <!-- VAT Tolerance (current company) — read-first panel (settings-ux-spec §7
-         item 1 third bullet). Relocated from the Company tab. Lives on the Tax
-         Codes tab ABOVE the codes register, OUTSIDE the FB.list tbody tree so
-         the register's single-key verbs run unmodified; the framework's
-         editable-target focus guard keeps them inert while the panel's inputs
-         have focus. Read mode shows the current flat + pct as text; Edit
-         reveals two number inputs; explicit Save Tolerance button persists via
-         settings.save; Esc exits without saving (Esc-never-saves doctrine). -->
-    <div id="vat-tolerance-panel" class="vat-tolerance-panel"
-         style="margin-bottom:14px;padding:12px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
-      <div class="vtt-read" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-        <div style="font-weight:600">VAT Tolerance</div>
-        <div id="vtt-read-summary" style="font-size:10pt;color:#333">—</div>
-        <button type="button" class="btn-sm vtt-edit-btn" onclick="vatTolerancePanel.edit()">Edit</button>
-      </div>
-      <div id="vtt-edit" class="vtt-edit" style="display:none;flex-direction:column;gap:10px">
-        <div style="font-size:9pt;color:#666">When a supplier-stated VAT amount differs from the computed value, the override is accepted (with a warning) when |stated − computed| ≤ max(flat, % × computed). The % field is entered as a percentage (e.g. 1 = 1%).</div>
-        <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
-          <div class="field-row" style="margin-bottom:0">
-            <label for="vtt-flat">VAT Tolerance (flat)</label>
-            <input type="number" step="0.01" min="0" id="vtt-flat" placeholder="0.50" style="max-width:120px">
-          </div>
-          <div class="field-row" style="margin-bottom:0">
-            <label for="vtt-pct">VAT Tolerance (%)</label>
-            <input type="number" step="0.1" min="0" id="vtt-pct" placeholder="1" style="max-width:120px">
-          </div>
-        </div>
-        <div style="display:flex;gap:10px">
-          <button type="button" class="btn-sm" id="vtt-save-btn" onclick="vatTolerancePanel.save()">Save Tolerance</button>
-          <button type="button" class="btn-sm" onclick="vatTolerancePanel.cancel()">Cancel</button>
-        </div>
-      </div>
-    </div>
     <table class="edit-table" id="vat-table">
       <thead><tr><th>Code</th><th>Description</th><th>Rate %</th><th>Input Acct</th><th>Output Acct</th><th>Report Box</th><th style="text-align:center">Rev.Chg</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="vat-body"></tbody>
     </table>
   </div>
 
-  <!-- EXCHANGE RATES TAB -->
+  <!-- EXCHANGE RATES TAB — the FX provider panel is GONE (settings-ux-spec §7
+       item 5 rev. 3): provider + API key are per-company rows on the Company
+       attribute grid ('manual' = no auto-download). This tab is only the rates
+       register + the 📡 Fetch Rates list-level action. -->
   <div id="tab-fxrates" class="tab-panel">
-    <!-- FX provider config — read-first panel (settings-ux-spec §7 item 5 rev 2026-07-27).
-         Installation-scoped, lives here next to the 📡 Fetch Rates action it configures.
-         Read mode: provider name + whether an API key is set, as TEXT. Edit mode: select +
-         (conditional) API-key input behind an explicit Save button (Esc never saves).
-         Sits OUTSIDE the FB.list tbody tree so the rates register and its single-key verbs
-         run unmodified; the framework's editable-target focus guard keeps verbs inert while
-         this panel's inputs have focus. -->
-    <div id="fx-provider-panel" class="fx-provider-panel"
-         style="margin-bottom:14px;padding:12px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
-      <div class="fxp-read" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-        <div style="font-weight:600">FX Provider</div>
-        <div id="fxp-read-provider" style="font-size:10pt;color:#333">—</div>
-        <div id="fxp-read-key" style="font-size:9pt;color:#666"></div>
-        <button type="button" class="btn-sm fxp-edit-btn" onclick="fxProviderPanel.edit()">Edit</button>
-      </div>
-      <div id="fxp-edit" class="fxp-edit" style="display:none;flex-direction:column;gap:10px">
-        <div class="field-row" style="margin-bottom:0">
-          <label for="fxp-select">Provider</label>
-          <select id="fxp-select" onchange="fxProviderPanel.onSelectChange()" style="max-width:300px"></select>
-        </div>
-        <div id="fxp-key-row" class="field-row" style="display:none;margin-bottom:0">
-          <label id="fxp-key-label">API Key</label>
-          <input type="password" id="fxp-key" placeholder="Enter API key" style="max-width:300px">
-        </div>
-        <div id="fxp-desc" style="font-size:9pt;color:#666"></div>
-        <div style="display:flex;gap:10px">
-          <button type="button" class="btn-sm" id="fxp-save-btn" onclick="fxProviderPanel.save()">Save Provider</button>
-          <button type="button" class="btn-sm" onclick="fxProviderPanel.cancel()">Cancel</button>
-        </div>
-      </div>
-    </div>
     <table class="edit-table" id="fx-rates-table">
       <thead><tr><th>Date</th><th>From</th><th>To</th><th style="text-align:right">Rate</th><th>Source</th><th></th></tr></thead>
       <tbody id="fx-rates-body"></tbody>
@@ -321,7 +222,8 @@ function showTab(t) {
   // unmigrated tabs show no hints.
   var hintEl = document.getElementById('sb-hints');
   if (hintEl) {
-    if (t === 'periods') renderPeriodHints();
+    if (t === 'company') renderCompanyHints();
+    else if (t === 'periods') renderPeriodHints();
     else if (t === 'coa') renderCoaHints();
     else if (t === 'vat') renderVatHints();
     else if (t === 'journals') renderJournalHints();
@@ -330,12 +232,12 @@ function showTab(t) {
   }
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
-    if (t === 'company')  { companyRecordPanel.load(); }
+    if (t === 'company')  { loadCompanyAttrs(); }
     if (t === 'periods')  { loadPeriods(); }
     if (t === 'coa')      { loadCoa(); }
-    if (t === 'vat')      { loadVat(); vatTolerancePanel.load(); }
+    if (t === 'vat')      { loadVat(); }
     if (t === 'journals') { loadJournals(); }
-    if (t === 'fxrates')  { loadFxRates(); loadBaseCurrencies(); fxProviderPanel.load(); }
+    if (t === 'fxrates')  { loadFxRates(); loadBaseCurrencies(); }
   }
 }
 
@@ -407,216 +309,120 @@ function renderPeriodHints() {
   if (el) periodsList.renderHints(el);
 }
 
-// ========== COMPANY RECORD PANEL (slim current-company record) ==========
-// settings-ux-spec §7 item 1 rev 2026-07-27 final. The all-companies grid is
-// DELETED; this read-first panel edits the CURRENT company only. Shape mirrors
-// fxProviderPanel/vatTolerancePanel: read mode renders all values as text;
-// Edit reveals inputs; Esc cancels without saving (Esc-never-saves doctrine);
-// explicit Save writes company.save [one company] + settings.save
-// {fx_gain_loss_account, fx_tracking}. Company ID is immutable (read-only text
-// in both modes — company.save never creates a new id here). Owns its own
-// minimal edit state (NOT FB.mode); sits OUTSIDE any FB.list tbody tree so the
-// registers' single-key verbs run unmodified. The danger-zone delete below the
-// panel routes the CURRENT company through company.delete; the styled fb-modal
-// surfaces the irreversibility confirmation and, on INVALID_STATE, the
-// server's explanatory message (last-company / posted-books refusals).
-var companyRecordPanel = (function () {
-  var editing = false;
-  var current = null; // { company_id, company_name, currency, jurisdiction, tax_id, reporting_standard, vat_registered, fx_tracking, fx_gain_loss_account }
-  var wired = false;
+// ========== COMPANY ATTRIBUTES — FB.list (settings-ux-spec §7 item 1 rev. 3) ==========
+// One FIXED row per company attribute: canAdd false, no delete — every row is
+// critical. The server owns the attribute registry (company.attr.list returns
+// labels, display strings and per-row editor shapes); the client renders what
+// it is given. Only the Value cell edits — the editor type comes from the row
+// (column editor fn, fb-list rev 2026-07-27). w writes ONE attribute via
+// company.attr.save — validation is server-authoritative (Magnus: these are
+// highly sensitive settings; front-end checks are advisory only). Company ID
+// is a read-only row (editable false). The danger zone stays an action below.
+var companyAttrs = FB.list.create({
+  keysId: 'settings-company',
+  active: function() { var p = document.getElementById('tab-company'); return !!(p && p.classList.contains('active')); },
+  tbody: 'company-attrs-body',
+  companyId: function() { return COMPANY; },
+  canAdd: false,
+  hint: 'Fixed rows — one per company attribute. Only the Value cell edits (i); w writes one attribute, u reverts, Esc cancels. Validation happens on the server at write time. FX API Key: a blank edit keeps the stored key.',
+  columns: [
+    { field: 'label', type: 'text', width: 190, ro: 'always', label: 'Attribute',
+      display: function(v) { return '<span style="font-weight:600">' + esc(v) + '</span>'; } },
+    { field: 'value', type: 'text', width: 300, label: 'Value',
+      display: function(v, d) {
+        if (!d._dirty) return esc(d.display != null ? String(d.display) : '');
+        // Dirty preview: render the buffer value in the row's own terms.
+        var ed = d.editor || {};
+        if (ed.type === 'checkbox') return v ? 'Yes' : 'No';
+        if (ed.type === 'select') {
+          var opts = ed.options || [];
+          for (var i = 0; i < opts.length; i++) {
+            var o = opts[i], ov = (typeof o === 'string') ? o : o.value;
+            if (ov === v) return esc((typeof o === 'string') ? (o || '- none -') : o.label);
+          }
+          return esc(String(v));
+        }
+        if (ed.type === 'number') {
+          return d._key === 'vat_tolerance_pct' ? esc(Number(v).toFixed(2) + '%') : esc(String(Number(v)));
+        }
+        return (v !== '' && v != null) ? esc(String(v)) : '<span class="pe-ro">—</span>';
+      },
+      editor: function(d) { return d.editor || { type: 'text' }; } },
+    { field: 'type_label', type: 'text', width: 70, ro: 'always', label: 'Type', filterType: null,
+      display: function(v) { return '<span class="pe-ro">' + esc(v) + '</span>'; } }
+  ],
+  editable: function(d) { return !d.readonly; },
+  same: function(b, s) { return b.value === s.value; },
+  validate: function() { return null; }, // server-authoritative (settings-ux-spec §7 item 1 rev. 3)
+  firstField: function() { return 'value'; },
+  track: 'company-attr',
+  list: { action: 'company.attr.list',
+    map: function(r) { return { label: r.label, value: r.value, display: r.display, type_label: r.type, editor: r.editor, readonly: !!r.readonly, _key: r.key }; } },
+  save: { action: 'company.attr.save',
+    body: function(d) { return { key: d._key, value: d.value }; },
+    focusKey: function(d) { return d._key; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-company');
+    if (dot) dot.style.display = dirty ? '' : 'none';
+    if (dirty) markDirty('company'); else resetDirty('company');
+  },
+  onLoaded: function(rows) {
+    // Side-effects the rest of the page reads from the current company:
+    // relevance flags gate whole tabs; the VAT tab label follows the
+    // jurisdiction; the FX register lists rates for the base currency; the
+    // danger zone addresses the company by name.
+    var byKey = {};
+    rows.forEach(function(r) { byKey[r._key] = r; });
+    window._companyCurrency = byKey.currency ? byKey.currency.value : '';
+    applyRelevanceFlags({
+      vat_registered: byKey.vat_registered ? !!byKey.vat_registered.value : true,
+      fx_tracking: (byKey.multi_currency && byKey.multi_currency.value === false) ? 'off' : 'auto'
+    });
+    if (byKey.jurisdiction && byKey.jurisdiction.value) {
+      var vn = VAT_NAMES[byKey.jurisdiction.value] || 'Tax';
+      var lbl = document.getElementById('tab-vat-label');
+      // Preserve the dirty-dot span (textContent would wipe it).
+      if (lbl) lbl.innerHTML = vn + ' Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span>';
+    }
+    companyDanger.setCompany(
+      byKey.company_id ? byKey.company_id.value : COMPANY,
+      byKey.company_name ? byKey.company_name.value : COMPANY
+    );
+  }
+});
+
+function loadCompanyAttrs(focusKey) { return companyAttrs.load(focusKey); }
+function renderCompanyHints() {
+  var el = document.getElementById('sb-hints');
+  if (el) companyAttrs.renderHints(el);
+}
+
+// ========== COMPANY DANGER ZONE (delete) ==========
+// Action, not a grid row. Routes the CURRENT company through company.delete;
+// the styled fb-modal surfaces the irreversibility confirmation and, on
+// INVALID_STATE, the server's explanatory message (last-company / posted-books
+// refusals). Identity comes from the attribute grid's onLoaded.
+var companyDanger = (function () {
+  var current = { id: null, name: '' };
   var modalEl = null;
 
   function el(id) { return document.getElementById(id); }
   function esc(s) { return window.FB && FB.util ? FB.util.esc(s) : String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-  function readGrid() { return el('cr-read-grid'); }
+  function setCompany(id, name) { current = { id: id, name: name }; }
 
-  function renderRead() {
-    var c = current || {};
-    var rows = [
-      ['Company ID', esc(c.company_id || '')],
-      ['Company Name', esc(c.company_name || '')],
-      ['Currency', esc(c.currency || '')],
-      ['Jurisdiction', esc(c.jurisdiction || '')],
-      ['Tax ID', esc(c.tax_id || '')],
-      ['Reporting Standard', esc(c.reporting_standard || '')],
-      ['VAT Registered', c.vat_registered ? 'Yes' : 'No'],
-      ['Track FX rates', (c.fx_tracking === 'off') ? 'off' : 'auto'],
-      ['FX Gain/Loss Account', esc(c.fx_gain_loss_account || '') || '<span class="pe-ro">—</span>']
-    ];
-    var html = '';
-    rows.forEach(function (r) {
-      html += '<div style="font-weight:600;color:#555">' + r[0] + '</div><div>' + r[1] + '</div>';
-    });
-    readGrid().innerHTML = html;
-  }
-
-  function showRead() {
-    editing = false;
-    el('cr-read-grid').parentElement.style.display = 'flex';
-    el('cr-edit').style.display = 'none';
-  }
-  function showEdit() {
-    editing = true;
-    el('cr-read-grid').parentElement.style.display = 'none';
-    el('cr-edit').style.display = 'flex';
-    var c = current || {};
-    el('cr-edit-id').textContent = c.company_id || '';
-    el('cr-name').value = c.company_name || '';
-    el('cr-currency').value = c.currency || '';
-    el('cr-jurisdiction').value = c.jurisdiction || 'SG';
-    el('cr-taxid').value = c.tax_id || '';
-    el('cr-standard').value = c.reporting_standard || 'IFRS';
-    el('cr-vat').checked = !!c.vat_registered;
-    el('cr-fxtrack').checked = (c.fx_tracking !== 'off');
-    el('cr-fxacct').value = c.fx_gain_loss_account || '';
-    var f = el('cr-name'); if (f) f.focus();
-  }
-
-  function wire() {
-    if (wired) return; wired = true;
-    var panel = el('company-record-panel');
-    if (!panel) return;
-    // Esc exits edit mode without saving (Esc-never-saves doctrine). Enter on
-    // any text input submits (mouse parity with the Save button).
-    panel.setAttribute('tabindex', '0');
-    panel.addEventListener('keydown', function (e) {
-      if (!editing) return;
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
-      else if (e.key === 'Enter' && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) {
-        e.preventDefault(); save();
-      }
-    });
-  }
-
-  function load() {
-    wire();
-    if (!current) {
-      // First load: fetch the company + its settings. Subsequent re-renders
-      // after a successful save reuse the server-fresh values refreshed inside
-      // save(); a manual reload() re-fetches both.
-      return reload();
-    }
-    renderRead();
-    showRead();
-  }
-
-  function reload() {
-    return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
-      .then(function (r){ return r.json(); })
-      .then(function (res){
-        var rows = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
-        var co = rows.find(function (c){ return c.company_id === COMPANY; }) || rows[0] || {};
-        return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ action:'settings.get', companyId: COMPANY }) })
-          .then(function (r){ return r.json(); })
-          .then(function (r2){
-            var s = (r2 && r2.data) ? r2.data : (r2 || {});
-            current = {
-              company_id: co.company_id || COMPANY,
-              company_name: co.company_name || '',
-              currency: co.base_currency || co.currency || '',
-              jurisdiction: co.jurisdiction || '',
-              tax_id: co.tax_id || '',
-              reporting_standard: co.reporting_standard || '',
-              vat_registered: !!co.vat_registered,
-              fx_tracking: s.fx_tracking || 'auto',
-              fx_gain_loss_account: s.fx_gain_loss_account || ''
-            };
-            // Side-effects the old grid used to perform: VAT tab label + FX
-            // tab base currency. Kept so the rest of the page still reflects
-            // the current company after a (re)load.
-            if (current.jurisdiction) {
-              var vn = VAT_NAMES[current.jurisdiction] || 'Tax';
-              var lbl = el('tab-vat-label');
-              // Preserve the dirty-dot span (textContent would wipe it).
-              if (lbl) lbl.innerHTML = vn + ' Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span>';
-            }
-            window._companyCurrency = current.currency;
-            applyRelevanceFlags(current);
-            renderRead();
-            showRead();
-          });
-      })
-      .catch(function (e){ showMsg('msg-company', e.message, true); });
-  }
-
-  function edit() { showEdit(); }
-  function cancel() { showRead(); renderRead(); }
-
-  function save() {
-    var c = current || {};
-    if (!c.company_id) { showMsg('msg-company', 'No company loaded', true); return; }
-    var nameVal = el('cr-name').value.trim();
-    var currencyVal = el('cr-currency').value.trim().toUpperCase();
-    var jurVal = el('cr-jurisdiction').value;
-    var taxIdVal = el('cr-taxid').value.trim();
-    var stdVal = el('cr-standard').value;
-    var vatVal = el('cr-vat').checked;
-    var fxTrackVal = el('cr-fxtrack').checked ? 'auto' : 'off';
-    var fxAcctVal = el('cr-fxacct').value.trim();
-    if (!nameVal) { showMsg('msg-company', 'Company name required', true); return; }
-    if (!currencyVal) { showMsg('msg-company', 'Currency required', true); return; }
-
-    var btn = el('cr-save-btn'); if (btn) btn.disabled = true;
-    var co = {
-      company_id: c.company_id,
-      company_name: nameVal,
-      base_currency: currencyVal,
-      jurisdiction: jurVal,
-      tax_id: taxIdVal,
-      reporting_standard: stdVal,
-      vat_registered: vatVal
-    };
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'company.save', companyId: c.company_id, companies: [co] }) })
-      .then(function (r){ return r.json(); })
-      .then(function (res){
-        var d = res.data || res;
-        if (res.error || d.error) {
-          showMsg('msg-company', res.error || d.error, true);
-          if (btn) btn.disabled = false;
-          return;
-        }
-        // Persist the two settings keys separately (fx_gain_loss_account +
-        // fx_tracking). One settings.save call; the server stores both.
-        return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ action:'settings.save', companyId: c.company_id,
-            settings: { fx_gain_loss_account: fxAcctVal, fx_tracking: fxTrackVal } }) })
-          .then(function (r){ return r.json(); })
-          .then(function (r2){
-            var d2 = r2.data || r2;
-            if (r2.error || d2.error) {
-              showMsg('msg-company', r2.error || d2.error, true);
-              if (btn) btn.disabled = false;
-              return;
-            }
-            // Refresh from server, re-render read mode, confirm via FB.status.
-            return reload().then(function(){ showMsg('msg-company', 'Company record saved', false); });
-          });
-      })
-      .then(function (){ if (btn) btn.disabled = false; })
-      .catch(function (e){
-        showMsg('msg-company', e.message, true);
-        if (btn) btn.disabled = false;
-      });
-  }
-
-  // ── Danger-zone delete ──
   function closeModal() {
     if (modalEl) { modalEl.remove(); modalEl = null; }
   }
 
   function confirmDelete() {
-    var c = current || {};
-    if (!c.company_id) { showMsg('msg-company', 'No company loaded', true); return; }
+    if (!current.id) { showMsg('msg-company', 'No company loaded', true); return; }
     closeModal();
     var overlay = document.createElement('div');
     overlay.className = 'fb-modal-overlay';
     overlay.innerHTML =
       '<div class="fb-modal">' +
-        '<div class="fb-modal-title">Delete "' + esc(c.company_name || c.company_id) + '"?</div>' +
+        '<div class="fb-modal-title">Delete "' + esc(current.name || current.id) + '"?</div>' +
         '<div class="fb-modal-body">This will permanently delete the company and all of its books (accounts, periods, journals, bills, settings, …). <strong>This cannot be undone.</strong></div>' +
         '<div id="cr-modal-err" class="fb-modal-err" style="display:none"></div>' +
         '<div class="fb-modal-btns">' +
@@ -634,14 +440,13 @@ var companyRecordPanel = (function () {
   }
 
   function doDelete() {
-    var c = current || {};
     var confirmBtn = el('cr-modal-confirm');
     var cancelBtn = el('cr-modal-cancel');
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Deleting…'; }
     if (cancelBtn) cancelBtn.disabled = true;
     var errBox = el('cr-modal-err');
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'company.delete', companyId: c.company_id }) })
+      body: JSON.stringify({ action:'company.delete', companyId: current.id }) })
       .then(function (r){ return r.json(); })
       .then(function (res){
         var d = res.data || res;
@@ -674,7 +479,7 @@ var companyRecordPanel = (function () {
       });
   }
 
-  return { load: load, edit: edit, cancel: cancel, save: save, reload: reload, confirmDelete: confirmDelete };
+  return { setCompany: setCompany, confirmDelete: confirmDelete };
 })();
 
 // ========== COA — FB.list (P3 consolidated) ==========
@@ -940,165 +745,11 @@ function attachCcyDd(input) {
   });
 }
 
-// ========== FX PROVIDER PANEL (read-first, install-level) ==========
-// settings-ux-spec §7 item 5 rev 2026-07-27 + fx-automation-spec rev 2026-07-27.
-// Lives on the Exchange Rates tab next to the 📡 Fetch Rates action. Read mode
-// shows provider name/description + whether an API key is set, as TEXT. Edit
-// mode (click Edit, or i while the panel is focused) reveals the provider
-// select and, when the chosen provider needs one, the API-key input — behind
-// an explicit Save Provider button (Esc never saves, one save path). This
-// panel owns its own minimal edit state (NOT FB.mode) and sits OUTSIDE the
-// FB.list tbody tree; the framework's editable-target focus guard keeps the
-// rates register's single-key verbs inert while the panel's inputs have focus.
-var fxProviders = [];
-var fxProviderPanel = (function () {
-  var editing = false;
-  var current = { provider: 'ecb', apiKey: null, source: null };
-  var wired = false;
-
-  function el(id) { return document.getElementById(id); }
-  function findProvider(id) {
-    for (var i = 0; i < fxProviders.length; i++) if (fxProviders[i].id === id) return fxProviders[i];
-    return null;
-  }
-
-  function renderRead() {
-    var p = findProvider(current.provider) || { name: current.provider, description: '' };
-    el('fxp-read-provider').textContent = p.name || current.provider;
-    var keyEl = el('fxp-read-key');
-    var keyTxt = current.apiKey
-      ? 'API key set (••••' + current.apiKey + ')'
-      : (p.requiresApiKey ? 'API key NOT set' : 'No API key required');
-    keyEl.textContent = keyTxt;
-    if (current.source === 'company') {
-      keyEl.textContent += ' — per-company (legacy); saving upgrades to install-level';
-    }
-    el('fxp-read-provider').title = p.description || '';
-  }
-
-  function showRead() {
-    editing = false;
-    el('fxp-read-provider').parentElement.style.display = 'flex';
-    el('fxp-edit').style.display = 'none';
-  }
-  function showEdit() {
-    editing = true;
-    el('fxp-read-provider').parentElement.style.display = 'none';
-    el('fxp-edit').style.display = 'flex';
-    populateSelect();
-    el('fxp-select').value = current.provider;
-    onSelectChange();
-    // Clear any stale key draft; placeholder hints at the stored key.
-    var keyInput = el('fxp-key');
-    keyInput.value = '';
-    if (current.apiKey) keyInput.placeholder = 'API key set (••••' + current.apiKey + ') — retype to replace';
-    else keyInput.placeholder = 'Enter API key';
-    var s = el('fxp-select'); if (s) s.focus();
-  }
-
-  function populateSelect() {
-    var sel = el('fxp-select');
-    sel.innerHTML = '';
-    (Array.isArray(fxProviders) ? fxProviders : []).forEach(function (p) {
-      var opt = document.createElement('option');
-      opt.value = p.id; opt.textContent = p.name;
-      sel.appendChild(opt);
-    });
-  }
-
-  function onSelectChange() {
-    var p = findProvider(el('fxp-select').value);
-    if (!p) return;
-    el('fxp-desc').textContent = p.description || '';
-    var keyRow = el('fxp-key-row');
-    if (p.requiresApiKey) {
-      keyRow.style.display = 'flex';
-      el('fxp-key-label').textContent = p.apiKeyLabel || 'API Key';
-    } else {
-      keyRow.style.display = 'none';
-    }
-  }
-
-  function wire() {
-    if (wired) return; wired = true;
-    var panel = el('fx-provider-panel');
-    if (!panel) return;
-    // Esc exits edit mode without saving (Esc-never-saves doctrine). Enter on
-    // the API-key field submits (mouse parity with the Save button).
-    panel.addEventListener('keydown', function (e) {
-      if (!editing) return;
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
-      else if (e.key === 'Enter' && (e.target === el('fxp-key') || e.target === el('fxp-select'))) {
-        e.preventDefault(); save();
-      }
-    });
-    // i enters edit mode from read mode (keyboard parity with the Edit
-    // button) — only when the panel itself (not a child input) has focus, so
-    // it never hijacks typing. Read mode has no inputs, so this is safe.
-    panel.setAttribute('tabindex', '0');
-    panel.addEventListener('keydown', function (e) {
-      if (editing) return;
-      if (e.key === 'i' && !(e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) {
-        e.preventDefault(); edit();
-      }
-    });
-  }
-
-  function load() {
-    wire();
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.providers.list', companyId: COMPANY }) })
-      .then(function (r){ return r.json(); })
-      .then(function (res){
-        fxProviders = res.data || res || [];
-        return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.get', companyId: COMPANY }) })
-          .then(function (r){ return r.json(); })
-          .then(function (r2){
-            var c = r2.data || r2 || {};
-            current = { provider: c.provider || 'ecb', apiKey: c.apiKey || null, source: c.source || null };
-            renderRead();
-            showRead();
-          });
-      })
-      .catch(function (e){ console.error('fxProviderPanel.load failed:', e); });
-  }
-
-  function edit() { showEdit(); }
-  function cancel() { showRead(); renderRead(); }
-
-  function save() {
-    var providerId = el('fxp-select').value;
-    var p = findProvider(providerId);
-    var keyRow = el('fxp-key-row');
-    var apiKey = (keyRow && keyRow.style.display !== 'none') ? el('fxp-key').value.trim() : null;
-    if (!providerId) { showMsg('fx-provider', 'Select a provider first', true); return; }
-    if (p && p.requiresApiKey && !apiKey && !current.apiKey) {
-      showMsg('fx-provider', (p.apiKeyLabel || 'API Key') + ' required for ' + p.name, true);
-      return;
-    }
-    var btn = el('fxp-save-btn'); if (btn) btn.disabled = true;
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'fx.provider.save', companyId: COMPANY, provider: providerId, apiKey: apiKey }) })
-      .then(function (r){ return r.json(); })
-      .then(function (r){
-        var d = r.data || r;
-        if (r.error || d.error) { showMsg('fx-provider', r.error || d.error, true); if (btn) btn.disabled = false; return; }
-        // Refresh current config from the server, re-render read mode, confirm.
-        return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.get', companyId: COMPANY }) })
-          .then(function (rr){ return rr.json(); })
-          .then(function (rr2){
-            var c = rr2.data || rr2 || {};
-            current = { provider: c.provider || providerId, apiKey: c.apiKey || null, source: c.source || 'install' };
-            renderRead();
-            showRead();
-            showMsg('fx-provider', 'Provider saved (install-level)', false);
-            if (btn) btn.disabled = false;
-          });
-      })
-      .catch(function (e){ showMsg('fx-provider', e.message, true); if (btn) btn.disabled = false; });
-  }
-
-  return { load: load, edit: edit, cancel: cancel, save: save, onSelectChange: onSelectChange };
-})();
+// ========== FX PROVIDER PANEL — removed (settings-ux-spec §7 item 5 rev. 3) ==========
+// Provider + API key are per-company rows on the Company attribute grid
+// ('manual' = no auto-download). The install-level read-first panel that lived
+// here is deleted; fx.providers.list / fx.provider.get|save remain available
+// as actions (per-company since fx-automation-spec rev. 3).
 
 
 // ========== DEFAULT ACCOUNTS — removed (settings-ux-spec §7 item 1) ==========
@@ -1108,139 +759,11 @@ var fxProviderPanel = (function () {
 // and saveDefaultAccounts() have been removed from the Company tab.
 
 
-// ========== VAT TOLERANCE PANEL (read-first, per-company) ==========
-// settings-ux-spec §7 item 1 third bullet — relocated from the Company tab to
-// the Tax Codes tab. Read mode shows the current flat + pct as text (e.g.
-// "max(flat 0.50, 1.0% of computed)"); Edit reveals two number inputs; explicit
-// Save Tolerance button persists via settings.save {vat_tolerance,
-// vat_tolerance_pct}; Esc exits without saving (Esc-never-saves doctrine).
-// Storage semantics preserved from the prior loadVatTolerance/saveVatTolerance:
-// flat stored as-is; pct stored as a decimal fraction (1% -> 0.01) in the DB
-// but entered/displayed as a percentage (1 = 1%). Owns its own minimal edit
-// state (NOT FB.mode); sits OUTSIDE the FB.list tbody tree so the register's
-// single-key verbs run unmodified.
-var vatTolerancePanel = (function () {
-  var editing = false;
-  var current = { flat: null, pct: null };
-  var wired = false;
-
-  function el(id) { return document.getElementById(id); }
-
-  function fmtFlat(flat) {
-    return (flat === null || flat === undefined || isNaN(flat)) ? '0' : String(flat);
-  }
-  function fmtPct(pct) {
-    // pct is a decimal fraction (0.01 = 1%) in storage; display as percent.
-    return (pct === null || pct === undefined || isNaN(pct)) ? '0' : (Math.round(pct * 100 * 100) / 100);
-  }
-
-  function renderRead() {
-    var flatTxt = fmtFlat(current.flat);
-    var pctTxt = fmtPct(current.pct);
-    el('vtt-read-summary').textContent =
-      'max(flat ' + flatTxt + ', ' + pctTxt + '% of computed)';
-  }
-
-  function showRead() {
-    editing = false;
-    el('vtt-read-summary').parentElement.style.display = 'flex';
-    el('vtt-edit').style.display = 'none';
-  }
-  function showEdit() {
-    editing = true;
-    el('vtt-read-summary').parentElement.style.display = 'none';
-    el('vtt-edit').style.display = 'flex';
-    el('vtt-flat').value = (current.flat === null || current.flat === undefined || isNaN(current.flat)) ? '' : String(current.flat);
-    el('vtt-pct').value = (current.pct === null || current.pct === undefined || isNaN(current.pct)) ? '' : String(fmtPct(current.pct));
-    var f = el('vtt-flat'); if (f) f.focus();
-  }
-
-  function wire() {
-    if (wired) return; wired = true;
-    var panel = el('vat-tolerance-panel');
-    if (!panel) return;
-    // Esc exits edit mode without saving (Esc-never-saves doctrine). Enter on
-    // either input submits (mouse parity with the Save Tolerance button).
-    panel.setAttribute('tabindex', '0');
-    panel.addEventListener('keydown', function (e) {
-      if (!editing) return;
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
-      else if (e.key === 'Enter' && (e.target === el('vtt-flat') || e.target === el('vtt-pct'))) {
-        e.preventDefault(); save();
-      }
-    });
-  }
-
-  function load() {
-    wire();
-    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'settings.get', companyId: COMPANY }) })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        var s = (res && res.data) ? res.data : (res || {});
-        current.flat = parseFloat(s.vat_tolerance);
-        current.pct = parseFloat(s.vat_tolerance_pct);
-        renderRead();
-        showRead();
-      })
-      .catch(function (e) { showMsg('msg-vat-tolerance', e.message, true); });
-  }
-
-  function edit() { showEdit(); }
-  function cancel() { showRead(); renderRead(); }
-
-  function save() {
-    var flatVal = el('vtt-flat').value.trim();
-    var pctVal = el('vtt-pct').value.trim();
-    var flatNum = parseFloat(flatVal);
-    var pctNum = parseFloat(pctVal);
-    if (flatVal !== '' && (isNaN(flatNum) || flatNum < 0)) {
-      showMsg('msg-vat-tolerance', 'Flat tolerance must be a non-negative number', true);
-      return;
-    }
-    if (pctVal !== '' && (isNaN(pctNum) || pctNum < 0)) {
-      showMsg('msg-vat-tolerance', 'Tolerance % must be a non-negative number', true);
-      return;
-    }
-    // Store: flat as-is; pct as decimal (1 -> 0.01)
-    var flatStore = (flatVal === '') ? '' : String(flatNum);
-    var pctStore = (pctVal === '') ? '' : String(pctNum / 100);
-    var btn = el('vtt-save-btn'); if (btn) btn.disabled = true;
-    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'settings.save', companyId: COMPANY,
-        settings: { vat_tolerance: flatStore, vat_tolerance_pct: pctStore }
-      }) })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        var d = res.data || res;
-        if (res.error || d.error) {
-          showMsg('msg-vat-tolerance', res.error || d.error, true);
-          if (btn) btn.disabled = false;
-          return;
-        }
-        // Refresh from server, re-render read mode, confirm.
-        return fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'settings.get', companyId: COMPANY }) })
-          .then(function (r2) { return r2.json(); })
-          .then(function (r2r) {
-            var s = (r2r && r2r.data) ? r2r.data : (r2r || {});
-            current.flat = parseFloat(s.vat_tolerance);
-            current.pct = parseFloat(s.vat_tolerance_pct);
-            renderRead();
-            showRead();
-            showMsg('msg-vat-tolerance', 'VAT tolerance saved', false);
-            if (btn) btn.disabled = false;
-          });
-      })
-      .catch(function (e) {
-        showMsg('msg-vat-tolerance', e.message, true);
-        if (btn) btn.disabled = false;
-      });
-  }
-
-  return { load: load, edit: edit, cancel: cancel, save: save };
-})();
+// ========== VAT TOLERANCE PANEL — removed (settings-ux-spec §7 item 1 rev. 3) ==========
+// Tolerance lives on the Company attribute grid as two typed Number rows
+// (flat + %, % edited as a percentage and stored as a fraction — the storage
+// semantics bills.js has always read). The read-first panel that sat above
+// this register is deleted.
 
 // ========== UNSAVED CHANGES PROTECTION ==========
 window.onbeforeunload = function(e) {
@@ -1257,6 +780,11 @@ window.onbeforeunload = function(e) {
   var params = new URLSearchParams(window.location.search);
   var tab = params.get('tab');
   loadCurrencyList();
+  // Load the attribute grid EAGERLY even when ?tab= deep-links elsewhere:
+  // relevance flags (VAT tab / Exchange Rates tab visibility) are derived from
+  // its rows, so they must resolve before any tab renders.
+  tabLoaded['company'] = true;
+  loadCompanyAttrs();
   showTab(tab || 'company');
 })();
 </script>

@@ -21,13 +21,18 @@
  *   msg        element id for status/error messages (optional)
  *   companyId  fn → company id for /api/action payloads
  *   columns    [{ field, type, width, align, ro, uppercase, step, options,
- *                 nullable, display, attach, filterType }]
+ *                 nullable, display, attach, filterType, editor }]
  *              field    buffer property name (also data-field + input class)
  *              type     'text' (default) | 'date' | 'number' | 'checkbox' | 'select'
  *              ro       'saved' → read-only when editing a SAVED row (key col)
  *                       'always' → display-only in BOTH modes (badges, source)
  *              options  select values: ['a','b'] or [{value,label}]; '' = '- none -'
  *              nullable select: '' harvests as null
+ *              editor   fn(row) → { type?, options?, step?, nullable?, uppercase? }
+ *                       — PER-ROW editor override (attribute/value grids: one
+ *                       "Value" column edits strings, numbers, booleans and
+ *                       choices depending on the row). Resolved in editCell and
+ *                       on harvest; column-level props remain the fallback.
  *              display  fn(value, row) → HTML for view mode (default: esc or —)
  *              attach   fn(input, tr) — post-build hook (FB.dropdown, etc.)
  *              filterType 'text' (the DEFAULT for every non-checkbox column) |
@@ -50,8 +55,10 @@
  *                       doctrine as the filter bypass). Tree: parents are
  *                       sorted, children follow their parent.
  *              label    optional column header label (used by the ≡ tooltip)
- *   blank()    → new-row buffer defaults
+ *   blank()    → new-row buffer defaults (omit with canAdd: false)
  *   isBlank(b) → true when a NEW buffer is untouched (vanishes on Esc)
+ *   canAdd     false → NO add row: fixed-row registers (Company attributes)
+ *              where every row is critical and create is impossible. Default true.
  *   same(b, s) → true when buffer matches saved row (dirty dropped)
  *   validate(d)→ error string | null
  *   editable(d)→ bool (default true); false = row never enters edit (ECB rates)
@@ -127,6 +134,9 @@
     // children; fold state is keyed by row._key; childRowHtml renders children.
     // Flat lists (tree falsy) are untouched — the default.
     cfg.tree = !!cfg.tree;
+    // canAdd: false → fixed-row register (Company attributes): no add row, no
+    // create verb — every row is critical and rows are never added/removed.
+    var canAdd = cfg.canAdd !== false;
     if (cfg.tree) {
       // children(row) → child rows for a parent (may fetch; framework caches
       // per-_key). Default: no children (a tree with only parents = flat).
@@ -838,7 +848,7 @@
       wireHeaders();
       if (cfg.actions) ensureToolbar();
       var m = merged();
-      tb.innerHTML = m.map(rowHtml).join('') + addRowHtml(); // add row pinned bottom
+      tb.innerHTML = m.map(rowHtml).join('') + (canAdd ? addRowHtml() : ''); // add row pinned bottom (canAdd)
       rows().forEach(function (tr) {
         tr.addEventListener('click', function (e) {
           // Tree: ▸/▾ caret toggles fold (mouse parity for Space). Stops
@@ -877,26 +887,42 @@
     }
 
     // ── Edit ─────────────────────────────────────────────────────────────
+    // Per-row editor resolution (attribute/value grids): a column's `editor`
+    // fn returns the editor props for THIS row (type/options/step/nullable/
+    // uppercase); column-level props are the fallback. Used by editCell and
+    // every harvest site so a "Value" column can switch between text, number,
+    // checkbox and select per row.
+    function colEditor(c, d) {
+      var ov = c.editor ? (c.editor(d) || {}) : {};
+      return {
+        type: ov.type || c.type,
+        options: ov.options !== undefined ? ov.options : c.options,
+        step: ov.step !== undefined ? ov.step : c.step,
+        nullable: ov.nullable !== undefined ? ov.nullable : c.nullable,
+        uppercase: ov.uppercase !== undefined ? ov.uppercase : c.uppercase
+      };
+    }
     function editCell(c, d) {
       var val = d[c.field];
       if (c.ro === 'always') return c.display ? c.display(val, d) : defaultDisplay(val);
       if (c.ro === 'saved' && !d._isNew) {
         return '<span class="pe-ro">' + esc(val == null ? '' : String(val)) + '</span>';
       }
+      var ed = colEditor(c, d);
       var cls = 'fb-e-' + c.field;
       var w = c.width ? ' style="width:' + c.width + 'px"' : '';
-      if (c.type === 'checkbox') {
+      if (ed.type === 'checkbox') {
         return '<input type="checkbox" class="' + cls + '"' + (val ? ' checked' : '') + '>';
       }
-      if (c.type === 'date') {
+      if (ed.type === 'date') {
         return '<input type="date" class="' + cls + '" value="' + esc(val || '') + '"' + w + '>';
       }
-      if (c.type === 'number') {
+      if (ed.type === 'number') {
         return '<input type="number" class="' + cls + '" value="' + (val != null ? val : 0) + '"'
-          + (c.step ? ' step="' + c.step + '"' : '') + w + '>';
+          + (ed.step ? ' step="' + ed.step + '"' : '') + w + '>';
       }
-      if (c.type === 'select') {
-        var opts = (c.options || []).map(function (o) {
+      if (ed.type === 'select') {
+        var opts = (ed.options || []).map(function (o) {
           var v = typeof o === 'string' ? o : o.value;
           var label = typeof o === 'string' ? (o || '- none -') : o.label;
           return '<option value="' + esc(v) + '"' + (v === (val || '') ? ' selected' : '') + '>' + esc(label) + '</option>';
@@ -904,7 +930,16 @@
         return '<select class="' + cls + '"' + w + '>' + opts + '</select>';
       }
       return '<input type="text" class="' + cls + '" value="' + esc(val == null ? '' : String(val)) + '"' + w
-        + (c.uppercase ? ' oninput="this.value=this.value.toUpperCase()"' : '') + '>';
+        + (ed.uppercase ? ' oninput="this.value=this.value.toUpperCase()"' : '') + '>';
+    }
+    function harvestCell(c, d, tr, buf) {
+      var inp = tr.querySelector('.fb-e-' + c.field);
+      if (!inp) { buf[c.field] = d[c.field]; return; } // ro column: keep
+      var ed = colEditor(c, d);
+      if (ed.type === 'checkbox') buf[c.field] = inp.checked;
+      else if (ed.type === 'number') buf[c.field] = parseFloat(inp.value) || 0;
+      else if (ed.type === 'select') buf[c.field] = ed.nullable ? (inp.value || null) : inp.value;
+      else { var v = inp.value.trim(); buf[c.field] = ed.uppercase ? v.toUpperCase() : v; }
     }
     function editable(c, d) { return !(c.ro === 'saved' && !d._isNew) && c.ro !== 'always'; }
 
@@ -1040,14 +1075,7 @@
       var vanished = false;
       if (d && tr) {
         var buf = {};
-        cfg.columns.forEach(function (c) {
-          var inp = tr.querySelector('.fb-e-' + c.field);
-          if (!inp) { buf[c.field] = d[c.field]; return; } // ro column: keep
-          if (c.type === 'checkbox') buf[c.field] = inp.checked;
-          else if (c.type === 'number') buf[c.field] = parseFloat(inp.value) || 0;
-          else if (c.type === 'select') buf[c.field] = c.nullable ? (inp.value || null) : inp.value;
-          else { var v = inp.value.trim(); buf[c.field] = c.uppercase ? v.toUpperCase() : v; }
-        });
+        cfg.columns.forEach(function (c) { harvestCell(c, d, tr, buf); });
         // Non-column payload fields (Bills: vendor_id/ap/expense travel on the
         // vendor input's dataset) — the screen merges them into the buffer.
         if (cfg.harvestExtra) cfg.harvestExtra(tr, d, buf);
@@ -1087,18 +1115,11 @@
       var tr = rows()[editIdx];
       var vanished = false; // untouched new row discarded → cursor returns to the add row
       if (d && tr) {
-        var buf = {};
-        cfg.columns.forEach(function (c) {
-          var inp = tr.querySelector('.fb-e-' + c.field);
-          if (!inp) { buf[c.field] = d[c.field]; return; } // ro column: keep
-          if (c.type === 'checkbox') buf[c.field] = inp.checked;
-          else if (c.type === 'number') buf[c.field] = parseFloat(inp.value) || 0;
-          else if (c.type === 'select') buf[c.field] = c.nullable ? (inp.value || null) : inp.value;
-          else {
-            var v = inp.value.trim();
-            buf[c.field] = c.uppercase ? v.toUpperCase() : v;
-          }
-        });
+        // Seed the buffer with the row's own props FIRST (per-row editor
+        // shapes, readonly, server display strings) so a dirty row keeps its
+        // identity — then harvest the editable column inputs over it.
+        var buf = Object.assign({}, d);
+        cfg.columns.forEach(function (c) { harvestCell(c, d, tr, buf); });
         if (d._isNew) {
           if (!cfg.isBlank(buf)) dirty[d._key] = Object.assign(buf, { isNew: true });
           else { delete dirty[d._key]; vanished = true; } // nothing from nothing
@@ -1215,6 +1236,7 @@
     }
 
     function newRow() {
+      if (!canAdd) return; // fixed-row register (canAdd: false) — create is impossible
       if (editIdx >= 0) exitEdit();
       var key = '_new_' + (++newN);
       dirty[key] = Object.assign(cfg.blank(), { isNew: true, _isBill: !!cfg.tree });
@@ -1338,14 +1360,7 @@
       // Harvest current parent + child inputs into the buffer (always keep —
       // never vanish a bill the user is actively adding a line to).
       var buf = {};
-      cfg.columns.forEach(function (c) {
-        var inp = tr.querySelector('.fb-e-' + c.field);
-        if (!inp) { buf[c.field] = parent[c.field]; return; } // ro column: keep
-        if (c.type === 'checkbox') buf[c.field] = inp.checked;
-        else if (c.type === 'number') buf[c.field] = parseFloat(inp.value) || 0;
-        else if (c.type === 'select') buf[c.field] = c.nullable ? (inp.value || null) : inp.value;
-        else { var v = inp.value.trim(); buf[c.field] = c.uppercase ? v.toUpperCase() : v; }
-      });
+      cfg.columns.forEach(function (c) { harvestCell(c, parent, tr, buf); });
       if (cfg.harvestExtra) cfg.harvestExtra(tr, parent, buf);
       var lines = [];
       if (cfg.harvestChild) {

@@ -160,6 +160,9 @@ async function addCompany(ctx) {
     // fx-automation-spec §1: per-company FX relevance flag — 'auto' (default)
     // tracks FX rates; 'off' = domestic-only company (simplified UI, no scanning).
     { company_id: company.company_id, key: 'fx_tracking', value: 'auto', updated_at: now },
+    // fx-automation-spec rev. 3: provider is per-company; 'manual' (default) =
+    // no automatic download until the company explicitly chooses a provider.
+    { company_id: company.company_id, key: 'fx_provider', value: 'manual', updated_at: now },
     { company_id: company.company_id, key: 'backup_destination', value: 'none', updated_at: now },
     // VAT tolerance for supplier-stated VAT amount override:
     // override accepted when |stated - computed| <= max(flat, pct * computed).

@@ -20,7 +20,7 @@ const { handleVendors } = require('./vendors');
 const { handleViews } = require('./views');
 const { handleReports, mountReportRoutes } = require('./reports');
 const { handleVat } = require('./vat');
-const { handleFx } = require('./fx');
+const { handleFx, providerExists, listProviderIds, MANUAL_PROVIDER } = require('./fx');
 const { handleSetup } = require('./setup');
 const { handleAttachments } = require('./attachments');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
@@ -578,6 +578,167 @@ async function handleSettings(ctx, action) {
     }));
     if (rows.length > 0) await bulkInsert('companies', rows);
     return { saved: rows.length };
+  }
+
+  // ── Company attribute grid (settings-ux-spec §7 item 1 rev. 3) ──────────
+  // The Company tab is an FB.list attribute/value register: fixed rows, one
+  // row per setting. The attribute REGISTRY lives here server-side — the
+  // client renders what it is given (labels, display strings, editor shapes)
+  // and every write is validated server-authoritatively (Magnus: these are
+  // highly sensitive settings — front-end validation is advisory only).
+  //
+  // Storage split: company-master attributes (name/currency/jurisdiction/
+  // tax_id/reporting_standard/vat_registered) live on the append-versioned
+  // companies row; everything else is a per-company settings key.
+  async function latestCompanyRow(cid) {
+    const rows = await query(
+      `SELECT * FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies) t
+       WHERE company_id = @cid AND rn = 1`,
+      { cid }
+    );
+    return rows[0] || null;
+  }
+  async function settingsMap(cid) {
+    const rows = await query(`SELECT key, value FROM settings WHERE company_id = @cid`, { cid });
+    const m = {};
+    for (const r of rows) m[r.key] = r.value;
+    return m;
+  }
+  async function putSetting(cid, key, value) {
+    const now = new Date().toISOString();
+    await exec(`DELETE FROM settings WHERE company_id = @cid AND key = @key`, { cid, key });
+    await bulkInsert('settings', [{ company_id: cid, key, value: String(value), updated_at: now }]);
+  }
+  // Merge one field into the company's master record (append-versioned:
+  // read latest, override, insert a fresh row — never UPDATE in place).
+  async function mergeCompanyRow(cid, patch) {
+    const co = await latestCompanyRow(cid);
+    if (!co) throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
+    const now = new Date().toISOString();
+    await bulkInsert('companies', [{
+      company_id: co.company_id,
+      company_name: patch.company_name !== undefined ? patch.company_name : co.company_name,
+      jurisdiction: patch.jurisdiction !== undefined ? patch.jurisdiction : co.jurisdiction,
+      currency: patch.currency !== undefined ? patch.currency : co.currency,
+      reporting_standard: patch.reporting_standard !== undefined ? patch.reporting_standard : co.reporting_standard,
+      accounting_method: co.accounting_method || 'accrual',
+      vat_registered: patch.vat_registered !== undefined ? patch.vat_registered : (co.vat_registered === true || co.vat_registered === 1),
+      tax_id: patch.tax_id !== undefined ? patch.tax_id : (co.tax_id || null),
+      fy_start: co.fy_start,
+      fy_end: co.fy_end,
+      created_at: now,
+    }]);
+  }
+
+  if (action === 'company.attr.list') {
+    const co = await latestCompanyRow(companyId);
+    if (!co) throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
+    const s = await settingsMap(companyId);
+    const providerIds = listProviderIds();
+    const curProvider = s.fx_provider || MANUAL_PROVIDER;
+    const providerNames = { [MANUAL_PROVIDER]: 'Manual (no auto-download)' };
+    for (const id of providerIds) {
+      try { providerNames[id] = require(`./fxProviders/${id}.js`).name || id; } catch (e) { providerNames[id] = id; }
+    }
+    const pctFraction = parseFloat(s.vat_tolerance_pct);
+    const pctDisplay = isNaN(pctFraction) ? 1 : Math.round(pctFraction * 100 * 100) / 100; // storage fraction → percent
+    const flatNum = parseFloat(s.vat_tolerance);
+    const dash = '—';
+    return [
+      { key: 'company_id', label: 'Company ID', type: 'String', value: co.company_id, display: co.company_id, editor: { type: 'text' }, readonly: true },
+      { key: 'company_name', label: 'Company Name', type: 'String', value: co.company_name || '', display: co.company_name || dash, editor: { type: 'text' } },
+      { key: 'currency', label: 'Base Currency', type: 'String', value: co.currency || '', display: co.currency || dash, editor: { type: 'text', uppercase: true } },
+      { key: 'jurisdiction', label: 'Jurisdiction', type: 'Choice', value: co.jurisdiction || 'SG', display: co.jurisdiction || dash,
+        editor: { type: 'select', options: [{ value: 'SG', label: 'SG — Singapore' }, { value: 'SE', label: 'SE — Sweden' }] } },
+      { key: 'tax_id', label: 'Tax ID', type: 'String', value: co.tax_id || '', display: co.tax_id || dash, editor: { type: 'text' } },
+      { key: 'reporting_standard', label: 'Reporting Standard', type: 'Choice', value: co.reporting_standard || 'IFRS', display: co.reporting_standard || dash,
+        editor: { type: 'select', options: ['IFRS', 'SFRS', 'K2', 'K3'] } },
+      { key: 'vat_registered', label: 'VAT/GST Registered', type: 'Boolean', value: co.vat_registered === true || co.vat_registered === 1, display: (co.vat_registered === true || co.vat_registered === 1) ? 'Yes' : 'No', editor: { type: 'checkbox' } },
+      { key: 'multi_currency', label: 'Multi-Currency', type: 'Boolean', value: s.fx_tracking !== 'off', display: s.fx_tracking !== 'off' ? 'Yes' : 'No', editor: { type: 'checkbox' } },
+      { key: 'fx_provider', label: 'FX Provider', type: 'Choice', value: curProvider, display: providerNames[curProvider] || curProvider,
+        editor: { type: 'select', options: [{ value: MANUAL_PROVIDER, label: providerNames[MANUAL_PROVIDER] }].concat(providerIds.map((id) => ({ value: id, label: providerNames[id] }))) } },
+      { key: 'fx_provider_api_key', label: 'FX API Key', type: 'String', value: '', display: s.fx_provider_api_key ? '••••' + String(s.fx_provider_api_key).slice(-4) : dash,
+        editor: { type: 'text' }, note: 'Blank keeps the stored key' },
+      { key: 'vat_tolerance', label: 'VAT Tolerance (flat)', type: 'Number', value: isNaN(flatNum) ? 0.5 : flatNum, display: (isNaN(flatNum) ? 0.5 : flatNum).toFixed(2), editor: { type: 'number', step: '0.01' } },
+      { key: 'vat_tolerance_pct', label: 'VAT Tolerance (%)', type: 'Number', value: pctDisplay, display: pctDisplay.toFixed(2) + '%', editor: { type: 'number', step: '0.1' } },
+      { key: 'fx_gain_loss_account', label: 'FX Gain/Loss Account', type: 'String', value: s.fx_gain_loss_account || '', display: s.fx_gain_loss_account || dash, editor: { type: 'text' } },
+    ];
+  }
+
+  if (action === 'company.attr.save') {
+    const { key, value } = body;
+    if (!key) throw Object.assign(new Error('key required'), { code: 'INVALID_INPUT' });
+    const invalid = (m) => Object.assign(new Error(m), { code: 'INVALID_INPUT' });
+    switch (key) {
+      case 'company_name': {
+        const v = String(value || '').trim();
+        if (!v) throw invalid('Company name required');
+        await mergeCompanyRow(companyId, { company_name: v });
+        break;
+      }
+      case 'currency': {
+        const v = String(value || '').trim().toUpperCase();
+        if (!/^[A-Z]{3}$/.test(v)) throw invalid('Currency must be a 3-letter ISO code');
+        await mergeCompanyRow(companyId, { currency: v });
+        break;
+      }
+      case 'jurisdiction': {
+        if (!['SG', 'SE'].includes(value)) throw invalid('Jurisdiction must be SG or SE');
+        await mergeCompanyRow(companyId, { jurisdiction: value });
+        break;
+      }
+      case 'tax_id':
+        await mergeCompanyRow(companyId, { tax_id: String(value || '').trim() || null });
+        break;
+      case 'reporting_standard': {
+        if (!['IFRS', 'SFRS', 'K2', 'K3'].includes(value)) throw invalid('Unknown reporting standard');
+        await mergeCompanyRow(companyId, { reporting_standard: value });
+        break;
+      }
+      case 'vat_registered':
+        await mergeCompanyRow(companyId, { vat_registered: value === true || value === 'true' });
+        break;
+      case 'multi_currency':
+        await putSetting(companyId, 'fx_tracking', (value === true || value === 'true') ? 'auto' : 'off');
+        break;
+      case 'fx_provider': {
+        if (value !== MANUAL_PROVIDER && !providerExists(value)) throw invalid(`Unknown FX provider: ${value}`);
+        await putSetting(companyId, 'fx_provider', value);
+        break;
+      }
+      case 'fx_provider_api_key': {
+        const v = String(value || '').trim();
+        if (v) await putSetting(companyId, 'fx_provider_api_key', v); // blank keeps the stored key
+        break;
+      }
+      case 'vat_tolerance': {
+        const n = Number(value);
+        if (!isFinite(n) || n < 0) throw invalid('Flat tolerance must be a non-negative number');
+        await putSetting(companyId, 'vat_tolerance', String(n));
+        break;
+      }
+      case 'vat_tolerance_pct': {
+        const n = Number(value); // wire format is a PERCENT (1 = 1%); storage is a fraction
+        if (!isFinite(n) || n < 0) throw invalid('Tolerance % must be a non-negative number');
+        await putSetting(companyId, 'vat_tolerance_pct', String(n / 100));
+        break;
+      }
+      case 'fx_gain_loss_account': {
+        const v = String(value || '').trim();
+        if (v) {
+          const acct = await query(
+            `SELECT account_code FROM accounts WHERE company_id = @companyId AND account_code = @v LIMIT 1`,
+            { companyId, v }
+          );
+          if (acct.length === 0) throw invalid(`Account "${v}" not found in the chart of accounts`);
+        }
+        await putSetting(companyId, 'fx_gain_loss_account', v);
+        break;
+      }
+      default:
+        throw Object.assign(new Error(`Unknown company attribute: ${key}`), { code: 'INVALID_INPUT' });
+    }
+    return { saved: true, key };
   }
 
   // settings-ux-spec §7 item 1 (rev 2026-07-27): danger-zone delete of the

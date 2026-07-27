@@ -11,37 +11,57 @@ const { query, exec, bulkInsert } = require('./db');
 
 const PROVIDERS_DIR = path.join(__dirname, 'fxProviders');
 
-// FX provider config is installation-scoped (fx-automation-spec rev. 2026-07-27):
-// one provider + API key for the whole installation — the rate table is global,
-// so per-company providers only produced duplicate fetches and last-writer-wins
-// on shared rows. Stored in the `settings` table under a reserved installation
-// company_id that no real company can occupy (company ids are lowercase slugs).
-const INSTALL_COMPANY_ID = '__install__';
+// FX provider config is PER-COMPANY (fx-automation-spec rev. 3, 2026-07-27 —
+// supersedes the install-level era): each company chooses a provider or
+// 'manual' (no automatic download). The rate table stays global; fetches are
+// idempotent per date+source (delete-then-insert), so two companies sharing a
+// provider cannot corrupt each other's rows.
+const INSTALL_COMPANY_ID = '__install__'; // legacy scope — adopted + deleted on first read
+const MANUAL_PROVIDER = 'manual';
 
-// loadProviderConfig — install-level row FIRST, falling back to the current
-// company's legacy per-company row for backward compat (existing installs keep
-// working until the config is saved once at install level). Returns
-// { providerName, apiKey } with the resolved source so callers can report it.
+function providerExists(name) {
+  return fs.existsSync(path.join(PROVIDERS_DIR, name + '.js'));
+}
+
+function listProviderIds() {
+  return fs.readdirSync(PROVIDERS_DIR)
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => f.slice(0, -3));
+}
+
+// loadProviderConfig — per-company settings rows (fx_provider,
+// fx_provider_api_key). One-time upgrade from the install-level era: when the
+// company has no row yet but a legacy `__install__` config exists, the company
+// ADOPTS it (copied down, install rows deleted). Default when nothing is
+// configured anywhere: 'manual' — no surprise network calls; the company opts
+// into a real provider explicitly.
 async function loadProviderConfig(companyId) {
-  const installRows = await query(
-    `SELECT key, value FROM settings WHERE company_id = @installId AND key IN ('fx_provider', 'fx_provider_api_key')`,
-    { installId: INSTALL_COMPANY_ID }
+  let rows = await query(
+    `SELECT key, value FROM settings WHERE company_id = @companyId AND key IN ('fx_provider', 'fx_provider_api_key')`,
+    { companyId }
   );
-  const source = installRows.length > 0 ? 'install' : 'company';
-  let map;
-  if (installRows.length > 0) {
-    map = Object.fromEntries(installRows.map(r => [r.key, r.value]));
-  } else {
-    const companyRows = await query(
-      `SELECT key, value FROM settings WHERE company_id = @companyId AND key IN ('fx_provider', 'fx_provider_api_key')`,
-      { companyId }
+  if (rows.length === 0) {
+    const installRows = await query(
+      `SELECT key, value FROM settings WHERE company_id = @installId AND key IN ('fx_provider', 'fx_provider_api_key')`,
+      { installId: INSTALL_COMPANY_ID }
     );
-    map = Object.fromEntries(companyRows.map(r => [r.key, r.value]));
+    if (installRows.length > 0) {
+      const now = new Date().toISOString();
+      for (const r of installRows) {
+        await bulkInsert('settings', [{ company_id: companyId, key: r.key, value: r.value, updated_at: now }]);
+      }
+      await exec(
+        `DELETE FROM settings WHERE company_id = @installId AND key IN ('fx_provider', 'fx_provider_api_key')`,
+        { installId: INSTALL_COMPANY_ID }
+      );
+      rows = installRows;
+    }
   }
+  const map = Object.fromEntries(rows.map(r => [r.key, r.value]));
   return {
-    providerName: map.fx_provider || 'ecb',
+    providerName: map.fx_provider || MANUAL_PROVIDER,
     apiKey: map.fx_provider_api_key || null,
-    source
+    source: 'company'
   };
 }
 
@@ -74,9 +94,15 @@ async function fetchRates(ctx) {
   const baseCurrency = body.baseCurrency || companies[0].currency;
   const date = body.date || 'latest';
 
-  // Load provider config — installation-scoped (fx-automation-spec rev 2026-07-27):
-  // install-level row first, falling back to this company's legacy per-company row.
+  // Load provider config — per-company (fx-automation-spec rev 3): 'manual'
+  // means no automatic download for this company.
   const { providerName, apiKey } = await loadProviderConfig(companyId);
+  if (providerName === MANUAL_PROVIDER) {
+    throw Object.assign(
+      new Error('FX provider is set to Manual for this company — automatic download is disabled (Settings → Company → FX Provider).'),
+      { code: 'INVALID_STATE' }
+    );
+  }
 
   const providerPath = path.join(PROVIDERS_DIR, providerName + '.js');
   if (!fs.existsSync(providerPath)) throw Object.assign(new Error(`FX provider not found: ${providerName}`), { code: 'NOT_FOUND' });
@@ -304,7 +330,14 @@ async function revaluationPost(ctx) {
 }
 
 async function listProviders(ctx) {
-  const providers = [];
+  // 'manual' is a first-class provider choice (fx-automation-spec rev. 3):
+  // no automatic download — rates are entered by hand (source='manual').
+  const providers = [{
+    id: MANUAL_PROVIDER,
+    name: 'Manual (no auto-download)',
+    description: 'Rates are entered manually on the Exchange Rates tab; nothing is downloaded automatically.',
+    requiresApiKey: false
+  }];
   const files = fs.readdirSync(PROVIDERS_DIR);
   for (const file of files) {
     if (file.endsWith('.js')) {
@@ -324,47 +357,46 @@ async function listProviders(ctx) {
 
 async function getProvider(ctx) {
   const { companyId } = ctx;
-  // Install-level row FIRST, falling back to the current company's legacy
-  // per-company row for backward compat (fx-automation-spec rev 2026-07-27).
+  // Per-company (fx-automation-spec rev. 3): no install-level fallback beyond
+  // the one-time adoption inside loadProviderConfig.
   const { providerName, apiKey, source } = await loadProviderConfig(companyId);
   const maskedKey = apiKey ? apiKey.slice(-4).padStart(apiKey.length, '*') : null;
-  // API shape stable vs. the per-company era: { provider, apiKey }. The extra
-  // `source` field is additive — clients that ignore it keep working.
   return { provider: providerName, apiKey: maskedKey, source };
 }
 
 async function saveProvider(ctx) {
-  const { body } = ctx;
+  const { companyId, body } = ctx;
   const { provider, apiKey } = body;
   if (!provider) throw Object.assign(new Error('provider required'), { code: 'INVALID_INPUT' });
 
-  // Verify provider exists
-  const providerPath = path.join(PROVIDERS_DIR, provider + '.js');
-  if (!fs.existsSync(providerPath)) throw Object.assign(new Error(`FX provider not found: ${provider}`), { code: 'NOT_FOUND' });
+  // 'manual' is always valid; anything else must be a real provider file.
+  if (provider !== MANUAL_PROVIDER && !providerExists(provider)) {
+    throw Object.assign(new Error(`FX provider not found: ${provider}`), { code: 'NOT_FOUND' });
+  }
 
-  // Provider config is installation-scoped (fx-automation-spec rev 2026-07-27):
-  // always write to the reserved installation company_id — never per-company.
+  // Per-company config (fx-automation-spec rev. 3): delete + insert the
+  // company's own settings rows — never an install-scoped row.
   const now = new Date().toISOString();
-
   await exec(
-    `DELETE FROM settings WHERE company_id = @installId AND key = 'fx_provider'`,
-    { installId: INSTALL_COMPANY_ID }
+    `DELETE FROM settings WHERE company_id = @companyId AND key = 'fx_provider'`,
+    { companyId }
   );
   await bulkInsert('settings', [{
-    company_id: INSTALL_COMPANY_ID,
+    company_id: companyId,
     key: 'fx_provider',
     value: provider,
     updated_at: now
   }]);
 
-  // Save API key if provided. An empty string clears it (explicit write).
+  // Save API key if provided. An empty string keeps the stored key (the grid's
+  // masked display means a blank edit is never a clear-intent).
   if (apiKey !== undefined && apiKey !== null && apiKey !== '') {
     await exec(
-      `DELETE FROM settings WHERE company_id = @installId AND key = 'fx_provider_api_key'`,
-      { installId: INSTALL_COMPANY_ID }
+      `DELETE FROM settings WHERE company_id = @companyId AND key = 'fx_provider_api_key'`,
+      { companyId }
     );
     await bulkInsert('settings', [{
-      company_id: INSTALL_COMPANY_ID,
+      company_id: companyId,
       key: 'fx_provider_api_key',
       value: apiKey,
       updated_at: now
@@ -374,4 +406,4 @@ async function saveProvider(ctx) {
   return { saved: true, provider };
 }
 
-module.exports = { handleFx, getRate, listRates, saveRates, deleteRate, getEffectiveRate };
+module.exports = { handleFx, getRate, listRates, saveRates, deleteRate, getEffectiveRate, loadProviderConfig, providerExists, listProviderIds, MANUAL_PROVIDER };

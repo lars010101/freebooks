@@ -3,11 +3,17 @@
 Replaces manual `f` / 📡 Fetch Rates with automatic, coverage-driven rate management.
 Design agreed with Magnus 2026-07-23. **Status: spec only — do not build until scheduled.**
 
+**Revision 2026-07-27 (ratified, Magnus, Slack Settings thread):**
+1. **Provider config is install-level, not per-company.** One provider + API key for the whole installation: the rate table is global, so per-company providers only produced duplicate fetches and last-writer-wins on shared rows. Provider UI is a read-first panel with explicit Save on the **Exchange Rates tab** (placement rev. 2, 2026-07-27: no admin page is built — deferred until install-level surface area accumulates). Revises §1, §6.
+2. **`fx_tracking` blast radius expanded.** `'off'` additionally means simplified UI for domestic-only companies: Exchange Rates tab hidden, currency fields on bills/journals locked to base currency, FX revaluation actions hidden. Revises §1.
+3. **Zero-company short-circuit.** If no company has `fx_tracking = 'auto'`, nothing is downloaded and no gap scanning runs at all. Revises §6.
+
 ## 1. Company opt-out: `fx_tracking`
 
 - New per-company setting `fx_tracking`: `'auto'` (default) | `'off'` (domestic-only company).
-- UI: checkbox on the **Company tab**, next to the FX provider config ("Track FX rates for this company").
+- UI: checkbox on the **Company tab** ("Track FX rates for this company"). The provider config that used to sit next to it is install-level and lives as a read-first panel on the Exchange Rates tab (rev. 2026-07-27; no admin page is built).
 - `'off'` disables everything below: no fetch verb, no status column, no scanning, no notifications.
+- **Simplified UI (rev. 2026-07-27):** `'off'` also hides multi-currency surface area app-wide — Exchange Rates tab hidden, currency fields on bills/journals locked to the base currency, FX revaluation actions hidden. Companies with no FX exposure see a single-currency app. The flag is reversible (visibility/relevance, not an accounting lock).
 
 ## 2. Provider interface: `fetchRange` (new, optional)
 
@@ -46,6 +52,8 @@ heuristic would false-flag red ~10 times a year; comparing against what the sour
 ## 6. Gap scanner
 
 - Server job: on startup + every **6 h** (env-tunable `FREEBOOKS_FX_SCAN_MS`).
+- **Install-level (rev. 2026-07-27):** the scanner runs against the single installation-wide provider configuration. There is no per-company provider arbitration — the shared rate table cannot suffer cross-company last-writer-wins.
+- **Short-circuit (rev. 2026-07-27):** if zero companies have `fx_tracking = 'auto'`, the scanner does nothing — no downloads, no coverage computation, no notifications.
 - For each company with tracking on, for each period intersecting `[company start, today]`:
   compute coverage → fetch missing ranges → recompute.
 - Still missing after the fetch attempt (provider down, currency unavailable, historical gap) →
@@ -71,7 +79,7 @@ The topbar bell is currently chrome-only. v1:
 ## Build order when scheduled
 
 1. `fetchRange` (ECB) + `fx.coverage` + unit tests on the diff logic.
-2. `fx_tracking` setting + Company-tab checkbox; Period hook (§4).
+2. `fx_tracking` setting + Company-tab checkbox; install-level provider config as a read-first panel on the Exchange Rates tab (relocated from the Company tab; storage: installation-scoped setting); Period hook (§4).
 3. Periods FX status column (§5).
 4. Notifications table + actions + bell UI (§7).
 5. Scanner (§6) wiring 2–4 together; dedupe rule; scan-cadence env var.

@@ -164,6 +164,8 @@ The framework's column `display`/`attach` hooks emit `data-expense-account` and 
 
 ## VAT/GST Handling
 
+**Scope gate (2026-07-27):** when the company's `vat_registered` flag is **false**, none of this section's UI renders (settings-ux-spec §7 item 9) — and the server posts no tax lines regardless.
+
 ### Tax-exclusive entry
 The user enters the **net** amount per line. VAT (GST) is computed on top: `expectedVat = Math.round(amount × rate × 100) / 100`. Lines carry **no VAT amount state** — the only per-line tax field is the VAT **code** select. (Redesign 2026-07-26: the per-line GST amount input and its auto-compute/override machinery were removed.)
 

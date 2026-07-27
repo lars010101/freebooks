@@ -1,5 +1,6 @@
 'use strict';
 const { makeQuery, commonStyle, navBar, layoutEnd } = require('./common');
+const { reportsByCategory } = require('../report-registry');
 
 // Simple TTL cache for dashboard card data (per company, 30s TTL)
 const _dashCache = new Map(); // key: company_id, value: { data, expiresAt }
@@ -22,58 +23,58 @@ async function handleCompanyPage(req, res) {
       [company]
     );
 
-    // Dashboard card data — single query for performance
     const currentPeriod = periods[0];
-    const toYMDInner = d => { if (!d) return ''; const dt = (d instanceof Date) ? d : new Date(d); return dt.toISOString().slice(0, 10); };
-    const startDate = currentPeriod ? toYMDInner(currentPeriod.start_date) : null;
-    const endDate = currentPeriod ? toYMDInner(currentPeriod.end_date) : null;
+    const toYMD = d => { if (!d) return ''; const dt = (d instanceof Date) ? d : new Date(d); return dt.toISOString().slice(0, 10); };
+    const startDate = currentPeriod ? toYMD(currentPeriod.start_date) : null;
+    const endDate = currentPeriod ? toYMD(currentPeriod.end_date) : null;
 
     // Check cache first
     let cardData = {};
-    const cacheKey = company;
-    const cached = _dashCache.get(cacheKey);
+    const cached = _dashCache.get(company);
     if (cached && cached.expiresAt > Date.now()) {
       cardData = cached.data;
     } else {
-      const [fetched] = await query(
+      // Operational state — workflow status with no report-macro equivalent
+      const [ops] = await query(
         `SELECT
           (SELECT COUNT(*) FROM periods WHERE company_id = $1 AND locked = false) as unlocked_count,
           (SELECT COUNT(DISTINCT je.batch_id)
            FROM journal_entries je
            JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
            LEFT JOIN reconciliations r ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
-           WHERE je.company_id = $1 AND a.cf_category = 'Cash' AND r.batch_id IS NULL) as uncleared_cnt,
-          (SELECT MIN(je.date)
-           FROM journal_entries je
-           JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-           LEFT JOIN reconciliations r ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
-           WHERE je.company_id = $1 AND a.cf_category = 'Cash' AND r.batch_id IS NULL) as uncleared_oldest,
-          (SELECT COALESCE(SUM(je.debit) - SUM(je.credit), 0)
-           FROM journal_entries je
-           JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-           WHERE je.company_id = $1 AND a.cf_category = 'Cash') as bank_balance,
-          COALESCE(SUM(CASE WHEN a.account_type = 'Revenue' THEN je.credit - je.debit ELSE 0 END), 0) as revenue,
-          COALESCE(SUM(CASE WHEN a.account_type = 'Expense' THEN je.debit - je.credit ELSE 0 END), 0) as expenses
-         FROM journal_entries je
-         JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-         WHERE je.company_id = $1
-           AND ($2::DATE IS NULL OR je.date >= $2::DATE)
-           AND ($3::DATE IS NULL OR je.date <= $3::DATE)`,
-        [company, startDate, endDate]
+           WHERE je.company_id = $1 AND a.cf_category = 'Cash' AND r.batch_id IS NULL) as uncleared_cnt`,
+        [company]
       ).catch(() => [{}]);
-      cardData = fetched || {};
-      _dashCache.set(cacheKey, { data: cardData, expiresAt: Date.now() + DASH_CACHE_TTL_MS });
+
+      // Report figures — MUST come from db/macros.sql so the Dashboard can never
+      // diverge from Reports (docs/reports-dashboard-spec.md §2). Side benefit:
+      // macros use debit_home/credit_home, fixing the old card query's
+      // mixed-transaction-currency sums for multi-currency companies.
+      const plRows = (startDate && endDate)
+        ? await query(
+            `SELECT amount FROM pl($1, $2, $3) WHERE row_type = 'total'`,
+            [company, startDate, endDate]
+          ).catch(() => [])
+        : [];
+      const [bank] = await query(
+        `SELECT COALESCE(SUM(b.balance), 0) AS bank_balance
+         FROM bs($1, DATE '9999-12-31') b
+         JOIN accounts a ON a.company_id = $1 AND a.account_code = b.account_code
+         WHERE b.row_type = 'account' AND a.cf_category = 'Cash'`,
+        [company]
+      ).catch(() => [{}]);
+
+      cardData = {
+        unlockedCount: Number(ops?.unlocked_count || 0),
+        unclearedCount: Number(ops?.uncleared_cnt || 0),
+        bankBalance: Number(bank?.bank_balance || 0),
+        netIncome: Number(plRows[0]?.amount || 0),
+        currentPeriodName: currentPeriod?.period_name || null,
+      };
+      _dashCache.set(company, { data: cardData, expiresAt: Date.now() + DASH_CACHE_TTL_MS });
     }
 
-    const html = buildCompanyPage(co, periods, {
-      unlockedCount: Number(cardData?.unlocked_count || 0),
-      unclearedCount: Number(cardData?.uncleared_cnt || 0),
-      unclearedOldest: cardData?.uncleared_oldest || null,
-      bankBalance: Number(cardData?.bank_balance || 0),
-      revenue: Number(cardData?.revenue || 0),
-      expenses: Number(cardData?.expenses || 0),
-      currentPeriodName: currentPeriod?.period_name || null,
-    });
+    const html = buildCompanyPage(co, cardData);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
@@ -81,283 +82,85 @@ async function handleCompanyPage(req, res) {
   }
 }
 
-// ── HTML builders ─────────────────────────────────────────────────────────────
-function buildIndexPage(companies) {
-  const links = companies.map(c =>
-    `<li><a href="/${c.company_id}">${c.company_name} <span class="id">(${c.company_id})</span></a></li>`
-  ).join('\n');
+// ── HTML builder ──────────────────────────────────────────────────────────────
+// Dashboard = operational status page: KPI cards + alerts with drill-through,
+// plus grouped report links into the hub. No report parameters, no report
+// rendering here — that lives in the Reports hub (reports-dashboard-spec §2/§3).
+function buildCompanyPage(co, stats = {}) {
+  const fmt = n => `${n < 0 ? '-' : ''}${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const reportGroups = reportsByCategory().map(g => `
+    <div class="dash-rpt-group">
+      <span class="dash-rpt-cat">${g.label}</span>
+      <span class="dash-rpt-links">
+        ${g.reports.map(r => `<a class="dash-rpt-link" href="/${co.company_id}/reports?t=${r.id}">${r.label.replace(/&/g, '&amp;')}</a>`).join('\n        ')}
+      </span>
+    </div>`).join('');
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>freeBooks</title>
-${commonStyle()}
-</head>
-<body>
-<div class="page">
-  <div class="header">
-    <h1>📒 freeBooks</h1>
-    <p class="sub">Select a company to view reports</p>
-  </div>
-  <ul class="company-list">
-    ${links || '<li><em>No companies found.</em></li>'}
-  </ul>
-  <div style="margin-top:24px">
-    <a href="/setup/new-company" class="btn-primary" style="display:inline-block;text-decoration:none">+ New Company</a>
-  </div>
-</div>
-</body>
-</html>`;
-}
-
-
-function buildCompanyPage(co, periods, stats = {}) {
-  const REPORT_TYPES = [
-    { id: 'pl',        label: 'Profit & Loss' },
-    { id: 'bs',        label: 'Balance Sheet' },
-    { id: 'tb',        label: 'Trial Balance' },
-    { id: 'gl',        label: 'General Ledger' },
-    { id: 'journal',   label: 'Journal' },
-    { id: 'cf',        label: 'Cash Flow' },
-    { id: 'sce',       label: 'Equity Changes' },
-    { id: 'integrity', label: 'Integrity Check' },
-  ];
-
-  const toYMD = d => { if (!d) return ''; const dt = (d instanceof Date) ? d : new Date(d); return dt.toISOString().slice(0, 10); };
-  const periodOptions = periods.map(p => {
-    const s = toYMD(p.start_date);
-    const e = toYMD(p.end_date);
-    return `<option value="${s}|${e}">${p.period_name}</option>`;
-  }).join('\n');
-
-  const FIN_REPORTS = [
-    { id: 'pl',  label: 'Profit & Loss' },
-    { id: 'bs',  label: 'Balance Sheet' },
-    { id: 'cf',  label: 'Cash Flow' },
-    { id: 'sce', label: 'Equity Changes' },
-  ];
-  const AUDIT_REPORTS = [
-    { id: 'tb',        label: 'Trial Balance' },
-    { id: 'gl',        label: 'General Ledger' },
-    { id: 'journal',   label: 'Journal' },
-    { id: 'integrity', label: 'Integrity Check' },
-    { id: 'ap_aging',  label: 'AP Aging', href: true },
-  ];
-  const finButtons = FIN_REPORTS.map(r =>
-    `<button class="report-btn${r.id === 'pl' ? ' active' : ''}" onclick="setReport('${r.id}')">${r.label}</button>`
-  ).join('\n');
-  const auditButtons = AUDIT_REPORTS.map(r => {
-    if (r.href) {
-      return `<a class="report-btn" href="/${co.company_id}/payables/aging" style="text-decoration:none;display:inline-block;padding:6px 14px;border:1px solid #ccc;border-radius:4px;background:#f5f5f5;font-size:10pt;cursor:pointer">${r.label}</a>`;
-    }
-    return `<button class="report-btn" onclick="setReport('${r.id}')">${r.label}</button>`;
-  }).join('\n');
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${co.company_name} — freeBooks</title>
 ${commonStyle()}
 <style>
-  .controls { display: flex; flex-direction: column; gap: 16px; }
-  .control-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .label { font-weight: 600; font-size: 10pt; min-width: 155px; color: #555; }
-  button, a.report-btn { cursor: pointer; padding: 6px 14px; border: 1px solid #ccc; border-radius: 4px;
-           background: #f5f5f5; font-size: 10pt; }
-  button.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
-  button:hover:not(.active), a.report-btn:hover { background: #e8e8e8; }
-  a.report-btn { color: inherit; }
-  input[type=date], select { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 10pt; min-height: 34px; }
-  .actions { margin-top: 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-  a.btn-primary { display: inline-block; padding: 10px 24px; background: #1a1a1a; color: #fff;
-                   border-radius: 4px; font-size: 11pt; font-weight: 600; text-decoration: none; cursor: pointer; }
-  a.btn-primary:hover { background: #333; }
-  a.btn-primary[href=''] { pointer-events: none; opacity: 0.4; }
-  .btn-secondary { padding: 10px 24px; background: #fff; color: #1a1a1a; border: 2px solid #1a1a1a;
-                   border-radius: 4px; font-size: 11pt; font-weight: 600; cursor: pointer; }
-  .btn-secondary:hover { background: #f5f5f5; }
-  .back { margin-bottom: 16px; }
-  .back a { color: #555; text-decoration: none; font-size: 10pt; }
-  .back a:hover { text-decoration: underline; }
   .dashboard-cards { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:28px; }
-  .dash-card { background:#f8f9fa; border:1px solid #e8e8e8; border-radius:8px; padding:16px 18px; text-decoration:none; color:inherit; display:block; cursor:pointer; transition:box-shadow .15s; }
-  .dash-card:hover { box-shadow:0 2px 8px rgba(0,0,0,.1); background:#fff; }
-  .dash-card .card-icon { font-size:18pt; margin-bottom:6px; display:block; }
-  .dash-card .card-label { font-size:8pt; color:#888; font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; display:block; }
-  .dash-card .card-value { font-size:18pt; font-weight:700; color:#1a1a1a; display:block; }
-  .dash-card.warn .card-value { color:#856404; }
-  .dash-card.ok .card-value { color:#2a8a2a; }
-  @media (max-width:700px) { .dashboard-cards { grid-template-columns:repeat(2,1fr); } }
+  .dash-card { background:var(--surface,#f8f9fa); border:1px solid var(--border,#e8e8e8); border-radius:8px; padding:16px 18px; text-decoration:none; color:inherit; display:block; cursor:pointer; transition:box-shadow .15s; }
+  .dash-card:hover { box-shadow:0 2px 8px rgba(0,0,0,.1); }
+  .dash-card .card-icon { font-size:1.5rem; margin-bottom:6px; display:block; }
+  .dash-card .card-label { font-size:0.75rem; color:var(--text-muted,#888); font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; display:block; }
+  .dash-card .card-value { font-size:1.5rem; font-weight:700; color:var(--text,#1a1a1a); display:block; }
+  .dash-rpt-group { display:flex; align-items:baseline; gap:14px; padding:10px 0; border-bottom:1px solid var(--border,#e8e8e8); }
+  .dash-rpt-group:last-child { border-bottom:none; }
+  .dash-rpt-cat { font-size:0.75rem; color:var(--text-muted,#888); font-weight:700; text-transform:uppercase; letter-spacing:.06em; min-width:160px; flex-shrink:0; }
+  .dash-rpt-links { display:flex; flex-wrap:wrap; gap:8px; }
+  .dash-rpt-link { padding:6px 14px; border:1px solid var(--border,#ccc); border-radius:4px; background:var(--surface,#f5f5f5); font-size:0.875rem; text-decoration:none; color:inherit; cursor:pointer; }
+  .dash-rpt-link:hover { background:var(--bg,#e8e8e8); }
+  @media (max-width:700px) {
+    .dashboard-cards { grid-template-columns:repeat(2,1fr); }
+    .dash-rpt-group { flex-direction:column; gap:8px; }
+    .dash-rpt-cat { min-width:0; }
+  }
 </style>
 </head>
 <body>${navBar(co.company_id, 'dashboard')}
 <div class="page">
   <div class="header">
     <h1>${co.company_name}</h1>
-    <p class="sub">${co.company_id} · freeBooks Reports</p>
+    <p class="sub">${co.company_id}${stats.currentPeriodName ? ' · ' + stats.currentPeriodName : ''}</p>
   </div>
 
   <div class="dashboard-cards">
     <a class="dash-card" href="/${co.company_id}/settings?tab=periods">
       <span class="card-icon">📅</span>
-      <span class="card-label">UNLOCKED YR</span>
+      <span class="card-label">Unlocked yr</span>
       <span class="card-value" style="color:${stats.unlockedCount <= 1 ? '#2a8a2a' : stats.unlockedCount === 2 ? '#cc7700' : '#cc2222'}">${stats.unlockedCount}</span>
     </a>
     <a class="dash-card" href="/${co.company_id}/bank?mode=uncleared">
       <span class="card-icon">⚠</span>
-      <span class="card-label">UNCLEARED TX</span>
+      <span class="card-label">Uncleared tx</span>
       <span class="card-value" style="color:${stats.unclearedCount > 0 ? '#cc2222' : '#2a8a2a'}">${stats.unclearedCount}</span>
     </a>
     <a class="dash-card" href="/${co.company_id}/bank">
       <span class="card-icon">🏦</span>
       <span class="card-label">Bank Balance</span>
-      <span class="card-value">${stats.bankBalance >= 0 ? '' : '-'}${Math.abs(stats.bankBalance).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+      <span class="card-value">${fmt(stats.bankBalance)}</span>
     </a>
-    <a class="dash-card" href="/${co.company_id}">
+    <a class="dash-card" href="/${co.company_id}/reports?t=pl">
       <span class="card-icon">📈</span>
       <span class="card-label">P&amp;L</span>
-      <span class="card-value" style="color:${stats.revenue - stats.expenses >= 0 ? '#2a8a2a' : '#cc2222'}">${stats.revenue - stats.expenses >= 0 ? '' : '-'}${Math.abs(stats.revenue - stats.expenses).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+      <span class="card-value" style="color:${stats.netIncome >= 0 ? '#2a8a2a' : '#cc2222'}">${fmt(stats.netIncome)}</span>
     </a>
   </div>
 
-  <hr style="border:none;border-top:1px solid #e8e8e8;margin:0 0 28px">
-
-  <div class="controls">
-
-    <div class="control-row">
-      <span class="label">Period</span>
-      <select id="periodSelect" onchange="onPeriodSelect()">
-        <option value="">— custom —</option>
-        ${periodOptions}
-      </select>
-      <input type="date" id="startDate" oninput="onDateInput()">
-      <span>to</span>
-      <input type="date" id="endDate" oninput="onDateInput()">
-      <span id="step-buttons">
-        <button id="step-mom" class="step-btn" onclick="toggleStep('month')">MoM</button>
-        <button id="step-yoy" class="step-btn" onclick="toggleStep('fy')">YoY</button>
-      </span>
-    </div>
-
-    <div class="control-row">
-      <span class="label">Financial Statements</span>
-      ${finButtons}
-    </div>
-
-    <div class="control-row">
-      <span class="label">Audit Reports</span>
-      ${auditButtons}
-    </div>
-
-    <div id="account-filter-row" class="control-row" style="display:none">
-      <span class="label">Account filter</span>
-      <select id="accountFilter" onchange="updateLink()">
-        <option value="">— all accounts —</option>
-      </select>
-    </div>
-
-    <div class="control-row">
-      <span class="label">Format</span>
-      <button id="fmt-html" class="active" onclick="setFormat('html')">HTML</button>
-      <button id="fmt-csv" onclick="setFormat('csv')">CSV</button>
-    </div>
-
-  </div>
-
-  <div class="actions">
-    <a id="open-report" class="btn-primary" href="">Open Report</a>
+  <h2>Reports</h2>
+  <div class="dash-reports">
+    ${reportGroups}
   </div>
 </div>
-
 <script>
-  var company = '${co.company_id}';
   localStorage.setItem('freebooks_company', '${co.company_id}');
-  var reportType = 'pl';
-  var formatType = 'html';
-  var stepType   = '';
-
-  function setReport(t) {
-    reportType = t;
-    document.querySelectorAll('.report-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.report-btn').forEach(b => { if (b.textContent.trim() && b.getAttribute('onclick') === "setReport('" + t + "')") b.classList.add('active'); });
-    document.getElementById('account-filter-row').style.display = (t === 'journal' || t === 'gl') ? '' : 'none';
-    var noMulti = ['sce','tb','gl','journal','integrity'].includes(t);
-    var stepRow = document.getElementById('step-buttons');
-    if (stepRow) stepRow.style.display = noMulti ? 'none' : '';
-    if (noMulti && stepType) { stepType = ''; document.getElementById('step-mom').classList.remove('active'); document.getElementById('step-yoy').classList.remove('active'); }
-    updateLink();
-  }
-
-  function setFormat(f) {
-    formatType = f;
-    document.getElementById('fmt-html').classList.toggle('active', f === 'html');
-    document.getElementById('fmt-csv').classList.toggle('active',  f === 'csv');
-    updateLink();
-  }
-
-  function toggleStep(s) {
-    stepType = (stepType === s) ? '' : s;
-    document.getElementById('step-mom').classList.toggle('active', stepType === 'month');
-    document.getElementById('step-yoy').classList.toggle('active', stepType === 'fy');
-    updateLink();
-  }
-
-  function onPeriodSelect() {
-    var val = document.getElementById('periodSelect').value;
-    if (!val) return;
-    var parts = val.split('|');
-    document.getElementById('startDate').value = parts[0];
-    document.getElementById('endDate').value   = parts[1];
-    updateLink();
-  }
-
-  function onDateInput() {
-    document.getElementById('periodSelect').value = '';
-    updateLink();
-  }
-
-  function buildUrl() {
-    var s = document.getElementById('startDate').value;
-    var e = document.getElementById('endDate').value;
-    if (!s || !e) return null;
-    var url = '/api/' + company + '/report?type=' + reportType + '&start=' + s + '&end=' + e;
-    if (formatType === 'csv') url += '&format=csv';
-    if (stepType) url += '&step=' + stepType;
-    if (reportType === 'journal' || reportType === 'gl') {
-      var acct = document.getElementById('accountFilter').value;
-      if (acct) url += '&account=' + acct;
-    }
-    return url;
-  }
-
-  function updateLink() {
-    var url = buildUrl();
-    document.getElementById('open-report').href = url || '';
-  }
-
-  // Pre-fill with most recent period
-  ${periods.length > 0 ? (() => {
-    const s = toYMD(periods[0].start_date);
-    const e = toYMD(periods[0].end_date);
-    return `document.getElementById('startDate').value = '${s}';
-  document.getElementById('endDate').value   = '${e}';
-  document.getElementById('periodSelect').value = '${s}|${e}';
-  updateLink();`;
-  })() : ''}
-
-  // Populate account filter
-  fetch('/api/${co.company_id}/accounts').then(r => r.json()).then(accounts => {
-    accounts.sort((a, b) => String(a.account_code).localeCompare(String(b.account_code)));
-    var sel = document.getElementById('accountFilter');
-    accounts.forEach(a => {
-      var opt = document.createElement('option');
-      opt.value = a.account_code;
-      opt.textContent = a.account_code + ' — ' + a.account_name;
-      sel.appendChild(opt);
-    });
-  }).catch(() => {});
 </script>
 ${layoutEnd()}
 </body>

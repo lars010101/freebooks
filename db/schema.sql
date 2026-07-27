@@ -360,6 +360,39 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_subtype VARCHAR;
 ALTER TABLE accounts DROP COLUMN IF EXISTS bs_category;
 ALTER TABLE accounts DROP COLUMN IF EXISTS pl_category;
 
+-- MIGRATION: account-level Default flag (settings-ux-spec §7 item 1).
+-- Replaces the legacy default_ap_account / default_expense_account settings
+-- keys: the Chart of Accounts now carries a default_role column on each
+-- account (NULL = not a default; 'AP' = default AP account; 'Expense' =
+-- default expense account). Single-holder is enforced server-side in the
+-- coa.upsert write path (see api/src/index.js). Backfill below migrates
+-- existing companies that still carry the legacy settings rows — backfill
+-- only (WHERE default_role IS NULL) so accounts already flagged via the COA
+-- UI are never clobbered on a re-run. Expense is applied first so that when
+-- the same account is referenced by BOTH legacy keys, the AP UPDATE runs
+-- last and wins (last-writer semantics).
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS default_role VARCHAR;
+
+UPDATE accounts
+SET default_role = 'Expense'
+WHERE default_role IS NULL
+  AND (company_id, account_code) IN (
+    SELECT s.company_id, s.value
+    FROM settings s
+    WHERE s.key = 'default_expense_account'
+      AND s.value IS NOT NULL AND TRIM(s.value) <> ''
+  );
+
+UPDATE accounts
+SET default_role = 'AP'
+WHERE default_role IS NULL
+  AND (company_id, account_code) IN (
+    SELECT s.company_id, s.value
+    FROM settings s
+    WHERE s.key = 'default_ap_account'
+      AND s.value IS NOT NULL AND TRIM(s.value) <> ''
+  );
+
 -- MIGRATION: vendor default expense and AP accounts
 ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
 ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;

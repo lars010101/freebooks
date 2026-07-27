@@ -206,7 +206,7 @@ const ACTIONS = {
   },
   'coa.upsert': {
     role: 'owner', mutating: true,
-    description: 'Insert or update one account.',
+    description: 'Insert or update one account. account.default_role (optional, null|\'AP\'|\'Expense\') sets the company default AP/Expense account; single-holder enforced server-side in the same write (setting a new holder clears the previous one).',
     params: { account: { type: 'object', required: true } },
   },
   'coa.delete': {
@@ -330,6 +330,10 @@ const ACTIONS = {
     role: 'owner', mutating: true,
     description: 'Update company master data (bulk).',
     params: { companies: { type: 'array', required: true } },
+  },
+  'company.delete': {
+    role: 'owner', mutating: true,
+    description: 'Delete the current company (danger zone). Refused when it is the last remaining company or has posted journal entries; cascades setup-only residue otherwise.',
   },
   'period.list': { role: 'viewer', mutating: false, description: 'List accounting periods.' },
   'period.save': {

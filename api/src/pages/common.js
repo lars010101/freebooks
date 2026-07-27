@@ -9,6 +9,58 @@ function makeQuery() {
   };
 }
 
+// ── Relevance flags (settings-ux-spec §7 item 9 + fx-automation-spec §1) ────
+// Single server-side read of the two visibility flags that gate whole UI
+// surfaces app-wide. Page handlers await this and pass the result into their
+// templates for server-side conditional rendering (no async client hiding,
+// no flash of gated content). Defaults: vatRegistered=true, fxTracking='auto'
+// — unknown/absent values render the full UI (the safe superset) so a fresh
+// company with no settings row yet isn't accidentally stripped.
+//
+// Returns { vatRegistered, fxTracking, baseCurrency }:
+//   vatRegistered — boolean (companies.vat_registered; false hides all tax/VAT
+//     surface area on documents and reports);
+//   fxTracking    — 'auto' | 'off' (settings.fx_tracking; 'off' locks currency
+//     fields to base currency and hides FX revaluation entry points);
+//   baseCurrency  — companies.currency (the lock target when fxTracking='off').
+async function getRelevanceFlags(companyId) {
+  if (!companyId) return { vatRegistered: true, fxTracking: 'auto', baseCurrency: '' };
+  try {
+    const { query } = require('../db');
+    const [co] = await query(
+      `SELECT vat_registered, currency AS base_currency
+       FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies) t
+       WHERE company_id = @cid AND rn = 1`,
+      { cid: String(companyId) }
+    );
+    const sRows = await query(
+      `SELECT key, value FROM settings WHERE company_id = @cid`,
+      { cid: String(companyId) }
+    );
+    const settings = {};
+    for (const r of sRows) settings[r.key] = r.value;
+    return {
+      vatRegistered: !co || co.vat_registered !== false && co.vat_registered !== 0,
+      fxTracking: settings.fx_tracking === 'off' ? 'off' : 'auto',
+      baseCurrency: (co && co.base_currency) || ''
+    };
+  } catch (e) {
+    return { vatRegistered: true, fxTracking: 'auto', baseCurrency: '' };
+  }
+}
+
+// Serialize flags for embedding as window.__fbFlags in a page bootstrap.
+// Editor logic that needs the flags at runtime (e.g. bill editor deciding
+// whether to render the VAT column dynamically) reads window.__fbFlags.
+function flagsBootstrapJson(flags) {
+  const f = flags || {};
+  return JSON.stringify({
+    vatRegistered: f.vatRegistered !== false,
+    fxTracking: f.fxTracking === 'off' ? 'off' : 'auto',
+    baseCurrency: f.baseCurrency || ''
+  });
+}
+
 // ── Asset versioning ──────────────────────────────────────────────────────────
 // ?v= tracks each public file's mtime, so the buster changes exactly when the
 // file does — manual date bumps get forgotten and stale fb-core.js breaks pages
@@ -143,4 +195,4 @@ function layoutEnd() {
 <script src="/public/common.js?v=${assetV('common.js')}"></script>`;
 }
 
-module.exports = { makeQuery, commonStyle, navBar, layoutEnd };
+module.exports = { makeQuery, commonStyle, navBar, layoutEnd, getRelevanceFlags, flagsBootstrapJson };

@@ -1,14 +1,18 @@
 'use strict';
-const { commonStyle, navBar, layoutEnd } = require('./common');
+const { commonStyle, navBar, layoutEnd, getRelevanceFlags } = require('./common');
 
 async function handleJournalNewPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(buildJournalNewPage(company));
+  // Relevance flags (settings-ux-spec §7 item 9): vatRegistered=false drops the
+  // Tax Code column + the vat-codes fetch — journal lines carry no tax tags.
+  const flags = await getRelevanceFlags(company);
+  res.send(buildJournalNewPage(company, flags));
 }
 
 
-function buildJournalNewPage(company) {
+function buildJournalNewPage(company, flags) {
+  const vatOn = !flags || flags.vatRegistered !== false;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -62,7 +66,7 @@ ${commonStyle()}
     <thead>
       <tr>
         <th>Code</th><th>Account Name</th><th class="num">Debit</th><th class="num">Credit</th>
-        <th>Line Description</th><th>Tax Code</th><th></th>
+        <th>Line Description</th>${vatOn ? '<th>Tax Code</th>' : ''}<th></th>
       </tr>
     </thead>
     <tbody id="lines-body"></tbody>
@@ -106,6 +110,7 @@ ${commonStyle()}
 </div>
 <script>
   var COMPANY = '${company}';
+  var VAT_ON = ${vatOn ? 'true' : 'false'};
   var accountsMap = {};
   var vatCodes = [];
   var currentBatchId = null;
@@ -115,6 +120,7 @@ ${commonStyle()}
     .then(r => r.json())
     .then(rows => { rows.forEach(a => { accountsMap[a.account_code] = a.account_name; }); });
 
+  if (VAT_ON)
   fetch('/api/' + COMPANY + '/vat-codes')
     .then(r => r.json())
     .then(rows => {
@@ -189,10 +195,10 @@ ${commonStyle()}
       +'<td><input type="number" class="debit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="number" class="credit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="text" class="desc-input" style="width:160px" placeholder="optional"></td>'
-      +'<td><select class="tax-select" style="width:120px"><option value="">\u2014 none \u2014</option></select></td>'
+      +(VAT_ON ? '<td><select class="tax-select" style="width:120px"><option value="">\\u2014 none \\u2014</option></select></td>' : '')
       +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove(); updateTotals()">&times;</button></td>';
     document.getElementById('lines-body').appendChild(tr);
-    populateTaxSelect(tr.querySelector('.tax-select'));
+    if (VAT_ON) populateTaxSelect(tr.querySelector('.tax-select'));
     var codeIn = tr.querySelector('.acct-input');
     attachAcctDd(codeIn);
     attachAcctDd(tr.querySelector('.acct-name-input'));
@@ -291,7 +297,7 @@ ${commonStyle()}
       debit:         parseFloat(tr.querySelector('.debit-input').value  || 0),
       credit:        parseFloat(tr.querySelector('.credit-input').value || 0),
       description:   tr.querySelector('.desc-input').value.trim() || desc || null,
-      vat_code:      tr.querySelector('.tax-select').value || null,
+      vat_code:      (function(){ var s = tr.querySelector('.tax-select'); return s ? (s.value || null) : null; })(),
     })).filter(l => l.account_code && (l.debit > 0 || l.credit > 0));
     // Validate codes
     var badCodes = lines.filter(l => !accountsMap[l.account_code]).map(l => l.account_code);

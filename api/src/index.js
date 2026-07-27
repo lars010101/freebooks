@@ -310,6 +310,9 @@ async function handleCoa(ctx, action) {
       { companyId }
     );
   }
+  // NOTE: the COA list also carries default_role via GET /api/:company/accounts
+  // (reports.js handleAccounts), which is the payload the settings.js FB.list
+  // grid actually consumes.
 
   if (action === 'coa.save') {
     let { accounts } = body;
@@ -385,15 +388,42 @@ async function handleCoa(ctx, action) {
   if (action === 'coa.upsert') {
     const { account } = body;
     if (!account || !account.account_code || !account.account_name || !account.account_type) throw Object.assign(new Error('account_code, account_name, account_type required'), { code: 'INVALID_INPUT' });
+
+    // default_role: NULL | 'AP' | 'Expense'. Invalid value -> INVALID_INPUT.
+    // Single-holder is enforced here in the SAME write: setting a new holder
+    // clears default_role from the company's other accounts that previously
+    // held that role (settings-ux-spec §7 item 1, second bullet).
+    const ALLOWED_ROLES = new Set([null, '', 'AP', 'Expense']);
+    let role = (account.default_role === undefined ? null : account.default_role);
+    if (role === '') role = null;
+    if (!ALLOWED_ROLES.has(role)) {
+      throw Object.assign(new Error(`default_role must be null, 'AP', or 'Expense' (got: ${JSON.stringify(account.default_role)})`), { code: 'INVALID_INPUT' });
+    }
+    const roleValue = role; // null | 'AP' | 'Expense'
+
     const now = new Date().toISOString();
     const existing = await query(`SELECT account_code FROM accounts WHERE company_id = @companyId AND account_code = @code`, { companyId, code: account.account_code });
-    if (existing.length > 0) {
-      await exec(`UPDATE accounts SET account_name=@name, account_subtype=@subtype, cf_category=@cf, is_active=@active WHERE company_id=@companyId AND account_code=@code`,
-        { companyId, code: account.account_code, name: account.account_name, subtype: account.account_subtype || null, cf: account.cf_category || null, active: account.is_active !== false });
-    } else {
-      await bulkInsert('accounts', [{ company_id: companyId, account_code: account.account_code, account_name: account.account_name, account_type: account.account_type, account_subtype: account.account_subtype || null, cf_category: account.cf_category || null, is_active: account.is_active !== false, effective_from: now, effective_to: null, created_at: now }]);
+
+    // Single-holder enforcement + upsert in one transaction. DuckDB
+    // connection runs statements sequentially; we clear the previous holder
+    // for the chosen role (if any) BEFORE setting the new one so the final
+    // state always has at most one account per role per company.
+    if (roleValue !== null) {
+      await exec(
+        `UPDATE accounts SET default_role = NULL
+         WHERE company_id = @companyId AND default_role = @role
+           AND account_code <> @code`,
+        { companyId, role: roleValue, code: account.account_code }
+      );
     }
-    return { saved: true };
+
+    if (existing.length > 0) {
+      await exec(`UPDATE accounts SET account_name=@name, account_subtype=@subtype, cf_category=@cf, is_active=@active, default_role=@role WHERE company_id=@companyId AND account_code=@code`,
+        { companyId, code: account.account_code, name: account.account_name, subtype: account.account_subtype || null, cf: account.cf_category || null, active: account.is_active !== false, role: roleValue });
+    } else {
+      await bulkInsert('accounts', [{ company_id: companyId, account_code: account.account_code, account_name: account.account_name, account_type: account.account_type, account_subtype: account.account_subtype || null, cf_category: account.cf_category || null, is_active: account.is_active !== false, default_role: roleValue, effective_from: now, effective_to: null, created_at: now }]);
+    }
+    return { saved: true, default_role: roleValue };
   }
 
   if (action === 'coa.delete') {
@@ -548,6 +578,33 @@ async function handleSettings(ctx, action) {
     }));
     if (rows.length > 0) await bulkInsert('companies', rows);
     return { saved: rows.length };
+  }
+
+  // settings-ux-spec §7 item 1 (rev 2026-07-27): danger-zone delete of the
+  // CURRENT company (ctx.companyId is the target). Guards, in order:
+  //   (1) cannot delete the LAST remaining company;
+  //   (2) cannot delete a company that has journal entries — books are not
+  //       droppable by one modal; only setup-only companies can be removed.
+  // On success the client redirects to a surviving company.
+  if (action === 'company.delete') {
+    const all = await query(`SELECT DISTINCT company_id FROM companies ORDER BY company_id`);
+    if (all.length <= 1) {
+      throw Object.assign(new Error('Cannot delete the last remaining company.'), { code: 'INVALID_STATE' });
+    }
+    const cnt = await query(`SELECT COUNT(*) AS n FROM journal_entries WHERE company_id = @companyId`, { companyId });
+    const n = Number((cnt[0] && cnt[0].n) || 0);
+    if (n > 0) {
+      throw Object.assign(new Error(`Cannot delete company "${companyId}": it has ${n} journal entries. Only companies without posted books can be deleted.`), { code: 'INVALID_STATE' });
+    }
+    // Cascade the setup-only residue (children before the companies row).
+    // fx_rates is intentionally untouched — the rate table is installation-global.
+    const TABLES = ['bill_payments', 'bills', 'attachments', 'reconciliations', 'bank_mappings',
+      'centers', 'vat_codes', 'periods', 'journal_sequences', 'journals', 'accounts',
+      'settings', 'user_permissions', 'idempotency_keys', 'vendors', 'audit_log', 'companies'];
+    for (const t of TABLES) {
+      await exec(`DELETE FROM ${t} WHERE company_id = @companyId`, { companyId });
+    }
+    return { deleted: companyId, remaining: all.filter((c) => c.company_id !== companyId).map((c) => c.company_id) };
   }
 
   if (action === 'period.list') {

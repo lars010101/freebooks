@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, navBar, layoutEnd } = require('./common');
+const { commonStyle, navBar, layoutEnd, getRelevanceFlags, flagsBootstrapJson } = require('./common');
 const { query } = require('../db');
 const { billsTabJS } = require('./payables-bills');
 const { vendorsTabJS } = require('./payables-vendors');
@@ -7,13 +7,20 @@ const { vendorsTabJS } = require('./payables-vendors');
 async function handlePayablesPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  // Server-side relevance flags (settings-ux-spec §7 item 9 + fx-automation-spec
+  // §1): read once here, drive both server-rendered chrome (none on this page —
+  // the VAT column lives in the client-rendered bill tree) and the
+  // window.__fbFlags bootstrap that billsTabJS reads to drop the VAT column /
+  // stated-VAT footer / per-code footers + lock CCY to base when fxTracking='off'.
+  const flags = await getRelevanceFlags(company);
   const [co] = await query(`SELECT jurisdiction, currency AS base_currency FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
   const taxLabel = (co && co.jurisdiction === 'SG') ? 'GST' : 'VAT';
-  const baseCurrency = (co && co.base_currency) || 'SGD';
-  res.send(buildPayablesPage(company, taxLabel, baseCurrency));
+  const baseCurrency = (flags && flags.baseCurrency) || (co && co.base_currency) || 'SGD';
+  res.send(buildPayablesPage(company, taxLabel, baseCurrency, flags));
 }
 
-function buildPayablesPage(company, taxLabel = 'VAT', baseCurrency = 'SGD') {
+function buildPayablesPage(company, taxLabel = 'VAT', baseCurrency = 'SGD', flags = null) {
+  const flagsJson = flagsBootstrapJson(flags);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -390,7 +397,12 @@ ${commonStyle()}
 <script>
 var COMPANY = '${company}';
 var BASE_CURRENCY = '${baseCurrency}';
-${billsTabJS()}${vendorsTabJS()}
+// Relevance flags (settings-ux-spec §7 item 9 + fx-automation-spec §1):
+// server-rendered so billsTabJS can drop the VAT column / stated-VAT footer /
+// per-code footers when vatRegistered=false, and lock CCY to base currency when
+// fxTracking='off' — no flash, no async client hiding.
+window.__fbFlags = ${flagsJson};
+${billsTabJS(flags)}${vendorsTabJS()}
 </script>
 ${layoutEnd()}
 </body>

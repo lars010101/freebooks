@@ -87,22 +87,75 @@ ${commonStyle()}
     </table>
   </div>
 
-  <!-- COMPANY TAB -->
+  <!-- COMPANY TAB — slim CURRENT-company record (settings-ux-spec §7 item 1
+       rev 2026-07-27 final). The all-companies grid is DELETED; company
+       management dissolves into the top-left switcher (create via the
+       "+ New company" link appended to the dropdown in common.js), this slim
+       record (edit), and the danger-zone delete below. Read-first panel like
+       fxProviderPanel/vatTolerancePanel: read mode renders all values as text;
+       Edit reveals inputs; Esc cancels without saving; explicit Save writes
+       company.save [one company] + settings.save {fx_gain_loss_account,
+       fx_tracking}. Company ID is immutable (read-only text in both modes).
+       Owns its own minimal edit state (NOT FB.mode); sits OUTSIDE any FB.list
+       tbody tree. -->
   <div id="tab-company" class="tab-panel active">
-    <table class="edit-table" id="company-table">
-      <thead><tr>
-        <th>Company ID</th>
-        <th>Company Name</th>
-        <th style="width:70px">Currency</th>
-        <th style="width:60px">Jur.</th>
-        <th>Tax ID</th>
-        <th>Std.</th>
-        <th style="text-align:center">VAT</th>
-        <th>FX Acct</th>
-        <th></th>
-      </tr></thead>
-      <tbody id="company-body"></tbody>
-    </table>
+    <div id="company-record-panel" class="company-record-panel"
+         style="margin-bottom:14px;padding:16px 20px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
+      <div class="cr-read" style="display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap">
+        <div style="font-weight:700;font-size:11pt;min-width:120px">Company Record</div>
+        <div id="cr-read-grid" style="display:grid;grid-template-columns:auto auto;gap:6px 18px;font-size:10pt;color:#333;flex:1;min-width:300px"></div>
+        <button type="button" class="btn-sm cr-edit-btn" onclick="companyRecordPanel.edit()">Edit</button>
+      </div>
+      <div id="cr-edit" class="cr-edit" style="display:none;flex-direction:column;gap:12px">
+        <div style="display:grid;grid-template-columns:auto auto;gap:10px 18px;align-items:center;font-size:10pt">
+          <div style="font-weight:600;color:#555">Company ID</div>
+          <div><span id="cr-edit-id" class="ro" style="display:inline-block;min-width:120px"></span></div>
+          <div style="font-weight:600;color:#555"><label for="cr-name">Company Name</label></div>
+          <div><input type="text" id="cr-name" style="max-width:280px;width:100%"></div>
+          <div style="font-weight:600;color:#555"><label for="cr-currency">Currency</label></div>
+          <div><input type="text" id="cr-currency" maxlength="3" style="max-width:80px" oninput="this.value=this.value.toUpperCase()"></div>
+          <div style="font-weight:600;color:#555"><label for="cr-jurisdiction">Jurisdiction</label></div>
+          <div><select id="cr-jurisdiction" style="max-width:200px">
+            <option value="SG">SG — Singapore</option>
+            <option value="SE">SE — Sweden</option>
+          </select></div>
+          <div style="font-weight:600;color:#555"><label for="cr-taxid">Tax ID</label></div>
+          <div><input type="text" id="cr-taxid" style="max-width:200px"></div>
+          <div style="font-weight:600;color:#555"><label for="cr-standard">Reporting Standard</label></div>
+          <div><select id="cr-standard" style="max-width:200px">
+            <option value="IFRS">IFRS</option>
+            <option value="SFRS">SFRS</option>
+            <option value="K2">K2</option>
+            <option value="K3">K3</option>
+          </select></div>
+          <div style="font-weight:600;color:#555">VAT Registered</div>
+          <div><label><input type="checkbox" id="cr-vat"> <span style="color:#666;font-size:9pt">vat_registered</span></label></div>
+          <div style="font-weight:600;color:#555">Track FX rates</div>
+          <div><label><input type="checkbox" id="cr-fxtrack"> <span style="color:#666;font-size:9pt">fx_tracking (off/auto)</span></label></div>
+          <div style="font-weight:600;color:#555"><label for="cr-fxacct">FX Gain/Loss Account</label></div>
+          <div><input type="text" id="cr-fxacct" placeholder="account code" style="max-width:160px"></div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button type="button" class="btn-sm" id="cr-save-btn" onclick="companyRecordPanel.save()">Save</button>
+          <button type="button" class="btn-sm" onclick="companyRecordPanel.cancel()">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DANGER ZONE — settings-ux-spec §7 item 1 rev 2026-07-27 final.
+         Deletes the CURRENT company via company.delete. Server guards:
+         last-company refusal + posted-books (journal entries) refusal. On
+         success the client redirects to the first surviving company. The
+         styled fb-modal surfaces both the irreversibility confirmation and,
+         on INVALID_STATE, the server's explanatory message. -->
+    <div id="company-danger-zone" class="company-danger-zone"
+         style="margin-top:28px;padding:14px 18px;border:1px solid #cc2222;border-radius:6px;background:#fff5f5">
+      <div style="font-weight:700;color:#cc2222;font-size:10pt;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Danger Zone</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap">
+        <div style="font-size:10pt;color:#333">Delete this company and all of its books. This is permanent and cannot be undone.</div>
+        <button type="button" class="btn-sm danger" id="cr-delete-btn" onclick="companyRecordPanel.confirmDelete()">Delete this company</button>
+      </div>
+    </div>
   </div>
 
   <!-- COA TAB -->
@@ -254,7 +307,7 @@ function showTab(t) {
   }
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
-    if (t === 'company')  { loadCompanies(); }
+    if (t === 'company')  { companyRecordPanel.load(); }
     if (t === 'periods')  { loadPeriods(); }
     if (t === 'coa')      { loadCoa(); }
     if (t === 'vat')      { loadVat(); vatTolerancePanel.load(); }
@@ -331,217 +384,272 @@ function renderPeriodHints() {
   if (el) periodsList.renderHints(el);
 }
 
-// ========== COMPANY ==========
-var companiesData = [];
+// ========== COMPANY RECORD PANEL (slim current-company record) ==========
+// settings-ux-spec §7 item 1 rev 2026-07-27 final. The all-companies grid is
+// DELETED; this read-first panel edits the CURRENT company only. Shape mirrors
+// fxProviderPanel/vatTolerancePanel: read mode renders all values as text;
+// Edit reveals inputs; Esc cancels without saving (Esc-never-saves doctrine);
+// explicit Save writes company.save [one company] + settings.save
+// {fx_gain_loss_account, fx_tracking}. Company ID is immutable (read-only text
+// in both modes — company.save never creates a new id here). Owns its own
+// minimal edit state (NOT FB.mode); sits OUTSIDE any FB.list tbody tree so the
+// registers' single-key verbs run unmodified. The danger-zone delete below the
+// panel routes the CURRENT company through company.delete; the styled fb-modal
+// surfaces the irreversibility confirmation and, on INVALID_STATE, the
+// server's explanatory message (last-company / posted-books refusals).
+var companyRecordPanel = (function () {
+  var editing = false;
+  var current = null; // { company_id, company_name, currency, jurisdiction, tax_id, reporting_standard, vat_registered, fx_tracking, fx_gain_loss_account }
+  var wired = false;
+  var modalEl = null;
 
-function addCompanyRow(co, isNew) {
-  isNew = isNew || false;
-  co = co || {};
-  var tr = document.createElement('tr');
-  tr.dataset.companyId = isNew ? '' : (co.company_id || '');
-  tr.dataset.isNew = isNew ? '1' : '0';
+  function el(id) { return document.getElementById(id); }
+  function esc(s) { return window.FB && FB.util ? FB.util.esc(s) : String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-  var idCell = isNew
-    ? '<input type="text" value="" style="width:110px" placeholder="e.g. myco_sg">'
-    : '<span class="ro">' + (co.company_id || '') + '</span>';
+  function readGrid() { return el('cr-read-grid'); }
 
-  tr.innerHTML = '<td>' + idCell + '</td>'
-    + '<td><input type="text" value="' + (co.company_name || '').replace(/"/g, '&quot;') + '" style="width:160px"></td>'
-    + '<td><input type="text" class="co-ccy" value="' + (co.base_currency || co.currency || '') + '" maxlength="3" style="width:60px" oninput="this.value=this.value.toUpperCase()"></td>'
-    + '<td><input type="text" value="' + (co.jurisdiction || '') + '" maxlength="10" style="width:55px"></td>'
-    + '<td><input type="text" value="' + (co.tax_id || '').replace(/"/g, '&quot;') + '" style="width:120px"></td>'
-    + '<td><input type="text" value="' + (co.reporting_standard || '').replace(/"/g, '&quot;') + '" style="width:80px"></td>'
-    + '<td style="text-align:center"><input type="checkbox"' + (co.vat_registered ? ' checked' : '') + '></td>'
-    + '<td><input type="text" value="' + (co.fx_gain_loss_account || '').replace(/"/g, '&quot;') + '" style="width:80px" placeholder="account code"></td>'
-    + '<td style="white-space:nowrap;text-align:right"></td>';
-
-  var saveBtn = document.createElement('button');
-  saveBtn.className = 'btn-sm';
-  saveBtn.innerHTML = '\u{1F4BE}';
-  saveBtn.title = 'Save';
-  saveBtn.style.cssText = 'opacity:' + (isNew ? '1' : '0.35') + ';margin-right:4px';
-  saveBtn.onclick = function () { saveCompanyRow(tr); };
-
-  var delBtn = document.createElement('button');
-  delBtn.className = 'btn-sm danger';
-  delBtn.innerHTML = '\u2715';
-  delBtn.title = 'Delete';
-  delBtn.onclick = function () { deleteCompanyRow(tr); };
-
-  tr.cells[tr.cells.length - 1].appendChild(saveBtn);
-  tr.cells[tr.cells.length - 1].appendChild(delBtn);
-
-  tr.querySelectorAll('input').forEach(function (el) {
-    el.addEventListener('input', function () {
-      saveBtn.style.opacity = '1';
-      if (isNew && el === tr.cells[0].querySelector('input') && el.value.trim()) {
-        appendBlankCompanyRow();
-      }
+  function renderRead() {
+    var c = current || {};
+    var rows = [
+      ['Company ID', esc(c.company_id || '')],
+      ['Company Name', esc(c.company_name || '')],
+      ['Currency', esc(c.currency || '')],
+      ['Jurisdiction', esc(c.jurisdiction || '')],
+      ['Tax ID', esc(c.tax_id || '')],
+      ['Reporting Standard', esc(c.reporting_standard || '')],
+      ['VAT Registered', c.vat_registered ? 'Yes' : 'No'],
+      ['Track FX rates', (c.fx_tracking === 'off') ? 'off' : 'auto'],
+      ['FX Gain/Loss Account', esc(c.fx_gain_loss_account || '') || '<span class="pe-ro">—</span>']
+    ];
+    var html = '';
+    rows.forEach(function (r) {
+      html += '<div style="font-weight:600;color:#555">' + r[0] + '</div><div>' + r[1] + '</div>';
     });
-    el.addEventListener('change', function () { saveBtn.style.opacity = '1'; });
-  });
-
-  document.getElementById('company-body').appendChild(tr);
-  attachCcyDd(tr.querySelector('.co-ccy'));
-  return tr;
-}
-
-function appendBlankCompanyRow() {
-  var tbody = document.getElementById('company-body');
-  var rows = tbody ? tbody.querySelectorAll('tr') : [];
-  if (rows.length > 0) {
-    var li = rows[rows.length - 1].cells[0].querySelector('input');
-    if (li && !li.value.trim()) return;
+    readGrid().innerHTML = html;
   }
-  addCompanyRow({}, true);
-}
 
-function saveCompanyRow(tr) {
-  var isNew = tr.dataset.isNew === '1';
-  var idEl = tr.cells[0].querySelector('input,span.ro');
-  var companyId = (idEl && idEl.value !== undefined ? idEl.value : idEl.textContent).trim();
-  if (!companyId) { showMsg('msg-company', 'Company ID required', true); return; }
+  function showRead() {
+    editing = false;
+    el('cr-read-grid').parentElement.style.display = 'flex';
+    el('cr-edit').style.display = 'none';
+  }
+  function showEdit() {
+    editing = true;
+    el('cr-read-grid').parentElement.style.display = 'none';
+    el('cr-edit').style.display = 'flex';
+    var c = current || {};
+    el('cr-edit-id').textContent = c.company_id || '';
+    el('cr-name').value = c.company_name || '';
+    el('cr-currency').value = c.currency || '';
+    el('cr-jurisdiction').value = c.jurisdiction || 'SG';
+    el('cr-taxid').value = c.tax_id || '';
+    el('cr-standard').value = c.reporting_standard || 'IFRS';
+    el('cr-vat').checked = !!c.vat_registered;
+    el('cr-fxtrack').checked = (c.fx_tracking !== 'off');
+    el('cr-fxacct').value = c.fx_gain_loss_account || '';
+    var f = el('cr-name'); if (f) f.focus();
+  }
 
-  var inputs = tr.querySelectorAll('input[type=text]');
-  var cb = tr.querySelector('input[type=checkbox]');
-
-  // inputs[0]=id(new only), [1]=name, [2]=currency, [3]=jurisdiction, [4]=taxid, [5]=std, [6]=fxacct
-  var nameVal       = inputs[1] ? inputs[1].value.trim() : '';
-  var currencyVal   = inputs[2] ? inputs[2].value.trim().toUpperCase() : '';
-  var jurisdicVal   = inputs[3] ? inputs[3].value.trim() : '';
-  var taxIdVal      = inputs[4] ? inputs[4].value.trim() : '';
-  var stdVal        = inputs[5] ? inputs[5].value.trim() : '';
-  var fxAcctVal     = inputs[6] ? inputs[6].value.trim() : '';
-
-  if (!nameVal) { showMsg('msg-company', 'Company name required', true); return; }
-
-  var saveBtn = tr.querySelector('button.btn-sm:not(.danger)');
-  if (saveBtn) { saveBtn.innerHTML = '\u23F3'; saveBtn.disabled = true; }
-
-  var co = {
-    company_id: isNew ? companyId : tr.dataset.companyId,
-    company_name: nameVal,
-    base_currency: currencyVal,
-    jurisdiction: jurisdicVal,
-    tax_id: taxIdVal,
-    reporting_standard: stdVal,
-    vat_registered: cb ? cb.checked : false
-  };
-
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'company.save', companyId: isNew ? companyId : tr.dataset.companyId, companies: [co] }) })
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      var d = res.data || res;
-      var m = document.getElementById('msg-company');
-      if (res.error || d.error) {
-        if (m) { m.textContent = res.error || d.error; m.className = 'msg err'; }
-        if (saveBtn) { saveBtn.innerHTML = '\u{1F4BE}'; saveBtn.disabled = false; }
-      } else {
-        tr.dataset.companyId = companyId;
-        tr.dataset.isNew = '0';
-        // If new, replace id input with ro span
-        if (isNew) {
-          var idInput = tr.cells[0].querySelector('input');
-          if (idInput) {
-            var span = document.createElement('span');
-            span.className = 'ro';
-            span.textContent = companyId;
-            idInput.replaceWith(span);
-          }
-        }
-        // Save FX settings separately
-        if (fxAcctVal !== '') {
-          fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'settings.save', companyId: companyId, settings: { fx_gain_loss_account: fxAcctVal } }) })
-            .catch(function (e) { console.error('FX settings save failed:', e); });
-        }
-        if (saveBtn) {
-          saveBtn.innerHTML = '\u2713';
-          saveBtn.style.opacity = '0.35';
-          saveBtn.disabled = false;
-          setTimeout(function () { saveBtn.innerHTML = '\u{1F4BE}'; }, 1500);
-        }
-        if (m) { m.textContent = 'Saved'; m.className = 'msg ok'; setTimeout(function () { m.textContent = ''; }, 2000); }
-        // Update VAT tab label if editing current company
-        if (companyId === COMPANY && jurisdicVal) {
-          var vn = VAT_NAMES[jurisdicVal] || 'Tax';
-          document.getElementById('tab-vat-label').textContent = vn + ' Codes';
-        }
-        // Store base currency for FX tab
-        if (companyId === COMPANY) {
-          window._companyCurrency = currencyVal;
-        }
+  function wire() {
+    if (wired) return; wired = true;
+    var panel = el('company-record-panel');
+    if (!panel) return;
+    // Esc exits edit mode without saving (Esc-never-saves doctrine). Enter on
+    // any text input submits (mouse parity with the Save button).
+    panel.setAttribute('tabindex', '0');
+    panel.addEventListener('keydown', function (e) {
+      if (!editing) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+      else if (e.key === 'Enter' && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) {
+        e.preventDefault(); save();
       }
-    })
-    .catch(function (e) {
-      showMsg('msg-company', e.message, true);
-      if (saveBtn) { saveBtn.innerHTML = '\u{1F4BE}'; saveBtn.disabled = false; }
     });
-}
+  }
 
-function deleteCompanyRow(tr) {
-  var companyId = tr.dataset.companyId;
-  if (!companyId) { tr.remove(); appendBlankCompanyRow(); return; }
-  if (companyId === COMPANY) { showMsg('msg-company', 'Cannot delete the active company', true); return; }
-  if (!confirm('Delete company "' + companyId + '"? This cannot be undone.')) return;
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'company.delete', companyId: companyId }) })
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      var d = res.data || res;
-      if (res.error || d.error) {
-        showMsg('msg-company', res.error || d.error, true);
-      } else {
-        tr.remove();
-        appendBlankCompanyRow();
-      }
-    })
-    .catch(function (e) { showMsg('msg-company', e.message, true); });
-}
+  function load() {
+    wire();
+    if (!current) {
+      // First load: fetch the company + its settings. Subsequent re-renders
+      // after a successful save reuse the server-fresh values refreshed inside
+      // save(); a manual reload() re-fetches both.
+      return reload();
+    }
+    renderRead();
+    showRead();
+  }
 
-function loadCompanies() {
-  var tbody = document.getElementById('company-body');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'company.list', companyId: COMPANY }) })
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      var rows = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
-      companiesData = rows;
-      rows.forEach(function (co) { addCompanyRow(co, false); });
-      appendBlankCompanyRow();
-      // Set VAT tab label and currency from current company
-      var cur = rows.find(function (c) { return c.company_id === COMPANY; });
-      if (cur) {
-        if (cur.jurisdiction) {
-          var vn = VAT_NAMES[cur.jurisdiction] || 'Tax';
-          document.getElementById('tab-vat-label').textContent = vn + ' Codes';
-        }
-        window._companyCurrency = cur.base_currency || cur.currency || '';
-      }
-      // Load FX gain/loss account for each company row
-      rows.forEach(function (co, idx) {
-        fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'settings.get', companyId: co.company_id }) })
-          .then(function (r) { return r.json(); })
-          .then(function (r2) {
-            var s = r2.data || r2;
-            var fxAcct = s.fx_gain_loss_account || '';
-            if (fxAcct) {
-              var trs = document.getElementById('company-body').querySelectorAll('tr');
-              var matchTr = Array.from(trs).find(function (t) { return t.dataset.companyId === co.company_id; });
-              if (matchTr) {
-                var fxInput = matchTr.querySelectorAll('input[type=text]')[6];
-                if (fxInput) fxInput.value = fxAcct;
-              }
+  function reload() {
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
+      .then(function (r){ return r.json(); })
+      .then(function (res){
+        var rows = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
+        var co = rows.find(function (c){ return c.company_id === COMPANY; }) || rows[0] || {};
+        return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ action:'settings.get', companyId: COMPANY }) })
+          .then(function (r){ return r.json(); })
+          .then(function (r2){
+            var s = (r2 && r2.data) ? r2.data : (r2 || {});
+            current = {
+              company_id: co.company_id || COMPANY,
+              company_name: co.company_name || '',
+              currency: co.base_currency || co.currency || '',
+              jurisdiction: co.jurisdiction || '',
+              tax_id: co.tax_id || '',
+              reporting_standard: co.reporting_standard || '',
+              vat_registered: !!co.vat_registered,
+              fx_tracking: s.fx_tracking || 'auto',
+              fx_gain_loss_account: s.fx_gain_loss_account || ''
+            };
+            // Side-effects the old grid used to perform: VAT tab label + FX
+            // tab base currency. Kept so the rest of the page still reflects
+            // the current company after a (re)load.
+            if (current.jurisdiction) {
+              var vn = VAT_NAMES[current.jurisdiction] || 'Tax';
+              var lbl = el('tab-vat-label'); if (lbl) lbl.textContent = vn + ' Codes';
             }
-          }).catch(function () {});
+            window._companyCurrency = current.currency;
+            renderRead();
+            showRead();
+          });
+      })
+      .catch(function (e){ showMsg('msg-company', e.message, true); });
+  }
+
+  function edit() { showEdit(); }
+  function cancel() { showRead(); renderRead(); }
+
+  function save() {
+    var c = current || {};
+    if (!c.company_id) { showMsg('msg-company', 'No company loaded', true); return; }
+    var nameVal = el('cr-name').value.trim();
+    var currencyVal = el('cr-currency').value.trim().toUpperCase();
+    var jurVal = el('cr-jurisdiction').value;
+    var taxIdVal = el('cr-taxid').value.trim();
+    var stdVal = el('cr-standard').value;
+    var vatVal = el('cr-vat').checked;
+    var fxTrackVal = el('cr-fxtrack').checked ? 'auto' : 'off';
+    var fxAcctVal = el('cr-fxacct').value.trim();
+    if (!nameVal) { showMsg('msg-company', 'Company name required', true); return; }
+    if (!currencyVal) { showMsg('msg-company', 'Currency required', true); return; }
+
+    var btn = el('cr-save-btn'); if (btn) btn.disabled = true;
+    var co = {
+      company_id: c.company_id,
+      company_name: nameVal,
+      base_currency: currencyVal,
+      jurisdiction: jurVal,
+      tax_id: taxIdVal,
+      reporting_standard: stdVal,
+      vat_registered: vatVal
+    };
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'company.save', companyId: c.company_id, companies: [co] }) })
+      .then(function (r){ return r.json(); })
+      .then(function (res){
+        var d = res.data || res;
+        if (res.error || d.error) {
+          showMsg('msg-company', res.error || d.error, true);
+          if (btn) btn.disabled = false;
+          return;
+        }
+        // Persist the two settings keys separately (fx_gain_loss_account +
+        // fx_tracking). One settings.save call; the server stores both.
+        return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ action:'settings.save', companyId: c.company_id,
+            settings: { fx_gain_loss_account: fxAcctVal, fx_tracking: fxTrackVal } }) })
+          .then(function (r){ return r.json(); })
+          .then(function (r2){
+            var d2 = r2.data || r2;
+            if (r2.error || d2.error) {
+              showMsg('msg-company', r2.error || d2.error, true);
+              if (btn) btn.disabled = false;
+              return;
+            }
+            // Refresh from server, re-render read mode, confirm via FB.status.
+            return reload().then(function(){ showMsg('msg-company', 'Company record saved', false); });
+          });
+      })
+      .then(function (){ if (btn) btn.disabled = false; })
+      .catch(function (e){
+        showMsg('msg-company', e.message, true);
+        if (btn) btn.disabled = false;
       });
-    })
-    .catch(function (e) { console.error('loadCompanies:', e); });
-}
+  }
+
+  // ── Danger-zone delete ──
+  function closeModal() {
+    if (modalEl) { modalEl.remove(); modalEl = null; }
+  }
+
+  function confirmDelete() {
+    var c = current || {};
+    if (!c.company_id) { showMsg('msg-company', 'No company loaded', true); return; }
+    closeModal();
+    var overlay = document.createElement('div');
+    overlay.className = 'fb-modal-overlay';
+    overlay.innerHTML =
+      '<div class="fb-modal">' +
+        '<div class="fb-modal-title">Delete "' + esc(c.company_name || c.company_id) + '"?</div>' +
+        '<div class="fb-modal-body">This will permanently delete the company and all of its books (accounts, periods, journals, bills, settings, …). <strong>This cannot be undone.</strong></div>' +
+        '<div id="cr-modal-err" class="fb-modal-err" style="display:none"></div>' +
+        '<div class="fb-modal-btns">' +
+          '<button type="button" class="btn-sm" id="cr-modal-cancel">Cancel</button>' +
+          '<button type="button" class="btn-sm danger" id="cr-modal-confirm">Delete company</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    modalEl = overlay;
+    overlay.addEventListener('click', function (e){
+      if (e.target === overlay) closeModal();
+    });
+    el('cr-modal-cancel').addEventListener('click', closeModal);
+    el('cr-modal-confirm').addEventListener('click', doDelete);
+  }
+
+  function doDelete() {
+    var c = current || {};
+    var confirmBtn = el('cr-modal-confirm');
+    var cancelBtn = el('cr-modal-cancel');
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Deleting…'; }
+    if (cancelBtn) cancelBtn.disabled = true;
+    var errBox = el('cr-modal-err');
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'company.delete', companyId: c.company_id }) })
+      .then(function (r){ return r.json(); })
+      .then(function (res){
+        var d = res.data || res;
+        if (res.error || d.error) {
+          // Surface the server's message inside the modal (last-company /
+          // posted-books refusals explain themselves). Re-enable the buttons
+          // so the user can dismiss or retry.
+          if (errBox) { errBox.textContent = res.error || d.error; errBox.style.display = ''; }
+          if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Delete company'; }
+          if (cancelBtn) cancelBtn.disabled = false;
+          return;
+        }
+        var remaining = (d && Array.isArray(d.remaining)) ? d.remaining : [];
+        var next = remaining[0];
+        closeModal();
+        if (next) {
+          // Switch the active company and redirect to the survivor's settings.
+          try { localStorage.setItem('freebooks_company', next); } catch (e) {}
+          window.location.href = '/' + next + '/settings';
+        } else {
+          // No survivors — shouldn't happen (server refuses the last company),
+          // but degrade gracefully back to the new-company page.
+          window.location.href = '/setup/new-company';
+        }
+      })
+      .catch(function (e){
+        if (errBox) { errBox.textContent = e.message; errBox.style.display = ''; }
+        if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Delete company'; }
+        if (cancelBtn) cancelBtn.disabled = false;
+      });
+  }
+
+  return { load: load, edit: edit, cancel: cancel, save: save, reload: reload, confirmDelete: confirmDelete };
+})();
 
 // ========== COA — FB.list (P3 consolidated) ==========
 var CF_CATS_COA = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded'];

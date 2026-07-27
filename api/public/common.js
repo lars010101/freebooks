@@ -101,10 +101,26 @@
       .then(function(r){ return r.json(); })
       .then(function(res){
         var cos = res.data || res || [];
-        if (!Array.isArray(cos) || !cos.length) { dd.innerHTML='<div class="tb-company-opt" style="color:#888">No other companies</div>'; return; }
-        dd.innerHTML = cos.map(function(c){
-          return '<a class="tb-company-opt" href="/'+c.company_id+'">'+(c.company_name||c.name||c.company_id)+'<br><small style="color:#aaa;font-size:8pt">'+c.company_id+'</small></a>';
-        }).join('');
+        if (!Array.isArray(cos) || !cos.length) { dd.innerHTML='<div class="tb-company-opt" style="color:#888">No other companies</div>'; }
+        else {
+          dd.innerHTML = cos.map(function(c){
+            return '<a class="tb-company-opt" href="/'+c.company_id+'">'+(c.company_name||c.name||c.company_id)+'<br><small style="color:#aaa;font-size:8pt">'+c.company_id+'</small></a>';
+          }).join('');
+        }
+        // settings-ux-spec §7 item 1 rev 2026-07-27: company creation moved off
+        // the (deleted) all-companies grid into the switcher dropdown — a
+        // divider + a "+ New company" link at the bottom pointing at the
+        // existing /setup/new-company page.
+        var div = document.createElement('div');
+        div.className = 'tb-company-divider';
+        div.style.cssText = 'border-top:1px solid #e0e0e0;margin:6px 0';
+        dd.appendChild(div);
+        var link = document.createElement('a');
+        link.className = 'tb-company-opt';
+        link.href = '/setup/new-company';
+        link.innerHTML = '+ New company';
+        link.style.cssText = 'color:#1a1a1a;font-weight:600';
+        dd.appendChild(link);
       })
       .catch(function(){ dd.innerHTML='<div class="tb-company-opt" style="color:#cc2222">Error loading</div>'; });
     }

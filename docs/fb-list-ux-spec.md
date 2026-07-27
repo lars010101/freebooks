@@ -90,6 +90,7 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `children(row)` | child accessor — lazy fetch + caching is the screen's job (Bills: `bill.lines` / `bill.payments`) |
 | `foldKey(row)` / `isFolded(row)` / `fold(row, open)` | fold state — defaults: `row._key` + an internal **open-state** map (absent key = **folded** — collapsed-by-default) |
 | `childRowHtml(parent, child, idx)` / `editChildRowHtml` | view-mode child `<tr>` inner HTML; edit-mode override (defaults to `childRowHtml`) |
+| `editFooterRowHtml(parent)` / `attachFooter(tr, parent)` | optional ONE bill-level row rendered after the last edit child (Bills: stated-VAT row); tagged `data-footer-of` (NOT `data-child-of`) so child harvest never sees it; `render()` removes it (optional; added 2026-07-26) |
 | `addChild(parent)` / `attachChild(tr, parent, idx)` | the `a` verb — append a child line in edit; post-render child-row hook |
 | `harvestExtra(tr, row, buf)` | merge non-column payload fields into the edit buffer (Bills: `vendor_id`/`ap_account`/`expense_account` travel on the vendor input's dataset) (optional) |
 | `hint` | register note rendered in the sidebar under the tab's keyboard help — the only sanctioned note location |

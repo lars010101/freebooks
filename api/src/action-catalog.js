@@ -206,7 +206,7 @@ const ACTIONS = {
   },
   'coa.upsert': {
     role: 'owner', mutating: true,
-    description: 'Insert or update one account.',
+    description: 'Insert or update one account. account.default_role (optional, null|\'AP\'|\'Expense\') sets the company default AP/Expense account; single-holder enforced server-side in the same write (setting a new holder clears the previous one).',
     params: { account: { type: 'object', required: true } },
   },
   'coa.delete': {

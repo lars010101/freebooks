@@ -16,17 +16,23 @@ const { settleBillPayment } = require('./settlement');
 const { getRate } = require('./fx');
 // computeVatSplit removed — bills now use tax-exclusive direct VAT lookup
 
-// Read company-level default AP and expense account codes from the settings
-// table. Returns { ap: '', expense: '' } when unset (blank fallback).
+// Read company-level default AP and expense account codes from the accounts
+// table via the account-level Default flag (default_role column) — the
+// successor to the legacy default_ap_account / default_expense_account
+// settings keys (settings-ux-spec §7 item 1). Returns { ap: '', expense: '' }
+// when no account is flagged (blank fallback). db/schema.sql backfills the
+// flag from the legacy settings rows for existing companies.
 async function getCompanyDefaultAccounts(companyId) {
   const rows = await query(
-    `SELECT key, value FROM settings WHERE company_id = @companyId AND key IN ('default_ap_account', 'default_expense_account')`,
+    `SELECT default_role, account_code
+     FROM accounts
+     WHERE company_id = @companyId AND default_role IN ('AP', 'Expense')`,
     { companyId }
   );
   const out = { ap: '', expense: '' };
   for (const r of rows) {
-    if (r.key === 'default_ap_account') out.ap = (r.value || '').trim();
-    if (r.key === 'default_expense_account') out.expense = (r.value || '').trim();
+    if (r.default_role === 'AP') out.ap = (r.account_code || '').trim();
+    if (r.default_role === 'Expense') out.expense = (r.account_code || '').trim();
   }
   return out;
 }

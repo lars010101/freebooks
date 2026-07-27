@@ -138,23 +138,6 @@ ${commonStyle()}
       </div>
     </div>
 
-    <!-- FX rate provider for this company (drives Fetch Rates on Exchange Rates tab) -->
-    <div style="margin-top:16px;padding:14px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
-      <div style="font-weight:600;margin-bottom:4px">FX Rate Provider (current company)</div>
-      <div style="font-size:9pt;color:#666;margin-bottom:12px">Select the source for the 📡 Fetch Rates action on the Exchange Rates tab. API-key providers require a key before fetching.</div>
-      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
-        <div class="field-row" style="margin-bottom:0">
-          <label for="fx-provider-select">Provider</label>
-          <select id="fx-provider-select" onchange="onFxProviderChange()" style="max-width:300px"></select>
-        </div>
-        <div id="fx-api-key-row" class="field-row" style="display:none;margin-bottom:0">
-          <label id="fx-api-key-label">API Key</label>
-          <input type="password" id="fx-provider-apikey" placeholder="Enter API key" style="max-width:300px">
-        </div>
-        <button class="btn-sm" id="btn-save-fx-provider" onclick="saveFxProvider()">Save Provider</button>
-      </div>
-      <div id="fx-provider-desc" style="font-size:9pt;color:#666;margin:6px 0 0 0"></div>
-    </div>
   </div>
 
   <!-- COA TAB -->
@@ -183,6 +166,37 @@ ${commonStyle()}
 
   <!-- EXCHANGE RATES TAB -->
   <div id="tab-fxrates" class="tab-panel">
+    <!-- FX provider config — read-first panel (settings-ux-spec §7 item 5 rev 2026-07-27).
+         Installation-scoped, lives here next to the 📡 Fetch Rates action it configures.
+         Read mode: provider name + whether an API key is set, as TEXT. Edit mode: select +
+         (conditional) API-key input behind an explicit Save button (Esc never saves).
+         Sits OUTSIDE the FB.list tbody tree so the rates register and its single-key verbs
+         run unmodified; the framework's editable-target focus guard keeps verbs inert while
+         this panel's inputs have focus. -->
+    <div id="fx-provider-panel" class="fx-provider-panel"
+         style="margin-bottom:14px;padding:12px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
+      <div class="fxp-read" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="font-weight:600">FX Provider</div>
+        <div id="fxp-read-provider" style="font-size:10pt;color:#333">—</div>
+        <div id="fxp-read-key" style="font-size:9pt;color:#666"></div>
+        <button type="button" class="btn-sm fxp-edit-btn" onclick="fxProviderPanel.edit()">Edit</button>
+      </div>
+      <div id="fxp-edit" class="fxp-edit" style="display:none;flex-direction:column;gap:10px">
+        <div class="field-row" style="margin-bottom:0">
+          <label for="fxp-select">Provider</label>
+          <select id="fxp-select" onchange="fxProviderPanel.onSelectChange()" style="max-width:300px"></select>
+        </div>
+        <div id="fxp-key-row" class="field-row" style="display:none;margin-bottom:0">
+          <label id="fxp-key-label">API Key</label>
+          <input type="password" id="fxp-key" placeholder="Enter API key" style="max-width:300px">
+        </div>
+        <div id="fxp-desc" style="font-size:9pt;color:#666"></div>
+        <div style="display:flex;gap:10px">
+          <button type="button" class="btn-sm" id="fxp-save-btn" onclick="fxProviderPanel.save()">Save Provider</button>
+          <button type="button" class="btn-sm" onclick="fxProviderPanel.cancel()">Cancel</button>
+        </div>
+      </div>
+    </div>
     <table class="edit-table" id="fx-rates-table">
       <thead><tr><th>Date</th><th>From</th><th>To</th><th style="text-align:right">Rate</th><th>Source</th><th></th></tr></thead>
       <tbody id="fx-rates-body"></tbody>
@@ -242,12 +256,12 @@ function showTab(t) {
   }
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
-    if (t === 'company')  { loadCompanies(); loadDefaultAccounts(); loadFxProviders(); }
+    if (t === 'company')  { loadCompanies(); loadDefaultAccounts(); }
     if (t === 'periods')  { loadPeriods(); }
     if (t === 'coa')      { loadCoa(); }
     if (t === 'vat')      { loadVat(); }
     if (t === 'journals') { loadJournals(); }
-    if (t === 'fxrates')  { loadFxRates(); loadBaseCurrencies(); }
+    if (t === 'fxrates')  { loadFxRates(); loadBaseCurrencies(); fxProviderPanel.load(); }
   }
 }
 
@@ -790,87 +804,166 @@ function attachCcyDd(input) {
   });
 }
 
-// ========== FX PROVIDER MANAGEMENT ==========
+// ========== FX PROVIDER PANEL (read-first, install-level) ==========
+// settings-ux-spec §7 item 5 rev 2026-07-27 + fx-automation-spec rev 2026-07-27.
+// Lives on the Exchange Rates tab next to the 📡 Fetch Rates action. Read mode
+// shows provider name/description + whether an API key is set, as TEXT. Edit
+// mode (click Edit, or i while the panel is focused) reveals the provider
+// select and, when the chosen provider needs one, the API-key input — behind
+// an explicit Save Provider button (Esc never saves, one save path). This
+// panel owns its own minimal edit state (NOT FB.mode) and sits OUTSIDE the
+// FB.list tbody tree; the framework's editable-target focus guard keeps the
+// rates register's single-key verbs inert while the panel's inputs have focus.
 var fxProviders = [];
+var fxProviderPanel = (function () {
+  var editing = false;
+  var current = { provider: 'ecb', apiKey: null, source: null };
+  var wired = false;
 
-function loadFxProviders() {
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.providers.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      fxProviders = res.data || res || [];
-      var select = document.getElementById('fx-provider-select');
-      select.innerHTML = '';
-      (Array.isArray(fxProviders) ? fxProviders : []).forEach(function(p){
-        var opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.name;
-        select.appendChild(opt);
-      });
-      // Load current provider setting
-      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.get', companyId: COMPANY }) })
-        .then(function(r){ return r.json(); })
-        .then(function(res){
-          var current = res.data || res || {};
-          select.value = current.provider || 'ecb';
-          onFxProviderChange();
-          if (current.apiKey) {
-            document.getElementById('fx-provider-apikey').placeholder = 'API key set (' + current.apiKey + ')';
-          }
-        })
-        .catch(function(e){ console.error('loadFxProviders: failed to get current:', e); });
-    })
-    .catch(function(e){ console.error('loadFxProviders failed:', e); });
-}
-
-function onFxProviderChange() {
-  var select = document.getElementById('fx-provider-select');
-  var providerId = select.value;
-  var provider = fxProviders.find(function(p){ return p.id === providerId; });
-  if (!provider) return;
-  document.getElementById('fx-provider-desc').textContent = provider.description || '';
-  var apiKeyRow = document.getElementById('fx-api-key-row');
-  if (provider.requiresApiKey) {
-    apiKeyRow.style.display = 'flex';
-    document.getElementById('fx-api-key-label').textContent = provider.apiKeyLabel || 'API Key';
-  } else {
-    apiKeyRow.style.display = 'none';
+  function el(id) { return document.getElementById(id); }
+  function findProvider(id) {
+    for (var i = 0; i < fxProviders.length; i++) if (fxProviders[i].id === id) return fxProviders[i];
+    return null;
   }
-  // Auto-save on select is abolished (settings-ux-spec §7): the explicit
-  // Save Provider button persists the selection (and API key, if shown).
-}
 
-function saveProviderSelection() {
-  var select = document.getElementById('fx-provider-select');
-  var providerId = select.value;
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.save', companyId: COMPANY, provider: providerId, apiKey: null }) })
-    .then(function(r){ return r.json(); })
-    .then(function(r){ var d = r.data||r; if (r.error||d.error) showMsg('msg-fx-provider', r.error||d.error, true); })
-    .catch(function(e){ showMsg('msg-fx-provider', e.message, true); });
-}
-
-function saveApiKey() {
-  var select = document.getElementById('fx-provider-select');
-  var providerId = select.value;
-  var apiKey = document.getElementById('fx-provider-apikey').value.trim();
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.save', companyId: COMPANY, provider: providerId, apiKey: apiKey }) })
-    .then(function(r){ return r.json(); })
-    .then(function(r){ var d = r.data||r; showMsg('msg-fx-provider', r.error||d.error||'API Key saved', !!(r.error||d.error)); })
-    .catch(function(e){ showMsg('msg-fx-provider', e.message, true); });
-}
-
-// Explicit Save Provider button (settings-ux-spec §7): persists the selected
-// provider and, when the API-key row is visible, the entered key. Reuses the
-// existing saveProviderSelection / saveApiKey logic behind one button —
-// auto-save on provider-select is abolished.
-function saveFxProvider() {
-  saveProviderSelection();
-  var apiKeyRow = document.getElementById('fx-api-key-row');
-  if (apiKeyRow && apiKeyRow.style.display !== 'none') {
-    saveApiKey();
-  } else {
-    showMsg('msg-fx-provider', 'Provider saved', false);
+  function renderRead() {
+    var p = findProvider(current.provider) || { name: current.provider, description: '' };
+    el('fxp-read-provider').textContent = p.name || current.provider;
+    var keyEl = el('fxp-read-key');
+    var keyTxt = current.apiKey
+      ? 'API key set (••••' + current.apiKey + ')'
+      : (p.requiresApiKey ? 'API key NOT set' : 'No API key required');
+    keyEl.textContent = keyTxt;
+    if (current.source === 'company') {
+      keyEl.textContent += ' — per-company (legacy); saving upgrades to install-level';
+    }
+    el('fxp-read-provider').title = p.description || '';
   }
-}
+
+  function showRead() {
+    editing = false;
+    el('fxp-read-provider').parentElement.style.display = 'flex';
+    el('fxp-edit').style.display = 'none';
+  }
+  function showEdit() {
+    editing = true;
+    el('fxp-read-provider').parentElement.style.display = 'none';
+    el('fxp-edit').style.display = 'flex';
+    populateSelect();
+    el('fxp-select').value = current.provider;
+    onSelectChange();
+    // Clear any stale key draft; placeholder hints at the stored key.
+    var keyInput = el('fxp-key');
+    keyInput.value = '';
+    if (current.apiKey) keyInput.placeholder = 'API key set (••••' + current.apiKey + ') — retype to replace';
+    else keyInput.placeholder = 'Enter API key';
+    var s = el('fxp-select'); if (s) s.focus();
+  }
+
+  function populateSelect() {
+    var sel = el('fxp-select');
+    sel.innerHTML = '';
+    (Array.isArray(fxProviders) ? fxProviders : []).forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = p.id; opt.textContent = p.name;
+      sel.appendChild(opt);
+    });
+  }
+
+  function onSelectChange() {
+    var p = findProvider(el('fxp-select').value);
+    if (!p) return;
+    el('fxp-desc').textContent = p.description || '';
+    var keyRow = el('fxp-key-row');
+    if (p.requiresApiKey) {
+      keyRow.style.display = 'flex';
+      el('fxp-key-label').textContent = p.apiKeyLabel || 'API Key';
+    } else {
+      keyRow.style.display = 'none';
+    }
+  }
+
+  function wire() {
+    if (wired) return; wired = true;
+    var panel = el('fx-provider-panel');
+    if (!panel) return;
+    // Esc exits edit mode without saving (Esc-never-saves doctrine). Enter on
+    // the API-key field submits (mouse parity with the Save button).
+    panel.addEventListener('keydown', function (e) {
+      if (!editing) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+      else if (e.key === 'Enter' && (e.target === el('fxp-key') || e.target === el('fxp-select'))) {
+        e.preventDefault(); save();
+      }
+    });
+    // i enters edit mode from read mode (keyboard parity with the Edit
+    // button) — only when the panel itself (not a child input) has focus, so
+    // it never hijacks typing. Read mode has no inputs, so this is safe.
+    panel.setAttribute('tabindex', '0');
+    panel.addEventListener('keydown', function (e) {
+      if (editing) return;
+      if (e.key === 'i' && !(e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) {
+        e.preventDefault(); edit();
+      }
+    });
+  }
+
+  function load() {
+    wire();
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.providers.list', companyId: COMPANY }) })
+      .then(function (r){ return r.json(); })
+      .then(function (res){
+        fxProviders = res.data || res || [];
+        return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.get', companyId: COMPANY }) })
+          .then(function (r){ return r.json(); })
+          .then(function (r2){
+            var c = r2.data || r2 || {};
+            current = { provider: c.provider || 'ecb', apiKey: c.apiKey || null, source: c.source || null };
+            renderRead();
+            showRead();
+          });
+      })
+      .catch(function (e){ console.error('fxProviderPanel.load failed:', e); });
+  }
+
+  function edit() { showEdit(); }
+  function cancel() { showRead(); renderRead(); }
+
+  function save() {
+    var providerId = el('fxp-select').value;
+    var p = findProvider(providerId);
+    var keyRow = el('fxp-key-row');
+    var apiKey = (keyRow && keyRow.style.display !== 'none') ? el('fxp-key').value.trim() : null;
+    if (!providerId) { showMsg('fx-provider', 'Select a provider first', true); return; }
+    if (p && p.requiresApiKey && !apiKey && !current.apiKey) {
+      showMsg('fx-provider', (p.apiKeyLabel || 'API Key') + ' required for ' + p.name, true);
+      return;
+    }
+    var btn = el('fxp-save-btn'); if (btn) btn.disabled = true;
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'fx.provider.save', companyId: COMPANY, provider: providerId, apiKey: apiKey }) })
+      .then(function (r){ return r.json(); })
+      .then(function (r){
+        var d = r.data || r;
+        if (r.error || d.error) { showMsg('fx-provider', r.error || d.error, true); if (btn) btn.disabled = false; return; }
+        // Refresh current config from the server, re-render read mode, confirm.
+        return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fx.provider.get', companyId: COMPANY }) })
+          .then(function (rr){ return rr.json(); })
+          .then(function (rr2){
+            var c = rr2.data || rr2 || {};
+            current = { provider: c.provider || providerId, apiKey: c.apiKey || null, source: c.source || 'install' };
+            renderRead();
+            showRead();
+            showMsg('fx-provider', 'Provider saved (install-level)', false);
+            if (btn) btn.disabled = false;
+          });
+      })
+      .catch(function (e){ showMsg('fx-provider', e.message, true); if (btn) btn.disabled = false; });
+  }
+
+  return { load: load, edit: edit, cancel: cancel, save: save, onSelectChange: onSelectChange };
+})();
+
 
 // ========== DEFAULT ACCOUNTS (current company) ==========
 // Reads / writes the 'default_ap_account' and 'default_expense_account' rows in

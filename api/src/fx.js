@@ -11,6 +11,40 @@ const { query, exec, bulkInsert } = require('./db');
 
 const PROVIDERS_DIR = path.join(__dirname, 'fxProviders');
 
+// FX provider config is installation-scoped (fx-automation-spec rev. 2026-07-27):
+// one provider + API key for the whole installation — the rate table is global,
+// so per-company providers only produced duplicate fetches and last-writer-wins
+// on shared rows. Stored in the `settings` table under a reserved installation
+// company_id that no real company can occupy (company ids are lowercase slugs).
+const INSTALL_COMPANY_ID = '__install__';
+
+// loadProviderConfig — install-level row FIRST, falling back to the current
+// company's legacy per-company row for backward compat (existing installs keep
+// working until the config is saved once at install level). Returns
+// { providerName, apiKey } with the resolved source so callers can report it.
+async function loadProviderConfig(companyId) {
+  const installRows = await query(
+    `SELECT key, value FROM settings WHERE company_id = @installId AND key IN ('fx_provider', 'fx_provider_api_key')`,
+    { installId: INSTALL_COMPANY_ID }
+  );
+  const source = installRows.length > 0 ? 'install' : 'company';
+  let map;
+  if (installRows.length > 0) {
+    map = Object.fromEntries(installRows.map(r => [r.key, r.value]));
+  } else {
+    const companyRows = await query(
+      `SELECT key, value FROM settings WHERE company_id = @companyId AND key IN ('fx_provider', 'fx_provider_api_key')`,
+      { companyId }
+    );
+    map = Object.fromEntries(companyRows.map(r => [r.key, r.value]));
+  }
+  return {
+    providerName: map.fx_provider || 'ecb',
+    apiKey: map.fx_provider_api_key || null,
+    source
+  };
+}
+
 async function handleFx(ctx, action) {
   switch (action) {
     case 'fx.fetch_rates':          return fetchRates(ctx);
@@ -40,14 +74,9 @@ async function fetchRates(ctx) {
   const baseCurrency = body.baseCurrency || companies[0].currency;
   const date = body.date || 'latest';
 
-  // Load provider setting
-  const providerSettings = await query(
-    `SELECT value FROM settings WHERE company_id = @companyId AND key IN ('fx_provider', 'fx_provider_api_key')`,
-    { companyId }
-  );
-  const settingsMap = Object.fromEntries(providerSettings.map(r => [r.key, r.value]));
-  const providerName = settingsMap.fx_provider || 'ecb';
-  const apiKey = settingsMap.fx_provider_api_key || null;
+  // Load provider config — installation-scoped (fx-automation-spec rev 2026-07-27):
+  // install-level row first, falling back to this company's legacy per-company row.
+  const { providerName, apiKey } = await loadProviderConfig(companyId);
 
   const providerPath = path.join(PROVIDERS_DIR, providerName + '.js');
   if (!fs.existsSync(providerPath)) throw Object.assign(new Error(`FX provider not found: ${providerName}`), { code: 'NOT_FOUND' });
@@ -295,19 +324,17 @@ async function listProviders(ctx) {
 
 async function getProvider(ctx) {
   const { companyId } = ctx;
-  const settings = await query(
-    `SELECT key, value FROM settings WHERE company_id = @companyId AND key IN ('fx_provider', 'fx_provider_api_key')`,
-    { companyId }
-  );
-  const settingsMap = Object.fromEntries(settings.map(r => [r.key, r.value]));
-  const providerName = settingsMap.fx_provider || 'ecb';
-  const apiKey = settingsMap.fx_provider_api_key || null;
+  // Install-level row FIRST, falling back to the current company's legacy
+  // per-company row for backward compat (fx-automation-spec rev 2026-07-27).
+  const { providerName, apiKey, source } = await loadProviderConfig(companyId);
   const maskedKey = apiKey ? apiKey.slice(-4).padStart(apiKey.length, '*') : null;
-  return { provider: providerName, apiKey: maskedKey };
+  // API shape stable vs. the per-company era: { provider, apiKey }. The extra
+  // `source` field is additive — clients that ignore it keep working.
+  return { provider: providerName, apiKey: maskedKey, source };
 }
 
 async function saveProvider(ctx) {
-  const { companyId, body } = ctx;
+  const { body } = ctx;
   const { provider, apiKey } = body;
   if (!provider) throw Object.assign(new Error('provider required'), { code: 'INVALID_INPUT' });
 
@@ -315,29 +342,32 @@ async function saveProvider(ctx) {
   const providerPath = path.join(PROVIDERS_DIR, provider + '.js');
   if (!fs.existsSync(providerPath)) throw Object.assign(new Error(`FX provider not found: ${provider}`), { code: 'NOT_FOUND' });
 
-  // Save provider setting
+  // Provider config is installation-scoped (fx-automation-spec rev 2026-07-27):
+  // always write to the reserved installation company_id — never per-company.
+  const now = new Date().toISOString();
+
   await exec(
-    `DELETE FROM settings WHERE company_id = @companyId AND key = 'fx_provider'`,
-    { companyId }
+    `DELETE FROM settings WHERE company_id = @installId AND key = 'fx_provider'`,
+    { installId: INSTALL_COMPANY_ID }
   );
   await bulkInsert('settings', [{
-    company_id: companyId,
+    company_id: INSTALL_COMPANY_ID,
     key: 'fx_provider',
     value: provider,
-    updated_at: new Date().toISOString()
+    updated_at: now
   }]);
 
-  // Save API key if provided
-  if (apiKey) {
+  // Save API key if provided. An empty string clears it (explicit write).
+  if (apiKey !== undefined && apiKey !== null && apiKey !== '') {
     await exec(
-      `DELETE FROM settings WHERE company_id = @companyId AND key = 'fx_provider_api_key'`,
-      { companyId }
+      `DELETE FROM settings WHERE company_id = @installId AND key = 'fx_provider_api_key'`,
+      { installId: INSTALL_COMPANY_ID }
     );
     await bulkInsert('settings', [{
-      company_id: companyId,
+      company_id: INSTALL_COMPANY_ID,
       key: 'fx_provider_api_key',
       value: apiKey,
-      updated_at: new Date().toISOString()
+      updated_at: now
     }]);
   }
 

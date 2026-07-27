@@ -475,7 +475,7 @@ async function handleMapping(ctx, action) {
     if (!mapping || !mapping.pattern || !mapping.debit_account) throw Object.assign(new Error('pattern and debit_account required'), { code: 'INVALID_INPUT' });
     const mappingId = mapping.mapping_id || uuid();
     const existing = await query(`SELECT mapping_id FROM bank_mappings WHERE company_id = @companyId AND mapping_id = @mappingId`, { companyId, mappingId });
-    const row = { company_id: companyId, mapping_id: mappingId, pattern: mapping.pattern, match_type: mapping.match_type || 'contains', debit_account: mapping.debit_account, credit_account: null, description_override: mapping.description_override || null, vat_code: null, cost_center: null, profit_center: null, priority: mapping.priority || 100, is_active: mapping.is_active !== false };
+    const row = { company_id: companyId, mapping_id: mappingId, pattern: mapping.pattern, match_type: mapping.match_type || 'contains', debit_account: mapping.debit_account, credit_account: mapping.credit_account || '', description_override: mapping.description_override || null, vat_code: null, cost_center: null, profit_center: null, priority: mapping.priority || 100, is_active: mapping.is_active !== false };
     if (existing.length > 0) {
       await exec(`UPDATE bank_mappings SET pattern=@pattern, match_type=@match_type, debit_account=@debit_account, description_override=@description_override, priority=@priority, is_active=@is_active WHERE company_id=@companyId AND mapping_id=@mapping_id`,
         { companyId, mapping_id: mappingId, pattern: row.pattern, match_type: row.match_type, debit_account: row.debit_account, description_override: row.description_override, priority: row.priority, is_active: row.is_active });

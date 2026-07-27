@@ -479,7 +479,7 @@ var companyRecordPanel = (function () {
   }
 
   function reload() {
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'company.list', companyId: COMPANY }) })
       .then(function (r){ return r.json(); })
       .then(function (res){

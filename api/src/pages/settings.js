@@ -103,24 +103,6 @@ ${commonStyle()}
       </tr></thead>
       <tbody id="company-body"></tbody>
     </table>
-
-    <!-- VAT tolerance for supplier-stated VAT override (current company) -->
-    <div style="margin-top:16px;padding:14px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
-      <div style="font-weight:600;margin-bottom:4px">VAT Tolerance (current company)</div>
-      <div style="font-size:9pt;color:#666;margin-bottom:12px">When a supplier-stated VAT amount differs from the computed value, the override is accepted (with a warning) when |stated − computed| ≤ max(flat, % × computed). The % field is displayed as a percentage (e.g. 1 = 1%).</div>
-      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
-        <div class="field-row" style="margin-bottom:0">
-          <label for="vat-tolerance-flat">VAT Tolerance (flat)</label>
-          <input type="number" step="0.01" min="0" id="vat-tolerance-flat" placeholder="0.50" style="max-width:120px">
-        </div>
-        <div class="field-row" style="margin-bottom:0">
-          <label for="vat-tolerance-pct">VAT Tolerance (%)</label>
-          <input type="number" step="0.1" min="0" id="vat-tolerance-pct" placeholder="1" style="max-width:120px">
-        </div>
-        <button class="btn-sm" id="btn-save-vat-tolerance" onclick="saveVatTolerance()">Save Tolerance</button>
-      </div>
-    </div>
-
   </div>
 
   <!-- COA TAB -->
@@ -141,6 +123,39 @@ ${commonStyle()}
 
   <!-- VAT/GST CODES TAB -->
   <div id="tab-vat" class="tab-panel">
+    <!-- VAT Tolerance (current company) — read-first panel (settings-ux-spec §7
+         item 1 third bullet). Relocated from the Company tab. Lives on the Tax
+         Codes tab ABOVE the codes register, OUTSIDE the FB.list tbody tree so
+         the register's single-key verbs run unmodified; the framework's
+         editable-target focus guard keeps them inert while the panel's inputs
+         have focus. Read mode shows the current flat + pct as text; Edit
+         reveals two number inputs; explicit Save Tolerance button persists via
+         settings.save; Esc exits without saving (Esc-never-saves doctrine). -->
+    <div id="vat-tolerance-panel" class="vat-tolerance-panel"
+         style="margin-bottom:14px;padding:12px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
+      <div class="vtt-read" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="font-weight:600">VAT Tolerance</div>
+        <div id="vtt-read-summary" style="font-size:10pt;color:#333">—</div>
+        <button type="button" class="btn-sm vtt-edit-btn" onclick="vatTolerancePanel.edit()">Edit</button>
+      </div>
+      <div id="vtt-edit" class="vtt-edit" style="display:none;flex-direction:column;gap:10px">
+        <div style="font-size:9pt;color:#666">When a supplier-stated VAT amount differs from the computed value, the override is accepted (with a warning) when |stated − computed| ≤ max(flat, % × computed). The % field is entered as a percentage (e.g. 1 = 1%).</div>
+        <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field-row" style="margin-bottom:0">
+            <label for="vtt-flat">VAT Tolerance (flat)</label>
+            <input type="number" step="0.01" min="0" id="vtt-flat" placeholder="0.50" style="max-width:120px">
+          </div>
+          <div class="field-row" style="margin-bottom:0">
+            <label for="vtt-pct">VAT Tolerance (%)</label>
+            <input type="number" step="0.1" min="0" id="vtt-pct" placeholder="1" style="max-width:120px">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button type="button" class="btn-sm" id="vtt-save-btn" onclick="vatTolerancePanel.save()">Save Tolerance</button>
+          <button type="button" class="btn-sm" onclick="vatTolerancePanel.cancel()">Cancel</button>
+        </div>
+      </div>
+    </div>
     <table class="edit-table" id="vat-table">
       <thead><tr><th>Code</th><th>Description</th><th>Rate %</th><th>Input Acct</th><th>Output Acct</th><th>Report Box</th><th style="text-align:center">Rev.Chg</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="vat-body"></tbody>
@@ -242,7 +257,7 @@ function showTab(t) {
     if (t === 'company')  { loadCompanies(); }
     if (t === 'periods')  { loadPeriods(); }
     if (t === 'coa')      { loadCoa(); }
-    if (t === 'vat')      { loadVat(); }
+    if (t === 'vat')      { loadVat(); vatTolerancePanel.load(); }
     if (t === 'journals') { loadJournals(); }
     if (t === 'fxrates')  { loadFxRates(); loadBaseCurrencies(); fxProviderPanel.load(); }
   }
@@ -957,76 +972,141 @@ var fxProviderPanel = (function () {
 // account-level default_role flag (server-side single-holder enforcement).
 // The legacy "Default Accounts (current company)" panel, loadDefaultAccounts(),
 // and saveDefaultAccounts() have been removed from the Company tab.
-// loadVatTolerance remains (a later task relocates the VAT Tolerance panel).
 
-// Populate the VAT tolerance card on the default-visible Company tab.
-window.addEventListener('DOMContentLoaded', function () { loadVatTolerance(); });
 
-// ========== VAT TOLERANCE (current company) ==========
-// Reads / writes the 'vat_tolerance' (flat) and 'vat_tolerance_pct' rows in the
-// settings table. The % field is displayed as a percentage (1 = 1%) but stored
-// as a decimal fraction (0.01 = 1%) in the DB.
+// ========== VAT TOLERANCE PANEL (read-first, per-company) ==========
+// settings-ux-spec §7 item 1 third bullet — relocated from the Company tab to
+// the Tax Codes tab. Read mode shows the current flat + pct as text (e.g.
+// "max(flat 0.50, 1.0% of computed)"); Edit reveals two number inputs; explicit
+// Save Tolerance button persists via settings.save {vat_tolerance,
+// vat_tolerance_pct}; Esc exits without saving (Esc-never-saves doctrine).
+// Storage semantics preserved from the prior loadVatTolerance/saveVatTolerance:
+// flat stored as-is; pct stored as a decimal fraction (1% -> 0.01) in the DB
+// but entered/displayed as a percentage (1 = 1%). Owns its own minimal edit
+// state (NOT FB.mode); sits OUTSIDE the FB.list tbody tree so the register's
+// single-key verbs run unmodified.
+var vatTolerancePanel = (function () {
+  var editing = false;
+  var current = { flat: null, pct: null };
+  var wired = false;
 
-function loadVatTolerance() {
-  var flatInput = document.getElementById('vat-tolerance-flat');
-  var pctInput = document.getElementById('vat-tolerance-pct');
-  if (!flatInput || !pctInput) return;
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'settings.get', companyId: COMPANY }) })
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      var s = (res && res.data) ? res.data : (res || {});
-      var flat = parseFloat(s.vat_tolerance);
-      var pct = parseFloat(s.vat_tolerance_pct);
-      flatInput.value = isNaN(flat) ? '' : String(flat);
-      // Display the percentage form (0.01 -> 1)
-      pctInput.value = isNaN(pct) ? '' : String(Math.round(pct * 100 * 100) / 100);
-    })
-    .catch(function (e) { showMsg('msg-vat-tolerance', e.message, true); });
-}
+  function el(id) { return document.getElementById(id); }
 
-function saveVatTolerance() {
-  var flatInput = document.getElementById('vat-tolerance-flat');
-  var pctInput = document.getElementById('vat-tolerance-pct');
-  if (!flatInput || !pctInput) return;
-  var flatVal = flatInput.value.trim();
-  var pctVal = pctInput.value.trim();
-  // Convert displayed percentage back to decimal fraction for storage
-  var flatNum = parseFloat(flatVal);
-  var pctNum = parseFloat(pctVal);
-  if (flatVal !== '' && (isNaN(flatNum) || flatNum < 0)) {
-    showMsg('msg-vat-tolerance', 'Flat tolerance must be a non-negative number', true);
-    return;
+  function fmtFlat(flat) {
+    return (flat === null || flat === undefined || isNaN(flat)) ? '0' : String(flat);
   }
-  if (pctVal !== '' && (isNaN(pctNum) || pctNum < 0)) {
-    showMsg('msg-vat-tolerance', 'Tolerance % must be a non-negative number', true);
-    return;
+  function fmtPct(pct) {
+    // pct is a decimal fraction (0.01 = 1%) in storage; display as percent.
+    return (pct === null || pct === undefined || isNaN(pct)) ? '0' : (Math.round(pct * 100 * 100) / 100);
   }
-  // Store: flat as-is; pct as decimal (1 -> 0.01)
-  var flatStore = (flatVal === '') ? '' : String(flatNum);
-  var pctStore = (pctVal === '') ? '' : String(pctNum / 100);
-  var btn = document.getElementById('btn-save-vat-tolerance');
-  if (btn) { btn.disabled = true; }
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: 'settings.save', companyId: COMPANY,
-      settings: { vat_tolerance: flatStore, vat_tolerance_pct: pctStore }
-    }) })
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      var d = res.data || res;
-      if (res.error || d.error) {
-        showMsg('msg-vat-tolerance', res.error || d.error, true);
-      } else {
-        showMsg('msg-vat-tolerance', 'VAT tolerance saved', false);
+
+  function renderRead() {
+    var flatTxt = fmtFlat(current.flat);
+    var pctTxt = fmtPct(current.pct);
+    el('vtt-read-summary').textContent =
+      'max(flat ' + flatTxt + ', ' + pctTxt + '% of computed)';
+  }
+
+  function showRead() {
+    editing = false;
+    el('vtt-read-summary').parentElement.style.display = 'flex';
+    el('vtt-edit').style.display = 'none';
+  }
+  function showEdit() {
+    editing = true;
+    el('vtt-read-summary').parentElement.style.display = 'none';
+    el('vtt-edit').style.display = 'flex';
+    el('vtt-flat').value = (current.flat === null || current.flat === undefined || isNaN(current.flat)) ? '' : String(current.flat);
+    el('vtt-pct').value = (current.pct === null || current.pct === undefined || isNaN(current.pct)) ? '' : String(fmtPct(current.pct));
+    var f = el('vtt-flat'); if (f) f.focus();
+  }
+
+  function wire() {
+    if (wired) return; wired = true;
+    var panel = el('vat-tolerance-panel');
+    if (!panel) return;
+    // Esc exits edit mode without saving (Esc-never-saves doctrine). Enter on
+    // either input submits (mouse parity with the Save Tolerance button).
+    panel.setAttribute('tabindex', '0');
+    panel.addEventListener('keydown', function (e) {
+      if (!editing) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+      else if (e.key === 'Enter' && (e.target === el('vtt-flat') || e.target === el('vtt-pct'))) {
+        e.preventDefault(); save();
       }
-      if (btn) { btn.disabled = false; }
-    })
-    .catch(function (e) {
-      showMsg('msg-vat-tolerance', e.message, true);
-      if (btn) { btn.disabled = false; }
     });
-}
+  }
+
+  function load() {
+    wire();
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'settings.get', companyId: COMPANY }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        var s = (res && res.data) ? res.data : (res || {});
+        current.flat = parseFloat(s.vat_tolerance);
+        current.pct = parseFloat(s.vat_tolerance_pct);
+        renderRead();
+        showRead();
+      })
+      .catch(function (e) { showMsg('msg-vat-tolerance', e.message, true); });
+  }
+
+  function edit() { showEdit(); }
+  function cancel() { showRead(); renderRead(); }
+
+  function save() {
+    var flatVal = el('vtt-flat').value.trim();
+    var pctVal = el('vtt-pct').value.trim();
+    var flatNum = parseFloat(flatVal);
+    var pctNum = parseFloat(pctVal);
+    if (flatVal !== '' && (isNaN(flatNum) || flatNum < 0)) {
+      showMsg('msg-vat-tolerance', 'Flat tolerance must be a non-negative number', true);
+      return;
+    }
+    if (pctVal !== '' && (isNaN(pctNum) || pctNum < 0)) {
+      showMsg('msg-vat-tolerance', 'Tolerance % must be a non-negative number', true);
+      return;
+    }
+    // Store: flat as-is; pct as decimal (1 -> 0.01)
+    var flatStore = (flatVal === '') ? '' : String(flatNum);
+    var pctStore = (pctVal === '') ? '' : String(pctNum / 100);
+    var btn = el('vtt-save-btn'); if (btn) btn.disabled = true;
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'settings.save', companyId: COMPANY,
+        settings: { vat_tolerance: flatStore, vat_tolerance_pct: pctStore }
+      }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        var d = res.data || res;
+        if (res.error || d.error) {
+          showMsg('msg-vat-tolerance', res.error || d.error, true);
+          if (btn) btn.disabled = false;
+          return;
+        }
+        // Refresh from server, re-render read mode, confirm.
+        return fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'settings.get', companyId: COMPANY }) })
+          .then(function (r2) { return r2.json(); })
+          .then(function (r2r) {
+            var s = (r2r && r2r.data) ? r2r.data : (r2r || {});
+            current.flat = parseFloat(s.vat_tolerance);
+            current.pct = parseFloat(s.vat_tolerance_pct);
+            renderRead();
+            showRead();
+            showMsg('msg-vat-tolerance', 'VAT tolerance saved', false);
+            if (btn) btn.disabled = false;
+          });
+      })
+      .catch(function (e) {
+        showMsg('msg-vat-tolerance', e.message, true);
+        if (btn) btn.disabled = false;
+      });
+  }
+
+  return { load: load, edit: edit, cancel: cancel, save: save };
+})();
 
 // ========== UNSAVED CHANGES PROTECTION ==========
 window.onbeforeunload = function(e) {

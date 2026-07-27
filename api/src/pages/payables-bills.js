@@ -1,7 +1,34 @@
 'use strict';
 
-function billsTabJS() {
+// billsTabJS(flags) — emits the Payables > Bills client JS.
+//
+// Relevance flags (settings-ux-spec §7 item 9 + fx-automation-spec §1) gate
+// whole UI surfaces SERVER-SIDE so nothing flashes:
+//   - vatRegistered=false → no per-line VAT code column/input, no stated-VAT
+//     footer cell, no per-code tax footer rows. Amounts post gross-to-expense
+//     (the server already does this; the client just stops collecting a code).
+//   - fxTracking='off'    → the CCY column/input locks to the company base
+//     currency: the parent CCY cell renders the base ccy as read-only text and
+//     the draft new-bill buffer + vendor-pick default-ccy sync are suppressed
+//     so a bill always submits in base currency.
+//
+// flags is { vatRegistered, fxTracking, baseCurrency }. When absent the full UI
+// renders (the safe superset — matches pre-flag behavior for unguarded callers).
+function billsTabJS(flags) {
+  const f = flags || {};
+  const vatOn = f.vatRegistered !== false;
+  const fxOn = f.fxTracking !== 'off';
+  // Client-readable booleans inlined into the emitted JS (single source of
+  // truth — no second fetch, no window.__fbFlags re-read at render time).
+  const VAT_ON = vatOn ? 'true' : 'false';
+  const FX_ON = fxOn ? 'true' : 'false';
   return `
+// Relevance flags (settings-ux-spec §7 item 9 + fx-automation-spec §1).
+// Inlined server-side from getRelevanceFlags — VAT_ON gates the per-line VAT
+// code column + stated-VAT footer + per-code footers; FX_ON gates the CCY
+// column / vendor-default-ccy sync (locked to BASE_CURRENCY when off).
+var VAT_ON = ${VAT_ON};
+var FX_ON = ${FX_ON};
 // ========== BILLS STATE ==========
 // Page-level state retained by the FB.list Bills screen. The bespoke
 // render/draft/filter/sort/pagination/nav machinery was deleted in Task 7;
@@ -271,6 +298,9 @@ function fbPageInitPayables() {
   loadBillAccounts();
   _loadCompanyDefaults();
 
+  // vatRegistered=false (VAT_ON): no tax codes exist for the company — skip the
+  // fetch entirely; maps stay empty and every VAT surface below renders nothing.
+  if (VAT_ON) {
   fetch('/api/' + COMPANY + '/vat-codes')
     .then(function(r){ return r.json(); })
     .then(function(codes){
@@ -282,6 +312,7 @@ function fbPageInitPayables() {
       }
     })
     .catch(function(){});
+  }
 }
 window.addEventListener('DOMContentLoaded', fbPageInitPayables);
 window.fbPageInit = fbPageInitPayables;
@@ -507,7 +538,7 @@ function billAttachVendor(input, tr) {
       inp.dataset.vendorName = v.name || '';
       inp.dataset.apAccount = v.default_ap_account || companyDefaultAp || '';
       inp.dataset.expenseAccount = v.default_expense_account || companyDefaultExpense || '';
-      inp.dataset.vendorCurrency = (v.default_currency || BASE_CURRENCY).toUpperCase();
+      inp.dataset.vendorCurrency = (FX_ON ? (v.default_currency || BASE_CURRENCY) : BASE_CURRENCY).toUpperCase();
       inp.value = v.name || '';
       billSyncVendorCcy(tr, inp.dataset.vendorCurrency);
     }
@@ -528,7 +559,7 @@ function billAttachVendor(input, tr) {
         input.dataset.vendorName = match.name || '';
         input.dataset.apAccount = match.default_ap_account || companyDefaultAp || '';
         input.dataset.expenseAccount = match.default_expense_account || companyDefaultExpense || '';
-        input.dataset.vendorCurrency = (match.default_currency || BASE_CURRENCY).toUpperCase();
+        input.dataset.vendorCurrency = (FX_ON ? (match.default_currency || BASE_CURRENCY) : BASE_CURRENCY).toUpperCase();
         input.value = match.name;
         billSyncVendorCcy(tr, input.dataset.vendorCurrency);
       }
@@ -688,7 +719,7 @@ function billsChildRowHtml(parent, child, idx) {
   if (child._kind === 'draft-line') {
     return '<td colspan="4" class="child-desc">' + esc(child.description || '') + '</td>'
       + amtCell(child.amount) + spacer
-      + '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(child.vat_code || '') + '</td>'
+      + (VAT_ON ? '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(child.vat_code || '') + '</td>' : '<td></td>')
       + empty;
   }
   if (child._kind === 'expense') {
@@ -750,6 +781,7 @@ function billRefreshParentTotal(childTr) {
 // the rows always sum to the stated total. Reverse-charge codes get their own
 // rows (self-assessed — never part of the gross owed to the vendor).
 function billCodeFooterRows(lines, stated) {
+  if (!VAT_ON) return []; // vatRegistered=false: no tax codes, no per-code rows
   var std = {}, rc = {}, order = [];
   (lines || []).forEach(function (l) {
     var code = ((l && l.vat_code) || '').trim();
@@ -785,6 +817,7 @@ function billCodeFooterRows(lines, stated) {
 // to computed. Net/Gross are not duplicated here — gross lives on the parent
 // row's AMOUNT cell.
 function billFooterHtml(parent) {
+  if (!VAT_ON) return '<td colspan="8"></td>'; // vatRegistered=false: no stated-VAT surface
   return '<td colspan="3" style="color:#666;font-size:0.85em">VAT (supplier-stated total — pre-filled computed; edit to match the invoice; clear to return to computed)</td>'
     + '<td></td>'
     + '<td class="amt"><input class="draft-input bill-vat-stated" type="number" step="0.01" title="Supplier-stated VAT total" style="text-align:right" /></td>'
@@ -1065,7 +1098,7 @@ var billsList = FB.list.create({
       + '<td><input class="draft-input child-expense-acct" placeholder="Expense Acct" title="Expense account code" value="' + esc(child.expense_account || '') + '" /></td>'
       + '<td class="amt"><input class="draft-input child-amt" type="number" step="0.01" placeholder="0.00" value="' + (child.amount ? Number(child.amount).toFixed(2) : '') + '" style="text-align:right" /></td>'
       + '<td class="child-spacer"></td>'
-      + '<td><input class="draft-input child-vat" placeholder="— None —" title="VAT code" value="' + esc(child.vat_code || '') + '" style="width:72px" /></td>'
+      + (VAT_ON ? '<td><input class="draft-input child-vat" placeholder="— None —" title="VAT code" value="' + esc(child.vat_code || '') + '" style="width:72px" /></td>' : '<td></td>')
       + '<td></td>';
   },
   editFooterRowHtml: billFooterHtml,
@@ -1124,7 +1157,7 @@ var billsList = FB.list.create({
     buf.vendor_id = ds.vendorId || row.vendor_id || '';
     buf.ap_account = ds.apAccount || row.ap_account || '';
     buf.expense_account = ds.expenseAccount || row.expense_account || '';
-    if (ds.vendorCurrency) buf.currency = ds.vendorCurrency;
+    if (ds.vendorCurrency && FX_ON) buf.currency = ds.vendorCurrency;
   },
   // a-verb / Tab-spawn: the framework appends this shape to the bill buffer.
   addChild: function (parent) {

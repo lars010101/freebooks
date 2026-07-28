@@ -71,6 +71,12 @@
 
 ---
 
+## 0g. Status update — 2026-07-28 (K2)
+
+**K2 landed ✅ (this update):** `FB.keys.push/pop` — a LIFO modal scope stack in fb-core `_dispatch`; a pushed scope owns keys exclusively (page sets, switcher, g-prefix, `common.js` inert; unmatched keys swallowed but not `preventDefault`'ed so modal inputs still type). **`FB.modal`** ships as the one modal: `Esc`/backdrop = cancel (NEVER confirms), per-modal button letters shown in the buttons, **type-to-confirm** for destructive actions (exact-match arms the danger button; Enter in the input fires it; the button carries no letter key — GitHub pattern). **Retrofits:** the FB.list leave-guard (`w` = write & leave, `u` = revert & leave, `Esc` = Stay — keys mirror the write/revert doctrine) and the settings danger-zone modal (type the exact company name; server refusals surface in-modal). Both were mouse-only before. Contract: keyboard-ux-spec §7.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

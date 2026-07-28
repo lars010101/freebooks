@@ -86,6 +86,9 @@
   // as the pre-FB capture/bubble split behaved.
   var _sets = {};
   var _order = [];
+  // K2: pushed modal scopes (LIFO). While non-empty the TOP scope owns
+  // dispatch exclusively — see _dispatch. FB.modal is the consumer.
+  var _scopeStack = [];
 
   function _matchBinding(set, e, m) {
     for (var i = 0; i < set.bindings.length; i++) {
@@ -235,6 +238,23 @@
       e.preventDefault();
       if (e.key === 'Escape' || e.key === '?') help.close();
       return;
+    }
+    // K2: a pushed modal scope owns dispatch exclusively — page sets, the
+    // switcher, the g-prefix and common.js all stay inert until it pops.
+    // Unmatched keys are swallowed (stopImmediatePropagation) but NOT
+    // preventDefault'ed, so typing into a modal input still works.
+    if (_scopeStack.length) {
+      var topSet = _sets[_scopeStack[_scopeStack.length - 1]];
+      if (topSet) {
+        var tm = topSet.getMode ? topSet.getMode() : 'NORMAL';
+        var tb = _matchBinding(topSet, e, tm);
+        e.stopImmediatePropagation();
+        if (tb) {
+          if (tb.preventDefault !== false) e.preventDefault();
+          if (tb.run) tb.run(e);
+        }
+        return;
+      }
     }
     // K1: the company switcher owns every key while open (help-overlay
     // precedent) — page bindings and common.js stay inert until it closes.
@@ -685,6 +705,18 @@
       var i = _order.indexOf(name);
       if (i >= 0) _order.splice(i, 1);
     },
+    // K2: modal scope stack. push() registers a set AND makes it the
+    // exclusive dispatch owner until pop() (see _dispatch). Consumer:
+    // FB.modal; any future overlay that must shadow page keys uses this.
+    push: function (name, def) {
+      keys.register(name, def);
+      if (_scopeStack.indexOf(name) === -1) _scopeStack.push(name);
+    },
+    pop: function (name) {
+      var i = _scopeStack.indexOf(name);
+      if (i >= 0) _scopeStack.splice(i, 1);
+      keys.unregister(name);
+    },
     // True when any registered set is currently active — common.js uses this
     // to suspend its legacy focus-driven mode tracking on migrated pages.
     hasActive: function () {
@@ -914,6 +946,129 @@
     };
   })();
 
+  // ── FB.modal — the one keyboard-complete modal (K2, docs/keyboard-ux-spec §7) ──
+  // Contract: Esc = cancel (NEVER confirms), backdrop click = cancel, button
+  // letter keys are per-modal (leave-guard uses w/u mirroring the write/revert
+  // doctrine), destructive actions use type-to-confirm (GitHub pattern: exact
+  // string match arms the danger button; Enter inside the input activates it;
+  // the danger button carries NO letter key — deliberate friction).
+  // While open, a pushed FB.keys scope owns dispatch exclusively (page sets,
+  // switcher, g-prefix, common.js inert). getMode returns INSERT while the
+  // type-confirm input is focused, so typing a name containing 'w'/'u'/'~'
+  // never fires a verb.
+  var modal = (function () {
+    var _el = null, _prevFocus = null, _scope = null, _seq = 0, _onCancel = null;
+
+    function isOpen() { return !!_el; }
+
+    function close() {
+      if (_scope) { keys.pop(_scope); _scope = null; }
+      if (_el) { _el.remove(); _el = null; }
+      _onCancel = null;
+      if (_prevFocus && _prevFocus.focus && document.contains(_prevFocus)) {
+        try { _prevFocus.focus(); } catch (e) {}
+      }
+      _prevFocus = null;
+    }
+
+    function _cancel() {
+      var cb = _onCancel;
+      close();
+      if (cb) { try { cb(); } catch (e) {} }
+    }
+
+    // opts: {
+    //   title, body (HTML — callers escape user data),
+    //   buttons: [{ label, danger?, primary?, key?, hint?, requiresConfirm?, onClick(api) }],
+    //   typeConfirm: { match, label? },  // exact-match arms requiresConfirm buttons
+    //   onCancel                         // Esc + backdrop (never a confirm)
+    // }
+    // api: { close(), error(text), confirmValue(), btn(i) }
+    function open(opts) {
+      close(); // one modal app-wide
+      _prevFocus = document.activeElement;
+      _onCancel = opts.onCancel || null;
+      _el = document.createElement('div');
+      _el.className = 'fb-modal-overlay';
+      var html = '<div class="fb-modal" role="dialog" aria-modal="true">'
+        + '<div class="fb-modal-title">' + esc(opts.title || '') + '</div>'
+        + (opts.body ? '<div class="fb-modal-body">' + opts.body + '</div>' : '');
+      if (opts.typeConfirm) {
+        html += '<div class="fb-modal-body" style="margin-top:10px">'
+          + '<label for="fb-modal-tc" style="display:block;font-size:9pt;color:#555;margin-bottom:4px">'
+          + esc(opts.typeConfirm.label || ('Type ' + opts.typeConfirm.match + ' to confirm')) + '</label>'
+          + '<input type="text" id="fb-modal-tc" autocomplete="off" spellcheck="false" '
+          + 'style="width:100%;padding:6px 9px;border:1px solid #ccc;border-radius:4px;font-size:10pt;font-family:monospace;box-sizing:border-box">'
+          + '</div>';
+      }
+      html += '<div class="fb-modal-err" style="display:none"></div>'
+        + '<div class="fb-modal-btns">'
+        + opts.buttons.map(function (b, i) {
+            return '<button type="button" class="' + (b.primary ? 'btn-primary' : 'btn-sm') + (b.danger ? ' danger' : '')
+              + '" data-i="' + i + '">' + esc(b.label)
+              + (b.key ? ' <kbd style="opacity:.55;font-size:8pt">' + esc(b.key) + '</kbd>' : '')
+              + '</button>';
+          }).join('')
+        + '</div></div>';
+      _el.innerHTML = html;
+      _el.addEventListener('click', function (ev) { if (ev.target === _el) _cancel(); });
+      document.body.appendChild(_el);
+
+      var errBox = _el.querySelector('.fb-modal-err');
+      var input = _el.querySelector('#fb-modal-tc');
+      var btnEls = Array.prototype.slice.call(_el.querySelectorAll('.fb-modal-btns button'));
+
+      function _armed() { return !opts.typeConfirm || !!(input && input.value === opts.typeConfirm.match); }
+      function _refresh() {
+        btnEls.forEach(function (btn) {
+          var b = opts.buttons[Number(btn.dataset.i)];
+          if (b.requiresConfirm) btn.disabled = !_armed();
+        });
+      }
+      var api = {
+        close: close,
+        error: function (text) {
+          if (!errBox) return;
+          errBox.textContent = text || '';
+          errBox.style.display = text ? '' : 'none';
+        },
+        confirmValue: function () { return input ? input.value : null; },
+        btn: function (i) { return btnEls[i] || null; }
+      };
+
+      btnEls.forEach(function (btn) {
+        btn.addEventListener('click', function () { opts.buttons[Number(btn.dataset.i)].onClick(api); });
+      });
+
+      var bindings = [
+        { key: 'Escape', mode: 'NORMAL', run: _cancel },
+        { key: 'Escape', mode: 'INSERT', run: _cancel }
+      ];
+      if (input) {
+        bindings.push({ key: 'Enter', mode: 'INSERT', run: function () {
+          for (var i = 0; i < opts.buttons.length; i++) {
+            var b = opts.buttons[i];
+            if (b.requiresConfirm) { if (_armed()) b.onClick(api); return; }
+          }
+        } });
+      }
+      opts.buttons.forEach(function (b) {
+        if (b.key) bindings.push({ key: b.key, mode: 'NORMAL', hint: b.hint, run: function () { b.onClick(api); } });
+      });
+      _scope = 'fb-modal-' + (++_seq);
+      keys.push(_scope, {
+        getMode: function () { return (input && document.activeElement === input) ? 'INSERT' : 'NORMAL'; },
+        bindings: bindings
+      });
+
+      if (input) { input.addEventListener('input', _refresh); _refresh(); input.focus(); }
+      else if (btnEls[0]) { btnEls[0].focus(); }
+      return api;
+    }
+
+    return { open: open, close: close, isOpen: isOpen };
+  })();
+
   // ── FB.status — the ONE transient-feedback channel (agreed 2026-07-23) ──
   // Every "Saved"/error message app-wide writes to the single topbar slot
   // (#tb-status-msg). NEVER auto-dismisses: a message stays until the next one
@@ -940,6 +1095,7 @@
     nav: nav,
     dropdown: dropdown,
     palette: palette,
+    modal: modal,
     status: status,
     switcher: switcher
   };

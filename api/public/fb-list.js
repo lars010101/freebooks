@@ -1603,46 +1603,37 @@
   }
 
   // ── Shared leave-guard (spec §4): one modal for every FB.list on the page ──
+  // K2: rendered through FB.modal (keyboard contract §7 — Esc = Stay, never
+  // saves; w = write & leave; u = revert & leave — the w/u keys mirror the
+  // list's own write/revert doctrine, button keys show in the buttons).
   var leaveWired = false;
   function dirtyInstances() {
     return instances.filter(function (i) { return i.mounted() && i.anyDirty(); });
   }
-  function closeLeaveModal() {
-    var ov = document.getElementById('fb-list-leave-overlay');
-    if (ov) ov.remove();
-  }
   function openLeaveModal(proceed) {
-    closeLeaveModal();
-    var ov = document.createElement('div');
-    ov.id = 'fb-list-leave-overlay';
-    ov.className = 'fb-modal-overlay';
-    ov.innerHTML = '<div class="fb-modal">'
-      + '<div class="fb-modal-title">Unsaved changes</div>'
-      + '<div class="fb-modal-body">Rows have unsaved changes.</div>'
-      + '<div class="fb-modal-err" id="fb-list-leave-err"></div>'
-      + '<div class="fb-modal-btns">'
-      + '<button class="btn-primary" id="fbl-save">Save</button>'
-      + '<button class="btn-sm danger" id="fbl-discard">Discard</button>'
-      + '<button class="btn-sm" id="fbl-stay">Stay</button>'
-      + '</div></div>';
-    ov.addEventListener('click', function (e) { if (e.target === ov) closeLeaveModal(); });
-    document.body.appendChild(ov);
-    document.getElementById('fbl-stay').onclick = closeLeaveModal;
-    document.getElementById('fbl-discard').onclick = function () {
-      dirtyInstances().forEach(function (i) { i.discardAll(); });
-      closeLeaveModal();
-      proceed();
-    };
-    document.getElementById('fbl-save').onclick = function () {
-      var chain = Promise.resolve(true);
-      dirtyInstances().forEach(function (i) {
-        chain = chain.then(function (ok) { return ok ? i.writeAllDirty() : false; });
-      });
-      chain.then(function (ok) {
-        if (ok) { closeLeaveModal(); proceed(); }
-        else document.getElementById('fb-list-leave-err').textContent = 'Some rows could not be saved — fix them or Discard.';
-      });
-    };
+    FB.modal.open({
+      title: 'Unsaved changes',
+      body: 'Rows have unsaved changes.',
+      onCancel: function () { /* Stay — navigation cancelled, buffers kept */ },
+      buttons: [
+        { label: 'Save', primary: true, key: 'w', hint: 'write & leave', onClick: function (api) {
+            var chain = Promise.resolve(true);
+            dirtyInstances().forEach(function (i) {
+              chain = chain.then(function (ok) { return ok ? i.writeAllDirty() : false; });
+            });
+            chain.then(function (ok) {
+              if (ok) { api.close(); proceed(); }
+              else api.error('Some rows could not be saved — fix them or Discard.');
+            });
+          } },
+        { label: 'Discard', danger: true, key: 'u', hint: 'revert & leave', onClick: function (api) {
+            dirtyInstances().forEach(function (i) { i.discardAll(); });
+            api.close();
+            proceed();
+          } },
+        { label: 'Stay', onClick: function (api) { api.close(); } }
+      ]
+    });
   }
   function wireLeaveGuard() {
     if (leaveWired) return;

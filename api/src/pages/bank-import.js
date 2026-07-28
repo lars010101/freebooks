@@ -40,6 +40,7 @@ ${commonStyle()}
   table.review-table tr.recorded td:first-child { border-left:3px solid #6c8ebf; }
   input.acct { width:75px; padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
   select.col-map { padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
+  #bill-panel-list tbody tr:hover { background:#f0f4ff; }
 </style>
 </head>
 <body>${navBar(company, 'bank')}
@@ -68,7 +69,7 @@ ${commonStyle()}
     <h3>① Load your bank statement CSV</h3>
     <div id="drop-zone" style="border:2px dashed var(--border,#ccc);border-radius:0.5rem;padding:2rem 1rem;text-align:center;color:var(--text-muted,#888);margin-bottom:1rem;cursor:pointer;transition:border-color .15s" onclick="document.getElementById('csv-file').click()" ondragover="event.preventDefault();this.style.borderColor='var(--accent,#1a1a1a)'" ondragleave="this.style.borderColor=''" ondrop="onDropFile(event)">
       <div style="font-size:0.9375rem;margin-bottom:0.5rem">Drag and drop your bank statement file here, or <span style="color:var(--accent,#2255cc);text-decoration:underline;cursor:pointer">click to browse</span>.</div>
-      <button class="btn-sm" onclick="event.stopPropagation(); var t=document.getElementById('csv-paste'); var b=document.getElementById('paste-load-btn'); var show=t.style.display==='none'||!t.style.display; t.style.display=show?'block':'none'; b.style.display=show?'':'none';" style="margin-top:0.5rem">Paste CSV instead</button>
+      <button class="btn-sm" id="paste-toggle-btn" onclick="event.stopPropagation(); var t=document.getElementById('csv-paste'); var b=document.getElementById('paste-load-btn'); var show=t.style.display==='none'||!t.style.display; t.style.display=show?'block':'none'; b.style.display=show?'':'none';" style="margin-top:0.5rem">Paste CSV instead</button>
     </div>
     <textarea id="csv-paste" rows="4" style="display:none;width:100%;font-family:monospace;font-size:0.8125rem;padding:0.5rem;border:1px solid var(--border,#ccc);border-radius:0.375rem;resize:vertical;box-sizing:border-box;" placeholder="Paste CSV content here…"></textarea>
     <button class="btn-primary" id="paste-load-btn" style="display:none;margin-top:0.5rem" onclick="onPasteLoad()">Load Pasted CSV →</button>
@@ -168,7 +169,8 @@ ${commonStyle()}
   (function attachBankAcctDd() {
     if (!window.FB || !FB.dropdown) return;
     FB.dropdown.attach(document.getElementById('bank-acct'), {
-      keys: true,
+      // No keys:true — this is an FB.keys page (FB.form, K3b); dropdown keys
+      // route through the form's INSERT bindings.
       minWidth: 240,
       source: function (q) {
         q = (q || '').toLowerCase();
@@ -625,9 +627,8 @@ ${commonStyle()}
     billPanelRowIdx = -1;
   }
 
-  document.addEventListener('keydown', function(e){
-    if (e.key === 'Escape') closeBillPanel();
-  });
+  // NOTE: the old document-level Esc→closeBillPanel listener is deleted —
+  // Esc now routes through the FB.form binding table (K3b).
 
   function renderBillPanelList() {
     var q = document.getElementById('bill-panel-search').value.trim().toLowerCase();
@@ -640,6 +641,7 @@ ${commonStyle()}
     var list = document.getElementById('bill-panel-list');
     if (!filtered.length) {
       list.innerHTML = '<div style="padding:10px 14px;color:#888;font-size:10pt">'+(openBills.length?'No matching bills':'No open bills loaded')+'</div>';
+      billRows = []; billIdx = -1;
       return;
     }
     list.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:9.5pt">'
@@ -651,9 +653,12 @@ ${commonStyle()}
       +'</tr></thead><tbody>'
       + filtered.slice(0,50).map(function(b, i){
           var outstanding = parseFloat(b.outstanding_amount||b.amount||0);
-          return '<tr style="cursor:pointer;border-bottom:1px solid #f0f0f0" '
-            +'onmouseover="this.style.background=\\'#f0f4ff\\'" onmouseout="this.style.background=\\'\\'\\'" '
-            +'onclick="selectBill('+JSON.stringify(b)+')" >'
+          // K3b: data-index + addEventListener instead of inline JSON onclick —
+          // the old onclick="selectBill({...})" truncated at the first quote
+          // inside the JSON (attribute is double-quoted) and threw
+          // 'Unexpected end of input' on EVERY click — mouse was as broken
+          // as keyboard. Latent bug surfaced by the K3b keyboard tests.
+          return '<tr data-bill-idx="'+i+'" style="cursor:pointer;border-bottom:1px solid #f0f0f0">'
             +'<td style="padding:5px 8px">'+escHtml(b.vendor_name||b.vendor_id||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(b.vendor_ref||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(String(b.bill_date||'').slice(0,10))+'</td>'
@@ -661,6 +666,13 @@ ${commonStyle()}
             +'</tr>';
         }).join('')
       +'</tbody></table>';
+    Array.prototype.forEach.call(list.querySelectorAll('tbody tr'), function (tr) {
+      tr.addEventListener('click', function () { selectBill(filtered[Number(tr.getAttribute('data-bill-idx'))]); });
+    });
+    // K3b: keyboard highlight rows for the FB.form arrows/Enter bindings.
+    billRows = Array.from(list.querySelectorAll('tbody tr'));
+    billIdx = billRows.length ? 0 : -1;
+    paintBill();
   }
 
   function selectBill(bill) {
@@ -702,6 +714,78 @@ ${commonStyle()}
         +'onclick="openBillPanel('+rowIdx+')">&#128279;</button>';
     }
   }
+
+  // ── FB.form (K3b, keyboard-ux-spec §8) — the wizard as zones: bill panel ──
+  // (when open) → upload → mapping → review. a = attach file, w = process/
+  // post (stage-dispatched), b = link bill, Space = toggle skip. Bill-panel
+  // results: arrows + Enter inside the search (reversal-search pattern).
+  var billRows = [];
+  var billIdx = -1;
+  function paintBill() {
+    billRows.forEach(function (tr, i) { tr.style.background = (i === billIdx) ? '#f0f4ff' : ''; });
+    if (billRows[billIdx] && billRows[billIdx].scrollIntoView) billRows[billIdx].scrollIntoView({ block: 'nearest' });
+  }
+  function moveBill(d) {
+    if (!billRows.length) return;
+    billIdx += d;
+    if (billIdx < 0) billIdx = 0;
+    if (billIdx > billRows.length - 1) billIdx = billRows.length - 1;
+    paintBill();
+  }
+  function billPanelOpen() { return document.getElementById('bill-panel').style.display !== 'none'; }
+  function visible(id) { var el = document.getElementById(id); return !!(el && el.style.display !== 'none'); }
+
+  var importForm = FB.form.create({
+    formId: 'bank-import',
+    zones: [
+      { id: 'billpanel', rows: function () { return billPanelOpen() ? [document.getElementById('bill-panel')] : []; } },
+      { id: 'upload', rows: function () { return [document.getElementById('step1')]; },
+        cells: function (rowEl) {
+          return Array.prototype.slice.call(rowEl.querySelectorAll('textarea'))
+            .filter(function (el) { return !el.disabled && el.offsetParent !== null; });
+        } },
+      { id: 'mapping', rows: function () {
+          if (!visible('step2')) return [];
+          return Array.prototype.slice.call(document.querySelectorAll('#step2 table tr'))
+            .filter(function (tr) { return tr.offsetParent !== null; });
+        } },
+      { id: 'review', rows: function () {
+          if (!visible('step-review')) return [];
+          return Array.prototype.slice.call(document.querySelectorAll('#review-body tr'));
+        } }
+    ],
+    verbs: {
+      add: { key: 'a', hint: 'attach file', run: function () { document.getElementById('csv-file').click(); } },
+      write: { key: 'w', hint: 'process/post', run: function () {
+        if (visible('step-review')) { postApproved(); return; }
+        if (visible('step2')) { parseAndProcess(); return; }
+        if (visible('paste-load-btn')) { onPasteLoad(); }
+      } }
+    },
+    extraBindings: function (api) {
+      function searchFocused() { return document.activeElement === document.getElementById('bill-panel-search'); }
+      return [
+        { key: 'p', mode: 'NORMAL', hint: 'paste csv', hintBar: true, run: function () { document.getElementById('paste-toggle-btn').click(); } },
+        { key: 'b', mode: 'NORMAL', hint: 'link bill', hintBar: true,
+          when: function () { return api.cur().z === 3; },
+          run: function () { openBillPanel(api.cur().r); } },
+        { key: ' ', mode: 'NORMAL', hint: 'skip row', hintBar: true,
+          when: function () { return api.cur().z === 3; },
+          run: function () {
+            var tr = api.zoneRows(3)[api.cur().r];
+            var cb = tr ? tr.querySelector('[data-skip]') : null;
+            if (cb) { cb.checked = !cb.checked; updateBalances(); }
+          } },
+        { key: 'ArrowDown', mode: 'INSERT', when: searchFocused, run: function () { moveBill(1); } },
+        { key: 'ArrowUp', mode: 'INSERT', when: searchFocused, run: function () { moveBill(-1); } },
+        { key: 'Enter', mode: 'INSERT', when: function () { return searchFocused() && billIdx >= 0; },
+          run: function () { if (billRows[billIdx]) billRows[billIdx].click(); } },
+        { key: 'Escape', mode: 'INSERT', when: billPanelOpen, run: function () { closeBillPanel(); api.exitEdit(); } },
+        { key: 'Escape', mode: 'NORMAL', when: billPanelOpen, run: closeBillPanel }
+      ];
+    }
+  });
+  FB.keys.renderHints('bank-import', document.getElementById('sb-hints'), { layout: 'list' });
 <\/script>
 ${layoutEnd()}
 </body>

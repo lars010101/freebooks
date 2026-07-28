@@ -308,6 +308,47 @@ ${layoutEnd()}
     } catch(ex) { alert('CSV export failed: ' + ex.message); }
   };
 
+  /* ── FB.form (K3b, keyboard-ux-spec §8) — the filter bar is a header-only
+     form: j/k rows, h/l cells, i/Enter edit, Esc exit. ~ cycles comparison
+     (none → MoM → YoY, universal toggle verb), d opens the download menu
+     with a j/k/Enter/Esc mini-scope (context override: no delete here). ── */
+  window.fbCycleComparison = function() {
+    if (!(RPT_META[currentType] && RPT_META[currentType].multiperiod)) return;
+    currentStep = (currentStep === '') ? 'mom' : (currentStep === 'mom') ? 'yoy' : '';
+    localStorage.setItem('fb-rpt-step', currentStep);
+    updateStepButtons();
+    fbLoadReport();
+  };
+
+  var dlIdx = -1;
+  function dlRows() {
+    var dd = document.getElementById('rpt-dl-dd');
+    return dd ? Array.from(dd.querySelectorAll('button')) : [];
+  }
+  function paintDl() {
+    dlRows().forEach(function (b, i) { b.style.background = (i === dlIdx) ? 'var(--bg)' : ''; });
+  }
+
+  var rptForm = FB.form.create({
+    formId: 'reports',
+    zones: [
+      { id: 'filters', rows: function () { return [document.querySelector('.tb-controls-row')]; } }
+    ],
+    extraBindings: function () {
+      return [
+        { key: '~', mode: 'NORMAL', hint: 'comparison', hintBar: true, run: function () { window.fbCycleComparison(); } },
+        { key: 'd', mode: 'NORMAL', hint: 'download', hintBar: true,
+          when: function () { return !_dlOpen; },
+          run: function () { document.getElementById('rpt-dl-btn').click(); dlIdx = 0; paintDl(); } },
+        { key: 'j', mode: 'NORMAL', when: function () { return _dlOpen; }, run: function () { dlIdx = Math.min(dlIdx + 1, dlRows().length - 1); paintDl(); } },
+        { key: 'k', mode: 'NORMAL', when: function () { return _dlOpen; }, run: function () { dlIdx = Math.max(dlIdx - 1, 0); paintDl(); } },
+        { key: 'Enter', mode: 'NORMAL', when: function () { return _dlOpen; }, run: function () { var r = dlRows()[dlIdx]; if (r) r.click(); } },
+        { key: 'Escape', mode: 'NORMAL', when: function () { return _dlOpen; }, run: function () { closeDownloadMenu(); } }
+      ];
+    }
+  });
+  FB.keys.renderHints('reports', document.getElementById('sb-hints'), { layout: 'list' });
+
 })();
 </script>
 </body>

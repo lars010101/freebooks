@@ -85,6 +85,12 @@
 
 ---
 
+## 0i. Status update — 2026-07-28 (K3b)
+
+**K3b landed ✅ (this update):** FB.form adopted on the four remaining form pages — **reports** (`~` cycles MoM/YoY, `d` download menu with j/k/Enter/Esc mini-scope), **bank-import** (wizard zones upload→mapping→review; `a` attach, `p` paste CSV, `w` stage-dispatched process/post, `b` link bill, `Space` skip; bill-panel arrows/Enter; the bespoke document-Esc listener deleted), **opening-balances** (`w` post guard, `~` cycles BS/All/Non-zero), **new-company** (fields + periods grid; `a`/`x` period rows, `w` create). Every app page that takes data now has a NORMAL-mode keyboard layer; the original gap list is closed except attachments (K4) and reconcile-as-list (K4). Spec: keyboard-ux-spec §8 K3b.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

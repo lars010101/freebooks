@@ -203,7 +203,10 @@
       { key: 'ArrowDown', mode: 'INSERT',
         when: function (e) { return !ddOpen() && FB.dropdown && FB.dropdown.attachable(e.target); },
         run: function (e) { FB.dropdown.openFull(e.target); } },
-      { key: 'Enter', mode: 'INSERT', run: advance },
+      { key: 'Enter', mode: 'INSERT',
+        // multi-line fields (CSV paste) own Enter natively — no advance
+        when: function (e) { return !e.target || e.target.tagName !== 'TEXTAREA'; },
+        run: advance },
       { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function () {} },
       { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitEdit }
     ];

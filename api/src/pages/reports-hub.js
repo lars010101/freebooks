@@ -265,6 +265,9 @@ ${layoutEnd()}
         s.textContent = 'html,body{background:' + bgColor + '!important;color:' + fgColor + '!important}' +
           '@media print{html,body{background:#fff!important;color:#000!important}}';
         doc.head.appendChild(s);
+        // K3d: forward non-editable keydowns from the iframe to the parent
+        // document so FB.keys bindings survive focus inside the frame.
+        if (window.FB && FB.util && FB.util.forwardIframeKeys) FB.util.forwardIframeKeys(frame);
       } catch(e) {}
     });
   };

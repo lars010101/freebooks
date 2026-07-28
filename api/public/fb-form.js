@@ -233,6 +233,12 @@
       { key: 'l', mode: 'NORMAL', hint: 'cell', hintBar: true, run: function () { moveCol(1); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
+      // K3d: ArrowDown/ArrowUp on a native <select> cell in NORMAL behave
+      // like i/Enter — open via showPicker() or fall through to INSERT
+      // j/k-stepping. Text/date inputs' arrows stay native (the when guard
+      // only passes for native select cells).
+      { key: 'ArrowDown', mode: 'NORMAL', when: function () { return nativeSelect(curCellEl()); }, run: edit },
+      { key: 'ArrowUp', mode: 'NORMAL', when: function () { return nativeSelect(curCellEl()); }, run: edit },
       { key: 'G', mode: 'NORMAL', run: function () {
           var flat = flatRows();
           if (!flat.length) return;
@@ -255,6 +261,9 @@
       // commits the change (fires onchange), Esc reverts without firing (§8).
       { key: 'j', mode: 'INSERT', when: function (e) { return nativeSelect(e.target); }, run: function () { stepSelect(1); } },
       { key: 'k', mode: 'INSERT', when: function (e) { return nativeSelect(e.target); }, run: function () { stepSelect(-1); } },
+      // K3d: ArrowDown/ArrowUp in INSERT on a native <select> = aliases for j/k
+      { key: 'ArrowDown', mode: 'INSERT', when: function (e) { return nativeSelect(e.target); }, run: function () { stepSelect(1); } },
+      { key: 'ArrowUp', mode: 'INSERT', when: function (e) { return nativeSelect(e.target); }, run: function () { stepSelect(-1); } },
       { key: 'Enter', mode: 'INSERT', when: function (e) { return nativeSelect(e.target); }, run: commitSelect },
       { key: 'Enter', mode: 'INSERT',
         // multi-line fields (CSV paste) own Enter natively — no advance

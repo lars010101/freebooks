@@ -35,6 +35,7 @@ Ratified slate:
 | `g b` | Bank |
 | `g p` | Payables |
 | `g s` | Settings |
+| `g i` | Bank Import |
 | `g c` | Company switcher (reserved — not a route) |
 | `g g` | Scroll `#page-main` to top + list cursor to first row |
 | `g <other>` | Cancel — the key proceeds through normal dispatch untouched |
@@ -87,12 +88,16 @@ key-equivalent (the palette doubles as a keyboard teacher). Fuzzy + recency
 ranking identical to existing rows.
 
 **Dedupe rule:** the registry carries the decision. Routes already covered by
-an action-catalog `navigate` entry (`/journal/new`, `/bank/import`,
-`/setup/new-company`) keep `palette: false` — their catalog action labels
-describe the destination well enough. Sidebar routes and `/opening-balances`
-carry `palette: true`. (A runtime route-match dedupe was tried and rejected:
-catalog navigate targets like `/payables` for `vendor.save` are action
-labels, not go-to rows — matching on them swallowed the real `Go to` rows.)
+an action-catalog `navigate` entry (`/journal/new`, `/setup/new-company`)
+keep `palette: false` — their catalog action labels describe the
+destination well enough. `/bank/import` moved to the registry (`palette:
+true`, `gKey: 'i'`) because the catalog `bank.process` description lacked
+the word "import", making it invisible to palette search — the registry
+emits a 'Go to Bank Import' row that surfaces on 'bank import'/'import'.
+Sidebar routes and `/opening-balances` carry `palette: true`. (A runtime
+route-match dedupe was tried and rejected: catalog navigate targets like
+`/payables` for `vendor.save` are action labels, not go-to rows — matching
+on them swallowed the real `Go to` rows.)
 
 ## 5. `~` — the universal toggle verb
 
@@ -164,7 +169,7 @@ config + verbs only — no per-page key handlers (FB.list doctrine).
 | `h`/`l` | next/prev cell (sticky) | — |
 | `i`/`Enter` | edit cell → INSERT | advance to next cell (fb-list parity) |
 | `Esc` | — | exit edit → NORMAL (never writes) |
-| `Tab`/`Shift+Tab` | — | native traversal; cursor follows focus |
+| `Tab`/`Shift+Tab` | move cursor next/prev cell (no INSERT) | native traversal; cursor follows focus |
 | `G` | last row | — |
 
 Dropdown routing in INSERT is identical to fb-list (arrows move, Enter/Tab
@@ -229,6 +234,22 @@ native `<select>` cell, `ArrowDown`/`ArrowUp` behave like `i`/`Enter` —
 open via `el.showPicker()` or fall through to the INSERT j/k-stepping
 fallback. In INSERT stepping mode, `ArrowDown`/`ArrowUp` are aliases for
 `j`/`k`. Text/date inputs' arrow keys are untouched (native caret behavior).
+
+**NORMAL-owns-cursor rule (K3e, ratified 2026-07-28):** NORMAL owns the
+cursor; no field holds DOM focus in NORMAL. INSERT is entered only via
+`i`/`Enter` (keyboard) or click (mouse parity). Tab/Shift+Tab in NORMAL
+move the cursor cell next/prev without entering INSERT (`preventDefault`
+stops native focus movement, so no `focusin`→`setMode(true)` fires); in
+INSERT they commit-and-advance/retreat (native traversal + cursor-follows-
+focus, unchanged). `Esc` exits INSERT and never writes.
+
+**onCommit hook (K3e, ratified 2026-07-28):** forms may pass
+`cfg.onCommit(cellEl, api)` — invoked on the INSERT Enter commit-and-advance
+path for input cells (before advancing) and on `commitSelect` (native select
+commit). NOT on Esc (never writes), NOT on button cells (their click handlers
+self-trigger). Reports uses this to run-on-any-commit: `fbLoadReport()`
+fires on any committed cell change (changed or unchanged), debounced so a
+change-event + onCommit double-fire collapses into one report load.
 
 **Iframe key-forwarding (K3d, ratified 2026-07-28):** pages that render
 same-origin content in an `<iframe>` must call

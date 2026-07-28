@@ -91,6 +91,12 @@
 
 ---
 
+## 0k. Status update — 2026-07-28 (K4)
+
+**K4 landed ✅ (this update):** attachment unification + reconcile verification. (A) **`A` = attach everywhere** — legacy `fbKeyActions` pages route shift-a to a new `attach` verb (common.js; bill-detail migrated off `a`); FB.form pages declare `A` (journal-new). (B) **journal-new pending queue** is an FB.form zone (`j`/`k` rows, `x` removes staged file; shared `.fb-attach-row` markup; new shared `api/public/fb-attachments.js` helper module). (C) **reconcile**: the audit's mouse-only-checkboxes item predates the FB.list migration — /bank/reconcile 301-redirects to /bank, whose Transactions tab already has j/k + `~` clear/unclear on the checkbox's own persistence path; closed with end-to-end verification (toggle + persistence), no new code. (D) **K3c regression fixed**: the default FB.form `active()` guard checked zone 0 only — journal-new (empty reversal zone at rest) and bank-import (closed bill panel at rest) were key-dead; guard now scans all zones. bill-edit queue nav deferred (K4b); bill-detail keeps its bespoke combined nav (key unified only). Spec: keyboard-ux-spec §9 K4.
+
+---
+
 ## 0j. Status update — 2026-07-28 (K3c)
 
 **K3c landed ✅ (this update):** four owner-reported bugs fixed in one PR. (A) **Soft-nav key lifecycle** — `FB.keys.resetPage()` in `fb-core.js` (teardown callbacks + remove page sets above the core baseline + clear scope stack/g-prefix/gg-hooks); `common.js fbNavigate` calls it after the `#page-main` swap, before script re-execution; `FB.form` registers a teardown for its document-level `focusin`/`focusout` listeners and gets a default `active()` guard (first zone row still in DOM). Fixes key-deadness on bank, opening-balances, and every soft-nav destination after reports. (B) **FB.form cursor highlight** — `.fb-form-cursor` now uses `var(--accent)` background (mirroring `nav-row-focus`) instead of outline-only; theme-aware via CSS vars. (C) **Native select picker on Enter** — `i`/`Enter` on a `<select>` cell calls `el.showPicker()` when available (native popup owns keys, form stays NORMAL); INSERT `j`/`k`-stepping is the fallback when `showPicker` is unavailable or throws. Spec: keyboard-ux-spec §8 K3c.

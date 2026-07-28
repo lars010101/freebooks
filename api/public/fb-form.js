@@ -354,14 +354,20 @@
     var all = cfg.extraBindings ? cfg.extraBindings(api).concat(bindings) : bindings;
     FB.keys.register(cfg.formId, {
       // K3c: defense-in-depth active() guard. If the page doesn't supply one,
-      // default to checking whether this form's first zone still has a row in
-      // the document. After a soft-nav content swap, the departing page's rows
-      // are gone → active() returns false → the set yields dispatch. This is
-      // belt-and-braces alongside resetPage(); either mechanism alone fixes
-      // the key-deadness, but together they're robust against edge cases.
+      // default to checking whether ANY zone still has a row in the document
+      // (K4 fix: zone 0 alone was wrong — journal-new's reversal zone and
+      // bank-import's bill panel are empty in their default states, which
+      // made the guard kill those forms outright). After a soft-nav content
+      // swap, ALL of the departing page's rows are gone → active() returns
+      // false → the set yields dispatch. Belt-and-braces alongside
+      // resetPage(); either mechanism alone fixes key-deadness.
       active: cfg.active || function () {
-        var rs = zoneRows(0);
-        return rs.length > 0 && document.contains(rs[0]);
+        var zs = zones();
+        for (var zi = 0; zi < zs.length; zi++) {
+          var rs = zoneRows(zi);
+          if (rs.length > 0 && document.contains(rs[0])) return true;
+        }
+        return false;
       },
       getMode: function () { return editing ? 'INSERT' : 'NORMAL'; },
       bindings: all

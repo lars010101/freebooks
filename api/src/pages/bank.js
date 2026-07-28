@@ -296,11 +296,20 @@ ${commonStyle()}
       .then(r => r.json()).then(res => {
         cb.disabled = false;
         var tr = cb.closest('tr');
-        var i = parseInt(tr.dataset.i);
-        // data-i is the index into the FILTERED display rows — resolve the
-        // row object through getFilteredRows() (same references as recRows);
-        // indexing recRows directly is wrong when a filter hides rows.
-        var rowObj = getFilteredRows()[i];
+        // Resolve the recRows entry by server key (batch_id + account_code),
+        // NOT by getFilteredRows()[data-i]: the filtered index is only valid
+        // while the row still matches the Cleared/Uncleared filter — after a
+        // clear with "Cleared" unchecked the row falls out of the filter, the
+        // lookup misses, and the unclear update is silently dropped (recRows
+        // diverges from the server; caught by pw-k4 "~ toggles back").
+        var rowObj = null;
+        for (var k = 0; k < recRows.length; k++) {
+          var rr = recRows[k];
+          if (String(rr.batch_id) === tr.dataset.batch &&
+              (rr.account_code === undefined || String(rr.account_code) === tr.dataset.acct)) {
+            rowObj = rr; break;
+          }
+        }
         if (rowObj) rowObj.cleared = cleared;
         // classList.toggle, not className assignment — the latter wipes
         // nav-row-focus when the row was cleared via the keyboard cursor.

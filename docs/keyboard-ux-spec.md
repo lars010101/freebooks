@@ -262,9 +262,30 @@ property on the iframe document.
 
 ## 9. Deferred (later phases)
 
-- **K4** — Attachment keyboard unification (`A` = attach everywhere;
-  attachment queue as FB.list so `j`/`k`/`x` come free); reconcile/import
-  rows onto FB.list.
+- **K4 (shipped 2026-07-28)** — Attachment keyboard unification: **`A` =
+  attach everywhere** — legacy pages (common.js `fbKeyActions` dispatcher)
+  route shift-a to a page-registered `attach` verb (bill-detail; its old
+  `a` = attach is retired); FB.form pages declare `A` as an extraBinding
+  (journal-new). Attachment queues are **FB.form zones** (journal-new
+  pending queue: `j`/`k` rows, `x` removes the staged file) or shared
+  `.fb-attach-row` markup + `FB.attachments` helpers (api/public/
+  fb-attachments.js: rowHtml, emptyHtml, createNav). Architectural
+  refinement vs the original "queue as FB.list" line: attachment rows are
+  read-only (no inline edit, no add row — `A` is the create verb), so they
+  live in the form machine / shared nav surface rather than FB.list; the
+  observable contract is identical (`j`/`k`/`x` + `A`). bill-detail keeps
+  its bespoke combined nav (meta → lines → attach) — markup not swapped;
+  only the key was unified. bill-edit queue nav deferred (K4b).
+  Reconciliation: the audit's "/bank/reconcile mouse-only checkboxes" item
+  predates the FB.list migration — that URL now 301-redirects to
+  /:company/bank, whose Transactions tab already carries the full contract:
+  j/k row cursor (FB.nav) + **`~` = clear/unclear** (universal toggle verb,
+  ratified 2026-07-28) wired to the same persistence as the checkbox. K4
+  closes the item with end-to-end verification (toggle + persistence), no
+  new code. K4 also fixed a K3c regression: the default `active()` guard
+  checked zone 0 only — journal-new (reversal zone empty at rest) and
+  bank-import (bill panel closed at rest) were key-dead; the guard now
+  scans ALL zones.
 - **K5** — CI keyboard-coverage crawl (every route asserts an active
   FB.keys set + every visible control reachable).
 - `?` overlay GLOBAL section (chrome keys: g-map, `{`/`}`, `h`/`l`, `/`,

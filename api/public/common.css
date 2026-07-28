@@ -809,3 +809,13 @@ tr.row-editing td select[class^="fb-e-"]:focus {
   line-height: 1.45;
   white-space: normal;
 }
+/* FB.modal (K2) — unified modal chrome. Moved from settings.js page-local CSS
+   2026-07-28: the old leave-guard rendered UNSTYLED on non-settings pages
+   (class existed only there). z-index 9800: above the help overlay (9500),
+   below the FB.dropdown layer (9999) so future modals can host dropdowns. */
+.fb-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; z-index:9800; }
+.fb-modal { background:#fff; border-radius:6px; padding:20px 24px; min-width:340px; max-width:560px; box-shadow:0 8px 30px rgba(0,0,0,0.18); }
+.fb-modal-title { font-weight:600; margin-bottom:8px; }
+.fb-modal-body { font-size:10pt; color:#555; margin-bottom:14px; }
+.fb-modal-err { color:#cc2222; font-size:10pt; margin-bottom:8px; }
+.fb-modal-btns { display:flex; gap:10px; justify-content:flex-end; }

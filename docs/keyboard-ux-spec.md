@@ -115,12 +115,39 @@ account. Ratified: linked from **Settings → Company** (setup box above the
 danger zone), NOT the sidebar; palette-reachable via §4. It carries no `g`
 letter (run-once screen — letters are for high-frequency routes).
 
-## 7. Deferred (later phases)
+## 7. Modal keyboard contract (K2 — shipped 2026-07-28)
 
-- **K2** — FB.keys binding stack (push/pop scope) + shared `FB.modal`
-  keyboard contract: Esc = cancel (never confirms), `y`/`n` confirms,
-  type-to-confirm for destructive actions (GitHub repo-deletion pattern);
-  retrofit the FB.list leave-guard and the danger-zone modal.
+**Binding stack.** `FB.keys.push(name, def)` registers a set AND makes it the
+exclusive dispatch owner until `FB.keys.pop(name)` (LIFO `_scopeStack` in
+fb-core `_dispatch`). While a scope is pushed, page sets, the company
+switcher, the g-prefix and `common.js` are all inert. Unmatched keys are
+swallowed (`stopImmediatePropagation`) but NOT `preventDefault`'ed, so
+typing into a modal input works while page verbs stay dead.
+
+**FB.modal** (fb-core) is the one modal. Contract:
+
+| Key | Action |
+|---|---|
+| `Esc` | Cancel — NEVER confirms (backdrop click = same) |
+| Button letters | Per-modal, shown in the button (`Save w`); NORMAL mode only |
+| `Enter` in a confirm input | Activates the armed `requiresConfirm` button |
+| (danger button) | Carries NO letter key — deliberate friction |
+
+- **Type-to-confirm** (GitHub repo-deletion pattern, ratified): destructive
+  actions require typing an exact-match string; `requiresConfirm` buttons
+  stay disabled until the input matches exactly. `getMode` returns INSERT
+  while the input is focused, so a name containing `w`/`u`/`~` never fires
+  a verb.
+- **Leave-guard** (FB.list): `w` = write & leave, `u` = revert & leave,
+  `Esc` = Stay — the w/u keys mirror the list's own write/revert doctrine.
+  Esc/backdrop keeps buffers and cancels navigation.
+- **Danger zone** (Settings → Company delete): type the exact company name
+  to arm `Delete company`; Enter in the input fires it; server refusals
+  (last-company / posted-books) surface in the modal's error slot.
+- Focus: the confirm input (else first button) is focused on open; prior
+  focus is restored on close. One modal app-wide; `FB.modal.isOpen()`.
+
+## 8. Deferred (later phases)
 - **K3** — `FB.form`: the bill-edit modal model (NORMAL rest state +
   Tab/Shift+Tab inside edits) as a shared form machine; pilot journal-new
   (`j`/`k` rows, `h`/`l` cells, `Enter`/`i` edit, `a` add line, `x` delete

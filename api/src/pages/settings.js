@@ -56,12 +56,8 @@ ${commonStyle()}
   .chip-ok { color:#2a8a2a; border-color:#2a8a2a; }
   .chip-cancel { color:#cc2222; border-color:#cc2222; }
   .pe-ro { color:#888; }
-  .fb-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; z-index:1000; }
-  .fb-modal { background:#fff; border-radius:6px; padding:20px 24px; min-width:340px; box-shadow:0 8px 30px rgba(0,0,0,0.18); }
-  .fb-modal-title { font-weight:600; margin-bottom:8px; }
-  .fb-modal-body { font-size:10pt; color:#555; margin-bottom:14px; }
-  .fb-modal-err { color:#cc2222; font-size:10pt; margin-bottom:8px; }
-  .fb-modal-btns { display:flex; gap:10px; justify-content:flex-end; }
+  /* .fb-modal* rules moved to common.css 2026-07-28 (K2 — FB.modal is the
+     one shared modal; page-local copies deleted, see keyboard-ux-spec §7). */
 </style>
 </head>
 <body>${navBar(company, 'settings')}
@@ -413,47 +409,31 @@ function renderCompanyHints() {
 // refusals). Identity comes from the attribute grid's onLoaded.
 var companyDanger = (function () {
   var current = { id: null, name: '' };
-  var modalEl = null;
-
-  function el(id) { return document.getElementById(id); }
-  function esc(s) { return window.FB && FB.util ? FB.util.esc(s) : String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function setCompany(id, name) { current = { id: id, name: name }; }
 
-  function closeModal() {
-    if (modalEl) { modalEl.remove(); modalEl = null; }
-  }
-
+  // K2: FB.modal type-to-confirm (keyboard-ux-spec §7) — an exact company-name
+  // match arms the danger button; Enter inside the input activates it; the
+  // button carries NO letter key (deliberate friction); Esc/backdrop cancel.
   function confirmDelete() {
     if (!current.id) { showMsg('msg-company', 'No company loaded', true); return; }
-    closeModal();
-    var overlay = document.createElement('div');
-    overlay.className = 'fb-modal-overlay';
-    overlay.innerHTML =
-      '<div class="fb-modal">' +
-        '<div class="fb-modal-title">Delete "' + esc(current.name || current.id) + '"?</div>' +
-        '<div class="fb-modal-body">This will permanently delete the company and all of its books (accounts, periods, journals, bills, settings, …). <strong>This cannot be undone.</strong></div>' +
-        '<div id="cr-modal-err" class="fb-modal-err" style="display:none"></div>' +
-        '<div class="fb-modal-btns">' +
-          '<button type="button" class="btn-sm" id="cr-modal-cancel">Cancel</button>' +
-          '<button type="button" class="btn-sm danger" id="cr-modal-confirm">Delete company</button>' +
-        '</div>' +
-      '</div>';
-    document.body.appendChild(overlay);
-    modalEl = overlay;
-    overlay.addEventListener('click', function (e){
-      if (e.target === overlay) closeModal();
+    var name = current.name || current.id;
+    FB.modal.open({
+      title: 'Delete "' + name + '"?',
+      body: 'This will permanently delete the company and all of its books (accounts, periods, journals, bills, settings, …). <strong>This cannot be undone.</strong>',
+      typeConfirm: { match: name, label: 'Type the company name (' + name + ') to confirm' },
+      buttons: [
+        { label: 'Delete company', danger: true, requiresConfirm: true, onClick: function (api) { doDelete(api); } },
+        { label: 'Cancel', onClick: function (api) { api.close(); } }
+      ]
     });
-    el('cr-modal-cancel').addEventListener('click', closeModal);
-    el('cr-modal-confirm').addEventListener('click', doDelete);
   }
 
-  function doDelete() {
-    var confirmBtn = el('cr-modal-confirm');
-    var cancelBtn = el('cr-modal-cancel');
+  function doDelete(api) {
+    var confirmBtn = api.btn(0);
+    var cancelBtn = api.btn(1);
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Deleting…'; }
     if (cancelBtn) cancelBtn.disabled = true;
-    var errBox = el('cr-modal-err');
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'company.delete', companyId: current.id }) })
       .then(function (r){ return r.json(); })
@@ -463,14 +443,15 @@ var companyDanger = (function () {
           // Surface the server's message inside the modal (last-company /
           // posted-books refusals explain themselves). Re-enable the buttons
           // so the user can dismiss or retry.
-          if (errBox) { errBox.textContent = res.error || d.error; errBox.style.display = ''; }
+          var errText = (res.error && res.error.message) || res.error || (d.error && d.error.message) || d.error;
+          api.error(String(errText));
           if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Delete company'; }
           if (cancelBtn) cancelBtn.disabled = false;
           return;
         }
         var remaining = (d && Array.isArray(d.remaining)) ? d.remaining : [];
         var next = remaining[0];
-        closeModal();
+        api.close();
         if (next) {
           // Switch the active company and redirect to the survivor's settings.
           try { localStorage.setItem('freebooks_company', next); } catch (e) {}
@@ -482,7 +463,7 @@ var companyDanger = (function () {
         }
       })
       .catch(function (e){
-        if (errBox) { errBox.textContent = e.message; errBox.style.display = ''; }
+        api.error(e.message);
         if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Delete company'; }
         if (cancelBtn) cancelBtn.disabled = false;
       });

@@ -162,6 +162,13 @@
         // Swap page-main content
         oldMain.innerHTML = newMain.innerHTML;
 
+        // K3c: reset FB.keys page state so the departing page's key sets and
+        // document listeners don't own dispatch on the arriving page. Must
+        // happen AFTER the content swap (teardown callbacks may inspect the
+        // DOM) and BEFORE re-executing scripts (the arriving page registers
+        // fresh sets).
+        if (window.FB && FB.keys && FB.keys.resetPage) FB.keys.resetPage();
+
         // Re-execute inline scripts inside #page-main
         oldMain.querySelectorAll('script').forEach(function(s) {
           var ns = document.createElement('script');

@@ -26,6 +26,11 @@
  *             default cells(): visible, enabled input/select/textarea in row
  *   verbs?:   { add?, delete?, write?, quit? } each { key, hint, run(api) }
  *   extraBindings?: fn(api) → [binding] — prepended (screen verbs win)
+ *   onCommit?: fn(cellEl, api) — invoked on INSERT Enter commit-and-advance
+ *              for input cells (before advancing) and on commitSelect
+ *              (native select commit). NOT on Esc (never writes), NOT on
+ *              button cells (their click handlers self-trigger). Use for
+ *              run-on-any-commit side effects (e.g. reports reload).
  * }
  * api: { formId, cur, moveTo(zi,ri,ci,edit), edit(), exitEdit(), refresh(),
  *        mode() }
@@ -222,6 +227,7 @@
       if (!el || el.tagName !== 'SELECT') return;
       selSnap = null;                 // committed — don't restore on the exit
       el.dispatchEvent(new Event('change', { bubbles: true }));
+      if (cfg.onCommit) cfg.onCommit(el, api);
       exitEdit();
     }
 
@@ -231,6 +237,14 @@
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { moveRow(-1); } },
       { key: 'h', mode: 'NORMAL', hint: 'cell', hintBar: true, run: function () { moveCol(-1); } },
       { key: 'l', mode: 'NORMAL', hint: 'cell', hintBar: true, run: function () { moveCol(1); } },
+      // K3e: Tab in NORMAL moves the cursor cell next/prev WITHOUT entering
+      // INSERT. preventDefault (default for bindings) stops native focus
+      // movement, so no focusin→setMode(true) fires. INSERT is entered only
+      // via i/Enter (keyboard) or click (mouse parity). In INSERT, Tab stays
+      // native traversal + cursor-follows-focus (the INSERT Tab binding
+      // below has preventDefault:false). active() guards ensure this binding
+      // only claims Tab when the form is live and has cells.
+      { key: 'Tab', mode: 'NORMAL', run: function (e) { moveCol(e.shiftKey ? -1 : 1); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
       // K3d: ArrowDown/ArrowUp on a native <select> cell in NORMAL behave
@@ -268,7 +282,11 @@
       { key: 'Enter', mode: 'INSERT',
         // multi-line fields (CSV paste) own Enter natively — no advance
         when: function (e) { return !e.target || e.target.tagName !== 'TEXTAREA'; },
-        run: advance },
+        run: function (e) {
+          var el = curCellEl();
+          if (el && el.tagName !== 'BUTTON' && cfg.onCommit) cfg.onCommit(el, api);
+          advance(e);
+        } },
       { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function () {} },
       { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitEdit }
     ];

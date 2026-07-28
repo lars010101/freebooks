@@ -238,7 +238,14 @@ ${layoutEnd()}
     fbLoadReport();
   };
 
-  window.fbLoadReport = function() {
+  /* K3e: debounced report loader. Wrapping fbLoadReport with a pending flag +
+   * setTimeout(0) coalescer means a change-event (mouse/select onchange) and
+   * the onCommit hook (INSERT Enter commit) — which fire within the same
+   * tick — collapse into exactly one report load. The actual work is in
+   * _doLoadReport; fbLoadReport is the debounced public entry point.
+   */
+  var _rptLoadPending = false;
+  var _doLoadReport = function() {
     var start  = (document.getElementById('rpt-start')  || {}).value || '';
     var end    = (document.getElementById('rpt-end')    || {}).value || '';
     var period = (document.getElementById('rpt-period') || {}).value || 'custom';
@@ -270,6 +277,11 @@ ${layoutEnd()}
         if (window.FB && FB.util && FB.util.forwardIframeKeys) FB.util.forwardIframeKeys(frame);
       } catch(e) {}
     });
+  };
+  window.fbLoadReport = function() {
+    if (_rptLoadPending) return;
+    _rptLoadPending = true;
+    setTimeout(function () { _rptLoadPending = false; _doLoadReport(); }, 0);
   };
 
   /* ── PDF / CSV export ── */
@@ -334,6 +346,7 @@ ${layoutEnd()}
 
   var rptForm = FB.form.create({
     formId: 'reports',
+    onCommit: function () { fbLoadReport(); },
     zones: [
       // The filter bar is a single header row whose cells are the bar's
       // controls in visual order. The default cells() hook only finds

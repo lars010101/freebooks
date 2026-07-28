@@ -44,6 +44,7 @@
 // g-key slate (ratified 2026-07-28):
 //   g r = Reports · g b = Bank · g p = Payables · g s = Settings
 //   g c = Company switcher (reserved, not a route)
+//   g i = Bank Import
 //   g j = Journal — OMITTED: no journal LIST page route exists (only
 //          /:company/journal/new, a data-entry form). Revisit when a journal
 //          register/list page is added.
@@ -56,12 +57,15 @@ const ROUTES = [
   { key: 'receivables', route: '/:company/receivables',  label: 'Receivables',     icon: '📄', sidebar: true,  gKey: null, palette: true,  absolute: false },
   { key: 'reports',     route: '/:company/reports',      label: 'Reports',         icon: '📈', sidebar: true,  gKey: 'r',  palette: true,  absolute: false },
   { key: 'settings',    route: '/:company/settings',     label: 'Settings',        icon: '⚙',  sidebar: true,  gKey: 's',  palette: true,  absolute: false },
-  // ── Non-sidebar routes. journal-new / bank-import / new-company keep
-  // palette:false — the action catalog already navigates to them with action
-  // labels (dedupe = registry decision, spec §4). opening-balances has no
-  // catalog entry → palette:true.
+  // ── Non-sidebar routes. journal-new / new-company keep palette:false — the
+  // action catalog already navigates to them with action labels (dedupe =
+  // registry decision, spec §4). bank-import now carries palette:true +
+  // gKey:'i' — the registry emits the 'Go to Bank Import' row (the former
+  // catalog navigate entry's description lacked 'import', making it
+  // invisible to palette search). opening-balances has no catalog entry →
+  // palette:true.
   { key: 'journal-new',     route: '/:company/journal/new',       label: 'Journal Entry',   icon: null, sidebar: false, gKey: null, palette: false, absolute: false },
-  { key: 'bank-import',     route: '/:company/bank/import',       label: 'Bank Import',     icon: null, sidebar: false, gKey: null, palette: false, absolute: false },
+  { key: 'bank-import',     route: '/:company/bank/import',       label: 'Bank Import',     icon: null, sidebar: false, gKey: 'i',  palette: true,  absolute: false },
   { key: 'opening-balances', route: '/:company/opening-balances', label: 'Opening Balances', icon: null, sidebar: false, gKey: null, palette: true,  absolute: false },
   { key: 'new-company',     route: '/setup/new-company',          label: 'New Company',     icon: null, sidebar: false, gKey: null, palette: false, absolute: true  },
 ];

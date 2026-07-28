@@ -405,7 +405,11 @@ const PALETTE = {
   'journal.import':         { palette: 'navigate', route: '/journal/new' },
   'bill.create':            { palette: 'navigate', route: '/bill/edit' },
   'bill.draft.save':        { palette: 'navigate', route: '/bill/edit' },
-  'bank.process':           { palette: 'navigate', route: '/bank/import' },
+  // K3e: bank.process removed from palette — the nav-registry bank-import
+  // route (/:company/bank/import, gKey 'i', palette:true) now emits a
+  // 'Go to Bank Import' row that surfaces on 'bank import'/'import' queries.
+  // The catalog entry used the technical action description as its label,
+  // which didn't contain 'import', making it invisible in palette search.
   'coa.save':               { palette: 'navigate', route: '/settings' },
   'coa.update':             { palette: 'navigate', route: '/settings' },
   'coa.upsert':             { palette: 'navigate', route: '/settings' },

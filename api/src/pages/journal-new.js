@@ -174,7 +174,8 @@ ${commonStyle()}
   function attachAcctDd(input) {
     if (!window.FB || !FB.dropdown) return;
     FB.dropdown.attach(input, {
-      keys: true,
+      // No keys:true — this is an FB.keys page (FB.form, K3); dropdown keys
+      // route through the form's INSERT bindings (fb-list parity).
       minWidth: 280,
       source: function (q) {
         q = (q || '').toLowerCase();
@@ -348,6 +349,26 @@ ${commonStyle()}
   var reversalMode = false;
   var reversalSearchTimer = null;
 
+  // K3: keyboard navigation for reversal results — ArrowUp/Down inside the
+  // search input move the highlight (sticky), Enter picks (FB.dropdown
+  // contract feel), Esc peels back to NORMAL via the form's general binding.
+  var reversalRows = [];
+  var revIdx = -1;
+  function paintReversal() {
+    reversalRows.forEach(function (d, i) { d.style.background = (i === revIdx) ? '#f0f4ff' : ''; });
+    if (reversalRows[revIdx] && reversalRows[revIdx].scrollIntoView) reversalRows[revIdx].scrollIntoView({ block: 'nearest' });
+  }
+  function moveReversal(d) {
+    if (!reversalRows.length) return;
+    revIdx += d;
+    if (revIdx < 0) revIdx = 0;
+    if (revIdx > reversalRows.length - 1) revIdx = reversalRows.length - 1;
+    paintReversal();
+  }
+  function pickReversal() {
+    if (revIdx >= 0 && reversalRows[revIdx]) reversalRows[revIdx].click();
+  }
+
   function toggleReversalMode() {
     reversalMode = !reversalMode;
     document.getElementById('reversal-panel').style.display = reversalMode ? '' : 'none';
@@ -367,7 +388,7 @@ ${commonStyle()}
   function onReversalSearch(q) {
     clearTimeout(reversalSearchTimer);
     var res = document.getElementById('reversal-results');
-    if (q.trim().length < 2) { res.style.display = 'none'; return; }
+    if (q.trim().length < 2) { res.style.display = 'none'; reversalRows = []; revIdx = -1; return; }
     reversalSearchTimer = setTimeout(function() {
       fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ action:'journal.search', companyId: COMPANY, q: q.trim() }) })
@@ -378,6 +399,7 @@ ${commonStyle()}
           if (!Array.isArray(rows) || !rows.length) {
             res.innerHTML = '<div style="padding:8px 12px;color:#888;font-size:10pt">No matching entries</div>';
             res.style.display = '';
+            reversalRows = []; revIdx = -1;
             return;
           }
           rows.forEach(function(r) {
@@ -394,6 +416,9 @@ ${commonStyle()}
             res.appendChild(d);
           });
           res.style.display = '';
+          reversalRows = Array.from(res.children);
+          revIdx = 0;
+          paintReversal();
         });
     }, 300);
   }
@@ -484,6 +509,52 @@ ${commonStyle()}
     }
     pendingJvAttachments = [];
   }
+
+  // ── FB.form (K3, keyboard-ux-spec §8) — the one form machine; this page ──
+  // declares config + verbs only. Zones: reversal panel (present only in
+  // reversal mode) → header fields → the JV line grid.
+  var jvForm = FB.form.create({
+    formId: 'journal-new',
+    zones: [
+      { id: 'reversal', rows: function () { return reversalMode ? [document.getElementById('reversal-panel')] : []; } },
+      { id: 'header',   rows: function () { return [document.querySelector('.header-fields')]; } },
+      { id: 'lines',    rows: function () { return Array.from(document.querySelectorAll('#lines-body tr')); } }
+    ],
+    verbs: {
+      add: { key: 'a', hint: 'add line', run: function (api) {
+        addLine(); updateTotals();
+        api.moveTo(2, api.zoneRows(2).length - 1, 0, true);
+      } },
+      delete: { key: 'x', hint: 'delete line',
+        when: function (api) { return api.cur().z === 2; },
+        run: function (api) {
+          var tr = api.zoneRows(2)[api.cur().r];
+          if (!tr) return;
+          tr.remove(); updateTotals(); api.refresh();
+        } },
+      write: { key: 'w', hint: 'post', run: function () {
+        var btn = document.getElementById('btn-post');
+        if (btn.disabled) { showStatus('Out of balance — see Diff', true); return; }
+        postEntry();
+      } },
+      quit: { key: 'q', hint: 'quit', run: function () { fbNavigate('/' + COMPANY); } }
+    },
+    extraBindings: function (api) {
+      function searchFocused() { return document.activeElement === document.getElementById('reversal-search'); }
+      return [
+        { key: '~', mode: 'NORMAL', hint: 'reversal', hintBar: true, run: function () {
+            toggleReversalMode();
+            api.refresh();
+            if (reversalMode) { var s = document.getElementById('reversal-search'); if (s) s.focus(); }
+          } },
+        { key: 'ArrowDown', mode: 'INSERT', when: searchFocused, run: function () { moveReversal(1); } },
+        { key: 'ArrowUp', mode: 'INSERT', when: searchFocused, run: function () { moveReversal(-1); } },
+        // Enter inside the search always stays local (never advances the form)
+        { key: 'Enter', mode: 'INSERT', when: searchFocused, run: pickReversal }
+      ];
+    }
+  });
+  FB.keys.renderHints('journal-new', document.getElementById('sb-hints'), { layout: 'list' });
 <\/script>
 ${layoutEnd()}
 </body>

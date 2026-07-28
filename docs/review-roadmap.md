@@ -77,6 +77,14 @@
 
 ---
 
+## 0h. Status update — 2026-07-28 (K3)
+
+**K3a landed ✅ (this update): `FB.form`** (`api/public/fb-form.js`) — the one form machine, Model B (bill-edit modal model: NORMAL rest + Tab inside edits). Config = ordered zones with `rows()`/`cells()`; the framework owns the cursor (`j`/`k` rows across zones, `h`/`l` cells, sticky everywhere), mode transitions (`i`/`Enter` edit, `Esc` exit-never-writes, Enter advances fb-list-parity), dropdown key routing in INSERT (pages must NOT pass `keys:true` to FB.dropdown anymore), focus sync (mouse click moves the cursor), and hint rendering. **journal-new is the pilot:** zones = reversal panel → header → JV grid; verbs `a` add line, `x` delete line, `w` post (disabled-guard), `q` quit, `~` reversal mode (search focus + arrows/Enter results). journal-new previously had **no** FB.keys set — matrix navigation was raw DOM Tab. Contract: keyboard-ux-spec §8. Merge note: #56 originally landed on the K1 branch, not main — repaired via #57.
+
+**Open by priority:** K3b — FB.form adoption: reports filter bar, bank-import mapping, opening-balances, new-company → K4 attachments/reconcile → K5 CI crawl.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

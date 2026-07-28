@@ -102,6 +102,15 @@ ${commonStyle()}
       <tbody id="company-attrs-body"></tbody>
     </table>
 
+    <!-- SETUP — opening balances (Xero conversion-balances pattern, ratified
+         2026-07-28): the once-per-company migration screen is linked from
+         Settings, not the sidebar; also palette-reachable via the route
+         registry. -->
+    <div style="margin-top:18px;padding:12px 18px;border:1px solid #ddd;border-radius:6px;background:#fafafa;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap">
+      <div style="font-size:10pt;color:#333"><strong>Opening balances</strong> — per-account starting balances as of your go-live date (once-per-company migration).</div>
+      <a href="/${company}/opening-balances" class="btn-sm" style="text-decoration:none;display:inline-block">Opening Balances →</a>
+    </div>
+
     <!-- DANGER ZONE — settings-ux-spec §7 item 1 rev 2026-07-27 final.
          Deletes the CURRENT company via company.delete. Server guards:
          last-company refusal + posted-books (journal entries) refusal. On

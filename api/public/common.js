@@ -87,13 +87,19 @@
   fbApplySidebar(localStorage.getItem('fb-sidebar-collapsed') === '1');
 
   // ── Company switcher ──
-  window.fbToggleCompany = function(e) {
-    e.stopPropagation();
+  // onReady(opened) is optional — invoked after the open path completes
+  // (sync when already loaded, async after the company.list fetch resolves).
+  // `opened` is true when the dropdown is now open, false when it was closed.
+  // Used by the g c keyboard switcher (fb-core.js) to set the initial
+  // highlight once the option rows exist.
+  window.fbToggleCompany = function(e, onReady) {
+    if (e) e.stopPropagation();
     var dd = document.getElementById('tb-company-dropdown');
-    if (!dd) return;
+    if (!dd) { if (onReady) onReady(false); return; }
     var open = dd.style.display !== 'none';
     dd.style.display = open ? 'none' : '';
-    if (!open && !dd._loaded) {
+    if (open) { if (onReady) onReady(false); return; }
+    if (!dd._loaded) {
       dd._loaded = true;
       var coId2 = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
       fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -121,8 +127,11 @@
         link.innerHTML = '+ New company';
         link.style.cssText = 'color:#1a1a1a;font-weight:600';
         dd.appendChild(link);
+        if (onReady) onReady(true);
       })
-      .catch(function(){ dd.innerHTML='<div class="tb-company-opt" style="color:#cc2222">Error loading</div>'; });
+      .catch(function(){ dd.innerHTML='<div class="tb-company-opt" style="color:#cc2222">Error loading</div>'; if (onReady) onReady(true); });
+    } else {
+      if (onReady) onReady(true);
     }
   };
   document.addEventListener('click', function() {
@@ -362,7 +371,12 @@
     }
   });
 
-  var _gPending = false, _gTimer = null;
+  // gg and G scroll are now owned by fb-core.js (K1 g-prefix unification):
+  // fb-core's capture-phase handler runs first and claims `g` (gg = top,
+  // g<letter> = go-to map). G (Shift+G) scroll-to-bottom stays here as the
+  // bubble-phase fallback for pages without an FB.list set (which owns G on
+  // list pages). The legacy _gPending state is deleted — one pending state
+  // lives in fb-core now.
 
   document.addEventListener('keydown', function(e) {
     var ae = document.activeElement || {};
@@ -405,28 +419,9 @@
     if (inInput) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
 
-    // ── gg → scroll to top ──
-    if (e.key === 'g' && !_gPending) {
-      _gPending = true;
-      clearTimeout(_gTimer);
-      _gTimer = setTimeout(function() { _gPending = false; }, 500);
-      e.preventDefault();
-      return;
-    }
-    if (_gPending && e.key === 'g') {
-      _gPending = false;
-      clearTimeout(_gTimer);
-      e.preventDefault();
-      var pm = document.getElementById('page-main');
-      if (pm) pm.scrollTo({ top: 0, behavior: 'smooth' });
-      else window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-    if (_gPending) {
-      _gPending = false;
-      clearTimeout(_gTimer);
-      return;
-    }
+    // gg / g-prefix go-to map: owned by fb-core.js (capture phase, K1).
+    // `g` is swallowed there before reaching this bubble handler, so it never
+    // arrives here. G (Shift+G) scroll-to-bottom stays below as the fallback.
 
     // ── G → scroll to bottom ──
     if (e.shiftKey && e.key === 'G') {
@@ -435,12 +430,6 @@
       if (pm) pm.scrollTo({ top: pm.scrollHeight, behavior: 'smooth' });
       else window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
       return;
-    }
-
-    // Reset g pending flag if it was set (but not matching gg)
-    if (_gPending) {
-      _gPending = false;
-      clearTimeout(_gTimer);
     }
 
     // ── Edit-active guard (docs/settings-ux-spec.md §2) ─────────────────────

@@ -61,6 +61,16 @@
 
 ---
 
+## 0f. Status update — 2026-07-28
+
+**Keyboard-navigation program ratified** (Slack design thread): gap analysis confirmed 11/16 page modules register no `FB.keys` set, no go-to map existed, and the company switcher/modals were mouse-only. Decisions: `g`-map + palette **both** (not either/or); forms get the **bill-edit modal model** (NORMAL rest + Tab inside edits — explicitly NOT QBO always-insert); danger-zone = **type-to-confirm**; **`~` = the universal toggle verb** (Vendors precedent; vim's toggle-case key); Opening Balances surfaces under **Settings** (Xero conversion-balances pattern). Full contract: **`docs/keyboard-ux-spec.md`** (new). Phases: K1 nav → K2 modal/binding-stack → K3 `FB.form` → K4 attachments/reconcile → K5 CI coverage crawl.
+
+**K1 landed ✅ (this update):** `api/src/nav-registry.js` = single-source route table driving sidebar + `{`/`}` + new `g`-prefix go-to map (`g r/b/p/s`) + palette `Go to …` rows (deduped vs the action catalog). One pending-`g` state in fb-core — the duplicate `gg` state machines in `common.js` and `fb-list.js` are **deleted**; fb-core's `gg` fires `FB.nav.onGG` hooks (visibility-guarded) for list first-row. **Company switcher** (`g c`) is keyboard-driven: `j`/`k`/`Enter`/`Esc`, owns all keys while open (help-overlay precedent). Bank transaction clear/unclear migrated **`c` → `~`**. Settings → Company gains the **Opening Balances** link (the app's last truly orphaned page).
+
+**Open by priority:** K2 binding stack + modal keyboard contract → K3 `FB.form` (journal-new pilot) → K4 attachments/reconcile → K5 CI crawl → then the backlog above (Receivables → P2 → P3).
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

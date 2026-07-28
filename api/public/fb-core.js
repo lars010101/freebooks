@@ -1124,6 +1124,39 @@
     clear: function () { status.show(''); }
   };
 
+  // ── K3d: iframe key-forwarding util ─────────────────────────────────────
+  // Pages that render same-origin content in an <iframe> (e.g. reports-hub
+  // #report-frame) must call this so parent keybindings survive focus inside
+  // the frame. Without it, clicking into the iframe moves focus into the
+  // iframe document → the parent receives NO keydowns → every FB binding
+  // appears dead. The util attaches a keydown listener inside the iframe
+  // document: if the iframe event target is editable (input/textarea/select/
+  // contentEditable) it lets the field handle it; otherwise it re-dispatches
+  // an equivalent KeyboardEvent on the PARENT document and preventDefaults in
+  // the iframe. Guards against double-attach on reloads via a marker property.
+  function forwardIframeKeys(iframe) {
+    if (!iframe) return;
+    var doc;
+    try { doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document); }
+    catch (e) { return; }       // cross-origin — cannot touch
+    if (!doc) return;
+    if (doc._fbKeysForwarded) return; // already attached (reload guard)
+    doc._fbKeysForwarded = true;
+    doc.addEventListener('keydown', function (e) {
+      var t = e.target || {};
+      var editable = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
+        || t.tagName === 'SELECT' || !!t.isContentEditable;
+      if (editable) return;     // let the field handle it natively
+      // Re-dispatch on the PARENT document so the FB.keys capture-phase
+      // dispatcher receives an equivalent keydown.
+      var synth = new KeyboardEvent('keydown', {
+        key: e.key, code: e.code, bubbles: true, cancelable: true
+      });
+      document.dispatchEvent(synth);
+      e.preventDefault();
+    });
+  }
+
   // K3c: capture the core baseline — every key set registered so far belongs
   // to the chrome (none, at this point — pages haven't run yet). resetPage()
   // removes everything registered AFTER this snapshot. Captured here (end of
@@ -1132,7 +1165,7 @@
   _baselineOrder = _order.slice();
 
   window.FB = {
-    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today },
+    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today, forwardIframeKeys: forwardIframeKeys },
     mode: mode,
     keys: keys,
     nav: nav,

@@ -224,6 +224,21 @@ IIFE end), clears the modal scope stack, and resets the g-prefix/gg-hook state.
 zone's first row still in the document) as defense-in-depth. The arriving
 page's scripts then register fresh sets against a clean slate.
 
+**ArrowDown/ArrowUp parity (K3d, ratified 2026-07-28):** in NORMAL on a
+native `<select>` cell, `ArrowDown`/`ArrowUp` behave like `i`/`Enter` —
+open via `el.showPicker()` or fall through to the INSERT j/k-stepping
+fallback. In INSERT stepping mode, `ArrowDown`/`ArrowUp` are aliases for
+`j`/`k`. Text/date inputs' arrow keys are untouched (native caret behavior).
+
+**Iframe key-forwarding (K3d, ratified 2026-07-28):** pages that render
+same-origin content in an `<iframe>` must call
+`FB.util.forwardIframeKeys(iframe)` on the frame's `load` event so parent
+keybindings survive focus inside the frame. The util re-dispatches
+non-editable keydowns on the parent document and prevents default in the
+iframe; editable targets (input/textarea/select/contentEditable) pass
+through natively. Guard against double-attach on reloads via a marker
+property on the iframe document.
+
 ## 9. Deferred (later phases)
 
 - **K4** — Attachment keyboard unification (`A` = attach everywhere;

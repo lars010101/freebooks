@@ -53,8 +53,9 @@ ${commonStyle()}
 <body>${navBar(company, 'bank')}
 <div class="page">
   
-  <div class="header">
+  <div class="header" style="display:flex;align-items:center;justify-content:space-between">
     <h1>🏦 Bank</h1>
+    <a href="/${company}/bank/import" class="btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">⬆ Import statement</a>
   </div>
 
   <div class="tabs" style="margin-bottom:20px">
@@ -95,6 +96,13 @@ ${commonStyle()}
   </table>
   <div id="rec-status" style="margin-top:10px;font-size:10pt"></div>
 
+  <div id="bank-empty-state" style="display:none;padding:32px 16px;text-align:center;color:#888;font-size:10pt;line-height:1.6">
+    <p style="margin:0 0 8px;font-size:12pt;color:#555">No transactions to show</p>
+    <p style="margin:0 0 12px">This page reviews and categorizes imported bank statement lines,
+    matching them to your books via mapping rules.</p>
+    <p style="margin:0">Get started: click <a href="/${company}/bank/import" style="color:#1a73d8">⬆ Import statement</a>
+    or press <kbd style="padding:1px 5px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5">:</kbd> palette &rarr; Bank Import</p>
+  </div>
 
   </div><!-- /bank-panel-txn -->
 
@@ -198,11 +206,25 @@ ${commonStyle()}
       .catch(function(e){ setRecStatus(e.message); });
   }
 
+  // K3d: empty-state — when there are zero transactions loaded, show the
+  // empty-state div (import discoverability) and hide the table + summary.
+  function toggleBankEmpty() {
+    var empty = document.getElementById('bank-empty-state');
+    var table = document.getElementById('rec-table');
+    var summary = document.getElementById('rec-summary');
+    var isEmpty = recRows.length === 0;
+    if (empty) empty.style.display = isEmpty ? '' : 'none';
+    if (table) table.style.display = isEmpty ? 'none' : '';
+    if (summary) summary.style.display = isEmpty ? 'none' : '';
+  }
+
   function renderReconcile() {
     var acct = document.getElementById('rec-account').value;
+    var displayRows = getFilteredRows();
+    toggleBankEmpty();
+    if (recRows.length === 0) { setRecStatus(''); return; }
     document.getElementById('rec-summary').style.display = '';
     document.getElementById('rec-table').style.display = '';
-    var displayRows = getFilteredRows();
     setRecStatus(recRows.length > displayRows.length ? 'Showing ' + displayRows.length + ' of ' + recRows.length + ' transactions' : '');
     document.getElementById('rec-body').innerHTML = displayRows.map(function(r, i) {
       var cls = r.cleared ? 'cleared' : '';
@@ -220,9 +242,11 @@ ${commonStyle()}
   }
 
   function renderUnclearedAll() {
+    var displayRows = getFilteredRows();
+    toggleBankEmpty();
+    if (recRows.length === 0) { setRecStatus('No uncleared transactions ✓'); return; }
     document.getElementById('rec-summary').style.display = 'none';
     document.getElementById('rec-table').style.display = '';
-    var displayRows = getFilteredRows();
     setRecStatus(recRows.length > displayRows.length ? 'Showing ' + displayRows.length + ' of ' + recRows.length + ' transactions' : '');
     document.getElementById('rec-body').innerHTML = displayRows.map(function(r, i) {
       return '<tr class="" data-i="'+i+'" data-batch="'+r.batch_id+'" data-acct="'+r.account_code+'">'
@@ -319,6 +343,7 @@ ${commonStyle()}
     document.getElementById('rec-account').closest('div').style.display = '';
     document.querySelectorAll('.acct-col').forEach(function(el) { el.style.display = 'none'; });
     document.getElementById('rec-table').style.display = 'none';
+    var es = document.getElementById('bank-empty-state'); if (es) es.style.display = 'none';
     document.getElementById('rec-body').innerHTML = '';
     setRecStatus('');
   }

@@ -819,3 +819,8 @@ tr.row-editing td select[class^="fb-e-"]:focus {
 .fb-modal-body { font-size:10pt; color:#555; margin-bottom:14px; }
 .fb-modal-err { color:#cc2222; font-size:10pt; margin-bottom:8px; }
 .fb-modal-btns { display:flex; gap:10px; justify-content:flex-end; }
+
+/* FB.form cursor (K3) — mirrors the K1 switcher highlight so mouse + keyboard
+   read the same. Row tint = var(--bg); cell = var(--border) outline. */
+tr.fb-form-row-focus > td, div.fb-form-row-focus { background: var(--bg); }
+.fb-form-cursor { outline: 2px solid var(--border) !important; outline-offset: -2px; }

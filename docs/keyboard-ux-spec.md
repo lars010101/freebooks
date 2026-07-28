@@ -147,12 +147,41 @@ typing into a modal input works while page verbs stay dead.
 - Focus: the confirm input (else first button) is focused on open; prior
   focus is restored on close. One modal app-wide; `FB.modal.isOpen()`.
 
-## 8. Deferred (later phases)
-- **K3** — `FB.form`: the bill-edit modal model (NORMAL rest state +
-  Tab/Shift+Tab inside edits) as a shared form machine; pilot journal-new
-  (`j`/`k` rows, `h`/`l` cells, `Enter`/`i` edit, `a` add line, `x` delete
-  line, `~` reversal toggle, `w` post, `q` quit), then reports filter bar,
-  bank-import mapping, opening-balances, new-company.
+## 8. FB.form — the one form machine (K3 — shipped 2026-07-28)
+
+Model B (ratified): the **bill-edit modal model** — NORMAL rest state,
+Tab/Shift+Tab inside edits — formalized as `api/public/fb-form.js`. NOT QBO
+always-insert: a NORMAL state must exist or page verbs, the g-prefix, the
+palette and `?` all die. A form = ordered **zones** (header fields, a line
+grid, …); each zone exposes `rows()`, each row `cells()`. Pages declare
+config + verbs only — no per-page key handlers (FB.list doctrine).
+
+**Framework-owned keys:**
+
+| Key | NORMAL | INSERT |
+|---|---|---|
+| `j`/`k` | next/prev row (zones flatten; sticky at form ends) | — |
+| `h`/`l` | next/prev cell (sticky) | — |
+| `i`/`Enter` | edit cell → INSERT | advance to next cell (fb-list parity) |
+| `Esc` | — | exit edit → NORMAL (never writes) |
+| `Tab`/`Shift+Tab` | — | native traversal; cursor follows focus |
+| `G` | last row | — |
+
+Dropdown routing in INSERT is identical to fb-list (arrows move, Enter/Tab
+pick, Esc closes, ArrowDown-on-empty opens full list) — **pages on FB.form
+must NOT pass `keys: true` to FB.dropdown**. `gg` = first row via the K1
+`FB.nav.onGG` hook. Mouse parity: clicking a cell moves the cursor (focusin
+sync). Verbs (`a` add, `x` delete, `w` write, `q` quit) are per-page config
+with `when` predicates.
+
+**journal-new pilot:** zones = reversal panel (present only in reversal
+mode) → header (date/journal/desc) → JV line grid. `a` add line (cursor +
+edit), `x` delete line, `w` post (disabled-button guard → status), `q` quit,
+`~` reversal mode (focus search; arrows/Enter navigate results, Esc peels
+back). `h`/`l` = cell movement here (page has no tabs — context override).
+
+## 9. Deferred (later phases)
+
 - **K4** — Attachment keyboard unification (`A` = attach everywhere;
   attachment queue as FB.list so `j`/`k`/`x` come free); reconcile/import
   rows onto FB.list.

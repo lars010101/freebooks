@@ -117,13 +117,21 @@
     function edit() {
       var el = curCellEl();
       if (!el) return;
+      // Button cells activate (click) rather than enter INSERT — generic, so
+      // any page declaring a button cell gets Enter/i = click (spec §8).
+      if (el.tagName === 'BUTTON') { el.focus(); el.click(); paint(); return; }
       el.focus();
       if (el.select) el.select();
+      selSnap = (el.tagName === 'SELECT') ? { el: el, idx: el.selectedIndex } : null;
       setMode(true);
       paint();
     }
 
     function exitEdit() {
+      // Esc/cancel: a native select reverts to its pre-edit option and fires
+      // NO change (dropdown-cancel parity — keyboard-ux-spec §8).
+      if (selSnap && selSnap.el) { selSnap.el.selectedIndex = selSnap.idx; }
+      selSnap = null;
       var ae = document.activeElement;
       if (ae && ae.blur) ae.blur();
       setMode(false);
@@ -177,6 +185,33 @@
 
     var ddOpen = function () { return !!(window.FB && FB.dropdown && FB.dropdown.isOpen()); };
 
+    // Native <select> cells (no FB.dropdown attached) get fb-list-style INSERT
+    // option nav: j/k step, Enter commits (fires onchange), Esc reverts. The
+    // snapshot lets Esc cancel without firing — dropdown-cancel parity (§8).
+    var selSnap = null; // {el, idx} set on edit() of a native select
+    function nativeSelect(el) { return !!el && el.tagName === 'SELECT' && !ddOpen(); }
+    function stepSelect(d) {
+      var el = curCellEl();
+      if (!nativeSelect(el)) return;
+      var opts = el.options, n = opts.length;
+      if (!n) return;
+      var i = el.selectedIndex;
+      for (var s = 0; s < n; s++) {   // skip disabled options (e.g. placeholders)
+        i += d;
+        if (i > n - 1) i = n - 1;
+        if (i < 0) i = 0;
+        if (!opts[i].disabled) break;
+      }
+      if (opts[i] && !opts[i].disabled) el.selectedIndex = i;
+    }
+    function commitSelect() {
+      var el = curCellEl();
+      if (!el || el.tagName !== 'SELECT') return;
+      selSnap = null;                 // committed — don't restore on the exit
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      exitEdit();
+    }
+
     var bindings = [
       // ── NORMAL ──
       { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { moveRow(1); } },
@@ -203,6 +238,11 @@
       { key: 'ArrowDown', mode: 'INSERT',
         when: function (e) { return !ddOpen() && FB.dropdown && FB.dropdown.attachable(e.target); },
         run: function (e) { FB.dropdown.openFull(e.target); } },
+      // ── INSERT: native <select> (no FB.dropdown) — j/k step options, Enter
+      // commits the change (fires onchange), Esc reverts without firing (§8).
+      { key: 'j', mode: 'INSERT', when: function (e) { return nativeSelect(e.target); }, run: function () { stepSelect(1); } },
+      { key: 'k', mode: 'INSERT', when: function (e) { return nativeSelect(e.target); }, run: function () { stepSelect(-1); } },
+      { key: 'Enter', mode: 'INSERT', when: function (e) { return nativeSelect(e.target); }, run: commitSelect },
       { key: 'Enter', mode: 'INSERT',
         // multi-line fields (CSV paste) own Enter natively — no advance
         when: function (e) { return !e.target || e.target.tagName !== 'TEXTAREA'; },
@@ -225,7 +265,7 @@
     // parity — clicking a cell moves the cursor and enters INSERT).
     document.addEventListener('focusin', function (e) {
       var t = e.target;
-      if (!t || !(t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+      if (!t || !(t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON')) return;
       for (var zi = 0; zi < zones().length; zi++) {
         var rs = zoneRows(zi);
         for (var ri = 0; ri < rs.length; ri++) {
@@ -233,7 +273,9 @@
           var ci = cs.indexOf(t);
           if (ci >= 0) {
             cur = { z: zi, r: ri, c: ci };
-            setMode(true);
+            // Buttons activate (click), they don't edit — keep NORMAL so the
+            // next h/l/Enter behaves as a NORMAL verb (mouse parity with edit()).
+            if (t.tagName !== 'BUTTON') setMode(true);
             paint();
             return;
           }
@@ -242,7 +284,7 @@
     });
     document.addEventListener('focusout', function (e) {
       var next = e.relatedTarget;
-      if (next && (next.tagName === 'INPUT' || next.tagName === 'SELECT' || next.tagName === 'TEXTAREA')) return;
+      if (next && (next.tagName === 'INPUT' || next.tagName === 'SELECT' || next.tagName === 'TEXTAREA' || next.tagName === 'BUTTON')) return;
       if (editing) setMode(false); // left the form entirely — back to NORMAL
     });
 

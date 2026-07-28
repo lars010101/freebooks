@@ -332,7 +332,23 @@ ${layoutEnd()}
   var rptForm = FB.form.create({
     formId: 'reports',
     zones: [
-      { id: 'filters', rows: function () { return [document.querySelector('.tb-controls-row')]; } }
+      // The filter bar is a single header row whose cells are the bar's
+      // controls in visual order. The default cells() hook only finds
+      // input/select/textarea — buttons (MoM/YoY/download) would be skipped,
+      // so declare them explicitly. Button cells activate on Enter/i (click)
+      // via fb-form's generic button handling (keyboard-ux-spec §8).
+      { id: 'filters', rows: function () { return [document.querySelector('.tb-controls-row')]; },
+        cells: function (row) {
+          return [
+            document.getElementById('rpt-type'),
+            document.getElementById('rpt-period'),
+            document.getElementById('rpt-start'),
+            document.getElementById('rpt-end'),
+            document.getElementById('rpt-mom'),
+            document.getElementById('rpt-yoy'),
+            document.getElementById('rpt-dl-btn')
+          ].filter(Boolean);
+        } }
     ],
     extraBindings: function () {
       return [

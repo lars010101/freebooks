@@ -174,6 +174,16 @@ must NOT pass `keys: true` to FB.dropdown**. `gg` = first row via the K1
 sync). Verbs (`a` add, `x` delete, `w` write, `q` quit) are per-page config
 with `when` predicates.
 
+**Cell-type semantics (K3b fix, ratified by magnus 2026-07-28):** a zone may
+override `cells(row)` to declare arbitrary controls as cells in visual order
+(default hook finds input/select/textarea only). Button cells **activate**
+(`i`/`Enter` = click, focus stays NORMAL) — they never enter INSERT. A native
+`<select>` cell without FB.dropdown gets fb-list-style INSERT option nav:
+`j`/`k` step options (disabled options skipped), `Enter` commits and fires
+`change`, `Esc` reverts to the pre-edit option and fires nothing. Header-only
+forms (reports filter bar: one row, N control cells) therefore navigate
+`h`/`l`, not `j`/`k`.
+
 **journal-new pilot:** zones = reversal panel (present only in reversal
 mode) → header (date/journal/desc) → JV line grid. `a` add line (cursor +
 edit), `x` delete line, `w` post (disabled-guard), `q` quit, `~` reversal

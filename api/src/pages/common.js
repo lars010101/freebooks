@@ -2,6 +2,7 @@
 const { queryPositional } = require('../db');
 const fs = require('fs');
 const path = require('path');
+const { ROUTES } = require('../nav-registry');
 
 function makeQuery() {
   return function query(sql, params = []) {
@@ -109,15 +110,23 @@ function topBarContext(company, activeKey) {
 }
 
 // ── Main layout function ───────────────────────────────────────────────────────
+// Sidebar anchors render from the single-source route registry
+// (api/src/nav-registry.js). Sidebar DOM stays byte-equivalent to the
+// pre-registry hand-written markup: same anchors, hrefs, order, and
+// active-state classes. The registry is also injected as window.FB_ROUTES so
+// fb-core's g-prefix map and the palette nav source consume the same table.
+function _hrefFor(route, company) {
+  return route.replace(':company', company);
+}
+
 function navBar(company, activeKey) {
-  const sidebarItems = [
-    { key: 'dashboard',   icon: '📊', label: 'Dashboard',   href: `/${company}` },
-    { key: 'bank',        icon: '🏦', label: 'Bank',        href: `/${company}/bank` },
-    { key: 'payables',    icon: '📋', label: 'Payables',     href: `/${company}/payables` },
-    { key: 'receivables', icon: '📄', label: 'Receivables',  href: `/${company}/receivables` },
-    { key: 'reports',     icon: '📈', label: 'Reports',      href: `/${company}/reports` },
-    { key: 'settings',    icon: '⚙',  label: 'Settings',     href: `/${company}/settings` },
-  ];
+  const sidebarItems = ROUTES.filter(r => r.sidebar).map(r => ({
+    key: r.key,
+    icon: r.icon,
+    label: r.label,
+    href: _hrefFor(r.route, company),
+    disabled: !!r.disabled,
+  }));
 
   const navHtml = sidebarItems.map(item => {
     const isActive = item.key === activeKey || (activeKey === 'newjv' && item.key === 'dashboard');
@@ -138,7 +147,11 @@ function navBar(company, activeKey) {
   if (activeIdx > 0) prefetchHtml += `<link rel="prefetch" href="${sidebarItems[activeIdx - 1].href}">`;
   if (activeIdx >= 0 && activeIdx < sidebarItems.length - 1) prefetchHtml += `<link rel="prefetch" href="${sidebarItems[activeIdx + 1].href}">`;
 
+  // Inject the route registry for fb-core consumption (g-map + palette).
+  const routesJson = JSON.stringify(ROUTES);
+
   return `${prefetchHtml}
+<script>window.FB_ROUTES = ${routesJson};</script>
 <div id="app-shell" data-company="${company}">
   <aside id="sidebar">
     <div class="sb-header" onclick="fbToggleCompany(event)" style="cursor:pointer" title="Switch company">

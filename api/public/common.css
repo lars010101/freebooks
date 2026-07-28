@@ -347,6 +347,8 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
   cursor: pointer;
 }
 .tb-company-opt:hover { background: var(--bg); }
+/* Keyboard highlight (g c switcher) — mirrors :hover so mouse + keyboard match. */
+.tb-company-opt.tb-company-focus { background: var(--bg); outline: 2px solid var(--border); outline-offset: -2px; }
 
 /* Section divider between nav items */
 .tb-divider {

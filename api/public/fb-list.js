@@ -166,7 +166,6 @@
     var newN = 0;
     var filterQ = '';
     var nav = null;
-    var _gPending = false, _gTimer = null; // gg sequence
     var ADD_ROW = '_add_row'; // render(focusKey) sentinel: focus the add row
     var folded = {}; // tree: foldKey → open-state (truthy=unfolded; absent=folded — collapsed-by-default); flat lists never read this
     var sortState = { field: null, dir: null }; // Task 5b: single-col sort; dir 'asc'|'desc'|null (none = server order)
@@ -1417,21 +1416,15 @@
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
       // G/gg: cursor to bottom/top AND page to absolute bottom/top (Bills parity —
       // scrollIntoView 'nearest' alone under-scrolls long lists in #page-main).
+      // G stays here (cursor to last row + scroll #page-main to bottom). The
+      // gg sequence (top + first row) is now owned by fb-core.js's unified
+      // g-prefix state machine (K1): fb-list registers its first-row behavior
+      // via FB.nav.onGG below, so fb-core's `gg` calls nav.first() on whichever
+      // list is visible. The old per-instance _gPending is deleted.
       { key: 'G', mode: 'NORMAL', run: function () {
           nav.last(); // bottom = add row
           var pm = document.getElementById('page-main');
           if (pm) pm.scrollTo(0, pm.scrollHeight);
-        } },
-      { key: 'g', mode: 'NORMAL', run: function () {
-          if (_gPending) {
-            _gPending = false; clearTimeout(_gTimer); nav.first();
-            var pm = document.getElementById('page-main');
-            if (pm) pm.scrollTo(0, 0);
-            return;
-          }
-          _gPending = true;
-          clearTimeout(_gTimer);
-          _gTimer = setTimeout(function () { _gPending = false; }, 500);
         } },
       // ── INSERT: dropdown open (dropdown-specific bindings precede general ones —
       // FB.keys takes the FIRST binding whose key+mode+when match) ──
@@ -1495,6 +1488,15 @@
     function registerKeys() {
       if (!(window.FB && FB.keys)) return;
       nav = FB.nav.create({ rows: navRows, focusClass: cfg.focusClass || 'nav-row-focus', onFocus: cfg.onFocus || undefined });
+      // K1: register this instance's gg first-row behavior with fb-core's
+      // unified g-prefix machine. Guard: hidden tab panels (settings mounts
+      // six FB.list instances) must no-op — offsetParent is null under
+      // display:none.
+      if (FB.nav.onGG) FB.nav.onGG(function () {
+        var tb = tbody();
+        if (!tb || !tb.offsetParent) return;
+        nav.first();
+      });
       if (FB.keys.unregister) FB.keys.unregister(cfg.keysId);
       var all = bindings.slice();
       if (cfg.extraInsertBindings) {

@@ -357,7 +357,9 @@ ${commonStyle()}
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
         swallow: function() { return recNav.current() || document.querySelector('#rec-body tr'); },
         run: function() { recNav.move(-1); } },
-      { key: 'c', mode: 'NORMAL', hint: 'clear/unclear', hintBar: true,
+      // K1: '~' is the ratified universal toggle verb (Vendors toggle-active
+      // precedent; vim's own toggle-case key) — migrated from 'c' 2026-07-28.
+      { key: '~', mode: 'NORMAL', hint: 'clear/unclear', hintBar: true,
         swallow: _focusedRowCb,
         run: function() {
           var cb = _focusedRowCb();

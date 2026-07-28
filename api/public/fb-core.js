@@ -103,6 +103,117 @@
     return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || !!t.isContentEditable;
   }
 
+  // ── K1: g-prefix go-to map + company switcher (docs/keyboard-ux-spec.md) ──
+  // ONE pending-`g` state lives here (the legacy copies in common.js and
+  // fb-list.js are deleted). Semantics:
+  //   g            arm the 500 ms window (only when no active set claims `g`)
+  //   g g          scroll #page-main to top + fire onGG hooks (list first-row)
+  //   g <letter>   navigate to the registry route carrying that gKey
+  //   g c          toggle the company switcher (own key scope while open)
+  //   g <other>    cancel — the key proceeds through normal dispatch untouched
+  var _gPending = false, _gTimer = null;
+  var _onGG = [];
+
+  function _company() { return location.pathname.split('/')[1] || ''; }
+
+  function _gScrollTop() {
+    var pm = document.getElementById('page-main');
+    if (pm) pm.scrollTo({ top: 0, behavior: 'smooth' });
+    else window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function _gResolve(key) {
+    if (key === 'g') return { type: 'gg' };
+    if (key === 'c') return { type: 'switcher' };
+    var R = window.FB_ROUTES || [];
+    for (var i = 0; i < R.length; i++) {
+      if (R[i].gKey === key) return { type: 'route', route: R[i].route, absolute: !!R[i].absolute };
+    }
+    return null;
+  }
+
+  function _gGo(act) {
+    if (act.type === 'gg') {
+      _gScrollTop();
+      for (var i = 0; i < _onGG.length; i++) { try { _onGG[i](); } catch (e) {} }
+      return;
+    }
+    if (act.type === 'switcher') { switcher.toggle(); return; }
+    if (act.absolute || !window.fbNavigate) {
+      window.location.href = act.absolute ? act.route : act.route.replace(':company', _company());
+      return;
+    }
+    window.fbNavigate(act.route.replace(':company', _company()));
+  }
+
+  // True when an active set has a NORMAL binding for `key` — page claims beat
+  // the g-prefix arm (context-override doctrine).
+  function _setClaims(key) {
+    for (var i = 0; i < _order.length; i++) {
+      var set = _sets[_order[i]];
+      if (!set) continue;
+      if (set.active && !set.active()) continue;
+      var m = set.getMode ? set.getMode() : 'NORMAL';
+      if (m !== 'NORMAL') continue;
+      for (var k = 0; k < set.bindings.length; k++) {
+        if (set.bindings[k].key === key && (set.bindings[k].mode || 'NORMAL') === 'NORMAL') return true;
+      }
+    }
+    return false;
+  }
+
+  // Company switcher (g c). Reuses fbToggleCompany's data path (common.js) —
+  // no duplicated fetch/render. While open it owns every key (help-overlay
+  // precedent): j/k highlight (sticky ends), Enter follows the anchor exactly
+  // like the mouse, Esc closes, g c toggles closed.
+  var switcher = (function () {
+    var _idx = -1;
+    var _sgPending = false, _sgTimer = null;
+
+    function _dd() { return document.getElementById('tb-company-dropdown'); }
+    function isOpen() {
+      var d = _dd();
+      return !!(d && d.style.display !== 'none');
+    }
+    function _opts() {
+      var d = _dd();
+      return d ? Array.prototype.slice.call(d.querySelectorAll('a.tb-company-opt')) : [];
+    }
+    function _highlight(i) {
+      var os = _opts();
+      _idx = i;
+      os.forEach(function (o, k) { o.classList.toggle('tb-company-focus', k === i); });
+      if (os[i] && os[i].scrollIntoView) os[i].scrollIntoView({ block: 'nearest' });
+    }
+    function toggle() {
+      if (!window.fbToggleCompany) return;
+      window.fbToggleCompany(null, function (opened) {
+        if (opened) _highlight(0);
+        else _idx = -1;
+      });
+    }
+    function _close() { if (isOpen()) toggle(); }
+    function key(k) {
+      var os = _opts();
+      if (k === 'Escape') { _close(); return; }
+      if (k === 'j' || k === 'ArrowDown') { if (os.length) _highlight(Math.min(_idx + 1, os.length - 1)); return; }
+      if (k === 'k' || k === 'ArrowUp') { if (os.length) _highlight(Math.max(_idx - 1, 0)); return; }
+      if (k === 'Enter') {
+        var o = os[_idx >= 0 ? _idx : 0];
+        if (o) o.click(); // plain anchor — exactly the mouse path
+        return;
+      }
+      // g c toggles closed (mirror of the open sequence)
+      if (k === 'g') {
+        _sgPending = true; clearTimeout(_sgTimer);
+        _sgTimer = setTimeout(function () { _sgPending = false; }, 500);
+        return;
+      }
+      if (k === 'c' && _sgPending) { _sgPending = false; clearTimeout(_sgTimer); _close(); }
+    }
+    return { toggle: toggle, isOpen: isOpen, key: key };
+  })();
+
   // The set that currently owns dispatch: first registered set whose active()
   // passes (a set without active() is always live, mirroring _dispatch). The
   // help overlay and the `?` trigger resolve their binding table through this
@@ -124,6 +235,43 @@
       e.preventDefault();
       if (e.key === 'Escape' || e.key === '?') help.close();
       return;
+    }
+    // K1: the company switcher owns every key while open (help-overlay
+    // precedent) — page bindings and common.js stay inert until it closes.
+    if (switcher.isOpen()) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      switcher.key(e.key);
+      return;
+    }
+    // K1: g-prefix go-to map. The second key of an armed sequence resolves
+    // here; a non-matching key cancels the prefix and falls through to
+    // normal dispatch untouched.
+    if (_gPending) {
+      _gPending = false;
+      clearTimeout(_gTimer);
+      var gAct = _gResolve(e.key);
+      if (gAct) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        _gGo(gAct);
+        return;
+      }
+    }
+    // Arm the prefix on a bare `g` in NORMAL mode — unless an active page
+    // set claims `g` itself (context-override doctrine).
+    if (e.key === 'g' && !e.ctrlKey && !e.altKey && !e.metaKey
+        && !_isEditableTarget(e) && !_setClaims('g')) {
+      var gcur = _activeSet();
+      var gmode = gcur && gcur.set.getMode ? gcur.set.getMode() : 'NORMAL';
+      if (gmode === 'NORMAL') {
+        _gPending = true;
+        clearTimeout(_gTimer);
+        _gTimer = setTimeout(function () { _gPending = false; }, 500);
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        return;
+      }
     }
     for (var i = 0; i < _order.length; i++) {
       var set = _sets[_order[i]];
@@ -323,6 +471,30 @@
       return out;
     }
 
+    // K1: registry routes (window.FB_ROUTES) — 'Go to …' rows. Dedupe is
+    // carried by the registry itself: routes already covered by an
+    // action-catalog navigate entry (journal/new, bank/import, new-company)
+    // keep palette:false there, so no runtime dedupe is needed here.
+    function _routeCommands() {
+      var R = window.FB_ROUTES || [];
+      var out = [];
+      R.forEach(function (r) {
+        if (!r.palette) return;
+        out.push({
+          id: 'nav:' + r.key,
+          label: 'Go to ' + r.label,
+          key: r.gKey ? 'g ' + r.gKey : '',
+          scope: 'nav',
+          exec: function () {
+            var href = r.absolute ? r.route : r.route.replace(':company', _company());
+            if (r.absolute || !window.fbNavigate) window.location.href = href;
+            else window.fbNavigate(href);
+          }
+        });
+      });
+      return out;
+    }
+
     function _fetchCatalog() {
       if (_catalog) return;
       fetch('/api/actions').then(function (r) { return r.json(); }).then(function (res) {
@@ -357,7 +529,7 @@
 
     function _match(q) {
       var recent = _recent();
-      var all = _pageVerbs().concat(_apiCommands());
+      var all = _pageVerbs().concat(_apiCommands()).concat(_routeCommands());
       var scored = [];
       all.forEach(function (c) {
         var s = _fuzzy(q, c.label);
@@ -586,7 +758,11 @@
         first: function () { var r = opts.rows(); if (r.length) set(r[0]); },
         last: function () { var r = opts.rows(); if (r.length) set(r[r.length - 1]); }
       };
-    }
+    },
+    // K1: fb-list instances register their gg first-row behavior here; the
+    // unified g-prefix machine fires every hook after scrolling #page-main to
+    // top. Hooks must no-op when their list's panel is hidden.
+    onGG: function (fn) { _onGG.push(fn); }
   };
 
   // ── FB.dropdown — the one validated autocomplete (roadmap P2-1) ───────────
@@ -764,7 +940,8 @@
     nav: nav,
     dropdown: dropdown,
     palette: palette,
-    status: status
+    status: status,
+    switcher: switcher
   };
 
   // Legacy global so template-string pages can drop their local esc copies.

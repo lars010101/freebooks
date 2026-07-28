@@ -178,7 +178,11 @@ with `when` predicates.
 override `cells(row)` to declare arbitrary controls as cells in visual order
 (default hook finds input/select/textarea only). Button cells **activate**
 (`i`/`Enter` = click, focus stays NORMAL) — they never enter INSERT. A native
-`<select>` cell without FB.dropdown gets fb-list-style INSERT option nav:
+`<select>` cell without FB.dropdown prefers `el.showPicker()` (K3c): `i`/`Enter`
+focuses the select and opens the native option list — the popup owns keys,
+`change` fires on pick, `Esc` cancels natively, and the form stays NORMAL so
+INSERT bindings don't interfere. When `showPicker` is unavailable or throws
+(headless/test environments), the fb-list-style INSERT fallback applies:
 `j`/`k` step options (disabled options skipped), `Enter` commits and fires
 `change`, `Esc` reverts to the pre-edit option and fires nothing. Header-only
 forms (reports filter bar: one row, N control cells) therefore navigate
@@ -206,6 +210,19 @@ declaring config only:
 - **new-company** — one zone row per field (vertical stack) → periods
   grid. `a` add period, `x` delete period, `w` create. (No sidebar chrome
   on this page — hint rendering no-ops.)
+
+**Soft-nav key lifecycle (K3c, ratified 2026-07-28):** `fbNavigate` swaps
+`#page-main` and re-executes page scripts, but nothing previously tore down
+the departing page's `FB.keys` state — the first-registered set whose
+`active()` passed owned dispatch forever, so every soft-nav destination was
+key-dead. Fix: `FB.keys.resetPage()` (called by `fbNavigate` after the content
+swap, before script re-execution) fires registered teardown callbacks, removes
+all page-registered key sets (everything after the core baseline captured at
+IIFE end), clears the modal scope stack, and resets the g-prefix/gg-hook state.
+`FB.form` registers a teardown for its per-`create()` document-level
+`focusin`/`focusout` listeners, and defaults to an `active()` guard (first
+zone's first row still in the document) as defense-in-depth. The arriving
+page's scripts then register fresh sets against a clean slate.
 
 ## 9. Deferred (later phases)
 

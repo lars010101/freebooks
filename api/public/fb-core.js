@@ -90,6 +90,16 @@
   // dispatch exclusively — see _dispatch. FB.modal is the consumer.
   var _scopeStack = [];
 
+  // K3c: soft-nav key lifecycle. The core baseline is captured once at IIFE
+  // end (before any page script registers). resetPage() removes everything
+  // registered AFTER that snapshot — i.e. all page-level key sets — so the
+  // arriving page starts clean. Teardown callbacks (document-listener
+  // removal etc.) fire first, then sets are cleared, then the g-prefix and
+  // gg-hook state is reset. common.js fbNavigate calls this after the
+  // #page-main swap and BEFORE re-executing scripts.
+  var _pageResetCbs = [];
+  var _baselineOrder = null; // captured at IIFE end — see bottom of file
+
   function _matchBinding(set, e, m) {
     for (var i = 0; i < set.bindings.length; i++) {
       var b = set.bindings[i];
@@ -748,6 +758,32 @@
         el.textContent = groups.map(function (g) { return g.keys + ' ' + g.hint; }).join('  ·  ');
       }
     },
+    // K3c: soft-nav key lifecycle. Called by common.js fbNavigate after the
+    // #page-main content swap and BEFORE re-executing page scripts. Fires
+    // registered teardown callbacks (removing document-level listeners etc.),
+    // then removes every key set registered after the core baseline (all
+    // page-level sets), clears the modal scope stack, and resets the g-prefix
+    // + gg-hook state. The arriving page's scripts then register fresh.
+    resetPage: function () {
+      for (var i = 0; i < _pageResetCbs.length; i++) {
+        try { _pageResetCbs[i](); } catch (e) { /* teardown must not break reset */ }
+      }
+      _pageResetCbs = [];
+      var baseline = _baselineOrder || [];
+      for (var j = _order.length - 1; j >= 0; j--) {
+        if (baseline.indexOf(_order[j]) === -1) {
+          delete _sets[_order[j]];
+          _order.splice(j, 1);
+        }
+      }
+      _scopeStack = [];
+      _gPending = false;
+      clearTimeout(_gTimer);
+      _onGG = [];
+    },
+    // Register a teardown callback fired by resetPage(). FB.form uses this to
+    // remove its per-create document-level focusin/focusout listeners.
+    onPageReset: function (fn) { _pageResetCbs.push(fn); },
     // `?` keyboard-shortcut overlay (P1-6) — exhaustive which-key view of the
     // active binding set. Keyboard trigger is in _dispatch; this is the
     // programmatic/mouse-parity handle (topbar `?` button).
@@ -1087,6 +1123,13 @@
     },
     clear: function () { status.show(''); }
   };
+
+  // K3c: capture the core baseline — every key set registered so far belongs
+  // to the chrome (none, at this point — pages haven't run yet). resetPage()
+  // removes everything registered AFTER this snapshot. Captured here (end of
+  // the core IIFE) rather than at var-declaration so any future chrome-level
+  // registrations are covered.
+  _baselineOrder = _order.slice();
 
   window.FB = {
     util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today },

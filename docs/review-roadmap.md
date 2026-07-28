@@ -91,6 +91,12 @@
 
 ---
 
+## 0j. Status update — 2026-07-28 (K3c)
+
+**K3c landed ✅ (this update):** four owner-reported bugs fixed in one PR. (A) **Soft-nav key lifecycle** — `FB.keys.resetPage()` in `fb-core.js` (teardown callbacks + remove page sets above the core baseline + clear scope stack/g-prefix/gg-hooks); `common.js fbNavigate` calls it after the `#page-main` swap, before script re-execution; `FB.form` registers a teardown for its document-level `focusin`/`focusout` listeners and gets a default `active()` guard (first zone row still in DOM). Fixes key-deadness on bank, opening-balances, and every soft-nav destination after reports. (B) **FB.form cursor highlight** — `.fb-form-cursor` now uses `var(--accent)` background (mirroring `nav-row-focus`) instead of outline-only; theme-aware via CSS vars. (C) **Native select picker on Enter** — `i`/`Enter` on a `<select>` cell calls `el.showPicker()` when available (native popup owns keys, form stays NORMAL); INSERT `j`/`k`-stepping is the fallback when `showPicker` is unavailable or throws. Spec: keyboard-ux-spec §8 K3c.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

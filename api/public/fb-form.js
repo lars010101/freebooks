@@ -120,6 +120,19 @@
       // Button cells activate (click) rather than enter INSERT — generic, so
       // any page declaring a button cell gets Enter/i = click (spec §8).
       if (el.tagName === 'BUTTON') { el.focus(); el.click(); paint(); return; }
+      // Native <select> (no FB.dropdown attached): prefer showPicker() — the
+      // browser's native option list. The popup owns keys; change fires on
+      // pick; Esc cancels natively. Stay NORMAL so our INSERT j/k-stepping
+      // bindings don't fight the open popup. Fallback: when showPicker is
+      // unavailable or throws (headless/test environments), enter INSERT and
+      // use the j/k-stepping mode below.
+      if (el.tagName === 'SELECT' && !ddOpen() && typeof el.showPicker === 'function') {
+        try {
+          el.focus();
+          el.showPicker();
+          return; // stay NORMAL — native popup owns keys
+        } catch (e) { /* fall through to INSERT j/k-stepping */ }
+      }
       el.focus();
       if (el.select) el.select();
       selSnap = (el.tagName === 'SELECT') ? { el: el, idx: el.selectedIndex } : null;
@@ -263,7 +276,7 @@
 
     // Cursor follows focus: mouse click and native Tab both land here (mouse
     // parity — clicking a cell moves the cursor and enters INSERT).
-    document.addEventListener('focusin', function (e) {
+    var _focusin = function (e) {
       var t = e.target;
       if (!t || !(t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON')) return;
       for (var zi = 0; zi < zones().length; zi++) {
@@ -281,11 +294,21 @@
           }
         }
       }
-    });
-    document.addEventListener('focusout', function (e) {
+    };
+    var _focusout = function (e) {
       var next = e.relatedTarget;
       if (next && (next.tagName === 'INPUT' || next.tagName === 'SELECT' || next.tagName === 'TEXTAREA' || next.tagName === 'BUTTON')) return;
       if (editing) setMode(false); // left the form entirely — back to NORMAL
+    };
+    document.addEventListener('focusin', _focusin);
+    document.addEventListener('focusout', _focusout);
+    // K3c: register a teardown so soft-nav (fbNavigate → FB.keys.resetPage)
+    // removes these document-level listeners. Without this, each create()
+    // call on a soft-nav destination would stack another pair and the stale
+    // listeners from the departing page would keep interfering.
+    if (FB.keys.onPageReset) FB.keys.onPageReset(function () {
+      document.removeEventListener('focusin', _focusin);
+      document.removeEventListener('focusout', _focusout);
     });
 
     var api = {
@@ -303,7 +326,16 @@
 
     var all = cfg.extraBindings ? cfg.extraBindings(api).concat(bindings) : bindings;
     FB.keys.register(cfg.formId, {
-      active: cfg.active || undefined,
+      // K3c: defense-in-depth active() guard. If the page doesn't supply one,
+      // default to checking whether this form's first zone still has a row in
+      // the document. After a soft-nav content swap, the departing page's rows
+      // are gone → active() returns false → the set yields dispatch. This is
+      // belt-and-braces alongside resetPage(); either mechanism alone fixes
+      // the key-deadness, but together they're robust against edge cases.
+      active: cfg.active || function () {
+        var rs = zoneRows(0);
+        return rs.length > 0 && document.contains(rs[0]);
+      },
       getMode: function () { return editing ? 'INSERT' : 'NORMAL'; },
       bindings: all
     });

@@ -176,9 +176,26 @@ with `when` predicates.
 
 **journal-new pilot:** zones = reversal panel (present only in reversal
 mode) → header (date/journal/desc) → JV line grid. `a` add line (cursor +
-edit), `x` delete line, `w` post (disabled-button guard → status), `q` quit,
-`~` reversal mode (focus search; arrows/Enter navigate results, Esc peels
-back). `h`/`l` = cell movement here (page has no tabs — context override).
+edit), `x` delete line, `w` post (disabled-guard), `q` quit, `~` reversal
+mode (focus search; arrows/Enter navigate results, Esc peels back). `h`/`l`
+= cell movement here (page has no tabs — context override).
+
+**K3b adoption (shipped 2026-07-28):** four pages onto FB.form, each
+declaring config only:
+
+- **reports** — header-only form (report/period selects + date cells).
+  `~` cycles comparison (none → MoM → YoY; universal toggle). `d` opens the
+  download menu with a `j`/`k`/`Enter`/`Esc` mini-scope (context override —
+  no delete on this page).
+- **bank-import** — wizard zones: bill panel (when open) → upload →
+  mapping → review. `a` attach file, `p` paste CSV, `w` process/post
+  (stage-dispatched), `b` link bill, `Space` toggle skip. Bill-panel
+  results use the reversal-search pattern (arrows/Enter, Esc closes).
+- **opening-balances** — header → filter bar (search cell) → account grid.
+  `w` post (disabled-guard), `~` cycles BS → All → Non-zero.
+- **new-company** — one zone row per field (vertical stack) → periods
+  grid. `a` add period, `x` delete period, `w` create. (No sidebar chrome
+  on this page — hint rendering no-ops.)
 
 ## 9. Deferred (later phases)
 

@@ -134,6 +134,34 @@ function createCompany() {
     })
     .catch(e => { msg.textContent = e.message; msg.className = 'msg err'; document.getElementById('btn-create').disabled = false; });
 }
+
+// ── FB.form (K3b, keyboard-ux-spec §8) — company fields (one zone row per
+// .field-row, matching the vertical stack) → periods grid. a = add period,
+// x = delete period, w = create company. No sidebar chrome on this page —
+// renderHints no-ops on the missing #sb-hints element.
+var ncForm = FB.form.create({
+  formId: 'new-company',
+  zones: [
+    { id: 'company', rows: function () { return Array.prototype.slice.call(document.querySelectorAll('.field-row')); } },
+    { id: 'periods', rows: function () { return Array.prototype.slice.call(document.querySelectorAll('#periods-body tr')); } }
+  ],
+  verbs: {
+    add: { key: 'a', hint: 'add period', run: function (api) {
+      addRow();
+      api.moveTo(1, api.zoneRows(1).length - 1, 0, true);
+    } },
+    delete: { key: 'x', hint: 'delete period',
+      when: function (api) { return api.cur().z === 1; },
+      run: function (api) {
+        var tr = api.zoneRows(1)[api.cur().r];
+        if (!tr) return;
+        tr.remove();
+        api.refresh();
+      } },
+    write: { key: 'w', hint: 'create', run: function () { createCompany(); } }
+  }
+});
+FB.keys.renderHints('new-company', document.getElementById('sb-hints'), { layout: 'list' });
 </script>
 </body>
 </html>`;

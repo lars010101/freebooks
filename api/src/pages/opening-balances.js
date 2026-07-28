@@ -301,6 +301,44 @@ ${commonStyle()}
         document.getElementById('post-status').style.color = '#cc2222';
       });
   }
+
+  // ── FB.form (K3b, keyboard-ux-spec §8) — header → filter bar → the ──
+  // account grid. w = post (disabled-guard), ~ cycles the account filter
+  // (BS → All → Non-zero — universal toggle verb).
+  var obForm = FB.form.create({
+    formId: 'opening-balances',
+    zones: [
+      { id: 'header', rows: function () { return [document.querySelector('.ob-header-grid')]; } },
+      { id: 'filters', rows: function () { return [document.querySelector('.filter-btns')]; },
+        cells: function (rowEl) { return [document.getElementById('acct-search')]; } },
+      { id: 'grid', rows: function () {
+          return Array.prototype.slice.call(document.querySelectorAll('#ob-tbody tr'))
+            .filter(function (tr) { return !!tr.querySelector('input'); });
+        } }
+    ],
+    verbs: {
+      write: { key: 'w', hint: 'post', run: function () {
+        var btn = document.getElementById('btn-post');
+        if (btn.disabled) {
+          var st = document.getElementById('post-status');
+          st.textContent = 'Not balanced yet — see Difference';
+          st.style.color = '#cc2222';
+          return;
+        }
+        postBalances();
+      } }
+    },
+    extraBindings: function (api) {
+      return [
+        { key: '~', mode: 'NORMAL', hint: 'filter', hintBar: true, run: function () {
+            var next = currentFilter === 'bs' ? 'all' : currentFilter === 'all' ? 'nonzero' : 'bs';
+            setFilter(next);
+            api.refresh();
+          } }
+      ];
+    }
+  });
+  FB.keys.renderHints('opening-balances', document.getElementById('sb-hints'), { layout: 'list' });
 <\/script>
 ${layoutEnd()}
 </body>

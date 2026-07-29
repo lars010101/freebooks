@@ -418,10 +418,10 @@ async function handleCoa(ctx, action) {
     }
 
     if (existing.length > 0) {
-      await exec(`UPDATE accounts SET account_name=@name, account_subtype=@subtype, cf_category=@cf, is_active=@active, default_role=@role WHERE company_id=@companyId AND account_code=@code`,
-        { companyId, code: account.account_code, name: account.account_name, subtype: account.account_subtype || null, cf: account.cf_category || null, active: account.is_active !== false, role: roleValue });
+      await exec(`UPDATE accounts SET account_name=@name, account_type=@type, account_subtype=@subtype, cf_category=@cf, is_active=@active, default_role=@role, effective_from=COALESCE(@effFrom, effective_from) WHERE company_id=@companyId AND account_code=@code`,
+        { companyId, code: account.account_code, name: account.account_name, type: account.account_type, subtype: account.account_subtype || null, cf: account.cf_category || null, active: account.is_active !== false, role: roleValue, effFrom: account.effective_from || null });
     } else {
-      await bulkInsert('accounts', [{ company_id: companyId, account_code: account.account_code, account_name: account.account_name, account_type: account.account_type, account_subtype: account.account_subtype || null, cf_category: account.cf_category || null, is_active: account.is_active !== false, default_role: roleValue, effective_from: now, effective_to: null, created_at: now }]);
+      await bulkInsert('accounts', [{ company_id: companyId, account_code: account.account_code, account_name: account.account_name, account_type: account.account_type, account_subtype: account.account_subtype || null, cf_category: account.cf_category || null, is_active: account.is_active !== false, default_role: roleValue, effective_from: account.effective_from || now, effective_to: null, created_at: now }]);
     }
     return { saved: true, default_role: roleValue };
   }

@@ -527,7 +527,7 @@
   {
     "account_code": "8999",
     "account_name": "Årets resultat",
-    "account_type": "Expense",
+    "account_type": "Closing",
     "account_subtype": "Net Result",
     "cf_category": null
   }

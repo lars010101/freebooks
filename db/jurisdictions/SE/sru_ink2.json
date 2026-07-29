@@ -1,0 +1,17 @@
+{
+  "comment": "INK2 (2025P4) account→field mapping. INK2R: field → {accounts, kind} where kind drives sign: asset=DR-CR at year end, equity|liability=CR-DR at year end, cost=DR-CR within year, income=CR-DR within year. INK2S: field → {accounts, kind: 'income' adjustment, computed over the fiscal year}.",
+  "INK2R": {
+    "7251": { "accounts": ["1510"], "kind": "asset" },
+    "7261": { "accounts": ["1630", "1680"], "kind": "asset" },
+    "7281": { "accounts": ["1910", "1930", "1940", "1980"], "kind": "asset" },
+    "7301": { "accounts": ["2081"], "kind": "equity" },
+    "7302": { "accounts": ["2091", "2098", "2099"], "kind": "equity" },
+    "7365": { "accounts": ["2440"], "kind": "liability" },
+    "7368": { "accounts": ["2510"], "kind": "liability" },
+    "7513": { "accounts": ["6570"], "kind": "cost" },
+    "7417": { "accounts": ["8310", "8314"], "kind": "income" }
+  },
+  "INK2S": {
+    "7754": { "accounts": ["8314"], "kind": "income" }
+  }
+}

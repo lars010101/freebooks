@@ -28,6 +28,7 @@ const { handleAdminQuery } = require('./pages/admin');
 const { makeQuery } = require('./pages/common');
 const { handleReportsHubPage } = require('./pages/reports-hub');
 const { handleReceivablesPage } = require('./pages/receivables');
+const { handleSruInk2, handleSruInfo } = require('./sru');
 
 // ── Route: GET /api/:company/report ──────────────────────────────────────────
 async function handleReport(req, res) {
@@ -144,6 +145,9 @@ function mountReportRoutes(app) {
   app.get('/api/:company/periods', handlePeriods);
   app.get('/api/:company/accounts', handleAccounts);
   app.get('/api/:company/vat-codes', handleVatCodes);
+  // SRU (Skatteverket INK2) export — blanketter.sru + INFO.SRU.
+  app.get('/api/:company/sru/ink2', handleSruInk2);
+  app.get('/api/:company/sru/info', handleSruInfo);
   app.get('/:company/journal/new', handleJournalNewPage);
   app.get('/:company/bill/edit', handleBillEditPage);
   app.get('/:company/bill/:id', handleBillDetailPage);

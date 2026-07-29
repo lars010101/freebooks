@@ -118,11 +118,22 @@ on them swallowed the real `Go to` rows.)
 Ratified: `~` is THE toggle verb framework-wide (precedents: Vendors
 `~` toggle-active, `payables-vendors.js`; vim's own toggle-case key).
 
+**Semantics (ratified 2026-07-28, magnus): `~` toggles the state of the
+ACTIVE CELL / focused control — it never cycles a group.** Toggle-button
+groups (opening-balances filters, reports MoM/YoY) are ordinary `h`/`l`-
+navigable button cells in their FB.form row; the focused button carries
+the standard cell cursor, `~` flips that button alone, and `Enter`/`i`
+activate it (fb-form's generic button-click). Radio-style groups keep
+their own on/off semantics per button (re-toggle returns to neutral —
+e.g. reports comparison: `~` on active MoM → none).
+
 - **Bank transaction panel: `c` → `~` migrated 2026-07-28** (clear/unclear).
   `c` is released; on FB.list filter surfaces `c` remains 'clear filters'
   (different semantic, unchanged).
-- Future toggle semantics (reconcile clear/unclear, journal-new reversal
-  mode, reports comparison toggles) bind `~` — no per-screen invention.
+- Journal-new `~` (reversal mode) is a page-mode toggle, not a button
+  group — documented in §8, unchanged.
+- Future toggle semantics (reconcile clear/unclear, further comparison
+  toggles) bind `~` — no per-screen invention.
 
 ## 6. Opening Balances placement
 
@@ -134,12 +145,17 @@ account. Ratified: linked from **Settings → Company** (setup box above the
 danger zone), NOT the sidebar; palette-reachable via §4. It carries no `g`
 letter (run-once screen — letters are for high-frequency routes).
 
-View filters (K1 review 2026-07-28): **Balance Sheet · P&L · All · Non-Zero**,
-`~` cycles in that order. The P&L view exists for mid-year migration — YTD
-income/expense openings are required for a correct full-year P&L (QBO/Xero
-conversion pattern). The screen is FB.form (a posting grid with editable
-debit/credit cells and a balance guard), not FB.list — the view-filter is
-the FB.form pattern; column filters are an FB.list concept.
+View filters (K1 review 2026-07-28; toggle model ratified same day):
+**Balance Sheet · P&L · Non-Zero Only** — independent on/off buttons,
+`h`/`l`-navigable cells of the filter row, `~` flips the focused one.
+BS + P&L both on = all accounts (the old "All Accounts" button is
+removed as redundant); both off = empty grid (strict checkbox semantics,
+no magic case); Non-Zero ANDs with the type filter. The P&L view exists
+for mid-year migration — YTD income/expense openings are required for a
+correct full-year P&L (QBO/Xero conversion pattern). The screen is
+FB.form (a posting grid with editable debit/credit cells and a balance
+guard), not FB.list — the view-filter is the FB.form pattern; column
+filters are an FB.list concept.
 
 ## 7. Modal keyboard contract (K2 — shipped 2026-07-28)
 
@@ -204,13 +220,17 @@ with `when` predicates.
 override `cells(row)` to declare arbitrary controls as cells in visual order
 (default hook finds input/select/textarea only). Button cells **activate**
 (`i`/`Enter` = click, focus stays NORMAL) — they never enter INSERT. A native
-`<select>` cell without FB.dropdown prefers `el.showPicker()` (K3c): `i`/`Enter`
-focuses the select and opens the native option list — the popup owns keys,
-`change` fires on pick, `Esc` cancels natively, and the form stays NORMAL so
-INSERT bindings don't interfere. When `showPicker` is unavailable or throws
-(headless/test environments), the fb-list-style INSERT fallback applies:
-`j`/`k` step options (disabled options skipped), `Enter` commits and fires
-`change`, `Esc` reverts to the pre-edit option and fires nothing. Header-only
+`<select>` cell without FB.dropdown (re-ratified 2026-07-28, supersedes the
+K3c showPicker design): `i`/`Enter` enters INSERT and steps options
+programmatically — `j`/`k` step (disabled options skipped), `Enter` commits
+and fires `change`, `Esc` reverts to the pre-edit option and fires nothing.
+The OS popup (`el.showPicker()`) is never opened from the keyboard: it was
+user-activation-dependent (the same keypress took different paths across
+runs — the root cause of an untestable, environment-dependent select), the
+open popup owns keys natively (`j` becomes typeahead, not vim stepping),
+and `_focusin` had already flipped the mode store to INSERT, contradicting
+the "stay NORMAL" design. Mouse click still opens the native popup
+(browser default — mouse parity unchanged). Header-only
 forms (reports filter bar: one row, N control cells) therefore navigate
 `h`/`l`, not `j`/`k`.
 
@@ -223,16 +243,18 @@ mode (focus search; arrows/Enter navigate results, Esc peels back). `h`/`l`
 **K3b adoption (shipped 2026-07-28):** four pages onto FB.form, each
 declaring config only:
 
-- **reports** — header-only form (report/period selects + date cells).
-  `~` cycles comparison (none → MoM → YoY; universal toggle). `d` opens the
+- **reports** — header-only form (report/period selects + date cells;
+  MoM/YoY/download are button cells). `~` toggles the focused comparison
+  button (re-toggle → none; §5). `d` opens the
   download menu with a `j`/`k`/`Enter`/`Esc` mini-scope (context override —
   no delete on this page).
 - **bank-import** — wizard zones: bill panel (when open) → upload →
   mapping → review. `a` attach file, `p` paste CSV, `w` process/post
   (stage-dispatched), `b` link bill, `Space` toggle skip. Bill-panel
   results use the reversal-search pattern (arrows/Enter, Esc closes).
-- **opening-balances** — header → filter bar (search cell) → account grid.
-  `w` post (disabled-guard), `~` cycles BS → All → Non-zero.
+- **opening-balances** — header → filter bar (BS/P&L/Non-Zero toggle
+  buttons + search, all `h`/`l` cells) → account grid.
+  `w` post (disabled-guard), `~` toggles the focused filter button (§5).
 - **new-company** — one zone row per field (vertical stack) → periods
   grid. `a` add period, `x` delete period, `w` create. (No sidebar chrome
   on this page — hint rendering no-ops.)
@@ -252,9 +274,10 @@ page's scripts then register fresh sets against a clean slate.
 
 **ArrowDown/ArrowUp parity (K3d, ratified 2026-07-28):** in NORMAL on a
 native `<select>` cell, `ArrowDown`/`ArrowUp` behave like `i`/`Enter` —
-open via `el.showPicker()` or fall through to the INSERT j/k-stepping
-fallback. In INSERT stepping mode, `ArrowDown`/`ArrowUp` are aliases for
-`j`/`k`. Text/date inputs' arrow keys are untouched (native caret behavior).
+enter INSERT and j/k-step (no OS popup from the keyboard, per the §8
+re-ratification above). In INSERT stepping mode, `ArrowDown`/`ArrowUp` are
+aliases for `j`/`k`. Text/date inputs' arrow keys are untouched (native
+caret behavior).
 
 **NORMAL-owns-cursor rule (K3e, ratified 2026-07-28):** NORMAL owns the
 cursor; no field holds DOM focus in NORMAL. INSERT is entered only via

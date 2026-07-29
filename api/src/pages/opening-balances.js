@@ -87,10 +87,9 @@ ${commonStyle()}
 
     <div class="filter-btns">
       <span style="font-weight:600;font-size:10pt;color:#555;margin-right:4px">Show:</span>
-      <button id="btn-filter-bs" class="active" onclick="setFilter('bs')">Balance Sheet</button>
-      <button id="btn-filter-pl" onclick="setFilter('pl')">P&amp;L</button>
-      <button id="btn-filter-all" onclick="setFilter('all')">All Accounts</button>
-      <button id="btn-filter-nonzero" onclick="setFilter('nonzero')">Non-Zero Only</button>
+      <button id="btn-filter-bs" class="active" onclick="toggleFilter('bs')" aria-pressed="true">Balance Sheet</button>
+      <button id="btn-filter-pl" onclick="toggleFilter('pl')" aria-pressed="false">P&amp;L</button>
+      <button id="btn-filter-nonzero" onclick="toggleFilter('nz')" aria-pressed="false">Non-Zero Only</button>
       <input type="text" id="acct-search" placeholder="Search account…" style="padding:5px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt;width:200px"
         oninput="renderTable()">
     </div>
@@ -137,7 +136,10 @@ ${commonStyle()}
   var journalsList = [];
   var drVals = {};
   var crVals = {};
-  var currentFilter = 'bs';
+  // Independent toggle filters (magnus 2026-07-28): BS and P&L are separate
+  // on/off buttons — both on = all accounts ("All" button redundant), both
+  // off = empty grid (strict checkbox semantics, no magic case). nz ANDs.
+  var filtState = { bs: true, pl: false, nz: false };
 
   var BS_TYPES = ['Asset', 'Liability', 'Equity'];
   // P&L view (magnus K1 review 2026-07-28): mid-year migration needs YTD
@@ -172,11 +174,15 @@ ${commonStyle()}
       });
     }).catch(function(){});
 
-  function setFilter(f) {
-    currentFilter = f;
-    ['bs','pl','all','nonzero'].forEach(function(x){
-      var btn = document.getElementById('btn-filter-' + x);
-      if (btn) btn.className = (x === f) ? 'active' : '';
+  function toggleFilter(k) {
+    filtState[k] = !filtState[k];
+    var ids = { bs: 'btn-filter-bs', pl: 'btn-filter-pl', nz: 'btn-filter-nonzero' };
+    Object.keys(ids).forEach(function(x){
+      var btn = document.getElementById(ids[x]);
+      if (btn) {
+        btn.className = filtState[x] ? 'active' : '';
+        btn.setAttribute('aria-pressed', filtState[x] ? 'true' : 'false');
+      }
     });
     renderTable();
   }
@@ -185,11 +191,15 @@ ${commonStyle()}
     var search = document.getElementById('acct-search').value.trim().toLowerCase();
     var rows = accountsList;
 
-    if (currentFilter === 'bs') {
-      rows = rows.filter(function(a){ return BS_TYPES.indexOf(a.account_type) >= 0; });
-    } else if (currentFilter === 'pl') {
-      rows = rows.filter(function(a){ return PL_TYPES.indexOf(a.account_type) >= 0; });
-    } else if (currentFilter === 'nonzero') {
+    // Type filter: both on = all accounts (skip); both off = empty (strict).
+    if (!(filtState.bs && filtState.pl)) {
+      rows = rows.filter(function(a){
+        var isBS = BS_TYPES.indexOf(a.account_type) >= 0;
+        var isPL = PL_TYPES.indexOf(a.account_type) >= 0;
+        return (filtState.bs && isBS) || (filtState.pl && isPL);
+      });
+    }
+    if (filtState.nz) {
       rows = rows.filter(function(a){
         return (Number(drVals[a.account_code]||0) > 0) || (Number(crVals[a.account_code]||0) > 0);
       });
@@ -309,14 +319,20 @@ ${commonStyle()}
   }
 
   // ── FB.form (K3b, keyboard-ux-spec §8) — header → filter bar → the ──
-  // account grid. w = post (disabled-guard), ~ cycles the account filter
-  // (BS → All → Non-zero — universal toggle verb).
+  // account grid. w = post (disabled-guard). The filter buttons are h/l-
+  // navigable cells of the filters row (standard cell cursor highlight);
+  // ~ toggles the FOCUSED button only — universal toggle verb = active
+  // cell's state, never a group cycle (magnus 2026-07-28).
   var obForm = FB.form.create({
     formId: 'opening-balances',
     zones: [
       { id: 'header', rows: function () { return [document.querySelector('.ob-header-grid')]; } },
       { id: 'filters', rows: function () { return [document.querySelector('.filter-btns')]; },
-        cells: function (rowEl) { return [document.getElementById('acct-search')]; } },
+        cells: function (rowEl) {
+          return ['btn-filter-bs', 'btn-filter-pl', 'btn-filter-nonzero', 'acct-search']
+            .map(function (id) { return document.getElementById(id); })
+            .filter(Boolean);
+        } },
       { id: 'grid', rows: function () {
           return Array.prototype.slice.call(document.querySelectorAll('#ob-tbody tr'))
             .filter(function (tr) { return !!tr.querySelector('input'); });
@@ -336,10 +352,11 @@ ${commonStyle()}
     },
     extraBindings: function (api) {
       return [
-        { key: '~', mode: 'NORMAL', hint: 'filter', hintBar: true, run: function () {
-            var next = currentFilter === 'bs' ? 'pl' : currentFilter === 'pl' ? 'all' : currentFilter === 'all' ? 'nonzero' : 'bs';
-            setFilter(next);
-            api.refresh();
+        { key: '~', mode: 'NORMAL', hint: 'toggle filter', hintBar: true, run: function () {
+            var el = api.cellEl();
+            if (!el || el.tagName !== 'BUTTON') return; // toggle the focused control only
+            el.click();       // → toggleFilter → renderTable
+            api.refresh();    // re-clamp cursor: grid row count changed
           } }
       ];
     }

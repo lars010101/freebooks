@@ -559,6 +559,19 @@
       return;
     }
 
+    // ── A (shift-a) → page-registered "attach" action (K4: A = attach
+    // everywhere, keyboard-ux-spec §8). Only pages with attachments register
+    // fbKeyActions.attach; elsewhere A is inert. FB.keys pages swallow the
+    // key at capture before this legacy bubble path runs.
+    if (e.key === 'A') {
+      if (vendorActive) return;
+      if (window.fbKeyActions && typeof window.fbKeyActions['attach'] === 'function') {
+        e.preventDefault();
+        window.fbKeyActions['attach']();
+      }
+      return;
+    }
+
     // ── d → delete focused row (page-registered) ──
     if (e.key === 'd') {
       if (vendorActive) return;

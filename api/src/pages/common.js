@@ -78,6 +78,7 @@ function commonStyle() {
 <script src="/public/fb-core.js?v=${assetV('fb-core.js')}"></script>
 <script src="/public/fb-list.js?v=${assetV('fb-list.js')}"></script>
 <script src="/public/fb-form.js?v=${assetV('fb-form.js')}"></script>
+<script src="/public/fb-attachments.js?v=${assetV('fb-attachments.js')}"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📒</text></svg>">`;
 }
 

@@ -35,6 +35,13 @@ ${commonStyle()}
   .btn-sm:hover { background:#e8e8e8; }
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
   button.btn-primary:hover:not(:disabled) { background:#333; }
+  /* K4: shared attachment-queue rows (fb-attachments.js classes) */
+  .fb-attach-row { display:flex; justify-content:space-between; align-items:center; padding:3px 6px; border-bottom:1px solid #f5f5f5; border-radius:3px; }
+  .fb-attach-row .fb-att-meta { color:#888; font-size:8.5pt; }
+  .fb-attach-row .fb-att-del { border:none; background:none; cursor:pointer; color:#cc4444; font-size:11pt; padding:0 4px; }
+  .fb-attach-row.fb-form-row-focus { background:#1a1a1a !important; color:#fff; }
+  .fb-attach-row.fb-form-row-focus .fb-att-meta { color:rgba(255,255,255,.6); }
+  .fb-attach-row.fb-form-row-focus .fb-att-del { color:#ff8888; }
 </style>
 </head>
 <body>${navBar(company, 'newjv')}
@@ -488,11 +495,14 @@ ${commonStyle()}
     var el = document.getElementById('jv-pending-list');
     if (!el) return;
     if (!pendingJvAttachments.length) { el.innerHTML = '<span style="color:#aaa">No files queued</span>'; return; }
+    // K4: shared .fb-attach-row classes (fb-attachments.js) — the queue is a
+    // FB.form zone, so j/k paint the cursor row and x deletes (data-att-id =
+    // staged index, read by the delete verb).
     el.innerHTML = pendingJvAttachments.map(function(f, i) {
       var kb = (f.size / 1024).toFixed(1);
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #f5f5f5">'
-        + '<span>\ud83d\udcc4 ' + f.name + ' <span style="color:#888;font-size:8.5pt">(' + kb + ' KB)</span></span>'
-        + '<button onclick="removeJvAttachment(' + i + ')" style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:11pt;padding:0 4px">&times;</button>'
+      return '<div class="fb-attach-row" data-att-id="' + i + '">'
+        + '<span class="fb-att-name">\ud83d\udcc4 ' + f.name + ' <span class="fb-att-meta">(' + kb + ' KB)</span></span>'
+        + '<button class="fb-att-del" onclick="removeJvAttachment(' + i + ')" title="delete (x)">&times;</button>'
         + '</div>';
     }).join('');
   }
@@ -518,17 +528,29 @@ ${commonStyle()}
     zones: [
       { id: 'reversal', rows: function () { return reversalMode ? [document.getElementById('reversal-panel')] : []; } },
       { id: 'header',   rows: function () { return [document.querySelector('.header-fields')]; } },
+      // K4: the pending-attachment queue is a form zone (read-only rows, no
+      // cells) — j/k reach it, x removes the cursor row via the delete verb.
+      { id: 'attachments', rows: function () { return Array.from(document.querySelectorAll('#jv-pending-list .fb-attach-row')); },
+        cells: function () { return []; } },
       { id: 'lines',    rows: function () { return Array.from(document.querySelectorAll('#lines-body tr')); } }
     ],
     verbs: {
       add: { key: 'a', hint: 'add line', run: function (api) {
         addLine(); updateTotals();
-        api.moveTo(2, api.zoneRows(2).length - 1, 0, true);
+        api.moveTo(3, api.zoneRows(3).length - 1, 0, true);
       } },
-      delete: { key: 'x', hint: 'delete line',
-        when: function (api) { return api.cur().z === 2; },
+      delete: { key: 'x', hint: 'delete',
+        when: function (api) { var z = api.cur().z; return z === 2 || z === 3; },
         run: function (api) {
-          var tr = api.zoneRows(2)[api.cur().r];
+          if (api.cur().z === 2) {
+            // attachments zone — remove the staged file (K4)
+            var row = api.zoneRows(2)[api.cur().r];
+            if (!row) return;
+            removeJvAttachment(parseInt(row.dataset.attId, 10));
+            api.refresh();
+            return;
+          }
+          var tr = api.zoneRows(3)[api.cur().r];
           if (!tr) return;
           tr.remove(); updateTotals(); api.refresh();
         } },
@@ -542,6 +564,12 @@ ${commonStyle()}
     extraBindings: function (api) {
       function searchFocused() { return document.activeElement === document.getElementById('reversal-search'); }
       return [
+        // K4: A = attach everywhere (keyboard-ux-spec §8) — opens the file
+        // picker for the pending-attachment queue
+        { key: 'A', mode: 'NORMAL', hint: 'attach', hintBar: true, run: function () {
+            var inp = document.getElementById('jv-pre-attach-input');
+            if (inp) inp.click();
+          } },
         { key: '~', mode: 'NORMAL', hint: 'reversal', hintBar: true, run: function () {
             toggleReversalMode();
             api.refresh();

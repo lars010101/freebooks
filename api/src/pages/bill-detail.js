@@ -351,7 +351,10 @@ window.fbKeyActions = {
       if (inp) { inp.focus(); inp.select(); }
     }
   },
-  'new': function() {
+  'attach': function() {
+    // K4: A = attach everywhere (keyboard-ux-spec §8). The legacy common.js
+    // dispatcher routes shift-a to fbKeyActions.attach; the old 'new' entry
+    // (a = attach) is retired on this page — freed for add-line semantics.
     var inp = document.getElementById('attach-input');
     if (inp) inp.click();
   },

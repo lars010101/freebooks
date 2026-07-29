@@ -48,51 +48,23 @@
       "notes": [
         {
           "id": "principer",
-          "title": "Not 1 — Redovisningsprinciper",
-          "template": "Årsredovisningen för {company_name}, {org_nr}, har upprättats i enlighet med årsredovisningslagen (1995:1554) och Bokföringsnämndens allmänna råd (BFNAR 2016:10) om årsredovisning i mindre företag. Räkenskapsåret omfattar {period_start} – {period_end}. Redovisningsvalutan är svenska kronor (SEK). Bolaget är ett mindre företag enligt årsredovisningslagen och upprättar därför årsredovisning enligt K2-regelverket; förvaltningsberättelse upprättas inte."
-        },
-        {
-          "id": "resultatdisposition",
-          "title": "Not 2 — Förslag till resultatdisposition",
-          "template": "Styrelsen föreslår att årets resultat, {rr_result} kr, balanseras in i räkningarna. Till årsstämman förfogande står balanserat resultat om {balanserat} kr."
-        },
-        {
-          "id": "anstallda",
-          "title": "Not 3 — Medelantal anställda",
-          "template": "Medelantalet anställda under räkenskapsåret har varit {employees_avg} ({employees_men} män och {employees_women} kvinnor)."
-        },
-        {
-          "id": "loner",
-          "title": "Not 4 — Löner och ersättningar",
-          "template": "Löner och ersättningar har under räkenskapsåret uppgått till {salaries_total} kr, varav {salaries_board} kr till styrelse och verkställande direktör. Sociala avgifter har uppgått till {social_total} kr, varav pensionskostnader {pension_total} kr."
-        },
-        {
-          "id": "aktiekapital",
-          "title": "Not 5 — Aktiekapital",
-          "template": "Aktiekapitalet uppgår till {aktiekapital} kr, fördelat på {shares_total} aktier med ett kvotvärde om {quota_value} kr."
+          "title": "Not 1 Redovisningsprinciper",
+          "template": "Årsredovisningen är upprättad i enlighet med årsredovisningslagen och Bokföringsnämndens allmänna råd BFNAR 2016:10 Årsredovisning i mindre företag."
         },
         {
           "id": "eget_kapital",
-          "title": "Not 6 — Förändring av eget kapital",
-          "type": "equity_reconciliation"
-        },
-        {
-          "id": "styrelse",
-          "title": "Not 7 — Styrelsen",
-          "template": "Styrelsen bestod vid räkenskapsårets slut av {board_men} män och {board_women} kvinnor. Antalet suppleanter var {deputies}."
-        },
-        {
-          "id": "sakerheter",
-          "title": "Not 8 — Säkerheter och eventualförpliktelser",
-          "template": "Ställda säkerheter och eventualförpliktelser: {pledged}"
-        },
-        {
-          "id": "handelser",
-          "title": "Not 9 — Väsentliga händelser efter räkenskapsårets slut",
-          "template": "{subsequent}"
+          "title": "Förändring av eget kapital",
+          "type": "equity_reconciliation",
+          "hidden": true
         }
       ],
+      "fb": {
+        "verksamhet": "{verksamhet}",
+        "handelser": "{handelser_ar}"
+      },
       "facts": {
+        "verksamhet": "Bolaget bedriver konsultverksamhet inom företags- och organisationsutveckling samt äger och utvecklar bolag. Företaget har sitt säte i Västra Götalands län, Göteborg. Bolaget är vilande.",
+        "handelser_ar": "Inga väsentliga händelser utöver den löpande verksamheten har inträffat under räkenskapsåret.",
         "employees_avg": 0,
         "employees_men": 0,
         "employees_women": 0,
@@ -100,14 +72,18 @@
         "salaries_board": 0,
         "social_total": 0,
         "pension_total": 0,
-        "board_men": 1,
+        "board_men": 2,
         "board_women": 0,
         "deputies": 0,
         "shares_total": 50000,
         "quota_value": 1,
         "pledged": "Inga.",
         "subsequent": "Inga väsentliga händelser har inträffat efter räkenskapsårets slut.",
-        "board_names": ["Magnus Davidson"]
+        "board_names": ["Lars Magnus Davidson", "Lars Gunnar Natanael Davidson"],
+        "board_members": [
+          { "name": "Lars Magnus Davidson", "role": "Styrelseordförande" },
+          { "name": "Lars Gunnar Natanael Davidson", "role": "Styrelseledamot" }
+        ]
       }
     }
   }

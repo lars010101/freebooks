@@ -168,6 +168,21 @@ async function renderAnnualReport(query, companyId, start, end, opts = {}) {
     }
   }
 
+  // RR vs BS consistency: the RR column is movement-based; if a prior year's result was
+  // inherited via opening balances (no rev/exp entries that year), the RR comparative shows 0
+  // while the BS Årets resultat line shows the inherited amount. Flag rather than fabricate.
+  const rr0 = statements.find((s) => s.kind === 'pl');
+  const rrRes = rr0 && rr0.rows.find((r) => r.id === 'arets_resultat' || r.id === 'profit_for_year');
+  const bsAr = bs && bs.rows.find((r) => r.id === 'arets_resultat_br');
+  if (rrRes && bsAr) {
+    rrRes.cols.forEach((v, i) => {
+      const bsV = bsAr.cols[i] || 0;
+      if (Math.abs(v - bsV) > 0.005) {
+        warnings.push(`${periods[i].label}: resultaträkningen visar ${v.toFixed(2)} men balansräkningens årets resultat är ${bsV.toFixed(2)} — det jämförelseårets resultat förvärvades via ingångsvärden och rörelsens konton saknar bokförda poster det året.`);
+      }
+    });
+  }
+
   // Notes templating. Facts = descriptor variant.facts overridden by period.tax_attrs.
   const facts = Object.assign({}, variant.facts || {}, periodAttrs);
   const equityLine = bs && bs.rows.find((r) => r.id === 'aktiekapital' || r.id === 'share_capital');
@@ -198,34 +213,145 @@ async function renderAnnualReport(query, companyId, start, end, opts = {}) {
   // Computed note types.
   const computedNote = (n) => {
     if (n.type === 'equity_reconciliation') {
-      // K2 mandatory equity reconciliation: opening + result = closing, per column.
-      const cols = periods.map((_, ci) => {
-        const closing = ekTotal ? ekTotal.cols[ci] : 0;
+      // Mirrors the filed Bolagsverket layout. Per year-column:
+      //   Belopp vid årets ingång | Balanseras i ny räkning | Årets resultat | Belopp vid årets utgång
+      // Sources (all from the journal, exact):
+      //   ingång balances  = equity account balances at (period start − 1 day), already fetched in perPeriod
+      //   årets resultat   = PL movement for the column (consistent with the RR statement)
+      //   utgång           = equity balances at period end (= BS column)
+      // The "Balanseras i ny räkning" row moves the prior-year result from the Årets resultat
+      // column into Balanserat — it is derived, not queried, and nets to zero in Totalt.
+      const bsLine = (id) => bs && bs.rows.find((r) => r.id === id);
+      const ak = (bsLine('aktiekapital') || { cols: [0, 0] }).cols;
+      const balRet = (bsLine('balanserat') || { cols: [0, 0] }).cols;
+      const arBr = (bsLine('arets_resultat_br') || { cols: [0, 0] }).cols;
+      const sumEk = (bsLine('summa_ek') || { cols: [0, 0] }).cols;
+
+      // Opening equity per column: query balances at start−1 for the three equity groups.
+      // perPeriod[ci] holds movement + closing balance; opening = closing − movement per account,
+      // which for equity accounts equals the balance at start−1.
+      const eqCodes = { ak: ['2081'], bal: ['2091', '2098'], ar: ['2099'] };
+      const openingAt = (ci, codes) => {
+        let t = 0;
+        for (const code of codes) {
+          const cell = perPeriod[ci] && perPeriod[ci][code];
+          if (cell) t += (cell.balance.cr - cell.movement.cr) - (cell.balance.dr - cell.movement.dr);
+        }
+        return t;
+      };
+
+      const heads = ['', 'Aktiekapital', 'Balanserat resultat', 'Årets resultat', 'Totalt'];
+      const rows = [];
+      periods.forEach((p, ci) => {
+        const openAk = openingAt(ci, eqCodes.ak);
+        const openBal = openingAt(ci, eqCodes.bal);
+        const openAr = openingAt(ci, eqCodes.ar);
+        const openTot = openAk + openBal + openAr;
         const result = rrResult ? rrResult.cols[ci] : 0;
-        return { opening: closing - result, result, closing };
+        const closeAk = ak[ci] !== undefined ? ak[ci] : openAk;
+        const closeBal = balRet[ci] !== undefined ? balRet[ci] : openBal + openAr;
+        const closeAr = arBr[ci] !== undefined ? arBr[ci] : result;
+        const closeTot = sumEk[ci] !== undefined ? sumEk[ci] : closeAk + closeBal + closeAr;
+        rows.push([`Belopp vid årets ingång`, openAk, openBal, openAr, openTot]);
+        if (Math.abs(openAr) > 0.005) {
+          rows.push(['Balanseras i ny räkning', 0, openAr, -openAr, 0]);
+        }
+        rows.push(['Årets resultat', 0, 0, result, result]);
+        rows.push([`Belopp vid årets utgång`, closeAk, closeBal, closeAr, closeTot]);
       });
-      return { title: n.title, table: {
-        heads: ['', ...periods.map((p) => p.label)],
-        rows: [
-          ['Ingående eget kapital', ...cols.map((c) => c.opening)],
-          ['Årets resultat', ...cols.map((c) => c.result)],
-          ['Utgående eget kapital', ...cols.map((c) => c.closing)],
-        ],
-      } };
+      return { title: n.title, table: { heads, rows }, hidden: !!n.hidden };
     }
-    return { title: n.title, text: fill(n.template || '') };
+    return { title: n.title, text: fill(n.template || ''), hidden: !!n.hidden };
   };
 
   const notes = (variant.notes || []).map(computedNote);
 
-  // Signature block: one line per board member from facts.board_names.
-  let signatureBlock = variant.signatureBlock || '';
-  if (Array.isArray(facts.board_names) && facts.board_names.length) {
-    const sigs = facts.board_names.map((name) => `_____________________\n${name}`).join('\n\n');
-    signatureBlock = `Årsredovisningen är undertecknad av samtliga styrelseledamöter.\n\nOrt och datum: ______________\n\n${sigs}\n\nÅrsredovisningen fastställdes på årsstämman den ______________`;
+  // Förvaltningsberättelse (filed-format section order: verksamhet, flerårsöversikt,
+  // förändring i eget kapital, resultatdisposition). Rendered before the statements.
+  let fb = null;
+  if (variant.fb) {
+    const fbFacts = Object.assign({}, facts);
+    const ff = (tpl) => tpl.replace(/\{([a-z_0-9]+)\}/gi, (m, k) => {
+      if (k in baseMap) return baseMap[k];
+      if (fbFacts[k] != null) return typeof fbFacts[k] === 'number' ? nf0.format(fbFacts[k]) : String(fbFacts[k]);
+      return m;
+    });
+    // Flerårsöversikt in tkr: nettoomsättning, resultat efter finansiella poster, soliditet.
+    // Filed reports show up to 3 years; periods[] only carries 2 columns, so query year−2 directly.
+    const rrNet = rr0 && rr0.rows.find((r) => r.id === 'nettoomsattning');
+    const rrFin = rr0 && rr0.rows.find((r) => r.id === 'res_efter_fin');
+    const bsAssets = bs && bs.rows.find((r) => r.id === 'summa_tillgangar');
+    const overview = periods.map((p, ci) => ({
+      year: p.label,
+      netto: rrNet ? (rrNet.cols[ci] || 0) / 1000 : 0,
+      resFin: rrFin ? (rrFin.cols[ci] || 0) / 1000 : 0,
+      soliditet: bsAssets && ekTotal && bsAssets.cols[ci] ? Math.round((ekTotal.cols[ci] / bsAssets.cols[ci]) * 100) : 0,
+    }));
+    // Third year (year−2): derived from balance snapshots at its start−1/end.
+    try {
+      const y2Start = shiftYear(start, -2);
+      const y2End = shiftYear(end, -2);
+      const d2 = new Date(Date.UTC(Number(y2Start.slice(0, 4)), Number(y2Start.slice(5, 7)) - 1, Number(y2Start.slice(8, 10)) - 1));
+      const y2StartM1 = d2.toISOString().slice(0, 10);
+      const balAt = async (upto) => {
+        const rows = await query(
+          `SELECT account_code, SUM(debit_home) dr, SUM(credit_home) cr FROM journal_entries
+           WHERE company_id = ? AND date <= ? GROUP BY account_code`, [companyId, upto]);
+        const m = {};
+        for (const r2 of rows) m[r2.account_code] = (Number(r2.cr) || 0) - (Number(r2.dr) || 0);
+        return m;
+      };
+      const [atEnd2, atStart2] = [await balAt(y2End), await balAt(y2StartM1)];
+      // netto + resFin from movement of income/expense accounts
+      const mov = (code) => (atEnd2[code] || 0) - (atStart2[code] || 0);
+      let netto2 = 0, fin2 = 0, ek2 = 0, assets2 = 0;
+      for (const a of acctRows) {
+        const sec = subtypeOf[a.account_code] || '';
+        const m = mov(a.account_code);
+        if (sec === 'Revenue' || sec === 'Other Income') netto2 += m;
+        if (sec === 'Revenue' || sec === 'Other Income' || sec === 'Operating Expenses' || sec === 'Personnel Costs' || sec === 'Depreciation' || sec === 'Financial Items') fin2 += m;
+        const e = atEnd2[a.account_code] || 0;
+        if (a.account_code >= '2000' && a.account_code < '3000') ek2 += e;
+        if (a.account_code >= '1000' && a.account_code < '2000') assets2 -= e; // debit-balance: cr−dr is negative
+      }
+      overview.push({ year: y2End.slice(0, 4), netto: netto2 / 1000, resFin: fin2 / 1000, soliditet: assets2 ? Math.round((ek2 / assets2) * 100) : 0, hasData: Object.keys(atEnd2).length > 0 });
+    } catch { /* year−2 unavailable — two-year overview */ }
+    // Resultatdisposition: balanserat + årets resultat → balanseras i ny räkning.
+    const disp = {
+      balanserat: balLine ? balLine.cols[0] : 0,
+      arets: bsAr ? bsAr.cols[0] : 0,
+    };
+    disp.total = disp.balanserat + disp.arets;
+    // Equity reconciliation reuses the computed note if present.
+    const eqNote = notes.find((n) => n.table);
+    fb = {
+      verksamhet: ff(variant.fb.verksamhet || ''),
+      handelser: variant.fb.handelser ? ff(variant.fb.handelser) : null,
+      overview,
+      equityTable: eqNote ? eqNote.table : null,
+      disposition: disp,
+      trailing: variant.fb.trailing ? ff(variant.fb.trailing) : null,
+    };
   }
 
-  const result = { company, manifest, descriptor, variantKey, periods, statements, notes, signatureBlock, warnings };
+  // Signature block: one entry per board member. facts.board_members may be
+  // [{name, role}] objects (filed format: name + role per line); falls back to
+  // plain names from facts.board_names. facts.ort provides the place line.
+  let signatureBlock = variant.signatureBlock || '';
+  const members = Array.isArray(facts.board_members) && facts.board_members.length
+    ? facts.board_members
+    : (Array.isArray(facts.board_names) ? facts.board_names.map((nm) => ({ name: nm, role: '' })) : []);
+  if (members.length) {
+    const ort = facts.ort ? `${facts.ort}` : 'Ort och datum: ______________';
+    const sigs = members.map((m) => {
+      const name = typeof m === 'string' ? m : m.name;
+      const role = typeof m === 'object' && m.role ? `\n${m.role}` : '';
+      return `_____________________\n${name}${role}`;
+    }).join('\n\n');
+    signatureBlock = `Årsredovisningen är undertecknad av samtliga styrelseledamöter.\n\n${ort}\n\n${sigs}\n\nÅrsredovisningen fastställdes på årsstämman den ______________`;
+  }
+
+  const result = { company, manifest, descriptor, variantKey, periods, statements, notes, fb, signatureBlock, warnings };
 
   if (opts.format === 'json') return result;
   return { html: renderHtml(result, fmt), csv: renderCsv(result), filename: `annual-report_${companyId}_${end.slice(0, 4)}` };
@@ -236,6 +362,8 @@ function esc(s) {
 }
 
 function renderHtml(r, fmt) {
+  const nf0sv = new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 0 });
+  const tkr = (v) => { const r0 = Math.round(v); return nf0sv.format(r0 === 0 ? 0 : r0); };
   const colHeads = r.periods.map((p) => `<th class="num">${esc(p.label)}</th>`).join('');
   const stmtHtml = r.statements.map((st) => {
     const rows = st.rows.map((row) => {
@@ -244,7 +372,7 @@ function renderHtml(r, fmt) {
     }).join('\n');
     return `<h2>${esc(st.title)}</h2>\n<table><thead><tr><th></th>${colHeads}</tr></thead><tbody>${rows}</tbody></table>`;
   }).join('\n');
-  const notesHtml = r.notes.map((n) => {
+  const notesHtml = r.notes.filter((n) => !n.hidden).map((n) => {
     if (n.table) {
       const heads = n.table.heads.map((h) => `<th class="num">${esc(h)}</th>`).join('');
       const rows = n.table.rows.map((row) => `<tr><td>${esc(row[0])}</td>${row.slice(1).map((v) => `<td class="num">${fmt(v)}</td>`).join('')}</tr>`).join('');
@@ -252,6 +380,40 @@ function renderHtml(r, fmt) {
     }
     return `<h3>${esc(n.title)}</h3><p>${esc(n.text)}</p>`;
   }).join('\n');
+
+  let fbHtml = '';
+  if (r.fb) {
+    const f = r.fb;
+    const ovRows = f.overview.filter((o) => o.hasData !== false).map((o) => `<tr><td class="num">${esc(o.year)}</td><td class="num">${tkr(o.netto)}</td><td class="num">${tkr(o.resFin)}</td><td class="num">${o.soliditet}</td></tr>`).join('');
+    let eqHtml = '';
+    if (f.equityTable) {
+      const heads = f.equityTable.heads.map((h) => `<th class="num">${esc(h)}</th>`).join('');
+      const rows = f.equityTable.rows.map((row) => `<tr><td>${esc(row[0])}</td>${row.slice(1).map((v) => `<td class="num">${fmt(v)}</td>`).join('')}</tr>`).join('');
+      eqHtml = `<h3>Förändringar i eget kapital</h3><table><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    const d = f.disposition;
+    fbHtml = `<h2>Förvaltningsberättelse</h2>
+<h3>Verksamheten</h3>
+<p>${esc(f.verksamhet)}</p>
+${f.handelser ? `<h3>Väsentliga händelser under räkenskapsåret</h3>\n<p>${esc(f.handelser)}</p>` : ''}
+<h3>Flerårsöversikt (tkr)</h3>
+<table><thead><tr><th></th><th class="num">Nettoomsättning</th><th class="num">Resultat efter finansiella poster</th><th class="num">Soliditet (%)</th></tr></thead><tbody>${ovRows}</tbody></table>
+${eqHtml}
+<h3>Resultatdisposition</h3>
+<p>Till årsstämmans förfogande står följande vinstmedel:</p>
+<table><tbody>
+<tr><td>Balanserat resultat</td><td class="num">${fmt(d.balanserat)}</td></tr>
+<tr><td>Årets resultat</td><td class="num">${fmt(d.arets)}</td></tr>
+<tr class="bold"><td>Totalt</td><td class="num">${fmt(d.total)}</td></tr>
+</tbody></table>
+<p>Styrelsen föreslår att vinstmedlen disponeras enligt följande:</p>
+<table><tbody>
+<tr><td>Balanseras i ny räkning</td><td class="num">${fmt(d.total)}</td></tr>
+<tr class="bold"><td>Totalt</td><td class="num">${fmt(d.total)}</td></tr>
+</tbody></table>
+${f.trailing ? `<p>${esc(f.trailing)}</p>` : '<p>Företagets resultat och ställning i övrigt framgår av efterföljande resultat- och balansräkning med noter.</p>'}`;
+  }
+
   const warn = r.warnings.length ? `<div class="warn">${r.warnings.map(esc).join('<br>')}</div>` : '';
   const sig = r.signatureBlock ? `<div class="sig">${esc(r.signatureBlock).replace(/\n/g, '<br>')}</div>` : '';
 
@@ -277,6 +439,7 @@ function renderHtml(r, fmt) {
 <h1>${esc(r.descriptor.name)}</h1>
 <div class="meta">${esc(r.company.company_name)}${r.company.tax_id ? ' · ' + esc(r.company.tax_id) : ''} · Räkenskapsår ${esc(r.periods[0].start)} – ${esc(r.periods[0].end)} · ${esc(r.variantKey)}</div>
 ${warn}
+${fbHtml}
 ${stmtHtml}
 <h2>Noter</h2>
 ${notesHtml}

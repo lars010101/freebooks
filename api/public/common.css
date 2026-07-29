@@ -19,6 +19,12 @@
   --tb-text:     #18243a;
   --accent:      #18293f;
   --dd-active:   #e8f0fe;
+  /* Toggle-button ON state (magnus 2026-07-28): amber — must NOT collide
+     with the cell cursor (--accent navy fill) so active vs focused stays
+     readable at a glance. */
+  --toggle-on:        #f59e0b;
+  --toggle-on-border: #d97706;
+  --toggle-on-text:   #1a1a1a;
 }
 [data-theme="dark"] {
   --bg:          #0e1520;
@@ -561,9 +567,9 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   white-space: nowrap;
 }
 .tb-toggle-btn.tb-active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+  background: var(--toggle-on, #f59e0b);
+  color: var(--toggle-on-text, #1a1a1a);
+  border-color: var(--toggle-on-border, #d97706);
 }
 
 /* FB.dropdown — the one validated autocomplete (P2-1). Theme-aware via tokens;
@@ -837,4 +843,12 @@ tr.fb-form-row-focus > td, div.fb-form-row-focus { background: var(--bg); }
   color: #fff !important;
   background: transparent !important;
   border-color: transparent !important;
+}
+/* Button cells get a RING cursor, not the fill (magnus 2026-07-28): a toggle
+   button's own ON state is an amber fill (--toggle-on), and the navy cursor
+   fill on top made the two indistinguishable. Ring = focused, amber = on. */
+.fb-form-cursor-btn {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 1px;
+  border-radius: 4px;
 }

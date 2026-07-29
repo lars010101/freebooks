@@ -874,14 +874,22 @@
     create: function (opts) {
       // opts: rows() → [el], focusClass (default 'nav-row-focus'),
       //       onFocus(el) optional hook, scrollIntoView opts override
+      //   OR: grid() → [[el]] — 2D spatial nav (magnus 2026-07-28): move()
+      //       goes across GROUPS preserving the column (vim goal-column),
+      //       moveH() goes within the group. Dashboard cards/report links.
       var focusClass = opts.focusClass || 'nav-row-focus';
       var cur = null;
+
+      function groups() { return opts.grid ? (opts.grid() || []).filter(function (g) { return g.length; }) : null; }
 
       // K5: register a page-level coverage provider returning the nav's row
       // elements. FB.nav.create is called by page scripts (bank, journal,
       // etc.), so this is page-level — cleared by resetPage on soft-nav.
       coverage.addProvider(function () {
-        try { return opts.rows() || []; } catch (e) { return []; }
+        try {
+          if (opts.grid) { var gs = groups() || []; return [].concat.apply([], gs); }
+          return opts.rows() || [];
+        } catch (e) { return []; }
       });
 
       function set(el) {
@@ -892,12 +900,31 @@
         cur.scrollIntoView({ block: 'nearest' });
         if (opts.onFocus) opts.onFocus(cur);
       }
+      function locate() {
+        var gs = groups();
+        for (var g = 0; g < gs.length; g++) {
+          var c = gs[g].indexOf(cur);
+          if (c >= 0) return { g: g, c: c };
+        }
+        return null;
+      }
 
       return {
         set: set,
         clear: function () { set(null); },
         current: function () { return cur; },
         move: function (dir) {
+          var gs = groups();
+          if (gs) {
+            if (!gs.length) return;
+            var pos = locate();
+            if (!pos) { set(dir > 0 ? gs[0][0] : gs[gs.length - 1][0]); return; }
+            var ng = pos.g + dir;
+            if (ng < 0) ng = 0;                       // sticky top
+            if (ng > gs.length - 1) ng = gs.length - 1; // sticky bottom
+            set(gs[ng][Math.min(pos.c, gs[ng].length - 1)]);
+            return;
+          }
           var rows = opts.rows();
           if (!rows.length) return;
           var i = rows.indexOf(cur);
@@ -906,8 +933,19 @@
           if (n < 0 || n >= rows.length) return; // sticky at boundaries
           set(rows[n]);
         },
-        first: function () { var r = opts.rows(); if (r.length) set(r[0]); },
-        last: function () { var r = opts.rows(); if (r.length) set(r[r.length - 1]); }
+        // Horizontal step within the current grid group (no-op for rows()).
+        moveH: function (dir) {
+          var gs = groups();
+          if (!gs || !gs.length) return;
+          var pos = locate();
+          if (!pos) { set(gs[0][0]); return; }
+          var nc = pos.c + dir;
+          if (nc < 0) nc = 0;                            // sticky left
+          if (nc > gs[pos.g].length - 1) nc = gs[pos.g].length - 1; // sticky right
+          set(gs[pos.g][nc]);
+        },
+        first: function () { var gs = groups(); if (gs && gs.length) { set(gs[0][0]); return; } var r = opts.rows(); if (r.length) set(r[0]); },
+        last: function () { var gs = groups(); if (gs && gs.length) { var g = gs[gs.length - 1]; set(g[g.length - 1]); return; } var r = opts.rows(); if (r.length) set(r[r.length - 1]); }
       };
     },
     // K1: fb-list instances register their gg first-row behavior here; the

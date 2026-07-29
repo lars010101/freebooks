@@ -162,21 +162,44 @@ ${commonStyle()}
 <script>
   localStorage.setItem('freebooks_company', '${co.company_id}');
   // K5: dashboard keys — FB.nav over the stat cards + report links (the only
-  // interactive surface). j/k moves (document order), Enter follows the
-  // anchor exactly like the mouse (common.js's click hook soft-navs), Esc
-  // clears. Registers the coverage provider automatically (fb-core FB.nav).
+  // interactive surface). 2026-07-28: spatial 2D grid (magnus) — cards are
+  // chunked by visual row, each report group is a row of links; j/k move
+  // across rows (column preserved), h/l within a row, Enter follows the
+  // anchor exactly like the mouse, Esc clears.
   (function () {
     var dashNav = FB.nav.create({
-      rows: function () { return Array.from(document.querySelectorAll('.dash-card, .dash-rpt-link')); }
+      grid: function () {
+        var cards = Array.from(document.querySelectorAll('.dash-card')).filter(function (el) { return el.offsetParent !== null; });
+        var byTop = [];
+        cards.forEach(function (el) {
+          var row = null;
+          for (var i = 0; i < byTop.length; i++) { if (Math.abs(byTop[i].top - el.offsetTop) < 4) { row = byTop[i]; break; } }
+          if (row) row.els.push(el); else byTop.push({ top: el.offsetTop, els: [el] });
+        });
+        byTop.sort(function (a, b) { return a.top - b.top; });
+        var groups = byTop.map(function (r) { return r.els; });
+        Array.from(document.querySelectorAll('.dash-rpt-group')).forEach(function (g) {
+          var links = Array.from(g.querySelectorAll('.dash-rpt-link')).filter(function (el) { return el.offsetParent !== null; });
+          if (links.length) groups.push(links);
+        });
+        return groups;
+      }
     });
+    var anyDashEl = function () { return document.querySelector('.dash-card, .dash-rpt-link'); };
     FB.keys.register('dashboard', {
       bindings: [
         { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true,
-          swallow: function () { return dashNav.current() || document.querySelector('.dash-card, .dash-rpt-link'); },
+          swallow: function () { return dashNav.current() || anyDashEl(); },
           run: function () { dashNav.move(1); } },
         { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
-          swallow: function () { return dashNav.current() || document.querySelector('.dash-card, .dash-rpt-link'); },
+          swallow: function () { return dashNav.current() || anyDashEl(); },
           run: function () { dashNav.move(-1); } },
+        { key: 'h', mode: 'NORMAL', hint: 'left', hintBar: true,
+          swallow: function () { return dashNav.current() || anyDashEl(); },
+          run: function () { dashNav.moveH(-1); } },
+        { key: 'l', mode: 'NORMAL', hint: 'right', hintBar: true,
+          swallow: function () { return dashNav.current() || anyDashEl(); },
+          run: function () { dashNav.moveH(1); } },
         { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true,
           swallow: function () { return dashNav.current(); },
           run: function () { var el = dashNav.current(); if (el) el.click(); } },

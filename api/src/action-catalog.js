@@ -406,7 +406,7 @@ const PALETTE = {
   'bill.create':            { palette: 'navigate', route: '/bill/edit' },
   'bill.draft.save':        { palette: 'navigate', route: '/bill/edit' },
   // K3e: bank.process removed from palette — the nav-registry bank-import
-  // route (/:company/bank/import, gKey 'i', palette:true) now emits a
+  // route (/:company/bank?tab=import, gKey 'i', palette:true) now emits a
   // 'Go to Bank Import' row that surfaces on 'bank import'/'import' queries.
   // The catalog entry used the technical action description as its label,
   // which didn't contain 'import', making it invisible in palette search.

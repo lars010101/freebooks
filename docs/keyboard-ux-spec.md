@@ -130,8 +130,18 @@ e.g. reports comparison: `~` on active MoM → none).
 - **Bank transaction panel: `c` → `~` migrated 2026-07-28** (clear/unclear).
   `c` is released; on FB.list filter surfaces `c` remains 'clear filters'
   (different semantic, unchanged).
-- Journal-new `~` (reversal mode) is a page-mode toggle, not a button
-  group — documented in §8, unchanged.
+- Journal-new reversal is NOT a `~` — moved to `R` 2026-07-28 (magnus: `~`
+  reads as toggle-true/false; reversal is a mode — vim's own `R` = replace
+  mode). Esc inside the reversal search cancels the whole reversal flow
+  back to normal JV edit.
+- **`~` never changes NORMAL/INSERT mode** (ratified 2026-07-28): toggles
+  act via `click()` (no focus, no setMode). **Space activates the focused
+  toggle/button** — parity alias of `~`/`Enter` on button cells (fb-form).
+- **Toggle-button visuals (ratified 2026-07-28):** three states must be
+  readable at a glance — OFF (default surface), ON (amber `--toggle-on`,
+  never the cursor navy), FOCUSED (navy outline ring `.fb-form-cursor-btn`;
+  the fill cursor is for value cells only). Active-fill + cursor-fill
+  collision (both near-black) was owner finding #1.
 - Future toggle semantics (reconcile clear/unclear, further comparison
   toggles) bind `~` — no per-screen invention.
 
@@ -189,6 +199,15 @@ typing into a modal input works while page verbs stay dead.
 - Focus: the confirm input (else first button) is focused on open; prior
   focus is restored on close. One modal app-wide; `FB.modal.isOpen()`.
 
+**Guard chokepoint (2026-07-28):** the leave-veto lives INSIDE `fbNavigate`
+itself — sidebar clicks, `{`/`}`, the g-map, and palette navigate rows all
+funnel through it, so the g-map/palette bypass (owner finding #4) is closed
+by construction. Guard-confirmed continuations pass `{ force: true }`.
+Related soft-nav fix the same day: `history.pushState` now runs BEFORE
+page-script re-execution — arriving pages read `location.search` at script
+time, and the old ordering silently no-op'd every `?tab=` deep-link on
+soft-nav (settings/payables/bank).
+
 ## 8. FB.form — the one form machine (K3 — shipped 2026-07-28)
 
 Model B (ratified): the **bill-edit modal model** — NORMAL rest state,
@@ -202,15 +221,19 @@ config + verbs only — no per-page key handlers (FB.list doctrine).
 
 | Key | NORMAL | INSERT |
 |---|---|---|
-| `j`/`k` | next/prev row (zones flatten; sticky at form ends) | — |
+| `j`/`k` | next/prev row (zones flatten; sticky at form ends; **column preserved** — goal-column, 2026-07-28) | — |
 | `h`/`l` | next/prev cell (sticky) | — |
 | `i`/`Enter` | edit cell → INSERT | advance to next cell (fb-list parity) |
 | `Esc` | — | exit edit → NORMAL (never writes) |
-| `Tab`/`Shift+Tab` | move cursor next/prev cell (no INSERT) | native traversal; cursor follows focus |
+| `Tab`/`Shift+Tab` | move cursor next/prev cell (no INSERT) — **crosses row/zone boundaries** (2026-07-28: was row-clamped; header→grid must flow) | native traversal; cursor follows focus |
 | `G` | last row | — |
 
 Dropdown routing in INSERT is identical to fb-list (arrows move, Enter/Tab
-pick, Esc closes, ArrowDown-on-empty opens full list) — **pages on FB.form
+pick, Esc closes). `Space` on a button cell = `~`/`Enter` (activate; §5).
+Select commits are **mode-preserving** (2026-07-28 global rule): picking a
+value never flips NORMAL/INSERT — an explicit edit from NORMAL returns to
+NORMAL; a select reached mid-INSERT (Tab traversal) commits and STAYS
+INSERT so the field flow continues. **Pages on FB.form
 must NOT pass `keys: true` to FB.dropdown**. `gg` = first row via the K1
 `FB.nav.onGG` hook. Mouse parity: clicking a cell moves the cursor (focusin
 sync). Verbs (`a` add, `x` delete, `w` write, `q` quit) are per-page config
@@ -236,9 +259,11 @@ forms (reports filter bar: one row, N control cells) therefore navigate
 
 **journal-new pilot:** zones = reversal panel (present only in reversal
 mode) → header (date/journal/desc) → JV line grid. `a` add line (cursor +
-edit), `x` delete line, `w` post (disabled-guard), `q` quit, `~` reversal
-mode (focus search; arrows/Enter navigate results, Esc peels back). `h`/`l`
-= cell movement here (page has no tabs — context override).
+edit), `x` delete line, `w` post (disabled-guard), `q` quit, `R` reversal
+mode (focus search; arrows/Enter navigate results, Esc cancels reversal
+outright — 2026-07-28). `h`/`l` = cell movement here (page has no tabs —
+context override). Reversal search matches on a single character
+(min-length 1; the old min-2 gate failed silently on "a"/"2").
 
 **K3b adoption (shipped 2026-07-28):** four pages onto FB.form, each
 declaring config only:
@@ -252,6 +277,10 @@ declaring config only:
   mapping → review. `a` attach file, `p` paste CSV, `w` process/post
   (stage-dispatched), `b` link bill, `Space` toggle skip. Bill-panel
   results use the reversal-search pattern (arrows/Enter, Esc closes).
+  **2026-07-28: Import Statement is a Bank TAB** (Transactions · Import ·
+  Mappings — magnus). The standalone `/bank/import` route 301s to
+  `/bank?tab=import`; the wizard lazy-inits on first tab show and its
+  FB.form set is active only while the Import panel is visible.
 - **opening-balances** — header → filter bar (BS/P&L/Non-Zero toggle
   buttons + search, all `h`/`l` cells) → account grid.
   `w` post (disabled-guard), `~` toggles the focused filter button (§5).
@@ -343,7 +372,10 @@ property on the iframe document.
   exemption. Exemptions live in the crawl file with reasons; **`verb`
   exemptions are self-checking** — the crawl verifies a live binding with
   that key exists, so a removed verb breaks the gate. Findings closed on
-  landing: dashboard gained an FB.nav set (cards + report links);
+  landing: dashboard gained an FB.nav set (cards + report links) —
+  upgraded 2026-07-28 to a **spatial 2D grid** (`FB.nav.create({ grid })`:
+  j/k across visual rows with column preserved, h/l within a row; owner
+  finding #13);
   bill-detail registers an FB.keys set delegating to its fbKeyActions
   handlers; bank gained **`f` = cycle cleared-filter** (uncleared →
   cleared → both); new-company renders hints inline (`#nc-hints` — no

@@ -1,5 +1,6 @@
 'use strict';
 const { commonStyle, makeQuery, navBar, layoutEnd } = require('./common');
+const { renderImportPanel } = require('./bank-import');
 
 async function handleBankPage(req, res) {
   const { company } = req.params;
@@ -55,11 +56,11 @@ ${commonStyle()}
   
   <div class="header" style="display:flex;align-items:center;justify-content:space-between">
     <h1>🏦 Bank</h1>
-    <a href="/${company}/bank/import" class="btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">⬆ Import statement</a>
   </div>
 
   <div class="tabs" style="margin-bottom:20px">
     <div class="tab active" id="bank-tab-txn" onclick="showBankTab('txn')">Transactions</div>
+    <div class="tab" id="bank-tab-import" onclick="showBankTab('import')">Import</div>
     <div class="tab" id="bank-tab-mappings" onclick="showBankTab('mappings')">Mappings</div>
   </div>
 
@@ -105,6 +106,10 @@ ${commonStyle()}
   </div>
 
   </div><!-- /bank-panel-txn -->
+
+  <div id="bank-panel-import" style="display:none">
+  ${renderImportPanel(company)}
+  </div><!-- /bank-panel-import -->
 
   <div id="bank-panel-mappings" style="display:none">
     <!-- BANK MAPPINGS — FB.list flat register (migrated 2026-07-27; the
@@ -435,18 +440,22 @@ ${commonStyle()}
 
 // ========== BANK TAB SWITCHER ==========
 function showBankTab(t) {
-  ['txn','mappings'].forEach(function(id) {
+  ['txn','import','mappings'].forEach(function(id) {
     document.getElementById('bank-panel-' + id).style.display = (id === t) ? '' : 'none';
     var tabEl = document.getElementById('bank-tab-' + id);
     if (tabEl) tabEl.classList.toggle('active', id === t);
   });
   if (t === 'mappings') mappingsList.load();
+  // Import tab: lazy-init on first show (idempotent) — its FB.form set's
+  // active() guard keys off this panel's visibility.
+  if (t === 'import' && window.fbInitBankImport) window.fbInitBankImport();
   // Sidebar hints follow the active tab's FB.keys set. The Mappings tab's
   // bindings are auto-registered by FB.list at create time; mappingsList
   // .renderHints emits the j/k/i/Enter/x/w/Esc table into #sb-hints.
   var hints = document.getElementById('sb-hints');
   if (hints) {
     if (t === 'txn') FB.keys.renderHints('bank', hints, { layout: 'list' });
+    else if (t === 'import') FB.keys.renderHints('bank-import', hints, { layout: 'list' });
     else mappingsList.renderHints(hints);
   }
 }
@@ -537,8 +546,9 @@ var mappingsList = FB.list.create({
 // Deep-link: ?tab=mappings opens the Mappings tab directly (palette navigate
 // entries target it — magnus K1 review 2026-07-28). Runs AFTER mappingsList
 // exists — showBankTab('mappings') calls mappingsList.load().
-if ((new URLSearchParams(window.location.search)).get('tab') === 'mappings') {
-  showBankTab('mappings');
+var _tabParam = (new URLSearchParams(window.location.search)).get('tab');
+if (_tabParam === 'mappings' || _tabParam === 'import') {
+  showBankTab(_tabParam);
 }
 <\/script>
 ${layoutEnd()}

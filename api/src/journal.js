@@ -141,7 +141,7 @@ async function updateEntryDescription(ctx) {
 async function searchEntries(ctx) {
   const { companyId, body } = ctx;
   const { q } = body;
-  if (!q || q.trim().length < 2) return [];
+  if (!q || q.trim().length < 1) return [];
   const rows = await query(
     `SELECT batch_id, MIN(date) AS date, MAX(reference) AS reference, MAX(description) AS description
      FROM journal_entries

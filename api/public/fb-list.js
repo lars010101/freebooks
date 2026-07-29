@@ -1659,7 +1659,7 @@
     // Leave-veto for {/} page navigation (common.js consults this before fbNavigate).
     window.fbBeforeTabSwitch = function (href) {
       if (!dirtyInstances().length) return true;
-      openLeaveModal(function () { fbNavigate(href); });
+      openLeaveModal(function () { fbNavigate(href, { force: true }); });
       return false;
     };
     // Sidebar link clicks get the same treatment — mouse parity for {/}.
@@ -1669,7 +1669,7 @@
       if (dirtyInstances().length) {
         e.preventDefault();
         e.stopPropagation();
-        openLeaveModal(function () { fbNavigate(a.getAttribute('href')); });
+        openLeaveModal(function () { fbNavigate(a.getAttribute('href'), { force: true }); });
       }
     }, true);
   }

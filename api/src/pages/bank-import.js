@@ -1,20 +1,13 @@
 'use strict';
-const { commonStyle, navBar, layoutEnd } = require('./common');
 
-async function handleBankImportPage(req, res) {
-  const { company } = req.params;
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(buildBankImportPage(company));
-}
+// Import Statement lives as a TAB of the Bank page (magnus 2026-07-28):
+// Transactions · Import · Mappings. The standalone /bank/import route 301s
+// to /bank?tab=import (reports.js). renderImportPanel returns the panel
+// markup + a script that DEFINES window.fbInitBankImport — bank.js calls it
+// lazily on first tab show (idempotent via __fbImportInited).
 
-
-function buildBankImportPage(company) {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Bank Import — ${company}</title>
-${commonStyle()}
+function renderImportPanel(company) {
+  return `
 <style>
   .step { background:var(--surface,#fff); border:1px solid var(--border,#e8e8e8); border-radius:0.5rem; padding:1.25rem 1.5rem; margin-bottom:1rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
   .step h3 { margin:0 0 0.875rem; font-size:0.9375rem; color:var(--text); font-weight:600; }
@@ -42,10 +35,6 @@ ${commonStyle()}
   select.col-map { padding:3px 5px; border:1px solid #ccc; border-radius:3px; font-size:9.5pt; }
   #bill-panel-list tbody tr:hover { background:#f0f4ff; }
 </style>
-</head>
-<body>${navBar(company, 'bank')}
-<div class="page">
-  <div class="header"><h1>⬆ Import Statement</h1><p class="sub">${company}</p></div>
 
   <div id="wizard-steps" style="display:flex; align-items:center; gap:0; margin-bottom:1.5rem;">
     <div class="wz-step active" id="wz-step-1" style="display:flex;align-items:center;gap:0.5rem">
@@ -136,8 +125,10 @@ ${commonStyle()}
       <span id="post-status" style="font-size:10pt"></span>
     </div>
   </div>
-</div>
 <script>
+window.fbInitBankImport = function () {
+  if (window.__fbImportInited) return;
+  window.__fbImportInited = true;
   var COMPANY = '${company}';
   var csvRows = [];
   var headers = [];
@@ -737,6 +728,13 @@ ${commonStyle()}
 
   var importForm = FB.form.create({
     formId: 'bank-import',
+    // Embedded as a Bank tab (2026-07-28): the set only owns dispatch while
+    // the Import panel is the visible tab — Transactions/Mappings keep their
+    // own bindings otherwise (hidden-panel elements stay in the document).
+    active: function () {
+      var p = document.getElementById('bank-panel-import');
+      return !!(p && p.style.display !== 'none' && document.contains(p));
+    },
     zones: [
       { id: 'billpanel', rows: function () { return billPanelOpen() ? [document.getElementById('bill-panel')] : []; } },
       { id: 'upload', rows: function () { return [document.getElementById('step1')]; },
@@ -786,10 +784,8 @@ ${commonStyle()}
     }
   });
   FB.keys.renderHints('bank-import', document.getElementById('sb-hints'), { layout: 'list' });
-<\/script>
-${layoutEnd()}
-</body>
-</html>`;
+};
+<\/script>`;
 }
 
-module.exports = { handleBankImportPage };
+module.exports = { renderImportPanel };

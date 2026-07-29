@@ -17,7 +17,6 @@ const { handleIndex } = require('./pages/index-page');
 const { handleCompanyPage } = require('./pages/company');
 const { handleSettingsPage } = require('./pages/settings');
 const { handleJournalNewPage } = require('./pages/journal-new');
-const { handleBankImportPage } = require('./pages/bank-import');
 const { handleBillEditPage } = require('./pages/bill-edit');
 const { handleBillDetailPage } = require('./pages/bill-detail');
 const { handleBankReconcilePage } = require('./pages/bank-reconcile');
@@ -154,8 +153,9 @@ function mountReportRoutes(app) {
   app.get('/:company/payables/aging', function(req, res) {
     res.redirect(302, '/' + req.params.company + '/reports?t=ap-aging');
   });
-  app.get('/:company/bank/import', handleBankImportPage);
   app.get('/:company/bank/reconcile', (req, res) => res.redirect(301, `/${req.params.company}/bank`));
+  // Import Statement is a Bank tab (magnus 2026-07-28) — standalone page retired.
+  app.get('/:company/bank/import', (req, res) => res.redirect(301, `/${req.params.company}/bank?tab=import`));
   app.get('/:company/bank', handleBankPage);
   app.get('/:company/opening-balances', handleOpeningBalancesPage);
   app.get('/:company/settings', handleSettingsPage);

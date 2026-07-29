@@ -395,7 +395,9 @@ ${commonStyle()}
   function onReversalSearch(q) {
     clearTimeout(reversalSearchTimer);
     var res = document.getElementById('reversal-results');
-    if (q.trim().length < 2) { res.style.display = 'none'; reversalRows = []; revIdx = -1; return; }
+    // Min query length 1 (magnus 2026-07-28 — single chars silently showed
+    // nothing at min-2; an empty box hides results instead).
+    if (q.trim().length < 1) { res.style.display = 'none'; reversalRows = []; revIdx = -1; return; }
     reversalSearchTimer = setTimeout(function() {
       fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ action:'journal.search', companyId: COMPANY, q: q.trim() }) })
@@ -570,7 +572,10 @@ ${commonStyle()}
             var inp = document.getElementById('jv-pre-attach-input');
             if (inp) inp.click();
           } },
-        { key: '~', mode: 'NORMAL', hint: 'reversal', hintBar: true, run: function () {
+        // R = reversal MODE (vim's R = replace mode — a mode key for a mode;
+        // magnus 2026-07-28: ~ stays pure toggle-true/false, so reversal
+        // moves off ~). Esc in the search cancels the whole reversal flow.
+        { key: 'R', mode: 'NORMAL', hint: 'reversal', hintBar: true, run: function () {
             toggleReversalMode();
             api.refresh();
             if (reversalMode) { var s = document.getElementById('reversal-search'); if (s) s.focus(); }
@@ -578,7 +583,14 @@ ${commonStyle()}
         { key: 'ArrowDown', mode: 'INSERT', when: searchFocused, run: function () { moveReversal(1); } },
         { key: 'ArrowUp', mode: 'INSERT', when: searchFocused, run: function () { moveReversal(-1); } },
         // Enter inside the search always stays local (never advances the form)
-        { key: 'Enter', mode: 'INSERT', when: searchFocused, run: pickReversal }
+        { key: 'Enter', mode: 'INSERT', when: searchFocused, run: pickReversal },
+        // Esc from the search = cancel reversal outright, back to normal JV
+        // edit (magnus 2026-07-28) — not merely an exit to NORMAL.
+        { key: 'Escape', mode: 'INSERT', when: searchFocused, run: function () {
+            toggleReversalMode();   // off — resets search/desc/lines
+            api.exitEdit();         // blur + NORMAL (input is being hidden)
+            api.refresh();          // reversal zone emptied → cursor to header
+          } }
       ];
     }
   });

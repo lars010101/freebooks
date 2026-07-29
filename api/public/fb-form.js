@@ -43,6 +43,7 @@
     var editing = false;
     var ROW_CLS = 'fb-form-row-focus';
     var CELL_CLS = 'fb-form-cursor';
+    var CELL_BTN_CLS = 'fb-form-cursor-btn';
 
     function zones() { return cfg.zones; }
     function zoneRows(zi) {
@@ -93,6 +94,7 @@
     function paint() {
       document.querySelectorAll('.' + ROW_CLS).forEach(function (el) { el.classList.remove(ROW_CLS); });
       document.querySelectorAll('.' + CELL_CLS).forEach(function (el) { el.classList.remove(CELL_CLS); });
+      document.querySelectorAll('.' + CELL_BTN_CLS).forEach(function (el) { el.classList.remove(CELL_BTN_CLS); });
       var rows = zoneRows(cur.z);
       var rowEl = rows[cur.r];
       if (!rowEl) return;
@@ -101,7 +103,10 @@
       var cs = rowCells(cur.z, rowEl);
       var cell = cs[cur.c];
       if (cell) {
-        cell.classList.add(CELL_CLS);
+        // Buttons get a RING cursor (CELL_BTN_CLS), not the fill — a toggle
+        // button's own active state carries a fill color and the two must
+        // stay distinguishable (magnus 2026-07-28; common.css).
+        cell.classList.add(cell.tagName === 'BUTTON' ? CELL_BTN_CLS : CELL_CLS);
         if (cell.scrollIntoView) cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       }
     }
@@ -162,7 +167,33 @@
       var n = idx + d;
       if (n < 0) n = 0;                       // sticky top
       if (n > flat.length - 1) n = flat.length - 1; // sticky bottom
-      cur.z = flat[n].z; cur.r = flat[n].r; cur.c = 0;
+      cur.z = flat[n].z; cur.r = flat[n].r;
+      // Column is PRESERVED across vertical moves (vim j/k keep the goal
+      // column; magnus 2026-07-28 — k from a credit cell must land on the
+      // credit cell above, not snap back to debit). clamp() handles rows
+      // with fewer cells.
+      clamp(); paint();
+    }
+
+    // NORMAL Tab/Shift+Tab: move the cursor cell-by-cell through the whole
+    // form (K3e originally clamped to the current row — magnus 2026-07-28:
+    // Tab must drop from header into the line grid fluidly). Cursor only —
+    // no focus, no INSERT (NORMAL owns the cursor, K3e). Sticky at the
+    // absolute first/last cell.
+    function stepCell(d) {
+      var flat = flatRows();
+      if (!flat.length) return;
+      var fi = flat.findIndex(function (p) { return p.z === cur.z && p.r === cur.r; });
+      if (fi === -1) fi = 0;
+      var ncells = rowCells(cur.z, zoneRows(cur.z)[cur.r]).length;
+      var ci = cur.c + d;
+      if (ci >= 0 && ci < ncells) { cur.c = ci; paint(); return; }
+      var nfi = fi + (d > 0 ? 1 : -1);
+      if (nfi < 0) nfi = 0;
+      if (nfi > flat.length - 1) nfi = flat.length - 1;
+      var t = flat[nfi];
+      var tcells = rowCells(t.z, zoneRows(t.z)[t.r]).length;
+      cur = { z: t.z, r: t.r, c: d > 0 ? 0 : Math.max(0, tcells - 1) };
       clamp(); paint();
     }
 
@@ -223,10 +254,17 @@
     function commitSelect() {
       var el = curCellEl();
       if (!el || el.tagName !== 'SELECT') return;
+      // Mode-preserving commit (magnus global rule 2026-07-28): selecting a
+      // value must not flip NORMAL/INSERT. selSnap is only set when the edit
+      // was entered explicitly from NORMAL (i/Enter) — then commit returns
+      // to NORMAL. When the select was reached mid-INSERT (Tab traversal,
+      // cursor-follows-focus), commit keeps INSERT so the field flow
+      // continues uninterrupted.
+      var explicitEdit = !!selSnap;
       selSnap = null;                 // committed — don't restore on the exit
       el.dispatchEvent(new Event('change', { bubbles: true }));
       if (cfg.onCommit) cfg.onCommit(el, api);
-      exitEdit();
+      if (explicitEdit) exitEdit();
     }
 
     var bindings = [
@@ -242,7 +280,12 @@
       // native traversal + cursor-follows-focus (the INSERT Tab binding
       // below has preventDefault:false). active() guards ensure this binding
       // only claims Tab when the form is live and has cells.
-      { key: 'Tab', mode: 'NORMAL', run: function (e) { moveCol(e.shiftKey ? -1 : 1); } },
+      { key: 'Tab', mode: 'NORMAL', run: function (e) { stepCell(e.shiftKey ? -1 : 1); } },
+      // Space activates the focused button cell (toggle parity with ~/Enter —
+      // magnus 2026-07-28). No mode change: click() does not focus, so
+      // focusin/setMode never fire (global rule: toggles never flip modes).
+      { key: ' ', mode: 'NORMAL', when: function () { var el = curCellEl(); return !!el && el.tagName === 'BUTTON'; },
+        run: function () { var el = curCellEl(); el.click(); paint(); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
       // K3d: ArrowDown/ArrowUp on a native <select> cell in NORMAL behave

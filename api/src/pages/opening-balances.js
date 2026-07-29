@@ -22,7 +22,7 @@ ${commonStyle()}
   .ob-field input:focus, .ob-field select:focus { outline:none; border-color:#888; }
   .filter-btns { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center; }
   .filter-btns button { padding:5px 14px; border:1px solid #ccc; border-radius:4px; font-size:10pt; cursor:pointer; background:#f5f5f5; }
-  .filter-btns button.active { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+  .filter-btns button.active { background:var(--toggle-on,#f59e0b); color:var(--toggle-on-text,#1a1a1a); border-color:var(--toggle-on-border,#d97706); }
   .filter-btns button:hover:not(.active) { background:#eee; }
   table.ob-table { width:100%; border-collapse:collapse; font-size:10pt; }
   table.ob-table th { text-align:left; font-size:9pt; color:#555; text-transform:uppercase; border-bottom:2px solid #ccc; padding:6px 8px; }

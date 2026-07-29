@@ -43,7 +43,7 @@ const EXEMPTIONS = {
     { id: 'cr-delete-btn', reason: 'ratified: danger-zone trigger is deliberately mouse-only (GitHub/QBO precedent); the K2 modal owns keyboard confirm via type-to-confirm once open' },
   ],
   'journal-new': [
-    { id: 'btn-reversal-mode', verb: '~', reason: 'verb parity — ~ toggles reversal mode' },
+    { id: 'btn-reversal-mode', verb: 'R', reason: 'verb parity — R toggles reversal mode' },
     { text: '+ Add Line', verb: 'a', reason: 'verb parity — a adds a line' },
     { id: 'btn-post', verb: 'w', reason: 'verb parity — w posts the entry' },
   ],

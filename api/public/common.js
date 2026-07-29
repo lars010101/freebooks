@@ -142,7 +142,15 @@
 
 
 (function() {
-  window.fbNavigate = function(url) {
+  // Leave-veto chokepoint (magnus review 2026-07-28): EVERY soft navigation
+  // consults the dirty-guard hook here — sidebar clicks, {/}, the g-map, and
+  // palette navigate rows all funnel through fbNavigate, so wiring the veto
+  // at this level closes the g-map/palette bypass for good. Guard-confirmed
+  // continuations pass { force: true } to skip the re-check (the modal's
+  // save/discard already ran).
+  window.fbNavigate = function(url, opts) {
+    if (!(opts && opts.force) && typeof window.fbBeforeTabSwitch === 'function'
+        && window.fbBeforeTabSwitch(url) === false) return;
     fetch(url)
       .then(function(r) { return r.text(); })
       .then(function(html) {
@@ -161,6 +169,13 @@
 
         // Swap page-main content
         oldMain.innerHTML = newMain.innerHTML;
+
+        // Push history BEFORE re-executing page scripts (magnus 2026-07-28):
+        // arriving pages read window.location.search at script time (?tab=
+        // deep-links on bank/settings/payables) — pushing after re-execution
+        // left them reading the DEPARTED page's query, silently no-op'ing
+        // every soft-nav deep-link.
+        history.pushState({ fbUrl: url }, '', url);
 
         // K3c: reset FB.keys page state so the departing page's key sets and
         // document listeners don't own dispatch on the arriving page. Must
@@ -217,9 +232,6 @@
 
         // Call page-specific init if registered
         if (typeof window.fbPageInit === 'function') window.fbPageInit();
-
-        // Push history
-        history.pushState({ fbUrl: url }, '', url);
       })
       .catch(function() { window.location.href = url; });
   };

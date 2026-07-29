@@ -585,7 +585,7 @@ var companyDanger = (function () {
 // ========== COA — FB.list (P3 consolidated) ==========
 var CF_CATS_COA = ['','Cash','Op-WC','Operating','Tax','Investing','Financing','NonCash','Excluded'];
 var ACCT_TYPES = ['Asset','Liability','Equity','Revenue','Expense','Closing'];
-var SUBTYPES = ['','Current Asset','Non-Current Asset','Current Liability','Non-Current Liability','Equity','Revenue','COGS','Operating Expense','Non-Operating Expense','Closing'];
+var SUBTYPES = ['','Cash and Equivalents','Cost of Goods Sold','Cost of Revenue','Current Assets','Current Liabilities','Depreciation','Equity','Financial Assets','Financial Items','Intangible Assets','Net Result','Non-current Assets','Non-current Liabilities','Operating Expenses','Other Income','Personnel Costs','Revenue','Tangible Assets','Tax'];
 
 var coaList = FB.list.create({
   keysId: 'settings-coa',

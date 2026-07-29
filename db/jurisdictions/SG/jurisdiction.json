@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "code": "SG",
+  "name": "Singapore",
+  "currency": "SGD",
+  "reportingStandards": ["SFRS"],
+  "defaultReportingStandard": "SFRS",
+  "taxIdFormat": "^\\d{9}[A-Z]$",
+  "taxAttributes": [
+    { "key": "loss_cf", "label": "Unutilised losses c/f", "type": "amount", "perYear": true, "rollforward": "closing_to_opening", "default": 0 }
+  ],
+  "contactAttributes": [
+    { "key": "address", "label": "Address" },
+    { "key": "postal_code", "label": "Postal code" },
+    { "key": "contact_name", "label": "Contact person" },
+    { "key": "contact_phone", "label": "Phone" },
+    { "key": "contact_email", "label": "Email" }
+  ]
+}

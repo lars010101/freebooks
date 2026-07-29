@@ -56,7 +56,16 @@ async function handleReport(req, res) {
       if (!periods) return res.status(400).json({ error: 'YoY comparison requires a period of exactly 1 year.' });
       result = await renderComparative(query, company, type, periods);
     } else {
-      result = await renderReport(query, company, type, start, end, { account });
+      if (type === 'ar') {
+        const { renderAnnualReport } = require('./report-composite');
+        if (format === 'json') {
+          const data = await renderAnnualReport(query, company, start, end, { format: 'json' });
+          return res.json(data);
+        }
+        result = await renderAnnualReport(query, company, start, end);
+      } else {
+        result = await renderReport(query, company, type, start, end, { account });
+      }
     }
 
     const isCsv = format === 'csv';

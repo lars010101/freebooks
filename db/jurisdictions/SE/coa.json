@@ -84,6 +84,13 @@
     "cf_category": "Tax"
   },
   {
+    "account_code": "1680",
+    "account_name": "Fordringar hos kreditinstitut",
+    "account_type": "Asset",
+    "account_subtype": "Current Assets",
+    "cf_category": "Op-WC"
+  },
+  {
     "account_code": "1710",
     "account_name": "Förutbetalda hyreskostnader",
     "account_type": "Asset",
@@ -145,6 +152,13 @@
     "account_type": "Equity",
     "account_subtype": "Equity",
     "cf_category": "Financing"
+  },
+  {
+    "account_code": "2098",
+    "account_name": "Vinst eller förlust från föregående år",
+    "account_type": "Equity",
+    "account_subtype": "Equity",
+    "cf_category": "Excluded"
   },
   {
     "account_code": "2099",
@@ -506,6 +520,13 @@
   {
     "account_code": "8310",
     "account_name": "Ränteintäkter",
+    "account_type": "Revenue",
+    "account_subtype": "Financial Items",
+    "cf_category": null
+  },
+  {
+    "account_code": "8314",
+    "account_name": "Skattefria ränteintäkter",
     "account_type": "Revenue",
     "account_subtype": "Financial Items",
     "cf_category": null

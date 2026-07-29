@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "code": "SE",
+  "name": "Sweden",
+  "currency": "SEK",
+  "reportingStandards": ["K2", "K3"],
+  "defaultReportingStandard": "K2",
+  "taxIdFormat": "^\\d{6}-\\d{4}$",
+  "taxIdSruPrefix": "16",
+  "taxAttributes": [
+    { "key": "loss_cf", "label": "Outnyttjat underskott", "type": "amount", "perYear": true, "rollforward": "closing_to_opening", "default": 0 },
+    { "key": "audited", "label": "Årsredovisningen har varit föremål för revision", "type": "bool", "perYear": true, "default": false },
+    { "key": "consultant", "label": "Uppdragstagare har biträtt vid upprättandet av årsredovisningen", "type": "bool", "perYear": true, "default": false }
+  ],
+  "contactAttributes": [
+    { "key": "address", "label": "Adress" },
+    { "key": "postnr", "label": "Postnummer" },
+    { "key": "postort", "label": "Postort" },
+    { "key": "contact_name", "label": "Kontaktperson" },
+    { "key": "contact_phone", "label": "Telefon" },
+    { "key": "contact_email", "label": "E-post" }
+  ]
+}

@@ -132,6 +132,18 @@
 
 ---
 
+## 0n. Status update — 2026-07-29 (deadline track, day 1)
+
+**FY2025 books complete + filings built (this update).** Mirror company `mdu_ab` on the dev instance: opening balances from the filed 2024-12-31 BS, 25 entries (9 bank fees, 12 skattekonto interest, SEB-closure reclass to **1680 Fordringar hos kreditinstitut** — the bank kept the payout, it's a receivable), AGM disposition via 2098, year-end close. Verified: P&L −500.00, BS 72,544.09, 2024 comparatives byte-equal to the filed BS. Journal export round-tripped through the existing `journal.import` (25/25) — no import build needed; imported on his server same day.
+
+**SRU/INK2 export shipped:** `GET /api/:company/sru/ink2?year=&loss_cf=` (+`&check=1` dry-run) and `/sru/info` — official 2025P4 field spec (SKV 269 successor page + field XLSes); 1680+1630→7261 per the field list. **Golden test** (`tests/sru-golden-2024.mjs`) reproduces his filed 2024 `blanketter.sru` byte-for-byte. The golden test caught a **P0-1 defect: idempotency keys weren't company-scoped** (cross-company replay + PK-violating persist) — fixed by namespacing stored keys `company|key` (`cd095be`).
+
+**Jurisdiction-pack architecture ratified + landed** (`docs/jurisdiction-pack.md`): country packs as data under `db/jurisdictions/<CC>/` (manifest + filing/report descriptors + per-year tax attributes as JSON on periods), directory-scanned, pack linter as CI gate (`tests/jurisdiction-packs.mjs`). First consumer: the **K2 årsredovisning composite** (`report?type=ar`, registry-driven, print-ready HTML + JSON + CSV; SE K2 + SG SFRS descriptors) — all mdu_ab acceptance values exact, balance assertion clean both years. SE template COA completed with 1680/2098/8314 (BAS standards the template lacked).
+
+**Also fixed en route:** `coa.upsert` ignored `effective_from`/`account_type` on update; SE template 8999 typed Expense (closing entry polluted `pl()`); COA subtype dropdown constant disjoint from template vocabulary; COA grid Start-column header/wrap. **Open next:** SRU engine refactor onto `filings/` descriptors + `emitters/`, period tax-attrs columns (7763/8041/8045 from data, per the ratified model), SG filing seam, Phase A (A1/A2/A3j) + MCP.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

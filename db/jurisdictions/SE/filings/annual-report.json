@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "id": "annual-report",
+  "name": "Årsredovisning",
+  "authority": "Bolagsverket",
+  "comparatives": 1,
+  "variants": {
+    "K2": {
+      "statements": [
+        {
+          "id": "rr",
+          "title": "Resultaträkning",
+          "kind": "pl",
+          "lines": [
+            { "id": "nettoomsattning", "label": "Nettoomsättning", "side": "income", "subtypes": ["Revenue"] },
+            { "id": "ovr_rorelseintakter", "label": "Övriga rörelseintäkter", "side": "income", "subtypes": ["Other Income"] },
+            { "id": "ovr_externa", "label": "Övriga externa kostnader", "side": "expense", "subtypes": ["Operating Expenses"] },
+            { "id": "personal", "label": "Personalkostnader", "side": "expense", "subtypes": ["Personnel Costs"] },
+            { "id": "avskrivningar", "label": "Av- och nedskrivningar", "side": "expense", "subtypes": ["Depreciation"] },
+            { "id": "rorelseresultat", "label": "Rörelseresultat", "sum": ["nettoomsattning", "ovr_rorelseintakter", "ovr_externa", "personal", "avskrivningar"], "bold": true, "keep": true },
+            { "id": "ranteintakter", "label": "Ränteintäkter och liknande resultatposter", "side": "income", "subtypes": ["Financial Items"] },
+            { "id": "rantekostnader", "label": "Räntekostnader och liknande resultatposter", "side": "expense", "subtypes": [] },
+            { "id": "res_efter_fin", "label": "Resultat efter finansiella poster", "sum": ["rorelseresultat", "ranteintakter", "rantekostnader"], "bold": true, "keep": true },
+            { "id": "bokslutsdisp", "label": "Bokslutsdispositioner", "side": "income", "subtypes": [] },
+            { "id": "skatt", "label": "Skatt på årets resultat", "side": "expense", "subtypes": ["Tax"] },
+            { "id": "arets_resultat", "label": "Årets resultat", "sum": ["res_efter_fin", "bokslutsdisp", "skatt"], "bold": true, "keep": true }
+          ]
+        },
+        {
+          "id": "br",
+          "title": "Balansräkning",
+          "kind": "bs",
+          "lines": [
+            { "id": "anlaggningstillgangar", "label": "Anläggningstillgångar", "side": "asset", "subtypes": ["Intangible Assets", "Tangible Assets", "Financial Assets"] },
+            { "id": "kortfristiga_fordringar", "label": "Kortfristiga fordringar", "side": "asset", "subtypes": ["Current Assets"], "keep": true },
+            { "id": "kassa_bank", "label": "Kassa och bank", "side": "asset", "subtypes": ["Cash and Equivalents"], "keep": true },
+            { "id": "summa_tillgangar", "label": "Summa tillgångar", "sum": ["anlaggningstillgangar", "kortfristiga_fordringar", "kassa_bank"], "bold": true, "keep": true },
+            { "id": "aktiekapital", "label": "Aktiekapital", "side": "equity", "accounts": ["2081"], "keep": true },
+            { "id": "balanserat", "label": "Balanserat resultat", "side": "equity", "accounts": ["2091", "2098"], "keep": true },
+            { "id": "arets_resultat_br", "label": "Årets resultat", "side": "equity", "accounts": ["2099"], "keep": true },
+            { "id": "summa_ek", "label": "Summa eget kapital", "sum": ["aktiekapital", "balanserat", "arets_resultat_br"], "bold": true, "keep": true },
+            { "id": "langfristiga_skulder", "label": "Långfristiga skulder", "side": "liability", "subtypes": ["Non-current Liabilities"] },
+            { "id": "kortfristiga_skulder", "label": "Kortfristiga skulder", "side": "liability", "subtypes": ["Current Liabilities"], "keep": true },
+            { "id": "summa_ek_skulder", "label": "Summa eget kapital och skulder", "sum": ["summa_ek", "langfristiga_skulder", "kortfristiga_skulder"], "bold": true, "keep": true }
+          ]
+        }
+      ],
+      "notes": [
+        {
+          "id": "principer",
+          "title": "Not 1 — Redovisningsprinciper",
+          "template": "Årsredovisningen för {company_name}, {org_nr}, har upprättats i enlighet med årsredovisningslagen (1995:1554) och Bokföringsnämndens allmänna råd (BFNAR 2016:10) om årsredovisning i mindre företag. Räkenskapsåret omfattar {period_start} – {period_end}. Redovisningsvalutan är svenska kronor (SEK). Bolaget är ett mindre företag enligt årsredovisningslagen och upprättar därför årsredovisning enligt K2-regelverket; förvaltningsberättelse upprättas inte."
+        },
+        {
+          "id": "aktiekapital",
+          "title": "Not 2 — Aktiekapital",
+          "template": "Aktiekapitalet uppgår till {aktiekapital} kr."
+        }
+      ],
+      "signatureBlock": "Stockholm, den ____________\n\n_____________________\n(namnförtydligande)\n\n_____________________\n(namnförtydligande)"
+    }
+  }
+}

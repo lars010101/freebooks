@@ -26,6 +26,7 @@ const REPORT_REGISTRY = [
   { id: 'journal',   label: 'Journal Listing',     category: 'audit',     multiperiod: false, needsStart: true  },
   { id: 'integrity', label: 'Integrity Check',     category: 'audit',     multiperiod: false, needsStart: true  },
   { id: 'ap-aging',  label: 'AP Aging',            category: 'filings',   multiperiod: false, needsStart: false },
+  { id: 'ar',        label: 'Årsredovisning (Annual Report)', category: 'financial', multiperiod: false, needsStart: true },
 ];
 
 // Ordered, non-empty groups: [{ category, label, reports: [...] }]

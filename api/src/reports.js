@@ -98,7 +98,7 @@ async function handleAccounts(req, res) {
   try {
     const rows = await query(
       `SELECT account_code, account_name, account_type, account_subtype,
-              cf_category, is_active, default_role
+              cf_category, is_active, default_role, effective_from
        FROM accounts WHERE company_id = ?
        ORDER BY account_code`,
       [company]

@@ -602,16 +602,18 @@ var coaList = FB.list.create({
       display: function(v) { return v ? 'Yes' : 'No'; } },
     { field: 'default_role', type: 'select', width: 70, nullable: true, align: 'center',
       options: ['', 'AP', 'Expense'],
-      display: function(v) { return v ? v : '—'; } }
+      display: function(v) { return v ? v : '—'; } },
+    { field: 'effective_from', type: 'date', width: 100, filterType: 'date' }
   ],
-  blank: function() { return { account_code: '', account_name: '', account_type: 'Asset', account_subtype: null, cf_category: null, is_active: true, default_role: null }; },
+  blank: function() { return { account_code: '', account_name: '', account_type: 'Asset', account_subtype: null, cf_category: null, is_active: true, default_role: null, effective_from: '' }; },
   isBlank: function(b) { return !b.account_code && !b.account_name; },
   same: function(b, s) {
     return b.account_name === s.account_name && b.account_type === s.account_type
       && (b.account_subtype || null) === (s.account_subtype || null)
       && (b.cf_category || null) === (s.cf_category || null)
       && b.is_active === !!s.is_active
-      && (b.default_role || null) === (s.default_role || null);
+      && (b.default_role || null) === (s.default_role || null)
+      && (b.effective_from || '') === (s.effective_from || '');
   },
   validate: function(d) { return (d.account_code && d.account_name && d.account_type) ? null : 'Code, name and type required'; },
   firstField: function(isNew) { return isNew ? 'account_code' : 'account_name'; },
@@ -621,9 +623,9 @@ var coaList = FB.list.create({
     return (a.account_code || '').toLowerCase().indexOf(q) >= 0 || (a.account_name || '').toLowerCase().indexOf(q) >= 0;
   },
   list: { url: function() { return '/api/' + COMPANY + '/accounts'; },
-    map: function(a) { return { account_code: a.account_code, account_name: a.account_name, account_type: a.account_type, account_subtype: a.account_subtype || null, cf_category: a.cf_category || null, is_active: a.is_active === true, default_role: a.default_role || null, _key: a.account_code }; } },
+    map: function(a) { return { account_code: a.account_code, account_name: a.account_name, account_type: a.account_type, account_subtype: a.account_subtype || null, cf_category: a.cf_category || null, is_active: a.is_active === true, default_role: a.default_role || null, effective_from: (a.effective_from || '').toString().slice(0, 10), _key: a.account_code }; } },
   save: { action: 'coa.upsert',
-    body: function(d) { return { account: { account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype || null, cf_category: d.cf_category || null, is_active: !!d.is_active, default_role: d.default_role || null } }; },
+    body: function(d) { return { account: { account_code: d.account_code, account_name: d.account_name, account_type: d.account_type, account_subtype: d.account_subtype || null, cf_category: d.cf_category || null, is_active: !!d.is_active, default_role: d.default_role || null, effective_from: d.effective_from || null } }; },
     focusKey: function(d) { return d._isNew ? d.account_code : d._key; } },
   del: { action: 'coa.delete',
     body: function(d) { return { accountCode: d._key }; },

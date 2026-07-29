@@ -211,10 +211,15 @@ async function handleApiRequest(req, res) {
     // → normal execution (legacy behavior unchanged).
     const idemKeyRaw = req.get('Idempotency-Key') || body.idempotencyKey;
     const idemKey = idemKeyRaw != null && String(idemKeyRaw).trim() !== '' ? String(idemKeyRaw) : null;
-    if (idemKey && IDEMPOTENT_ACTIONS.has(action)) {
+    // Keys are namespaced per company (stored as 'company|key'): the table's PK
+    // is on `key` alone, so scoping must live inside the stored value — a
+    // company-scoped WHERE without this replays another company's response
+    // (golden test 2026-07-29) and the unscoped INSERT then violates the PK.
+    const scopedKey = idemKey && companyId ? `${companyId}|${idemKey}` : idemKey;
+    if (scopedKey && IDEMPOTENT_ACTIONS.has(action)) {
       const existing = await query(
         `SELECT action, http_status, response_json FROM idempotency_keys WHERE key = @key`,
-        { key: idemKey }
+        { key: scopedKey }
       );
       if (existing.length > 0) {
         const row = existing[0];
@@ -226,7 +231,7 @@ async function handleApiRequest(req, res) {
         return res.status(row.http_status || 200).set('Idempotent-Replay', 'true').json(JSON.parse(row.response_json));
       }
       // MISS → capture + persist the first response before it is sent.
-      wrapIdempotentResponse(res, idemKey, action, companyId);
+      wrapIdempotentResponse(res, scopedKey, action, companyId);
     }
 
     const ctx = { body, companyId, userEmail };

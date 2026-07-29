@@ -62,6 +62,9 @@ ${commonStyle()}
     <button class="btn-primary" id="btn-create" onclick="createCompany()">Create Company</button>
     <span id="msg" class="msg"></span>
   </div>
+  <!-- K5: hint surface — no sidebar chrome on this page, so hints render
+       inline here instead of the (absent) #sb-hints. -->
+  <div class="fb-hint-bar" id="nc-hints" style="margin-top:14px"></div>
   <div id="post-links" style="display:none;margin-top:14px;display:none">
     <a id="lnk-ob" href="#" style="display:inline-block;padding:9px 20px;background:#1a5276;color:#fff;text-decoration:none;border-radius:4px;font-size:10pt;font-weight:600;margin-right:10px">📂 Enter Opening Balances &rarr;</a>
     <a id="lnk-settings" href="#" style="display:inline-block;padding:9px 20px;background:#f5f5f5;color:#333;text-decoration:none;border-radius:4px;font-size:10pt;border:1px solid #ccc">⚙ Go to Settings</a>
@@ -138,7 +141,7 @@ function createCompany() {
 // ── FB.form (K3b, keyboard-ux-spec §8) — company fields (one zone row per
 // .field-row, matching the vertical stack) → periods grid. a = add period,
 // x = delete period, w = create company. No sidebar chrome on this page —
-// renderHints no-ops on the missing #sb-hints element.
+// hints render into the inline #nc-hints bar (K5).
 var ncForm = FB.form.create({
   formId: 'new-company',
   zones: [
@@ -161,7 +164,7 @@ var ncForm = FB.form.create({
     write: { key: 'w', hint: 'create', run: function () { createCompany(); } }
   }
 });
-FB.keys.renderHints('new-company', document.getElementById('sb-hints'), { layout: 'list' });
+FB.keys.renderHints('new-company', document.getElementById('nc-hints') || document.getElementById('sb-hints'), { layout: 'inline' });
 </script>
 </body>
 </html>`;

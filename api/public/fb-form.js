@@ -259,6 +259,15 @@
           var last = flat[flat.length - 1];
           cur = { z: last.z, r: last.r, c: 0 };
           clamp(); paint();
+          // Absolute bottom, next frame — vim G shows the END of the document
+          // (footer/totals included), not merely the last row in view. The
+          // rAF lets the cursor paint settle so its scrollIntoView can't
+          // cancel this (fb-list 'G' parity; magnus K1 review 2026-07-28).
+          requestAnimationFrame(function () {
+            var pm = document.getElementById('page-main');
+            if (pm) pm.scrollTo(0, pm.scrollHeight);
+            window.scrollTo(0, document.documentElement.scrollHeight);
+          });
         } },
       // ── INSERT: dropdown open (fb-list parity — guarded bindings first) ──
       { key: 'ArrowDown', mode: 'INSERT', when: ddOpen, run: function () { FB.dropdown.move(1); } },
@@ -381,6 +390,21 @@
       if (!flat.length) return;
       cur = { z: flat[0].z, r: flat[0].r, c: 0 };
       paint();
+    });
+
+    // K5: register a page-level coverage provider returning every row element
+    // from every zone. Each zone's rows() is guarded in try/catch so one
+    // crashing zone cannot blank the form's coverage. Page-level — cleared by
+    // resetPage on soft-nav (the arriving page's form re-registers).
+    if (FB.coverage) FB.coverage.addProvider(function () {
+      var out = [];
+      (cfg.zones || []).forEach(function (z) {
+        try {
+          var rs = z.rows ? (z.rows() || []) : [];
+          for (var ri = 0; ri < rs.length; ri++) out.push(rs[ri]);
+        } catch (e) { /* one zone must not blank the form's coverage */ }
+      });
+      return out;
     });
 
     clamp(); paint();

@@ -375,8 +375,10 @@ function updateTotals() {
   // total. Reverse-charge is self-assessed and never part of the gross.
   const lines = collectLines();
   const net = lines.reduce((s, l) => s + l.amount, 0);
+  // Element renders only when vat_registered (template guard) — null-safe:
+  // non-VAT companies must not die here (K5 crawl caught the page error).
   const el = document.getElementById('be-tot-gst');
-  const stated = (el.dataset.stated === '1' && el.value !== '') ? (parseFloat(el.value) || 0) : null;
+  const stated = (el && el.dataset.stated === '1' && el.value !== '') ? (parseFloat(el.value) || 0) : null;
   const std = {}, rc = {}, order = [];
   lines.forEach(l => {
     const v = S.vatCodes.find(x => x.vat_code === l.vat_code);
@@ -400,12 +402,17 @@ function updateTotals() {
     return '<div>' + FB.util.esc(c + ': ' + (v.description || c)) + ' — ' + amt.toFixed(2) + '</div>';
   }).join('');
   const gst = stated !== null ? stated : stdTotal;
-  if (el.dataset.stated !== '1') el.value = gst.toFixed(2);
-  el.style.color = stated !== null ? '#b26a00' : '';
+  if (el) {
+    if (el.dataset.stated !== '1') el.value = gst.toFixed(2);
+    el.style.color = stated !== null ? '#b26a00' : '';
+  }
   document.getElementById('be-tot-net').textContent = net.toFixed(2);
   document.getElementById('be-tot-gross').textContent = (net + gst).toFixed(2);
 }
-document.getElementById('be-tot-gst').addEventListener('input', (e) => {
+// Element absent when vat_registered=false — guard or the whole page script
+// dies here on non-VAT companies (keys, post wiring, attachments all lost).
+const _beTotGst = document.getElementById('be-tot-gst');
+if (_beTotGst) _beTotGst.addEventListener('input', (e) => {
   e.target.dataset.stated = e.target.value !== '' ? '1' : '';
   updateTotals();
 });
@@ -420,7 +427,7 @@ function gatherBill() {
     vendor_ref: document.getElementById('be-ref').value.trim(),
     currency: document.getElementById('be-ccy').value.trim().toUpperCase() || undefined,
     ap_account: document.getElementById('be-ap').value.trim() || undefined,
-    vat_amount_stated: (function () { const el = document.getElementById('be-tot-gst'); return (el.dataset.stated === '1' && el.value !== '') ? (parseFloat(el.value) || 0) : null; })(),
+    vat_amount_stated: (function () { const el = document.getElementById('be-tot-gst'); return (el && el.dataset.stated === '1' && el.value !== '') ? (parseFloat(el.value) || 0) : null; })(),
     lines: collectLines(),
     // NO amount — server computes (P2-4)
   };

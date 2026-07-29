@@ -91,6 +91,12 @@
 
 ---
 
+## 0l. Status update — 2026-07-28 (K5)
+
+**K5 landed ✅ (this update):** the keyboard-coverage gate — `tests/keys-coverage.mjs` (`npm run test:keys`; no CI runner exists, so the gate is the suite). Per route it asserts zero uncaught JS errors, a live `FB.keys` set, a non-empty hint surface, ≥1 active NORMAL binding (`FB.keys.audit()`), and that **every visible interactive control is keyboard-managed** (inside an `FB.coverage.roots()` element, a native text-entry field, or a ratified — sometimes self-checking — exemption). The gate replaces per-tab key verification with one framework-level proof (69/69, 0 triage). Gaps it caught and closed: dashboard had no key set at all (FB.nav over cards/report links added); bill-detail ran legacy-only keys (FB.keys set delegating to fbKeyActions); bank filters had no verb (`f` = cycle cleared-filter); new-company had no hint surface (inline `#nc-hints`); fb-core `hasActive()` misreported sets without an `active` fn; and **bill-edit was fully dead on non-VAT companies** (unguarded `#be-tot-gst` listener killed the entire page script — keys, post wiring, attachments). Mouse-only by ratified design: `#hdr-clear-all`, settings `#cr-delete-btn`, bill-edit `.be-line-x` (FB.form migration roadmap). receivables is a stub exemption until AR ships. Spec: keyboard-ux-spec §9 K5. **The K1–K5 keyboard program is complete.**
+
+---
+
 ## 0k. Status update — 2026-07-28 (K4)
 
 **K4 landed ✅ (this update):** attachment unification + reconcile verification. (A) **`A` = attach everywhere** — legacy `fbKeyActions` pages route shift-a to a new `attach` verb (common.js; bill-detail migrated off `a`); FB.form pages declare `A` (journal-new). (B) **journal-new pending queue** is an FB.form zone (`j`/`k` rows, `x` removes staged file; shared `.fb-attach-row` markup; new shared `api/public/fb-attachments.js` helper module). (C) **reconcile**: the audit's mouse-only-checkboxes item predates the FB.list migration — /bank/reconcile 301-redirects to /bank, whose Transactions tab already has j/k + `~` clear/unclear on the checkbox's own persistence path; closed with end-to-end verification (toggle + persistence), no new code. (D) **K3c regression fixed**: the default FB.form `active()` guard checked zone 0 only — journal-new (empty reversal zone at rest) and bank-import (closed bill panel at rest) were key-dead; guard now scans all zones. bill-edit queue nav deferred (K4b); bill-detail keeps its bespoke combined nav (key unified only). Spec: keyboard-ux-spec §9 K4.

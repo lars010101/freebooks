@@ -166,6 +166,13 @@ FB.mode.onChange(function(m) {
   var tb = document.getElementById('vendors-body');
   if (tb) tb.classList.toggle('insert-mode', m === 'INSERT');
 });
+
+// Deep-link: ?tab=vendors opens the Vendors tab directly (palette navigate
+// entries target it — magnus K1 review 2026-07-28). Runs at the end of the
+// combined script block: showPayTab (billsTabJS) + vendorsList both exist.
+if ((new URLSearchParams(window.location.search)).get('tab') === 'vendors') {
+  showPayTab('vendors');
+}
 `;
 }
 

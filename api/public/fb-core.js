@@ -129,12 +129,6 @@
 
   function _company() { return location.pathname.split('/')[1] || ''; }
 
-  function _gScrollTop() {
-    var pm = document.getElementById('page-main');
-    if (pm) pm.scrollTo({ top: 0, behavior: 'smooth' });
-    else window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
   function _gResolve(key) {
     if (key === 'g') return { type: 'gg' };
     if (key === 'c') return { type: 'switcher' };
@@ -147,8 +141,16 @@
 
   function _gGo(act) {
     if (act.type === 'gg') {
-      _gScrollTop();
+      // Hooks first (they set the first-row cursor and scroll it into view),
+      // THEN force absolute top on the next frame — otherwise the row paint's
+      // scrollIntoView('nearest') cancels the smooth page scroll mid-flight
+      // and gg lands near, not AT, the top (magnus K1 review 2026-07-28).
       for (var i = 0; i < _onGG.length; i++) { try { _onGG[i](); } catch (e) {} }
+      requestAnimationFrame(function () {
+        var pm = document.getElementById('page-main');
+        if (pm) pm.scrollTo(0, 0);
+        window.scrollTo(0, 0);
+      });
       return;
     }
     if (act.type === 'switcher') { switcher.toggle(); return; }
@@ -729,10 +731,12 @@
     },
     // True when any registered set is currently active — common.js uses this
     // to suspend its legacy focus-driven mode tracking on migrated pages.
+    // Semantics mirror _dispatch: a set with NO active fn is always live
+    // (K5 crawl caught dashboard/bill-detail sets reporting inactive).
     hasActive: function () {
       for (var i = 0; i < _order.length; i++) {
         var set = _sets[_order[i]];
-        if (set && set.active && set.active()) return true;
+        if (set && (!set.active || set.active())) return true;
       }
       return false;
     },
@@ -769,6 +773,15 @@
         try { _pageResetCbs[i](); } catch (e) { /* teardown must not break reset */ }
       }
       _pageResetCbs = [];
+      // K5: trim page-level coverage providers — keep only providers that
+      // declared { core: true } at registration (common.js's attach/dd
+      // provider). Page-level providers (fb-form/fb-list/FB.nav.create) are
+      // dropped so a departed page's row getters can't stale-match selectors
+      // on the arriving page. Mutate in place so coverage._p (which
+      // references _covProviders) stays valid — reassigning would orphan it.
+      var _kept = _covProviders.filter(function (p) { return p && p.__fbCore === true; });
+      _covProviders.length = 0;
+      Array.prototype.push.apply(_covProviders, _kept);
       var baseline = _baselineOrder || [];
       for (var j = _order.length - 1; j >= 0; j--) {
         if (baseline.indexOf(_order[j]) === -1) {
@@ -787,7 +800,70 @@
     // `?` keyboard-shortcut overlay (P1-6) — exhaustive which-key view of the
     // active binding set. Keyboard trigger is in _dispatch; this is the
     // programmatic/mouse-parity handle (topbar `?` button).
-    help: help
+    help: help,
+    // K5: snapshot of every registered binding set — the coverage crawl's
+    // proof that every route has live keybindings. Returns one entry per set
+    // (registration order) with its active state and a flattened binding list
+    // (key, mode, hint, hintBar, hasSwallow). The crawl asserts ≥1 active set
+    // with ≥1 NORMAL binding per route without exercising any keys.
+    audit: function () {
+      return _order.map(function (name) {
+        var set = _sets[name];
+        if (!set) return { name: name, active: false, bindings: [] };
+        return {
+          name: name,
+          active: !set.active || !!set.active(),
+          bindings: (set.bindings || []).map(function (b) {
+            return {
+              key: b.key,
+              mode: b.mode || 'NORMAL',
+              hint: b.hint || null,
+              hintBar: !!b.hintBar,
+              hasSwallow: !!b.swallow
+            };
+          })
+        };
+      });
+    }
+  };
+
+  // ── K5: coverage-root registry ────────────────────────────────────────────
+  // Each interactive surface (FB.form zones, FB.list tables, FB.nav row sets,
+  // shared attach panels, open dropdown menus) registers a provider that
+  // returns its root element(s). FB.coverage.roots() flattens every
+  // provider's result — each guarded in try/catch so one crashing provider
+  // cannot blank the whole set. The K5 crawl walks every visible interactive
+  // control inside #page-main and asserts each is either contained in a
+  // coverage root, is a native text-entry field (INSERT-mode typing), or is
+  // ratified by a documented exemption — proving the keyboard manages every
+  // visible control.
+  //
+  // resetPage clears page-level providers (form/list/nav, registered per page
+  // load) but preserves providers that declared { core: true } (common.js's
+  // attach/dd provider, registered once at chrome load). Explicit levels, not
+  // a captured baseline — a lazy baseline would bake the INITIAL page's
+  // providers in permanently, letting a departed page's row getters
+  // stale-match selectors on later pages and falsely "cover" controls.
+  var _covProviders = [];
+
+  var coverage = {
+    _p: _covProviders,
+    // opts.core: chrome-level providers (common.js) survive resetPage;
+    // page-level (default — fb-form/fb-list/FB.nav.create) are dropped.
+    addProvider: function (fn, opts) {
+      if (opts && opts.core === true) fn.__fbCore = true;
+      _covProviders.push(fn);
+    },
+    roots: function () {
+      var out = [];
+      for (var i = 0; i < _covProviders.length; i++) {
+        try {
+          var r = _covProviders[i]() || [];
+          out = out.concat(r);
+        } catch (e) { /* one crashing provider must not blank the set */ }
+      }
+      return out;
+    }
   };
 
   // ── generic row navigation (for tabs as they migrate) ─────────────────────
@@ -800,6 +876,13 @@
       //       onFocus(el) optional hook, scrollIntoView opts override
       var focusClass = opts.focusClass || 'nav-row-focus';
       var cur = null;
+
+      // K5: register a page-level coverage provider returning the nav's row
+      // elements. FB.nav.create is called by page scripts (bank, journal,
+      // etc.), so this is page-level — cleared by resetPage on soft-nav.
+      coverage.addProvider(function () {
+        try { return opts.rows() || []; } catch (e) { return []; }
+      });
 
       function set(el) {
         if (cur) cur.classList.remove(focusClass);
@@ -1168,6 +1251,7 @@
     util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today, forwardIframeKeys: forwardIframeKeys },
     mode: mode,
     keys: keys,
+    coverage: coverage,
     nav: nav,
     dropdown: dropdown,
     palette: palette,

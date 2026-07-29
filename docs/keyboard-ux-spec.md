@@ -27,17 +27,19 @@ file's header comment.
 
 ## 2. g-prefix go-to map
 
-Ratified slate:
+Ratified slate (d/v added 2026-07-28, magnus K1 review):
 
 | Sequence | Action |
 |---|---|
+| `g d` | Dashboard |
 | `g r` | Reports |
 | `g b` | Bank |
 | `g p` | Payables |
+| `g v` | Receivables |
 | `g s` | Settings |
 | `g i` | Bank Import |
 | `g c` | Company switcher (reserved — not a route) |
-| `g g` | Scroll `#page-main` to top + list cursor to first row |
+| `g g` | List cursor to first row, then **absolute page top** (both scroll containers, next frame) |
 | `g <other>` | Cancel — the key proceeds through normal dispatch untouched |
 
 `g j` (Journal) deliberately omitted: no journal LIST page exists (only
@@ -55,12 +57,16 @@ Ratified slate:
   `gKey` → navigate (`fbNavigate`, so the dirty-buffer leave-veto applies;
   `window.location` for absolute routes). Anything else cancels and falls
   through to normal dispatch.
-- `G` (scroll bottom + last row) is unchanged — fb-list binding on list
-  pages, `common.js` bubble fallback elsewhere.
-- **gg unification hook:** fb-core scrolls to top, then fires every
-  `FB.nav.onGG(fn)` hook. Each FB.list instance registers a hook that calls
-  `nav.first()` **only when its panel is visible** (`offsetParent` guard —
-  settings mounts six instances; hidden tabs must no-op).
+- `G` (last row + **absolute page bottom**) — fb-list/fb-form binding on
+  their pages, `common.js` bubble fallback elsewhere. G/gg scroll BOTH
+  scroll containers (`#page-main` and window) on the NEXT frame: the row
+  paint's `scrollIntoView('nearest')` would otherwise cancel the page
+  scroll mid-flight (magnus K1 review 2026-07-28).
+- **gg unification hook:** fb-core fires every `FB.nav.onGG(fn)` hook FIRST
+  (cursor to first row), then forces absolute top on the next frame. Each
+  FB.list instance registers a hook that calls `nav.first()` **only when its
+  panel is visible** (`offsetParent` guard — settings mounts six instances;
+  hidden tabs must no-op).
 
 ## 3. Company switcher keyboard contract
 
@@ -86,6 +92,14 @@ Third palette source alongside page verbs and the API catalog: registry
 routes with `palette: true` render as `Go to {label}` rows showing the `g`
 key-equivalent (the palette doubles as a keyboard teacher). Fuzzy + recency
 ranking identical to existing rows.
+
+**api-scope rows** (the `/api/actions` catalog): two dispositions —
+`execute` (payload-free, run directly: only `fx.fetch_rates`) and
+`navigate` (opens the screen where the form lives). Navigate rows
+**deep-link to their tab** (`/settings?tab=vat`, `/payables?tab=vendors`,
+`/bank?tab=mappings` — the latter two honored by K1-review tab-param
+support on those pages) so the row lands on the actual workflow, not the
+page's default tab (magnus K1 review 2026-07-28).
 
 **Dedupe rule:** the registry carries the decision. Routes already covered by
 an action-catalog `navigate` entry (`/journal/new`, `/setup/new-company`)
@@ -119,6 +133,13 @@ go-live date; posts one balancing journal batch). Precedent: **Xero keeps
 account. Ratified: linked from **Settings → Company** (setup box above the
 danger zone), NOT the sidebar; palette-reachable via §4. It carries no `g`
 letter (run-once screen — letters are for high-frequency routes).
+
+View filters (K1 review 2026-07-28): **Balance Sheet · P&L · All · Non-Zero**,
+`~` cycles in that order. The P&L view exists for mid-year migration — YTD
+income/expense openings are required for a correct full-year P&L (QBO/Xero
+conversion pattern). The screen is FB.form (a posting grid with editable
+debit/credit cells and a balance guard), not FB.list — the view-filter is
+the FB.form pattern; column filters are an FB.list concept.
 
 ## 7. Modal keyboard contract (K2 — shipped 2026-07-28)
 
@@ -286,8 +307,35 @@ property on the iframe document.
   checked zone 0 only — journal-new (reversal zone empty at rest) and
   bank-import (bill panel closed at rest) were key-dead; the guard now
   scans ALL zones.
-- **K5** — CI keyboard-coverage crawl (every route asserts an active
-  FB.keys set + every visible control reachable).
+- **K5 (shipped 2026-07-28)** — Coverage gate, not CI (repo has no CI
+  runner): `tests/keys-coverage.mjs` (`npm run test:keys`) crawls every
+  registry route + bill detail/edit and asserts, per route: zero uncaught
+  JS errors · a live `FB.keys` set (`hasActive`) · non-empty hint surface
+  · ≥1 active set with NORMAL bindings (`FB.keys.audit()`) · **every
+  visible interactive control is keyboard-managed** — contained in an
+  `FB.coverage.roots()` element (FB.form zone rows, FB.list table, FB.nav
+  row set, attach panel, open dropdown; providers registered per framework,
+  `{ core: true }` chrome providers survive `resetPage`), or a native
+  text-entry field (INSERT-mode typing IS the keyboard path), or a ratified
+  exemption. Exemptions live in the crawl file with reasons; **`verb`
+  exemptions are self-checking** — the crawl verifies a live binding with
+  that key exists, so a removed verb breaks the gate. Findings closed on
+  landing: dashboard gained an FB.nav set (cards + report links);
+  bill-detail registers an FB.keys set delegating to its fbKeyActions
+  handlers; bank gained **`f` = cycle cleared-filter** (uncleared →
+  cleared → both); new-company renders hints inline (`#nc-hints` — no
+  sidebar chrome there); **fb-core `hasActive()` semantics fixed** (sets
+  with no `active` fn were reported inactive — dispatch treats them as
+  always-live); **bill-edit null-guard fixed** (`#be-tot-gst` renders only
+  when vat_registered — the unguarded listener killed the whole page
+  script, including keys, on non-VAT companies). Ratified mouse-only by
+  design: `#hdr-clear-all` (bulk convenience; per-row `~` is the path —
+  QBO/Xero have no bulk-clear hotkey), settings `#cr-delete-btn` (danger
+  zone: GitHub/QBO pattern — mouse trigger + type-to-confirm modal owns
+  the keyboard once open), bill-edit `.be-line-x` (lands with its FB.form
+  migration). receivables is a ratified stub exemption (AR ships FB.list
+  day one). Coverage behavior is verified ONCE here, framework-level —
+  not per tab.
 - `?` overlay GLOBAL section (chrome keys: g-map, `{`/`}`, `h`/`l`, `/`,
   `:`) — the overlay currently documents the active page set only.
 - Vimium-style `f` hint overlay as a universal mouse-parity fallback —

@@ -1,0 +1,7 @@
+{
+  "name": "freebooks",
+  "private": true,
+  "scripts": {
+    "test:keys": "node tests/keys-coverage.mjs"
+  }
+}

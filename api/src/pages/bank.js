@@ -401,6 +401,22 @@ ${commonStyle()}
           cb.checked = !cb.checked;
           toggleCleared(cb);
         } },
+      // K5: 'f' cycles the cleared-filter — uncleared-only → cleared-only →
+      // both. Reconciling flips between these views constantly; the header
+      // bulk clear-all checkbox stays mouse-only by design (per-row '~' is
+      // the keyboard path; QBO has no bulk-clear hotkey either).
+      { key: 'f', mode: 'NORMAL', hint: 'filter cycle', hintBar: true,
+        swallow: function() { return !!document.getElementById('filter-cleared'); },
+        run: function() {
+          var fc = document.getElementById('filter-cleared');
+          var fu = document.getElementById('filter-uncleared');
+          if (!fc || !fu) return;
+          // uncleared-only (default) → cleared-only → both → uncleared-only
+          if (!fc.checked && fu.checked) { fc.checked = true;  fu.checked = false; }
+          else if (fc.checked && !fu.checked) { fc.checked = true;  fu.checked = true; }
+          else { fc.checked = false; fu.checked = true; }
+          fc.dispatchEvent(new Event('change'));
+        } },
       { key: 'Escape', mode: 'NORMAL', hint: 'clear focus', hintBar: true,
         swallow: function() { return !!recNav.current(); },
         run: function() { recNav.clear(); } },

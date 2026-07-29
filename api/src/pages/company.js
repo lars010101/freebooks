@@ -161,6 +161,32 @@ ${commonStyle()}
 </div>
 <script>
   localStorage.setItem('freebooks_company', '${co.company_id}');
+  // K5: dashboard keys — FB.nav over the stat cards + report links (the only
+  // interactive surface). j/k moves (document order), Enter follows the
+  // anchor exactly like the mouse (common.js's click hook soft-navs), Esc
+  // clears. Registers the coverage provider automatically (fb-core FB.nav).
+  (function () {
+    var dashNav = FB.nav.create({
+      rows: function () { return Array.from(document.querySelectorAll('.dash-card, .dash-rpt-link')); }
+    });
+    FB.keys.register('dashboard', {
+      bindings: [
+        { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+          swallow: function () { return dashNav.current() || document.querySelector('.dash-card, .dash-rpt-link'); },
+          run: function () { dashNav.move(1); } },
+        { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+          swallow: function () { return dashNav.current() || document.querySelector('.dash-card, .dash-rpt-link'); },
+          run: function () { dashNav.move(-1); } },
+        { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true,
+          swallow: function () { return dashNav.current(); },
+          run: function () { var el = dashNav.current(); if (el) el.click(); } },
+        { key: 'Escape', mode: 'NORMAL', hint: 'clear focus', hintBar: true,
+          swallow: function () { return !!dashNav.current(); },
+          run: function () { dashNav.clear(); } }
+      ]
+    });
+    FB.keys.renderHints('dashboard', document.getElementById('sb-hints'), { layout: 'list' });
+  })();
 </script>
 ${layoutEnd()}
 </body>

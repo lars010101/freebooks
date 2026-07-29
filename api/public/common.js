@@ -630,4 +630,31 @@
       });
     }
   });
+
+  // K5: core-baseline coverage provider — attachment panels/queues and any
+  // open FB.dropdown menu. common.js is an external script loaded once (not
+  // re-executed on soft-nav), so this provider is registered once and
+  // survives resetPage (it falls within the lazy baseline captured on the
+  // first resetPage call). The attach markup classes span every page that
+  // renders attachments: .attach-row (bill-detail), .fb-attach-row
+  // (journal-new staged queue), .be-attach-row (bill-edit). The provider
+  // returns the PARENT containers so every interactive control inside an
+  // attachment panel is covered. The open .fb-dd dropdown element is also a
+  // coverage root (its items are keyboard-managed via FB.dropdown).
+  if (window.FB && FB.coverage) {
+    FB.coverage.addProvider(function () {
+      var out = [];
+      try {
+        document.querySelectorAll('.attach-row, .fb-attach-row, .be-attach-row').forEach(function (r) {
+          var p = r.parentElement;
+          if (p && out.indexOf(p) === -1) out.push(p);
+        });
+      } catch (e) { /* attach markup absent — no-op */ }
+      try {
+        var dd = document.querySelector('.fb-dd');
+        if (dd && out.indexOf(dd) === -1) out.push(dd);
+      } catch (e) { /* dropdown absent — no-op */ }
+      return out;
+    }, { core: true });
+  }
 })();

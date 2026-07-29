@@ -1575,6 +1575,18 @@
       discardAll: discardAll
     };
     registerKeys();
+
+    // K5: register a page-level coverage provider returning the list's root
+    // table element (the <table> wrapping cfg.tbody). Page-level — cleared by
+    // resetPage on soft-nav. The table is the coverage root for every button,
+    // select and input rendered by FB.list inside it.
+    if (window.FB && FB.coverage) FB.coverage.addProvider(function () {
+      try {
+        var tb = tbody();
+        return tb ? [tb.closest('table') || tb] : [];
+      } catch (e) { return []; }
+    });
+
     instances.push(api);
     return api;
 

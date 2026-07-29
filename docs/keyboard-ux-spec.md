@@ -286,8 +286,35 @@ property on the iframe document.
   checked zone 0 only — journal-new (reversal zone empty at rest) and
   bank-import (bill panel closed at rest) were key-dead; the guard now
   scans ALL zones.
-- **K5** — CI keyboard-coverage crawl (every route asserts an active
-  FB.keys set + every visible control reachable).
+- **K5 (shipped 2026-07-28)** — Coverage gate, not CI (repo has no CI
+  runner): `tests/keys-coverage.mjs` (`npm run test:keys`) crawls every
+  registry route + bill detail/edit and asserts, per route: zero uncaught
+  JS errors · a live `FB.keys` set (`hasActive`) · non-empty hint surface
+  · ≥1 active set with NORMAL bindings (`FB.keys.audit()`) · **every
+  visible interactive control is keyboard-managed** — contained in an
+  `FB.coverage.roots()` element (FB.form zone rows, FB.list table, FB.nav
+  row set, attach panel, open dropdown; providers registered per framework,
+  `{ core: true }` chrome providers survive `resetPage`), or a native
+  text-entry field (INSERT-mode typing IS the keyboard path), or a ratified
+  exemption. Exemptions live in the crawl file with reasons; **`verb`
+  exemptions are self-checking** — the crawl verifies a live binding with
+  that key exists, so a removed verb breaks the gate. Findings closed on
+  landing: dashboard gained an FB.nav set (cards + report links);
+  bill-detail registers an FB.keys set delegating to its fbKeyActions
+  handlers; bank gained **`f` = cycle cleared-filter** (uncleared →
+  cleared → both); new-company renders hints inline (`#nc-hints` — no
+  sidebar chrome there); **fb-core `hasActive()` semantics fixed** (sets
+  with no `active` fn were reported inactive — dispatch treats them as
+  always-live); **bill-edit null-guard fixed** (`#be-tot-gst` renders only
+  when vat_registered — the unguarded listener killed the whole page
+  script, including keys, on non-VAT companies). Ratified mouse-only by
+  design: `#hdr-clear-all` (bulk convenience; per-row `~` is the path —
+  QBO/Xero have no bulk-clear hotkey), settings `#cr-delete-btn` (danger
+  zone: GitHub/QBO pattern — mouse trigger + type-to-confirm modal owns
+  the keyboard once open), bill-edit `.be-line-x` (lands with its FB.form
+  migration). receivables is a ratified stub exemption (AR ships FB.list
+  day one). Coverage behavior is verified ONCE here, framework-level —
+  not per tab.
 - `?` overlay GLOBAL section (chrome keys: g-map, `{`/`}`, `h`/`l`, `/`,
   `:`) — the overlay currently documents the active page set only.
 - Vimium-style `f` hint overlay as a universal mouse-parity fallback —

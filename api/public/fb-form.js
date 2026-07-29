@@ -383,6 +383,21 @@
       paint();
     });
 
+    // K5: register a page-level coverage provider returning every row element
+    // from every zone. Each zone's rows() is guarded in try/catch so one
+    // crashing zone cannot blank the form's coverage. Page-level — cleared by
+    // resetPage on soft-nav (the arriving page's form re-registers).
+    if (FB.coverage) FB.coverage.addProvider(function () {
+      var out = [];
+      (cfg.zones || []).forEach(function (z) {
+        try {
+          var rs = z.rows ? (z.rows() || []) : [];
+          for (var ri = 0; ri < rs.length; ri++) out.push(rs[ri]);
+        } catch (e) { /* one zone must not blank the form's coverage */ }
+      });
+      return out;
+    });
+
     clamp(); paint();
     return api;
   }

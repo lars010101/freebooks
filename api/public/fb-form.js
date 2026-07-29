@@ -125,19 +125,17 @@
       // Button cells activate (click) rather than enter INSERT — generic, so
       // any page declaring a button cell gets Enter/i = click (spec §8).
       if (el.tagName === 'BUTTON') { el.focus(); el.click(); paint(); return; }
-      // Native <select> (no FB.dropdown attached): prefer showPicker() — the
-      // browser's native option list. The popup owns keys; change fires on
-      // pick; Esc cancels natively. Stay NORMAL so our INSERT j/k-stepping
-      // bindings don't fight the open popup. Fallback: when showPicker is
-      // unavailable or throws (headless/test environments), enter INSERT and
-      // use the j/k-stepping mode below.
-      if (el.tagName === 'SELECT' && !ddOpen() && typeof el.showPicker === 'function') {
-        try {
-          el.focus();
-          el.showPicker();
-          return; // stay NORMAL — native popup owns keys
-        } catch (e) { /* fall through to INSERT j/k-stepping */ }
-      }
+      // Native <select> (no FB.dropdown attached): ALWAYS enter INSERT and
+      // step options with j/k / arrows — the OS popup (el.showPicker) is
+      // never opened from the keyboard. Rationale (2026-07-28, discovered via
+      // pw-reports-cells): showPicker is user-activation-dependent, so the
+      // same keypress took different paths across runs; the open popup owns
+      // keys natively (j/k/typeahead, not vim stepping) and can't be driven
+      // in tests; and _focusin had already flipped the mode store to INSERT,
+      // contradicting the "stay NORMAL" design. Programmatic stepping is
+      // deterministic in every browser, keeps j/k semantics (no typeahead
+      // hijack), and is headless-testable. Mouse click still opens the
+      // native popup (browser default — mouse parity unchanged).
       el.focus();
       if (el.select) el.select();
       selSnap = (el.tagName === 'SELECT') ? { el: el, idx: el.selectedIndex } : null;
@@ -248,9 +246,8 @@
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
       // K3d: ArrowDown/ArrowUp on a native <select> cell in NORMAL behave
-      // like i/Enter — open via showPicker() or fall through to INSERT
-      // j/k-stepping. Text/date inputs' arrows stay native (the when guard
-      // only passes for native select cells).
+      // like i/Enter — enter INSERT and j/k-step (text/date inputs' arrows
+      // stay native; the when guard only passes for native select cells).
       { key: 'ArrowDown', mode: 'NORMAL', when: function () { return nativeSelect(curCellEl()); }, run: edit },
       { key: 'ArrowUp', mode: 'NORMAL', when: function () { return nativeSelect(curCellEl()); }, run: edit },
       { key: 'G', mode: 'NORMAL', run: function () {

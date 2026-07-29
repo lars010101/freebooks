@@ -324,16 +324,11 @@ ${layoutEnd()}
   };
 
   /* ── FB.form (K3b, keyboard-ux-spec §8) — the filter bar is a header-only
-     form: j/k rows, h/l cells, i/Enter edit, Esc exit. ~ cycles comparison
-     (none → MoM → YoY, universal toggle verb), d opens the download menu
+     form: j/k rows, h/l cells, i/Enter edit, Esc exit. MoM/YoY are h/l-
+     navigable toggle-button cells; ~ flips the FOCUSED comparison button
+     only (re-toggle returns to none — fbToggleComparison's own semantics),
+     never a group cycle (magnus 2026-07-28). d opens the download menu
      with a j/k/Enter/Esc mini-scope (context override: no delete here). ── */
-  window.fbCycleComparison = function() {
-    if (!(RPT_META[currentType] && RPT_META[currentType].multiperiod)) return;
-    currentStep = (currentStep === '') ? 'mom' : (currentStep === 'mom') ? 'yoy' : '';
-    localStorage.setItem('fb-rpt-step', currentStep);
-    updateStepButtons();
-    fbLoadReport();
-  };
 
   var dlIdx = -1;
   function dlRows() {
@@ -366,9 +361,12 @@ ${layoutEnd()}
           ].filter(Boolean);
         } }
     ],
-    extraBindings: function () {
+    extraBindings: function (api) {
       return [
-        { key: '~', mode: 'NORMAL', hint: 'comparison', hintBar: true, run: function () { window.fbCycleComparison(); } },
+        { key: '~', mode: 'NORMAL', hint: 'comparison', hintBar: true, run: function () {
+            var el = api.cellEl();
+            if (el && (el.id === 'rpt-mom' || el.id === 'rpt-yoy')) el.click();
+          } },
         { key: 'd', mode: 'NORMAL', hint: 'download', hintBar: true,
           when: function () { return !_dlOpen; },
           run: function () { document.getElementById('rpt-dl-btn').click(); dlIdx = 0; paintDl(); } },

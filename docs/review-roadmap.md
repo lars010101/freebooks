@@ -117,6 +117,21 @@
 
 ---
 
+## 0m. Status update — 2026-07-29 (deadline reprioritization)
+
+**Reprioritized for Swedish statutory filings (magnus 2026-07-29):** FY end 2025-12-31; **Bolagsverket årsredovisning due 2026-07-31**, **INK2 (Skatteverket) due 2026-08-02**. Books to be completed from bank statement + skattekonto transactions only. Receivables and payables extras explicitly dropped for this cycle; AR stub remains.
+
+**Deadline track (supersedes the §0e order):**
+1. Statement intake — bank-import CSV presets for magnus's bank + Skatteverket skattekonto export (skattekonto = bank-type account, BAS 1630).
+2. Agent booking — immediate: agent drives the existing action API, journal batches approved by magnus in-thread (no code). Build: Phase A agent-readiness rescoped (agent role + action whitelist, events + `event.list`, journal/bank-transaction proposals + y/x queue; bill proposals dropped with payables) + **P2-5 MCP server pulled forward** alongside it.
+3. **P2-1 year-end close to retained earnings** — pulled forward; required for a correct balansräkning.
+4. Annual-report composite (reports-dashboard-spec §5) — resultaträkning + balansräkning + noter, registry-driven; K2-vs-K3 structure pending magnus.
+5. Submission adapters (spec §6) — SRU files for INK2 (BAS→räkenskapsschema mapping + INK2S/INK2R generation) and the Bolagsverket årsredovisning package.
+
+**Parked until after submission:** Receivables (dropped), payables extras (bill-edit FB.form migration, payment-matching deferrals), P2-2 FX reval (unless FX balances surface in the books), P2-3 `bill_lines` subledger, P2-4 VAT unify, P2-6 rebinding, P3 feeds, FX automation.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

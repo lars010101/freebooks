@@ -25,7 +25,6 @@ const { handlePayablesPage } = require('./pages/payables');
 const { handleApAgingPage } = require('./pages/ap-aging');
 const { handleNewCompanyPage } = require('./pages/new-company');
 const { handleAdminQuery } = require('./pages/admin');
-const { handleOpeningBalancesPage } = require('./pages/opening-balances');
 const { makeQuery } = require('./pages/common');
 const { handleReportsHubPage } = require('./pages/reports-hub');
 const { handleReceivablesPage } = require('./pages/receivables');
@@ -157,7 +156,11 @@ function mountReportRoutes(app) {
   // Import Statement is a Bank tab (magnus 2026-07-28) — standalone page retired.
   app.get('/:company/bank/import', (req, res) => res.redirect(301, `/${req.params.company}/bank?tab=import`));
   app.get('/:company/bank', handleBankPage);
-  app.get('/:company/opening-balances', handleOpeningBalancesPage);
+  // Opening Balances relocated to a Settings tab 2026-07-28 (magnus) —
+  // old URL 302-redirects to the Settings → Opening Balances tab.
+  app.get('/:company/opening-balances', function(req, res) {
+    res.redirect(302, '/' + req.params.company + '/settings?tab=opening-balances');
+  });
   app.get('/:company/settings', handleSettingsPage);
   app.get('/:company/reports', handleReportsHubPage);
   app.get('/:company', handleCompanyPage);

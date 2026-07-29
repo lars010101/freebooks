@@ -168,6 +168,14 @@ ${commonStyle()}
   // anchor exactly like the mouse, Esc clears.
   (function () {
     var dashNav = FB.nav.create({
+      // K5: fb-nav-focus — a visible ring class for non-table FB.nav surfaces
+      // (dashboard cards/report links). The default 'nav-row-focus' rule is
+      // tr-scoped (tr.nav-row-focus > td), so it never painted on <a> cards;
+      // fb-nav-focus is a strong outline/box-shadow ring that works for the
+      // dashboard AND any future non-tr FB.nav consumer. A CSS class is the
+      // selector (NORMAL-mode doctrine: no DOM focus grabbed — Enter follows
+      // the anchor via el.click(), never .focus()).
+      focusClass: 'fb-nav-focus',
       grid: function () {
         var cards = Array.from(document.querySelectorAll('.dash-card')).filter(function (el) { return el.offsetParent !== null; });
         var byTop = [];

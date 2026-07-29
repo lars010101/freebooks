@@ -66,7 +66,7 @@ const ROUTES = [
   // palette:true.
   { key: 'journal-new',     route: '/:company/journal/new',       label: 'Journal Entry',   icon: null, sidebar: false, gKey: null, palette: false, absolute: false },
   { key: 'bank-import',     route: '/:company/bank?tab=import',     label: 'Bank Import',     icon: null, sidebar: false, gKey: 'i',  palette: true,  absolute: false },
-  { key: 'opening-balances', route: '/:company/opening-balances', label: 'Opening Balances', icon: null, sidebar: false, gKey: null, palette: true,  absolute: false },
+  { key: 'opening-balances', route: '/:company/settings?tab=opening-balances', label: 'Opening Balances', icon: null, sidebar: false, gKey: null, palette: true,  absolute: false },
   { key: 'new-company',     route: '/setup/new-company',          label: 'New Company',     icon: null, sidebar: false, gKey: null, palette: false, absolute: true  },
 ];
 

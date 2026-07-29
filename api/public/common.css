@@ -852,3 +852,16 @@ tr.fb-form-row-focus > td, div.fb-form-row-focus { background: var(--bg); }
   outline-offset: 1px;
   border-radius: 4px;
 }
+
+/* FB.nav focus ring (K5) — the visible selector for non-table nav surfaces
+   (dashboard stat cards + report links, and any future FB.nav consumer that
+   opts into the 'fb-nav-focus' focusClass). The default 'nav-row-focus' rule
+   is tr-scoped (tr.nav-row-focus > td) so it never painted on <a> cards; this
+   is a strong ring matching the FB.form cursor aesthetic. It is a CSS class
+   only — NORMAL-mode doctrine: no DOM focus is grabbed, so Enter follows the
+   anchor via el.click() and the ring moves with j/k/h/l, clears on Esc. */
+.fb-nav-focus {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(26,26,26,0.18);
+}

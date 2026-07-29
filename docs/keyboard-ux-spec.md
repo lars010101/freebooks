@@ -108,7 +108,7 @@ destination well enough. `/bank/import` moved to the registry (`palette:
 true`, `gKey: 'i'`) because the catalog `bank.process` description lacked
 the word "import", making it invisible to palette search — the registry
 emits a 'Go to Bank Import' row that surfaces on 'bank import'/'import'.
-Sidebar routes and `/opening-balances` carry `palette: true`. (A runtime
+Sidebar routes and opening-balances (now a Settings tab, §6) carry `palette: true`. (A runtime
 route-match dedupe was tried and rejected: catalog navigate targets like
 `/payables` for `vendor.save` are action labels, not go-to rows — matching
 on them swallowed the real `Go to` rows.)
@@ -132,8 +132,23 @@ e.g. reports comparison: `~` on active MoM → none).
   (different semantic, unchanged).
 - Journal-new reversal is NOT a `~` — moved to `R` 2026-07-28 (magnus: `~`
   reads as toggle-true/false; reversal is a mode — vim's own `R` = replace
-  mode). Esc inside the reversal search cancels the whole reversal flow
-  back to normal JV edit.
+  mode). **Esc contract (ratified 2026-07-28, magnus):** INSERT-Esc from
+  the reversal search ONLY exits edit → NORMAL (reversal stays active);
+  NORMAL-Esc cancels the whole reversal back to normal JV edit. So
+  `R` → (INSERT in search) `Esc` → NORMAL (still reversing) → `Esc` →
+  cancelled. The NORMAL binding is `when: reversalMode`-guarded, so global
+  Esc is untouched outside reversal.
+- **Reversal pick → cursor lands on the date cell** (ratified 2026-07-28):
+  after choosing a source entry (Enter on a result row), the form cursor
+  moves to the header date cell in NORMAL (search blurred, results
+  collapsed) — the reviewer is never stranded in the search input; `j`/`k`
+  from date walk straight into the line grid.
+- **Reversal shows the original entry read-only** (ratified 2026-07-28):
+  on pick, the ORIGINAL (un-swapped) lines render as grayed, italic,
+  plain-text rows ABOVE the editable swapped rows, under an "Original
+  entry (read-only)" header row. These rows carry no inputs → excluded
+  from the FB.form `lines` zone (`:not(.jv-orig-line)`), from `updateTotals`,
+  and from `postEntry` (originals are never re-posted).
 - **`~` never changes NORMAL/INSERT mode** (ratified 2026-07-28): toggles
   act via `click()` (no focus, no setMode). **Space activates the focused
   toggle/button** — parity alias of `~`/`Enter` on button cells (fb-form).
@@ -147,12 +162,17 @@ e.g. reports comparison: `~` on active MoM → none).
 
 ## 6. Opening Balances placement
 
-The opening-balances screen (`/:company/opening-balances`) is the
+The opening-balances screen is the
 once-per-company migration tool (enter the opening trial balance as of the
 go-live date; posts one balancing journal batch). Precedent: **Xero keeps
 "Conversion Balances" under Settings**; QBO enters opening balances per
-account. Ratified: linked from **Settings → Company** (setup box above the
-danger zone), NOT the sidebar; palette-reachable via §4. It carries no `g`
+account. **Relocated 2026-07-28 (magnus): it is now a Settings tab —
+Settings → Opening Balances** (`/:company/settings?tab=opening-balances`),
+following the standard showTab / lazy-load / `?tab=` deep-link pattern.
+The old standalone route `/:company/opening-balances` 302-redirects to the
+tab (bookmarks/links keep working); the nav-registry entry and the
+new-company `Enter Opening Balances` link point at the tab. It is NOT the
+sidebar; palette-reachable via §4. It carries no `g`
 letter (run-once screen — letters are for high-frequency routes).
 
 View filters (K1 review 2026-07-28; toggle model ratified same day):
@@ -394,7 +414,13 @@ property on the iframe document.
   landing: dashboard gained an FB.nav set (cards + report links) —
   upgraded 2026-07-28 to a **spatial 2D grid** (`FB.nav.create({ grid })`:
   j/k across visual rows with column preserved, h/l within a row; owner
-  finding #13);
+  finding #13); **non-table FB.nav surfaces take a visible focus ring via
+  `FB.nav.create({ focusClass: 'fb-nav-focus' })`** (2026-07-28, magnus
+  finding: the dashboard card/report selector was invisible under hjkl —
+  the default `nav-row-focus` rule is `tr`-scoped so it never painted on
+  `<a>` cards; `.fb-nav-focus` is a strong outline/box-shadow ring in
+  common.css, a CSS class only so NORMAL-mode doctrine holds — no DOM
+  focus is grabbed, Enter follows the anchor via `el.click()`, Esc clears);
   bill-detail registers an FB.keys set delegating to its fbKeyActions
   handlers; bank gained **`f` = cycle cleared-filter** (uncleared →
   cleared → both); new-company renders hints inline (`#nc-hints` — no

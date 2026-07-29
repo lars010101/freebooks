@@ -308,13 +308,32 @@ re-ratification above). In INSERT stepping mode, `ArrowDown`/`ArrowUp` are
 aliases for `j`/`k`. Text/date inputs' arrow keys are untouched (native
 caret behavior).
 
-**NORMAL-owns-cursor rule (K3e, ratified 2026-07-28):** NORMAL owns the
-cursor; no field holds DOM focus in NORMAL. INSERT is entered only via
-`i`/`Enter` (keyboard) or click (mouse parity). Tab/Shift+Tab in NORMAL
-move the cursor cell next/prev without entering INSERT (`preventDefault`
-stops native focus movement, so no `focusin`→`setMode(true)` fires); in
-INSERT they commit-and-advance/retreat (native traversal + cursor-follows-
-focus, unchanged). `Esc` exits INSERT and never writes.
+**NORMAL-owns-cursor rule (K3e, ratified 2026-07-28; enforced same day):**
+NORMAL owns the cursor; no field holds DOM focus in NORMAL — fb-form's
+paint now actively blurs any form element holding focus in NORMAL (a
+lingering button/select focus showed as a second "selector" beside the
+vim cursor and re-fired on native Space/Enter — owner findings #5/#6).
+INSERT is entered only via `i`/`Enter` (keyboard) or click (mouse parity).
+Tab/Shift+Tab in NORMAL move the cursor cell next/prev without entering
+INSERT (crossing row/zone boundaries). In INSERT they **programmatically**
+advance/retreat (`advance()`/`retreat()` + focus) — supersedes the K3e
+"native traversal" design: headless Chromium does not traverse focus for
+CDP-synthesized Tabs (the keydown reached the input unprevented and focus
+never moved), which made native traversal both flaky and untestable.
+`Esc` exits INSERT and never writes.
+
+**Enter on button cells (2026-07-28):** Enter/i CLICK the focused button
+in both modes — NORMAL (via `edit()`) and INSERT (no advance, no mode
+flip, cursor stays put). edit() never focuses buttons (click only), so
+toggling never leaves DOM focus behind.
+
+**Select overlays (2026-07-28):** `ArrowDown`/`ArrowUp` on an attachable
+select cell (`FB.dropdown.attachSelect`) in NORMAL opens the FULL option
+list overlay instead of blind-stepping the cell value — arrows navigate,
+Enter picks (sets the value + fires `change`), Esc closes; pick/close
+from a NORMAL-opened overlay returns to NORMAL. Selects without the
+overlay keep the INSERT j/k-stepping path. Reports' type/period selects
+use the overlay.
 
 **onCommit hook (K3e, ratified 2026-07-28):** forms may pass
 `cfg.onCommit(cellEl, api)` — invoked on the INSERT Enter commit-and-advance

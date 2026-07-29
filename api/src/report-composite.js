@@ -51,6 +51,16 @@ async function renderAnnualReport(query, companyId, start, end, opts = {}) {
     warnings.push(`Reporting standard '${company.reporting_standard}' has no variant in ${company.jurisdiction}/annual-report.json — using '${variantKey}'.`);
   }
 
+  // Per-year governance/tax facts: period.tax_attrs overrides descriptor facts.
+  let periodAttrs = {};
+  try {
+    const prows = await query(
+      `SELECT tax_attrs FROM periods WHERE company_id = ? AND start_date <= ? AND end_date >= ? ORDER BY start_date DESC LIMIT 1`,
+      [companyId, start, end]
+    );
+    if (prows.length && prows[0].tax_attrs) periodAttrs = JSON.parse(prows[0].tax_attrs);
+ } catch { /* tax_attrs column pre-migration */ }
+
   const priorStart = shiftYear(start, -1);
   const priorEnd = shiftYear(end, -1);
   const periods = [
@@ -158,19 +168,64 @@ async function renderAnnualReport(query, companyId, start, end, opts = {}) {
     }
   }
 
-  // Notes templating.
+  // Notes templating. Facts = descriptor variant.facts overridden by period.tax_attrs.
+  const facts = Object.assign({}, variant.facts || {}, periodAttrs);
   const equityLine = bs && bs.rows.find((r) => r.id === 'aktiekapital' || r.id === 'share_capital');
   const shareCapital = equityLine ? equityLine.cols[0] : 0;
-  const fill = (tpl) => tpl
-    .replaceAll('{company_name}', company.company_name)
-    .replaceAll('{org_nr}', company.tax_id || '')
-    .replaceAll('{period_start}', start)
-    .replaceAll('{period_end}', end)
-    .replaceAll('{standard}', variantKey)
-    .replaceAll('{currency}', company.currency || (manifest && manifest.currency) || '')
-    .replaceAll('{aktiekapital}', nf0.format(shareCapital));
+  const rr = statements.find((s) => s.kind === 'pl');
+  const rrResult = rr && rr.rows.find((r) => r.id === 'arets_resultat' || r.id === 'profit_for_year');
+  const balLine = bs && bs.rows.find((r) => r.id === 'balanserat' || r.id === 'retained_earnings');
+  const ekTotal = bs && bs.rows.find((r) => r.id === 'summa_ek' || r.id === 'total_equity');
 
-  const result = { company, manifest, descriptor, variantKey, periods, statements, notes: (variant.notes || []).map((n) => ({ title: n.title, text: fill(n.template) })), signatureBlock: variant.signatureBlock || '', warnings };
+  const baseMap = {
+    company_name: company.company_name,
+    org_nr: company.tax_id || '',
+    period_start: start,
+    period_end: end,
+    standard: variantKey,
+    currency: company.currency || (manifest && manifest.currency) || '',
+    aktiekapital: nf0.format(shareCapital),
+    rr_result: rrResult ? fmt(rrResult.cols[0]) : '',
+    rr_result_abs: rrResult ? nf0.format(Math.abs(rrResult.cols[0])) : '',
+    balanserat: balLine ? nf0.format(balLine.cols[0]) : '',
+  };
+  const fill = (tpl) => tpl.replace(/\{([a-z_0-9]+)\}/gi, (m, k) => {
+    if (k in baseMap) return baseMap[k];
+    if (facts[k] != null) return typeof facts[k] === 'number' ? nf0.format(facts[k]) : String(facts[k]);
+    return m; // leave unknown placeholders visible — a warning sign, not silent data loss
+  });
+
+  // Computed note types.
+  const computedNote = (n) => {
+    if (n.type === 'equity_reconciliation') {
+      // K2 mandatory equity reconciliation: opening + result = closing, per column.
+      const cols = periods.map((_, ci) => {
+        const closing = ekTotal ? ekTotal.cols[ci] : 0;
+        const result = rrResult ? rrResult.cols[ci] : 0;
+        return { opening: closing - result, result, closing };
+      });
+      return { title: n.title, table: {
+        heads: ['', ...periods.map((p) => p.label)],
+        rows: [
+          ['Ingående eget kapital', ...cols.map((c) => c.opening)],
+          ['Årets resultat', ...cols.map((c) => c.result)],
+          ['Utgående eget kapital', ...cols.map((c) => c.closing)],
+        ],
+      } };
+    }
+    return { title: n.title, text: fill(n.template || '') };
+  };
+
+  const notes = (variant.notes || []).map(computedNote);
+
+  // Signature block: one line per board member from facts.board_names.
+  let signatureBlock = variant.signatureBlock || '';
+  if (Array.isArray(facts.board_names) && facts.board_names.length) {
+    const sigs = facts.board_names.map((name) => `_____________________\n${name}`).join('\n\n');
+    signatureBlock = `Årsredovisningen är undertecknad av samtliga styrelseledamöter.\n\nOrt och datum: ______________\n\n${sigs}\n\nÅrsredovisningen fastställdes på årsstämman den ______________`;
+  }
+
+  const result = { company, manifest, descriptor, variantKey, periods, statements, notes, signatureBlock, warnings };
 
   if (opts.format === 'json') return result;
   return { html: renderHtml(result, fmt), csv: renderCsv(result), filename: `annual-report_${companyId}_${end.slice(0, 4)}` };
@@ -189,7 +244,14 @@ function renderHtml(r, fmt) {
     }).join('\n');
     return `<h2>${esc(st.title)}</h2>\n<table><thead><tr><th></th>${colHeads}</tr></thead><tbody>${rows}</tbody></table>`;
   }).join('\n');
-  const notesHtml = r.notes.map((n) => `<h3>${esc(n.title)}</h3><p>${esc(n.text)}</p>`).join('\n');
+  const notesHtml = r.notes.map((n) => {
+    if (n.table) {
+      const heads = n.table.heads.map((h) => `<th class="num">${esc(h)}</th>`).join('');
+      const rows = n.table.rows.map((row) => `<tr><td>${esc(row[0])}</td>${row.slice(1).map((v) => `<td class="num">${fmt(v)}</td>`).join('')}</tr>`).join('');
+      return `<h3>${esc(n.title)}</h3><table><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    return `<h3>${esc(n.title)}</h3><p>${esc(n.text)}</p>`;
+  }).join('\n');
   const warn = r.warnings.length ? `<div class="warn">${r.warnings.map(esc).join('<br>')}</div>` : '';
   const sig = r.signatureBlock ? `<div class="sig">${esc(r.signatureBlock).replace(/\n/g, '<br>')}</div>` : '';
 

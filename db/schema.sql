@@ -451,3 +451,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
   response_json TEXT NOT NULL,
   created_at    TIMESTAMP DEFAULT now()
 );
+
+-- Per-year tax & governance attributes (jurisdiction-pack: the pack manifest's
+-- taxAttributes/periodAttributes). JSON object keyed by attribute key.
+ALTER TABLE periods ADD COLUMN IF NOT EXISTS tax_attrs VARCHAR;

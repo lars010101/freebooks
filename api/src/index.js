@@ -775,7 +775,7 @@ async function handleSettings(ctx, action) {
 
   if (action === 'period.list') {
     const rows = await query(
-      `SELECT period_name, start_date, end_date, locked
+      `SELECT period_name, start_date, end_date, locked, tax_attrs
        FROM (
          SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
          FROM periods WHERE company_id = @companyId
@@ -804,11 +804,12 @@ async function handleSettings(ctx, action) {
     if (!period || !period.period_id || !period.start_date || !period.end_date) throw Object.assign(new Error('period_id, start_date, end_date required'), { code: 'INVALID_INPUT' });
     const now = new Date().toISOString();
     const existing = await query(`SELECT period_name FROM periods WHERE company_id = @companyId AND period_name = @name`, { companyId, name: period.period_id });
+    const taxAttrs = period.tax_attrs != null ? JSON.stringify(period.tax_attrs) : null;
     if (existing.length > 0) {
-      await exec(`UPDATE periods SET start_date=@start, end_date=@end, locked=@locked, updated_at=@now WHERE company_id=@companyId AND period_name=@name`,
-        { companyId, name: period.period_id, start: period.start_date, end: period.end_date, locked: !!period.locked, now });
+      await exec(`UPDATE periods SET start_date=@start, end_date=@end, locked=@locked, tax_attrs=COALESCE(@taxAttrs, tax_attrs), updated_at=@now WHERE company_id=@companyId AND period_name=@name`,
+        { companyId, name: period.period_id, start: period.start_date, end: period.end_date, locked: !!period.locked, taxAttrs, now });
     } else {
-      await bulkInsert('periods', [{ company_id: companyId, period_name: period.period_id, start_date: period.start_date, end_date: period.end_date, locked: !!period.locked, created_at: now, updated_at: now }]);
+      await bulkInsert('periods', [{ company_id: companyId, period_name: period.period_id, start_date: period.start_date, end_date: period.end_date, locked: !!period.locked, tax_attrs: taxAttrs, created_at: now, updated_at: now }]);
     }
     return { saved: true };
   }

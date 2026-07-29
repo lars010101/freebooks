@@ -97,6 +97,14 @@
 
 ---
 
+## 0m. Status update — 2026-07-29 (Phase A specced)
+
+**Agent-readiness tranche (Phase A) specced** (this update; **`docs/agent-readiness-spec.md`**, status PROPOSED): A1 actor attribution (`agent` role at level 1.5, actor class derived from the DB role — never asserted; dispatch-level **default-deny whitelist** — agents read + `bill.propose` + `attachment.upload` only; `audit_log` gains `actor_type` + `request_id`), A2 append-only business-event stream (`events` table + monotonic `event_seq`, emission at state-transition handlers, `event.list` polling = the agent input channel; idempotent replay provably never double-emits), A3 bill proposal flow (`proposed`/`rejected` statuses, `bill.propose/approve/reject`, review queue **integrated into the Bills FB.list** — `y` approve / `x` reject row verbs + Payables nav badge, no new page). Context: agent-driven operating model (agents prepare, humans approve; API-only agent access; WORM backups) agreed in the 2026-07-29 design thread. K1–K5 keyboard program complete per §0l.
+
+**Open by priority:** Receivables (AR; FB.list from day one) → **Phase A agent-readiness (A1→A2→A3, on ratification)** → P2 accounting completeness (P2-1 year-end close, P2-2 FX reval monetary-only, P2-3 `bill_lines` subledger, P2-4 VAT convention unify + server-computed draft totals, P2-5 MCP server — consumes A1/A2 —, P2-6 rebinding — priority pending magnus) → P3 scope (feeds — built on `bill.propose` + `event.list`). FX automation core remains specced, awaiting scheduling. *(Supersedes the backlog line in §0f.)*
+
+---
+
 ## 0k. Status update — 2026-07-28 (K4)
 
 **K4 landed ✅ (this update):** attachment unification + reconcile verification. (A) **`A` = attach everywhere** — legacy `fbKeyActions` pages route shift-a to a new `attach` verb (common.js; bill-detail migrated off `a`); FB.form pages declare `A` (journal-new). (B) **journal-new pending queue** is an FB.form zone (`j`/`k` rows, `x` removes staged file; shared `.fb-attach-row` markup; new shared `api/public/fb-attachments.js` helper module). (C) **reconcile**: the audit's mouse-only-checkboxes item predates the FB.list migration — /bank/reconcile 301-redirects to /bank, whose Transactions tab already has j/k + `~` clear/unclear on the checkbox's own persistence path; closed with end-to-end verification (toggle + persistence), no new code. (D) **K3c regression fixed**: the default FB.form `active()` guard checked zone 0 only — journal-new (empty reversal zone at rest) and bank-import (closed bill panel at rest) were key-dead; guard now scans all zones. bill-edit queue nav deferred (K4b); bill-detail keeps its bespoke combined nav (key unified only). Spec: keyboard-ux-spec §9 K4.

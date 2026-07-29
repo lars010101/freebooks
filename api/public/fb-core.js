@@ -1085,8 +1085,32 @@
       return inst;
     }
 
+    // attachSelect(select, { onPick?, cap?, minWidth? }) — the dropdown
+    // overlay for native <select> cells (magnus 2026-07-28): ArrowDown shows
+    // the FULL option list instead of blind-stepping the cell value. Pick
+    // sets select.value and fires change, so page onchange handlers drive
+    // everything downstream (report loads, period date fills, …).
+    function attachSelect(select, opts) {
+      opts = opts || {};
+      return attach(select, {
+        source: function () {
+          return Array.prototype.slice.call(select.options)
+            .filter(function (o) { return !o.disabled; })
+            .map(function (o) { return { primary: o.text, data: o.value }; });
+        },
+        onPick: function (item) {
+          select.value = item.data;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          if (opts.onPick) opts.onPick(item.data, select);
+        },
+        cap: opts.cap || 12,
+        minWidth: opts.minWidth
+      });
+    }
+
     return {
       attach: attach,
+      attachSelect: attachSelect,
       isOpen: function () { return !!_open; },
       attachable: function (el) { return !!(el && el.__fbdd); },
       openFull: function (el) { if (el && el.__fbdd) _openWith(el.__fbdd, ''); },

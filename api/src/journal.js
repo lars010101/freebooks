@@ -147,7 +147,7 @@ async function searchEntries(ctx) {
      FROM journal_entries
      WHERE company_id = @companyId
        AND reversed_by IS NULL
-       AND (reference ILIKE @q OR description ILIKE @q OR batch_id ILIKE @q)
+       AND (reference ILIKE @q OR description ILIKE @q OR batch_id ILIKE @q OR CAST(date AS TEXT) ILIKE @q)
      GROUP BY batch_id
      ORDER BY MIN(date) DESC
      LIMIT 20`,

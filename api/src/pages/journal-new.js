@@ -42,6 +42,9 @@ ${commonStyle()}
   .fb-attach-row.fb-form-row-focus { background:#1a1a1a !important; color:#fff; }
   .fb-attach-row.fb-form-row-focus .fb-att-meta { color:rgba(255,255,255,.6); }
   .fb-attach-row.fb-form-row-focus .fb-att-del { color:#ff8888; }
+  /* A1 (magnus 2026-07-28): read-only original-entry rows shown above the
+     swapped reversal rows. Plain-text <td>s (no inputs) — grayed + italic. */
+  .jv-orig-hdr td, .jv-orig-line td { color:#999; background:#f5f5f5; font-style:italic; }
 </style>
 </head>
 <body>${navBar(company, 'newjv')}
@@ -226,8 +229,12 @@ ${commonStyle()}
   function updateTotals() {
     var dr = 0, cr = 0;
     document.querySelectorAll('#lines-body tr').forEach(tr => {
-      dr += parseFloat(tr.querySelector('.debit-input').value || 0);
-      cr += parseFloat(tr.querySelector('.credit-input').value || 0);
+      // A1: skip read-only original-entry rows (no .debit-input/.credit-input)
+      var dEl = tr.querySelector('.debit-input');
+      var cEl = tr.querySelector('.credit-input');
+      if (!dEl || !cEl) return;
+      dr += parseFloat(dEl.value || 0);
+      cr += parseFloat(cEl.value || 0);
     });
     document.getElementById('total-dr').textContent = dr.toFixed(2);
     document.getElementById('total-cr').textContent = cr.toFixed(2);
@@ -299,7 +306,10 @@ ${commonStyle()}
     if (!date) { showStatus('Date is required', true); return; }
     if (!journalId) { showStatus('Select a journal', true); return; }
 
-    var lines = Array.from(document.querySelectorAll('#lines-body tr')).map(tr => ({
+    var lines = Array.from(document.querySelectorAll('#lines-body tr'))
+      // A1: skip read-only original-entry rows (no inputs) before mapping
+      .filter(function(tr) { return !tr.classList.contains('jv-orig-line') && !tr.classList.contains('jv-orig-hdr'); })
+      .map(tr => ({
       date,
       account_code:  tr.querySelector('.acct-input').value.trim(),
       debit:         parseFloat(tr.querySelector('.debit-input').value  || 0),
@@ -461,6 +471,29 @@ ${commonStyle()}
         }
         // Clear existing lines and populate reversed
         document.getElementById('lines-body').innerHTML = '';
+        // A1 (magnus 2026-07-28): render the ORIGINAL (un-swapped) lines as
+        // read-only grayed rows ABOVE the swapped reversal rows, so the
+        // reviewer can see what's being reversed at a glance. These rows
+        // carry no inputs (plain text <td>s) → inherently read-only,
+        // excluded from the lines zone (rows() :not() filter) and from
+        // post (postEntry/updateTotals guard rows without inputs).
+        var thCount = document.querySelectorAll('.jv-table thead th').length;
+        var hdrTr = document.createElement('tr');
+        hdrTr.className = 'jv-orig-hdr';
+        hdrTr.innerHTML = '<td colspan="' + thCount + '">Original entry (read-only)</td>';
+        document.getElementById('lines-body').appendChild(hdrTr);
+        lines.forEach(function(l) {
+          var otr = document.createElement('tr');
+          otr.className = 'jv-orig-line';
+          otr.innerHTML = '<td>' + esc(l.account_code || '') + '</td>'
+            + '<td>' + esc(accountsMap[l.account_code] || '') + '</td>'
+            + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
+            + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
+            + '<td>' + esc(l.description || '') + '</td>'
+            + (VAT_ON ? '<td></td>' : '')
+            + '<td></td>';
+          document.getElementById('lines-body').appendChild(otr);
+        });
         lines.forEach(function(l) {
           var tr = addLine();
           var codeIn  = tr.querySelector('.acct-input');
@@ -477,6 +510,15 @@ ${commonStyle()}
         });
         updateTotals();
         showStatus('Reversal loaded — review and post', false);
+        // A2 (magnus 2026-07-28): land the cursor on the header date cell
+        // (NORMAL) so the reviewer isn't stranded in the search input.
+        // Blur the search + collapse results so the reversal zone rows()
+        // is empty and the cursor isn't stuck there; j/k from the date
+        // cell moves down into the line grid.
+        var rs = document.getElementById('reversal-search');
+        if (rs) rs.blur();
+        jvForm.moveTo(1, 0, 0, false);
+        jvForm.refresh();
       })
       .catch(function(e) { showStatus(e.message, true); });
   }
@@ -534,7 +576,7 @@ ${commonStyle()}
       // cells) — j/k reach it, x removes the cursor row via the delete verb.
       { id: 'attachments', rows: function () { return Array.from(document.querySelectorAll('#jv-pending-list .fb-attach-row')); },
         cells: function () { return []; } },
-      { id: 'lines',    rows: function () { return Array.from(document.querySelectorAll('#lines-body tr')); } }
+      { id: 'lines',    rows: function () { return Array.from(document.querySelectorAll('#lines-body tr:not(.jv-orig-line):not(.jv-orig-hdr)')); } }
     ],
     verbs: {
       add: { key: 'a', hint: 'add line', run: function (api) {
@@ -584,17 +626,32 @@ ${commonStyle()}
         { key: 'ArrowUp', mode: 'INSERT', when: searchFocused, run: function () { moveReversal(-1); } },
         // Enter inside the search always stays local (never advances the form)
         { key: 'Enter', mode: 'INSERT', when: searchFocused, run: pickReversal },
-        // Esc from the search = cancel reversal outright, back to normal JV
-        // edit (magnus 2026-07-28) — not merely an exit to NORMAL.
+        // A3 (magnus 2026-07-28): Esc contract — INSERT Esc from the search
+        // ONLY exits edit → NORMAL (reversal stays active); NORMAL Esc cancels
+        // reversal. R → (INSERT in search) Esc → NORMAL (still active) →
+        // Esc → cancels reversal. The NORMAL when-guard (reversalMode)
+        // keeps global Esc behavior untouched when reversalMode is false.
         { key: 'Escape', mode: 'INSERT', when: searchFocused, run: function () {
+            api.exitEdit();         // blur + NORMAL — reversal stays active
+            api.refresh();
+          } },
+        { key: 'Escape', mode: 'NORMAL', when: function () { return reversalMode; },
+          run: function () {
             toggleReversalMode();   // off — resets search/desc/lines
-            api.exitEdit();         // blur + NORMAL (input is being hidden)
             api.refresh();          // reversal zone emptied → cursor to header
           } }
       ];
     }
   });
   FB.keys.renderHints('journal-new', document.getElementById('sb-hints'), { layout: 'list' });
+  // Test/introspection handle (read-only): lets the committed regression
+  // suite (tests/reversal.mjs) assert cursor zone/mode/reversal state without
+  // poking closures. No behavior change.
+  window.__jn = {
+    cur: function () { return jvForm.cur(); },
+    mode: function () { return jvForm.mode(); },
+    reversal: function () { return reversalMode; }
+  };
 <\/script>
 ${layoutEnd()}
 </body>

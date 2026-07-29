@@ -2,6 +2,7 @@
   "name": "freebooks",
   "private": true,
   "scripts": {
-    "test:keys": "node tests/keys-coverage.mjs"
+    "test:keys": "node tests/keys-coverage.mjs",
+    "test:reversal": "node tests/reversal.mjs"
   }
 }

@@ -379,6 +379,13 @@ ${layoutEnd()}
   });
   FB.keys.renderHints('reports', document.getElementById('sb-hints'), { layout: 'list' });
 
+// ArrowDown on either select opens the FULL option list (FB.dropdown
+// overlay; magnus 2026-07-28 — "drop down the full list, not just switch
+// the cell value"). The source reads live options, so the periods fetch
+// needs no coordination. Pick fires change → the handlers above reload.
+FB.dropdown.attachSelect(document.getElementById('rpt-type'));
+FB.dropdown.attachSelect(document.getElementById('rpt-period'));
+
 })();
 </script>
 </body>

@@ -109,6 +109,21 @@
         cell.classList.add(cell.tagName === 'BUTTON' ? CELL_BTN_CLS : CELL_CLS);
         if (cell.scrollIntoView) cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       }
+      // K3e enforcement (magnus 2026-07-28): in NORMAL, NO form element may
+      // hold DOM focus — a focused button/select lingers as a second visible
+      // "selector" beside the vim cursor and re-fires on native Space/Enter.
+      // Mouse parity is unaffected: click still dispatches after the blur.
+      if (!editing) {
+        var ae = document.activeElement;
+        if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'BUTTON')) {
+          outer: for (var zi = 0; zi < zones().length; zi++) {
+            var frs = zoneRows(zi);
+            for (var ri = 0; ri < frs.length; ri++) {
+              if (frs[ri] && frs[ri].contains && frs[ri].contains(ae)) { ae.blur(); break outer; }
+            }
+          }
+        }
+      }
     }
 
     function setMode(insert) {
@@ -129,7 +144,10 @@
       if (!el) return;
       // Button cells activate (click) rather than enter INSERT — generic, so
       // any page declaring a button cell gets Enter/i = click (spec §8).
-      if (el.tagName === 'BUTTON') { el.focus(); el.click(); paint(); return; }
+      // NO el.focus(): DOM focus on the button would linger in NORMAL as a
+      // second visible "selector" next to the vim cursor, and native
+      // Space/Enter-on-focused-button would double-fire (magnus 2026-07-28).
+      if (el.tagName === 'BUTTON') { el.click(); paint(); return; }
       // Native <select> (no FB.dropdown attached): ALWAYS enter INSERT and
       // step options with j/k / arrows — the OS popup (el.showPicker) is
       // never opened from the keyboard. Rationale (2026-07-28, discovered via
@@ -223,6 +241,21 @@
       var el = curCellEl();
       if (el) el.focus();
     }
+    // Shift+Tab in INSERT: retreat to the previous cell — left, wrapping to
+    // the previous row's last cell; sticky at the first cell.
+    function retreat() {
+      var flat = flatRows();
+      var idx = flat.findIndex(function (p) { return p.z === cur.z && p.r === cur.r; });
+      if (idx === -1) return;
+      if (cur.c > 0) cur.c--;
+      else if (idx > 0) {
+        cur.z = flat[idx - 1].z; cur.r = flat[idx - 1].r;
+        cur.c = Math.max(0, rowCells(cur.z, zoneRows(cur.z)[cur.r]).length - 1);
+      }
+      paint();
+      var el = curCellEl();
+      if (el) el.focus();
+    }
 
     function moveTo(zi, ri, ci, doEdit) {
       cur = { z: zi, r: ri, c: ci };
@@ -236,6 +269,9 @@
     // option nav: j/k step, Enter commits (fires onchange), Esc reverts. The
     // snapshot lets Esc cancel without firing — dropdown-cancel parity (§8).
     var selSnap = null; // {el, idx} set on edit() of a native select
+    // Set when a dropdown overlay was opened from NORMAL (ArrowDown on an
+    // attachable select cell): pick/Esc then returns the form to NORMAL.
+    var ddFromNormal = false;
     function nativeSelect(el) { return !!el && el.tagName === 'SELECT' && !ddOpen(); }
     function stepSelect(d) {
       var el = curCellEl();
@@ -288,6 +324,14 @@
         run: function () { var el = curCellEl(); el.click(); paint(); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
+      // ArrowDown/ArrowUp on an attachable (FB.dropdown) select cell in
+      // NORMAL: open the FULL option list (magnus 2026-07-28 — "drop down
+      // the full list, not just switch the cell value"). The overlay owns
+      // keys via the ddOpen INSERT bindings; pick/Esc returns to NORMAL.
+      { key: 'ArrowDown', mode: 'NORMAL', when: function () { var el = curCellEl(); return !!(el && el.__fbdd); },
+        run: function () { ddFromNormal = true; setMode(true); FB.dropdown.openFull(curCellEl()); } },
+      { key: 'ArrowUp', mode: 'NORMAL', when: function () { var el = curCellEl(); return !!(el && el.__fbdd); },
+        run: function () { ddFromNormal = true; setMode(true); FB.dropdown.openFull(curCellEl()); } },
       // K3d: ArrowDown/ArrowUp on a native <select> cell in NORMAL behave
       // like i/Enter — enter INSERT and j/k-step (text/date inputs' arrows
       // stay native; the when guard only passes for native select cells).
@@ -312,10 +356,18 @@
       // ── INSERT: dropdown open (fb-list parity — guarded bindings first) ──
       { key: 'ArrowDown', mode: 'INSERT', when: ddOpen, run: function () { FB.dropdown.move(1); } },
       { key: 'ArrowUp', mode: 'INSERT', when: ddOpen, run: function () { FB.dropdown.move(-1); } },
-      { key: 'Enter', mode: 'INSERT', when: ddOpen, run: function () { FB.dropdown.pick(); } },
+      { key: 'Enter', mode: 'INSERT', when: ddOpen, run: function () {
+          FB.dropdown.pick();
+          // Opened from NORMAL (ArrowDown on a select cell): pick closes the
+          // loop back to NORMAL — the traversal session is over (2026-07-28).
+          if (ddFromNormal) { ddFromNormal = false; setMode(false); }
+        } },
       { key: 'Tab', mode: 'INSERT', when: ddOpen, swallow: false, preventDefault: false,
         run: function () { FB.dropdown.pick(); } },
-      { key: 'Escape', mode: 'INSERT', when: ddOpen, run: function () { FB.dropdown.close(); } },
+      { key: 'Escape', mode: 'INSERT', when: ddOpen, run: function () {
+          FB.dropdown.close();
+          if (ddFromNormal) { ddFromNormal = false; setMode(false); }
+        } },
       // ── INSERT: dropdown closed ──
       { key: 'ArrowDown', mode: 'INSERT',
         when: function (e) { return !ddOpen() && FB.dropdown && FB.dropdown.attachable(e.target); },
@@ -329,14 +381,26 @@
       { key: 'ArrowUp', mode: 'INSERT', when: function (e) { return nativeSelect(e.target); }, run: function () { stepSelect(-1); } },
       { key: 'Enter', mode: 'INSERT', when: function (e) { return nativeSelect(e.target); }, run: commitSelect },
       { key: 'Enter', mode: 'INSERT',
-        // multi-line fields (CSV paste) own Enter natively — no advance
+        // multi-line fields (CSV paste) own Enter natively — no advance.
+        // BUTTON cells: Enter CLICKS (magnus 2026-07-28 — advancing past a
+        // button without activating it made Enter-on-toggle feel broken);
+        // the cursor stays put and mode is unchanged.
         when: function (e) { return !e.target || e.target.tagName !== 'TEXTAREA'; },
         run: function (e) {
           var el = curCellEl();
-          if (el && el.tagName !== 'BUTTON' && cfg.onCommit) cfg.onCommit(el, api);
+          if (el && el.tagName === 'BUTTON') { el.click(); return; }
+          if (el && cfg.onCommit) cfg.onCommit(el, api);
           advance(e);
         } },
-      { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function () {} },
+      { key: 'Tab', mode: 'INSERT',
+        // Programmatic traversal (2026-07-28, supersedes K3e's "native
+        // traversal"): headless Chromium does NOT traverse focus for
+        // CDP-synthesized Tabs — the keydown reached the input unprevented
+        // and focus never moved, leaving mode/cursor desynced and making
+        // INSERT Tab flows untestable. fb-form owns Tab in both modes now;
+        // cursor-follows-focus keeps cursor/focus synced on each focus().
+        when: function () { return !ddOpen(); },
+        run: function (e) { if (e.shiftKey) retreat(); else advance(); } },
       { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitEdit }
     ];
 

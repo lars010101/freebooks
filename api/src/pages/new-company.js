@@ -118,7 +118,7 @@ function createCompany() {
         msg.style.color = '#2a8a2a';
         document.getElementById('btn-create').textContent = 'Created \u2713';
         document.getElementById('post-links').style.display = '';
-        document.getElementById('lnk-ob').href = '/'+co.company_id+'/opening-balances';
+        document.getElementById('lnk-ob').href = '/'+co.company_id+'/settings?tab=opening-balances';
         document.getElementById('lnk-settings').href = '/'+co.company_id+'/settings';
         return;
       }
@@ -131,7 +131,7 @@ function createCompany() {
           msg.style.color = '#2a8a2a';
           document.getElementById('btn-create').textContent = 'Created ✓';
           document.getElementById('post-links').style.display = '';
-          document.getElementById('lnk-ob').href = '/'+co.company_id+'/opening-balances';
+          document.getElementById('lnk-ob').href = '/'+co.company_id+'/settings?tab=opening-balances';
           document.getElementById('lnk-settings').href = '/'+co.company_id+'/settings';
         });
     })

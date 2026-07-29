@@ -1423,8 +1423,14 @@
       // list is visible. The old per-instance _gPending is deleted.
       { key: 'G', mode: 'NORMAL', run: function () {
           nav.last(); // bottom = add row
-          var pm = document.getElementById('page-main');
-          if (pm) pm.scrollTo(0, pm.scrollHeight);
+          // Absolute bottom on BOTH scroll containers, next frame — the row
+          // paint's scrollIntoView must not cancel the page scroll (magnus
+          // K1 review 2026-07-28).
+          requestAnimationFrame(function () {
+            var pm = document.getElementById('page-main');
+            if (pm) pm.scrollTo(0, pm.scrollHeight);
+            window.scrollTo(0, document.documentElement.scrollHeight);
+          });
         } },
       // ── INSERT: dropdown open (dropdown-specific bindings precede general ones —
       // FB.keys takes the FIRST binding whose key+mode+when match) ──

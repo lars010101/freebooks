@@ -88,6 +88,7 @@ ${commonStyle()}
     <div class="filter-btns">
       <span style="font-weight:600;font-size:10pt;color:#555;margin-right:4px">Show:</span>
       <button id="btn-filter-bs" class="active" onclick="setFilter('bs')">Balance Sheet</button>
+      <button id="btn-filter-pl" onclick="setFilter('pl')">P&amp;L</button>
       <button id="btn-filter-all" onclick="setFilter('all')">All Accounts</button>
       <button id="btn-filter-nonzero" onclick="setFilter('nonzero')">Non-Zero Only</button>
       <input type="text" id="acct-search" placeholder="Search account…" style="padding:5px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt;width:200px"
@@ -139,6 +140,9 @@ ${commonStyle()}
   var currentFilter = 'bs';
 
   var BS_TYPES = ['Asset', 'Liability', 'Equity'];
+  // P&L view (magnus K1 review 2026-07-28): mid-year migration needs YTD
+  // income/expense openings for correct full-year P&L (QBO/Xero pattern).
+  var PL_TYPES = ['Revenue', 'Income', 'Expense', 'Cost of Goods Sold', 'Other Income', 'Other Expense'];
 
   // Set default date to today
   document.getElementById('ob-date').value = new Date().toISOString().slice(0,10);
@@ -170,7 +174,7 @@ ${commonStyle()}
 
   function setFilter(f) {
     currentFilter = f;
-    ['bs','all','nonzero'].forEach(function(x){
+    ['bs','pl','all','nonzero'].forEach(function(x){
       var btn = document.getElementById('btn-filter-' + x);
       if (btn) btn.className = (x === f) ? 'active' : '';
     });
@@ -183,6 +187,8 @@ ${commonStyle()}
 
     if (currentFilter === 'bs') {
       rows = rows.filter(function(a){ return BS_TYPES.indexOf(a.account_type) >= 0; });
+    } else if (currentFilter === 'pl') {
+      rows = rows.filter(function(a){ return PL_TYPES.indexOf(a.account_type) >= 0; });
     } else if (currentFilter === 'nonzero') {
       rows = rows.filter(function(a){
         return (Number(drVals[a.account_code]||0) > 0) || (Number(crVals[a.account_code]||0) > 0);
@@ -331,7 +337,7 @@ ${commonStyle()}
     extraBindings: function (api) {
       return [
         { key: '~', mode: 'NORMAL', hint: 'filter', hintBar: true, run: function () {
-            var next = currentFilter === 'bs' ? 'all' : currentFilter === 'all' ? 'nonzero' : 'bs';
+            var next = currentFilter === 'bs' ? 'pl' : currentFilter === 'pl' ? 'all' : currentFilter === 'all' ? 'nonzero' : 'bs';
             setFilter(next);
             api.refresh();
           } }

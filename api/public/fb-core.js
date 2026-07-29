@@ -129,12 +129,6 @@
 
   function _company() { return location.pathname.split('/')[1] || ''; }
 
-  function _gScrollTop() {
-    var pm = document.getElementById('page-main');
-    if (pm) pm.scrollTo({ top: 0, behavior: 'smooth' });
-    else window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
   function _gResolve(key) {
     if (key === 'g') return { type: 'gg' };
     if (key === 'c') return { type: 'switcher' };
@@ -147,8 +141,16 @@
 
   function _gGo(act) {
     if (act.type === 'gg') {
-      _gScrollTop();
+      // Hooks first (they set the first-row cursor and scroll it into view),
+      // THEN force absolute top on the next frame — otherwise the row paint's
+      // scrollIntoView('nearest') cancels the smooth page scroll mid-flight
+      // and gg lands near, not AT, the top (magnus K1 review 2026-07-28).
       for (var i = 0; i < _onGG.length; i++) { try { _onGG[i](); } catch (e) {} }
+      requestAnimationFrame(function () {
+        var pm = document.getElementById('page-main');
+        if (pm) pm.scrollTo(0, 0);
+        window.scrollTo(0, 0);
+      });
       return;
     }
     if (act.type === 'switcher') { switcher.toggle(); return; }

@@ -533,6 +533,13 @@ var mappingsList = FB.list.create({
     body: function(d) { return { mappingId: d._key }; },
     confirm: function(d) { return 'Delete mapping "' + (d.pattern || d._key) + '"?'; } }
 });
+
+// Deep-link: ?tab=mappings opens the Mappings tab directly (palette navigate
+// entries target it — magnus K1 review 2026-07-28). Runs AFTER mappingsList
+// exists — showBankTab('mappings') calls mappingsList.load().
+if ((new URLSearchParams(window.location.search)).get('tab') === 'mappings') {
+  showBankTab('mappings');
+}
 <\/script>
 ${layoutEnd()}
 </body>

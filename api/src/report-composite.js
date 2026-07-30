@@ -275,9 +275,9 @@ async function renderAnnualReport(query, companyId, start, end, opts = {}) {
 
         const tot = (a, b, c) => (a || 0) + (b || 0) + (c || 0);
         rows.push(['Belopp vid årets ingång', openAk, openBal, openAr, tot(openAk, openBal, openAr)]);
-        if (dividend > 0.005) {
-          rows.push(['Utdelning', B, -dividend, B, -dividend]);
-        }
+        // Utdelning is a permanent row — it records what the AGM actually decided this
+        // year (0 when no dividend was decided, which is itself a decided happening).
+        rows.push(['Utdelning', B, dividend > 0.005 ? -dividend : 0, B, dividend > 0.005 ? -dividend : 0]);
         if (Math.abs(openAr) > 0.005) {
           // AGM transfer: 1c less dividend goes to balanserat; the full 1c clears the
           // årets-resultat column (2099 rebooked). Row total = −dividend (0 without dividend),
@@ -348,12 +348,16 @@ async function renderAnnualReport(query, companyId, start, end, opts = {}) {
       }
       overview.push({ year: y2End.slice(0, 4), netto: netto2 / 1000, resFin: fin2 / 1000, soliditet: assets2 ? Math.round((ek2 / assets2) * 100) : 0, hasData: Object.keys(atEnd2).length > 0 });
     } catch { /* year−2 unavailable — two-year overview */ }
-    // Resultatdisposition: balanserat + årets resultat → balanseras i ny räkning.
+    // Resultatdisposition: balanserat + årets resultat → proposed split.
+    // proposed_dividend (user input via facts/tax_attrs) is decided at NEXT year's AGM;
+    // it reduces Balanseras i ny räkning while Totalt stays fixed at the available amount.
     const disp = {
       balanserat: balLine ? balLine.cols[0] : 0,
       arets: bsAr ? bsAr.cols[0] : 0,
     };
     disp.total = disp.balanserat + disp.arets;
+    disp.utdelning = Number(fbFacts.proposed_dividend) || 0;
+    disp.balanseras = disp.total - disp.utdelning;
     // Equity reconciliation reuses the computed note if present.
     const eqNote = notes.find((n) => n.table);
     fb = {
@@ -440,7 +444,8 @@ ${eqHtml}
 </tbody></table>
 <p>Styrelsen föreslår att vinstmedlen disponeras enligt följande:</p>
 <table><tbody>
-<tr><td>Balanseras i ny räkning</td><td class="num">${fmt(d.total)}</td></tr>
+<tr><td>Utdelning</td><td class="num">${fmt(d.utdelning)}</td></tr>
+<tr><td>Balanseras i ny räkning</td><td class="num">${fmt(d.balanseras)}</td></tr>
 <tr class="bold"><td>Totalt</td><td class="num">${fmt(d.total)}</td></tr>
 </tbody></table>
 ${f.trailing ? `<p>${esc(f.trailing)}</p>` : '<p>Företagets resultat och ställning i övrigt framgår av efterföljande resultat- och balansräkning med noter.</p>'}`;

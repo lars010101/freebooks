@@ -79,6 +79,7 @@
         "quota_value": 1,
         "pledged": "Inga.",
         "subsequent": "Inga väsentliga händelser har inträffat efter räkenskapsårets slut.",
+        "proposed_dividend": 0,
         "board_names": ["Lars Magnus Davidson", "Lars Gunnar Natanael Davidson"],
         "board_members": [
           { "name": "Lars Magnus Davidson", "role": "Styrelseordförande" },

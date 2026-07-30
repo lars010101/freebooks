@@ -63,6 +63,12 @@ async function handleReport(req, res) {
           return res.json(data);
         }
         result = await renderAnnualReport(query, company, start, end);
+      } else if (type === 'sie') {
+        const { renderSie } = require('./sie-export');
+        const sie = await renderSie(query, company, start, end);
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${sie.filename}"`);
+        return res.send(sie.buffer);
       } else {
         result = await renderReport(query, company, type, start, end, { account });
       }

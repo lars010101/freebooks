@@ -353,7 +353,11 @@ list overlay instead of blind-stepping the cell value — arrows navigate,
 Enter picks (sets the value + fires `change`), Esc closes; pick/close
 from a NORMAL-opened overlay returns to NORMAL. Selects without the
 overlay keep the INSERT j/k-stepping path. Reports' type/period selects
-use the overlay.
+use the overlay. **Mouse parity (2026-07-30):** clicking an attachSelect-ed
+select opens the same FB overlay — the native OS popup is suppressed
+(`mousedown` preventDefault + explicit focus + open-full), and select
+`input` events never open the overlay (a native pick previously left a
+stray white menu behind the closing OS popup). One menu, both paths.
 
 **onCommit hook (K3e, ratified 2026-07-28):** forms may pass
 `cfg.onCommit(cellEl, api)` — invoked on the INSERT Enter commit-and-advance

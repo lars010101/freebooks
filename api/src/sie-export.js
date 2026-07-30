@@ -98,15 +98,16 @@ async function renderSie(query, companyId, start, end, opts = {}) {
   L.push('#KPTYP BAS');
   for (const a of accts) L.push(`#KONTO ${a.account_code} ${q(a.account_name)}`);
 
-  const isResult = (a) => a.account_type === 'Revenue' || a.account_type === 'Expense';
-  const skipBal = (a) => a.account_type === 'Closing';
+  const isResult = (a) => a.account_type === 'Revenue' || a.account_type === 'Expense' || a.account_type === 'Closing';
+  // Closing accounts (8999) MUST carry a #RES line: Gredor derives "Årets resultat"
+  // in the RR from accounts 8990–8999 and warns when absent/zero (verified against
+  // GredorTools/gredor-frontend sieUtils.ts). Its movement IS the year's result.
 
   for (const y of years) {
     const d0 = new Date(Date.UTC(Number(y.start.slice(0, 4)), Number(y.start.slice(5, 7)) - 1, Number(y.start.slice(8, 10)) - 1));
     const startM1 = d0.toISOString().slice(0, 10);
     const [open, close, mov] = [await balAt(startM1), await balAt(y.end), await movement(y.start, y.end)];
     for (const a of accts) {
-      if (skipBal(a)) continue;
       if (isResult(a)) {
         const v = mov[a.account_code] || 0;
         if (Math.abs(v) > 0.0001) L.push(`#RES ${y.idx} ${a.account_code} ${amt(v)}`);

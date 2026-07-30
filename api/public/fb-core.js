@@ -1046,6 +1046,7 @@
       };
       input.addEventListener('input', function () {
         if (inst.suppress) return; // programmatic set from our own onPick
+        if (input.tagName === 'SELECT') return; // select value changes never open the overlay (native pick parity)
         if (document.activeElement !== input) return; // background sets (blur handlers etc.) never open the dd
         var q = input.value.trim();
         if (!q) { _close(inst); return; } // empty query closes (ArrowDown re-opens full list)
@@ -1092,7 +1093,7 @@
     // everything downstream (report loads, period date fills, …).
     function attachSelect(select, opts) {
       opts = opts || {};
-      return attach(select, {
+      var inst = attach(select, {
         source: function () {
           return Array.prototype.slice.call(select.options)
             .filter(function (o) { return !o.disabled; })
@@ -1106,6 +1107,17 @@
         cap: opts.cap || 12,
         minWidth: opts.minWidth
       });
+      // One menu for mouse AND keyboard (magnus 2026-07-30): suppress the native
+      // OS popup on click and open the FB overlay instead — same white menu the
+      // keyboard path (ArrowDown / i) opens. preventDefault blocks the popup and
+      // the focus grab, so focus explicitly; 'click' still fires for fb-form's
+      // cell-cursor mouse parity.
+      select.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        select.focus();
+        _openWith(inst, '');
+      });
+      return inst;
     }
 
     return {

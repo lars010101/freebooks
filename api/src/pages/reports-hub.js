@@ -351,7 +351,13 @@ ${layoutEnd()}
     return dd ? Array.from(dd.querySelectorAll('button')) : [];
   }
   function paintDl() {
-    dlRows().forEach(function (b, i) { b.style.background = (i === dlIdx) ? 'var(--bg)' : ''; });
+    // Keyboard highlight = the vim cell-cursor convention (--accent navy fill +
+    // white text, same as .nav-row-focus) — var(--bg) was unreadably weak (magnus).
+    dlRows().forEach(function (b, i) {
+      var on = (i === dlIdx);
+      b.style.background = on ? 'var(--accent)' : '';
+      b.style.color = on ? '#fff' : '';
+    });
   }
 
   var rptForm = FB.form.create({
@@ -387,6 +393,8 @@ ${layoutEnd()}
           run: function () { document.getElementById('rpt-dl-btn').click(); dlIdx = 0; paintDl(); } },
         { key: 'j', mode: 'NORMAL', when: function () { return _dlOpen; }, run: function () { dlIdx = Math.min(dlIdx + 1, dlRows().length - 1); paintDl(); } },
         { key: 'k', mode: 'NORMAL', when: function () { return _dlOpen; }, run: function () { dlIdx = Math.max(dlIdx - 1, 0); paintDl(); } },
+        { key: 'ArrowDown', mode: 'NORMAL', when: function () { return _dlOpen; }, run: function () { dlIdx = Math.min(dlIdx + 1, dlRows().length - 1); paintDl(); } },
+        { key: 'ArrowUp', mode: 'NORMAL', when: function () { return _dlOpen; }, run: function () { dlIdx = Math.max(dlIdx - 1, 0); paintDl(); } },
         { key: 'Enter', mode: 'NORMAL', when: function () { return _dlOpen; }, run: function () { var r = dlRows()[dlIdx]; if (r) r.click(); } },
         { key: 'Escape', mode: 'NORMAL', when: function () { return _dlOpen; }, run: function () { closeDownloadMenu(); } }
       ];

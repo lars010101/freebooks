@@ -144,6 +144,14 @@
 
 ---
 
+## 0o. Status update — 2026-07-30 (årsredovisning finalization + SIE)
+
+**K2 årsredovisning mirrors the filed Bolagsverket format** (verified against his filed 2024 PDF): förvaltningsberättelse (verksamhet, händelser, flerårsöversikt i tkr with 2099-balance result column, förändring av eget kapital, resultatdisposition) → RR → BR → Not 1 → signatures. Equity table is a movement table per his spec: ingång (balances at start−1) / Utdelning (permanent, from 2898 turnover, 0 = decided-none) / Balanseras i ny räkning (prior result moves between columns; AGM rebooking clears 2099) / Årets resultat (2099 at year end) / utgång — every column sums vertically. Disposition has permanent proposed-Utdelning line (`proposed_dividend` fact, default 0; reduces Balanseras, Totalt fixed). Whole report in hela kronor. RR-vs-BS comparative warning when a prior year's result was inherited via opening balances.
+
+**Filing route decided: Gredor (free, SIE-driven)** — Bolagsverket's form e-service is gone; 25 approved suppliers, cheapest paid = DigitalK2 399 kr. **SIE 4 export shipped** (`report?type=sie`, PC8/CP437, IB/UB/RES/VER, vouchers verified balanced, balances tie). Supplier onboarding for direct system-to-system filing (org cert + firewall + iXBRL) parked.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

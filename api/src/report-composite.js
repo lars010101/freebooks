@@ -310,15 +310,28 @@ async function renderAnnualReport(query, companyId, start, end, opts = {}) {
     });
     // Flerårsöversikt in tkr: nettoomsättning, resultat efter finansiella poster, soliditet.
     // Filed reports show up to 3 years; periods[] only carries 2 columns, so query year−2 directly.
+    // Resultat column: 2099 balance at each 31 Dec — the year's booked result. (RR movement
+    // is wrong here: a year whose result was inherited via opening balances has zero rev/exp
+    // movement but a non-zero 2099 balance.)
     const rrNet = rr0 && rr0.rows.find((r) => r.id === 'nettoomsattning');
-    const rrFin = rr0 && rr0.rows.find((r) => r.id === 'res_efter_fin');
     const bsAssets = bs && bs.rows.find((r) => r.id === 'summa_tillgangar');
-    const overview = periods.map((p, ci) => ({
-      year: p.label,
-      netto: rrNet ? (rrNet.cols[ci] || 0) / 1000 : 0,
-      resFin: rrFin ? (rrFin.cols[ci] || 0) / 1000 : 0,
-      soliditet: bsAssets && ekTotal && bsAssets.cols[ci] ? Math.round((ekTotal.cols[ci] / bsAssets.cols[ci]) * 100) : 0,
-    }));
+    const ar2099At = async (upto) => {
+      const rows = await query(
+        `SELECT SUM(debit_home) dr, SUM(credit_home) cr FROM journal_entries
+         WHERE company_id = ? AND date <= ? AND account_code = '2099'`, [companyId, upto]);
+      const r2 = rows[0] || {};
+      return (Number(r2.cr) || 0) - (Number(r2.dr) || 0);
+    };
+    const overview = [];
+    for (let ci = 0; ci < periods.length; ci++) {
+      const p = periods[ci];
+      overview.push({
+        year: p.label,
+        netto: rrNet ? (rrNet.cols[ci] || 0) / 1000 : 0,
+        resFin: (await ar2099At(p.end)) / 1000,
+        soliditet: bsAssets && ekTotal && bsAssets.cols[ci] ? Math.round((ekTotal.cols[ci] / bsAssets.cols[ci]) * 100) : 0,
+      });
+    }
     // Third year (year−2): derived from balance snapshots at its start−1/end.
     try {
       const y2Start = shiftYear(start, -2);
@@ -334,19 +347,17 @@ async function renderAnnualReport(query, companyId, start, end, opts = {}) {
         return m;
       };
       const [atEnd2, atStart2] = [await balAt(y2End), await balAt(y2StartM1)];
-      // netto + resFin from movement of income/expense accounts
+      // netto from movement of revenue accounts; result from 2099 balance at year end
       const mov = (code) => (atEnd2[code] || 0) - (atStart2[code] || 0);
-      let netto2 = 0, fin2 = 0, ek2 = 0, assets2 = 0;
+      let netto2 = 0, ek2 = 0, assets2 = 0;
       for (const a of acctRows) {
         const sec = subtypeOf[a.account_code] || '';
-        const m = mov(a.account_code);
-        if (sec === 'Revenue' || sec === 'Other Income') netto2 += m;
-        if (sec === 'Revenue' || sec === 'Other Income' || sec === 'Operating Expenses' || sec === 'Personnel Costs' || sec === 'Depreciation' || sec === 'Financial Items') fin2 += m;
+        if (sec === 'Revenue' || sec === 'Other Income') netto2 += mov(a.account_code);
         const e = atEnd2[a.account_code] || 0;
         if (a.account_code >= '2000' && a.account_code < '3000') ek2 += e;
         if (a.account_code >= '1000' && a.account_code < '2000') assets2 -= e; // debit-balance: cr−dr is negative
       }
-      overview.push({ year: y2End.slice(0, 4), netto: netto2 / 1000, resFin: fin2 / 1000, soliditet: assets2 ? Math.round((ek2 / assets2) * 100) : 0, hasData: Object.keys(atEnd2).length > 0 });
+      overview.push({ year: y2End.slice(0, 4), netto: netto2 / 1000, resFin: (atEnd2['2099'] || 0) / 1000, soliditet: assets2 ? Math.round((ek2 / assets2) * 100) : 0, hasData: Object.keys(atEnd2).length > 0 });
     } catch { /* year−2 unavailable — two-year overview */ }
     // Resultatdisposition: balanserat + årets resultat → proposed split.
     // proposed_dividend (user input via facts/tax_attrs) is decided at NEXT year's AGM;
@@ -399,7 +410,7 @@ function esc(s) {
 
 function renderHtml(r, fmt) {
   const nf0sv = new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 0 });
-  const tkr = (v) => { const r0 = Math.round(v); return nf0sv.format(r0 === 0 ? 0 : r0); };
+  const tkr = (v) => { const r0 = v < 0 ? Math.ceil(v - 0.5) : Math.floor(v + 0.5); return nf0sv.format(r0 === 0 ? 0 : r0); }; // half away from zero: −838 kr → −1
   const colHeads = r.periods.map((p) => `<th class="num">${esc(p.label)}</th>`).join('');
   const stmtHtml = r.statements.map((st) => {
     const rows = st.rows.map((row) => {

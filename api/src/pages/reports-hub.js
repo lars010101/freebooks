@@ -47,6 +47,7 @@ ${commonStyle()}
       <div id="rpt-dl-dd" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:300;min-width:140px;padding:4px 0">
         <button onclick="fbExportPDF()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">🖳 Print / PDF</button>
         <button onclick="fbExportCSV()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">⬇ CSV</button>
+        <button onclick="fbExportSIE()" title="SIE 4 ledger export (Gredor/Bolagsverket)" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">⬇ SIE</button>
       </div>
     </div>
   </div>
@@ -321,6 +322,20 @@ ${layoutEnd()}
       document.body.removeChild(a);
       URL.revokeObjectURL(a.href);
     } catch(ex) { alert('CSV export failed: ' + ex.message); }
+  };
+
+  /* SIE 4 ledger export — server-side file (PC8), independent of report type;
+     only the date range matters. Content-Disposition:attachment makes the
+     browser save it directly from the URL. */
+  window.fbExportSIE = function() {
+    closeDownloadMenu();
+    var start = (document.getElementById('rpt-start') || {}).value || '';
+    var end   = (document.getElementById('rpt-end')   || {}).value || '';
+    if (!start || !end) { alert('Select a date range first.'); return; }
+    var a = document.createElement('a');
+    a.href = '/api/' + company + '/report?type=sie&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
   };
 
   /* ── FB.form (K3b, keyboard-ux-spec §8) — the filter bar is a header-only

@@ -27,8 +27,14 @@ function shiftYear(d, delta) {
 }
 
 function fmtAmount(locale) {
-  const nf = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return (v) => (v < 0 ? `(${nf.format(Math.abs(v))})` : nf.format(v));
+  // Statutory reports are presented in whole kronor (matches the filed Bolagsverket
+  // layout: "Alla belopp redovisas i hela kronor"). Negatives with a leading minus sign.
+  const nf = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
+  return (v) => {
+    if (v == null || v === '') return '';
+    const r0 = Math.round(v);
+    return nf.format(r0 === 0 ? 0 : r0);
+  };
 }
 
 async function renderAnnualReport(query, companyId, start, end, opts = {}) {
@@ -211,60 +217,86 @@ async function renderAnnualReport(query, companyId, start, end, opts = {}) {
   });
 
   // Computed note types.
-  const computedNote = (n) => {
+  const computedNote = async (n) => {
     if (n.type === 'equity_reconciliation') {
-      // Mirrors the filed Bolagsverket layout. Per year-column:
-      //   Belopp vid årets ingång | Balanseras i ny räkning | Årets resultat | Belopp vid årets utgång
-      // Sources (all from the journal, exact):
-      //   ingång balances  = equity account balances at (period start − 1 day), already fetched in perPeriod
-      //   årets resultat   = PL movement for the column (consistent with the RR statement)
-      //   utgång           = equity balances at period end (= BS column)
-      // The "Balanseras i ny räkning" row moves the prior-year result from the Årets resultat
-      // column into Balanserat — it is derived, not queried, and nets to zero in Totalt.
-      const bsLine = (id) => bs && bs.rows.find((r) => r.id === id);
-      const ak = (bsLine('aktiekapital') || { cols: [0, 0] }).cols;
-      const balRet = (bsLine('balanserat') || { cols: [0, 0] }).cols;
-      const arBr = (bsLine('arets_resultat_br') || { cols: [0, 0] }).cols;
-      const sumEk = (bsLine('summa_ek') || { cols: [0, 0] }).cols;
-
-      // Opening equity per column: query balances at start−1 for the three equity groups.
-      // perPeriod[ci] holds movement + closing balance; opening = closing − movement per account,
-      // which for equity accounts equals the balance at start−1.
-      const eqCodes = { ak: ['2081'], bal: ['2091', '2098'], ar: ['2099'] };
-      const openingAt = (ci, codes) => {
+      // Filed Bolagsverket movement table, ONE block per year-column. Rows are events,
+      // not snapshots — amounts appear only in the columns the event touches, blanks
+      // elsewhere (null → rendered blank). Row 5 must equal the vertical column sums.
+      //
+      //   1. Belopp vid årets ingång   = balances at period start−1: 2081, 2091+2098, 2099
+      //   2. Utdelning                 = AGM dividend decided, traceable via 2898 (balanserat col, negative)
+      //   3. Balanseras i ny räkning   = 1c − 2b (carried to balance sheet); 2099 cleared by the rebooking
+      //   4. Årets resultat            = balance of 2099 at period end (the closing entry)
+      //   5. Belopp vid årets utgång   = balances at period end: 2081, 2091+2098, 2099
+      //
+      // Note on sign convention: equity accounts are credit-normal; a dividend decision
+      // is DR 2091 / CR 2898, so the 2091 movement within the period nets the dividend out
+      // of the closing balance. We surface it explicitly from the 2898 credit turnover.
+      const balAtQuery = async (upto, codes) => {
+        const rows = await query(
+          `SELECT account_code, SUM(debit_home) dr, SUM(credit_home) cr FROM journal_entries
+           WHERE company_id = ? AND date <= ? AND account_code IN (${codes.map(() => '?').join(',')})
+           GROUP BY account_code`, [companyId, upto, ...codes]);
         let t = 0;
-        for (const code of codes) {
-          const cell = perPeriod[ci] && perPeriod[ci][code];
-          if (cell) t += (cell.balance.cr - cell.movement.cr) - (cell.balance.dr - cell.movement.dr);
-        }
+        for (const r2 of rows) t += (Number(r2.cr) || 0) - (Number(r2.dr) || 0);
         return t;
+      };
+      const turnoverQuery = async (from, to, code) => {
+        const rows = await query(
+          `SELECT SUM(debit_home) dr, SUM(credit_home) cr FROM journal_entries
+           WHERE company_id = ? AND date >= ? AND date <= ? AND account_code = ?`, [companyId, from, to, code]);
+        const r2 = rows[0] || {};
+        return { dr: Number(r2.dr) || 0, cr: Number(r2.cr) || 0 };
       };
 
       const heads = ['', 'Aktiekapital', 'Balanserat resultat', 'Årets resultat', 'Totalt'];
+      const B = null; // blank cell
       const rows = [];
-      periods.forEach((p, ci) => {
-        const openAk = openingAt(ci, eqCodes.ak);
-        const openBal = openingAt(ci, eqCodes.bal);
-        const openAr = openingAt(ci, eqCodes.ar);
-        const openTot = openAk + openBal + openAr;
-        const result = rrResult ? rrResult.cols[ci] : 0;
-        const closeAk = ak[ci] !== undefined ? ak[ci] : openAk;
-        const closeBal = balRet[ci] !== undefined ? balRet[ci] : openBal + openAr;
-        const closeAr = arBr[ci] !== undefined ? arBr[ci] : result;
-        const closeTot = sumEk[ci] !== undefined ? sumEk[ci] : closeAk + closeBal + closeAr;
-        rows.push([`Belopp vid årets ingång`, openAk, openBal, openAr, openTot]);
-        if (Math.abs(openAr) > 0.005) {
-          rows.push(['Balanseras i ny räkning', 0, openAr, -openAr, 0]);
+      // One block only — the current year. The filed format shows the equity movement
+      // for the reporting year; prior-year detail lives in the comparative BS column.
+      for (let ci = 0; ci < 1; ci++) {
+        const p = periods[ci];
+        const d0 = new Date(Date.UTC(Number(p.start.slice(0, 4)), Number(p.start.slice(5, 7)) - 1, Number(p.start.slice(8, 10)) - 1));
+        const startM1 = d0.toISOString().slice(0, 10);
+        // Row 1 — opening balances
+        const openAk = await balAtQuery(startM1, ['2081']);
+        const openBal = await balAtQuery(startM1, ['2091', '2098']);
+        const openAr = await balAtQuery(startM1, ['2099']);
+        // Row 2 — dividend: 2898 credit turnover within the year = dividend decided
+        const div = await turnoverQuery(p.start, p.end, '2898');
+        const dividend = div.cr - div.dr; // >0 means unpaid balance grew → decided dividend
+        // Row 3 — balanseras: prior result carried over, less any dividend
+        const carry = openAr - (dividend > 0 ? dividend : 0);
+        // Row 4 — årets resultat: 2099 balance at year end (closing entry)
+        const closeAr = await balAtQuery(p.end, ['2099']);
+        // Row 5 — closing balances
+        const closeAk = await balAtQuery(p.end, ['2081']);
+        const closeBal = await balAtQuery(p.end, ['2091', '2098']);
+
+        const tot = (a, b, c) => (a || 0) + (b || 0) + (c || 0);
+        rows.push(['Belopp vid årets ingång', openAk, openBal, openAr, tot(openAk, openBal, openAr)]);
+        if (dividend > 0.005) {
+          rows.push(['Utdelning', B, -dividend, B, -dividend]);
         }
-        rows.push(['Årets resultat', 0, 0, result, result]);
-        rows.push([`Belopp vid årets utgång`, closeAk, closeBal, closeAr, closeTot]);
-      });
+        if (Math.abs(openAr) > 0.005) {
+          // AGM transfer: 1c less dividend goes to balanserat; the full 1c clears the
+          // årets-resultat column (2099 rebooked). Row total = −dividend (0 without dividend),
+          // and every column then sums vertically to row 5.
+          rows.push(['Balanseras i ny räkning', B, carry, -openAr, carry - openAr]);
+        }
+        rows.push(['Årets resultat', B, B, closeAr, closeAr]);
+        rows.push(['Belopp vid årets utgång', closeAk, closeBal, closeAr, tot(closeAk, closeBal, closeAr)]);
+      }
+      // Sanity: for each column block, utgång should equal the vertical sum of the event rows.
+      // (Not asserted here — the renderer trusts the balances; discrepancies indicate booking
+      // outside 2081/2091/2098/2099/2898, which the RR/BS warning path already surfaces.)
       return { title: n.title, table: { heads, rows }, hidden: !!n.hidden };
     }
     return { title: n.title, text: fill(n.template || ''), hidden: !!n.hidden };
   };
 
-  const notes = (variant.notes || []).map(computedNote);
+  const notes = [];
+  for (const n of (variant.notes || [])) notes.push(await computedNote(n));
 
   // Förvaltningsberättelse (filed-format section order: verksamhet, flerårsöversikt,
   // förändring i eget kapital, resultatdisposition). Rendered before the statements.

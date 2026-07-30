@@ -38,14 +38,14 @@ A single declarative registry drives all report surfaces:
 
 ## 5. Annual financial reports
 
-- A **composite report type** (BS + P&L + SCE + notes) rendered by the same engine, exported to PDF.
+- A **composite report type** (BS + P&L + SCE + notes) rendered by the same engine, exported to PDF. — Shipped as `report?type=ar` (SE K2); **frozen 2026-07-30**: read-only viewer only, no further development. Gredor owns SE årsredovisning production/submission via the SIE 4 export (roadmap §0p).
 - Respects `companies.reporting_standard` (K2/K3/IFRS) — the engine already knows which GAAP it renders for.
 
 ## 6. Digital authority submissions
 
 - Per-jurisdiction **export adapters** hanging off registry entries — each filing is an export format, not a page.
 - Existing seeds: `vat_codes.report_box` (maps tax codes to authority form boxes) and `report.refresh_vat_return` (already a `report.*` action). The VAT return is the first member of the **Tax & filings** category.
-- Target examples: ACRA XBRL + IRAS GST (SG), Bolagsverket annual report (SE). Submission-status tracking comes later, on top of the registry.
+- Target examples: ACRA XBRL + IRAS GST (SG); ~~Bolagsverket annual report (SE)~~ — **removed 2026-07-30**: Gredor owns SE årsredovisning production/submission, fed by the SIE 4 export (`report?type=sie`, shipped). SE authority outputs in freebooks scope: SIE 4 + SRU/INK2 (both shipped). Submission-status tracking comes later, on top of the registry.
 
 ## 7. Migration backlog (when picked up)
 

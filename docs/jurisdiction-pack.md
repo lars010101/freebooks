@@ -2,6 +2,8 @@
 
 **Date:** 2026-07-29 · **Status:** RATIFIED (magnus, Slack thread 2026-07-29) · **Supersedes:** nothing; extends `reports-dashboard-spec.md` §5/§6 and roadmap §0m item 5
 
+**Amended 2026-07-30 (magnus):** SE årsredovisning production + submission removed from scope — Gredor (open source, free, SIE-driven) owns it. §4 annual-report descriptors and §7 migration items 4–5 are **descoped**; the SE integration contract is the SIE 4 export (`report?type=sie`, must keep the 8999 `#RES` line for Gredor). The SRU/INK2 path (§§1–3, §7 items 1–3) remains fully in scope — Gredor does not do tax returns.
+
 ---
 
 ## 0. Purpose
@@ -20,13 +22,13 @@ db/jurisdictions/
     jurisdiction.json         # manifest (this spec)
     filings/
       ink2.json               # income-tax filing descriptor (was sru_ink2.json)
-      annual-report.json      # K2/K3 statutory report descriptor
+      annual-report.json      # K2/K3 statutory report descriptor — DESCOPED 2026-07-30 (Gredor owns SE AR)
   SG/
     coa.json
     vat_codes.json
     jurisdiction.json
     filings/
-      annual-report.json
+      annual-report.json      # DESCOPED 2026-07-30 (no live need; SE precedent is Gredor)
 ```
 
 `setup.init` and the company-creation flow already scan `JURISDICTIONS_DIR`; the scan is extended to load + validate the manifest and descriptors (§6).
@@ -103,7 +105,9 @@ One file per authority filing. Example — `SE/filings/ink2.json` (shape):
 
 **Emitters** live in `api/src/emitters/` and are shared across all packs: `sruLines.js` (Skatteverket `#UPPGIFT` blocks). A country needing an unsupported *format family* adds one emitter module; every later country on that format rides free. Emitters are code; descriptors are data.
 
-## 4. Annual-report descriptors (`filings/annual-report.json`)
+## 4. Annual-report descriptors (`filings/annual-report.json`) — DESCOPED 2026-07-30
+
+**SE årsredovisning production + submission is owned by Gredor (open source, free), fed by the freebooks SIE 4 export — this section is retained as design reference only; no build is planned.** The shipped `report?type=ar` K2 composite predates the descope and is frozen as a read-only viewer (no iXBRL, no note expansion, no K3 variant). If a future jurisdiction has no Gredor-equivalent, this design is the starting point.
 
 The statutory report composite (Bolagsverket årsredovisning, ACRA FS, …): sections, line structure, comparatives. Shape:
 
@@ -149,8 +153,8 @@ The statutory report composite (Bolagsverket årsredovisning, ACRA FS, …): sec
 1. Manifests for SE + SG (wrap the existing coa/vat packs).
 2. `api/src/sru.js` → split into engine (`filings.js`) + `emitters/sruLines.js` + `SE/filings/ink2.json`. Routes unchanged (`/api/:company/sru/ink2`, `/sru/info`). **The golden test (`tests/sru-golden-2024.mjs`) is the acceptance contract — it must stay byte-identical green.**
 3. `periods.tax_attrs` JSON column (idempotent ALTER, house style); Periods grid columns from the manifest; `ink2.js` descriptor constants (8041/8045) become `flag` ops on the declared attributes; `loss_cf` query param remains as an explicit override, period value is the default.
-4. K2 `annual-report.json` + composite renderer (the Bolagsverket package; first annual-report consumer).
-5. SG `annual-report.json` as the seam-proof second pack.
+4. ~~K2 `annual-report.json` + composite renderer~~ — **CANCELLED 2026-07-30** (Gredor owns SE årsredovisning production/submission via the SIE 4 export; `report?type=ar` frozen as read-only viewer).
+5. ~~SG `annual-report.json` as the seam-proof second pack~~ — **DESCOPED 2026-07-30** (no live SG need; resurrect if a jurisdiction without a Gredor-equivalent appears).
 
 ## 8. Contributor contract (for README)
 

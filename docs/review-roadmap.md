@@ -152,6 +152,21 @@
 
 ---
 
+## 0p. Status update — 2026-07-30 (FY2025 filings closed; SE annual-report scope removed)
+
+**FY2025 statutory chain closed.** Årsredovisning filed + signed via **Gredor** from the freebooks SIE 4 file (Gredor initially rejected it — their parser derives Årets resultat only from 899x `#RES` lines; fixed by emitting `#RES` for Closing-type 8999). INK2 delivered: `blanketter.sru` regenerates byte-identical from the books, `check=1` zero warnings, chain ties to the filed 2024 (7763 = 86,053 → 7770 = 86,593; tax result −540 = book −500 − tax-free interest 40). Magnus files in Skatteverket's e-tjänst (due 2026-08-02, Sunday → effective 2026-08-03). Reports round shipped (`4c29ea9`): Gredor 8999 fix, one-menu select overlay (mouse click no longer stacks native popup + FB overlay), download-menu arrow keys, cursor-strength highlight.
+
+**Scope decision (magnus 2026-07-30): SE årsredovisning production + submission removed from freebooks scope.** Gredor (open source, free, SIE-driven) owns it. Consequences:
+- §0m item 5's "Bolagsverket årsredovisning package" — **cancelled** (SRU/INK2 half delivered and stays; Gredor does not do tax returns, so Skatteverket SRU remains freebooks scope).
+- Direct supplier system-to-system route (org cert + firewall + iXBRL) — **cancelled**, not merely parked.
+- `report?type=ar` (K2 composite) — **frozen**: retained as a read-only K2 statement viewer (it derived/verified the FY2025 figures); no further development (no iXBRL, no note expansion, no K3 variant).
+- jurisdiction-pack §4 annual-report descriptors + §7 migration items 4–5 — **descoped** (SE covered by Gredor; no live SG need).
+- **SIE 4 export is now the SE annual-report integration contract** — it must be maintained: Gredor consumes it and requires the 8999 `#RES` line. Breaking it breaks the filing route.
+
+**Backlog resumes (per §0m, deadline track done):** Phase A agent-readiness (A1 agent role + whitelist, A2 events + `event.list`, A3j journal/bank-transaction proposals + y/x queue; spec `agent-readiness-spec.md`) + P2-5 MCP server → SRU engine refactor onto `filings/` descriptors + `emitters/` + `periods.tax_attrs` (SRU-only now) → P2 accounting completeness (P2-2 FX reval, P2-3 `bill_lines` subledger, P2-4 VAT unify, P2-6 rebinding) → P3 feeds. Receivables stays dropped from this cycle.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

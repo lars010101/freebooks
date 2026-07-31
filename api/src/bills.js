@@ -14,6 +14,7 @@ const { getNextReference } = require('./journal');
 const { validateBill } = require('./validation');
 const { settleBillPayment } = require('./settlement');
 const { getRate } = require('./fx');
+const { emitEvent } = require('./events');
 // computeVatSplit removed — bills now use tax-exclusive direct VAT lookup
 
 // Read company-level default AP and expense account codes from the accounts
@@ -283,6 +284,17 @@ async function createBill(ctx) {
       method: 'bank_match',
       created_at: now,
     }]);
+    // A2 (§3.2): a bill_payments row is inserted here (settlement path) →
+    // emit bill.payment.recorded. The journal for this payment is owned by
+    // the external bank.approve batch (payment_batch_id), not posted here.
+    await emitEvent(ctx, 'bill.payment.recorded', 'payment', billId, {
+      billId,
+      amount: totalAmount,
+      currency,
+      method: 'bank_match',
+      date: bill.date,
+      status: 'paid',
+    });
     return { created: true, billId, status: 'paid', warnings: validation.warnings };
   }
 
@@ -426,6 +438,20 @@ async function createBill(ctx) {
     await bulkInsert('bills', [{ ...billRow, amount: totalDebit, amount_home: totalDebit * fxRate, vat_amount: totalVatAmount, net_amount: totalNetAmount, status: 'posted', amount_paid: 0 }]);
   }
 
+  // A2 (§3.2): emit bill.posted on the draft→posted transition. The
+  // payment_batch_id branch above creates the bill as 'paid' via an external
+  // bank batch (no journal posted here) and emits bill.payment.recorded
+  // instead; this branch posts the bill's own AP journal → bill.posted.
+  await emitEvent(ctx, 'bill.posted', 'bill', billId, {
+    vendor: bill.vendor,
+    date: bill.date,
+    amount: totalDebit,
+    currency,
+    status: 'posted',
+    batchId,
+    lineCount: lines.length,
+  });
+
   return { created: true, billId, batchId, status: 'posted', lineCount: lines.length, warnings: validation.warnings };
 }
 
@@ -558,6 +584,7 @@ async function recordBillPayment(ctx) {
   }
 
   const s = await settleBillPayment({
+    ctx,
     companyId, userEmail, billId,
     bankAccount,
     homeCurrency,
@@ -636,6 +663,15 @@ async function voidBillPayment(ctx) {
     `UPDATE bill_payments SET voided_at = NOW(), voided_by = @voidedBy WHERE company_id = @companyId AND payment_id = @paymentId`,
     { companyId, paymentId, voidedBy: userEmail || 'user' }
   );
+
+  // A2 (§3.2): emit bill.payment.voided. Reverses the settlement journal,
+  // decrements amount_paid, restores bill status (all done above).
+  await emitEvent(ctx, 'bill.payment.voided', 'payment', paymentId, {
+    billId: payment.bill_id,
+    amount: Number(payment.amount_foreign != null ? payment.amount_foreign : payment.amount),
+    newStatus,
+    amountPaid: newPaid,
+  });
 
   return { voided: true, paymentId, newStatus, amountPaid: newPaid };
 }

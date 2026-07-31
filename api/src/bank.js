@@ -311,6 +311,7 @@ async function approveBankEntries(ctx) {
       // Bill settlements go through the shared settlement core (P1-9) — no generic pre-post
       if (entry.billId && !entry.recordedPayment) {
         const s = await settleBillPayment({
+          ctx,
           companyId, userEmail, billId: entry.billId,
           bankAccount: entry.creditAccount,
           homeCurrency,

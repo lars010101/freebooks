@@ -15,6 +15,7 @@
 const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
 const { getNextReference } = require('./journal');
+const { emitEvent } = require('./events');
 
 const round4 = (n) => Math.round(n * 10000) / 10000;
 
@@ -41,7 +42,7 @@ const round4 = (n) => Math.round(n * 10000) / 10000;
  */
 async function settleBillPayment(opts) {
   const {
-    companyId, userEmail, billId, bankAccount, homeCurrency,
+    ctx, companyId, userEmail, billId, bankAccount, homeCurrency,
     date, description = '', method, source, journalId = null,
     paymentReference = null,
   } = opts;
@@ -152,6 +153,13 @@ async function settleBillPayment(opts) {
     result.fxDiff = fxDiff;
     result.settledForeign = settledForeign;
     result.settledBooked = settledBooked;
+    // A2 (§3.2): emit bill.payment.recorded. Covers the foreign-currency
+    // settlement path (manual pay-on-bill + bank import approve share this
+    // core — P1-9 dual path, do not diverge).
+    await emitEvent(ctx, 'bill.payment.recorded', 'payment', paymentId, {
+      billId, amount: settledForeign, currency: bill.currency,
+      method, date, status: newStatus, fxRate: bookingRate,
+    });
     return result;
   }
 
@@ -175,6 +183,12 @@ async function settleBillPayment(opts) {
   }]);
 
   result.newStatus = newStatus;
+  // A2 (§3.2): emit bill.payment.recorded. Home-currency settlement path
+  // (manual pay-on-bill + bank import approve share this core).
+  await emitEvent(ctx, 'bill.payment.recorded', 'payment', paymentId, {
+    billId, amount: bankAmount, currency: bill.currency,
+    method, date, status: newStatus,
+  });
   return result;
 }
 

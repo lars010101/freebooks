@@ -23,9 +23,9 @@ const { handleVat } = require('./vat');
 const { handleFx, providerExists, listProviderIds, MANUAL_PROVIDER } = require('./fx');
 const { handleSetup } = require('./setup');
 const { handleAttachments } = require('./attachments');
+const { handleEvents, emitEvent } = require('./events');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 const { auditCall } = require('./audit');
-
 const PORT = process.env.PORT || 3000;
 
 // P1-1: action metadata is the single source of truth — roles, idempotency,
@@ -281,6 +281,7 @@ async function handleApiRequest(req, res) {
       case 'setup':       result = await handleSetup(ctx, action); break;
       case 'diag':        result = await handleDiag(ctx, action); break;
       case 'attachment':  result = await handleAttachments(ctx, action); break;
+      case 'event':       result = await handleEvents(ctx, action); break;
       default:
         return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
     }
@@ -826,11 +827,20 @@ async function handleSettings(ctx, action) {
     const { period } = body;
     if (!period || !period.period_id || !period.start_date || !period.end_date) throw Object.assign(new Error('period_id, start_date, end_date required'), { code: 'INVALID_INPUT' });
     const now = new Date().toISOString();
-    const existing = await query(`SELECT period_name FROM periods WHERE company_id = @companyId AND period_name = @name`, { companyId, name: period.period_id });
+    const existing = await query(`SELECT period_name, locked FROM periods WHERE company_id = @companyId AND period_name = @name`, { companyId, name: period.period_id });
     const taxAttrs = period.tax_attrs != null ? JSON.stringify(period.tax_attrs) : null;
     if (existing.length > 0) {
+      const oldLocked = !!existing[0].locked;
+      const newLocked = !!period.locked;
       await exec(`UPDATE periods SET start_date=@start, end_date=@end, locked=@locked, tax_attrs=COALESCE(@taxAttrs, tax_attrs), updated_at=@now WHERE company_id=@companyId AND period_name=@name`,
-        { companyId, name: period.period_id, start: period.start_date, end: period.end_date, locked: !!period.locked, taxAttrs, now });
+        { companyId, name: period.period_id, start: period.start_date, end: period.end_date, locked: newLocked, taxAttrs, now });
+      // A2 (§3.2): emit period.locked / period.unlocked on actual transitions.
+      // A new period born locked is a creation, not a transition — skipped.
+      if (!oldLocked && newLocked) {
+        await emitEvent(ctx, 'period.locked', 'period', period.period_id, { period_id: period.period_id, start_date: period.start_date, end_date: period.end_date });
+      } else if (oldLocked && !newLocked) {
+        await emitEvent(ctx, 'period.unlocked', 'period', period.period_id, { period_id: period.period_id, start_date: period.start_date, end_date: period.end_date });
+      }
     } else {
       await bulkInsert('periods', [{ company_id: companyId, period_name: period.period_id, start_date: period.start_date, end_date: period.end_date, locked: !!period.locked, tax_attrs: taxAttrs, created_at: now, updated_at: now }]);
     }

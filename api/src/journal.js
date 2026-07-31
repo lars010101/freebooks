@@ -14,6 +14,7 @@ const { query, exec, bulkInsert } = require('./db');
 const { validateJournalBatch } = require('./validation');
 const { computeVatSplit } = require('./vat');
 const { auditLog } = require('./audit');
+const { emitEvent } = require('./events');
 
 async function handleJournal(ctx, action) {
   switch (action) {
@@ -312,6 +313,20 @@ async function postEntry(ctx) {
   }));
 
   await bulkInsert('journal_entries', rows);
+
+  // A2 (§3.2): emit journal.posted on success. Payload is a compact snapshot
+  // (date, reference, description, line count, total debit, currency). R4
+  // holds by construction: this runs inside the handler, which only executes
+  // on an idempotency MISS — a replay short-circuits before reaching here.
+  const totalDebit = rows.reduce((s, l) => s + Number(l.debit || 0), 0);
+  await emitEvent(ctx, 'journal.posted', 'journal', batchId, {
+    date: enrichedLines[0].date,
+    reference: autoReference || rows[0].reference || null,
+    description: rows[0].description || null,
+    lineCount: rows.length,
+    totalDebit: Math.round(totalDebit * 100) / 100,
+    currency: rows[0].currency,
+  });
 
   return { posted: true, batchId, reference: autoReference, lineCount: rows.length, warnings: validation.warnings };
 }

@@ -758,3 +758,199 @@ test('A1 audit attribution: actor_type + request_id stamped on audit rows', asyn
     `SELECT COUNT(*) c FROM audit_log WHERE company_id='CT' AND request_id='req-agent-a1'`);
   assert.equal(Number(agentRows[0].c), 0, 'forbidden agent call writes no audit row (guard before audit)');
 });
+
+// ── A2: event emission + event.list (§3, §8 items 5-6) ─────────────────────
+
+// Helper: fetch event rows for a given type/entity from the events table.
+async function eventsFor(type, entityId) {
+  // admin sql() takes raw SQL only (no bound params) — values are
+  // test-controlled literals (dot event types, uuids), safe to inline.
+  return sql(baseUrl, srv.adminToken,
+    `SELECT event_seq, event_type, entity_type, entity_id, actor_type, actor_id, request_id, payload
+     FROM events WHERE company_id='CT' AND event_type='${type}' AND entity_id='${entityId}'
+     ORDER BY event_seq`);
+}
+
+test('A2: journal.post emits journal.posted once with correct entity + actor fields', async () => {
+  const rid = 'req-journal-posted-' + Date.now();
+  const posted = await api(baseUrl, 'journal.post', {
+    companyId: CO, userEmail: 'owner@ct', requestId: rid,
+    lines: [
+      { account_code: EXP, debit: 33, date: '2026-07-20', description: 'A2 journal' },
+      { account_code: AP, credit: 33, date: '2026-07-20', description: 'A2 journal' },
+    ],
+  });
+  assert.equal(posted.status, 200, JSON.stringify(posted.body));
+  const batchId = posted.body.data.batchId;
+
+  const rows = await eventsFor('journal.posted', batchId);
+  assert.equal(rows.length, 1, 'exactly one journal.posted event');
+  const ev = rows[0];
+  assert.equal(ev.entity_type, 'journal');
+  assert.equal(ev.entity_id, batchId);
+  assert.equal(ev.actor_type, 'human', 'owner call → actor_type human');
+  assert.equal(ev.actor_id, 'owner@ct');
+  assert.equal(ev.request_id, rid, 'request_id stamped from body.requestId');
+  const payload = JSON.parse(ev.payload);
+  assert.equal(payload.lineCount, 2);
+  assert.equal(payload.totalDebit, 33);
+  assert.equal(payload.currency, 'SGD');
+  assert.ok(payload.date && payload.reference !== undefined, 'payload carries date + reference');
+});
+
+test('A2: idempotent replay of journal.post emits ONE journal.posted (R4)', async () => {
+  const idemKey = 'a2-r4-' + Date.now();
+  const payload = {
+    companyId: CO, userEmail: 'owner@ct', requestId: 'req-r4',
+    lines: [
+      { account_code: EXP, debit: 12, date: '2026-07-20', description: 'R4' },
+      { account_code: AP, credit: 12, date: '2026-07-20', description: 'R4' },
+    ],
+  };
+  const first = await api(baseUrl, 'journal.post', payload, { 'Idempotency-Key': idemKey });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const replay = await api(baseUrl, 'journal.post', payload, { 'Idempotency-Key': idemKey });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.headers.get('idempotent-replay'), 'true', 'replay short-circuited');
+  assert.equal(replay.body.data.batchId, first.body.data.batchId, 'same batchId');
+
+  const rows = await eventsFor('journal.posted', first.body.data.batchId);
+  assert.equal(rows.length, 1, 'R4: idempotent replay must not double-emit (handler never ran on replay)');
+});
+
+test('A2: event.list — ordering asc, after_seq polling, type filter', async () => {
+  // Capture the current high-water mark, then post a fresh journal.
+  const before = await api(baseUrl, 'event.list', { companyId: CO, limit: 500 });
+  assert.equal(before.status, 200, JSON.stringify(before.body));
+  const list = before.body.data;
+  assert.ok(Array.isArray(list), 'event.list returns an array');
+  // Ordering: ascending by event_seq.
+  for (let i = 1; i < list.length; i++) {
+    assert.ok(Number(list[i].event_seq) >= Number(list[i - 1].event_seq), 'ascending order');
+  }
+  const highWater = list.length > 0 ? Number(list[list.length - 1].event_seq) : 0;
+
+  const posted = await api(baseUrl, 'journal.post', {
+    companyId: CO, userEmail: 'owner@ct', requestId: 'req-poll',
+    lines: [
+      { account_code: EXP, debit: 9, date: '2026-07-20', description: 'poll' },
+      { account_code: AP, credit: 9, date: '2026-07-20', description: 'poll' },
+    ],
+  });
+  assert.equal(posted.status, 200, JSON.stringify(posted.body));
+
+  // after_seq polling: only rows newer than highWater come back.
+  const poll = await api(baseUrl, 'event.list', { companyId: CO, after_seq: highWater, limit: 500 });
+  assert.equal(poll.status, 200, JSON.stringify(poll.body));
+  const polled = poll.body.data;
+  assert.ok(polled.length >= 1, 'polling returns at least the new event');
+  assert.ok(polled.every((r) => Number(r.event_seq) > highWater), 'all polled rows are newer than after_seq');
+  const jp = polled.find((r) => r.event_type === 'journal.posted' && r.entity_id === posted.body.data.batchId);
+  assert.ok(jp, 'the freshly posted batch appears in the poll');
+
+  // type filter: request only journal.posted → no other event types leak.
+  const filtered = await api(baseUrl, 'event.list', { companyId: CO, type: 'journal.posted', limit: 500 });
+  assert.equal(filtered.status, 200, JSON.stringify(filtered.body));
+  const frows = filtered.body.data;
+  assert.ok(frows.length >= 1, 'journal.posted rows exist');
+  assert.ok(frows.every((r) => r.event_type === 'journal.posted'), 'type filter excludes other event types');
+});
+
+test('A2: event.list limit cap — request 9999 is capped at 500', async () => {
+  // Seed 501 synthetic event rows via admin SQL (the events table is the
+  // contract surface; how rows arrive is not). This proves the LIMIT ceiling
+  // without 501 HTTP action round-trips.
+  const baseSeq = Date.now();
+  const values = [];
+  for (let i = 0; i < 501; i++) {
+    values.push(`('CT','journal.posted','journal','cap-${baseSeq}-${i}','human','cap@ct','req-cap-${baseSeq}','{}')`);
+  }
+  // DuckDB: multi-row INSERT in chunks to keep the statement well-formed.
+  const CHUNK = 100;
+  for (let s = 0; s < values.length; s += CHUNK) {
+    const slice = values.slice(s, s + CHUNK).join(',');
+    await sql(baseUrl, srv.adminToken,
+      `INSERT INTO events (company_id, event_type, entity_type, entity_id, actor_type, actor_id, request_id, payload)
+       VALUES ${slice}`);
+  }
+
+  const r = await api(baseUrl, 'event.list', { companyId: CO, limit: 9999 });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(r.body.data.length <= 500, `limit 9999 capped at 500 (got ${r.body.data.length})`);
+  assert.equal(r.body.data.length, 500, 'exactly 500 returned when >500 exist and limit=9999');
+  // Ordering preserved even at the cap.
+  for (let i = 1; i < r.body.data.length; i++) {
+    assert.ok(Number(r.body.data[i].event_seq) >= Number(r.body.data[i - 1].event_seq), 'capped list still ascending');
+  }
+});
+
+test('A2: period.locked / period.unlocked emit on transition (second call site)', async () => {
+  // Create a fresh period (born unlocked — no event on creation).
+  const pid = '2026-A2-' + Date.now();
+  const create = await api(baseUrl, 'period.upsert', {
+    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: false },
+  });
+  assert.equal(create.status, 200, JSON.stringify(create.body));
+  let born = await eventsFor('period.locked', pid);
+  assert.equal(born.length, 0, 'a period born unlocked emits no event');
+
+  // Lock it → period.locked.
+  const lock = await api(baseUrl, 'period.upsert', {
+    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: true },
+  });
+  assert.equal(lock.status, 200, JSON.stringify(lock.body));
+  let locked = await eventsFor('period.locked', pid);
+  assert.equal(locked.length, 1, 'period.locked emitted on unlocked→locked transition');
+  assert.equal(locked[0].actor_type, 'human');
+
+  // Re-lock (no transition) → no new event.
+  await api(baseUrl, 'period.upsert', {
+    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: true },
+  });
+  locked = await eventsFor('period.locked', pid);
+  assert.equal(locked.length, 1, 'locked→locked is not a transition (no new event)');
+
+  // Unlock → period.unlocked.
+  const unlock = await api(baseUrl, 'period.upsert', {
+    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: false },
+  });
+  assert.equal(unlock.status, 200, JSON.stringify(unlock.body));
+  const unlocked = await eventsFor('period.unlocked', pid);
+  assert.equal(unlocked.length, 1, 'period.unlocked emitted on locked→unlocked transition');
+});
+
+test('A2: attachment.uploaded stamps agent actor_type (R3) on the /api/upload route', async () => {
+  // The upload route sits outside the action API, so its emitEvent ctx is
+  // built from the request — the actor class must still come from the DB
+  // role (resolveActor), never asserted/hardcoded. Upload as the seeded
+  // agent account → actor_type 'agent', request_id from X-Request-Id.
+  const fd = new FormData();
+  fd.append('companyId', CO);
+  fd.append('entityType', 'journal');
+  fd.append('entityId', 'a2-upload-test');
+  fd.append('uploadedBy', 'agent@ct');
+  fd.append('file', new Blob(['a2 upload test'], { type: 'text/plain' }), 'a2-upload.txt');
+  const r = await fetch(`${baseUrl}/api/upload`, {
+    method: 'POST',
+    headers: { 'X-Request-Id': 'req-upload-a2' },
+    body: fd,
+  });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().text()));
+  const up = await r.json();
+  const attachmentId = up.data.attachment_id;
+  assert.ok(attachmentId, 'upload returns attachment_id');
+
+  try {
+    const rows = await eventsFor('attachment.uploaded', attachmentId);
+    assert.equal(rows.length, 1, 'attachment.uploaded emitted');
+    assert.equal(rows[0].actor_type, 'agent', 'agent account upload stamps actor_type agent (not misattributed human)');
+    assert.equal(rows[0].actor_id, 'agent@ct');
+    assert.equal(rows[0].request_id, 'req-upload-a2', 'request_id from X-Request-Id header');
+    const payload = JSON.parse(rows[0].payload);
+    assert.equal(payload.filename, 'a2-upload.txt');
+  } finally {
+    // Clean up file + row through the API (owner action).
+    const del = await api(baseUrl, 'attachment.delete', { companyId: CO, userEmail: 'owner@ct', attachmentId });
+    assert.equal(del.status, 200, JSON.stringify(del.body));
+  }
+});

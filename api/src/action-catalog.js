@@ -385,6 +385,17 @@ const ACTIONS = {
     description: 'Delete an attachment.',
     params: { attachmentId: { type: 'string', required: true } },
   },
+
+  // ── Events (A2 §3.3) ─────────────────────────────────────────────────────
+  // event.list is the agent's input channel: an append-only stream of business
+  // facts (journal posted, bill posted, payment recorded/voided, attachment
+  // uploaded, period locked/unlocked). Viewer role, non-mutating. Polling:
+  // caller keeps the highest event_seq seen and passes it as after_seq.
+  'event.list': {
+    role: 'viewer', mutating: false,
+    description: 'List events (append-only stream) ordered by event_seq ASC.',
+    params: { after_seq: { type: 'number' }, type: { type: 'string' }, limit: { type: 'number' } },
+  },
 };
 
 // ── P1-10 command-palette dispositions ─────────────────────────────────────

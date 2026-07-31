@@ -180,6 +180,18 @@
 
 ---
 
+## 0r. Status update — 2026-07-31 (Phase A hardening, PR #73)
+
+Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found the core sound — guard ordering, fail-closed whitelist, shared posting core, R4/R5 contract-proven — and three seam defects, now fixed on main (`6bd9638`; contract 53/53, mcp-smoke 28/28):
+
+1. **`attachment.upload` is a real catalog action** (role agent, idempotent, base64, 32MB decoded cap) sharing one `storeAttachment` core with the multipart route; the route gained the same role gate + an audit row (uploads were the only unaudited mutation). MCP `attachment_upload` travels via the action with a caller-suppliable Idempotency-Key; `express.json` limit 50mb.
+2. **Proposal transitions are atomic** — approve/reject/upsert are claim-first `UPDATE...RETURNING` guarded on `status='proposed'` (a concurrent second transition loses with INVALID_STATUS; no double-post); approve posts inside a compensating-rollback wrapper; the queue UI mints one Idempotency-Key per modal open + an in-flight guard.
+3. **Attribution fallback consistency** — reviewer/created_by fall back to `'anonymous'` under install-level trust, matching the propose doctrine.
+
+**Known residuals (backlog, none blocking):** (a) event payload truncation at 4000 chars can emit invalid JSON — truncate to a valid envelope or mark truncated; (b) event emission failure is stderr-only — a lost `attachment.uploaded` means missed agent work with no detection (add reconciliation when P3 makes the stream load-bearing); (c) proposal upsert rewrites `created_at` (edited rows jump the queue order — add `updated_at` if it bothers anyone); (d) the journal register's 500-line `journal.list` window can split a batch's client-side grouping; (e) dispatch idempotency stays check-then-act for *concurrent* same-key calls on other actions (sequential duplicates are safe; Phase A proposal transitions are closed by the atomic claim regardless).
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

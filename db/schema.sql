@@ -208,6 +208,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
   changed_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- A1 (§2.4): actor attribution on every audit row. actor_type disambiguates
+-- human vs agent (comes from the DB role, never asserted); request_id
+-- correlates one agent run across calls (body.requestId or X-Request-Id).
+-- changed_by stays the actor email (provenance continuity).
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_type VARCHAR DEFAULT 'human';
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS request_id VARCHAR;
+
 -- =============================================================================
 -- journals
 -- =============================================================================

@@ -12,7 +12,7 @@ const express = require('express');
 const cors = require('cors');
 const { v4: uuid } = require('uuid');
 
-const { checkPermission } = require('./auth');
+const { checkPermission, resolveActor } = require('./auth');
 const { handleJournal } = require('./journal');
 const { handleBank } = require('./bank');
 const { handleBills } = require('./bills');
@@ -178,6 +178,29 @@ async function handleApiRequest(req, res) {
       if (!allowed) return fail(res, 'FORBIDDEN', 'Insufficient permissions');
     }
 
+    // ── A1 (§2.2/§2.3): actor resolution + default-deny whitelist guard ──
+    // The actor class comes from the DB role, never from the request (an
+    // agent cannot self-assert 'human'). Agents may read + propose only;
+    // setup.* is unconditionally forbidden to agents (those actions skip
+    // the role check today and must stay human-only), and any mutating
+    // action outside AGENT_ALLOWED is FORBIDDEN. This runs BEFORE the
+    // idempotency check so a rejected request never persists a response.
+    // v1 whitelist: non-mutating actions pass naturally (mutating:false);
+    // attachment.upload is admitted here; A3j will add journal.propose.
+    const AGENT_ALLOWED = new Set(['attachment.upload']);
+    const actor = userEmail ? await resolveActor(userEmail, companyId) : { role: null, actorType: 'human' };
+    const requestId = body.requestId || req.get('X-Request-Id') || null;
+    if (actor.actorType === 'agent') {
+      if (action.startsWith('setup.')) {
+        return fail(res, 'FORBIDDEN', 'Agents may not run setup actions');
+      }
+      const meta = ACTIONS[action];
+      const mutating = !!(meta && meta.mutating === true);
+      if (mutating && !AGENT_ALLOWED.has(action)) {
+        return fail(res, 'FORBIDDEN', 'Agents may not finalize or mutate master data');
+      }
+    }
+
     // P1-1: dispatch-level required-parameter validation from the catalog.
     // Fails fast with every missing field named — before the handler runs.
     const meta = ACTIONS[action];
@@ -234,7 +257,7 @@ async function handleApiRequest(req, res) {
       wrapIdempotentResponse(res, scopedKey, action, companyId);
     }
 
-    const ctx = { body, companyId, userEmail };
+    const ctx = { body, companyId, userEmail, actor, requestId };
     let result;
     const [module] = action.split('.');
 
@@ -277,7 +300,7 @@ async function handleApiRequest(req, res) {
         const auditCompanyId = companyId
           || (body && body.company && body.company.company_id)
           || null;
-        await auditCall(auditCompanyId, action, userEmail || 'anonymous', body);
+        await auditCall(auditCompanyId, action, userEmail || 'anonymous', body, { actorType: actor.actorType, requestId });
       } catch (auditErr) {
         console.error(`Audit log failed for action ${action}:`, auditErr.message);
       }

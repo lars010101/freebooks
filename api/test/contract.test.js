@@ -10,6 +10,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { startTestServer, api, sql, seedCompany } = require('../test-utils/helpers');
+const { ACTIONS } = require('../src/action-catalog');
 
 let srv;
 let baseUrl;
@@ -27,6 +28,10 @@ before(async () => {
   await sql(baseUrl, srv.adminToken,
     `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
      VALUES ('owner@ct', 'CT', 'owner', now(), 'test')`);
+  // A1 (§2.1): seed an agent-role user the same way (no Users UI surface)
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('agent@ct', 'CT', 'agent', now(), 'test')`);
 });
 
 after(async () => { await srv.cleanup(); });
@@ -659,4 +664,97 @@ test('bank.process + approve: import row matching a recorded manual payment clea
   const rec = await sql(baseUrl, srv.adminToken,
     `SELECT account_code FROM reconciliations WHERE company_id='CT' AND batch_id='${row.paymentBatchId}'`);
   assert.equal(String(rec[0].account_code), '1020', 'payment bank leg cleared in reconciliations');
+});
+
+// ── A1: agent actor model (§2) ──────────────────────────────────────────────
+
+test('A1 guard matrix: agent FORBIDDEN on every mutating catalog action', async () => {
+  // Spec §2.3 default-deny: iterate every catalog action flagged mutating,
+  // call as the agent user, and assert 403/FORBIDDEN for each. The guard
+  // runs before param validation, so missing params don't leak a 400.
+  // (attachment.upload is the one whitelisted mutating action, but it is
+  // not a catalog action today — it's a separate /api/upload route — so it
+  // is not in this iteration. journal.propose joins the whitelist in A3j.)
+  const mutatingActions = Object.entries(ACTIONS)
+    .filter(([, m]) => m.mutating === true)
+    .map(([name]) => name);
+  assert.ok(mutatingActions.length >= 20, 'catalog has many mutating actions to cover');
+  for (const action of mutatingActions) {
+    const { status, body } = await api(baseUrl, action, { companyId: CO, userEmail: 'agent@ct' });
+    assert.equal(status, 403, `${action}: agent must be FORBIDDEN (got ${status} ${body?.error?.code})`);
+    assert.equal(body?.error?.code, 'FORBIDDEN', `${action}: FORBIDDEN code`);
+  }
+});
+
+test('A1: agent can read (non-mutating action passes the guard)', async () => {
+  const { status, body } = await api(baseUrl, 'journal.list', { companyId: CO, userEmail: 'agent@ct' });
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.ok(Array.isArray(body.data), 'agent reads journal list — non-mutating passes the §2.3 guard');
+});
+
+test('A1: fail-closed — whitelist guard denies a viewer-level mutating action (role check passes)', async () => {
+  // Spec §8.1 fail-closed proof. report.refresh_vat_return is the one
+  // catalog action that is mutating:true at role viewer — so the agent
+  // (level 1.5 ≥ 1) PASSES the numeric role check, isolating the §2.3
+  // whitelist guard as the only thing that can deny it. This exercises the
+  // exact path any FUTURE new mutating action will hit: not in
+  // AGENT_ALLOWED → FORBIDDEN, by default, until explicitly whitelisted.
+  const { status, body } = await api(baseUrl, 'report.refresh_vat_return', { companyId: CO, userEmail: 'agent@ct' });
+  assert.equal(status, 403, 'mutating action outside the whitelist must be denied to agents');
+  assert.equal(body?.error?.code, 'FORBIDDEN');
+  assert.match(body?.error?.message, /finalize or mutate master data/,
+    'denial must come from the whitelist guard, not the role check (agent passes the role check at viewer level)');
+
+  // Sanity: a human data_entry user reaches past the guard (handler may
+  // fail on missing state — anything except the guard's FORBIDDEN proves
+  // the guard is actor-class-specific, R6 eligibility is server-side).
+  const hr = await api(baseUrl, 'report.refresh_vat_return', { companyId: CO, userEmail: 'owner@ct' });
+  assert.notEqual(hr.body?.error?.message, 'Agents may not finalize or mutate master data',
+    'human call is not stopped by the agent whitelist guard');
+});
+
+test('A1: setup.* rejected for agent even though setup skips the role check', async () => {
+  // setup.* actions bypass the permission check by design; the §2.3 guard
+  // blocks agents unconditionally (resolveActor resolves across all
+  // companies when companyId is absent, so the agent is recognized).
+  const { status, body } = await api(baseUrl, 'setup.init', { userEmail: 'agent@ct' });
+  assert.equal(status, 403);
+  assert.equal(body.error.code, 'FORBIDDEN');
+  assert.match(body.error.message, /setup/);
+});
+
+test('A1 audit attribution: actor_type + request_id stamped on audit rows', async () => {
+  // Owner mutating call with requestId → dispatch audit (auditCall) row
+  // carries actor_type='human' + request_id (§2.4 stamping, end-to-end).
+  const r = await api(baseUrl, 'settings.save', {
+    companyId: CO, userEmail: 'owner@ct', requestId: 'req-owner-a1',
+    settings: { vat_tolerance: 1.01 },
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rows = await sql(baseUrl, srv.adminToken,
+    `SELECT actor_type, request_id, changed_by FROM audit_log
+     WHERE company_id='CT' AND request_id='req-owner-a1'
+       AND table_name='api' AND record_id='settings.save'`);
+  assert.ok(rows.length >= 1, 'dispatch audit row written for owner call');
+  assert.equal(rows[0].actor_type, 'human', 'owner call → actor_type human');
+  assert.equal(rows[0].request_id, 'req-owner-a1');
+  assert.equal(rows[0].changed_by, 'owner@ct');
+
+  // Agent mutating call → FORBIDDEN by the §2.3 guard (runs before the
+  // handler and before auditCall). In A1 agents cannot perform any mutating
+  // action (R2), so no agent-origin audit row is produced via auditCall.
+  // actor_type='agent' stamping is exercised end-to-end when journal.propose
+  // (A3j) or attachment.upload (MCP §5) lands — the stamping code path is
+  // identical to the human path verified above, just with actorType='agent'
+  // from resolveActor. Here we assert the guard is the choke point: a
+  // forbidden agent call writes no audit row at all.
+  const fr = await api(baseUrl, 'settings.save', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-agent-a1',
+    settings: { vat_tolerance: 2.0 },
+  });
+  assert.equal(fr.status, 403);
+  assert.equal(fr.body.error.code, 'FORBIDDEN');
+  const agentRows = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM audit_log WHERE company_id='CT' AND request_id='req-agent-a1'`);
+  assert.equal(Number(agentRows[0].c), 0, 'forbidden agent call writes no audit row (guard before audit)');
 });

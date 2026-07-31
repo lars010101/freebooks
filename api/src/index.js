@@ -39,7 +39,7 @@ const ACTION_ROLES = Object.fromEntries(
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // base64 attachment uploads travel the action API (attachment.upload); the default 100kb limit would 413 legitimate files
 
 // ── P0-2: Unified error envelope ─────────────────────────────────────────────
 // All failure paths in the /api dispatch flow return:

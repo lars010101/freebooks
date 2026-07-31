@@ -637,9 +637,33 @@ async function proposeEntry(ctx) {
 
   // UPSERT path: a proposalId was supplied (extraction fix / idempotent retry
   // with a caller-chosen id, or a re-propose with changed lines).
+  // Phase A hardening — the upsert uses ONE conditional UPDATE...RETURNING:
+  // WHERE status='proposed' AND created_by=@proposer is the race-decider (a
+  // concurrent approve that flipped the status, or another actor's row, both
+  // miss). On 0 rows we re-SELECT to distinguish not-yet-created (fall through
+  // to insert), another actor's row (FORBIDDEN), or a non-proposed status
+  // (INVALID_STATUS) — preserving the existing exact error messages.
   if (proposalId) {
+    const upd = await query(
+      `UPDATE journal_proposals
+       SET lines = @lines, date = @date, reference = @ref, description = @desc,
+           journal_id = @journalId, created_at = @now
+       WHERE company_id = @companyId AND proposal_id = @proposalId
+         AND status = 'proposed' AND created_by = @proposer
+       RETURNING proposal_id`,
+      { companyId, proposalId, lines: linesJson, date: minDate, ref: reference || null, desc: description || null, journalId: journalId || null, now, proposer }
+    );
+    if (upd.length > 0) {
+      // UPDATE-in-place hit: replace lines/date/reference/description/journal_id.
+      // created_by / request_id / source are NOT changed — the origin is
+      // immutable. No journal.proposed re-emit: the business fact 'a proposal
+      // exists' already happened (the Idempotency-Key replay path is separately
+      // covered by the dispatch stored-response short-circuit).
+      return { proposalId, warnings };
+    }
+    // 0 rows: either no row yet, another actor's row, or a non-proposed status.
     const existing = await query(
-      `SELECT proposal_id, status, created_by FROM journal_proposals
+      `SELECT status, created_by FROM journal_proposals
        WHERE company_id = @companyId AND proposal_id = @proposalId`,
       { companyId, proposalId }
     );
@@ -650,22 +674,7 @@ async function proposeEntry(ctx) {
         throw Object.assign(new Error('Cannot upsert a proposal owned by another actor'), { code: 'FORBIDDEN' });
       }
       // Can only upsert a still-'proposed' row (posted/rejected are terminal).
-      if (String(row.status) !== 'proposed') {
-        throw Object.assign(new Error(`Cannot upsert a proposal in status '${row.status}' (only 'proposed' is editable)`), { code: 'INVALID_STATUS' });
-      }
-      // UPDATE-in-place: replace lines/date/reference/description/journal_id.
-      // created_by / request_id / source are NOT changed — the origin is
-      // immutable. No journal.proposed re-emit: the business fact 'a proposal
-      // exists' already happened (the Idempotency-Key replay path is separately
-      // covered by the dispatch stored-response short-circuit).
-      await exec(
-        `UPDATE journal_proposals
-         SET lines = @lines, date = @date, reference = @ref, description = @desc,
-             journal_id = @journalId, created_at = @now
-         WHERE company_id = @companyId AND proposal_id = @proposalId`,
-        { companyId, proposalId, lines: linesJson, date: minDate, ref: reference || null, desc: description || null, journalId: journalId || null, now }
-      );
-      return { proposalId, warnings };
+      throw Object.assign(new Error(`Cannot upsert a proposal in status '${row.status}' (only 'proposed' is editable)`), { code: 'INVALID_STATUS' });
     }
     // proposalId supplied but no existing row → first creation with a
     // caller-chosen id. Insert + emit (same as the no-proposalId path).
@@ -718,6 +727,11 @@ async function approveProposal(ctx) {
   const { proposalId, note } = body;
   if (!proposalId) throw Object.assign(new Error('proposalId required'), { code: 'INVALID_INPUT' });
 
+  // Phase A hardening: the initial SELECT is kept for error fidelity (NOT_FOUND
+  // / INVALID_STATUS return the EXACT same messages as before). It is NOT the
+  // authorization to post — that authorization is the atomic claim below. Two
+  // concurrent approves used to both pass this check and double-post; the claim
+  // makes the second one lose the race and surface INVALID_STATUS instead.
   const rows = await query(
     `SELECT proposal_id, journal_id, date, reference, description, source, lines, status, created_by
      FROM journal_proposals WHERE company_id = @companyId AND proposal_id = @proposalId`,
@@ -734,29 +748,64 @@ async function approveProposal(ctx) {
   // period locked Tuesday. Runs the validation part of enrichAndValidate on the
   // stored enriched lines; a period-locked failure surfaces PERIOD_LOCKED
   // (throwValidation), the same code journal.post would give.
+  // Phase A hardening: revalidation runs BEFORE any state mutation so a
+  // locked-period failure leaves zero footprint (no posted status, no batch).
   let enrichedLines;
   try { enrichedLines = JSON.parse(proposal.lines); }
   catch { throw Object.assign(new Error('Proposal lines are not valid JSON'), { code: 'CONFLICT' }); }
   const revalidation = await validateJournalBatch(companyId, enrichedLines);
   if (!revalidation.valid) throwValidation(revalidation);
 
+  // D3: same 'anonymous' fallback doctrine as proposeEntry (created_by NOT NULL
+  // there; here it keeps attribution consistent under install-level trust).
+  const reviewer = userEmail || 'anonymous';
+
+  // Phase A hardening — ATOMIC CLAIM. A single UPDATE...RETURNING transitions
+  // proposed→posted AND stamps the reviewer triple in one statement; the
+  // WHERE status='proposed' guard is the race-decider. If 0 rows come back, we
+  // lost the race (or the row vanished) — re-read for exact error fidelity.
+  const now = new Date().toISOString();
+  const claim = await query(
+    `UPDATE journal_proposals
+     SET status='posted', reviewed_by=@reviewedBy, reviewed_at=@now, review_note=@note
+     WHERE company_id=@companyId AND proposal_id=@proposalId AND status='proposed'
+     RETURNING proposal_id`,
+    { reviewedBy: reviewer, now, note: note || null, companyId, proposalId });
+  if (claim.length === 0) {
+    // Lost a race between the SELECT above and the claim — re-read for error fidelity.
+    const cur = await query(`SELECT status FROM journal_proposals WHERE company_id=@companyId AND proposal_id=@proposalId`, { companyId, proposalId });
+    if (cur.length === 0) throw Object.assign(new Error('Proposal not found'), { code: 'NOT_FOUND' });
+    throw Object.assign(new Error(`Cannot approve a proposal in status '${cur[0].status}' (only 'proposed' can be approved)`), { code: 'INVALID_STATUS' });
+  }
+
   // Post via the shared core. created_by = the approving human (R5: the ledger
   // row shows the human poster; the agent origin lives on the proposal + audit).
-  const { batchId, reference, lineCount } = await postJournalBatch(ctx, {
-    enrichedLines,
-    journalId: proposal.journal_id || null,
-    createdByEmail: userEmail,
-    source: 'proposal',
-  });
+  // Phase A hardening: postJournalBatch is wrapped so a posting failure (e.g. a
+  // reference sequence gone missing) rolls the claim back instead of leaving the
+  // proposal stuck status='posted' with no batch.
+  let postResult;
+  try {
+    postResult = await postJournalBatch(ctx, {
+      enrichedLines,
+      journalId: proposal.journal_id || null,
+      createdByEmail: reviewer,
+      source: 'proposal',
+    });
+  } catch (postErr) {
+    try {
+      await exec(`UPDATE journal_proposals SET status='proposed', reviewed_by=NULL, reviewed_at=NULL, review_note=NULL WHERE company_id=@companyId AND proposal_id=@proposalId AND status='posted' AND batch_id IS NULL`, { companyId, proposalId });
+    } catch (rbErr) {
+      console.error(`CRITICAL: approve rollback failed for proposal ${proposalId} — row may be stuck status='posted' with batch_id NULL:`, rbErr.message);
+    }
+    throw postErr;
+  }
+  const { batchId, reference, lineCount } = postResult;
 
-  // Stamp the proposal: status posted + reviewer triple + batch_id link.
-  const now = new Date().toISOString();
+  // Finalize batch_id — the claim set status+reviewer; batch_id is stamped once
+  // the post succeeded, so a rolled-back approve never carries a dangling batch_id.
   await exec(
-    `UPDATE journal_proposals
-     SET status = 'posted', batch_id = @batchId, reviewed_by = @reviewedBy,
-         reviewed_at = @now, review_note = @note
-     WHERE company_id = @companyId AND proposal_id = @proposalId`,
-    { batchId, reviewedBy: userEmail, now, note: note || null, companyId, proposalId }
+    `UPDATE journal_proposals SET batch_id=@batchId WHERE company_id=@companyId AND proposal_id=@proposalId`,
+    { batchId, companyId, proposalId }
   );
 
   // Emit journal.approved (journal.posted came from postJournalBatch).
@@ -765,7 +814,7 @@ async function approveProposal(ctx) {
     batchId,
     reference,
     lineCount,
-    reviewedBy: userEmail,
+    reviewedBy: reviewer,
   });
 
   return { posted: true, proposalId, batchId, reference, lineCount };
@@ -785,28 +834,32 @@ async function rejectProposal(ctx) {
     throw Object.assign(new Error('note is required to reject a proposal (the agent reads the reason and re-proposes corrected)'), { code: 'INVALID_INPUT' });
   }
 
-  const rows = await query(
-    `SELECT status FROM journal_proposals WHERE company_id = @companyId AND proposal_id = @proposalId`,
-    { companyId, proposalId }
-  );
-  if (rows.length === 0) throw Object.assign(new Error('Proposal not found'), { code: 'NOT_FOUND' });
-  if (String(rows[0].status) !== 'proposed') {
-    throw Object.assign(new Error(`Cannot reject a proposal in status '${rows[0].status}' (only 'proposed' can be rejected)`), { code: 'INVALID_STATUS' });
-  }
+  // D3: same 'anonymous' fallback doctrine as proposeEntry/approve — keeps
+  // attribution consistent under install-level trust.
+  const reviewer = userEmail || 'anonymous';
 
+  // Phase A hardening — ATOMIC CLAIM. A single conditional UPDATE...RETURNING
+  // transitions proposed→rejected and stamps the reviewer triple; the
+  // WHERE status='proposed' guard is the race-decider. On 0 rows re-read to
+  // distinguish NOT_FOUND vs INVALID_STATUS with the existing exact messages.
   const now = new Date().toISOString();
-  await exec(
+  const claim = await query(
     `UPDATE journal_proposals
-     SET status = 'rejected', reviewed_by = @reviewedBy, reviewed_at = @now, review_note = @note
-     WHERE company_id = @companyId AND proposal_id = @proposalId`,
-    { reviewedBy: userEmail, now, note: String(note), companyId, proposalId }
-  );
+     SET status='rejected', reviewed_by=@reviewedBy, reviewed_at=@now, review_note=@note
+     WHERE company_id=@companyId AND proposal_id=@proposalId AND status='proposed'
+     RETURNING proposal_id`,
+    { reviewedBy: reviewer, now, note: String(note), companyId, proposalId });
+  if (claim.length === 0) {
+    const cur = await query(`SELECT status FROM journal_proposals WHERE company_id=@companyId AND proposal_id=@proposalId`, { companyId, proposalId });
+    if (cur.length === 0) throw Object.assign(new Error('Proposal not found'), { code: 'NOT_FOUND' });
+    throw Object.assign(new Error(`Cannot reject a proposal in status '${cur[0].status}' (only 'proposed' can be rejected)`), { code: 'INVALID_STATUS' });
+  }
 
   // Emit journal.rejected — payload carries the note so the agent reads the
   // reason via event.list and re-proposes corrected.
   await emitEvent(ctx, 'journal.rejected', 'proposal', proposalId, {
     proposalId,
-    reviewedBy: userEmail,
+    reviewedBy: reviewer,
     note: String(note),
   });
 

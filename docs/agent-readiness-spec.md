@@ -64,6 +64,8 @@ if (ctx.actor.actorType === 'agent' && actionIsMutating && action ∉ AGENT_ALLO
 
 `AGENT_ALLOWED` (v1, exhaustive): all non-mutating (viewer) actions · `journal.propose` (§4.2) · `attachment.upload`. `setup.*` actions (which skip the role check today) are rejected for agent actors unconditionally. Everything else mutating — posting, approving/rejecting, voiding, settlement, reconciliation, periods, settings, COA, vendors, mappings, VAT codes, permissions, company — is human-only **by default, including any action added in future** (a new mutating action is denied to agents until explicitly whitelisted — fail-closed).
 
+As built (hardening 2026-07-31): `attachment.upload` is a real catalog action (base64 content, role agent, idempotent, 32MB decoded cap); the browser multipart route POST /api/upload shares the same storage core and now evaluates the same role check and writes the equivalent audit row. The §2.3 whitelist entry is live.
+
 ### 2.4 Schema migration (idempotent, house style)
 
 ```sql
@@ -189,6 +191,8 @@ Refactor (same PR): extract `postEntry`'s enrichment/validation into `enrichAndV
 
 Guards: approve/reject only from `status='proposed'` (`INVALID_STATUS` otherwise, existing guard style). Agents are excluded from approve/reject by the §2.3 whitelist, not by any check inside the handlers.
 
+As built (hardening 2026-07-31): approve/reject/upsert transitions are atomic claim-first UPDATE...RETURNING guarded on status='proposed' (a concurrent second transition loses with INVALID_STATUS); approve posts inside a compensating-rollback wrapper (a post failure restores 'proposed'); reviewer/created_by fall back to 'anonymous' under install-level trust, matching propose.
+
 ### 4.4 The review queue — integrated into the Journal list
 
 No new page, no new route. The Journal FB.list **is** the queue:
@@ -228,13 +232,15 @@ A Model Context Protocol server that lets an MCP-capable agent (Claude, Hermes, 
 
 **As built (2026-07-31):** SDK `@modelcontextprotocol/sdk` low-level `Server` + `StdioServerTransport` (explicit manifest, plain JSON-Schema input schemas). `attachment_upload` takes file bytes as `contentBase64` — never a disk path (R1 holds for the agent too). `freebooks_read` builds its read allowlist **dynamically from `GET /api/actions`** at startup (admits only `mutating: false`), falling back to a static list + stderr warning if the catalog is unreachable. Verified by `tests/mcp-smoke.mjs` (26 assertions).
 
+As built (hardening 2026-07-31): `attachment_upload` travels via the `attachment.upload` action (not the multipart route) and sends an `Idempotency-Key` like `journal_propose`; the key is caller-suppliable on both mutating tools. The action API's JSON body limit is 50mb for base64 payloads.
+
 ### 5.2 Tools (v1)
 
 | Tool | Maps to | Notes |
 |---|---|---|
 | `event_list(after_seq?, type?, limit?)` | `event.list` | The agent's work-discovery channel (§3.3). |
 | `journal_propose(lines, journalId?, reference?, description?, proposalId?)` | `journal.propose` | The only write path to the ledger — proposals, never postings (R5). |
-| `attachment_upload(...)` | `attachment.upload` | Params mirror the action. |
+| `attachment_upload(...)` | `attachment.upload` | Params mirror the action (base64 `contentBase64`); sends an `Idempotency-Key` (caller-suppliable) like `journal_propose`. Maps to the action (not the multipart route) as of hardening 2026-07-31. |
 | `freebooks_read(action, params?)` | any catalog action with `mutating: false` | Generic read gateway (journal/list/get/search, account balances, views, reports, `journal.proposal.*`). Client-side allowlist for friendly errors; **the server-side §2.3 whitelist remains the enforcement.** |
 
 No approve/reject/post/void/master-data tools exist — the agent account couldn't use them anyway (default-deny), and their absence keeps the tool manifest self-documenting.

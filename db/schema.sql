@@ -487,3 +487,33 @@ CREATE TABLE IF NOT EXISTS events (
   created_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_events_company_seq ON events(company_id, event_seq);
+
+-- =============================================================================
+-- journal_proposals (A3j — §4.2: agent/human-proposed journal batches)
+-- The prepare/approve flow: an actor (typically an agent) proposes a journal
+-- batch; a human reviews and approves (which posts to journal_entries) or
+-- rejects (terminal, kept for audit). A proposed batch can NEVER reach
+-- journal_entries without a human approve (R5). `lines` stores the JSON array
+-- of enriched lines (the exact journal.post row shape), validated at propose
+-- time and re-validated at approve time. `batch_id` links the posted batch
+-- back to the proposal on approve.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS journal_proposals (
+  company_id   VARCHAR   NOT NULL,
+  proposal_id  VARCHAR   NOT NULL UNIQUE,
+  journal_id   VARCHAR,                -- optional series (journals table) → auto reference on post
+  date         DATE      NOT NULL,     -- MIN(line dates) — list display + ordering
+  reference    VARCHAR,
+  description  VARCHAR,
+  source       VARCHAR   NOT NULL DEFAULT 'agent',   -- 'agent' | 'human'
+  lines        VARCHAR   NOT NULL,    -- JSON array of enriched lines (journal.post row shape)
+  status       VARCHAR   NOT NULL DEFAULT 'proposed',   -- proposed | posted | rejected
+  batch_id     VARCHAR,                -- set on approve (links to journal_entries.batch_id)
+  created_by   VARCHAR   NOT NULL,
+  request_id   VARCHAR,
+  reviewed_by  VARCHAR,
+  reviewed_at  TIMESTAMP,
+  review_note  VARCHAR,
+  created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_journal_proposals_company_status ON journal_proposals(company_id, status);

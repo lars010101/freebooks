@@ -74,6 +74,48 @@ const ACTIONS = {
     params: { entryId: { type: 'string', required: true }, description: { type: 'string' }, account_code: { type: 'string' }, vat_code: { type: 'string' } },
   },
 
+  // ── Journal proposals (A3j — §4.3: prepare/approve flow) ───────────────────
+  // An agent (or human) proposes a journal batch; a human reviews and approves
+  // (which posts to journal_entries) or rejects (terminal). A proposed batch
+  // can never reach journal_entries without a human approve (R5).
+  'journal.propose': {
+    // Catalog role is 'agent' (level 1.5), NOT 'data_entry': dispatch runs the
+    // numeric role check BEFORE the §2.3 whitelist guard, so a data_entry entry
+    // would reject agents (1.5 < 2) before the whitelist ever sees it. 'agent'
+    // lets agents (1.5≥1.5), data_entry (2), owner (3) pass; viewers (1) are
+    // excluded. 'journal.propose' is then added to AGENT_ALLOWED so the
+    // whitelist guard admits it. This is the spec's intent (§4.3 + §2.3).
+    role: 'agent', mutating: true, idempotent: true,
+    description: 'Propose a journal batch (enriched + validated server-side; nothing reaches journal_entries until a human approves). With proposalId: upsert a still-proposed row owned by the same caller.',
+    params: {
+      lines: { type: 'array', required: true },
+      journalId: { type: 'string' },
+      reference: { type: 'string' },
+      description: { type: 'string' },
+      proposalId: { type: 'string' },
+    },
+  },
+  'journal.approve': {
+    role: 'data_entry', mutating: true, idempotent: true,
+    description: 'Approve a proposed journal batch → posts to journal_entries (re-validates first; created_by = approving human). Stamps reviewer triple + batch_id.',
+    params: { proposalId: { type: 'string', required: true }, note: { type: 'string' } },
+  },
+  'journal.reject': {
+    role: 'data_entry', mutating: true, idempotent: true,
+    description: 'Reject a proposed journal batch (terminal). note is required — the agent reads the reason via event.list and re-proposes corrected.',
+    params: { proposalId: { type: 'string', required: true }, note: { type: 'string', required: true } },
+  },
+  'journal.proposal.list': {
+    role: 'viewer', mutating: false,
+    description: 'List journal proposals (queue data) for the company, ordered by date DESC then created_at DESC.',
+    params: { status: { type: 'string' }, limit: { type: 'number' } },
+  },
+  'journal.proposal.get': {
+    role: 'viewer', mutating: false,
+    description: 'Get one journal proposal incl. parsed enriched lines, proposer, request_id, and review triple.',
+    params: { proposalId: { type: 'string', required: true } },
+  },
+
   // ── Bank ─────────────────────────────────────────────────────────────────
   'bank.process': {
     role: 'data_entry', mutating: true, idempotent: true,

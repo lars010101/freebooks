@@ -186,8 +186,9 @@ async function handleApiRequest(req, res) {
     // action outside AGENT_ALLOWED is FORBIDDEN. This runs BEFORE the
     // idempotency check so a rejected request never persists a response.
     // v1 whitelist: non-mutating actions pass naturally (mutating:false);
-    // attachment.upload is admitted here; A3j will add journal.propose.
-    const AGENT_ALLOWED = new Set(['attachment.upload']);
+    // attachment.upload is admitted here; A3j (§4.3) adds journal.propose so
+    // agents can prepare journal batches (never post — that's the human approve).
+    const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose']);
     const actor = userEmail ? await resolveActor(userEmail, companyId) : { role: null, actorType: 'human' };
     const requestId = body.requestId || req.get('X-Request-Id') || null;
     if (actor.actorType === 'agent') {

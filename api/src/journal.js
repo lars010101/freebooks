@@ -27,9 +27,151 @@ async function handleJournal(ctx, action) {
     case 'journal.account_lines':   return accountLines(ctx);
     case 'journal.account_balance': return accountBalance(ctx);
     case 'journal.entry.update': return updateEntryDescription(ctx);
+    // A3j (§4.3): journal proposal prepare/approve flow.
+    case 'journal.propose':       return proposeEntry(ctx);
+    case 'journal.approve':       return approveProposal(ctx);
+    case 'journal.reject':        return rejectProposal(ctx);
+    case 'journal.proposal.list': return listProposals(ctx);
+    case 'journal.proposal.get':  return getProposal(ctx);
     default:
       throw Object.assign(new Error(`Unknown journal action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
+}
+
+// ── A3j (§4.3): shared enrichment + validation, and shared post core ───────
+// Both journal.post and journal.approve call these so there is ONE posting
+// path — no divergent logic. enrichAndValidate does VAT split, FX, balance
+// check, and account/period/window validation (exactly today's journal.post
+// machinery). postJournalBatch inserts journal_entries rows, generates the
+// reference, and emits journal.posted (the A2 emit moved here so BOTH
+// journal.post and the post inside journal.approve emit it, per §3.2).
+
+/**
+ * Enrich and validate a set of journal lines for a company.
+ * Returns { enrichedLines, warnings, validation } where validation is the
+ * raw { valid, errors, warnings } from validateJournalBatch. Callers decide
+ * how to surface failures (throwValidation maps period-locked → PERIOD_LOCKED).
+ */
+async function enrichAndValidate(companyId, lines) {
+  if (!lines || !Array.isArray(lines) || lines.length === 0) {
+    throw Object.assign(new Error('lines array required'), { code: 'INVALID_INPUT' });
+  }
+
+  const companies = await query(
+    `SELECT currency, vat_registered FROM companies WHERE company_id = @companyId LIMIT 1`,
+    { companyId }
+  );
+  if (companies.length === 0) throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
+  const company = companies[0];
+
+  const enrichedLines = [];
+  for (const line of lines) {
+    const currency = line.currency || company.currency;
+    const fxRate = currency === company.currency ? 1.0 : (line.fx_rate || 0);
+    const debit = line.debit || 0;
+    const credit = line.credit || 0;
+
+    let vatAmount = 0, vatAmountHome = 0, netAmount = 0, netAmountHome = 0;
+    if (line.vat_code && company.vat_registered) {
+      const split = await computeVatSplit(companyId, line.vat_code, debit || credit);
+      vatAmount = split.vatAmount;
+      netAmount = split.netAmount;
+      vatAmountHome = vatAmount * fxRate;
+      netAmountHome = netAmount * fxRate;
+    }
+
+    enrichedLines.push({ ...line, currency, fx_rate: fxRate, debit, credit, debit_home: debit * fxRate, credit_home: credit * fxRate, vat_amount: vatAmount, vat_amount_home: vatAmountHome, net_amount: netAmount, net_amount_home: netAmountHome });
+  }
+
+  const validation = await validateJournalBatch(companyId, enrichedLines);
+  return { enrichedLines, warnings: validation.warnings, validation };
+}
+
+/**
+ * Map a validation failure to the right dispatch error code. A period-locked
+ * failure surfaces PERIOD_LOCKED (the same code journal.post would give for a
+ * locked-period post, per §4.3 approve-time revalidation); everything else is
+ * VALIDATION. This keeps journal.post and journal.approve error codes aligned.
+ */
+function throwValidation(validation) {
+  const errs = validation.errors || [];
+  const msg = errs.join('; ');
+  if (errs.some((e) => /locked period/i.test(String(e)))) {
+    throw Object.assign(new Error(msg), { code: 'PERIOD_LOCKED', details: { errors: errs } });
+  }
+  throw Object.assign(new Error(msg), {
+    code: 'VALIDATION',
+    details: { errors: errs, warnings: validation.warnings },
+  });
+}
+
+/**
+ * Insert journal_entries rows for a set of enriched lines, generate the
+ * sequential reference (if journalId), and emit journal.posted (A2 §3.2).
+ * `createdByEmail` is the email stamped on created_by — for journal.post it's
+ * the caller; for journal.approve it's the approving HUMAN (R5: the ledger
+ * row shows the human poster; the agent origin lives on the proposal + audit).
+ * Returns { batchId, reference, lineCount, rows }.
+ */
+async function postJournalBatch(ctx, { enrichedLines, journalId, createdByEmail, source = 'manual' }) {
+  const companyId = ctx.companyId;
+  const batchId = uuid();
+  const now = new Date().toISOString();
+
+  // Generate sequential reference if a journalId was provided
+  let autoReference = null;
+  if (journalId) {
+    const entryDate = enrichedLines[0].date;
+    const year = parseInt(String(entryDate).substring(0, 4), 10);
+    autoReference = await getNextReference(companyId, journalId, year);
+  }
+
+  const rows = enrichedLines.map((line) => ({
+    company_id: companyId,
+    entry_id: uuid(),
+    batch_id: batchId,
+    date: line.date,
+    account_code: line.account_code,
+    debit: line.debit,
+    credit: line.credit,
+    currency: line.currency,
+    fx_rate: line.fx_rate,
+    debit_home: line.debit_home,
+    credit_home: line.credit_home,
+    vat_code: line.vat_code || null,
+    vat_amount: line.vat_amount,
+    vat_amount_home: line.vat_amount_home,
+    net_amount: line.net_amount,
+    net_amount_home: line.net_amount_home,
+    description: line.description || null,
+    reference: autoReference || line.reference || null,
+    source,
+    cost_center: line.cost_center || null,
+    profit_center: line.profit_center || null,
+    reverses: null,
+    reversed_by: null,
+    bill_id: line.bill_id || null,
+    created_by: createdByEmail,
+    created_at: now,
+  }));
+
+  await bulkInsert('journal_entries', rows);
+
+  // A2 (§3.2): emit journal.posted on success. Emission lives inside
+  // postJournalBatch so BOTH journal.post and the post inside journal.approve
+  // emit it. R4 holds: this runs inside the handler, only on an idempotency
+  // MISS — a replay short-circuits before reaching here.
+  const totalDebit = rows.reduce((s, l) => s + Number(l.debit || 0), 0);
+  await emitEvent(ctx, 'journal.posted', 'journal', batchId, {
+    date: enrichedLines[0].date,
+    reference: autoReference || rows[0].reference || null,
+    description: rows[0].description || null,
+    lineCount: rows.length,
+    totalDebit: Math.round(totalDebit * 100) / 100,
+    currency: rows[0].currency,
+  });
+
+  return { batchId, reference: autoReference, lineCount: rows.length, rows };
 }
 
 // P0-5: read-only account activity queries for the bank UI. These replace
@@ -234,101 +376,17 @@ async function postEntry(ctx) {
   const { companyId, userEmail, body } = ctx;
   const { lines, source = 'manual', journalId } = body;
 
-  if (!lines || !Array.isArray(lines) || lines.length === 0) {
-    throw Object.assign(new Error('lines array required'), { code: 'INVALID_INPUT' });
-  }
+  // A3j (§4.3): enrichment + validation is shared with journal.propose/approve.
+  const { enrichedLines, warnings, validation } = await enrichAndValidate(companyId, lines);
+  if (!validation.valid) throwValidation(validation);
 
-  const companies = await query(
-    `SELECT currency, vat_registered FROM companies WHERE company_id = @companyId LIMIT 1`,
-    { companyId }
-  );
-  if (companies.length === 0) throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
-  const company = companies[0];
-
-  const enrichedLines = [];
-  for (const line of lines) {
-    const currency = line.currency || company.currency;
-    const fxRate = currency === company.currency ? 1.0 : (line.fx_rate || 0);
-    const debit = line.debit || 0;
-    const credit = line.credit || 0;
-
-    let vatAmount = 0, vatAmountHome = 0, netAmount = 0, netAmountHome = 0;
-    if (line.vat_code && company.vat_registered) {
-      const split = await computeVatSplit(companyId, line.vat_code, debit || credit);
-      vatAmount = split.vatAmount;
-      netAmount = split.netAmount;
-      vatAmountHome = vatAmount * fxRate;
-      netAmountHome = netAmount * fxRate;
-    }
-
-    enrichedLines.push({ ...line, currency, fx_rate: fxRate, debit, credit, debit_home: debit * fxRate, credit_home: credit * fxRate, vat_amount: vatAmount, vat_amount_home: vatAmountHome, net_amount: netAmount, net_amount_home: netAmountHome });
-  }
-
-  const validation = await validateJournalBatch(companyId, enrichedLines);
-  if (!validation.valid) {
-    throw Object.assign(new Error(validation.errors.join('; ')), {
-      code: 'VALIDATION',
-      details: { errors: validation.errors, warnings: validation.warnings },
-    });
-  }
-
-  const batchId = uuid();
-  const now = new Date().toISOString();
-
-  // Generate sequential reference if a journalId was provided
-  let autoReference = null;
-  if (journalId) {
-    const entryDate = enrichedLines[0].date;
-    const year = parseInt(String(entryDate).substring(0, 4), 10);
-    autoReference = await getNextReference(companyId, journalId, year);
-  }
-
-  const rows = enrichedLines.map((line) => ({
-    company_id: companyId,
-    entry_id: uuid(),
-    batch_id: batchId,
-    date: line.date,
-    account_code: line.account_code,
-    debit: line.debit,
-    credit: line.credit,
-    currency: line.currency,
-    fx_rate: line.fx_rate,
-    debit_home: line.debit_home,
-    credit_home: line.credit_home,
-    vat_code: line.vat_code || null,
-    vat_amount: line.vat_amount,
-    vat_amount_home: line.vat_amount_home,
-    net_amount: line.net_amount,
-    net_amount_home: line.net_amount_home,
-    description: line.description || null,
-    reference: autoReference || line.reference || null,
-    source,
-    cost_center: line.cost_center || null,
-    profit_center: line.profit_center || null,
-    reverses: null,
-    reversed_by: null,
-    bill_id: line.bill_id || null,
-    created_by: userEmail,
-    created_at: now,
-  }));
-
-  await bulkInsert('journal_entries', rows);
-
-  // A2 (§3.2): emit journal.posted on success. Payload is a compact snapshot
-  // (date, reference, description, line count, total debit, currency). R4
-  // holds by construction: this runs inside the handler, which only executes
-  // on an idempotency MISS — a replay short-circuits before reaching here.
-  const totalDebit = rows.reduce((s, l) => s + Number(l.debit || 0), 0);
-  await emitEvent(ctx, 'journal.posted', 'journal', batchId, {
-    date: enrichedLines[0].date,
-    reference: autoReference || rows[0].reference || null,
-    description: rows[0].description || null,
-    lineCount: rows.length,
-    totalDebit: Math.round(totalDebit * 100) / 100,
-    currency: rows[0].currency,
+  // A3j (§4.3): the insert core is shared with journal.approve. created_by is
+  // the caller (journal.post) — for approve it's the approving human instead.
+  const { batchId, reference, lineCount } = await postJournalBatch(ctx, {
+    enrichedLines, journalId, createdByEmail: userEmail, source,
   });
 
-  return { posted: true, batchId, reference: autoReference, lineCount: rows.length, warnings: validation.warnings };
+  return { posted: true, batchId, reference, lineCount, warnings };
 }
 
 async function reverseEntry(ctx) {
@@ -543,4 +601,260 @@ async function importEntries(ctx) {
   return { imported: entries.length, failed: 0, totalEntries: entries.length, rowsInserted: allRows.length, errors: [] };
 }
 
-module.exports = { handleJournal, getNextReference, getNextReferenceBatch };
+// ── A3j (§4.3): journal proposal actions ───────────────────────────────────
+// prepare/approve flow. An agent (or human) proposes; a human approves (which
+// posts via postJournalBatch) or rejects (terminal). NOTHING reaches
+// journal_entries from propose — only from approve (R5).
+
+/**
+ * journal.propose — enrich + validate lines server-side, store a proposed row.
+ * Mutating, idempotent (dispatch-level Idempotency-Key). With proposalId:
+ * upsert a still-'proposed' row created by the SAME caller (extraction fixes /
+ * idempotent retries) — cannot touch another actor's proposal (FORBIDDEN) nor a
+ * non-proposed one (INVALID_STATUS). Emits journal.proposed ONLY on INSERT (a
+ * same-proposalId upsert edit updates the row but does not re-emit; the
+ * Idempotency-Key replay path is separately covered by the stored-response
+ * short-circuit). Returns { proposalId, warnings }.
+ */
+async function proposeEntry(ctx) {
+  const { companyId, userEmail, actor, requestId, body } = ctx;
+  const { lines, journalId, reference, description, proposalId } = body;
+
+  // Enrich + validate exactly like journal.post — but nothing reaches
+  // journal_entries. The human reviews the computed results.
+  const { enrichedLines, warnings, validation } = await enrichAndValidate(companyId, lines);
+  if (!validation.valid) throwValidation(validation);
+
+  // date = MIN(line dates) for list display + ordering
+  const dates = enrichedLines.map((l) => String(l.date).substring(0, 10)).sort();
+  const minDate = dates[0];
+  const source = actor && actor.actorType === 'agent' ? 'agent' : 'human';
+  const linesJson = JSON.stringify(enrichedLines);
+  const now = new Date().toISOString();
+
+  // UPSERT path: a proposalId was supplied (extraction fix / idempotent retry
+  // with a caller-chosen id, or a re-propose with changed lines).
+  if (proposalId) {
+    const existing = await query(
+      `SELECT proposal_id, status, created_by FROM journal_proposals
+       WHERE company_id = @companyId AND proposal_id = @proposalId`,
+      { companyId, proposalId }
+    );
+    if (existing.length > 0) {
+      const row = existing[0];
+      // Cannot touch another actor's proposal.
+      if (String(row.created_by) !== String(userEmail)) {
+        throw Object.assign(new Error('Cannot upsert a proposal owned by another actor'), { code: 'FORBIDDEN' });
+      }
+      // Can only upsert a still-'proposed' row (posted/rejected are terminal).
+      if (String(row.status) !== 'proposed') {
+        throw Object.assign(new Error(`Cannot upsert a proposal in status '${row.status}' (only 'proposed' is editable)`), { code: 'INVALID_STATUS' });
+      }
+      // UPDATE-in-place: replace lines/date/reference/description/journal_id.
+      // created_by / request_id / source are NOT changed — the origin is
+      // immutable. No journal.proposed re-emit: the business fact 'a proposal
+      // exists' already happened (the Idempotency-Key replay path is separately
+      // covered by the dispatch stored-response short-circuit).
+      await exec(
+        `UPDATE journal_proposals
+         SET lines = @lines, date = @date, reference = @ref, description = @desc,
+             journal_id = @journalId, created_at = @now
+         WHERE company_id = @companyId AND proposal_id = @proposalId`,
+        { companyId, proposalId, lines: linesJson, date: minDate, ref: reference || null, desc: description || null, journalId: journalId || null, now }
+      );
+      return { proposalId, warnings };
+    }
+    // proposalId supplied but no existing row → first creation with a
+    // caller-chosen id. Insert + emit (same as the no-proposalId path).
+  }
+
+  const newProposalId = proposalId || uuid();
+  await bulkInsert('journal_proposals', [{
+    company_id: companyId,
+    proposal_id: newProposalId,
+    journal_id: journalId || null,
+    date: minDate,
+    reference: reference || null,
+    description: description || null,
+    source,
+    lines: linesJson,
+    status: 'proposed',
+    batch_id: null,
+    created_by: userEmail,
+    request_id: requestId || null,
+    reviewed_by: null,
+    reviewed_at: null,
+    review_note: null,
+    created_at: now,
+  }]);
+
+  // Emit journal.proposed ONLY on INSERT. Payload is a compact snapshot.
+  await emitEvent(ctx, 'journal.proposed', 'proposal', newProposalId, {
+    proposalId: newProposalId,
+    date: minDate,
+    reference: reference || null,
+    description: description || null,
+    lineCount: enrichedLines.length,
+    totalDebit: Math.round(enrichedLines.reduce((s, l) => s + Number(l.debit || 0), 0) * 100) / 100,
+    currency: enrichedLines[0].currency,
+    source,
+  });
+
+  return { proposalId: newProposalId, warnings };
+}
+
+/**
+ * journal.approve — proposed→posted. Re-validates (period lock, account
+ * windows, balance) then posts via postJournalBatch with createdByEmail = the
+ * approving human (journal_entries.created_by shows the HUMAN poster). Stamps
+ * reviewed_by/at/note + batch_id on the proposal. Emits journal.approved
+ * (journal.posted comes from postJournalBatch). Idempotent at dispatch level.
+ */
+async function approveProposal(ctx) {
+  const { companyId, userEmail, body } = ctx;
+  const { proposalId, note } = body;
+  if (!proposalId) throw Object.assign(new Error('proposalId required'), { code: 'INVALID_INPUT' });
+
+  const rows = await query(
+    `SELECT proposal_id, journal_id, date, reference, description, source, lines, status, created_by
+     FROM journal_proposals WHERE company_id = @companyId AND proposal_id = @proposalId`,
+    { companyId, proposalId }
+  );
+  if (rows.length === 0) throw Object.assign(new Error('Proposal not found'), { code: 'NOT_FOUND' });
+  const proposal = rows[0];
+  if (String(proposal.status) !== 'proposed') {
+    throw Object.assign(new Error(`Cannot approve a proposal in status '${proposal.status}' (only 'proposed' can be approved)`), { code: 'INVALID_STATUS' });
+  }
+
+  // Re-validate at approve time: period locks and account active windows can
+  // shift while a proposal sits. A proposal valid Monday must not post into a
+  // period locked Tuesday. Runs the validation part of enrichAndValidate on the
+  // stored enriched lines; a period-locked failure surfaces PERIOD_LOCKED
+  // (throwValidation), the same code journal.post would give.
+  let enrichedLines;
+  try { enrichedLines = JSON.parse(proposal.lines); }
+  catch { throw Object.assign(new Error('Proposal lines are not valid JSON'), { code: 'CONFLICT' }); }
+  const revalidation = await validateJournalBatch(companyId, enrichedLines);
+  if (!revalidation.valid) throwValidation(revalidation);
+
+  // Post via the shared core. created_by = the approving human (R5: the ledger
+  // row shows the human poster; the agent origin lives on the proposal + audit).
+  const { batchId, reference, lineCount } = await postJournalBatch(ctx, {
+    enrichedLines,
+    journalId: proposal.journal_id || null,
+    createdByEmail: userEmail,
+    source: 'proposal',
+  });
+
+  // Stamp the proposal: status posted + reviewer triple + batch_id link.
+  const now = new Date().toISOString();
+  await exec(
+    `UPDATE journal_proposals
+     SET status = 'posted', batch_id = @batchId, reviewed_by = @reviewedBy,
+         reviewed_at = @now, review_note = @note
+     WHERE company_id = @companyId AND proposal_id = @proposalId`,
+    { batchId, reviewedBy: userEmail, now, note: note || null, companyId, proposalId }
+  );
+
+  // Emit journal.approved (journal.posted came from postJournalBatch).
+  await emitEvent(ctx, 'journal.approved', 'proposal', proposalId, {
+    proposalId,
+    batchId,
+    reference,
+    lineCount,
+    reviewedBy: userEmail,
+  });
+
+  return { posted: true, proposalId, batchId, reference, lineCount };
+}
+
+/**
+ * journal.reject — proposed→rejected (terminal, never deleted). note is
+ * REQUIRED (the agent reads the reason via event.list and re-proposes
+ * corrected). Stamps the reviewer triple. Emits journal.rejected (payload
+ * carries the note). Idempotent at dispatch level.
+ */
+async function rejectProposal(ctx) {
+  const { companyId, userEmail, body } = ctx;
+  const { proposalId, note } = body;
+  if (!proposalId) throw Object.assign(new Error('proposalId required'), { code: 'INVALID_INPUT' });
+  if (!note || String(note).trim() === '') {
+    throw Object.assign(new Error('note is required to reject a proposal (the agent reads the reason and re-proposes corrected)'), { code: 'INVALID_INPUT' });
+  }
+
+  const rows = await query(
+    `SELECT status FROM journal_proposals WHERE company_id = @companyId AND proposal_id = @proposalId`,
+    { companyId, proposalId }
+  );
+  if (rows.length === 0) throw Object.assign(new Error('Proposal not found'), { code: 'NOT_FOUND' });
+  if (String(rows[0].status) !== 'proposed') {
+    throw Object.assign(new Error(`Cannot reject a proposal in status '${rows[0].status}' (only 'proposed' can be rejected)`), { code: 'INVALID_STATUS' });
+  }
+
+  const now = new Date().toISOString();
+  await exec(
+    `UPDATE journal_proposals
+     SET status = 'rejected', reviewed_by = @reviewedBy, reviewed_at = @now, review_note = @note
+     WHERE company_id = @companyId AND proposal_id = @proposalId`,
+    { reviewedBy: userEmail, now, note: String(note), companyId, proposalId }
+  );
+
+  // Emit journal.rejected — payload carries the note so the agent reads the
+  // reason via event.list and re-proposes corrected.
+  await emitEvent(ctx, 'journal.rejected', 'proposal', proposalId, {
+    proposalId,
+    reviewedBy: userEmail,
+    note: String(note),
+  });
+
+  return { rejected: true, proposalId };
+}
+
+/**
+ * journal.proposal.list — queue data for the company. Viewer, non-mutating.
+ * Params: status (default 'proposed'), limit (default 100). Ordered by date
+ * DESC then created_at DESC (newest work first).
+ */
+async function listProposals(ctx) {
+  const { companyId, body } = ctx;
+  const status = body.status && String(body.status).trim() !== '' ? String(body.status).trim() : 'proposed';
+  const rawLimit = Number(body.limit);
+  const limit = (Number.isFinite(rawLimit) && rawLimit > 0) ? Math.min(Math.floor(rawLimit), 1000) : 100;
+
+  return query(
+    `SELECT proposal_id, journal_id, date, reference, description, source, status,
+            batch_id, created_by, request_id, reviewed_by, reviewed_at, review_note, created_at
+     FROM journal_proposals
+     WHERE company_id = @companyId AND status = @status
+     ORDER BY date DESC, created_at DESC
+     LIMIT @limit`,
+    { companyId, status, limit }
+  );
+}
+
+/**
+ * journal.proposal.get — one proposal incl. parsed enriched lines, proposer,
+ * request_id, review triple. Viewer, non-mutating.
+ */
+async function getProposal(ctx) {
+  const { companyId, body } = ctx;
+  const { proposalId } = body;
+  if (!proposalId) throw Object.assign(new Error('proposalId required'), { code: 'INVALID_INPUT' });
+
+  const rows = await query(
+    `SELECT proposal_id, journal_id, date, reference, description, source, lines, status,
+            batch_id, created_by, request_id, reviewed_by, reviewed_at, review_note, created_at
+     FROM journal_proposals
+     WHERE company_id = @companyId AND proposal_id = @proposalId`,
+    { companyId, proposalId }
+  );
+  if (rows.length === 0) throw Object.assign(new Error('Proposal not found'), { code: 'NOT_FOUND' });
+  const row = rows[0];
+  // Parse the enriched-lines JSON for the client (the stored row shape).
+  let lines = null;
+  try { lines = JSON.parse(row.lines); } catch { lines = null; }
+  const { lines: _omit, ...rest } = row;
+  return { ...rest, lines };
+}
+
+module.exports = { handleJournal, getNextReference, getNextReferenceBatch, enrichAndValidate, postJournalBatch };

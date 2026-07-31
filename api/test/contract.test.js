@@ -672,12 +672,12 @@ test('A1 guard matrix: agent FORBIDDEN on every mutating catalog action', async 
   // Spec §2.3 default-deny: iterate every catalog action flagged mutating,
   // call as the agent user, and assert 403/FORBIDDEN for each. The guard
   // runs before param validation, so missing params don't leak a 400.
-  // (attachment.upload is the one whitelisted mutating action, but it is
-  // not a catalog action today — it's a separate /api/upload route — so it
-  // is not in this iteration. journal.propose joined the whitelist in A3j
-  // (§4.3): agents MAY propose, so it is excluded from the default-deny
-  // assertion here — its admittance is exercised by the A3j propose tests.)
-  const AGENT_WHITELIST = new Set(['journal.propose']);
+  // journal.propose (A3j §4.3) and attachment.upload (Phase A hardening
+  // 2026-07-31) are the two whitelisted mutating actions agents MAY call, so
+  // they are excluded from the default-deny assertion here — their
+  // admittance is exercised by the A3j propose tests and the attachment.upload
+  // hardening tests below.
+  const AGENT_WHITELIST = new Set(['journal.propose', 'attachment.upload']);
   const mutatingActions = Object.entries(ACTIONS)
     .filter(([, m]) => m.mutating === true)
     .map(([name]) => name)
@@ -1241,4 +1241,235 @@ test('A3j journal.proposal.list: default status proposed, ordering, limit', asyn
   const capped = await api(baseUrl, 'journal.proposal.list', { companyId: CO, limit: 9999 });
   assert.equal(capped.status, 200);
   assert.ok(capped.body.data.length <= 1000, 'limit 9999 capped at 1000');
+});
+
+// ── A3j (Phase A hardening): approve/reject atomicity + attribution fallback ─
+// These tests scope their assertions to entities they create; appended at the
+// very end so the global row-count tests above are unaffected.
+
+test('A3j approve race: two concurrent approves → exactly one posts, one INVALID_STATUS', async () => {
+  const lines = proposalLines(44, '2026-07-18');
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-race-' + Date.now(),
+    lines,
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+
+  // Two concurrent approves with DIFFERENT Idempotency-Keys (so both execute).
+  // The atomic claim ensures exactly one wins the proposed→posted transition;
+  // the loser's UPDATE...RETURNING sees status='posted' → 0 rows → INVALID_STATUS.
+  const settled = await Promise.allSettled([
+    api(baseUrl, 'journal.approve', { companyId: CO, userEmail: 'owner@ct', proposalId }, { 'Idempotency-Key': 'race-a-' + proposalId }),
+    api(baseUrl, 'journal.approve', { companyId: CO, userEmail: 'owner@ct', proposalId }, { 'Idempotency-Key': 'race-b-' + proposalId }),
+  ]);
+
+  const oks = settled.filter((r) => r.status === 'fulfilled' && r.value.status === 200);
+  const errs = settled.filter((r) => r.status === 'fulfilled' && r.value.status === 409 && r.value.body && r.value.body.error && r.value.body.error.code === 'INVALID_STATUS');
+  assert.equal(oks.length, 1, 'exactly one approve succeeds (race winner)');
+  assert.equal(errs.length, 1, 'exactly one approve fails INVALID_STATUS (race loser)');
+  assert.equal(oks.length + errs.length, 2, 'both attempts resolved to one ok + one INVALID_STATUS');
+
+  const batchId = oks[0].value.body.data.batchId;
+
+  // Exactly ONE batch in journal_entries for the winner's batch_id — no double-post.
+  const je = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND batch_id='${batchId}'`);
+  assert.equal(Number(je[0].c), lines.length, 'exactly one batch of lines posted (no double-post)');
+
+  // Proposal is posted (the loser's claim did not revert it).
+  const prows = await proposalsFor(proposalId);
+  assert.equal(String(prows[0].status), 'posted', 'proposal is posted after the race');
+  assert.equal(String(prows[0].batch_id), batchId, 'proposal batch_id is the winner batch');
+});
+
+test('A3j approve attribution fallback: no userEmail → created_by/reviewed_by/event reviewedBy = anonymous', async () => {
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-anon-' + Date.now(),
+    lines: proposalLines(19, '2026-07-19'),
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+
+  // Approve with NO userEmail field → 'anonymous' fallback (install-level trust;
+  // dispatch skips the permission check when userEmail is absent and stamps
+  // actorType 'human', so the call reaches the handler).
+  const approve = await api(baseUrl, 'journal.approve', { companyId: CO, proposalId });
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+  const batchId = approve.body.data.batchId;
+
+  // journal_entries.created_by = 'anonymous' for the batch.
+  const je = await sql(baseUrl, srv.adminToken,
+    `SELECT created_by FROM journal_entries WHERE company_id='CT' AND batch_id='${batchId}' LIMIT 1`);
+  assert.equal(je.length, 1, 'batch posted');
+  assert.equal(String(je[0].created_by), 'anonymous', 'created_by falls back to anonymous');
+
+  // journal_proposals.reviewed_by = 'anonymous'.
+  const prows = await proposalsFor(proposalId);
+  assert.equal(String(prows[0].reviewed_by), 'anonymous', 'reviewed_by falls back to anonymous');
+
+  // journal.approved event payload reviewedBy = 'anonymous' (payload is JSON text).
+  const approvedEv = await eventsFor('journal.approved', proposalId);
+  assert.equal(approvedEv.length, 1, 'journal.approved emitted');
+  assert.equal(JSON.parse(approvedEv[0].payload).reviewedBy, 'anonymous', 'event payload reviewedBy = anonymous');
+});
+
+test('A3j approve post-failure rollback: delete journals row → approve fails → proposal restored to proposed', async () => {
+  // Create a dedicated journal series so we don't disturb shared seeded state.
+  const journalId = 'ct_testrb_' + Date.now();
+  const jsave = await api(baseUrl, 'journals.save', {
+    companyId: CO, userEmail: 'owner@ct',
+    journal: { journal_id: journalId, code: 'TESTRB', name: 'Rollback test journal', active: true },
+  });
+  assert.equal(jsave.status, 200, JSON.stringify(jsave.body));
+
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-rb-' + Date.now(),
+    lines: proposalLines(28, '2026-07-17'), journalId,
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+
+  // Delete the journal series row so getNextReference's JOIN to journals fails
+  // (throws 'Failed to generate reference' inside postJournalBatch — a certain
+  // post-failure that happens AFTER the atomic claim, exercising the rollback).
+  // No FK constraint exists on journal_sequences/journals, so the DELETE succeeds.
+  await sql(baseUrl, srv.adminToken,
+    `DELETE FROM journals WHERE company_id='CT' AND journal_id='${journalId}'`);
+
+  const approve = await api(baseUrl, 'journal.approve', { companyId: CO, userEmail: 'owner@ct', proposalId });
+  assert.notEqual(approve.status, 200, 'approve must fail when reference generation fails (post-failure)');
+
+  // Compensating rollback: proposal back to status='proposed', reviewed_by NULL, batch_id NULL.
+  const prows = await proposalsFor(proposalId);
+  assert.equal(String(prows[0].status), 'proposed', 'compensating rollback restored status to proposed');
+  assert.ok(prows[0].reviewed_by === null, 'reviewed_by cleared by rollback');
+  assert.ok(prows[0].batch_id === null, 'batch_id stays NULL (no dangling batch)');
+
+  // No journal_entries rows leaked for this proposal (the post never completed).
+  const je = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND source='proposal' AND created_by='owner@ct' AND date='2026-07-17'`);
+  assert.equal(Number(je[0].c), 0, 'no ledger rows leaked by the failed post');
+});
+
+test('A3j reject-after-approve: approve then reject → INVALID_STATUS (terminal complement)', async () => {
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-raa-' + Date.now(),
+    lines: proposalLines(37, '2026-07-16'),
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+
+  // Approve → posted.
+  const approve = await api(baseUrl, 'journal.approve', { companyId: CO, userEmail: 'owner@ct', proposalId, note: 'go' });
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+
+  // Reject after approve → INVALID_STATUS (posted is terminal, just like rejected).
+  const rejectAfterApprove = await api(baseUrl, 'journal.reject', { companyId: CO, userEmail: 'owner@ct', proposalId, note: 'too late' });
+  assert.equal(rejectAfterApprove.status, 409);
+  assert.equal(rejectAfterApprove.body.error.code, 'INVALID_STATUS');
+
+  // Proposal stayed posted (the reject claim did not touch it).
+  const prows = await proposalsFor(proposalId);
+  assert.equal(String(prows[0].status), 'posted', 'proposal stays posted after the failed reject');
+});
+
+// ── attachment.upload hardening (Phase A, 2026-07-31) ───────────────────────
+// attachment.upload is now a real catalog action (base64 content, role agent,
+// idempotent, 32MB decoded cap). Uploads write real files under
+// ~/.freebooks/attachments — payloads are tiny and every successful upload is
+// cleaned up via attachment.delete. Unique entityIds per test avoid collisions.
+
+test('attachment.upload as agent: tiny text file → 200, row + event stamped', async () => {
+  const entityId = 'attach-test-' + Date.now();
+  const b64 = Buffer.from('hello attachment', 'utf8').toString('base64');
+  const up = await api(baseUrl, 'attachment.upload', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-attach-agent-' + entityId,
+    entityType: 'journal', entityId,
+    filename: 'hello.txt',
+    contentBase64: b64,
+    contentType: 'text/plain',
+  });
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+  const attachmentId = up.body.data.attachment_id;
+  assert.ok(attachmentId, 'attachment_id returned');
+
+  // attachments row exists with uploaded_by = agent@ct.
+  const rows = await sql(baseUrl, srv.adminToken,
+    `SELECT uploaded_by FROM attachments WHERE company_id='CT' AND attachment_id='${attachmentId}'`);
+  assert.equal(rows.length, 1, 'attachments row written');
+  assert.equal(String(rows[0].uploaded_by), 'agent@ct', 'uploaded_by stamped as agent@ct');
+
+  // attachment.uploaded event exists with actor_type = 'agent'.
+  const evs = await eventsFor('attachment.uploaded', attachmentId);
+  assert.ok(evs.length >= 1, 'attachment.uploaded event emitted');
+  assert.equal(String(evs[0].actor_type), 'agent', 'event actor_type = agent');
+
+  // Cleanup: attachment.delete as owner@ct.
+  const del = await api(baseUrl, 'attachment.delete', { companyId: CO, userEmail: 'owner@ct', attachmentId });
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+});
+
+test('attachment.upload viewer denied: viewer-role email → 403 FORBIDDEN', async () => {
+  // Seed a viewer-role user BEFORE any call as that email (60s permission-cache
+  // pitfall: checkPermission caches results, so seed before the first lookup).
+  const viewerEmail = 'viewer-attach-' + Date.now() + '@ct';
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('${viewerEmail}', 'CT', 'viewer', now(), 'test')`);
+
+  const up = await api(baseUrl, 'attachment.upload', {
+    companyId: CO, userEmail: viewerEmail, requestId: 'req-attach-viewer-' + Date.now(),
+    entityType: 'journal', entityId: 'attach-test-viewer-' + Date.now(),
+    filename: 'denied.txt',
+    contentBase64: Buffer.from('x', 'utf8').toString('base64'),
+  });
+  assert.equal(up.status, 403, 'viewer must be FORBIDDEN (role check excludes viewers at level 1.5)');
+  assert.equal(up.body && up.body.error && up.body.error.code, 'FORBIDDEN', 'FORBIDDEN code');
+});
+
+test('attachment.upload idempotent replay: same key twice → same id, one row + one event', async () => {
+  const entityId = 'attach-test-idem-' + Date.now();
+  const b64 = Buffer.from('idempotent attachment', 'utf8').toString('base64');
+  const idemKey = 'attach-idem-' + entityId;
+  const payload = {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-attach-idem-' + entityId,
+    entityType: 'journal', entityId,
+    filename: 'idem.txt',
+    contentBase64: b64,
+    contentType: 'text/plain',
+  };
+
+  const first = await api(baseUrl, 'attachment.upload', payload, { 'Idempotency-Key': idemKey });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const attachmentId = first.body.data.attachment_id;
+  assert.ok(attachmentId, 'first upload returns attachment_id');
+
+  const second = await api(baseUrl, 'attachment.upload', payload, { 'Idempotency-Key': idemKey });
+  assert.equal(second.status, 200, JSON.stringify(second.body));
+  assert.equal(second.body.data.attachment_id, attachmentId, 'replay returns the SAME attachment_id');
+
+  // Exactly ONE attachments row for that id (the replay did not re-store).
+  const rows = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM attachments WHERE company_id='CT' AND attachment_id='${attachmentId}'`);
+  assert.equal(Number(rows[0].c), 1, 'exactly one attachments row for the idempotent id');
+
+  // Exactly ONE attachment.uploaded event for that id.
+  const evs = await eventsFor('attachment.uploaded', attachmentId);
+  assert.equal(evs.length, 1, 'exactly one attachment.uploaded event for the idempotent id');
+
+  // Cleanup.
+  const del = await api(baseUrl, 'attachment.delete', { companyId: CO, userEmail: 'owner@ct', attachmentId });
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+});
+
+test('attachment.upload zero-byte: contentBase64 "" → 400 INVALID_INPUT', async () => {
+  const up = await api(baseUrl, 'attachment.upload', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-attach-zero-' + Date.now(),
+    entityType: 'journal', entityId: 'attach-test-zero-' + Date.now(),
+    filename: 'empty.txt',
+    contentBase64: '',
+  });
+  assert.equal(up.status, 400, 'zero-byte contentBase64 → 400');
+  assert.equal(up.body && up.body.error && up.body.error.code, 'INVALID_INPUT', 'INVALID_INPUT code');
 });

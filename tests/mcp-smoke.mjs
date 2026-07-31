@@ -201,6 +201,7 @@ let proposalId = null;
 
 // ── tools/call attachment_upload — tiny text file via contentBase64 ──────────
 let attachmentId = null;
+const ATTACH_IDEM_KEY = 'mcp-smoke-attach-' + REQUEST_ID;
 {
   const text = 'mcp-smoke attachment content\n';
   const b64 = Buffer.from(text, 'utf8').toString('base64');
@@ -212,6 +213,7 @@ let attachmentId = null;
       filename: 'mcp-smoke.txt',
       contentBase64: b64,
       contentType: 'text/plain',
+      idempotency_key: ATTACH_IDEM_KEY,
     },
   }, 7);
   const res = up.result;
@@ -220,6 +222,31 @@ let attachmentId = null;
   try { data = JSON.parse(res.content[0].text); } catch {}
   attachmentId = data && data.attachment_id;
   ok('attachment_upload returns attachment_id', !!(attachmentId && typeof attachmentId === 'string'), JSON.stringify(data));
+}
+
+// ── tools/call attachment_upload idempotent replay (Phase A hardening) ───────
+// Same idempotency_key + identical payload → the action API replays the stored
+// response: SAME attachment_id, no second file/row written.
+{
+  const text = 'mcp-smoke attachment content\n';
+  const b64 = Buffer.from(text, 'utf8').toString('base64');
+  const replay = await mcp.call('tools/call', {
+    name: 'attachment_upload',
+    arguments: {
+      entityType: 'journal',
+      entityId: proposalId,
+      filename: 'mcp-smoke.txt',
+      contentBase64: b64,
+      contentType: 'text/plain',
+      idempotency_key: ATTACH_IDEM_KEY,
+    },
+  }, 8);
+  const res = replay.result;
+  ok('attachment_upload replay ok (no isError)', !!(res && res.isError !== true), JSON.stringify(res));
+  let data = null;
+  try { data = JSON.parse(res.content[0].text); } catch {}
+  const replayId = data && data.attachment_id;
+  ok('attachment_upload replay returns the SAME attachment_id (idempotent)', replayId === attachmentId, `first=${attachmentId} replay=${replayId}`);
 }
 
 // ── cleanup: attachment.delete as owner@ct ────────────────────────────────────

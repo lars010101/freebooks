@@ -78,9 +78,13 @@ var COMPANY = ${JSON.stringify(company)};
 // this table as ordinary posted batches (the register below).
 var statusState = 'proposed';
 
-function postAction(action, body) {
+function postAction(action, body, idemKey) {
+  var headers = { 'Content-Type': 'application/json' };
+  // Phase A hardening: optional Idempotency-Key so a retried confirm replays
+  // the stored response instead of double-posting.
+  if (idemKey) headers['Idempotency-Key'] = idemKey;
   return fetch('/api/action', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: headers,
     body: JSON.stringify(Object.assign({ action: action, companyId: COMPANY }, body))
   }).then(function (r) { return r.json(); });
 }
@@ -178,6 +182,12 @@ function lineChild(row, l, i) {
 // ── Approve / reject (row verbs — the queue idiom, spec §4.4–4.5) ──────────
 function review(row, verdict) {
   var approve = verdict === 'approve';
+  // Phase A hardening: one Idempotency-Key per modal open = a retried confirm
+  // replays the stored response instead of double-posting. The inFlight flag
+  // guards the button between the click and the first response so a double-tap
+  // cannot fire two concurrent requests (the second would race the first).
+  var idemKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('rev-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+  var inFlight = false;
   FB.modal.open({
     title: (approve ? 'Approve' : 'Reject') + ' proposed journal batch',
     body: '<div style="font-size:10pt;color:#333;line-height:1.7">'
@@ -197,10 +207,12 @@ function review(row, verdict) {
       { label: approve ? 'Approve' : 'Reject', primary: approve, danger: !approve,
         requiresConfirm: true, key: 'Enter', hint: approve ? 'approve' : 'reject',
         onClick: function (mapi) {
+          if (inFlight) return; inFlight = true;
           var note = mapi.confirmValue();
-          postAction('journal.' + verdict, { proposalId: row.proposal_id, note: (note && note.trim()) || undefined })
+          postAction('journal.' + verdict, { proposalId: row.proposal_id, note: (note && note.trim()) || undefined }, idemKey)
             .then(function (res) {
               if (!res || res.ok === false || res.error) {
+                inFlight = false;
                 mapi.error((res && res.error && res.error.message) || 'Request failed'); return;
               }
               var d = res.data || {};
@@ -211,7 +223,7 @@ function review(row, verdict) {
               window.dispatchEvent(new Event('fb:queue-changed'));
               list.load();
             })
-            .catch(function (e) { mapi.error(e.message); });
+            .catch(function (e) { inFlight = false; mapi.error(e.message); });
         } },
       { label: 'Cancel', onClick: function (mapi) { mapi.close(); } }
     ],

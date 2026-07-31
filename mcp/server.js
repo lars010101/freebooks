@@ -5,7 +5,7 @@
  * Exposes the agent-ready freebooks action surface as four MCP tools:
  *   - event_list          → action `event.list`            (work-discovery)
  *   - journal_propose     → action `journal.propose`        (the only write path)
- *   - attachment_upload   → POST /api/upload multipart       (bytes from base64 param)
+ *   - attachment_upload   → action `attachment.upload` (base64 bytes — agent never touches disk)
  *   - freebooks_read      → any catalog action with mutating:false (generic read)
  *
  * Identity / correlation (spec §5.1):
@@ -96,7 +96,7 @@ const TOOLS = [
   {
     name: 'attachment_upload',
     description:
-      'Upload a file attachment. The file bytes come from the base64 `contentBase64` param — NEVER from disk (R1). Maps to POST /api/upload multipart. Emits attachment.uploaded (the feed-extraction trigger).',
+      'Upload a file attachment. The file bytes come from the base64 `contentBase64` param — NEVER from disk (R1). Maps to action `attachment.upload`. Emits attachment.uploaded (the feed-extraction trigger).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -105,6 +105,7 @@ const TOOLS = [
         filename: { type: 'string', description: 'Original filename (stored sanitized).' },
         contentBase64: { type: 'string', description: 'File contents, base64-encoded.' },
         contentType: { type: 'string', description: 'Optional MIME type (e.g. text/plain, application/pdf).' },
+        idempotency_key: { type: 'string', description: 'Caller-supplied Idempotency-Key for cross-retry identity. If omitted, a fresh uuid is minted for this logical call.' },
       },
       required: ['entityType', 'entityId', 'filename', 'contentBase64'],
     },
@@ -149,35 +150,6 @@ async function callAction(action, params, { idempotencyKey } = {}) {
   let json = null;
   try { json = await r.json(); } catch { /* non-json */ }
   if (json && json.ok === true) {
-    return { ok: true, status: r.status, data: json.data };
-  }
-  const err = (json && json.error) || { code: 'HTTP_' + r.status, message: `HTTP ${r.status}` };
-  return { ok: false, status: r.status, error: err };
-}
-
-// Multipart upload to /api/upload. File bytes come from base64 — never disk.
-async function callUpload({ entityType, entityId, filename, contentBase64, contentType }) {
-  const bytes = Buffer.from(contentBase64, 'base64');
-  const type = contentType || 'application/octet-stream';
-  const form = new FormData();
-  form.append('companyId', FREEBOOKS_COMPANY);
-  form.append('entityType', entityType);
-  form.append('entityId', entityId);
-  form.append('uploadedBy', FREEBOOKS_USER);
-  form.append('requestId', REQUEST_ID);
-  // File from in-memory bytes only (R1 preserved).
-  form.append('file', new Blob([bytes], { type }), filename);
-  const r = await fetch(`${API_URL}/api/upload`, {
-    method: 'POST',
-    headers: SESSION_HEADERS, // FormData sets its own Content-Type; keep X-Request-Id
-    body: form,
-  });
-  let json = null;
-  try { json = await r.json(); } catch { /* non-json */ }
-  if (json && json.ok === true) {
-    return { ok: true, status: r.status, data: json.data };
-  }
-  if (json && json.data) {
     return { ok: true, status: r.status, data: json.data };
   }
   const err = (json && json.error) || { code: 'HTTP_' + r.status, message: `HTTP ${r.status}` };
@@ -266,13 +238,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!args.entityType || !args.entityId || !args.filename || !args.contentBase64) {
           return errorResult('INVALID_INPUT', 'attachment_upload requires entityType, entityId, filename, contentBase64');
         }
-        const res = await callUpload({
+        // Phase A hardening: travel via the `attachment.upload` action (not the
+        // multipart route) so the call gets the catalog role check, idempotency,
+        // and dispatch-level audit. contentType is passed only when supplied,
+        // matching how the other optional params are handled.
+        const params = {
           entityType: args.entityType,
           entityId: args.entityId,
           filename: args.filename,
           contentBase64: args.contentBase64,
-          contentType: args.contentType,
-        });
+        };
+        if (args.contentType != null) params.contentType = args.contentType;
+        const idempotencyKey = args.idempotency_key || newIdempotencyKey();
+        const res = await callAction('attachment.upload', params, { idempotencyKey });
         return fromApiResult(res);
       }
 

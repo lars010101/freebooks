@@ -422,6 +422,20 @@ const ACTIONS = {
     description: 'List attachments for an entity.',
     params: { entityType: { type: 'string', required: true }, entityId: { type: 'string', required: true } },
   },
+  'attachment.upload': {
+    // Role 'agent' (1.5) admits agents/data_entry/owner and excludes viewers —
+    // same pattern as journal.propose (dispatch's numeric role check runs before
+    // the §2.3 whitelist guard). In AGENT_ALLOWED, so agents may upload.
+    role: 'agent', mutating: true, idempotent: true,
+    description: 'Upload an attachment (base64 content). The browser multipart route POST /api/upload shares the same storage core and enforcement.',
+    params: {
+      entityType: { type: 'string', required: true },
+      entityId: { type: 'string', required: true },
+      filename: { type: 'string', required: true },
+      contentBase64: { type: 'string', required: true },
+      contentType: { type: 'string' },
+    },
+  },
   'attachment.delete': {
     role: 'data_entry', mutating: true,
     description: 'Delete an attachment.',

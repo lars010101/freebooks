@@ -10,6 +10,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { startTestServer, api, sql, seedCompany } = require('../test-utils/helpers');
+const { ACTIONS } = require('../src/action-catalog');
 
 let srv;
 let baseUrl;
@@ -27,6 +28,10 @@ before(async () => {
   await sql(baseUrl, srv.adminToken,
     `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
      VALUES ('owner@ct', 'CT', 'owner', now(), 'test')`);
+  // A1 (§2.1): seed an agent-role user the same way (no Users UI surface)
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('agent@ct', 'CT', 'agent', now(), 'test')`);
 });
 
 after(async () => { await srv.cleanup(); });
@@ -659,4 +664,581 @@ test('bank.process + approve: import row matching a recorded manual payment clea
   const rec = await sql(baseUrl, srv.adminToken,
     `SELECT account_code FROM reconciliations WHERE company_id='CT' AND batch_id='${row.paymentBatchId}'`);
   assert.equal(String(rec[0].account_code), '1020', 'payment bank leg cleared in reconciliations');
+});
+
+// ── A1: agent actor model (§2) ──────────────────────────────────────────────
+
+test('A1 guard matrix: agent FORBIDDEN on every mutating catalog action', async () => {
+  // Spec §2.3 default-deny: iterate every catalog action flagged mutating,
+  // call as the agent user, and assert 403/FORBIDDEN for each. The guard
+  // runs before param validation, so missing params don't leak a 400.
+  // (attachment.upload is the one whitelisted mutating action, but it is
+  // not a catalog action today — it's a separate /api/upload route — so it
+  // is not in this iteration. journal.propose joined the whitelist in A3j
+  // (§4.3): agents MAY propose, so it is excluded from the default-deny
+  // assertion here — its admittance is exercised by the A3j propose tests.)
+  const AGENT_WHITELIST = new Set(['journal.propose']);
+  const mutatingActions = Object.entries(ACTIONS)
+    .filter(([, m]) => m.mutating === true)
+    .map(([name]) => name)
+    .filter((name) => !AGENT_WHITELIST.has(name));
+  assert.ok(mutatingActions.length >= 20, 'catalog has many mutating actions to cover');
+  for (const action of mutatingActions) {
+    const { status, body } = await api(baseUrl, action, { companyId: CO, userEmail: 'agent@ct' });
+    assert.equal(status, 403, `${action}: agent must be FORBIDDEN (got ${status} ${body?.error?.code})`);
+    assert.equal(body?.error?.code, 'FORBIDDEN', `${action}: FORBIDDEN code`);
+  }
+});
+
+test('A1: agent can read (non-mutating action passes the guard)', async () => {
+  const { status, body } = await api(baseUrl, 'journal.list', { companyId: CO, userEmail: 'agent@ct' });
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.ok(Array.isArray(body.data), 'agent reads journal list — non-mutating passes the §2.3 guard');
+});
+
+test('A1: fail-closed — whitelist guard denies a viewer-level mutating action (role check passes)', async () => {
+  // Spec §8.1 fail-closed proof. report.refresh_vat_return is the one
+  // catalog action that is mutating:true at role viewer — so the agent
+  // (level 1.5 ≥ 1) PASSES the numeric role check, isolating the §2.3
+  // whitelist guard as the only thing that can deny it. This exercises the
+  // exact path any FUTURE new mutating action will hit: not in
+  // AGENT_ALLOWED → FORBIDDEN, by default, until explicitly whitelisted.
+  const { status, body } = await api(baseUrl, 'report.refresh_vat_return', { companyId: CO, userEmail: 'agent@ct' });
+  assert.equal(status, 403, 'mutating action outside the whitelist must be denied to agents');
+  assert.equal(body?.error?.code, 'FORBIDDEN');
+  assert.match(body?.error?.message, /finalize or mutate master data/,
+    'denial must come from the whitelist guard, not the role check (agent passes the role check at viewer level)');
+
+  // Sanity: a human data_entry user reaches past the guard (handler may
+  // fail on missing state — anything except the guard's FORBIDDEN proves
+  // the guard is actor-class-specific, R6 eligibility is server-side).
+  const hr = await api(baseUrl, 'report.refresh_vat_return', { companyId: CO, userEmail: 'owner@ct' });
+  assert.notEqual(hr.body?.error?.message, 'Agents may not finalize or mutate master data',
+    'human call is not stopped by the agent whitelist guard');
+});
+
+test('A1: setup.* rejected for agent even though setup skips the role check', async () => {
+  // setup.* actions bypass the permission check by design; the §2.3 guard
+  // blocks agents unconditionally (resolveActor resolves across all
+  // companies when companyId is absent, so the agent is recognized).
+  const { status, body } = await api(baseUrl, 'setup.init', { userEmail: 'agent@ct' });
+  assert.equal(status, 403);
+  assert.equal(body.error.code, 'FORBIDDEN');
+  assert.match(body.error.message, /setup/);
+});
+
+test('A1 audit attribution: actor_type + request_id stamped on audit rows', async () => {
+  // Owner mutating call with requestId → dispatch audit (auditCall) row
+  // carries actor_type='human' + request_id (§2.4 stamping, end-to-end).
+  const r = await api(baseUrl, 'settings.save', {
+    companyId: CO, userEmail: 'owner@ct', requestId: 'req-owner-a1',
+    settings: { vat_tolerance: 1.01 },
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const rows = await sql(baseUrl, srv.adminToken,
+    `SELECT actor_type, request_id, changed_by FROM audit_log
+     WHERE company_id='CT' AND request_id='req-owner-a1'
+       AND table_name='api' AND record_id='settings.save'`);
+  assert.ok(rows.length >= 1, 'dispatch audit row written for owner call');
+  assert.equal(rows[0].actor_type, 'human', 'owner call → actor_type human');
+  assert.equal(rows[0].request_id, 'req-owner-a1');
+  assert.equal(rows[0].changed_by, 'owner@ct');
+
+  // Agent mutating call → FORBIDDEN by the §2.3 guard (runs before the
+  // handler and before auditCall). In A1 agents cannot perform any mutating
+  // action (R2), so no agent-origin audit row is produced via auditCall.
+  // actor_type='agent' stamping is exercised end-to-end when journal.propose
+  // (A3j) or attachment.upload (MCP §5) lands — the stamping code path is
+  // identical to the human path verified above, just with actorType='agent'
+  // from resolveActor. Here we assert the guard is the choke point: a
+  // forbidden agent call writes no audit row at all.
+  const fr = await api(baseUrl, 'settings.save', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-agent-a1',
+    settings: { vat_tolerance: 2.0 },
+  });
+  assert.equal(fr.status, 403);
+  assert.equal(fr.body.error.code, 'FORBIDDEN');
+  const agentRows = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM audit_log WHERE company_id='CT' AND request_id='req-agent-a1'`);
+  assert.equal(Number(agentRows[0].c), 0, 'forbidden agent call writes no audit row (guard before audit)');
+});
+
+// ── A2: event emission + event.list (§3, §8 items 5-6) ─────────────────────
+
+// Helper: fetch event rows for a given type/entity from the events table.
+async function eventsFor(type, entityId) {
+  // admin sql() takes raw SQL only (no bound params) — values are
+  // test-controlled literals (dot event types, uuids), safe to inline.
+  return sql(baseUrl, srv.adminToken,
+    `SELECT event_seq, event_type, entity_type, entity_id, actor_type, actor_id, request_id, payload
+     FROM events WHERE company_id='CT' AND event_type='${type}' AND entity_id='${entityId}'
+     ORDER BY event_seq`);
+}
+
+test('A2: journal.post emits journal.posted once with correct entity + actor fields', async () => {
+  const rid = 'req-journal-posted-' + Date.now();
+  const posted = await api(baseUrl, 'journal.post', {
+    companyId: CO, userEmail: 'owner@ct', requestId: rid,
+    lines: [
+      { account_code: EXP, debit: 33, date: '2026-07-20', description: 'A2 journal' },
+      { account_code: AP, credit: 33, date: '2026-07-20', description: 'A2 journal' },
+    ],
+  });
+  assert.equal(posted.status, 200, JSON.stringify(posted.body));
+  const batchId = posted.body.data.batchId;
+
+  const rows = await eventsFor('journal.posted', batchId);
+  assert.equal(rows.length, 1, 'exactly one journal.posted event');
+  const ev = rows[0];
+  assert.equal(ev.entity_type, 'journal');
+  assert.equal(ev.entity_id, batchId);
+  assert.equal(ev.actor_type, 'human', 'owner call → actor_type human');
+  assert.equal(ev.actor_id, 'owner@ct');
+  assert.equal(ev.request_id, rid, 'request_id stamped from body.requestId');
+  const payload = JSON.parse(ev.payload);
+  assert.equal(payload.lineCount, 2);
+  assert.equal(payload.totalDebit, 33);
+  assert.equal(payload.currency, 'SGD');
+  assert.ok(payload.date && payload.reference !== undefined, 'payload carries date + reference');
+});
+
+test('A2: idempotent replay of journal.post emits ONE journal.posted (R4)', async () => {
+  const idemKey = 'a2-r4-' + Date.now();
+  const payload = {
+    companyId: CO, userEmail: 'owner@ct', requestId: 'req-r4',
+    lines: [
+      { account_code: EXP, debit: 12, date: '2026-07-20', description: 'R4' },
+      { account_code: AP, credit: 12, date: '2026-07-20', description: 'R4' },
+    ],
+  };
+  const first = await api(baseUrl, 'journal.post', payload, { 'Idempotency-Key': idemKey });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const replay = await api(baseUrl, 'journal.post', payload, { 'Idempotency-Key': idemKey });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.headers.get('idempotent-replay'), 'true', 'replay short-circuited');
+  assert.equal(replay.body.data.batchId, first.body.data.batchId, 'same batchId');
+
+  const rows = await eventsFor('journal.posted', first.body.data.batchId);
+  assert.equal(rows.length, 1, 'R4: idempotent replay must not double-emit (handler never ran on replay)');
+});
+
+test('A2: event.list — ordering asc, after_seq polling, type filter', async () => {
+  // Capture the current high-water mark, then post a fresh journal.
+  const before = await api(baseUrl, 'event.list', { companyId: CO, limit: 500 });
+  assert.equal(before.status, 200, JSON.stringify(before.body));
+  const list = before.body.data;
+  assert.ok(Array.isArray(list), 'event.list returns an array');
+  // Ordering: ascending by event_seq.
+  for (let i = 1; i < list.length; i++) {
+    assert.ok(Number(list[i].event_seq) >= Number(list[i - 1].event_seq), 'ascending order');
+  }
+  const highWater = list.length > 0 ? Number(list[list.length - 1].event_seq) : 0;
+
+  const posted = await api(baseUrl, 'journal.post', {
+    companyId: CO, userEmail: 'owner@ct', requestId: 'req-poll',
+    lines: [
+      { account_code: EXP, debit: 9, date: '2026-07-20', description: 'poll' },
+      { account_code: AP, credit: 9, date: '2026-07-20', description: 'poll' },
+    ],
+  });
+  assert.equal(posted.status, 200, JSON.stringify(posted.body));
+
+  // after_seq polling: only rows newer than highWater come back.
+  const poll = await api(baseUrl, 'event.list', { companyId: CO, after_seq: highWater, limit: 500 });
+  assert.equal(poll.status, 200, JSON.stringify(poll.body));
+  const polled = poll.body.data;
+  assert.ok(polled.length >= 1, 'polling returns at least the new event');
+  assert.ok(polled.every((r) => Number(r.event_seq) > highWater), 'all polled rows are newer than after_seq');
+  const jp = polled.find((r) => r.event_type === 'journal.posted' && r.entity_id === posted.body.data.batchId);
+  assert.ok(jp, 'the freshly posted batch appears in the poll');
+
+  // type filter: request only journal.posted → no other event types leak.
+  const filtered = await api(baseUrl, 'event.list', { companyId: CO, type: 'journal.posted', limit: 500 });
+  assert.equal(filtered.status, 200, JSON.stringify(filtered.body));
+  const frows = filtered.body.data;
+  assert.ok(frows.length >= 1, 'journal.posted rows exist');
+  assert.ok(frows.every((r) => r.event_type === 'journal.posted'), 'type filter excludes other event types');
+});
+
+test('A2: event.list limit cap — request 9999 is capped at 500', async () => {
+  // Seed 501 synthetic event rows via admin SQL (the events table is the
+  // contract surface; how rows arrive is not). This proves the LIMIT ceiling
+  // without 501 HTTP action round-trips.
+  const baseSeq = Date.now();
+  const values = [];
+  for (let i = 0; i < 501; i++) {
+    values.push(`('CT','journal.posted','journal','cap-${baseSeq}-${i}','human','cap@ct','req-cap-${baseSeq}','{}')`);
+  }
+  // DuckDB: multi-row INSERT in chunks to keep the statement well-formed.
+  const CHUNK = 100;
+  for (let s = 0; s < values.length; s += CHUNK) {
+    const slice = values.slice(s, s + CHUNK).join(',');
+    await sql(baseUrl, srv.adminToken,
+      `INSERT INTO events (company_id, event_type, entity_type, entity_id, actor_type, actor_id, request_id, payload)
+       VALUES ${slice}`);
+  }
+
+  const r = await api(baseUrl, 'event.list', { companyId: CO, limit: 9999 });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(r.body.data.length <= 500, `limit 9999 capped at 500 (got ${r.body.data.length})`);
+  assert.equal(r.body.data.length, 500, 'exactly 500 returned when >500 exist and limit=9999');
+  // Ordering preserved even at the cap.
+  for (let i = 1; i < r.body.data.length; i++) {
+    assert.ok(Number(r.body.data[i].event_seq) >= Number(r.body.data[i - 1].event_seq), 'capped list still ascending');
+  }
+});
+
+test('A2: period.locked / period.unlocked emit on transition (second call site)', async () => {
+  // Create a fresh period (born unlocked — no event on creation).
+  const pid = '2026-A2-' + Date.now();
+  const create = await api(baseUrl, 'period.upsert', {
+    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: false },
+  });
+  assert.equal(create.status, 200, JSON.stringify(create.body));
+  let born = await eventsFor('period.locked', pid);
+  assert.equal(born.length, 0, 'a period born unlocked emits no event');
+
+  // Lock it → period.locked.
+  const lock = await api(baseUrl, 'period.upsert', {
+    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: true },
+  });
+  assert.equal(lock.status, 200, JSON.stringify(lock.body));
+  let locked = await eventsFor('period.locked', pid);
+  assert.equal(locked.length, 1, 'period.locked emitted on unlocked→locked transition');
+  assert.equal(locked[0].actor_type, 'human');
+
+  // Re-lock (no transition) → no new event.
+  await api(baseUrl, 'period.upsert', {
+    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: true },
+  });
+  locked = await eventsFor('period.locked', pid);
+  assert.equal(locked.length, 1, 'locked→locked is not a transition (no new event)');
+
+  // Unlock → period.unlocked.
+  const unlock = await api(baseUrl, 'period.upsert', {
+    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: false },
+  });
+  assert.equal(unlock.status, 200, JSON.stringify(unlock.body));
+  const unlocked = await eventsFor('period.unlocked', pid);
+  assert.equal(unlocked.length, 1, 'period.unlocked emitted on locked→unlocked transition');
+});
+
+test('A2: attachment.uploaded stamps agent actor_type (R3) on the /api/upload route', async () => {
+  // The upload route sits outside the action API, so its emitEvent ctx is
+  // built from the request — the actor class must still come from the DB
+  // role (resolveActor), never asserted/hardcoded. Upload as the seeded
+  // agent account → actor_type 'agent', request_id from X-Request-Id.
+  const fd = new FormData();
+  fd.append('companyId', CO);
+  fd.append('entityType', 'journal');
+  fd.append('entityId', 'a2-upload-test');
+  fd.append('uploadedBy', 'agent@ct');
+  fd.append('file', new Blob(['a2 upload test'], { type: 'text/plain' }), 'a2-upload.txt');
+  const r = await fetch(`${baseUrl}/api/upload`, {
+    method: 'POST',
+    headers: { 'X-Request-Id': 'req-upload-a2' },
+    body: fd,
+  });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().text()));
+  const up = await r.json();
+  const attachmentId = up.data.attachment_id;
+  assert.ok(attachmentId, 'upload returns attachment_id');
+
+  try {
+    const rows = await eventsFor('attachment.uploaded', attachmentId);
+    assert.equal(rows.length, 1, 'attachment.uploaded emitted');
+    assert.equal(rows[0].actor_type, 'agent', 'agent account upload stamps actor_type agent (not misattributed human)');
+    assert.equal(rows[0].actor_id, 'agent@ct');
+    assert.equal(rows[0].request_id, 'req-upload-a2', 'request_id from X-Request-Id header');
+    const payload = JSON.parse(rows[0].payload);
+    assert.equal(payload.filename, 'a2-upload.txt');
+  } finally {
+    // Clean up file + row through the API (owner action).
+    const del = await api(baseUrl, 'attachment.delete', { companyId: CO, userEmail: 'owner@ct', attachmentId });
+    assert.equal(del.status, 200, JSON.stringify(del.body));
+  }
+});
+
+// ── A3j: journal proposal prepare/approve flow (§4, §8 items 2-5, 8) ────────
+
+// Helper: fetch proposal rows from journal_proposals via admin SQL (raw SQL,
+// test-controlled literals — safe to inline).
+async function proposalsFor(proposalId) {
+  return sql(baseUrl, srv.adminToken,
+    `SELECT proposal_id, journal_id, date, reference, description, source, status,
+            batch_id, created_by, request_id, reviewed_by, reviewed_at, review_note
+     FROM journal_proposals WHERE company_id='CT' AND proposal_id='${proposalId}'`);
+}
+
+// Balanced 2-line batch used across the A3j tests. Agent proposes this shape.
+function proposalLines(amount = 50, date = '2026-07-20') {
+  return [
+    { account_code: EXP, debit: amount, date, description: 'A3j expense' },
+    { account_code: AP, credit: amount, date, description: 'A3j expense' },
+  ];
+}
+
+test('A3j happy path: agent propose → owner approve posts with human created_by + events', async () => {
+  // Agent proposes → 200 + proposalId.
+  const rid = 'req-a3j-happy-' + Date.now();
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: rid,
+    lines: proposalLines(50),
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+  assert.ok(proposalId, 'propose returns proposalId');
+  assert.ok(Array.isArray(propose.body.data.warnings), 'warnings array present');
+
+  // Nothing reached journal_entries yet (R5).
+  const pre = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND created_by='agent@ct'`);
+  assert.equal(Number(pre[0].c), 0, 'agent propose writes NO journal_entries rows');
+
+  // journal.proposal.get shows enriched lines + agent created_by.
+  const get = await api(baseUrl, 'journal.proposal.get', { companyId: CO, proposalId });
+  assert.equal(get.status, 200, JSON.stringify(get.body));
+  const p = get.body.data;
+  assert.ok(Array.isArray(p.lines) && p.lines.length === 2, 'enriched lines parsed');
+  assert.equal(p.created_by, 'agent@ct', 'proposal created_by = agent (origin)');
+  assert.equal(p.status, 'proposed');
+  assert.equal(p.source, 'agent', 'agent caller → source agent');
+  assert.equal(p.request_id, rid, 'request_id stamped from body.requestId');
+  assert.ok(p.lines[0].debit_home != null && p.lines[0].fx_rate != null, 'lines enriched');
+
+  // Agent is FORBIDDEN from approve/reject (whitelist excludes them — §2.3).
+  const agentApprove = await api(baseUrl, 'journal.approve', { companyId: CO, userEmail: 'agent@ct', proposalId });
+  assert.equal(agentApprove.status, 403, 'agent may not approve');
+  assert.equal(agentApprove.body.error.code, 'FORBIDDEN');
+  const agentReject = await api(baseUrl, 'journal.reject', { companyId: CO, userEmail: 'agent@ct', proposalId, note: 'x' });
+  assert.equal(agentReject.status, 403, 'agent may not reject');
+  assert.equal(agentReject.body.error.code, 'FORBIDDEN');
+
+  // Owner approves → journal_entries rows exist with created_by='owner@ct'.
+  const approve = await api(baseUrl, 'journal.approve', {
+    companyId: CO, userEmail: 'owner@ct', proposalId, note: 'looks good',
+  });
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+  const batchId = approve.body.data.batchId;
+  assert.ok(batchId, 'approve returns batchId');
+
+  const je = await sql(baseUrl, srv.adminToken,
+    `SELECT created_by, source FROM journal_entries WHERE company_id='CT' AND batch_id='${batchId}' LIMIT 1`);
+  assert.equal(je.length, 1, 'posted journal entries exist');
+  assert.equal(String(je[0].created_by), 'owner@ct', 'created_by is the HUMAN poster, not the agent');
+  assert.equal(String(je[0].source), 'proposal', 'source marks proposal origin');
+
+  // Proposal row: status 'posted', reviewed_by='owner@ct', batch_id set.
+  const prows = await proposalsFor(proposalId);
+  assert.equal(prows.length, 1);
+  assert.equal(String(prows[0].status), 'posted');
+  assert.equal(String(prows[0].reviewed_by), 'owner@ct');
+  assert.equal(String(prows[0].batch_id), batchId, 'proposal batch_id links to posted batch');
+  assert.equal(String(prows[0].review_note), 'looks good');
+
+  // Events: exactly ONE journal.proposed, ONE journal.approved, ONE journal.posted.
+  const proposedEv = await eventsFor('journal.proposed', proposalId);
+  assert.equal(proposedEv.length, 1, 'exactly one journal.proposed event');
+  assert.equal(proposedEv[0].actor_type, 'agent', 'proposed event stamped agent actor_type');
+  const approvedEv = await eventsFor('journal.approved', proposalId);
+  assert.equal(approvedEv.length, 1, 'exactly one journal.approved event');
+  assert.equal(approvedEv[0].actor_type, 'human', 'approved event stamped human actor_type');
+  const postedEv = await eventsFor('journal.posted', batchId);
+  assert.equal(postedEv.length, 1, 'exactly one journal.posted event (from postJournalBatch inside approve)');
+});
+
+test('A3j reject is terminal: note required; approve/reject/upsert on rejected all INVALID_STATUS', async () => {
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-reject',
+    lines: proposalLines(30),
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+
+  // Reject WITHOUT note → INVALID_INPUT.
+  const noNote = await api(baseUrl, 'journal.reject', { companyId: CO, userEmail: 'owner@ct', proposalId });
+  assert.equal(noNote.status, 400);
+  assert.equal(noNote.body.error.code, 'INVALID_INPUT');
+
+  // Reject WITH note → rejected.
+  const reject = await api(baseUrl, 'journal.reject', {
+    companyId: CO, userEmail: 'owner@ct', proposalId, note: 'wrong account',
+  });
+  assert.equal(reject.status, 200, JSON.stringify(reject.body));
+  assert.equal(reject.body.data.rejected, true);
+
+  // journal.rejected event payload carries the note.
+  const rejEv = await eventsFor('journal.rejected', proposalId);
+  assert.equal(rejEv.length, 1, 'journal.rejected emitted');
+  const rejPayload = JSON.parse(rejEv[0].payload);
+  assert.equal(rejPayload.note, 'wrong account', 'event payload carries the note');
+  assert.equal(rejPayload.reviewedBy, 'owner@ct');
+
+  // approve on the rejected row → INVALID_STATUS.
+  const approveAfterReject = await api(baseUrl, 'journal.approve', { companyId: CO, userEmail: 'owner@ct', proposalId });
+  assert.equal(approveAfterReject.status, 409);
+  assert.equal(approveAfterReject.body.error.code, 'INVALID_STATUS');
+
+  // reject again on the rejected row → INVALID_STATUS.
+  const rejectAgain = await api(baseUrl, 'journal.reject', { companyId: CO, userEmail: 'owner@ct', proposalId, note: 'again' });
+  assert.equal(rejectAgain.status, 409);
+  assert.equal(rejectAgain.body.error.code, 'INVALID_STATUS');
+
+  // upsert-with-proposalId on the rejected row (same agent) → INVALID_STATUS.
+  const upsertRejected = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', proposalId,
+    lines: proposalLines(30),
+  });
+  assert.equal(upsertRejected.status, 409);
+  assert.equal(upsertRejected.body.error.code, 'INVALID_STATUS');
+
+  // No journal_entries were ever created for this proposal (rejected proposals
+  // never post — verified by the absence of a batch_id below).
+  const prows = await proposalsFor(proposalId);
+  assert.equal(String(prows[0].status), 'rejected', 'proposal stays rejected (terminal)');
+  assert.ok(!prows[0].batch_id, 'rejected proposal has no batch_id');
+});
+
+test('A3j propose-upsert: same-caller edit ✓; other actor ✗; non-proposed ✗', async () => {
+  // Agent proposes.
+  const first = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-upsert',
+    lines: proposalLines(40),
+  });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const proposalId = first.body.data.proposalId;
+  let proposedEv = await eventsFor('journal.proposed', proposalId);
+  assert.equal(proposedEv.length, 1, 'one journal.proposed event after first propose');
+
+  // Same agent re-proposes with same proposalId and CHANGED lines → 200, row updated.
+  const repropose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', proposalId,
+    lines: proposalLines(77),
+  });
+  assert.equal(repropose.status, 200, JSON.stringify(repropose.body));
+  assert.equal(repropose.body.data.proposalId, proposalId, 'same proposalId returned');
+
+  // Still ONE journal.proposed event (upsert edit does not re-emit).
+  proposedEv = await eventsFor('journal.proposed', proposalId);
+  assert.equal(proposedEv.length, 1, 'upsert edit does not re-emit journal.proposed');
+
+  // The row's lines were updated (77, not 40).
+  const get = await api(baseUrl, 'journal.proposal.get', { companyId: CO, proposalId });
+  assert.equal(get.body.data.lines[0].debit, 77, 'lines updated by upsert');
+  assert.equal(get.body.data.created_by, 'agent@ct', 'created_by unchanged (immutable origin)');
+
+  // Owner (other actor) upserting that proposalId → FORBIDDEN.
+  const otherActor = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'owner@ct', proposalId,
+    lines: proposalLines(77),
+  });
+  assert.equal(otherActor.status, 403);
+  assert.equal(otherActor.body.error.code, 'FORBIDDEN');
+
+  // Approve the proposal (owner) → posted, then upsert after approve → INVALID_STATUS.
+  const approve = await api(baseUrl, 'journal.approve', { companyId: CO, userEmail: 'owner@ct', proposalId });
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+  const upsertPosted = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', proposalId,
+    lines: proposalLines(77),
+  });
+  assert.equal(upsertPosted.status, 409);
+  assert.equal(upsertPosted.body.error.code, 'INVALID_STATUS');
+});
+
+test('A3j idempotent replay: same Idempotency-Key → one proposal, one journal.proposed event', async () => {
+  const idemKey = 'a3j-idem-' + Date.now();
+  const payload = {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-idem',
+    lines: proposalLines(22),
+  };
+  const first = await api(baseUrl, 'journal.propose', payload, { 'Idempotency-Key': idemKey });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const proposalId = first.body.data.proposalId;
+
+  const replay = await api(baseUrl, 'journal.propose', payload, { 'Idempotency-Key': idemKey });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.headers.get('idempotent-replay'), 'true', 'replay short-circuited');
+  assert.equal(replay.body.data.proposalId, proposalId, 'same proposalId on replay');
+
+  // Exactly ONE proposal row.
+  const rows = await proposalsFor(proposalId);
+  assert.equal(rows.length, 1, 'exactly one proposal persisted');
+  // Exactly ONE journal.proposed event (handler never ran on replay — R4).
+  const ev = await eventsFor('journal.proposed', proposalId);
+  assert.equal(ev.length, 1, 'R4: idempotent replay does not double-emit journal.proposed');
+});
+
+test('A3j approve-time revalidation: lock period → approve fails PERIOD_LOCKED → unlock → approve succeeds', async () => {
+  // Propose a valid batch dated in 2026-07 (period exists, unlocked).
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-reval',
+    lines: proposalLines(60, '2026-07-15'),
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+
+  // Lock the 2026-07 period.
+  const lock = await api(baseUrl, 'period.upsert', {
+    companyId: CO, period: { period_id: '2026-07', start_date: '2026-07-01', end_date: '2026-07-31', locked: true },
+  });
+  assert.equal(lock.status, 200, JSON.stringify(lock.body));
+
+  // Approve fails with the period-locked error code (PERIOD_LOCKED).
+  const approveLocked = await api(baseUrl, 'journal.approve', { companyId: CO, userEmail: 'owner@ct', proposalId });
+  assert.equal(approveLocked.status, 409, 'approve of a locked-period proposal is 409');
+  assert.equal(approveLocked.body.error.code, 'PERIOD_LOCKED', 'period-locked surfaces PERIOD_LOCKED (same as journal.post)');
+
+  // No journal_entries created by the failed approve.
+  const prows = await proposalsFor(proposalId);
+  assert.equal(String(prows[0].status), 'proposed', 'proposal stays proposed after failed approve');
+  assert.ok(!prows[0].batch_id, 'no batch_id stamped on failed approve');
+
+  // Unlock the period → approve succeeds.
+  const unlock = await api(baseUrl, 'period.upsert', {
+    companyId: CO, period: { period_id: '2026-07', start_date: '2026-07-01', end_date: '2026-07-31', locked: false },
+  });
+  assert.equal(unlock.status, 200, JSON.stringify(unlock.body));
+
+  const approveUnlocked = await api(baseUrl, 'journal.approve', { companyId: CO, userEmail: 'owner@ct', proposalId });
+  assert.equal(approveUnlocked.status, 200, JSON.stringify(approveUnlocked.body));
+  assert.ok(approveUnlocked.body.data.batchId, 'approve succeeds after unlock');
+
+  // Proposal is now posted.
+  const posted = await proposalsFor(proposalId);
+  assert.equal(String(posted[0].status), 'posted', 'proposal posted after unlock + approve');
+});
+
+test('A3j journal.proposal.list: default status proposed, ordering, limit', async () => {
+  // Propose a fresh one for the queue.
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-list',
+    lines: proposalLines(11, '2026-07-25'),
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const pid = propose.body.data.proposalId;
+
+  const list = await api(baseUrl, 'journal.proposal.list', { companyId: CO });
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  const items = list.body.data;
+  assert.ok(Array.isArray(items), 'list returns array');
+  assert.ok(items.length >= 1, 'queue has at least the freshly proposed row');
+  assert.ok(items.every((r) => String(r.status) === 'proposed'), 'default status filter is proposed');
+  // Ordering: date DESC then created_at DESC.
+  for (let i = 1; i < items.length; i++) {
+    const a = items[i - 1], b = items[i];
+    assert.ok(String(a.date) >= String(b.date), 'list ordered by date DESC');
+  }
+  const found = items.find((r) => String(r.proposal_id) === pid);
+  assert.ok(found, 'freshly proposed row is in the list');
+
+  // status filter: 'posted' returns only posted rows.
+  const postedList = await api(baseUrl, 'journal.proposal.list', { companyId: CO, status: 'posted' });
+  assert.equal(postedList.status, 200);
+  assert.ok(postedList.body.data.every((r) => String(r.status) === 'posted'), 'status filter excludes other statuses');
+
+  // limit cap: request 9999 is capped.
+  const capped = await api(baseUrl, 'journal.proposal.list', { companyId: CO, limit: 9999 });
+  assert.equal(capped.status, 200);
+  assert.ok(capped.body.data.length <= 1000, 'limit 9999 capped at 1000');
 });

@@ -208,6 +208,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
   changed_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- A1 (§2.4): actor attribution on every audit row. actor_type disambiguates
+-- human vs agent (comes from the DB role, never asserted); request_id
+-- correlates one agent run across calls (body.requestId or X-Request-Id).
+-- changed_by stays the actor email (provenance continuity).
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_type VARCHAR DEFAULT 'human';
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS request_id VARCHAR;
+
 -- =============================================================================
 -- journals
 -- =============================================================================
@@ -455,3 +462,58 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 -- Per-year tax & governance attributes (jurisdiction-pack: the pack manifest's
 -- taxAttributes/periodAttributes). JSON object keyed by attribute key.
 ALTER TABLE periods ADD COLUMN IF NOT EXISTS tax_attrs VARCHAR;
+
+-- =============================================================================
+-- events (A2 — §3.1: append-only event stream)
+-- Business facts at state transitions (journal posted, bill posted, payment
+-- recorded/voided, attachment uploaded, period locked/unlocked). This is the
+-- agent's input channel (poll via event.list) AND the audit narrative,
+-- distinct from the per-invocation dispatch audit (audit_log, P0-4).
+-- Append-only by construction: no UPDATE/DELETE path exists anywhere in the
+-- codebase. emitEvent() omits event_seq/event_id so the defaults fire.
+-- =============================================================================
+CREATE SEQUENCE IF NOT EXISTS events_seq START 1;
+CREATE TABLE IF NOT EXISTS events (
+  event_seq   BIGINT    NOT NULL DEFAULT nextval('events_seq'),
+  event_id    VARCHAR   NOT NULL DEFAULT (uuid()),
+  company_id  VARCHAR   NOT NULL,
+  event_type  VARCHAR   NOT NULL,    -- 'journal.posted', 'bill.payment.recorded', ...
+  entity_type VARCHAR   NOT NULL,    -- 'journal' | 'bill' | 'payment' | 'attachment' | 'period'
+  entity_id   VARCHAR   NOT NULL,
+  actor_type  VARCHAR   NOT NULL DEFAULT 'human',
+  actor_id    VARCHAR,               -- caller email (human or agent account)
+  request_id  VARCHAR,
+  payload     VARCHAR,               -- compact JSON snapshot, <= 4000 chars
+  created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_events_company_seq ON events(company_id, event_seq);
+
+-- =============================================================================
+-- journal_proposals (A3j — §4.2: agent/human-proposed journal batches)
+-- The prepare/approve flow: an actor (typically an agent) proposes a journal
+-- batch; a human reviews and approves (which posts to journal_entries) or
+-- rejects (terminal, kept for audit). A proposed batch can NEVER reach
+-- journal_entries without a human approve (R5). `lines` stores the JSON array
+-- of enriched lines (the exact journal.post row shape), validated at propose
+-- time and re-validated at approve time. `batch_id` links the posted batch
+-- back to the proposal on approve.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS journal_proposals (
+  company_id   VARCHAR   NOT NULL,
+  proposal_id  VARCHAR   NOT NULL UNIQUE,
+  journal_id   VARCHAR,                -- optional series (journals table) → auto reference on post
+  date         DATE      NOT NULL,     -- MIN(line dates) — list display + ordering
+  reference    VARCHAR,
+  description  VARCHAR,
+  source       VARCHAR   NOT NULL DEFAULT 'agent',   -- 'agent' | 'human'
+  lines        VARCHAR   NOT NULL,    -- JSON array of enriched lines (journal.post row shape)
+  status       VARCHAR   NOT NULL DEFAULT 'proposed',   -- proposed | posted | rejected
+  batch_id     VARCHAR,                -- set on approve (links to journal_entries.batch_id)
+  created_by   VARCHAR   NOT NULL,
+  request_id   VARCHAR,
+  reviewed_by  VARCHAR,
+  reviewed_at  TIMESTAMP,
+  review_note  VARCHAR,
+  created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_journal_proposals_company_status ON journal_proposals(company_id, status);

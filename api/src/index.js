@@ -12,7 +12,7 @@ const express = require('express');
 const cors = require('cors');
 const { v4: uuid } = require('uuid');
 
-const { checkPermission } = require('./auth');
+const { checkPermission, resolveActor } = require('./auth');
 const { handleJournal } = require('./journal');
 const { handleBank } = require('./bank');
 const { handleBills } = require('./bills');
@@ -23,9 +23,9 @@ const { handleVat } = require('./vat');
 const { handleFx, providerExists, listProviderIds, MANUAL_PROVIDER } = require('./fx');
 const { handleSetup } = require('./setup');
 const { handleAttachments } = require('./attachments');
+const { handleEvents, emitEvent } = require('./events');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 const { auditCall } = require('./audit');
-
 const PORT = process.env.PORT || 3000;
 
 // P1-1: action metadata is the single source of truth — roles, idempotency,
@@ -178,6 +178,30 @@ async function handleApiRequest(req, res) {
       if (!allowed) return fail(res, 'FORBIDDEN', 'Insufficient permissions');
     }
 
+    // ── A1 (§2.2/§2.3): actor resolution + default-deny whitelist guard ──
+    // The actor class comes from the DB role, never from the request (an
+    // agent cannot self-assert 'human'). Agents may read + propose only;
+    // setup.* is unconditionally forbidden to agents (those actions skip
+    // the role check today and must stay human-only), and any mutating
+    // action outside AGENT_ALLOWED is FORBIDDEN. This runs BEFORE the
+    // idempotency check so a rejected request never persists a response.
+    // v1 whitelist: non-mutating actions pass naturally (mutating:false);
+    // attachment.upload is admitted here; A3j (§4.3) adds journal.propose so
+    // agents can prepare journal batches (never post — that's the human approve).
+    const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose']);
+    const actor = userEmail ? await resolveActor(userEmail, companyId) : { role: null, actorType: 'human' };
+    const requestId = body.requestId || req.get('X-Request-Id') || null;
+    if (actor.actorType === 'agent') {
+      if (action.startsWith('setup.')) {
+        return fail(res, 'FORBIDDEN', 'Agents may not run setup actions');
+      }
+      const meta = ACTIONS[action];
+      const mutating = !!(meta && meta.mutating === true);
+      if (mutating && !AGENT_ALLOWED.has(action)) {
+        return fail(res, 'FORBIDDEN', 'Agents may not finalize or mutate master data');
+      }
+    }
+
     // P1-1: dispatch-level required-parameter validation from the catalog.
     // Fails fast with every missing field named — before the handler runs.
     const meta = ACTIONS[action];
@@ -234,7 +258,7 @@ async function handleApiRequest(req, res) {
       wrapIdempotentResponse(res, scopedKey, action, companyId);
     }
 
-    const ctx = { body, companyId, userEmail };
+    const ctx = { body, companyId, userEmail, actor, requestId };
     let result;
     const [module] = action.split('.');
 
@@ -258,6 +282,7 @@ async function handleApiRequest(req, res) {
       case 'setup':       result = await handleSetup(ctx, action); break;
       case 'diag':        result = await handleDiag(ctx, action); break;
       case 'attachment':  result = await handleAttachments(ctx, action); break;
+      case 'event':       result = await handleEvents(ctx, action); break;
       default:
         return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
     }
@@ -277,7 +302,7 @@ async function handleApiRequest(req, res) {
         const auditCompanyId = companyId
           || (body && body.company && body.company.company_id)
           || null;
-        await auditCall(auditCompanyId, action, userEmail || 'anonymous', body);
+        await auditCall(auditCompanyId, action, userEmail || 'anonymous', body, { actorType: actor.actorType, requestId });
       } catch (auditErr) {
         console.error(`Audit log failed for action ${action}:`, auditErr.message);
       }
@@ -803,11 +828,20 @@ async function handleSettings(ctx, action) {
     const { period } = body;
     if (!period || !period.period_id || !period.start_date || !period.end_date) throw Object.assign(new Error('period_id, start_date, end_date required'), { code: 'INVALID_INPUT' });
     const now = new Date().toISOString();
-    const existing = await query(`SELECT period_name FROM periods WHERE company_id = @companyId AND period_name = @name`, { companyId, name: period.period_id });
+    const existing = await query(`SELECT period_name, locked FROM periods WHERE company_id = @companyId AND period_name = @name`, { companyId, name: period.period_id });
     const taxAttrs = period.tax_attrs != null ? JSON.stringify(period.tax_attrs) : null;
     if (existing.length > 0) {
+      const oldLocked = !!existing[0].locked;
+      const newLocked = !!period.locked;
       await exec(`UPDATE periods SET start_date=@start, end_date=@end, locked=@locked, tax_attrs=COALESCE(@taxAttrs, tax_attrs), updated_at=@now WHERE company_id=@companyId AND period_name=@name`,
-        { companyId, name: period.period_id, start: period.start_date, end: period.end_date, locked: !!period.locked, taxAttrs, now });
+        { companyId, name: period.period_id, start: period.start_date, end: period.end_date, locked: newLocked, taxAttrs, now });
+      // A2 (§3.2): emit period.locked / period.unlocked on actual transitions.
+      // A new period born locked is a creation, not a transition — skipped.
+      if (!oldLocked && newLocked) {
+        await emitEvent(ctx, 'period.locked', 'period', period.period_id, { period_id: period.period_id, start_date: period.start_date, end_date: period.end_date });
+      } else if (oldLocked && !newLocked) {
+        await emitEvent(ctx, 'period.unlocked', 'period', period.period_id, { period_id: period.period_id, start_date: period.start_date, end_date: period.end_date });
+      }
     } else {
       await bulkInsert('periods', [{ company_id: companyId, period_name: period.period_id, start_date: period.start_date, end_date: period.end_date, locked: !!period.locked, tax_attrs: taxAttrs, created_at: now, updated_at: now }]);
     }

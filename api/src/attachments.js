@@ -10,6 +10,8 @@ const os = require('os');
 const { v4: uuid } = require('uuid');
 const multer = require('multer');
 const { query, exec, bulkInsert } = require('./db');
+const { emitEvent } = require('./events');
+const { resolveActor } = require('./auth');
 
 const ATTACHMENTS_ROOT = path.join(os.homedir(), '.freebooks', 'attachments');
 
@@ -136,6 +138,26 @@ async function handleUpload(req, res) {
       uploaded_by: req.body.uploadedBy || null,
       uploaded_at: now,
     }]);
+
+    // A2 (§3.2): emit attachment.uploaded. This is the feed-extraction
+    // trigger — an agent watching event.list sees this and fetches the file
+    // to extract → journal.propose. The upload route is separate from the
+    // action API (/api/upload, not POST /api), so build a minimal ctx from
+    // the request. A1/R3: resolve the actor class from the DB role (an
+    // agent account's upload must stamp actor_type 'agent', never
+    // misattributed as human). request_id from body or X-Request-Id header.
+    const upCtx = {
+      companyId,
+      userEmail: req.body.uploadedBy || null,
+      actor: await resolveActor(req.body.uploadedBy, companyId),
+      requestId: req.body.requestId || req.get('X-Request-Id') || null,
+    };
+    await emitEvent(upCtx, 'attachment.uploaded', 'attachment', attachmentId, {
+      entityType, entityId,
+      filename: file.originalname,
+      contentType: file.mimetype,
+      fileSize: file.size,
+    });
 
     res.json({ ok: true, data: { attachment_id: attachmentId, filename: file.originalname } });
   } catch (err) {

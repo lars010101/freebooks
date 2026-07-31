@@ -1,13 +1,32 @@
 'use strict';
 /**
- * freeBooks — Audit logging
+ * freeBooks — Audit logging (with A1 actor attribution)
+ *
+ * `auditLog` (field-level old/new history) and `auditCall` (P0-4 dispatch
+ * invocation audit) both gain an optional trailing `actor` param:
+ *   actor = { actorType: 'human' | 'agent', requestId: string|null }
+ * defaulting to `{ actorType: 'human', requestId: null }` so existing call
+ * sites are unaffected. The `actor_type` and `request_id` columns (added by
+ * the §2.4 schema migration) are stamped on every insert; `changed_by`
+ * stays the actor email for provenance continuity.
  */
 
 const { v4: uuid } = require('uuid');
 const { bulkInsert } = require('./db');
 
-async function auditLog(companyId, tableName, recordId, action, changedBy, changes) {
+const DEFAULT_ACTOR = { actorType: 'human', requestId: null };
+
+function actorFields(actor) {
+  const a = actor || DEFAULT_ACTOR;
+  return {
+    actor_type: a.actorType || 'human',
+    request_id: a.requestId != null ? String(a.requestId) : null,
+  };
+}
+
+async function auditLog(companyId, tableName, recordId, action, changedBy, changes, actor) {
   const now = new Date().toISOString();
+  const stamp = actorFields(actor);
   const rows = [];
 
   if (action === 'update' && changes) {
@@ -23,6 +42,7 @@ async function auditLog(companyId, tableName, recordId, action, changedBy, chang
         new_value: newVal != null ? String(newVal) : null,
         changed_by: changedBy,
         changed_at: now,
+        ...stamp,
       });
     }
   } else {
@@ -37,6 +57,7 @@ async function auditLog(companyId, tableName, recordId, action, changedBy, chang
       new_value: null,
       changed_by: changedBy,
       changed_at: now,
+      ...stamp,
     });
   }
 
@@ -50,11 +71,14 @@ async function auditLog(companyId, tableName, recordId, action, changedBy, chang
  * (journal imports, entry updates) remain for field-level old/new history;
  * this is the complete-coverage safety net for every other mutation
  * (bills, settings, COA, permissions, company, VAT codes, FX, bank...).
+ *
+ * A1: stamps `actor_type` + `request_id` from the optional `actor` arg.
  */
-async function auditCall(companyId, action, changedBy, payload) {
+async function auditCall(companyId, action, changedBy, payload, actor) {
   let json;
   try { json = JSON.stringify(payload ?? {}); } catch { json = '"<unserializable>"'; }
   if (json.length > 8000) json = json.slice(0, 8000) + '…[truncated]';
+  const stamp = actorFields(actor);
   await bulkInsert('audit_log', [{
     company_id: companyId || null,
     log_id: uuid(),
@@ -66,6 +90,7 @@ async function auditCall(companyId, action, changedBy, payload) {
     new_value: json,
     changed_by: changedBy,
     changed_at: new Date().toISOString(),
+    ...stamp,
   }]);
 }
 

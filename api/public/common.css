@@ -134,6 +134,22 @@ body {
 .sb-icon { font-size: 1.083rem; line-height: 1; flex-shrink: 0; width: 20px; text-align: center; }
 .sb-label { transition: opacity .15s, width .15s; overflow: hidden; }
 #sidebar.sb-collapsed .sb-label { opacity: 0; width: 0; }
+/* A3j §4.4: pending-proposal count on the Journal sidebar item — the
+   monitoring surface (there is work) without opening anything. Hidden when
+   zero or the sidebar is collapsed. */
+.sb-badge {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: #d97706;
+  color: #fff;
+  font-size: 0.667rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.5;
+}
+#sidebar.sb-collapsed .sb-badge { display: none; }
 
 /* Tooltip on collapsed hover */
 #sidebar.sb-collapsed .sb-item { position: relative; }

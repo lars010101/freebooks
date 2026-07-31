@@ -137,7 +137,7 @@ function navBar(company, activeKey) {
     const href = item.disabled ? '' : ` href="${item.href}"`;
     return `<${tag}${href} class="${cls}" data-label="${item.label}">
         <span class="sb-icon">${item.icon}</span>
-        <span class="sb-label">${item.label}</span>
+        <span class="sb-label">${item.label}</span>${item.key === 'journal' ? '<span class="sb-badge" id="sb-journal-badge" hidden></span>' : ''}
       </${tag}>`;
   }).join('\n      ');
 

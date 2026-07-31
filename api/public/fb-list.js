@@ -80,6 +80,17 @@
  *   actions    [{ key, label, handler(api) }] — list-level verbs; each gets a
  *              NORMAL-mode key binding + a small mouse-parity button above the
  *              table (title shows the key). Must not edit existing rows.
+ *   rowVerbs   [{ key, label, hint, when(row)→bool, affordance(row), run(api,row) }]
+ *              — PER-ROW verb predicates (A3j §4.4 queue idiom; framework
+ *              contract addition documented in fb-list-ux-spec.md §13). A row
+ *              verb is active only on rows whose predicate passes (e.g. y/x
+ *              only on `proposed` rows). Each gets a NORMAL-mode key binding
+ *              whose `when` resolves the focused row through the predicate,
+ *              AND a clickable affordance rendered in the row-actions cell
+ *              (mouse parity). The focused row is passed to run(); verbs that
+ *              open a modal do so via FB.modal (K2 scope). Read-only registers
+ *              (canAdd:false, editable→false) use row verbs as their only row
+ *              actions — the queue is the reference screen.
  *   ── tree mode (opt-in, Bills) ──
  *   tree       boolean — enable parent/child rows + fold state (default false).
  *   children(row) → child rows for a parent (may fetch; framework caches per-_key).
@@ -812,6 +823,15 @@
       var actions = d._dirty
         ? '<a class="chip chip-ok" title="write (w)" data-act="write">✓</a> <a class="chip chip-cancel" title="revert (u)" data-act="revert">✕</a>'
         : '';
+      // rowVerbs (A3j §4.4): per-row verb affordances — rendered only on rows
+      // whose predicate passes (mouse parity for the key bindings registered
+      // in registerKeys). The screen's affordance(d) returns chip HTML tagged
+      // data-act="verb:<key>"; wireChips resolves it back to the verb.
+      if (!d._dirty && cfg.rowVerbs) {
+        cfg.rowVerbs.forEach(function (v) {
+          if (v.when(d)) actions += (actions ? ' ' : '') + v.affordance(d);
+        });
+      }
       return '<tr' + (d._dirty ? ' class="row-dirty"' : '') + ' data-idx="' + i + '" data-key="' + esc(String(d._key)) + '"'
         + (cfg.rowStyle ? ' style="' + cfg.rowStyle(d) + '"' : '') + '>'
         + cells + '<td class="row-actions">' + actions + '</td></tr>';
@@ -825,6 +845,14 @@
           if (a.dataset.act === 'write') writeAt(i);
           else if (a.dataset.act === 'revert') revertAt(i);
           else if (a.dataset.act === 'exit') exitEdit();
+          else if (a.dataset.act.indexOf('verb:') === 0) {
+            // rowVerbs affordance click (A3j §4.4): resolve the verb by key,
+            // re-check its predicate against the clicked row, then run it.
+            var vkey = a.dataset.act.slice(5);
+            var verb = (cfg.rowVerbs || []).filter(function (v) { return v.key === vkey; })[0];
+            var row = merged()[i];
+            if (verb && row && verb.when(row)) { if (editIdx >= 0) exitEdit(); verb.run(api, row); }
+          }
         });
       });
     }
@@ -1254,7 +1282,12 @@
     // ── Load ─────────────────────────────────────────────────────────────
     function load(focusKey) {
       if (!tbody()) return Promise.resolve();
-      var p = cfg.list.url
+      // cfg.list.fetch (A3j §4.4): a screen-owned promise of raw rows — for
+      // registers that merge multiple action calls (Journal: proposals +
+      // posted batches). Takes precedence over url/action.
+      var p = cfg.list.fetch
+        ? cfg.list.fetch()
+        : cfg.list.url
         ? fetch(cfg.list.url()).then(function (r) { return r.json(); })
         : post(cfg.list.action, cfg.list.body ? cfg.list.body() : {});
       return p.then(function (rowsRaw) {
@@ -1302,6 +1335,24 @@
         return;
       }
       if (d && cfg.editable && !cfg.editable(d)) return; // read-only row
+      enterEdit(idx >= 0 ? idx : 0);
+    }
+    // Enter = OPEN (A3j §4.4): like editFocused, but on a read-only tree row
+    // (posted batch, proposal — editable→false) Enter unfolds/folds instead of
+    // no-oping. This keeps Enter's open/unfold meaning on registers where no
+    // row is editable (the queue) without stealing `i`'s edit-only semantics.
+    function openFocused() {
+      var tr = nav && nav.current();
+      if (tr && tr.classList.contains('fb-add-row')) { newRow(); return; }
+      var idx = focusedIdx();
+      var d = idx >= 0 ? merged()[idx] : null;
+      if (cfg.tree) {
+        var res = d ? billParentOf(d) : null;
+        if (res && cfg.editable && !cfg.editable(res.parent)) { toggleFold(res.parent); return; }
+        enterEdit(idx >= 0 ? idx : 0);
+        return;
+      }
+      if (d && cfg.editable && !cfg.editable(d)) return;
       enterEdit(idx >= 0 ? idx : 0);
     }
     function advanceField() {
@@ -1411,7 +1462,7 @@
       { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { nav.move(1); } },
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { nav.move(-1); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocused },
-      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocused },
+      { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true, run: openFocused },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) writeAt(i); } },
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
       // G/gg: cursor to bottom/top AND page to absolute bottom/top (Bills parity —
@@ -1518,6 +1569,23 @@
         }
         if (gi < 0) gi = all.length;
         Array.prototype.splice.apply(all, [gi, 0].concat(ei));
+      }
+      // rowVerbs (A3j §4.4): per-row verb predicates — each gets a NORMAL-mode
+      // binding that resolves the FOCUSED row through the predicate; a declined
+      // predicate falls through to any built-in on the same key. Prepend ahead
+      // of built-ins; screen extraBindings still prepend these (screens win).
+      if (cfg.rowVerbs) {
+        var rvb = cfg.rowVerbs.map(function (v) {
+          return { key: v.key, mode: 'NORMAL', hint: v.label, hintBar: true,
+            when: function () { var d = focusedRow(); return !!(d && v.when(d)); },
+            run: function () {
+              var d = focusedRow();
+              if (!d || !v.when(d)) return;
+              if (editIdx >= 0) exitEdit();
+              v.run(api, d);
+            } };
+        });
+        all = rvb.concat(all);
       }
       // Screen bindings PREPEND the built-ins (Task 6f): FB.keys takes the
       // first key+mode+when match, so screen verbs (Bills' p/x/I, pay-row

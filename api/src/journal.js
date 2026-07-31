@@ -684,6 +684,8 @@ async function proposeEntry(ctx) {
     status: 'proposed',
     batch_id: null,
     created_by: proposer,
+    request_id: requestId || null,
+    reviewed_by: null,
     reviewed_at: null,
     review_note: null,
     created_at: now,

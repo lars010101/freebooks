@@ -9,6 +9,9 @@ node_modules/
 .env.*
 !.env.example
 
+# MCP server dependency install (managed by its own mcp/package.json)
+mcp/node_modules/
+
 # Evidence build output
 reports/.evidence/
 reports/build/

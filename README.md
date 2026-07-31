@@ -79,6 +79,17 @@ The server handles `SIGINT`/`SIGTERM` gracefully and checkpoints DuckDB before e
 | `FREEBOOKS_ADMIN_TOKEN` | Bearer token for `POST /api/admin/query` (arbitrary SQL). **If unset, the endpoint is disabled (403).** Set it only for local admin/debug use: `FREEBOOKS_ADMIN_TOKEN=$(openssl rand -hex 32) node api/src/index.js`, then send `Authorization: Bearer <token>`. |
 | `PORT` | HTTP port (default 3000). |
 
+### MCP server (agent access)
+
+Agents drive freebooks through the MCP server (spec: `docs/agent-readiness-spec.md` §5) — a stdio Model Context Protocol process exposing the whitelisted agent surface (`event_list`, `journal_propose`, `attachment_upload`, `freebooks_read`):
+
+```bash
+npm install --prefix mcp
+FREEBOOKS_API_URL=http://127.0.0.1:3000 FREEBOOKS_USER=agent@example.com FREEBOOKS_COMPANY=mycompany node mcp/server.js
+```
+
+`FREEBOOKS_REQUEST_ID` optionally overrides the per-session correlation id (one MCP session = one `X-Request-Id` run in `audit_log`/`events`). The server talks HTTP to the action API only — never the DB file. The account named by `FREEBOOKS_USER` should hold the `agent` role (reads + proposals only; everything else is default-deny).
+
 ---
 
 ## Project Structure

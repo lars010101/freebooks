@@ -1,7 +1,7 @@
 # freebooks — Agent-Readiness Spec (Phase A)
 
 **Date:** 2026-07-29 · **Status:** RATIFIED 2026-07-30 (magnus go-ahead) · **Context:** agent-driven operating model (Slack design thread, 2026-07-29)
-**Amended 2026-07-30 (roadmap §0m rescope):** A3 retargeted from bill proposals to **A3j — journal/bank-transaction proposals** (bill proposals dropped with the payables extras); **P2-5 MCP server pulled forward** into this tranche as component 4. Section status: §2 A1, §3 A2, §4 A3j, §5 MCP — each ships as its own PR (§9).
+**Amended 2026-07-30 (roadmap §0m rescope):** A3 retargeted from bill proposals to **A3j — journal/bank-transaction proposals** (bill proposals dropped with the payables extras); **P2-5 MCP server pulled forward** into this tranche as component 4. Section status: §2 A1, §3 A2, §4 A3j — **shipped** (PR #71, main `390f4e5`); §5 MCP — **shipped** (phase-mcp-server PR; `tests/mcp-smoke.mjs` 26/26).
 
 ---
 
@@ -225,6 +225,8 @@ A Model Context Protocol server that lets an MCP-capable agent (Claude, Hermes, 
 - **Request correlation (R3):** one `request_id` (uuid) minted at server start — override `FREEBOOKS_REQUEST_ID` — sent as `X-Request-Id` on every API call, so one MCP session = one correlated run in `audit_log` and `events`.
 - **Idempotency:** every mutating tool call sends an `Idempotency-Key` (uuid per logical call; caller may supply one for cross-retry identity).
 - **R1 preserved:** the server talks HTTP to the action API only. It never receives a DB path; it never touches the filesystem beyond its own code.
+
+**As built (2026-07-31):** SDK `@modelcontextprotocol/sdk` low-level `Server` + `StdioServerTransport` (explicit manifest, plain JSON-Schema input schemas). `attachment_upload` takes file bytes as `contentBase64` — never a disk path (R1 holds for the agent too). `freebooks_read` builds its read allowlist **dynamically from `GET /api/actions`** at startup (admits only `mutating: false`), falling back to a static list + stderr warning if the catalog is unreachable. Verified by `tests/mcp-smoke.mjs` (26 assertions).
 
 ### 5.2 Tools (v1)
 

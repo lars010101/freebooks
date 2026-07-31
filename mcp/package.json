@@ -1,0 +1,13 @@
+{
+  "name": "freebooks-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "MCP server exposing the freebooks agent-ready action surface (stdio).",
+  "main": "server.js",
+  "bin": { "freebooks-mcp": "server.js" },
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0"
+  }
+}

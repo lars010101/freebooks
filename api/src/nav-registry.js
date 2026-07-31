@@ -34,7 +34,7 @@
 //      it automatically.
 //   3. Sidebar routes default to palette:true ('Go to …' rows). Non-sidebar
 //      routes: set palette:true ONLY when no action-catalog 'navigate' entry
-//      covers the same target (journal/new, bank/import and new-company are
+//      covers the same target (journal/new and new-company are
 //      covered by the catalog, so they stay palette:false here;
 //      opening-balances has no catalog entry, so it is palette:true). The
 //      palette itself does no runtime dedupe — this table is the decision.

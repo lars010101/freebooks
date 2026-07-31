@@ -254,7 +254,7 @@
     function read() { try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return {}; } }
     function write(d) { try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) {} }
 
-    // section of a path: /co/bill/edit → payables; /co/bank/import → bank; /co/journal/new → journal-new
+    // section of a path: /co/bill/edit → payables; /co/bank?tab=import → bank; /co/journal/new → journal-new
     window.fbSectionOfPath = function (path) {
       var m = String(path || '').match(/^\/[^/]+\/([^/?]+)/);
       if (!m) return 'dashboard';
@@ -275,7 +275,7 @@
     // Create route per section (plus-icon target) — only sections with a create object
     var CREATE_ROUTES = {
       'payables':   { label: 'Bill',      path: '/bill/edit' },
-      'bank':       { label: 'Statement', path: '/bank/import' },
+      'bank':       { label: 'Statement', path: '/bank?tab=import' },
       'settings':   { label: 'Account',   path: '/settings?tab=coa&new=1' }
     };
     var SECTION_LABELS = {

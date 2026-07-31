@@ -1,9 +1,13 @@
-// K5 — keyboard-coverage crawl: the framework-level gate that replaces
-// per-tab key verification (keyboard-ux-spec §coverage gate).
+// K5 — keyboard-coverage gate, SINGLE-SCREEN (agent-first UI doctrine,
+// ratified 2026-07-31, roadmap §0q): full key-coverage assertions run on
+// ONE representative screen — journal-new (richest FB.form surface, primary
+// human write path, self-checking verb exemptions R/a/w). Framework-level
+// behavior is verified once there, not per tab.
 //
-// For every route in the single-source registry (api/src/nav-registry.js,
-// plus the two parameterized create/detail pages mounted in reports.js):
-//   a. page loads with zero uncaught JS errors
+// Every other route gets a SMOKE check only: page loads with zero uncaught
+// JS errors (catches dead pages and load-time regressions).
+//
+// Gate-route assertions (journal-new):
 //   b. FB.keys.hasActive() — a registered binding set is live
 //   c. the hint surface (#sb-hints or an inline .fb-hint-bar) is non-empty
 //   d. FB.keys.audit() shows ≥1 ACTIVE set with ≥1 NORMAL binding
@@ -18,8 +22,9 @@
 // entry with palette:true (registry → palette wiring can't silently drift).
 //
 // Exit 0 only when every check passes AND the triage list is empty. Any
-// uncovered control is a REAL gap: fix it (wire the control into a zone or
-// give it a verb) or ratify an exemption in the spec — never silence it.
+// uncovered control on the gate route is a REAL gap: fix it (wire the
+// control into a zone or give it a verb) or ratify an exemption — never
+// silence it.
 //
 // Run: npm run test:keys   (fixture server on :4722, company testco)
 
@@ -29,44 +34,20 @@ import { ROUTES } from '../api/src/nav-registry.js';
 const BASE = 'http://127.0.0.1:4722';
 const CO = 'testco';
 
-// Ratified exemptions — each entry cites its justification; entries with a
-// `verb` are SELF-CHECKING: the crawl verifies a live binding with that key
-// exists on the route, so the exemption breaks loudly if the verb is removed.
-// Match by `id`, exact `text`, or `sel` (css selector).
+// The single gate route (agent-first UI doctrine 2026-07-31, roadmap §0q).
+const GATE_ROUTE = 'journal-new';
+
+// Ratified exemptions — GATE ROUTE ONLY (all other routes are smoke-checked:
+// page load + zero JS errors; their former exemption tables are in git
+// history). Entries with a `verb` are SELF-CHECKING: the crawl verifies a
+// live binding with that key exists on the route, so the exemption breaks
+// loudly if the verb is removed. Match by `id`, exact `text`, or `sel`.
 const EXEMPTIONS = {
-  'bank': [
-    { id: 'filter-cleared', verb: 'f', reason: 'verb parity — f cycles filter states (uncleared → cleared → both); individual checkboxes stay mouse-native' },
-    { id: 'filter-uncleared', verb: 'f', reason: 'verb parity — f cycles filter states (uncleared → cleared → both); individual checkboxes stay mouse-native' },
-    { id: 'hdr-clear-all', reason: 'ratified: bulk convenience only — per-row ~ is the keyboard path; QBO/Xero have no bulk-clear hotkey (mouse parity preserved)' },
-  ],
-  'settings': [
-    { id: 'cr-delete-btn', reason: 'ratified: danger-zone trigger is deliberately mouse-only (GitHub/QBO precedent); the K2 modal owns keyboard confirm via type-to-confirm once open' },
-  ],
   'journal-new': [
     { id: 'btn-reversal-mode', verb: 'R', reason: 'verb parity — R toggles reversal mode' },
     { text: '+ Add Line', verb: 'a', reason: 'verb parity — a adds a line' },
     { id: 'btn-post', verb: 'w', reason: 'verb parity — w posts the entry' },
   ],
-  'new-company': [
-    { text: '+ Add Period', verb: 'a', reason: 'verb parity — a adds a period row' },
-    { id: 'btn-create', verb: 'w', reason: 'verb parity — w creates the company' },
-  ],
-  'bill-detail': [
-    { text: '📎 Add Attachment', verb: 'A', reason: 'verb parity — A opens the attach picker' },
-  ],
-  'bill-edit': [
-    { sel: '.be-line-x', reason: 'ratified: row-level mouse affordance on an INSERT-first surface; keyboard line-delete lands with bill-edit FB.form migration (roadmap)' },
-    { id: 'be-attach-btn', verb: 'A', reason: 'verb parity — A opens the file picker' },
-    { id: 'be-post', verb: 'p', reason: 'verb parity — p posts the bill' },
-    { id: 'be-save', verb: 'q', reason: 'verb parity — q quits the editor' },
-  ],
-};
-
-// Stub routes (no workflows yet) — key assertions relax to JS-errors +
-// control-coverage only, with the reason cited. Removed the day the module
-// ships (AR: FB.list from day one — ratified backlog).
-const STUB_ROUTES = {
-  'receivables': 'stub page (Coming Soon) — AR module is the next ratified backlog item and builds on FB.list from day one',
 };
 
 let pass = 0, fail = 0;
@@ -168,6 +149,10 @@ for (const r of routes) {
 
     ok('zero uncaught JS errors', errors.length === 0, errors[0]);
 
+    // Non-gate routes: smoke only (load + zero JS errors) — full key
+    // coverage is verified once on the representative screen (roadmap §0q).
+    if (r.key !== GATE_ROUTE) continue;
+
     const state = await page.evaluate(() => {
       var sb = document.getElementById('sb-hints');
       var inlineHint = document.querySelector('.fb-hint-bar');
@@ -179,12 +164,10 @@ for (const r of routes) {
       };
     });
 
-    const stub = STUB_ROUTES[r.key];
-    if (stub) console.log(`  · stub route — ${stub}`);
-    ok('FB.keys set active (hasActive)', stub || state.hasActive);
-    ok('hint surface non-empty', stub || state.hintLen > 0, '#sb-hints/.fb-hint-bar empty');
+    ok('FB.keys set active (hasActive)', state.hasActive);
+    ok('hint surface non-empty', state.hintLen > 0, '#sb-hints/.fb-hint-bar empty');
     const activeSet = state.audit ? state.audit.find(s => s.active && s.bindings.some(b => b.mode === 'NORMAL')) : null;
-    ok('audit: ≥1 active set with NORMAL bindings', stub || !!activeSet,
+    ok('audit: ≥1 active set with NORMAL bindings', !!activeSet,
       state.audit ? `sets: ${state.audit.map(s => `${s.name}(${s.active ? 'on' : 'off'})`).join(', ')}` : 'audit() missing');
 
     // control coverage — exemptions match by id / exact text / selector;

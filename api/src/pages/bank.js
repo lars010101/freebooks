@@ -101,7 +101,7 @@ ${commonStyle()}
     <p style="margin:0 0 8px;font-size:12pt;color:#555">No transactions to show</p>
     <p style="margin:0 0 12px">This page reviews and categorizes imported bank statement lines,
     matching them to your books via mapping rules.</p>
-    <p style="margin:0">Get started: click <a href="/${company}/bank/import" style="color:#1a73d8">⬆ Import statement</a>
+    <p style="margin:0">Get started: click <a href="/${company}/bank?tab=import" style="color:#1a73d8">⬆ Import statement</a>
     or press <kbd style="padding:1px 5px;border:1px solid #ccc;border-radius:3px;background:#f5f5f5">:</kbd> palette &rarr; Bank Import</p>
   </div>
 

@@ -1,8 +1,8 @@
 'use strict';
 
 // Import Statement lives as a TAB of the Bank page (magnus 2026-07-28):
-// Transactions · Import · Mappings. The standalone /bank/import route 301s
-// to /bank?tab=import (reports.js). renderImportPanel returns the panel
+// Transactions · Import · Mappings. The standalone /bank/import route was
+// removed 2026-07-31 (agent-first UI doctrine, roadmap §0q). renderImportPanel returns the panel
 // markup + a script that DEFINES window.fbInitBankImport — bank.js calls it
 // lazily on first tab show (idempotent via __fbImportInited).
 
@@ -584,7 +584,7 @@ window.fbInitBankImport = function () {
           +'</div>'
           +'<div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">'
             +'<a href="/'+COMPANY+'" style="display:inline-block;padding:10px 22px;background:#1a1a1a;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">&larr; Back to Reports</a>'
-            +'<a href="/'+COMPANY+'/bank/import" style="display:inline-block;padding:10px 22px;background:#555;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">Import Another Statement</a>'
+            +'<a href="/'+COMPANY+'/bank?tab=import" style="display:inline-block;padding:10px 22px;background:#555;color:#fff;border-radius:4px;font-weight:600;text-decoration:none">Import Another Statement</a>'
           +'</div></div>';
       })
       .catch(e => { document.getElementById('post-status').textContent = e.message; });

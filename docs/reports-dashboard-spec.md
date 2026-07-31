@@ -23,7 +23,7 @@ Keep both sections, sharply delineated:
 
 - The ONE report viewer: report type + period/custom dates + comparison (MoM/YoY) + export (Print/PDF, CSV).
 - Report categories: **Financial statements** (PL, BS, CF, SCE) · **Audit** (TB, GL, Journal, Integrity) · **Tax & filings** (VAT return, AP/AR aging, future statutory outputs).
-- Keyboard-first with full mouse parity per standing doctrine; migrates onto fb-core/FB.list machinery per `review-roadmap.md`.
+- Keyboard-first per standing doctrine (mouse parity dropped 2026-07-31, roadmap §0q); migrates onto fb-core/FB.list machinery per `review-roadmap.md`.
 
 ## 4. Report registry (architectural foundation)
 

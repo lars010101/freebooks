@@ -165,6 +165,19 @@
 
 **Backlog resumes (per §0m, deadline track done):** Phase A agent-readiness (A1 agent role + whitelist, A2 events + `event.list`, A3j journal/bank-transaction proposals + y/x queue; spec `agent-readiness-spec.md`) + P2-5 MCP server → SRU engine refactor onto `filings/` descriptors + `emitters/` + `periods.tax_attrs` (SRU-only now) → P2 accounting completeness (P2-2 FX reval, P2-3 `bill_lines` subledger, P2-4 VAT unify, P2-6 rebinding) → P3 feeds. Receivables stays dropped from this cycle.
 
+## 0q. Status update — 2026-07-31 (agent-first UI doctrine ratified)
+
+**freebooks is agent-first.** Agents prepare, humans approve (agent-readiness-spec, ratified 2026-07-30) — the API/MCP surface is the product; the web UI is a *viewer plus a small human correction surface*. Magnus ratified the simplifying consequences (Slack, 2026-07-31):
+
+1. **Mouse parity dropped.** Existing mouse support stays; parity is no longer a requirement, review criterion, or test gate. New work ships keyboard + API only.
+2. **Verb surface frozen.** No new keyboard verbs without explicit magnus ratification. `test:keys` gates ONE representative screen — **journal-new** (richest FB.form surface, primary human write path); all other routes get a load + zero-JS-errors smoke. Per-screen exemption tables retired (git history keeps them).
+3. **New scope ships API-first.** UI for new features (Phase A, SRU refactor, P2, P3) is read-only rendering of API results; write-UI only on explicit request. (Extends standing rule 1.)
+4. **Dead routes deleted** (standing rule 6): the `/bank/reconcile` and `/bank/import` 301 stubs are removed; internal links point at `/bank?tab=import`.
+
+**Backlog consequences:** P2-6 rebinding **dropped** (contradicts the frozen verb surface). The K-series keyboard program is complete and frozen at current capability — no further K items. Priorities otherwise unchanged: Phase A + P2-5 MCP → SRU engine refactor (SRU-only) → P2 (P2-2 FX reval, P2-3 `bill_lines` subledger, P2-4 VAT unify) → P3 feeds. Receivables stays dropped.
+
+**Explicitly unchanged:** double-entry invariants; the VAT/GST code model with stated-VAT override + tolerances; the SIE 4 export contract (8999 `#RES`); report rendering rules (permanent zero rows, cross-sums, hela kronor); `FB.status.show()` as the only status path; the vim-modal keyboard framework as the human correction path — frozen, not removed.
+
 ---
 
 ## 1. Verdict

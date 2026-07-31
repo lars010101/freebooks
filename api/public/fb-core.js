@@ -505,7 +505,7 @@
 
     // K1: registry routes (window.FB_ROUTES) — 'Go to …' rows. Dedupe is
     // carried by the registry itself: routes already covered by an
-    // action-catalog navigate entry (journal/new, bank/import, new-company)
+    // action-catalog navigate entry (journal/new, new-company)
     // keep palette:false there, so no runtime dedupe is needed here.
     function _routeCommands() {
       var R = window.FB_ROUTES || [];

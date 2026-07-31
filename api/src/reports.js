@@ -173,9 +173,8 @@ function mountReportRoutes(app) {
   app.get('/:company/payables/aging', function(req, res) {
     res.redirect(302, '/' + req.params.company + '/reports?t=ap-aging');
   });
-  app.get('/:company/bank/reconcile', (req, res) => res.redirect(301, `/${req.params.company}/bank`));
-  // Import Statement is a Bank tab (magnus 2026-07-28) — standalone page retired.
-  app.get('/:company/bank/import', (req, res) => res.redirect(301, `/${req.params.company}/bank?tab=import`));
+  // /bank/reconcile + /bank/import routes REMOVED 2026-07-31 (agent-first UI
+  // doctrine, roadmap §0q): both were 301 stubs; import is the Bank ?tab=import tab.
   app.get('/:company/bank', handleBankPage);
   // Opening Balances relocated to a Settings tab 2026-07-28 (magnus) —
   // old URL 302-redirects to the Settings → Opening Balances tab.

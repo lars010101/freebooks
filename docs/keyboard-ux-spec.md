@@ -5,6 +5,26 @@
 
 ---
 
+## 0. Agent-first UI doctrine (ratified 2026-07-31, magnus — roadmap §0q)
+
+freebooks is agent-first: the API/MCP surface is the product; the web UI is
+a viewer plus a small human correction surface. Consequences for this spec:
+
+- **Mouse parity is dropped.** Existing mouse support stays in place, but
+  parity is no longer a requirement, a review criterion, or a test gate.
+  Historical "mouse parity" ratifications below stand as descriptions of
+  shipped behavior, not obligations for future work.
+- **The verb surface is frozen.** No new keyboard verbs without explicit
+  magnus ratification (P2-6 rebinding is dropped).
+- **The coverage gate is single-screen.** `test:keys` runs the full
+  key-coverage assertions on journal-new only; every other route is
+  smoke-checked (loads, zero uncaught JS errors). Per-screen exemption
+  tables were retired with the crawl (git history keeps them).
+- **New scope ships API-first.** UI for new features is read-only rendering
+  of API results; write-UI is built only on explicit request.
+
+---
+
 ## 1. Route registry — the single source of truth
 
 Every app route lives ONCE in `api/src/nav-registry.js`. Four consumers share

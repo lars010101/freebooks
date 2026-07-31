@@ -41,18 +41,17 @@
 //   4. Assign a gKey letter only for ratified go-to destinations; 'c' is
 //      reserved for the company switcher.
 //
-// g-key slate (ratified 2026-07-28; d/v added same day — magnus review):
-//   g d = Dashboard · g r = Reports · g b = Bank · g p = Payables
+// g-key slate (ratified 2026-07-28; d/v added same day — magnus review;
+// g j activated 2026-07-31 with the A3j Journal register page):
+//   g d = Dashboard · g r = Reports · g b = Bank · g j = Journal · g p = Payables
 //   g v = Receivables · g s = Settings · g i = Bank Import
 //   g c = Company switcher (reserved, not a route)
-//   g j = Journal — OMITTED: no journal LIST page route exists (only
-//          /:company/journal/new, a data-entry form). Revisit when a journal
-//          register/list page is added.
 
 const ROUTES = [
   // ── Sidebar entries (display order = array order) ──
   { key: 'dashboard',   route: '/:company',             label: 'Dashboard',       icon: '📊', sidebar: true,  gKey: 'd',  palette: true,  absolute: false },
   { key: 'bank',        route: '/:company/bank',         label: 'Bank',            icon: '🏦', sidebar: true,  gKey: 'b',  palette: true,  absolute: false },
+  { key: 'journal',     route: '/:company/journal',      label: 'Journal',         icon: '📒', sidebar: true,  gKey: 'j',  palette: true,  absolute: false },
   { key: 'payables',    route: '/:company/payables',     label: 'Payables',        icon: '📋', sidebar: true,  gKey: 'p',  palette: true,  absolute: false },
   { key: 'receivables', route: '/:company/receivables',  label: 'Receivables',     icon: '📄', sidebar: true,  gKey: 'v',  palette: true,  absolute: false },
   { key: 'reports',     route: '/:company/reports',      label: 'Reports',         icon: '📈', sidebar: true,  gKey: 'r',  palette: true,  absolute: false },

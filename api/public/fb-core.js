@@ -1174,6 +1174,12 @@
     //   title, body (HTML — callers escape user data),
     //   buttons: [{ label, danger?, primary?, key?, hint?, requiresConfirm?, onClick(api) }],
     //   typeConfirm: { match, label? },  // exact-match arms requiresConfirm buttons
+    //   noteInput:  { required?: bool, label?, placeholder? },  // A3j §4.4: a free-text
+    //                // note input. When required:true it arms requiresConfirm buttons
+    //                // ONLY when non-empty (the reject-note doctrine); Enter in the
+    //                // input submits the first armed requiresConfirm button. When
+    //                // required:false the input is optional and buttons stay armed
+    //                // (approve's optional note). confirmValue() returns the note.
     //   onCancel                         // Esc + backdrop (never a confirm)
     // }
     // api: { close(), error(text), confirmValue(), btn(i) }
@@ -1194,6 +1200,22 @@
           + 'style="width:100%;padding:6px 9px;border:1px solid #ccc;border-radius:4px;font-size:10pt;font-family:monospace;box-sizing:border-box">'
           + '</div>';
       }
+      // A3j §4.4: free-text note input (approve's optional note; reject's
+      // REQUIRED note — required:true arms requiresConfirm buttons only when
+      // non-empty, Enter submits the first armed button). Same input element
+      // family as typeConfirm so the existing arm/Enter/getMode machinery keys
+      // off `input` below; the two are mutually exclusive (a modal uses either
+      // exact-match typeConfirm or free-text noteInput, never both).
+      if (opts.noteInput) {
+        var nLabel = opts.noteInput.label || (opts.noteInput.required ? 'Note (required)' : 'Note (optional)');
+        html += '<div class="fb-modal-body" style="margin-top:10px">'
+          + '<label for="fb-modal-tc" style="display:block;font-size:9pt;color:#555;margin-bottom:4px">'
+          + esc(nLabel) + '</label>'
+          + '<input type="text" id="fb-modal-tc" autocomplete="off" spellcheck="false" '
+          + 'placeholder="' + esc(opts.noteInput.placeholder || '') + '" '
+          + 'style="width:100%;padding:6px 9px;border:1px solid #ccc;border-radius:4px;font-size:10pt;box-sizing:border-box">'
+          + '</div>';
+      }
       html += '<div class="fb-modal-err" style="display:none"></div>'
         + '<div class="fb-modal-btns">'
         + opts.buttons.map(function (b, i) {
@@ -1211,7 +1233,16 @@
       var input = _el.querySelector('#fb-modal-tc');
       var btnEls = Array.prototype.slice.call(_el.querySelectorAll('.fb-modal-btns button'));
 
-      function _armed() { return !opts.typeConfirm || !!(input && input.value === opts.typeConfirm.match); }
+      // _armed: typeConfirm = exact-match; noteInput.required = non-empty arms;
+      // noteInput absent or required:false = always armed (optional note).
+      function _armed() {
+        if (opts.noteInput) {
+          if (opts.noteInput.required) return !!(input && input.value.trim() !== '');
+          return true;
+        }
+        if (!opts.typeConfirm) return true;
+        return !!(input && input.value === opts.typeConfirm.match);
+      }
       function _refresh() {
         btnEls.forEach(function (btn) {
           var b = opts.buttons[Number(btn.dataset.i)];
@@ -1336,4 +1367,31 @@
 
   // Legacy global so template-string pages can drop their local esc copies.
   window.esc = esc;
+
+  // ── A3j §4.4: Journal queue badge ─────────────────────────────────────────
+  // The sidebar Journal item carries the pending-proposal count — the
+  // monitoring surface: the human sees there is work without opening
+  // anything. Refreshed on every page boot (soft-nav re-renders the page)
+  // and on the 'fb:queue-changed' window event (the Journal page fires it
+  // after approve/reject). R6: the badge is read-only state; all eligibility
+  // decisions stay server-side.
+  function _refreshJournalBadge() {
+    var badge = document.getElementById('sb-journal-badge');
+    if (!badge) return;
+    var shell = document.getElementById('app-shell');
+    var company = shell && shell.dataset ? shell.dataset.company : null;
+    if (!company) return;
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'journal.proposal.list', companyId: company, status: 'proposed', limit: 100 }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        var n = (res && res.ok && Array.isArray(res.data)) ? res.data.length : 0;
+        badge.textContent = n > 99 ? '99+' : String(n);
+        badge.hidden = n === 0;
+      })
+      .catch(function () { badge.hidden = true; });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _refreshJournalBadge);
+  else _refreshJournalBadge();
+  window.addEventListener('fb:queue-changed', _refreshJournalBadge);
 })();

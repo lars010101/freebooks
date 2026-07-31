@@ -619,6 +619,9 @@ async function importEntries(ctx) {
 async function proposeEntry(ctx) {
   const { companyId, userEmail, actor, requestId, body } = ctx;
   const { lines, journalId, reference, description, proposalId } = body;
+  // Install-level trust: userEmail may be absent — the proposal's origin must
+  // still be stamped (created_by is NOT NULL). House fallback, same as audit.
+  const proposer = userEmail || 'anonymous';
 
   // Enrich + validate exactly like journal.post — but nothing reaches
   // journal_entries. The human reviews the computed results.
@@ -643,7 +646,7 @@ async function proposeEntry(ctx) {
     if (existing.length > 0) {
       const row = existing[0];
       // Cannot touch another actor's proposal.
-      if (String(row.created_by) !== String(userEmail)) {
+      if (String(row.created_by) !== String(proposer)) {
         throw Object.assign(new Error('Cannot upsert a proposal owned by another actor'), { code: 'FORBIDDEN' });
       }
       // Can only upsert a still-'proposed' row (posted/rejected are terminal).
@@ -680,9 +683,7 @@ async function proposeEntry(ctx) {
     lines: linesJson,
     status: 'proposed',
     batch_id: null,
-    created_by: userEmail,
-    request_id: requestId || null,
-    reviewed_by: null,
+    created_by: proposer,
     reviewed_at: null,
     review_note: null,
     created_at: now,

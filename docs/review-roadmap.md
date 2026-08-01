@@ -204,6 +204,12 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 ---
 
+## 0t. Status update — 2026-08-01 (SRU MEDIELEV contact fix — Skatteverket rejection)
+
+**Hotfix: SRU files were REJECTED by Skatteverket at submission** — `#POSTNR` and `#POSTORT` in INFO.SRU's `#MEDIELEV` block are mandatory and were emitted blank (`#ADRESS`/`#POSTNR`/`#POSTORT` hardcoded empty since the SRU path shipped). Fix on `fix/sru-medielev-contact`: the pack's `contactAttributes` (already declared in `jurisdiction.json`, previously unconsumed) now drive the Company settings registry — one generic row per declared attribute (`company.attr.list`), stored as `contact_<key>` settings keys, written via `company.attr.save` with pack-driven validation (`format` regex; SE postnr `^\d{3}\s?\d{2}$` — 5 digits, space optional — and `required: true` flags added to the SE pack). `buildInfoText` populates `#ADRESS`/`#POSTNR`/`#POSTORT` from stored attrs; `#KONTAKT`/`#EMAIL`/`#TELEFON` fall back to stored attrs with query params still winning. **Generation is gated:** `/sru/info` and `/sru/ink2` return 400 naming Settings → Company when required attrs are blank/invalid (the failure mode is now loud at generation, not at Skatteverket); `?check=1` appends the problems to `warnings` instead of blocking. New `api/src/jurisdiction-packs.js` cached loader (also consumed by the SIE gating workstream). **Forward-port required:** `origin/sru-engine-refactor`'s `emitters/sruLines.js` carries the same blank MEDIELEV block — same fix must land there before PR #75 merges. Verification: `api/test/sru-contact.test.js` 6/6 (pack-driven rows SE vs SG, zip format validation, undeclared-key rejection, 400 gate pre-compute, populated MEDIELEV + param override, check=1 warns-not-blocks) + full suite 68/68.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

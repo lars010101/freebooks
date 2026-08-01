@@ -88,6 +88,8 @@ npm install --prefix mcp
 FREEBOOKS_API_URL=http://127.0.0.1:3000 FREEBOOKS_USER=agent@example.com FREEBOOKS_COMPANY=mycompany node mcp/server.js
 ```
 
+Proposals SHOULD carry their source documents via the §4.7 upload-first binding convention — `attachment_upload` with `entityType='journal_proposal'` + the client-minted `proposalId`, then `journal_propose` with the same id (see `docs/agent-readiness-spec.md` §4.7).
+
 `FREEBOOKS_REQUEST_ID` optionally overrides the per-session correlation id (one MCP session = one `X-Request-Id` run in `audit_log`/`events`). The server talks HTTP to the action API only — never the DB file. The account named by `FREEBOOKS_USER` should hold the `agent` role (reads + proposals only; everything else is default-deny).
 
 ---

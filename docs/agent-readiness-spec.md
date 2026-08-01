@@ -2,6 +2,7 @@
 
 **Date:** 2026-07-29 · **Status:** RATIFIED 2026-07-30 (magnus go-ahead) · **Context:** agent-driven operating model (Slack design thread, 2026-07-29)
 **Amended 2026-07-30 (roadmap §0m rescope):** A3 retargeted from bill proposals to **A3j — journal/bank-transaction proposals** (bill proposals dropped with the payables extras); **P2-5 MCP server pulled forward** into this tranche as component 4. Section status: §2 A1, §3 A2, §4 A3j — **shipped** (PR #71, main `390f4e5`); §5 MCP — **shipped** (phase-mcp-server PR; `tests/mcp-smoke.mjs` 26/26).
+**Amended 2026-08-01 (Slack thread):** **A4 — proposal underlag** added (§4.7, R7): source-document binding for agent proposals; warn-not-block per BFL 5 kap egen verifikation.
 
 ---
 
@@ -32,6 +33,7 @@ This tranche makes that model enforceable and observable inside freebooks, in fo
 | R4 | Events are business facts, append-only, emitted exactly once — an idempotent-key replay must never double-emit. |
 | R5 | Human review is an explicit state transition, not a convention. No agent-created row reaches `journal_entries` without a human approve (which *is* the post — §4.1). |
 | R6 | All enforcement is server-side. The client renders state and offers verbs; it never decides eligibility. |
+| R7 | An agent proposal is never rejected for lacking attachments — BFL 5 kap permits egen verifikation. The review surface must *warn* on missing underlag; it must never block. |
 
 ---
 
@@ -215,6 +217,28 @@ No new page, no new route. The Journal FB.list **is** the queue:
 
 No `bank_transactions` table exists today (feeds are P3). When feeds land, a bank-feed adapter is an agent-side loop that turns transactions into `journal.propose` calls — the freebooks-side artifact is always a journal proposal, so this tranche needs no bank-specific machinery.
 
+### 4.7 A4 — Proposal underlag (source-document binding)
+
+**Regulatory basis.** Bokföringslagen (1999:1078) 5 kap requires every verifikation to reference the handlingar / räkenskapsinformation it rests on; 7 kap requires räkenskapsinformation to be retained and readable for 7 years after the calendar year the financial year ends (~8 years effective for a calendar FY; medium-neutral since the 2022 amendments). BFN practice accepts **egen verifikation** — a self-documenting voucher for corrections, accruals, and like cases where no external source document exists. Therefore a missing underlag is a **warning, never a block** (R7): the proposal still proposes; the human reviewer sees the gap and decides.
+
+**Binding convention (client-side; no API/schema change).** The 4-tool MCP manifest and the action catalog stay frozen — A4 is a *convention*, documented here, not a new surface. The agent pipeline is upload-first (the document exists before the proposal does), so the order is:
+
+1. Agent **mints the `proposalId` client-side** (uuid; `journal.propose` already supports a caller-supplied `proposalId` for upsert — §4.3).
+2. Agent **uploads each source document** via `attachment.upload` with `entityType='journal_proposal'` and `entityId=` that same `proposalId`.
+3. Agent **calls `journal.propose`** with the same `proposalId`.
+
+The shared `attachments` table (PR #73) already keys on `(entity_type, entity_id)`; `journal_proposal` is just another entity type to it. No new column on `journal_proposals` — the join is computed. Cross-ref §5.2 (`attachment_upload`).
+
+**Propose-time count + warning.** `journal.propose` computes `attachment_count` via `SELECT count(*) FROM attachments WHERE entity_type='journal_proposal' AND entity_id=$proposalId` and returns it in the response alongside `warnings`; when the count is 0 the response carries `warnings:['no_underlag']` (R7 warn-not-block — the propose still succeeds). `journal.proposal.list` joins `attachments` to carry `attachment_count` per row so the queue badge renders without a second round-trip.
+
+**Review UX (unfold preview + folded badge).** Unfolding a `PROPOSED` row in `/:company/journal` fetches `attachment.list(entityType='journal_proposal', entityId=proposalId)` and renders the shared `fb-attachments` rows (§0k K4) with inline preview via the existing `GET /api/attachments/:id` route — no new preview path. The folded row shows an **underlag-count badge**; zero attachments renders a visible **"no underlag" warning marker** so the reviewer cannot miss the gap. This reuses the queue idiom from §4.4 (status-filtered FB.list + row verbs); no new page.
+
+**Approve-time re-point (atomic).** On `journal.approve`, the **same transaction that posts the batch** re-points the bound attachment rows from `entity_type='journal_proposal'` / `entity_id=proposalId` to `entity_type='journal'` / `entity_id=batchId`, inside the compensating-rollback wrapper established in PR #73 (§4.3 as-built): a post failure rolls the proposal back to `proposed` and leaves the attachments bound to the proposal. **Blob storage paths do not move** — only the metadata rows' entity pointers change; the opaque storage keys stay. After re-point, the journal-new attachment panel (which queries `'journal'`/`batchId`) shows them in place, as if they had been attached to the posted batch directly.
+
+**Reject / expire + GC.** On reject or expire, attachments stay bound to the dead `proposalId` (no voucher posted → no BFL 7 kap retention duty yet). A GC pass purges them after a **30-day grace period** from the terminal transition. **GC hard invariant:** purge *only* `entity_type='journal_proposal'` rows whose `proposalId` no longer exists in `journal_proposals`; **never** touch rows re-pointed to `entity_type='journal'` (those are now bound to a posted voucher and fall under 7 kap retention).
+
+**Disk controls.** The existing 32 MB per-file cap (PR #73) is **tightened to 15 MB** for `journal_proposal` uploads. Content-type whitelist: `application/pdf`, `image/jpeg`, `image/png`. **sha256 dedupe per company:** identical hash within a company reuses the stored blob path and writes a new metadata row only — the hash doubles as integrity evidence. Blob storage stays on the filesystem with metadata in DuckDB (status quo, PR #73); the **attachments directory is in DB backup scope**. Realistic footprint for a small AB: ~0.5–15 GB over the 8-year retention window.
+
 ---
 
 ## 5. P2-5 — MCP server
@@ -240,7 +264,7 @@ As built (hardening 2026-07-31): `attachment_upload` travels via the `attachment
 |---|---|---|
 | `event_list(after_seq?, type?, limit?)` | `event.list` | The agent's work-discovery channel (§3.3). |
 | `journal_propose(lines, journalId?, reference?, description?, proposalId?)` | `journal.propose` | The only write path to the ledger — proposals, never postings (R5). |
-| `attachment_upload(...)` | `attachment.upload` | Params mirror the action (base64 `contentBase64`); sends an `Idempotency-Key` (caller-suppliable) like `journal_propose`. Maps to the action (not the multipart route) as of hardening 2026-07-31. |
+| `attachment_upload(...)` | `attachment.upload` | Params mirror the action (base64 `contentBase64`); sends an `Idempotency-Key` (caller-suppliable) like `journal_propose`. Maps to the action (not the multipart route) as of hardening 2026-07-31. For proposal underlag binding (entityType='journal_proposal'), see §4.7. |
 | `freebooks_read(action, params?)` | any catalog action with `mutating: false` | Generic read gateway (journal/list/get/search, account balances, views, reports, `journal.proposal.*`). Client-side allowlist for friendly errors; **the server-side §2.3 whitelist remains the enforcement.** |
 
 No approve/reject/post/void/master-data tools exist — the agent account couldn't use them anyway (default-deny), and their absence keeps the tool manifest self-documenting.
@@ -293,6 +317,12 @@ Sequencing after this tranche: **SRU engine refactor** (SRU-only), then **P2 acc
 7. Audit rows carry `actor_type` + `request_id` for both dispatch and field-level entries.
 8. Approve-time re-validation: propose valid → lock the period → approve fails `PERIOD_LOCKED` → unlock → approve succeeds.
 9. MCP smoke per §5.3.
+10. A4 propose-with-attachments: `attachment.upload` (entityType='journal_proposal', entityId=proposalId) before `journal.propose` → propose response carries `attachment_count` ≥ 1 and no `no_underlag` warning; `journal.proposal.list` carries the same `attachment_count` for the badge.
+11. A4 unfold preview (Playwright, `pw-phase-a.mjs` untracked per convention): unfolding a `PROPOSED` row renders the bound underlag rows via `attachment.list` + inline `GET /api/attachments/:id` preview; the folded row shows the count badge.
+12. A4 approve re-point: approve posts the batch and re-points attachment rows to `entity_type='journal'` / `entity_id=batchId` **in one transaction**; a post failure rolls both the proposal status and the re-point back (attachments stay on the proposal).
+13. A4 warn-not-block proof (R7): `journal.propose` with **zero** attachments succeeds and returns `warnings:['no_underlag']`; the proposal is not rejected.
+14. A4 GC invariant: GC purges only `entity_type='journal_proposal'` rows whose `proposalId` no longer exists in `journal_proposals` past the 30-day grace; rows re-pointed to `entity_type='journal'` are never touched.
+15. A4 sha256 dedupe: two identical uploads (same sha256, same company) store one blob on disk with two metadata rows.
 
 **Playwright** (`pw-phase-a.mjs`, untracked per convention): queue verbs end-to-end — propose via API → row appears with `PROPOSED` → `y` modal Esc cancels → `y` Enter approves → row becomes posted batch → badge decrements; `x` empty-note disabled → note → rejected row filtered out. `keys-coverage` gate stays green.
 
@@ -304,5 +334,6 @@ Sequencing after this tranche: **SRU engine refactor** (SRU-only), then **P2 acc
 2. **A2** — `events` table + sequence, `emitEvent`, the §3.2 call sites, `event.list`. *(Small-medium.)*
 3. **A3j** — `journal_proposals` table, `enrichAndValidate`/`postJournalBatch` refactor, `journal.propose/approve/reject` + `journal.proposal.list/get`, Journal-list queue UI + badge + detail unfold. *(Medium — the bulk is UI.)*
 4. **MCP (P2-5)** — `mcp/` server per §5. *(Small; consumes 1–3.)*
+5. **A4** — proposal underlag per §4.7: propose-time count/warning, queue unfold preview, approve re-point, GC, dedupe. *(Small-medium; no API/schema additions — one binding convention + UI surface.)*
 
 Each lands as its own PR with the spec updated in the same commit (standing rule 5).

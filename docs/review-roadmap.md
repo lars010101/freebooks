@@ -192,6 +192,14 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 ---
 
+## 0s. Status update — 2026-08-01 (A4 proposal underlag ratified)
+
+**A4 — proposal underlag** ratified in the Slack design thread 2026-08-01 (magnus): spec §4.7 + invariant R7 added to `agent-readiness-spec.md`. The binding decision recorded: source documents bind to agent proposals via the **client-minted `proposalId`** (upload-first → `attachment.upload` with `entityType='journal_proposal'`, then `journal.propose` with the same id) rather than an explicit `attachment_ids` param on `journal.propose` — rationale: upload-first matches the real agent pipeline (document exists before the proposal), no API/schema surface change, one binding convention documented client-side. The **warn-not-block** decision recorded: a missing underlag emits `warnings:['no_underlag']` but never rejects the proposal — BFL 5 kap permits egen verifikation (corrections, accruals), so blocking would be wrong; the review surface shows a visible "no underlag" marker and lets the human decide. On approve, attachments re-point to `entity_type='journal'`/`batchId` inside the posting transaction (blob paths unmoved); on reject/expire they stay bound to the dead proposalId and a GC purges them after a 30-day grace (hard invariant: never touch `'journal'`-bound rows). Disk controls tightened to 15 MB + pdf/jpg/png whitelist + sha256 dedupe per company.
+
+**Layer-2 sanity test of Phase A passed on main** (fixture loop): agent propose → human approve → anonymous poster; `attachment.uploaded` event fires; default-deny 403s hold on every non-whitelisted mutating action. **Next:** A4 build as its own PR per standing rule 5, then the SRU engine refactor onto `filings/` descriptors + `emitters/` + `periods.tax_attrs` (SRU-only).
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

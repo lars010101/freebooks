@@ -198,6 +198,10 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 **Layer-2 sanity test of Phase A passed on main** (fixture loop): agent propose → human approve → anonymous poster; `attachment.uploaded` event fires; default-deny 403s hold on every non-whitelisted mutating action. **Next:** A4 build as its own PR per standing rule 5, then the SRU engine refactor onto `filings/` descriptors + `emitters/` + `periods.tax_attrs` (SRU-only).
 
+**A4 shipped (this update)** on `phase-a4-underlag` (`f3c8a91`) — code + tests as one PR per standing rule 5; spec §4.7 + R7 pre-landed on main (`6b5d81d`). Gate results on the branch: contract suite 62/60/2 (the 2 failures pre-existing on main and wall-clock fragile — see residual (f)), `tests/mcp-smoke.mjs` 28/28, `npm run test:keys` 26/26 (0 triage), Playwright `pw-phase-a4.mjs` 12/12 (untracked per convention). As-built additions over the ratified §4.7: an operator/test-triggerable GC endpoint `POST /api/admin/gc-attachments` (bearer-token gated exactly like `/api/admin/query`, 403 without `FREEBOOKS_ADMIN_TOKEN`), supplementing the boot-time + 24h `setInterval` GC; idempotent schema evolution for sha256 (`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS sha256` + `idx_attachments_company_sha256`) — the §4.7 binding convention itself stays schema-free; the 15 MB + pdf/jpg/png limits scoped to `entity_type='journal_proposal'` uploads only (other entity types keep the 32 MB status quo); dedupe global across entity types (shared blob unlinked only when no metadata row references the path). **Next:** the SRU engine refactor onto `filings/` descriptors + `emitters/` + `periods.tax_attrs` (SRU-only).
+
+**Residuals (backlog, none blocking):** (f) contract tests 12 ("draft flow: save → re-save keeps bill_id → post → void reverses journals") and 26 ("bill.payment.void") are wall-clock fragile — hardcoded dates vs seeded periods (fail as of 2026-08-01 — "Date 2026-08-01 does not fall within any defined period"; make the fixtures derive dates from the seeded periods).
+
 ---
 
 ## 0t. Status update — 2026-08-01 (SRU engine refactor shipped)

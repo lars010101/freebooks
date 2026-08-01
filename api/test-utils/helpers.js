@@ -111,7 +111,10 @@ async function sql(baseUrl, adminToken, query, params = []) {
 
 /**
  * Seed a company through the action API: jurisdiction COA + VAT codes, one
- * unlocked period covering 2026-07, one vendor. Returns handy account codes.
+ * unlocked period covering 2026-07 plus one covering the run date (void
+ * actions reverse with reversalDate = server "today" — without a covering
+ * period the suite breaks on every month rollover), one vendor.
+ * Returns handy account codes.
  */
 async function seedCompany(baseUrl, companyId, { jurisdiction = 'SG', currency = 'SGD' } = {}) {
   const c = await api(baseUrl, 'setup.add_company', {
@@ -131,6 +134,20 @@ async function seedCompany(baseUrl, companyId, { jurisdiction = 'SG', currency =
     period: { period_id: '2026-07', start_date: '2026-07-01', end_date: '2026-07-31' },
   });
   if (p.status !== 200) throw new Error(`period.upsert failed: ${JSON.stringify(p.body)}`);
+
+  // bill.void / bill.payment.void reverse via journal.reverse with no explicit
+  // reversalDate → server defaults to "today". Guarantee a period covers the
+  // run date, or those tests fail with PERIOD_UNDEFINED every month rollover.
+  const curId = new Date().toISOString().slice(0, 7); // YYYY-MM (UTC, matches server)
+  if (curId !== '2026-07') {
+    const [y, m] = curId.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate(); // day 0 of next month = last of this
+    const cp = await api(baseUrl, 'period.upsert', {
+      companyId,
+      period: { period_id: curId, start_date: `${curId}-01`, end_date: `${curId}-${String(lastDay).padStart(2, '0')}` },
+    });
+    if (cp.status !== 200) throw new Error(`current-month period.upsert failed: ${JSON.stringify(cp.body)}`);
+  }
 
   const v = await api(baseUrl, 'vendor.upsert', {
     companyId,

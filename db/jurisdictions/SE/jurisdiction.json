@@ -19,5 +19,8 @@
     { "key": "contact_name", "label": "Kontaktperson" },
     { "key": "contact_phone", "label": "Telefon" },
     { "key": "contact_email", "label": "E-post" }
-  ]
+  ],
+  "integrations": {
+    "sie": { "export": true, "import": true }
+  }
 }

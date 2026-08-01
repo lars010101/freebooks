@@ -1,9 +1,22 @@
 'use strict';
 const { navBar, layoutEnd, commonStyle } = require('./common');
 const { REPORT_REGISTRY, reportsByCategory } = require('../report-registry');
+const { queryPositional } = require('../db');
+const { packIntegration } = require('../jurisdiction-packs');
 
 async function handleReportsHubPage(req, res) {
   const company = req.params.company;
+
+  // SIE is a Swedish statutory format — the export affordance only renders
+  // when the company's jurisdiction pack declares integrations.sie.export
+  // (the /report?type=sie endpoint enforces the same gate server-side).
+  let sieExportEnabled = false;
+  try {
+    const jurRows = await queryPositional(
+      `SELECT jurisdiction FROM companies WHERE company_id = ? ORDER BY created_at DESC LIMIT 1`, [company]);
+    const integ = jurRows.length ? packIntegration(jurRows[0].jurisdiction, 'sie') : null;
+    sieExportEnabled = !!(integ && integ.export);
+  } catch { sieExportEnabled = false; }
 
   // Dropdown + client behavior driven by the report registry
   // (docs/reports-dashboard-spec.md §4) — add a report there, not here.
@@ -47,7 +60,7 @@ ${commonStyle()}
       <div id="rpt-dl-dd" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:300;min-width:140px;padding:4px 0">
         <button onclick="fbExportPDF()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">🖳 Print / PDF</button>
         <button onclick="fbExportCSV()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">⬇ CSV</button>
-        <button onclick="fbExportSIE()" title="SIE 4 ledger export (Gredor/Bolagsverket)" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">⬇ SIE</button>
+        ${sieExportEnabled ? '<button onclick="fbExportSIE()" title="SIE 4 ledger export (Gredor/Bolagsverket)" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">⬇ SIE</button>' : ''}
       </div>
     </div>
   </div>

@@ -121,6 +121,29 @@ test('duplicate re-import: imported 0, skippedDuplicate === all', async () => {
   assert.equal(again.body.data.vouchers.skippedDuplicate, 3, 'all 3 skipped as duplicates');
 });
 
+// ── 2b. Jurisdiction gating (integrations.sie in the pack) ───────────────────
+
+test('jurisdiction gating: sie.import + SIE export reject non-SE companies', async () => {
+  const SG = 'SIE_SG';
+  await seedCompany(baseUrl, SG, { jurisdiction: 'SG', currency: 'SGD' });
+
+  const imp = await api(baseUrl, 'sie.import', { companyId: SG, content: '#SIETYP 4\n', dryRun: false });
+  assert.equal(imp.status, 400, JSON.stringify(imp.body));
+  assert.match(imp.body.error.message, /SIE import not available for jurisdiction SG/);
+
+  const exp = await fetch(`${baseUrl}/api/${SG}/report?type=sie&start=2026-01-01&end=2026-12-31`);
+  assert.equal(exp.status, 400);
+  const expBody = await exp.json();
+  assert.match(expBody.error, /SIE export not available for jurisdiction SG/);
+
+  // SE stays allowed (pack declares integrations.sie) — dryRun parse of a
+  // minimal file reaches the normal response shape, not a gate rejection.
+  const SE1 = 'SIE_SE1';
+  await seedCompany(baseUrl, SE1, { jurisdiction: 'SE', currency: 'SEK' });
+  const okImp = await api(baseUrl, 'sie.import', { companyId: SE1, content: '#SIETYP 4\n#RAR 0 20260101 20261231\n' });
+  assert.equal(okImp.status, 200, JSON.stringify(okImp.body));
+});
+
 // ── 4. Unbalanced #VER fails, balanced imports ───────────────────────────────
 
 test('unbalanced #VER is failed, balanced #VER imports', async () => {

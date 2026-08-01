@@ -54,4 +54,19 @@ function contactAttributesFor(code) {
   return (pack && Array.isArray(pack.contactAttributes)) ? pack.contactAttributes : [];
 }
 
-module.exports = { getJurisdictionPack, contactAttributesFor };
+/**
+ * Integration declared by the pack (`integrations.<name>`), e.g.
+ * `packIntegration('SE', 'sie')` → `{ export: true, import: true }`.
+ * Returns `null` when the pack is missing or declares no such integration —
+ * callers treat null as "not available for this jurisdiction".
+ * @param {string} code Jurisdiction code.
+ * @param {string} name Integration name (e.g. 'sie').
+ * @returns {object|null}
+ */
+function packIntegration(code, name) {
+  const pack = getJurisdictionPack(code);
+  const integ = pack && pack.integrations && pack.integrations[name];
+  return integ || null;
+}
+
+module.exports = { getJurisdictionPack, contactAttributesFor, packIntegration };

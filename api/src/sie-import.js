@@ -19,6 +19,7 @@
 
 const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
+const { packIntegration } = require('./jurisdiction-packs');
 
 // ── CP437 decode ─────────────────────────────────────────────────────────────
 // Standard IBM code page 437 mapping for bytes 0x80–0xFF (128 code points,
@@ -287,11 +288,21 @@ async function importSie(ctx) {
 
   // Company lookup.
   const companies = await query(
-    `SELECT company_name, tax_id, currency FROM companies WHERE company_id = @companyId LIMIT 1`,
+    `SELECT company_name, tax_id, currency, jurisdiction FROM companies WHERE company_id = @companyId LIMIT 1`,
     { companyId }
   );
   if (!companies.length) throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
   const company = companies[0];
+
+  // SIE is a Swedish statutory format — import only where the jurisdiction
+  // pack declares integrations.sie.import.
+  const sieInteg = packIntegration(company.jurisdiction, 'sie');
+  if (!sieInteg || !sieInteg.import) {
+    throw Object.assign(
+      new Error(`SIE import not available for jurisdiction ${company.jurisdiction || 'unknown'}`),
+      { code: 'INVALID_INPUT' }
+    );
+  }
 
   const warnings = [];
 

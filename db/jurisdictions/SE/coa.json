@@ -133,6 +133,13 @@
     "cf_category": "Excluded"
   },
   {
+    "account_code": "1980",
+    "account_name": "Övriga kortfristiga fordringar",
+    "account_type": "Asset",
+    "account_subtype": "Current Assets",
+    "cf_category": "Operating"
+  },
+  {
     "account_code": "2081",
     "account_name": "Aktiekapital",
     "account_type": "Equity",

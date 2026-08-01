@@ -30,7 +30,7 @@ const { handleAdminQuery } = require('./pages/admin');
 const { makeQuery } = require('./pages/common');
 const { handleReportsHubPage } = require('./pages/reports-hub');
 const { handleReceivablesPage } = require('./pages/receivables');
-const { handleSruInk2, handleSruInfo } = require('./sru');
+const { handleSruInk2, handleSruInfo } = require('./filings');
 
 // ── Route: GET /api/:company/report ──────────────────────────────────────────
 async function handleReport(req, res) {

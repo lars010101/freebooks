@@ -53,6 +53,10 @@ for (const entry of fs.readdirSync(DIR, { withFileTypes: true })) {
       try { desc = JSON.parse(fs.readFileSync(path.join(filingsDir, f), 'utf8')); }
       catch (e) { fail(code, `filings/${f} does not parse: ${e.message}`); continue; }
       if (desc.schema !== 1) fail(code, `filings/${f}: schema must be 1`);
+      if (desc.emitter) {
+        const ePath = path.join(DIR, '..', '..', 'api', 'src', 'emitters', desc.emitter + '.js');
+        if (!fs.existsSync(ePath)) fail(code, `filings/${f}: emitter '${desc.emitter}' not found at api/src/emitters/${desc.emitter}.js`);
+      }
 
       const checkRefs = (obj, where) => {
         if (obj.accounts) for (const a of obj.accounts) {

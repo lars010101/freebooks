@@ -395,6 +395,12 @@ async function generateAndCompare() {
     const bsIdx = Object.fromEntries(bsHeader.map((h, i) => [h, i]));
     const bsData = bsRows.slice(1);
 
+    // SRU generation is gated on the mandatory MEDIELEV contact attributes
+    // (Skatteverket rejects blank #POSTNR/#POSTORT) — seed them here.
+    await apiPost('company.attr.save', COMPANY_ID, { key: 'contact_address', value: 'Sveavägen 1' }, 'gold-attr-address');
+    await apiPost('company.attr.save', COMPANY_ID, { key: 'contact_postnr', value: '114 51' }, 'gold-attr-postnr');
+    await apiPost('company.attr.save', COMPANY_ID, { key: 'contact_postort', value: 'Stockholm' }, 'gold-attr-postort');
+
     await ensureAccountAndPeriod(journalData, bsData, idx, bsIdx);
     await loadAndPostBooks(journalData, bsData, idx, bsIdx);
     await generateAndCompare();

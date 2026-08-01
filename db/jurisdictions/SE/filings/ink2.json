@@ -1,0 +1,153 @@
+{
+  "schema": 1,
+  "id": "ink2",
+  "name": "Inkomstdeklaration 2 (SRU)",
+  "authority": "Skatteverket",
+  "emitter": "sruLines",
+  "route": "/api/:company/sru/ink2",
+  "version": "{year}P4",
+  "blanketts": [
+    "INK2",
+    "INK2R",
+    "INK2S"
+  ],
+  "comment": "Flat fields map; 'blankett' assigns each field to its blanket block. kinds: asset=DR-CR at period end, equity/liability=CR-DR at end, cost=DR-CR within period, income=CR-DR within period. ops: sign_split_profit/loss (source book_result|tax_result), tax_attr (period tax attribute; ?loss_cf= query override wins), loss_closing, copy, flag. 7011/7012 (period start/end) are engine-injected into every blanket.",
+  "fields": {
+    "7104": {
+      "blankett": "INK2",
+      "op": "copy",
+      "source": "7670"
+    },
+    "7114": {
+      "blankett": "INK2",
+      "op": "copy",
+      "source": "7770"
+    },
+    "7251": {
+      "blankett": "INK2R",
+      "accounts": [
+        "1510"
+      ],
+      "kind": "asset"
+    },
+    "7261": {
+      "blankett": "INK2R",
+      "accounts": [
+        "1630",
+        "1680"
+      ],
+      "kind": "asset"
+    },
+    "7281": {
+      "blankett": "INK2R",
+      "accounts": [
+        "1910",
+        "1930",
+        "1940",
+        "1980"
+      ],
+      "kind": "asset"
+    },
+    "7301": {
+      "blankett": "INK2R",
+      "accounts": [
+        "2081"
+      ],
+      "kind": "equity"
+    },
+    "7302": {
+      "blankett": "INK2R",
+      "accounts": [
+        "2091",
+        "2098",
+        "2099"
+      ],
+      "kind": "equity"
+    },
+    "7365": {
+      "blankett": "INK2R",
+      "accounts": [
+        "2440"
+      ],
+      "kind": "liability"
+    },
+    "7368": {
+      "blankett": "INK2R",
+      "accounts": [
+        "2510"
+      ],
+      "kind": "liability"
+    },
+    "7417": {
+      "blankett": "INK2R",
+      "accounts": [
+        "8310",
+        "8314"
+      ],
+      "kind": "income"
+    },
+    "7450": {
+      "blankett": "INK2R",
+      "op": "sign_split_profit",
+      "source": "book_result"
+    },
+    "7513": {
+      "blankett": "INK2R",
+      "accounts": [
+        "6570"
+      ],
+      "kind": "cost"
+    },
+    "7550": {
+      "blankett": "INK2R",
+      "op": "sign_split_loss",
+      "source": "book_result"
+    },
+    "7650": {
+      "blankett": "INK2S",
+      "op": "sign_split_profit",
+      "source": "book_result"
+    },
+    "7670": {
+      "blankett": "INK2S",
+      "op": "sign_split_profit",
+      "source": "tax_result"
+    },
+    "7750": {
+      "blankett": "INK2S",
+      "op": "sign_split_loss",
+      "source": "book_result"
+    },
+    "7754": {
+      "blankett": "INK2S",
+      "accounts": [
+        "8314"
+      ],
+      "kind": "income"
+    },
+    "7763": {
+      "blankett": "INK2S",
+      "op": "tax_attr",
+      "attr": "loss_cf",
+      "emitZero": true
+    },
+    "7770": {
+      "blankett": "INK2S",
+      "op": "loss_closing"
+    },
+    "8041": {
+      "blankett": "INK2S",
+      "op": "flag",
+      "attr": "consultant",
+      "emitWhen": false,
+      "value": "X"
+    },
+    "8045": {
+      "blankett": "INK2S",
+      "op": "flag",
+      "attr": "audited",
+      "emitWhen": false,
+      "value": "X"
+    }
+  }
+}

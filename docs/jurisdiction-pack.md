@@ -83,8 +83,8 @@ One file per authority filing. Example — `SE/filings/ink2.json` (shape):
   "version": "{year}P4",
   "blanketts": ["INK2", "INK2R", "INK2S"],
   "fields": {
-    "7261": { "accounts": ["1630", "1680"], "kind": "asset" },
-    "7302": { "accounts": ["2091", "2098", "2099"], "kind": "equity" },
+    "7261": { "blankett": "INK2R", "accounts": ["1630", "1680"], "kind": "asset" },
+    "7302": { "blankett": "INK2R", "accounts": ["2091", "2098", "2099"], "kind": "equity" },
     "7417": { "accounts": ["8310", "8314"], "kind": "income" },
     "7550": { "op": "sign_split_loss", "source": "book_result" },
     "7450": { "op": "sign_split_profit", "source": "book_result" },
@@ -98,6 +98,8 @@ One file per authority filing. Example — `SE/filings/ink2.json` (shape):
   }
 }
 ```
+
+As built 2026-08-01: each field carries `blankett` (engine stays emitter-agnostic); `tax_attr` resolution = query-param override → `periods.tax_attrs` → warning+0; `emitZero:true` forces emission of 0 (7763); 7011/7012 engine-injected per blanket.
 
 **Kinds (computed by the engine):** `asset` (DR−CR at period end), `equity`/`liability` (CR−DR at end), `cost` (DR−CR within period), `income` (CR−DR within period). Whole-unit rounding, half-up on absolute value; zero/absent fields omitted unless the descriptor says otherwise.
 
@@ -152,7 +154,9 @@ The statutory report composite (Bolagsverket årsredovisning, ACRA FS, …): sec
 
 1. Manifests for SE + SG (wrap the existing coa/vat packs).
 2. `api/src/sru.js` → split into engine (`filings.js`) + `emitters/sruLines.js` + `SE/filings/ink2.json`. Routes unchanged (`/api/:company/sru/ink2`, `/sru/info`). **The golden test (`tests/sru-golden-2024.mjs`) is the acceptance contract — it must stay byte-identical green.**
+   - ✅ DONE 2026-08-01 — engine `api/src/filings.js`, emitter `api/src/emitters/sruLines.js`, descriptor `db/jurisdictions/SE/filings/ink2.json` live; `api/src/sru.js` + `db/jurisdictions/SE/sru_ink2.json` deleted; routes rewired in `reports.js`; pack linter extended with an emitter-existence check.
 3. `periods.tax_attrs` JSON column (idempotent ALTER, house style); Periods grid columns from the manifest; `ink2.js` descriptor constants (8041/8045) become `flag` ops on the declared attributes; `loss_cf` query param remains as an explicit override, period value is the default.
+   - ✅ DONE 2026-08-01 — scope = `tax_attrs` column (pre-existing) + `flag` ops + `loss_cf` period-default; Periods-grid columns deferred per roadmap §0q API-first; company.attr defaults + rollforward proposal (§2) not yet built.
 4. ~~K2 `annual-report.json` + composite renderer~~ — **CANCELLED 2026-07-30** (Gredor owns SE årsredovisning production/submission via the SIE 4 export; `report?type=ar` frozen as read-only viewer).
 5. ~~SG `annual-report.json` as the seam-proof second pack~~ — **DESCOPED 2026-07-30** (no live SG need; resurrect if a jurisdiction without a Gredor-equivalent appears).
 

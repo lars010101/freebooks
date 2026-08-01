@@ -200,6 +200,18 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 ---
 
+## 0t. Status update — 2026-08-01 (SRU engine refactor shipped)
+
+**SRU engine refactor done** (branch `sru-engine-refactor`; jurisdiction-pack §7 items 2–3): `api/src/sru.js` split into engine `api/src/filings.js` + emitter `api/src/emitters/sruLines.js` + descriptor `db/jurisdictions/SE/filings/ink2.json` (flat fields map, per-field `blankett`, kinds + closed op vocabulary — sign_split_profit/loss on book_result|tax_result, tax_attr, loss_closing, copy, flag; 7011/7012 engine-injected per blanket). Old `db/jurisdictions/SE/sru_ink2.json` deleted; routes unchanged (`/api/:company/sru/ink2`, `/sru/info`). `periods.tax_attrs` now feeds `tax_attr` (loss_cf resolution: query-param override → period attr → warning+0) and the `flag` ops (8041/8045 read `consultant`/`audited`, default false → 'X'). Pack linter gained the §6 emitter-existence check; SE `coa.json` gained BAS 1980 (the 7281 mapping always referenced it — the linter exposed it once the descriptor moved under `filings/`). Deferred per §0q API-first: Periods-grid tax_attrs columns (`period.upsert` already accepts `tax_attrs`). Not built: company.attr defaults, §2 rollforward proposal.
+
+**Verification** (old code from `origin/main` worktree vs new, identical copies of the mdu snapshot DB): 2024 + 2025 blanketter.sru **byte-identical** old↔new AND vs the filed 2024 reference / delivered 2025 blanketter (modulo `#IDENTITET` timestamp); `check=1` JSON identical; INFO.SRU identical; period-default proven both directions (no param → 7763=86,053 from `tax_attrs` with zero warnings; old code → 0 + 'loss_cf not given'). Contract suite 60/62 = the 2 known wall-clock date flakes, failure set identical on `origin/main`.
+
+**Golden-test seed inputs lost:** `tests/sru-golden-2024.mjs` loads its 2024 books from two CSVs that lived in the agent profile's document cache (purged). The seeded company `zz_srugold3` (full 2024 books) persists in the dev DB, so the golden assertion stays runnable via direct HTTP against that company (method used above), but the test's CSV-loading phase needs the 2024 journal + BS CSVs re-dropped, or a rework to seed from a checked-in dump. Decision pending magnus.
+
+**Backlog:** P2 accounting completeness (P2-2 FX reval, P2-3 `bill_lines` subledger, P2-4 VAT unify) → P3 feeds. Receivables stays dropped.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

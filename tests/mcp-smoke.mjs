@@ -12,11 +12,12 @@
 //   attachment_id) → cleanup with attachment.delete.
 //
 // Mirrors tests/reversal.mjs conventions: a plain node script, exits non-zero
-// on any failure, logs ✓/✗ per assertion. Run: node tests/mcp-smoke.mjs
+// on any failure, logs ✓/✗ per assertion. Run: npm install --prefix mcp (once), then node tests/mcp-smoke.mjs
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,6 +27,14 @@ const { startTestServer, api, sql, seedCompany } = require('../api/test-utils/he
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const SERVER_JS = path.join(REPO_ROOT, 'mcp', 'server.js');
+
+// Preflight: mcp/ is its own npm package and node_modules/ is gitignored — a
+// fresh clone/pull needs `npm install --prefix mcp` once, else the server dies
+// with MODULE_NOT_FOUND and this test just times out on 'did not signal ready'.
+if (!fs.existsSync(path.join(REPO_ROOT, 'mcp', 'node_modules', '@modelcontextprotocol', 'sdk'))) {
+  console.error('  ✗ FAIL: MCP deps missing — run: npm install --prefix mcp');
+  process.exit(1);
+}
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail) {

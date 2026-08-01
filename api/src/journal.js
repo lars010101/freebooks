@@ -607,6 +607,35 @@ async function importEntries(ctx) {
 // journal_entries from propose — only from approve (R5).
 
 /**
+ * A4 (§4.7): count attachments bound to a journal_proposal entity. Company-
+ * scoped, entity_type='journal_proposal', entity_id=proposalId. Used at
+ * propose time (response payload + no_underlag warning) and could be reused
+ * by approve for diagnostics. Returns a non-negative integer.
+ */
+async function attachmentCountForProposal(companyId, proposalId) {
+  const rows = await query(
+    `SELECT count(*) AS c FROM attachments
+     WHERE company_id = @companyId AND entity_type = 'journal_proposal' AND entity_id = @proposalId`,
+    { companyId, proposalId }
+  );
+  return Number(rows[0].c) || 0;
+}
+
+/**
+ * A4 (§4.7): build the propose-time warnings array. Merges the validation
+ * warnings (from enrichAndValidate) with 'no_underlag' when the proposal has
+ * zero bound attachments. R7: warn-not-block — the propose still succeeds
+ * regardless of the underlag count.
+ */
+function buildProposeWarnings(validationWarnings, attachmentCount) {
+  const out = Array.isArray(validationWarnings) ? [...validationWarnings] : [];
+  if (attachmentCount === 0 && !out.includes('no_underlag')) {
+    out.push('no_underlag');
+  }
+  return out;
+}
+
+/**
  * journal.propose — enrich + validate lines server-side, store a proposed row.
  * Mutating, idempotent (dispatch-level Idempotency-Key). With proposalId:
  * upsert a still-'proposed' row created by the SAME caller (extraction fixes /
@@ -659,7 +688,12 @@ async function proposeEntry(ctx) {
       // immutable. No journal.proposed re-emit: the business fact 'a proposal
       // exists' already happened (the Idempotency-Key replay path is separately
       // covered by the dispatch stored-response short-circuit).
-      return { proposalId, warnings };
+      //
+      // A4 (§4.7): compute attachment_count + no_underlag warning on the upsert
+      // path too — the caller may have uploaded underlag between the original
+      // propose and this edit, so the count is freshly computed each time.
+      const attachmentCount = await attachmentCountForProposal(companyId, proposalId);
+      return { proposalId, warnings: buildProposeWarnings(warnings, attachmentCount), attachment_count: attachmentCount };
     }
     // 0 rows: either no row yet, another actor's row, or a non-proposed status.
     const existing = await query(
@@ -712,7 +746,13 @@ async function proposeEntry(ctx) {
     source,
   });
 
-  return { proposalId: newProposalId, warnings };
+  // A4 (§4.7): compute attachment_count + no_underlag warning. R7: warn-not-
+  // block — a zero count adds 'no_underlag' to warnings but the propose still
+  // succeeds. attachment_count is included in the response so the caller (and
+  // the review surface) knows the underlag state without a second round-trip.
+  const attachmentCount = await attachmentCountForProposal(companyId, newProposalId);
+
+  return { proposalId: newProposalId, warnings: buildProposeWarnings(warnings, attachmentCount), attachment_count: attachmentCount };
 }
 
 /**
@@ -791,7 +831,32 @@ async function approveProposal(ctx) {
       createdByEmail: reviewer,
       source: 'proposal',
     });
+    // A4 (§4.7): re-point the proposal's bound attachments to the posted
+    // batch — metadata only (blob storage paths do NOT move; the opaque
+    // storage keys stay). Runs inside the same compensating-rollback wrapper
+    // as the post so a failure here (or a post failure) rolls the claim back
+    // to 'proposed' and leaves attachments bound to the proposal.
+    await exec(
+      `UPDATE attachments SET entity_type='journal', entity_id=@batchId
+       WHERE company_id=@companyId AND entity_type='journal_proposal' AND entity_id=@proposalId`,
+      { batchId: postResult.batchId, companyId, proposalId }
+    );
   } catch (postErr) {
+    // Compensating rollback. If postJournalBatch succeeded (postResult set)
+    // but the A4 re-point failed, delete the just-posted ledger rows so no
+    // orphan batch lingers — then restore the proposal to 'proposed'. The
+    // batch_id IS NULL guard ensures we only touch rows that haven't been
+    // finalized (batch_id is stamped only after this block succeeds).
+    if (postResult) {
+      try {
+        await exec(
+          `DELETE FROM journal_entries WHERE company_id=@companyId AND batch_id=@batchId`,
+          { companyId, batchId: postResult.batchId }
+        );
+      } catch (delErr) {
+        console.error(`CRITICAL: approve ledger cleanup failed for proposal ${proposalId} (batch ${postResult.batchId}):`, delErr.message);
+      }
+    }
     try {
       await exec(`UPDATE journal_proposals SET status='proposed', reviewed_by=NULL, reviewed_at=NULL, review_note=NULL WHERE company_id=@companyId AND proposal_id=@proposalId AND status='posted' AND batch_id IS NULL`, { companyId, proposalId });
     } catch (rbErr) {
@@ -878,11 +943,18 @@ async function listProposals(ctx) {
   const limit = (Number.isFinite(rawLimit) && rawLimit > 0) ? Math.min(Math.floor(rawLimit), 1000) : 100;
 
   return query(
-    `SELECT proposal_id, journal_id, date, reference, description, source, status,
-            batch_id, created_by, request_id, reviewed_by, reviewed_at, review_note, created_at
-     FROM journal_proposals
-     WHERE company_id = @companyId AND status = @status
-     ORDER BY date DESC, created_at DESC
+    `SELECT jp.proposal_id, jp.journal_id, jp.date, jp.reference, jp.description, jp.source, jp.status,
+            jp.batch_id, jp.created_by, jp.request_id, jp.reviewed_by, jp.reviewed_at, jp.review_note, jp.created_at,
+            COALESCE(a.cnt, 0) AS attachment_count
+     FROM journal_proposals jp
+     LEFT JOIN (
+       SELECT company_id, entity_id, count(*) AS cnt
+       FROM attachments
+       WHERE entity_type = 'journal_proposal'
+       GROUP BY company_id, entity_id
+     ) a ON a.company_id = jp.company_id AND a.entity_id = jp.proposal_id
+     WHERE jp.company_id = @companyId AND jp.status = @status
+     ORDER BY jp.date DESC, jp.created_at DESC
      LIMIT @limit`,
     { companyId, status, limit }
   );

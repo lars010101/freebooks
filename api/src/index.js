@@ -322,9 +322,12 @@ app.post('/api', handleApiRequest);
 app.post('/api/action', handleApiRequest);
 
 // Attachment routes
-const { uploadMiddleware, handleUpload, serveAttachment } = require('./attachments');
+const { uploadMiddleware, handleUpload, serveAttachment, runAttachmentGC, handleAdminGC } = require('./attachments');
 app.post('/api/upload', uploadMiddleware, handleUpload);
 app.get('/api/attachments/:attachmentId', serveAttachment);
+// A4 (§4.7): token-gated admin trigger for the attachment GC (mirrors
+// /api/admin/query). GC also runs at boot + on a 24h setInterval below.
+app.post('/api/admin/gc-attachments', handleAdminGC);
 
 // --- COA ---
 
@@ -970,7 +973,18 @@ async function handleDiag(ctx, action) {
 }
 
 // Ensure DB is open (with WAL recovery) before accepting requests
-ensureDb().then(() => {
+ensureDb().then(async () => {
+  // A4 (§4.7): run attachment GC at boot, then every 24h (unref'd so the timer
+  // never keeps the event loop alive on its own). GC purges expired
+  // journal_proposal-bound attachments past the 30-day grace; it never touches
+  // entity_type='journal' rows (BFL 7 kap retention). Failures are logged, not
+  // fatal — a GC miss just defers cleanup to the next tick.
+  try { await runAttachmentGC(); } catch (e) { console.error('Boot attachment GC failed:', e.message); }
+  const gcTimer = setInterval(() => {
+    runAttachmentGC().catch((e) => console.error('Scheduled attachment GC failed:', e.message));
+  }, 24 * 60 * 60 * 1000);
+  gcTimer.unref();
+
   app.listen(PORT, '127.0.0.1', () => {
     console.log(`freeBooks API listening on port ${PORT}`);
   });

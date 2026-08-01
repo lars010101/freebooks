@@ -445,6 +445,14 @@ CREATE TABLE IF NOT EXISTS attachments (
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments(company_id, entity_type, entity_id);
 
+-- A4 (§4.7): sha256 dedupe per company. Identical hash within a company reuses
+-- the stored blob path (skips the blob write) and inserts a new metadata row
+-- only — the hash doubles as integrity evidence. Idempotent house-style
+-- evolution (mirrors the audit_log.actor_type / accounts.default_role pattern
+-- above): ADD COLUMN IF NOT EXISTS so fresh + existing DBs converge on boot.
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS sha256 VARCHAR;
+CREATE INDEX IF NOT EXISTS idx_attachments_company_sha256 ON attachments(company_id, sha256);
+
 -- =============================================================================
 -- idempotency_keys (P0-1: safe retries for posting actions)
 -- One row per client-supplied Idempotency-Key; stores the first response so

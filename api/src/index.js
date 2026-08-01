@@ -24,6 +24,7 @@ const { handleFx, providerExists, listProviderIds, MANUAL_PROVIDER } = require('
 const { handleSetup } = require('./setup');
 const { handleAttachments } = require('./attachments');
 const { handleEvents, emitEvent } = require('./events');
+const { handleSie } = require('./sie-import');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 const { auditCall } = require('./audit');
 const PORT = process.env.PORT || 3000;
@@ -60,6 +61,7 @@ const ERROR_STATUS = {
   REFERENTIAL_INTEGRITY: 409,
   DUPLICATE_CODE: 409,
   PERIOD_LOCKED: 409,
+  SIE_PARSE: 400,
   IDEMPOTENCY_KEY_REUSED: 409,
 };
 
@@ -283,6 +285,7 @@ async function handleApiRequest(req, res) {
       case 'diag':        result = await handleDiag(ctx, action); break;
       case 'attachment':  result = await handleAttachments(ctx, action); break;
       case 'event':       result = await handleEvents(ctx, action); break;
+      case 'sie':         result = await handleSie(ctx, action); break;
       default:
         return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
     }

@@ -204,6 +204,12 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 ---
 
+## 0t. Status update — 2026-08-01 (SIE import)
+
+**`sie.import` shipped** (`feature/sie-import`) — the asymmetry magnus flagged (export without import) is closed. Industry-standard shape (Fortnox / Visma Administration): accepts SIE types 1–4, `contentBase64` transport, CP437(PC8)/UTF-8 auto-detect, `dryRun` **default true** (preview first, commit explicit). Accounts upserted from `#KONTO` (`#KTYP` when present, else BAS class inference: 1→Asset, 20→Equity, 2→Liability, 3→Revenue, 89→Closing, else Expense). Each `#VER` posts as one batch with reference `SIE <serie> <verno>`; re-import skips existing references (natural idempotency + `Idempotency-Key` per standing rule 3); per-voucher errors collected (partial import with result list — not all-or-nothing like `journal.import`). `#IB` year 0 posts as opening-balance batch `SIE OB` (toggle: `importOpeningBalances`); `#UB`/`#RES` serve as a reconciliation cross-check against what was imported (`reconciliation.diffs`, warn-not-block). `#RTRANS` excluded / `#BTRANS` applied; dimension lists discarded (counted); orgnr mismatch → warning. Locked periods fail the affected voucher only; uncovered dates auto-create calendar-year periods. API-first per §0q — no UI; agent whitelist untouched (default-deny holds). Verification: `api/test/sie-import.test.js` 7/7 (round-trip export→import balance parity with clean reconciliation, dry-run writes nothing, duplicate skip, unbalanced rejection, RTRANS/BTRANS, type-1 OB) + full suite 69/69.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

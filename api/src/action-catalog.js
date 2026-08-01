@@ -48,6 +48,11 @@ const ACTIONS = {
     description: 'Bulk-import journal entries (all-or-nothing).',
     params: { entries: { type: 'array', required: true } },
   },
+  'sie.import': {
+    role: 'data_entry', mutating: true, idempotent: true,
+    description: 'Import SIE file (types 1-4): chart of accounts, opening balances, vouchers. dryRun default true.',
+    params: { contentBase64: { type: 'string' }, content: { type: 'string' }, dryRun: { type: 'boolean' }, importOpeningBalances: { type: 'boolean' }, fileName: { type: 'string' } },
+  },
   'journal.search': {
     role: 'viewer', mutating: false,
     description: 'Full-text search over journal entries.',

@@ -9,6 +9,7 @@
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { startTestServer, api, sql, seedCompany } = require('../test-utils/helpers');
 const { ACTIONS } = require('../src/action-catalog');
 
@@ -1472,4 +1473,367 @@ test('attachment.upload zero-byte: contentBase64 "" → 400 INVALID_INPUT', asyn
   });
   assert.equal(up.status, 400, 'zero-byte contentBase64 → 400');
   assert.equal(up.body && up.body.error && up.body.error.code, 'INVALID_INPUT', 'INVALID_INPUT code');
+});
+
+// ── A4 (§4.7): proposal underlag — propose-time count/warning, list join, ───
+// approve re-point. Mirrors spec §8 items 10, 12, 13. Server-side binding only;
+// no UI, no schema, no attachments.js internals touched.
+
+// Helper: fetch attachment rows for an entity via admin SQL (test-controlled).
+async function attachmentsFor(entityType, entityId) {
+  return sql(baseUrl, srv.adminToken,
+    `SELECT attachment_id, entity_type, entity_id, filename
+     FROM attachments WHERE company_id='CT' AND entity_type='${entityType}' AND entity_id='${entityId}'`);
+}
+
+test('A4 propose WITH underlag: 2 uploads → attachment_count=2, no no_underlag warning', async () => {
+  // Agent mints a proposalId client-side (§4.7 binding convention: upload-first).
+  const proposalId = 'a4-with-' + Date.now();
+  const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+
+  // Upload TWO source documents bound to the proposalId BEFORE proposing.
+  // (A4 stage 2: journal_proposal uploads are whitelisted to pdf/jpeg/png —
+  // use application/pdf here so the whitelist admits them.)
+  for (let i = 0; i < 2; i++) {
+    const up = await api(baseUrl, 'attachment.upload', {
+      companyId: CO, userEmail: 'agent@ct', requestId: `req-a4-with-${proposalId}-${i}`,
+      entityType: 'journal_proposal', entityId: proposalId,
+      filename: `underlag-${i}.pdf`,
+      contentBase64: b64(`underlag content ${i}`),
+      contentType: 'application/pdf',
+    });
+    assert.equal(up.status, 200, JSON.stringify(up.body));
+  }
+
+  // Propose with the same proposalId → attachment_count=2, NO no_underlag.
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-with-propose',
+    proposalId,
+    lines: proposalLines(50, '2026-07-20'),
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  assert.equal(propose.body.data.proposalId, proposalId, 'caller-supplied proposalId honored');
+  assert.equal(propose.body.data.attachment_count, 2, 'attachment_count reflects the 2 uploaded underlag');
+  assert.ok(Array.isArray(propose.body.data.warnings), 'warnings array present');
+  assert.ok(!propose.body.data.warnings.includes('no_underlag'),
+    'no_underlag warning absent when attachments exist');
+
+  // Cleanup the uploaded files via attachment.delete (owner action).
+  const rows = await attachmentsFor('journal_proposal', proposalId);
+  for (const r of rows) {
+    const del = await api(baseUrl, 'attachment.delete', { companyId: CO, userEmail: 'owner@ct', attachmentId: r.attachment_id });
+    assert.equal(del.status, 200, JSON.stringify(del.body));
+  }
+});
+
+test('A4 propose WITHOUT underlag (R7 warn-not-block): succeeds, attachment_count=0, warnings has no_underlag', async () => {
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-no-underlag-' + Date.now(),
+    lines: proposalLines(33, '2026-07-21'),
+  });
+  assert.equal(propose.status, 200, 'R7: propose still succeeds with zero underlag (warn-not-block)');
+  assert.equal(propose.body.data.attachment_count, 0, 'attachment_count=0 when no underlag uploaded');
+  assert.ok(propose.body.data.warnings.includes('no_underlag'),
+    'warnings contains no_underlag when attachment_count is 0');
+
+  // The proposal was actually persisted (not rejected) — verify via .get.
+  const get = await api(baseUrl, 'journal.proposal.get', { companyId: CO, proposalId: propose.body.data.proposalId });
+  assert.equal(get.status, 200, 'proposal persisted despite no_underlag warning');
+  assert.equal(String(get.body.data.status), 'proposed');
+});
+
+test('A4 journal.proposal.list carries attachment_count per row (computed join)', async () => {
+  // Propose with 1 underlag → its row should show attachment_count=1 in the list.
+  const proposalId = 'a4-list-' + Date.now();
+  const up = await api(baseUrl, 'attachment.upload', {
+    companyId: CO, userEmail: 'agent@ct', requestId: `req-a4-list-attach-${proposalId}`,
+    entityType: 'journal_proposal', entityId: proposalId,
+    filename: 'list-underlag.pdf',
+    contentBase64: Buffer.from('list test', 'utf8').toString('base64'),
+    contentType: 'application/pdf',
+  });
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-list-propose',
+    proposalId,
+    lines: proposalLines(12, '2026-07-22'),
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+
+  const list = await api(baseUrl, 'journal.proposal.list', { companyId: CO });
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  const items = list.body.data;
+  const row = items.find((r) => String(r.proposal_id) === proposalId);
+  assert.ok(row, 'proposed row present in the list');
+  assert.equal(Number(row.attachment_count), 1, 'list row carries attachment_count=1 (computed join)');
+
+  // A no-underlag proposal in the same list shows attachment_count=0.
+  const barePropose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-list-bare',
+    lines: proposalLines(7, '2026-07-22'),
+  });
+  assert.equal(barePropose.status, 200, JSON.stringify(barePropose.body));
+  const list2 = await api(baseUrl, 'journal.proposal.list', { companyId: CO });
+  const bareRow = list2.body.data.find((r) => String(r.proposal_id) === barePropose.body.data.proposalId);
+  assert.ok(bareRow, 'bare proposal row present');
+  assert.equal(Number(bareRow.attachment_count), 0, 'bare row carries attachment_count=0');
+
+  // Cleanup the uploaded file.
+  const del = await api(baseUrl, 'attachment.delete', { companyId: CO, userEmail: 'owner@ct', attachmentId: up.body.data.attachment_id });
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+});
+
+test('A4 approve re-points attachments: journal_proposal → journal/batchId (atomic, one transaction)', async () => {
+  // Upload 2 underlag bound to a client-minted proposalId, then propose.
+  const proposalId = 'a4-approve-' + Date.now();
+  const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+  const uploadedIds = [];
+  for (let i = 0; i < 2; i++) {
+    const up = await api(baseUrl, 'attachment.upload', {
+      companyId: CO, userEmail: 'agent@ct', requestId: `req-a4-appr-${proposalId}-${i}`,
+      entityType: 'journal_proposal', entityId: proposalId,
+      filename: `appr-underlag-${i}.pdf`,
+      contentBase64: b64(`approve re-point ${i}`),
+      contentType: 'application/pdf',
+    });
+    assert.equal(up.status, 200, JSON.stringify(up.body));
+    uploadedIds.push(up.body.data.attachment_id);
+  }
+
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-appr-propose',
+    proposalId,
+    lines: proposalLines(50, '2026-07-23'),
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  assert.equal(propose.body.data.attachment_count, 2, 'pre-approve: 2 underlag bound');
+
+  // Pre-approve: both rows are entity_type='journal_proposal' / entity_id=proposalId.
+  const preRows = await attachmentsFor('journal_proposal', proposalId);
+  assert.equal(preRows.length, 2, '2 attachments bound to the proposal before approve');
+
+  // Owner approves → batch posted, attachments re-pointed to journal/batchId.
+  const approve = await api(baseUrl, 'journal.approve', {
+    companyId: CO, userEmail: 'owner@ct', proposalId, note: 'underlag verified',
+  });
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+  const batchId = approve.body.data.batchId;
+  assert.ok(batchId, 'approve returns batchId');
+
+  // The two attachment rows are now entity_type='journal' / entity_id=batchId.
+  const postRows = await attachmentsFor('journal', batchId);
+  assert.equal(postRows.length, 2, '2 attachments re-pointed to the posted batch');
+  assert.deepEqual(
+    postRows.map((r) => r.attachment_id).sort(),
+    [...uploadedIds].sort(),
+    'the SAME two attachment rows were re-pointed (not duplicated)'
+  );
+
+  // No attachments remain bound to the proposal entity after re-point.
+  const leftover = await attachmentsFor('journal_proposal', proposalId);
+  assert.equal(leftover.length, 0, 'no attachments left on the journal_proposal entity after re-point');
+
+  // The journal-new-style query (entity_type='journal', entity_id=batchId) finds them.
+  const journalList = await api(baseUrl, 'attachment.list', { companyId: CO, entityType: 'journal', entityId: batchId });
+  assert.equal(journalList.status, 200, JSON.stringify(journalList.body));
+  assert.equal(journalList.body.data.length, 2, 'attachment.list(journal, batchId) returns the 2 re-pointed rows');
+
+  // Cleanup the uploaded files (now under journal/batchId).
+  for (const id of uploadedIds) {
+    const del = await api(baseUrl, 'attachment.delete', { companyId: CO, userEmail: 'owner@ct', attachmentId: id });
+    assert.equal(del.status, 200, JSON.stringify(del.body));
+  }
+});
+
+// ── A4 stage 2 (§4.7): storage hardening — 15MB cap + type whitelist (scoped ─
+// to journal_proposal uploads), global sha256 dedupe, 30-day GC with the hard
+// invariant that entity_type='journal' rows are never purged. Spec §4.7 "Disk
+// controls" + "Reject / expire + GC"; verification items 14-15.
+
+// (e) journal_proposal upload >15MB rejected.
+test('A4 stage2: journal_proposal upload >15MB rejected (INVALID_INPUT, names the 15MB cap)', async () => {
+  // 15MB + 1 byte — just over the journal_proposal cap. (Under the 32MB action
+  // cap, so the 15MB check inside storeAttachment is what fires.)
+  const big = Buffer.alloc(15 * 1024 * 1024 + 1, 0x41);
+  const up = await api(baseUrl, 'attachment.upload', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-s2-15mb-' + Date.now(),
+    entityType: 'journal_proposal', entityId: 'a4-s2-15mb-' + Date.now(),
+    filename: 'big.pdf',
+    contentBase64: big.toString('base64'),
+    contentType: 'application/pdf',
+  });
+  assert.equal(up.status, 400, '15MB+ journal_proposal upload rejected');
+  assert.equal(up.body && up.body.error && up.body.error.code, 'INVALID_INPUT', 'INVALID_INPUT code');
+  assert.match(up.body.error.message, /15MB/, 'error names the 15MB cap');
+});
+
+// (f) journal_proposal upload with contentType text/plain rejected.
+test('A4 stage2: journal_proposal upload contentType text/plain rejected (INVALID_INPUT, names admitted types)', async () => {
+  const up = await api(baseUrl, 'attachment.upload', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-s2-ct-' + Date.now(),
+    entityType: 'journal_proposal', entityId: 'a4-s2-ct-' + Date.now(),
+    filename: 'doc.txt',
+    contentBase64: Buffer.from('plain text underlag', 'utf8').toString('base64'),
+    contentType: 'text/plain',
+  });
+  assert.equal(up.status, 400, 'text/plain journal_proposal upload rejected');
+  assert.equal(up.body && up.body.error && up.body.error.code, 'INVALID_INPUT', 'INVALID_INPUT code');
+  assert.match(up.body.error.message, /pdf|jpeg|png/i, 'error names the admitted types');
+});
+
+// (g) scoping proof: the same oversized + wrong-type payload is still accepted
+// under a different entityType (status quo: 32MB cap, no whitelist).
+test('A4 stage2: scoping — oversized+wrong-type upload with entityType=journal still accepted', async () => {
+  // Same shape that (e)/(f) reject for journal_proposal: >15MB AND text/plain.
+  // entityType='journal' keeps the status quo — the 15MB cap and whitelist do
+  // not apply (only the 32MB action cap, which this is under).
+  const big = Buffer.alloc(15 * 1024 * 1024 + 1, 0x42);
+  const up = await api(baseUrl, 'attachment.upload', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-s2-scope-' + Date.now(),
+    entityType: 'journal', entityId: 'a4-s2-scope-' + Date.now(),
+    filename: 'scoped.txt',
+    contentBase64: big.toString('base64'),
+    contentType: 'text/plain',
+  });
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+  assert.ok(up.body.data.attachment_id, 'accepted under the journal entity type (cap+whitelist are journal_proposal-only)');
+
+  // Cleanup.
+  const del = await api(baseUrl, 'attachment.delete', { companyId: CO, userEmail: 'owner@ct', attachmentId: up.body.data.attachment_id });
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+});
+
+// (h) sha256 dedupe: identical bytes uploaded twice → two metadata rows share
+// one storage_path and one sha256; the blob is written once.
+test('A4 stage2: sha256 dedupe — identical bytes twice → 2 rows, 1 storage_path, 1 sha256, blob written once', async () => {
+  const entityId = 'a4-s2-dedupe-' + Date.now();
+  const bytes = Buffer.from('dedupe-me-identical-bytes', 'utf8');
+  const b64 = bytes.toString('base64');
+  const expectedHash = crypto.createHash('sha256').update(bytes).digest('hex');
+
+  const up1 = await api(baseUrl, 'attachment.upload', {
+    companyId: CO, userEmail: 'agent@ct', requestId: `req-a4-s2-dedupe-1-${entityId}`,
+    entityType: 'journal_proposal', entityId,
+    filename: 'first.pdf',
+    contentBase64: b64,
+    contentType: 'application/pdf',
+  });
+  assert.equal(up1.status, 200, JSON.stringify(up1.body));
+  const id1 = up1.body.data.attachment_id;
+
+  const up2 = await api(baseUrl, 'attachment.upload', {
+    companyId: CO, userEmail: 'agent@ct', requestId: `req-a4-s2-dedupe-2-${entityId}`,
+    entityType: 'journal_proposal', entityId,
+    filename: 'second.pdf',
+    contentBase64: b64,
+    contentType: 'application/pdf',
+  });
+  assert.equal(up2.status, 200, JSON.stringify(up2.body));
+  const id2 = up2.body.data.attachment_id;
+
+  assert.notEqual(id1, id2, 'two distinct metadata rows (distinct attachment_ids)');
+
+  const rows = await sql(baseUrl, srv.adminToken,
+    `SELECT attachment_id, storage_path, sha256 FROM attachments
+     WHERE company_id='CT' AND attachment_id IN ('${id1}','${id2}') ORDER BY attachment_id`);
+  assert.equal(rows.length, 2, 'two metadata rows present');
+  assert.equal(rows[0].storage_path, rows[1].storage_path,
+    'both rows share one storage_path (the blob was not written a second time)');
+  assert.ok(rows[0].sha256 && rows[0].sha256 === rows[1].sha256,
+    'both rows carry the same sha256');
+  assert.equal(rows[0].sha256, expectedHash, 'sha256 matches the uploaded bytes (integrity evidence)');
+
+  // Cleanup (deleteAttachment unlinks the shared blob on the first delete; the
+  // second tolerates the already-missing file — both rows are removed).
+  for (const id of [id1, id2]) {
+    const del = await api(baseUrl, 'attachment.delete', { companyId: CO, userEmail: 'owner@ct', attachmentId: id });
+    assert.equal(del.status, 200, JSON.stringify(del.body));
+  }
+});
+
+// (i) GC: aged orphan + aged rejected-proposal attachments purged; fresh orphan
+// + a 'journal'-bound row kept. Rows are aged via admin SQL UPDATE on
+// uploaded_at / journal_proposals.reviewed_at.
+//
+// How the test invokes GC: the fixture server is a child process with its own
+// DuckDB connection (DuckDB is single-writer), so the test process cannot
+// reach that DB directly, and requiring attachments.js in-process would open a
+// conflicting second connection. GC runs at boot and on a 24h setInterval —
+// neither fires deterministically during a test. The lightest consistent
+// trigger is the token-gated admin endpoint POST /api/admin/gc-attachments
+// (mirrors /api/admin/query), which calls the same runAttachmentGC used at boot
+// + interval, against the real child-process DB.
+test('A4 stage2: GC — purges aged orphan + aged rejected-proposal; keeps fresh orphan + journal-bound row', async () => {
+  const daysAgo = (n) => new Date(Date.now() - n * 24 * 3600 * 1000).toISOString();
+  const old = daysAgo(40);      // 40 > 30-day grace
+  const fresh = new Date().toISOString();
+  const tag = 'gc-' + Date.now();
+
+  // (1) Aged orphan: journal_proposal row whose entity_id does NOT exist in
+  //     journal_proposals, uploaded_at 40 days ago → GC purges.
+  const orphanAgedId = `gc-orphan-aged-${tag}`;
+  // (2) Aged rejected proposal: a proposal row status='rejected', reviewed_at
+  //     40 days ago, plus an attachment bound to it, uploaded_at 40 days ago →
+  //     GC purges the attachment.
+  const rejectedProposalId = `gc-rej-prop-${tag}`;
+  const rejectedAttachId = `gc-rej-attach-${tag}`;
+  // (3) Fresh orphan: journal_proposal row, nonexistent entity, uploaded_at now
+  //     → GC keeps (within 30-day grace).
+  const orphanFreshId = `gc-orphan-fresh-${tag}`;
+  // (4) Journal-bound row: entity_type='journal', uploaded_at 40 days ago → GC
+  //     keeps (HARD INVARIANT: never touch entity_type='journal').
+  const journalAttachId = `gc-journal-${tag}`;
+
+  // Seed the rejected proposal row directly (minimal valid shape; lines is a
+  // JSON string per the schema).
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO journal_proposals (company_id, proposal_id, date, lines, status, created_by, reviewed_at, reviewed_by, created_at)
+     VALUES ('CT', '${rejectedProposalId}', DATE '2026-07-01', '[]', 'rejected', 'test', '${old}', 'test', '${old}')`);
+
+  // Seed the four attachment rows via admin SQL (storage_path points at a
+  // non-existent file; GC best-effort unlinks and tolerates missing files).
+  // Each row gets a distinct sha256 so dedupe does not cross-link them.
+  const insertAttach = (id, etype, eid, uploadedAt) =>
+    sql(baseUrl, srv.adminToken,
+      `INSERT INTO attachments (attachment_id, company_id, entity_type, entity_id, filename, content_type, file_size, storage_path, sha256, uploaded_by, uploaded_at)
+       VALUES ('${id}', 'CT', '${etype}', '${eid}', 'gc.txt', 'text/plain', 1, 'gc/${id}', '${id}', 'test', '${uploadedAt}')`);
+  await insertAttach(orphanAgedId, 'journal_proposal', orphanAgedId, old);
+  await insertAttach(rejectedAttachId, 'journal_proposal', rejectedProposalId, old);
+  await insertAttach(orphanFreshId, 'journal_proposal', orphanFreshId, fresh);
+  await insertAttach(journalAttachId, 'journal', 'gc-journal-entity-' + tag, old);
+
+  // Invoke GC via the token-gated admin endpoint (see comment above).
+  const gcRes = await fetch(`${baseUrl}/api/admin/gc-attachments`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${srv.adminToken}` },
+  });
+  assert.equal(gcRes.status, 200, `GC trigger status: ${gcRes.status}`);
+  const gcBody = await gcRes.json();
+  assert.ok(gcBody.purged >= 2, `GC purged at least the 2 aged journal_proposal rows (purged=${gcBody.purged})`);
+
+  // Aged orphan purged.
+  const agedOrphan = await sql(baseUrl, srv.adminToken,
+    `SELECT attachment_id FROM attachments WHERE company_id='CT' AND attachment_id='${orphanAgedId}'`);
+  assert.equal(agedOrphan.length, 0, 'aged orphan purged (entity_id no longer in journal_proposals, >30 days)');
+
+  // Aged rejected-proposal attachment purged.
+  const agedRej = await sql(baseUrl, srv.adminToken,
+    `SELECT attachment_id FROM attachments WHERE company_id='CT' AND attachment_id='${rejectedAttachId}'`);
+  assert.equal(agedRej.length, 0, 'aged rejected-proposal attachment purged (status=rejected, reviewed_at >30 days)');
+
+  // Fresh orphan kept (within the 30-day grace).
+  const freshOrphan = await sql(baseUrl, srv.adminToken,
+    `SELECT attachment_id FROM attachments WHERE company_id='CT' AND attachment_id='${orphanFreshId}'`);
+  assert.equal(freshOrphan.length, 1, 'fresh orphan kept (within 30-day grace)');
+
+  // Journal-bound row kept — HARD INVARIANT.
+  const journalRow = await sql(baseUrl, srv.adminToken,
+    `SELECT attachment_id FROM attachments WHERE company_id='CT' AND attachment_id='${journalAttachId}'`);
+  assert.equal(journalRow.length, 1, 'journal-bound row kept (GC never touches entity_type=journal)');
+
+  // Cleanup the survivors + the seeded proposal.
+  await sql(baseUrl, srv.adminToken, `DELETE FROM attachments WHERE company_id='CT' AND attachment_id='${orphanFreshId}'`);
+  await sql(baseUrl, srv.adminToken, `DELETE FROM attachments WHERE company_id='CT' AND attachment_id='${journalAttachId}'`);
+  await sql(baseUrl, srv.adminToken, `DELETE FROM journal_proposals WHERE company_id='CT' AND proposal_id='${rejectedProposalId}'`);
 });

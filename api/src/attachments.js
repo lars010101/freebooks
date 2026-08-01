@@ -7,6 +7,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 const multer = require('multer');
 const { query, exec, bulkInsert } = require('./db');
@@ -15,6 +16,15 @@ const { resolveActor, checkPermission } = require('./auth');
 const { auditCall } = require('./audit');
 
 const ATTACHMENTS_ROOT = path.join(os.homedir(), '.freebooks', 'attachments');
+
+// A4 (§4.7) Disk controls — scoped to journal_proposal uploads only. All other
+// entity types keep the status quo (32MB action cap, no type whitelist). The
+// 15MB cap and the whitelist are enforced inside storeAttachment so both the
+// `attachment.upload` action and the multipart POST /api/upload route share the
+// single enforcement point. The GC + sha256 dedupe below are global.
+const JOURNAL_PROPOSAL_MAX_BYTES = 15 * 1024 * 1024;
+const JOURNAL_PROPOSAL_ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+const GC_GRACE_DAYS = 30;
 
 // Ensure attachments directory exists
 function ensureAttachmentsDir() {
@@ -93,25 +103,65 @@ async function deleteAttachment(ctx) {
 // storeAttachment holds the single write path (sanitize, mkdir, write, row
 // insert, emit attachment.uploaded). Both the multipart route (handleUpload)
 // and the new `attachment.upload` action funnel through here so they share the
-// same enforcement and event shape. Returns { attachment_id, filename }.
+// same enforcement and event shape. Returns { attachment_id, filename, sha256 }.
 async function storeAttachment({ companyId, entityType, entityId, filename, contentType, buffer, uploadedBy, actor, requestId }) {
+  // A4 (§4.7) Disk controls — scoped to journal_proposal uploads only. All
+  // other entity types keep the status quo (32MB action cap, no whitelist).
+  if (entityType === 'journal_proposal') {
+    if (buffer.length > JOURNAL_PROPOSAL_MAX_BYTES) {
+      throw Object.assign(
+        new Error(`journal_proposal attachment exceeds the 15MB cap (${buffer.length} bytes)`),
+        { code: 'INVALID_INPUT' }
+      );
+    }
+    // Use the caller-supplied contentType; default only when trivial/absent.
+    const ct = contentType && String(contentType).trim() !== ''
+      ? String(contentType).trim()
+      : 'application/octet-stream';
+    if (!JOURNAL_PROPOSAL_ALLOWED_TYPES.includes(ct)) {
+      throw Object.assign(
+        new Error(`journal_proposal attachments must be one of: ${JOURNAL_PROPOSAL_ALLOWED_TYPES.join(', ')} (got: ${ct})`),
+        { code: 'INVALID_INPUT' }
+      );
+    }
+  }
+
+  // A4 (§4.7): sha256 dedupe per company. Compute the hash of the decoded
+  // buffer; if the same company already has an attachment row with the same
+  // sha256, REUSE that row's storage_path (skip the blob write) and insert
+  // only the new metadata row. The hash doubles as integrity evidence and is
+  // carried on the row + event.
+  const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+
   const attachmentId = uuid();
   const sanitized = String(filename)
     .replace(/[^a-zA-Z0-9._-]/g, '_')
     .slice(0, 100);
-  const storagePath = `${companyId}/${entityType}/${entityId}/${uuid()}-${sanitized}`;
-  const fullPath = path.join(ATTACHMENTS_ROOT, storagePath);
 
-  // Ensure directory exists
-  const dir = path.dirname(fullPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  // Dedupe lookup: an existing row in this company with the same sha256 lets us
+  // reuse its storage_path (one blob on disk for identical uploads).
+  const existing = await query(
+    `SELECT storage_path FROM attachments
+     WHERE company_id = @companyId AND sha256 = @sha256
+     LIMIT 1`,
+    { companyId, sha256 }
+  );
+
+  let storagePath;
+  if (existing.length > 0) {
+    storagePath = existing[0].storage_path;
+  } else {
+    storagePath = `${companyId}/${entityType}/${entityId}/${uuid()}-${sanitized}`;
+    const fullPath = path.join(ATTACHMENTS_ROOT, storagePath);
+    const dir = path.dirname(fullPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(fullPath, buffer);
   }
 
-  // Write file
-  fs.writeFileSync(fullPath, buffer);
-
-  // Insert database record
+  // Insert database record (always a fresh metadata row — even on dedupe, so
+  // each upload remains independently addressable; only the blob is shared).
   const now = new Date().toISOString();
   await bulkInsert('attachments', [{
     attachment_id: attachmentId,
@@ -122,6 +172,7 @@ async function storeAttachment({ companyId, entityType, entityId, filename, cont
     content_type: contentType,
     file_size: buffer.length,
     storage_path: storagePath,
+    sha256,
     uploaded_by: uploadedBy || null,
     uploaded_at: now,
   }]);
@@ -135,9 +186,10 @@ async function storeAttachment({ companyId, entityType, entityId, filename, cont
     filename,
     contentType,
     fileSize: buffer.length,
+    sha256,
   });
 
-  return { attachment_id: attachmentId, filename };
+  return { attachment_id: attachmentId, filename, sha256, storage_path: storagePath };
 }
 
 // Phase A hardening: `attachment.upload` action handler (base64 content).
@@ -268,4 +320,95 @@ async function serveAttachment(req, res) {
   }
 }
 
-module.exports = { handleAttachments, uploadMiddleware, handleUpload, serveAttachment };
+// ── A4 (§4.7) GC: reject/expire purge ──────────────────────────────────────
+// Purges journal_proposal-bound attachment rows past the 30-day grace. HARD
+// INVARIANT: never touch entity_type='journal' rows (those are bound to a
+// posted voucher under BFL 7 kap retention). Two purge classes:
+//   (a) crash-orphans — entity_type='journal_proposal' rows whose entity_id no
+//       longer exists in journal_proposals (proposal never created, or deleted),
+//       older than GC_GRACE_DAYS by attachments.uploaded_at;
+//   (b) rejected-proposal rows — entity_id exists in journal_proposals with
+//       status='rejected' AND reviewed_at older than GC_GRACE_DAYS. ('posted'
+//       proposals have had their attachments re-pointed to entity_type='journal'
+//       at approve time, so they are not journal_proposal-bound here; there is
+//       no 'expired' status in journal.js — only proposed|posted|rejected.)
+// Logs purges to stderr. Returns { purged, examined }.
+async function runAttachmentGC() {
+  // Select candidate rows in one pass. The cutoff is a constant SQL literal
+  // (no user input) so inlining is safe; the query has no @params.
+  const rows = await query(
+    `SELECT attachment_id, storage_path
+     FROM attachments
+     WHERE entity_type = 'journal_proposal'
+       AND uploaded_at < NOW() - INTERVAL '${GC_GRACE_DAYS} days'
+       AND (
+         NOT EXISTS (
+           SELECT 1 FROM journal_proposals jp
+           WHERE jp.proposal_id = attachments.entity_id
+         )
+         OR EXISTS (
+           SELECT 1 FROM journal_proposals jp
+           WHERE jp.proposal_id = attachments.entity_id
+             AND jp.status = 'rejected'
+             AND jp.reviewed_at IS NOT NULL
+             AND jp.reviewed_at < NOW() - INTERVAL '${GC_GRACE_DAYS} days'
+         )
+       )`,
+    {}
+  );
+
+  let purged = 0;
+  for (const r of rows) {
+    // Only unlink the blob if no OTHER attachment row still references the same
+    // storage_path (dedupe: multiple metadata rows may share one blob — the
+    // shared blob must survive as long as any row references it).
+    const still = await query(
+      `SELECT COUNT(*) AS c FROM attachments
+       WHERE storage_path = @sp AND attachment_id <> @id`,
+      { sp: r.storage_path, id: r.attachment_id }
+    );
+    if (Number(still[0]?.c) === 0 && r.storage_path) {
+      const fullPath = path.join(ATTACHMENTS_ROOT, r.storage_path);
+      try {
+        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+      } catch (e) {
+        console.error(`Attachment GC: failed to unlink ${r.storage_path}: ${e.message}`);
+      }
+    }
+    // HARD INVARIANT: the DELETE is scoped to entity_type='journal_proposal' —
+    // a 'journal' row can never be matched here even if the selector leaked.
+    await exec(
+      `DELETE FROM attachments WHERE attachment_id = @id AND entity_type = 'journal_proposal'`,
+      { id: r.attachment_id }
+    );
+    purged++;
+  }
+
+  if (purged > 0) {
+    console.error(`Attachment GC: purged ${purged} expired journal_proposal attachment row(s).`);
+  }
+  return { purged, examined: rows.length };
+}
+
+// A4: token-gated admin trigger for runAttachmentGC — mirrors /api/admin/query.
+// Lets contract tests (and operators) invoke the real GC against the live
+// child-process DB deterministically, without waiting for the 24h interval or
+// restarting the server. GC also runs at boot + on a 24h setInterval (index.js).
+async function handleAdminGC(req, res) {
+  const adminToken = process.env.FREEBOOKS_ADMIN_TOKEN || '';
+  if (!adminToken) {
+    return res.status(403).json({ error: 'Admin GC is disabled (set FREEBOOKS_ADMIN_TOKEN to enable)' });
+  }
+  if ((req.get('authorization') || '') !== `Bearer ${adminToken}`) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    const result = await runAttachmentGC();
+    res.json(result);
+  } catch (err) {
+    console.error('Admin GC failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { handleAttachments, uploadMiddleware, handleUpload, serveAttachment, runAttachmentGC, handleAdminGC };

@@ -24,6 +24,8 @@ const { handleFx, providerExists, listProviderIds, MANUAL_PROVIDER } = require('
 const { handleSetup } = require('./setup');
 const { handleAttachments } = require('./attachments');
 const { handleEvents, emitEvent } = require('./events');
+const { handleSie } = require('./sie-import');
+const { contactAttributesFor } = require('./jurisdiction-packs');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 const { auditCall } = require('./audit');
 const PORT = process.env.PORT || 3000;
@@ -60,6 +62,7 @@ const ERROR_STATUS = {
   REFERENTIAL_INTEGRITY: 409,
   DUPLICATE_CODE: 409,
   PERIOD_LOCKED: 409,
+  SIE_PARSE: 400,
   IDEMPOTENCY_KEY_REUSED: 409,
 };
 
@@ -283,6 +286,7 @@ async function handleApiRequest(req, res) {
       case 'diag':        result = await handleDiag(ctx, action); break;
       case 'attachment':  result = await handleAttachments(ctx, action); break;
       case 'event':       result = await handleEvents(ctx, action); break;
+      case 'sie':         result = await handleSie(ctx, action); break;
       default:
         return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
     }
@@ -677,7 +681,7 @@ async function handleSettings(ctx, action) {
     const pctDisplay = isNaN(pctFraction) ? 1 : Math.round(pctFraction * 100 * 100) / 100; // storage fraction → percent
     const flatNum = parseFloat(s.vat_tolerance);
     const dash = '—';
-    return [
+    const attrs = [
       { key: 'company_id', label: 'Company ID', type: 'String', value: co.company_id, display: co.company_id, editor: { type: 'text' }, readonly: true },
       { key: 'company_name', label: 'Company Name', type: 'String', value: co.company_name || '', display: co.company_name || dash, editor: { type: 'text' } },
       { key: 'currency', label: 'Base Currency', type: 'String', value: co.currency || '', display: co.currency || dash, editor: { type: 'text', uppercase: true } },
@@ -696,6 +700,23 @@ async function handleSettings(ctx, action) {
       { key: 'vat_tolerance_pct', label: 'VAT Tolerance (%)', type: 'Number', value: pctDisplay, display: pctDisplay.toFixed(2) + '%', editor: { type: 'number', step: '0.1' } },
       { key: 'fx_gain_loss_account', label: 'FX Gain/Loss Account', type: 'String', value: s.fx_gain_loss_account || '', display: s.fx_gain_loss_account || dash, editor: { type: 'text' } },
     ];
+    // Pack-declared contact attributes (SRU MEDIELEV #ADRESS/#POSTNR/#POSTORT
+    // and contact person/email/phone). One registry row per pack attribute;
+    // the Settings Company tab renders them generically like the rows above.
+    for (const attr of contactAttributesFor(co.jurisdiction)) {
+      const k = 'contact_' + attr.key;
+      const row = {
+        key: k,
+        label: attr.label,
+        type: 'String',
+        value: s[k] || '',
+        display: s[k] || dash,
+        editor: { type: 'text' },
+      };
+      if (attr.required) row.note = 'Required for SRU filing';
+      attrs.push(row);
+    }
+    return attrs;
   }
 
   if (action === 'company.attr.save') {
@@ -768,8 +789,26 @@ async function handleSettings(ctx, action) {
         await putSetting(companyId, 'fx_gain_loss_account', v);
         break;
       }
-      default:
+      default: {
+        // Pack-declared contact attributes (contact_<attr.key>). Validated
+        // server-side against the jurisdiction pack: unknown keys reject
+        // with the same 'Unknown company attribute' INVALID_INPUT as above;
+        // format-bearing attributes (e.g. SE postnr) are regex-validated.
+        if (String(key).startsWith('contact_')) {
+          const attrKey = String(key).slice('contact_'.length);
+          const co = await latestCompanyRow(companyId);
+          if (!co) throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
+          const attr = contactAttributesFor(co.jurisdiction).find((a) => a.key === attrKey);
+          if (!attr) throw invalid(`Unknown company attribute: ${key}`);
+          const v = String(value == null ? '' : value).trim();
+          if (attr.format && v && !new RegExp(attr.format).test(v)) {
+            throw invalid(`${attr.label} must be a valid Swedish zip code (5 digits)`);
+          }
+          await putSetting(companyId, key, v);
+          break;
+        }
         throw Object.assign(new Error(`Unknown company attribute: ${key}`), { code: 'INVALID_INPUT' });
+      }
     }
     return { saved: true, key };
   }

@@ -19,6 +19,7 @@
 const path = require('path');
 const fs = require('fs');
 const { queryPositional } = require('./db');
+const { contactAttributesFor } = require('./jurisdiction-packs');
 
 // ── Descriptor + emitter loading ─────────────────────────────────────────────
 function loadDescriptor(jurisdiction) {
@@ -290,6 +291,38 @@ async function computeFiling(query, companyId, year, overrides) {
   return { fields, warnings, period, company, bookResult, taxResult, descriptor, emitter };
 }
 
+// ── Mandatory contact validation (shared by info + ink2) ────────────────────
+// Walks the pack's required contact attributes for the company's jurisdiction
+// and returns an array of human-readable problem strings. Blank required
+// values are flagged; postnr (the only format-bearing field today) is also
+// format-checked when non-empty. Never throws — callers decide what to do.
+function validateSruContact(company, contact) {
+  const problems = [];
+  for (const attr of contactAttributesFor(company.jurisdiction)) {
+    if (!attr.required) continue;
+    const v = contact[attr.key];
+    if (!v || !String(v).trim()) {
+      problems.push(`${attr.label} is required for SRU filing`);
+    } else if (attr.format && !new RegExp(attr.format).test(String(v).trim())) {
+      // Format owner today is postnr; message names the 5-digit expectation.
+      problems.push('Postnummer must be a valid Swedish zip code (5 digits)');
+    }
+  }
+  return problems;
+}
+
+// Load the company's contact_* settings into a plain object keyed by the
+// attribute name (prefix stripped). Positional query style matches the rest
+// of this module.
+async function loadContact(query, companyId) {
+  const rows = await query(`SELECT key, value FROM settings WHERE company_id = ?`, [companyId]);
+  const contact = {};
+  for (const r of rows) {
+    if (String(r.key).startsWith('contact_')) contact[String(r.key).slice('contact_'.length)] = r.value;
+  }
+  return contact;
+}
+
 // ── Express handlers ──────────────────────────────────────────────────────────
 async function handleSruInk2(req, res) {
   const { company } = req.params;
@@ -299,10 +332,30 @@ async function handleSruInk2(req, res) {
   if (!Number.isFinite(yr)) return res.status(400).json({ error: 'Invalid year' });
 
   try {
-    const computed = await computeFiling(queryPositional, company, yr, { loss_cf });
+    // Mandatory MEDIELEV contact validation (postnr/postort). Runs BEFORE
+    // computeFiling so the short-circuit fires even on empty books —
+    // Skatteverket rejects INFO.SRU with blank #POSTNR/#POSTORT regardless of
+    // the blanket contents. With ?check=1 the problems are appended to
+    // warnings and never block the check flow.
+    const coRows = await queryPositional(
+      `SELECT company_id, company_name, tax_id, jurisdiction FROM companies
+       WHERE company_id = ? ORDER BY created_at DESC LIMIT 1`,
+      [company]
+    );
+    if (coRows.length === 0) {
+      const err = new Error('Company not found'); err.code = 'NOT_FOUND'; throw err;
+    }
+    const contact = await loadContact(queryPositional, company);
+    const problems = validateSruContact(coRows[0], contact);
     if (check === '1' || check === 1) {
+      const computed = await computeFiling(queryPositional, company, yr, { loss_cf });
+      if (problems.length) computed.warnings.push(...problems);
       return res.json({ fields: computed.fields, warnings: computed.warnings });
     }
+    if (problems.length) {
+      return res.status(400).json({ error: problems.join(' | ') + ' — set them under Settings → Company' });
+    }
+    const computed = await computeFiling(queryPositional, company, yr, { loss_cf });
     const text = computed.emitter.emitSru(computed, computed.descriptor, yr);
     if (computed.warnings.length) {
       const header = computed.warnings.join(' | ');
@@ -331,9 +384,14 @@ async function handleSruInfo(req, res) {
     );
     if (coRows.length === 0) return res.status(404).json({ error: 'Company not found' });
     const co = coRows[0];
+    const contact = await loadContact(queryPositional, company);
+    const problems = validateSruContact(co, contact);
+    if (problems.length) {
+      return res.status(400).json({ error: problems.join(' | ') + ' — set them under Settings → Company' });
+    }
     const descriptor = loadDescriptor(co.jurisdiction || 'SE');
     const emitter = loadEmitter(descriptor);
-    const text = emitter.emitInfo(co, { kontakt, telefon, email });
+    const text = emitter.emitInfo(co, { kontakt, telefon, email }, contact);
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="INFO.SRU"`);
     return res.send(text);
@@ -345,6 +403,7 @@ async function handleSruInfo(req, res) {
 
 module.exports = {
   computeFiling,
+  validateSruContact,
   handleSruInk2,
   handleSruInfo,
 };

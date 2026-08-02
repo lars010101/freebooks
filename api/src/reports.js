@@ -8,6 +8,7 @@
 
 const path = require('path');
 const { getDb } = require('./db');
+const { packIntegration } = require('./jurisdiction-packs');
 const { renderReport, renderComparative, generatePeriods, generateYoYPeriods, generateFiscalPeriods } = require(
   path.resolve(__dirname, '../../reports/render.js')
 );
@@ -65,6 +66,15 @@ async function handleReport(req, res) {
         }
         result = await renderAnnualReport(query, company, start, end);
       } else if (type === 'sie') {
+        // SIE is a Swedish statutory format — gated on the jurisdiction pack's
+        // integrations.sie.export declaration (hidden in the UI as well).
+        const jurRows = await query(
+          `SELECT jurisdiction FROM companies WHERE company_id = ? ORDER BY created_at DESC LIMIT 1`, [company]);
+        const jur = jurRows.length ? jurRows[0].jurisdiction : null;
+        const sieInteg = packIntegration(jur, 'sie');
+        if (!sieInteg || !sieInteg.export) {
+          return res.status(400).json({ error: `SIE export not available for jurisdiction ${jur || 'unknown'}` });
+        }
         const { renderSie } = require('./sie-export');
         const sie = await renderSie(query, company, start, end);
         res.setHeader('Content-Type', 'application/octet-stream');

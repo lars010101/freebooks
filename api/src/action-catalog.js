@@ -48,6 +48,11 @@ const ACTIONS = {
     description: 'Bulk-import journal entries (all-or-nothing).',
     params: { entries: { type: 'array', required: true } },
   },
+  'sie.import': {
+    role: 'data_entry', mutating: true, idempotent: true,
+    description: 'Import SIE file (types 1-4): chart of accounts, opening balances, vouchers. dryRun default true.',
+    params: { contentBase64: { type: 'string' }, content: { type: 'string' }, dryRun: { type: 'boolean' }, importOpeningBalances: { type: 'boolean' }, fileName: { type: 'string' } },
+  },
   'journal.search': {
     role: 'viewer', mutating: false,
     description: 'Full-text search over journal entries.',
@@ -383,7 +388,7 @@ const ACTIONS = {
   },
   'company.attr.save': {
     role: 'owner', mutating: true,
-    description: 'Write ONE company attribute (server-authoritative validation). key ∈ company_name|currency|jurisdiction|tax_id|reporting_standard|vat_registered|multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct|fx_gain_loss_account.',
+    description: 'Write ONE company attribute (server-authoritative validation). key ∈ company_name|currency|jurisdiction|tax_id|reporting_standard|vat_registered|multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct|fx_gain_loss_account|contact_<pack-declared contact attribute>.',
     params: { key: { type: 'string', required: true }, value: { required: true } },
   },
   'period.list': { role: 'viewer', mutating: false, description: 'List accounting periods.' },

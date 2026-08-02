@@ -14,10 +14,13 @@
   ],
   "contactAttributes": [
     { "key": "address", "label": "Adress" },
-    { "key": "postnr", "label": "Postnummer" },
-    { "key": "postort", "label": "Postort" },
+    { "key": "postnr", "label": "Postnummer", "format": "^\\d{3}\\s?\\d{2}$", "required": true },
+    { "key": "postort", "label": "Postort", "required": true },
     { "key": "contact_name", "label": "Kontaktperson" },
     { "key": "contact_phone", "label": "Telefon" },
     { "key": "contact_email", "label": "E-post" }
-  ]
+  ],
+  "integrations": {
+    "sie": { "export": true, "import": true }
+  }
 }

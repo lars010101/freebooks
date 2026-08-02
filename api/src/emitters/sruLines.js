@@ -95,7 +95,12 @@ function emitSru(computed, descriptor, year) {
 }
 
 // ── INFO.SRU ────────────────────────────────────────────────────────────────
-function emitInfo(company, params) {
+// `contact` = company's stored contact_* settings keyed by pack attribute
+// (contact_address stripped → address). Query params win over stored attrs
+// for the person fields; #ADRESS/#POSTNR/#POSTORT come from stored attrs only
+// (Skatteverket rejects blank #POSTNR/#POSTORT — see validateSruContact gate
+// in filings.js, which runs before this emitter is reached).
+function emitInfo(company, params, contact = {}) {
   const ts = timestampToken();
   const ver = packageVersion();
   const orgnr = orgnrKey(company.tax_id);
@@ -109,13 +114,13 @@ function emitInfo(company, params) {
     `#MEDIELEV_START`,
     `#ORGNR ${orgnr}`,
     `#NAMN ${company.company_name}`,
-    `#ADRESS `,
-    `#POSTNR `,
-    `#POSTORT `,
+    `#ADRESS ${contact.address || ''}`,
+    `#POSTNR ${contact.postnr || ''}`,
+    `#POSTORT ${contact.postort || ''}`,
     `#AVDELNING `,
-    `#KONTAKT ${params.kontakt || ''}`,
-    `#EMAIL ${params.email || ''}`,
-    `#TELEFON ${params.telefon || ''}`,
+    `#KONTAKT ${params.kontakt || contact.contact_name || ''}`,
+    `#EMAIL ${params.email || contact.contact_email || ''}`,
+    `#TELEFON ${params.telefon || contact.contact_phone || ''}`,
     `#FAX `,
     `#MEDIELEV_SLUT`,
   ];

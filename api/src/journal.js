@@ -106,24 +106,61 @@ function throwValidation(validation) {
 }
 
 /**
+ * Resolve the company's default journal (code 'MISC') for postings that
+ * arrive without a journalId. Ratified 2026-08-02 (magnus): every posted
+ * batch must carry a sequential {CODE}/{YYYY}/{NNNNN} reference — a missing
+ * journalId defaults to MISC (warn-not-block, surfaced via response warnings)
+ * instead of leaving reference null. Returns null only when no active MISC
+ * journal exists (unseeded DB) — then the historical null-reference behavior
+ * is preserved.
+ */
+async function resolveDefaultJournalId(companyId) {
+  const rows = await query(
+    `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'MISC' AND active = true LIMIT 1`,
+    { companyId }
+  );
+  return rows.length ? rows[0].journal_id : null;
+}
+
+/**
+ * Resolve the company's default journal (code 'MISC') for reference minting.
+ * Ratified 2026-08-02 (magnus): every posted batch must carry a sequential
+ * reference — a missing journalId defaults to MISC (warn-not-block; never
+ * land a batch with no verifikat-style number). Returns null only when the
+ * company has no active MISC journal (unseeded/legacy DBs) — callers then
+ * keep the pre-2026-08-02 null-reference behavior.
+ */
+async function resolveDefaultJournalId(companyId) {
+  const rows = await query(
+    `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'MISC' AND active = true LIMIT 1`,
+    { companyId }
+  );
+  return rows.length ? rows[0].journal_id : null;
+}
+
+/**
  * Insert journal_entries rows for a set of enriched lines, generate the
  * sequential reference (if journalId), and emit journal.posted (A2 §3.2).
  * `createdByEmail` is the email stamped on created_by — for journal.post it's
  * the caller; for journal.approve it's the approving HUMAN (R5: the ledger
  * row shows the human poster; the agent origin lives on the proposal + audit).
- * Returns { batchId, reference, lineCount, rows }.
+ * Returns { batchId, reference, lineCount, rows, defaultedToMisc }.
  */
 async function postJournalBatch(ctx, { enrichedLines, journalId, createdByEmail, source = 'manual' }) {
   const companyId = ctx.companyId;
   const batchId = uuid();
   const now = new Date().toISOString();
 
-  // Generate sequential reference if a journalId was provided
+  // Generate the sequential reference. No journalId → default MISC journal
+  // (2026-08-02 doctrine above); defaultedToMisc lets callers warn.
   let autoReference = null;
-  if (journalId) {
+  let effectiveJournalId = journalId || null;
+  const defaultedToMisc = !effectiveJournalId;
+  if (defaultedToMisc) effectiveJournalId = await resolveDefaultJournalId(companyId);
+  if (effectiveJournalId) {
     const entryDate = enrichedLines[0].date;
     const year = parseInt(String(entryDate).substring(0, 4), 10);
-    autoReference = await getNextReference(companyId, journalId, year);
+    autoReference = await getNextReference(companyId, effectiveJournalId, year);
   }
 
   const rows = enrichedLines.map((line) => ({
@@ -171,7 +208,7 @@ async function postJournalBatch(ctx, { enrichedLines, journalId, createdByEmail,
     currency: rows[0].currency,
   });
 
-  return { batchId, reference: autoReference, lineCount: rows.length, rows };
+  return { batchId, reference: autoReference, lineCount: rows.length, rows, defaultedToMisc };
 }
 
 // P0-5: read-only account activity queries for the bank UI. These replace
@@ -382,11 +419,15 @@ async function postEntry(ctx) {
 
   // A3j (§4.3): the insert core is shared with journal.approve. created_by is
   // the caller (journal.post) — for approve it's the approving human instead.
-  const { batchId, reference, lineCount } = await postJournalBatch(ctx, {
+  const { batchId, reference, lineCount, defaultedToMisc } = await postJournalBatch(ctx, {
     enrichedLines, journalId, createdByEmail: userEmail, source,
   });
 
-  return { posted: true, batchId, reference, lineCount, warnings };
+  // 2026-08-02 doctrine: no journalId → defaulted to MISC — warn, never block.
+  const outWarnings = (warnings || []).concat(
+    defaultedToMisc ? [`No journalId supplied — posted under default journal MISC (reference ${reference})`] : []
+  );
+  return { posted: true, batchId, reference, lineCount, warnings: outWarnings };
 }
 
 async function reverseEntry(ctx) {
@@ -518,8 +559,12 @@ async function importEntries(ctx) {
 
   const allRows = [];
   const allErrors = [];
+  const validated = [];
+  let referencesMinted = 0;
   const now = new Date().toISOString();
 
+  // Pass 1: validate every entry BEFORE any reference is minted — a failed
+  // (all-or-nothing) import must not burn journal sequence numbers.
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     const { lines, source = 'csv_import' } = entry;
@@ -547,6 +592,34 @@ async function importEntries(ctx) {
     }
 
     if (entryErrors.length > 0) { allErrors.push({ entry: i + 1, batchId, errors: entryErrors }); continue; }
+    validated.push({ entry, lines, source, batchId });
+  }
+
+  if (allErrors.length > 0) {
+    // Import is all-or-nothing: any entry failure means nothing was inserted.
+    const summary = allErrors.map((e) => `Entry ${e.entry}: ${e.errors.join('; ')}`).join(' | ');
+    throw Object.assign(new Error(`Import failed for ${allErrors.length} of ${entries.length} entries: ${summary}`), {
+      code: 'VALIDATION',
+      details: { errors: allErrors, failed: allErrors.length, totalEntries: entries.length },
+    });
+  }
+
+  // Pass 2: mint references + build rows. Reference doctrine (ratified
+  // 2026-08-02, magnus): an entry carrying NO reference on any line gets a
+  // sequential one minted (entry.journalId, else the company's default MISC
+  // journal) — entries that DO carry references keep them (source-system
+  // voucher identity preserved on migration imports).
+  for (const { entry, lines, source, batchId } of validated) {
+    let entryRef = null;
+    for (const line of lines) { if (line.reference) { entryRef = line.reference; break; } }
+    if (!entryRef) {
+      const jId = entry.journalId || (await resolveDefaultJournalId(companyId));
+      if (jId) {
+        const year = parseInt(String(lines[0].date).substring(0, 4), 10);
+        entryRef = await getNextReference(companyId, jId, year);
+        referencesMinted++;
+      }
+    }
 
     for (const line of lines) {
       const currency = line.currency || company.currency;
@@ -572,7 +645,7 @@ async function importEntries(ctx) {
         net_amount: 0,
         net_amount_home: 0,
         description: line.description || null,
-        reference: line.reference || null,
+        reference: line.reference || entryRef || null,
         source,
         cost_center: line.cost_center || null,
         profit_center: line.profit_center || null,
@@ -585,20 +658,11 @@ async function importEntries(ctx) {
     }
   }
 
-  if (allErrors.length > 0) {
-    // Import is all-or-nothing: any entry failure means nothing was inserted.
-    const summary = allErrors.map((e) => `Entry ${e.entry}: ${e.errors.join('; ')}`).join(' | ');
-    throw Object.assign(new Error(`Import failed for ${allErrors.length} of ${entries.length} entries: ${summary}`), {
-      code: 'VALIDATION',
-      details: { errors: allErrors, failed: allErrors.length, totalEntries: entries.length },
-    });
-  }
-
   await bulkInsert('journal_entries', allRows);
 
   await auditLog(companyId, 'journal_entries', 'bulk', 'import', userEmail || 'import', null);
 
-  return { imported: entries.length, failed: 0, totalEntries: entries.length, rowsInserted: allRows.length, errors: [] };
+  return { imported: entries.length, failed: 0, totalEntries: entries.length, rowsInserted: allRows.length, referencesMinted, errors: [] };
 }
 
 // ── A3j (§4.3): journal proposal actions ───────────────────────────────────
@@ -882,7 +946,13 @@ async function approveProposal(ctx) {
     reviewedBy: reviewer,
   });
 
-  return { posted: true, proposalId, batchId, reference, lineCount };
+  return {
+    posted: true, proposalId, batchId, reference, lineCount,
+    // 2026-08-02 doctrine: proposal without journal_id → defaulted to MISC — warn.
+    ...(postResult.defaultedToMisc
+      ? { warnings: [`Proposal had no journal — posted under default journal MISC (reference ${reference})`] }
+      : {}),
+  };
 }
 
 /**

@@ -1837,3 +1837,60 @@ test('A4 stage2: GC — purges aged orphan + aged rejected-proposal; keeps fresh
   await sql(baseUrl, srv.adminToken, `DELETE FROM attachments WHERE company_id='CT' AND attachment_id='${journalAttachId}'`);
   await sql(baseUrl, srv.adminToken, `DELETE FROM journal_proposals WHERE company_id='CT' AND proposal_id='${rejectedProposalId}'`);
 });
+
+// ── Reference doctrine (ratified 2026-08-02): every posted batch carries a ──
+// ── sequential {CODE}/{YYYY}/{NNNNN} reference; missing journalId → MISC. ──
+
+test('journal.post without journalId defaults to MISC sequence + warning', async () => {
+  const r = await api(baseUrl, 'journal.post', {
+    companyId: CO,
+    lines: [
+      { account_code: EXP, debit: 25, date: '2026-07-21', description: 'ref doctrine test' },
+      { account_code: AP, credit: 25, date: '2026-07-21', description: 'ref doctrine test' },
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(r.body.data.posted);
+  assert.match(String(r.body.data.reference), /^MISC\/2026\/\d{5}$/);
+  assert.ok((r.body.data.warnings || []).some((w) => /default journal MISC/.test(w)),
+    'warning names the MISC default');
+});
+
+test('journal.post with explicit journalId mints that journal\'s sequence, no MISC warning', async () => {
+  const jrows = await sql(baseUrl, srv.adminToken,
+    `SELECT journal_id FROM journals WHERE company_id='CT' AND code='ADJ' AND active=true`);
+  const r = await api(baseUrl, 'journal.post', {
+    companyId: CO,
+    journalId: String(jrows[0].journal_id),
+    lines: [
+      { account_code: EXP, debit: 30, date: '2026-07-21', description: 'ref doctrine test 2' },
+      { account_code: AP, credit: 30, date: '2026-07-21', description: 'ref doctrine test 2' },
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(String(r.body.data.reference), /^ADJ\/2026\/\d{5}$/);
+  assert.ok(!(r.body.data.warnings || []).some((w) => /default journal MISC/.test(w)));
+});
+
+test('journal.import: reference-less entries get MISC sequences; carried references preserved', async () => {
+  const r = await api(baseUrl, 'journal.import', {
+    companyId: CO,
+    entries: [
+      { lines: [
+        { account_code: EXP, debit: 40, date: '2026-07-22' },
+        { account_code: AP, credit: 40, date: '2026-07-22' },
+      ] },
+      { lines: [
+        { account_code: EXP, debit: 45, date: '2026-07-22', reference: 'LEGACY-KEEP-1' },
+        { account_code: AP, credit: 45, date: '2026-07-22' },
+      ] },
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(Number(r.body.data.referencesMinted), 1, 'exactly one entry needed a minted reference');
+  const rows = await sql(baseUrl, srv.adminToken,
+    `SELECT DISTINCT reference FROM journal_entries WHERE company_id='CT' AND date='2026-07-22' AND source='csv_import'`);
+  const refs = rows.map((x) => String(x.reference));
+  assert.ok(refs.includes('LEGACY-KEEP-1'), 'carried reference preserved');
+  assert.ok(refs.some((x) => /^MISC\/2026\/\d{5}$/.test(x)), 'minted MISC sequence present');
+});

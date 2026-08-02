@@ -27,7 +27,7 @@ const ACTIONS = {
   // ── Journal ──────────────────────────────────────────────────────────────
   'journal.post': {
     role: 'data_entry', mutating: true, idempotent: true,
-    description: 'Post a balanced manual journal entry (DR=CR per line dates).',
+    description: 'Post a balanced manual journal entry (DR=CR per line dates). A sequential {CODE}/{YYYY}/{NNNNN} reference is always minted — journalId omitted defaults to the MISC journal (warning returned).',
     params: {
       lines: { type: 'array', required: true },
       journalId: { type: 'string' },
@@ -45,7 +45,7 @@ const ACTIONS = {
   },
   'journal.import': {
     role: 'data_entry', mutating: true, idempotent: true,
-    description: 'Bulk-import journal entries (all-or-nothing).',
+    description: 'Bulk-import journal entries (all-or-nothing). Entries carrying a reference keep it (source-system voucher identity preserved); entries without any reference get a sequential one minted (entry.journalId, else MISC).',
     params: { entries: { type: 'array', required: true } },
   },
   'sie.import': {

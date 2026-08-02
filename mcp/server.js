@@ -14,6 +14,9 @@
  *   - FREEBOOKS_COMPANY   (company id)
  *   - FREEBOOKS_REQUEST_ID (optional override; else one uuid minted at server start,
  *     sent as X-Request-Id on EVERY api call — one MCP session = one correlated run)
+ *   - FREEBOOKS_API_TOKEN (optional per-actor API token — sent as
+ *     Authorization: Bearer on every API call; REQUIRED when the API runs
+ *     FREEBOOKS_AUTH_MODE=token-remote and the MCP server is on another host)
  *   - Every mutating tool call sends Idempotency-Key (uuid per logical call; the
  *     caller may supply `idempotency_key` for cross-retry identity).
  *
@@ -33,11 +36,13 @@ const API_URL = (process.env.FREEBOOKS_API_URL || 'http://127.0.0.1:3000').repla
 const FREEBOOKS_USER = process.env.FREEBOOKS_USER || '';
 const FREEBOOKS_COMPANY = process.env.FREEBOOKS_COMPANY || '';
 const REQUEST_ID = process.env.FREEBOOKS_REQUEST_ID || crypto.randomUUID();
+const API_TOKEN = process.env.FREEBOOKS_API_TOKEN || '';
 
 // One MCP session = one correlated run. X-Request-Id rides every API call so
 // audit_log + events share a single request_id (R3).
 const SESSION_HEADERS = {
   'X-Request-Id': REQUEST_ID,
+  ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
 };
 
 // ── static fallback read allowlist (spec §5.2 freebooks_read) ──────────────

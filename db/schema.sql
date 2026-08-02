@@ -497,6 +497,25 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_company_seq ON events(company_id, event_seq);
 
 -- =============================================================================
+-- api_tokens (spec §2.6: per-actor API tokens)
+-- Bearer-token authentication for the action API. The token string is shown
+-- ONCE at creation; only its sha256 hex is stored. Identity is bound at
+-- creation (email); role still resolves from user_permissions per call.
+-- Boot-applied like every schema statement (IF NOT EXISTS — fresh + existing
+-- DBs converge).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS api_tokens (
+  token_id    VARCHAR   NOT NULL DEFAULT (uuid()) PRIMARY KEY,
+  token_hash  VARCHAR   NOT NULL UNIQUE,
+  label       VARCHAR   NOT NULL,
+  email       VARCHAR   NOT NULL,
+  created_at  TIMESTAMP DEFAULT now(),
+  created_by  VARCHAR,
+  revoked_at  TIMESTAMP,
+  revoked_by  VARCHAR
+);
+
+-- =============================================================================
 -- journal_proposals (A3j — §4.2: agent/human-proposed journal batches)
 -- The prepare/approve flow: an actor (typically an agent) proposes a journal
 -- batch; a human reviews and approves (which posts to journal_entries) or
@@ -525,3 +544,4 @@ CREATE TABLE IF NOT EXISTS journal_proposals (
   created_at   TIMESTAMP NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_journal_proposals_company_status ON journal_proposals(company_id, status);
+

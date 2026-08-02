@@ -12,7 +12,7 @@ const express = require('express');
 const cors = require('cors');
 const { v4: uuid } = require('uuid');
 
-const { checkPermission, resolveActor } = require('./auth');
+const { checkPermission, resolveActor, resolveToken, remoteTokenRequired } = require('./auth');
 const { handleJournal } = require('./journal');
 const { handleBank } = require('./bank');
 const { handleBills } = require('./bills');
@@ -24,11 +24,16 @@ const { handleFx, providerExists, listProviderIds, MANUAL_PROVIDER } = require('
 const { handleSetup } = require('./setup');
 const { handleAttachments } = require('./attachments');
 const { handleEvents, emitEvent } = require('./events');
+const { handleTokens } = require('./tokens');
 const { handleSie } = require('./sie-import');
 const { contactAttributesFor } = require('./jurisdiction-packs');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 const { auditCall } = require('./audit');
 const PORT = process.env.PORT || 3000;
+
+// Auth mode: 'trust' (default, install-level) | 'token-remote' (non-loopback
+// clients must present a valid Bearer token — the two-server deployment mode).
+const AUTH_MODE = String(process.env.FREEBOOKS_AUTH_MODE || 'trust').trim();
 
 // P1-1: action metadata is the single source of truth — roles, idempotency,
 // mutability/audit behavior, and param schemas all live in action-catalog.js
@@ -55,6 +60,7 @@ const ERROR_STATUS = {
   PERIOD_UNDEFINED: 400,
   NOT_FOUND: 404,
   FORBIDDEN: 403,
+  UNAUTHENTICATED: 401,
   DUPLICATE: 409,
   CONFLICT: 409,
   INVALID_STATUS: 409,
@@ -168,13 +174,31 @@ mountReportRoutes(app);
 async function handleApiRequest(req, res) {
   try {
     const body = req.body;
-    const { action, companyId, userEmail } = body;
+    const { action, companyId } = body;
+    let userEmail = body.userEmail;
 
     if (!action) return fail(res, 'INVALID_INPUT', 'Missing action');
     if (!action.startsWith('setup.') && !companyId) return fail(res, 'INVALID_INPUT', 'Missing companyId');
 
     const requiredRole = ACTION_ROLES[action];
     if (!requiredRole) return fail(res, 'INVALID_INPUT', `Unknown action: ${action}`);
+
+    // ── Per-actor API tokens (spec §2.6): a Bearer token authenticates the
+    // caller. Valid token → identity comes from the token (body userEmail is
+    // IGNORED — no mixed-identity requests). Invalid/revoked token → 401 and
+    // NEVER a fall-back to self-asserted identity (downgrade hole). No token
+    // → legacy install-level trust, unless FREEBOOKS_AUTH_MODE='token-remote'
+    // and the client is non-loopback (the two-server deployment mode).
+    const authz = req.get('Authorization') || '';
+    const bearerMatch = /^Bearer\s+(.+)$/i.exec(authz);
+    let tokenAuth = null;
+    if (bearerMatch) {
+      tokenAuth = await resolveToken(bearerMatch[1].trim());
+      if (!tokenAuth) return fail(res, 'UNAUTHENTICATED', 'Invalid or revoked API token');
+      userEmail = tokenAuth.email;
+    } else if (remoteTokenRequired(AUTH_MODE, req)) {
+      return fail(res, 'UNAUTHENTICATED', 'API token required for remote clients (FREEBOOKS_AUTH_MODE=token-remote)');
+    }
 
     if (userEmail && !action.startsWith('setup.')) {
       const allowed = await checkPermission(userEmail, companyId, requiredRole);
@@ -261,7 +285,7 @@ async function handleApiRequest(req, res) {
       wrapIdempotentResponse(res, scopedKey, action, companyId);
     }
 
-    const ctx = { body, companyId, userEmail, actor, requestId };
+    const ctx = { body, companyId, userEmail, actor, requestId, tokenAuth };
     let result;
     const [module] = action.split('.');
 
@@ -286,6 +310,7 @@ async function handleApiRequest(req, res) {
       case 'diag':        result = await handleDiag(ctx, action); break;
       case 'attachment':  result = await handleAttachments(ctx, action); break;
       case 'event':       result = await handleEvents(ctx, action); break;
+      case 'auth':        result = await handleTokens(ctx, action); break;
       case 'sie':         result = await handleSie(ctx, action); break;
       default:
         return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);

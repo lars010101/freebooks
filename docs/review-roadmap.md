@@ -230,6 +230,16 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 ---
 
+## 0w. Status update — 2026-08-02 (agent-first hardening: event payload fix + per-actor API tokens)
+
+**§0r residual (a) CLOSED (PR #79):** oversized event payloads were sliced mid-string at 4000 chars and stored as invalid JSON — JSON.parse consumers (agents on `event.list`, the MCP `event_list` tool) broke on exactly the largest events. `serializePayload()` in events.js guarantees valid JSON within the cap: oversized payloads are wrapped in `{_truncated, original_chars, preview}`; consumers re-fetch full state via the row's entity_type/entity_id. Unit suite 4/4 · full api suite 80/80 · mcp-smoke 28/28.
+
+**Per-actor API tokens shipped (spec §2.5 — the §7 out-of-scope item, pulled in):** Bearer-token auth for the action API. A token is an identity (bound email), not a capability grant — role still resolves from `user_permissions` per call. Valid token overrides body `userEmail`; invalid/revoked → 401 `UNAUTHENTICATED` with no downgrade to self-asserted identity. `FREEBOOKS_AUTH_MODE=token-remote` requires tokens from non-loopback clients — the **two-server deployment mode** (freebooks+DB on host A, agent + MCP server on host B with `FREEBOOKS_API_TOKEN`). Management actions `auth.token.create/list/revoke` are owner-only (agents excluded by the role check AND the §2.3 whitelist); token shown once, sha256 stored. Verification: new `auth-tokens.test.js` 6/6 (one-time mint, hash never listed, bearer-over-body precedence, invalid/revoked 401, idempotent revoke, loopback/remote unit gates, agent 403s) · full suite 86/86 · mcp-smoke 28/28. Two implementation catches at review: DuckDB RETURNING needs `query()` not `exec()` (exec discards rows), and the admin SQL endpoint binds no named params (tests inline literals per contract.test.js convention).
+
+**Known residuals (backlog, none blocking):** per-company token scoping + role ceilings; `last_used_at`; audit-log token provenance (label); Bearer coverage of non-action routes (`/api/upload` multipart, attachment GETs, report routes) — the action API only today; same-host reverse-proxy caveat documented in spec §2.5.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

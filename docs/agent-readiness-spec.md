@@ -53,7 +53,7 @@ An agent account is just an email row with role `agent`, granted by an owner. **
 
 ### 2.2 Actor class is derived, never asserted
 
-`auth.js` gains `resolveActor(email, companyId) → { role, actorType }` (same 60s TTL cache as `checkPermission`; `actorType = role === 'agent' ? 'agent' : 'human'`). Dispatch resolves the actor once and puts it on `ctx.actor`. **The class comes from the database role, not from anything in the request** — an agent cannot self-assert its way to `human`. This is the meaningful control given today's install-level trust model (self-asserted `userEmail`); per-actor API tokens remain later hardening, noted as out of scope.
+`auth.js` gains `resolveActor(email, companyId) → { role, actorType }` (same 60s TTL cache as `checkPermission`; `actorType = role === 'agent' ? 'agent' : 'human'`). Dispatch resolves the actor once and puts it on `ctx.actor`. **The class comes from the database role, not from anything in the request** — an agent cannot self-assert its way to `human`. This is the meaningful control given the default install-level trust model (self-asserted `userEmail`); per-actor API tokens shipped 2026-08-02 (§2.5) for deployments where the API is reachable over a network.
 
 ### 2.3 The dispatch guard (default-deny)
 
@@ -80,6 +80,17 @@ ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS request_id  VARCHAR;
 `auditCall` (P0-4 dispatch audit) and `auditLog` (field-level) both accept the actor and stamp all three columns; `auditLog`'s signature gains an optional actor param, defaulting to `{ actorType: 'human', requestId: null }` so existing call sites are unaffected.
 
 `journal_entries.created_by` is unchanged in meaning — when a human approves an agent's proposal, the journal rows show the human poster; the agent origin lives on the `journal_proposals` row (`created_by`), the audit trail, and the event stream (§3). The ledger stays clean.
+
+### 2.5 Per-actor API tokens (as built 2026-08-02)
+
+Bearer-token authentication for the action API, closing the hole §2.2 leaves open: over a network, a self-asserted `userEmail` is forgeable by anyone who can reach the port. A token authenticates the caller; the **role still resolves from `user_permissions` on every call** — a token is an identity, not a capability grant, so revoking a permission row takes effect within the existing 60s cache window, and revoking the token kills access immediately.
+
+- **Format:** `fbt_` + 24 random bytes hex. Only the sha256 hex is stored (`api_tokens` table, boot-applied schema); the token string is returned ONCE by `auth.token.create`. `auth.token.list` never selects the hash.
+- **Dispatch semantics (before the role check):** a valid Bearer token makes the call's identity the token's bound email — body `userEmail` is IGNORED (no mixed-identity requests). An invalid/revoked token is 401 `UNAUTHENTICATED` and NEVER falls back to self-asserted identity (that would be a downgrade hole). No token → legacy install-level trust, unchanged.
+- **Enforcement mode:** `FREEBOOKS_AUTH_MODE=token-remote` makes non-loopback clients require a valid token (401 otherwise); loopback keeps install-level trust, so the local browser UI and SSH-tunnelled clients keep working unchanged. Default `trust` = the pre-existing behavior. **Same-host reverse-proxy caveat:** a proxy on the API host makes remote traffic arrive as loopback — terminate TLS on a different host, or don't rely on `token-remote` behind a same-host proxy.
+- **Management actions (owner role; agents excluded by both the role check and the §2.3 whitelist):** `auth.token.create` `{email, label}` → `{tokenId, token, email, label}`; `auth.token.list`; `auth.token.revoke` `{tokenId}` (handler-level idempotent: re-revoke → `alreadyRevoked:true`, unknown id → 404).
+- **MCP:** `FREEBOOKS_API_TOKEN` on the MCP server sends the token as `Authorization: Bearer` on every API call.
+- **Scope decisions (v1):** tokens are install-global (bound to an email, not a company — per-company access stays with `user_permissions`); no `last_used_at` (keeps writes off the hot path); audit rows carry the resolved identity (token label not persisted to audit_log); the Bearer block covers the action API only (`/api`, `/api/action`) — the multipart upload route, attachment GETs, and report routes are unchanged.
 
 ---
 
@@ -297,7 +308,7 @@ Sequencing after this tranche: **SRU engine refactor** (SRU-only), then **P2 acc
 
 ## 7. Out of scope (v1)
 
-- Per-actor API tokens / auth hardening beyond role-derived actor class.
+- ~~Per-actor API tokens~~ — **SHIPPED 2026-08-02 (§2.5).** Remaining hardening: per-company token scoping, role ceilings, `last_used_at`, audit-log token provenance.
 - Outbound event delivery (webhooks), event retention/compaction policy.
 - Bank feeds themselves (P3); OCR/VLM extraction loop (agent-side, not freebooks).
 - Bill proposals (dropped with the payables extras) and AR invoice proposals (Receivables dropped) — both reuse this pattern if those tracks return.

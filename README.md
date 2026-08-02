@@ -77,6 +77,7 @@ The server handles `SIGINT`/`SIGTERM` gracefully and checkpoints DuckDB before e
 |----------|---------|
 | `FREEBOOKS_DB_PATH` | Override the database location (default `~/.freebooks/freebooks.duckdb`). Useful for tests and throwaway instances. |
 | `FREEBOOKS_ADMIN_TOKEN` | Bearer token for `POST /api/admin/query` (arbitrary SQL). **If unset, the endpoint is disabled (403).** Set it only for local admin/debug use: `FREEBOOKS_ADMIN_TOKEN=$(openssl rand -hex 32) node api/src/index.js`, then send `Authorization: Bearer <token>`. |
+| `FREEBOOKS_AUTH_MODE` | `trust` (default) keeps install-level self-asserted identity. `token-remote` requires a valid `Authorization: Bearer` API token from every **non-loopback** client — set this when the API is reachable over a network (two-server deployment). Mint/revoke tokens via the `auth.token.create` / `auth.token.revoke` actions (owner role; spec `docs/agent-readiness-spec.md` §2.5). |
 | `PORT` | HTTP port (default 3000). |
 
 ### MCP server (agent access)
@@ -91,6 +92,16 @@ FREEBOOKS_API_URL=http://127.0.0.1:3000 FREEBOOKS_USER=agent@example.com FREEBOO
 Proposals SHOULD carry their source documents via the §4.7 upload-first binding convention — `attachment_upload` with `entityType='journal_proposal'` + the client-minted `proposalId`, then `journal_propose` with the same id (see `docs/agent-readiness-spec.md` §4.7).
 
 `FREEBOOKS_REQUEST_ID` optionally overrides the per-session correlation id (one MCP session = one `X-Request-Id` run in `audit_log`/`events`). The server talks HTTP to the action API only — never the DB file. The account named by `FREEBOOKS_USER` should hold the `agent` role (reads + proposals only; everything else is default-deny).
+
+**Running the MCP server on a different host than the API:** start the API with `FREEBOOKS_AUTH_MODE=token-remote` (non-loopback clients must authenticate), mint a token for the agent account once on the API host —
+
+```bash
+curl -X POST http://127.0.0.1:3000/api -H 'Content-Type: application/json' \
+  -d '{"action":"auth.token.create","companyId":"mycompany","userEmail":"owner@example.com","email":"agent@example.com","label":"hermes-agent"}'
+# → data.token is shown ONCE; only its sha256 is stored
+```
+
+— then add `FREEBOOKS_API_TOKEN=fbt_...` to the MCP server's environment. Revoke with `auth.token.revoke`. Note the loopback semantics: an SSH tunnel (`ssh -L`) presents as loopback on the API host and needs no token; Tailscale/direct binds present as remote and do.
 
 ---
 

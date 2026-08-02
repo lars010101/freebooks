@@ -414,6 +414,22 @@ const ACTIONS = {
     params: { permissions: { type: 'array', required: true } },
   },
 
+  // ── API tokens (spec §2.6): owner-only management. Agents are excluded by
+  // the role check (create/revoke are mutating and also outside AGENT_ALLOWED;
+  // list is mutating:false but role 'owner' blocks agent accounts at
+  // checkPermission before the whitelist guard runs).
+  'auth.token.create': {
+    role: 'owner', mutating: true,
+    description: 'Mint a per-actor API token (returned once; sha256 stored).',
+    params: { email: { type: 'string', required: true }, label: { type: 'string', required: true } },
+  },
+  'auth.token.list': { role: 'owner', mutating: false, description: 'List API tokens (never hashes).' },
+  'auth.token.revoke': {
+    role: 'owner', mutating: true, idempotent: true,
+    description: 'Revoke an API token (handler-level idempotent).',
+    params: { tokenId: { type: 'string', required: true } },
+  },
+
   // ── Setup / diag / attachments ───────────────────────────────────────────
   'diag.account': { role: 'owner', mutating: false, description: 'Diagnostic dump for an account.' },
   'setup.init': { role: 'owner', mutating: false, description: 'Verify schema and list jurisdictions.' },

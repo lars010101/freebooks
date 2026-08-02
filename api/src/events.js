@@ -20,10 +20,39 @@ const { query, exec } = require('./db');
 const MAX_PAYLOAD_CHARS = 4000;
 
 /**
+ * Serialize an event payload for storage. Guarantees a VALID JSON string of
+ * at most MAX_PAYLOAD_CHARS chars. An oversized payload is wrapped in a
+ * marked envelope — never sliced mid-string (a raw slice emits invalid JSON,
+ * roadmap §0r residual (a), and breaks every JSON.parse consumer downstream).
+ * Consumers detect `_truncated` and re-fetch full state from the entity via
+ * the row's entity_type/entity_id.
+ */
+function serializePayload(payload) {
+  if (payload === undefined || payload === null) return null;
+  let json;
+  try {
+    json = JSON.stringify(payload);
+  } catch {
+    json = JSON.stringify(String(payload));
+  }
+  if (json.length <= MAX_PAYLOAD_CHARS) return json;
+  const wrapped = JSON.stringify({
+    _truncated: true,
+    original_chars: json.length,
+    preview: json.slice(0, MAX_PAYLOAD_CHARS - 200), // headroom for the envelope itself (~60 chars)
+  });
+  // Paranoia: the envelope overhead is ~60 chars, so 200 headroom always
+  // suffices — but never trust an arithmetic argument over a hard invariant.
+  return wrapped.length <= MAX_PAYLOAD_CHARS
+    ? wrapped
+    : JSON.stringify({ _truncated: true, original_chars: json.length });
+}
+
+/**
  * Insert one event row. Omits event_seq/event_id so the column defaults fire
  * (nextval + uuid()). actor_type/actor_id/request_id come from ctx — the
  * actor class is derived from the DB role (A1 §2.2), never asserted. payload
- * is a compact JSON snapshot, truncated to MAX_PAYLOAD_CHARS if needed.
+ * is a compact JSON snapshot via serializePayload (valid JSON guaranteed).
  *
  * Emission failures are logged but never fail the business request — a
  * broken event stream must not roll back a posted journal. Callers that need
@@ -43,17 +72,7 @@ async function emitEvent(ctx, type, entityType, entityId, payload) {
   // with audit.js' actor-arg convention in case a caller bundles it there.
   const requestId = (ctx.requestId != null ? String(ctx.requestId)
     : (actor.requestId != null ? String(actor.requestId) : null));
-  let payloadJson = null;
-  if (payload !== undefined && payload !== null) {
-    try {
-      payloadJson = JSON.stringify(payload);
-    } catch {
-      payloadJson = JSON.stringify(String(payload));
-    }
-    if (payloadJson.length > MAX_PAYLOAD_CHARS) {
-      payloadJson = payloadJson.slice(0, MAX_PAYLOAD_CHARS);
-    }
-  }
+  const payloadJson = serializePayload(payload);
   try {
     await exec(
       `INSERT INTO events (company_id, event_type, entity_type, entity_id, actor_type, actor_id, request_id, payload)
@@ -112,4 +131,4 @@ async function handleEvents(ctx, action) {
   return query(sql, params);
 }
 
-module.exports = { emitEvent, handleEvents, MAX_PAYLOAD_CHARS };
+module.exports = { emitEvent, handleEvents, serializePayload, MAX_PAYLOAD_CHARS };

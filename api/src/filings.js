@@ -305,7 +305,7 @@ function validateSruContact(company, contact) {
       problems.push(`${attr.label} is required for SRU filing`);
     } else if (attr.format && !new RegExp(attr.format).test(String(v).trim())) {
       // Format owner today is postnr; message names the 5-digit expectation.
-      problems.push('Postnummer must be a valid Swedish zip code (5 digits)');
+      problems.push('Postal code must be a valid Swedish zip code (5 digits)');
     }
   }
   return problems;

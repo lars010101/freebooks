@@ -268,6 +268,13 @@ config + verbs only — no per-page key handlers (FB.list doctrine).
 | `Tab`/`Shift+Tab` | move cursor next/prev cell (no INSERT) — **crosses row/zone boundaries** (2026-07-28: was row-clamped; header→grid must flow) | native traversal; cursor follows focus |
 | `G` | last row | — |
 
+**Tab-strip precedence (2026-08-02, magnus):** on a page with a `.tabs`
+strip (Bank/Import, Settings/Opening Balances), `h`/`l` switch TABS —
+common.js's bubble handler owns them, so FB.form drops its `h`/`l` cell
+bindings at `create()` (hints stay truthful). Horizontal cell movement on
+tabbed pages is Tab/Shift+Tab only. Tabless FB.form pages (journal-new,
+reports-hub, new-company) keep `h`/`l` cell nav.
+
 Dropdown routing in INSERT is identical to fb-list (arrows move, Enter/Tab
 pick, Esc closes). `Space` on a button cell = `~`/`Enter` (activate; §5).
 Select commits are **mode-preserving** (2026-07-28 global rule): picking a

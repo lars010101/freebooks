@@ -77,14 +77,14 @@ test('SRU generation blocked with 400 when required contact attrs are blank', as
   const info = await fetch(`${baseUrl}/api/${SE}/sru/info?year=2025`);
   assert.equal(info.status, 400);
   const infoBody = await info.json();
-  assert.match(infoBody.error, /Postnummer/);
-  assert.match(infoBody.error, /Postort/);
+  assert.match(infoBody.error, /Postal code/);
+  assert.match(infoBody.error, /City/);
   assert.match(infoBody.error, /Settings/);
 
   const ink2 = await fetch(`${baseUrl}/api/${SE}/sru/ink2?year=2025`);
   assert.equal(ink2.status, 400, 'short-circuits before compute on empty books');
   const ink2Body = await ink2.json();
-  assert.match(ink2Body.error, /Postnummer/);
+  assert.match(ink2Body.error, /Postal code/);
 });
 
 // ── 4. Populated MEDIELEV + contact fallback ─────────────────────────────────
@@ -100,7 +100,7 @@ test('INFO.SRU carries #POSTNR/#POSTORT; contact params override stored attrs', 
   const info = await fetch(`${baseUrl}/api/${SE}/sru/info?year=2025`);
   assert.equal(info.status, 200);
   const text = await info.text();
-  assert.ok(text.includes('#POSTNR 114 51'), 'postnr populated');
+  assert.ok(text.includes('#POSTNR 11451'), 'postnr populated, whitespace stripped (Skatteverket format)');
   assert.ok(text.includes('#POSTORT Stockholm'), 'postort populated');
   assert.ok(text.includes('#KONTAKT Lars'), 'stored contact_name used as fallback');
 
@@ -125,6 +125,6 @@ test('ink2 ?check=1 appends contact problems to warnings, never blocks', async (
   assert.equal(r.status, 200, 'check flow never blocked');
   const body = await r.json();
   const joined = (body.warnings || []).join(' | ');
-  assert.match(joined, /Postnummer is required/);
-  assert.match(joined, /Postort is required/);
+  assert.match(joined, /Postal code is required/);
+  assert.match(joined, /City is required/);
 });

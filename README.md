@@ -77,10 +77,13 @@ The server handles `SIGINT`/`SIGTERM` gracefully and checkpoints DuckDB before e
 |----------|---------|
 | `FREEBOOKS_DB_PATH` | Override the database location (default `~/.freebooks/freebooks.duckdb`). Useful for tests and throwaway instances. |
 | `FREEBOOKS_ADMIN_TOKEN` | Bearer token for `POST /api/admin/query` (arbitrary SQL). **If unset, the endpoint is disabled (403).** Set it only for local admin/debug use: `FREEBOOKS_ADMIN_TOKEN=$(openssl rand -hex 32) node api/src/index.js`, then send `Authorization: Bearer <token>`. |
+| `FREEBOOKS_BIND` | Bind address (default `127.0.0.1` — loopback only). Set to a LAN/Tailscale interface IP for the two-server deployment, always paired with `FREEBOOKS_AUTH_MODE=token-remote`. Never bind a public interface in `trust` mode. |
 | `FREEBOOKS_AUTH_MODE` | `trust` (default) keeps install-level self-asserted identity. `token-remote` requires a valid `Authorization: Bearer` API token from every **non-loopback** client — set this when the API is reachable over a network (two-server deployment). Mint/revoke tokens via the `auth.token.create` / `auth.token.revoke` actions (owner role; spec `docs/agent-readiness-spec.md` §2.5). |
 | `PORT` | HTTP port (default 3000). |
 
 ### MCP server (agent access)
+
+**Operator guides: [`docs/agent-setup-guide.md`](docs/agent-setup-guide.md) (secure setup — same-host, two-server, and cloud-LLM paste-bridge scenarios) · [`docs/agent-data-feeding-guide.md`](docs/agent-data-feeding-guide.md) (getting documents/statements in, event contract, approval loop).**
 
 Agents drive freebooks through the MCP server (spec: `docs/agent-readiness-spec.md` §5) — a stdio Model Context Protocol process exposing the whitelisted agent surface (`event_list`, `journal_propose`, `attachment_upload`, `freebooks_read`):
 

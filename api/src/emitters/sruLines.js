@@ -115,7 +115,9 @@ function emitInfo(company, params, contact = {}) {
     `#ORGNR ${orgnr}`,
     `#NAMN ${company.company_name}`,
     `#ADRESS ${contact.address || ''}`,
-    `#POSTNR ${contact.postnr || ''}`,
+    // Skatteverket wants the zip as 5 bare digits — strip any stored
+    // whitespace ("114 51" → "11451"); magnus 2026-08-02.
+    `#POSTNR ${String(contact.postnr || '').replace(/\s+/g, '')}`,
     `#POSTORT ${contact.postort || ''}`,
     `#AVDELNING `,
     `#KONTAKT ${params.kontakt || contact.contact_name || ''}`,

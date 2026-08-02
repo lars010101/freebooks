@@ -8,17 +8,17 @@
   "taxIdFormat": "^\\d{6}-\\d{4}$",
   "taxIdSruPrefix": "16",
   "taxAttributes": [
-    { "key": "loss_cf", "label": "Outnyttjat underskott", "type": "amount", "perYear": true, "rollforward": "closing_to_opening", "default": 0 },
-    { "key": "audited", "label": "Årsredovisningen har varit föremål för revision", "type": "bool", "perYear": true, "default": false },
-    { "key": "consultant", "label": "Uppdragstagare har biträtt vid upprättandet av årsredovisningen", "type": "bool", "perYear": true, "default": false }
+    { "key": "loss_cf", "label": "Unused loss carry-forward", "type": "amount", "perYear": true, "rollforward": "closing_to_opening", "default": 0 },
+    { "key": "audited", "label": "Annual report has been audited", "type": "bool", "perYear": true, "default": false },
+    { "key": "consultant", "label": "Consultant assisted in preparing the annual report", "type": "bool", "perYear": true, "default": false }
   ],
   "contactAttributes": [
-    { "key": "address", "label": "Adress" },
-    { "key": "postnr", "label": "Postnummer", "format": "^\\d{3}\\s?\\d{2}$", "required": true },
-    { "key": "postort", "label": "Postort", "required": true },
-    { "key": "contact_name", "label": "Kontaktperson" },
-    { "key": "contact_phone", "label": "Telefon" },
-    { "key": "contact_email", "label": "E-post" }
+    { "key": "address", "label": "Address" },
+    { "key": "postnr", "label": "Postal code", "format": "^\\d{3}\\s?\\d{2}$", "required": true },
+    { "key": "postort", "label": "City", "required": true },
+    { "key": "contact_name", "label": "Contact name" },
+    { "key": "contact_phone", "label": "Phone nr" },
+    { "key": "contact_email", "label": "Email" }
   ],
   "integrations": {
     "sie": { "export": true, "import": true }

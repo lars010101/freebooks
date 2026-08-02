@@ -414,6 +414,19 @@
       });
     }
 
+    // Tab strips own h/l — common.js's bubble handler clicks the adjacent
+    // .tab, but FB.keys capture bindings win over it. A form living on a
+    // TABBED page (Bank/Import, Settings/Opening Balances, …) must not claim
+    // h/l, or tab switching dies there (magnus 2026-08-02). Horizontal cell
+    // movement on those pages stays on Tab/Shift+Tab. Forms on pages without
+    // a tab strip (journal-new, reports-hub, new-company) keep h/l cell nav.
+    // Excluded at create (not via when:) so the sidebar hints stay truthful.
+    if (document.querySelector('.tabs .tab')) {
+      bindings = bindings.filter(function (b) {
+        return !(b.mode === 'NORMAL' && (b.key === 'h' || b.key === 'l'));
+      });
+    }
+
     // Cursor follows focus: mouse click and native Tab both land here (mouse
     // parity — clicking a cell moves the cursor and enters INSERT).
     var _focusin = function (e) {

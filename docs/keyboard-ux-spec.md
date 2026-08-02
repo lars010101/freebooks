@@ -280,7 +280,21 @@ pick, Esc closes). `Space` on a button cell = `~`/`Enter` (activate; §5).
 Select commits are **mode-preserving** (2026-07-28 global rule): picking a
 value never flips NORMAL/INSERT — an explicit edit from NORMAL returns to
 NORMAL; a select reached mid-INSERT (Tab traversal) commits and STAYS
-INSERT so the field flow continues. **Pages on FB.form
+INSERT so the field flow continues. **Strengthened 2026-08-02 (magnus):
+dropdowns never alter NORMAL/INSERT mode at all.** A mouse click on a
+`<select>` cell moves the cursor only (focusin sync, no `setMode`) and
+opens the FB.dropdown overlay / native popup in whatever mode was active;
+while the overlay is open it owns arrows/Enter/Tab/Esc in BOTH modes
+(fb-core's editable-target guard has an `isOpen()` carve-out so the NORMAL
+ddOpen bindings dispatch from a focused select). Keyboard entry
+(`i`/`Enter`/`ArrowDown` on a select cell) still enters INSERT via
+`edit()`/`openFull` per the ratified loop above. Mechanics: `attachSelect`'s
+mousedown opens the overlay BEFORE focusing the anchor (focusin → paint()
+would otherwise blur it pre-render); fb-form's K3e no-focus-in-NORMAL
+enforcement spares a control whose overlay is open (`ae.__fbdd.el`) and is
+restored on close (pick blurs the anchor in NORMAL; the NORMAL ddOpen Esc
+binding blurs it too); `edit()` calls `setMode(true)` BEFORE `el.focus()`
+so K3e can't strip the cell being entered. **Pages on FB.form
 must NOT pass `keys: true` to FB.dropdown**. `gg` = first row via the K1
 `FB.nav.onGG` hook. Mouse parity: clicking a cell moves the cursor (focusin
 sync). Verbs (`a` add, `x` delete, `w` write, `q` quit) are per-page config

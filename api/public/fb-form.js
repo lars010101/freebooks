@@ -113,9 +113,15 @@
       // hold DOM focus — a focused button/select lingers as a second visible
       // "selector" beside the vim cursor and re-fires on native Space/Enter.
       // Mouse parity is unaffected: click still dispatches after the blur.
+      // Exception (magnus 2026-08-02): a control whose FB.dropdown overlay is
+      // OPEN keeps its focus — the overlay is the one visible selector and its
+      // lifecycle anchors on that focus (blur-close). Focus is stripped when
+      // the overlay closes (attachSelect onPick blur / the NORMAL ddOpen Esc
+      // binding), restoring this invariant.
       if (!editing) {
         var ae = document.activeElement;
-        if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'BUTTON')) {
+        if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'BUTTON')
+            && !(ae.__fbdd && ae.__fbdd.el)) {
           outer: for (var zi = 0; zi < zones().length; zi++) {
             var frs = zoneRows(zi);
             for (var ri = 0; ri < frs.length; ri++) {
@@ -159,10 +165,14 @@
       // deterministic in every browser, keeps j/k semantics (no typeahead
       // hijack), and is headless-testable. Mouse click still opens the
       // native popup (browser default — mouse parity unchanged).
+      // setMode BEFORE focus (2026-08-02): focusin fires synchronously out of
+      // el.focus() → paint() → K3e no-focus-in-NORMAL enforcement. focusin no
+      // longer flips the mode for SELECTs (dropdowns never alter the mode),
+      // so editing must already be true or K3e blurs the cell we are entering.
+      setMode(true);
       el.focus();
       if (el.select) el.select();
       selSnap = (el.tagName === 'SELECT') ? { el: el, idx: el.selectedIndex } : null;
-      setMode(true);
       paint();
     }
 
@@ -309,6 +319,25 @@
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { moveRow(-1); } },
       { key: 'h', mode: 'NORMAL', hint: 'cell', hintBar: true, run: function () { moveCol(-1); } },
       { key: 'l', mode: 'NORMAL', hint: 'cell', hintBar: true, run: function () { moveCol(1); } },
+      // ── NORMAL: dropdown overlay open (mouse-opened — magnus 2026-08-02:
+      // dropdowns never alter NORMAL/INSERT, so the overlay can now be open
+      // in NORMAL with DOM focus on the select). The overlay owns these keys
+      // in whichever mode it was opened from; mirrors the INSERT ddOpen
+      // block below. Placed BEFORE the plain NORMAL Tab/Enter/ArrowDown
+      // bindings so the open overlay wins. Dispatches from a focused select
+      // rely on the fb-core editable-target guard carve-out. ──
+      { key: 'ArrowDown', mode: 'NORMAL', when: ddOpen, run: function () { FB.dropdown.move(1); } },
+      { key: 'ArrowUp', mode: 'NORMAL', when: ddOpen, run: function () { FB.dropdown.move(-1); } },
+      { key: 'Enter', mode: 'NORMAL', when: ddOpen, run: function () { FB.dropdown.pick(); } },
+      { key: 'Tab', mode: 'NORMAL', when: ddOpen, swallow: false, preventDefault: false,
+        run: function () { FB.dropdown.pick(); } },
+      { key: 'Escape', mode: 'NORMAL', when: ddOpen, run: function () {
+          FB.dropdown.close();
+          // K3e restoration: the overlay is gone, so the anchor select must
+          // not keep DOM focus in NORMAL (paint() only blurs on cursor move).
+          var ae = document.activeElement;
+          if (ae && ae.tagName === 'SELECT' && ae.blur) ae.blur();
+        } },
       // K3e: Tab in NORMAL moves the cursor cell next/prev WITHOUT entering
       // INSERT. preventDefault (default for bindings) stops native focus
       // movement, so no focusin→setMode(true) fires. INSERT is entered only
@@ -441,7 +470,11 @@
             cur = { z: zi, r: ri, c: ci };
             // Buttons activate (click), they don't edit — keep NORMAL so the
             // next h/l/Enter behaves as a NORMAL verb (mouse parity with edit()).
-            if (t.tagName !== 'BUTTON') setMode(true);
+            // Dropdowns (SELECT) never alter NORMAL/INSERT mode either
+            // (magnus 2026-08-02): a mouse click opens the FB.dropdown overlay
+            // or the native popup; the mode stays whatever it was. Keyboard
+            // entry (i/Enter/ArrowDown) still enters INSERT via edit()/openFull.
+            if (t.tagName !== 'BUTTON' && t.tagName !== 'SELECT') setMode(true);
             paint();
             return;
           }

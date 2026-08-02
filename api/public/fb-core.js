@@ -312,7 +312,12 @@
       var m = set.getMode ? set.getMode() : 'NORMAL';
       // Typing in a field: NORMAL-mode verbs stay inert (INSERT bindings
       // legitimately fire from inputs — that is where INSERT lives).
-      if (m === 'NORMAL' && _isEditableTarget(e)) continue;
+      // Carve-out (magnus 2026-08-02): while a dropdown overlay is open,
+      // NORMAL bindings may match from a focused select — a mouse-opened
+      // overlay keeps DOM focus on the select but never flips the mode
+      // (dropdowns never alter NORMAL/INSERT), so its arrows/Enter/Tab/Esc
+      // bindings live in NORMAL and must reach dispatch.
+      if (m === 'NORMAL' && _isEditableTarget(e) && !dropdown.isOpen()) continue;
       var b = _matchBinding(set, e, m);
       if (!b) continue;
       var swallow = (typeof b.swallow === 'function') ? b.swallow(e) : (b.swallow !== false);
@@ -1102,6 +1107,14 @@
         onPick: function (item) {
           select.value = item.data;
           select.dispatchEvent(new Event('change', { bubbles: true }));
+          // K3e restoration (magnus 2026-08-02): a mouse-opened overlay runs
+          // in NORMAL (dropdowns never alter the mode); once the pick closes
+          // the overlay, the anchor must not keep DOM focus in NORMAL — a
+          // lingering focused select is a second visible selector and locks
+          // NORMAL keys behind the editable-target guard. INSERT picks keep
+          // focus (keyboard field flow continues; ddFromNormal restores
+          // NORMAL right after this returns).
+          if (window.FB && FB.mode && FB.mode.get() === 'NORMAL' && select.blur) select.blur();
           if (opts.onPick) opts.onPick(item.data, select);
         },
         cap: opts.cap || 12,
@@ -1111,11 +1124,15 @@
       // OS popup on click and open the FB overlay instead — same white menu the
       // keyboard path (ArrowDown / i) opens. preventDefault blocks the popup and
       // the focus grab, so focus explicitly; 'click' still fires for fb-form's
-      // cell-cursor mouse parity.
+      // cell-cursor mouse parity. OPEN FIRST, THEN focus (2026-08-02): focusin
+      // fires synchronously out of select.focus() → fb-form paint() → its K3e
+      // no-focus-in-NORMAL enforcement, which spares a control whose overlay is
+      // open (ae.__fbdd.el). Focusing first would blur the select before the
+      // overlay exists, and the blur-close would kill the menu 150ms later.
       select.addEventListener('mousedown', function (e) {
         e.preventDefault();
-        select.focus();
         _openWith(inst, '');
+        select.focus();
       });
       return inst;
     }

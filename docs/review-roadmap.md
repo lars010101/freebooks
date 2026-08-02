@@ -240,6 +240,14 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 ---
 
+## 0x. Status update — 2026-08-02 (operator guides + FREEBOOKS_BIND)
+
+**Agent operations documentation shipped:** `docs/agent-setup-guide.md` (security model, three deployment scenarios — same-host loopback, two-server via SSH-tunnel/Tailscale+token-remote/reverse-proxy with the same-host caveat, cloud-LLM paste-bridge with prompt template + bridge script; token lifecycle; troubleshooting) and `docs/agent-data-feeding-guide.md` (event.list polling contract + per-event agent actions, A4 underlag binding steps, inbound paths — UI/curl/drop-folder watcher/email-in/bank/SIE, idempotency-via-file-hash, approval loop, feed security). README links both from the MCP section.
+
+**`FREEBOOKS_BIND` added (the two-server enabler the guides require):** the API hardcoded `app.listen(PORT, '127.0.0.1')` — loopback-only with no override, which made the token-remote topology unreachable except via SSH tunnel. Bind address is now `process.env.FREEBOOKS_BIND || '127.0.0.1'` (default unchanged; boot log prints the effective `HOST:PORT`). Verified: default boot still loopback-only; `FREEBOOKS_BIND=<ip>` binds the named interface. Full suite 86/86.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

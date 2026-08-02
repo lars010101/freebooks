@@ -30,6 +30,11 @@ const { contactAttributesFor } = require('./jurisdiction-packs');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 const { auditCall } = require('./audit');
 const PORT = process.env.PORT || 3000;
+// Bind address: loopback-only by default (the safe posture). Set
+// FREEBOOKS_BIND to a LAN/Tailscale interface IP for the two-server
+// deployment (pair with FREEBOOKS_AUTH_MODE=token-remote — never bind a
+// public interface without it; spec §2.5).
+const HOST = process.env.FREEBOOKS_BIND || '127.0.0.1';
 
 // Auth mode: 'trust' (default, install-level) | 'token-remote' (non-loopback
 // clients must present a valid Bearer token — the two-server deployment mode).
@@ -1049,8 +1054,8 @@ ensureDb().then(async () => {
   }, 24 * 60 * 60 * 1000);
   gcTimer.unref();
 
-  app.listen(PORT, '127.0.0.1', () => {
-    console.log(`freeBooks API listening on port ${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`freeBooks API listening on ${HOST}:${PORT}`);
   });
 }).catch(err => {
   console.error('Fatal: could not open database:', err.message);

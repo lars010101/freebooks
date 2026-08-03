@@ -1385,30 +1385,31 @@
   // Legacy global so template-string pages can drop their local esc copies.
   window.esc = esc;
 
-  // ── A3j §4.4: Journal queue badge ─────────────────────────────────────────
-  // The sidebar Journal item carries the pending-proposal count — the
-  // monitoring surface: the human sees there is work without opening
-  // anything. Refreshed on every page boot (soft-nav re-renders the page)
-  // and on the 'fb:queue-changed' window event (the Journal page fires it
-  // after approve/reject). R6: the badge is read-only state; all eligibility
-  // decisions stay server-side.
-  function _refreshJournalBadge() {
-    var badge = document.getElementById('sb-journal-badge');
+  // ── A5 §10.4: Inbox queue badge ───────────────────────────────────────────
+  // The sidebar Inbox item carries the pending Class A count — the monitoring
+  // surface: the human sees there is work without opening anything. Refreshed
+  // on every page boot (soft-nav re-renders the page) and on the
+  // 'fb:queue-changed' window event (the Inbox page fires it after
+  // approve/reject). R6: the badge is read-only state; all eligibility
+  // decisions stay server-side. (Moved from the Journal sidebar item per
+  // spec §10, 2026-08-03 — the Journal list is the pure posted register.)
+  function _refreshInboxBadge() {
+    var badge = document.getElementById('sb-inbox-badge');
     if (!badge) return;
     var shell = document.getElementById('app-shell');
     var company = shell && shell.dataset ? shell.dataset.company : null;
     if (!company) return;
     fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'journal.proposal.list', companyId: company, status: 'proposed', limit: 100 }) })
+      body: JSON.stringify({ action: 'inbox.list', companyId: company, status: 'proposed', limit: 100 }) })
       .then(function (r) { return r.json(); })
       .then(function (res) {
-        var n = (res && res.ok && Array.isArray(res.data)) ? res.data.length : 0;
+        var n = (res && res.ok && res.data && Array.isArray(res.data.items)) ? res.data.items.length : 0;
         badge.textContent = n > 99 ? '99+' : String(n);
         badge.hidden = n === 0;
       })
       .catch(function () { badge.hidden = true; });
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _refreshJournalBadge);
-  else _refreshJournalBadge();
-  window.addEventListener('fb:queue-changed', _refreshJournalBadge);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _refreshInboxBadge);
+  else _refreshInboxBadge();
+  window.addEventListener('fb:queue-changed', _refreshInboxBadge);
 })();

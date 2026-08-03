@@ -121,6 +121,18 @@ const ACTIONS = {
     params: { proposalId: { type: 'string', required: true } },
   },
 
+  // ── Inbox (A5 §10) ───────────────────────────────────────────────────────
+  // Unified action inbox — read-only aggregator over pending-approval items
+  // across modules. v1 fans out to journal_proposals only (Class A; Class B
+  // types append per module as they land, §10.7). Viewer role, non-mutating:
+  // agents read it naturally (mutating:false passes the §2.3 whitelist), so it
+  // is intentionally NOT added to AGENT_ALLOWED.
+  'inbox.list': {
+    role: 'viewer', mutating: false,
+    description: 'List inbox action items (A5 §10) — normalized pending-approval items across modules; v1: journal proposals only.',
+    params: { status: { type: 'string' }, limit: { type: 'number' } },
+  },
+
   // ── Bank ─────────────────────────────────────────────────────────────────
   'bank.process': {
     role: 'data_entry', mutating: true, idempotent: true,

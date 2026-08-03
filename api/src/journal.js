@@ -1005,17 +1005,21 @@ async function rejectProposal(ctx) {
  * journal.proposal.list — queue data for the company. Viewer, non-mutating.
  * Params: status (default 'proposed'), limit (default 100). Ordered by date
  * DESC then created_at DESC (newest work first).
+ *
+ * The SQL lives in the shared `queryProposals` helper (also used by the A5
+ * inbox.list aggregator, §10.3) so there is ONE proposal-list query — no
+ * duplicated SQL. `includeLines` opts into the `lines` JSON column (inbox
+ * needs it to compute the item `amount` = sum of line debits); the default
+ * keeps journal.proposal.list's response shape byte-identical for its
+ * existing callers (no `lines` field).
  */
-async function listProposals(ctx) {
-  const { companyId, body } = ctx;
-  const status = body.status && String(body.status).trim() !== '' ? String(body.status).trim() : 'proposed';
-  const rawLimit = Number(body.limit);
-  const limit = (Number.isFinite(rawLimit) && rawLimit > 0) ? Math.min(Math.floor(rawLimit), 1000) : 100;
-
-  return query(
-    `SELECT jp.proposal_id, jp.journal_id, jp.date, jp.reference, jp.description, jp.source, jp.status,
+async function queryProposals(companyId, { status, limit, includeLines = false } = {}) {
+  const baseCols = `jp.proposal_id, jp.journal_id, jp.date, jp.reference, jp.description, jp.source, jp.status,
             jp.batch_id, jp.created_by, jp.request_id, jp.reviewed_by, jp.reviewed_at, jp.review_note, jp.created_at,
-            COALESCE(a.cnt, 0) AS attachment_count
+            COALESCE(a.cnt, 0) AS attachment_count`;
+  const cols = includeLines ? baseCols + ', jp.lines' : baseCols;
+  return query(
+    `SELECT ${cols}
      FROM journal_proposals jp
      LEFT JOIN (
        SELECT company_id, entity_id, count(*) AS cnt
@@ -1028,6 +1032,15 @@ async function listProposals(ctx) {
      LIMIT @limit`,
     { companyId, status, limit }
   );
+}
+
+async function listProposals(ctx) {
+  const { companyId, body } = ctx;
+  const status = body.status && String(body.status).trim() !== '' ? String(body.status).trim() : 'proposed';
+  const rawLimit = Number(body.limit);
+  const limit = (Number.isFinite(rawLimit) && rawLimit > 0) ? Math.min(Math.floor(rawLimit), 1000) : 100;
+
+  return queryProposals(companyId, { status, limit });
 }
 
 /**
@@ -1055,4 +1068,4 @@ async function getProposal(ctx) {
   return { ...rest, lines };
 }
 
-module.exports = { handleJournal, getNextReference, getNextReferenceBatch, enrichAndValidate, postJournalBatch };
+module.exports = { handleJournal, getNextReference, getNextReferenceBatch, enrichAndValidate, postJournalBatch, queryProposals };

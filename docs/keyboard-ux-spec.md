@@ -57,13 +57,15 @@ Ratified slate (d/v added 2026-07-28, magnus K1 review):
 | `g p` | Payables |
 | `g v` | Receivables |
 | `g s` | Settings |
-| `g i` | Bank Import |
+| `g j` | Journal |
+| `g i` | Inbox (reassigned 2026-08-03 per spec §10; bank-import reachable via `g b` + palette) |
 | `g c` | Company switcher (reserved — not a route) |
 | `g g` | List cursor to first row, then **absolute page top** (both scroll containers, next frame) |
 | `g <other>` | Cancel — the key proceeds through normal dispatch untouched |
 
-`g j` (Journal) deliberately omitted: no journal LIST page exists (only
-`/journal/new`, a data-entry form). Revisit when a journal register ships.
+`g j` (Journal) activated 2026-07-31 with the A3j Journal register page. The
+review queue moved to the Inbox (`g i`) 2026-08-03 per spec §10; the Journal
+list is now the pure posted register.
 
 **Dispatch semantics** (fb-core `_dispatch`, capture phase):
 
@@ -125,9 +127,11 @@ page's default tab (magnus K1 review 2026-07-28).
 an action-catalog `navigate` entry (`/journal/new`, `/setup/new-company`)
 keep `palette: false` — their catalog action labels describe the
 destination well enough. `/bank/import` moved to the registry (`palette:
-true`, `gKey: 'i'`) because the catalog `bank.process` description lacked
-the word "import", making it invisible to palette search — the registry
-emits a 'Go to Bank Import' row that surfaces on 'bank import'/'import'.
+true`) because the catalog `bank.process` description lacked the word
+"import", making it invisible to palette search — the registry emits a 'Go to
+Bank Import' row that surfaces on 'bank import'/'import'. Its `gKey` was
+dropped 2026-08-03 (spec §10): 'i' was reassigned to the Inbox, and
+bank-import is reachable via `g b` + palette ('Go to Bank Import' row).
 Sidebar routes and opening-balances (now a Settings tab, §6) carry `palette: true`. (A runtime
 route-match dedupe was tried and rejected: catalog navigate targets like
 `/payables` for `vendor.save` are action labels, not go-to rows — matching

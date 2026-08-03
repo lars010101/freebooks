@@ -125,10 +125,19 @@ ${commonStyle()}
   var vatCodes = [];
   var currentBatchId = null;
   var pendingJvAttachments = [];
+  // View mode (?batch=<id>): a posted batch loaded read-only. FROM_REPORT
+  // (§10.4) reroutes quit back to the originating report instead of the
+  // company root.
+  var VIEW_BATCH = new URLSearchParams(window.location.search).get('batch');
+  var FROM_REPORT = new URLSearchParams(window.location.search).get('from');
+  var viewBatchLines = null, viewBatchRef = '', viewBatchDate = '', viewBatchDesc = '';
 
   fetch('/api/' + COMPANY + '/accounts')
     .then(r => r.json())
-    .then(rows => { rows.forEach(a => { accountsMap[a.account_code] = a.account_name; }); });
+    .then(rows => {
+      rows.forEach(a => { accountsMap[a.account_code] = a.account_name; });
+      if (VIEW_BATCH) initViewMode();   // accounts needed for line names
+    });
 
   if (VAT_ON)
   fetch('/api/' + COMPANY + '/vat-codes')
@@ -359,8 +368,95 @@ ${commonStyle()}
   }
 
   document.getElementById('entry-date').value = new Date().toISOString().slice(0, 10);
-  addLine(); addLine();
+  if (!VIEW_BATCH) { addLine(); addLine(); }
   updateTotals();
+
+  // ── View mode (?batch=<id>) ─────────────────────────────────────────
+  // Loads a posted batch read-only. Reversal is pre-targeted at the viewed
+  // batch (no search step). Quit returns to FROM_REPORT when set (§10.4).
+  function setCreateControls(visible) {
+    var addBtn = document.querySelector('button[onclick="addLine()"]');
+    var postBtn = document.getElementById('btn-post');
+    [addBtn, postBtn].forEach(function (b) { if (b) b.style.display = visible ? '' : 'none'; });
+  }
+
+  function renderViewMode() {
+    var dateEl = document.getElementById('entry-date');
+    dateEl.value = viewBatchDate;
+    dateEl.disabled = true;
+    var jSel = document.getElementById('entry-journal');
+    jSel.disabled = true;
+    var descEl = document.getElementById('entry-desc');
+    descEl.value = viewBatchDesc;
+    descEl.readOnly = true;
+    document.getElementById('jv-mode-title').textContent = 'View JV';
+    document.title = 'View JV — freeBooks';
+    var body = document.getElementById('lines-body');
+    body.innerHTML = '';
+    var dr = 0, cr = 0;
+    viewBatchLines.forEach(function (l) {
+      dr += parseFloat(l.debit || 0); cr += parseFloat(l.credit || 0);
+      var tr = document.createElement('tr');
+      tr.className = 'jv-view-line';
+      tr.innerHTML = '<td>' + esc(l.account_code || '') + '</td>'
+        + '<td>' + esc(accountsMap[l.account_code] || '') + '</td>'
+        + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
+        + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
+        + '<td>' + esc(l.description || '') + '</td>'
+        + (VAT_ON ? '<td>' + esc(l.vat_code || '') + '</td>' : '')
+        + '<td></td>';
+      body.appendChild(tr);
+    });
+    document.getElementById('total-dr').textContent = dr.toFixed(2);
+    document.getElementById('total-cr').textContent = cr.toFixed(2);
+    var diff = Math.round((dr - cr) * 100) / 100;
+    var diffEl = document.getElementById('total-diff');
+    diffEl.textContent = diff.toFixed(2);
+    diffEl.style.color = diff === 0 ? '#2a8a2a' : '#cc2222';
+    setCreateControls(false);
+    currentBatchId = VIEW_BATCH;
+    document.getElementById('jv-pre-attach-section').style.display = 'none';
+    document.getElementById('jv-attachment-panel').style.display = '';
+    loadJvAttachments();
+  }
+
+  function initViewMode() {
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'journal.get', companyId: COMPANY, batchId: VIEW_BATCH }) })
+      .then(function (r) { return r.json(); })
+      .then(function (resp) {
+        var lines = resp.data || resp;
+        if (!Array.isArray(lines) || !lines.length) { showStatus('Batch not found', true); return; }
+        viewBatchLines = lines;
+        viewBatchRef = lines[0].reference || '';
+        viewBatchDate = lines[0].date ? String(lines[0].date).slice(0, 10) : '';
+        viewBatchDesc = lines[0].description || viewBatchRef || '';
+        renderViewMode();
+      })
+      .catch(function (e) { showStatus(e.message, true); });
+  }
+
+  // Reversal entered from view mode: skip the search panel and populate the
+  // swapped rows directly from the already-loaded batch data.
+  function toggleViewReversalMode() {
+    reversalMode = !reversalMode;
+    var titleEl = document.getElementById('jv-mode-title');
+    var btn = document.getElementById('btn-reversal-mode');
+    titleEl.textContent = reversalMode ? 'Reversal Entry' : 'View JV';
+    btn.textContent = reversalMode ? '\u2715 Cancel Reversal' : '\u27f2 Reversal';
+    btn.style.background = reversalMode ? '#f0e8ff' : '';
+    document.getElementById('reversal-panel').style.display = 'none';
+    if (reversalMode) {
+      var dateEl = document.getElementById('entry-date');
+      dateEl.disabled = false;
+      document.getElementById('entry-journal').disabled = false;
+      document.getElementById('entry-desc').readOnly = false;
+      setCreateControls(true);
+      applyReversalLines(VIEW_BATCH, viewBatchRef, viewBatchLines);
+    } else {
+      renderViewMode();
+    }
+  }
 
   // ── Reversal mode ──────────────────────────────────────────────────
   var reversalMode = false;
@@ -387,6 +483,7 @@ ${commonStyle()}
   }
 
   function toggleReversalMode() {
+    if (VIEW_BATCH && viewBatchLines) return toggleViewReversalMode();
     reversalMode = !reversalMode;
     document.getElementById('reversal-panel').style.display = reversalMode ? '' : 'none';
     document.getElementById('jv-mode-title').textContent = reversalMode ? 'Reversal Entry' : 'New JV';
@@ -442,6 +539,78 @@ ${commonStyle()}
     }, 300);
   }
 
+  function applyReversalLines(batchId, ref, lines) {
+    // Set date to today
+    var today = new Date();
+    var todayStr = today.getFullYear() + '-'
+      + String(today.getMonth()+1).padStart(2,'0') + '-'
+      + String(today.getDate()).padStart(2,'0');
+    var dateEl = document.getElementById('entry-date');
+    dateEl.value = '';
+    dateEl.value = todayStr;
+    dateEl.dispatchEvent(new Event('input'));
+    dateEl.dispatchEvent(new Event('change'));
+    // Set description
+    document.getElementById('entry-desc').value = 'Reversal: ' + ref;
+    // Match journal by reference prefix
+    var code = ref && ref.includes('/') ? ref.split('/')[0] : '';
+    if (code) {
+      var jSel = document.getElementById('entry-journal');
+      var opt = Array.from(jSel.options).find(o => o.text.startsWith(code + ' '));
+      if (opt) jSel.value = opt.value;
+    }
+    // Clear existing lines and populate reversed
+    document.getElementById('lines-body').innerHTML = '';
+    // A1 (magnus 2026-07-28): render the ORIGINAL (un-swapped) lines as
+    // read-only grayed rows ABOVE the swapped reversal rows, so the
+    // reviewer can see what's being reversed at a glance. These rows
+    // carry no inputs (plain text <td>s) → inherently read-only,
+    // excluded from the lines zone (rows() :not() filter) and from
+    // post (postEntry/updateTotals guard rows without inputs).
+    var thCount = document.querySelectorAll('.jv-table thead th').length;
+    var hdrTr = document.createElement('tr');
+    hdrTr.className = 'jv-orig-hdr';
+    hdrTr.innerHTML = '<td colspan="' + thCount + '">Original entry (read-only)</td>';
+    document.getElementById('lines-body').appendChild(hdrTr);
+    lines.forEach(function(l) {
+      var otr = document.createElement('tr');
+      otr.className = 'jv-orig-line';
+      otr.innerHTML = '<td>' + esc(l.account_code || '') + '</td>'
+        + '<td>' + esc(accountsMap[l.account_code] || '') + '</td>'
+        + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
+        + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
+        + '<td>' + esc(l.description || '') + '</td>'
+        + (VAT_ON ? '<td></td>' : '')
+        + '<td></td>';
+      document.getElementById('lines-body').appendChild(otr);
+    });
+    lines.forEach(function(l) {
+      var tr = addLine();
+      var codeIn  = tr.querySelector('.acct-input');
+      var nameIn  = tr.querySelector('.acct-name-input');
+      var debitIn = tr.querySelector('.debit-input');
+      var creditIn = tr.querySelector('.credit-input');
+      codeIn.value  = l.account_code || '';
+      nameIn.value  = accountsMap[l.account_code] || '';
+      // Swap debit ↔ credit
+      debitIn.value  = parseFloat(l.credit || 0) || '';
+      creditIn.value = parseFloat(l.debit  || 0) || '';
+      var descIn = tr.querySelector('.desc-input');
+      descIn.value = l.description || '';
+    });
+    updateTotals();
+    showStatus('Reversal loaded — review and post', false);
+    // A2 (magnus 2026-07-28): land the cursor on the header date cell
+    // (NORMAL) so the reviewer isn't stranded in the search input.
+    // Blur the search + collapse results so the reversal zone rows()
+    // is empty and the cursor isn't stuck there; j/k from the date
+    // cell moves down into the line grid.
+    var rs = document.getElementById('reversal-search');
+    if (rs) rs.blur();
+    jvForm.moveTo(1, 0, 0, false);
+    jvForm.refresh();
+  }
+
   function loadReversalEntry(batchId, ref) {
     document.getElementById('reversal-results').style.display = 'none';
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -450,75 +619,7 @@ ${commonStyle()}
       .then(function(resp) {
         var lines = resp.data || resp;
         if (!Array.isArray(lines) || !lines.length) { showStatus('Entry not found', true); return; }
-        // Set date to today
-        var today = new Date();
-        var todayStr = today.getFullYear() + '-'
-          + String(today.getMonth()+1).padStart(2,'0') + '-'
-          + String(today.getDate()).padStart(2,'0');
-        var dateEl = document.getElementById('entry-date');
-        dateEl.value = '';
-        dateEl.value = todayStr;
-        dateEl.dispatchEvent(new Event('input'));
-        dateEl.dispatchEvent(new Event('change'));
-        // Set description
-        document.getElementById('entry-desc').value = 'Reversal: ' + ref;
-        // Match journal by reference prefix
-        var code = ref && ref.includes('/') ? ref.split('/')[0] : '';
-        if (code) {
-          var jSel = document.getElementById('entry-journal');
-          var opt = Array.from(jSel.options).find(o => o.text.startsWith(code + ' '));
-          if (opt) jSel.value = opt.value;
-        }
-        // Clear existing lines and populate reversed
-        document.getElementById('lines-body').innerHTML = '';
-        // A1 (magnus 2026-07-28): render the ORIGINAL (un-swapped) lines as
-        // read-only grayed rows ABOVE the swapped reversal rows, so the
-        // reviewer can see what's being reversed at a glance. These rows
-        // carry no inputs (plain text <td>s) → inherently read-only,
-        // excluded from the lines zone (rows() :not() filter) and from
-        // post (postEntry/updateTotals guard rows without inputs).
-        var thCount = document.querySelectorAll('.jv-table thead th').length;
-        var hdrTr = document.createElement('tr');
-        hdrTr.className = 'jv-orig-hdr';
-        hdrTr.innerHTML = '<td colspan="' + thCount + '">Original entry (read-only)</td>';
-        document.getElementById('lines-body').appendChild(hdrTr);
-        lines.forEach(function(l) {
-          var otr = document.createElement('tr');
-          otr.className = 'jv-orig-line';
-          otr.innerHTML = '<td>' + esc(l.account_code || '') + '</td>'
-            + '<td>' + esc(accountsMap[l.account_code] || '') + '</td>'
-            + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
-            + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
-            + '<td>' + esc(l.description || '') + '</td>'
-            + (VAT_ON ? '<td></td>' : '')
-            + '<td></td>';
-          document.getElementById('lines-body').appendChild(otr);
-        });
-        lines.forEach(function(l) {
-          var tr = addLine();
-          var codeIn  = tr.querySelector('.acct-input');
-          var nameIn  = tr.querySelector('.acct-name-input');
-          var debitIn = tr.querySelector('.debit-input');
-          var creditIn = tr.querySelector('.credit-input');
-          codeIn.value  = l.account_code || '';
-          nameIn.value  = accountsMap[l.account_code] || '';
-          // Swap debit ↔ credit
-          debitIn.value  = parseFloat(l.credit || 0) || '';
-          creditIn.value = parseFloat(l.debit  || 0) || '';
-          var descIn = tr.querySelector('.desc-input');
-          descIn.value = l.description || '';
-        });
-        updateTotals();
-        showStatus('Reversal loaded — review and post', false);
-        // A2 (magnus 2026-07-28): land the cursor on the header date cell
-        // (NORMAL) so the reviewer isn't stranded in the search input.
-        // Blur the search + collapse results so the reversal zone rows()
-        // is empty and the cursor isn't stuck there; j/k from the date
-        // cell moves down into the line grid.
-        var rs = document.getElementById('reversal-search');
-        if (rs) rs.blur();
-        jvForm.moveTo(1, 0, 0, false);
-        jvForm.refresh();
+        applyReversalLines(batchId, ref, lines);
       })
       .catch(function(e) { showStatus(e.message, true); });
   }
@@ -580,12 +681,14 @@ ${commonStyle()}
     ],
     verbs: {
       add: { key: 'a', hint: 'add line', run: function (api) {
+        if (VIEW_BATCH && !reversalMode) return;   // read-only in view mode
         addLine(); updateTotals();
         api.moveTo(3, api.zoneRows(3).length - 1, 0, true);
       } },
       delete: { key: 'x', hint: 'delete',
         when: function (api) { var z = api.cur().z; return z === 2 || z === 3; },
         run: function (api) {
+          if (VIEW_BATCH && !reversalMode) return;
           if (api.cur().z === 2) {
             // attachments zone — remove the staged file (K4)
             var row = api.zoneRows(2)[api.cur().r];
@@ -599,11 +702,14 @@ ${commonStyle()}
           tr.remove(); updateTotals(); api.refresh();
         } },
       write: { key: 'w', hint: 'post', run: function () {
+        if (VIEW_BATCH && !reversalMode) return;
         var btn = document.getElementById('btn-post');
         if (btn.disabled) { showStatus('Out of balance — see Diff', true); return; }
         postEntry();
       } },
-      quit: { key: 'q', hint: 'quit', run: function () { fbNavigate('/' + COMPANY); } }
+      quit: { key: 'q', hint: 'quit', run: function () {
+        fbNavigate(FROM_REPORT ? '/' + COMPANY + '/reports?t=' + FROM_REPORT : '/' + COMPANY);
+      } }
     },
     extraBindings: function (api) {
       function searchFocused() { return document.activeElement === document.getElementById('reversal-search'); }
@@ -620,7 +726,7 @@ ${commonStyle()}
         { key: 'R', mode: 'NORMAL', hint: 'reversal', hintBar: true, run: function () {
             toggleReversalMode();
             api.refresh();
-            if (reversalMode) { var s = document.getElementById('reversal-search'); if (s) s.focus(); }
+            if (reversalMode && !VIEW_BATCH) { var s = document.getElementById('reversal-search'); if (s) s.focus(); }
           } },
         { key: 'ArrowDown', mode: 'INSERT', when: searchFocused, run: function () { moveReversal(1); } },
         { key: 'ArrowUp', mode: 'INSERT', when: searchFocused, run: function () { moveReversal(-1); } },

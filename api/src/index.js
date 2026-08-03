@@ -14,6 +14,7 @@ const { v4: uuid } = require('uuid');
 
 const { checkPermission, resolveActor, resolveToken, remoteTokenRequired } = require('./auth');
 const { handleJournal } = require('./journal');
+const { handleInbox } = require('./inbox');
 const { handleBank } = require('./bank');
 const { handleBills } = require('./bills');
 const { handleVendors } = require('./vendors');
@@ -296,6 +297,7 @@ async function handleApiRequest(req, res) {
 
     switch (module) {
       case 'journal':     result = await handleJournal(ctx, action); break;
+      case 'inbox':       result = await handleInbox(ctx, action); break;
       case 'bank':        result = await handleBank(ctx, action); break; // bank.process, bank.approve, bank.reconcile.*
       case 'bill':        result = await handleBills(ctx, action); break;
       case 'vendor':      result = await handleVendors(ctx, action); break;

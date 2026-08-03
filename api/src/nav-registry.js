@@ -44,11 +44,16 @@
 // g-key slate (ratified 2026-07-28; d/v added same day — magnus review;
 // g j activated 2026-07-31 with the A3j Journal register page):
 //   g d = Dashboard · g r = Reports · g b = Bank · g j = Journal · g p = Payables
-//   g v = Receivables · g s = Settings · g i = Bank Import
+//   g v = Receivables · g s = Settings
+//   g i = Inbox (reassigned to Inbox 2026-08-03 per spec §10; bank-import
+//          reachable via g b + palette — bank-import.gKey dropped)
 //   g c = Company switcher (reserved, not a route)
 
 const ROUTES = [
   // ── Sidebar entries (display order = array order) ──
+  // A5 §10: Inbox is the human's review queue (sidebar first, 📥, g i). The
+  // Journal-list queue half moved here; the Journal list is the pure register.
+  { key: 'inbox',       route: '/:company/inbox',       label: 'Inbox',           icon: '📥', sidebar: true,  gKey: 'i',  palette: true,  absolute: false },
   { key: 'dashboard',   route: '/:company',             label: 'Dashboard',       icon: '📊', sidebar: true,  gKey: 'd',  palette: true,  absolute: false },
   { key: 'bank',        route: '/:company/bank',         label: 'Bank',            icon: '🏦', sidebar: true,  gKey: 'b',  palette: true,  absolute: false },
   { key: 'journal',     route: '/:company/journal',      label: 'Journal',         icon: '📒', sidebar: true,  gKey: 'j',  palette: true,  absolute: false },
@@ -58,13 +63,14 @@ const ROUTES = [
   { key: 'settings',    route: '/:company/settings',     label: 'Settings',        icon: '⚙',  sidebar: true,  gKey: 's',  palette: true,  absolute: false },
   // ── Non-sidebar routes. journal-new / new-company keep palette:false — the
   // action catalog already navigates to them with action labels (dedupe =
-  // registry decision, spec §4). bank-import now carries palette:true +
-  // gKey:'i' — the registry emits the 'Go to Bank Import' row (the former
-  // catalog navigate entry's description lacked 'import', making it
-  // invisible to palette search). opening-balances has no catalog entry →
+  // registry decision, spec §4). bank-import keeps palette:true but its gKey
+  // was dropped 2026-08-03 (spec §10): 'i' was reassigned to the Inbox, and
+  // bank-import is reachable via g b + palette ('Go to Bank Import' row). The
+  // former catalog navigate entry's description lacked 'import', making it
+  // invisible to palette search. opening-balances has no catalog entry →
   // palette:true.
   { key: 'journal-new',     route: '/:company/journal/new',       label: 'Journal Entry',   icon: null, sidebar: false, gKey: null, palette: false, absolute: false },
-  { key: 'bank-import',     route: '/:company/bank?tab=import',     label: 'Bank Import',     icon: null, sidebar: false, gKey: 'i',  palette: true,  absolute: false },
+  { key: 'bank-import',     route: '/:company/bank?tab=import',     label: 'Bank Import',     icon: null, sidebar: false, gKey: null, palette: true,  absolute: false },
   { key: 'opening-balances', route: '/:company/settings?tab=opening-balances', label: 'Opening Balances', icon: null, sidebar: false, gKey: null, palette: true,  absolute: false },
   { key: 'new-company',     route: '/setup/new-company',          label: 'New Company',     icon: null, sidebar: false, gKey: null, palette: false, absolute: true  },
 ];

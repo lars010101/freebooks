@@ -102,7 +102,7 @@ async function buildPL(query, company, start, end) {
     const cls = r.row_type + (r.amount == 0 && r.row_type === 'account' ? ' zero' : '');
     const code = r.account_code || '';
     const name = r.row_type === 'total' ? `<strong>${r.account_name}</strong>` : r.account_name;
-    tableRows += `<tr class="${cls}"><td>${code}</td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
+    tableRows += `<tr class="${cls}"><td><a href="/${company}/reports?t=tb&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a></td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
   }
   const tableHtml = `<table>
     <thead><tr><th>Code</th><th>Description</th><th class="num">Amount</th></tr></thead>
@@ -179,7 +179,7 @@ async function buildBS(query, company, start, end) {
     const cls = r.row_type + (r.balance == 0 && r.row_type === 'account' ? ' zero' : '');
     const code = r.account_code || '';
     const name = r.row_type === 'subtotal' ? `<em>${r.account_name}</em>` : r.account_name;
-    tableRows += `<tr class="${cls}"><td>${code}</td><td>${name}</td><td class="num">${fmt(r.balance)}</td></tr>`;
+    tableRows += `<tr class="${cls}"><td><a href="/${company}/reports?t=tb&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a></td><td>${name}</td><td class="num">${fmt(r.balance)}</td></tr>`;
   }
   // Compute TOTAL EQUITY + LIABILITIES (equity total already adjusted above)
   const equityTypeTotal = collectedTypeTotals.find(r => /equity/i.test(r.account_name));
@@ -199,7 +199,7 @@ async function buildBS(query, company, start, end) {
 async function buildTB(query, company, start, end) {
   const rows = await query(`SELECT * FROM tb(?, ?, ?)`, [company, start, end]);
   let tableRows = rows.map(r => `<tr class="account">
-    <td>${r.account_code}</td><td>${r.account_name}</td><td>${r.account_type}</td>
+    <td><a href="/${company}/reports?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a></td><td>${r.account_name}</td><td>${r.account_type}</td>
     <td class="num">${fmt(r.total_debit)}</td>
     <td class="num">${fmt(r.total_credit)}</td>
     <td class="num">${fmt(r.net_balance)}</td>
@@ -252,7 +252,7 @@ async function buildGL(query, company, start, end, account) {
       runBal += parseFloat(r.debit_home || r.debit || 0) - parseFloat(r.credit_home || r.credit || 0);
       const dateStr = new Date(r.date).toISOString().slice(0, 10);
       tableRows += `<tr class="account" data-account="${r.account_code}">
-        <td>${dateStr}</td><td>${r.reference || r.batch_id}</td><td>${r.description || ''}</td>
+        <td>${dateStr}</td><td><a href="/${company}/journal/new?batch=${encodeURIComponent(r.batch_id)}&from=gl" target="_parent">${r.reference || r.batch_id}</a></td><td>${r.description || ''}</td>
         <td class="num">${fmt(r.debit_home || r.debit)}</td><td class="num">${fmt(r.credit_home || r.credit)}</td>
         <td class="num">${fmt(runBal)}</td>
       </tr>`;
@@ -520,7 +520,7 @@ async function buildJournal(query, company, start, end) {
         var desc = (r.description || '').substring(0, 80);
         html += '<tr>' +
           '<td>' + dateStr + '</td>' +
-          '<td>' + (r.reference || r.batch_id || '') + '</td>' +
+          '<td><a href="/${company}/journal/new?batch=' + encodeURIComponent(r.batch_id || '') + '&from=journal" target="_parent">' + (r.reference || r.batch_id || '') + '</a></td>' +
           '<td>' + (r.account_code || '') + '</td>' +
           '<td>' + (accountsMap[r.account_code] || '') + '</td>' +
           '<td>' + desc + '</td>' +
@@ -570,7 +570,8 @@ async function buildVoucherRegister(query, company, start, end) {
        SUM(credit)                                 AS total_credit,
        COUNT(*)                                    AS line_count,
        MIN(reverses)                               AS reverses,
-       MIN(reversed_by)                            AS reversed_by
+       MIN(reversed_by)                            AS reversed_by,
+       MAX(bill_id)                                AS bill_id
      FROM journal_entries
      WHERE company_id = ?
        AND date >= ?
@@ -585,7 +586,7 @@ async function buildVoucherRegister(query, company, start, end) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Voucher Register — freeBooks</title>
+<title>Transaction Register — freeBooks</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
@@ -609,22 +610,21 @@ async function buildVoucherRegister(query, company, start, end) {
   tr:hover td { background: #fafafa; }
   .no-results { text-align: center; color: #888; padding: 20px; }
   .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+  tr[data-href] { cursor: pointer; }
+  tr[data-href]:hover td { background: #f0f4ff; }
+  tr[data-href]:focus { outline: 2px solid #3730a3; outline-offset: -2px; }
   .badge { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 8.5pt; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
   .b-posted   { background: #e8f5e9; color: #2e7d32; }
   .b-reversed { background: #ffebee; color: #c62828; }
   .b-reversal { background: #fff3e0; color: #e65100; }
-  .btn-rev { padding: 3px 10px; background: #fff; color: #c62828; border: 1px solid #c62828; border-radius: 3px; font-size: 9pt; font-weight: 600; cursor: pointer; }
-  .btn-rev:hover { background: #c62828; color: #fff; }
-  .btn-rev:disabled { opacity: 0.4; cursor: default; }
-  .rev-link { color: #e65100; text-decoration: underline; cursor: pointer; background: none; border: none; font-size: 9pt; padding: 0; }
-  .row-flash { background: #fffde7 !important; transition: background 0.6s; }
+  .rev-link { color: #e65100; text-decoration: underline; font-size: 9pt; }
 </style>
 </head>
 <body>
 <div class="page">
   <div class="header">
     <div class="company">${companyName}</div>
-    <div class="report-title">Voucher Register</div>
+    <div class="report-title">Transaction Register</div>
     <div class="period">${start || ''} to ${end || ''}</div>
   </div>
 
@@ -645,18 +645,16 @@ async function buildVoucherRegister(query, company, start, end) {
           <th>Date</th>
           <th>Reference</th>
           <th>Description</th>
-          <th class="num">Debit</th>
-          <th class="num">Credit</th>
+          <th class="num">Amount</th>
           <th>Source</th>
           <th>Status</th>
-          <th>Reverse</th>
         </tr>
       </thead>
       <tbody id="vr-body"></tbody>
     </table>
   </div>
 
-  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks · Voucher Register</div>
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks · Transaction Register</div>
 </div>
 
 <script>
@@ -674,6 +672,7 @@ async function buildVoucherRegister(query, company, start, end) {
     line_count: b.line_count,
     reverses: b.reverses || null,
     reversed_by: b.reversed_by || null,
+    bill_id: b.bill_id || null,
   })))};
 
   function fmtAmt(v) {
@@ -682,23 +681,24 @@ async function buildVoucherRegister(query, company, start, end) {
     return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
+  // Source-aware drill link for a batch row (IA spec §10.2).
+  function drillHref(b) {
+    if (b.bill_id) {
+      return '/' + COMPANY + '/payables/bill/' + encodeURIComponent(b.bill_id) + '?from=voucher-register';
+    }
+    return '/' + COMPANY + '/journal/new?batch=' + encodeURIComponent(b.batch_id) + '&from=voucher-register';
+  }
+
   function statusCell(b) {
     if (b.reverses) {
-      // This batch IS a reversal — link to the original.
       return '<span class="badge b-reversal">Reversal</span>'
-        + ' <button class="rev-link" onclick="vrGoBatch(\\'' + esc(b.reverses) + '\\')">of ' + esc(String(b.reverses).slice(0, 8)) + '</button>';
+        + ' <a class="rev-link" href="/' + COMPANY + '/journal/new?batch=' + encodeURIComponent(b.reverses) + '&from=voucher-register" target="_parent">of ' + esc(String(b.reverses).slice(0, 8)) + '</a>';
     }
     if (b.reversed_by) {
       return '<span class="badge b-reversed">Reversed</span>'
-        + ' <button class="rev-link" onclick="vrGoBatch(\\'' + esc(b.reversed_by) + '\\')">by ' + esc(String(b.reversed_by).slice(0, 8)) + '</button>';
+        + ' <a class="rev-link" href="/' + COMPANY + '/journal/new?batch=' + encodeURIComponent(b.reversed_by) + '&from=voucher-register" target="_parent">by ' + esc(String(b.reversed_by).slice(0, 8)) + '</a>';
     }
     return '<span class="badge b-posted">Posted</span>';
-  }
-
-  function reverseCell(b) {
-    if (b.reverses)   return '<span style="color:#888;font-size:9pt">—</span>'; // already a reversal
-    if (b.reversed_by) return '<span style="color:#888;font-size:9pt">—</span>'; // already reversed
-    return '<button class="btn-rev" data-batch="' + esc(b.batch_id) + '" onclick="vrReverse(\\'' + esc(b.batch_id) + '\\', this)">Reverse</button>';
   }
 
   function esc(s) {
@@ -708,22 +708,21 @@ async function buildVoucherRegister(query, company, start, end) {
   }
 
   function rowHtml(b) {
-    return '<tr data-batch="' + esc(b.batch_id) + '">'
+    var href = drillHref(b);
+    return '<tr data-batch="' + esc(b.batch_id) + '" tabindex="0" data-href="' + esc(href) + '">'
       + '<td>' + esc(b.date) + '</td>'
-      + '<td>' + esc(b.reference || b.batch_id) + '</td>'
+      + '<td><a href="' + esc(href) + '" target="_parent">' + esc(b.reference || b.batch_id) + '</a></td>'
       + '<td>' + esc(b.description || '') + '</td>'
       + '<td class="num">' + fmtAmt(b.total_debit) + '</td>'
-      + '<td class="num">' + fmtAmt(b.total_credit) + '</td>'
       + '<td>' + esc(b.source) + '</td>'
       + '<td>' + statusCell(b) + '</td>'
-      + '<td>' + reverseCell(b) + '</td>'
       + '</tr>';
   }
 
   function renderRows() {
     var body = document.getElementById('vr-body');
     if (!BATCHES.length) {
-      body.innerHTML = '<tr><td colspan="8" class="no-results">No posted vouchers in this period.</td></tr>';
+      body.innerHTML = '<tr><td colspan="6" class="no-results">No posted transactions in this period.</td></tr>';
       return;
     }
     body.innerHTML = BATCHES.map(rowHtml).join('');
@@ -739,76 +738,13 @@ async function buildVoucherRegister(query, company, start, end) {
     window.location.href = url;
   }
 
-  // Reverse a batch via the journal.reverse action. On success: update the row
-  // to Reversed and append the new reversal batch as a fresh row.
-  function vrReverse(batchId, btn) {
-    if (!confirm('Reverse voucher ' + batchId + '?\\nThis creates a reversal batch (idempotent).')) return;
-    btn.disabled = true;
-    btn.textContent = 'Reversing…';
-    fetch('/api/action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'journal.reverse', companyId: COMPANY, batchId: batchId })
-    })
-    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
-    .then(function (res) {
-      if (!res.ok || (res.data && res.data.error)) {
-        btn.disabled = false;
-        btn.textContent = 'Reverse';
-        alert('Reverse failed: ' + (res.data && res.data.error ? res.data.error : 'unknown error'));
-        return;
-      }
-      // Mark the original row reversed.
-      var tr = document.querySelector('tr[data-batch="' + esc(batchId) + '"]');
-      var orig = BATCHES.find(function (b) { return b.batch_id === batchId; });
-      if (orig) { orig.reversed_by = res.data.reversalBatchId; }
-      if (tr) {
-        tr.classList.add('row-flash');
-        // Re-render the status + reverse cells in place.
-        tr.cells[6].innerHTML = statusCell(orig);
-        tr.cells[7].innerHTML = reverseCell(orig);
-      }
-      // Append the reversal batch row. We know its shape from the action result.
-      var revBatch = {
-        batch_id: res.data.reversalBatchId,
-        date: new Date().toISOString().slice(0, 10),
-        reference: 'REV-' + (orig ? (orig.reference || orig.batch_id) : batchId),
-        description: 'Reversal of ' + batchId,
-        source: 'reversal',
-        total_debit: orig ? orig.total_credit : 0,
-        total_credit: orig ? orig.total_debit : 0,
-        line_count: res.data.lineCount || 0,
-        reverses: batchId,
-        reversed_by: null
-      };
-      BATCHES.unshift(revBatch);
-      var body = document.getElementById('vr-body');
-      var tmp = document.createElement('tbody');
-      tmp.innerHTML = rowHtml(revBatch);
-      body.insertBefore(tmp.firstElementChild, body.firstChild);
-    })
-    .catch(function (err) {
-      btn.disabled = false;
-      btn.textContent = 'Reverse';
-      alert('Reverse failed: ' + (err && err.message ? err.message : 'network error'));
-    });
-  }
-
-  // Navigate to a linked batch (reversal chain). Since the register is
-  // date-filtered, the linked batch may be outside the current range — we
-  // re-query with a wide range centered on today to surface it.
-  function vrGoBatch(batchId) {
-    // Search current rows first; if present, scroll to it.
-    var tr = document.querySelector('tr[data-batch="' + esc(batchId) + '"]');
-    if (tr) {
-      tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      tr.classList.add('row-flash');
-      setTimeout(function () { tr.classList.remove('row-flash'); }, 1200);
-      return;
+  // Keyboard: Enter on a focused row activates its drill link.
+  document.getElementById('vr-body').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      var tr = e.target.closest('tr[data-href]');
+      if (tr) { window.parent.location.href = tr.getAttribute('data-href'); }
     }
-    // Not in current range — alert with the id (the user can widen the range).
-    alert('Batch ' + batchId + ' is outside the current date range. Widen the range to view it.');
-  }
+  });
 
   renderRows();
 </script>

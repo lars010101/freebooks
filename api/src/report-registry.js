@@ -21,7 +21,7 @@ const REPORT_REGISTRY = [
   { id: 'bs',        label: 'Balance Sheet',       category: 'financial', multiperiod: true,  needsStart: true  },
   { id: 'cf',        label: 'Cash Flow',           category: 'financial', multiperiod: true,  needsStart: true  },
   { id: 'sce',       label: 'Statement of Equity', category: 'financial', multiperiod: false, needsStart: true  },
-  { id: 'voucher-register', label: 'Voucher Register',  category: 'audit',     multiperiod: false, needsStart: true  },
+  { id: 'voucher-register', label: 'Transaction Register',  category: 'audit',     multiperiod: false, needsStart: true  },
   { id: 'tb',        label: 'Trial Balance',       category: 'audit',     multiperiod: false, needsStart: true  },
   { id: 'gl',        label: 'General Ledger',      category: 'audit',     multiperiod: false, needsStart: true  },
   { id: 'journal',   label: 'Journal Line Listing', category: 'audit',    multiperiod: false, needsStart: true  },

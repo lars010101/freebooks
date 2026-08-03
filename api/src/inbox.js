@@ -9,15 +9,16 @@
  * review surface (the complement of `event.list`, the agent's input
  * channel).
  *
- * v1 fans out to journal_proposals ONLY (Class A — pre-ledger approvals;
- * §10.2). Class B types (bills due, bank-import lines, …) append per
- * module as their modules land (§10.7). Each module stays the source of
- * truth; the verbs are the existing actions (journal.approve,
- * journal.reject, …) called against `payload_ref`. No new write surface
- * — R2/R6 enforcement is unchanged.
+ * v1 fans out to journal_proposals (Class A — pre-ledger approvals; §10.2).
+ * v2 adds Class B bill-due items: posted/partial bills with outstanding
+ * balance, due or overdue for payment (§10.2, §10.7 item 4). Each module
+ * stays the source of truth; the verbs are the existing actions
+ * (journal.approve, journal.reject, …) called against `payload_ref`.
+ * No new write surface — R2/R6 enforcement is unchanged.
  */
 
 const { queryProposals } = require('./journal');
+const { query } = require('./db');
 
 async function handleInbox(ctx, action) {
   switch (action) {
@@ -43,9 +44,15 @@ async function listInbox(ctx) {
   const rawLimit = Number(body.limit);
   const limit = (Number.isFinite(rawLimit) && rawLimit > 0) ? Math.min(Math.floor(rawLimit), 1000) : 100;
 
-  // v1 (§10.3): Class A only — journal_proposals. Class B types come
-  // later as their modules land. `includeLines` so we can compute the
-  // item `amount` as the sum of line debits parsed from the lines JSON.
+  // Class B — bills due/overdue (§10.7 item 4). status='bills' is a filter
+  // view, not the default (§10.2: "Class B is a filter/section, not the
+  // default — payment and matching work must not drown approvals").
+  if (status === 'bills') {
+    return { items: await queryBillsDue(companyId, limit) };
+  }
+
+  // Class A — journal_proposals (§10.3). `includeLines` so we can compute
+  // the item `amount` as the sum of line debits parsed from the lines JSON.
   const rows = await queryProposals(companyId, { status, limit, includeLines: true });
 
   const items = rows.map(function (row) {
@@ -82,6 +89,56 @@ async function listInbox(ctx) {
   });
 
   return { items: items };
+}
+
+/**
+ * queryBillsDue — Class B bill-due items (§10.7 item 4). Posted/partial
+ * bills with outstanding balance (amount_paid < amount), sorted by
+ * due_date ASC (oldest/most-overdue first). Normalized to the inbox item
+ * shape. The bill's own row IS the source of truth (R8); no staging.
+ *
+ * Item shape: { type:'bill_due', source:'system', counterparty:vendor,
+ * amount:outstanding, date:due_date, proposed_at:created_at, summary,
+ * verbs:['open'], payload_ref:bill_id, status:'overdue'|'due',
+ * reference:vendor_ref, description, created_by, currency }.
+ *
+ * `status` is 'overdue' when due_date < today, 'due' otherwise.
+ */
+async function queryBillsDue(companyId, limit) {
+  var rows = await query(
+    `SELECT bill_id, vendor, vendor_ref, date, due_date, amount,
+            amount_paid, currency, status, description, created_by, created_at
+     FROM bills
+     WHERE company_id = @companyId
+       AND status IN ('posted', 'partial')
+       AND amount_paid < amount
+     ORDER BY due_date ASC, created_at ASC
+     LIMIT @lim`,
+    { companyId: companyId, lim: limit }
+  );
+
+  var today = new Date().toISOString().substring(0, 10);
+
+  return rows.map(function (row) {
+    var outstanding = Number(row.amount) - Number(row.amount_paid || 0);
+    var overdue = String(row.due_date).substring(0, 10) < today;
+    return {
+      type: 'bill_due',
+      source: 'system',
+      counterparty: row.vendor,
+      amount: outstanding,
+      date: row.due_date,
+      proposed_at: row.created_at,
+      summary: row.vendor + (row.vendor_ref ? ' ' + row.vendor_ref : ''),
+      verbs: ['open'],
+      payload_ref: row.bill_id,
+      status: overdue ? 'overdue' : 'due',
+      reference: row.vendor_ref || '',
+      description: row.description || '',
+      created_by: row.created_by || '',
+      currency: row.currency || '',
+    };
+  });
 }
 
 module.exports = { handleInbox };

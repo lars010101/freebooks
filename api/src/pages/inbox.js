@@ -55,6 +55,12 @@ ${commonStyle()}
   .st-proposed { background:#fef3c7; color:#92400e; }
   .st-rejected { background:#f0f0f0; color:#888; }
   /* No .st-posted here — the inbox is the review queue, never the register. */
+  /* Class B bill-due badges (§10.7 item 4). Overdue = red (urgent); Due = amber. */
+  .st-overdue { background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5; }
+  .st-due     { background:#fef3c7; color:#92400e; }
+  /* Per-row type glyph (§10.4): muted prefix in the Date column so a row
+     keeps its type context when the group header scrolls away. */
+  .inbx-type-glyph { font-size:10pt; margin-right:4px; opacity:.6; }
   #queue-note { margin:0 0 10px; font-size:9.5pt; color:#777; }
   .chip { cursor:pointer; text-decoration:none; }
   /* A5 §10.4 — collapsible group header row. One per item.type (v1: only
@@ -97,7 +103,7 @@ ${commonStyle()}
     <thead>
       <tr>
         <th>Date</th><th>Reference</th><th>Description</th>
-        <th style="text-align:right">Amount</th><th>Source</th><th>Proposed by</th><th>Status</th><th></th>
+        <th style="text-align:right">Amount</th><th>Source</th><th>Created by</th><th>Status</th><th></th>
       </tr>
     </thead>
     <tbody id="jrnl-tbody"></tbody>
@@ -107,9 +113,9 @@ ${commonStyle()}
 <script>
 var COMPANY = ${JSON.stringify(company)};
 
-// Queue status filter: 'proposed' (default — the queue) | 'rejected'
-// (explicit filter view; void doctrine — spec §4.4/§10.4). Rejected rows stay
-// out of the default view, same doctrine as void.
+// Queue status filter: 'proposed' (default — Class A queue) | 'rejected'
+// (graveyard) | 'bills' (Class B — bills due/overdue, §10.2: "a filter/section,
+// not the default"). The list-level f action cycles all three (§10.4).
 var statusState = 'proposed';
 
 // Group fold state — client-side per item.type (A5 §10.4). v1 has one type
@@ -120,7 +126,15 @@ var groupFold = {};
 // Human-readable group labels per item.type. Class B types add entries here
 // as their modules land (§10.7). Unknown types fall back to the raw type.
 var GROUP_LABELS = {
-  journal_proposal: 'Journal proposals'
+  journal_proposal: 'Journal proposals',
+  bill_due: 'Bills due for payment'
+};
+
+// Per-row type glyph (§10.4). Muted emoji prefix in the Date column so a
+// row retains its type context when the group header scrolls away.
+var TYPE_GLYPHS = {
+  journal_proposal: '\\uD83D\\uDCD2', // 📒
+  bill_due: '\\uD83D\\uDCBC'          // 📋
 };
 
 function postAction(action, body, idemKey) {
@@ -144,6 +158,9 @@ function statusBadge(row) {
   var s = row.status || '';
   if (s === 'proposed') return '<span class="st-badge st-proposed">Proposed</span>';
   if (s === 'rejected') return '<span class="st-badge st-rejected" title="' + esc(row.review_note || '') + '\">Rejected</span>';
+  // Class B bill-due (§10.7 item 4): overdue = red, due = amber.
+  if (s === 'overdue') return '<span class="st-badge st-overdue">Overdue</span>';
+  if (s === 'due') return '<span class="st-badge st-due">Due</span>';
   return ''; // inbox is the review queue — no posted badge here
 }
 
@@ -199,9 +216,10 @@ function underlagPanelHtml(proposalId) {
   return '<div class="jrnl-att-head">Underlag</div>' + body;
 }
 
-// ── Data: inbox.list (Class A — journal_proposals; Class B types append per
-//    module as they land, §10.7). Each item is enriched with its parsed lines
-//    via journal.proposal.get so unfold and the approve modal are synchronous.
+// ── Data: inbox.list (Class A — journal_proposals; Class B — bill_due items
+//    per §10.7 item 4). Class A items are enriched with parsed lines via
+//    journal.proposal.get so unfold and the approve modal are synchronous.
+//    Class B bill items carry all their data inline (no enrichment needed).
 //    The Object.assign merge keeps the list row's attachment_count (the get
 //    response does not carry it — §4.7). The cache holds the flat item list;
 //    buildRows() interleaves group headers and folds per type. ──────────────
@@ -211,10 +229,10 @@ function fetchRows() {
   return postAction('inbox.list', { status: statusState, limit: 100 })
     .then(function (res) {
       var items = (res && res.data && Array.isArray(res.data.items)) ? res.data.items : [];
-      // Enrich each item with its parsed lines (children + modal summary).
-      // The queue is small; one get per row pre-warms the children cache so
-      // unfold and the approve modal are synchronous afterwards.
+      // Enrich Class A items with parsed lines (children + modal summary).
+      // Class B bill-due items skip enrichment — they carry all data inline.
       return Promise.all(items.map(function (it) {
+        if (it.type !== 'journal_proposal') return it;
         return postAction('journal.proposal.get', { proposalId: it.payload_ref })
           .then(function (g) {
             var d = (g && g.data) || {};
@@ -256,6 +274,22 @@ function groupHeader(type, count, folded) {
 }
 
 function mapItem(it) {
+  // Class B bill-due (§10.7 item 4): no lines, no proposal get enrichment.
+  // The item carries all data inline from inbox.list's queryBillsDue.
+  if (it.type === 'bill_due') {
+    return {
+      _key: 'bill:' + it.payload_ref, _kind: 'bill',
+      bill_id: it.payload_ref,
+      type: it.type,
+      date: it.date, reference: it.reference || '',
+      description: it.description || it.summary || '',
+      amount: it.amount, currency: it.currency || '',
+      counterparty: it.counterparty || '',
+      status: it.status, // 'overdue' or 'due'
+      created_by: it.created_by || '', request_id: it.request_id || '',
+    };
+  }
+  // Class A — journal_proposal (enriched with lines).
   var lines = Array.isArray(it.lines) ? it.lines : [];
   var dr = 0, cr = 0;
   lines.forEach(function (l) { dr += Number(l.debit || 0); cr += Number(l.credit || 0); });
@@ -347,7 +381,11 @@ function review(row, verdict) {
 }
 
 function cycleStatusFilter() {
-  statusState = statusState === 'proposed' ? 'rejected' : 'proposed';
+  // Three-state cycle (§10.4): proposed → rejected → bills → proposed.
+  // Class B ('bills') is a filter section, not the default (§10.2).
+  statusState = statusState === 'proposed' ? 'rejected'
+    : statusState === 'rejected' ? 'bills'
+    : 'proposed';
   _cache = null;             // status changed → re-fetch
   FB.status.show('Queue filter: ' + statusState, false);
   list.load();
@@ -366,20 +404,45 @@ var list = FB.list.create({
       display: function (v, r) {
         if (r._kind === 'group') return '<span>' + esc(r._groupLabel) + '</span>'
           + '<span class="inbx-grp-count">' + r._groupCount + '</span>';
-        return '<span style="white-space:nowrap">' + fmtDate(v) + '</span>';
+        // Per-row type glyph (§10.4): muted prefix so the row carries its
+        // type context even when the group header has scrolled away.
+        var glyph = TYPE_GLYPHS[r.type] || '';
+        return '<span style="white-space:nowrap">' + (glyph ? '<span class="inbx-type-glyph">' + glyph + '</span>' : '') + fmtDate(v) + '</span>';
       } },
     { field: 'reference', filterType: 'text', label: 'Reference',
       display: function (v, r) { return r._kind === 'group' ? '' : (v != null && v !== '' ? esc(String(v)) : '<span class="pe-ro">—</span>'); } },
     { field: 'description', filterType: 'text', label: 'Description',
-      display: function (v, r) { return r._kind === 'group' ? '' : (v != null && v !== '' ? esc(String(v)) : '<span class="pe-ro">—</span>'); } },
+      display: function (v, r) {
+        if (r._kind === 'group') return '';
+        // For bill rows, show counterparty as the description if description is empty
+        var text = v != null && v !== '' ? String(v) : (r.counterparty ? r.counterparty : '');
+        return text !== '' ? esc(text) : '<span class="pe-ro">—</span>';
+      } },
     { field: 'amount', align: 'right', filterType: 'amount', label: 'Amount',
-      display: function (v, r) { return r._kind === 'group' ? '' : fmtAmt(r.amount); } },
+      display: function (v, r) {
+        if (r._kind === 'group') return '';
+        // Bill rows show currency suffix for clarity (amount is outstanding).
+        if (r._kind === 'bill' && r.amount) {
+          return '<span class="amt">' + Number(r.amount).toFixed(2) + (r.currency ? ' ' + esc(r.currency) : '') + '</span>';
+        }
+        return fmtAmt(r.amount);
+      } },
     { field: 'source', filterType: 'list', label: 'Source',
-      display: function (v, r) { return r._kind === 'group' ? '' : (v != null && v !== '' ? esc(String(v)) : '<span class="pe-ro">—</span>'); } },
-    { field: 'created_by', filterType: 'text', label: 'Proposed by',
+      display: function (v, r) {
+        if (r._kind === 'group') return '';
+        // Bill rows: source is the counterparty (vendor), not agent/human.
+        if (r._kind === 'bill') return r.counterparty ? esc(String(r.counterparty)) : '<span class="pe-ro">—</span>';
+        return v != null && v !== '' ? esc(String(v)) : '<span class="pe-ro">—</span>';
+      } },
+    { field: 'created_by', filterType: 'text', label: 'Created by',
       display: function (v, r) { return r._kind === 'group' ? '' : (v != null && v !== '' ? esc(String(v)) : '<span class="pe-ro">—</span>'); } },
     { field: 'status', filterType: 'list', label: 'Status',
-      display: function (v, r) { return r._kind === 'group' ? '' : (statusBadge(r) + underlagBadge(r)); } }
+      display: function (v, r) {
+        if (r._kind === 'group') return '';
+        // Bill rows: badge only (no underlag badge — Class B).
+        if (r._kind === 'bill') return statusBadge(r);
+        return statusBadge(r) + underlagBadge(r);
+      } }
   ],
   list: { fetch: fetchRows, map: function (row) { return row; } },
   rowStyle: function (r) { return r._kind === 'group' ? 'background:#fafafa' : ''; },
@@ -400,6 +463,15 @@ var list = FB.list.create({
         kids.push({ _key: row._key + ':att', _childOf: row._key, _attSection: row.proposal_id });
         fetchUnderlag(row.proposal_id);
       }
+    }
+    if (row._kind === 'bill') {
+      // Class B bill-due unfold: a single meta child row with vendor + bill info.
+      // No underlag, no journal lines — the bill's own row is the source of truth.
+      var billMeta = esc(row.counterparty || '')
+        + (row.reference ? ' · ref ' + esc(row.reference) : '')
+        + (row.currency ? ' · ' + esc(row.currency) : '')
+        + (row.created_by ? ' · created by ' + esc(row.created_by) : '');
+      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: billMeta });
     }
     (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
     return kids;
@@ -423,28 +495,44 @@ var list = FB.list.create({
       run: function (api, row) { toggleGroupFold(row); } },
     { key: 'y', label: 'approve',
       when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" data-act="verb:y">✓</a>'; },
+      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" data-act="verb:y">&#10003;</a>'; },
       run: function (api, row) { review(row, 'approve'); } },
     { key: 'x', label: 'reject',
       when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">✕</a>'; },
-      run: function (api, row) { review(row, 'reject'); } }
+      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">&#10005;</a>'; },
+      run: function (api, row) { review(row, 'reject'); } },
+    // Class B bill-due (§10.7 item 4): 'o' opens the bill's native surface
+    // (Payables). The inbox is read-only; the bill is worked in its own page.
+    { key: 'o', label: 'open bill',
+      when: function (row) { return row._kind === 'bill'; },
+      affordance: function () { return '<a class="chip" title="open in Payables (o)" data-act="verb:o">&#8599;</a>'; },
+      run: function (api, row) {
+        // Navigate to the Payables page where the bill lives.
+        window.location.href = '/' + COMPANY + '/payables';
+      } }
   ],
   actions: [
-    { key: 'f', label: 'filter: ' + 'proposed↔rejected', handler: function () { cycleStatusFilter(); } }
+    { key: 'f', label: 'filter: proposed↔rejected↔bills', handler: function () { cycleStatusFilter(); } }
   ],
   onLoaded: function (saved) {
     var note = document.getElementById('queue-note');
-    var items = saved.filter(function (r) { return r._kind === 'proposal'; });
+    var items = saved.filter(function (r) { return r._kind === 'proposal' || r._kind === 'bill'; });
     if (statusState === 'proposed') {
       note.textContent = items.length === 0
         ? 'Nothing to review — agent-proposed journal batches will appear here'
         : items.length + ' proposed batch' + (items.length === 1 ? '' : 'es') + ' awaiting review (y approve · x reject · Enter unfold)';
-    } else {
+    } else if (statusState === 'rejected') {
       note.textContent = 'Rejected proposals (' + items.length + ') — f returns to the queue';
+    } else {
+      // Class B bills view
+      var bills = items.filter(function (r) { return r._kind === 'bill'; });
+      var overdue = bills.filter(function (r) { return r.status === 'overdue'; }).length;
+      note.textContent = bills.length + ' bill' + (bills.length === 1 ? '' : 's') + ' due for payment'
+        + (overdue ? ' (' + overdue + ' overdue)' : '')
+        + ' — o opens in Payables · Enter unfolds · f returns to the queue';
     }
   },
-  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, Enter unfolds lines, Enter on a group header folds it). f toggles the rejected graveyard.'
+  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, o open bill, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → bills.'
 });
 
 list.load();

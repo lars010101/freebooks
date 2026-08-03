@@ -19,6 +19,7 @@ const { handleCompanyPage } = require('./pages/company');
 const { handleSettingsPage } = require('./pages/settings');
 const { handleJournalNewPage } = require('./pages/journal-new');
 const { handleJournalPage } = require('./pages/journal');
+const { handleInboxPage } = require('./pages/inbox');
 const { handleBillEditPage } = require('./pages/bill-edit');
 const { handleBillDetailPage } = require('./pages/bill-detail');
 const { handleBankReconcilePage } = require('./pages/bank-reconcile');
@@ -174,6 +175,7 @@ function mountReportRoutes(app) {
   // SRU (Skatteverket INK2) export — blanketter.sru + INFO.SRU.
   app.get('/api/:company/sru/ink2', handleSruInk2);
   app.get('/api/:company/sru/info', handleSruInfo);
+  app.get('/:company/inbox', handleInboxPage);
   app.get('/:company/journal', handleJournalPage);
   app.get('/:company/journal/new', handleJournalNewPage);
   app.get('/:company/bill/edit', handleBillEditPage);

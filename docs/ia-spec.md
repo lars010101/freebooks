@@ -34,8 +34,7 @@ Entry shape: `{ key, route, label, icon, sidebar, gKey, palette, absolute }`. `r
 
 | Key | Route | Label | Icon | Sidebar | gKey | Palette | Notes |
 |-----|-------|-------|------|---------|------|---------|-------|
-| `inbox` | `/:company/inbox` | Inbox | 📥 | ✓ | `i` | ✓ | A5 unified review queue (moved from Journal 2026-08-03) |
-| `dashboard` | `/:company` | Dashboard | 📊 | ✓ | `d` | ✓ | KPI cards + drill-through |
+| `inbox` | `/:company` | Inbox | 📥 | ✓ | `i` | ✓ | A5 unified review queue; root route (Dashboard dropped 2026-08-03) |
 | `bank` | `/:company/bank` | Bank | 🏦 | ✓ | `b` | ✓ | Transactions · Import · Mappings tabs |
 | `journal` | `/:company/journal` | Journal | 📒 | ✓ | `j` | ✓ | Pure posted register (A5 slimmed) |
 | `payables` | `/:company/payables` | Payables | 📋 | ✓ | `p` | ✓ | Bills tree + Vendors |
@@ -168,14 +167,7 @@ For non-table surfaces (dashboard cards, report links). `FB.nav.create({ grid })
 
 ## 5. Per-View Interaction Contracts
 
-### 5.1 Dashboard (`/:company`)
-
-- **Machine:** FB.nav (spatial 2D grid over cards + report links)
-- **Keys:** `j`/`k`/`h`/`l` navigate cards; `Enter` follows the focused card's link; `Esc` clears focus ring
-- **Mouse:** Click any card to drill through
-- **No verbs** — read-only viewer
-
-### 5.2 Inbox (`/:company/inbox`) — A5 unified review queue
+### 5.1 Inbox (`/:company`) — A5 unified review queue
 
 - **Machine:** FB.list (`tree: true`, `canAdd: false`, `editable: false`)
 - **Data:** `inbox.list` — Class A (journal proposals) + Class B (bills due/overdue)
@@ -186,7 +178,7 @@ For non-table surfaces (dashboard cards, report links). `FB.nav.create({ grid })
   - `x` — reject (FB.modal with **required** note input; `Enter` submits when non-empty; `Esc` cancels). Only on `proposed` rows.
   - `Enter` — unfold lines read-only (tree idiom). On group headers: fold/unfold.
   - `o` — open bill in Payables (Class B `bill_due` rows only).
-- **A4 underlag:** Folded `PROPOSED` rows show a 📎 N badge (attachment_count > 0) or a red "no underlag" warning marker (0 attachments). Unfolding a `PROPOSED` row lazily fetches `attachment.list` and renders shared `FB.attachments.rowHtml` rows linking to `GET /api/attachments/:id` (`target _blank`).
+- **Source-document indicators:** Folded `PROPOSED` rows show a 📎 N badge (attachment_count > 0) or a ⚠️ warning icon (0 attachments — tooltip: "No source document attached"). VAT tolerance flags render a ⚠️ icon (tooltip: "VAT tolerance flag"). Unfolding a `PROPOSED` row lazily fetches `attachment.list` and renders shared `FB.attachments.rowHtml` rows linking to `GET /api/attachments/:id` (`target _blank`).
 - **Badge:** Sidebar Inbox item shows pending-proposal count, refreshed on soft-nav and on `fb:queue-changed`.
 - **Empty state:** "Nothing to review — agent-proposed journal batches will appear here."
 
@@ -433,3 +425,4 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 | 2026-08-01 | A4 proposal underlag: binding convention, warn-not-block, review UX |
 | 2026-08-02 | Per-actor API tokens; dropdown mode-neutrality strengthened; tab-strip precedence |
 | 2026-08-03 | A5 unified inbox: queue leaves Journal, `g i` = Inbox, `f` filter moves with queue |
+| 2026-08-03 | Dashboard + KPI cards dropped; Inbox becomes root route (`/:company`); source-document warning icons inline |

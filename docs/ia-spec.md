@@ -412,16 +412,16 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 
 | Report | Row represents | Drill target | Mechanism |
 |---|---|---|---|
-| **Voucher Register** | Batch (voucher) | Source-aware detail view (§10.2) | Click / `Enter` anywhere on row |
+| **Transaction Register** | Batch (voucher) | Source-aware detail view (§10.2) | Click / `Enter` anywhere on row |
 | **Journal Line Listing** | Single journal line | The batch's detail view (journal-new view mode) | Click / `Enter` |
 | **General Ledger** | Account's lines for a period | The batch's detail view (journal-new view mode) | Click / `Enter` |
 | **Trial Balance** | Account total for a period | General Ledger filtered to that account + period | Click / `Enter` |
 | **Balance Sheet** | Account group total | Trial Balance filtered to that group | Click / `Enter` |
 | **Profit & Loss** | Account group total | Trial Balance filtered to that group | Click / `Enter` |
 
-### 10.2 Source-aware detail routing (Voucher Register)
+### 10.2 Source-aware detail routing (Transaction Register)
 
-The Voucher Register row's drill target depends on the batch's origin:
+The Transaction Register row's drill target depends on the batch's origin:
 
 | Batch source | Detail view |
 |---|---|
@@ -454,6 +454,19 @@ Every detail view honors a return stack: `Esc`/`q` returns to the exact screen, 
 - `Esc`/`q` returns to the origin (§10.4).
 - Source documents (attachments) visible in the attachment queue zone.
 
+### 10.6 Transaction Register — design
+
+**Columns:** Date · Reference · Description · Amount · Source · Status
+
+**Status indicators** (journal-level only, no source-level joins):
+- **POSTED** — normal active batch (default, no badge)
+- **Reversed** — badge when `reversed_by` is set. Shows the reversing batch's reference: "Reversed by REV-2026-001" (clickable, drills to the reversal batch's detail view).
+- **Reversal** — badge when `reverses` is set. Shows the original batch's reference: "Reversal of 2026-001" (clickable, drills to the original batch's detail view).
+
+**Row interaction:** Click anywhere on a row / `Enter` on a focused row → source-aware detail view (§10.2). No verbs on the report itself.
+
+**No attachment indicator** — source documents are viewed from the detail views, not the register.
+
 ---
 
 ## 11. Testing Contract
@@ -480,4 +493,4 @@ Every detail view honors a return stack: `Esc`/`q` returns to the exact screen, 
 | 2026-08-02 | Per-actor API tokens; dropdown mode-neutrality strengthened; tab-strip precedence |
 | 2026-08-03 | A5 unified inbox: queue leaves Journal, `g i` = Inbox, `f` filter moves with queue |
 | 2026-08-03 | Dashboard + KPI cards dropped; Inbox becomes root route (`/:company`); source-document warning icons inline |
-| 2026-08-03 | Journal dissolves: Voucher Register report in Reports; journal sidebar entry removed; drill-through doctrine (§10) ratified |
+| 2026-08-03 | Journal dissolves: Transaction Register report in Reports; journal sidebar entry removed; drill-through doctrine (§10) ratified |

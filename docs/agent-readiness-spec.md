@@ -34,6 +34,7 @@ This tranche makes that model enforceable and observable inside freebooks, in fo
 | R5 | Human review is an explicit state transition, not a convention. No agent-created row reaches `journal_entries` without a human approve (which *is* the post — §4.1). |
 | R6 | All enforcement is server-side. The client renders state and offers verbs; it never decides eligibility. |
 | R7 | An agent proposal is never rejected for lacking attachments — BFL 5 kap permits egen verifikation. The review surface must *warn* on missing underlag; it must never block. |
+| R8 | The inbox unifies presentation only. Every action item's source of truth remains its owning module's table — no staging entity, no copied state. (A5, §10.3) |
 
 ---
 
@@ -210,6 +211,8 @@ As built (hardening 2026-07-31): approve/reject/upsert transitions are atomic cl
 
 ### 4.4 The review queue — integrated into the Journal list
 
+> **Superseded 2026-08-03 by §10 (A5).** The queue moves to the unified Inbox; the Journal list becomes the pure posted register, and the sidebar badge + `f` status filter move with the queue. The queue idiom specified below (status-filtered list + `y`/`x` row verbs + note-on-reject + badge) is unchanged — it is reused verbatim as the inbox's per-type rendering (§10.4).
+
 No new page, no new route. The Journal FB.list **is** the queue:
 
 - Pending `proposed` rows render in the Journal list with status `PROPOSED` (pinned above posted batches, then by date desc); `rejected` rows appear only under an explicit status filter (default view keeps them out of the way, same doctrine as `void`).
@@ -350,5 +353,70 @@ Sequencing after this tranche: **SRU engine refactor** (SRU-only), then **P2 acc
 3. **A3j** — `journal_proposals` table, `enrichAndValidate`/`postJournalBatch` refactor, `journal.propose/approve/reject` + `journal.proposal.list/get`, Journal-list queue UI + badge + detail unfold. *(Medium — the bulk is UI.)*
 4. **MCP (P2-5)** — `mcp/` server per §5. *(Small; consumes 1–3.)*
 5. **A4** — proposal underlag per §4.7: propose-time count/warning, queue unfold preview, approve re-point, GC, dedupe. *(Small-medium; no API/schema additions — one binding convention + UI surface.)*
+6. **A5** — unified action inbox per §10: nav-registry remap, `inbox.list` aggregator, inbox page, Journal list slimmed to the register. *(Small-medium; consumes 3.)*
 
 Each lands as its own PR with the spec updated in the same commit (standing rule 5).
+
+---
+
+## 10. A5 — Unified action inbox (ratified 2026-08-03)
+
+**Why.** §4.4 dissolved the review queue into the Journal list when journal proposals were the only action item. That rule does not scale: one badge per sidebar item means the human polls N surfaces to find work, and the merged queue+register conflates two different objects — an ephemeral work queue and the permanent ledger register (observed in practice: the queue's `f` status filter reads as meaningless when both halves share one list, since POSTED rows never filter out). Under the operating model of §0 the queue **is** the primary human surface; A5 makes it one surface.
+
+**Ratified decisions (2026-08-03).**
+
+1. **Replace.** The queue half of the Journal view moves to a dedicated Inbox page. The Journal list becomes the pure posted register; its sidebar badge and `f` queue filter move with the queue.
+2. **`g i` = Inbox.** The letter is reclaimed from bank-import (nav-registry: `bank-import.gKey` dropped; route and palette entry unchanged, reachable via `g b`). Justification: bank imports are an inbox item type (§10.2) — the destination dissolves into the inbox.
+3. **Hold.** Module-native pending views (e.g., drafts inside Payables) stay as-is until the inbox proves out on journals; they fold in per §10.7 as their modules land.
+
+### 10.1 What the inbox is / is not
+
+One FB.list page (`/:company/inbox`, sidebar first, 📥) listing **action items** — work awaiting a human decision. It is the human's input channel, the complement of `event.list` (§3.3 — the agent's). It is not a notification center, not a log viewer, and not an editor: review stays accept-or-reject per §4.4 (one writer per state); anything beyond the verbs opens the item's native surface.
+
+### 10.2 Item taxonomy — two action classes
+
+**Class A — pre-ledger approvals** (the queue proper; the default view). Everything that will hit the ledger arrives as a `journal_proposals` row — the single-gateway rule is unchanged (§0 correction (c), §4.6): journal batches, bill proposals, and bank-feed matches all converge on the one pre-ledger entity with the one approve/reject path and A4 underlag.
+
+**Class B — post-ledger operational items** (the ledger is right; reality needs doing):
+
+- Bills due/overdue for payment; unapproved drafts (payables)
+- Bank-import statement lines awaiting match/accept/exclude (P3 feeds)
+- Receivables (unbuilt — type reserved): unsent invoices, overdue collection items, unmatched incoming payments
+- Attestation items (later): VAT sign-off, period-close review
+- Agent-raised exceptions (later): stated-vs-computed VAT mismatches, duplicates, FX revaluation proposals
+
+Class B is a filter/section, not the default — payment and matching work must not drown approvals.
+
+### 10.3 Data layer — aggregate, never stage (R8)
+
+No new table, no staging entity (A4 already rejected an attachment-inbox staging entity; the same reasoning applies to items). A new read-only action **`inbox.list`** fans out per type — `journal_proposals` for Class A, the owning module's tables for each Class B type — and normalizes rows to one item shape:
+
+`{ type, source (agent|human|import|system), counterparty, amount, date, proposed_at, summary, verbs[], payload_ref }`
+
+Each module stays the source of truth for its items; the verbs are the existing actions (`journal.approve`, `journal.reject`, …) called against `payload_ref`. No new write surface — R2/R6 enforcement is unchanged and the agent whitelist needs no amendment (`event.list` remains the agent's channel; `inbox.list` is read-only and may be granted later if an operator agent wants it).
+
+### 10.4 Presentation
+
+- One FB.list, grouped by type with collapsible group headers; `j`/`k` move across groups. Default view: Class A pending, oldest-first within type. A type-filter key cycles types; the rejected graveyard is a filter view (void doctrine carried over from §4.4 — rejected stays out of the default view).
+- Row verbs are type-specific, driven by the item's `verbs[]`: Class A journal proposals keep `y` / `x` / Enter-unfold **verbatim** — the §4.4 queue idiom, reused as §4.4 prescribes for future queues. Class B verbs as their modules define them.
+- Sidebar badge on the Inbox item = total Class A pending count (the monitoring surface, moved from Journal; refreshed on soft-nav and on `fb:queue-changed`). The Journal sidebar badge is removed with the queue.
+- `g i` go-to + palette entry. Keyboard-program conventions (K1–K5) throughout; the `keys-coverage` gate covers the new page.
+
+### 10.5 What changes in existing surfaces
+
+- §4.4 queue leaves the Journal list (supersession note there) — Journal becomes the posted register only.
+- nav-registry: inbox entry added (sidebar first, `gKey:'i'`); `bank-import` `gKey:'i'` dropped (route + palette unchanged).
+- `fb:queue-changed` now targets the inbox badge.
+
+### 10.6 Non-goals (v1)
+
+No editing in the inbox (§4.4 one-writer-per-state). No Class B types until their modules exist (bank-import staging first, with P3 feeds). No snooze/assignment — single-operator product. No push notifications; the badge is the notification.
+
+### 10.7 Build order
+
+1. nav-registry: inbox route + sidebar entry + `g i` remap (bank-import gKey dropped). *(Trivial.)*
+2. `inbox.list` aggregator over `journal_proposals` only (Class A, one type). *(Small.)*
+3. Inbox page on FB.list reusing the §4.4 idiom; Journal list slimmed to the register; badge moved. *(Medium — the bulk is UI.)*
+4. Class B types appended per module as they land.
+
+**As built (2026-08-03).** Items 1–3 shipped. `inbox.list` (api/src/inbox.js) shares one SQL query with `journal.proposal.list` via `queryProposals(companyId, { status, limit, includeLines })` exported from api/src/journal.js — `includeLines` lets the inbox compute `amount` from the lines JSON without changing `journal.proposal.list`'s response shape. The inbox page (api/src/pages/inbox.js) groups items under a collapsible header per `type` (generic; v1 renders the single `journal_proposal` group "Journal proposals") and reuses the §4.4 idiom verbatim — `y` confirm-modal approve, `x` required-note reject, Enter unfold with `journal.proposal.get` merged via `Object.assign` (attachment_count survives), A4 underlag badge/preview, `f` cycles proposed↔rejected. Journal page is the pure posted register. Badge: `sb-inbox-badge` on the sidebar Inbox item, fed by `_refreshInboxBadge()` (boot + `fb:queue-changed`), `99+` cap. Request envelope note: action params spread at body top level (`{action, companyId, status, limit}`), not nested under `params`.

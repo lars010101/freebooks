@@ -248,6 +248,12 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 ---
 
+## 0y. Status update — 2026-08-03 (A5 unified inbox ratified)
+
+**Decision:** the review queue leaves the Journal list and becomes a dedicated **Inbox** page — the single human action surface under agent-first (agent-readiness spec §10, new invariant R8). Ratified by magnus: **(1) replace** — the queue half of the Journal view moves to the inbox; the Journal list becomes the pure posted register, badge and `f` filter move with the queue; **(2) `g i` = Inbox** — letter reclaimed from bank-import (imports are an inbox item type; route/palette unchanged, reachable via `g b`); **(3) hold** — module-native pending views (e.g. Payables drafts) stay until the inbox proves out on journals. The taxonomy covers all action-item types up front: **Class A** pre-ledger approvals (everything converges on `journal_proposals` — the single-gateway rule is unchanged) and **Class B** post-ledger operational items (bills due/overdue, unmatched bank-import lines, receivables [type reserved — module unbuilt], attestation items, agent-raised exceptions). Data layer: read-only `inbox.list` aggregator, no staging entity — each module stays its items' source of truth. Trigger: the observed `f`-filter confusion — merged queue+register conflated ephemeral work with the permanent ledger record. Sequencing: next build item (spec §10.7), PR per standing rule 5.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

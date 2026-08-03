@@ -1919,3 +1919,107 @@ test('journal.import: reference-less entries get MISC sequences; carried referen
   assert.ok(refs.includes('LEGACY-KEEP-1'), 'carried reference preserved');
   assert.ok(refs.some((x) => /^MISC\/2026\/\d{5}$/.test(x)), 'minted MISC sequence present');
 });
+
+// ── A5: unified action inbox (§10) — inbox.list aggregator ─────────────────
+// Each A5 test seeds a FRESH company so the inbox contents are exactly what
+// the test creates (no cross-test residue from the shared CT company). The
+// inbox is read-only; journal.propose/journal.reject reuse the A3j setup idiom.
+
+// Grant owner + agent rights for a fresh company (bootstrap via admin SQL,
+// not under test — same pattern as the suite's before hook).
+async function grantFor(co) {
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${co}', 'owner', now(), 'test'),
+            ('agent@ct', '${co}', 'agent', now(), 'test')`);
+}
+
+test('A5: inbox.list returns proposed items normalized', async () => {
+  const CO5 = 'CIP';
+  const seeded = await seedCompany(baseUrl, CO5);
+  const ap5 = seeded.AP, exp5 = seeded.EXP;
+  await grantFor(CO5);
+
+  // Agent proposes a balanced 2-line batch (A3j §4 setup idiom). The
+  // proposal's description/reference columns come from body.description /
+  // body.reference (top-level), not per-line descriptions.
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO5, userEmail: 'agent@ct', requestId: 'req-a5-prop',
+    reference: 'A5-REF',
+    description: 'A5 inbox expense',
+    lines: [
+      { account_code: exp5, debit: 50, date: '2026-07-20', description: 'A5 inbox expense' },
+      { account_code: ap5, credit: 50, date: '2026-07-20', description: 'A5 inbox expense' },
+    ],
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+  assert.ok(proposalId, 'propose returns proposalId');
+
+  // inbox.list with no status param → default 'proposed' → exactly this item.
+  const inbox = await api(baseUrl, 'inbox.list', { companyId: CO5 });
+  assert.equal(inbox.status, 200, JSON.stringify(inbox.body));
+  const items = inbox.body.data.items;
+  assert.equal(items.length, 1, 'exactly one proposed item in a fresh company');
+  const item = items[0];
+  assert.equal(item.type, 'journal_proposal', 'item.type');
+  assert.equal(item.source, 'agent', 'item.source (agent caller)');
+  assert.deepEqual(item.verbs, ['approve', 'reject', 'open'], 'item.verbs literal');
+  assert.equal(item.payload_ref, proposalId, 'payload_ref = proposalId');
+  assert.equal(item.amount, 50, 'amount = sum of line debits (50 debit, 0 on credit line)');
+  assert.equal(item.counterparty, null, 'counterparty reserved null (Class A)');
+  assert.equal(item.status, 'proposed', 'item.status');
+  assert.equal(item.reference, 'A5-REF', 'reference carried from the row');
+  assert.equal(item.description, 'A5 inbox expense', 'description carried from the row');
+  assert.equal(item.attachment_count, 0, 'no underlag → attachment_count 0');
+  assert.equal(item.summary, 'A5 inbox expense', 'summary = description || reference || ""');
+});
+
+test('A5: inbox.list rejected filter', async () => {
+  const CO5 = 'CIR';
+  const seeded = await seedCompany(baseUrl, CO5);
+  const ap5 = seeded.AP, exp5 = seeded.EXP;
+  await grantFor(CO5);
+
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO5, userEmail: 'agent@ct', requestId: 'req-a5-rej',
+    lines: [
+      { account_code: exp5, debit: 30, date: '2026-07-20', description: 'A5 reject me' },
+      { account_code: ap5, credit: 30, date: '2026-07-20', description: 'A5 reject me' },
+    ],
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+
+  // Owner rejects with a note (A3j §4.3 — note required, terminal).
+  const reject = await api(baseUrl, 'journal.reject', {
+    companyId: CO5, userEmail: 'owner@ct', proposalId, note: 'fix the account',
+  });
+  assert.equal(reject.status, 200, JSON.stringify(reject.body));
+  assert.equal(reject.body.data.rejected, true);
+
+  // Default (proposed) view → absent (rejected stays out of the default view,
+  // void doctrine carried over from §4.4).
+  const def = await api(baseUrl, 'inbox.list', { companyId: CO5 });
+  assert.equal(def.status, 200, JSON.stringify(def.body));
+  assert.equal(def.body.data.items.length, 0, 'rejected absent from default (proposed) view');
+
+  // status:'rejected' → present, carrying the review_note.
+  const rej = await api(baseUrl, 'inbox.list', { companyId: CO5, status: 'rejected' });
+  assert.equal(rej.status, 200, JSON.stringify(rej.body));
+  assert.equal(rej.body.data.items.length, 1, 'rejected present under status:rejected');
+  const item = rej.body.data.items[0];
+  assert.equal(item.status, 'rejected');
+  assert.equal(item.payload_ref, proposalId);
+  assert.equal(item.review_note, 'fix the account', 'review_note carried on the normalized item');
+  assert.equal(item.type, 'journal_proposal');
+});
+
+test('A5: inbox.list empty', async () => {
+  const CO5 = 'CIE';
+  await seedCompany(baseUrl, CO5); // fresh company, no proposals
+
+  const inbox = await api(baseUrl, 'inbox.list', { companyId: CO5 });
+  assert.equal(inbox.status, 200, JSON.stringify(inbox.body));
+  assert.deepEqual(inbox.body.data.items, [], 'no proposals → empty items array');
+});

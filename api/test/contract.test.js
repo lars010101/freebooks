@@ -121,6 +121,29 @@ function validBill(overrides = {}) {
   };
 }
 
+// Wall-clock determinism for void reversals: bill.void / bill.payment.void
+// reverse via journal.reverse with NO reversalDate → server defaults to
+// "today". Seed a wide window (last month → next month, UTC) so the reversal
+// date is covered regardless of run date. Scoped locally, not in before().
+async function seedVoidCoverPeriod() {
+  const today = new Date().toISOString().slice(0, 10);
+  const [y, m] = today.split('-').map(Number);
+  const startY = m <= 1 ? y - 1 : y;
+  const startM = m <= 1 ? 12 : m - 1;
+  const endY = m >= 12 ? y + 1 : y;
+  const endM = m >= 12 ? 1 : m + 1;
+  const endLast = new Date(Date.UTC(endY, endM, 0)).getUTCDate();
+  const r = await api(baseUrl, 'period.upsert', {
+    companyId: CO,
+    period: {
+      period_id: `VOID-COVER-${y}${String(m).padStart(2, '0')}`,
+      start_date: `${startY}-${String(startM).padStart(2, '0')}-01`,
+      end_date: `${endY}-${String(endM).padStart(2, '0')}-${String(endLast).padStart(2, '0')}`,
+    },
+  });
+  assert.equal(r.status, 200, `seedVoidCoverPeriod failed: ${JSON.stringify(r.body)}`);
+}
+
 test('bill.create posts with balanced journal + warnings key', async () => {
   const { status, body } = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill() });
   assert.equal(status, 200, JSON.stringify(body));
@@ -209,6 +232,7 @@ test('draft flow: save → re-save keeps bill_id → post → void reverses jour
   const post = await api(baseUrl, 'bill.draft.post', { companyId: CO, billId: draftId });
   assert.equal(post.status, 200, JSON.stringify(post.body));
 
+  await seedVoidCoverPeriod();
   const voided = await api(baseUrl, 'bill.void', { companyId: CO, billId: draftId });
   assert.equal(voided.status, 200, JSON.stringify(voided.body));
 
@@ -578,6 +602,7 @@ test('bill.payment.void: reverses journal, restores bill, refuses double-void', 
   assert.equal(pay.status, 200, JSON.stringify(pay.body));
   const { paymentId, batchId } = pay.body.data;
 
+  await seedVoidCoverPeriod();
   const v = await api(baseUrl, 'bill.payment.void', { companyId: CO, paymentId });
   assert.equal(v.status, 200, JSON.stringify(v.body));
   assert.equal(v.body.data.voided, true);

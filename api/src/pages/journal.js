@@ -85,10 +85,48 @@ function statusBadge(row) {
   return '<span class="st-badge st-posted">Posted</span>';
 }
 
+// A4 §4.7 — unfold preview. The underlag panel is a child row of each
+// posted batch. attachment.list is fetched LAZILY on first unfold and
+// cached per entity key; the bare list.render() path (fb-list) re-renders
+// the section when the fetch resolves. No new keys/verbs — Enter unfolds
+// via the existing tree mechanism; this just adds a child row to that
+// unfold. R6: the panel is read-only display.
+var _attCache = {}; // entityKey → undefined(unfetched) | '__pending' | Array<att>
+function fetchUnderlag(entityKey, entityType, entityId) {
+  if (_attCache[entityKey] !== undefined) return;     // fetched or in-flight
+  _attCache[entityKey] = '__pending';
+  postAction('attachment.list', { entityType: entityType, entityId: entityId })
+    .then(function (res) {
+      _attCache[entityKey] = (res && Array.isArray(res.data)) ? res.data : [];
+      list.render();                                   // bare render preserves cursor
+    })
+    .catch(function () { _attCache[entityKey] = []; list.render(); });
+}
+// Render the underlag panel body for an _attSection child. Reuses the shared
+// FB.attachments.rowHtml (fb-attachments.js) so the markup matches every other
+// attachment surface; each row links to the existing GET /api/attachments/:id
+// route (target _blank — same pattern as journal-new.js). attachment.list
+// returns uploaded_at; rowHtml expects created_at, so map it.
+function underlagPanelHtml(entityKey) {
+  var cached = _attCache[entityKey];
+  var body;
+  if (cached === '__pending' || cached === undefined) {
+    body = '<span class="fb-att-empty">Loading underlag\\u2026</span>';
+  } else if (!cached.length) {
+    body = FB.attachments.emptyHtml('No underlag attached');
+  } else {
+    body = cached.map(function (a) {
+      return FB.attachments.rowHtml({
+        attachment_id: a.attachment_id, filename: a.filename,
+        file_size: a.file_size, created_at: a.uploaded_at
+      });
+    }).join('');
+  }
+  return '<div class="jrnl-att-head">Underlag</div>' + body;
+}
+
 // ── Data: posted batches (grouped from journal.list line rows) ──────────────
 function fetchRows() {
-  return postAction('journal.list', { limit: 500, sortBy: 'date', sortDir: 'DESC' })
-    .then(function (res) { return groupBatches((res && res.data) || []); });
 }
 
 function groupBatches(lines) {
@@ -150,11 +188,16 @@ var list = FB.list.create({
   // batch's first child is the muted meta line (batch id).
   children: function (row) {
     var kids = [];
-    kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: 'Batch ' + esc(row.batch_id || '') });
+    // Posted batches: underlag re-pointed to entity_type='journal' at approve
+    // (A4 §4.7). Show the underlag panel on unfold for BFL 5 kap
+    // traceability. Lazy-fetched; no badge on the folded row.
+    kids.push({ _key: row._key + ':att', _childOf: row._key, _attSection: 'batch:' + row.batch_id, _attEntityType: 'journal', _attEntityId: row.batch_id });
+    fetchUnderlag('batch:' + row.batch_id, 'journal', row.batch_id);
     (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
     return kids;
   },
   childRowHtml: function (parent, child) {
+    if (child._attSection) return '<td colspan="8" class="jrnl-att">' + underlagPanelHtml(child._attSection) + '</td>';
     if (child._meta) return '<td colspan="7" class="jrnl-meta">' + esc(child._meta) + '</td><td></td>';
     return '<td></td>'
       + '<td>' + esc(child.account_code) + '</td>'

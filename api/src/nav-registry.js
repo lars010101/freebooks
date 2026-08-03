@@ -41,11 +41,11 @@
 //   4. Assign a gKey letter only for ratified go-to destinations; 'c' is
 //      reserved for the company switcher.
 //
-// g-key slate (ratified 2026-07-28; d/v added same day — magnus review;
-// g j activated 2026-07-31 with the A3j Journal register page):
+// g-key slate (ratified 2026-07-28; d/v added same day — magnus review):
 //   g d = (free — Dashboard dropped 2026-08-03) · g r = Reports · g b = Bank
-//   g j = Journal · g p = Payables · g v = Receivables · g s = Settings
+//   g p = Payables · g v = Receivables · g s = Settings
 //   g i = Inbox (now the root route /:company; was /:company/inbox)
+//   g j = (free — Journal dissolved into Reports as Voucher Register, 2026-08-03)
 //   g c = Company switcher (reserved, not a route)
 
 const ROUTES = [
@@ -55,7 +55,6 @@ const ROUTES = [
   // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
   { key: 'inbox',       route: '/:company',             label: 'Inbox',           icon: '📥', sidebar: true,  gKey: 'i',  palette: true,  absolute: false },
   { key: 'bank',        route: '/:company/bank',         label: 'Bank',            icon: '🏦', sidebar: true,  gKey: 'b',  palette: true,  absolute: false },
-  { key: 'journal',     route: '/:company/journal',      label: 'Journal',         icon: '📒', sidebar: true,  gKey: 'j',  palette: true,  absolute: false },
   { key: 'payables',    route: '/:company/payables',     label: 'Payables',        icon: '📋', sidebar: true,  gKey: 'p',  palette: true,  absolute: false },
   { key: 'receivables', route: '/:company/receivables',  label: 'Receivables',     icon: '📄', sidebar: true,  gKey: 'v',  palette: true,  absolute: false },
   { key: 'reports',     route: '/:company/reports',      label: 'Reports',         icon: '📈', sidebar: true,  gKey: 'r',  palette: true,  absolute: false },

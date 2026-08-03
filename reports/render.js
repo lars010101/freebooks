@@ -544,6 +544,279 @@ async function buildJournal(query, company, start, end) {
   return { tableHtml, rows: [] };
 }
 
+// ── Voucher Register ─────────────────────────────────────────────────────────
+// Batch-grouped posted register (the former Journal sidebar page), now rendered
+// as a report inside the Reports hub iframe. Surfaces the journal.reverse verb
+// on each non-reversed voucher row, and shows reversal-chain badges
+// (Reversed / Reversal) when applicable. Step 3 (2026-08-03).
+async function buildVoucherRegister(query, company, start, end) {
+  let companyName = company;
+  try {
+    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
+    if (co) companyName = co.company_name;
+  } catch (_) {}
+
+  // Group journal_entries by batch_id, server-side. One row per posted batch.
+  // reverses/reversed_by are per-row but constant within a batch (the reversal
+  // action writes them uniformly), so MIN/MAX is a safe representative.
+  const batches = await query(
+    `SELECT
+       batch_id,
+       MIN(date)                                   AS date,
+       MIN(reference)                              AS reference,
+       MIN(description)                            AS description,
+       MIN(source)                                 AS source,
+       SUM(debit)                                  AS total_debit,
+       SUM(credit)                                 AS total_credit,
+       COUNT(*)                                    AS line_count,
+       MIN(reverses)                               AS reverses,
+       MIN(reversed_by)                            AS reversed_by
+     FROM journal_entries
+     WHERE company_id = ?
+       AND date >= ?
+       AND date <= ?
+     GROUP BY batch_id
+     ORDER BY MIN(date) DESC, batch_id`,
+    [company, start, end]
+  );
+
+  const tableHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voucher Register — freeBooks</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
+  .page { max-width: 1200px; margin: 0; padding: 24px 32px; }
+  .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 18px; }
+  .company { font-size: 16pt; font-weight: 700; }
+  .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
+  .period { font-size: 10pt; color: #666; margin-top: 2px; }
+  .filter-bar { background: #f8f8f8; border: 1px solid #eee; border-radius: 4px; padding: 12px 16px; margin-bottom: 16px; }
+  .filter-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .filter-row label { font-size: 9pt; color: #555; font-weight: 600; }
+  .filter-row input { padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px; font-size: 10pt; }
+  .filter-row button { padding: 5px 16px; background: #1a1a1a; color: #fff; border: none; border-radius: 3px; font-size: 10pt; font-weight: 600; cursor: pointer; }
+  .filter-row button:hover { background: #333; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; }
+  th.num { text-align: right; }
+  td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:hover td { background: #fafafa; }
+  .no-results { text-align: center; color: #888; padding: 20px; }
+  .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 8.5pt; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+  .b-posted   { background: #e8f5e9; color: #2e7d32; }
+  .b-reversed { background: #ffebee; color: #c62828; }
+  .b-reversal { background: #fff3e0; color: #e65100; }
+  .btn-rev { padding: 3px 10px; background: #fff; color: #c62828; border: 1px solid #c62828; border-radius: 3px; font-size: 9pt; font-weight: 600; cursor: pointer; }
+  .btn-rev:hover { background: #c62828; color: #fff; }
+  .btn-rev:disabled { opacity: 0.4; cursor: default; }
+  .rev-link { color: #e65100; text-decoration: underline; cursor: pointer; background: none; border: none; font-size: 9pt; padding: 0; }
+  .row-flash { background: #fffde7 !important; transition: background 0.6s; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div class="company">${companyName}</div>
+    <div class="report-title">Voucher Register</div>
+    <div class="period">${start || ''} to ${end || ''}</div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-row">
+      <label>From:</label>
+      <input type="date" id="vr-start" value="${start || ''}">
+      <label>To:</label>
+      <input type="date" id="vr-end" value="${end || ''}">
+      <button onclick="vrRequery()">Apply</button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Reference</th>
+          <th>Description</th>
+          <th class="num">Debit</th>
+          <th class="num">Credit</th>
+          <th>Source</th>
+          <th>Status</th>
+          <th>Reverse</th>
+        </tr>
+      </thead>
+      <tbody id="vr-body"></tbody>
+    </table>
+  </div>
+
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks · Voucher Register</div>
+</div>
+
+<script>
+  var COMPANY = ${JSON.stringify(company)};
+  var VR_START = ${JSON.stringify(start || '')};
+  var VR_END   = ${JSON.stringify(end || '')};
+  var BATCHES  = ${JSON.stringify(batches.map(b => ({
+    batch_id: b.batch_id,
+    date: String(b.date || '').slice(0, 10),
+    reference: b.reference || '',
+    description: b.description || '',
+    source: b.source || '',
+    total_debit: Number(b.total_debit || 0),
+    total_credit: Number(b.total_credit || 0),
+    line_count: b.line_count,
+    reverses: b.reverses || null,
+    reversed_by: b.reversed_by || null,
+  })))};
+
+  function fmtAmt(v) {
+    var n = Number(v || 0);
+    if (!n) return '';
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function statusCell(b) {
+    if (b.reverses) {
+      // This batch IS a reversal — link to the original.
+      return '<span class="badge b-reversal">Reversal</span>'
+        + ' <button class="rev-link" onclick="vrGoBatch(\\'' + esc(b.reverses) + '\\')">of ' + esc(String(b.reverses).slice(0, 8)) + '</button>';
+    }
+    if (b.reversed_by) {
+      return '<span class="badge b-reversed">Reversed</span>'
+        + ' <button class="rev-link" onclick="vrGoBatch(\\'' + esc(b.reversed_by) + '\\')">by ' + esc(String(b.reversed_by).slice(0, 8)) + '</button>';
+    }
+    return '<span class="badge b-posted">Posted</span>';
+  }
+
+  function reverseCell(b) {
+    if (b.reverses)   return '<span style="color:#888;font-size:9pt">—</span>'; // already a reversal
+    if (b.reversed_by) return '<span style="color:#888;font-size:9pt">—</span>'; // already reversed
+    return '<button class="btn-rev" data-batch="' + esc(b.batch_id) + '" onclick="vrReverse(\\'' + esc(b.batch_id) + '\\', this)">Reverse</button>';
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function rowHtml(b) {
+    return '<tr data-batch="' + esc(b.batch_id) + '">'
+      + '<td>' + esc(b.date) + '</td>'
+      + '<td>' + esc(b.reference || b.batch_id) + '</td>'
+      + '<td>' + esc(b.description || '') + '</td>'
+      + '<td class="num">' + fmtAmt(b.total_debit) + '</td>'
+      + '<td class="num">' + fmtAmt(b.total_credit) + '</td>'
+      + '<td>' + esc(b.source) + '</td>'
+      + '<td>' + statusCell(b) + '</td>'
+      + '<td>' + reverseCell(b) + '</td>'
+      + '</tr>';
+  }
+
+  function renderRows() {
+    var body = document.getElementById('vr-body');
+    if (!BATCHES.length) {
+      body.innerHTML = '<tr><td colspan="8" class="no-results">No posted vouchers in this period.</td></tr>';
+      return;
+    }
+    body.innerHTML = BATCHES.map(rowHtml).join('');
+  }
+
+  // Re-query via the report endpoint (date-range filter). Replaces the iframe
+  // location so the Reports hub re-renders the report with new params.
+  function vrRequery() {
+    var s = document.getElementById('vr-start').value;
+    var e = document.getElementById('vr-end').value;
+    if (!s || !e) return;
+    var url = '/api/' + COMPANY + '/report?type=voucher-register&start=' + encodeURIComponent(s) + '&end=' + encodeURIComponent(e);
+    window.location.href = url;
+  }
+
+  // Reverse a batch via the journal.reverse action. On success: update the row
+  // to Reversed and append the new reversal batch as a fresh row.
+  function vrReverse(batchId, btn) {
+    if (!confirm('Reverse voucher ' + batchId + '?\\nThis creates a reversal batch (idempotent).')) return;
+    btn.disabled = true;
+    btn.textContent = 'Reversing…';
+    fetch('/api/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'journal.reverse', companyId: COMPANY, batchId: batchId })
+    })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+    .then(function (res) {
+      if (!res.ok || (res.data && res.data.error)) {
+        btn.disabled = false;
+        btn.textContent = 'Reverse';
+        alert('Reverse failed: ' + (res.data && res.data.error ? res.data.error : 'unknown error'));
+        return;
+      }
+      // Mark the original row reversed.
+      var tr = document.querySelector('tr[data-batch="' + esc(batchId) + '"]');
+      var orig = BATCHES.find(function (b) { return b.batch_id === batchId; });
+      if (orig) { orig.reversed_by = res.data.reversalBatchId; }
+      if (tr) {
+        tr.classList.add('row-flash');
+        // Re-render the status + reverse cells in place.
+        tr.cells[6].innerHTML = statusCell(orig);
+        tr.cells[7].innerHTML = reverseCell(orig);
+      }
+      // Append the reversal batch row. We know its shape from the action result.
+      var revBatch = {
+        batch_id: res.data.reversalBatchId,
+        date: new Date().toISOString().slice(0, 10),
+        reference: 'REV-' + (orig ? (orig.reference || orig.batch_id) : batchId),
+        description: 'Reversal of ' + batchId,
+        source: 'reversal',
+        total_debit: orig ? orig.total_credit : 0,
+        total_credit: orig ? orig.total_debit : 0,
+        line_count: res.data.lineCount || 0,
+        reverses: batchId,
+        reversed_by: null
+      };
+      BATCHES.unshift(revBatch);
+      var body = document.getElementById('vr-body');
+      var tmp = document.createElement('tbody');
+      tmp.innerHTML = rowHtml(revBatch);
+      body.insertBefore(tmp.firstElementChild, body.firstChild);
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      btn.textContent = 'Reverse';
+      alert('Reverse failed: ' + (err && err.message ? err.message : 'network error'));
+    });
+  }
+
+  // Navigate to a linked batch (reversal chain). Since the register is
+  // date-filtered, the linked batch may be outside the current range — we
+  // re-query with a wide range centered on today to surface it.
+  function vrGoBatch(batchId) {
+    // Search current rows first; if present, scroll to it.
+    var tr = document.querySelector('tr[data-batch="' + esc(batchId) + '"]');
+    if (tr) {
+      tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      tr.classList.add('row-flash');
+      setTimeout(function () { tr.classList.remove('row-flash'); }, 1200);
+      return;
+    }
+    // Not in current range — alert with the id (the user can widen the range).
+    alert('Batch ' + batchId + ' is outside the current date range. Widen the range to view it.');
+  }
+
+  renderRows();
+</script>
+</body>
+</html>`;
+  return { tableHtml, rows: batches };
+}
+
 async function buildCF(query, company, start, end) {
   const rows = await query(`SELECT * FROM cf(?, ?, ?)`, [company, start, end]);
   let lastSection = null;
@@ -824,6 +1097,7 @@ const REPORT_TITLES = {
   tb: 'Trial Balance',
   gl: 'General Ledger',
   journal: 'Journal',
+  'voucher-register': 'Voucher Register',
   cf: 'Cash Flow Statement',
   sce: 'Statement of Changes in Equity',
   integrity: 'Integrity Checks',
@@ -835,7 +1109,8 @@ async function buildReport(query, company, reportType, startDate, endDate, opts 
     case 'bs':        return buildBS(query, company, startDate, endDate);
     case 'tb':        return buildTB(query, company, startDate, endDate);
     case 'gl':        return buildGL(query, company, startDate, endDate, opts.account);
-    case 'journal':   return buildJournal(query, company, startDate, endDate);
+    case 'journal':          return buildJournal(query, company, startDate, endDate);
+    case 'voucher-register': return buildVoucherRegister(query, company, startDate, endDate);
     case 'cf':        return buildCF(query, company, startDate, endDate);
     case 'sce':       return buildSCE(query, company, startDate, endDate);
     case 'integrity': return buildIntegrity(query, company, startDate, endDate);

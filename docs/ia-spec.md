@@ -36,7 +36,6 @@ Entry shape: `{ key, route, label, icon, sidebar, gKey, palette, absolute }`. `r
 |-----|-------|-------|------|---------|------|---------|-------|
 | `inbox` | `/:company` | Inbox | 📥 | ✓ | `i` | ✓ | A5 unified review queue; root route (Dashboard dropped 2026-08-03) |
 | `bank` | `/:company/bank` | Bank | 🏦 | ✓ | `b` | ✓ | Transactions · Import · Mappings tabs |
-| `journal` | `/:company/journal` | Journal | 📒 | ✓ | `j` | ✓ | Pure posted register (A5 slimmed) |
 | `payables` | `/:company/payables` | Payables | 📋 | ✓ | `p` | ✓ | Bills tree + Vendors |
 | `receivables` | `/:company/receivables` | Receivables | 📄 | ✓ | `v` | ✓ | Stub (AR unbuilt) |
 | `reports` | `/:company/reports` | Reports | 📈 | ✓ | `r` | ✓ | Report hub |
@@ -182,13 +181,16 @@ For non-table surfaces (dashboard cards, report links). `FB.nav.create({ grid })
 - **Badge:** Sidebar Inbox item shows pending-proposal count, refreshed on soft-nav and on `fb:queue-changed`.
 - **Empty state:** "Nothing to review — agent-proposed journal batches will appear here."
 
-### 5.3 Journal (`/:company/journal`) — pure posted register
+### 5.3 Journal → Voucher Register (Reports hub)
 
-- **Machine:** FB.list (`tree: true`, `canAdd: false`, `editable: false`)
-- **Data:** `journal.list` — posted batches grouped client-side (date DESC)
-- **Row verbs:** None (read-only register). `Enter` unfolds a batch's lines read-only.
-- **A4 underlag:** Unfolding a posted batch lazily fetches `attachment.list(entityType='journal', entityId=batchId)` and renders the underlag panel.
-- **No `f` filter** — moved to the Inbox (A5, 2026-08-03). The Journal list is the permanent ledger record; filtering by status is meaningless when all rows are POSTED.
+The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). The posted register is now the **Voucher Register** report (`type=voucher-register`) rendered inside the Reports iframe. The legacy `/:company/journal` route 302-redirects to `/:company/reports?t=voucher-register`.
+
+- **Machine:** Report iframe (self-contained HTML, inline styles) — not an FB.list surface.
+- **Data:** `journal_entries` grouped server-side by `batch_id` (date DESC). One row per posted batch: date, reference, description, total debit/credit, source, line count.
+- **Reverse verb:** Each non-reversed voucher row has a **Reverse** button that calls `POST /api/action` with `action: 'journal.reverse', batchId`. On success the row flips to **Reversed** and the new reversal batch is prepended as a fresh row. Idempotent (server refuses double-reversal).
+- **Reversal chains:** `reversed_by` set → **Reversed** badge + link to the reversal batch. `reverses` set → **Reversal** badge + link to the original batch.
+- **Date-range filter:** Start/end inputs re-query via the report endpoint.
+- **g j freed:** The `g j` go-to letter is no longer assigned (the register lives inside Reports = `g r`).
 
 ### 5.4 Journal-new (`/:company/journal/new`) — JV entry form
 
@@ -426,3 +428,4 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 | 2026-08-02 | Per-actor API tokens; dropdown mode-neutrality strengthened; tab-strip precedence |
 | 2026-08-03 | A5 unified inbox: queue leaves Journal, `g i` = Inbox, `f` filter moves with queue |
 | 2026-08-03 | Dashboard + KPI cards dropped; Inbox becomes root route (`/:company`); source-document warning icons inline |
+| 2026-08-03 | Journal dissolved from sidebar: register becomes the Voucher Register report inside Reports (`?t=voucher-register`); `journal.reverse` verb surfaced on report rows; `g j` freed; existing journal report renamed to "Journal Line Listing" |

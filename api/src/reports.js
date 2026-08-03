@@ -178,7 +178,12 @@ function mountReportRoutes(app) {
   // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
   // Old /:company/inbox bookmarks 302-redirect to the root.
   app.get('/:company/inbox', function(req, res) { res.redirect(302, '/' + req.params.company); });
-  app.get('/:company/journal', handleJournalPage);
+  app.get('/:company/journal', function(req, res) {
+    // 2026-08-03: Journal page dissolved into the Reports hub as the
+    // "Voucher Register" report (Step 3). The register is now a report type
+    // inside Reports; the reverse verb is surfaced on each voucher row.
+    res.redirect(302, '/' + req.params.company + '/reports?t=voucher-register');
+  });
   app.get('/:company/journal/new', handleJournalNewPage);
   app.get('/:company/bill/edit', handleBillEditPage);
   app.get('/:company/bill/:id', handleBillDetailPage);

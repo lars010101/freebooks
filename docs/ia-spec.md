@@ -404,7 +404,59 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 
 ---
 
-## 10. Testing Contract
+## 10. Drill-through Doctrine (ratified 2026-08-03)
+
+**Clicking a row in any report opens the smallest meaningful granularity of that item.** Each level drills one step deeper — never more than one. Keyboard parity: `Enter` on a focused row = click.
+
+### 10.1 Drill map
+
+| Report | Row represents | Drill target | Mechanism |
+|---|---|---|---|
+| **Voucher Register** | Batch (voucher) | Source-aware detail view (§10.2) | Click / `Enter` anywhere on row |
+| **Journal Line Listing** | Single journal line | The batch's detail view (journal-new view mode) | Click / `Enter` |
+| **General Ledger** | Account's lines for a period | The batch's detail view (journal-new view mode) | Click / `Enter` |
+| **Trial Balance** | Account total for a period | General Ledger filtered to that account + period | Click / `Enter` |
+| **Balance Sheet** | Account group total | Trial Balance filtered to that group | Click / `Enter` |
+| **Profit & Loss** | Account group total | Trial Balance filtered to that group | Click / `Enter` |
+
+### 10.2 Source-aware detail routing (Voucher Register)
+
+The Voucher Register row's drill target depends on the batch's origin:
+
+| Batch source | Detail view |
+|---|---|
+| `manual` / `reversal` / agent-proposed | journal-new view mode (`?batch=<batchId>`) |
+| `bill` (`bill_id` set) | Bill detail page |
+| `import` (bank import) | journal-new view mode (`?batch=<batchId>`) |
+
+Links use `batch_id` or `bill_id` (UUIDs), never the reference string. The reference is a display label, not a key.
+
+### 10.3 Correction flow
+
+No verbs on reports. All corrections happen in detail views:
+
+| Source | Correction path |
+|---|---|
+| Manual journal entry / reversal / agent | journal-new view mode → `R` (reversal mode) |
+| Bill (AP) | Bill detail → void (unpaid) or credit memo (paid — not yet built) |
+| Sales invoice (AR) | Invoice detail → void or credit memo (module unbuilt) |
+| Bank import | journal-new view mode → `R` (each imported line is its own batch) |
+
+### 10.4 Return-to-origin
+
+Every detail view honors a return stack: `Esc`/`q` returns to the exact screen, scroll position, and cursor position the user came from. Not a hardcoded destination. The origin's full state (route, scroll, cursor, filters) is pushed on drill and popped on return.
+
+### 10.5 journal-new view mode
+
+`/:company/journal/new?batch=<batchId>` loads a posted batch read-only:
+- Header fields and lines render populated, non-editable.
+- `R` enters reversal mode pre-targeted at that batch (the existing reversal flow).
+- `Esc`/`q` returns to the origin (§10.4).
+- Source documents (attachments) visible in the attachment queue zone.
+
+---
+
+## 11. Testing Contract
 
 - **API side:** Contract tests (`npm test` in `api/`) cover actions, not pixels.
 - **Keyboard coverage gate:** `tests/keys-coverage.mjs` (`npm run test:keys`) crawls every registry route + bill detail/edit and asserts, per route: zero uncaught JS errors · a live `FB.keys` set · non-empty hint surface · ≥1 active NORMAL binding · every visible interactive control is keyboard-managed.
@@ -413,7 +465,7 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 
 ---
 
-## 11. Changelog
+## 12. Changelog
 
 | Date | Change |
 |------|--------|
@@ -428,4 +480,4 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 | 2026-08-02 | Per-actor API tokens; dropdown mode-neutrality strengthened; tab-strip precedence |
 | 2026-08-03 | A5 unified inbox: queue leaves Journal, `g i` = Inbox, `f` filter moves with queue |
 | 2026-08-03 | Dashboard + KPI cards dropped; Inbox becomes root route (`/:company`); source-document warning icons inline |
-| 2026-08-03 | Journal dissolved from sidebar: register becomes the Voucher Register report inside Reports (`?t=voucher-register`); `journal.reverse` verb surfaced on report rows; `g j` freed; existing journal report renamed to "Journal Line Listing" |
+| 2026-08-03 | Journal dissolves: Voucher Register report in Reports; journal sidebar entry removed; drill-through doctrine (§10) ratified |

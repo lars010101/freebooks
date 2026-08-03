@@ -545,3 +545,8 @@ CREATE TABLE IF NOT EXISTS journal_proposals (
 );
 CREATE INDEX IF NOT EXISTS idx_journal_proposals_company_status ON journal_proposals(company_id, status);
 
+-- MIGRATION: persist propose-time warnings (JSON array of warning strings).
+-- Computed by buildProposeWarnings at propose/upsert time; flows through to
+-- inbox.list for inline warning icons on the review surface.
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS warnings VARCHAR;
+

@@ -68,11 +68,11 @@ ${commonStyle()}
      actions cell (mouse parity for the Enter key verb). */
   tr.inbx-group td { background:#fafafa; font-weight:700; font-size:9.5pt; color:#444; cursor:pointer; }
   tr.inbx-group td .inbx-grp-count { color:#888; font-weight:600; font-size:8.5pt; margin-left:6px; }
-  /* A4 §4.7 — underlag (source-document) count badge + no-underlag warning.
+  /* A4 §4.7 — source-document count badge + no-source-document warning.
      Folded PROPOSED rows carry the count beside the status badge (the row's
      existing badge idiom — .st-badge sizing). Zero attachments render a
-     visible "no underlag" warning marker so the reviewer cannot miss the gap
-     (R7 warn-not-block). Rejected/posted rows show no underlag badge. */
+     visible ⚠️ warning icon so the reviewer cannot miss the gap
+     (R7 warn-not-block). Rejected/posted rows show no badge. */
   .ul-badge { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:9px;
     font-size:8.5pt; font-weight:600; background:#eef2ff; color:#3730a3; white-space:nowrap; }
   .ul-warn  { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:9px;
@@ -164,15 +164,36 @@ function statusBadge(row) {
   return ''; // inbox is the review queue — no posted badge here
 }
 
-// A4 §4.7 — folded-row underlag indicator. Only PROPOSED items carry it (the
-// review surface); rejected items show nothing. attachment_count > 0 → "📎 N"
-// count badge; 0 → a visible "no underlag" warning marker (R7: warn-not-block
-// — the reviewer must not miss the gap, but the proposal is still approvable).
+// A4 §4.7 — folded-row source-document indicator. Only PROPOSED items carry
+// it (the review surface); rejected items show nothing. attachment_count > 0
+// → "📎 N" count badge; 0 → a visible ⚠️ warning icon (R7: warn-not-block — the
+// reviewer must not miss the gap, but the proposal is still approvable).
+// Additional inline warning icons for persisted warnings (no_underlag, VAT).
 function underlagBadge(row) {
   if (row._kind !== 'proposal' || row.status !== 'proposed') return '';
   var n = Number(row.attachment_count || 0);
-  if (n > 0) return '<span class="ul-badge" title="' + n + ' underlag attached\">\\uD83D\\uDCCE ' + n + '</span>';
-  return '<span class="ul-warn" title=\"No source document (underlag) attached — egen verifikation permitted (BFL 5 kap)\">no underlag</span>';
+  var html = '';
+  if (n > 0) {
+    html += '<span class="ul-badge" title="' + n + ' source document(s) attached">\\uD83D\\uDCCE ' + n + '</span>';
+  } else {
+    html += '<span class="ul-warn" title="No source document attached — egen verifikation permitted (BFL 5 kap)">\\u26A0</span>';
+  }
+  // Inline per-row warning icons from persisted warnings array.
+  var warns = Array.isArray(row.warnings) ? row.warnings : [];
+  // no_underlag is already rendered as the .ul-warn icon above when count=0;
+  // skip duplicating it. Show it only when attachment_count > 0 but the warning
+  // still exists (edge case — should not normally happen).
+  if (n > 0 && warns.indexOf('no_underlag') !== -1) {
+    html += '<span class="ul-warn" title="No source document attached">\\u26A0</span>';
+  }
+  // VAT-related warnings: any string starting with 'vat_' or containing 'vat'.
+  var hasVat = warns.some(function (w) {
+    return String(w).indexOf('vat_') === 0 || String(w).toLowerCase().indexOf('vat') !== -1;
+  });
+  if (hasVat) {
+    html += '<span class="ul-warn" title="VAT tolerance flag">\\u26A0</span>';
+  }
+  return html;
 }
 
 // A4 §4.7 — unfold preview. The underlag panel is a child row of each
@@ -202,9 +223,9 @@ function underlagPanelHtml(proposalId) {
   var cached = _attCache[proposalId];
   var body;
   if (cached === '__pending' || cached === undefined) {
-    body = '<span class="fb-att-empty">Loading underlag\\u2026</span>';
+    body = '<span class="fb-att-empty">Loading source documents\\u2026</span>';
   } else if (!cached.length) {
-    body = FB.attachments.emptyHtml('No underlag attached');
+    body = FB.attachments.emptyHtml('No source documents attached');
   } else {
     body = cached.map(function (a) {
       return FB.attachments.rowHtml({
@@ -213,7 +234,7 @@ function underlagPanelHtml(proposalId) {
       });
     }).join('');
   }
-  return '<div class="jrnl-att-head">Underlag</div>' + body;
+  return '<div class="jrnl-att-head">Source documents</div>' + body;
 }
 
 // ── Data: inbox.list (Class A — journal_proposals; Class B — bill_due items
@@ -306,8 +327,10 @@ function mapItem(it) {
     reviewed_by: it.reviewed_by || '', review_note: it.review_note || '',
     currency: lines.length ? (lines[0].currency || '') : '',
     // A4 §4.7: per-item attachment_count (inbox.list join) drives the folded
-    // underlag badge / no-underlag warning marker.
+    // source-document badge / no-source-document warning icon.
     attachment_count: Number(it.attachment_count || 0),
+    // Persisted warnings array (from journal_proposals.warnings JSON column).
+    warnings: Array.isArray(it.warnings) ? it.warnings : [],
     _lines: lines
   };
 }

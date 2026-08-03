@@ -111,9 +111,9 @@ function underlagPanelHtml(entityKey) {
   var cached = _attCache[entityKey];
   var body;
   if (cached === '__pending' || cached === undefined) {
-    body = '<span class="fb-att-empty">Loading underlag\\u2026</span>';
+    body = '<span class="fb-att-empty">Loading source documents\\u2026</span>';
   } else if (!cached.length) {
-    body = FB.attachments.emptyHtml('No underlag attached');
+    body = FB.attachments.emptyHtml('No source documents attached');
   } else {
     body = cached.map(function (a) {
       return FB.attachments.rowHtml({
@@ -122,7 +122,7 @@ function underlagPanelHtml(entityKey) {
       });
     }).join('');
   }
-  return '<div class="jrnl-att-head">Underlag</div>' + body;
+  return '<div class="jrnl-att-head">Source documents</div>' + body;
 }
 
 // ── Data: posted batches (grouped from journal.list line rows) ──────────────

@@ -175,7 +175,9 @@ function mountReportRoutes(app) {
   // SRU (Skatteverket INK2) export — blanketter.sru + INFO.SRU.
   app.get('/api/:company/sru/ink2', handleSruInk2);
   app.get('/api/:company/sru/info', handleSruInfo);
-  app.get('/:company/inbox', handleInboxPage);
+  // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
+  // Old /:company/inbox bookmarks 302-redirect to the root.
+  app.get('/:company/inbox', function(req, res) { res.redirect(302, '/' + req.params.company); });
   app.get('/:company/journal', handleJournalPage);
   app.get('/:company/journal/new', handleJournalNewPage);
   app.get('/:company/bill/edit', handleBillEditPage);
@@ -195,7 +197,7 @@ function mountReportRoutes(app) {
   });
   app.get('/:company/settings', handleSettingsPage);
   app.get('/:company/reports', handleReportsHubPage);
-  app.get('/:company', handleCompanyPage);
+  app.get('/:company', handleInboxPage);
   app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);
 }
 

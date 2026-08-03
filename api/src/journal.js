@@ -757,7 +757,15 @@ async function proposeEntry(ctx) {
       // path too — the caller may have uploaded underlag between the original
       // propose and this edit, so the count is freshly computed each time.
       const attachmentCount = await attachmentCountForProposal(companyId, proposalId);
-      return { proposalId, warnings: buildProposeWarnings(warnings, attachmentCount), attachment_count: attachmentCount };
+      const upWarnings = buildProposeWarnings(warnings, attachmentCount);
+      // Persist the recomputed warnings so the inbox review surface can
+      // render inline warning icons without re-deriving them at read time.
+      await exec(
+        `UPDATE journal_proposals SET warnings = @warnings
+         WHERE company_id = @companyId AND proposal_id = @proposalId`,
+        { warnings: JSON.stringify(upWarnings), companyId, proposalId }
+      );
+      return { proposalId, warnings: upWarnings, attachment_count: attachmentCount };
     }
     // 0 rows: either no row yet, another actor's row, or a non-proposed status.
     const existing = await query(
@@ -779,6 +787,8 @@ async function proposeEntry(ctx) {
   }
 
   const newProposalId = proposalId || uuid();
+  const attachmentCount = await attachmentCountForProposal(companyId, newProposalId);
+  const proposeWarnings = buildProposeWarnings(warnings, attachmentCount);
   await bulkInsert('journal_proposals', [{
     company_id: companyId,
     proposal_id: newProposalId,
@@ -795,6 +805,7 @@ async function proposeEntry(ctx) {
     reviewed_by: null,
     reviewed_at: null,
     review_note: null,
+    warnings: JSON.stringify(proposeWarnings),
     created_at: now,
   }]);
 
@@ -810,13 +821,11 @@ async function proposeEntry(ctx) {
     source,
   });
 
-  // A4 (§4.7): compute attachment_count + no_underlag warning. R7: warn-not-
-  // block — a zero count adds 'no_underlag' to warnings but the propose still
-  // succeeds. attachment_count is included in the response so the caller (and
-  // the review surface) knows the underlag state without a second round-trip.
-  const attachmentCount = await attachmentCountForProposal(companyId, newProposalId);
-
-  return { proposalId: newProposalId, warnings: buildProposeWarnings(warnings, attachmentCount), attachment_count: attachmentCount };
+  // A4 (§4.7): attachment_count + no_underlag warning already computed above
+  // (before the INSERT) so the persisted warnings column is populated.
+  // attachment_count is included in the response so the caller (and the
+  // review surface) knows the source-document state without a second round-trip.
+  return { proposalId: newProposalId, warnings: proposeWarnings, attachment_count: attachmentCount };
 }
 
 /**
@@ -1016,6 +1025,7 @@ async function rejectProposal(ctx) {
 async function queryProposals(companyId, { status, limit, includeLines = false } = {}) {
   const baseCols = `jp.proposal_id, jp.journal_id, jp.date, jp.reference, jp.description, jp.source, jp.status,
             jp.batch_id, jp.created_by, jp.request_id, jp.reviewed_by, jp.reviewed_at, jp.review_note, jp.created_at,
+            jp.warnings,
             COALESCE(a.cnt, 0) AS attachment_count`;
   const cols = includeLines ? baseCols + ', jp.lines' : baseCols;
   return query(

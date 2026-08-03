@@ -85,6 +85,9 @@ async function listInbox(ctx) {
       request_id: row.request_id,
       review_note: row.review_note,
       attachment_count: row.attachment_count,
+      warnings: (function () {
+        try { var w = JSON.parse(row.warnings || '[]'); return Array.isArray(w) ? w : []; } catch (e) { return []; }
+      })(),
     };
   });
 

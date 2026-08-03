@@ -43,18 +43,17 @@
 //
 // g-key slate (ratified 2026-07-28; d/v added same day — magnus review;
 // g j activated 2026-07-31 with the A3j Journal register page):
-//   g d = Dashboard · g r = Reports · g b = Bank · g j = Journal · g p = Payables
-//   g v = Receivables · g s = Settings
-//   g i = Inbox (reassigned to Inbox 2026-08-03 per spec §10; bank-import
-//          reachable via g b + palette — bank-import.gKey dropped)
+//   g d = (free — Dashboard dropped 2026-08-03) · g r = Reports · g b = Bank
+//   g j = Journal · g p = Payables · g v = Receivables · g s = Settings
+//   g i = Inbox (now the root route /:company; was /:company/inbox)
 //   g c = Company switcher (reserved, not a route)
 
 const ROUTES = [
   // ── Sidebar entries (display order = array order) ──
   // A5 §10: Inbox is the human's review queue (sidebar first, 📥, g i). The
   // Journal-list queue half moved here; the Journal list is the pure register.
-  { key: 'inbox',       route: '/:company/inbox',       label: 'Inbox',           icon: '📥', sidebar: true,  gKey: 'i',  palette: true,  absolute: false },
-  { key: 'dashboard',   route: '/:company',             label: 'Dashboard',       icon: '📊', sidebar: true,  gKey: 'd',  palette: true,  absolute: false },
+  // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
+  { key: 'inbox',       route: '/:company',             label: 'Inbox',           icon: '📥', sidebar: true,  gKey: 'i',  palette: true,  absolute: false },
   { key: 'bank',        route: '/:company/bank',         label: 'Bank',            icon: '🏦', sidebar: true,  gKey: 'b',  palette: true,  absolute: false },
   { key: 'journal',     route: '/:company/journal',      label: 'Journal',         icon: '📒', sidebar: true,  gKey: 'j',  palette: true,  absolute: false },
   { key: 'payables',    route: '/:company/payables',     label: 'Payables',        icon: '📋', sidebar: true,  gKey: 'p',  palette: true,  absolute: false },

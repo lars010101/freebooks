@@ -133,30 +133,30 @@ function underlagBadge(row) {
 }
 
 // A4 §4.7 — unfold preview. The underlag panel is a child row of each
-// PROPOSED proposal. attachment.list is fetched LAZILY on first unfold (the
-// queue is a review surface, not every proposal needs its underlag on load)
-// and cached per proposalId; the bare list.render() path (fb-list) re-renders
-// the section when the fetch resolves. No new keys/verbs — Enter unfolds via
-// the existing tree mechanism; this just adds a child row to that unfold.
-// R6: the panel is read-only display; the existing y/x flow is untouched.
-var _attCache = {}; // proposalId → undefined(unfetched) | '__pending' | Array<att>
-function fetchUnderlag(proposalId) {
-  if (_attCache[proposalId] !== undefined) return;     // fetched or in-flight
-  _attCache[proposalId] = '__pending';
-  postAction('attachment.list', { entityType: 'journal_proposal', entityId: proposalId })
+// PROPOSED proposal AND each posted batch. attachment.list is fetched LAZILY
+// on first unfold (the queue is a review surface, not every proposal needs
+// its underlag on load) and cached per entity key; the bare list.render()
+// path (fb-list) re-renders the section when the fetch resolves. No new
+// keys/verbs — Enter unfolds via the existing tree mechanism; this just
+// adds a child row to that unfold. R6: the panel is read-only display.
+var _attCache = {}; // entityKey → undefined(unfetched) | '__pending' | Array<att>
+function fetchUnderlag(entityKey, entityType, entityId) {
+  if (_attCache[entityKey] !== undefined) return;     // fetched or in-flight
+  _attCache[entityKey] = '__pending';
+  postAction('attachment.list', { entityType: entityType, entityId: entityId })
     .then(function (res) {
-      _attCache[proposalId] = (res && Array.isArray(res.data)) ? res.data : [];
+      _attCache[entityKey] = (res && Array.isArray(res.data)) ? res.data : [];
       list.render();                                   // bare render preserves cursor
     })
-    .catch(function () { _attCache[proposalId] = []; list.render(); });
+    .catch(function () { _attCache[entityKey] = []; list.render(); });
 }
 // Render the underlag panel body for an _attSection child. Reuses the shared
 // FB.attachments.rowHtml (fb-attachments.js) so the markup matches every other
 // attachment surface; each row links to the existing GET /api/attachments/:id
 // route (target _blank — same pattern as journal-new.js). attachment.list
 // returns uploaded_at; rowHtml expects created_at, so map it.
-function underlagPanelHtml(proposalId) {
-  var cached = _attCache[proposalId];
+function underlagPanelHtml(entityKey) {
+  var cached = _attCache[entityKey];
   var body;
   if (cached === '__pending' || cached === undefined) {
     body = '<span class="fb-att-empty">Loading underlag\u2026</span>';
@@ -348,9 +348,17 @@ var list = FB.list.create({
       // A4 §4.7: underlag unfold preview — a child row holding the bound
       // attachments. Lazy-fetched on first unfold (see fetchUnderlag).
       if (row.status === 'proposed') {
-        kids.push({ _key: row._key + ':att', _childOf: row._key, _attSection: row.proposal_id });
-        fetchUnderlag(row.proposal_id);
+        kids.push({ _key: row._key + ':att', _childOf: row._key, _attSection: 'prop:' + row.proposal_id, _attEntityType: 'journal_proposal', _attEntityId: row.proposal_id });
+        fetchUnderlag('prop:' + row.proposal_id, 'journal_proposal', row.proposal_id);
       }
+    }
+    // Posted batches: underlag re-pointed to entity_type='journal' at approve
+    // (A4 §4.7). Show the same underlag panel on unfold for BFL 5 kap
+    // traceability. Lazy-fetched; no badge on the folded row (posted batches
+    // are the permanent register, not the review surface).
+    if (row._kind === 'batch') {
+      kids.push({ _key: row._key + ':att', _childOf: row._key, _attSection: 'batch:' + row.batch_id, _attEntityType: 'journal', _attEntityId: row.batch_id });
+      fetchUnderlag('batch:' + row.batch_id, 'journal', row.batch_id);
     }
     (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
     return kids;

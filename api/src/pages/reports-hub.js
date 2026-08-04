@@ -81,6 +81,7 @@ ${layoutEnd()}
   var urlParams = new URLSearchParams(window.location.search);
   var drillThrough = !!urlParams.get('t');
   if (drillThrough) { currentType = urlParams.get('t'); localStorage.setItem('fb-rpt-type', currentType); }
+  var drillAccount = urlParams.get('account') || '';
 
   var currentStep = localStorage.getItem('fb-rpt-step') || '';
   var savedPeriod = localStorage.getItem('fb-rpt-period') || '';
@@ -180,6 +181,7 @@ ${layoutEnd()}
     var url = '/api/' + company + '/report?type=' + encodeURIComponent(currentType)
             + '&start=' + encodeURIComponent(start)
             + '&end='   + encodeURIComponent(end);
+    if (drillAccount) url += '&account=' + encodeURIComponent(drillAccount);
     if (currentStep && RPT_META[currentType] && RPT_META[currentType].multiperiod) url += '&step=' + currentStep;
     return url;
   }

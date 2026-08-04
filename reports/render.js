@@ -102,7 +102,10 @@ async function buildPL(query, company, start, end) {
     const cls = r.row_type + (r.amount == 0 && r.row_type === 'account' ? ' zero' : '');
     const code = r.account_code || '';
     const name = r.row_type === 'total' ? `<strong>${r.account_name}</strong>` : r.account_name;
-    tableRows += `<tr class="${cls}"><td><a href="/${company}/reports?t=tb&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a></td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
+    const codeCell = code
+      ? `<a href="/${company}/reports?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      : code;
+    tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
   }
   const tableHtml = `<table>
     <thead><tr><th>Code</th><th>Description</th><th class="num">Amount</th></tr></thead>
@@ -179,7 +182,10 @@ async function buildBS(query, company, start, end) {
     const cls = r.row_type + (r.balance == 0 && r.row_type === 'account' ? ' zero' : '');
     const code = r.account_code || '';
     const name = r.row_type === 'subtotal' ? `<em>${r.account_name}</em>` : r.account_name;
-    tableRows += `<tr class="${cls}"><td><a href="/${company}/reports?t=tb&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a></td><td>${name}</td><td class="num">${fmt(r.balance)}</td></tr>`;
+    const codeCell = code
+      ? `<a href="/${company}/reports?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      : code;
+    tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.balance)}</td></tr>`;
   }
   // Compute TOTAL EQUITY + LIABILITIES (equity total already adjusted above)
   const equityTypeTotal = collectedTypeTotals.find(r => /equity/i.test(r.account_name));
@@ -227,6 +233,9 @@ async function buildGL(query, company, start, end, account) {
 
   let rows = await query(`SELECT * FROM gl(?, ?, ?)`, [company, start, end]);
   if (account) rows = rows.filter(r => r.account_code === account);
+  const accountAttr = String(account || '')
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   let lastAcct = null;
   let runBal = 0;
@@ -305,7 +314,7 @@ async function buildGL(query, company, start, end, account) {
   <div class="filter-bar">
     <div class="filter-row">
       <label>Account Code:</label>
-      <input type="text" id="gl-account" placeholder="e.g. 101414" maxlength="20" style="width:130px">
+      <input type="text" id="gl-account" placeholder="e.g. 101414" maxlength="20" style="width:130px" value="${accountAttr}">
       <button onclick="applyGLFilter()">Search</button>
       <button class="clear" onclick="clearGLFilter()">Clear</button>
     </div>

@@ -31,6 +31,7 @@ const { handleAdminQuery } = require('./pages/admin');
 const { makeQuery } = require('./pages/common');
 const { handleReportsHubPage } = require('./pages/reports-hub');
 const { handleReceivablesPage } = require('./pages/receivables');
+const { handlePeriodsPage } = require('./pages/periods');
 const { handleSruInk2, handleSruInfo } = require('./filings');
 
 // ── Route: GET /api/:company/report ──────────────────────────────────────────
@@ -81,6 +82,34 @@ async function handleReport(req, res) {
         res.setHeader('Content-Type', 'application/octet-stream');
         res.setHeader('Content-Disposition', `attachment; filename="${sie.filename}"`);
         return res.send(sie.buffer);
+      } else if (type === 'vat-return') {
+        // VAT return (Momsdeklaration) — the artifact view linked from the
+        // Periods page filing entries (IA-spec §5.10). Renders the same boxes
+        // the report.refresh_vat_return action computes.
+        const { generateVatReturn } = require('./vat');
+        const data = await generateVatReturn({ companyId: company, body: { periodFrom: start, periodTo: end } });
+        const rows = [];
+        let totNet = 0, totVat = 0;
+        for (const b of data.boxes) {
+          for (const it of b.items) {
+            rows.push({ box: b.box, description: it.description, vatCode: it.vatCode, rate: it.rate, net: it.net, vat: it.vat });
+            totNet += it.net; totVat += it.vat;
+          }
+        }
+        const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const fmt = (n) => Number(n || 0).toFixed(2);
+        const body = rows.length
+          ? rows.map((r) => `<tr><td>${esc(r.box)}</td><td>${esc(r.description)}</td><td>${esc(r.vatCode)}</td><td style="text-align:right">${fmt(r.rate * 100)}%</td><td style="text-align:right">${fmt(r.net)}</td><td style="text-align:right">${fmt(r.vat)}</td></tr>`).join('')
+            + `<tr style="font-weight:700;border-top:2px solid #1a1a1a"><td colspan="4">Total</td><td style="text-align:right">${fmt(totNet)}</td><td style="text-align:right">${fmt(totVat)}</td></tr>`
+          : '<tr><td colspan="6" style="color:#888">No VAT-coded activity in this interval.</td></tr>';
+        result = {
+          html: `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>VAT Return ${esc(start)} → ${esc(end)}</title>
+<style>body{font-family:system-ui,sans-serif;margin:32px;color:#1a1a1a}h1{font-size:14pt}p.meta{color:#555;font-size:10pt}table{border-collapse:collapse;font-size:10pt;margin-top:16px}th{text-align:left;font-size:9pt;text-transform:uppercase;color:#555;border-bottom:1px solid #ccc;padding:6px 8px}td{padding:5px 8px;border-bottom:1px solid #f0f0f0}</style>
+</head><body><h1>VAT Return (Momsdeklaration)</h1><p class="meta">Period ${esc(start)} → ${esc(end)} · computed live from VAT-coded journal lines</p>
+<table><thead><tr><th>Box</th><th>Description</th><th>Code</th><th style="text-align:right">Rate</th><th style="text-align:right">Net</th><th style="text-align:right">VAT</th></tr></thead><tbody>${body}</tbody></table></body></html>`,
+          csv: 'box,description,vat_code,rate,net,vat\n' + rows.map((r) => `${r.box},"${String(r.description || '').replace(/"/g, '""')}",${r.vatCode},${r.rate},${r.net.toFixed(2)},${r.vat.toFixed(2)}`).join('\n'),
+          filename: `vat-return_${company}_${start}_${end}`,
+        };
       } else {
         result = await renderReport(query, company, type, start, end, { account });
       }
@@ -201,6 +230,7 @@ function mountReportRoutes(app) {
     res.redirect(302, '/' + req.params.company + '/settings?tab=opening-balances');
   });
   app.get('/:company/settings', handleSettingsPage);
+  app.get('/:company/periods', handlePeriodsPage);
   app.get('/:company/reports', handleReportsHubPage);
   app.get('/:company', handleInboxPage);
   app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);

@@ -43,10 +43,13 @@
 //
 // g-key slate (ratified 2026-07-28; d/v added same day — magnus review):
 //   g d = (free — Dashboard dropped 2026-08-03) · g r = Reports · g b = Bank
-//   g p = Payables · g v = Receivables · g s = Settings
+//   g p = Periods (reassigned from Payables 2026-08-04, IA-spec step 4) ·
+//   g v = Receivables · g s = Settings
 //   g i = Inbox (now the root route /:company; was /:company/inbox)
 //   g j = (free — Journal dissolved into Reports as Voucher Register, 2026-08-03)
 //   g c = Company switcher (reserved, not a route)
+// Payables lost its gKey 'p' 2026-08-04 (step 4): 'p' now opens Periods.
+//   Payables stays sidebar+palette (reachable via sidebar click + palette search).
 
 const ROUTES = [
   // ── Sidebar entries (display order = array order) ──
@@ -55,9 +58,15 @@ const ROUTES = [
   // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
   { key: 'inbox',       route: '/:company',             label: 'Inbox',           icon: '📥', sidebar: true,  gKey: 'i',  palette: true,  absolute: false },
   { key: 'bank',        route: '/:company/bank',         label: 'Bank',            icon: '🏦', sidebar: true,  gKey: 'b',  palette: true,  absolute: false },
-  { key: 'payables',    route: '/:company/payables',     label: 'Payables',        icon: '📋', sidebar: true,  gKey: 'p',  palette: true,  absolute: false },
+  { key: 'payables',    route: '/:company/payables',     label: 'Payables',        icon: '📋', sidebar: true,  gKey: null, palette: true,  absolute: false },
   { key: 'receivables', route: '/:company/receivables',  label: 'Receivables',     icon: '📄', sidebar: true,  gKey: 'v',  palette: true,  absolute: false },
   { key: 'reports',     route: '/:company/reports',      label: 'Reports',         icon: '📈', sidebar: true,  gKey: 'r',  palette: true,  absolute: false },
+  // 2026-08-04 (IA-spec step 4): Periods promoted to a top-level sidebar route.
+  //   g p was reassigned from Payables (kept sidebar+palette, gKey nulled) to
+  //   Periods. The Settings Periods tab was removed and now 302-redirects here.
+  //   The grid config is lifted into api/src/pages/periods-grid.js (shared
+  //   module) so this page and Settings don't drift.
+  { key: 'periods',     route: '/:company/periods',      label: 'Periods',         icon: '📅', sidebar: true,  gKey: 'p',  palette: true,  absolute: false },
   { key: 'settings',    route: '/:company/settings',     label: 'Settings',        icon: '⚙',  sidebar: true,  gKey: 's',  palette: true,  absolute: false },
   // ── Non-sidebar routes. journal-new / new-company keep palette:false — the
   // action catalog already navigates to them with action labels (dedupe =

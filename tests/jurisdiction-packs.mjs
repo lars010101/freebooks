@@ -32,6 +32,21 @@ for (const entry of fs.readdirSync(DIR, { withFileTypes: true })) {
       fail(code, 'reportingStandards must be a non-empty array');
     const keys = (manifest.taxAttributes || []).map((a) => a.key);
     if (new Set(keys).size !== keys.length) fail(code, 'duplicate taxAttributes keys');
+
+    // closeChecklist (IA-spec step 4, §5.10): validated closed op vocabulary so a
+    // typo'd op can't silently neuter a close-check item. Allowed ops:
+    //   vat_return_done | contact_attrs_complete | tax_attr_set | manual
+    // tax_attr_set requires a sibling `attr` naming a declared taxAttribute.
+    const CLOSE_OPS = new Set(['vat_return_done', 'contact_attrs_complete', 'tax_attr_set', 'manual']);
+    const taxAttrKeys = new Set((manifest.taxAttributes || []).map((a) => a.key));
+    for (const item of (manifest.closeChecklist || [])) {
+      if (!item.id) fail(code, `closeChecklist item missing id`);
+      if (!CLOSE_OPS.has(item.op)) fail(code, `closeChecklist item '${item.id}': unknown op '${item.op}' (allowed: ${[...CLOSE_OPS].join(', ')})`);
+      if (item.op === 'tax_attr_set') {
+        if (!item.attr) fail(code, `closeChecklist item '${item.id}': tax_attr_set requires an 'attr'`);
+        else if (!taxAttrKeys.has(item.attr)) fail(code, `closeChecklist item '${item.id}': attr '${item.attr}' is not a declared taxAttribute`);
+      }
+    }
   }
 
   // coa
@@ -53,6 +68,22 @@ for (const entry of fs.readdirSync(DIR, { withFileTypes: true })) {
       try { desc = JSON.parse(fs.readFileSync(path.join(filingsDir, f), 'utf8')); }
       catch (e) { fail(code, `filings/${f} does not parse: ${e.message}`); continue; }
       if (desc.schema !== 1) fail(code, `filings/${f}: schema must be 1`);
+      // due block (IA-spec step 4, §5.10): rule must be one of the closed set
+      // the engine knows how to compute. nth_day_after_period_end requires a
+      // numeric `day`; fy_end_plus_months requires a numeric `months`.
+      const DUE_RULES = new Set(['fy_end_plus_months', 'nth_day_after_period_end']);
+      if (desc.due) {
+        if (!DUE_RULES.has(desc.due.rule)) fail(code, `filings/${f}: unknown due.rule '${desc.due.rule}' (allowed: ${[...DUE_RULES].join(', ')})`);
+        if (desc.due.rule === 'fy_end_plus_months' && !(Number.isFinite(desc.due.months) && desc.due.months > 0))
+          fail(code, `filings/${f}: due.rule fy_end_plus_months requires a positive numeric 'months'`);
+        if (desc.due.rule === 'nth_day_after_period_end' && !(Number.isFinite(desc.due.day) && desc.due.day > 0))
+          fail(code, `filings/${f}: due.rule nth_day_after_period_end requires a positive numeric 'day'`);
+      }
+      // period_kind is optional but, when present, must be a known kind so the
+      // filing.list engine can route interval generation correctly.
+      const PERIOD_KINDS = new Set(['fiscal_year', 'vat_period']);
+      if (desc.period_kind && !PERIOD_KINDS.has(desc.period_kind))
+        fail(code, `filings/${f}: unknown period_kind '${desc.period_kind}' (allowed: ${[...PERIOD_KINDS].join(', ')})`);
       if (desc.emitter) {
         const ePath = path.join(DIR, '..', '..', 'api', 'src', 'emitters', desc.emitter + '.js');
         if (!fs.existsSync(ePath)) fail(code, `filings/${f}: emitter '${desc.emitter}' not found at api/src/emitters/${desc.emitter}.js`);

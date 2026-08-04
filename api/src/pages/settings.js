@@ -3,6 +3,11 @@ const { makeQuery, commonStyle, navBar, layoutEnd } = require('./common');
 
 async function handleSettingsPage(req, res) {
   const { company } = req.params;
+  // IA-spec step 4 (§5.10, 2026-08-04): Periods promoted to a top-level
+  // section; the Settings Periods tab was removed. Old deep links redirect.
+  if (req.query && req.query.tab === 'periods') {
+    return res.redirect(302, '/' + company + '/periods');
+  }
   try {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(buildSettingsPage(company));
@@ -45,8 +50,8 @@ ${commonStyle()}
   button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
   button.btn-primary:hover { background:#333; }
   button.btn-primary:disabled { background:#ccc; color:#666; cursor:not-allowed; }
-  /* Periods modal-edit doctrine (docs/settings-ux-spec.md) */
-  #tab-periods tbody td, #tab-coa tbody td, #tab-vat tbody td, #tab-journals tbody td { cursor:text; }
+  /* Modal-edit doctrine (docs/settings-ux-spec.md) */
+  #tab-coa tbody td, #tab-vat tbody td, #tab-journals tbody td { cursor:text; }
   tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 #d97706; }
   .dirty-val { color:#b45309; }
   tr.row-editing > td { background:#fffbeb; }
@@ -97,7 +102,6 @@ ${commonStyle()}
 
   <div class="tabs">
     <div class="tab active" onclick="showTab('company')">Company<span id="tab-dot-company" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" onclick="showTab('periods')">Periods<span id="tab-dot-periods" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('coa')">Chart of Accounts<span id="tab-dot-coa" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:#d97706"> ●</span></div>
@@ -105,13 +109,9 @@ ${commonStyle()}
     <div class="tab" onclick="showTab('opening-balances')">Opening Balances</div>
   </div>
 
-  <!-- PERIODS TAB -->
-  <div id="tab-periods" class="tab-panel">
-    <table class="edit-table" id="periods-table">
-      <thead><tr><th>Period Name</th><th>Start Date</th><th>End Date</th><th>Locked</th><th></th></tr></thead>
-      <tbody id="periods-body"></tbody>
-    </table>
-  </div>
+  <!-- Periods tab REMOVED 2026-08-04 (IA-spec step 4, §5.10): Periods is now
+       a top-level section at /:company/periods. The grid config lifted into
+       pages/periods-grid.js (shared module); ?tab=periods 302-redirects. -->
 
   <!-- COMPANY TAB — FB.list attribute/value grid (settings-ux-spec §7 item 1
        rev. 3, supersedes the slim record form). One FIXED row per company
@@ -327,7 +327,7 @@ function showTab(t) {
       resetDirty(curTab);
     }
   }
-  var tabs = ['company','periods','coa','vat','journals','fxrates','opening-balances'];
+  var tabs = ['company','coa','vat','journals','fxrates','opening-balances'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
@@ -336,7 +336,6 @@ function showTab(t) {
   var hintEl = document.getElementById('sb-hints');
   if (hintEl) {
     if (t === 'company') renderCompanyHints();
-    else if (t === 'periods') renderPeriodHints();
     else if (t === 'coa') renderCoaHints();
     else if (t === 'vat') renderVatHints();
     else if (t === 'journals') renderJournalHints();
@@ -347,7 +346,6 @@ function showTab(t) {
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
     if (t === 'company')  { loadCompanyAttrs(); }
-    if (t === 'periods')  { loadPeriods(); }
     if (t === 'coa')      { loadCoa(); }
     if (t === 'vat')      { loadVat(); }
     if (t === 'journals') { loadJournals(); }
@@ -373,56 +371,11 @@ function wireDirty(tr, tab) {
   });
 }
 
-// ========== PERIODS — FB.list (P3 consolidated) ==========
-// Esc never saves: it exits edit mode leaving a dirty buffer; w writes,
-// u reverts. Period names are immutable on saved rows (server upsert keys on
-// period_name — rename needs delete+create; a deliberate feature later).
-var periodsList = FB.list.create({
-  keysId: 'settings-periods',
-  active: function() { var p = document.getElementById('tab-periods'); return !!(p && p.classList.contains('active')); },
-  tbody: 'periods-body',
-  companyId: function() { return COMPANY; },
-  columns: [
-    { field: 'period_name', type: 'text', width: 110, ro: 'saved' },
-    { field: 'start_date', type: 'date', width: null, filterType: 'date',
-      display: function(v) { return v ? esc(FB.util.fmtDate(v)) : '<span class="pe-ro">—</span>'; } },
-    { field: 'end_date', type: 'date', width: null, filterType: 'date',
-      display: function(v) { return v ? esc(FB.util.fmtDate(v)) : '<span class="pe-ro">—</span>'; } },
-    { field: 'locked', type: 'checkbox', align: 'center',
-      display: function(v) { return '<input type="checkbox" disabled' + (v ? ' checked' : '') + '>'; } }
-  ],
-  blank: function() { return { period_name: '', start_date: '', end_date: '', locked: false }; },
-  isBlank: function(b) { return !b.period_name && !b.start_date && !b.end_date && !b.locked; },
-  same: function(b, s) {
-    return b.start_date === s.start_date && b.end_date === s.end_date && b.locked === !!s.locked;
-  },
-  validate: function(d) {
-    if (!d.period_name || !d.start_date || !d.end_date) return 'Name, start and end required';
-    if (d.start_date > d.end_date) return 'Start date must be on or before end date';
-    return null;
-  },
-  firstField: function(isNew) { return isNew ? 'period_name' : 'start_date'; },
-  track: 'period',
-  list: { action: 'period.list',
-    map: function(p) { return { period_id: p.period_id, period_name: p.period_id, start_date: String(p.start_date || '').slice(0, 10), end_date: String(p.end_date || '').slice(0, 10), locked: !!p.locked, _key: p.period_id }; } },
-  save: { action: 'period.upsert',
-    body: function(d) { return { period: { period_id: d._isNew ? d.period_name : d._key, period_name: d.period_name, start_date: d.start_date, end_date: d.end_date, locked: !!d.locked } }; },
-    focusKey: function(d) { return d._isNew ? d.period_name : d._key; } },
-  del: { action: 'period.delete',
-    body: function(d) { return { periodId: d._key }; },
-    confirm: function(d) { return 'Delete period "' + d.period_name + '"?'; } },
-  onChrome: function(dirty) {
-    var dot = document.getElementById('tab-dot-periods');
-    if (dot) dot.style.display = dirty ? '' : 'none';
-    if (dirty) markDirty('periods'); else resetDirty('periods');
-  }
-});
-
-function loadPeriods(focusKey) { periodsList.load(focusKey); }
-function renderPeriodHints() {
-  var el = document.getElementById('sb-hints');
-  if (el) periodsList.renderHints(el);
-}
+// ========== PERIODS — REMOVED 2026-08-04 (IA-spec step 4, §5.10) ==========
+// The periods grid promoted to the top-level Periods section
+// (/:company/periods). Its FB.list config lifted into pages/periods-grid.js
+// (shared module — one definition, no drift). Nothing here references
+// periodsList any longer.
 
 // ========== COMPANY ATTRIBUTES — FB.list (settings-ux-spec §7 item 1 rev. 3) ==========
 // One FIXED row per company attribute: canAdd false, no delete — every row is

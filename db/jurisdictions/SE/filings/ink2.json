@@ -5,6 +5,7 @@
   "authority": "Skatteverket",
   "emitter": "sruLines",
   "route": "/api/:company/sru/ink2",
+  "due": { "rule": "fy_end_plus_months", "months": 6 },
   "version": "{year}P4",
   "blanketts": [
     "INK2",

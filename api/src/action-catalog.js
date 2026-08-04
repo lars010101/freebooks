@@ -251,6 +251,17 @@ const ACTIONS = {
     params: { periodFrom: { type: 'date', required: true }, periodTo: { type: 'date', required: true } },
   },
 
+  // ── Filings (IA-spec step 4, §5.10) ──────────────────────────────────────
+  // Filing instances = jurisdiction-pack descriptor × reporting interval, with
+  // due dates (descriptor rules + deadline_overrides), filed state
+  // (periods.tax_attrs.filings), and artifact endpoint links. Read-only
+  // viewer; filed-state writes flow through period.upsert tax_attrs.
+  'filing.list': {
+    role: 'viewer', mutating: false,
+    description: 'List filing instances per period (descriptor × interval) with due dates, draft/filed state, and artifact links.',
+    params: { periodId: { type: 'string' } },
+  },
+
   // ── Chart of accounts ────────────────────────────────────────────────────
   'coa.list': { role: 'viewer', mutating: false, description: 'List accounts (latest revision per code).' },
   'coa.save': {
@@ -404,6 +415,11 @@ const ACTIONS = {
     params: { key: { type: 'string', required: true }, value: { required: true } },
   },
   'period.list': { role: 'viewer', mutating: false, description: 'List accounting periods.' },
+  'period.close_check': {
+    role: 'viewer', mutating: false,
+    description: 'Live close checklist for a period (IA-spec §5.10): engine items + jurisdiction-pack closeChecklist ops with pass/fail + detail. Advisory — never blocks locking.',
+    params: { periodId: { type: 'string', required: true } },
+  },
   'period.save': {
     role: 'owner', mutating: true,
     description: 'Replace periods (bulk; period_id + start/end required per row).',
@@ -516,8 +532,8 @@ const PALETTE = {
   'vat.codes.upsert':       { palette: 'navigate', route: '/settings?tab=vat' },
   'vendor.save':            { palette: 'navigate', route: '/payables?tab=vendors' },
   'vendor.upsert':          { palette: 'navigate', route: '/payables?tab=vendors' },
-  'period.save':            { palette: 'navigate', route: '/settings?tab=periods' },
-  'period.upsert':          { palette: 'navigate', route: '/settings?tab=periods' },
+  'period.save':            { palette: 'navigate', route: '/periods' },
+  'period.upsert':          { palette: 'navigate', route: '/periods' },
   'journals.save':          { palette: 'navigate', route: '/settings?tab=journals' },
   'mapping.save':           { palette: 'navigate', route: '/bank?tab=mappings' },
   'mapping.upsert':         { palette: 'navigate', route: '/bank?tab=mappings' },

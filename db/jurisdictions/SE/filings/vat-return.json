@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "id": "vat-return",
+  "name": "VAT Return (Momsdeklaration)",
+  "authority": "Skatteverket",
+  "period_kind": "vat_period",
+  "due": { "rule": "nth_day_after_period_end", "day": 12 }
+}

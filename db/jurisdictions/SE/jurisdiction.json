@@ -22,5 +22,11 @@
   ],
   "integrations": {
     "sie": { "export": true, "import": true }
-  }
+  },
+  "closeChecklist": [
+    { "id": "vat_return_done", "op": "vat_return_done", "label": "VAT return lodged for the period (VAT-coded activity present)", "kind": "engine" },
+    { "id": "contact_attrs_complete", "op": "contact_attrs_complete", "label": "SRU contact attributes complete (address, postal code, city)", "kind": "engine" },
+    { "id": "loss_cf_set", "op": "tax_attr_set", "attr": "loss_cf", "label": "Unused loss carry-forward recorded for the period", "kind": "engine" },
+    { "id": "arsstamma_held", "op": "manual", "label": "Årsstämma held (annual general meeting)", "kind": "manual" }
+  ]
 }

@@ -27,6 +27,7 @@ const { handleAttachments } = require('./attachments');
 const { handleEvents, emitEvent } = require('./events');
 const { handleTokens } = require('./tokens');
 const { handleSie } = require('./sie-import');
+const { handlePeriodsService } = require('./periods-page-service');
 const { contactAttributesFor } = require('./jurisdiction-packs');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 const { auditCall } = require('./audit');
@@ -312,6 +313,7 @@ async function handleApiRequest(req, res) {
       case 'settings':
       case 'company':
       case 'period':      result = await handleSettings(ctx, action); break;
+      case 'filing':      result = await handlePeriodsService(ctx, action); break;
       case 'permissions': result = await handlePermissions(ctx, action); break;
       case 'setup':       result = await handleSetup(ctx, action); break;
       case 'diag':        result = await handleDiag(ctx, action); break;
@@ -618,6 +620,14 @@ async function handleJournals(ctx, action) {
 
 async function handleSettings(ctx, action) {
   const { companyId, body } = ctx;
+
+  // IA-spec step 4 (§5.10): the period.close_check action lives in the
+  // Periods section service (read-only live checklist). Routed here because
+  // the dispatcher keys on the 'period' module prefix.
+  if (action === 'period.close_check') {
+    const { handlePeriodsService } = require('./periods-page-service');
+    return handlePeriodsService(ctx, action);
+  }
 
   if (action === 'company.list') {
     const rows = await query(

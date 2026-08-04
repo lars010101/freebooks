@@ -416,8 +416,8 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 | **Journal Line Listing** | Single journal line | The batch's detail view (journal-new view mode) | Click / `Enter` |
 | **General Ledger** | Account's lines for a period | The batch's detail view (journal-new view mode) | Click / `Enter` |
 | **Trial Balance** | Account total for a period | General Ledger filtered to that account + period | Click / `Enter` |
-| **Balance Sheet** | Account group total | Trial Balance filtered to that group | Click / `Enter` |
-| **Profit & Loss** | Account group total | Trial Balance filtered to that group | Click / `Enter` |
+| **Balance Sheet** | Account total for a period | General Ledger filtered to that account + period | Click / `Enter` |
+| **Profit & Loss** | Account total for a period | General Ledger filtered to that account + period | Click / `Enter` |
 
 ### 10.2 Source-aware detail routing (Transaction Register)
 
@@ -494,3 +494,4 @@ Every detail view honors a return stack: `Esc`/`q` returns to the exact screen, 
 | 2026-08-03 | A5 unified inbox: queue leaves Journal, `g i` = Inbox, `f` filter moves with queue |
 | 2026-08-03 | Dashboard + KPI cards dropped; Inbox becomes root route (`/:company`); source-document warning icons inline |
 | 2026-08-03 | Journal dissolves: Transaction Register report in Reports; journal sidebar entry removed; drill-through doctrine (§10) ratified |
+| 2026-08-04 | Drill-through fix: PL/BS account rows → GL (not TB); reports hub forwards ?account= to report iframe; GL filter bar prefilled from URL |

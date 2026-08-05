@@ -159,11 +159,34 @@ const ACTIONS = {
     description: 'List uncleared ledger lines for an account.',
     params: { accountCode: { type: 'string', required: true }, dateFrom: { type: 'date' }, dateTo: { type: 'date' } },
   },
+  // B4 (bank-matching-spec §8.2): deterministic single-line matcher. role is
+  // 'agent' (1.5), NOT 'data_entry' (2) — dispatch's numeric role check runs
+  // before the §2.3 whitelist guard, so data_entry (2) would reject an agent
+  // (1.5 < 2) before the whitelist ever sees it. 'agent' lets agents (1.5),
+  // data_entry (2), and owner (3) pass; viewers (1) are excluded. The action
+  // is non-mutating (mutating:false) so it passes the §2.3 guard naturally and
+  // is intentionally NOT added to AGENT_ALLOWED — it reads data and returns
+  // structured match results only (never writes).
+  'bank.match': {
+    role: 'agent', mutating: false,
+    description: 'Match a single bank statement line through tiers 1-3 (learned rules, open items, master data). Returns structured match results with per-dimension confidence and evidence. Does not propose — returns results only (bank-matching-spec §8.2).',
+    params: {
+      line: { type: 'object', required: true },
+      bankAccount: { type: 'string' },
+    },
+  },
 
   // ── Bills (AP) ───────────────────────────────────────────────────────────
   'bill.create': {
-    role: 'data_entry', mutating: true, idempotent: true,
-    description: 'Create + post a bill in one step (server computes VAT, FX, journals).',
+    // Catalog role: agent (1.5) — same dispatch-ordering fix as journal.propose
+    // (Phase B, agent-readiness-spec §2.3). The numeric role check runs BEFORE
+    // the §2.3 whitelist guard, so a data_entry entry (2) would reject agents
+    // (1.5 < 2) before AGENT_ALLOWED ever sees the action. 'agent' lets agents,
+    // data_entry, and owner pass; viewers (1) are excluded. bill.create is then
+    // in AGENT_ALLOWED so the whitelist admits it. The handler detects agent
+    // actors and saves a DRAFT (no journal entries); humans still create+post.
+    role: 'agent', mutating: true, idempotent: true,
+    description: 'Create + post a bill in one step (server computes VAT, FX, journals). Agent actors save a draft instead (human posts via bill.draft.post).',
     params: { bill: { type: 'object', required: true }, _replaceDraftId: { type: 'string' }, payment_batch_id: { type: 'string' } },
   },
   'bill.void': {
@@ -230,6 +253,70 @@ const ACTIONS = {
     role: 'data_entry', mutating: true, idempotent: true,
     description: 'Void a bill payment — reverses the settlement journal, decrements amount_paid, restores bill status.',
     params: { paymentId: { type: 'string', required: true } },
+  },
+
+  // ── Matching history (bank-matching cascade learning store) ──────────────
+  // Phase B (bank-matching-spec §10.3): every proposal's review outcome across
+  // all tiers, never pruned. matching_history.record is the agent-only write
+  // (in AGENT_ALLOWED); query/get are viewer reads that pass the §2.3 guard
+  // naturally (mutating:false). Feeds calibration (§6) and rule
+  // crystallization/retirement (§10.5).
+  'matching_history.record': {
+    role: 'agent', mutating: true,
+    description: 'Record a bank-matching proposal outcome (approved_unedited/approved_edited/rejected). Feeds calibration (§6) and rule crystallization/retirement (§10). Agent-only write to learning store.',
+    params: {
+      bank_account: { type: 'string' },
+      description_pattern: { type: 'string', required: true },
+      counterparty: { type: 'string' },
+      amount: { type: 'number' },
+      proposed_dimensions: { type: 'object' },
+      approved_dimensions: { type: 'object' },
+      source_type: { type: 'string', required: true },
+      confidence: { type: 'object' },
+      evidence: { type: 'object' },
+      outcome: { type: 'string', required: true },
+    },
+  },
+  'matching_history.query': {
+    role: 'viewer', mutating: false,
+    description: 'Query prior match outcomes for a given line signal (description pattern, counterparty, amount). The learned-rule store (bank-matching-spec §10).',
+    params: {
+      description_pattern: { type: 'string' },
+      counterparty: { type: 'string' },
+      bank_account: { type: 'string' },
+      limit: { type: 'number' },
+    },
+  },
+  'calibration.get': {
+    role: 'viewer', mutating: false,
+    description: 'Get calibration counters per (source_type, confidence_band). Plain running counter with N=10 floor (bank-matching-spec §6.2).',
+    params: {},
+  },
+
+  // ── Input rejections (bank-matching-spec §11.2) ───────────────────────────
+  'input_rejection.create': {
+    role: 'agent', mutating: true, idempotent: true,
+    description: 'Create an input rejection item for a statement with lines that have missing critical data (bank-matching-spec §11.2). Agent-only; one item per statement.',
+    params: {
+      statement_id: { type: 'string', required: true },
+      statement_date: { type: 'date' },
+      rejected_lines: { type: 'array', required: true },
+    },
+  },
+  'input_rejection.list': {
+    role: 'viewer', mutating: false,
+    description: 'List input rejection items (filter by status: open/retried/discarded).',
+    params: { status: { type: 'string' }, limit: { type: 'number' } },
+  },
+  'input_rejection.get': {
+    role: 'viewer', mutating: false,
+    description: 'Get one input rejection item by id (with rejected lines detail).',
+    params: { rejectionId: { type: 'string', required: true } },
+  },
+  'input_rejection.discard': {
+    role: 'data_entry', mutating: true,
+    description: 'Discard an input rejection — the human decides the lines are spurious (bank header, duplicate, test). Terminal.',
+    params: { rejectionId: { type: 'string', required: true } },
   },
 
   // ── Read models (P1-8) ───────────────────────────────────────────────────
@@ -353,6 +440,47 @@ const ACTIONS = {
     role: 'data_entry', mutating: true,
     description: 'Delete one mapping rule.',
     params: { mappingId: { type: 'string', required: true } },
+  },
+  // ── Mapping suggestions (Phase B, bank-matching-spec §10.2/§10.4) ─────────
+  // Agent proposes a candidate bank-mapping rule to mapping_suggestions
+  // (NEVER to bank_mappings itself). Human reviews via approve/reject; "approve"
+  // writes the rule into bank_mappings (human-attributed) — the same
+  // "approve is the post" pattern as journal.approve (agent-readiness-spec §4.1).
+  // mapping.suggest is the agent-only write (in AGENT_ALLOWED); the suggestion
+  // approve/reject are data_entry (human finalizers); list/get are viewer reads.
+  'mapping.suggest': {
+    role: 'agent', mutating: true, idempotent: true,
+    description: 'Propose a candidate bank-mapping rule to mapping_suggestions (never to mappings itself). Agent-only; human approves via mapping.suggestion.approve/reject (bank-matching-spec §10.2/§10.4).',
+    params: {
+      suggestionId: { type: 'string' },
+      bank_account: { type: 'string' },
+      description_pattern: { type: 'string', required: true },
+      suggested_account: { type: 'string', required: true },
+      suggested_vat_code: { type: 'string' },
+      suggested_dimensions: { type: 'object' },
+      evidence: { type: 'object' },
+      source_proposal_id: { type: 'string' },
+    },
+  },
+  'mapping.suggestion.approve': {
+    role: 'data_entry', mutating: true,
+    description: 'Approve a mapping suggestion — writes the rule into bank_mappings (human-attributed). Same "approve is the post" pattern as journal.approve (agent-readiness-spec §4.1).',
+    params: { suggestionId: { type: 'string', required: true } },
+  },
+  'mapping.suggestion.reject': {
+    role: 'data_entry', mutating: true,
+    description: 'Reject a mapping suggestion (no note required — lighter than journal reject). Terminal.',
+    params: { suggestionId: { type: 'string', required: true } },
+  },
+  'mapping.suggestion.list': {
+    role: 'viewer', mutating: false,
+    description: 'List mapping suggestions (filter by status: proposed/approved/rejected).',
+    params: { status: { type: 'string' }, limit: { type: 'number' } },
+  },
+  'mapping.suggestion.get': {
+    role: 'viewer', mutating: false,
+    description: 'Get one mapping suggestion by id.',
+    params: { suggestionId: { type: 'string', required: true } },
   },
   'center.list': { role: 'viewer', mutating: false, description: 'List cost/profit centers.' },
   'center.save': {

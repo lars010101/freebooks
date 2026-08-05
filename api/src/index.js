@@ -222,7 +222,14 @@ async function handleApiRequest(req, res) {
     // v1 whitelist: non-mutating actions pass naturally (mutating:false);
     // attachment.upload is admitted here; A3j (§4.3) adds journal.propose so
     // agents can prepare journal batches (never post — that's the human approve).
-    const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose']);
+    // Phase B (agent-readiness-spec §2.3) admits six agent-writable actions:
+    //   - attachment.upload   (feed intake — agent never touches disk)
+    //   - journal.propose     (prepare batches — human approves to post)
+    //   - matching_history.record (learning-store write — proposal outcomes)
+    //   - mapping.suggest     (propose bank-mapping rules — human approves)
+    //   - bill.create          (agent path saves a DRAFT; human posts via bill.post)
+    //   - input_rejection.create (flag statement lines with missing critical data — human retries/discards)
+    const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose', 'matching_history.record', 'mapping.suggest', 'bill.create', 'input_rejection.create']);
     const actor = userEmail ? await resolveActor(userEmail, companyId) : { role: null, actorType: 'human' };
     const requestId = body.requestId || req.get('X-Request-Id') || null;
     if (actor.actorType === 'agent') {
@@ -308,6 +315,9 @@ async function handleApiRequest(req, res) {
       case 'fx':          result = await handleFx(ctx, action); break;
       case 'coa':         result = await handleCoa(ctx, action); break;
       case 'mapping':     result = await handleMapping(ctx, action); break;
+      case 'matching_history': result = await handleMatchingHistory(ctx, action); break;
+      case 'input_rejection':  result = await handleInputRejection(ctx, action); break;
+      case 'calibration':      result = await handleCalibration(ctx, action); break;
       case 'center':      result = await handleCenter(ctx, action); break;
       case 'journals':   result = await handleJournals(ctx, action); break;
       case 'settings':
@@ -562,6 +572,461 @@ async function handleMapping(ctx, action) {
     await exec(`DELETE FROM bank_mappings WHERE company_id = @companyId AND mapping_id = @mappingId`, { companyId, mappingId });
     return { deleted: true };
   }
+
+  // --- mapping_suggestions (bank-matching-spec §10.2/§10.4) ---
+  // Agent proposes candidate rules to mapping_suggestions (never to
+  // bank_mappings); human approves/rejects. "Approve" writes the rule into
+  // bank_mappings (human-attributed) — the same "approve is the post" pattern
+  // as journal.approve (agent-readiness-spec §4.1).
+
+  if (action === 'mapping.suggest') {
+    const { suggestionId, bank_account, description_pattern, suggested_account,
+           suggested_vat_code, suggested_dimensions, evidence, source_proposal_id } = body;
+    if (!description_pattern) throw Object.assign(new Error('description_pattern required'), { code: 'INVALID_INPUT' });
+    if (!suggested_account) throw Object.assign(new Error('suggested_account required'), { code: 'INVALID_INPUT' });
+
+    const now = new Date().toISOString();
+    const dimsJson = suggested_dimensions != null ? JSON.stringify(suggested_dimensions) : null;
+    const evidenceJson = evidence != null ? JSON.stringify(evidence) : null;
+
+    // Upsert: if suggestionId is provided AND a matching proposed row owned by
+    // this caller exists, UPDATE it (same pattern as journal.propose's
+    // proposalId upsert). Otherwise INSERT a new row.
+    if (suggestionId) {
+      const existing = await query(
+        `SELECT suggestion_id, status, created_by FROM mapping_suggestions
+         WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+        { companyId, suggestionId }
+      );
+      if (existing.length > 0) {
+        const row = existing[0];
+        if (String(row.status) !== 'proposed') {
+          throw Object.assign(new Error(`Cannot upsert a suggestion in status '${row.status}' (only 'proposed' is editable)`), { code: 'INVALID_STATUS' });
+        }
+        if (String(row.created_by) !== String(ctx.userEmail)) {
+          throw Object.assign(new Error('Cannot upsert a suggestion owned by another actor'), { code: 'FORBIDDEN' });
+        }
+        await exec(
+          `UPDATE mapping_suggestions
+             SET bank_account = @bank_account,
+                 description_pattern = @description_pattern,
+                 suggested_account = @suggested_account,
+                 suggested_vat_code = @suggested_vat_code,
+                 suggested_dimensions = @suggested_dimensions,
+                 evidence = @evidence,
+                 source_proposal_id = @source_proposal_id
+           WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+          { bank_account: bank_account || null, description_pattern, suggested_account,
+            suggested_vat_code: suggested_vat_code || null,
+            suggested_dimensions: dimsJson, evidence: evidenceJson,
+            source_proposal_id: source_proposal_id || null,
+            companyId, suggestionId }
+        );
+        await emitEvent(ctx, 'mapping.suggested', 'mapping_suggestion', suggestionId,
+          { description_pattern, suggested_account, source_proposal_id: source_proposal_id || null });
+        return { suggestion_id: suggestionId, status: 'proposed' };
+      }
+      // suggestionId supplied but no existing row → first creation with a
+      // caller-chosen id (same as journal.propose).
+    }
+
+    const newId = suggestionId || uuid();
+    await bulkInsert('mapping_suggestions', [{
+      company_id: companyId,
+      suggestion_id: newId,
+      bank_account: bank_account || null,
+      description_pattern,
+      suggested_account,
+      suggested_vat_code: suggested_vat_code || null,
+      suggested_dimensions: dimsJson,
+      evidence: evidenceJson,
+      source_proposal_id: source_proposal_id || null,
+      status: 'proposed',
+      created_by: ctx.userEmail,
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: now,
+    }]);
+    await emitEvent(ctx, 'mapping.suggested', 'mapping_suggestion', newId,
+      { description_pattern, suggested_account, source_proposal_id: source_proposal_id || null });
+    return { suggestion_id: newId, status: 'proposed' };
+  }
+
+  if (action === 'mapping.suggestion.approve') {
+    const { suggestionId } = body;
+    if (!suggestionId) throw Object.assign(new Error('suggestionId required'), { code: 'INVALID_INPUT' });
+
+    const rows = await query(
+      `SELECT suggestion_id, bank_account, description_pattern, suggested_account,
+              suggested_vat_code, suggested_dimensions, source_proposal_id, status, created_by
+       FROM mapping_suggestions
+       WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+      { companyId, suggestionId }
+    );
+    if (rows.length === 0) throw Object.assign(new Error('Mapping suggestion not found'), { code: 'NOT_FOUND' });
+    const sug = rows[0];
+    if (String(sug.status) !== 'proposed') {
+      throw Object.assign(new Error(`Cannot approve a suggestion in status '${sug.status}' (only 'proposed' can be approved)`), { code: 'INVALID_STATUS' });
+    }
+
+    // Write the rule into bank_mappings (human-attributed). The approving
+    // human is the author of the mapping row, regardless of who proposed it.
+    const mappingId = uuid();
+    await bulkInsert('bank_mappings', [{
+      company_id: companyId,
+      mapping_id: mappingId,
+      pattern: sug.description_pattern,
+      match_type: 'contains',
+      debit_account: sug.suggested_account,
+      credit_account: sug.suggested_account,
+      description_override: null,
+      vat_code: sug.suggested_vat_code || null,
+      cost_center: null,
+      profit_center: null,
+      priority: 100,
+      is_active: true,
+    }]);
+
+    const now = new Date().toISOString();
+    await exec(
+      `UPDATE mapping_suggestions
+          SET status = 'approved', reviewed_by = @reviewed_by, reviewed_at = @reviewed_at
+        WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+      { reviewed_by: ctx.userEmail, reviewed_at: now, companyId, suggestionId }
+    );
+
+    await emitEvent(ctx, 'mapping.suggestion.approved', 'mapping_suggestion', suggestionId,
+      { mapping_id: mappingId, description_pattern: sug.description_pattern, suggested_account: sug.suggested_account });
+    return { approved: true, mapping_id: mappingId };
+  }
+
+  if (action === 'mapping.suggestion.reject') {
+    const { suggestionId } = body;
+    if (!suggestionId) throw Object.assign(new Error('suggestionId required'), { code: 'INVALID_INPUT' });
+
+    const rows = await query(
+      `SELECT suggestion_id, status FROM mapping_suggestions
+       WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+      { companyId, suggestionId }
+    );
+    if (rows.length === 0) throw Object.assign(new Error('Mapping suggestion not found'), { code: 'NOT_FOUND' });
+    const sug = rows[0];
+    if (String(sug.status) !== 'proposed') {
+      throw Object.assign(new Error(`Cannot reject a suggestion in status '${sug.status}' (only 'proposed' can be rejected)`), { code: 'INVALID_STATUS' });
+    }
+
+    const now = new Date().toISOString();
+    await exec(
+      `UPDATE mapping_suggestions
+          SET status = 'rejected', reviewed_by = @reviewed_by, reviewed_at = @reviewed_at
+        WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+      { reviewed_by: ctx.userEmail, reviewed_at: now, companyId, suggestionId }
+    );
+
+    await emitEvent(ctx, 'mapping.suggestion.rejected', 'mapping_suggestion', suggestionId, {});
+    return { rejected: true };
+  }
+
+  if (action === 'mapping.suggestion.list') {
+    const status = body.status && String(body.status).trim() !== '' ? String(body.status).trim() : null;
+    const rawLimit = Number(body.limit);
+    const limit = (Number.isFinite(rawLimit) && rawLimit > 0) ? Math.min(Math.floor(rawLimit), 1000) : 100;
+    if (status) {
+      return query(
+        `SELECT * FROM mapping_suggestions
+         WHERE company_id = @companyId AND status = @status
+         ORDER BY created_at DESC
+         LIMIT @lim`,
+        { companyId, status, lim: limit }
+      );
+    }
+    return query(
+      `SELECT * FROM mapping_suggestions
+       WHERE company_id = @companyId
+       ORDER BY created_at DESC
+       LIMIT @lim`,
+      { companyId, lim: limit }
+    );
+  }
+
+  if (action === 'mapping.suggestion.get') {
+    const { suggestionId } = body;
+    if (!suggestionId) throw Object.assign(new Error('suggestionId required'), { code: 'INVALID_INPUT' });
+    const rows = await query(
+      `SELECT * FROM mapping_suggestions
+       WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+      { companyId, suggestionId }
+    );
+    if (rows.length === 0) throw Object.assign(new Error('Mapping suggestion not found'), { code: 'NOT_FOUND' });
+    return rows[0];
+  }
+}
+
+// --- Matching History (bank-matching-spec §10.3) ---
+// Learning store: every proposal's review outcome across all tiers.
+// matching_history.record is agent-only (in AGENT_ALLOWED); query/get are
+// viewer reads. Feeds calibration (§6) and rule crystallization/retirement
+// (§10.5).
+
+const MATCHING_HISTORY_OUTCOMES = ['approved_unedited', 'approved_edited', 'rejected'];
+const MATCHING_HISTORY_SOURCE_TYPES = ['learned_rule', 'open_item', 'master_data', 'llm_semantic'];
+
+async function handleMatchingHistory(ctx, action) {
+  const { companyId, body } = ctx;
+
+  if (action === 'matching_history.record') {
+    const {
+      bank_account, description_pattern, counterparty, amount,
+      proposed_dimensions, approved_dimensions, source_type,
+      confidence, evidence, outcome,
+    } = body;
+
+    // Validate required non-empty strings.
+    if (!description_pattern || typeof description_pattern !== 'string')
+      throw Object.assign(new Error('description_pattern required'), { code: 'INVALID_INPUT' });
+    if (!source_type || typeof source_type !== 'string')
+      throw Object.assign(new Error('source_type required'), { code: 'INVALID_INPUT' });
+    if (!outcome || typeof outcome !== 'string')
+      throw Object.assign(new Error('outcome required'), { code: 'INVALID_INPUT' });
+    if (!MATCHING_HISTORY_SOURCE_TYPES.includes(source_type))
+      throw Object.assign(new Error(`source_type must be one of: ${MATCHING_HISTORY_SOURCE_TYPES.join(', ')}`), { code: 'INVALID_INPUT' });
+    if (!MATCHING_HISTORY_OUTCOMES.includes(outcome))
+      throw Object.assign(new Error(`outcome must be one of: ${MATCHING_HISTORY_OUTCOMES.join(', ')}`), { code: 'INVALID_INPUT' });
+
+    // amount is a number or null.
+    const amountVal = (typeof amount === 'number') ? amount : null;
+
+    // JSON columns are VARCHAR — JSON.stringify before storing.
+    const proposedDimsJson = proposed_dimensions != null ? JSON.stringify(proposed_dimensions) : null;
+    const approvedDimsJson = approved_dimensions != null ? JSON.stringify(approved_dimensions) : null;
+    const confidenceJson = confidence != null ? JSON.stringify(confidence) : null;
+    const evidenceJson = evidence != null ? JSON.stringify(evidence) : null;
+
+    const id = uuid();
+    await exec(
+      `INSERT INTO matching_history
+         (id, company_id, bank_account, description_pattern, counterparty, amount,
+          proposed_dimensions, approved_dimensions, source_type, confidence, evidence, outcome)
+       VALUES
+         (@id, @companyId, @bank_account, @description_pattern, @counterparty, @amount,
+          @proposed_dimensions, @approved_dimensions, @source_type, @confidence, @evidence, @outcome)`,
+      {
+        id, companyId,
+        bank_account: bank_account || null,
+        description_pattern,
+        counterparty: counterparty || null,
+        amount: amountVal,
+        proposed_dimensions: proposedDimsJson,
+        approved_dimensions: approvedDimsJson,
+        source_type,
+        confidence: confidenceJson,
+        evidence: evidenceJson,
+        outcome,
+      }
+    );
+    return { recorded: true, id };
+  }
+
+  if (action === 'matching_history.query') {
+    const { description_pattern, counterparty, bank_account } = body;
+    let limit = Number(body.limit);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 100;
+    if (limit > 1000) limit = 1000;
+
+    const where = [`company_id = @companyId`];
+    const params = { companyId };
+    if (description_pattern) { where.push(`description_pattern = @description_pattern`); params.description_pattern = description_pattern; }
+    if (counterparty) { where.push(`counterparty = @counterparty`); params.counterparty = counterparty; }
+    if (bank_account) { where.push(`bank_account = @bank_account`); params.bank_account = bank_account; }
+
+    const sql = `SELECT * FROM matching_history WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT ${limit}`;
+    return query(sql, params);
+  }
+
+  throw Object.assign(new Error(`Unknown matching_history action: ${action}`), { code: 'INVALID_INPUT' });
+}
+
+// --- Input rejections (bank-matching-spec §11.2) ---
+// Statement lines with missing critical data (missing date, missing amount,
+// missing description AND counterparty). The agent creates a rejection item
+// (one per statement) via input_rejection.create; the inbox aggregates it as
+// a Class B item with verbs r (retry) / d (discard). The input_rejections
+// table IS the source of truth (R8). input_rejection.create is agent-only (in
+// AGENT_ALLOWED); list/get are viewer reads; discard is data_entry (human).
+
+async function handleInputRejection(ctx, action) {
+  const { companyId, body, userEmail } = ctx;
+
+  // input_rejection.create (agent-only): insert a new open rejection item.
+  if (action === 'input_rejection.create') {
+    const { statement_id, statement_date, rejected_lines } = body;
+
+    if (!statement_id || typeof statement_id !== 'string')
+      throw Object.assign(new Error('statement_id required'), { code: 'INVALID_INPUT' });
+    if (!Array.isArray(rejected_lines) || rejected_lines.length === 0)
+      throw Object.assign(new Error('rejected_lines must be a non-empty array'), { code: 'INVALID_INPUT' });
+
+    const rejectionId = uuid();
+    const linesJson = JSON.stringify(rejected_lines);
+    const dateVal = statement_date || null;
+
+    await exec(
+      `INSERT INTO input_rejections
+         (rejection_id, company_id, statement_id, statement_date, rejected_lines, status, created_by)
+       VALUES
+         (@rejectionId, @companyId, @statement_id, @statement_date, @rejected_lines, 'open', @created_by)`,
+      {
+        rejectionId, companyId,
+        statement_id,
+        statement_date: dateVal,
+        rejected_lines: linesJson,
+        created_by: userEmail || 'agent',
+      }
+    );
+
+    await emitEvent(ctx, 'input_rejection.created', 'input_rejection', rejectionId,
+      { statement_id, line_count: rejected_lines.length });
+
+    return { rejection_id: rejectionId, status: 'open' };
+  }
+
+  // input_rejection.list (viewer): list items, optional status filter.
+  if (action === 'input_rejection.list') {
+    const { status } = body;
+    let limit = Number(body.limit);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 100;
+    if (limit > 1000) limit = 1000;
+
+    const where = [`company_id = @companyId`];
+    const params = { companyId };
+    if (status && typeof status === 'string') {
+      where.push(`status = @status`);
+      params.status = status;
+    }
+
+    const sql = `SELECT rejection_id, statement_id, statement_date, rejected_lines,
+                        status, created_by, created_at
+                 FROM input_rejections
+                 WHERE ${where.join(' AND ')}
+                 ORDER BY created_at DESC
+                 LIMIT ${limit}`;
+    return query(sql, params);
+  }
+
+  // input_rejection.get (viewer): fetch one item; parse rejected_lines JSON.
+  if (action === 'input_rejection.get') {
+    const { rejectionId } = body;
+    if (!rejectionId)
+      throw Object.assign(new Error('rejectionId required'), { code: 'INVALID_INPUT' });
+
+    const rows = await query(
+      `SELECT rejection_id, statement_id, statement_date, rejected_lines,
+              status, created_by, created_at
+       FROM input_rejections
+       WHERE company_id = @companyId AND rejection_id = @rejectionId`,
+      { companyId, rejectionId }
+    );
+    if (rows.length === 0) {
+      throw Object.assign(new Error('Input rejection not found'), { code: 'NOT_FOUND' });
+    }
+    const row = rows[0];
+    let lines = [];
+    try { lines = JSON.parse(row.rejected_lines || '[]'); } catch (e) { /* malformed */ }
+    return {
+      rejection_id: row.rejection_id,
+      statement_id: row.statement_id,
+      statement_date: row.statement_date,
+      rejected_lines: lines,
+      status: row.status,
+      created_by: row.created_by,
+      created_at: row.created_at,
+    };
+  }
+
+  // input_rejection.discard (data_entry, human-only): terminal discard.
+  if (action === 'input_rejection.discard') {
+    const { rejectionId } = body;
+    if (!rejectionId)
+      throw Object.assign(new Error('rejectionId required'), { code: 'INVALID_INPUT' });
+
+    const rows = await query(
+      `SELECT rejection_id, status FROM input_rejections
+       WHERE company_id = @companyId AND rejection_id = @rejectionId`,
+      { companyId, rejectionId }
+    );
+    if (rows.length === 0) {
+      throw Object.assign(new Error('Input rejection not found'), { code: 'NOT_FOUND' });
+    }
+    if (rows[0].status !== 'open') {
+      throw Object.assign(new Error('Input rejection is not open (status=' + rows[0].status + ')'), { code: 'INVALID_STATUS' });
+    }
+
+    await exec(
+      `UPDATE input_rejections SET status = 'discarded'
+       WHERE company_id = @companyId AND rejection_id = @rejectionId`,
+      { companyId, rejectionId }
+    );
+
+    await emitEvent(ctx, 'input_rejection.discarded', 'input_rejection', rejectionId, {});
+    return { discarded: true };
+  }
+
+  throw Object.assign(new Error(`Unknown input_rejection action: ${action}`), { code: 'INVALID_INPUT' });
+}
+
+// --- Calibration (bank-matching-spec §6.2) ---
+// Plain running counter per (source_type, confidence_band), computed over
+// full history. realized_accuracy = approved_unedited / proposed; below N=10
+// the number is not trusted (null). confidence is stored as JSON VARCHAR, so
+// we aggregate in JS after fetching all rows.
+
+async function handleCalibration(ctx, action) {
+  const { companyId } = ctx;
+
+  if (action === 'calibration.get') {
+    const rows = await query(
+      `SELECT source_type, confidence, outcome FROM matching_history WHERE company_id = @companyId`,
+      { companyId }
+    );
+
+    // Aggregate in JS by (source_type, confidence_band). The confidence
+    // column is a JSON VARCHAR; parse it to extract the `band` field.
+    const groups = new Map();
+    for (const row of rows) {
+      let band = 'unknown';
+      if (row.confidence) {
+        try {
+          const parsed = JSON.parse(row.confidence);
+          if (parsed && typeof parsed.band === 'string') band = parsed.band;
+        } catch (_e) {
+          // Malformed JSON — fall through to 'unknown' band.
+        }
+      }
+      const key = `${row.source_type || 'unknown'}|${band}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = { source_type: row.source_type || 'unknown', confidence_band: band,
+              proposed: 0, approved_unedited: 0, approved_edited: 0, rejected: 0 };
+        groups.set(key, g);
+      }
+      g.proposed += 1;
+      if (row.outcome === 'approved_unedited') g.approved_unedited += 1;
+      else if (row.outcome === 'approved_edited') g.approved_edited += 1;
+      else if (row.outcome === 'rejected') g.rejected += 1;
+    }
+
+    const calibration = Array.from(groups.values()).map((g) => {
+      // N=10 floor: below it, realized_accuracy is not trusted.
+      const realized_accuracy = g.proposed >= 10
+        ? (g.proposed > 0 ? g.approved_unedited / g.proposed : 0)
+        : null;
+      return { ...g, realized_accuracy };
+    });
+
+    return { calibration };
+  }
+
+  throw Object.assign(new Error(`Unknown calibration action: ${action}`), { code: 'INVALID_INPUT' });
 }
 
 // --- Centers ---

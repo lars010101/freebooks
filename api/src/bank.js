@@ -17,6 +17,7 @@ async function handleBank(ctx, action) {
     case 'bank.reconcile.list':  return listReconcile(ctx);
     case 'bank.reconcile.clear': return clearReconcile(ctx);
     case 'bank.uncleared.list':  return listAllUncleared(ctx);
+    case 'bank.match':           return matchLine(ctx);
     default:
       throw Object.assign(new Error(`Unknown bank action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -208,6 +209,370 @@ function matchBillRow(openBills, description, amount) {
     if (Math.abs(Number(bill.outstanding) - amount) < 0.01) return { bill, tier: 'suggest' };
   }
   return null;
+}
+
+/**
+ * B4 (bank-matching-spec §4.1) — richer open-item amount matcher with
+ * discrepancy classification. Reused by matchLine (tier 2) so the per-line API
+ * returns the structured { bill, discrepancy_type, delta, confidence } shape
+ * the agent expects, rather than matchBillRow's flat tier strings.
+ *
+ * Discrepancy types (§4.1):
+ *   open_item_exact            — |delta| < 0.01                  conf 1.00
+ *   early_payment_discount    — 1-2% below invoice               conf 0.85
+ *   bank_fee_netted           — small fixed delta 5..50          conf 0.70
+ *   fx_rounding               — cross-currency (bill≠bank)       conf 0.65
+ *   partial_payment           — amount < invoice (>2% below)     conf 0.50
+ *
+ * Vendor name / vendor_ref corroboration (mirrors matchBillRow) promotes
+ * lower-confidence tolerance matches to 'high'.
+ * Returns null if no open bill is a plausible amount match.
+ */
+function matchOpenItem(openBills, amount, description) {
+  if (!Array.isArray(openBills) || openBills.length === 0) return null;
+  const desc = (description || '').toUpperCase();
+  const absAmount = Math.abs(amount);
+
+  // 1) Exact amount match (within 0.01) — prefer vendor/ref corroboration.
+  for (const bill of openBills) {
+    const outstanding = Number(bill.outstanding);
+    if (Math.abs(outstanding - absAmount) < 0.01) {
+      const vendor = (bill.vendor || '').toUpperCase();
+      const ref = (bill.vendor_ref || '').toUpperCase();
+      let corroborated = false;
+      if (ref) {
+        const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
+        if (token.test(desc)) corroborated = true;
+      }
+      if (!corroborated && vendor && desc.includes(vendor)) corroborated = true;
+      if (!corroborated && ref && desc.includes(ref)) corroborated = true;
+      return {
+        bill,
+        discrepancy_type: 'open_item_exact',
+        delta: 0,
+        confidence: corroborated ? 1.0 : 0.95,
+      };
+    }
+  }
+
+  // 2) Tolerance matches — classify the discrepancy (§4.1).
+  for (const bill of openBills) {
+    const outstanding = Number(bill.outstanding);
+    if (!outstanding || outstanding <= 0) continue;
+    const delta = outstanding - absAmount; // positive ⇒ bank paid less than invoice
+    const absDelta = Math.abs(delta);
+    if (absDelta < 0.01) continue; // already handled as exact above
+    // Only consider "amount ≤ invoice" tolerance paths (delta >= 0); overpayment
+    // is left to tier 4 (LLM) — v1 deterministic core is conservative.
+    if (delta < 0) continue;
+
+    const pct = delta / outstanding;
+    let discrepancy_type = null;
+    let confidence = 0.70;
+    if (pct >= 0.01 && pct <= 0.02) {
+      discrepancy_type = 'early_payment_discount';
+      confidence = 0.85;
+    } else if (absDelta >= 5 && absDelta <= 50) {
+      discrepancy_type = 'bank_fee_netted';
+      confidence = 0.70;
+    } else if (bill.currency && bill.currency !== 'USD' /* home */) {
+      discrepancy_type = 'fx_rounding';
+      confidence = 0.65;
+    } else if (absAmount < outstanding) {
+      discrepancy_type = 'partial_payment';
+      confidence = 0.50;
+    }
+    if (!discrepancy_type) continue;
+
+    // Vendor/ref corroboration promotes the match (same logic as exact path).
+    const vendor = (bill.vendor || '').toUpperCase();
+    const ref = (bill.vendor_ref || '').toUpperCase();
+    let corroborated = false;
+    if (ref) {
+      const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
+      if (token.test(desc)) corroborated = true;
+    }
+    if (!corroborated && vendor && desc.includes(vendor)) corroborated = true;
+    if (!corroborated && ref && desc.includes(ref)) corroborated = true;
+    if (corroborated) confidence = Math.min(1.0, confidence + 0.10);
+
+    return { bill, discrepancy_type, delta, confidence };
+  }
+
+  // 3) 1:N — one transaction settles 2-8 open bills from the same vendor
+  // (bank-matching-spec §4.1). Brute-force with cap N ≤ 8.
+  const byVendor = new Map();
+  for (const bill of openBills) {
+    const v = (bill.vendor || '').toUpperCase();
+    if (!v) continue;
+    if (!byVendor.has(v)) byVendor.set(v, []);
+    byVendor.get(v).push(bill);
+  }
+  for (const [, bills] of byVendor) {
+    if (bills.length < 2) continue;
+    // Cap N at 8; iterate subset sizes 2..8.
+    for (let n = 2; n <= Math.min(8, bills.length); n++) {
+      const combos = combinations(bills, n);
+      for (const combo of combos) {
+        const sum = combo.reduce((s, b) => s + Number(b.outstanding), 0);
+        if (Math.abs(sum - absAmount) < 0.01) {
+          return {
+            bill: combo[0],          // primary bill (first by due_date ordering)
+            bills: combo,            // full set for the agent's evidence
+            discrepancy_type: 'open_item_exact',
+            delta: 0,
+            confidence: 0.90,         // multi-invoice exact sum, slightly below single exact
+          };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+// k-combinations of an array (order preserved by index, not by value).
+function combinations(arr, k) {
+  const out = [];
+  const n = arr.length;
+  if (k > n) return out;
+  const idx = Array.from({ length: k }, (_, i) => i);
+  while (true) {
+    out.push(idx.map((i) => arr[i]));
+    // find rightmost index that can advance
+    let i = k - 1;
+    while (i >= 0 && idx[i] === n - k + i) i--;
+    if (i < 0) break;
+    idx[i]++;
+    for (let j = i + 1; j < k; j++) idx[j] = idx[j - 1] + 1;
+  }
+  return out;
+}
+
+/**
+ * B4 (bank-matching-spec §8.2) — bank.match handler.
+ *
+ * Runs the deterministic tiers 1-3 against a single statement line and returns
+ * structured match results with per-dimension confidence + evidence. The agent
+ * (or human UI) then decides what to do — this action does NOT write to the
+ * database (catalog mutating:false); it never proposes. Tier 4 (LLM) is the
+ * caller's responsibility when this returns { matched: false, reason: 'no_match' }.
+ *
+ * Input line: { date, amount, description, counterparty?, transaction_id? }
+ * Pre-cascade (§1.1): idempotency dedup against journal_proposals.source_transaction_id.
+ *
+ * Output (matched): { matched:true, tier, source_type, confidence, evidence,
+ *   suggested_dimensions, lines }
+ * Output (no match): { matched:false, reason:'no_match' }
+ * Output (duplicate): { matched:false, reason:'duplicate', existing_proposal_id }
+ */
+async function matchLine(ctx) {
+  const { companyId, body } = ctx;
+  const line = body && body.line;
+  const bankAccountParam = body && body.bankAccount;
+
+  if (!line || typeof line !== 'object') {
+    throw Object.assign(new Error('line object required'), { code: 'INVALID_INPUT' });
+  }
+  if (line.amount == null || line.description == null || line.date == null) {
+    throw Object.assign(new Error('line requires date, amount, description'), { code: 'INVALID_INPUT' });
+  }
+
+  // Resolve bank account: explicit param → settings default.
+  let bankAccount = bankAccountParam || null;
+  if (!bankAccount) {
+    const settingsRows = await query(
+      `SELECT value FROM settings WHERE company_id = @companyId AND key = 'default_bank_account'`,
+      { companyId }
+    );
+    bankAccount = settingsRows.length > 0 ? settingsRows[0].value : null;
+  }
+
+  // ── Pre-cascade idempotency dedup (§1.1) ──────────────────────────────────
+  // If we already have a journal_proposal for this transaction (bank-provided
+  // id, or a content hash we synthesized), don't re-match — return duplicate.
+  const sourceTransactionId = line.transaction_id ||
+    `${line.date}|${line.amount}|${line.description}|${bankAccount || ''}`;
+  const dupRows = await query(
+    `SELECT proposal_id FROM journal_proposals
+     WHERE company_id = @companyId AND source_transaction_id = @sourceTransactionId
+     LIMIT 1`,
+    { companyId, sourceTransactionId }
+  );
+  if (dupRows.length > 0) {
+    return { matched: false, reason: 'duplicate', existing_proposal_id: dupRows[0].proposal_id };
+  }
+
+  // ── Tier 1 — learned rules (§1, source_type 'learned_rule') ───────────────
+  const mappings = await query(
+    `SELECT * FROM bank_mappings
+     WHERE company_id = @companyId AND is_active = TRUE
+     ORDER BY priority ASC`,
+    { companyId }
+  );
+  const mapping = matchMapping(mappings, line.description);
+  if (mapping) {
+    const isInflow = Number(line.amount) > 0;
+    const offsetAccount = mapping.debit_account;
+    const hasExplicitCredit = mapping.credit_account && mapping.credit_account !== mapping.debit_account;
+    const debitAccount = hasExplicitCredit
+      ? mapping.debit_account
+      : (isInflow ? bankAccount : offsetAccount);
+    const creditAccount = hasExplicitCredit
+      ? mapping.credit_account
+      : (isInflow ? offsetAccount : bankAccount);
+    const amount = Math.abs(Number(line.amount));
+
+    return {
+      matched: true,
+      tier: 1,
+      source_type: 'learned_rule',
+      confidence: {
+        account:      { value: mapping.debit_account, confidence: 0.95, derived_from: [] },
+        vat_code:      { value: mapping.vat_code || null, confidence: 0.60, derived_from: ['account'] },
+        counterparty:  { value: null, confidence: 0, derived_from: [] },
+      },
+      evidence: [{
+        type: 'rule_match',
+        description: `Pattern '${mapping.pattern}' → account ${mapping.debit_account}`,
+        mapping_id: mapping.mapping_id,
+      }],
+      suggested_dimensions: {
+        account: mapping.debit_account,
+        vat_code: mapping.vat_code || null,
+        counterparty: null,
+        cost_center: mapping.cost_center || null,
+        profit_center: mapping.profit_center || null,
+      },
+      lines: [
+        { account_code: debitAccount,  debit: amount,  credit: 0,        date: line.date, description: line.description, vat_code: mapping.vat_code || null },
+        { account_code: creditAccount, debit: 0,       credit: amount,   date: line.date, description: line.description },
+      ],
+    };
+  }
+
+  // ── Tier 2 — open items (§4, source_type 'open_item') ─────────────────────
+  const companies = await query(
+    `SELECT accounting_method FROM companies WHERE company_id = @companyId LIMIT 1`,
+    { companyId }
+  );
+  const accountingMethod = companies[0]?.accounting_method;
+
+  if (accountingMethod !== 'cash') {
+    const openBills = await query(
+      `SELECT bill_id, vendor, vendor_ref, amount_home, amount_paid, ap_account,
+              currency, (amount_home - amount_paid) AS outstanding, due_date
+       FROM bills
+       WHERE company_id = @companyId AND status IN ('posted', 'partial')
+       ORDER BY due_date`,
+      { companyId }
+    );
+    const m = matchOpenItem(openBills, line.amount, line.description);
+    if (m) {
+      const isInflow = Number(line.amount) > 0;
+      const amount = Math.abs(Number(line.amount));
+      const bill = m.bill;
+      const apAccount = bill.ap_account || null;
+      const debitAccount = isInflow ? bankAccount : apAccount;
+      const creditAccount = isInflow ? apAccount : bankAccount;
+      const evidenceType = m.discrepancy_type === 'open_item_exact' ? 'open_item_exact' : 'open_item_tolerance';
+      const ev = {
+        type: evidenceType,
+        description: m.discrepancy_type === 'open_item_exact'
+          ? `Exact amount match: ${bill.vendor} ${bill.vendor_ref || ''}`
+          : `${m.discrepancy_type} (delta ${m.delta.toFixed(2)}): ${bill.vendor} ${bill.vendor_ref || ''}`,
+        bill_id: bill.bill_id,
+        discrepancy_type: m.discrepancy_type,
+        delta: m.delta,
+      };
+      if (m.bills) ev.bills = m.bills.map((b) => b.bill_id);
+
+      return {
+        matched: true,
+        tier: 2,
+        source_type: 'open_item',
+        confidence: {
+          account:      { value: apAccount,    confidence: m.confidence, derived_from: ['bill'] },
+          vat_code:      { value: null,         confidence: 0,           derived_from: [] },
+          counterparty:  { value: bill.vendor, confidence: m.confidence, derived_from: ['bill'] },
+        },
+        evidence: [ev],
+        suggested_dimensions: {
+          account: apAccount,
+          vat_code: null,
+          counterparty: bill.vendor,
+          cost_center: null,
+          profit_center: null,
+        },
+        lines: [
+          { account_code: debitAccount,  debit: amount, credit: 0,      date: line.date, description: line.description },
+          { account_code: creditAccount, debit: 0,      credit: amount,  date: line.date, description: line.description },
+        ],
+      };
+    }
+  }
+
+  // ── Tier 3 — master data / vendors (§1, source_type 'master_data') ────────
+  // v1: case-insensitive substring of vendor name in the description. The spec
+  // mentions trigram similarity but says it's simplified for small companies.
+  const vendors = await query(
+    `SELECT vendor_id, name, expense_account FROM vendors WHERE company_id = @companyId`,
+    { companyId }
+  );
+  if (vendors.length > 0) {
+    const descLc = (line.description || '').toLowerCase();
+    let bestVendor = null;
+    for (const v of vendors) {
+      const nameLc = (v.name || '').toLowerCase();
+      if (nameLc && descLc.includes(nameLc)) {
+        // Prefer the longest matching name (most specific).
+        if (!bestVendor || (v.name || '').length > (bestVendor.name || '').length) {
+          bestVendor = v;
+        }
+      }
+    }
+    if (bestVendor) {
+      const isInflow = Number(line.amount) > 0;
+      const amount = Math.abs(Number(line.amount));
+      const expenseAccount = bestVendor.expense_account || null;
+      const offsetAccount = expenseAccount;
+      const debitAccount = isInflow ? bankAccount : offsetAccount;
+      const creditAccount = isInflow ? offsetAccount : bankAccount;
+      const lines = expenseAccount
+        ? [
+            { account_code: debitAccount,  debit: amount, credit: 0,     date: line.date, description: line.description },
+            { account_code: creditAccount, debit: 0,      credit: amount, date: line.date, description: line.description },
+          ]
+        : [];
+
+      return {
+        matched: true,
+        tier: 3,
+        source_type: 'master_data',
+        confidence: {
+          account:      { value: expenseAccount,           confidence: 0.50, derived_from: [] },
+          vat_code:      { value: null,                    confidence: 0,    derived_from: [] },
+          counterparty:  { value: bestVendor.vendor_id,    confidence: 0.70, derived_from: [] },
+        },
+        evidence: [{
+          type: 'counterparty_name_fuzzy',
+          description: `Description '${line.description}' matches vendor '${bestVendor.name}'`,
+          vendor_id: bestVendor.vendor_id,
+        }],
+        suggested_dimensions: {
+          account: expenseAccount,
+          vat_code: null,
+          counterparty: bestVendor.vendor_id,
+          cost_center: null,
+          profit_center: null,
+        },
+        lines,
+      };
+    }
+  }
+
+  // ── No match — caller routes to tier 4 (LLM) ──────────────────────────────
+  return { matched: false, reason: 'no_match' };
 }
 
 async function approveBankEntries(ctx) {

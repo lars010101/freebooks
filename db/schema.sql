@@ -103,6 +103,75 @@ CREATE TABLE IF NOT EXISTS bank_mappings (
 );
 
 -- =============================================================================
+-- mapping_suggestions (bank-matching-spec §10.2)
+-- Agent-proposed bank-mapping rules awaiting human approval. Same lifecycle as
+-- journal_proposals: proposed → approved | rejected. "Approve" writes to
+-- bank_mappings (human-attributed). The agent never writes to bank_mappings.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS mapping_suggestions (
+  company_id           VARCHAR NOT NULL,
+  suggestion_id       VARCHAR NOT NULL UNIQUE,
+  bank_account        VARCHAR,
+  description_pattern VARCHAR NOT NULL,
+  suggested_account   VARCHAR NOT NULL,
+  suggested_vat_code  VARCHAR,
+  suggested_dimensions VARCHAR,   -- JSON
+  evidence            VARCHAR,    -- JSON
+  source_proposal_id  VARCHAR,
+  status              VARCHAR NOT NULL DEFAULT 'proposed',
+  created_by          VARCHAR NOT NULL,
+  reviewed_by         VARCHAR,
+  reviewed_at         TIMESTAMP,
+  created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mapping_suggestions_company_status
+  ON mapping_suggestions(company_id, status);
+
+-- =============================================================================
+-- matching_history (bank-matching-spec §10.3)
+-- Learning store: every proposal's outcome (approved_unedited/approved_edited/
+-- rejected) across all tiers. Never pruned (BFL 7 kap retention). Feeds
+-- calibration counters (§6.2) and rule crystallization/retirement (§10.5).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS matching_history (
+  id                   VARCHAR NOT NULL DEFAULT (uuid()),
+  company_id           VARCHAR NOT NULL,
+  bank_account         VARCHAR,
+  description_pattern  VARCHAR,
+  counterparty         VARCHAR,
+  amount               DOUBLE,
+  proposed_dimensions  VARCHAR,   -- JSON
+  approved_dimensions  VARCHAR,   -- JSON
+  source_type          VARCHAR NOT NULL,  -- learned_rule | open_item | master_data | llm_semantic
+  confidence           VARCHAR,   -- JSON
+  evidence             VARCHAR,   -- JSON
+  outcome              VARCHAR NOT NULL,  -- approved_unedited | approved_edited | rejected
+  created_at           TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_matching_history_company_pattern
+  ON matching_history(company_id, description_pattern);
+
+-- =============================================================================
+-- input_rejections (bank-matching-spec §11.2)
+-- Statement lines with missing critical data (missing date, missing amount,
+-- missing description AND counterparty). One row per statement with rejected
+-- lines — the agent creates it, the inbox aggregates it. Verbs: r (retry),
+-- d (discard). Drill-through to individual rejected lines.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS input_rejections (
+  rejection_id      VARCHAR NOT NULL DEFAULT (uuid()),
+  company_id        VARCHAR NOT NULL,
+  statement_id      VARCHAR NOT NULL,        -- the attachment/entity id of the statement
+  statement_date    DATE,
+  rejected_lines    VARCHAR NOT NULL,        -- JSON array of { line, reason, raw }
+  status            VARCHAR NOT NULL DEFAULT 'open',  -- open | retried | discarded
+  created_by        VARCHAR NOT NULL,        -- agent email
+  created_at        TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_input_rejections_company_status
+  ON input_rejections(company_id, status);
+
+-- =============================================================================
 -- settings
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS settings (
@@ -549,4 +618,9 @@ CREATE INDEX IF NOT EXISTS idx_journal_proposals_company_status ON journal_propo
 -- Computed by buildProposeWarnings at propose/upsert time; flows through to
 -- inbox.list for inline warning icons on the review surface.
 ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS warnings VARCHAR;
+
+-- B4 (bank-matching-spec §1.1): bank transaction ID for dedup. A bank-provided
+-- transaction ID (or content hash) checked before the cascade runs to prevent
+-- duplicate proposals from feed redelivery.
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS source_transaction_id VARCHAR;
 

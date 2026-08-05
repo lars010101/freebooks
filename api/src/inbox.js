@@ -51,6 +51,32 @@ async function listInbox(ctx) {
     return { items: await queryBillsDue(companyId, limit) };
   }
 
+  // Class B — mapping_suggestions proposed by the agent (bank-matching-spec
+  // §10.2). status='suggestions' is a filter view of proposed mapping rules
+  // awaiting human approve/reject. The mapping_suggestions table is the
+  // source of truth (R8); verbs are mapping.suggestion.approve/reject called
+  // against payload_ref (= suggestion_id).
+  if (status === 'suggestions') {
+    return { items: await queryMappingSuggestions(companyId, limit) };
+  }
+
+  // Class A — bill drafts (§10.2). status='drafts' is a filter view of
+  // agent-created bill drafts (B1's bill.create agent→draft delegation),
+  // awaiting human post/discard. The bills table IS the source of truth
+  // (R8); verbs are bill.draft.post (y) and bill.draft.delete (x) called
+  // against payload_ref (= bill_id).
+  if (status === 'drafts') {
+    return { items: await queryBillDrafts(companyId, limit) };
+  }
+
+  // Class B — input rejections (bank-matching-spec §11.2). status='rejections'
+  // is a filter view of statement lines with missing critical data flagged by
+  // the agent. The input_rejections table IS the source of truth (R8); verbs
+  // are r (retry) and d (discard) called against payload_ref (= rejection_id).
+  if (status === 'rejections') {
+    return { items: await queryInputRejections(companyId, limit) };
+  }
+
   // Class A — journal_proposals (§10.3). `includeLines` so we can compute
   // the item `amount` as the sum of line debits parsed from the lines JSON.
   const rows = await queryProposals(companyId, { status, limit, includeLines: true });
@@ -140,6 +166,120 @@ async function queryBillsDue(companyId, limit) {
       description: row.description || '',
       created_by: row.created_by || '',
       currency: row.currency || '',
+    };
+  });
+}
+
+/**
+ * queryMappingSuggestions — Class B mapping-suggestion items
+ * (bank-matching-spec §10.2). Proposed bank-mapping rules from the agent,
+ * awaiting human approve/reject. Normalized to the inbox item shape. The
+ * mapping_suggestions table IS the source of truth (R8); no staging.
+ *
+ * Item shape: { type:'mapping_suggestion', source:'agent', counterparty:null,
+ * amount:null, date:created_at, proposed_at:created_at, summary,
+ * verbs:['approve','reject','open'], payload_ref:suggestion_id,
+ * status, reference, description, created_by }.
+ */
+async function queryMappingSuggestions(companyId, limit) {
+  var rows = await query(
+    `SELECT suggestion_id, bank_account, description_pattern, suggested_account,
+            suggested_vat_code, source_proposal_id, status, created_by, created_at
+     FROM mapping_suggestions
+     WHERE company_id = @companyId
+       AND status = 'proposed'
+     ORDER BY created_at DESC
+     LIMIT @lim`,
+    { companyId: companyId, lim: limit }
+  );
+
+  return rows.map(function (row) {
+    return {
+      type: 'mapping_suggestion',
+      source: 'agent',
+      counterparty: null,
+      amount: null,
+      date: row.created_at,
+      proposed_at: row.created_at,
+      summary: 'New rule suggested: ' + row.description_pattern + ' → account ' + row.suggested_account,
+      verbs: ['approve', 'reject', 'open'],
+      payload_ref: row.suggestion_id,
+      status: row.status,
+      reference: row.description_pattern,
+      description: row.description_pattern,
+      created_by: row.created_by,
+    };
+  });
+}
+
+/**
+ * queryBillDrafts — Class A bill-draft items (§10.2). Agent-created bill
+ * drafts (B1's bill.create agent→draft delegation) with status='draft',
+ * awaiting human post (bill.draft.post) or discard (bill.draft.delete).
+ * Sorted by created_at DESC (newest first). Normalized to the inbox item
+ * shape. The bills table row IS the source of truth (R8); no staging.
+ *
+ * Item shape: { type:'bill_draft', source:'agent', counterparty:vendor,
+ * amount, date, proposed_at:created_at, summary,
+ * verbs:['y','x'], payload_ref:bill_id, status:'draft',
+ * reference:vendor_ref, description, created_by, currency }.
+ */
+async function queryBillDrafts(companyId, limit) {
+  var rows = await query(
+    `SELECT bill_id, vendor, vendor_ref, date, amount, currency, description, created_by, created_at
+     FROM bills
+     WHERE company_id = @companyId AND status = 'draft'
+     ORDER BY created_at DESC
+     LIMIT @lim`,
+    { companyId: companyId, lim: limit }
+  );
+
+  return rows.map(function (row) {
+    return {
+      type: 'bill_draft',
+      source: 'agent',
+      counterparty: row.vendor,
+      amount: Number(row.amount) || 0,
+      date: row.date,
+      proposed_at: row.created_at,
+      summary: row.vendor + (row.vendor_ref ? ' ' + row.vendor_ref : ''),
+      verbs: ['y', 'x'],
+      payload_ref: row.bill_id,
+      status: 'draft',
+      reference: row.vendor_ref || '',
+      description: row.description || '',
+      created_by: row.created_by || '',
+      currency: row.currency || '',
+    };
+  });
+}
+
+async function queryInputRejections(companyId, limit) {
+  var rows = await query(
+    `SELECT rejection_id, statement_id, statement_date, rejected_lines, status, created_by, created_at
+     FROM input_rejections
+     WHERE company_id = @companyId AND status = 'open'
+     ORDER BY created_at DESC
+     LIMIT @lim`,
+    { companyId: companyId, lim: limit }
+  );
+  return rows.map(function (row) {
+    var lines = [];
+    try { lines = JSON.parse(row.rejected_lines || '[]'); } catch (e) { /* malformed */ }
+    return {
+      type: 'input_rejection',
+      source: 'agent',
+      counterparty: null,
+      amount: null,
+      date: row.statement_date || row.created_at,
+      proposed_at: row.created_at,
+      summary: lines.length + ' line' + (lines.length !== 1 ? 's' : '') + ' need attention',
+      verbs: ['r', 'd'],
+      payload_ref: row.rejection_id,
+      status: row.status,
+      reference: row.statement_id,
+      description: '',
+      created_by: row.created_by,
     };
   });
 }

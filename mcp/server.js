@@ -2,11 +2,14 @@
 /**
  * freebooks MCP server — stdio transport (Phase A, spec §5).
  *
- * Exposes the agent-ready freebooks action surface as four MCP tools:
- *   - event_list          → action `event.list`            (work-discovery)
- *   - journal_propose     → action `journal.propose`        (the only write path)
- *   - attachment_upload   → action `attachment.upload` (base64 bytes — agent never touches disk)
- *   - freebooks_read      → any catalog action with mutating:false (generic read)
+ * Exposes the agent-ready freebooks action surface as seven MCP tools:
+ *   - event_list              → action `event.list`            (work-discovery)
+ *   - journal_propose         → action `journal.propose`       (ledger write path)
+ *   - attachment_upload       → action `attachment.upload`     (base64 — agent never touches disk)
+ *   - freebooks_read          → any catalog action with mutating:false (generic read)
+ *   - matching_history_record → action `matching_history.record` (learning-store write)
+ *   - mapping_suggest         → action `mapping.suggest`       (propose bank-mapping rules)
+ *   - bill_create             → action `bill.create`           (agent saves a draft; human posts)
  *
  * Identity / correlation (spec §5.1):
  *   - FREEBOOKS_API_URL  (default http://127.0.0.1:3000)
@@ -59,10 +62,16 @@ const FALLBACK_READ_ACTIONS = new Set([
 
 let READ_ALLOWLIST = null; // Set<string> of non-mutating catalog actions, or null
 
-// The four tools this server advertises (spec §5.2). The manifest is
+// The seven tools this server advertises (spec §5.2). The manifest is
 // self-documenting: there is deliberately NO approve/reject/post/void/master-data
 // tool — an agent account is denied those server-side anyway (§2.3), and their
-// absence keeps the tool surface honest.
+// absence keeps the tool surface honest. The three Phase B write tools
+// (matching_history_record, mapping_suggest, bill_create) do NOT change this
+// principle: matching_history_record writes only to the learning store (never
+// the ledger), mapping_suggest proposes to mapping_suggestions (a human
+// approves into bank_mappings — the "approve is the post" pattern), and
+// bill_create saves a DRAFT when called by an agent (the human posts it via
+// bill.draft.post). No tool lets an agent finalize or mutate master data.
 const TOOLS = [
   {
     name: 'event_list',
@@ -126,6 +135,60 @@ const TOOLS = [
         params: { type: 'object', description: 'Action parameters (companyId is injected from FREEBOOKS_COMPANY).' },
       },
       required: ['action'],
+    },
+  },
+  {
+    name: 'matching_history_record',
+    description: 'Record a bank-matching proposal review outcome (approved_unedited/approved_edited/rejected). Feeds calibration and rule crystallization/retirement (bank-matching-spec §6/§10). Maps to action matching_history.record.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        description_pattern: { type: 'string', description: 'Normalized statement-line description pattern.' },
+        source_type: { type: 'string', description: 'learned_rule | open_item | master_data | llm_semantic' },
+        outcome: { type: 'string', description: 'approved_unedited | approved_edited | rejected' },
+        bank_account: { type: 'string' },
+        counterparty: { type: 'string' },
+        amount: { type: 'number' },
+        proposed_dimensions: { type: 'object' },
+        approved_dimensions: { type: 'object' },
+        confidence: { type: 'object' },
+        evidence: { type: 'object' },
+        idempotency_key: { type: 'string', description: 'Caller-supplied Idempotency-Key for cross-retry identity.' },
+      },
+      required: ['description_pattern', 'source_type', 'outcome'],
+    },
+  },
+  {
+    name: 'mapping_suggest',
+    description: 'Propose a candidate bank-mapping rule to mapping_suggestions (never to mappings itself — human approves via inbox). Maps to action mapping.suggest (bank-matching-spec §10.2/§10.4).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        description_pattern: { type: 'string', description: 'Statement description pattern to match.' },
+        suggested_account: { type: 'string', description: 'Account code for the suggested rule.' },
+        suggestionId: { type: 'string', description: 'With suggestionId: upsert a still-proposed row owned by the same caller.' },
+        bank_account: { type: 'string' },
+        suggested_vat_code: { type: 'string' },
+        suggested_dimensions: { type: 'object' },
+        evidence: { type: 'object' },
+        source_proposal_id: { type: 'string' },
+        idempotency_key: { type: 'string', description: 'Caller-supplied Idempotency-Key.' },
+      },
+      required: ['description_pattern', 'suggested_account'],
+    },
+  },
+  {
+    name: 'bill_create',
+    description: 'Create a bill DRAFT from an extracted supplier invoice (agent-data-feeding-guide §4.5b). The draft enters the inbox as a Class A item; a human posts it via bill.post. Maps to action bill.create. No bill_post tool exists — the human approval IS the post (agent-readiness-spec §4.1).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bill: { type: 'object', description: 'Bill object (vendor, amount, due date, line items, currency). Same shape as bill.create action.' },
+        _replaceDraftId: { type: 'string' },
+        payment_batch_id: { type: 'string' },
+        idempotency_key: { type: 'string', description: 'Caller-supplied Idempotency-Key.' },
+      },
+      required: ['bill'],
     },
   },
 ];
@@ -274,6 +337,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const params = (args.params && typeof args.params === 'object') ? args.params : {};
         const res = await callAction(action, params);
+        return fromApiResult(res);
+      }
+
+      case 'matching_history_record': {
+        const params = {};
+        if (args.description_pattern != null) params.description_pattern = args.description_pattern;
+        if (args.source_type != null) params.source_type = args.source_type;
+        if (args.outcome != null) params.outcome = args.outcome;
+        if (args.bank_account != null) params.bank_account = args.bank_account;
+        if (args.counterparty != null) params.counterparty = args.counterparty;
+        if (args.amount != null) params.amount = args.amount;
+        if (args.proposed_dimensions != null) params.proposed_dimensions = args.proposed_dimensions;
+        if (args.approved_dimensions != null) params.approved_dimensions = args.approved_dimensions;
+        if (args.confidence != null) params.confidence = args.confidence;
+        if (args.evidence != null) params.evidence = args.evidence;
+        const idempotencyKey = args.idempotency_key || newIdempotencyKey();
+        const res = await callAction('matching_history.record', params, { idempotencyKey });
+        return fromApiResult(res);
+      }
+
+      case 'mapping_suggest': {
+        if (!args.description_pattern || !args.suggested_account) {
+          return errorResult('INVALID_INPUT', 'mapping_suggest requires `description_pattern` and `suggested_account`');
+        }
+        const params = {
+          description_pattern: args.description_pattern,
+          suggested_account: args.suggested_account,
+        };
+        if (args.suggestionId != null) params.suggestionId = args.suggestionId;
+        if (args.bank_account != null) params.bank_account = args.bank_account;
+        if (args.suggested_vat_code != null) params.suggested_vat_code = args.suggested_vat_code;
+        if (args.suggested_dimensions != null) params.suggested_dimensions = args.suggested_dimensions;
+        if (args.evidence != null) params.evidence = args.evidence;
+        if (args.source_proposal_id != null) params.source_proposal_id = args.source_proposal_id;
+        const idempotencyKey = args.idempotency_key || newIdempotencyKey();
+        const res = await callAction('mapping.suggest', params, { idempotencyKey });
+        return fromApiResult(res);
+      }
+
+      case 'bill_create': {
+        if (!args.bill || typeof args.bill !== 'object') {
+          return errorResult('INVALID_INPUT', 'bill_create requires a `bill` object');
+        }
+        const params = { bill: args.bill };
+        if (args._replaceDraftId != null) params._replaceDraftId = args._replaceDraftId;
+        if (args.payment_batch_id != null) params.payment_batch_id = args.payment_batch_id;
+        const idempotencyKey = args.idempotency_key || newIdempotencyKey();
+        const res = await callAction('bill.create', params, { idempotencyKey });
         return fromApiResult(res);
       }
 

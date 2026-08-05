@@ -99,6 +99,16 @@ async function handleBills(ctx, action) {
 }
 
 async function createBill(ctx) {
+  // B1 (agent-readiness-spec §4.5b): when the caller is an agent, bill.create
+  // saves a DRAFT (status='draft', no journal entries) instead of posting.
+  // The draft enters the inbox as a Class A item; a human posts it via
+  // bill.draft.post (the "approve is the post" pattern, §4.1). An agent must
+  // never post directly — the catalog role is 'agent' (1.5) and bill.create is
+  // in AGENT_ALLOWED, so agents pass the dispatch guard; this handler gate
+  // keeps them off the post path. Human callers are unaffected.
+  if (ctx.actor && ctx.actor.actorType === 'agent') {
+    return saveDraftBill(ctx);
+  }
   const { companyId, userEmail, body } = ctx;
   const { bill, payment_batch_id } = body;
 

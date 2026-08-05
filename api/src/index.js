@@ -222,7 +222,13 @@ async function handleApiRequest(req, res) {
     // v1 whitelist: non-mutating actions pass naturally (mutating:false);
     // attachment.upload is admitted here; A3j (§4.3) adds journal.propose so
     // agents can prepare journal batches (never post — that's the human approve).
-    const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose']);
+    // Phase B (agent-readiness-spec §2.3) admits five agent-writable actions:
+    //   - attachment.upload   (feed intake — agent never touches disk)
+    //   - journal.propose     (prepare batches — human approves to post)
+    //   - matching_history.record (learning-store write — proposal outcomes)
+    //   - mapping.suggest     (propose bank-mapping rules — human approves)
+    //   - bill.create          (agent path saves a DRAFT; human posts via bill.post)
+    const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose', 'matching_history.record', 'mapping.suggest', 'bill.create']);
     const actor = userEmail ? await resolveActor(userEmail, companyId) : { role: null, actorType: 'human' };
     const requestId = body.requestId || req.get('X-Request-Id') || null;
     if (actor.actorType === 'agent') {

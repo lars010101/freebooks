@@ -60,6 +60,15 @@ async function listInbox(ctx) {
     return { items: await queryMappingSuggestions(companyId, limit) };
   }
 
+  // Class A — bill drafts (§10.2). status='drafts' is a filter view of
+  // agent-created bill drafts (B1's bill.create agent→draft delegation),
+  // awaiting human post/discard. The bills table IS the source of truth
+  // (R8); verbs are bill.draft.post (y) and bill.draft.delete (x) called
+  // against payload_ref (= bill_id).
+  if (status === 'drafts') {
+    return { items: await queryBillDrafts(companyId, limit) };
+  }
+
   // Class A — journal_proposals (§10.3). `includeLines` so we can compute
   // the item `amount` as the sum of line debits parsed from the lines JSON.
   const rows = await queryProposals(companyId, { status, limit, includeLines: true });
@@ -191,6 +200,48 @@ async function queryMappingSuggestions(companyId, limit) {
       reference: row.description_pattern,
       description: row.description_pattern,
       created_by: row.created_by,
+    };
+  });
+}
+
+/**
+ * queryBillDrafts — Class A bill-draft items (§10.2). Agent-created bill
+ * drafts (B1's bill.create agent→draft delegation) with status='draft',
+ * awaiting human post (bill.draft.post) or discard (bill.draft.delete).
+ * Sorted by created_at DESC (newest first). Normalized to the inbox item
+ * shape. The bills table row IS the source of truth (R8); no staging.
+ *
+ * Item shape: { type:'bill_draft', source:'agent', counterparty:vendor,
+ * amount, date, proposed_at:created_at, summary,
+ * verbs:['y','x'], payload_ref:bill_id, status:'draft',
+ * reference:vendor_ref, description, created_by, currency }.
+ */
+async function queryBillDrafts(companyId, limit) {
+  var rows = await query(
+    `SELECT bill_id, vendor, vendor_ref, date, amount, currency, description, created_by, created_at
+     FROM bills
+     WHERE company_id = @companyId AND status = 'draft'
+     ORDER BY created_at DESC
+     LIMIT @lim`,
+    { companyId: companyId, lim: limit }
+  );
+
+  return rows.map(function (row) {
+    return {
+      type: 'bill_draft',
+      source: 'agent',
+      counterparty: row.vendor,
+      amount: Number(row.amount) || 0,
+      date: row.date,
+      proposed_at: row.created_at,
+      summary: row.vendor + (row.vendor_ref ? ' ' + row.vendor_ref : ''),
+      verbs: ['y', 'x'],
+      payload_ref: row.bill_id,
+      status: 'draft',
+      reference: row.vendor_ref || '',
+      description: row.description || '',
+      created_by: row.created_by || '',
+      currency: row.currency || '',
     };
   });
 }

@@ -152,6 +152,26 @@ CREATE INDEX IF NOT EXISTS idx_matching_history_company_pattern
   ON matching_history(company_id, description_pattern);
 
 -- =============================================================================
+-- input_rejections (bank-matching-spec §11.2)
+-- Statement lines with missing critical data (missing date, missing amount,
+-- missing description AND counterparty). One row per statement with rejected
+-- lines — the agent creates it, the inbox aggregates it. Verbs: r (retry),
+-- d (discard). Drill-through to individual rejected lines.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS input_rejections (
+  rejection_id      VARCHAR NOT NULL DEFAULT (uuid()),
+  company_id        VARCHAR NOT NULL,
+  statement_id      VARCHAR NOT NULL,        -- the attachment/entity id of the statement
+  statement_date    DATE,
+  rejected_lines    VARCHAR NOT NULL,        -- JSON array of { line, reason, raw }
+  status            VARCHAR NOT NULL DEFAULT 'open',  -- open | retried | discarded
+  created_by        VARCHAR NOT NULL,        -- agent email
+  created_at        TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_input_rejections_company_status
+  ON input_rejections(company_id, status);
+
+-- =============================================================================
 -- settings
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS settings (

@@ -69,6 +69,14 @@ async function listInbox(ctx) {
     return { items: await queryBillDrafts(companyId, limit) };
   }
 
+  // Class B — input rejections (bank-matching-spec §11.2). status='rejections'
+  // is a filter view of statement lines with missing critical data flagged by
+  // the agent. The input_rejections table IS the source of truth (R8); verbs
+  // are r (retry) and d (discard) called against payload_ref (= rejection_id).
+  if (status === 'rejections') {
+    return { items: await queryInputRejections(companyId, limit) };
+  }
+
   // Class A — journal_proposals (§10.3). `includeLines` so we can compute
   // the item `amount` as the sum of line debits parsed from the lines JSON.
   const rows = await queryProposals(companyId, { status, limit, includeLines: true });
@@ -242,6 +250,36 @@ async function queryBillDrafts(companyId, limit) {
       description: row.description || '',
       created_by: row.created_by || '',
       currency: row.currency || '',
+    };
+  });
+}
+
+async function queryInputRejections(companyId, limit) {
+  var rows = await query(
+    `SELECT rejection_id, statement_id, statement_date, rejected_lines, status, created_by, created_at
+     FROM input_rejections
+     WHERE company_id = @companyId AND status = 'open'
+     ORDER BY created_at DESC
+     LIMIT @lim`,
+    { companyId: companyId, lim: limit }
+  );
+  return rows.map(function (row) {
+    var lines = [];
+    try { lines = JSON.parse(row.rejected_lines || '[]'); } catch (e) { /* malformed */ }
+    return {
+      type: 'input_rejection',
+      source: 'agent',
+      counterparty: null,
+      amount: null,
+      date: row.statement_date || row.created_at,
+      proposed_at: row.created_at,
+      summary: lines.length + ' line' + (lines.length !== 1 ? 's' : '') + ' need attention',
+      verbs: ['r', 'd'],
+      payload_ref: row.rejection_id,
+      status: row.status,
+      reference: row.statement_id,
+      description: '',
+      created_by: row.created_by,
     };
   });
 }

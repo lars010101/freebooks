@@ -222,13 +222,14 @@ async function handleApiRequest(req, res) {
     // v1 whitelist: non-mutating actions pass naturally (mutating:false);
     // attachment.upload is admitted here; A3j (§4.3) adds journal.propose so
     // agents can prepare journal batches (never post — that's the human approve).
-    // Phase B (agent-readiness-spec §2.3) admits five agent-writable actions:
+    // Phase B (agent-readiness-spec §2.3) admits six agent-writable actions:
     //   - attachment.upload   (feed intake — agent never touches disk)
     //   - journal.propose     (prepare batches — human approves to post)
     //   - matching_history.record (learning-store write — proposal outcomes)
     //   - mapping.suggest     (propose bank-mapping rules — human approves)
     //   - bill.create          (agent path saves a DRAFT; human posts via bill.post)
-    const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose', 'matching_history.record', 'mapping.suggest', 'bill.create']);
+    //   - input_rejection.create (flag statement lines with missing critical data — human retries/discards)
+    const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose', 'matching_history.record', 'mapping.suggest', 'bill.create', 'input_rejection.create']);
     const actor = userEmail ? await resolveActor(userEmail, companyId) : { role: null, actorType: 'human' };
     const requestId = body.requestId || req.get('X-Request-Id') || null;
     if (actor.actorType === 'agent') {
@@ -315,6 +316,7 @@ async function handleApiRequest(req, res) {
       case 'coa':         result = await handleCoa(ctx, action); break;
       case 'mapping':     result = await handleMapping(ctx, action); break;
       case 'matching_history': result = await handleMatchingHistory(ctx, action); break;
+      case 'input_rejection':  result = await handleInputRejection(ctx, action); break;
       case 'calibration':      result = await handleCalibration(ctx, action); break;
       case 'center':      result = await handleCenter(ctx, action); break;
       case 'journals':   result = await handleJournals(ctx, action); break;
@@ -842,6 +844,134 @@ async function handleMatchingHistory(ctx, action) {
   }
 
   throw Object.assign(new Error(`Unknown matching_history action: ${action}`), { code: 'INVALID_INPUT' });
+}
+
+// --- Input rejections (bank-matching-spec §11.2) ---
+// Statement lines with missing critical data (missing date, missing amount,
+// missing description AND counterparty). The agent creates a rejection item
+// (one per statement) via input_rejection.create; the inbox aggregates it as
+// a Class B item with verbs r (retry) / d (discard). The input_rejections
+// table IS the source of truth (R8). input_rejection.create is agent-only (in
+// AGENT_ALLOWED); list/get are viewer reads; discard is data_entry (human).
+
+async function handleInputRejection(ctx, action) {
+  const { companyId, body, userEmail } = ctx;
+
+  // input_rejection.create (agent-only): insert a new open rejection item.
+  if (action === 'input_rejection.create') {
+    const { statement_id, statement_date, rejected_lines } = body;
+
+    if (!statement_id || typeof statement_id !== 'string')
+      throw Object.assign(new Error('statement_id required'), { code: 'INVALID_INPUT' });
+    if (!Array.isArray(rejected_lines) || rejected_lines.length === 0)
+      throw Object.assign(new Error('rejected_lines must be a non-empty array'), { code: 'INVALID_INPUT' });
+
+    const rejectionId = uuid();
+    const linesJson = JSON.stringify(rejected_lines);
+    const dateVal = statement_date || null;
+
+    await exec(
+      `INSERT INTO input_rejections
+         (rejection_id, company_id, statement_id, statement_date, rejected_lines, status, created_by)
+       VALUES
+         (@rejectionId, @companyId, @statement_id, @statement_date, @rejected_lines, 'open', @created_by)`,
+      {
+        rejectionId, companyId,
+        statement_id,
+        statement_date: dateVal,
+        rejected_lines: linesJson,
+        created_by: userEmail || 'agent',
+      }
+    );
+
+    await emitEvent(ctx, 'input_rejection.created', 'input_rejection', rejectionId,
+      { statement_id, line_count: rejected_lines.length });
+
+    return { rejection_id: rejectionId, status: 'open' };
+  }
+
+  // input_rejection.list (viewer): list items, optional status filter.
+  if (action === 'input_rejection.list') {
+    const { status } = body;
+    let limit = Number(body.limit);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 100;
+    if (limit > 1000) limit = 1000;
+
+    const where = [`company_id = @companyId`];
+    const params = { companyId };
+    if (status && typeof status === 'string') {
+      where.push(`status = @status`);
+      params.status = status;
+    }
+
+    const sql = `SELECT rejection_id, statement_id, statement_date, rejected_lines,
+                        status, created_by, created_at
+                 FROM input_rejections
+                 WHERE ${where.join(' AND ')}
+                 ORDER BY created_at DESC
+                 LIMIT ${limit}`;
+    return query(sql, params);
+  }
+
+  // input_rejection.get (viewer): fetch one item; parse rejected_lines JSON.
+  if (action === 'input_rejection.get') {
+    const { rejectionId } = body;
+    if (!rejectionId)
+      throw Object.assign(new Error('rejectionId required'), { code: 'INVALID_INPUT' });
+
+    const rows = await query(
+      `SELECT rejection_id, statement_id, statement_date, rejected_lines,
+              status, created_by, created_at
+       FROM input_rejections
+       WHERE company_id = @companyId AND rejection_id = @rejectionId`,
+      { companyId, rejectionId }
+    );
+    if (rows.length === 0) {
+      throw Object.assign(new Error('Input rejection not found'), { code: 'NOT_FOUND' });
+    }
+    const row = rows[0];
+    let lines = [];
+    try { lines = JSON.parse(row.rejected_lines || '[]'); } catch (e) { /* malformed */ }
+    return {
+      rejection_id: row.rejection_id,
+      statement_id: row.statement_id,
+      statement_date: row.statement_date,
+      rejected_lines: lines,
+      status: row.status,
+      created_by: row.created_by,
+      created_at: row.created_at,
+    };
+  }
+
+  // input_rejection.discard (data_entry, human-only): terminal discard.
+  if (action === 'input_rejection.discard') {
+    const { rejectionId } = body;
+    if (!rejectionId)
+      throw Object.assign(new Error('rejectionId required'), { code: 'INVALID_INPUT' });
+
+    const rows = await query(
+      `SELECT rejection_id, status FROM input_rejections
+       WHERE company_id = @companyId AND rejection_id = @rejectionId`,
+      { companyId, rejectionId }
+    );
+    if (rows.length === 0) {
+      throw Object.assign(new Error('Input rejection not found'), { code: 'NOT_FOUND' });
+    }
+    if (rows[0].status !== 'open') {
+      throw Object.assign(new Error('Input rejection is not open (status=' + rows[0].status + ')'), { code: 'INVALID_STATUS' });
+    }
+
+    await exec(
+      `UPDATE input_rejections SET status = 'discarded'
+       WHERE company_id = @companyId AND rejection_id = @rejectionId`,
+      { companyId, rejectionId }
+    );
+
+    await emitEvent(ctx, 'input_rejection.discarded', 'input_rejection', rejectionId, {});
+    return { discarded: true };
+  }
+
+  throw Object.assign(new Error(`Unknown input_rejection action: ${action}`), { code: 'INVALID_INPUT' });
 }
 
 // --- Calibration (bank-matching-spec §6.2) ---

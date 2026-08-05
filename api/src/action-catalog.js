@@ -293,6 +293,32 @@ const ACTIONS = {
     params: {},
   },
 
+  // ── Input rejections (bank-matching-spec §11.2) ───────────────────────────
+  'input_rejection.create': {
+    role: 'agent', mutating: true, idempotent: true,
+    description: 'Create an input rejection item for a statement with lines that have missing critical data (bank-matching-spec §11.2). Agent-only; one item per statement.',
+    params: {
+      statement_id: { type: 'string', required: true },
+      statement_date: { type: 'date' },
+      rejected_lines: { type: 'array', required: true },
+    },
+  },
+  'input_rejection.list': {
+    role: 'viewer', mutating: false,
+    description: 'List input rejection items (filter by status: open/retried/discarded).',
+    params: { status: { type: 'string' }, limit: { type: 'number' } },
+  },
+  'input_rejection.get': {
+    role: 'viewer', mutating: false,
+    description: 'Get one input rejection item by id (with rejected lines detail).',
+    params: { rejectionId: { type: 'string', required: true } },
+  },
+  'input_rejection.discard': {
+    role: 'data_entry', mutating: true,
+    description: 'Discard an input rejection — the human decides the lines are spurious (bank header, duplicate, test). Terminal.',
+    params: { rejectionId: { type: 'string', required: true } },
+  },
+
   // ── Read models (P1-8) ───────────────────────────────────────────────────
   'view.bills': {
     role: 'viewer', mutating: false,

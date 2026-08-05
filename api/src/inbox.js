@@ -51,6 +51,15 @@ async function listInbox(ctx) {
     return { items: await queryBillsDue(companyId, limit) };
   }
 
+  // Class B — mapping_suggestions proposed by the agent (bank-matching-spec
+  // §10.2). status='suggestions' is a filter view of proposed mapping rules
+  // awaiting human approve/reject. The mapping_suggestions table is the
+  // source of truth (R8); verbs are mapping.suggestion.approve/reject called
+  // against payload_ref (= suggestion_id).
+  if (status === 'suggestions') {
+    return { items: await queryMappingSuggestions(companyId, limit) };
+  }
+
   // Class A — journal_proposals (§10.3). `includeLines` so we can compute
   // the item `amount` as the sum of line debits parsed from the lines JSON.
   const rows = await queryProposals(companyId, { status, limit, includeLines: true });
@@ -140,6 +149,48 @@ async function queryBillsDue(companyId, limit) {
       description: row.description || '',
       created_by: row.created_by || '',
       currency: row.currency || '',
+    };
+  });
+}
+
+/**
+ * queryMappingSuggestions — Class B mapping-suggestion items
+ * (bank-matching-spec §10.2). Proposed bank-mapping rules from the agent,
+ * awaiting human approve/reject. Normalized to the inbox item shape. The
+ * mapping_suggestions table IS the source of truth (R8); no staging.
+ *
+ * Item shape: { type:'mapping_suggestion', source:'agent', counterparty:null,
+ * amount:null, date:created_at, proposed_at:created_at, summary,
+ * verbs:['approve','reject','open'], payload_ref:suggestion_id,
+ * status, reference, description, created_by }.
+ */
+async function queryMappingSuggestions(companyId, limit) {
+  var rows = await query(
+    `SELECT suggestion_id, bank_account, description_pattern, suggested_account,
+            suggested_vat_code, source_proposal_id, status, created_by, created_at
+     FROM mapping_suggestions
+     WHERE company_id = @companyId
+       AND status = 'proposed'
+     ORDER BY created_at DESC
+     LIMIT @lim`,
+    { companyId: companyId, lim: limit }
+  );
+
+  return rows.map(function (row) {
+    return {
+      type: 'mapping_suggestion',
+      source: 'agent',
+      counterparty: null,
+      amount: null,
+      date: row.created_at,
+      proposed_at: row.created_at,
+      summary: 'New rule suggested: ' + row.description_pattern + ' → account ' + row.suggested_account,
+      verbs: ['approve', 'reject', 'open'],
+      payload_ref: row.suggestion_id,
+      status: row.status,
+      reference: row.description_pattern,
+      description: row.description_pattern,
+      created_by: row.created_by,
     };
   });
 }

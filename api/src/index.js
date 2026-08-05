@@ -568,6 +568,194 @@ async function handleMapping(ctx, action) {
     await exec(`DELETE FROM bank_mappings WHERE company_id = @companyId AND mapping_id = @mappingId`, { companyId, mappingId });
     return { deleted: true };
   }
+
+  // --- mapping_suggestions (bank-matching-spec §10.2/§10.4) ---
+  // Agent proposes candidate rules to mapping_suggestions (never to
+  // bank_mappings); human approves/rejects. "Approve" writes the rule into
+  // bank_mappings (human-attributed) — the same "approve is the post" pattern
+  // as journal.approve (agent-readiness-spec §4.1).
+
+  if (action === 'mapping.suggest') {
+    const { suggestionId, bank_account, description_pattern, suggested_account,
+           suggested_vat_code, suggested_dimensions, evidence, source_proposal_id } = body;
+    if (!description_pattern) throw Object.assign(new Error('description_pattern required'), { code: 'INVALID_INPUT' });
+    if (!suggested_account) throw Object.assign(new Error('suggested_account required'), { code: 'INVALID_INPUT' });
+
+    const now = new Date().toISOString();
+    const dimsJson = suggested_dimensions != null ? JSON.stringify(suggested_dimensions) : null;
+    const evidenceJson = evidence != null ? JSON.stringify(evidence) : null;
+
+    // Upsert: if suggestionId is provided AND a matching proposed row owned by
+    // this caller exists, UPDATE it (same pattern as journal.propose's
+    // proposalId upsert). Otherwise INSERT a new row.
+    if (suggestionId) {
+      const existing = await query(
+        `SELECT suggestion_id, status, created_by FROM mapping_suggestions
+         WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+        { companyId, suggestionId }
+      );
+      if (existing.length > 0) {
+        const row = existing[0];
+        if (String(row.status) !== 'proposed') {
+          throw Object.assign(new Error(`Cannot upsert a suggestion in status '${row.status}' (only 'proposed' is editable)`), { code: 'INVALID_STATUS' });
+        }
+        if (String(row.created_by) !== String(ctx.userEmail)) {
+          throw Object.assign(new Error('Cannot upsert a suggestion owned by another actor'), { code: 'FORBIDDEN' });
+        }
+        await exec(
+          `UPDATE mapping_suggestions
+             SET bank_account = @bank_account,
+                 description_pattern = @description_pattern,
+                 suggested_account = @suggested_account,
+                 suggested_vat_code = @suggested_vat_code,
+                 suggested_dimensions = @suggested_dimensions,
+                 evidence = @evidence,
+                 source_proposal_id = @source_proposal_id
+           WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+          { bank_account: bank_account || null, description_pattern, suggested_account,
+            suggested_vat_code: suggested_vat_code || null,
+            suggested_dimensions: dimsJson, evidence: evidenceJson,
+            source_proposal_id: source_proposal_id || null,
+            companyId, suggestionId }
+        );
+        await emitEvent(ctx, 'mapping.suggested', 'mapping_suggestion', suggestionId,
+          { description_pattern, suggested_account, source_proposal_id: source_proposal_id || null });
+        return { suggestion_id: suggestionId, status: 'proposed' };
+      }
+      // suggestionId supplied but no existing row → first creation with a
+      // caller-chosen id (same as journal.propose).
+    }
+
+    const newId = suggestionId || uuid();
+    await bulkInsert('mapping_suggestions', [{
+      company_id: companyId,
+      suggestion_id: newId,
+      bank_account: bank_account || null,
+      description_pattern,
+      suggested_account,
+      suggested_vat_code: suggested_vat_code || null,
+      suggested_dimensions: dimsJson,
+      evidence: evidenceJson,
+      source_proposal_id: source_proposal_id || null,
+      status: 'proposed',
+      created_by: ctx.userEmail,
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: now,
+    }]);
+    await emitEvent(ctx, 'mapping.suggested', 'mapping_suggestion', newId,
+      { description_pattern, suggested_account, source_proposal_id: source_proposal_id || null });
+    return { suggestion_id: newId, status: 'proposed' };
+  }
+
+  if (action === 'mapping.suggestion.approve') {
+    const { suggestionId } = body;
+    if (!suggestionId) throw Object.assign(new Error('suggestionId required'), { code: 'INVALID_INPUT' });
+
+    const rows = await query(
+      `SELECT suggestion_id, bank_account, description_pattern, suggested_account,
+              suggested_vat_code, suggested_dimensions, source_proposal_id, status, created_by
+       FROM mapping_suggestions
+       WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+      { companyId, suggestionId }
+    );
+    if (rows.length === 0) throw Object.assign(new Error('Mapping suggestion not found'), { code: 'NOT_FOUND' });
+    const sug = rows[0];
+    if (String(sug.status) !== 'proposed') {
+      throw Object.assign(new Error(`Cannot approve a suggestion in status '${sug.status}' (only 'proposed' can be approved)`), { code: 'INVALID_STATUS' });
+    }
+
+    // Write the rule into bank_mappings (human-attributed). The approving
+    // human is the author of the mapping row, regardless of who proposed it.
+    const mappingId = uuid();
+    await bulkInsert('bank_mappings', [{
+      company_id: companyId,
+      mapping_id: mappingId,
+      pattern: sug.description_pattern,
+      match_type: 'contains',
+      debit_account: sug.suggested_account,
+      credit_account: sug.suggested_account,
+      description_override: null,
+      vat_code: sug.suggested_vat_code || null,
+      cost_center: null,
+      profit_center: null,
+      priority: 100,
+      is_active: true,
+    }]);
+
+    const now = new Date().toISOString();
+    await exec(
+      `UPDATE mapping_suggestions
+          SET status = 'approved', reviewed_by = @reviewed_by, reviewed_at = @reviewed_at
+        WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+      { reviewed_by: ctx.userEmail, reviewed_at: now, companyId, suggestionId }
+    );
+
+    await emitEvent(ctx, 'mapping.suggestion.approved', 'mapping_suggestion', suggestionId,
+      { mapping_id: mappingId, description_pattern: sug.description_pattern, suggested_account: sug.suggested_account });
+    return { approved: true, mapping_id: mappingId };
+  }
+
+  if (action === 'mapping.suggestion.reject') {
+    const { suggestionId } = body;
+    if (!suggestionId) throw Object.assign(new Error('suggestionId required'), { code: 'INVALID_INPUT' });
+
+    const rows = await query(
+      `SELECT suggestion_id, status FROM mapping_suggestions
+       WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+      { companyId, suggestionId }
+    );
+    if (rows.length === 0) throw Object.assign(new Error('Mapping suggestion not found'), { code: 'NOT_FOUND' });
+    const sug = rows[0];
+    if (String(sug.status) !== 'proposed') {
+      throw Object.assign(new Error(`Cannot reject a suggestion in status '${sug.status}' (only 'proposed' can be rejected)`), { code: 'INVALID_STATUS' });
+    }
+
+    const now = new Date().toISOString();
+    await exec(
+      `UPDATE mapping_suggestions
+          SET status = 'rejected', reviewed_by = @reviewed_by, reviewed_at = @reviewed_at
+        WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+      { reviewed_by: ctx.userEmail, reviewed_at: now, companyId, suggestionId }
+    );
+
+    await emitEvent(ctx, 'mapping.suggestion.rejected', 'mapping_suggestion', suggestionId, {});
+    return { rejected: true };
+  }
+
+  if (action === 'mapping.suggestion.list') {
+    const status = body.status && String(body.status).trim() !== '' ? String(body.status).trim() : null;
+    const rawLimit = Number(body.limit);
+    const limit = (Number.isFinite(rawLimit) && rawLimit > 0) ? Math.min(Math.floor(rawLimit), 1000) : 100;
+    if (status) {
+      return query(
+        `SELECT * FROM mapping_suggestions
+         WHERE company_id = @companyId AND status = @status
+         ORDER BY created_at DESC
+         LIMIT @lim`,
+        { companyId, status, lim: limit }
+      );
+    }
+    return query(
+      `SELECT * FROM mapping_suggestions
+       WHERE company_id = @companyId
+       ORDER BY created_at DESC
+       LIMIT @lim`,
+      { companyId, lim: limit }
+    );
+  }
+
+  if (action === 'mapping.suggestion.get') {
+    const { suggestionId } = body;
+    if (!suggestionId) throw Object.assign(new Error('suggestionId required'), { code: 'INVALID_INPUT' });
+    const rows = await query(
+      `SELECT * FROM mapping_suggestions
+       WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
+      { companyId, suggestionId }
+    );
+    if (rows.length === 0) throw Object.assign(new Error('Mapping suggestion not found'), { code: 'NOT_FOUND' });
+    return rows[0];
+  }
 }
 
 // --- Centers ---

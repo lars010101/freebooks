@@ -37,7 +37,6 @@ Entry shape: `{ key, route, label, icon, sidebar, gKey, palette, absolute }`. `r
 | `inbox` | `/:company` | Inbox | 📥 | ✓ | `i` | ✓ | A5 unified review queue; root route (Dashboard dropped 2026-08-03) |
 | `bank` | `/:company/bank` | Bank | 🏦 | ✓ | `b` | ✓ | Transactions · Import · Mappings tabs |
 | `payables` | `/:company/payables` | Payables | 📋 | ✓ | `p` | ✓ | Bills tree + Vendors |
-| `receivables` | `/:company/receivables` | Receivables | 📄 | ✓ | `v` | ✓ | Stub (AR unbuilt) |
 | `reports` | `/:company/reports` | Reports | 📈 | ✓ | `r` | ✓ | Report hub |
 | `settings` | `/:company/settings` | Settings | ⚙ | ✓ | `s` | ✓ | Company · Periods · COA · Tax · Journals · FX · Opening Balances |
 | `journal-new` | `/:company/journal/new` | Journal Entry | — | ✗ | — | ✗ | Covered by action-catalog navigate entry |
@@ -254,11 +253,7 @@ The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). 
 - Standard FB.list contract
 - `~` — toggle active (universal toggle verb)
 
-### 5.7 Receivables (`/:company/receivables`)
-
-- **Stub** — AR module unbuilt. Ratified stub exemption (keyboard-coverage gate).
-
-### 5.8 Reports (`/:company/reports`)
+### 5.7 Reports (`/:company/reports`)
 
 - **Machine:** FB.form (header-only form: report/period selects + date cells + MoM/YoY/download button cells)
 - **Keys:**
@@ -269,7 +264,7 @@ The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). 
 - **onCommit hook:** `fbLoadReport()` fires on any committed cell change, debounced.
 - **Report viewer:** `<iframe>` with `FB.util.forwardIframeKeys` so parent keybindings survive focus inside the frame.
 
-### 5.9 Settings (`/:company/settings`)
+### 5.8 Settings (`/:company/settings`)
 
 - **Tabs:** Company · Periods · COA · Tax Codes · Journals · Exchange Rates · Opening Balances
 - **Machine:** FB.list (all tabs except Company danger zone)
@@ -291,7 +286,7 @@ The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). 
 - `w` — post (disabled-guard: out-of-balance blocks)
 - `~` — toggle the focused filter button
 
-### 5.10 New Company (`/setup/new-company`)
+### 5.9 New Company (`/setup/new-company`)
 
 - **Machine:** FB.form
 - **Zones:** one zone row per field (vertical stack) → periods grid
@@ -495,3 +490,4 @@ Every detail view honors a return stack: `Esc`/`q` returns to the exact screen, 
 | 2026-08-03 | Dashboard + KPI cards dropped; Inbox becomes root route (`/:company`); source-document warning icons inline |
 | 2026-08-03 | Journal dissolves: Transaction Register report in Reports; journal sidebar entry removed; drill-through doctrine (§10) ratified |
 | 2026-08-04 | Drill-through fix: PL/BS account rows → GL (not TB); reports hub forwards ?account= to report iframe; GL filter bar prefilled from URL |
+| 2026-08-05 | Receivables stub removed from sidebar + `g v` keybind dropped; route + page handler deleted (AR module dropped, §0m) |

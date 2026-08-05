@@ -261,7 +261,7 @@
       var seg = m[1];
       if (seg === 'bill') return 'payables';
       if (seg === 'journal') return 'journal-new';
-      return seg; // bank, payables, receivables, reports, settings, opening-balances
+      return seg; // bank, payables, reports, settings, opening-balances
     };
     function sectionOf(path) { return window.fbSectionOfPath(path); }
 
@@ -280,7 +280,7 @@
     };
     var SECTION_LABELS = {
       'dashboard': 'Dashboard', 'bank': 'Bank', 'payables': 'Payables',
-      'receivables': 'Receivables', 'reports': 'Reports', 'settings': 'Settings',
+      'reports': 'Reports', 'settings': 'Settings',
       'opening-balances': 'Opening Balances', 'journal-new': 'Journal Entry'
     };
 

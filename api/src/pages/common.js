@@ -101,7 +101,6 @@ function topBarContext(company, activeKey) {
     dashboard:  { nav: ``, actions: '' },
     bank:       { nav: ``, actions: '' },
     payables:   { nav: ``, actions: '' },
-    receivables:{ nav: ``, actions: '' },
     reports:    { nav: ``, actions: '' },
     auditor:    { nav: ``, actions: '' },
     settings:   { nav: ``, actions: '' },

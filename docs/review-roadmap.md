@@ -254,6 +254,44 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 ---
 
+## 0z. Status update — 2026-08-05 (bank-matching cascade + bills routing specced)
+
+**Two new specs ratified** in this session: `docs/bank-matching-spec.md` (v3, rescoped for small-company volume) and the four amendments to `docs/agent-readiness-spec.md` (v2). Three existing specs amended: `docs/agent-data-feeding-guide.md` (subfolder-aware watcher §4.3, bank statement agent processing §4.5, bills routing §4.5b), `docs/ia-spec.md` (nav-registry unchanged — Bank sidebar item stays), and this roadmap.
+
+**Bank-matching cascade** (`docs/bank-matching-spec.md`): a four-tier confidence/evidence cascade for bank statement processing — tier 1 learned rules, tier 2 open-item matching, tier 3 trigram master-data match, tier 4 LLM reasoning. Rescoped for small-company volume (§0.1): plain counters with N=10 floor (no Beta-Binomial), one batch per statement (no content-based clustering), N:M falls through to tier 4 as ordinary residual (no dedicated detection layer). Mappings stay human-only (R2) — agent suggests rules via `mapping_suggestions` table, human approves in inbox (same propose/approve pattern as journal entries). Rule retirement fires inside human-attributed actions (consecutive rejections inside `journal.reject`, bank-account-change inside vendor-edit handler). No auto-posting — BFL 5 kap. Calibration: band-level realized-accuracy counter, no cross-tenant prior.
+
+**Bills routing — Option C ratified** (agent-data-feeding-guide §4.5b): agent extracts supplier invoice → `bill.create` (draft, `agent` role 1.5) → inbox Class A `bill_draft` item → human `y` posts via `bill.post` → open payable → tier 2 bank-statement matching composes. `bill.create` added to `AGENT_ALLOWED` and MCP manifest; `bill.post` stays human-only ("approve is the post" doctrine). New-vendor problem flagged as open (orthogonal — future `vendor.suggest` pattern, same shape as `mapping.suggest`).
+
+**Agent-readiness-spec amendments** (v2): `matching_history.record` + `mapping.suggest` added to `AGENT_ALLOWED` (§2.3) and MCP manifest (§5.2); `attachment.rejected` event type (§3.2); Class B taxonomy broadened to "not a ledger approval" (§10.2, was "post-ledger" — now includes pre-ledger input rejections and mapping suggestions); `bill.create` + `bill_create` MCP tool added (bills routing — Option C).
+
+**Drop-folder watcher** (agent-data-feeding-guide §4.3): folder structure is the classification (`bank/`, `bills/`, `receipts/`, `journal/`, root = legacy default). Optional operator-managed preprocessor routes files to subfolders. Bank statements need `bank_statement` as a new `entityType` on the `attachments` table.
+
+### Build order — Phase B (bank-matching cascade + document routing)
+
+Phase B consumes the Phase A agent-readiness tranche (A1 actor model, A2 events, A3j journal proposals, A4 underlag, A5 inbox, MCP server — all shipped). It lands the bank-matching cascade and the document-routing layer that feeds it. Each item is a PR; spec updates in the same commit (standing rule 5). Items are ordered by dependency, not by estimated effort.
+
+**B1 — Agent-readiness-spec amendments (4 actions + 1 event + 2 MCP tools).** The agent-readiness-spec v2 amendments that are not yet built: (a) `matching_history.record` added to `AGENT_ALLOWED` + `matching_history_record` MCP tool; (b) `mapping.suggest` added to `AGENT_ALLOWED` + `mapping_suggest` MCP tool; (c) `attachment.rejected` event type added to §3.2 emission; (d) `bill.create` catalog role fix (`agent` 1.5, not `data_entry` 2) + added to `AGENT_ALLOWED` + `bill_create` MCP tool. Also: Class B taxonomy broadening in the inbox page's `inbox.list` (§10.2) and `mapping.suggestion.approve`/`.reject` actions (`data_entry` role, human-only). *(Small — catalog entries, dispatch guard, MCP manifest, one event emitter. No new pages.)*
+
+**B2 — `mapping_suggestions` table + suggest/approve/reject actions.** New `mapping_suggestions` table (bank-matching-spec §10.2) + `mapping.suggest` (agent), `mapping.suggestion.approve` (data_entry, writes to `mappings`), `mapping.suggestion.reject` (data_entry), `mapping.suggestion.list`/`.get` (viewer). Inbox item type `mapping_suggestion` (Class B, verbs `y`/`x`). *(Small-medium — one table, four actions, inbox type.)*
+
+**B3 — `matching_history` table + record/query/calibration actions.** `matching_history` table (bank-matching-spec §10.3) + `matching_history.record` (agent), `matching_history.query` (agent), `calibration.get` (agent). Calibration counter: plain running counter per `(source_type, confidence_band)` over full history, N=10 floor (bank-matching-spec §6.2). *(Small-medium — one table, three actions.)*
+
+**B4 — `bank.match` action (tiers 1–3 deterministic).** Server-side action that takes a statement line, runs tiers 1–3 (learned-rule lookup, open-item match with amount-tolerance discrepancy types + 1:1/1:N/N:1 cardinality + counterparty evidence split, trigram master-data match), returns structured match results with evidence + per-dimension confidence. Catalog role `agent` (1.5). Does not propose — returns match results only. Includes: idempotency dedup via `source_transaction_id` on `journal_proposals` (bank-matching-spec §1.1). *(Medium — the deterministic matching core.)*
+
+**B5 — Drop-folder watcher + subfolder-aware upload.** Subfolder-aware watcher (agent-data-feeding-guide §4.3) with per-folder `entityType` mapping. `bank_statement` as a new `entityType` on `attachments`. `attachment.rejected` event emission on intake failure. *(Small — one script, one entityType addition, one event emitter.)*
+
+**B6 — Bill drafts as inbox Class A + inbox `bill_draft` type.** `inbox.list` fans out to `bills` table for `status='draft'` rows (agent-readiness-spec §10.3). Inbox renders `bill_draft` rows with `y` (post via `bill.post`) / `x` (discard). Drill-through (`Enter`) opens the bill detail view (bill-new/bill-detail), not journal lines. *(Small — inbox aggregator extension + one new type.)*
+
+**B7 — Agent orchestration loop (tier 4 + end-to-end).** The agent-side loop: poll `event.list` → see `attachment.uploaded` with `entityType: "bank_statement"` → fetch → parse lines → call `bank.match` per line → for matched lines, `journal.propose` with evidence → for residual lines, one tier-4 LLM call per statement → `journal.propose` the results → for lines with missing critical data, `input_rejection` inbox item → after inbox review, `matching_history.record` + `mapping.suggest` (crystallization). Also: bills routing loop — `attachment.uploaded` with `entityType: "bill"` → extract → `bill.create` (draft). *(Medium — the agent pipeline itself; consumes B1–B6.)*
+
+**B8 — Input rejections as inbox Class B.** `input_rejection` inbox type (bank-matching-spec §11.2): one item per statement with rejected lines, verbs `r` (retry) / `d` (discard), drill-through to individual lines. *(Small — one inbox type.)*
+
+**Sequencing constraints:** B1 is a prerequisite for B2, B3, B4, and B7 (the agent-callable writes and MCP tools must exist before the cascade and orchestration can use them). B2 and B3 are independent of each other and can run in parallel after B1. B4 depends on B1 (needs `bank.match` in the catalog). B5 is independent (can start anytime). B6 is independent of B1–B5 (it's an inbox extension, not a cascade dependency). B7 depends on B1–B6 (it consumes everything). B8 depends on B7 (input rejections are produced by the agent loop).
+
+**What stays after Phase B:** P2 accounting completeness (year-end close, FX reval, bill_lines subledger, VAT unify) — unchanged priority, unchanged items. P3 scope (receivables, bank feeds beyond CSV) — bank feeds partially addressed by B5 (drop-folder), but full bank API integration remains P3. The new-vendor problem (vendor proposal pattern) is a future Phase B extension, not blocking.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

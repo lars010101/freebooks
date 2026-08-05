@@ -314,6 +314,8 @@ async function handleApiRequest(req, res) {
       case 'fx':          result = await handleFx(ctx, action); break;
       case 'coa':         result = await handleCoa(ctx, action); break;
       case 'mapping':     result = await handleMapping(ctx, action); break;
+      case 'matching_history': result = await handleMatchingHistory(ctx, action); break;
+      case 'calibration':      result = await handleCalibration(ctx, action); break;
       case 'center':      result = await handleCenter(ctx, action); break;
       case 'journals':   result = await handleJournals(ctx, action); break;
       case 'settings':
@@ -756,6 +758,145 @@ async function handleMapping(ctx, action) {
     if (rows.length === 0) throw Object.assign(new Error('Mapping suggestion not found'), { code: 'NOT_FOUND' });
     return rows[0];
   }
+}
+
+// --- Matching History (bank-matching-spec §10.3) ---
+// Learning store: every proposal's review outcome across all tiers.
+// matching_history.record is agent-only (in AGENT_ALLOWED); query/get are
+// viewer reads. Feeds calibration (§6) and rule crystallization/retirement
+// (§10.5).
+
+const MATCHING_HISTORY_OUTCOMES = ['approved_unedited', 'approved_edited', 'rejected'];
+const MATCHING_HISTORY_SOURCE_TYPES = ['learned_rule', 'open_item', 'master_data', 'llm_semantic'];
+
+async function handleMatchingHistory(ctx, action) {
+  const { companyId, body } = ctx;
+
+  if (action === 'matching_history.record') {
+    const {
+      bank_account, description_pattern, counterparty, amount,
+      proposed_dimensions, approved_dimensions, source_type,
+      confidence, evidence, outcome,
+    } = body;
+
+    // Validate required non-empty strings.
+    if (!description_pattern || typeof description_pattern !== 'string')
+      throw Object.assign(new Error('description_pattern required'), { code: 'INVALID_INPUT' });
+    if (!source_type || typeof source_type !== 'string')
+      throw Object.assign(new Error('source_type required'), { code: 'INVALID_INPUT' });
+    if (!outcome || typeof outcome !== 'string')
+      throw Object.assign(new Error('outcome required'), { code: 'INVALID_INPUT' });
+    if (!MATCHING_HISTORY_SOURCE_TYPES.includes(source_type))
+      throw Object.assign(new Error(`source_type must be one of: ${MATCHING_HISTORY_SOURCE_TYPES.join(', ')}`), { code: 'INVALID_INPUT' });
+    if (!MATCHING_HISTORY_OUTCOMES.includes(outcome))
+      throw Object.assign(new Error(`outcome must be one of: ${MATCHING_HISTORY_OUTCOMES.join(', ')}`), { code: 'INVALID_INPUT' });
+
+    // amount is a number or null.
+    const amountVal = (typeof amount === 'number') ? amount : null;
+
+    // JSON columns are VARCHAR — JSON.stringify before storing.
+    const proposedDimsJson = proposed_dimensions != null ? JSON.stringify(proposed_dimensions) : null;
+    const approvedDimsJson = approved_dimensions != null ? JSON.stringify(approved_dimensions) : null;
+    const confidenceJson = confidence != null ? JSON.stringify(confidence) : null;
+    const evidenceJson = evidence != null ? JSON.stringify(evidence) : null;
+
+    const id = uuid();
+    await exec(
+      `INSERT INTO matching_history
+         (id, company_id, bank_account, description_pattern, counterparty, amount,
+          proposed_dimensions, approved_dimensions, source_type, confidence, evidence, outcome)
+       VALUES
+         (@id, @companyId, @bank_account, @description_pattern, @counterparty, @amount,
+          @proposed_dimensions, @approved_dimensions, @source_type, @confidence, @evidence, @outcome)`,
+      {
+        id, companyId,
+        bank_account: bank_account || null,
+        description_pattern,
+        counterparty: counterparty || null,
+        amount: amountVal,
+        proposed_dimensions: proposedDimsJson,
+        approved_dimensions: approvedDimsJson,
+        source_type,
+        confidence: confidenceJson,
+        evidence: evidenceJson,
+        outcome,
+      }
+    );
+    return { recorded: true, id };
+  }
+
+  if (action === 'matching_history.query') {
+    const { description_pattern, counterparty, bank_account } = body;
+    let limit = Number(body.limit);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 100;
+    if (limit > 1000) limit = 1000;
+
+    const where = [`company_id = @companyId`];
+    const params = { companyId };
+    if (description_pattern) { where.push(`description_pattern = @description_pattern`); params.description_pattern = description_pattern; }
+    if (counterparty) { where.push(`counterparty = @counterparty`); params.counterparty = counterparty; }
+    if (bank_account) { where.push(`bank_account = @bank_account`); params.bank_account = bank_account; }
+
+    const sql = `SELECT * FROM matching_history WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT ${limit}`;
+    return query(sql, params);
+  }
+
+  throw Object.assign(new Error(`Unknown matching_history action: ${action}`), { code: 'INVALID_INPUT' });
+}
+
+// --- Calibration (bank-matching-spec §6.2) ---
+// Plain running counter per (source_type, confidence_band), computed over
+// full history. realized_accuracy = approved_unedited / proposed; below N=10
+// the number is not trusted (null). confidence is stored as JSON VARCHAR, so
+// we aggregate in JS after fetching all rows.
+
+async function handleCalibration(ctx, action) {
+  const { companyId } = ctx;
+
+  if (action === 'calibration.get') {
+    const rows = await query(
+      `SELECT source_type, confidence, outcome FROM matching_history WHERE company_id = @companyId`,
+      { companyId }
+    );
+
+    // Aggregate in JS by (source_type, confidence_band). The confidence
+    // column is a JSON VARCHAR; parse it to extract the `band` field.
+    const groups = new Map();
+    for (const row of rows) {
+      let band = 'unknown';
+      if (row.confidence) {
+        try {
+          const parsed = JSON.parse(row.confidence);
+          if (parsed && typeof parsed.band === 'string') band = parsed.band;
+        } catch (_e) {
+          // Malformed JSON — fall through to 'unknown' band.
+        }
+      }
+      const key = `${row.source_type || 'unknown'}|${band}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = { source_type: row.source_type || 'unknown', confidence_band: band,
+              proposed: 0, approved_unedited: 0, approved_edited: 0, rejected: 0 };
+        groups.set(key, g);
+      }
+      g.proposed += 1;
+      if (row.outcome === 'approved_unedited') g.approved_unedited += 1;
+      else if (row.outcome === 'approved_edited') g.approved_edited += 1;
+      else if (row.outcome === 'rejected') g.rejected += 1;
+    }
+
+    const calibration = Array.from(groups.values()).map((g) => {
+      // N=10 floor: below it, realized_accuracy is not trusted.
+      const realized_accuracy = g.proposed >= 10
+        ? (g.proposed > 0 ? g.approved_unedited / g.proposed : 0)
+        : null;
+      return { ...g, realized_accuracy };
+    });
+
+    return { calibration };
+  }
+
+  throw Object.assign(new Error(`Unknown calibration action: ${action}`), { code: 'INVALID_INPUT' });
 }
 
 // --- Centers ---

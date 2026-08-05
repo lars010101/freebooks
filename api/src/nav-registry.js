@@ -44,12 +44,13 @@
 // g-key slate (ratified 2026-07-28; d/v added same day — magnus review):
 //   g d = (free — Dashboard dropped 2026-08-03) · g r = Reports · g b = Bank
 //   g p = Periods (reassigned from Payables 2026-08-04, IA-spec step 4) ·
-//   g v = Receivables · g s = Settings
+//   g v = (free — Receivables dropped 2026-08-05) · g s = Settings
 //   g i = Inbox (now the root route /:company; was /:company/inbox)
 //   g j = (free — Journal dissolved into Reports as Voucher Register, 2026-08-03)
 //   g c = Company switcher (reserved, not a route)
 // Payables lost its gKey 'p' 2026-08-04 (step 4): 'p' now opens Periods.
 //   Payables stays sidebar+palette (reachable via sidebar click + palette search).
+// Receivables dropped 2026-08-05: sidebar entry + gKey 'v' removed; route + page handler deleted.
 
 const ROUTES = [
   // ── Sidebar entries (display order = array order) ──
@@ -59,7 +60,6 @@ const ROUTES = [
   { key: 'inbox',       route: '/:company',             label: 'Inbox',           icon: '📥', sidebar: true,  gKey: 'i',  palette: true,  absolute: false },
   { key: 'bank',        route: '/:company/bank',         label: 'Bank',            icon: '🏦', sidebar: true,  gKey: 'b',  palette: true,  absolute: false },
   { key: 'payables',    route: '/:company/payables',     label: 'Payables',        icon: '📋', sidebar: true,  gKey: null, palette: true,  absolute: false },
-  { key: 'receivables', route: '/:company/receivables',  label: 'Receivables',     icon: '📄', sidebar: true,  gKey: 'v',  palette: true,  absolute: false },
   { key: 'reports',     route: '/:company/reports',      label: 'Reports',         icon: '📈', sidebar: true,  gKey: 'r',  palette: true,  absolute: false },
   // 2026-08-04 (IA-spec step 4): Periods promoted to a top-level sidebar route.
   //   g p was reassigned from Payables (kept sidebar+palette, gKey nulled) to

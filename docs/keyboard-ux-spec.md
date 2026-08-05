@@ -47,7 +47,7 @@ file's header comment.
 
 ## 2. g-prefix go-to map
 
-Ratified slate (d/v added 2026-07-28, magnus K1 review):
+Ratified slate (d/v added 2026-07-28; v freed 2026-08-05 Receivables dropped, magnus):
 
 | Sequence | Action |
 |---|---|
@@ -55,7 +55,6 @@ Ratified slate (d/v added 2026-07-28, magnus K1 review):
 | `g r` | Reports |
 | `g b` | Bank |
 | `g p` | Payables |
-| `g v` | Receivables |
 | `g s` | Settings |
 | `g j` | Journal |
 | `g i` | Inbox (reassigned 2026-08-03 per spec §10; bank-import reachable via `g b` + palette) |

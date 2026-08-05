@@ -30,7 +30,6 @@ const { handleNewCompanyPage } = require('./pages/new-company');
 const { handleAdminQuery } = require('./pages/admin');
 const { makeQuery } = require('./pages/common');
 const { handleReportsHubPage } = require('./pages/reports-hub');
-const { handleReceivablesPage } = require('./pages/receivables');
 const { handlePeriodsPage } = require('./pages/periods');
 const { handleSruInk2, handleSruInfo } = require('./filings');
 
@@ -217,7 +216,6 @@ function mountReportRoutes(app) {
   app.get('/:company/bill/edit', handleBillEditPage);
   app.get('/:company/bill/:id', handleBillDetailPage);
   app.get('/:company/payables', handlePayablesPage);
-  app.get('/:company/receivables', handleReceivablesPage);
   app.get('/:company/payables/aging', function(req, res) {
     res.redirect(302, '/' + req.params.company + '/reports?t=ap-aging');
   });

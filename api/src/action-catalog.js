@@ -159,6 +159,22 @@ const ACTIONS = {
     description: 'List uncleared ledger lines for an account.',
     params: { accountCode: { type: 'string', required: true }, dateFrom: { type: 'date' }, dateTo: { type: 'date' } },
   },
+  // B4 (bank-matching-spec §8.2): deterministic single-line matcher. role is
+  // 'agent' (1.5), NOT 'data_entry' (2) — dispatch's numeric role check runs
+  // before the §2.3 whitelist guard, so data_entry (2) would reject an agent
+  // (1.5 < 2) before the whitelist ever sees it. 'agent' lets agents (1.5),
+  // data_entry (2), and owner (3) pass; viewers (1) are excluded. The action
+  // is non-mutating (mutating:false) so it passes the §2.3 guard naturally and
+  // is intentionally NOT added to AGENT_ALLOWED — it reads data and returns
+  // structured match results only (never writes).
+  'bank.match': {
+    role: 'agent', mutating: false,
+    description: 'Match a single bank statement line through tiers 1-3 (learned rules, open items, master data). Returns structured match results with per-dimension confidence and evidence. Does not propose — returns results only (bank-matching-spec §8.2).',
+    params: {
+      line: { type: 'object', required: true },
+      bankAccount: { type: 'string' },
+    },
+  },
 
   // ── Bills (AP) ───────────────────────────────────────────────────────────
   'bill.create': {

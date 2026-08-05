@@ -599,3 +599,8 @@ CREATE INDEX IF NOT EXISTS idx_journal_proposals_company_status ON journal_propo
 -- inbox.list for inline warning icons on the review surface.
 ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS warnings VARCHAR;
 
+-- B4 (bank-matching-spec §1.1): bank transaction ID for dedup. A bank-provided
+-- transaction ID (or content hash) checked before the cascade runs to prevent
+-- duplicate proposals from feed redelivery.
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS source_transaction_id VARCHAR;
+

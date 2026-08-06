@@ -31,6 +31,7 @@ const { handlePeriodsService } = require('./periods-page-service');
 const { contactAttributesFor } = require('./jurisdiction-packs');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 const { auditCall } = require('./audit');
+const { detectMappingConflicts } = require('./mapping-utils');
 const PORT = process.env.PORT || 3000;
 // Bind address: loopback-only by default (the safe posture). Set
 // FREEBOOKS_BIND to a LAN/Tailscale interface IP for the two-server
@@ -557,10 +558,10 @@ async function handleMapping(ctx, action) {
     if (!mapping || !mapping.pattern || !mapping.debit_account) throw Object.assign(new Error('pattern and debit_account required'), { code: 'INVALID_INPUT' });
     const mappingId = mapping.mapping_id || uuid();
     const existing = await query(`SELECT mapping_id FROM bank_mappings WHERE company_id = @companyId AND mapping_id = @mappingId`, { companyId, mappingId });
-    const row = { company_id: companyId, mapping_id: mappingId, pattern: mapping.pattern, match_type: mapping.match_type || 'contains', debit_account: mapping.debit_account, credit_account: mapping.credit_account || '', description_override: mapping.description_override || null, vat_code: null, cost_center: null, profit_center: null, priority: mapping.priority || 100, is_active: mapping.is_active !== false };
+    const row = { company_id: companyId, mapping_id: mappingId, pattern: mapping.pattern, match_type: mapping.match_type || 'contains', debit_account: mapping.debit_account, credit_account: mapping.credit_account || '', description_override: mapping.description_override || null, vat_code: null, cost_center: null, profit_center: null, priority: mapping.priority || 100, is_active: mapping.is_active !== false, amount_sign: mapping.amount_sign || 'any' };
     if (existing.length > 0) {
-      await exec(`UPDATE bank_mappings SET pattern=@pattern, match_type=@match_type, debit_account=@debit_account, description_override=@description_override, priority=@priority, is_active=@is_active WHERE company_id=@companyId AND mapping_id=@mapping_id`,
-        { companyId, mapping_id: mappingId, pattern: row.pattern, match_type: row.match_type, debit_account: row.debit_account, description_override: row.description_override, priority: row.priority, is_active: row.is_active });
+      await exec(`UPDATE bank_mappings SET pattern=@pattern, match_type=@match_type, debit_account=@debit_account, description_override=@description_override, priority=@priority, is_active=@is_active, amount_sign=@amount_sign WHERE company_id=@companyId AND mapping_id=@mapping_id`,
+        { companyId, mapping_id: mappingId, pattern: row.pattern, match_type: row.match_type, debit_account: row.debit_account, description_override: row.description_override, priority: row.priority, is_active: row.is_active, amount_sign: row.amount_sign });
     } else {
       await bulkInsert('bank_mappings', [row]);
     }
@@ -582,13 +583,56 @@ async function handleMapping(ctx, action) {
 
   if (action === 'mapping.suggest') {
     const { suggestionId, bank_account, description_pattern, suggested_account,
-           suggested_vat_code, suggested_dimensions, evidence, source_proposal_id } = body;
+           suggested_vat_code, suggested_dimensions, evidence, source_proposal_id,
+           suggested_amount_sign, suggested_match_type } = body;
     if (!description_pattern) throw Object.assign(new Error('description_pattern required'), { code: 'INVALID_INPUT' });
     if (!suggested_account) throw Object.assign(new Error('suggested_account required'), { code: 'INVALID_INPUT' });
 
     const now = new Date().toISOString();
     const dimsJson = suggested_dimensions != null ? JSON.stringify(suggested_dimensions) : null;
-    const evidenceJson = evidence != null ? JSON.stringify(evidence) : null;
+    const amountSign = suggested_amount_sign || 'any';
+    const matchType = suggested_match_type || 'contains';
+
+    // ── §4.5: Conflict check at suggestion creation ──────────────────────────
+    const conflicts = await detectMappingConflicts(
+      companyId, description_pattern, matchType, suggested_account, amountSign, null
+    );
+
+    // Exact contradiction with active rule → don't create (§4.5)
+    const activeContradictions = conflicts.contradictions.filter((c) => c.source === 'bank_mapping');
+    if (activeContradictions.length > 0) {
+      const c = activeContradictions[0];
+      throw Object.assign(
+        new Error(`A rule for pattern '${description_pattern}' already exists mapping to account ${c.account}. Edit the existing rule instead.`),
+        { code: 'CONFLICT' }
+      );
+    }
+    // Exact contradiction with pending suggestion → don't create (§4.5)
+    const pendingContradictions = conflicts.contradictions.filter((c) => c.source === 'mapping_suggestion');
+    if (pendingContradictions.length > 0) {
+      const c = pendingContradictions[0];
+      throw Object.assign(
+        new Error(`A pending suggestion for pattern '${description_pattern}' already exists mapping to account ${c.account}.`),
+        { code: 'CONFLICT' }
+      );
+    }
+
+    // Attach conflict warnings + historical conflicts to evidence (§4.5)
+    let enrichedEvidence = evidence;
+    if (conflicts.hasWarning) {
+      const warnings = [];
+      if (conflicts.overlaps.length > 0) {
+        warnings.push({ type: 'overlap_warning', conflicts: conflicts.overlaps });
+      }
+      if (conflicts.historicalConflicts.length > 0) {
+        warnings.push({ type: 'historical_conflict', conflicts: conflicts.historicalConflicts });
+      }
+      if (conflicts.exactDuplicates.length > 0) {
+        warnings.push({ type: 'duplicate_warning', conflicts: conflicts.exactDuplicates });
+      }
+      enrichedEvidence = Array.isArray(evidence) ? [...evidence, ...warnings] : warnings;
+    }
+    const evidenceJson = enrichedEvidence != null ? JSON.stringify(enrichedEvidence) : null;
 
     // Upsert: if suggestionId is provided AND a matching proposed row owned by
     // this caller exists, UPDATE it (same pattern as journal.propose's
@@ -614,18 +658,23 @@ async function handleMapping(ctx, action) {
                  suggested_account = @suggested_account,
                  suggested_vat_code = @suggested_vat_code,
                  suggested_dimensions = @suggested_dimensions,
+                 suggested_amount_sign = @suggested_amount_sign,
+                 suggested_match_type = @suggested_match_type,
                  evidence = @evidence,
                  source_proposal_id = @source_proposal_id
            WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
           { bank_account: bank_account || null, description_pattern, suggested_account,
             suggested_vat_code: suggested_vat_code || null,
-            suggested_dimensions: dimsJson, evidence: evidenceJson,
+            suggested_dimensions: dimsJson,
+            suggested_amount_sign: amountSign,
+            suggested_match_type: matchType,
+            evidence: evidenceJson,
             source_proposal_id: source_proposal_id || null,
             companyId, suggestionId }
         );
         await emitEvent(ctx, 'mapping.suggested', 'mapping_suggestion', suggestionId,
           { description_pattern, suggested_account, source_proposal_id: source_proposal_id || null });
-        return { suggestion_id: suggestionId, status: 'proposed' };
+        return { suggestion_id: suggestionId, status: 'proposed', conflicts: { has_warning: conflicts.hasWarning } };
       }
       // suggestionId supplied but no existing row → first creation with a
       // caller-chosen id (same as journal.propose).
@@ -640,6 +689,8 @@ async function handleMapping(ctx, action) {
       suggested_account,
       suggested_vat_code: suggested_vat_code || null,
       suggested_dimensions: dimsJson,
+      suggested_amount_sign: amountSign,
+      suggested_match_type: matchType,
       evidence: evidenceJson,
       source_proposal_id: source_proposal_id || null,
       status: 'proposed',
@@ -650,7 +701,7 @@ async function handleMapping(ctx, action) {
     }]);
     await emitEvent(ctx, 'mapping.suggested', 'mapping_suggestion', newId,
       { description_pattern, suggested_account, source_proposal_id: source_proposal_id || null });
-    return { suggestion_id: newId, status: 'proposed' };
+    return { suggestion_id: newId, status: 'proposed', conflicts: { has_warning: conflicts.hasWarning } };
   }
 
   if (action === 'mapping.suggestion.approve') {
@@ -659,7 +710,8 @@ async function handleMapping(ctx, action) {
 
     const rows = await query(
       `SELECT suggestion_id, bank_account, description_pattern, suggested_account,
-              suggested_vat_code, suggested_dimensions, source_proposal_id, status, created_by
+              suggested_vat_code, suggested_dimensions, source_proposal_id, status, created_by,
+              suggested_amount_sign, suggested_match_type
        FROM mapping_suggestions
        WHERE company_id = @companyId AND suggestion_id = @suggestionId`,
       { companyId, suggestionId }
@@ -670,14 +722,35 @@ async function handleMapping(ctx, action) {
       throw Object.assign(new Error(`Cannot approve a suggestion in status '${sug.status}' (only 'proposed' can be approved)`), { code: 'INVALID_STATUS' });
     }
 
+    // ── §4.5: Conflict check at suggestion approval ──────────────────────────
+    // Re-run the conflict check against active rules + OTHER pending suggestions
+    // (excluding self). Historical regression is re-run too — history may have
+    // changed since the suggestion was created.
+    const amountSign = sug.suggested_amount_sign || 'any';
+    const matchType = sug.suggested_match_type || 'contains';
+    const conflicts = await detectMappingConflicts(
+      companyId, sug.description_pattern, matchType, sug.suggested_account, amountSign, suggestionId
+    );
+
+    // Exact contradiction with active rule → BLOCK (§4.5)
+    const activeContradictions = conflicts.contradictions.filter((c) => c.source === 'bank_mapping');
+    if (activeContradictions.length > 0) {
+      const c = activeContradictions[0];
+      throw Object.assign(
+        new Error(`A rule for pattern '${sug.description_pattern}' already exists mapping to account ${c.account}. Edit the existing rule instead.`),
+        { code: 'CONFLICT' }
+      );
+    }
+
     // Write the rule into bank_mappings (human-attributed). The approving
     // human is the author of the mapping row, regardless of who proposed it.
+    // §5: inherit amount_sign + match_type from the suggestion.
     const mappingId = uuid();
     await bulkInsert('bank_mappings', [{
       company_id: companyId,
       mapping_id: mappingId,
       pattern: sug.description_pattern,
-      match_type: 'contains',
+      match_type: matchType,
       debit_account: sug.suggested_account,
       credit_account: sug.suggested_account,
       description_override: null,
@@ -686,6 +759,7 @@ async function handleMapping(ctx, action) {
       profit_center: null,
       priority: 100,
       is_active: true,
+      amount_sign: amountSign,
     }]);
 
     const now = new Date().toISOString();
@@ -698,7 +772,16 @@ async function handleMapping(ctx, action) {
 
     await emitEvent(ctx, 'mapping.suggestion.approved', 'mapping_suggestion', suggestionId,
       { mapping_id: mappingId, description_pattern: sug.description_pattern, suggested_account: sug.suggested_account });
-    return { approved: true, mapping_id: mappingId };
+
+    // Return warnings (overlap, historical conflicts) but don't block
+    const warnings = [];
+    if (conflicts.overlaps.length > 0) {
+      warnings.push({ type: 'overlap_warning', message: 'Approved rule overlaps with existing rules/suggestions', conflicts: conflicts.overlaps });
+    }
+    if (conflicts.historicalConflicts.length > 0) {
+      warnings.push({ type: 'historical_conflict', message: 'Pattern matches historical transactions posted to different accounts', count: conflicts.historicalConflicts.length });
+    }
+    return { approved: true, mapping_id: mappingId, ...(warnings.length > 0 ? { warnings } : {}) };
   }
 
   if (action === 'mapping.suggestion.reject') {

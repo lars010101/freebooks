@@ -15,6 +15,7 @@ const { validateJournalBatch } = require('./validation');
 const { computeVatSplit } = require('./vat');
 const { auditLog } = require('./audit');
 const { emitEvent } = require('./events');
+const { normalizeDescription } = require('./mapping-utils');
 
 async function handleJournal(ctx, action) {
   switch (action) {
@@ -711,7 +712,7 @@ function buildProposeWarnings(validationWarnings, attachmentCount) {
  */
 async function proposeEntry(ctx) {
   const { companyId, userEmail, actor, requestId, body } = ctx;
-  const { lines, journalId, reference, description, proposalId } = body;
+  const { lines, journalId, reference, description, proposalId, source_transaction_id, _match_meta } = body;
   // Install-level trust: userEmail may be absent — the proposal's origin must
   // still be stamped (created_by is NOT NULL). House fallback, same as audit.
   const proposer = userEmail || 'anonymous';
@@ -740,11 +741,14 @@ async function proposeEntry(ctx) {
     const upd = await query(
       `UPDATE journal_proposals
        SET lines = @lines, date = @date, reference = @ref, description = @desc,
-           journal_id = @journalId, created_at = @now
+           journal_id = @journalId, created_at = @now,
+           source_transaction_id = @sourceTxId,
+           match_meta = @matchMeta
        WHERE company_id = @companyId AND proposal_id = @proposalId
          AND status = 'proposed' AND created_by = @proposer
        RETURNING proposal_id`,
-      { companyId, proposalId, lines: linesJson, date: minDate, ref: reference || null, desc: description || null, journalId: journalId || null, now, proposer }
+      { companyId, proposalId, lines: linesJson, date: minDate, ref: reference || null, desc: description || null, journalId: journalId || null, now, proposer,
+        sourceTxId: source_transaction_id || null, matchMeta: _match_meta ? JSON.stringify(_match_meta) : null }
     );
     if (upd.length > 0) {
       // UPDATE-in-place hit: replace lines/date/reference/description/journal_id.
@@ -806,6 +810,8 @@ async function proposeEntry(ctx) {
     reviewed_at: null,
     review_note: null,
     warnings: JSON.stringify(proposeWarnings),
+    source_transaction_id: source_transaction_id || null,
+    match_meta: _match_meta ? JSON.stringify(_match_meta) : null,
     created_at: now,
   }]);
 
@@ -846,7 +852,8 @@ async function approveProposal(ctx) {
   // concurrent approves used to both pass this check and double-post; the claim
   // makes the second one lose the race and surface INVALID_STATUS instead.
   const rows = await query(
-    `SELECT proposal_id, journal_id, date, reference, description, source, lines, status, created_by
+    `SELECT proposal_id, journal_id, date, reference, description, source, lines, status, created_by,
+            match_meta, source_transaction_id
      FROM journal_proposals WHERE company_id = @companyId AND proposal_id = @proposalId`,
     { companyId, proposalId }
   );
@@ -955,6 +962,25 @@ async function approveProposal(ctx) {
     reviewedBy: reviewer,
   });
 
+  // ── §1: Record outcome in matching_history ────────────────────────────────
+  // Learning-store write attributed to the human who acted, same pattern as
+  // retirement-on-reject (§10.5). Does not block the return on failure —
+  // matching_history is a learning aid, not a ledger mutation.
+  try {
+    await recordMatchingOutcome(ctx, proposal, enrichedLines, 'approved_unedited');
+  } catch (e) {
+    console.error(`matching_history.record failed on approve ${proposalId}: ${e.message}`);
+  }
+
+  // ── §3.1: Crystallization on unedited tier-4 approval ─────────────────────
+  // If this was a tier-4 (LLM) proposal approved unedited, suggest a mapping
+  // rule so future occurrences match at tier 1 instead of hitting the LLM.
+  try {
+    await crystallizeMappingSuggestion(ctx, proposal, enrichedLines);
+  } catch (e) {
+    console.error(`mapping.suggest (crystallization) failed on approve ${proposalId}: ${e.message}`);
+  }
+
   return {
     posted: true, proposalId, batchId, reference, lineCount,
     // 2026-08-02 doctrine: proposal without journal_id → defaulted to MISC — warn.
@@ -977,6 +1003,17 @@ async function rejectProposal(ctx) {
   if (!note || String(note).trim() === '') {
     throw Object.assign(new Error('note is required to reject a proposal (the agent reads the reason and re-proposes corrected)'), { code: 'INVALID_INPUT' });
   }
+
+  // Read the proposal for matching_history (§1) — the claim below is the
+  // race-decider, but we need description/lines/match_meta for the learning
+  // store write. If the proposal is already terminal we still surface the
+  // exact error via the claim.
+  const preRows = await query(
+    `SELECT proposal_id, description, lines, source, match_meta
+     FROM journal_proposals WHERE company_id = @companyId AND proposal_id = @proposalId`,
+    { companyId, proposalId }
+  );
+  const proposal = preRows.length > 0 ? preRows[0] : null;
 
   // D3: same 'anonymous' fallback doctrine as proposeEntry/approve — keeps
   // attribution consistent under install-level trust.
@@ -1006,6 +1043,17 @@ async function rejectProposal(ctx) {
     reviewedBy: reviewer,
     note: String(note),
   });
+
+  // ── §1: Record outcome in matching_history ────────────────────────────────
+  try {
+    if (proposal) {
+      let rejectedLines = null;
+      try { rejectedLines = JSON.parse(proposal.lines); } catch { /* unparseable */ }
+      await recordMatchingOutcome(ctx, proposal, rejectedLines, 'rejected');
+    }
+  } catch (e) {
+    console.error(`matching_history.record failed on reject ${proposalId}: ${e.message}`);
+  }
 
   return { rejected: true, proposalId };
 }
@@ -1076,6 +1124,178 @@ async function getProposal(ctx) {
   try { lines = JSON.parse(row.lines); } catch { lines = null; }
   const { lines: _omit, ...rest } = row;
   return { ...rest, lines };
+}
+
+// ── §1: matching_history.record helper ──────────────────────────────────────
+// Called from approveProposal/rejectProposal. Assembles the fields from the
+// stored proposal + match_meta and inserts directly into matching_history.
+// This is a learning-store write, not a dispatchAction — same category as
+// auditLog (a side effect of the human's action, attributed to the human).
+async function recordMatchingOutcome(ctx, proposal, approvedLines, outcome) {
+  const { companyId, userEmail } = ctx;
+
+  // Parse match_meta if present
+  let meta = null;
+  try { meta = proposal.match_meta ? JSON.parse(proposal.match_meta) : null; }
+  catch { /* unparseable — no metadata */ }
+
+  if (!meta) return; // no match metadata → nothing to record (manual entry, etc.)
+
+  // Normalize the description pattern (§3.3)
+  const pattern = normalizeDescription(proposal.description || '');
+
+  // Extract proposed dimensions from match_meta
+  const proposedDimensions = meta.suggested_dimensions || null;
+
+  // Extract approved dimensions from the match_meta's suggested_dimensions
+  // (the agent proposed these; approve is currently unedited — no edit path).
+  // Fall back to parsing the lines if suggested_dimensions is absent.
+  let approvedDimensions = null;
+  if (meta.suggested_dimensions) {
+    approvedDimensions = meta.suggested_dimensions;
+  } else if (approvedLines && Array.isArray(approvedLines)) {
+    // Pick the offset account (the non-bank account) — the first line is
+    // typically the bank account; the second is the offset.
+    const accounts = [...new Set(approvedLines.map((l) => l.account_code).filter(Boolean))];
+    // Heuristic: the offset account is the one that isn't the bank account.
+    // We can't know the bank account here, so pick the account that appears
+    // on the debit side of an outflow or credit side of an inflow — i.e.,
+    // the non-dominant account. Simpler: pick the second unique account.
+    const account = accounts.length > 1 ? accounts[1] : (accounts[0] || null);
+    const vatCode = approvedLines.find((l) => l.vat_code)?.vat_code || null;
+    approvedDimensions = { account, vat_code: vatCode, counterparty: null };
+  }
+
+  // Compute amount (sum of debits)
+  let amount = null;
+  if (approvedLines && Array.isArray(approvedLines)) {
+    amount = approvedLines.reduce((s, l) => s + Number(l.debit || 0), 0);
+  }
+
+  const id = uuid();
+  await exec(
+    `INSERT INTO matching_history
+       (id, company_id, bank_account, description_pattern, counterparty, amount,
+        proposed_dimensions, approved_dimensions, source_type, confidence, evidence, outcome)
+     VALUES
+       (@id, @companyId, @bank_account, @description_pattern, @counterparty, @amount,
+        @proposed_dimensions, @approved_dimensions, @source_type, @confidence, @evidence, @outcome)`,
+    {
+      id,
+      companyId,
+      bank_account: null,
+      description_pattern: pattern || null,
+      counterparty: null,
+      amount,
+      proposed_dimensions: proposedDimensions ? JSON.stringify(proposedDimensions) : null,
+      approved_dimensions: approvedDimensions ? JSON.stringify(approvedDimensions) : null,
+      source_type: meta.source_type || 'unknown',
+      confidence: meta.confidence ? JSON.stringify(meta.confidence) : null,
+      evidence: meta.evidence ? JSON.stringify(meta.evidence) : null,
+      outcome,
+    }
+  );
+}
+
+// ── §3.1: Crystallization on unedited tier-4 approval ──────────────────────
+// When a human approves a tier-4 (LLM) proposal unedited, call mapping.suggest
+// so a rule is created for future occurrences. This is a side effect of the
+// human's approval — the suggestion surfaces in the inbox as a Class B item.
+async function crystallizeMappingSuggestion(ctx, proposal, approvedLines) {
+  const { companyId, userEmail } = ctx;
+
+  // Parse match_meta
+  let meta = null;
+  try { meta = proposal.match_meta ? JSON.parse(proposal.match_meta) : null; }
+  catch { /* unparseable */ }
+
+  if (!meta) return;
+
+  // Only crystallize tier-4 LLM proposals (§3.1 step 1)
+  if (meta.tier !== 4 && meta.source_type !== 'llm_semantic') return;
+
+  // Determine the approved account — prefer suggested_dimensions from match_meta
+  // (the agent's proposed account); fall back to the second unique account in
+  // the lines (the offset, not the bank account).
+  let account = null;
+  if (meta.suggested_dimensions && meta.suggested_dimensions.account) {
+    account = meta.suggested_dimensions.account;
+  } else if (approvedLines && Array.isArray(approvedLines) && approvedLines.length > 0) {
+    const accounts = [...new Set(approvedLines.map((l) => l.account_code).filter(Boolean))];
+    account = accounts.length > 1 ? accounts[1] : (accounts[0] || null);
+  }
+  if (!account) return;
+
+  // Determine the VAT code if present
+  const vatCode = (meta.suggested_dimensions && meta.suggested_dimensions.vat_code)
+    || (approvedLines && Array.isArray(approvedLines) ? approvedLines.find((l) => l.vat_code)?.vat_code : null)
+    || null;
+
+  // Normalize the pattern (§3.3)
+  const pattern = normalizeDescription(proposal.description || '');
+  if (!pattern) return;
+
+  // Check whether an active rule already exists for this pattern (§3.1 step 4)
+  const existingRules = await query(
+    `SELECT mapping_id FROM bank_mappings
+     WHERE company_id = @companyId AND is_active = true
+       AND UPPER(pattern) = UPPER(@pattern)`,
+    { companyId, pattern }
+  );
+  if (existingRules.length > 0) return; // rule exists, nothing to suggest
+
+  // Check whether a pending suggestion already exists (§3.1 step 5)
+  const existingSuggestions = await query(
+    `SELECT suggestion_id FROM mapping_suggestions
+     WHERE company_id = @companyId AND status = 'proposed'
+       AND UPPER(description_pattern) = UPPER(@pattern)`,
+    { companyId, pattern }
+  );
+  if (existingSuggestions.length > 0) return; // suggestion exists, don't duplicate
+
+  // Determine the amount_sign from the approved lines (§5)
+  const totalDebit = approvedLines.reduce((s, l) => s + Number(l.debit || 0), 0);
+  const totalCredit = approvedLines.reduce((s, l) => s + Number(l.credit || 0), 0);
+  const amountSign = totalDebit > totalCredit ? 'positive' : 'negative';
+
+  // Insert the suggestion directly (bypasses dispatchAction — same pattern as
+  // recordMatchingOutcome: a side effect of the human's action, not a separate
+  // agent decision). The suggestion surfaces in the inbox for human approval.
+  const suggestionId = uuid();
+  const now = new Date().toISOString();
+  const evidenceJson = JSON.stringify([{
+    type: 'crystallization',
+    description: `Tier-4 LLM proposal approved unedited — suggesting rule for future matches`,
+    source_proposal_id: proposal.proposal_id,
+    source_type: meta.source_type,
+    approved_account: account,
+  }]);
+
+  await bulkInsert('mapping_suggestions', [{
+    company_id: companyId,
+    suggestion_id: suggestionId,
+    bank_account: null,
+    description_pattern: pattern,
+    suggested_account: account,
+    suggested_vat_code: vatCode,
+    suggested_dimensions: null,
+    suggested_amount_sign: amountSign,
+    suggested_match_type: 'contains',
+    evidence: evidenceJson,
+    source_proposal_id: proposal.proposal_id,
+    status: 'proposed',
+    created_by: userEmail || 'anonymous',
+    reviewed_by: null,
+    reviewed_at: null,
+    created_at: now,
+  }]);
+
+  // Emit mapping.suggested event so the inbox picks it up
+  await emitEvent(ctx, 'mapping.suggested', 'mapping_suggestion', suggestionId, {
+    description_pattern: pattern,
+    suggested_account: account,
+    source_proposal_id: proposal.proposal_id,
+  });
 }
 
 module.exports = { handleJournal, getNextReference, getNextReferenceBatch, enrichAndValidate, postJournalBatch, queryProposals };

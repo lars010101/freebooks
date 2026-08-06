@@ -1463,14 +1463,20 @@ async function handleSettings(ctx, action) {
     const headers = { 'Content-Type': 'application/json' };
     if (api_key) headers['Authorization'] = `Bearer ${api_key}`;
     const t0 = Date.now();
-    const r = await fetch(`${url}/v1/chat/completions`, {
-      method: 'POST', headers,
-      body: JSON.stringify({
-        model: model || 'default',
-        messages: [{ role: 'user', content: 'Respond with: ok' }],
-        max_tokens: 5,
-      }),
-    });
+    let r;
+    try {
+      r = await fetch(`${url}/v1/chat/completions`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          model: model || 'default',
+          messages: [{ role: 'user', content: 'Respond with: ok' }],
+          max_tokens: 5,
+        }),
+      });
+    } catch (fetchErr) {
+      const latency_ms = Date.now() - t0;
+      return { ok: false, error: `Connection failed: ${fetchErr.message}`, latency_ms };
+    }
     const latency_ms = Date.now() - t0;
     if (r.ok) return { ok: true, latency_ms };
     const text = await r.text().catch(() => '');

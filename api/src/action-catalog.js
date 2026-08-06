@@ -520,8 +520,21 @@ const ACTIONS = {
   'settings.get': { role: 'viewer', mutating: false, description: 'Get company settings.' },
   'settings.save': {
     role: 'owner', mutating: true,
-    description: 'Save company settings (incl. vat_tolerance, vat_tolerance_pct).',
+    description: 'Save company settings (incl. vat_tolerance, vat_tolerance_pct, AI/agent config).',
     params: { settings: { type: 'object', required: true } },
+  },
+  'settings.ai.test': {
+    role: 'data_entry', mutating: false,
+    description: 'Test LLM endpoint connectivity. Sends a minimal prompt to the configured endpoint.',
+    params: {
+      endpoint_url: { type: 'string', required: true },
+      api_key: { type: 'string' },
+      model: { type: 'string' },
+    },
+  },
+  'agent.status': {
+    role: 'viewer', mutating: false,
+    description: 'Get agent pipeline status (running/stopped, feed watcher state).',
   },
   'company.list': { role: 'viewer', mutating: false, description: 'List companies.' },
   'company.save': {

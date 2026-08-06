@@ -106,6 +106,7 @@ ${commonStyle()}
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" id="tab-fxrates-label" onclick="showTab('fxrates')">Exchange Rates</div>
+    <div class="tab" onclick="showTab('ai')">AI</div>
     <div class="tab" onclick="showTab('opening-balances')">Opening Balances</div>
   </div>
 
@@ -188,6 +189,69 @@ ${commonStyle()}
       <thead><tr><th>Date</th><th>From</th><th>To</th><th style="text-align:right">Rate</th><th>Source</th><th></th></tr></thead>
       <tbody id="fx-rates-body"></tbody>
     </table>
+  </div>
+
+  <!-- AI TAB — agent pipeline config + LLM provider (B9 spec) -->
+  <div id="tab-ai" class="tab-panel">
+    <div style="padding:12px 18px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:18px">
+      <div style="font-size:10pt;color:#333;margin-bottom:8px"><strong>Agent pipeline</strong> — automatic processing of bank statements and bills dropped in the inbox folder.</div>
+      <table class="edit-table" style="background:transparent">
+        <tbody>
+          <tr>
+            <td style="white-space:nowrap">Enable agent pipeline</td>
+            <td><input type="checkbox" id="ai-agent-enabled" onchange="markDirty('ai')"></td>
+          </tr>
+          <tr>
+            <td style="white-space:nowrap">Poll interval (ms)</td>
+            <td><input type="number" id="ai-poll-interval" value="30000" style="width:120px" onchange="markDirty('ai')"></td>
+          </tr>
+          <tr>
+            <td style="white-space:nowrap">Inbox path</td>
+            <td><input type="text" id="ai-inbox-path" style="width:400px" placeholder="~/freebooks-inbox" onchange="markDirty('ai')"></td>
+          </tr>
+          <tr>
+            <td style="white-space:nowrap">Agent status</td>
+            <td><span id="ai-agent-status" style="color:#666;font-size:9pt">Loading…</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="padding:12px 18px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:18px">
+      <div style="font-size:10pt;color:#333;margin-bottom:8px"><strong>LLM provider</strong> — OpenAI-compatible endpoint for tier-4 residual matching. Works with local llama.cpp, OpenAI, or any compatible server.</div>
+      <table class="edit-table" style="background:transparent">
+        <tbody>
+          <tr>
+            <td style="white-space:nowrap">Endpoint URL</td>
+            <td><input type="text" id="ai-llm-endpoint" style="width:400px" placeholder="http://127.0.0.1:8080 or https://api.openai.com" onchange="markDirty('ai')"></td>
+          </tr>
+          <tr>
+            <td style="white-space:nowrap">API key</td>
+            <td><input type="password" id="ai-llm-key" style="width:400px" placeholder="(optional — empty for local)" onchange="markDirty('ai')"></td>
+          </tr>
+          <tr>
+            <td style="white-space:nowrap">Model</td>
+            <td><input type="text" id="ai-llm-model" style="width:300px" placeholder="qwen2.5-7b-instruct" onchange="markDirty('ai')"></td>
+          </tr>
+          <tr>
+            <td style="white-space:nowrap">Temperature</td>
+            <td><input type="number" id="ai-llm-temp" value="0.1" step="0.1" min="0" max="2" style="width:80px" onchange="markDirty('ai')"></td>
+          </tr>
+          <tr>
+            <td></td>
+            <td>
+              <button class="btn-sm" onclick="testLLM()">Test connection</button>
+              <span id="ai-test-result" style="margin-left:8px;font-size:9pt"></span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="padding:12px 18px">
+      <button class="btn-sm" onclick="saveAiSettings()" style="font-size:10pt">Save AI settings</button>
+      <span id="ai-save-msg" style="margin-left:8px;font-size:9pt"></span>
+    </div>
   </div>
 
   <!-- OPENING BALANCES TAB — relocated from standalone /:company/opening-balances
@@ -327,7 +391,7 @@ function showTab(t) {
       resetDirty(curTab);
     }
   }
-  var tabs = ['company','coa','vat','journals','fxrates','opening-balances'];
+  var tabs = ['company','coa','vat','journals','fxrates','ai','opening-balances'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
@@ -350,6 +414,7 @@ function showTab(t) {
     if (t === 'vat')      { loadVat(); }
     if (t === 'journals') { loadJournals(); }
     if (t === 'fxrates')  { loadFxRates(); loadBaseCurrencies(); }
+    if (t === 'ai')       { loadAiSettings(); }
     if (t === 'opening-balances') { loadOpeningBalances(); }
   }
 }
@@ -1072,6 +1137,88 @@ window.onbeforeunload = function(e) {
   }
 };
 
+
+// ========== AI TAB (B9 spec) =========
+var _aiSettingsLoaded = false;
+function loadAiSettings() {
+  if (_aiSettingsLoaded) return;
+  _aiSettingsLoaded = true;
+  fetch('/api', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({action:'settings.get', companyId:CURRENT_COMPANY, userEmail:CURRENT_USER})
+  }).then(function(r){ return r.json(); }).then(function(r){
+    if (!r.ok) return;
+    var s = r.data || {};
+    document.getElementById('ai-agent-enabled').checked = s.agent_enabled === 'true';
+    document.getElementById('ai-poll-interval').value = s.agent_poll_interval_ms || '30000';
+    document.getElementById('ai-inbox-path').value = s.agent_inbox_path || '';
+    document.getElementById('ai-llm-endpoint').value = s.llm_endpoint_url || '';
+    document.getElementById('ai-llm-key').value = s.llm_api_key || '';
+    document.getElementById('ai-llm-model').value = s.llm_model || '';
+    document.getElementById('ai-llm-temp').value = s.llm_temperature || '0.1';
+    // Agent status
+    fetch('/api', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({action:'agent.status', companyId:CURRENT_COMPANY, userEmail:CURRENT_USER})
+    }).then(function(r){ return r.json(); }).then(function(r){
+      var el = document.getElementById('ai-agent-status');
+      if (r.ok && r.data) {
+        el.textContent = r.data.running ? 'Running' : 'Stopped';
+        el.style.color = r.data.running ? '#16a34a' : '#666';
+      } else {
+        el.textContent = 'Stopped'; el.style.color = '#666';
+      }
+    }).catch(function(){
+      var el = document.getElementById('ai-agent-status');
+      el.textContent = 'Stopped'; el.style.color = '#666';
+    });
+  }).catch(function(e){ showMsg('ai', 'Failed to load AI settings', true); });
+}
+
+function saveAiSettings() {
+  var settings = {
+    agent_enabled: document.getElementById('ai-agent-enabled').checked ? 'true' : 'false',
+    agent_poll_interval_ms: document.getElementById('ai-poll-interval').value,
+    agent_inbox_path: document.getElementById('ai-inbox-path').value,
+    llm_endpoint_url: document.getElementById('ai-llm-endpoint').value,
+    llm_api_key: document.getElementById('ai-llm-key').value,
+    llm_model: document.getElementById('ai-llm-model').value,
+    llm_temperature: document.getElementById('ai-llm-temp').value,
+  };
+  fetch('/api', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({action:'settings.save', companyId:CURRENT_COMPANY, userEmail:CURRENT_USER, settings:settings})
+  }).then(function(r){ return r.json(); }).then(function(r){
+    var el = document.getElementById('ai-save-msg');
+    if (r.ok) { el.textContent = '✓ Saved'; el.style.color = '#16a34a'; resetDirty('ai'); }
+    else { el.textContent = '✗ ' + (r.error?.message || 'Save failed'); el.style.color = '#dc2626'; }
+  }).catch(function(e){
+    var el = document.getElementById('ai-save-msg');
+    el.textContent = '✗ Network error'; el.style.color = '#dc2626';
+  });
+}
+
+function testLLM() {
+  var el = document.getElementById('ai-test-result');
+  el.textContent = 'Testing…'; el.style.color = '#666';
+  fetch('/api', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      action:'settings.ai.test', companyId:CURRENT_COMPANY, userEmail:CURRENT_USER,
+      endpoint_url: document.getElementById('ai-llm-endpoint').value,
+      api_key: document.getElementById('ai-llm-key').value,
+      model: document.getElementById('ai-llm-model').value,
+    })
+  }).then(function(r){ return r.json(); }).then(function(r){
+    if (r.ok && r.data && r.data.ok) {
+      el.textContent = '✓ OK (' + r.data.latency_ms + 'ms)'; el.style.color = '#16a34a';
+    } else {
+      el.textContent = '✗ ' + (r.data?.error || r.error?.message || 'Failed'); el.style.color = '#dc2626';
+    }
+  }).catch(function(e){
+    el.textContent = '✗ Network error'; el.style.color = '#dc2626';
+  });
+}
 
 // ========== HANDLE ?tab= URL PARAM ==========
 (function() {

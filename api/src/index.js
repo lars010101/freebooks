@@ -331,6 +331,7 @@ async function handleApiRequest(req, res) {
       case 'event':       result = await handleEvents(ctx, action); break;
       case 'auth':        result = await handleTokens(ctx, action); break;
       case 'sie':         result = await handleSie(ctx, action); break;
+      case 'agent':       result = await handleAgent(ctx, action); break;
       default:
         return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
     }
@@ -1454,6 +1455,33 @@ async function handleSettings(ctx, action) {
     }
     return { saved: Object.keys(settings).length };
   }
+
+  if (action === 'settings.ai.test') {
+    const { endpoint_url, api_key, model } = body;
+    if (!endpoint_url) throw Object.assign(new Error('endpoint_url required'), { code: 'INVALID_INPUT' });
+    const url = String(endpoint_url).replace(/\/$/, '');
+    const headers = { 'Content-Type': 'application/json' };
+    if (api_key) headers['Authorization'] = `Bearer ${api_key}`;
+    const t0 = Date.now();
+    let r;
+    try {
+      r = await fetch(`${url}/v1/chat/completions`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          model: model || 'default',
+          messages: [{ role: 'user', content: 'Respond with: ok' }],
+          max_tokens: 5,
+        }),
+      });
+    } catch (fetchErr) {
+      const latency_ms = Date.now() - t0;
+      return { ok: false, error: `Connection failed: ${fetchErr.message}`, latency_ms };
+    }
+    const latency_ms = Date.now() - t0;
+    if (r.ok) return { ok: true, latency_ms };
+    const text = await r.text().catch(() => '');
+    return { ok: false, error: `HTTP ${r.status}: ${text.slice(0, 200)}`, latency_ms };
+  }
 }
 
 // --- Permissions ---
@@ -1474,6 +1502,19 @@ async function handlePermissions(ctx, action) {
     if (rows.length > 0) await bulkInsert('user_permissions', rows);
     return { saved: rows.length };
   }
+}
+
+// --- Agent (B9) ---
+
+async function handleAgent(ctx, action) {
+  if (action === 'agent.status') {
+    const { feedWatcher, agentLoop } = require('./boot-state');
+    return {
+      running: agentLoop?.getStatus()?.running || false,
+      feedWatcher: feedWatcher?.getStatus() || null,
+    };
+  }
+  throw Object.assign(new Error(`Unknown agent action: ${action}`), { code: 'UNKNOWN_ACTION' });
 }
 
 // --- Diagnostics ---
@@ -1530,6 +1571,142 @@ ensureDb().then(async () => {
     runAttachmentGC().catch((e) => console.error('Scheduled attachment GC failed:', e.message));
   }, 24 * 60 * 60 * 1000);
   gcTimer.unref();
+
+  // ── B9: in-process agent pipeline boot ─────────────────────────────────
+  // Build a dispatchAction function that replicates the HTTP dispatch logic
+  // but calls handlers directly in-process (no HTTP, no tokens). The agent
+  // loop uses this to call bank.match, journal.propose, event.list, etc.
+  const { ACTIONS } = require('./action-catalog');
+  const { resolveActor } = require('./auth');
+  const { handleEvents } = require('./events');
+  const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose', 'matching_history.record', 'mapping.suggest', 'bill.create', 'input_rejection.create']);
+
+  async function dispatchAction(action, params, companyId, agentEmail) {
+    const body = { action, companyId, userEmail: agentEmail, ...params };
+    const requiredRole = ACTION_ROLES[action];
+    if (!requiredRole) throw Object.assign(new Error(`Unknown action: ${action}`), { code: 'UNKNOWN_ACTION' });
+
+    const actor = await resolveActor(agentEmail, companyId);
+    if (actor.actorType === 'agent') {
+      const meta = ACTIONS[action];
+      const mutating = !!(meta && meta.mutating === true);
+      if (mutating && !AGENT_ALLOWED.has(action)) {
+        throw Object.assign(new Error('Agents may not finalize or mutate master data'), { code: 'FORBIDDEN' });
+      }
+    }
+
+    const ctx = { body, companyId, userEmail: agentEmail, actor, requestId: null, tokenAuth: null };
+    const [module] = action.split('.');
+
+    // Reuse the same dispatch switch — delegate to handleApiRequest's handlers
+    // by calling them directly. Each handler takes (ctx, action).
+    const handlers = {
+      journal: () => require('./journal').handleJournal(ctx, action),
+      inbox: () => require('./inbox').handleInbox(ctx, action),
+      bank: () => require('./bank').handleBank(ctx, action),
+      bill: () => require('./bills').handleBills(ctx, action),
+      vendor: () => require('./vendors').handleVendors(ctx, action),
+      view: () => require('./views').handleViews(ctx, action),
+      report: () => require('./reports').handleReports(ctx, action),
+      vat: () => require('./vat').handleVat(ctx, action),
+      fx: () => require('./fx').handleFx(ctx, action),
+      coa: () => require('./index').handleCoa(ctx, action),
+      mapping: () => require('./index').handleMapping(ctx, action),
+      matching_history: () => require('./index').handleMatchingHistory(ctx, action),
+      input_rejection: () => require('./index').handleInputRejection(ctx, action),
+      calibration: () => require('./index').handleCalibration(ctx, action),
+      center: () => require('./index').handleCenter(ctx, action),
+      journals: () => require('./index').handleJournals(ctx, action),
+      settings: () => require('./index').handleSettings(ctx, action),
+      company: () => require('./index').handleSettings(ctx, action),
+      period: () => require('./index').handleSettings(ctx, action),
+      filing: () => require('./index').handlePeriodsService(ctx, action),
+      permissions: () => require('./index').handlePermissions(ctx, action),
+      setup: () => { throw Object.assign(new Error('Agents may not run setup actions'), { code: 'FORBIDDEN' }); },
+      diag: () => require('./index').handleDiag(ctx, action),
+      attachment: () => require('./attachments').handleAttachments(ctx, action),
+      event: () => handleEvents(ctx, action),
+      auth: () => require('./tokens').handleTokens(ctx, action),
+      sie: () => require('./sie-import').handleSie(ctx, action),
+      agent: () => require('./index').handleAgent(ctx, action),
+    };
+
+    const handler = handlers[module];
+    if (!handler) throw Object.assign(new Error(`Unknown module: ${module}`), { code: 'INVALID_INPUT' });
+
+    // freebooks_read is a passthrough that dispatches a sub-action
+    if (action === 'freebooks_read') {
+      const subAction = body.action;
+      const subModule = subAction.split('.')[0];
+      const subHandler = handlers[subModule];
+      if (!subHandler) throw Object.assign(new Error(`Unknown sub-module: ${subModule}`), { code: 'INVALID_INPUT' });
+      return subHandler();
+    }
+
+    return handler();
+  }
+
+  // Fetch attachment content for the agent loop (reads from disk, not HTTP)
+  const path = require('path');
+  const fs = require('fs');
+  const { ATTACHMENTS_ROOT } = require('./attachments');
+  async function fetchAttachmentFn(attachmentId) {
+    const rows = await query(
+      `SELECT storage_path, content_type, filename FROM attachments WHERE attachment_id = @id LIMIT 1`,
+      { id: attachmentId }
+    );
+    if (rows.length === 0) throw new Error('Attachment not found');
+    const { storage_path, content_type, filename } = rows[0];
+    const fullPath = path.join(ATTACHMENTS_ROOT, storage_path);
+    const buffer = fs.readFileSync(fullPath);
+    return {
+      contentType: content_type,
+      filename,
+      buffer,
+      text: buffer.toString('utf8'),
+    };
+  }
+
+  // Feed watcher upload function — calls storeAttachment directly
+  const { storeAttachment } = require('./attachments');
+  const { resolveActor: resolveActorAuth } = require('./auth');
+  async function feedWatcherUpload(companyId, entityType, entityId, filename, buffer, contentType, idempotencyKey) {
+    const actor = await resolveActorAuth('agent@freebooks.local', companyId);
+    return storeAttachment({
+      companyId, entityType, entityId, filename,
+      contentType, buffer, uploadedBy: 'agent@freebooks.local',
+      actor, requestId: null,
+    });
+  }
+
+  // Start feed watcher if enabled (install-level setting)
+  const { query: q } = require('./db');
+  const feedWatcher = require('./feed-watcher');
+  const agentLoop = require('./agent-loop');
+  const bootState = require('./boot-state');
+  bootState.setFeedWatcher(feedWatcher);
+  bootState.setAgentLoop(agentLoop);
+
+  // Check if feed watcher is enabled at install level
+  let fwEnabled = false;
+  try {
+    const rows = await q(`SELECT value FROM settings WHERE company_id = '__install__' AND key = 'feed_watcher_enabled' LIMIT 1`);
+    fwEnabled = rows.length > 0 && rows[0].value === 'true';
+  } catch (e) { /* settings table may not exist yet — non-fatal */ }
+
+  // Check if any company has agent_enabled
+  let anyAgentEnabled = false;
+  try {
+    const rows = await q(`SELECT 1 FROM settings WHERE key = 'agent_enabled' AND value = 'true' LIMIT 1`);
+    anyAgentEnabled = rows.length > 0;
+  } catch (e) { /* non-fatal */ }
+
+  if (fwEnabled) {
+    feedWatcher.startFeedWatcher(feedWatcherUpload);
+  }
+  if (anyAgentEnabled) {
+    agentLoop.startAgentLoop(dispatchAction, fetchAttachmentFn);
+  }
 
   app.listen(PORT, HOST, () => {
     console.log(`freeBooks API listening on ${HOST}:${PORT}`);

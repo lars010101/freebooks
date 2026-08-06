@@ -411,4 +411,4 @@ async function handleAdminGC(req, res) {
   }
 }
 
-module.exports = { handleAttachments, uploadMiddleware, handleUpload, serveAttachment, runAttachmentGC, handleAdminGC };
+module.exports = { handleAttachments, uploadMiddleware, handleUpload, serveAttachment, runAttachmentGC, handleAdminGC, storeAttachment, ATTACHMENTS_ROOT };

@@ -41,7 +41,7 @@ for sub in bank bills receipts journal ""; do
   exts="${EXT_FILTER[${sub:-root}]:-*.pdf *.PDF *.jpg *.jpeg *.png}"
   (
     inotifywait -m -e close_write --format '%f' "$dir" | while read -r f; do
-      local matched=0
+      matched=0
       for pat in $exts; do case "$f" in $pat) matched=1; break;; esac; done
       [[ "$matched" -eq 1 ]] || { echo "skip $sub/$f (wrong type)"; continue; }
       upload "${sub:-root}" "$f"

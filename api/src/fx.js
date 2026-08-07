@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
+const { fxRevaluationConfigFor } = require('./jurisdiction-packs');
 
 const PROVIDERS_DIR = path.join(__dirname, 'fxProviders');
 
@@ -263,8 +264,22 @@ async function revaluationPreview(ctx) {
   const { revalDate } = body;
   if (!revalDate) throw Object.assign(new Error('revalDate required'), { code: 'INVALID_INPUT' });
 
-  const companies = await query(`SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`, { companyId });
+  const companies = await query(`SELECT currency, jurisdiction FROM companies WHERE company_id = @companyId LIMIT 1`, { companyId });
   const homeCurrency = companies[0].currency;
+  const jurisdiction = companies[0].jurisdiction;
+
+  // Pack-driven monetary types (P2-2): default to Asset+Liability only (IAS 21 —
+  // monetary items). Equity is never revalued. The pack can narrow further.
+  const fxConfig = fxRevaluationConfigFor(jurisdiction);
+  const monetaryTypes = (fxConfig && fxConfig.monetaryTypes) || ['Asset', 'Liability'];
+
+  // Build IN clause with named params (DuckDB @param → $param binding)
+  const typeParams = {};
+  const typePlaceholders = monetaryTypes.map((t, i) => {
+    typeParams[`mt${i}`] = t;
+    return `@mt${i}`;
+  });
+  const inClause = typePlaceholders.join(', ');
 
   const balances = await query(
     `SELECT je.account_code, a.account_name, je.currency,
@@ -275,10 +290,10 @@ async function revaluationPreview(ctx) {
      WHERE je.company_id = @companyId
        AND je.date <= @revalDate
        AND je.currency != @homeCurrency
-       AND a.account_type IN ('Asset', 'Liability', 'Equity')
+       AND a.account_type IN (${inClause})
      GROUP BY je.account_code, a.account_name, je.currency
      HAVING SUM(je.debit - je.credit) != 0`,
-    { companyId, revalDate, homeCurrency }
+    { companyId, revalDate, homeCurrency, ...typeParams }
   );
 
   const adjustments = [];
@@ -301,13 +316,22 @@ async function revaluationPreview(ctx) {
 
 async function revaluationPost(ctx) {
   const { companyId, userEmail, body } = ctx;
-  const { revalDate, fxGainLossAccount, adjustments } = body;
-  if (!revalDate || !fxGainLossAccount || !adjustments) {
-    throw Object.assign(new Error('revalDate, fxGainLossAccount, and adjustments required'), { code: 'INVALID_INPUT' });
+  const { revalDate, adjustments } = body;
+  if (!revalDate || !adjustments) {
+    throw Object.assign(new Error('revalDate and adjustments required'), { code: 'INVALID_INPUT' });
   }
 
-  const companies = await query(`SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`, { companyId });
+  const companies = await query(`SELECT currency, jurisdiction FROM companies WHERE company_id = @companyId LIMIT 1`, { companyId });
   const homeCurrency = companies[0].currency;
+  const jurisdiction = companies[0].jurisdiction;
+
+  // Pack-driven default gain/loss account (P2-2): if the caller doesn't pass
+  // fxGainLossAccount, fall back to the jurisdiction pack's configured account.
+  const fxConfig = fxRevaluationConfigFor(jurisdiction);
+  const gainLossAccount = body.fxGainLossAccount || (fxConfig && fxConfig.gainLossAccount);
+  if (!gainLossAccount) {
+    throw Object.assign(new Error('fxGainLossAccount required (or set fxRevaluation.gainLossAccount in the jurisdiction pack)'), { code: 'INVALID_INPUT' });
+  }
 
   const batchId = uuid();
   const now = new Date().toISOString();
@@ -321,7 +345,7 @@ async function revaluationPost(ctx) {
     const base = { company_id: companyId, batch_id: batchId, date: revalDate, currency: homeCurrency, fx_rate: 1.0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, source: 'fx_revaluation', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: null, created_by: userEmail, created_at: now };
 
     lines.push({ ...base, entry_id: uuid(), account_code: adj.accountCode, debit: isGain ? amount : 0, credit: isGain ? 0 : amount, debit_home: isGain ? amount : 0, credit_home: isGain ? 0 : amount, description: `FX revaluation: ${adj.accountCode} ${adj.currency}`, reference: `FXREVAL-${revalDate}` });
-    lines.push({ ...base, entry_id: uuid(), account_code: fxGainLossAccount, debit: isGain ? 0 : amount, credit: isGain ? amount : 0, debit_home: isGain ? 0 : amount, credit_home: isGain ? amount : 0, description: `FX ${isGain ? 'gain' : 'loss'}: ${adj.accountCode} ${adj.currency}`, reference: `FXREVAL-${revalDate}` });
+    lines.push({ ...base, entry_id: uuid(), account_code: gainLossAccount, debit: isGain ? 0 : amount, credit: isGain ? amount : 0, debit_home: isGain ? 0 : amount, credit_home: isGain ? amount : 0, description: `FX ${isGain ? 'gain' : 'loss'}: ${adj.accountCode} ${adj.currency}`, reference: `FXREVAL-${revalDate}` });
   }
 
   if (lines.length > 0) await bulkInsert('journal_entries', lines);

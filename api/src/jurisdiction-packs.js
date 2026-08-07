@@ -82,4 +82,18 @@ function closingConfigFor(code) {
   return pack.closing;
 }
 
-module.exports = { getJurisdictionPack, contactAttributesFor, packIntegration, closingConfigFor };
+/**
+ * FX revaluation configuration declared by the pack (`fxRevaluation.monetaryTypes`,
+ * `fxRevaluation.gainLossAccount`). Returns `null` when the pack is missing or
+ * declares no fxRevaluation block — callers fall back to a safe default
+ * (['Asset', 'Liability'] — no Equity, per IAS 21).
+ * @param {string} code Jurisdiction code.
+ * @returns {{monetaryTypes:string[], gainLossAccount:string}|null}
+ */
+function fxRevaluationConfigFor(code) {
+  const pack = getJurisdictionPack(code);
+  if (!pack || !pack.fxRevaluation) return null;
+  return pack.fxRevaluation;
+}
+
+module.exports = { getJurisdictionPack, contactAttributesFor, packIntegration, closingConfigFor, fxRevaluationConfigFor };

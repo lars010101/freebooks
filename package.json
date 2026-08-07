@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "test:keys": "node tests/keys-coverage.mjs",
-    "test:reversal": "node tests/reversal.mjs"
+    "test:reversal": "node tests/reversal.mjs",
+    "test:fx-reval": "node tests/fx-reval.mjs"
   }
 }

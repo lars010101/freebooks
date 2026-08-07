@@ -25,6 +25,10 @@
     "retainedEarningsAccount": "2099",
     "closingAccount": "8999"
   },
+  "fxRevaluation": {
+    "monetaryTypes": ["Asset", "Liability"],
+    "gainLossAccount": "7960"
+  },
   "integrations": {
     "sie": { "export": true, "import": true }
   },

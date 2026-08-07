@@ -39,7 +39,7 @@ async function handleReport(req, res) {
   const { type, start, end, format, step, account } = req.query;
 
   if (!type)  return res.status(400).json({ error: 'Missing ?type=' });
-  if (!start && type !== 'ap-aging') return res.status(400).json({ error: 'Missing ?start=' });
+  if (!start && type !== 'ap-aging' && type !== 'ap-control') return res.status(400).json({ error: 'Missing ?start=' });
   if (!end)   return res.status(400).json({ error: 'Missing ?end=' });
 
   const query = makeQuery();

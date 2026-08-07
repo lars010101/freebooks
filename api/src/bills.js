@@ -353,6 +353,25 @@ async function createBill(ctx) {
     lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: expLine.expense_account, debit: lineNet, credit: 0, currency, fx_rate: fxRate, debit_home: lineNet * fxRate, credit_home: 0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: lineDesc, reference: apRef, source: 'manual', cost_center: expLine.cost_center || bill.cost_center || null, profit_center: expLine.profit_center || bill.profit_center || null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
   }
 
+  // ── P2-3: write bill_lines subledger (expense lines only) ──
+  const round4 = (n) => Math.round(n * 10000) / 10000;
+  const billLineRows = expenseLines.map((expLine, i) => {
+    const lineAmount = Number(expLine.amount || 0);
+    return {
+      company_id: companyId,
+      bill_id: billId,
+      line_number: i + 1,
+      expense_account: expLine.expense_account,
+      amount: lineAmount,
+      amount_home: round4(lineAmount * fxRate),
+      vat_code: expLine.vat_code || null,
+      description: expLine.description || null,
+      cost_center: expLine.cost_center || bill.cost_center || null,
+      profit_center: expLine.profit_center || bill.profit_center || null,
+      created_at: now,
+    };
+  });
+
   // Bill-level supplier-stated VAT (redesign 2026-07-26) — the only override
   // surface. Compared against Σ computed over standard (non-RC) codes; the
   // delta lands on the largest computed tax line. RC lines never absorb it.
@@ -406,6 +425,7 @@ async function createBill(ctx) {
   lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: bill.ap_account, debit: 0, credit: totalDebit, currency, fx_rate: fxRate, debit_home: 0, credit_home: totalDebit * fxRate, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, description: `AP: ${desc}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
 
   await bulkInsert('journal_entries', lines);
+  await bulkInsert('bill_lines', billLineRows);  // P2-3
   if (replaceDraftId) {
     // UPDATE the draft row in-place to 'posted'. Drafts have no journal entries,
     // so the bulkInsert above is the first time entries are written for this bill_id.
@@ -752,13 +772,23 @@ async function getBillLines(ctx) {
       }));
     } catch(e) { return []; }
   }
+  // Posted/partial/paid/void: read from bill_lines subledger (P2-3)
   return query(
-    `SELECT je.entry_id, je.account_code, a.account_name, je.description, je.debit as amount, je.vat_code, je.currency, je.fx_rate
-     FROM journal_entries je
-     LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
-     WHERE je.company_id = @companyId AND je.bill_id = @billId AND je.debit > 0
-       AND je.account_code != (SELECT ap_account FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1)
-     ORDER BY je.created_at`,
+    `SELECT
+       CAST(bl.line_number AS VARCHAR) AS entry_id,
+       bl.expense_account AS account_code,
+       a.account_name,
+       bl.description,
+       bl.amount,
+       bl.vat_code,
+       b.currency,
+       b.fx_rate,
+       bl.amount_home
+     FROM bill_lines bl
+     JOIN bills b ON b.company_id = bl.company_id AND b.bill_id = bl.bill_id
+     LEFT JOIN accounts a ON a.company_id = bl.company_id AND a.account_code = bl.expense_account
+     WHERE bl.company_id = @companyId AND bl.bill_id = @billId
+     ORDER BY bl.line_number`,
     { companyId, billId }
   );
 }

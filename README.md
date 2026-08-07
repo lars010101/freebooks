@@ -210,6 +210,8 @@ freebooks/
 │   ├── ia-spec.md
 │   ├── settings-ux-spec.md
 │   ├── payables-ux-spec.md
+│   ├── p2-1-year-end-close-spec.md
+│   ├── p2-3-bill-lines-subledger-spec.md
 │   └── UI.md
 ├── .github/workflows/build.yml # CI
 └── Dockerfile                  # container image (Wolfi/distrobox)
@@ -230,6 +232,7 @@ All data lives in a single DuckDB file (default `~/.freebooks/freebooks.duckdb`)
 | `journal_sequences` | Per-journal, per-year auto-incrementing reference counters |
 | `journal_proposals` | Agent-proposed journals awaiting human review (`proposed`/`approved`/`rejected`); carries `_match_meta` JSON |
 | `bills` | Accounts Payable bills (vendor, amounts, currency, FX rate, status, `amount_paid`) |
+| `bill_lines` | Bill line subledger — expense line items for posted bills (written alongside journal entries; never mutated) |
 | `bill_payments` | Payment allocations linking bills to settlement journal batches |
 | `vendors` | Vendor master with default currency, payment terms, and default expense/AP accounts |
 | `vat_codes` | VAT/GST codes: rate, input/output accounts, report box, reverse-charge flag |
@@ -317,6 +320,7 @@ All report types render through `reports/render.js` (or `report-composite.js` fo
 | `journal` | Journal listing | — |
 | `integrity` | Integrity checks + RE roll-forward | — |
 | `ap-aging` | AP Aging (as-of end date) | — |
+| `ap-control` | AP Control Reconciliation (subledger vs GL, as-of end date) | — |
 | `ar` | K2 annual report composite (resultaträkning + balansräkning + noter; registry-driven, SE K2 / SG SFRS) | — |
 | `sie` | SIE 4 export (PC8/CP437, IB/UB/RES/VER) — SE-only | — |
 

@@ -219,7 +219,7 @@ const ACTIONS = {
   },
   'bill.lines': {
     role: 'viewer', mutating: false,
-    description: 'Line items of a bill (draft_lines JSON for drafts, journal lines for posted).',
+    description: 'Line items of a bill (draft_lines JSON for drafts, bill_lines subledger for posted).',
     params: { billId: { type: 'string', required: true } },
   },
   'bill.aging': {

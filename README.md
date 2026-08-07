@@ -14,7 +14,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 - **Financial statements** — Profit & Loss, Balance Sheet, Cash Flow (indirect, IAS 7), Statement of Changes in Equity. Year-end close via `period.close` action (P2-1) posts a summary closing entry to the jurisdiction-pack-declared closing/RE accounts; the balance sheet shows retained earnings from posted balances, with a live unallocated-net-income line for unclosed periods.
 - **Audit & listing reports** — Trial Balance, General Ledger, Journal, Integrity Check (with RE roll-forward)
 - **Multi-period comparative reports** — month-over-month and year-over-year for P&L, BS, and CF, driven by company-defined fiscal periods
-- **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post)
+- **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post) with jurisdiction-pack-driven monetary account types and gain/loss account (P2-2)
 - **VAT / GST engine** — tax-exclusive entry, reverse-charge support, supplier-stated VAT override with configurable tolerance, and VAT return generation grouped by report box
 - **Accounts Payable** — vendor master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, and AP Aging report
 - **Accounts Receivable** — invoicing and AR aging are **dropped/deferred** from the current cycle; nav and page scaffolding remain in place but inactive.
@@ -210,6 +210,8 @@ freebooks/
 │   ├── ia-spec.md
 │   ├── settings-ux-spec.md
 │   ├── payables-ux-spec.md
+│   ├── p2-1-year-end-close-spec.md
+│   ├── p2-3-bill-lines-subledger-spec.md
 │   └── UI.md
 ├── .github/workflows/build.yml # CI
 └── Dockerfile                  # container image (Wolfi/distrobox)
@@ -230,6 +232,7 @@ All data lives in a single DuckDB file (default `~/.freebooks/freebooks.duckdb`)
 | `journal_sequences` | Per-journal, per-year auto-incrementing reference counters |
 | `journal_proposals` | Agent-proposed journals awaiting human review (`proposed`/`approved`/`rejected`); carries `_match_meta` JSON |
 | `bills` | Accounts Payable bills (vendor, amounts, currency, FX rate, status, `amount_paid`) |
+| `bill_lines` | Bill line subledger — expense line items for posted bills (written alongside journal entries; never mutated) |
 | `bill_payments` | Payment allocations linking bills to settlement journal batches |
 | `vendors` | Vendor master with default currency, payment terms, and default expense/AP accounts |
 | `vat_codes` | VAT/GST codes: rate, input/output accounts, report box, reverse-charge flag |
@@ -317,6 +320,7 @@ All report types render through `reports/render.js` (or `report-composite.js` fo
 | `journal` | Journal listing | — |
 | `integrity` | Integrity checks + RE roll-forward | — |
 | `ap-aging` | AP Aging (as-of end date) | — |
+| `ap-control` | AP Control Reconciliation (subledger vs GL, as-of end date) | — |
 | `ar` | K2 annual report composite (resultaträkning + balansräkning + noter; registry-driven, SE K2 / SG SFRS) | — |
 | `sie` | SIE 4 export (PC8/CP437, IB/UB/RES/VER) — SE-only | — |
 

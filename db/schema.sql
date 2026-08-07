@@ -643,3 +643,55 @@ ALTER TABLE bank_mappings ADD COLUMN IF NOT EXISTS amount_sign VARCHAR DEFAULT '
 ALTER TABLE mapping_suggestions ADD COLUMN IF NOT EXISTS suggested_amount_sign VARCHAR DEFAULT 'any';
 ALTER TABLE mapping_suggestions ADD COLUMN IF NOT EXISTS suggested_match_type VARCHAR DEFAULT 'contains';
 
+-- =============================================================================
+-- bill_lines (P2-3 — Bill Lines Subledger)
+-- Expense line items for posted bills. Written alongside journal_entries in
+-- createBill; never mutated. Drafts stay as JSON in bills.draft_lines.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS bill_lines (
+  company_id      VARCHAR        NOT NULL,
+  bill_id         VARCHAR        NOT NULL,
+  line_number     INTEGER        NOT NULL,     -- 1-based ordinal within the bill
+  expense_account VARCHAR        NOT NULL,
+  amount          DECIMAL(18,4)  NOT NULL,     -- bill currency (tax-exclusive)
+  amount_home     DECIMAL(18,4)  NOT NULL,     -- home currency (amount × fx_rate)
+  vat_code        VARCHAR,
+  description     VARCHAR,
+  cost_center     VARCHAR,
+  profit_center   VARCHAR,
+  created_at      TIMESTAMP     NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (company_id, bill_id, line_number)
+);
+CREATE INDEX IF NOT EXISTS idx_bill_lines_company_account
+  ON bill_lines(company_id, expense_account);
+CREATE INDEX IF NOT EXISTS idx_bill_lines_bill
+  ON bill_lines(company_id, bill_id);
+
+-- MIGRATION (P2-3): backfill bill_lines for existing posted/partial/paid/void
+-- bills from journal entries. Uses the same filtering as the old getBillLines
+-- (debit > 0, not AP account, not reversed). VAT/GST lines are included for
+-- pre-migration bills (cosmetic — accepted per ratified decision §12.1).
+-- Forward posts write clean expense-only rows.
+INSERT INTO bill_lines (company_id, bill_id, line_number, expense_account, amount, amount_home, vat_code, description, cost_center, profit_center, created_at)
+SELECT
+  je.company_id,
+  je.bill_id,
+  ROW_NUMBER() OVER (PARTITION BY je.bill_id ORDER BY je.created_at) AS line_number,
+  je.account_code,
+  je.debit,
+  je.debit_home,
+  je.vat_code,
+  je.description,
+  je.cost_center,
+  je.profit_center,
+  je.created_at
+FROM journal_entries je
+WHERE je.bill_id IS NOT NULL
+  AND je.debit > 0
+  AND je.account_code NOT IN (
+    SELECT b.ap_account FROM bills b WHERE b.company_id = je.company_id AND b.bill_id = je.bill_id
+  )
+  AND je.reversed_by IS NULL
+  AND je.bill_id IN (SELECT bill_id FROM bills WHERE status IN ('posted', 'partial', 'paid', 'void'))
+ON CONFLICT (company_id, bill_id, line_number) DO NOTHING;
+

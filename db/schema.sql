@@ -633,6 +633,15 @@ ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS source_transaction_id VAR
 -- { tier, source_type, confidence, evidence, suggested_dimensions }
 ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS match_meta VARCHAR;
 
+-- MIGRATION: created_at rewrite bug on journal.propose upsert. An idempotent
+-- retry (same proposalId) used to overwrite created_at with now(), pushing the
+-- row back to the top of the inbox queue (ordered newest-first). updated_at
+-- captures the most recent touch instead; the inbox ORDER BY now sorts on
+-- updated_at so retried proposals do NOT jump the queue. Backfill existing
+-- rows so the new ORDER BY has a non-NULL sort key for every row.
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
+UPDATE journal_proposals SET updated_at = created_at WHERE updated_at IS NULL;
+
 -- §5.2: amount direction condition on bank mapping rules.
 -- Values: 'positive' | 'negative' | 'any' (default 'any', backward-compatible).
 ALTER TABLE bank_mappings ADD COLUMN IF NOT EXISTS amount_sign VARCHAR DEFAULT 'any';

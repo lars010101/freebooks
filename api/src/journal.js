@@ -903,7 +903,7 @@ async function proposeEntry(ctx) {
     const upd = await query(
       `UPDATE journal_proposals
        SET lines = @lines, date = @date, reference = @ref, description = @desc,
-           journal_id = @journalId, created_at = @now,
+           journal_id = @journalId, updated_at = @now,
            source_transaction_id = @sourceTxId,
            match_meta = @matchMeta
        WHERE company_id = @companyId AND proposal_id = @proposalId
@@ -914,10 +914,14 @@ async function proposeEntry(ctx) {
     );
     if (upd.length > 0) {
       // UPDATE-in-place hit: replace lines/date/reference/description/journal_id.
-      // created_by / request_id / source are NOT changed — the origin is
-      // immutable. No journal.proposed re-emit: the business fact 'a proposal
-      // exists' already happened (the Idempotency-Key replay path is separately
-      // covered by the dispatch stored-response short-circuit).
+      // created_at / created_by / request_id / source are NOT changed — the
+      // origin is immutable, and a retried proposal must NOT jump the inbox
+      // queue (created_at stays the original propose time). updated_at is
+      // bumped to now() so the inbox ORDER BY updated_at reflects the most
+      // recent touch without reordering on created_at. No journal.proposed
+      // re-emit: the business fact 'a proposal exists' already happened (the
+      // Idempotency-Key replay path is separately covered by the dispatch
+      // stored-response short-circuit).
       //
       // A4 (§4.7): compute attachment_count + no_underlag warning on the upsert
       // path too — the caller may have uploaded underlag between the original
@@ -975,6 +979,7 @@ async function proposeEntry(ctx) {
     source_transaction_id: source_transaction_id || null,
     match_meta: _match_meta ? JSON.stringify(_match_meta) : null,
     created_at: now,
+    updated_at: now,
   }]);
 
   // Emit journal.proposed ONLY on INSERT. Payload is a compact snapshot.
@@ -1223,7 +1228,9 @@ async function rejectProposal(ctx) {
 /**
  * journal.proposal.list — queue data for the company. Viewer, non-mutating.
  * Params: status (default 'proposed'), limit (default 100). Ordered by date
- * DESC then created_at DESC (newest work first).
+ * DESC then updated_at DESC (newest work first — updated_at, NOT created_at,
+ * so an idempotent upsert/re-propose does not jump the inbox queue: created_at
+ * is immutable but updated_at reflects the most recent touch).
  *
  * The SQL lives in the shared `queryProposals` helper (also used by the A5
  * inbox.list aggregator, §10.3) so there is ONE proposal-list query — no
@@ -1235,6 +1242,7 @@ async function rejectProposal(ctx) {
 async function queryProposals(companyId, { status, limit, includeLines = false } = {}) {
   const baseCols = `jp.proposal_id, jp.journal_id, jp.date, jp.reference, jp.description, jp.source, jp.status,
             jp.batch_id, jp.created_by, jp.request_id, jp.reviewed_by, jp.reviewed_at, jp.review_note, jp.created_at,
+            jp.updated_at,
             jp.warnings,
             COALESCE(a.cnt, 0) AS attachment_count`;
   const cols = includeLines ? baseCols + ', jp.lines' : baseCols;
@@ -1248,7 +1256,7 @@ async function queryProposals(companyId, { status, limit, includeLines = false }
        GROUP BY company_id, entity_id
      ) a ON a.company_id = jp.company_id AND a.entity_id = jp.proposal_id
      WHERE jp.company_id = @companyId AND jp.status = @status
-     ORDER BY jp.date DESC, jp.created_at DESC
+     ORDER BY jp.date DESC, jp.updated_at DESC
      LIMIT @limit`,
     { companyId, status, limit }
   );

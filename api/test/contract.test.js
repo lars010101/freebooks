@@ -1069,7 +1069,8 @@ test('A2: attachment.uploaded stamps agent actor_type (R3) on the /api/upload ro
 async function proposalsFor(proposalId) {
   return sql(baseUrl, srv.adminToken,
     `SELECT proposal_id, journal_id, date, reference, description, source, status,
-            batch_id, created_by, request_id, reviewed_by, reviewed_at, review_note
+            batch_id, created_by, request_id, reviewed_by, reviewed_at, review_note,
+            created_at, updated_at
      FROM journal_proposals WHERE company_id='CT' AND proposal_id='${proposalId}'`);
 }
 
@@ -1247,6 +1248,58 @@ test('A3j propose-upsert: same-caller edit ✓; other actor ✗; non-proposed �
   });
   assert.equal(upsertPosted.status, 409);
   assert.equal(upsertPosted.body.error.code, 'INVALID_STATUS');
+});
+
+test('A3j propose-upsert preserves created_at; updated_at reflects the most recent touch', async () => {
+  // First propose (caller-chosen proposalId).
+  const proposalId = 'proposed-upsert-ts-' + Date.now();
+  const first = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-ts',
+    proposalId,
+    lines: proposalLines(40),
+  });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.data.proposalId, proposalId);
+
+  let rows = await proposalsFor(proposalId);
+  assert.equal(rows.length, 1, 'one proposal row after first propose');
+  const firstCreatedAt = rows[0].created_at;
+  const firstUpdatedAt = rows[0].updated_at;
+  assert.ok(firstCreatedAt, 'created_at stamped on first propose');
+  assert.ok(firstUpdatedAt, 'updated_at stamped on first propose');
+
+  // Wait so the second propose's now() is strictly later (ms-resolution clock).
+  await new Promise((r) => setTimeout(r, 1200));
+
+  // Same caller re-proposes with the SAME proposalId and CHANGED lines.
+  const repropose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', proposalId,
+    lines: proposalLines(88),
+  });
+  assert.equal(repropose.status, 200, JSON.stringify(repropose.body));
+  assert.equal(repropose.body.data.proposalId, proposalId, 'same proposalId returned');
+
+  rows = await proposalsFor(proposalId);
+  assert.equal(rows.length, 1, 'still one proposal row after re-propose');
+
+  // created_at MUST be unchanged — a retried proposal does not jump the queue.
+  assert.equal(String(rows[0].created_at), String(firstCreatedAt),
+    'created_at is NOT overwritten on upsert (immutable origin)');
+
+  // updated_at MUST be newer than the original (the row was touched).
+  const newUpdatedAt = new Date(String(rows[0].updated_at)).getTime();
+  const origUpdatedAt = new Date(String(firstUpdatedAt)).getTime();
+  assert.ok(newUpdatedAt > origUpdatedAt,
+    'updated_at is bumped to now() on upsert (reflects most recent touch)');
+
+  // updated_at is also newer than created_at (the second touch came later).
+  const createdAtMs = new Date(String(rows[0].created_at)).getTime();
+  assert.ok(newUpdatedAt > createdAtMs,
+    'updated_at > created_at after an upsert (touched after creation)');
+
+  // The row's lines were updated (88, not 40).
+  const get = await api(baseUrl, 'journal.proposal.get', { companyId: CO, proposalId });
+  assert.equal(get.body.data.lines[0].debit, 88, 'lines updated by upsert');
 });
 
 test('A3j idempotent replay: same Idempotency-Key → one proposal, one journal.proposed event', async () => {

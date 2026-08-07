@@ -591,7 +591,7 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 ### P3 — Scope
 
 - **P3-1** AR/invoicing module built on the payables pattern (customers, invoices, AR aging, receipts).
-- **P3-2** Bank feeds (beyond CSV import).
+- **P3-2** ~~Bank feeds (beyond CSV import).~~ **Dropped 2026-08-07** — Phase B delivers the full processing pipeline: drop-folder watcher (B5/B9) uploads statements, agent loop runs the 4-tier matching cascade, proposals land in inbox for human approval, learning loop closes via matching_history + mapping_suggestions. The only remaining manual step is downloading the statement from the bank website (~30s/month). Bank API auto-fetch (PSD2/Open Banking, Tink, Plaid) is low-value engineering for that convenience at target scale. Revisit only if real-time or near-real-time bank data becomes a concrete requirement.
 - **P3-3** FX rate automation (agreed with magnus 2026-07-23, spec'd NOT built): `fx_tracking` company flag, provider `fetchRange`, period-create backfill hook, FX status column on Periods (coverage vs provider publication days — never naive weekdays), 6h gap scanner, and a minimal notifications subsystem (table + actions + 🔔 badge/dropdown). Spec: `docs/fx-automation-spec.md`.
 
 ---

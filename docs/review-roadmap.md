@@ -391,6 +391,7 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 - Pack linter: OK SE, OK SG.
 - SRU contact tests: 6/6.
 - Live DB verification: `re_rollforward` all OK (was all FAIL), `integrity_extended` shows real numbers (was 0), `gl()` temporary accounts open at 0 (was cumulative).
+- **Sign convention fix** (second commit): `integrity_extended` P&L vs Closing Entry check changed from subtraction to addition — P&L net + closing entry = 0 (opposite sides of the closing entry). All 20 periods (11 mdab_se + 9 inteligo_sg) now show OK.
 
 **Design decisions (ratified by magnus 2026-08-07):**
 1. No auto-lock after close. Inbox surfaces unclosed periods past 90 days.
@@ -498,7 +499,7 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 
 ### P2 — Accounting completeness
 
-- **P2-1** Year-end close routine to retained earnings (replaces live "unallocated net income" injection).
+- **P2-1** ~~Year-end close routine to retained earnings (replaces live "unallocated net income" injection).~~ ✅ **DONE 2026-08-07** (PR #93) — `period.close` action posts summary closing entry (Closing ↔ RE), jurisdiction-pack driven. `gl()` opening-balance fix, `re_rollforward` + `integrity_extended` parameterized. See §0dd.
 - **P2-2** FX revaluation: monetary items only (drop Equity).
 - **P2-3** `bill_lines` subledger table + AP-subledger-vs-GL control report.
 - **P2-4a** Unify VAT/amount conventions — tax-exclusive everywhere; convert `journal.post` path (currently tax-inclusive via `computeVatSplit` in `vat.js`).

@@ -468,10 +468,240 @@ module.exports.processBankStatement = processBankStatement;
 module.exports.buildTier4Context = buildTier4Context;
 module.exports.fetchAttachment = fetchAttachment;
 
-// ── Bill processing ─────────────────────────────────────────────────────────
+// ── Bill processing (layered extraction — bill-extraction-spec) ──────────────
 
-function extractBillData(att, payload) {
-  warn(`bill ${payload.filename || att.filename}: extraction not implemented — creating skeleton draft`);
+/**
+ * Build the shared system prompt for bill extraction (spec §8). Includes the
+ * company chart of accounts and VAT codes so the LLM can suggest
+ * account_code_hint and vat_code per line. Modeled on buildTier4Prompt().
+ */
+function buildBillExtractionPrompt(coa, vatCodes) {
+  const coaLines = (coa || [])
+    .map((a) => `${a.account_code} ${a.account_name}`)
+    .join('\n');
+  const vatLines = (vatCodes || [])
+    .map((v) => `${v.vat_code} ${(Number(v.rate) * 100).toFixed(0)}%`)
+    .join('\n');
+  return `You are a bookkeeping assistant. Extract bill data from the document below.
+Return a JSON object with these fields:
+
+  vendor              — supplier name (string)
+  vendor_vat_code     — supplier VAT/registration number if visible (string | null)
+  vendor_invoice_number — supplier's invoice/reference number if visible (string | null)
+  bill_date            — invoice date, ISO YYYY-MM-DD (string | null)
+  due_date             — payment due date, ISO YYYY-MM-DD (string | null)
+  currency             — ISO 4217 currency code if visible (string, e.g. "SEK")
+  amount               — total bill amount, tax-inclusive, as a number
+  vat_amount           — stated total VAT/tax amount, as a number (0 if none stated)
+  lines                — array of line items, each:
+    {
+      description,       — line description (string)
+      account_code_hint,  — best-guess account code from the chart of accounts below (string | null)
+      quantity,           — quantity if stated (number, default 1)
+      unit_price,         — unit price if stated (number | null)
+      amount,             — line total amount including tax (number)
+      vat_code,           — VAT code from the list below if identifiable (string | null)
+      vat_rate            — VAT rate as a percent if stated (number | null)
+    }
+  notes                — any other useful free-text notes (string | null)
+
+Use the company's chart of accounts and VAT codes below to suggest
+account_code_hint and vat_code. If unsure, still fill the field with your best
+guess — a human reviews the result. Do not omit lines. Amounts are numbers,
+not strings.
+
+Chart of accounts (code name):
+${coaLines}
+
+VAT codes (code rate):
+${vatLines}`;
+}
+
+/**
+ * Normalize the LLM-parsed JSON (spec §8 shape) into the bill.create draft
+ * object that saveDraftBill expects (spec §7). The draft is a *proposal* —
+ * account_code_hint / vat_code are suggestions a human reviews before posting.
+ */
+function _normalizeBillFromLLM(parsed, payload, att) {
+  const filename = payload.filename || att.filename || null;
+  const lines = Array.isArray(parsed.lines) ? parsed.lines.map((l) => ({
+    expense_account: l.account_code_hint || null,
+    amount: Number(l.amount) || 0,
+    vat_code: l.vat_code || null,
+    description: l.description || null,
+    ...(l.quantity != null ? { quantity: Number(l.quantity) } : {}),
+    ...(l.unit_price != null ? { unit_price: Number(l.unit_price) } : {}),
+    ...(l.vat_rate != null ? { vat_rate: Number(l.vat_rate) } : {}),
+  })) : [];
+  const firstLine = lines[0] || {};
+  const lineSum = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  return {
+    vendor: parsed.vendor || null,
+    vendor_ref: parsed.vendor_invoice_number || null,
+    date: parsed.bill_date || null,
+    due_date: parsed.due_date || null,
+    currency: parsed.currency || null,
+    amount: parsed.amount != null ? Number(parsed.amount) : (lines.length ? lineSum : null),
+    expense_account: lines.length === 1 ? firstLine.expense_account : null,
+    ap_account: null, // server default (applyCompanyDefaults, bills.js:48) fills it
+    vat_code: lines.length === 1 ? firstLine.vat_code : null,
+    vat_amount: parsed.vat_amount != null ? Number(parsed.vat_amount) : 0,
+    description: parsed.notes || null,
+    lines,
+    _source_attachment_id: payload.entityId || null,
+    _source_filename: filename,
+  };
+}
+
+/**
+ * Shared LLM response handling for layers 1 and 2 (spec §6.4). Returns a
+ * normalized bill object on success, or null to signal "fall through" to the
+ * next layer. Never throws.
+ */
+async function _handleBillLLMResponse(response, att, payload) {
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    warn(`bill: LLM HTTP ${response.status}: ${body.slice(0, 200)}`);
+    return null;
+  }
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) {
+    warn('bill: empty LLM response');
+    return null;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    warn(`bill: non-JSON response: ${content.slice(0, 200)}`);
+    return null;
+  }
+  if (!parsed
+      || (parsed.vendor == null && parsed.amount == null && !Array.isArray(parsed.lines))) {
+    warn('bill: LLM JSON missing required fields');
+    return null;
+  }
+  return _normalizeBillFromLLM(parsed, payload, att);
+}
+
+/**
+ * Layered bill/receipt extraction (spec §6).
+ *
+ *   Layer 1: local PDF text → text LLM          (digital PDFs)
+ *   Layer 2: vision LLM (base64 image_url)       (scanned PDFs, JPG/PNG)
+ *   Layer 3: skeleton draft (current stub)       (fallback)
+ *
+ * Fail-soft: every internal failure degrades to the skeleton. Never throws
+ * to processBill. Vision config is opt-in (three new per-company settings,
+ * spec §4); absent → layer 2 skipped.
+ */
+async function extractBillData(att, payload, companySettings, companyId, agentEmail) {
+  const filename = payload.filename || att.filename || '(unknown)';
+  const ct = (att.contentType || '').toLowerCase();
+  const isPdf = ct === 'application/pdf' || /\.pdf$/i.test(filename);
+  const isImage = ct === 'image/jpeg' || ct === 'image/png'
+    || /\.(jpe?g|png)$/i.test(filename);
+  companySettings = companySettings || {};
+
+  // Load COA + VAT codes once per call (spec §8). Best-effort — empty lists
+  // on failure (the LLM still extracts vendor/amount/date; hints come back null).
+  let coa = [], vatCodes = [];
+  if (_dispatchAction) {
+    try {
+      coa = await _dispatchAction('freebooks_read', { action: 'account.list', params: {} },
+        companyId, agentEmail) || [];
+    } catch (e) { warn(`bill: account.list failed: ${e.message}`); }
+    try {
+      vatCodes = await _dispatchAction('freebooks_read', { action: 'vat.codes.list', params: {} },
+        companyId, agentEmail) || [];
+    } catch (e) { warn(`bill: vat.codes.list failed: ${e.message}`); }
+  }
+  const systemPrompt = buildBillExtractionPrompt(coa, vatCodes);
+  const temperature = parseFloat(companySettings.llm_temperature || '0.1');
+
+  // ── Layer 1: local PDF text → text LLM (digital PDFs) ──
+  if (isPdf) {
+    let text = '';
+    try {
+      const pdfParse = require('pdf-parse');
+      const parsedPdf = await pdfParse(att.buffer);
+      text = (parsedPdf.text || '').trim();
+    } catch (e) {
+      warn(`bill ${filename}: pdf-parse failed: ${e.message} — trying vision layer`);
+      // fall through to layer 2
+    }
+    if (text.length >= 50 && companySettings.llm_endpoint_url) {
+      try {
+        const url = companySettings.llm_endpoint_url;
+        const apiKey = companySettings.llm_api_key || '';
+        const model = companySettings.llm_model || 'default';
+        const response = await fetch(`${url.replace(/\/$/, '')}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: text },
+            ],
+            temperature,
+            response_format: { type: 'json_object' },
+          }),
+        });
+        const bill = await _handleBillLLMResponse(response, att, payload);
+        if (bill) return bill;
+        // else fall through to layer 2
+      } catch (e) {
+        warn(`bill ${filename}: text LLM call failed: ${e.message}`);
+      }
+    }
+  }
+
+  // ── Layer 2: vision LLM (scanned PDFs and images) ──
+  // Trigger: layer 1 found no text (scanned PDF) OR file is an image, AND
+  // vision is configured (llm_vision_endpoint_url + llm_vision_model both set).
+  const visionConfigured = !!(companySettings.llm_vision_endpoint_url
+    && companySettings.llm_vision_model);
+  if ((isPdf || isImage) && visionConfigured) {
+    try {
+      const vUrl = companySettings.llm_vision_endpoint_url;
+      const vModel = companySettings.llm_vision_model;
+      const vKey = companySettings.llm_vision_api_key || companySettings.llm_api_key || '';
+      const b64 = att.buffer.toString('base64');
+      const dataUrl = `data:${att.contentType || 'application/octet-stream'};base64,${b64}`;
+      const response = await fetch(`${vUrl.replace(/\/$/, '')}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(vKey ? { 'Authorization': `Bearer ${vKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model: vModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: [
+              { type: 'text', text: 'Extract the bill data from this document image.' },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ] },
+          ],
+          temperature,
+          response_format: { type: 'json_object' },
+        }),
+      });
+      const bill = await _handleBillLLMResponse(response, att, payload);
+      if (bill) return bill;
+      // else fall through to layer 3
+    } catch (e) {
+      warn(`bill ${filename}: vision LLM call failed: ${e.message}`);
+    }
+  }
+
+  // ── Layer 3: skeleton draft (fallback, current stub behavior) ──
+  warn(`bill ${filename}: extraction failed (no text, no vision, or LLM error) — creating skeleton draft`);
   return {
     currency: null, lines: [],
     _source_attachment_id: payload.entityId || null,
@@ -489,7 +719,7 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
     return;
   }
   const payload = { entityId: attachmentId, filename: att.filename, contentType: att.contentType };
-  const bill = extractBillData(att, payload);
+  const bill = await extractBillData(att, payload, companySettings, companyId, agentEmail);
   if (!bill) {
     warn(`bill ${attachmentId}: extraction returned no data (skipped)`);
     return;
@@ -502,8 +732,18 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
   }
 }
 
+// Test-only injection of dispatchAction / fetchAttachment (no production use;
+// production wiring is via startAgentLoop, which sets both). Used by the
+// bill-extraction contract tests so they don't need a live DB / timer.
+function _setLoopDeps({ dispatchAction, fetchAttachmentFn } = {}) {
+  if (dispatchAction !== undefined) _dispatchAction = dispatchAction;
+  if (fetchAttachmentFn !== undefined) _fetchAttachmentFn = fetchAttachmentFn;
+}
+
 module.exports.processBill = processBill;
 module.exports.extractBillData = extractBillData;
+module.exports.buildBillExtractionPrompt = buildBillExtractionPrompt;
+module.exports._setLoopDeps = _setLoopDeps;
 
 // ── Event routing ────────────────────────────────────────────────────────────
 

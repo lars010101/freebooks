@@ -248,6 +248,35 @@ ${commonStyle()}
       </table>
     </div>
 
+    <div style="padding:12px 18px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:18px">
+      <div style="font-size:10pt;color:#333;margin-bottom:8px">
+        <strong>Vision LLM</strong> — OpenAI-compatible vision-capable endpoint for bill/receipt
+        image extraction (scanned PDFs and JPG/PNG). Optional — leave blank to disable image
+        extraction; digital PDFs still extract via the text LLM above.
+      </div>
+      <table class="edit-table" style="background:transparent">
+        <tbody>
+          <tr>
+            <td style="white-space:nowrap">Vision endpoint URL</td>
+            <td><input type="text" id="ai-vision-endpoint" style="width:400px"
+                placeholder="https://api.openai.com or http://127.0.0.1:8080"
+                onchange="markDirty('ai')"></td>
+          </tr>
+          <tr>
+            <td style="white-space:nowrap">Vision model</td>
+            <td><input type="text" id="ai-vision-model" style="width:300px"
+                placeholder="gpt-4o-mini" onchange="markDirty('ai')"></td>
+          </tr>
+          <tr>
+            <td style="white-space:nowrap">Vision API key</td>
+            <td><input type="password" id="ai-vision-key" style="width:400px"
+                placeholder="(optional — leave blank to reuse the LLM API key)"
+                onchange="markDirty('ai')"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
     <div style="padding:12px 18px">
       <button class="btn-sm" onclick="saveAiSettings()" style="font-size:10pt">Save AI settings</button>
       <span id="ai-save-msg" style="margin-left:8px;font-size:9pt"></span>
@@ -1156,6 +1185,9 @@ function loadAiSettings() {
     document.getElementById('ai-llm-key').value = s.llm_api_key || '';
     document.getElementById('ai-llm-model').value = s.llm_model || '';
     document.getElementById('ai-llm-temp').value = s.llm_temperature || '0.1';
+    document.getElementById('ai-vision-endpoint').value = s.llm_vision_endpoint_url || '';
+    document.getElementById('ai-vision-model').value   = s.llm_vision_model || '';
+    document.getElementById('ai-vision-key').value    = s.llm_vision_api_key || '';
     // Agent status
     fetch('/api', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1184,6 +1216,9 @@ function saveAiSettings() {
     llm_api_key: document.getElementById('ai-llm-key').value,
     llm_model: document.getElementById('ai-llm-model').value,
     llm_temperature: document.getElementById('ai-llm-temp').value,
+    llm_vision_endpoint_url: document.getElementById('ai-vision-endpoint').value,
+    llm_vision_model:        document.getElementById('ai-vision-model').value,
+    llm_vision_api_key:      document.getElementById('ai-vision-key').value,
   };
   fetch('/api', {
     method: 'POST', headers: {'Content-Type':'application/json'},

@@ -638,6 +638,9 @@ cf_uncat AS (
     AND is_active = TRUE
 ),
 -- P&L vs Closing Entry for the specified period
+-- The closing account (e.g. 8999) receives the OPPOSITE side of the closing
+-- entry, so P&L net + closing account movement should sum to zero.
+-- (P&L net = -500 for a loss; closing account credit-debit = +500 → sum = 0.)
 pl_close AS (
   SELECT
     'P&L vs Closing Entry' AS check_name,
@@ -646,7 +649,7 @@ pl_close AS (
         LEFT JOIN accounts a ON a.company_id=je.company_id AND a.account_code=je.account_code
         WHERE je.company_id=cid AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
         AND a.account_type IN ('Revenue','Expense')), 0)
-      -
+      +
       COALESCE((SELECT SUM(credit_home-debit_home) FROM journal_entries
         WHERE company_id=cid AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
         AND account_code=closing_account), 0)

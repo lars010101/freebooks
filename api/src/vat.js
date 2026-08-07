@@ -17,7 +17,12 @@ async function handleVat(ctx, action) {
   }
 }
 
-async function computeVatSplit(companyId, vatCode, grossAmount) {
+/**
+ * Tax-INCLUSIVE VAT split: takes a GROSS (tax-inclusive) amount and back-calculates the net.
+ * Used ONLY by expandVatLines for bank import — bank statement amounts are settled cash (gross).
+ * Journal entries now compute tax-exclusive (vatAmount = net × rate) directly in enrichAndValidate.
+ */
+async function computeVatSplitGross(companyId, vatCode, grossAmount) {
   const rows = await query(
     `SELECT rate, vat_account_input, vat_account_output, is_reverse_charge
      FROM vat_codes
@@ -48,7 +53,7 @@ async function expandVatLines(companyId, entry) {
 
   const amount = entry.debit || entry.credit;
   const isDebit = entry.debit > 0;
-  const split = await computeVatSplit(companyId, entry.vat_code, amount);
+  const split = await computeVatSplitGross(companyId, entry.vat_code, amount);
 
   if (split.vatAmount === 0) return [entry];
 
@@ -140,4 +145,4 @@ function roundCurrency(amount) {
   return Math.round(amount * 100) / 100;
 }
 
-module.exports = { handleVat, computeVatSplit, expandVatLines, generateVatReturn };
+module.exports = { handleVat, computeVatSplitGross, expandVatLines, generateVatReturn };

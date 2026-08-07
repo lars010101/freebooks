@@ -814,6 +814,9 @@ async function approveBankEntries(ctx) {
       ];
 
       if (entry.vatCode) {
+        // P2-4a: bank import is tax-INCLUSIVE — the bank amount IS settled gross cash.
+        // expandVatLines → computeVatSplitGross back-calculates net from gross. This is correct
+        // for bank imports (unlike journal entries which are now tax-exclusive). Do NOT unify.
         const expandedDebit = await expandVatLines(companyId, lines[0]);
         lines = [...expandedDebit, lines[1]];
         const totalDebit = lines.slice(0, -1).reduce((s, l) => s + (l.debit || 0), 0);

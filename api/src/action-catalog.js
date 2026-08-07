@@ -15,6 +15,10 @@
  *   mutating    false for reads — mutating actions are audited (P0-4)
  *   idempotent  true → dispatch honors Idempotency-Key (P0-1)
  *   audit       false → skip audit logging even though mutating (noisy ops)
+ *   agentWritable  true → mutating action an agent actor may call (the §2.3
+ *                whitelist guard's allowlist is derived from this flag in
+ *                dispatch; the A1 guard-matrix test derives its exclusion set
+ *                from the same flag — single source of truth, no drift)
  *   description human/agent summary
  *   params      { name: { type, required } } — dispatch enforces presence of
  *               required fields AND declared types ('string'|'number'|'boolean'|
@@ -88,9 +92,10 @@ const ACTIONS = {
     // numeric role check BEFORE the §2.3 whitelist guard, so a data_entry entry
     // would reject agents (1.5 < 2) before the whitelist ever sees it. 'agent'
     // lets agents (1.5≥1.5), data_entry (2), owner (3) pass; viewers (1) are
-    // excluded. 'journal.propose' is then added to AGENT_ALLOWED so the
-    // whitelist guard admits it. This is the spec's intent (§4.3 + §2.3).
-    role: 'agent', mutating: true, idempotent: true,
+    // excluded. 'journal.propose' carries agentWritable:true so dispatch's
+    // AGENT_ALLOWED set (derived from this flag) admits it. This is the spec's
+    // intent (§4.3 + §2.3).
+    role: 'agent', mutating: true, idempotent: true, agentWritable: true,
     description: 'Propose a journal batch (enriched + validated server-side; nothing reaches journal_entries until a human approves). With proposalId: upsert a still-proposed row owned by the same caller.',
     params: {
       lines: { type: 'array', required: true },
@@ -189,10 +194,11 @@ const ACTIONS = {
     // (Phase B, agent-readiness-spec §2.3). The numeric role check runs BEFORE
     // the §2.3 whitelist guard, so a data_entry entry (2) would reject agents
     // (1.5 < 2) before AGENT_ALLOWED ever sees the action. 'agent' lets agents,
-    // data_entry, and owner pass; viewers (1) are excluded. bill.create is then
-    // in AGENT_ALLOWED so the whitelist admits it. The handler detects agent
+    // data_entry, and owner pass; viewers (1) are excluded. bill.create carries
+    // agentWritable:true so dispatch's AGENT_ALLOWED set (derived from this
+    // flag) admits it. The handler detects agent
     // actors and saves a DRAFT (no journal entries); humans still create+post.
-    role: 'agent', mutating: true, idempotent: true,
+    role: 'agent', mutating: true, idempotent: true, agentWritable: true,
     description: 'Create + post a bill in one step (server computes VAT, FX, journals). Agent actors save a draft instead (human posts via bill.draft.post).',
     params: { bill: { type: 'object', required: true }, _replaceDraftId: { type: 'string' }, payment_batch_id: { type: 'string' } },
   },
@@ -269,7 +275,7 @@ const ACTIONS = {
   // naturally (mutating:false). Feeds calibration (§6) and rule
   // crystallization/retirement (§10.5).
   'matching_history.record': {
-    role: 'agent', mutating: true,
+    role: 'agent', mutating: true, agentWritable: true,
     description: 'Record a bank-matching proposal outcome (approved_unedited/approved_edited/rejected). Feeds calibration (§6) and rule crystallization/retirement (§10). Agent-only write to learning store.',
     params: {
       bank_account: { type: 'string' },
@@ -302,7 +308,7 @@ const ACTIONS = {
 
   // ── Input rejections (bank-matching-spec §11.2) ───────────────────────────
   'input_rejection.create': {
-    role: 'agent', mutating: true, idempotent: true,
+    role: 'agent', mutating: true, idempotent: true, agentWritable: true,
     description: 'Create an input rejection item for a statement with lines that have missing critical data (bank-matching-spec §11.2). Agent-only; one item per statement.',
     params: {
       statement_id: { type: 'string', required: true },
@@ -456,7 +462,7 @@ const ACTIONS = {
   // mapping.suggest is the agent-only write (in AGENT_ALLOWED); the suggestion
   // approve/reject are data_entry (human finalizers); list/get are viewer reads.
   'mapping.suggest': {
-    role: 'agent', mutating: true, idempotent: true,
+    role: 'agent', mutating: true, idempotent: true, agentWritable: true,
     description: 'Propose a candidate bank-mapping rule to mapping_suggestions (never to mappings itself). Agent-only; human approves via mapping.suggestion.approve/reject (bank-matching-spec §10.2/§10.4). Runs conflict detection at creation (§4.5).',
     params: {
       suggestionId: { type: 'string' },
@@ -624,8 +630,9 @@ const ACTIONS = {
   'attachment.upload': {
     // Role 'agent' (1.5) admits agents/data_entry/owner and excludes viewers —
     // same pattern as journal.propose (dispatch's numeric role check runs before
-    // the §2.3 whitelist guard). In AGENT_ALLOWED, so agents may upload.
-    role: 'agent', mutating: true, idempotent: true,
+    // the §2.3 whitelist guard). Carries agentWritable:true so dispatch's
+    // AGENT_ALLOWED set (derived from this flag) admits it; agents may upload.
+    role: 'agent', mutating: true, idempotent: true, agentWritable: true,
     description: 'Upload an attachment (base64 content). The browser multipart route POST /api/upload shares the same storage core and enforcement.',
     params: {
       entityType: { type: 'string', required: true },

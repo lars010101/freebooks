@@ -19,6 +19,7 @@
 
 const { queryProposals } = require('./journal');
 const { query } = require('./db');
+const { closingConfigFor } = require('./jurisdiction-packs');
 
 async function handleInbox(ctx, action) {
   switch (action) {
@@ -77,6 +78,12 @@ async function listInbox(ctx) {
     return { items: await queryInputRejections(companyId, limit) };
   }
 
+  // P2-1: status='unclosed' is a filter view of periods past their end date
+  // that have not yet been closed. Returns ONLY unclosed period items.
+  if (status === 'unclosed') {
+    return { items: await queryPeriodUnclosed(companyId, limit) };
+  }
+
   // Class A — journal_proposals (§10.3). `includeLines` so we can compute
   // the item `amount` as the sum of line debits parsed from the lines JSON.
   const rows = await queryProposals(companyId, { status, limit, includeLines: true });
@@ -116,6 +123,13 @@ async function listInbox(ctx) {
       })(),
     };
   });
+
+  // P2-1: append period_unclosed items to the default (proposed) view (Class B).
+  // Not appended to 'rejected' or other filter views.
+  if (status === 'proposed') {
+    const unclosedItems = await queryPeriodUnclosed(companyId, limit);
+    return { items: items.concat(unclosedItems) };
+  }
 
   return { items: items };
 }
@@ -282,6 +296,74 @@ async function queryInputRejections(companyId, limit) {
       created_by: row.created_by,
     };
   });
+}
+
+/**
+ * queryPeriodUnclosed — P2-1 Class B item. Surfaces periods whose end_date
+ * has passed (within the last 90 days) but have no posted close batch.
+ * Jurisdiction-pack driven: returns [] when closing is not required.
+ * Sorted by end_date ascending (oldest first).
+ */
+async function queryPeriodUnclosed(companyId, limit) {
+  // 1. Load jurisdiction + closing config
+  const coRows = await query(
+    `SELECT jurisdiction FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies WHERE company_id = @companyId) WHERE rn = 1`,
+    { companyId }
+  );
+  if (!coRows.length) return [];
+  const jurisdiction = coRows[0].jurisdiction || 'SE';
+  const closing = closingConfigFor(jurisdiction);
+  if (!closing || closing.required !== true) return [];
+  const closingAccount = closing.closingAccount;
+  if (!closingAccount) return [];
+
+  // 2. Query periods where end_date < TODAY and end_date >= TODAY - 90 days
+  //    (latest version per period_name)
+  const periodRows = await query(
+    `SELECT period_name, start_date, end_date FROM (
+       SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
+       FROM periods WHERE company_id = @companyId
+     ) WHERE rn = 1
+       AND CAST(end_date AS DATE) < CAST(CURRENT_DATE AS DATE)
+       AND CAST(end_date AS DATE) >= CAST(CURRENT_DATE AS DATE) - INTERVAL '90 days'
+     ORDER BY end_date ASC`,
+    { companyId }
+  );
+
+  const today = new Date().toISOString().slice(0, 10);
+  const items = [];
+  for (const period of periodRows) {
+    const endDateStr = String(period.end_date).slice(0, 10);
+    // 3. Check if a close batch exists (same guard as period.close)
+    const existing = await query(
+      `SELECT DISTINCT batch_id FROM journal_entries
+       WHERE company_id = @companyId
+         AND date = @endDate
+         AND account_code = @closingAcct
+         AND reversed_by IS NULL`,
+      { companyId, endDate: endDateStr, closingAcct: closingAccount }
+    );
+    if (existing.length > 0) continue; // already closed
+
+    const daysPast = Math.floor((new Date(today) - new Date(endDateStr)) / (1000 * 60 * 60 * 24));
+    items.push({
+      type: 'period_unclosed',
+      source: 'system',
+      counterparty: null,
+      amount: null,
+      date: period.end_date,
+      proposed_at: null,
+      summary: 'Period ' + period.period_name + ' ended ' + endDateStr + ' — not yet closed',
+      verbs: ['close'],
+      payload_ref: period.period_name,
+      status: 'proposed',
+      reference: period.period_name,
+      description: daysPast + ' days since period end',
+      created_by: 'system',
+    });
+  }
+
+  return items;
 }
 
 module.exports = { handleInbox };

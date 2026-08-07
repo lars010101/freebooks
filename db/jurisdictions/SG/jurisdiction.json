@@ -9,6 +9,11 @@
   "taxAttributes": [
     { "key": "loss_cf", "label": "Unutilised losses c/f", "type": "amount", "perYear": true, "rollforward": "closing_to_opening", "default": 0 }
   ],
+  "closing": {
+    "required": true,
+    "retainedEarningsAccount": "203070",
+    "closingAccount": "999999"
+  },
   "contactAttributes": [
     { "key": "address", "label": "Address" },
     { "key": "postal_code", "label": "Postal code" },

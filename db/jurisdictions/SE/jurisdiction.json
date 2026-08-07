@@ -20,6 +20,11 @@
     { "key": "contact_phone", "label": "Phone nr" },
     { "key": "contact_email", "label": "Email" }
   ],
+  "closing": {
+    "required": true,
+    "retainedEarningsAccount": "2099",
+    "closingAccount": "8999"
+  },
   "integrations": {
     "sie": { "export": true, "import": true }
   },

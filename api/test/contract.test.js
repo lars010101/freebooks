@@ -1956,12 +1956,14 @@ test('A5: inbox.list returns proposed items normalized', async () => {
   const proposalId = propose.body.data.proposalId;
   assert.ok(proposalId, 'propose returns proposalId');
 
-  // inbox.list with no status param → default 'proposed' → exactly this item.
+  // inbox.list with no status param → default 'proposed' → exactly this item
+  // (P2-1: period_unclosed items may also appear in the default view).
   const inbox = await api(baseUrl, 'inbox.list', { companyId: CO5 });
   assert.equal(inbox.status, 200, JSON.stringify(inbox.body));
   const items = inbox.body.data.items;
-  assert.equal(items.length, 1, 'exactly one proposed item in a fresh company');
-  const item = items[0];
+  const jpItems = items.filter(i => i.type === 'journal_proposal');
+  assert.equal(jpItems.length, 1, 'exactly one proposed journal_proposal item in a fresh company');
+  const item = jpItems[0];
   assert.equal(item.type, 'journal_proposal', 'item.type');
   assert.equal(item.source, 'agent', 'item.source (agent caller)');
   assert.deepEqual(item.verbs, ['approve', 'reject', 'open'], 'item.verbs literal');
@@ -1999,10 +2001,12 @@ test('A5: inbox.list rejected filter', async () => {
   assert.equal(reject.body.data.rejected, true);
 
   // Default (proposed) view → absent (rejected stays out of the default view,
-  // void doctrine carried over from §4.4).
+  // void doctrine carried over from §4.4). P2-1: period_unclosed items may
+  // appear in the default view — filter for journal_proposal type.
   const def = await api(baseUrl, 'inbox.list', { companyId: CO5 });
   assert.equal(def.status, 200, JSON.stringify(def.body));
-  assert.equal(def.body.data.items.length, 0, 'rejected absent from default (proposed) view');
+  const defJp = def.body.data.items.filter(i => i.type === 'journal_proposal');
+  assert.equal(defJp.length, 0, 'rejected absent from default (proposed) view');
 
   // status:'rejected' → present, carrying the review_note.
   const rej = await api(baseUrl, 'inbox.list', { companyId: CO5, status: 'rejected' });
@@ -2021,5 +2025,8 @@ test('A5: inbox.list empty', async () => {
 
   const inbox = await api(baseUrl, 'inbox.list', { companyId: CO5 });
   assert.equal(inbox.status, 200, JSON.stringify(inbox.body));
-  assert.deepEqual(inbox.body.data.items, [], 'no proposals → empty items array');
+  // P2-1: period_unclosed items may appear in the default view for fresh
+  // companies with unclosed periods. Verify no journal_proposal items.
+  const jpItems = inbox.body.data.items.filter(i => i.type === 'journal_proposal');
+  assert.equal(jpItems.length, 0, 'no journal_proposal items in a fresh company');
 });

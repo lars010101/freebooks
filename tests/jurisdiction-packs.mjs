@@ -60,6 +60,28 @@ for (const entry of fs.readdirSync(DIR, { withFileTypes: true })) {
   const codes = new Set((coa || []).map((a) => a.account_code));
   const subtypes = new Set((coa || []).map((a) => a.account_subtype).filter(Boolean));
 
+  // closing (P2-1): when present, validate structure + account existence.
+  // Must run after `coa` and `codes` are loaded. The `manifest` guard mirrors
+  // the closeChecklist block above (both live inside `if (manifest)`).
+  if (manifest && manifest.closing) {
+    const c = manifest.closing;
+    if (typeof c.required !== 'boolean') fail(code, 'closing.required must be boolean');
+    if (c.required === true) {
+      if (!c.retainedEarningsAccount) fail(code, 'closing.retainedEarningsAccount required when closing.required is true');
+      if (!c.closingAccount) fail(code, 'closing.closingAccount required when closing.required is true');
+      // Check accounts exist in COA
+      if (c.closingAccount && !codes.has(c.closingAccount)) fail(code, `closing.closingAccount '${c.closingAccount}' not found in COA`);
+      if (c.retainedEarningsAccount && !codes.has(c.retainedEarningsAccount)) fail(code, `closing.retainedEarningsAccount '${c.retainedEarningsAccount}' not found in COA`);
+      // Check account types
+      if (coa) {
+        const closeAcct = coa.find(a => a.account_code === c.closingAccount);
+        if (closeAcct && closeAcct.account_type !== 'Closing') fail(code, `closing.closingAccount '${c.closingAccount}' must have account_type 'Closing' (got '${closeAcct.account_type}')`);
+        const reAcct = coa.find(a => a.account_code === c.retainedEarningsAccount);
+        if (reAcct && reAcct.account_type !== 'Equity') fail(code, `closing.retainedEarningsAccount '${c.retainedEarningsAccount}' must have account_type 'Equity' (got '${reAcct.account_type}')`);
+      }
+    }
+  }
+
   // descriptors
   const filingsDir = path.join(dir, 'filings');
   if (fs.existsSync(filingsDir)) {

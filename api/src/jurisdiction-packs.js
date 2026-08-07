@@ -69,4 +69,17 @@ function packIntegration(code, name) {
   return integ || null;
 }
 
-module.exports = { getJurisdictionPack, contactAttributesFor, packIntegration };
+/**
+ * Closing configuration declared by the pack (`closing.required`,
+ * `closing.retainedEarningsAccount`, `closing.closingAccount`).
+ * Returns `null` when the pack is missing or declares no closing block.
+ * @param {string} code Jurisdiction code.
+ * @returns {{required:boolean, retainedEarningsAccount:string, closingAccount:string}|null}
+ */
+function closingConfigFor(code) {
+  const pack = getJurisdictionPack(code);
+  if (!pack || !pack.closing) return null;
+  return pack.closing;
+}
+
+module.exports = { getJurisdictionPack, contactAttributesFor, packIntegration, closingConfigFor };

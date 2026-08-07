@@ -121,6 +121,13 @@ const ACTIONS = {
     params: { proposalId: { type: 'string', required: true } },
   },
 
+  // ── Period close (P2-1) ────────────────────────────────────────────────────
+  'period.close': {
+    role: 'owner', mutating: true, idempotent: true, audit: true,
+    description: 'Post year-end closing entry: move P&L net result to retained earnings (jurisdiction-pack driven).',
+    params: { periodId: { type: 'string', required: true } },
+  },
+
   // ── Inbox (A5 §10) ───────────────────────────────────────────────────────
   // Unified action inbox — read-only aggregator over pending-approval items
   // across modules. v1 fans out to journal_proposals only (Class A; Class B
@@ -677,6 +684,7 @@ const PALETTE = {
   'vendor.upsert':          { palette: 'navigate', route: '/payables?tab=vendors' },
   'period.save':            { palette: 'navigate', route: '/periods' },
   'period.upsert':          { palette: 'navigate', route: '/periods' },
+  'period.close':           { palette: 'navigate', route: '/settings?tab=periods' },
   'journals.save':          { palette: 'navigate', route: '/settings?tab=journals' },
   'mapping.save':           { palette: 'navigate', route: '/bank?tab=mappings' },
   'mapping.upsert':         { palette: 'navigate', route: '/bank?tab=mappings' },

@@ -175,6 +175,20 @@
     "cf_category": "Excluded"
   },
   {
+    "account_code": "203070",
+    "account_name": "Retained Earnings",
+    "account_type": "Equity",
+    "account_subtype": "Equity",
+    "cf_category": "Excluded"
+  },
+  {
+    "account_code": "999999",
+    "account_name": "Current Year Earnings",
+    "account_type": "Closing",
+    "account_subtype": "Net Result",
+    "cf_category": null
+  },
+  {
     "account_code": "4010",
     "account_name": "Revenue — Services",
     "account_type": "Revenue",

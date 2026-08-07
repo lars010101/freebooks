@@ -350,9 +350,55 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 
 **Test results:** new contract tests 15/15. Existing suite 67/68 (same pre-existing `bill.create` failure — not caused by this PR). MCP smoke 27/28 (same pre-existing tool-list assertion — not caused by this PR).
 
-**PR #90 status:** open, awaiting merge.
+**PR #90 status:** merged (commit `972e0ac`).
 
-**What stays after mapping-suggestions wiring:** P2 accounting completeness (year-end close, FX reval, bill_lines subledger, VAT unify) — unchanged. P3 scope (receivables, bank feeds beyond CSV) — unchanged. The new-vendor problem (vendor proposal pattern) remains a future Phase B extension.
+**What stays after mapping-suggestions wiring:** P2 accounting completeness (P2-1 year-end close, P2-2 FX reval, P2-3 bill_lines subledger, P2-4a VAT unify — P2-4b server-computed draft totals confirmed done) — unchanged. P3 scope (receivables, bank feeds beyond CSV) — unchanged. The new-vendor problem (vendor proposal pattern) remains a future Phase B extension.
+
+---
+
+## 0cc. Status update — 2026-08-07 (P2-4b confirmed done, README overclaim fixed)
+
+**P2-4b (server-computed draft totals) confirmed DONE** (magnus review, 2026-08-07): `saveDraftBill` (`bills.js:850-905`) computes `totalAmount` server-side from `bill.lines` (VAT rate cache, stated-VAT handling, RC exclusion). The `bill.amount || _preTotal` at line 164 is inside `createBill`'s pre-validation and is overwritten by server-computed `totalAmount` further down. Roadmap P2-4 split into P2-4a (VAT unify, still open) and P2-4b (draft totals, done).
+
+**README overclaim fixed** (`README.md:14`): the public README stated "Year-end net income closes to retained earnings on posting the year-end close (no live injection)" — but no `period.close` action exists and `render.js:121-174` still injects an unallocated-net-income row live. Corrected to describe the manual close + live injection accurately.
+
+**Next:** P2-1 year-end close spec — design discussion, no code until ratified.
+
+---
+
+## 0dd. Status update — 2026-08-07 (P2-1 year-end close shipped)
+
+**P2-1 year-end close ✅ (branch `feature/p2-1-year-end-close`).** Spec: `docs/p2-1-year-end-close-spec.md` (ratified by magnus 2026-08-07). The close action posts a summary entry (Closing ↔ RE), jurisdiction-pack driven. No line-by-line zeroing — the live injection in `render.js` is the permanent source of truth for equity presentation (the QuickBooks pattern). Closing entries exist solely to materialize balances for downstream export formats (SIE `#RES` lines on the Closing-type account).
+
+**What shipped:**
+
+| Component | What | Key files |
+|-----------|------|-----------|
+| **Jurisdiction pack `closing` block** | SE: `{ required: true, reAccount: "2099", closingAccount: "8999" }`. SG: `{ required: true, reAccount: "203070", closingAccount: "999999" }`. A hypothetical US pack: `required: false` — close never invoked, live injection is permanent. | `db/jurisdictions/SE/jurisdiction.json`, `db/jurisdictions/SG/jurisdiction.json` |
+| **`closingConfigFor()` helper** | Reads `closing` block from pack. | `api/src/jurisdiction-packs.js` |
+| **`period.close` action** | Summary entry: P&L net → closing account → RE account. Idempotent (guard checks any un-reversed batch involving the closing account on period end date). Audited. Emits `period.closed` event. Role: owner/admin only. | `api/src/period-close.js`, `api/src/action-catalog.js`, `api/src/index.js` |
+| **Inbox `period_unclosed` items** | Class B item surfacing periods past their end date (90-day window) with no posted close. Verbs: `['close']`. | `api/src/inbox.js` |
+| **SRU export gate** | `/sru/ink2` and `/sru/info` return 409 `PERIOD_NOT_LOCKED` when the period is not locked. SIE export remains ungated (general-purpose format). | `api/src/filings.js` |
+| **`gl()` opening-balance fix** | Temporary accounts (Revenue, Expense, Cost of Sales, Closing) always open at 0. `CASE` on `account_type` in the opening-balance CTE. | `db/macros.sql` |
+| **`re_rollforward` parameterized** | `re_rollforward(cid, closing_account, re_account)` — no more hardcoded 999999/203070. All periods now show OK against both SE and SG live data. | `db/macros.sql`, `reports/render.js` |
+| **`integrity_extended` parameterized** | `integrity_extended(cid, start, end, closing_account)` — no more hardcoded 999999. | `db/macros.sql`, `reports/render.js` |
+| **Pack linter** | Validates `closing` block: `required` boolean, account codes exist in COA, correct `account_type` (Closing/Equity). | `tests/jurisdiction-packs.mjs` |
+| **SG COA fix** | Added missing 999999 (Closing) and 203070 (Equity, Retained Earnings) accounts to the SG COA — they were referenced by the closing block but not in the template. | `db/jurisdictions/SG/coa.json` |
+
+**Verification:**
+- Contract tests: 67/68 (1 pre-existing `bill.create` agent guard failure — unrelated to P2-1).
+- New `period-close.test.js`: 8/8 (profit, loss, zero P&L, idempotency, missing params, unknown period, audit log, inbox item).
+- Pack linter: OK SE, OK SG.
+- SRU contact tests: 6/6.
+- Live DB verification: `re_rollforward` all OK (was all FAIL), `integrity_extended` shows real numbers (was 0), `gl()` temporary accounts open at 0 (was cumulative).
+
+**Design decisions (ratified by magnus 2026-08-07):**
+1. No auto-lock after close. Inbox surfaces unclosed periods past 90 days.
+2. `re_rollforward` + `integrity_extended` fixed as part of P2-1 (same root cause).
+3. AGM rebooking (2099 → 2098/2091) is separate — not in P2-1.
+4. SIE export ungated (general-purpose). SRU export gated on locked period (submission-specific).
+
+**What stays:** P2-2 FX reval, P2-3 bill_lines subledger, P2-4a VAT unify — unchanged priority. P3 scope — unchanged.
 
 ---
 
@@ -455,7 +501,8 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 - **P2-1** Year-end close routine to retained earnings (replaces live "unallocated net income" injection).
 - **P2-2** FX revaluation: monetary items only (drop Equity).
 - **P2-3** `bill_lines` subledger table + AP-subledger-vs-GL control report.
-- **P2-4** Unify VAT/amount conventions (tax-exclusive everywhere; convert `journal.post` path). Also: `bill.draft.save` currently trusts a client-computed `bill.amount` — the server should compute draft totals from lines like `createBill` does at post (found via contract tests).
+- **P2-4a** Unify VAT/amount conventions — tax-exclusive everywhere; convert `journal.post` path (currently tax-inclusive via `computeVatSplit` in `vat.js`).
+- **P2-4b** ~~Server-computed draft totals~~ ✅ **DONE** — `saveDraftBill` (`bills.js:850`) computes `totalAmount` server-side from `bill.lines`; the client `bill.amount` is only a fallback for line-less drafts. The `bill.amount || _preTotal` at line 164 is inside `createBill`'s pre-validation and is overwritten by server-computed `totalAmount` further down.
 - **P2-5** MCP server over the action catalog.
 - **P2-6 (candidate)** User-editable keybindings in Settings (raised by magnus 2026-07-22). Recommendation: build only AFTER all tabs migrate onto FB.keys — bindings are declarative data, so a remap layer (per-user overrides, conflict detection, reset-to-default) then covers the whole app in one shot. Industry reference: accounting software generally doesn't offer rebinding; power tools (Linear, Superhuman) do — fits the keyboard-first philosophy. Priority pending magnus.
 

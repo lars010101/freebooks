@@ -477,16 +477,24 @@ active_accounts AS (
     AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
 ),
 -- Opening balance per account: net debit-credit before period start
+-- P2-1: temporary accounts (Revenue, Expense, Cost of Sales, Closing) always
+-- open at 0 — their cumulative balances must not carry into the period.
 opening AS (
   SELECT
     aa.account_code,
     aa.account_name,
-    COALESCE(SUM(je.debit_home) - SUM(je.credit_home), 0) AS opening_balance
+    COALESCE(
+      CASE WHEN a.account_type IN ('Revenue', 'Expense', 'Cost of Sales', 'Closing')
+           THEN 0
+           ELSE SUM(je.debit_home) - SUM(je.credit_home)
+      END, 0
+    ) AS opening_balance
   FROM active_accounts aa
+  LEFT JOIN accounts a ON a.company_id = cid AND a.account_code = aa.account_code
   LEFT JOIN journal_entries je ON je.company_id = cid
     AND je.account_code = aa.account_code
     AND je.date < CAST(start_date AS DATE)
-  GROUP BY aa.account_code, aa.account_name
+  GROUP BY aa.account_code, aa.account_name, a.account_type
 )
 -- Opening balance pseudo-rows (sorted before period transactions via date trick)
 SELECT
@@ -528,10 +536,10 @@ ORDER BY account_code, date, batch_id;
 -- RE_ROLLFORWARD — Retained Earnings Roll-Forward (all periods)
 -- Returns one row per period defined in the periods table
 -- =============================================================================
-CREATE OR REPLACE MACRO re_rollforward(cid) AS TABLE
+CREATE OR REPLACE MACRO re_rollforward(cid, closing_account, re_account) AS TABLE
 WITH
--- Closing account: DR 999999 / CR 203070 (Retained Earnings)
--- We identify closing entries as movements on account 203070 from MISC journals
+-- Closing account: DR closing_account / CR re_account (Retained Earnings)
+-- We identify closing entries as movements on the RE account from MISC journals
 periods_data AS (
   SELECT
     p.period_name,
@@ -546,20 +554,20 @@ periods_data AS (
         AND je.date BETWEEN p.start_date AND p.end_date
         AND a.account_type IN ('Revenue', 'Expense')
     ), 0) AS pl_net,
-    -- Closing entry: movement on 203070 in batches that also involve 999999
+    -- Closing entry: movement on re_account in batches that also involve closing_account
     COALESCE((
       SELECT SUM(je.credit_home - je.debit_home)
       FROM journal_entries je
       WHERE je.company_id = cid
         AND je.date BETWEEN p.start_date AND p.end_date
-        AND je.account_code = '203070'
+        AND je.account_code = re_account
         AND je.batch_id IN (
           SELECT DISTINCT batch_id FROM journal_entries
-          WHERE company_id = cid AND account_code = '999999'
+          WHERE company_id = cid AND account_code = closing_account
         )
     ), 0) AS closing_entry,
     -- Non-cash equity adjustments (e.g. RE capitalisation, IAS 7.43)
-    -- Excludes closing batches (those involve account 999999)
+    -- Excludes closing batches (those involve closing_account)
     COALESCE((
       SELECT SUM(je.credit_home - je.debit_home)
       FROM journal_entries je
@@ -569,16 +577,16 @@ periods_data AS (
         AND a.cf_category = 'NonCash'
         AND je.batch_id NOT IN (
           SELECT DISTINCT batch_id FROM journal_entries
-          WHERE company_id = cid AND account_code = '999999'
+          WHERE company_id = cid AND account_code = closing_account
         )
     ), 0) AS noncash_adj,
-    -- Opening RE: cumulative credit-debit on 203070 before period start
+    -- Opening RE: cumulative credit-debit on re_account before period start
     COALESCE((
       SELECT SUM(je.credit_home - je.debit_home)
       FROM journal_entries je
       WHERE je.company_id = cid
         AND je.date < p.start_date
-        AND je.account_code = '203070'
+        AND je.account_code = re_account
     ), 0) AS opening_re
   FROM periods p
   WHERE p.company_id = cid
@@ -601,7 +609,7 @@ ORDER BY start_date;
 -- INTEGRITY_EXTENDED — Additional integrity checks
 -- Returns: check_name, status, detail
 -- =============================================================================
-CREATE OR REPLACE MACRO integrity_extended(cid, start_date, end_date) AS TABLE
+CREATE OR REPLACE MACRO integrity_extended(cid, start_date, end_date, closing_account) AS TABLE
 WITH
 -- Trial Balance check (debits = credits)
 tb_check AS (
@@ -630,6 +638,9 @@ cf_uncat AS (
     AND is_active = TRUE
 ),
 -- P&L vs Closing Entry for the specified period
+-- The closing account (e.g. 8999) receives the OPPOSITE side of the closing
+-- entry, so P&L net + closing account movement should sum to zero.
+-- (P&L net = -500 for a loss; closing account credit-debit = +500 → sum = 0.)
 pl_close AS (
   SELECT
     'P&L vs Closing Entry' AS check_name,
@@ -638,10 +649,10 @@ pl_close AS (
         LEFT JOIN accounts a ON a.company_id=je.company_id AND a.account_code=je.account_code
         WHERE je.company_id=cid AND je.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
         AND a.account_type IN ('Revenue','Expense')), 0)
-      -
+      +
       COALESCE((SELECT SUM(credit_home-debit_home) FROM journal_entries
         WHERE company_id=cid AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
-        AND account_code='203070' AND batch_id LIKE 'MISC%'), 0)
+        AND account_code=closing_account), 0)
     ), 4) <= 0.01 THEN 'OK' ELSE 'FAIL' END AS status,
     'P&L net: ' || ROUND(
       COALESCE((SELECT SUM(credit_home-debit_home) FROM journal_entries je
@@ -651,7 +662,7 @@ pl_close AS (
     || ' | Closing entry: ' || ROUND(
       COALESCE((SELECT SUM(credit_home-debit_home) FROM journal_entries
         WHERE company_id=cid AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
-        AND account_code='203070' AND batch_id LIKE 'MISC%'), 0), 2) AS detail
+        AND account_code=closing_account), 0), 2) AS detail
 )
 SELECT * FROM tb_check
 UNION ALL

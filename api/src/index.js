@@ -1173,6 +1173,10 @@ async function handleSettings(ctx, action) {
   // IA-spec step 4 (§5.10): the period.close_check action lives in the
   // Periods section service (read-only live checklist). Routed here because
   // the dispatcher keys on the 'period' module prefix.
+  if (action === 'period.close') {
+    const { handleClose } = require('./period-close');
+    return handleClose(ctx);
+  }
   if (action === 'period.close_check') {
     const { handlePeriodsService } = require('./periods-page-service');
     return handlePeriodsService(ctx, action);

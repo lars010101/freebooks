@@ -345,6 +345,15 @@ async function handleSruInk2(req, res) {
     if (coRows.length === 0) {
       const err = new Error('Company not found'); err.code = 'NOT_FOUND'; throw err;
     }
+    // P2-1: SRU export gate — period must be locked before generating SRU files.
+    const periodName = 'FY' + yr;
+    const lockRows = await queryPositional(
+      `SELECT locked FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn FROM periods WHERE company_id = ? AND period_name = ?) WHERE rn = 1`,
+      [company, periodName]
+    );
+    if (lockRows.length > 0 && !lockRows[0].locked) {
+      return res.status(409).json({ ok: false, error: { code: 'PERIOD_NOT_LOCKED', message: 'Period must be locked before generating SRU files. Lock the period in Settings → Periods.' } });
+    }
     const contact = await loadContact(queryPositional, company);
     const problems = validateSruContact(coRows[0], contact);
     if (check === '1' || check === 1) {
@@ -384,6 +393,18 @@ async function handleSruInfo(req, res) {
     );
     if (coRows.length === 0) return res.status(404).json({ error: 'Company not found' });
     const co = coRows[0];
+    // P2-1: SRU export gate — period must be locked before generating SRU files.
+    const yr = parseInt(String(year), 10);
+    if (Number.isFinite(yr)) {
+      const periodName = 'FY' + yr;
+      const lockRows = await queryPositional(
+        `SELECT locked FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn FROM periods WHERE company_id = ? AND period_name = ?) WHERE rn = 1`,
+        [company, periodName]
+      );
+      if (lockRows.length > 0 && !lockRows[0].locked) {
+        return res.status(409).json({ ok: false, error: { code: 'PERIOD_NOT_LOCKED', message: 'Period must be locked before generating SRU files. Lock the period in Settings → Periods.' } });
+      }
+    }
     const contact = await loadContact(queryPositional, company);
     const problems = validateSruContact(co, contact);
     if (problems.length) {

@@ -809,8 +809,33 @@ async function buildSCE(query, company, start, end) {
 }
 
 async function buildIntegrity(query, company, start, end) {
+  // P2-1: Resolve closing + RE accounts from jurisdiction pack, fallback to COA.
+  let closingAccount = null;
+  let reAccount = null;
+  try {
+    const coRows = await query(
+      `SELECT jurisdiction FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies WHERE company_id = ?) WHERE rn = 1`,
+      [company]
+    );
+    if (coRows.length) {
+      const { closingConfigFor } = require('../api/src/jurisdiction-packs');
+      const cfg = closingConfigFor(coRows[0].jurisdiction);
+      if (cfg) { closingAccount = cfg.closingAccount; reAccount = cfg.retainedEarningsAccount; }
+    }
+  } catch (e) { /* require may not resolve in all contexts — fallback below */ }
+  // Fallback: discover closing account from COA
+  if (!closingAccount) {
+    const acctRows = await query(`SELECT account_code FROM accounts WHERE company_id = ? AND account_type = 'Closing' LIMIT 1`, [company]);
+    if (acctRows.length) closingAccount = acctRows[0].account_code;
+  }
+  // Fallback: discover RE account from COA (Equity, not share capital)
+  if (!reAccount) {
+    const reRows2 = await query(`SELECT account_code FROM accounts WHERE company_id = ? AND account_type = 'Equity' AND account_subtype = 'Equity' AND account_name NOT LIKE '%Share Capital%' ORDER BY account_code LIMIT 1`, [company]);
+    if (reRows2.length) reAccount = reRows2[0].account_code;
+  }
+
   const rows1 = await query(`SELECT * FROM integrity(?, ?, ?)`, [company, start, end]);
-  const rows2 = await query(`SELECT * FROM integrity_extended(?, ?, ?)`, [company, start, end]);
+  const rows2 = await query(`SELECT * FROM integrity_extended(?, ?, ?, ?)`, [company, start, end, closingAccount]);
   const allChecks = [...rows1, ...rows2];
 
   // Compute unallocated net income — same logic as buildBS
@@ -864,7 +889,7 @@ async function buildIntegrity(query, company, start, end) {
     </tr>`
   ).join('');
 
-  const reRows = await query(`SELECT * FROM re_rollforward(?)`, [company]);
+  const reRows = await query(`SELECT * FROM re_rollforward(?, ?, ?)`, [company, closingAccount, reAccount]);
   let reTable = '';
   if (reRows.length) {
     const dateStr = d => new Date(d).toISOString().slice(0, 10);

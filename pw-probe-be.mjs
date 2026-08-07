@@ -1,0 +1,15 @@
+import { chromium } from 'playwright-core';
+const b = await chromium.launch();
+const p = await (await b.newContext()).newPage();
+p.on('pageerror', e => console.log('[pageerror]', (e.stack || String(e)).slice(0, 600)));
+await p.goto('http://127.0.0.1:4722/testco/bill/edit', { waitUntil: 'networkidle' });
+await p.waitForTimeout(800);
+console.log('be-lines-body:', await p.evaluate(() => !!document.getElementById('be-lines-body')));
+console.log('be-tot-gst:', await p.evaluate(() => !!document.getElementById('be-tot-gst')));
+console.log('be-attach-btn:', await p.evaluate(() => !!document.getElementById('be-attach-btn')));
+console.log('be-file:', await p.evaluate(() => !!document.getElementById('be-file')));
+await p.goto('http://127.0.0.1:4722/testco/receivables', { waitUntil: 'networkidle' });
+await p.waitForTimeout(500);
+console.log('[receivables] main text:', await p.evaluate(() => (document.getElementById('page-main') || document.body).textContent.replace(/\s+/g, ' ').trim().slice(0, 200)));
+console.log('[receivables] scripts:', await p.evaluate(() => document.querySelectorAll('#page-main script, script').length));
+await b.close();

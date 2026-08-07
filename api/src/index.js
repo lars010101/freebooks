@@ -230,7 +230,10 @@ async function handleApiRequest(req, res) {
     //   - mapping.suggest     (propose bank-mapping rules — human approves)
     //   - bill.create          (agent path saves a DRAFT; human posts via bill.post)
     //   - input_rejection.create (flag statement lines with missing critical data — human retries/discards)
-    const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose', 'matching_history.record', 'mapping.suggest', 'bill.create', 'input_rejection.create']);
+    // Derived from the action catalog's agentWritable flag (single source of
+    // truth — the A1 guard-matrix test derives its exclusion set from the same
+    // flag, so the two cannot drift). See api/src/action-catalog.js.
+    const AGENT_ALLOWED = new Set(Object.entries(ACTIONS).filter(([, m]) => m.agentWritable).map(([name]) => name));
     const actor = userEmail ? await resolveActor(userEmail, companyId) : { role: null, actorType: 'human' };
     const requestId = body.requestId || req.get('X-Request-Id') || null;
     if (actor.actorType === 'agent') {
@@ -1666,7 +1669,9 @@ ensureDb().then(async () => {
   const { ACTIONS } = require('./action-catalog');
   const { resolveActor } = require('./auth');
   const { handleEvents } = require('./events');
-  const AGENT_ALLOWED = new Set(['attachment.upload', 'journal.propose', 'matching_history.record', 'mapping.suggest', 'bill.create', 'input_rejection.create']);
+  // Derived from the catalog's agentWritable flag (same source as HTTP
+  // dispatch above) — keeps the in-process agent pipeline in sync.
+  const AGENT_ALLOWED = new Set(Object.entries(ACTIONS).filter(([, m]) => m.agentWritable).map(([name]) => name));
 
   async function dispatchAction(action, params, companyId, agentEmail) {
     const body = { action, companyId, userEmail: agentEmail, ...params };

@@ -1,0 +1,16 @@
+import { chromium } from 'playwright-core';
+const b = await chromium.launch();
+const p = await (await b.newContext()).newPage();
+await p.goto('http://127.0.0.1:4722/testco/bank', { waitUntil: 'networkidle' });
+await p.waitForTimeout(400);
+console.log('FB_ROUTES:', await p.evaluate(() => (window.FB_ROUTES || []).map(r => r.key + (r.palette ? '+' : '-')).join(' ')));
+await p.keyboard.press(':');
+await p.waitForTimeout(400);
+console.log('input id:', await p.evaluate(() => { const el = document.activeElement; return (el && el.id) || '(none)'; }));
+console.log('input value after :', JSON.stringify(await p.evaluate(() => (document.activeElement || {}).value)));
+await p.keyboard.type('Bank Import', { delay: 15 });
+await p.waitForTimeout(300);
+console.log('input value now:', JSON.stringify(await p.evaluate(() => (document.activeElement || {}).value)));
+console.log('rows:', await p.evaluate(() => Array.from(document.querySelectorAll('.fb-palette-row .fb-palette-label')).map(el => el.textContent.trim()).join(' | ') || '(none)'));
+console.log('empty-msg:', await p.evaluate(() => { const e = document.querySelector('.fb-palette-empty'); return e ? e.textContent : '(none)'; }));
+await b.close();

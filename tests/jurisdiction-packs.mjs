@@ -82,6 +82,24 @@ for (const entry of fs.readdirSync(DIR, { withFileTypes: true })) {
     }
   }
 
+  // fxRevaluation (P2-2): when present, validate structure + account existence.
+  // monetaryTypes must be a non-empty array; gainLossAccount must exist in COA
+  // and have account_type 'Expense' (it's a P&L account).
+  if (manifest && manifest.fxRevaluation) {
+    const fx = manifest.fxRevaluation;
+    if (!Array.isArray(fx.monetaryTypes) || fx.monetaryTypes.length === 0)
+      fail(code, 'fxRevaluation.monetaryTypes must be a non-empty array');
+    if (!fx.gainLossAccount)
+      fail(code, 'fxRevaluation.gainLossAccount required');
+    if (fx.gainLossAccount && !codes.has(fx.gainLossAccount))
+      fail(code, `fxRevaluation.gainLossAccount '${fx.gainLossAccount}' not found in COA`);
+    if (fx.gainLossAccount && coa) {
+      const fxAcct = coa.find(a => a.account_code === fx.gainLossAccount);
+      if (fxAcct && fxAcct.account_type !== 'Expense')
+        fail(code, `fxRevaluation.gainLossAccount '${fx.gainLossAccount}' must have account_type 'Expense' (got '${fxAcct.account_type}')`);
+    }
+  }
+
   // descriptors
   const filingsDir = path.join(dir, 'filings');
   if (fs.existsSync(filingsDir)) {

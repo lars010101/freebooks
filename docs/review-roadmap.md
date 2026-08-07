@@ -348,7 +348,7 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 
 **Bug fix en route:** tier 3 vendor query referenced `expense_account` (actual column: `default_expense_account`). Was unreachable before because tier 1 always matched; `amount_sign` filtering now lets the cascade fall through to tier 3, exposing the bug.
 
-**Test results:** new contract tests 15/15. Existing suite 67/68 (same pre-existing `bill.create` failure — not caused by this PR). MCP smoke 27/28 (same pre-existing tool-list assertion — not caused by this PR).
+**Test results:** new contract tests 15/15. Existing suite 68/68 (the pre-existing `bill.create` agent guard test failure was fixed in P2-3 — the test's `AGENT_WHITELIST` was stale, missing 4 Phase B actions). MCP smoke 27/28 (same pre-existing tool-list assertion — not caused by this PR).
 
 **PR #90 status:** merged (commit `972e0ac`).
 
@@ -386,7 +386,7 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 | **SG COA fix** | Added missing 999999 (Closing) and 203070 (Equity, Retained Earnings) accounts to the SG COA — they were referenced by the closing block but not in the template. | `db/jurisdictions/SG/coa.json` |
 
 **Verification:**
-- Contract tests: 67/68 (1 pre-existing `bill.create` agent guard failure — unrelated to P2-1).
+- Contract tests: 68/68 (pre-existing `bill.create` agent guard test failure fixed in P2-3 — stale `AGENT_WHITELIST` in the test, not a code bug).
 - New `period-close.test.js`: 8/8 (profit, loss, zero P&L, idempotency, missing params, unknown period, audit log, inbox item).
 - Pack linter: OK SE, OK SG.
 - SRU contact tests: 6/6.
@@ -426,6 +426,31 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 **Design decision (ratified by magnus 2026-08-07):** Four options were evaluated — (A) software feature with hardcoded fix, (B) jurisdiction-pack-driven config, (C) report + manual journal entry, (D) LLM-assisted. Option B selected: the rules live in the pack, the engine computes, the LLM stays out of it (wrong tool for arithmetic). Option C subsumed by the existing preview. P2-7 (`coaStyle`) raised in the same discussion — the engine is identifier-agnostic, but the UI assumes numeric codes.
 
 **What stays:** P2-3 bill_lines subledger, P2-4a VAT unify, P2-7 coaStyle — unchanged priority. P3 scope — unchanged.
+
+---
+
+## 0ff. Status update — 2026-08-07 (P2-3 bill lines subledger shipped)
+
+**P2-3 bill lines subledger + AP control report ✅** (branch `feature/p2-3-bill-lines-subledger`). Spec: `docs/p2-3-bill-lines-subledger-spec.md` (ratified by magnus 2026-08-07).
+
+**What shipped:**
+
+| Component | What | Key files |
+|-----------|------|-----------|
+| **`bill_lines` table** | Expense line items for posted bills: `line_number`, `expense_account`, `amount`, `amount_home`, `vat_code`, `description`, `cost_center`, `profit_center`. Written alongside `journal_entries` in `createBill`; never mutated. Drafts stay as JSON in `bills.draft_lines`. | `db/schema.sql` |
+| **Backfill migration** | Reconstructs `bill_lines` for existing posted/partial/paid/void bills from journal entries (one-time, `ON CONFLICT DO NOTHING`). VAT/GST lines included for pre-migration bills (cosmetic — accepted per ratified decision §12.1). | `db/schema.sql` |
+| **Write path** | `createBill` builds `billLineRows` from `expenseLines` and inserts via `bulkInsert('bill_lines', ...)` alongside journal entries. `bill.void` preserves rows (status=void, control report filters by status). | `api/src/bills.js` |
+| **Read path** | `getBillLines` rewritten: posted bills read from `bill_lines` (stable, indexed, no fragile journal filtering); drafts unchanged (JSON). `entry_id` is now `line_number` (stringified) — used as React key only. | `api/src/bills.js` |
+| **`ap_control` macro** | Point-in-time subledger-vs-GL reconciliation per AP account. GL side: non-reversed journal entries on AP accounts. Subledger side: open bills (posted, partial) − payments. FX-aware status: WARN for foreign-currency bills with diff < 100. | `db/macros.sql` |
+| **`ap-control` report** | `GET /api/:company/report?type=ap-control&end=…`. Audit category, as-of date (no start), no multiperiod. Zero rows permanent (one row of zeros, status OK). Whole currency units (no decimals). | `reports/render.js`, `api/src/report-registry.js`, `api/src/reports.js` |
+| **Integrity check integration** | `integrity_extended` gains `ap_control_check` CTE — period-range AP subledger-vs-GL check surfaces on every Integrity Check run. | `db/macros.sql` |
+| **Action catalog** | `bill.lines` description updated to mention `bill_lines` subledger for posted bills. | `api/src/action-catalog.js` |
+
+**Verification:** contract tests 72/72 (the pre-existing `bill.create` agent guard test failure is fixed in this PR — the test's `AGENT_WHITELIST` was stale, missing 4 Phase B actions added to `AGENT_ALLOWED`). New P2-3 tests 4/4 (bill_lines write, bill.lines read, void preserves rows, AP control report renders).
+
+**Ratified decisions (magnus 2026-08-07):** backfill VAT/GST lines accepted; FX heuristic sufficient; integrity check integration included; `entry_id` semantic change accepted; paid-home computed from join (no stored column).
+
+**What stays:** P2-4a VAT unify, P2-7 coaStyle — unchanged priority. P3 scope — unchanged.
 
 ---
 
@@ -527,7 +552,7 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 
 - **P2-1** ~~Year-end close routine to retained earnings (replaces live "unallocated net income" injection).~~ ✅ **DONE 2026-08-07** (PR #93) — `period.close` action posts summary closing entry (Closing ↔ RE), jurisdiction-pack driven. `gl()` opening-balance fix, `re_rollforward` + `integrity_extended` parameterized. See §0dd.
 - **P2-2** ~~FX revaluation: monetary items only (drop Equity).~~ ✅ **DONE 2026-08-07** (PR #95) — jurisdiction-pack-driven `fxRevaluation` block (`monetaryTypes`, `gainLossAccount`). Engine reads pack config instead of hardcoding `('Asset', 'Liability', 'Equity')` in `fx.js`. Drops Equity by default (IAS 21 — monetary items only). `fxRevaluationConfigFor()` helper in `jurisdiction-packs.js`. Pack linter validates the block. Direction ratified by magnus 2026-08-07: IAS 21 is the standard but jurisdiction-specific implementation details belong in the pack, not hardcoded in software. The LLM has no role — deterministic arithmetic. See §0ee.
-- **P2-3** `bill_lines` subledger table + AP-subledger-vs-GL control report.
+- **P2-3** ~~`bill_lines` subledger table + AP-subledger-vs-GL control report.~~ ✅ **DONE 2026-08-07** (branch `feature/p2-3-bill-lines-subledger`) — `bill_lines` table stores expense line items (written alongside `journal_entries` in `createBill`, never mutated); `getBillLines` reads from `bill_lines` for posted bills (drafts unchanged). `ap_control` macro: point-in-time subledger-vs-GL reconciliation per AP account, FX-aware WARN. `ap-control` report in the Audit category. `integrity_extended` gains `ap_control_check` CTE. Backfill for existing posted bills. Spec: `docs/p2-3-bill-lines-subledger-spec.md`. See §0ff.
 - **P2-4a** Unify VAT/amount conventions — tax-exclusive everywhere; convert `journal.post` path (currently tax-inclusive via `computeVatSplit` in `vat.js`).
 - **P2-4b** ~~Server-computed draft totals~~ ✅ **DONE** — `saveDraftBill` (`bills.js:850`) computes `totalAmount` server-side from `bill.lines`; the client `bill.amount` is only a fallback for line-less drafts. The `bill.amount || _preTotal` at line 164 is inside `createBill`'s pre-validation and is overwritten by server-computed `totalAmount` further down.
 - **P2-5** MCP server over the action catalog.

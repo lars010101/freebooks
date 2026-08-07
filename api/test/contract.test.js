@@ -241,6 +241,82 @@ test('draft flow: save → re-save keeps bill_id → post → void reverses jour
   assert.ok(Number(reversal[0].c) >= 1, 'reversal entries exist after void');
 });
 
+// ── P2-3: bill_lines subledger ──────────────────────────────────────────────
+
+test('P2-3: createBill writes bill_lines rows', async () => {
+  const bill = validBill({
+    vendor_ref: 'P23-WRITE',
+    amount: 100,
+    lines: [
+      { description: 'Line A', expense_account: EXP, amount: 60, vat_code: '' },
+      { description: 'Line B', expense_account: EXP, amount: 40, vat_code: '' },
+    ],
+  });
+  const { status, body } = await api(baseUrl, 'bill.create', { companyId: CO, bill });
+  assert.equal(status, 200, JSON.stringify(body));
+  const billId = body.data.billId;
+
+  const lines = await api(baseUrl, 'bill.lines', { companyId: CO, billId });
+  assert.equal(lines.status, 200);
+  const data = lines.body.data;
+  assert.ok(Array.isArray(data) && data.length === 2, '2 bill_lines rows');
+  assert.equal(data[0].account_code, EXP, 'first line expense account');
+  assert.equal(Number(data[0].amount), 60, 'first line amount');
+  assert.equal(data[1].account_code, EXP, 'second line expense account');
+  assert.equal(Number(data[1].amount), 40, 'second line amount');
+});
+
+test('P2-3: bill.lines reads from bill_lines for posted bills', async () => {
+  const { status, body } = await api(baseUrl, 'bill.create', {
+    companyId: CO,
+    bill: validBill({ vendor_ref: 'P23-READ' }),
+  });
+  assert.equal(status, 200, JSON.stringify(body));
+  const billId = body.data.billId;
+
+  const lines = await api(baseUrl, 'bill.lines', { companyId: CO, billId });
+  assert.equal(lines.status, 200);
+  const data = lines.body.data;
+  assert.ok(Array.isArray(data) && data.length >= 1, 'lines returned');
+  // entry_id should be a line number string ("1", "2", ...), NOT a UUID
+  const eid = String(data[0].entry_id);
+  assert.ok(/^\d+$/.test(eid), `entry_id is a line number, not a UUID: ${eid}`);
+  assert.ok(eid.length < 36, 'entry_id is short (line number), not a UUID');
+});
+
+test('P2-3: bill.void preserves bill_lines rows', async () => {
+  const { status, body } = await api(baseUrl, 'bill.create', {
+    companyId: CO,
+    bill: validBill({
+      vendor_ref: 'P23-VOID',
+      amount: 100,
+      lines: [
+        { description: 'Line A', expense_account: EXP, amount: 60, vat_code: '' },
+        { description: 'Line B', expense_account: EXP, amount: 40, vat_code: '' },
+      ],
+    }),
+  });
+  assert.equal(status, 200, JSON.stringify(body));
+  const billId = body.data.billId;
+
+  await seedVoidCoverPeriod();
+  const voided = await api(baseUrl, 'bill.void', { companyId: CO, billId });
+  assert.equal(voided.status, 200, JSON.stringify(voided.body));
+
+  // bill_lines rows must survive voiding (never mutated)
+  const rows = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM bill_lines WHERE company_id='CT' AND bill_id='${billId}'`);
+  assert.equal(Number(rows[0].c), 2, '2 bill_lines rows preserved after void');
+});
+
+test('P2-3: AP control report renders', async () => {
+  const r = await fetch(`${baseUrl}/api/${CO}/report?type=ap-control&end=2026-12-31`);
+  assert.equal(r.status, 200);
+  const html = await r.text();
+  assert.ok(html.includes('AP Control'), 'HTML contains AP Control title');
+  assert.ok(html.includes('<table'), 'HTML contains a table');
+});
+
 // ── Period lock ─────────────────────────────────────────────────────────────
 
 test('locked period rejects posting with 409 PERIOD_LOCKED', async () => {
@@ -698,12 +774,15 @@ test('A1 guard matrix: agent FORBIDDEN on every mutating catalog action', async 
   // Spec §2.3 default-deny: iterate every catalog action flagged mutating,
   // call as the agent user, and assert 403/FORBIDDEN for each. The guard
   // runs before param validation, so missing params don't leak a 400.
-  // journal.propose (A3j §4.3) and attachment.upload (Phase A hardening
-  // 2026-07-31) are the two whitelisted mutating actions agents MAY call, so
-  // they are excluded from the default-deny assertion here — their
-  // admittance is exercised by the A3j propose tests and the attachment.upload
-  // hardening tests below.
-  const AGENT_WHITELIST = new Set(['journal.propose', 'attachment.upload']);
+  // The whitelisted mutating actions agents MAY call (Phase B additions:
+  // bill.create, matching_history.record, mapping.suggest, input_rejection.create)
+  // are excluded from the default-deny assertion here — their admittance is
+  // exercised by the A3j propose tests, the attachment.upload hardening tests,
+  // and the mapping-suggestions / bills-routing tests below.
+  const AGENT_WHITELIST = new Set([
+    'journal.propose', 'attachment.upload',
+    'bill.create', 'matching_history.record', 'mapping.suggest', 'input_rejection.create',
+  ]);
   const mutatingActions = Object.entries(ACTIONS)
     .filter(([, m]) => m.mutating === true)
     .map(([name]) => name)

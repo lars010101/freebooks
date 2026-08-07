@@ -1060,6 +1060,68 @@ async function buildAPAging(query, company, _start, end) {
   return { tableHtml, rows: [] };
 }
 
+// ── AP Control Reconciliation (P2-3) ────────────────────────────────────────
+async function buildApControl(query, company, _start, end) {
+  let companyName = company;
+  try {
+    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
+    if (co) companyName = co.company_name;
+  } catch (_) {}
+
+  let rows = [];
+  try {
+    rows = await query(`SELECT * FROM ap_control(?, ?)`, [company, end]);
+  } catch (_) {
+    // macro not available — render zero state
+  }
+
+  // Zero rows stay permanent: render one row with all zeros and status OK
+  if (!rows || rows.length === 0) {
+    rows = [{
+      ap_account: '',
+      account_name: '',
+      gl_balance: 0,
+      subledger_balance: 0,
+      difference: 0,
+      status: 'OK',
+      bill_count: 0,
+      posted_total: 0,
+      paid_total: 0,
+    }];
+  }
+
+  const statusColor = { OK: '#2d8a2d', WARN: '#cc7700', FAIL: '#cc2222' };
+
+  const tableRows = rows.map((r) => {
+    const status = r.status || 'OK';
+    const color = statusColor[status] || '#1a1a1a';
+    return `<tr>
+      <td>${r.ap_account || ''}</td>
+      <td>${r.account_name || ''}</td>
+      <td class="num">${fmt(Math.round(Number(r.gl_balance || 0)))}</td>
+      <td class="num">${fmt(Math.round(Number(r.subledger_balance || 0)))}</td>
+      <td class="num">${fmt(Math.round(Number(r.difference || 0)))}</td>
+      <td style="color:${color};font-weight:600">${status}</td>
+      <td class="num">${Number(r.bill_count || 0)}</td>
+      <td class="num">${fmt(Math.round(Number(r.posted_total || 0)))}</td>
+      <td class="num">${fmt(Math.round(Number(r.paid_total || 0)))}</td>
+    </tr>`;
+  }).join('');
+
+  const tableHtml = `<table>
+    <thead><tr>
+      <th>AP Account</th><th>Account Name</th>
+      <th class="num">GL Balance</th><th class="num">Subledger</th>
+      <th class="num">Diff</th><th>Status</th>
+      <th class="num">Bills</th><th class="num">Posted</th><th class="num">Paid</th>
+    </tr></thead>
+    <tbody>${tableRows}</tbody>
+  </table>`;
+
+  const html = htmlPage('AP Control Reconciliation', companyName, `As of ${end}`, tableHtml);
+  return { tableHtml: html, rows };
+}
+
 // ── Report type dispatch ──────────────────────────────────────────────────────
 const REPORT_TITLES = {
   pl: 'Profit & Loss',
@@ -1071,6 +1133,7 @@ const REPORT_TITLES = {
   cf: 'Cash Flow Statement',
   sce: 'Statement of Changes in Equity',
   integrity: 'Integrity Checks',
+  'ap-control': 'AP Control Reconciliation',
 };
 
 async function buildReport(query, company, reportType, startDate, endDate, opts = {}) {
@@ -1085,6 +1148,7 @@ async function buildReport(query, company, reportType, startDate, endDate, opts 
     case 'sce':       return buildSCE(query, company, startDate, endDate);
     case 'integrity': return buildIntegrity(query, company, startDate, endDate);
     case 'ap-aging':  return buildAPAging(query, company, startDate, endDate);
+    case 'ap-control': return buildApControl(query, company, startDate, endDate);
     default:          throw new Error(`Unknown report type: ${reportType}`);
   }
 }

@@ -663,9 +663,144 @@ pl_close AS (
       COALESCE((SELECT SUM(credit_home-debit_home) FROM journal_entries
         WHERE company_id=cid AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
         AND account_code=closing_account), 0), 2) AS detail
+),
+-- AP Subledger vs GL (P2-3)
+-- Period-range check: AP journal movements in period should match bill postings
+-- (new bills minus payments). FX bills with small diff → WARN.
+ap_control_check AS (
+  SELECT
+    'AP Subledger vs GL' AS check_name,
+    CASE WHEN ABS(
+      COALESCE((SELECT SUM(credit_home - debit_home) FROM journal_entries
+        WHERE company_id = cid
+        AND account_code IN (SELECT DISTINCT ap_account FROM bills WHERE company_id = cid)
+        AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+        AND reversed_by IS NULL), 0)
+      -
+      COALESCE((SELECT SUM(b.amount_home) FROM bills b
+        WHERE b.company_id = cid
+        AND b.status IN ('posted', 'partial')
+        AND b.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)), 0)
+      +
+      COALESCE((SELECT SUM(je.debit_home) FROM journal_entries je
+        JOIN bills b ON b.bill_id = je.bill_id AND b.company_id = je.company_id
+        WHERE b.company_id = cid
+        AND b.status IN ('posted', 'partial')
+        AND b.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+        AND je.account_code = b.ap_account
+        AND je.debit > 0
+        AND je.reversed_by IS NULL), 0)
+    ) <= 0.01 THEN 'OK'
+    WHEN EXISTS (
+      SELECT 1 FROM bills b
+      WHERE b.company_id = cid
+      AND b.status IN ('posted', 'partial')
+      AND b.currency != (SELECT currency FROM companies WHERE company_id = cid)
+      AND b.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+    ) THEN 'WARN'
+    ELSE 'FAIL' END AS status,
+    'GL: ' || ROUND(COALESCE((SELECT SUM(credit_home - debit_home) FROM journal_entries
+      WHERE company_id = cid
+      AND account_code IN (SELECT DISTINCT ap_account FROM bills WHERE company_id = cid)
+      AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+      AND reversed_by IS NULL), 0), 2)
+    || ' | Subledger: ' || ROUND(
+      COALESCE((SELECT SUM(b.amount_home) FROM bills b
+        WHERE b.company_id = cid
+        AND b.status IN ('posted', 'partial')
+        AND b.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)), 0)
+      -
+      COALESCE((SELECT SUM(je.debit_home) FROM journal_entries je
+        JOIN bills b ON b.bill_id = je.bill_id AND b.company_id = je.company_id
+        WHERE b.company_id = cid
+        AND b.status IN ('posted', 'partial')
+        AND b.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
+        AND je.account_code = b.ap_account
+        AND je.debit > 0
+        AND je.reversed_by IS NULL), 0)
+    , 2) AS detail
 )
 SELECT * FROM tb_check
 UNION ALL
 SELECT * FROM cf_uncat
 UNION ALL
-SELECT * FROM pl_close;
+SELECT * FROM pl_close
+UNION ALL
+SELECT * FROM ap_control_check;
+
+-- =============================================================================
+-- AP_CONTROL — AP Subledger vs GL Control Report (P2-3)
+-- Point-in-time reconciliation: open-bill outstanding (subledger) vs GL AP balance.
+-- Parameters: cid (company_id), as_of_date
+-- Returns: ap_account, account_name, gl_balance, subledger_balance, difference,
+--          status, bill_count, posted_total, paid_total
+-- =============================================================================
+CREATE OR REPLACE MACRO ap_control(cid, as_of_date) AS TABLE
+WITH
+-- GL AP balance per AP account (all journal entries, including reversals)
+gl_side AS (
+  SELECT
+    je.account_code AS ap_account,
+    a.account_name,
+    SUM(je.credit_home - je.debit_home) AS gl_balance
+  FROM journal_entries je
+  LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+  WHERE je.company_id = cid
+    AND je.date <= CAST(as_of_date AS DATE)
+    AND je.account_code IN (SELECT DISTINCT ap_account FROM bills WHERE company_id = cid)
+    AND je.reversed_by IS NULL
+  GROUP BY je.account_code, a.account_name
+),
+-- Subledger: open bills per AP account (outstanding in home currency)
+subledger_side AS (
+  SELECT
+    b.ap_account,
+    SUM(b.amount_home) AS posted_total,
+    SUM(COALESCE((
+      SELECT SUM(je.debit_home)
+      FROM journal_entries je
+      WHERE je.company_id = b.company_id
+        AND je.bill_id = b.bill_id
+        AND je.account_code = b.ap_account
+        AND je.reversed_by IS NULL
+        AND je.debit > 0
+    ), 0)) AS paid_total,
+    SUM(b.amount_home) - SUM(COALESCE((
+      SELECT SUM(je.debit_home)
+      FROM journal_entries je
+      WHERE je.company_id = b.company_id
+        AND je.bill_id = b.bill_id
+        AND je.account_code = b.ap_account
+        AND je.reversed_by IS NULL
+        AND je.debit > 0
+    ), 0)) AS subledger_balance,
+    COUNT(*) AS bill_count
+  FROM bills b
+  WHERE b.company_id = cid
+    AND b.status IN ('posted', 'partial')
+    AND b.date <= CAST(as_of_date AS DATE)
+  GROUP BY b.ap_account
+)
+SELECT
+  COALESCE(g.ap_account, s.ap_account) AS ap_account,
+  COALESCE(g.account_name, '') AS account_name,
+  COALESCE(g.gl_balance, 0) AS gl_balance,
+  COALESCE(s.subledger_balance, 0) AS subledger_balance,
+  COALESCE(s.subledger_balance, 0) - COALESCE(g.gl_balance, 0) AS difference,
+  CASE
+    WHEN ABS(COALESCE(s.subledger_balance, 0) - COALESCE(g.gl_balance, 0)) <= 0.01 THEN 'OK'
+    WHEN EXISTS (
+      SELECT 1 FROM bills b
+      WHERE b.company_id = cid
+        AND b.status IN ('posted', 'partial')
+        AND b.currency != (SELECT currency FROM companies WHERE company_id = cid)
+        AND b.date <= CAST(as_of_date AS DATE)
+    ) AND ABS(COALESCE(s.subledger_balance, 0) - COALESCE(g.gl_balance, 0)) < 100 THEN 'WARN'
+    ELSE 'FAIL'
+  END AS status,
+  COALESCE(s.bill_count, 0) AS bill_count,
+  COALESCE(s.posted_total, 0) AS posted_total,
+  COALESCE(s.paid_total, 0) AS paid_total
+FROM gl_side g
+FULL OUTER JOIN subledger_side s ON g.ap_account = s.ap_account
+ORDER BY ap_account;

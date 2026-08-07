@@ -9,6 +9,7 @@ const { query, exec, bulkInsert } = require('./db');
 const { expandVatLines } = require('./vat');
 const { getNextReference, getNextReferenceBatch } = require('./journal');
 const { settleBillPayment } = require('./settlement');
+const { amountSignMatches, normalizeDescription } = require('./mapping-utils');
 
 async function handleBank(ctx, action) {
   switch (action) {
@@ -171,21 +172,43 @@ async function processBankStatement(ctx) {
   };
 }
 
-function matchMapping(mappings, description) {
+// ── §6: specificity scoring (longest-match-wins) + §5.3 amount_sign filter ─
+// Collect ALL matching rules, sort by pattern length descending (most specific
+// first), then by priority ASC as tiebreaker. Return the first match whose
+// amount_sign is compatible with the line's direction (§6.4).
+function matchMapping(mappings, description, amount) {
   if (!description) return null;
   const desc = description.toUpperCase();
+  const matches = [];
   for (const m of mappings) {
     const pattern = m.pattern.toUpperCase();
+    let matched = false;
     switch (m.match_type) {
-      case 'exact': if (desc === pattern) return m; break;
-      case 'starts_with': if (desc.startsWith(pattern.replace(/\*$/, ''))) return m; break;
-      case 'contains': if (desc.includes(pattern.replace(/\*/g, ''))) return m; break;
+      case 'exact':        matched = (desc === pattern); break;
+      case 'starts_with':  matched = desc.startsWith(pattern.replace(/\*$/, '')); break;
+      case 'contains':     matched = desc.includes(pattern.replace(/\*/g, '')); break;
       case 'regex':
-        try { if (new RegExp(m.pattern, 'i').test(description)) return m; } catch { /* invalid regex */ }
+        try { matched = new RegExp(m.pattern, 'i').test(description); } catch { /* invalid regex */ }
         break;
     }
+    if (matched) matches.push(m);
   }
-  return null;
+  if (matches.length === 0) return null;
+  // Sort by pattern length descending (most specific first), then priority ASC.
+  matches.sort((a, b) => {
+    const lenDiff = (b.pattern || '').length - (a.pattern || '').length;
+    if (lenDiff !== 0) return lenDiff;
+    return (a.priority || 100) - (b.priority || 100);
+  });
+  // §6.4: iterate sorted matches, return first with compatible amount_sign.
+  if (amount !== undefined && amount !== null) {
+    for (const m of matches) {
+      if (amountSignMatches(m.amount_sign, amount)) return m;
+    }
+    // Pattern matched but no amount_sign-compatible rule → no match
+    return null;
+  }
+  return matches[0];
 }
 
 function matchBillRow(openBills, description, amount) {
@@ -410,7 +433,7 @@ async function matchLine(ctx) {
      ORDER BY priority ASC`,
     { companyId }
   );
-  const mapping = matchMapping(mappings, line.description);
+  const mapping = matchMapping(mappings, line.description, line.amount);
   if (mapping) {
     const isInflow = Number(line.amount) > 0;
     const offsetAccount = mapping.debit_account;
@@ -516,7 +539,7 @@ async function matchLine(ctx) {
   // v1: case-insensitive substring of vendor name in the description. The spec
   // mentions trigram similarity but says it's simplified for small companies.
   const vendors = await query(
-    `SELECT vendor_id, name, expense_account FROM vendors WHERE company_id = @companyId`,
+    `SELECT vendor_id, name, default_expense_account AS expense_account FROM vendors WHERE company_id = @companyId`,
     { companyId }
   );
   if (vendors.length > 0) {
@@ -568,6 +591,88 @@ async function matchLine(ctx) {
         },
         lines,
       };
+    }
+  }
+
+  // ── Tier 3.5 — Historical outcome match (§2) ──────────────────────────────
+  // If tiers 1–3 didn't match, check whether this exact description was
+  // approved before. Only learns from clean (approved_unedited) outcomes.
+  // Uses the same normalization as matching_history.record (§3.3).
+  if (line.description) {
+    const normalized = normalizeDescription(line.description);
+    if (normalized) {
+      const historyRows = await query(
+        `SELECT approved_dimensions, source_type, confidence, evidence, amount, created_at
+         FROM matching_history
+         WHERE company_id = @companyId
+           AND description_pattern = @pattern
+           AND outcome = 'approved_unedited'
+         ORDER BY created_at DESC
+         LIMIT 50`,
+        { companyId, pattern: normalized }
+      );
+      if (historyRows.length > 0) {
+        // Determine the modal account — most frequently approved.
+        const accountCounts = {};
+        for (const h of historyRows) {
+          let acct = null;
+          try {
+            const dims = h.approved_dimensions ? JSON.parse(h.approved_dimensions) : null;
+            acct = dims && dims.account ? dims.account : null;
+          } catch { /* skip unparseable */ }
+          if (acct) accountCounts[acct] = (accountCounts[acct] || 0) + 1;
+        }
+        const modalAccount = Object.entries(accountCounts).sort((a, b) => b[1] - a[1])[0];
+        if (modalAccount) {
+          const account = modalAccount[0];
+          const approvalCount = modalAccount[1];
+          const isInflow = Number(line.amount) > 0;
+          const amount = Math.abs(Number(line.amount));
+          const offsetAccount = account;
+          const debitAccount = isInflow ? bankAccount : offsetAccount;
+          const creditAccount = isInflow ? offsetAccount : bankAccount;
+
+          // Confidence calibration (§2.3)
+          let confidence;
+          if (approvalCount >= 3)      confidence = 0.88;
+          else if (approvalCount === 2) confidence = 0.82;
+          else                          confidence = 0.75;
+
+          // Build evidence citing the prior approvals
+          const recentDates = historyRows.slice(0, 5).map((h) => {
+            try { return h.created_at ? new Date(h.created_at).toISOString().substring(0, 10) : '?'; }
+            catch { return '?'; }
+          });
+
+          return {
+            matched: true,
+            tier: 3.5,
+            source_type: 'historical_match',
+            confidence: {
+              account:      { value: account, confidence, derived_from: ['matching_history'] },
+              vat_code:     { value: null,    confidence: 0,    derived_from: [] },
+              counterparty: { value: null,    confidence: 0,    derived_from: [] },
+            },
+            evidence: [{
+              type: 'historical_outcome',
+              description: `Previously approved to account ${account} ${approvalCount} time(s)`,
+              approval_count: approvalCount,
+              prior_dates: recentDates,
+            }],
+            suggested_dimensions: {
+              account,
+              vat_code: null,
+              counterparty: null,
+              cost_center: null,
+              profit_center: null,
+            },
+            lines: [
+              { account_code: debitAccount,  debit: amount,  credit: 0,       date: line.date, description: line.description },
+              { account_code: creditAccount, debit: 0,       credit: amount,  date: line.date, description: line.description },
+            ],
+          };
+        }
+      }
     }
   }
 

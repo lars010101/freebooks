@@ -450,7 +450,7 @@ const ACTIONS = {
   // approve/reject are data_entry (human finalizers); list/get are viewer reads.
   'mapping.suggest': {
     role: 'agent', mutating: true, idempotent: true,
-    description: 'Propose a candidate bank-mapping rule to mapping_suggestions (never to mappings itself). Agent-only; human approves via mapping.suggestion.approve/reject (bank-matching-spec §10.2/§10.4).',
+    description: 'Propose a candidate bank-mapping rule to mapping_suggestions (never to mappings itself). Agent-only; human approves via mapping.suggestion.approve/reject (bank-matching-spec §10.2/§10.4). Runs conflict detection at creation (§4.5).',
     params: {
       suggestionId: { type: 'string' },
       bank_account: { type: 'string' },
@@ -458,6 +458,8 @@ const ACTIONS = {
       suggested_account: { type: 'string', required: true },
       suggested_vat_code: { type: 'string' },
       suggested_dimensions: { type: 'object' },
+      suggested_amount_sign: { type: 'string' },
+      suggested_match_type: { type: 'string' },
       evidence: { type: 'object' },
       source_proposal_id: { type: 'string' },
     },

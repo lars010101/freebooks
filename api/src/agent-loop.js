@@ -23,6 +23,7 @@ const { query, exec } = require('./db');
 const { v4: uuid } = require('uuid');
 const path = require('path');
 const fs = require('fs');
+const { normalizeDescription, detectMappingConflicts } = require('./mapping-utils');
 
 // ── State ───────────────────────────────────────────────────────────────────
 
@@ -534,6 +535,176 @@ async function processEvent(ev, companyId, agentEmail, companySettings) {
   }
 }
 
+// ── §3.2: Retrospective sweep ───────────────────────────────────────────────
+// Throttled (at most once per 24h per company). Scans posted journal_proposals
+// for recurring description patterns that lack a mapping rule, and calls
+// mapping.suggest for each qualifying pattern. Agent-only capability — a
+// journal handler sees one proposal at a time and cannot detect recurrence.
+const SWEEP_INTERVAL_HOURS = 24;
+const SWEEP_RECURRENCE_THRESHOLD = 3;
+
+async function retrospectiveSweep(companyId, agentEmail, companySettings) {
+  // Throttle check: skip if last sweep was less than 24h ago
+  const sweepSettingRows = await query(
+    `SELECT value FROM settings WHERE company_id = @cid AND key = 'last_sweep_at' LIMIT 1`,
+    { cid: companyId }
+  );
+  if (sweepSettingRows.length > 0) {
+    const lastSweep = new Date(sweepSettingRows[0].value);
+    const elapsed = Date.now() - lastSweep.getTime();
+    if (elapsed < SWEEP_INTERVAL_HOURS * 60 * 60 * 1000) return; // not yet
+  }
+
+  log(`company ${companyId}: starting retrospective sweep`);
+
+  // Query posted proposals (all sources — bank import descriptions are the
+  // primary target, but human-entered proposals with descriptions also benefit)
+  const proposals = await query(
+    `SELECT proposal_id, description, lines, date
+     FROM journal_proposals
+     WHERE company_id = @cid AND status = 'posted'`,
+    { cid: companyId }
+  );
+
+  if (proposals.length === 0) {
+    await updateSweepTimestamp(companyId);
+    return;
+  }
+
+  // Normalize and group by description pattern
+  const groups = {}; // pattern → [{ proposal_id, account, date }]
+  for (const p of proposals) {
+    if (!p.description) continue;
+    const pattern = normalizeDescription(p.description);
+    if (!pattern) continue;
+
+    // Extract the posted account from the lines
+    let account = null;
+    try {
+      const lines = JSON.parse(p.lines);
+      const accounts = [...new Set(lines.map((l) => l.account_code).filter(Boolean))];
+      account = accounts[0] || null;
+    } catch { /* skip */ }
+
+    if (!account) continue;
+
+    if (!groups[pattern]) groups[pattern] = [];
+    groups[pattern].push({ proposal_id: p.proposal_id, account, date: p.date });
+  }
+
+  // Filter to patterns that meet the recurrence threshold and lack a rule/suggestion
+  const candidates = [];
+  for (const [pattern, occurrences] of Object.entries(groups)) {
+    if (occurrences.length < SWEEP_RECURRENCE_THRESHOLD) continue;
+
+    // Check for existing active rule
+    const existingRules = await query(
+      `SELECT mapping_id FROM bank_mappings
+       WHERE company_id = @cid AND is_active = true
+         AND UPPER(pattern) = UPPER(@pattern)`,
+      { cid: companyId, pattern }
+    );
+    if (existingRules.length > 0) continue;
+
+    // Check for pending suggestion
+    const existingSuggestions = await query(
+      `SELECT suggestion_id FROM mapping_suggestions
+       WHERE company_id = @cid AND status = 'proposed'
+         AND UPPER(description_pattern) = UPPER(@pattern)`,
+      { cid: companyId, pattern }
+    );
+    if (existingSuggestions.length > 0) continue;
+
+    // Determine the modal account
+    const accountCounts = {};
+    for (const occ of occurrences) {
+      accountCounts[occ.account] = (accountCounts[occ.account] || 0) + 1;
+    }
+    const sorted = Object.entries(accountCounts).sort((a, b) => b[1] - a[1]);
+    const modalAccount = sorted[0][0];
+    const modalCount = sorted[0][1];
+
+    // Detect inconsistency: same pattern approved to different accounts
+    const isInconsistent = sorted.length > 1;
+    const inconsistencyDetail = isInconsistent
+      ? sorted.map(([acct, cnt]) => `${acct} (${cnt}×)`).join(', ')
+      : null;
+
+    // Determine amount_sign from the majority direction
+    // (all occurrences should have the same direction for a consistent pattern)
+    const amountSign = 'any'; // let the human decide at approval
+
+    candidates.push({
+      pattern,
+      modalAccount,
+      modalCount,
+      totalOccurrences: occurrences.length,
+      isInconsistent,
+      inconsistencyDetail,
+      amountSign,
+      sampleProposalIds: occurrences.slice(0, 5).map((o) => o.proposal_id),
+      dateRange: {
+        earliest: occurrences.map((o) => o.date).sort()[0],
+        latest: occurrences.map((o) => o.date).sort().pop(),
+      },
+    });
+  }
+
+  // Create a mapping suggestion for each candidate
+  let created = 0;
+  for (const c of candidates) {
+    const evidence = [{
+      type: 'retrospective_sweep',
+      description: `Based on ${c.totalOccurrences} approved transactions (${c.dateRange.earliest} to ${c.dateRange.latest})`,
+      approval_count: c.modalCount,
+      sample_proposal_ids: c.sampleProposalIds,
+      ...(c.isInconsistent ? { inconsistency: `Approved to different accounts: ${c.inconsistencyDetail}` } : {}),
+    }];
+
+    try {
+      await _dispatchAction('mapping.suggest', {
+        description_pattern: c.pattern,
+        suggested_account: c.modalAccount,
+        suggested_amount_sign: c.amountSign,
+        suggested_match_type: 'contains',
+        evidence,
+        source_proposal_id: c.sampleProposalIds[0],
+      }, companyId, agentEmail);
+      created++;
+    } catch (e) {
+      // CONFLICT (duplicate detected by the conflict checker) is expected if
+      // a rule was created between our check and our suggest — log and skip.
+      if (e.code === 'CONFLICT') {
+        log(`sweep: pattern '${c.pattern}' conflict — skipped`);
+      } else {
+        warn(`sweep: mapping.suggest failed for '${c.pattern}': ${e.message}`);
+      }
+    }
+  }
+
+  await updateSweepTimestamp(companyId);
+  log(`company ${companyId}: retrospective sweep done — ${created} suggestion(s) created from ${candidates.length} candidate(s)`);
+}
+
+async function updateSweepTimestamp(companyId) {
+  const now = new Date().toISOString();
+  const existing = await query(
+    `SELECT key FROM settings WHERE company_id = @cid AND key = 'last_sweep_at' LIMIT 1`,
+    { cid: companyId }
+  );
+  if (existing.length > 0) {
+    await exec(
+      `UPDATE settings SET value = @val, updated_at = @now WHERE company_id = @cid AND key = 'last_sweep_at'`,
+      { cid: companyId, val: now, now }
+    );
+  } else {
+    const { bulkInsert } = require('./db');
+    await bulkInsert('settings', [
+      { company_id: companyId, key: 'last_sweep_at', value: now, updated_at: now }
+    ]);
+  }
+}
+
 async function pollCompanyOnce(companyId, agentEmail, companySettings) {
   const lastSeq = await loadCursor(companyId);
   let events;
@@ -545,7 +716,6 @@ async function pollCompanyOnce(companyId, agentEmail, companySettings) {
     err(`company ${companyId}: event.list failed: ${e.message}`);
     return 0;
   }
-  if (!Array.isArray(events) || events.length === 0) return 0;
 
   for (const ev of events) {
     if (Number(ev.event_seq) > (_companyCursors[companyId] || 0)) {
@@ -560,6 +730,19 @@ async function pollCompanyOnce(companyId, agentEmail, companySettings) {
   }
 
   await saveCursor(companyId, _companyCursors[companyId] || lastSeq);
+
+  // ── §3.2: Retrospective sweep (throttled, at most once per 24h) ──────────
+  // Scans posted journal_proposals for recurring patterns that lack a mapping
+  // rule, and calls mapping.suggest for each. Agent-only capability — a
+  // journal handler sees one proposal at a time and cannot detect recurrence.
+  if (!_shuttingDown) {
+    try {
+      await retrospectiveSweep(companyId, agentEmail, companySettings);
+    } catch (e) {
+      err(`company ${companyId}: retrospective sweep failed: ${e.message}`);
+    }
+  }
+
   return events.length;
 }
 
@@ -643,3 +826,4 @@ module.exports.getStatus = getStatus;
 module.exports.pollOnce = pollOnce;
 module.exports.processEvent = processEvent;
 module.exports.pollCompanyOnce = pollCompanyOnce;
+module.exports.retrospectiveSweep = retrospectiveSweep;

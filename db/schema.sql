@@ -624,3 +624,22 @@ ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS warnings VARCHAR;
 -- duplicate proposals from feed redelivery.
 ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS source_transaction_id VARCHAR;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- bank-mapping-suggestions-spec migrations
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- §1: persist match metadata from the agent loop so approve/reject can record
+-- outcomes in matching_history and fire crystallization (§3.1).  JSON blob:
+-- { tier, source_type, confidence, evidence, suggested_dimensions }
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS match_meta VARCHAR;
+
+-- §5.2: amount direction condition on bank mapping rules.
+-- Values: 'positive' | 'negative' | 'any' (default 'any', backward-compatible).
+ALTER TABLE bank_mappings ADD COLUMN IF NOT EXISTS amount_sign VARCHAR DEFAULT 'any';
+
+-- §5.2 + §4.3: amount direction + match type on mapping suggestions so the
+-- approved rule inherits them.  suggested_match_type defaults to 'contains'
+-- (matching the previous hardcoded behavior).
+ALTER TABLE mapping_suggestions ADD COLUMN IF NOT EXISTS suggested_amount_sign VARCHAR DEFAULT 'any';
+ALTER TABLE mapping_suggestions ADD COLUMN IF NOT EXISTS suggested_match_type VARCHAR DEFAULT 'contains';
+

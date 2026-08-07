@@ -348,7 +348,7 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 
 **Bug fix en route:** tier 3 vendor query referenced `expense_account` (actual column: `default_expense_account`). Was unreachable before because tier 1 always matched; `amount_sign` filtering now lets the cascade fall through to tier 3, exposing the bug.
 
-**Test results:** new contract tests 15/15. Existing suite 67/68 (same pre-existing `bill.create` failure — not caused by this PR). MCP smoke 27/28 (same pre-existing tool-list assertion — not caused by this PR).
+**Test results:** new contract tests 15/15. Existing suite 68/68 (the pre-existing `bill.create` agent guard test failure was fixed in P2-3 — the test's `AGENT_WHITELIST` was stale, missing 4 Phase B actions). MCP smoke 27/28 (same pre-existing tool-list assertion — not caused by this PR).
 
 **PR #90 status:** merged (commit `972e0ac`).
 
@@ -386,7 +386,7 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 | **SG COA fix** | Added missing 999999 (Closing) and 203070 (Equity, Retained Earnings) accounts to the SG COA — they were referenced by the closing block but not in the template. | `db/jurisdictions/SG/coa.json` |
 
 **Verification:**
-- Contract tests: 67/68 (1 pre-existing `bill.create` agent guard failure — unrelated to P2-1).
+- Contract tests: 68/68 (pre-existing `bill.create` agent guard test failure fixed in P2-3 — stale `AGENT_WHITELIST` in the test, not a code bug).
 - New `period-close.test.js`: 8/8 (profit, loss, zero P&L, idempotency, missing params, unknown period, audit log, inbox item).
 - Pack linter: OK SE, OK SG.
 - SRU contact tests: 6/6.
@@ -420,7 +420,7 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 | **Integrity check integration** | `integrity_extended` gains `ap_control_check` CTE — period-range AP subledger-vs-GL check surfaces on every Integrity Check run. | `db/macros.sql` |
 | **Action catalog** | `bill.lines` description updated to mention `bill_lines` subledger for posted bills. | `api/src/action-catalog.js` |
 
-**Verification:** contract tests 71/72 (1 pre-existing `bill.create` agent guard failure — same as P2-1, unrelated). New P2-3 tests 4/4 (bill_lines write, bill.lines read, void preserves rows, AP control report renders).
+**Verification:** contract tests 72/72 (the pre-existing `bill.create` agent guard test failure is fixed in this PR — the test's `AGENT_WHITELIST` was stale, missing 4 Phase B actions added to `AGENT_ALLOWED`). New P2-3 tests 4/4 (bill_lines write, bill.lines read, void preserves rows, AP control report renders).
 
 **Ratified decisions (magnus 2026-08-07):** backfill VAT/GST lines accepted; FX heuristic sufficient; integrity check integration included; `entry_id` semantic change accepted; paid-home computed from join (no stored column).
 

@@ -774,12 +774,15 @@ test('A1 guard matrix: agent FORBIDDEN on every mutating catalog action', async 
   // Spec §2.3 default-deny: iterate every catalog action flagged mutating,
   // call as the agent user, and assert 403/FORBIDDEN for each. The guard
   // runs before param validation, so missing params don't leak a 400.
-  // journal.propose (A3j §4.3) and attachment.upload (Phase A hardening
-  // 2026-07-31) are the two whitelisted mutating actions agents MAY call, so
-  // they are excluded from the default-deny assertion here — their
-  // admittance is exercised by the A3j propose tests and the attachment.upload
-  // hardening tests below.
-  const AGENT_WHITELIST = new Set(['journal.propose', 'attachment.upload']);
+  // The whitelisted mutating actions agents MAY call (Phase B additions:
+  // bill.create, matching_history.record, mapping.suggest, input_rejection.create)
+  // are excluded from the default-deny assertion here — their admittance is
+  // exercised by the A3j propose tests, the attachment.upload hardening tests,
+  // and the mapping-suggestions / bills-routing tests below.
+  const AGENT_WHITELIST = new Set([
+    'journal.propose', 'attachment.upload',
+    'bill.create', 'matching_history.record', 'mapping.suggest', 'input_rejection.create',
+  ]);
   const mutatingActions = Object.entries(ACTIONS)
     .filter(([, m]) => m.mutating === true)
     .map(([name]) => name)

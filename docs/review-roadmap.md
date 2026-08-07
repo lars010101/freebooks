@@ -218,7 +218,7 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 **Golden-test seed inputs lost:** `tests/sru-golden-2024.mjs` loads its 2024 books from two CSVs that lived in the agent profile's document cache (purged). The seeded company `zz_srugold3` (full 2024 books) persists in the dev DB, so the golden assertion stays runnable via direct HTTP against that company (method used above), but the test's CSV-loading phase needs the 2024 journal + BS CSVs re-dropped, or a rework to seed from a checked-in dump. Decision pending magnus. **Update (PR #76 merge):** the golden test now also seeds the mandatory MEDIELEV contact attrs (`contact_postnr`/`contact_postort`) before generating, since the §0t gate 400s without them.
 
-**Backlog:** P2 accounting completeness (P2-2 FX reval, P2-3 `bill_lines` subledger, P2-4 VAT unify) → P3 feeds. Receivables stays dropped.
+**Backlog:** P2 accounting completeness (P2-3 `bill_lines` subledger, P2-4 VAT unify, P2-7 coaStyle) → P3 feeds. Receivables stays dropped.
 
 ---
 
@@ -399,7 +399,33 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 3. AGM rebooking (2099 → 2098/2091) is separate — not in P2-1.
 4. SIE export ungated (general-purpose). SRU export gated on locked period (submission-specific).
 
-**What stays:** P2-2 FX reval, P2-3 bill_lines subledger, P2-4a VAT unify — unchanged priority. P3 scope — unchanged.
+**What stays:** P2-3 bill_lines subledger, P2-4a VAT unify, P2-7 coaStyle — unchanged priority. P3 scope — unchanged.
+
+---
+
+## 0ee. Status update — 2026-08-07 (P2-2 FX revaluation shipped)
+
+**P2-2 FX revaluation ✅ (PR #95, branch `feature/p2-2-fx-reval-pack-driven`).** Direction ratified by magnus 2026-08-07: IAS 21 is the standard but jurisdiction-specific implementation details (which accounts, which rate) belong in the jurisdiction pack, not hardcoded in software. The LLM has no role — FX revaluation is deterministic arithmetic (foreign balance × closing rate − home balance). The preview → review → post flow already existed and is the right UX.
+
+**What shipped:**
+
+| Component | What | Key files |
+|-----------|------|-----------|
+| **Jurisdiction pack `fxRevaluation` block** | SE: `{ monetaryTypes: ["Asset", "Liability"], gainLossAccount: "7960" }` (Valutakursdifferenser). SG: `{ monetaryTypes: ["Asset", "Liability"], gainLossAccount: "8030" }` (Foreign Exchange Gain/Loss). | `db/jurisdictions/SE/jurisdiction.json`, `db/jurisdictions/SG/jurisdiction.json` |
+| **`fxRevaluationConfigFor()` helper** | Reads `fxRevaluation` block from pack. Mirrors `closingConfigFor` pattern. Returns `null` when pack declares no block — callers fall back to `['Asset', 'Liability']` (safe default, no Equity). | `api/src/jurisdiction-packs.js` |
+| **`fx.js` revaluationPreview** | Reads `monetaryTypes` from pack config instead of hardcoding `('Asset', 'Liability', 'Equity')`. Equity dropped (IAS 21 — monetary items only). Dynamic `IN (@mt0, @mt1, …)` clause. | `api/src/fx.js` |
+| **`fx.js` revaluationPost** | Falls back to pack `gainLossAccount` when caller doesn't pass `fxGainLossAccount` explicitly. | `api/src/fx.js` |
+| **Pack linter** | Validates `fxRevaluation` block when present: `monetaryTypes` non-empty array, `gainLossAccount` exists in COA with `account_type: 'Expense'`. | `tests/jurisdiction-packs.mjs` |
+| **Test** | Pack config presence/correctness (SE/SG), `fxRevaluationConfigFor` null fallback, source-level Equity check. | `tests/fx-reval.mjs` |
+
+**Verification:**
+- Pack linter: OK SE, OK SG.
+- FX reval test: all passed.
+- Modules load clean.
+
+**Design decision (ratified by magnus 2026-08-07):** Four options were evaluated — (A) software feature with hardcoded fix, (B) jurisdiction-pack-driven config, (C) report + manual journal entry, (D) LLM-assisted. Option B selected: the rules live in the pack, the engine computes, the LLM stays out of it (wrong tool for arithmetic). Option C subsumed by the existing preview. P2-7 (`coaStyle`) raised in the same discussion — the engine is identifier-agnostic, but the UI assumes numeric codes.
+
+**What stays:** P2-3 bill_lines subledger, P2-4a VAT unify, P2-7 coaStyle — unchanged priority. P3 scope — unchanged.
 
 ---
 
@@ -500,12 +526,13 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 ### P2 — Accounting completeness
 
 - **P2-1** ~~Year-end close routine to retained earnings (replaces live "unallocated net income" injection).~~ ✅ **DONE 2026-08-07** (PR #93) — `period.close` action posts summary closing entry (Closing ↔ RE), jurisdiction-pack driven. `gl()` opening-balance fix, `re_rollforward` + `integrity_extended` parameterized. See §0dd.
-- **P2-2** FX revaluation: monetary items only (drop Equity).
+- **P2-2** ~~FX revaluation: monetary items only (drop Equity).~~ ✅ **DONE 2026-08-07** (PR #95) — jurisdiction-pack-driven `fxRevaluation` block (`monetaryTypes`, `gainLossAccount`). Engine reads pack config instead of hardcoding `('Asset', 'Liability', 'Equity')` in `fx.js`. Drops Equity by default (IAS 21 — monetary items only). `fxRevaluationConfigFor()` helper in `jurisdiction-packs.js`. Pack linter validates the block. Direction ratified by magnus 2026-08-07: IAS 21 is the standard but jurisdiction-specific implementation details belong in the pack, not hardcoded in software. The LLM has no role — deterministic arithmetic. See §0ee.
 - **P2-3** `bill_lines` subledger table + AP-subledger-vs-GL control report.
 - **P2-4a** Unify VAT/amount conventions — tax-exclusive everywhere; convert `journal.post` path (currently tax-inclusive via `computeVatSplit` in `vat.js`).
 - **P2-4b** ~~Server-computed draft totals~~ ✅ **DONE** — `saveDraftBill` (`bills.js:850`) computes `totalAmount` server-side from `bill.lines`; the client `bill.amount` is only a fallback for line-less drafts. The `bill.amount || _preTotal` at line 164 is inside `createBill`'s pre-validation and is overwritten by server-computed `totalAmount` further down.
 - **P2-5** MCP server over the action catalog.
-- **P2-6 (candidate)** User-editable keybindings in Settings (raised by magnus 2026-07-22). Recommendation: build only AFTER all tabs migrate onto FB.keys — bindings are declarative data, so a remap layer (per-user overrides, conflict detection, reset-to-default) then covers the whole app in one shot. Industry reference: accounting software generally doesn't offer rebinding; power tools (Linear, Superhuman) do — fits the keyboard-first philosophy. Priority pending magnus.
+- **P2-6 (candidate)** User-editable keybindings in Settings (raised by magnus 2026-07-22). Recommendation: build only AFTER all tabs migrate onto FB.keys — bindings are declarative data, so a remap layer (per-user overrides, conflict detection, reset-to-default) then covers the whole app in one shot. Industry reference: accounting software generally doesn't offer rebinding; power tools (Linear, Superhuman) do — fits the keyboard-first philosophy. Priority pending magnus. **Dropped 2026-08-07** — contradicts the frozen verb surface; K-series keyboard program complete.
+- **P2-7** Jurisdiction-pack COA style (`coaStyle`): pack declares whether account codes are numeric or name-based (`codeType: "numeric" | "name"`), drives UI column header (`codeLabel`) and width (`codeWidth`). Today both packs (SE, SG) ship numeric codes; SG does not require account numbers by law — small SG Pte Ltd companies can run a named chart. The `account_code` column is `VARCHAR NOT NULL` (works with any identifier), but the UI assumes short numeric codes (narrow columns, "Account No." headers). `coaStyle` lets the pack declare the convention; the software adapts. Cross-cutting: affects COA, journal lines, bill lines, FX reval gain/loss account, closing config — all reference `account_code`. Raised by magnus 2026-08-07 in the context of P2-2 (does the pack approach work for jurisdictions without account numbers? Answer: yes — the engine is identifier-agnostic; the gap is UI display, not computation).
 
 ### P3 — Scope
 

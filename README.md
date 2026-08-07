@@ -14,7 +14,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 - **Financial statements** — Profit & Loss, Balance Sheet, Cash Flow (indirect, IAS 7), Statement of Changes in Equity. Year-end close via `period.close` action (P2-1) posts a summary closing entry to the jurisdiction-pack-declared closing/RE accounts; the balance sheet shows retained earnings from posted balances, with a live unallocated-net-income line for unclosed periods.
 - **Audit & listing reports** — Trial Balance, General Ledger, Journal, Integrity Check (with RE roll-forward)
 - **Multi-period comparative reports** — month-over-month and year-over-year for P&L, BS, and CF, driven by company-defined fiscal periods
-- **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post)
+- **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post) with jurisdiction-pack-driven monetary account types and gain/loss account (P2-2)
 - **VAT / GST engine** — tax-exclusive entry, reverse-charge support, supplier-stated VAT override with configurable tolerance, and VAT return generation grouped by report box
 - **Accounts Payable** — vendor master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, and AP Aging report
 - **Accounts Receivable** — invoicing and AR aging are **dropped/deferred** from the current cycle; nav and page scaffolding remain in place but inactive.

@@ -11,7 +11,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 ## Key Features
 
 - **Full double-entry bookkeeping** — journal batches, account autocomplete, reversal workflow, auto-generated references (`CODE/YYYY/NNNNN`, e.g. `MISC/2026/00001`, `AP/2026/00003`)
-- **Financial statements** — Profit & Loss, Balance Sheet, Cash Flow (indirect, IAS 7), Statement of Changes in Equity. Year-end net income closes to retained earnings via a manual closing journal entry (automated close is P2-1, not yet shipped); the balance sheet injects an unallocated-net-income row live until the close is posted.
+- **Financial statements** — Profit & Loss, Balance Sheet, Cash Flow (indirect, IAS 7), Statement of Changes in Equity. Year-end close via `period.close` action (P2-1) posts a summary closing entry to the jurisdiction-pack-declared closing/RE accounts; the balance sheet shows retained earnings from posted balances, with a live unallocated-net-income line for unclosed periods.
 - **Audit & listing reports** — Trial Balance, General Ledger, Journal, Integrity Check (with RE roll-forward)
 - **Multi-period comparative reports** — month-over-month and year-over-year for P&L, BS, and CF, driven by company-defined fiscal periods
 - **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post)

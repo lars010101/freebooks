@@ -292,6 +292,70 @@ Phase B consumes the Phase A agent-readiness tranche (A1 actor model, A2 events,
 
 ---
 
+## 0aa. Status update — 2026-08-06 (B9 self-contained agent + mapping-suggestions spec)
+
+**B9 — Self-contained agent pipeline ✅ (PR #89).** Phase B's external-script architecture (B5 bash watcher + B7 node script) is replaced by an in-process module inside the Express server. Spec: `docs/b9-self-contained-agent-spec.md` (ratified 2026-08-06).
+
+| Component | Before (B5 + B7) | After (B9) |
+|---|---|---|
+| Folder watcher | External bash (`freebooks-feed-watch.sh`), `inotifywait` | In-process Node module, `setInterval` + `readdir` |
+| Agent loop | External script (`freebooks-agent-loop.js`), HTTP self-call | In-process module (`api/src/agent-loop.js`), direct handler calls via injected `dispatchAction` |
+| LLM config | Env vars, hardcoded tier-4 placeholder | `settings` table keys, Settings/AI tab (3 fields: endpoint_url, api_key, model + temperature) |
+| Multi-company | Single `FREEBOOKS_COMPANY` env var | Folder structure `inbox/{company_id}/{type}/` |
+| MCP | External agent transport (Hermes) | **Unchanged** |
+| External scripts | Primary pipeline | **Demoted to fallback** — kept in `scripts/`, not deleted |
+
+The agent loop iterates all companies with `agent_enabled='true'`, sequential per-company per-poll tick. Config read from the settings table (per-company). Cursor (`agent_last_seq`) persisted per-company. Started at boot if any company has the agent enabled.
+
+**B7 items closed:** the external `freebooks-agent-loop.js` script is demoted to fallback. B5's `freebooks-feed-watch.sh` likewise. The in-process loop calls `bank.match` → `journal.propose` → tier-4 LLM → `journal.propose` directly — no HTTP self-call, no tokens, no external process management.
+
+### Mapping-suggestions spec — wiring gaps found in B9 review
+
+**New spec:** `docs/bank-mapping-suggestions-spec.md` (ratified in discussion 2026-08-06, **implemented PR #90**). Filed after reviewing the B9 agent-loop implementation and discovering that several mechanisms specced in bank-matching-spec §10 are built but not wired. Six areas:
+
+1. **`matching_history.record` never called** (§1). The action is in `AGENT_ALLOWED`, the handler is built (index.js §778), the table exists — but neither `journal.approve` nor `journal.reject` calls it, so `matching_history` is always empty. Fix: record outcomes inside the journal approve/reject handlers as a side effect (same pattern as retirement-on-reject, §10.5).
+
+2. **No historical-transaction tier** (§2). The cascade runs tiers 1→2→3→4 with no tier that checks "how was this same description posted last time?" The `matching_history` table and `matching_history.query` exist but are unused. Fix: insert a tier 3.5 (historical outcome match) between tier 3 and tier 4 — exact `description_pattern` lookup against `matching_history` where `outcome='approved_unedited'`, returns the modal account.
+
+3. **Crystallization not wired** (§3.1). Bank-matching-spec §10.4 calls for `mapping.suggest` when a tier-4 proposal is approved unedited, but `approveProposal` (journal.js) never calls it. Fix: wire the call into `journal.approve` as a side effect of unedited tier-4 approvals.
+
+4. **No retrospective sweep** (§3.2). A pattern that recurs across multiple proposals (even tier 2/3 matches) without ever getting a rule is a candidate for a tier-1 rule, but nothing scans for this. Fix: a throttled (daily) function in the agent loop that groups `journal_proposals` by normalized description pattern, filters to recurring unruled patterns, and calls `mapping.suggest`. Agent-only capability — a journal handler sees one proposal at a time and cannot detect aggregate recurrence.
+
+5. **No conflict detection** (§4). `mapping.suggestion.approve` writes to `bank_mappings` with zero conflict checking. Three conflict classes: duplicate (same pattern, same account — harmless redundancy), contradiction (same pattern, different account — first-match-wins ambiguity), shadowing (overlapping patterns — broader rule may shadow narrower). Fix: a `detectMappingConflicts` function checked at both suggestion creation and approval, against **both** `bank_mappings` (active rules) and `mapping_suggestions` (pending suggestions — two pending suggestions with overlapping patterns can coexist silently). Plus a historical regression test: run the proposed rule's pattern matcher against `journal_proposals` to find transactions it would have matched that were posted to a different account — empirical conflict detection against ground truth.
+
+6. **No amount conditions on rules** (§5) + **no specificity scoring** (§6). The `bank_mappings` schema has no amount field, so it cannot express "STRIPE AND amount > 0 → revenue, STRIPE AND amount < 0 → fees" — two legitimate rules disambiguated by direction appear as a false contradiction. And `matchMapping` is first-match-wins by priority with no specificity scoring, so overlapping patterns resolve by insertion order. Fixes: add `amount_sign` column (positive/negative/any); change `matchMapping` to longest-match-wins (most specific pattern first, priority as tiebreaker — QBO/Xero pattern).
+
+**Build order for the wiring fixes:** §1 (record outcomes) and §5 (amount_sign schema) and §6 (specificity scoring) have no dependencies and can ship independently. §2 (historical tier) depends on §1. §4 (conflict detection) depends on §5 and §6. §3 (suggestion triggers) depends on §4. See the spec's §7 for the full dependency graph.
+
+**What stays after B9 + mapping-suggestions spec:** P2 accounting completeness (year-end close, FX reval, bill_lines subledger, VAT unify) — unchanged. P3 scope (receivables, bank feeds beyond CSV) — unchanged. The new-vendor problem (vendor proposal pattern) remains a future Phase B extension.
+
+---
+
+## 0bb. Status update — 2026-08-07 (mapping-suggestions wiring shipped, PR #90)
+
+**Mapping-suggestions spec implemented ✅ (PR #90, branch `feature/mapping-suggestions-wiring`).** All six sections of `docs/bank-mapping-suggestions-spec.md` are wired. The learning loop that B9 left disconnected is now closed — approved/rejected proposals feed `matching_history`, the cascade consults prior outcomes at tier 3.5, and recurring patterns crystallize into mapping suggestions.
+
+| Spec § | What shipped | Key files |
+|---|---|---|
+| **§1** | `matching_history.record` fires inside `approveProposal`/`rejectProposal`. `_match_meta` persisted on `journal_proposals` (new JSON column). | `journal.js`, `schema.sql` |
+| **§2** | Tier 3.5 historical match — queries `matching_history` for `approved_unedited` outcomes, returns modal account with calibrated confidence (0.75/0.82/0.88). | `bank.js` |
+| **§3.1** | Crystallization — unedited tier-4 approvals auto-create `mapping_suggestions` rows. | `journal.js` |
+| **§3.2** | Retrospective sweep — throttled (24h) in `agent-loop.js`, scans posted proposals for recurring unruled patterns (≥3). | `agent-loop.js` |
+| **§3.3** | `normalizeDescription` — strips dates, ref numbers, amounts, trailing country codes. | `mapping-utils.js` (new) |
+| **§4** | `detectMappingConflicts` — checks active rules + pending suggestions + historical regression. Wired into `mapping.suggest` and `mapping.suggestion.approve`. | `mapping-utils.js`, `index.js` |
+| **§5** | `amount_sign` column on `bank_mappings` + `mapping_suggestions`. `matchMapping` filters by direction. Same-pattern rules with different `amount_sign` are NOT in conflict. | `schema.sql`, `bank.js`, `index.js` |
+| **§6** | `matchMapping` rewritten to longest-match-wins (pattern length desc, priority asc as tiebreaker). | `bank.js` |
+
+**Bug fix en route:** tier 3 vendor query referenced `expense_account` (actual column: `default_expense_account`). Was unreachable before because tier 1 always matched; `amount_sign` filtering now lets the cascade fall through to tier 3, exposing the bug.
+
+**Test results:** new contract tests 15/15. Existing suite 67/68 (same pre-existing `bill.create` failure — not caused by this PR). MCP smoke 27/28 (same pre-existing tool-list assertion — not caused by this PR).
+
+**PR #90 status:** open, awaiting merge.
+
+**What stays after mapping-suggestions wiring:** P2 accounting completeness (year-end close, FX reval, bill_lines subledger, VAT unify) — unchanged. P3 scope (receivables, bank feeds beyond CSV) — unchanged. The new-vendor problem (vendor proposal pattern) remains a future Phase B extension.
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).

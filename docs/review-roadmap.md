@@ -399,7 +399,7 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 3. AGM rebooking (2099 → 2098/2091) is separate — not in P2-1.
 4. SIE export ungated (general-purpose). SRU export gated on locked period (submission-specific).
 
-**What stays:** P2-3 bill_lines subledger, P2-4a VAT unify, P2-7 coaStyle — unchanged priority. P3 scope — unchanged.
+**What stays:** P2-3 bill_lines subledger, P2-4a VAT unify, P2-7 coaStyle — unchanged priority. P3 scope — unchanged. *(P2-3 and P2-4a subsequently shipped — see §0ff, §0gg.)*
 
 ---
 
@@ -425,7 +425,7 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 
 **Design decision (ratified by magnus 2026-08-07):** Four options were evaluated — (A) software feature with hardcoded fix, (B) jurisdiction-pack-driven config, (C) report + manual journal entry, (D) LLM-assisted. Option B selected: the rules live in the pack, the engine computes, the LLM stays out of it (wrong tool for arithmetic). Option C subsumed by the existing preview. P2-7 (`coaStyle`) raised in the same discussion — the engine is identifier-agnostic, but the UI assumes numeric codes.
 
-**What stays:** P2-3 bill_lines subledger, P2-4a VAT unify, P2-7 coaStyle — unchanged priority. P3 scope — unchanged.
+**What stays:** P2-3 bill_lines subledger, P2-4a VAT unify, P2-7 coaStyle — unchanged priority. P3 scope — unchanged. *(P2-3 and P2-4a subsequently shipped — see §0ff, §0gg.)*
 
 ---
 
@@ -450,7 +450,36 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 
 **Ratified decisions (magnus 2026-08-07):** backfill VAT/GST lines accepted; FX heuristic sufficient; integrity check integration included; `entry_id` semantic change accepted; paid-home computed from join (no stored column).
 
-**What stays:** P2-4a VAT unify, P2-7 coaStyle — unchanged priority. P3 scope — unchanged.
+**What stays:** P2-7 coaStyle — unchanged priority. P3 scope — unchanged.
+
+---
+
+## 0gg. Status update — 2026-08-07 (P2-4a VAT unify shipped)
+
+**P2-4a VAT/amount convention unify ✅ (PR #100, branch `feature/p2-4a-vat-unify`).** Spec ratified and shipped same day. Journal entries are now tax-exclusive — the entered debit/credit IS the net, VAT is computed on top (`amount × rate`) and posted as separate per-code GL lines, mirroring `bills.js:396-414`. Bank import stays tax-inclusive (settled cash = gross — `expandVatLines` → `computeVatSplitGross` unchanged). Both `journal.post` and `journal.approve` paths get the expansion automatically via `enrichAndValidate`.
+
+**What shipped:**
+
+| Component | What | Key files |
+|-----------|------|-----------|
+| **`computeVatSplitGross` rename** | `computeVatSplit` → `computeVatSplitGross` in `vat.js` (function + `module.exports` + `expandVatLines` call). JSDoc makes the tax-inclusive assumption unmissable at the call site. | `api/src/vat.js` |
+| **Tax-exclusive `enrichAndValidate`** | Entered debit/credit IS the net. `vatAmount = Math.round(amount × rate × 100) / 100`. Fetches VAT code metadata (rate, input/output accounts, is_reverse_charge) and attaches as `_vatMeta`. | `api/src/journal.js` |
+| **`expandJournalVatLines`** | New function. Per-code grouping: one VAT GL line per distinct code (standard VAT); DR input + CR output pair per RC code (nets to zero). Original lines keep entered debit/credit as net; `vat_code` nulled, `vat_amount` zeroed. Called before validation so balance check sees the full expanded set. | `api/src/journal.js` |
+| **Bank import comment** | Call-site comment documents why bank import stays tax-INCLUSIVE (bank amount = settled gross cash; do NOT unify with journal path). | `api/src/bank.js` |
+| **Journal UI** | Per-line computed-VAT readout cell; total VAT in totals bar; balance check includes VAT: `(dr + vatDebit) − (cr + vatCredit)`. | `api/src/pages/journal-new.js` |
+| **Contract tests** | 4 tests: standard (1000 net + 25% → DR 1000 + VAT DR 250 + CR 1250), per-code grouping (two lines same code → one VAT GL line of 500), RC (DR input + CR output, nets to zero), no-VAT (plain pair). | `api/test/journal-vat.test.js` |
+
+**Design decisions (ratified by magnus 2026-08-07):**
+1. Journal entries → tax-exclusive (matches bills; QBO/Xero precedent).
+2. Bank import → stays tax-inclusive (settled cash = gross; existing working code).
+3. Per-code VAT grouping (new net-input logic modeled on `bills.js` `stdTaxByCode`, NOT `expandVatLines` reuse).
+4. `computeVatSplit` → `computeVatSplitGross` rename (unlabeled convention assumption must be unmissable at call site).
+5. No historical backfill (`generateVatReturn` reads metadata columns, not GL). Future VAT-subledger-vs-GL control must be cutover-scoped.
+6. No stated-VAT override, no gross/net toggle.
+
+**Verification:** 123/123 API tests pass (including 4 new). `node --check` all modified files. SRU golden + reversal integration tests need running server (pre-existing ECONNREFUSED).
+
+**What stays:** P2-7 coaStyle — unchanged priority. P3 scope — unchanged.
 
 ---
 
@@ -553,7 +582,7 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 - **P2-1** ~~Year-end close routine to retained earnings (replaces live "unallocated net income" injection).~~ ✅ **DONE 2026-08-07** (PR #93) — `period.close` action posts summary closing entry (Closing ↔ RE), jurisdiction-pack driven. `gl()` opening-balance fix, `re_rollforward` + `integrity_extended` parameterized. See §0dd.
 - **P2-2** ~~FX revaluation: monetary items only (drop Equity).~~ ✅ **DONE 2026-08-07** (PR #95) — jurisdiction-pack-driven `fxRevaluation` block (`monetaryTypes`, `gainLossAccount`). Engine reads pack config instead of hardcoding `('Asset', 'Liability', 'Equity')` in `fx.js`. Drops Equity by default (IAS 21 — monetary items only). `fxRevaluationConfigFor()` helper in `jurisdiction-packs.js`. Pack linter validates the block. Direction ratified by magnus 2026-08-07: IAS 21 is the standard but jurisdiction-specific implementation details belong in the pack, not hardcoded in software. The LLM has no role — deterministic arithmetic. See §0ee.
 - **P2-3** ~~`bill_lines` subledger table + AP-subledger-vs-GL control report.~~ ✅ **DONE 2026-08-07** (branch `feature/p2-3-bill-lines-subledger`) — `bill_lines` table stores expense line items (written alongside `journal_entries` in `createBill`, never mutated); `getBillLines` reads from `bill_lines` for posted bills (drafts unchanged). `ap_control` macro: point-in-time subledger-vs-GL reconciliation per AP account, FX-aware WARN. `ap-control` report in the Audit category. `integrity_extended` gains `ap_control_check` CTE. Backfill for existing posted bills. Spec: `docs/p2-3-bill-lines-subledger-spec.md`. See §0ff.
-- **P2-4a** Unify VAT/amount conventions — tax-exclusive journal entries (mirrors bills path); bank import stays tax-inclusive (settled cash = gross). **Spec RATIFIED 2026-08-07** — `docs/p2-4a-vat-unify-spec.md`. Per-code VAT grouping (new net-input logic modeled on bills.js `stdTaxByCode`, NOT `expandVatLines` reuse). `computeVatSplit` → `computeVatSplitGross` rename. No backfill; future VAT-subledger-vs-GL control must be cutover-scoped. No stated-VAT override, no gross/net toggle.
+- **P2-4a** ~~Unify VAT/amount conventions — tax-exclusive journal entries (mirrors bills path); bank import stays tax-inclusive (settled cash = gross).~~ ✅ **DONE 2026-08-07** (PR #100) — `enrichAndValidate` in `journal.js` now tax-exclusive (entered amount IS net; `vatAmount = amount × rate`); new `expandJournalVatLines` posts per-code grouped VAT GL lines mirroring `bills.js:396-414`; RC posts DR input + CR output pair. `computeVatSplit` → `computeVatSplitGross` rename (JSDoc makes tax-inclusive assumption unmissable). Bank import unchanged (tax-inclusive, settled cash = gross). Journal-new.js UI: per-line computed-VAT readout, balance includes VAT. 4 contract tests. Spec: `docs/p2-4a-vat-unify-spec.md`. See §0gg.
 - **P2-4b** ~~Server-computed draft totals~~ ✅ **DONE** — `saveDraftBill` (`bills.js:850`) computes `totalAmount` server-side from `bill.lines`; the client `bill.amount` is only a fallback for line-less drafts. The `bill.amount || _preTotal` at line 164 is inside `createBill`'s pre-validation and is overwritten by server-computed `totalAmount` further down.
 - **P2-5** MCP server over the action catalog.
 - **P2-6 (candidate)** User-editable keybindings in Settings (raised by magnus 2026-07-22). Recommendation: build only AFTER all tabs migrate onto FB.keys — bindings are declarative data, so a remap layer (per-user overrides, conflict detection, reset-to-default) then covers the whole app in one shot. Industry reference: accounting software generally doesn't offer rebinding; power tools (Linear, Superhuman) do — fits the keyboard-first philosophy. Priority pending magnus. **Dropped 2026-08-07** — contradicts the frozen verb surface; K-series keyboard program complete.

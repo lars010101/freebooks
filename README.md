@@ -15,7 +15,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 - **Audit & listing reports** — Trial Balance, General Ledger, Journal, Integrity Check (with RE roll-forward)
 - **Multi-period comparative reports** — month-over-month and year-over-year for P&L, BS, and CF, driven by company-defined fiscal periods
 - **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post) with jurisdiction-pack-driven monetary account types and gain/loss account (P2-2)
-- **VAT / GST engine** — tax-exclusive entry, reverse-charge support, supplier-stated VAT override with configurable tolerance, and VAT return generation grouped by report box
+- **VAT / GST engine** — tax-exclusive entry across bills and journal entries (entered amount IS the net; VAT computed on top and posted as separate per-code GL lines), reverse-charge support, supplier-stated VAT override with configurable tolerance (bills only), and VAT return generation grouped by report box. Bank import remains tax-inclusive (settled cash = gross)
 - **Accounts Payable** — vendor master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, and AP Aging report
 - **Accounts Receivable** — invoicing and AR aging are **dropped/deferred** from the current cycle; nav and page scaffolding remain in place but inactive.
 - **Bank statement processing** — CSV import with manual bill allocation linking import rows to open bills (multi-currency aware) and cleared/uncleared reconciliation tracking, backed by a **four-tier matching cascade** (spec: `docs/bank-matching-spec.md`):
@@ -212,6 +212,7 @@ freebooks/
 │   ├── payables-ux-spec.md
 │   ├── p2-1-year-end-close-spec.md
 │   ├── p2-3-bill-lines-subledger-spec.md
+│   ├── p2-4a-vat-unify-spec.md
 │   └── UI.md
 ├── .github/workflows/build.yml # CI
 └── Dockerfile                  # container image (Wolfi/distrobox)

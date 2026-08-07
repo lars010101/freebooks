@@ -12,7 +12,10 @@
 const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
 const { validateJournalBatch } = require('./validation');
-const { computeVatSplit } = require('./vat');
+// P2-4a: journal entries are tax-exclusive — the entered debit/credit IS the net.
+// VAT is computed on top (amount × rate) and posted as separate per-code GL
+// lines, mirroring bills.js:396-414. computeVatSplit (now computeVatSplitGross)
+// is no longer used here — it remains for bank import (tax-INCLUSIVE) only.
 const { auditLog } = require('./audit');
 const { emitEvent } = require('./events');
 const { normalizeDescription } = require('./mapping-utils');
@@ -73,19 +76,178 @@ async function enrichAndValidate(companyId, lines) {
     const credit = line.credit || 0;
 
     let vatAmount = 0, vatAmountHome = 0, netAmount = 0, netAmountHome = 0;
+    let vatMeta = null;
     if (line.vat_code && company.vat_registered) {
-      const split = await computeVatSplit(companyId, line.vat_code, debit || credit);
-      vatAmount = split.vatAmount;
-      netAmount = split.netAmount;
-      vatAmountHome = vatAmount * fxRate;
-      netAmountHome = netAmount * fxRate;
+      const vcRows = await query(
+        `SELECT rate, vat_account_input, vat_account_output, is_reverse_charge
+         FROM vat_codes WHERE company_id = @companyId AND vat_code = @vatCode AND is_active = true LIMIT 1`,
+        { companyId, vatCode: line.vat_code }
+      );
+      if (vcRows.length > 0) {
+        const vc = vcRows[0];
+        const rate = Number(vc.rate);
+        const isDebit = debit > 0;
+        const amount = debit || credit;
+        netAmount = amount;                                    // tax-exclusive: entered amount IS the net
+        vatAmount = Math.round(amount * rate * 100) / 100;
+        vatAmountHome = vatAmount * fxRate;
+        netAmountHome = netAmount * fxRate;
+        vatMeta = {
+          rate,
+          inputAccount: vc.vat_account_input,
+          outputAccount: vc.vat_account_output,
+          isReverseCharge: !!vc.is_reverse_charge,
+          isDebit,
+        };
+      }
     }
 
-    enrichedLines.push({ ...line, currency, fx_rate: fxRate, debit, credit, debit_home: debit * fxRate, credit_home: credit * fxRate, vat_amount: vatAmount, vat_amount_home: vatAmountHome, net_amount: netAmount, net_amount_home: netAmountHome });
+    enrichedLines.push({ ...line, currency, fx_rate: fxRate, debit, credit, debit_home: debit * fxRate, credit_home: credit * fxRate, vat_amount: vatAmount, vat_amount_home: vatAmountHome, net_amount: netAmount, net_amount_home: netAmountHome, _vatMeta: vatMeta });
   }
 
-  const validation = await validateJournalBatch(companyId, enrichedLines);
-  return { enrichedLines, warnings: validation.warnings, validation };
+  // P2-4a: expand VAT-bearing lines into separate per-code GL lines BEFORE
+  // validation so the balance check sees the final balanced set (net + VAT GL
+  // lines = gross offset). Mirrors bills.js:396-414. Without this the
+  // tax-exclusive entry (net on the taxable line, gross on the offset) would
+  // fail the pre-expansion balance check by exactly the computed VAT.
+  const expandedLines = expandJournalVatLines(enrichedLines);
+
+  const validation = await validateJournalBatch(companyId, expandedLines);
+  return { enrichedLines: expandedLines, warnings: validation.warnings, validation };
+}
+
+/**
+ * P2-4a: expand VAT-bearing enriched journal lines into separate per-code GL
+ * lines, mirroring bills.js:396-414.
+ *
+ *  - Standard (non-RC) VAT: one GL line per VAT code. Input account for debit
+ *    lines (expense), output account for credit lines (revenue).
+ *  - Reverse-charge (RC) VAT: a DR input + CR output pair per code (nets to
+ *    zero — self-assessed).
+ *  - Original lines keep their entered debit/credit (the net); the line-level
+ *    vat_code is nulled and vat_amount zeroed (the VAT lives on the GL lines).
+ *
+ * Lines carrying no `_vatMeta` pass through untouched. Non-VAT batches are a
+ * no-op (returns the input with any stray `_vatMeta` stripped).
+ */
+function expandJournalVatLines(enrichedLines) {
+  if (!Array.isArray(enrichedLines)) return enrichedLines;
+  const hasVat = enrichedLines.some((l) => l && l._vatMeta);
+  if (!hasVat) {
+    // No VAT on any line — strip the (null) _vatMeta placeholder and return.
+    return enrichedLines.map(({ _vatMeta, ...rest }) => rest);
+  }
+
+  // Group VAT by code. Capture a template (date/currency/fx_rate/…) from the
+  // first contributing line so the generated GL lines carry valid batch fields.
+  const stdByCode = {}; // code -> { vatAccount, isDebit, computed, net, rate, desc, tpl }
+  const rcByCode = {};  // code -> { inputAccount, outputAccount, computed, net, rate, desc, tpl }
+
+  for (const line of enrichedLines) {
+    const meta = line._vatMeta;
+    if (!meta) continue;
+    const code = line.vat_code;
+    const tpl = {
+      date: line.date, currency: line.currency, fx_rate: line.fx_rate,
+      source: line.source, cost_center: line.cost_center || null,
+      profit_center: line.profit_center || null, bill_id: line.bill_id || null,
+    };
+    if (meta.isReverseCharge) {
+      const b = rcByCode[code] || (rcByCode[code] = {
+        inputAccount: meta.inputAccount, outputAccount: meta.outputAccount,
+        computed: 0, net: 0, rate: meta.rate, desc: line.description || '', tpl,
+      });
+      b.computed += line.vat_amount;
+      b.net += line.net_amount;
+    } else {
+      const vatAccount = meta.isDebit ? meta.inputAccount : meta.outputAccount;
+      const b = stdByCode[code] || (stdByCode[code] = {
+        vatAccount, isDebit: meta.isDebit, computed: 0, net: 0, rate: meta.rate,
+        desc: line.description || '', tpl,
+      });
+      b.computed += line.vat_amount;
+      b.net += line.net_amount;
+    }
+  }
+
+  // Original lines: zero the line-level VAT (it lives on the GL lines now);
+  // net_amount = the entered amount (the net).
+  const out = enrichedLines.map((line) => {
+    const { _vatMeta, ...rest } = line;
+    if (!_vatMeta) return rest;
+    const amount = rest.debit || rest.credit || 0;
+    const fx = rest.fx_rate || 1;
+    return {
+      ...rest,
+      vat_code: null,
+      vat_amount: 0,
+      vat_amount_home: 0,
+      net_amount: amount,
+      net_amount_home: amount * fx,
+    };
+  });
+
+  // Standard VAT GL lines: one per code (DR for expense, CR for revenue).
+  for (const code of Object.keys(stdByCode)) {
+    const b = stdByCode[code];
+    const vatAmount = Math.round(b.computed * 100) / 100;
+    if (vatAmount === 0) continue;
+    const fx = b.tpl.fx_rate || 1;
+    out.push({
+      account_code: b.vatAccount,
+      debit: b.isDebit ? vatAmount : 0,
+      credit: b.isDebit ? 0 : vatAmount,
+      date: b.tpl.date,
+      currency: b.tpl.currency,
+      fx_rate: b.tpl.fx_rate,
+      debit_home: (b.isDebit ? vatAmount : 0) * fx,
+      credit_home: (b.isDebit ? 0 : vatAmount) * fx,
+      vat_code: code,
+      vat_amount: vatAmount,
+      vat_amount_home: vatAmount * fx,
+      net_amount: 0,
+      net_amount_home: 0,
+      description: `${b.desc} (VAT ${(b.rate * 100).toFixed(0)}%)`.trim(),
+      reference: null,
+      source: b.tpl.source,
+      cost_center: b.tpl.cost_center,
+      profit_center: b.tpl.profit_center,
+      bill_id: b.tpl.bill_id,
+    });
+  }
+
+  // RC VAT GL lines: DR input + CR output per code (nets to zero — self-assessed),
+  // matching bills.js:412-413.
+  for (const code of Object.keys(rcByCode)) {
+    const b = rcByCode[code];
+    const vatAmount = Math.round(b.computed * 100) / 100;
+    if (vatAmount === 0) continue;
+    const fx = b.tpl.fx_rate || 1;
+    out.push({
+      account_code: b.inputAccount,
+      debit: vatAmount, credit: 0,
+      date: b.tpl.date, currency: b.tpl.currency, fx_rate: b.tpl.fx_rate,
+      debit_home: vatAmount * fx, credit_home: 0,
+      vat_code: code, vat_amount: vatAmount, vat_amount_home: vatAmount * fx,
+      net_amount: 0, net_amount_home: 0,
+      description: `${b.desc} (input VAT RC)`.trim(),
+      reference: null, source: b.tpl.source, cost_center: b.tpl.cost_center,
+      profit_center: b.tpl.profit_center, bill_id: b.tpl.bill_id,
+    });
+    out.push({
+      account_code: b.outputAccount,
+      debit: 0, credit: vatAmount,
+      date: b.tpl.date, currency: b.tpl.currency, fx_rate: b.tpl.fx_rate,
+      debit_home: 0, credit_home: vatAmount * fx,
+      vat_code: code, vat_amount: vatAmount, vat_amount_home: vatAmount * fx,
+      net_amount: 0, net_amount_home: 0,
+      description: `${b.desc} (output VAT RC)`.trim(),
+      reference: null, source: b.tpl.source, cost_center: b.tpl.cost_center,
+      profit_center: b.tpl.profit_center, bill_id: b.tpl.bill_id,
+    });
+  }
+
+  return out;
 }
 
 /**

@@ -76,7 +76,7 @@ ${commonStyle()}
     <thead>
       <tr>
         <th>Code</th><th>Account Name</th><th class="num">Debit</th><th class="num">Credit</th>
-        <th>Line Description</th>${vatOn ? '<th>Tax Code</th>' : ''}<th></th>
+        <th>Line Description</th>${vatOn ? '<th>Tax Code</th><th class="num">VAT</th>' : ''}<th></th>
       </tr>
     </thead>
     <tbody id="lines-body"></tbody>
@@ -85,6 +85,7 @@ ${commonStyle()}
   <div class="totals">
     <div>Debits: <span id="total-dr">0.00</span></div>
     <div>Credits: <span id="total-cr">0.00</span></div>
+    <div>VAT: <span id="total-vat">0.00</span></div>
     <div>Diff: <span id="total-diff" style="color:#cc2222">0.00</span></div>
   </div>
 
@@ -215,7 +216,8 @@ ${commonStyle()}
       +'<td><input type="number" class="debit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="number" class="credit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="text" class="desc-input" style="width:160px" placeholder="optional"></td>'
-      +(VAT_ON ? '<td><select class="tax-select" style="width:120px"><option value="">\\u2014 none \\u2014</option></select></td>' : '')
+      +(VAT_ON ? '<td><select class="tax-select" style="width:120px" onchange="updateTotals()"><option value="">\\u2014 none \\u2014</option></select></td>' : '')
+      +(VAT_ON ? '<td class="vat-display" style="width:70px;text-align:right;color:#555">0.00</td>' : '')
       +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove(); updateTotals()">&times;</button></td>';
     document.getElementById('lines-body').appendChild(tr);
     if (VAT_ON) populateTaxSelect(tr.querySelector('.tax-select'));
@@ -236,18 +238,41 @@ ${commonStyle()}
   }
 
   function updateTotals() {
-    var dr = 0, cr = 0;
+    var dr = 0, cr = 0, vatDebit = 0, vatCredit = 0;
     document.querySelectorAll('#lines-body tr').forEach(tr => {
       // A1: skip read-only original-entry rows (no .debit-input/.credit-input)
       var dEl = tr.querySelector('.debit-input');
       var cEl = tr.querySelector('.credit-input');
       if (!dEl || !cEl) return;
-      dr += parseFloat(dEl.value || 0);
-      cr += parseFloat(cEl.value || 0);
+      var d = parseFloat(dEl.value || 0);
+      var c = parseFloat(cEl.value || 0);
+      dr += d;
+      cr += c;
+
+      // P2-4a: computed VAT per line (tax-exclusive — amount × rate).
+      // The balance indicator reflects the POSTED batch (net + VAT GL lines =
+      // gross offset): diff = (dr + vatDebit) − (cr + vatCredit).
+      var vatEl = tr.querySelector('.vat-display');
+      var taxSel = tr.querySelector('.tax-select');
+      var lineVat = 0;
+      if (VAT_ON && taxSel && taxSel.value) {
+        var vc = vatCodes.find(function (v) { return v.vat_code === taxSel.value; });
+        if (vc) {
+          var rate = Number(vc.rate) || 0;
+          var amt = d || c || 0;
+          lineVat = Math.round(amt * rate * 100) / 100;
+          if (d > 0) vatDebit += lineVat; else vatCredit += lineVat;
+        }
+      }
+      if (vatEl) vatEl.textContent = lineVat.toFixed(2);
     });
     document.getElementById('total-dr').textContent = dr.toFixed(2);
     document.getElementById('total-cr').textContent = cr.toFixed(2);
-    var diff = Math.round((dr - cr) * 100) / 100;
+    var totalVat = Math.round((vatDebit + vatCredit) * 100) / 100;
+    var vatTotalEl = document.getElementById('total-vat');
+    if (vatTotalEl) vatTotalEl.textContent = totalVat.toFixed(2);
+    // P2-4a §4.2: balance reflects the posted batch — net + VAT = gross.
+    var diff = Math.round(((dr + vatDebit) - (cr + vatCredit)) * 100) / 100;
     var diffEl = document.getElementById('total-diff');
     diffEl.textContent = diff.toFixed(2);
     diffEl.style.color = diff === 0 ? '#2a8a2a' : '#cc2222';
@@ -404,11 +429,15 @@ ${commonStyle()}
         + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
         + '<td>' + esc(l.description || '') + '</td>'
         + (VAT_ON ? '<td>' + esc(l.vat_code || '') + '</td>' : '')
+        + (VAT_ON ? '<td class="num">' + (parseFloat(l.vat_amount || 0) || 0).toFixed(2) + '</td>' : '')
         + '<td></td>';
       body.appendChild(tr);
     });
     document.getElementById('total-dr').textContent = dr.toFixed(2);
     document.getElementById('total-cr').textContent = cr.toFixed(2);
+    var viewVat = Math.round(viewBatchLines.reduce(function (s, l) { return s + parseFloat(l.vat_amount || 0); }, 0) * 100) / 100;
+    var viewVatEl = document.getElementById('total-vat');
+    if (viewVatEl) viewVatEl.textContent = viewVat.toFixed(2);
     var diff = Math.round((dr - cr) * 100) / 100;
     var diffEl = document.getElementById('total-diff');
     diffEl.textContent = diff.toFixed(2);
@@ -580,7 +609,7 @@ ${commonStyle()}
         + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
         + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
         + '<td>' + esc(l.description || '') + '</td>'
-        + (VAT_ON ? '<td></td>' : '')
+        + (VAT_ON ? '<td></td><td></td>' : '')
         + '<td></td>';
       document.getElementById('lines-body').appendChild(otr);
     });

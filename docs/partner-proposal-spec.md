@@ -185,20 +185,20 @@ This means after a partner is approved, the next bank statement line from the sa
 
 ### 3.1 `partners` table (renamed from `vendors`)
 
+**All partners-table ALTERs run in `init.js` as `applyPartnersMigration()`, not in `schema.sql`.** See §7.1 for the full rationale (the rename can't be idempotent in `schema.sql`'s sequential `runNext()` executor, and the `ADD COLUMN` statements depend on the rename having already run — if they stay in `schema.sql` they fire against a table still named `vendors`). The complete migration, in execution order:
+
 ```sql
--- Rename existing table
+-- Step 1 (init.js applyPartnersMigration): rename table + column
 ALTER TABLE vendors RENAME TO partners;
 ALTER TABLE partners RENAME COLUMN vendor_id TO partner_id;
 
--- Add partner-type flags
+-- Step 2 (init.js applyPartnersMigration, after rename succeeds):
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS is_vendor BOOLEAN DEFAULT TRUE;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS is_customer BOOLEAN DEFAULT FALSE;
-
--- Add AR-side account columns (nullable, unused until AR ships)
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_revenue_account VARCHAR;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_ar_account VARCHAR;
 
--- Update indexes (old indexes reference vendors table name)
+-- Step 3 (init.js applyPartnersMigration, after columns added): update indexes
 DROP INDEX IF EXISTS idx_vendors_company;
 DROP INDEX IF EXISTS idx_vendors_name;
 CREATE INDEX IF NOT EXISTS idx_partners_company ON partners(company_id);
@@ -206,6 +206,8 @@ CREATE INDEX IF NOT EXISTS idx_partners_name ON partners(name);
 CREATE INDEX IF NOT EXISTS idx_partners_vendor ON partners(company_id, is_vendor) WHERE is_vendor = TRUE;
 CREATE INDEX IF NOT EXISTS idx_partners_customer ON partners(company_id, is_customer) WHERE is_customer = TRUE;
 ```
+
+The `CREATE TABLE IF NOT EXISTS partner_proposals` statement (§3.2) stays in `schema.sql` — it's a new table with no dependency on the rename, and `IF NOT EXISTS` makes it naturally idempotent.
 
 Existing rows: `is_vendor` backfills TRUE (they're all vendors today), `is_customer` backfills FALSE. The DEFAULT on the column handles this — no explicit UPDATE needed.
 
@@ -445,19 +447,33 @@ async function applyPartnersMigration(conn) {
     await conn.run('DROP TABLE vendors', []);
     console.log('Partners table created from vendors (CREATE+DROP fallback).');
   }
+
+  // Add partner-type flags + AR-side columns (after rename, so table exists)
+  await conn.run('ALTER TABLE partners ADD COLUMN IF NOT EXISTS is_vendor BOOLEAN DEFAULT TRUE', []);
+  await conn.run('ALTER TABLE partners ADD COLUMN IF NOT EXISTS is_customer BOOLEAN DEFAULT FALSE', []);
+  await conn.run('ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_revenue_account VARCHAR', []);
+  await conn.run('ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_ar_account VARCHAR', []);
+
+  // Update indexes (old indexes reference vendors table name)
+  await conn.run('DROP INDEX IF EXISTS idx_vendors_company', []);
+  await conn.run('DROP INDEX IF EXISTS idx_vendors_name', []);
+  await conn.run('CREATE INDEX IF NOT EXISTS idx_partners_company ON partners(company_id)', []);
+  await conn.run('CREATE INDEX IF NOT EXISTS idx_partners_name ON partners(name)', []);
+  await conn.run('CREATE INDEX IF NOT EXISTS idx_partners_vendor ON partners(company_id, is_vendor) WHERE is_vendor = TRUE', []);
+  await conn.run('CREATE INDEX IF NOT EXISTS idx_partners_customer ON partners(company_id, is_customer) WHERE is_customer = TRUE', []);
 }
 ```
 
-The `ADD COLUMN IF NOT EXISTS` statements for `is_vendor`, `is_customer`, `default_revenue_account`, `default_ar_account`, index drops/creates, and `CREATE TABLE IF NOT EXISTS partner_proposals` stay in `schema.sql` — they're naturally idempotent and safe for sequential execution.
+The `ADD COLUMN IF NOT EXISTS` statements for `is_vendor`, `is_customer`, `default_revenue_account`, `default_ar_account`, and the index drops/creates also run inside `applyPartnersMigration()`, **after** the rename succeeds — not in `schema.sql`. On first run, if they stayed in `schema.sql` they would fire against a table still named `vendors` (the rename hasn't happened yet), crashing `runNext()`. Only `CREATE TABLE IF NOT EXISTS partner_proposals` (§3.2) stays in `schema.sql` — it's a new table with no rename dependency.
 
-**DuckDB `RENAME TABLE` / `RENAME COLUMN` support:** DuckDB ≥0.10 supports both `ALTER TABLE … RENAME TO` and `ALTER TABLE … RENAME COLUMN`. The try/catch + fallback handles any older build. The feature-detection approach mirrors `applyUniqueConstraints`'s `ALTER TABLE ADD CONSTRAINT` → `CREATE UNIQUE INDEX` fallback.
+**DuckDB version confirmed:** this codebase pins `@duckdb/node-api` 1.5.2-r.1 (DuckDB v1.5.2). Both `ALTER TABLE … RENAME TO` and `ALTER TABLE … RENAME COLUMN` are confirmed supported via runtime test. The try/catch + `CREATE+DROP` fallback is retained as defensive code for any future DuckDB version that changes `ALTER` behavior (same defensive posture as `applyUniqueConstraints`).
 
 ### 7.2 Code changes
 
 | File | Change |
 |------|--------|
-| `db/schema.sql` | Add columns (`is_vendor`, `is_customer`, `default_revenue_account`, `default_ar_account` via `ADD COLUMN IF NOT EXISTS`), drop old indexes, create new indexes, `CREATE TABLE IF NOT EXISTS partner_proposals`. The `RENAME TABLE` does NOT live here — see `db/init.js`. |
-| `db/init.js` | Add `applyPartnersMigration(conn)` — guarded `RENAME TABLE vendors → partners` + `RENAME COLUMN vendor_id → partner_id` with feature detection and `CREATE+DROP` fallback. Called after `schema.sql` statements, before `seedJournals()`. Follows the `applyUniqueConstraints()` precedent (lines 137–178). |
+| `db/schema.sql` | `CREATE TABLE IF NOT EXISTS partner_proposals` only. All partners-table ALTERs (rename, add columns, indexes) are in `db/init.js` — see below. |
+| `db/init.js` | Add `applyPartnersMigration(conn)` — guarded `RENAME TABLE vendors → partners` + `RENAME COLUMN vendor_id → partner_id` with feature detection and `CREATE+DROP` fallback, followed by `ADD COLUMN IF NOT EXISTS` for `is_vendor`/`is_customer`/`default_revenue_account`/`default_ar_account`, then index drops/creates. Called after `schema.sql` statements, before `seedJournals()`. Follows the `applyUniqueConstraints()` precedent (lines 137–178). |
 | `api/src/vendors.js` → `api/src/partners.js` | Rename file. All SQL: `vendors` → `partners`, `vendor_id` → `partner_id`. Add `partner.propose`/`.proposal.approve`/`.reject`/`.list`/`.get` handlers. Add duplicate detection. Add auto-learning (mapping.suggest call in approve). |
 | `api/src/action-catalog.js` | Rename `vendor.*` → `partner.*` action entries. Add `partner.propose` (agent, agentWritable, idempotent), `partner.proposal.approve/reject` (data_entry), `partner.proposal.list/get` (viewer). Rename palette entries: `vendor.save`/`vendor.upsert` → `partner.save`/`partner.upsert`, route `/payables?tab=vendors` → `/payables?tab=partners` (lines 706–707). |
 | `api/src/index.js` | Add `ACTION_ALIASES` map + deprecation warning before the dispatch switch (both `handleApiRequest` line 307 and `_dispatchAction` line 1700). Rename `case 'vendor'` → `case 'partner'` in the switch. Update import: `handleVendors` → `handlePartners`. |

@@ -141,8 +141,8 @@ mcp.notify('notifications/initialized');
 const tl = await mcp.call('tools/list', {}, 2);
 const tools = (tl.result && tl.result.tools) || [];
 const names = tools.map((t) => t.name).sort();
-eq('tools/list returns exactly the 7 §5.2 tools', names,
-  ['attachment_upload', 'bill_create', 'event_list', 'freebooks_read', 'journal_propose', 'mapping_suggest', 'matching_history_record'].sort());
+eq('tools/list returns exactly the 8 §5.2 tools', names,
+  ['attachment_upload', 'bill_create', 'event_list', 'freebooks_read', 'journal_propose', 'mapping_suggest', 'matching_history_record', 'partner_propose'].sort());
 ok('no approve/reject/post/void/master-data tool in manifest',
   !names.some((n) => /approve|reject|void|post|master|setup\.|period\.|settings\.|permissions\.|vendor\.upsert|coa\./.test(n)),
   names.join(','));

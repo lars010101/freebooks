@@ -2,8 +2,9 @@
   "name": "freebooks",
   "private": true,
   "scripts": {
-    "test": "npm test --prefix api && node tests/reversal.mjs && node tests/sru-golden-2024.mjs",
+    "test": "npm test --prefix api && node tests/reversal.mjs && node tests/jurisdiction-packs.mjs && node tests/fx-reval.mjs && node tests/mcp-smoke.mjs && node --test tests/bill-extraction.test.mjs && node tests/sru-golden-2024.mjs",
     "test:api": "npm test --prefix api",
+    "test:e2e": "node pw-phase-a4.mjs",
     "test:keys": "node tests/keys-coverage.mjs",
     "test:reversal": "node tests/reversal.mjs",
     "test:sru-golden": "node tests/sru-golden-2024.mjs",
@@ -11,5 +12,8 @@
   },
   "dependencies": {
     "pdf-parse": "^2.4.5"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.62.1"
   }
 }

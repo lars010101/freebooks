@@ -10,7 +10,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { startTestServer, api, sql, seedCompany } = require('../test-utils/helpers');
+const { startTestServer, api, sql, seedCompany, testDates } = require('../test-utils/helpers');
 const { ACTIONS } = require('../src/action-catalog');
 
 let srv;
@@ -18,6 +18,7 @@ let baseUrl;
 const CO = 'CT';
 let AP, EXP;
 const KEY = process.env.CONTRACT_TEST_KEY || 'idem-1';
+const TD = testDates();
 
 before(async () => {
   srv = await startTestServer({ withAdminToken: true });
@@ -114,7 +115,7 @@ test('permission check: unknown userEmail → 403', async () => {
 
 function validBill(overrides = {}) {
   return {
-    vendor: 'Acme Pte Ltd', vendor_ref: 'INV-1', date: '2026-07-20', due_date: '2026-08-19',
+    vendor: 'Acme Pte Ltd', vendor_ref: 'INV-1', date: TD.day20, due_date: TD.day25,
     currency: 'SGD', ap_account: AP, amount: 100,
     lines: [{ description: 'Office supplies', expense_account: EXP, amount: 100, vat_code: '' }],
     ...overrides,
@@ -310,7 +311,7 @@ test('P2-3: bill.void preserves bill_lines rows', async () => {
 });
 
 test('P2-3: AP control report renders', async () => {
-  const r = await fetch(`${baseUrl}/api/${CO}/report?type=ap-control&end=2026-12-31`);
+  const r = await fetch(`${baseUrl}/api/${CO}/report?type=ap-control&end=${TD.fyEnd}`);
   assert.equal(r.status, 200);
   const html = await r.text();
   assert.ok(html.includes('AP Control'), 'HTML contains AP Control title');
@@ -322,10 +323,10 @@ test('P2-3: AP control report renders', async () => {
 test('locked period rejects posting with 409 PERIOD_LOCKED', async () => {
   await api(baseUrl, 'period.upsert', {
     companyId: CO,
-    period: { period_id: '2026-06', start_date: '2026-06-01', end_date: '2026-06-30', locked: true },
+    period: { period_id: TD.prevPeriodId, start_date: TD.prevMonthStart, end_date: TD.prevMonthEnd, locked: true },
   });
   const { status, body } = await api(baseUrl, 'bill.create', {
-    companyId: CO, bill: validBill({ vendor_ref: 'LOCK-1', date: '2026-06-15', due_date: '2026-07-15' }),
+    companyId: CO, bill: validBill({ vendor_ref: 'LOCK-1', date: TD.prevDay15, due_date: TD.day15 }),
   });
   assert.equal(status, 409);
   assert.equal(body.error.code, 'PERIOD_LOCKED');
@@ -337,8 +338,8 @@ test('journal.post enforces balance; reverse works; double-reverse refused', asy
   const unbalanced = await api(baseUrl, 'journal.post', {
     companyId: CO,
     lines: [
-      { account_code: EXP, debit: 10, date: '2026-07-20', description: 'x' },
-      { account_code: AP, credit: 5, date: '2026-07-20', description: 'x' },
+      { account_code: EXP, debit: 10, date: TD.day20, description: 'x' },
+      { account_code: AP, credit: 5, date: TD.day20, description: 'x' },
     ],
   });
   assert.equal(unbalanced.status, 400);
@@ -347,17 +348,17 @@ test('journal.post enforces balance; reverse works; double-reverse refused', asy
   const posted = await api(baseUrl, 'journal.post', {
     companyId: CO, userEmail: 'owner@ct',
     lines: [
-      { account_code: EXP, debit: 25, date: '2026-07-20', description: 'coffee' },
-      { account_code: AP, credit: 25, date: '2026-07-20', description: 'coffee' },
+      { account_code: EXP, debit: 25, date: TD.day20, description: 'coffee' },
+      { account_code: AP, credit: 25, date: TD.day20, description: 'coffee' },
     ],
   });
   assert.equal(posted.status, 200, JSON.stringify(posted.body));
   const batchId = posted.body.data.batchId;
 
-  const reversed = await api(baseUrl, 'journal.reverse', { companyId: CO, batchId, reversalDate: '2026-07-21' });
+  const reversed = await api(baseUrl, 'journal.reverse', { companyId: CO, batchId, reversalDate: TD.day21 });
   assert.equal(reversed.status, 200, JSON.stringify(reversed.body));
 
-  const again = await api(baseUrl, 'journal.reverse', { companyId: CO, batchId, reversalDate: '2026-07-21' });
+  const again = await api(baseUrl, 'journal.reverse', { companyId: CO, batchId, reversalDate: TD.day21 });
   assert.notEqual(again.status, 200, 'double reverse must fail');
 });
 
@@ -374,8 +375,8 @@ test('journal.entry.update: lockdown + field-level audit', async () => {
   const fresh = await api(baseUrl, 'journal.post', {
     companyId: CO, userEmail: 'owner@ct',
     lines: [
-      { account_code: EXP, debit: 7, date: '2026-07-20', description: 'pre-edit' },
-      { account_code: AP, credit: 7, date: '2026-07-20', description: 'pre-edit' },
+      { account_code: EXP, debit: 7, date: TD.day20, description: 'pre-edit' },
+      { account_code: AP, credit: 7, date: TD.day20, description: 'pre-edit' },
     ],
   });
   assert.equal(fresh.status, 200, JSON.stringify(fresh.body));
@@ -427,7 +428,7 @@ test('admin query gated by bearer token', async () => {
 // ── Reports ─────────────────────────────────────────────────────────────────
 
 test('trial balance report balances (CSV)', async () => {
-  const r = await fetch(`${baseUrl}/api/${CO}/report?type=tb&start=2026-07-01&end=2026-07-31&format=csv`);
+  const r = await fetch(`${baseUrl}/api/${CO}/report?type=tb&start=${TD.startDate}&end=${TD.endDate}&format=csv`);
   assert.equal(r.status, 200);
   const csv = await r.text();
   const lines = csv.trim().split('\n');
@@ -455,7 +456,7 @@ test('view.bills returns vendors + bills with embedded lines (posted AND draft)'
   const d = await api(baseUrl, 'bill.draft.save', {
     companyId: CO,
     bill: {
-      vendor: 'Acme Pte Ltd', vendor_ref: 'DRAFT-VIEW-1', date: '2026-07-21', currency: 'SGD',
+      vendor: 'Acme Pte Ltd', vendor_ref: 'DRAFT-VIEW-1', date: TD.day21, currency: 'SGD',
       ap_account: AP, status: 'draft',
       lines: [
         { description: 'L1', expense_account: EXP, amount: 40, vat_code: '' },
@@ -490,7 +491,7 @@ test('view.bank returns cash accounts + journals; reconciliation when accountCod
 
   const cash = v.body.data.accounts[0];
   if (cash) {
-    const r = await api(baseUrl, 'view.bank', { companyId: CO, accountCode: cash.account_code, dateFrom: '2026-07-01', dateTo: '2026-07-31' });
+    const r = await api(baseUrl, 'view.bank', { companyId: CO, accountCode: cash.account_code, dateFrom: TD.startDate, dateTo: TD.endDate });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.ok(Array.isArray(r.body.data.reconciliation.rows), 'reconciliation rows array');
     assert.equal(typeof r.body.data.reconciliation.openingBalance, 'number', 'openingBalance numeric');
@@ -511,7 +512,7 @@ test('per-line centers: line override beats header through draft save + post', a
   const d = await api(baseUrl, 'bill.draft.save', {
     companyId: CO,
     bill: {
-      vendor: 'Acme Pte Ltd', vendor_ref: 'CC-TEST-1', date: '2026-07-21', currency: 'SGD',
+      vendor: 'Acme Pte Ltd', vendor_ref: 'CC-TEST-1', date: TD.day21, currency: 'SGD',
       ap_account: AP, cost_center: 'CC-OPS', status: 'draft',
       lines: [
         { description: 'Header center line', expense_account: EXP, amount: 30, vat_code: '' },
@@ -527,7 +528,7 @@ test('per-line centers: line override beats header through draft save + post', a
     companyId: CO,
     bill: {
       bill_id: draftId,
-      vendor: 'Acme Pte Ltd', vendor_ref: 'CC-TEST-1', date: '2026-07-21', currency: 'SGD',
+      vendor: 'Acme Pte Ltd', vendor_ref: 'CC-TEST-1', date: TD.day21, currency: 'SGD',
       ap_account: AP, cost_center: 'CC-OPS', status: 'draft',
       lines: [
         { description: 'Header center line', expense_account: EXP, amount: 30, vat_code: '' },
@@ -562,7 +563,7 @@ test('bill.payment.record: full home payment settles, idempotent replay does not
   assert.equal(c.status, 200, JSON.stringify(c.body));
   const billId = c.body.data.billId;
 
-  const payload = { companyId: CO, billId, date: '2026-07-21', bankAccount: '1020', amount: 100, reference: 'TT-123' };
+  const payload = { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 100, reference: 'TT-123' };
   const pay = await api(baseUrl, 'bill.payment.record', payload, { 'Idempotency-Key': 'pay-1' });
   assert.equal(pay.status, 200, JSON.stringify(pay.body));
   assert.equal(pay.body.data.status, 'paid');
@@ -593,16 +594,16 @@ test('bill.payment.record: partial payments, overpayment refused, bill.payments 
   const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'PAY-2' }) });
   const billId = c.body.data.billId;
 
-  const p1 = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: '2026-07-21', bankAccount: '1020', amount: 40 });
+  const p1 = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 40 });
   assert.equal(p1.status, 200, JSON.stringify(p1.body));
   assert.equal(p1.body.data.status, 'partial');
   assert.equal(p1.body.data.outstanding, 60);
 
-  const over = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: '2026-07-21', bankAccount: '1020', amount: 61 });
+  const over = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 61 });
   assert.equal(over.status, 400);
   assert.match(over.body.error.message, /exceeds outstanding/);
 
-  const p2 = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: '2026-07-22', bankAccount: '1020', amount: 60 });
+  const p2 = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: TD.day22, bankAccount: '1020', amount: 60 });
   assert.equal(p2.status, 200);
   assert.equal(p2.body.data.status, 'paid');
 
@@ -620,7 +621,7 @@ test('bill.payment.record: foreign-currency bill posts FX gain/loss split', asyn
   await sql(baseUrl, srv.adminToken,
     `INSERT INTO settings (company_id, key, value) VALUES ('CT','fx_gain_loss_account','${EXP}')`);
   const rateSave = await api(baseUrl, 'fx.rates.save', {
-    companyId: CO, rates: [{ date: '2026-07-20', from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }],
+    companyId: CO, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }],
   });
   assert.equal(rateSave.status, 200, JSON.stringify(rateSave.body));
 
@@ -630,7 +631,7 @@ test('bill.payment.record: foreign-currency bill posts FX gain/loss split', asyn
 
   // Pay 100 USD at 1.30 (bankAmount 130 SGD; booked at 1.35 = 135) → 5 SGD gain
   const pay = await api(baseUrl, 'bill.payment.record', {
-    companyId: CO, billId, date: '2026-07-21', bankAccount: '1020', amount: 100, fxRate: 1.30,
+    companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 100, fxRate: 1.30,
   });
   assert.equal(pay.status, 200, JSON.stringify(pay.body));
   assert.equal(pay.body.data.status, 'paid');
@@ -653,20 +654,20 @@ test('bill.payment.record: foreign-currency bill posts FX gain/loss split', asyn
 });
 
 test('bill.payment.record: validation errors named', async () => {
-  const missing = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: 'nope', date: '2026-07-21', bankAccount: '1020', amount: 1 });
+  const missing = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: 'nope', date: TD.day21, bankAccount: '1020', amount: 1 });
   assert.equal(missing.status, 404);
   assert.equal(missing.body.error.code, 'NOT_FOUND');
 
   const d = await api(baseUrl, 'bill.draft.save', {
     companyId: CO,
-    bill: { vendor: 'Acme Pte Ltd', vendor_ref: 'PAY-DRAFT-1', date: '2026-07-21', currency: 'SGD', ap_account: AP, status: 'draft', lines: [{ description: 'x', expense_account: EXP, amount: 10, vat_code: '' }] },
+    bill: { vendor: 'Acme Pte Ltd', vendor_ref: 'PAY-DRAFT-1', date: TD.day21, currency: 'SGD', ap_account: AP, status: 'draft', lines: [{ description: 'x', expense_account: EXP, amount: 10, vat_code: '' }] },
   });
-  const onDraft = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: d.body.data.billId, date: '2026-07-21', bankAccount: '1020', amount: 10 });
+  const onDraft = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: d.body.data.billId, date: TD.day21, bankAccount: '1020', amount: 10 });
   assert.equal(onDraft.status, 409);
   assert.match(onDraft.body.error.message, /draft/);
 
   const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'PAY-3' }) });
-  const nonCash = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: c.body.data.billId, date: '2026-07-21', bankAccount: AP, amount: 10 });
+  const nonCash = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: c.body.data.billId, date: TD.day21, bankAccount: AP, amount: 10 });
   assert.equal(nonCash.status, 400);
   assert.match(nonCash.body.error.message, /cf_category/);
 });
@@ -674,7 +675,7 @@ test('bill.payment.record: validation errors named', async () => {
 test('bill.payment.void: reverses journal, restores bill, refuses double-void', async () => {
   const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'PAY-4' }) });
   const billId = c.body.data.billId;
-  const pay = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: '2026-07-21', bankAccount: '1020', amount: 100 });
+  const pay = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 100 });
   assert.equal(pay.status, 200, JSON.stringify(pay.body));
   const { paymentId, batchId } = pay.body.data;
 
@@ -712,10 +713,10 @@ test('bank.process: amount-only match demoted to suggestion; vendor/ref tiers', 
     companyId: CO,
     bankAccount: '1020',
     rows: [
-      { date: '2026-07-21', description: 'GIRO TRANSFER 998877', amount: -101 },        // amount-only → suggest
-      { date: '2026-07-21', description: 'PAYMENT ACME PTE LTD', amount: -101 },        // vendor substring → medium
-      { date: '2026-07-21', description: 'TRF INV-TIER-A 9988', amount: -101 },         // ref whole token → high
-      { date: '2026-07-21', description: 'TRF INV-TIER-A99', amount: -101 },           // ref glued to digits: substring, not token → medium
+      { date: TD.day21, description: 'GIRO TRANSFER 998877', amount: -101 },        // amount-only → suggest
+      { date: TD.day21, description: 'PAYMENT ACME PTE LTD', amount: -101 },        // vendor substring → medium
+      { date: TD.day21, description: 'TRF INV-TIER-A 9988', amount: -101 },         // ref whole token → high
+      { date: TD.day21, description: 'TRF INV-TIER-A99', amount: -101 },           // ref glued to digits: substring, not token → medium
     ],
   });
   assert.equal(proc.status, 200, JSON.stringify(proc.body));
@@ -735,7 +736,7 @@ test('bank.process: amount-only match demoted to suggestion; vendor/ref tiers', 
 test('bank.process + approve: import row matching a recorded manual payment clears, never re-posts', async () => {
   const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'PAY-REC-1' }) });
   const billId = c.body.data.billId;
-  const pay = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: '2026-07-21', bankAccount: '1020', amount: 100 });
+  const pay = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 100 });
   assert.equal(pay.status, 200, JSON.stringify(pay.body));
 
   const before = await sql(baseUrl, srv.adminToken,
@@ -744,7 +745,7 @@ test('bank.process + approve: import row matching a recorded manual payment clea
   const proc = await api(baseUrl, 'bank.process', {
     companyId: CO,
     bankAccount: '1020',
-    rows: [{ date: '2026-07-21', description: 'GIRO ACME PAY-REC-1', amount: -100 }],
+    rows: [{ date: TD.day21, description: 'GIRO ACME PAY-REC-1', amount: -100 }],
   });
   assert.equal(proc.status, 200, JSON.stringify(proc.body));
   const row = proc.body.data.processed[0];
@@ -753,7 +754,7 @@ test('bank.process + approve: import row matching a recorded manual payment clea
 
   const ap = await api(baseUrl, 'bank.approve', {
     companyId: CO,
-    entries: [{ date: '2026-07-21', description: row.description, amount: -100, recordedPayment: true, paymentBatchId: row.paymentBatchId, bankAccount: '1020' }],
+    entries: [{ date: TD.day21, description: row.description, amount: -100, recordedPayment: true, paymentBatchId: row.paymentBatchId, bankAccount: '1020' }],
   });
   assert.equal(ap.status, 200, JSON.stringify(ap.body));
   assert.equal(ap.body.data.results[0].recordedPayment, true);
@@ -883,8 +884,8 @@ test('A2: journal.post emits journal.posted once with correct entity + actor fie
   const posted = await api(baseUrl, 'journal.post', {
     companyId: CO, userEmail: 'owner@ct', requestId: rid,
     lines: [
-      { account_code: EXP, debit: 33, date: '2026-07-20', description: 'A2 journal' },
-      { account_code: AP, credit: 33, date: '2026-07-20', description: 'A2 journal' },
+      { account_code: EXP, debit: 33, date: TD.day20, description: 'A2 journal' },
+      { account_code: AP, credit: 33, date: TD.day20, description: 'A2 journal' },
     ],
   });
   assert.equal(posted.status, 200, JSON.stringify(posted.body));
@@ -910,8 +911,8 @@ test('A2: idempotent replay of journal.post emits ONE journal.posted (R4)', asyn
   const payload = {
     companyId: CO, userEmail: 'owner@ct', requestId: 'req-r4',
     lines: [
-      { account_code: EXP, debit: 12, date: '2026-07-20', description: 'R4' },
-      { account_code: AP, credit: 12, date: '2026-07-20', description: 'R4' },
+      { account_code: EXP, debit: 12, date: TD.day20, description: 'R4' },
+      { account_code: AP, credit: 12, date: TD.day20, description: 'R4' },
     ],
   };
   const first = await api(baseUrl, 'journal.post', payload, { 'Idempotency-Key': idemKey });
@@ -940,8 +941,8 @@ test('A2: event.list — ordering asc, after_seq polling, type filter', async ()
   const posted = await api(baseUrl, 'journal.post', {
     companyId: CO, userEmail: 'owner@ct', requestId: 'req-poll',
     lines: [
-      { account_code: EXP, debit: 9, date: '2026-07-20', description: 'poll' },
-      { account_code: AP, credit: 9, date: '2026-07-20', description: 'poll' },
+      { account_code: EXP, debit: 9, date: TD.day20, description: 'poll' },
+      { account_code: AP, credit: 9, date: TD.day20, description: 'poll' },
     ],
   });
   assert.equal(posted.status, 200, JSON.stringify(posted.body));
@@ -993,9 +994,9 @@ test('A2: event.list limit cap — request 9999 is capped at 500', async () => {
 
 test('A2: period.locked / period.unlocked emit on transition (second call site)', async () => {
   // Create a fresh period (born unlocked — no event on creation).
-  const pid = '2026-A2-' + Date.now();
+  const pid = 'A2-' + Date.now();
   const create = await api(baseUrl, 'period.upsert', {
-    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: false },
+    companyId: CO, period: { period_id: pid, start_date: TD.nextMonthStart, end_date: TD.nextMonthEnd, locked: false },
   });
   assert.equal(create.status, 200, JSON.stringify(create.body));
   let born = await eventsFor('period.locked', pid);
@@ -1003,7 +1004,7 @@ test('A2: period.locked / period.unlocked emit on transition (second call site)'
 
   // Lock it → period.locked.
   const lock = await api(baseUrl, 'period.upsert', {
-    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: true },
+    companyId: CO, period: { period_id: pid, start_date: TD.nextMonthStart, end_date: TD.nextMonthEnd, locked: true },
   });
   assert.equal(lock.status, 200, JSON.stringify(lock.body));
   let locked = await eventsFor('period.locked', pid);
@@ -1012,14 +1013,14 @@ test('A2: period.locked / period.unlocked emit on transition (second call site)'
 
   // Re-lock (no transition) → no new event.
   await api(baseUrl, 'period.upsert', {
-    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: true },
+    companyId: CO, period: { period_id: pid, start_date: TD.nextMonthStart, end_date: TD.nextMonthEnd, locked: true },
   });
   locked = await eventsFor('period.locked', pid);
   assert.equal(locked.length, 1, 'locked→locked is not a transition (no new event)');
 
   // Unlock → period.unlocked.
   const unlock = await api(baseUrl, 'period.upsert', {
-    companyId: CO, period: { period_id: pid, start_date: '2026-09-01', end_date: '2026-09-30', locked: false },
+    companyId: CO, period: { period_id: pid, start_date: TD.nextMonthStart, end_date: TD.nextMonthEnd, locked: false },
   });
   assert.equal(unlock.status, 200, JSON.stringify(unlock.body));
   const unlocked = await eventsFor('period.unlocked', pid);
@@ -1075,7 +1076,7 @@ async function proposalsFor(proposalId) {
 }
 
 // Balanced 2-line batch used across the A3j tests. Agent proposes this shape.
-function proposalLines(amount = 50, date = '2026-07-20') {
+function proposalLines(amount = 50, date = TD.day20) {
   return [
     { account_code: EXP, debit: amount, date, description: 'A3j expense' },
     { account_code: AP, credit: amount, date, description: 'A3j expense' },
@@ -1329,14 +1330,14 @@ test('A3j approve-time revalidation: lock period → approve fails PERIOD_LOCKED
   // Propose a valid batch dated in 2026-07 (period exists, unlocked).
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-reval',
-    lines: proposalLines(60, '2026-07-15'),
+    lines: proposalLines(60, TD.day15),
   });
   assert.equal(propose.status, 200, JSON.stringify(propose.body));
   const proposalId = propose.body.data.proposalId;
 
   // Lock the 2026-07 period.
   const lock = await api(baseUrl, 'period.upsert', {
-    companyId: CO, period: { period_id: '2026-07', start_date: '2026-07-01', end_date: '2026-07-31', locked: true },
+    companyId: CO, period: { period_id: TD.periodId, start_date: TD.startDate, end_date: TD.endDate, locked: true },
   });
   assert.equal(lock.status, 200, JSON.stringify(lock.body));
 
@@ -1352,7 +1353,7 @@ test('A3j approve-time revalidation: lock period → approve fails PERIOD_LOCKED
 
   // Unlock the period → approve succeeds.
   const unlock = await api(baseUrl, 'period.upsert', {
-    companyId: CO, period: { period_id: '2026-07', start_date: '2026-07-01', end_date: '2026-07-31', locked: false },
+    companyId: CO, period: { period_id: TD.periodId, start_date: TD.startDate, end_date: TD.endDate, locked: false },
   });
   assert.equal(unlock.status, 200, JSON.stringify(unlock.body));
 
@@ -1369,7 +1370,7 @@ test('A3j journal.proposal.list: default status proposed, ordering, limit', asyn
   // Propose a fresh one for the queue.
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-list',
-    lines: proposalLines(11, '2026-07-25'),
+    lines: proposalLines(11, TD.day25),
   });
   assert.equal(propose.status, 200, JSON.stringify(propose.body));
   const pid = propose.body.data.proposalId;
@@ -1404,7 +1405,7 @@ test('A3j journal.proposal.list: default status proposed, ordering, limit', asyn
 // very end so the global row-count tests above are unaffected.
 
 test('A3j approve race: two concurrent approves → exactly one posts, one INVALID_STATUS', async () => {
-  const lines = proposalLines(44, '2026-07-18');
+  const lines = proposalLines(44, TD.day18);
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-race-' + Date.now(),
     lines,
@@ -1442,7 +1443,7 @@ test('A3j approve race: two concurrent approves → exactly one posts, one INVAL
 test('A3j approve attribution fallback: no userEmail → created_by/reviewed_by/event reviewedBy = anonymous', async () => {
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-anon-' + Date.now(),
-    lines: proposalLines(19, '2026-07-19'),
+    lines: proposalLines(19, TD.day19),
   });
   assert.equal(propose.status, 200, JSON.stringify(propose.body));
   const proposalId = propose.body.data.proposalId;
@@ -1481,7 +1482,7 @@ test('A3j approve post-failure rollback: delete journals row → approve fails �
 
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-rb-' + Date.now(),
-    lines: proposalLines(28, '2026-07-17'), journalId,
+    lines: proposalLines(28, TD.day17), journalId,
   });
   assert.equal(propose.status, 200, JSON.stringify(propose.body));
   const proposalId = propose.body.data.proposalId;
@@ -1504,14 +1505,14 @@ test('A3j approve post-failure rollback: delete journals row → approve fails �
 
   // No journal_entries rows leaked for this proposal (the post never completed).
   const je = await sql(baseUrl, srv.adminToken,
-    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND source='proposal' AND created_by='owner@ct' AND date='2026-07-17'`);
+    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND source='proposal' AND created_by='owner@ct' AND date='${TD.day17}'`);
   assert.equal(Number(je[0].c), 0, 'no ledger rows leaked by the failed post');
 });
 
 test('A3j reject-after-approve: approve then reject → INVALID_STATUS (terminal complement)', async () => {
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a3j-raa-' + Date.now(),
-    lines: proposalLines(37, '2026-07-16'),
+    lines: proposalLines(37, TD.day16),
   });
   assert.equal(propose.status, 200, JSON.stringify(propose.body));
   const proposalId = propose.body.data.proposalId;
@@ -1664,7 +1665,7 @@ test('A4 propose WITH underlag: 2 uploads → attachment_count=2, no no_underlag
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-with-propose',
     proposalId,
-    lines: proposalLines(50, '2026-07-20'),
+    lines: proposalLines(50, TD.day20),
   });
   assert.equal(propose.status, 200, JSON.stringify(propose.body));
   assert.equal(propose.body.data.proposalId, proposalId, 'caller-supplied proposalId honored');
@@ -1684,7 +1685,7 @@ test('A4 propose WITH underlag: 2 uploads → attachment_count=2, no no_underlag
 test('A4 propose WITHOUT underlag (R7 warn-not-block): succeeds, attachment_count=0, warnings has no_underlag', async () => {
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-no-underlag-' + Date.now(),
-    lines: proposalLines(33, '2026-07-21'),
+    lines: proposalLines(33, TD.day21),
   });
   assert.equal(propose.status, 200, 'R7: propose still succeeds with zero underlag (warn-not-block)');
   assert.equal(propose.body.data.attachment_count, 0, 'attachment_count=0 when no underlag uploaded');
@@ -1712,7 +1713,7 @@ test('A4 journal.proposal.list carries attachment_count per row (computed join)'
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-list-propose',
     proposalId,
-    lines: proposalLines(12, '2026-07-22'),
+    lines: proposalLines(12, TD.day22),
   });
   assert.equal(propose.status, 200, JSON.stringify(propose.body));
 
@@ -1726,7 +1727,7 @@ test('A4 journal.proposal.list carries attachment_count per row (computed join)'
   // A no-underlag proposal in the same list shows attachment_count=0.
   const barePropose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-list-bare',
-    lines: proposalLines(7, '2026-07-22'),
+    lines: proposalLines(7, TD.day22),
   });
   assert.equal(barePropose.status, 200, JSON.stringify(barePropose.body));
   const list2 = await api(baseUrl, 'journal.proposal.list', { companyId: CO });
@@ -1759,7 +1760,7 @@ test('A4 approve re-points attachments: journal_proposal → journal/batchId (at
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-a4-appr-propose',
     proposalId,
-    lines: proposalLines(50, '2026-07-23'),
+    lines: proposalLines(50, TD.day23),
   });
   assert.equal(propose.status, 200, JSON.stringify(propose.body));
   assert.equal(propose.body.data.attachment_count, 2, 'pre-approve: 2 underlag bound');
@@ -1944,7 +1945,7 @@ test('A4 stage2: GC — purges aged orphan + aged rejected-proposal; keeps fresh
   // JSON string per the schema).
   await sql(baseUrl, srv.adminToken,
     `INSERT INTO journal_proposals (company_id, proposal_id, date, lines, status, created_by, reviewed_at, reviewed_by, created_at)
-     VALUES ('CT', '${rejectedProposalId}', DATE '2026-07-01', '[]', 'rejected', 'test', '${old}', 'test', '${old}')`);
+     VALUES ('CT', '${rejectedProposalId}', DATE '${TD.startDate}', '[]', 'rejected', 'test', '${old}', 'test', '${old}')`);
 
   // Seed the four attachment rows via admin SQL (storage_path points at a
   // non-existent file; GC best-effort unlinks and tolerates missing files).
@@ -2000,13 +2001,13 @@ test('journal.post without journalId defaults to MISC sequence + warning', async
   const r = await api(baseUrl, 'journal.post', {
     companyId: CO,
     lines: [
-      { account_code: EXP, debit: 25, date: '2026-07-21', description: 'ref doctrine test' },
-      { account_code: AP, credit: 25, date: '2026-07-21', description: 'ref doctrine test' },
+      { account_code: EXP, debit: 25, date: TD.day21, description: 'ref doctrine test' },
+      { account_code: AP, credit: 25, date: TD.day21, description: 'ref doctrine test' },
     ],
   });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.ok(r.body.data.posted);
-  assert.match(String(r.body.data.reference), /^MISC\/2026\/\d{5}$/);
+  assert.match(String(r.body.data.reference), new RegExp(`^MISC/${TD.year}/\\d{5}$`));
   assert.ok((r.body.data.warnings || []).some((w) => /default journal MISC/.test(w)),
     'warning names the MISC default');
 });
@@ -2018,12 +2019,12 @@ test('journal.post with explicit journalId mints that journal\'s sequence, no MI
     companyId: CO,
     journalId: String(jrows[0].journal_id),
     lines: [
-      { account_code: EXP, debit: 30, date: '2026-07-21', description: 'ref doctrine test 2' },
-      { account_code: AP, credit: 30, date: '2026-07-21', description: 'ref doctrine test 2' },
+      { account_code: EXP, debit: 30, date: TD.day21, description: 'ref doctrine test 2' },
+      { account_code: AP, credit: 30, date: TD.day21, description: 'ref doctrine test 2' },
     ],
   });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.match(String(r.body.data.reference), /^ADJ\/2026\/\d{5}$/);
+  assert.match(String(r.body.data.reference), new RegExp(`^ADJ/${TD.year}/\\d{5}$`));
   assert.ok(!(r.body.data.warnings || []).some((w) => /default journal MISC/.test(w)));
 });
 
@@ -2032,22 +2033,22 @@ test('journal.import: reference-less entries get MISC sequences; carried referen
     companyId: CO,
     entries: [
       { lines: [
-        { account_code: EXP, debit: 40, date: '2026-07-22' },
-        { account_code: AP, credit: 40, date: '2026-07-22' },
+        { account_code: EXP, debit: 40, date: TD.day22 },
+        { account_code: AP, credit: 40, date: TD.day22 },
       ] },
       { lines: [
-        { account_code: EXP, debit: 45, date: '2026-07-22', reference: 'LEGACY-KEEP-1' },
-        { account_code: AP, credit: 45, date: '2026-07-22' },
+        { account_code: EXP, debit: 45, date: TD.day22, reference: 'LEGACY-KEEP-1' },
+        { account_code: AP, credit: 45, date: TD.day22 },
       ] },
     ],
   });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(Number(r.body.data.referencesMinted), 1, 'exactly one entry needed a minted reference');
   const rows = await sql(baseUrl, srv.adminToken,
-    `SELECT DISTINCT reference FROM journal_entries WHERE company_id='CT' AND date='2026-07-22' AND source='csv_import'`);
+    `SELECT DISTINCT reference FROM journal_entries WHERE company_id='CT' AND date='${TD.day22}' AND source='csv_import'`);
   const refs = rows.map((x) => String(x.reference));
   assert.ok(refs.includes('LEGACY-KEEP-1'), 'carried reference preserved');
-  assert.ok(refs.some((x) => /^MISC\/2026\/\d{5}$/.test(x)), 'minted MISC sequence present');
+  assert.ok(refs.some((x) => new RegExp(`^MISC/${TD.year}/\\d{5}$`).test(x)), 'minted MISC sequence present');
 });
 
 // ── A5: unified action inbox (§10) — inbox.list aggregator ─────────────────
@@ -2078,8 +2079,8 @@ test('A5: inbox.list returns proposed items normalized', async () => {
     reference: 'A5-REF',
     description: 'A5 inbox expense',
     lines: [
-      { account_code: exp5, debit: 50, date: '2026-07-20', description: 'A5 inbox expense' },
-      { account_code: ap5, credit: 50, date: '2026-07-20', description: 'A5 inbox expense' },
+      { account_code: exp5, debit: 50, date: TD.day20, description: 'A5 inbox expense' },
+      { account_code: ap5, credit: 50, date: TD.day20, description: 'A5 inbox expense' },
     ],
   });
   assert.equal(propose.status, 200, JSON.stringify(propose.body));
@@ -2116,8 +2117,8 @@ test('A5: inbox.list rejected filter', async () => {
   const propose = await api(baseUrl, 'journal.propose', {
     companyId: CO5, userEmail: 'agent@ct', requestId: 'req-a5-rej',
     lines: [
-      { account_code: exp5, debit: 30, date: '2026-07-20', description: 'A5 reject me' },
-      { account_code: ap5, credit: 30, date: '2026-07-20', description: 'A5 reject me' },
+      { account_code: exp5, debit: 30, date: TD.day20, description: 'A5 reject me' },
+      { account_code: ap5, credit: 30, date: TD.day20, description: 'A5 reject me' },
     ],
   });
   assert.equal(propose.status, 200, JSON.stringify(propose.body));

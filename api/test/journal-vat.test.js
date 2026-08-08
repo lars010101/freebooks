@@ -20,7 +20,8 @@
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { startTestServer, api, sql } = require('../test-utils/helpers');
+const { startTestServer, api, sql, testDates } = require('../test-utils/helpers');
+const TD = testDates();
 
 let srv;
 let baseUrl;
@@ -45,27 +46,18 @@ before(async () => {
       company_name: 'JV Test AB',
       jurisdiction: 'SE',
       currency: 'SEK',
-      fy_start: '2026-01-01',
-      fy_end: '2026-12-31',
+      fy_start: TD.fyStart,
+      fy_end: TD.fyEnd,
       vat_registered: true,
     },
   });
   assert.equal(c.status, 200, `setup.add_company failed: ${JSON.stringify(c.body)}`);
 
-  // Period covering the test date + the current month (reversal defaults use today).
+  // Period covering the current month (reversal defaults use today).
   await api(baseUrl, 'period.upsert', {
     companyId: CO,
-    period: { period_id: '2026-07', start_date: '2026-07-01', end_date: '2026-07-31' },
+    period: { period_id: TD.periodId, start_date: TD.startDate, end_date: TD.endDate },
   });
-  const curId = new Date().toISOString().slice(0, 7);
-  if (curId !== '2026-07') {
-    const [y, m] = curId.split('-').map(Number);
-    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-    await api(baseUrl, 'period.upsert', {
-      companyId: CO,
-      period: { period_id: curId, start_date: `${curId}-01`, end_date: `${curId}-${String(lastDay).padStart(2, '0')}` },
-    });
-  }
 
   // Grant an owner so journal.post is authorized (inline — matches contract.test.js).
   await sql(baseUrl, srv.adminToken,
@@ -107,8 +99,8 @@ function sum(rows, field) {
 
 test('tax-exclusive journal: 1000 net + SE25 → expense DR 1000, VAT DR 250, offset CR 1250', async () => {
   const { entries } = await postAndFetch([
-    { account_code: EXP1.account_code, debit: 1000, vat_code: 'SE25', date: '2026-07-15', description: 'office supplies' },
-    { account_code: AP.account_code, credit: 1250, date: '2026-07-15', description: 'offset' },
+    { account_code: EXP1.account_code, debit: 1000, vat_code: 'SE25', date: TD.day15, description: 'office supplies' },
+    { account_code: AP.account_code, credit: 1250, date: TD.day15, description: 'offset' },
   ], 'std-vat');
 
   // Three lines: expense (4010), VAT GL (2641), offset (2440).
@@ -145,9 +137,9 @@ test('tax-exclusive journal: 1000 net + SE25 → expense DR 1000, VAT DR 250, of
 
 test('per-code grouping: two lines same SE25 code → ONE VAT GL line of 500', async () => {
   const { entries } = await postAndFetch([
-    { account_code: EXP1.account_code, debit: 1000, vat_code: 'SE25', date: '2026-07-16', description: 'line A' },
-    { account_code: EXP2.account_code, debit: 1000, vat_code: 'SE25', date: '2026-07-16', description: 'line B' },
-    { account_code: AP.account_code, credit: 2500, date: '2026-07-16', description: 'offset' },
+    { account_code: EXP1.account_code, debit: 1000, vat_code: 'SE25', date: TD.day16, description: 'line A' },
+    { account_code: EXP2.account_code, debit: 1000, vat_code: 'SE25', date: TD.day16, description: 'line B' },
+    { account_code: AP.account_code, credit: 2500, date: TD.day16, description: 'offset' },
   ], 'grouping');
 
   // Two expense lines + ONE VAT GL line + one offset = 4 lines.
@@ -174,8 +166,8 @@ test('per-code grouping: two lines same SE25 code → ONE VAT GL line of 500', a
 
 test('reverse charge: SERC → DR input (2645) + CR output (2614), nets to zero', async () => {
   const { entries } = await postAndFetch([
-    { account_code: EXP1.account_code, debit: 1000, vat_code: 'SERC', date: '2026-07-17', description: 'EU purchase RC' },
-    { account_code: AP.account_code, credit: 1000, date: '2026-07-17', description: 'offset (net — RC self-assessed)' },
+    { account_code: EXP1.account_code, debit: 1000, vat_code: 'SERC', date: TD.day17, description: 'EU purchase RC' },
+    { account_code: AP.account_code, credit: 1000, date: TD.day17, description: 'offset (net — RC self-assessed)' },
   ], 'rc');
 
   // expense + RC input + RC output + offset = 4 lines.
@@ -219,8 +211,8 @@ test('reverse charge: SERC → DR input (2645) + CR output (2614), nets to zero'
 
 test('no VAT code: a plain pair posts with no VAT GL expansion', async () => {
   const { entries } = await postAndFetch([
-    { account_code: EXP1.account_code, debit: 100, date: '2026-07-18', description: 'plain' },
-    { account_code: AP.account_code, credit: 100, date: '2026-07-18', description: 'plain offset' },
+    { account_code: EXP1.account_code, debit: 100, date: TD.day18, description: 'plain' },
+    { account_code: AP.account_code, credit: 100, date: TD.day18, description: 'plain offset' },
   ], 'no-vat');
 
   // Exactly two lines — no VAT GL lines added.

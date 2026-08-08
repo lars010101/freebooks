@@ -16,7 +16,8 @@
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { startTestServer, api, sql, seedCompany } = require('../test-utils/helpers');
+const { startTestServer, api, sql, seedCompany, testDates } = require('../test-utils/helpers');
+const TD = testDates();
 
 let srv;
 let baseUrl;
@@ -85,7 +86,7 @@ test('§6: matchMapping — longest pattern wins over shorter', async () => {
 
   // "PAYPAL FEE CHARGED" should match the narrower rule (longer pattern)
   const r = await agentApi('bank.match', {
-    line: { date: '2026-07-15', amount: -50, description: 'PAYPAL FEE CHARGED' },
+    line: { date: TD.day15, amount: -50, description: 'PAYPAL FEE CHARGED' },
     bankAccount: BANK,
   });
   assert.equal(r.status, 200, `bank.match failed: ${JSON.stringify(r.body)}`);
@@ -110,7 +111,7 @@ test('§5: amount_sign — positive rule does not match negative amount', async 
 
   // Positive amount → should match
   const r1 = await agentApi('bank.match', {
-    line: { date: '2026-07-15', amount: 100, description: 'STRIPE PAYMENT' },
+    line: { date: TD.day15, amount: 100, description: 'STRIPE PAYMENT' },
     bankAccount: BANK,
   });
   assert.equal(r1.status, 200);
@@ -118,7 +119,7 @@ test('§5: amount_sign — positive rule does not match negative amount', async 
 
   // Negative amount → should NOT match
   const r2 = await agentApi('bank.match', {
-    line: { date: '2026-07-15', amount: -30, description: 'STRIPE FEE' },
+    line: { date: TD.day15, amount: -30, description: 'STRIPE FEE' },
     bankAccount: BANK,
   });
   assert.equal(r2.status, 200, `bank.match (negative) failed: ${JSON.stringify(r2.body)}`);
@@ -135,13 +136,13 @@ test('§5: amount_sign=any matches both directions (backward-compatible)', async
   });
 
   const r1 = await agentApi('bank.match', {
-    line: { date: '2026-07-15', amount: 100, description: 'SUBSCRIPTION PAYMENT' },
+    line: { date: TD.day15, amount: 100, description: 'SUBSCRIPTION PAYMENT' },
     bankAccount: BANK,
   });
   assert.equal(r1.body.data.matched, true, 'any should match positive');
 
   const r2 = await agentApi('bank.match', {
-    line: { date: '2026-07-15', amount: -100, description: 'SUBSCRIPTION REFUND' },
+    line: { date: TD.day15, amount: -100, description: 'SUBSCRIPTION REFUND' },
     bankAccount: BANK,
   });
   assert.equal(r2.body.data.matched, true, 'any should match negative');
@@ -224,8 +225,8 @@ test('§1: matching_history.record fires on journal.approve', async () => {
   // Propose a journal entry with match_meta
   const propose = await agentApi('journal.propose', {
     lines: [
-      { account_code: BANK, debit: 0, credit: 100, date: '2026-07-15', description: 'TEST MATCH HIST' },
-      { account_code: EXP, debit: 100, credit: 0, date: '2026-07-15', description: 'TEST MATCH HIST' },
+      { account_code: BANK, debit: 0, credit: 100, date: TD.day15, description: 'TEST MATCH HIST' },
+      { account_code: EXP, debit: 100, credit: 0, date: TD.day15, description: 'TEST MATCH HIST' },
     ],
     description: 'TEST MATCH HIST',
     proposalId: 'prop_hist_1',
@@ -249,8 +250,8 @@ test('§1: matching_history.record fires on journal.reject with outcome=rejected
   // Propose
   const propose = await agentApi('journal.propose', {
     lines: [
-      { account_code: BANK, debit: 0, credit: 50, date: '2026-07-15', description: 'TEST REJECT HIST' },
-      { account_code: EXP, debit: 50, credit: 0, date: '2026-07-15', description: 'TEST REJECT HIST' },
+      { account_code: BANK, debit: 0, credit: 50, date: TD.day15, description: 'TEST REJECT HIST' },
+      { account_code: EXP, debit: 50, credit: 0, date: TD.day15, description: 'TEST REJECT HIST' },
     ],
     description: 'TEST REJECT HIST',
     proposalId: 'prop_reject_1',
@@ -276,8 +277,8 @@ test('§3.1: crystallization creates mapping suggestion on unedited tier-4 appro
   // Propose a tier-4 (LLM) proposal
   const propose = await agentApi('journal.propose', {
     lines: [
-      { account_code: BANK, debit: 0, credit: 200, date: '2026-07-16', description: 'CRYSTAL TEST VENDOR' },
-      { account_code: EXP, debit: 200, credit: 0, date: '2026-07-16', description: 'CRYSTAL TEST VENDOR' },
+      { account_code: BANK, debit: 0, credit: 200, date: TD.day16, description: 'CRYSTAL TEST VENDOR' },
+      { account_code: EXP, debit: 200, credit: 0, date: TD.day16, description: 'CRYSTAL TEST VENDOR' },
     ],
     description: 'CRYSTAL TEST VENDOR',
     proposalId: 'prop_crystal_1',
@@ -304,8 +305,8 @@ test('§3.1: crystallization does NOT fire on non-tier-4 approval', async () => 
   // Propose a tier-1 (learned rule) proposal
   const propose = await agentApi('journal.propose', {
     lines: [
-      { account_code: BANK, debit: 0, credit: 75, date: '2026-07-17', description: 'NO CRYSTAL TEST' },
-      { account_code: EXP, debit: 75, credit: 0, date: '2026-07-17', description: 'NO CRYSTAL TEST' },
+      { account_code: BANK, debit: 0, credit: 75, date: TD.day17, description: 'NO CRYSTAL TEST' },
+      { account_code: EXP, debit: 75, credit: 0, date: TD.day17, description: 'NO CRYSTAL TEST' },
     ],
     description: 'NO CRYSTAL TEST',
     proposalId: 'prop_no_crystal_1',
@@ -341,7 +342,7 @@ test('§2: tier 3.5 returns historical match after prior approval', async () => 
     const dims = JSON.parse(histCheck[0].approved_dimensions || '{}');
 
     const r = await agentApi('bank.match', {
-      line: { date: '2026-07-20', amount: 100, description: pattern },
+      line: { date: TD.day20, amount: 100, description: pattern },
       bankAccount: BANK,
     });
     assert.equal(r.status, 200);
@@ -409,8 +410,8 @@ test('mapping.suggestion.approve inherits amount_sign and match_type', async () 
 test('_match_meta is persisted on journal_proposals', async () => {
   const propose = await agentApi('journal.propose', {
     lines: [
-      { account_code: BANK, debit: 0, credit: 10, date: '2026-07-18', description: 'META TEST' },
-      { account_code: EXP, debit: 10, credit: 0, date: '2026-07-18', description: 'META TEST' },
+      { account_code: BANK, debit: 0, credit: 10, date: TD.day18, description: 'META TEST' },
+      { account_code: EXP, debit: 10, credit: 0, date: TD.day18, description: 'META TEST' },
     ],
     description: 'META TEST',
     proposalId: 'prop_meta_1',

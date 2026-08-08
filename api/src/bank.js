@@ -539,7 +539,7 @@ async function matchLine(ctx) {
   // v1: case-insensitive substring of vendor name in the description. The spec
   // mentions trigram similarity but says it's simplified for small companies.
   const vendors = await query(
-    `SELECT vendor_id, name, default_expense_account AS expense_account FROM vendors WHERE company_id = @companyId`,
+    `SELECT partner_id, name, default_expense_account AS expense_account FROM partners WHERE company_id = @companyId AND is_vendor = TRUE`,
     { companyId }
   );
   if (vendors.length > 0) {
@@ -575,17 +575,17 @@ async function matchLine(ctx) {
         confidence: {
           account:      { value: expenseAccount,           confidence: 0.50, derived_from: [] },
           vat_code:      { value: null,                    confidence: 0,    derived_from: [] },
-          counterparty:  { value: bestVendor.vendor_id,    confidence: 0.70, derived_from: [] },
+          counterparty:  { value: bestVendor.partner_id,    confidence: 0.70, derived_from: [] },
         },
         evidence: [{
           type: 'counterparty_name_fuzzy',
           description: `Description '${line.description}' matches vendor '${bestVendor.name}'`,
-          vendor_id: bestVendor.vendor_id,
+          partner_id: bestVendor.partner_id,
         }],
         suggested_dimensions: {
           account: expenseAccount,
           vat_code: null,
-          counterparty: bestVendor.vendor_id,
+          counterparty: bestVendor.partner_id,
           cost_center: null,
           profit_center: null,
         },

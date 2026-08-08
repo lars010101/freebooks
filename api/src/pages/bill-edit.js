@@ -163,7 +163,7 @@ function apiAction(action, payload) {
 
 // ── Load ────────────────────────────────────────────────────────────────────
 Promise.all([
-  apiAction('vendor.list').then(d => { S.vendors = d || []; }),
+  apiAction('partner.list', { partner_type: 'vendor' }).then(d => { S.vendors = d || []; }),
   apiAction('coa.list').then(d => { S.accounts = d || []; }),
   ...(VAT_ON ? [apiAction('vat.codes.list').then(d => { S.vatCodes = d || []; })] : []),
   apiAction('center.list').then(d => { S.centers = d || []; }),

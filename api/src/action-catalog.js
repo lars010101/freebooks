@@ -530,21 +530,51 @@ const ACTIONS = {
     description: 'Delete a journal.',
     params: { journalId: { type: 'string', required: true } },
   },
-  'vendor.list': { role: 'viewer', mutating: false, description: 'List vendors.' },
-  'vendor.save': {
-    role: 'owner', mutating: true,
-    description: 'Replace vendors (bulk).',
-    params: { vendors: { type: 'array', required: true } },
+  'partner.list': {
+    role: 'viewer', mutating: false,
+    description: 'List partners (vendors and/or customers). Optional partner_type filter: vendor or customer.',
+    params: { partner_type: { type: 'string' } },
   },
-  'vendor.delete': {
+  'partner.save': {
     role: 'owner', mutating: true,
-    description: 'Delete a vendor.',
-    params: { vendorId: { type: 'string', required: true } },
+    description: 'Replace partners (bulk).',
+    params: { partners: { type: 'array', required: true } },
   },
-  'vendor.upsert': {
+  'partner.delete': {
     role: 'owner', mutating: true,
-    description: 'Insert or update one vendor.',
-    params: { vendor: { type: 'object', required: true } },
+    description: 'Delete a partner.',
+    params: { partnerId: { type: 'string', required: true } },
+  },
+  'partner.upsert': {
+    role: 'owner', mutating: true,
+    description: 'Insert or update one partner (vendor or customer).',
+    params: { partner: { type: 'object', required: true } },
+  },
+
+  // ── Partner proposals (partner-proposal-spec §4.2) ───────────────────────
+  'partner.propose': {
+    role: 'agent', mutating: true, idempotent: true, agentWritable: true,
+    description: 'Agent proposes a new partner for human approval. Writes to partner_proposals, never to partners.',
+    params: { name: { type: 'string', required: true }, evidence: { type: 'object', required: true } },
+  },
+  'partner.proposal.approve': {
+    role: 'data_entry', mutating: true,
+    description: 'Approve a partner proposal — inserts into partners (human-attributed), auto-learns mapping if applicable.',
+    params: { proposalId: { type: 'string', required: true } },
+  },
+  'partner.proposal.reject': {
+    role: 'data_entry', mutating: true,
+    description: 'Reject a partner proposal (terminal). No note required.',
+    params: { proposalId: { type: 'string', required: true } },
+  },
+  'partner.proposal.list': {
+    role: 'viewer', mutating: false,
+    description: 'List partner proposals (filter by status: proposed/approved/rejected).',
+  },
+  'partner.proposal.get': {
+    role: 'viewer', mutating: false,
+    description: 'Get one partner proposal by id.',
+    params: { proposalId: { type: 'string', required: true } },
   },
 
   // ── Settings / company / periods / permissions ───────────────────────────
@@ -703,8 +733,8 @@ const PALETTE = {
   'coa.update':             { palette: 'navigate', route: '/settings?tab=coa' },
   'coa.upsert':             { palette: 'navigate', route: '/settings?tab=coa' },
   'vat.codes.upsert':       { palette: 'navigate', route: '/settings?tab=vat' },
-  'vendor.save':            { palette: 'navigate', route: '/payables?tab=vendors' },
-  'vendor.upsert':          { palette: 'navigate', route: '/payables?tab=vendors' },
+  'partner.save':            { palette: 'navigate', route: '/payables?tab=partners' },
+  'partner.upsert':          { palette: 'navigate', route: '/payables?tab=partners' },
   'period.save':            { palette: 'navigate', route: '/periods' },
   'period.upsert':          { palette: 'navigate', route: '/periods' },
   'period.close':           { palette: 'navigate', route: '/settings?tab=periods' },

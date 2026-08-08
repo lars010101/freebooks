@@ -1,6 +1,6 @@
 'use strict';
 
-function vendorsTabJS() {
+function partnersTabJS() {
   return `
 // ========== VENDORS — FB.list (P3 consolidated) ==========
 // The Vendors register is a declarative FB.list config. The framework owns the
@@ -81,7 +81,7 @@ function vendorActiveBadge(v) {
 var vendorsList = FB.list.create({
   keysId: 'vendors',
   active: function() {
-    var panel = document.getElementById('pay-panel-vendors');
+    var panel = document.getElementById('pay-panel-partners');
     return !!panel && panel.style.display !== 'none';
   },
   tbody: 'vendors-body',
@@ -97,19 +97,23 @@ var vendorsList = FB.list.create({
     { field: 'payment_terms_days', type: 'number', width: 55, align: 'center', filterType: 'amount' },
     { field: 'default_expense_account', type: 'text', width: 130, attach: vendorAttachAcct },
     { field: 'default_ap_account', type: 'text', width: 130, attach: vendorAttachAcct },
+    { field: 'is_vendor', type: 'checkbox', align: 'center', width: 50, display: function(v) { return v !== false ? 'V' : '\u2014'; } },
+    { field: 'is_customer', type: 'checkbox', align: 'center', width: 50, display: function(v) { return v === true ? 'C' : '\u2014'; } },
     { field: 'is_active', type: 'checkbox', align: 'center', ro: 'always', display: vendorActiveBadge }
   ],
-  blank: function() { return { name: '', default_currency: '', payment_terms_days: 30, default_expense_account: '', default_ap_account: '', is_active: true }; },
+  blank: function() { return { name: '', default_currency: '', payment_terms_days: 30, default_expense_account: '', default_ap_account: '', is_vendor: true, is_customer: false, is_active: true }; },
   isBlank: function(b) { return !b.name; },
   same: function(b, s) {
     return b.name === (s.name || '')
       && b.default_currency === (s.default_currency || '')
       && b.payment_terms_days === (s.payment_terms_days != null ? s.payment_terms_days : 30)
       && b.default_expense_account === (s.default_expense_account || '')
-      && b.default_ap_account === (s.default_ap_account || '');
+      && b.default_ap_account === (s.default_ap_account || '')
+      && (b.is_vendor !== false) === (s.is_vendor !== false)
+      && (b.is_customer === true) === (s.is_customer === true);
   },
   validate: function(d) {
-    if (!d.name) return 'Vendor name required.';
+    if (!d.name) return 'Partner name required.';
     if (d.default_currency && vendorCurrenciesList.length) {
       var ok = vendorCurrenciesList.some(function(c){ return (c.code || '').toUpperCase() === d.default_currency; });
       if (!ok) return 'Unknown currency: ' + d.default_currency;
@@ -118,16 +122,16 @@ var vendorsList = FB.list.create({
   },
   firstField: function() { return 'name'; },
   track: 'vendor',
-  list: { action: 'vendor.list',
-    map: function(v) { return { vendor_id: v.vendor_id, name: v.name || '', default_currency: v.default_currency || '', payment_terms_days: v.payment_terms_days != null ? v.payment_terms_days : 30, default_expense_account: v.default_expense_account || '', default_ap_account: v.default_ap_account || '', is_active: v.is_active !== false, _key: v.vendor_id }; } },
+  list: { action: 'partner.list',
+    map: function(v) { return { vendor_id: v.partner_id, name: v.name || '', default_currency: v.default_currency || '', payment_terms_days: v.payment_terms_days != null ? v.payment_terms_days : 30, default_expense_account: v.default_expense_account || '', default_ap_account: v.default_ap_account || '', is_active: v.is_active !== false, _key: v.partner_id }; } },
   // payables-bills.js's bill vendor dropdown reads the raw allVendors array.
   onLoaded: function(saved) { window.allVendors = saved; },
-  save: { action: 'vendor.upsert',
-    body: function(d) { return { vendor: { vendor_id: d._isNew ? null : d._key, name: d.name, default_currency: d.default_currency || null, payment_terms_days: parseInt(d.payment_terms_days, 10) || 30, default_expense_account: d.default_expense_account || null, default_ap_account: d.default_ap_account || null, is_active: d.is_active !== false } }; },
-    focusKey: function(d, res) { return d._isNew ? (res.vendorId || d._key) : d._key; } },
-  del: { action: 'vendor.delete',
-    body: function(d) { return { vendorId: d._key }; },
-    confirm: function(d) { return 'Delete vendor "' + (d.name || d._key) + '"?'; } },
+  save: { action: 'partner.upsert',
+    body: function(d) { return { vendor: { partner_id: d._isNew ? null : d._key, name: d.name, default_currency: d.default_currency || null, payment_terms_days: parseInt(d.payment_terms_days, 10) || 30, default_expense_account: d.default_expense_account || null, default_ap_account: d.default_ap_account || null, is_active: d.is_active !== false } }; },
+    focusKey: function(d, res) { return d._isNew ? (res.partnerId || d._key) : d._key; } },
+  del: { action: 'partner.delete',
+    body: function(d) { return { partnerId: d._key }; },
+    confirm: function(d) { return 'Delete partner "' + (d.name || d._key) + '"?'; } },
   extraBindings: function(api) {
     return [
       { key: '~', mode: 'NORMAL', hint: 'toggle active', hintBar: true,
@@ -135,13 +139,13 @@ var vendorsList = FB.list.create({
         run: function() {
           var d = api.focusedRow();
           if (!d || d._isNew) return;
-          var v = { vendor_id: d._key, name: d.name, default_currency: d.default_currency || null,
+          var v = { partner_id: d._key, name: d.name, default_currency: d.default_currency || null,
             payment_terms_days: d.payment_terms_days != null ? d.payment_terms_days : 30,
             default_expense_account: d.default_expense_account || null,
             default_ap_account: d.default_ap_account || null,
             is_active: d.is_active === false };
           fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ action:'vendor.upsert', companyId: COMPANY, vendor: v }) })
+            body: JSON.stringify({ action:'partner.upsert', companyId: COMPANY, partner: v }) })
             .then(function(r){ return r.json(); })
             .then(function(res){
               var dd = res.data || res;
@@ -170,10 +174,10 @@ FB.mode.onChange(function(m) {
 // Deep-link: ?tab=vendors opens the Vendors tab directly (palette navigate
 // entries target it — magnus K1 review 2026-07-28). Runs at the end of the
 // combined script block: showPayTab (billsTabJS) + vendorsList both exist.
-if ((new URLSearchParams(window.location.search)).get('tab') === 'vendors') {
-  showPayTab('vendors');
+if ((new URLSearchParams(window.location.search)).get('tab') === 'partners') {
+  showPayTab('partners');
 }
 `;
 }
 
-module.exports = { vendorsTabJS };
+module.exports = { partnersTabJS };

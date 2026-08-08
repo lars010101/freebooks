@@ -177,6 +177,98 @@ if (API_URL) {
       }
     }
 
+    // ── Partner-proposal-spec §7.1: vendors → partners migration ───────────
+    // Renames the vendors table to partners + vendor_id → partner_id, then adds
+    // is_vendor/is_customer/default_revenue_account/default_ar_account columns
+    // and updates indexes. Follows the applyUniqueConstraints() precedent:
+    // guarded (pre-checks if already migrated), feature-detects RENAME support
+    // with try/catch + CREATE+DROP fallback, never calls process.exit(1).
+    async function applyPartnersMigration() {
+      // Check whether vendors table still exists (pre-migration state)
+      let vendorExists;
+      try {
+        vendorExists = await conn.runAndReadAll(
+          `SELECT table_name FROM duckdb_tables() WHERE table_name = 'vendors'`, []);
+      } catch (e) {
+        console.warn(`\n⚠ Partners migration: duckdb_tables() check failed: ${e.message}`);
+        return;
+      }
+      if (vendorExists.getRowObjects().length === 0) return; // already migrated
+
+      // Check whether partners table already exists (partial migration?)
+      let partnerExists;
+      try {
+        partnerExists = await conn.runAndReadAll(
+          `SELECT table_name FROM duckdb_tables() WHERE table_name = 'partners'`, []);
+      } catch (e) {
+        console.warn(`\n⚠ Partners migration: partners table check failed: ${e.message}`);
+        return;
+      }
+      if (partnerExists.getRowObjects().length > 0) {
+        // partners exists but vendors still exists — drop vendors (data already migrated)
+        try {
+          await conn.run('DROP TABLE vendors', []);
+          console.log('Partners migration: dropped stale vendors table (partners already exists).');
+        } catch (e) {
+          console.warn(`\n⚠ Partners migration: could not drop vendors table: ${e.message}`);
+        }
+        return;
+      }
+
+      // Attempt RENAME TABLE + RENAME COLUMN
+      try {
+        await conn.run('ALTER TABLE vendors RENAME TO partners', []);
+        try {
+          await conn.run('ALTER TABLE partners RENAME COLUMN vendor_id TO partner_id', []);
+        } catch (colErr) {
+          console.warn(`RENAME COLUMN unsupported (${String(colErr.message).split('\n')[0]}) — partner_id rename skipped, column stays vendor_id`);
+        }
+        console.log('Vendors table renamed to partners.');
+      } catch (renameErr) {
+        // RENAME TABLE unsupported — fallback: CREATE TABLE + DROP TABLE
+        console.warn(`RENAME TABLE unsupported (${String(renameErr.message).split('\n')[0]}) — using CREATE+DROP fallback.`);
+        try {
+          await conn.run(
+            `CREATE TABLE partners AS SELECT
+              vendor_id AS partner_id, company_id, name, default_currency,
+              payment_terms_days, tax_id, notes, is_active, created_at,
+              default_expense_account, default_ap_account
+             FROM vendors`, []);
+          await conn.run('DROP TABLE vendors', []);
+          console.log('Partners table created from vendors (CREATE+DROP fallback).');
+        } catch (fallbackErr) {
+          console.warn(`\n⚠⚠ Partners migration CREATE+DROP fallback failed: ${fallbackErr.message}. Manual migration required.`);
+          return;
+        }
+      }
+
+      // Add partner-type flags + AR-side columns (after rename, so table exists)
+      const addColumns = [
+        'ALTER TABLE partners ADD COLUMN IF NOT EXISTS is_vendor BOOLEAN DEFAULT TRUE',
+        'ALTER TABLE partners ADD COLUMN IF NOT EXISTS is_customer BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_revenue_account VARCHAR',
+        'ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_ar_account VARCHAR',
+      ];
+      for (const sql of addColumns) {
+        try { await conn.run(sql, []); }
+        catch (e) { console.warn(`Partners migration: ${sql.slice(0, 60)} failed: ${e.message}`); }
+      }
+
+      // Update indexes (old indexes reference vendors table name)
+      const indexOps = [
+        'DROP INDEX IF EXISTS idx_vendors_company',
+        'DROP INDEX IF EXISTS idx_vendors_name',
+        'CREATE INDEX IF NOT EXISTS idx_partners_company ON partners(company_id)',
+        'CREATE INDEX IF NOT EXISTS idx_partners_name ON partners(name)',
+        'CREATE INDEX IF NOT EXISTS idx_partners_vendor ON partners(company_id, is_vendor)',
+        'CREATE INDEX IF NOT EXISTS idx_partners_customer ON partners(company_id, is_customer)',
+      ];
+      for (const sql of indexOps) {
+        try { await conn.run(sql, []); }
+        catch (e) { console.warn(`Partners migration: ${sql.slice(0, 60)} failed: ${e.message}`); }
+      }
+    }
+
     async function runNext(i) {
       if (i >= statements.length) {
         console.log(`\nSchema applied (${statements.length} statements).`);
@@ -200,6 +292,14 @@ if (API_URL) {
       }
     }
 
+    // Run the partners migration BEFORE schema.sql statements — an existing
+    // DB has a `vendors` table that must be renamed to `partners` (preserving
+    // data) before `CREATE TABLE IF NOT EXISTS partners` in schema.sql runs.
+    // On a fresh DB, applyPartnersMigration() finds no `vendors` table and
+    // no-ops.  This prevents the data-loss race where schema.sql creates an
+    // empty `partners` table first, causing the migration to DROP the real
+    // `vendors` data.
+    await applyPartnersMigration();
     await runNext(0);
   } // end runSchema
 }

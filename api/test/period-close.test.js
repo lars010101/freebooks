@@ -10,7 +10,8 @@
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { startTestServer, api, sql, seedCompany } = require('../test-utils/helpers');
+const { startTestServer, api, sql, seedCompany, testDates } = require('../test-utils/helpers');
+const TD = testDates();
 
 let srv;
 let baseUrl;
@@ -41,7 +42,7 @@ before(async () => {
 after(async () => { await srv.cleanup(); });
 
 // Helper: post a revenue journal entry to create a non-zero P&L
-async function postRevenue(amount, date = '2026-07-15') {
+async function postRevenue(amount, date = TD.day15) {
   const r = await api(baseUrl, 'journal.post', {
     companyId: CO,
     userEmail: 'owner@pct',
@@ -55,7 +56,7 @@ async function postRevenue(amount, date = '2026-07-15') {
 }
 
 // Helper: post an expense journal entry
-async function postExpense(amount, date = '2026-07-16') {
+async function postExpense(amount, date = TD.day16) {
   const r = await api(baseUrl, 'journal.post', {
     companyId: CO,
     userEmail: 'owner@pct',
@@ -79,26 +80,26 @@ test('period.close posts a balanced closing entry for a profitable period', asyn
   await api(baseUrl, 'journal.post', {
     companyId: CO2, userEmail: 'owner@pct',
     lines: [
-      { account_code: seeded.AP, debit: 200, date: '2026-07-15', description: 'rev' },
-      { account_code: seeded.accounts.find(a => a.account_type === 'Revenue').account_code, credit: 200, date: '2026-07-15', description: 'rev' },
+      { account_code: seeded.AP, debit: 200, date: TD.day15, description: 'rev' },
+      { account_code: seeded.accounts.find(a => a.account_type === 'Revenue').account_code, credit: 200, date: TD.day15, description: 'rev' },
     ],
   });
   await api(baseUrl, 'journal.post', {
     companyId: CO2, userEmail: 'owner@pct',
     lines: [
-      { account_code: seeded.EXP, debit: 50, date: '2026-07-16', description: 'exp' },
-      { account_code: seeded.AP, credit: 50, date: '2026-07-16', description: 'exp' },
+      { account_code: seeded.EXP, debit: 50, date: TD.day16, description: 'exp' },
+      { account_code: seeded.AP, credit: 50, date: TD.day16, description: 'exp' },
     ],
   });
 
   // Close the period
   const close = await api(baseUrl, 'period.close', {
     companyId: CO2, userEmail: 'owner@pct',
-    periodId: '2026-07',
+    periodId: TD.periodId,
   });
   assert.equal(close.status, 200, `period.close failed: ${JSON.stringify(close.body)}`);
   assert.equal(close.body.data.closed, true);
-  assert.equal(close.body.data.periodId, '2026-07');
+  assert.equal(close.body.data.periodId, TD.periodId);
   assert.equal(close.body.data.net, 150, 'net should be 200 revenue - 50 expense = 150');
   assert.ok(close.body.data.batchId, 'should return a batchId');
 
@@ -118,7 +119,7 @@ test('period.close posts a balanced closing entry for a profitable period', asyn
   assert.equal(Number(reLine.credit_home), 150, 'RE account credited (profit)');
   assert.equal(Number(reLine.debit_home), 0);
   assert.equal(closingLine.source, 'period_close');
-  assert.equal(closingLine.reference, 'CLOSE/2026-07');
+  assert.equal(closingLine.reference, `CLOSE/${TD.periodId}`);
 });
 
 test('period.close is idempotent — second call detects existing close', async () => {
@@ -133,14 +134,14 @@ test('period.close is idempotent — second call detects existing close', async 
   await api(baseUrl, 'journal.post', {
     companyId: CO3, userEmail: 'owner@pct',
     lines: [
-      { account_code: seeded.AP, debit: 100, date: '2026-07-15', description: 'rev' },
-      { account_code: revAcct, credit: 100, date: '2026-07-15', description: 'rev' },
+      { account_code: seeded.AP, debit: 100, date: TD.day15, description: 'rev' },
+      { account_code: revAcct, credit: 100, date: TD.day15, description: 'rev' },
     ],
   });
 
   // First close
   const c1 = await api(baseUrl, 'period.close', {
-    companyId: CO3, userEmail: 'owner@pct', periodId: '2026-07',
+    companyId: CO3, userEmail: 'owner@pct', periodId: TD.periodId,
   });
   assert.equal(c1.status, 200);
   assert.equal(c1.body.data.closed, true);
@@ -148,7 +149,7 @@ test('period.close is idempotent — second call detects existing close', async 
 
   // Second close — should detect existing
   const c2 = await api(baseUrl, 'period.close', {
-    companyId: CO3, userEmail: 'owner@pct', periodId: '2026-07',
+    companyId: CO3, userEmail: 'owner@pct', periodId: TD.periodId,
   });
   assert.equal(c2.status, 200);
   assert.equal(c2.body.data.closed, true);
@@ -165,7 +166,7 @@ test('period.close on zero P&L returns early without posting', async () => {
 
   // No P&L entries posted — P&L net = 0
   const close = await api(baseUrl, 'period.close', {
-    companyId: CO4, userEmail: 'owner@pct', periodId: '2026-07',
+    companyId: CO4, userEmail: 'owner@pct', periodId: TD.periodId,
   });
   assert.equal(close.status, 200);
   assert.equal(close.body.data.closed, true);
@@ -203,20 +204,20 @@ test('period.close on loss posts C closing, D RE', async () => {
   await api(baseUrl, 'journal.post', {
     companyId: CO5, userEmail: 'owner@pct',
     lines: [
-      { account_code: revAcct, credit: 50, date: '2026-07-15', description: 'rev' },
-      { account_code: seeded.AP, debit: 50, date: '2026-07-15', description: 'rev' },
+      { account_code: revAcct, credit: 50, date: TD.day15, description: 'rev' },
+      { account_code: seeded.AP, debit: 50, date: TD.day15, description: 'rev' },
     ],
   });
   await api(baseUrl, 'journal.post', {
     companyId: CO5, userEmail: 'owner@pct',
     lines: [
-      { account_code: seeded.EXP, debit: 200, date: '2026-07-16', description: 'exp' },
-      { account_code: seeded.AP, credit: 200, date: '2026-07-16', description: 'exp' },
+      { account_code: seeded.EXP, debit: 200, date: TD.day16, description: 'exp' },
+      { account_code: seeded.AP, credit: 200, date: TD.day16, description: 'exp' },
     ],
   });
 
   const close = await api(baseUrl, 'period.close', {
-    companyId: CO5, userEmail: 'owner@pct', periodId: '2026-07',
+    companyId: CO5, userEmail: 'owner@pct', periodId: TD.periodId,
   });
   assert.equal(close.status, 200);
   assert.equal(close.body.data.closed, true);
@@ -247,13 +248,13 @@ test('period.close audit log written', async () => {
   await api(baseUrl, 'journal.post', {
     companyId: CO6, userEmail: 'owner@pct',
     lines: [
-      { account_code: seeded.AP, debit: 75, date: '2026-07-15', description: 'rev' },
-      { account_code: revAcct, credit: 75, date: '2026-07-15', description: 'rev' },
+      { account_code: seeded.AP, debit: 75, date: TD.day15, description: 'rev' },
+      { account_code: revAcct, credit: 75, date: TD.day15, description: 'rev' },
     ],
   });
 
   await api(baseUrl, 'period.close', {
-    companyId: CO6, userEmail: 'owner@pct', periodId: '2026-07',
+    companyId: CO6, userEmail: 'owner@pct', periodId: TD.periodId,
   });
 
   const auditRows = await sql(baseUrl, srv.adminToken,
@@ -261,7 +262,7 @@ test('period.close audit log written', async () => {
   );
   assert.ok(auditRows.length >= 1, 'audit log row exists for period.close');
   assert.equal(auditRows[0].table_name, 'period');
-  assert.equal(auditRows[0].record_id, '2026-07');
+  assert.equal(auditRows[0].record_id, TD.periodId);
 });
 
 test('inbox.list includes period_unclosed items for unclosed past periods', async () => {
@@ -271,8 +272,13 @@ test('inbox.list includes period_unclosed items for unclosed past periods', asyn
     `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
      VALUES ('owner@pct', 'PCT7', 'owner', now(), 'test')`);
 
-  // The seeded period '2026-07' has end_date 2026-07-31 — which is in the past
-  // and has no close batch. It should surface as a period_unclosed item.
+  // Seed a PAST period (previous month) with no close batch — it should
+  // surface as a period_unclosed item. seedCompany seeds the current month
+  // (not past), so we explicitly add the previous month's period here.
+  await api(baseUrl, 'period.upsert', {
+    companyId: CO7,
+    period: { period_id: TD.prevPeriodId, start_date: TD.prevMonthStart, end_date: TD.prevMonthEnd },
+  });
   const inbox = await api(baseUrl, 'inbox.list', {
     companyId: CO7, userEmail: 'owner@pct', status: 'unclosed',
   });

@@ -110,44 +110,101 @@ async function sql(baseUrl, adminToken, query, params = []) {
 }
 
 /**
+ * Derive test dates from the PREVIOUS month so all transaction dates are
+ * guaranteed in the past (the server rejects future posting dates).  Tests
+ * import this and use the returned constants instead of hardcoded dates —
+ * the suite is wall-clock independent (issue #111).
+ */
+function testDates() {
+  const now = new Date();
+  let y = now.getUTCFullYear();
+  let m = now.getUTCMonth(); // 0-indexed
+
+  // Use the PREVIOUS month as the test month — all days are in the past.
+  if (m === 0) { y -= 1; m = 11; } else { m -= 1; }
+
+  const year = String(y);
+  const periodId = `${y}-${String(m + 1).padStart(2, '0')}`;
+  const monthStart = `${periodId}-01`;
+  const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const monthEnd = `${periodId}-${String(lastDay).padStart(2, '0')}`;
+  const d = (day) => `${periodId}-${String(day).padStart(2, '0')}`;
+
+  // Two months before the test month (for locked-period tests that need a
+  // DIFFERENT period, also in the past).
+  let prevY, prevM;
+  if (m === 0) { prevY = y - 1; prevM = 11; } else { prevY = y; prevM = m - 1; }
+  const prevPeriodId = `${prevY}-${String(prevM + 1).padStart(2, '0')}`;
+  const prevMonthStart = `${prevPeriodId}-01`;
+  const prevLastDay = new Date(Date.UTC(prevY, prevM + 1, 0)).getUTCDate();
+  const prevMonthEnd = `${prevPeriodId}-${String(prevLastDay).padStart(2, '0')}`;
+  const prevDay15 = `${prevPeriodId}-15`;
+
+  // Month AFTER the test month (= the current month — for A2 period-transition
+  // tests that need a non-test period; no transactions are posted to it).
+  let nextY, nextM;
+  if (m === 11) { nextY = y + 1; nextM = 0; } else { nextY = y; nextM = m + 1; }
+  const nextMonthId = `${nextY}-${String(nextM + 1).padStart(2, '0')}`;
+  const nextMonthStart = `${nextMonthId}-01`;
+  const nextMonthLastDay = new Date(Date.UTC(nextY, nextM + 1, 0)).getUTCDate();
+  const nextMonthEnd = `${nextMonthId}-${String(nextMonthLastDay).padStart(2, '0')}`;
+
+  // SIE format dates (YYYYMMDD, no dashes).
+  const sieDay = (day) => `${periodId.replace(/-/g, '')}${String(day).padStart(2, '0')}`;
+  const sieFYStart = `${y}0101`;
+  const sieFYEnd = `${y}1231`;
+
+  return {
+    year,
+    periodId,
+    startDate: monthStart,
+    endDate: monthEnd,
+    fyStart: `${y}-01-01`,
+    fyEnd: `${y}-12-31`,
+    day: d,
+    day15: d(15), day16: d(16), day17: d(17), day18: d(18),
+    day19: d(19), day20: d(20), day21: d(21), day22: d(22), day23: d(23),
+    day25: d(25),
+    prevPeriodId,
+    prevMonthStart,
+    prevMonthEnd,
+    prevDay15,
+    nextMonthId,
+    nextMonthStart,
+    nextMonthEnd,
+    sieDay,
+    sieDay15: sieDay(15),
+    sieFYStart,
+    sieFYEnd,
+  };
+}
+
+/**
  * Seed a company through the action API: jurisdiction COA + VAT codes, one
- * unlocked period covering 2026-07 plus one covering the run date (void
- * actions reverse with reversalDate = server "today" — without a covering
- * period the suite breaks on every month rollover), one vendor.
+ * unlocked period covering the previous month (all test dates are in the past;
+ * void actions reverse with reversalDate = server "today" — seedVoidCoverPeriod
+ * handles that separately), one vendor.
  * Returns handy account codes.
  */
 async function seedCompany(baseUrl, companyId, { jurisdiction = 'SG', currency = 'SGD' } = {}) {
+  const td = testDates();
   const c = await api(baseUrl, 'setup.add_company', {
     company: {
       company_id: companyId,
       company_name: `Test ${companyId}`,
       jurisdiction,
       currency,
-      fy_start: '2026-01-01',
-      fy_end: '2026-12-31',
+      fy_start: td.fyStart,
+      fy_end: td.fyEnd,
     },
   });
   if (c.status !== 200) throw new Error(`add_company failed: ${JSON.stringify(c.body)}`);
 
   const p = await api(baseUrl, 'period.upsert', {
     companyId,
-    period: { period_id: '2026-07', start_date: '2026-07-01', end_date: '2026-07-31' },
+    period: { period_id: td.periodId, start_date: td.startDate, end_date: td.endDate },
   });
   if (p.status !== 200) throw new Error(`period.upsert failed: ${JSON.stringify(p.body)}`);
-
-  // bill.void / bill.payment.void reverse via journal.reverse with no explicit
-  // reversalDate → server defaults to "today". Guarantee a period covers the
-  // run date, or those tests fail with PERIOD_UNDEFINED every month rollover.
-  const curId = new Date().toISOString().slice(0, 7); // YYYY-MM (UTC, matches server)
-  if (curId !== '2026-07') {
-    const [y, m] = curId.split('-').map(Number);
-    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate(); // day 0 of next month = last of this
-    const cp = await api(baseUrl, 'period.upsert', {
-      companyId,
-      period: { period_id: curId, start_date: `${curId}-01`, end_date: `${curId}-${String(lastDay).padStart(2, '0')}` },
-    });
-    if (cp.status !== 200) throw new Error(`current-month period.upsert failed: ${JSON.stringify(cp.body)}`);
-  }
 
   const v = await api(baseUrl, 'vendor.upsert', {
     companyId,
@@ -162,4 +219,4 @@ async function seedCompany(baseUrl, companyId, { jurisdiction = 'SG', currency =
   return { AP: ap && ap.account_code, EXP: exp && exp.account_code, accounts };
 }
 
-module.exports = { startTestServer, api, sql, seedCompany };
+module.exports = { startTestServer, api, sql, seedCompany, testDates };

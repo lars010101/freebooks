@@ -13,7 +13,8 @@
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { startTestServer, api, sql, seedCompany } = require('../test-utils/helpers');
+const { startTestServer, api, sql, seedCompany, testDates } = require('../test-utils/helpers');
+const TD = testDates();
 const { decodeBuffer } = require('../src/sie-import');
 
 let srv;
@@ -58,22 +59,22 @@ test('round-trip: A posts entries, export SIE, dryRun import into B writes nothi
   sa.EXP = sa.EXP || sa.accounts.find((a) => a.account_type === 'Expense')?.account_code;
   assert.ok(sa.EXP && sa.AP, 'SE BAS template yields AP + Expense accounts');
 
-  // SE template accounts are effective_from the company FY start (2026-01-01),
-  // so entries must post inside FY2026; seedCompany already created period 2026-07.
+  // SE template accounts are effective_from the company FY start,
+  // so entries must post inside the FY; seedCompany already created the current month period.
   // Post 3 balanced entries in A (2026-07-15, inside the seeded period).
   for (const amt of [100, 50, 25]) {
     const r = await api(baseUrl, 'journal.post', {
       companyId: A,
       lines: [
-        { account_code: sa.EXP, debit: amt, date: '2026-07-15', description: `entry ${amt}` },
-        { account_code: sa.AP, credit: amt, date: '2026-07-15', description: `entry ${amt}` },
+        { account_code: sa.EXP, debit: amt, date: TD.day15, description: `entry ${amt}` },
+        { account_code: sa.AP, credit: amt, date: TD.day15, description: `entry ${amt}` },
       ],
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
   }
 
   // Export A as SIE 4 for FY2026.
-  const sieRes = await fetch(`${baseUrl}/api/${A}/report?type=sie&start=2026-01-01&end=2026-12-31`);
+  const sieRes = await fetch(`${baseUrl}/api/${A}/report?type=sie&start=${TD.fyStart}&end=${TD.fyEnd}`);
   assert.equal(sieRes.status, 200);
   const sieBuf = Buffer.from(await sieRes.arrayBuffer());
   assert.ok(sieBuf.length > 0, 'SIE export non-empty');
@@ -131,7 +132,7 @@ test('jurisdiction gating: sie.import + SIE export reject non-SE companies', asy
   assert.equal(imp.status, 400, JSON.stringify(imp.body));
   assert.match(imp.body.error.message, /SIE import not available for jurisdiction SG/);
 
-  const exp = await fetch(`${baseUrl}/api/${SG}/report?type=sie&start=2026-01-01&end=2026-12-31`);
+  const exp = await fetch(`${baseUrl}/api/${SG}/report?type=sie&start=${TD.fyStart}&end=${TD.fyEnd}`);
   assert.equal(exp.status, 400);
   const expBody = await exp.json();
   assert.match(expBody.error, /SIE export not available for jurisdiction SG/);
@@ -140,7 +141,7 @@ test('jurisdiction gating: sie.import + SIE export reject non-SE companies', asy
   // minimal file reaches the normal response shape, not a gate rejection.
   const SE1 = 'SIE_SE1';
   await seedCompany(baseUrl, SE1, { jurisdiction: 'SE', currency: 'SEK' });
-  const okImp = await api(baseUrl, 'sie.import', { companyId: SE1, content: '#SIETYP 4\n#RAR 0 20260101 20261231\n' });
+  const okImp = await api(baseUrl, 'sie.import', { companyId: SE1, content: `#SIETYP 4\n#RAR 0 ${TD.sieFYStart} ${TD.sieFYEnd}\n` });
   assert.equal(okImp.status, 200, JSON.stringify(okImp.body));
 });
 
@@ -155,18 +156,18 @@ test('unbalanced #VER is failed, balanced #VER imports', async () => {
     '#PROGRAM "test" "1"',
     '#FORMAT PC8',
     '#SIETYP 4',
-    '#RAR 0 20250101 20251231',
+    `#RAR 0 ${TD.sieFYStart} ${TD.sieFYEnd}`,
     '#KONTO 1910 "Bank"',
     '#KONTO 2440 "AP"',
-    '#VER A 1 20250615 "balanced"',
+    `#VER A 1 ${TD.sieDay15} "balanced"`,
     '{',
-    '#TRANS 1910 {} 50 20250615',
-    '#TRANS 2440 {} -50 20250615',
+    `#TRANS 1910 {} 50 ${TD.sieDay15}`,
+    `#TRANS 2440 {} -50 ${TD.sieDay15}`,
     '}',
-    '#VER A 2 20250615 "unbalanced"',
+    `#VER A 2 ${TD.sieDay15} "unbalanced"`,
     '{',
-    '#TRANS 1910 {} 30 20250615',
-    '#TRANS 2440 {} -10 20250615',
+    `#TRANS 1910 {} 30 ${TD.sieDay15}`,
+    `#TRANS 2440 {} -10 ${TD.sieDay15}`,
     '}',
     '',
   ].join('\r\n');
@@ -198,14 +199,14 @@ test('#RTRANS excluded, #BTRANS included — imported lines reflect TRANS+BTRANS
     '#PROGRAM "test" "1"',
     '#FORMAT PC8',
     '#SIETYP 4',
-    '#RAR 0 20250101 20251231',
+    `#RAR 0 ${TD.sieFYStart} ${TD.sieFYEnd}`,
     '#KONTO 1910 "Bank"',
     '#KONTO 2440 "AP"',
-    '#VER A 1 20250615 "mixed"',
+    `#VER A 1 ${TD.sieDay15} "mixed"`,
     '{',
-    '#TRANS 1910 {} 100 20250615',
-    '#RTRANS 1910 {} -50 20250615',
-    '#BTRANS 2440 {} -100 20250615',
+    `#TRANS 1910 {} 100 ${TD.sieDay15}`,
+    `#RTRANS 1910 {} -50 ${TD.sieDay15}`,
+    `#BTRANS 2440 {} -100 ${TD.sieDay15}`,
     '}',
     '',
   ].join('\r\n');
@@ -236,7 +237,7 @@ test('SIE type 1: opening balances posted, no vouchers', async () => {
     '#PROGRAM "test" "1"',
     '#FORMAT PC8',
     '#SIETYP 1',
-    '#RAR 0 20250101 20251231',
+    `#RAR 0 ${TD.sieFYStart} ${TD.sieFYEnd}`,
     '#KONTO 1910 "Bank"',
     '#KONTO 2010 "Equity"',
     '#IB 0 1910 100',

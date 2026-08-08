@@ -79,7 +79,27 @@ Existing actions rename from `vendor.*` to `partner.*`:
 | `vendor.delete` | `partner.delete` | owner | Delete by `partnerId`. |
 | `vendor.upsert` | `partner.upsert` | owner | Insert/update one partner. `vendorId` param → `partnerId`. |
 
-Backward compatibility: the dispatch handler accepts both old and new action names (alias map) for one release cycle, logging a deprecation warning on old names. This avoids breaking any external scripts or MCP clients that call `vendor.list`.
+Backward compatibility: the dispatch handler accepts both old and new action names for one release cycle, logging a deprecation warning on old names. This avoids breaking any external scripts or MCP clients that call `vendor.list`.
+
+**This is net-new machinery — there is no existing alias/deprecation mechanism in the dispatcher.** Today `index.js` line 309 does `const [module] = action.split('.')` and switches on the module prefix (`vendor` → `handleVendors`). The alias map is a new step inserted before the switch:
+
+```javascript
+// In index.js handleApiRequest (and _dispatchAction), before the switch:
+const ACTION_ALIASES = {
+  'vendor.list':   'partner.list',
+  'vendor.save':   'partner.save',
+  'vendor.delete': 'partner.delete',
+  'vendor.upsert': 'partner.upsert',
+};
+const resolvedAction = ACTION_ALIASES[action] || action;
+if (ACTION_ALIASES[action]) {
+  console.warn(`[DEPRECATION] action '${action}' is deprecated, use '${resolvedAction}'`);
+}
+const [module] = resolvedAction.split('.');
+// … existing switch on module …
+```
+
+This is ~10 lines in `index.js`, applied in both `handleApiRequest` (line 307) and `_dispatchAction` (line 1700) — the two dispatch paths. The alias map is a flat object, not a framework; it has no config surface and no external dependencies. After one release cycle, the map and the warning are deleted along with the old action names.
 
 ### 1.4 UI
 
@@ -88,6 +108,8 @@ The Payables > Vendors tab renames to "Partners." The FB.list config adds two ch
 The partners tab stays under Payables for now (all partners are vendors today). When AR ships (P3-1), Partners moves to a top-level sidebar item — it serves both AP and AR and doesn't belong under either.
 
 The `bills` table's `vendor` column (a VARCHAR name string, not a FK) stays as-is — it's a denormalized name. Renaming it to `partner_name` is a cosmetic cleanup that touches every bills query; deferred to a future refactor. The bills dropdown in bill-entry reads from `partner.list` filtered to `is_vendor=TRUE`.
+
+**Command-palette entries** (`action-catalog.js` lines 706–707): `vendor.save` and `vendor.upsert` each have a `palette: 'navigate'` entry routing to `/payables?tab=vendors`. These rename to `partner.save` / `partner.upsert` and the route updates to `/payables?tab=partners` (the tab label change). The palette registry is a flat object at the bottom of `action-catalog.js`; old-name entries are removed, new-name entries added. If the alias map (§1.3) is in place, old-name palette entries could be retained temporarily, but since the palette is a UI affordance (not an API contract), it's cleaner to rename outright — the alias map covers API callers, not palette search.
 
 ---
 
@@ -334,7 +356,7 @@ The human can approve as-is, or reject and manually create the partner with corr
 
 In `processBankStatement` (agent-loop.js), after the tier-4 LLM returns proposals and `journal.propose` is called for each, the agent checks each tier-4 proposal for a counterparty name:
 
-1. If the LLM returned a `counterparty` field (a name it extracted from the description), check whether a partner with that name exists (§2.4 check 1).
+1. **Extract the counterparty name.** The tier-4 LLM's structured response (`tier4LLMReason` return value, agent-loop.js line 302–311) is a flat array of proposal objects. Each proposal may carry `suggested_dimensions.counterparty` (the bank-matching-spec §1 per-line output shape). If present, that's the counterparty name. If absent (the LLM didn't return it — current `tier4LLMReason` doesn't enforce this field), fall back to extracting a name from the bank line description via the same normalization used for mapping patterns (bank-mapping-suggestions-spec §3.3) — strip dates, reference numbers, currency fragments, and take the leading merchant token. This is a heuristic; the human reviews the proposal regardless. Store the extracted name on the `partner.propose` call as `name`. Check whether a partner with that name exists (§2.4 check 1).
 2. If no partner exists and no pending proposal exists (§2.4 check 2), call `partner.propose` with:
    - `name` — the extracted counterparty name
    - `default_expense_account` — the LLM's suggested account (from the proposal's `lines[0].account_code`)
@@ -369,30 +391,80 @@ No throttling needed beyond the duplicate detection (§2.4). A counterparty that
 
 ### 7.1 Schema migration
 
-Applied at boot in `db/schema.sql` (same `ALTER TABLE … IF NOT EXISTS` / `IF EXISTS` pattern as existing migrations):
+**The rename CANNOT live in `schema.sql`.** `db/init.js` runs `schema.sql` statements sequentially via `runNext()` (line 180–201); any single statement error calls `process.exit(1)` — there is no warn-and-continue path. The existing `ADD COLUMN IF NOT EXISTS` / `DROP COLUMN IF EXISTS` migrations are naturally idempotent, so they survive re-runs inside `schema.sql` without issue. But `ALTER TABLE vendors RENAME TO partners` has no `IF EXISTS` guard in DuckDB — on the second run, `vendors` no longer exists and the statement throws, hard-failing init for every existing installation on every future `git pull && node db/init.js`.
 
-1. `ALTER TABLE vendors RENAME TO partners`
-2. `ALTER TABLE partners RENAME COLUMN vendor_id TO partner_id`
-3. `ALTER TABLE partners ADD COLUMN IF NOT EXISTS is_vendor BOOLEAN DEFAULT TRUE`
-4. `ALTER TABLE partners ADD COLUMN IF NOT EXISTS is_customer BOOLEAN DEFAULT FALSE`
-5. `ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_revenue_account VARCHAR`
-6. `ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_ar_account VARCHAR`
-7. Drop old indexes, create new ones
-8. `CREATE TABLE IF NOT EXISTS partner_proposals …`
+**This is a new kind of migration for this codebase.** No prior migration in `schema.sql` uses `RENAME TABLE` or `RENAME COLUMN` — every prior migration is `ADD COLUMN IF NOT EXISTS` or `DROP COLUMN IF EXISTS`, both naturally idempotent. The one prior encounter with DuckDB's `ALTER TABLE` limits (`ADD CONSTRAINT` unsupported, needing a feature-detection fallback in `init.js` lines 137–178) suggests `RENAME` compatibility should not be assumed either.
 
-DuckDB supports `RENAME TABLE` and `RENAME COLUMN`. The migration is idempotent — `IF NOT EXISTS` / `IF EXISTS` guards prevent errors on re-run. The `RENAME TABLE` is guarded by checking whether `vendors` exists and `partners` doesn't (a conditional rename, same pattern as the existing column migrations).
+**Resolution: the rename runs as a guarded step in `init.js`, not in `schema.sql`.** This follows the exact precedent of `applyUniqueConstraints()` (init.js lines 137–178) — a migration step that:
+- Runs after `schema.sql` statements complete
+- Pre-checks whether the migration is needed (query `duckdb_tables()` / `information_schema.tables` for `vendors` vs `partners`)
+- Skips silently if already migrated (idempotent)
+- Feature-detects DuckDB `RENAME TABLE` / `RENAME COLUMN` support with try/catch
+- Falls back to a `CREATE TABLE partners AS SELECT … FROM vendors` + `DROP TABLE vendors` if `RENAME` is unsupported (same fallback-to-plan-B pattern as the constraint migration)
+- Never calls `process.exit(1)` — logs a warning on failure and continues
+
+**Concrete implementation:**
+
+```javascript
+// In init.js, as a new async function applyPartnersMigration(conn), called
+// after schema.sql statements complete, before seedJournals():
+
+async function applyPartnersMigration(conn) {
+  // Check whether vendors table still exists (pre-migration state)
+  const vendorExists = await conn.runAndReadAll(
+    `SELECT table_name FROM duckdb_tables() WHERE table_name = 'vendors'`, []);
+  if (vendorExists.getRowObjects().length === 0) return; // already migrated
+
+  // Check whether partners table already exists (partial migration?)
+  const partnerExists = await conn.runAndReadAll(
+    `SELECT table_name FROM duckdb_tables() WHERE table_name = 'partners'`, []);
+  if (partnerExists.getRowObjects().length > 0) {
+    // partners exists but vendors still exists — drop vendors (data already migrated)
+    await conn.run('DROP TABLE vendors', []);
+    return;
+  }
+
+  // Attempt RENAME TABLE + RENAME COLUMN
+  try {
+    await conn.run('ALTER TABLE vendors RENAME TO partners', []);
+    try {
+      await conn.run('ALTER TABLE partners RENAME COLUMN vendor_id TO partner_id', []);
+    } catch (colErr) {
+      console.warn(`RENAME COLUMN unsupported (${String(colErr.message).split('\\n')[0]}) — partner_id rename skipped, column stays vendor_id`);
+    }
+    console.log('Vendors table renamed to partners.');
+  } catch (renameErr) {
+    // RENAME TABLE unsupported — fallback: CREATE TABLE + DROP TABLE
+    console.warn(`RENAME TABLE unsupported (${String(renameErr.message).split('\\n')[0]}) — using CREATE+DROP fallback.`);
+    await conn.run(
+      `CREATE TABLE partners AS SELECT
+        vendor_id AS partner_id, company_id, name, default_currency,
+        payment_terms_days, tax_id, notes, is_active, created_at,
+        default_expense_account, default_ap_account
+       FROM vendors`, []);
+    await conn.run('DROP TABLE vendors', []);
+    console.log('Partners table created from vendors (CREATE+DROP fallback).');
+  }
+}
+```
+
+The `ADD COLUMN IF NOT EXISTS` statements for `is_vendor`, `is_customer`, `default_revenue_account`, `default_ar_account`, index drops/creates, and `CREATE TABLE IF NOT EXISTS partner_proposals` stay in `schema.sql` — they're naturally idempotent and safe for sequential execution.
+
+**DuckDB `RENAME TABLE` / `RENAME COLUMN` support:** DuckDB ≥0.10 supports both `ALTER TABLE … RENAME TO` and `ALTER TABLE … RENAME COLUMN`. The try/catch + fallback handles any older build. The feature-detection approach mirrors `applyUniqueConstraints`'s `ALTER TABLE ADD CONSTRAINT` → `CREATE UNIQUE INDEX` fallback.
 
 ### 7.2 Code changes
 
 | File | Change |
 |------|--------|
-| `db/schema.sql` | Rename table, add columns, new table, update indexes |
+| `db/schema.sql` | Add columns (`is_vendor`, `is_customer`, `default_revenue_account`, `default_ar_account` via `ADD COLUMN IF NOT EXISTS`), drop old indexes, create new indexes, `CREATE TABLE IF NOT EXISTS partner_proposals`. The `RENAME TABLE` does NOT live here — see `db/init.js`. |
+| `db/init.js` | Add `applyPartnersMigration(conn)` — guarded `RENAME TABLE vendors → partners` + `RENAME COLUMN vendor_id → partner_id` with feature detection and `CREATE+DROP` fallback. Called after `schema.sql` statements, before `seedJournals()`. Follows the `applyUniqueConstraints()` precedent (lines 137–178). |
 | `api/src/vendors.js` → `api/src/partners.js` | Rename file. All SQL: `vendors` → `partners`, `vendor_id` → `partner_id`. Add `partner.propose`/`.proposal.approve`/`.reject`/`.list`/`.get` handlers. Add duplicate detection. Add auto-learning (mapping.suggest call in approve). |
-| `api/src/action-catalog.js` | Rename `vendor.*` → `partner.*` entries. Add `partner.propose` (agent, agentWritable, idempotent), `partner.proposal.approve/reject` (data_entry), `partner.proposal.list/get` (viewer). Add old-name aliases. |
+| `api/src/action-catalog.js` | Rename `vendor.*` → `partner.*` action entries. Add `partner.propose` (agent, agentWritable, idempotent), `partner.proposal.approve/reject` (data_entry), `partner.proposal.list/get` (viewer). Rename palette entries: `vendor.save`/`vendor.upsert` → `partner.save`/`partner.upsert`, route `/payables?tab=vendors` → `/payables?tab=partners` (lines 706–707). |
+| `api/src/index.js` | Add `ACTION_ALIASES` map + deprecation warning before the dispatch switch (both `handleApiRequest` line 307 and `_dispatchAction` line 1700). Rename `case 'vendor'` → `case 'partner'` in the switch. Update import: `handleVendors` → `handlePartners`. |
 | `api/src/bank.js` | Tier 3 query: `FROM vendors` → `FROM partners WHERE is_vendor = TRUE`, `vendor_id` → `partner_id` |
 | `api/src/inbox.js` | Add `queryPartnerProposals()`. Add `status='partners'` filter. |
 | `api/src/agent-loop.js` | Add partner-proposal triggers in `processBankStatement` (after tier-4) and `processBill` (after `bill.create`). |
-| `api/src/pages/payables-vendors.js` | Rename to `payables-partners.js`. Action names → `partner.*`. Add `is_vendor`/`is_customer` checkbox columns. Tab label → "Partners". |
+| `api/src/pages/payables-vendors.js` | Rename to `payables-partners.js`. Action names → `partner.*`. Add `is_vendor`/`is_customer` checkbox columns. Tab label → "Partners". Deep-link `?tab=vendors` → `?tab=partners`. |
 | `api/src/pages/bill-edit.js` | `vendor.list` → `partner.list` (with `partner_type='vendor'` filter). |
 | `api/src/views.js` | `vendor.list` → `partner.list` in fan-out. |
 | `api/src/journal.js` | No change — crystallization calls `mapping.suggest`, not vendor actions. |

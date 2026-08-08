@@ -2,8 +2,11 @@
   "name": "freebooks",
   "private": true,
   "scripts": {
+    "test": "npm test --prefix api && node tests/reversal.mjs && node tests/sru-golden-2024.mjs",
+    "test:api": "npm test --prefix api",
     "test:keys": "node tests/keys-coverage.mjs",
     "test:reversal": "node tests/reversal.mjs",
+    "test:sru-golden": "node tests/sru-golden-2024.mjs",
     "test:fx-reval": "node tests/fx-reval.mjs"
   },
   "dependencies": {

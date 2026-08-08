@@ -17,6 +17,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 - **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post) with jurisdiction-pack-driven monetary account types and gain/loss account (P2-2)
 - **VAT / GST engine** — tax-exclusive entry across bills and journal entries (entered amount IS the net; VAT computed on top and posted as separate per-code GL lines), reverse-charge support, supplier-stated VAT override with configurable tolerance (bills only), and VAT return generation grouped by report box. Bank import remains tax-inclusive (settled cash = gross)
 - **Accounts Payable** — vendor master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, and AP Aging report
+- **Partner proposal & unification** — vendors unified into a `partners` table; agent can propose new vendor/partner entries via the same propose/approve pattern as journal entries (inbox Class A item, `y`/`x` review). Spec: `docs/partner-proposal-spec.md`.
 - **Accounts Receivable** — invoicing and AR aging are **dropped/deferred** from the current cycle; nav and page scaffolding remain in place but inactive.
 - **Bank statement processing** — CSV import with manual bill allocation linking import rows to open bills (multi-currency aware) and cleared/uncleared reconciliation tracking, backed by a **four-tier matching cascade** (spec: `docs/bank-matching-spec.md`):
   - **Tier 1** — learned rules (`bank_mappings`): pattern → offset account/VAT code, with `amount_sign` direction filtering and longest-match-wins specificity scoring.
@@ -41,6 +42,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 - **File attachments** — attach PDFs, images, and documents to bills, journals, and proposals; stored on the local filesystem (sha256 dedupe, pdf/jpg/png whitelist, 15 MB cap for proposal underlag)
 - **Multi-company** — isolated books per company, each with its own chart of accounts, tax codes, periods, and settings
 - **Pluggable FX providers** — ECB and OpenExchangeRates shipped; add a provider by dropping a file into `api/src/fxProviders/`
+- **FX rate automation** — provider `fetchRange` batch-fetches historical rates; period-create backfill hook auto-fills gaps; coverage tracking compares period days vs provider publication days; a 6h gap scanner + notifications subsystem (🔔 badge/dropdown) surface missing rates. Spec: `docs/fx-automation-spec.md`.
 - **Two-server deployment** — `FREEBOOKS_BIND` selects the listen interface (default `127.0.0.1` loopback-only); set to a LAN/Tailscale IP, always paired with `FREEBOOKS_AUTH_MODE=token-remote`.
 
 ---
@@ -200,6 +202,7 @@ freebooks/
 │   ├── agent-data-feeding-guide.md
 │   ├── bank-matching-spec.md
 │   ├── bank-mapping-suggestions-spec.md
+│   ├── bill-extraction-spec.md
 │   ├── b9-self-contained-agent-spec.md
 │   ├── keyboard-ux-spec.md
 │   ├── fb-list-ux-spec.md
@@ -212,6 +215,8 @@ freebooks/
 │   ├── p2-1-year-end-close-spec.md
 │   ├── p2-3-bill-lines-subledger-spec.md
 │   ├── p2-4a-vat-unify-spec.md
+│   ├── partner-proposal-spec.md
+│   ├── review-roadmap.md
 │   └── UI.md
 ├── .github/workflows/build.yml # CI
 └── Dockerfile                  # container image (Wolfi/distrobox)

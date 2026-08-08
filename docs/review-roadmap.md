@@ -107,7 +107,7 @@
 
 ## 0k. Status update — 2026-07-28 (K4)
 
-**K4 landed ✅ (this update):** attachment unification + reconcile verification. (A) **`A` = attach everywhere** — legacy `fbKeyActions` pages route shift-a to a new `attach` verb (common.js; bill-detail migrated off `a`); FB.form pages declare `A` (journal-new). (B) **journal-new pending queue** is an FB.form zone (`j`/`k` rows, `x` removes staged file; shared `.fb-attach-row` markup; new shared `api/public/fb-attachments.js` helper module). (C) **reconcile**: the audit's mouse-only-checkboxes item predates the FB.list migration — /bank/reconcile 301-redirects to /bank, whose Transactions tab already has j/k + `~` clear/unclear on the checkbox's own persistence path; closed with end-to-end verification (toggle + persistence), no new code. (D) **K3c regression fixed**: the default FB.form `active()` guard checked zone 0 only — journal-new (empty reversal zone at rest) and bank-import (closed bill panel at rest) were key-dead; guard now scans all zones. bill-edit queue nav deferred (K4b); bill-detail keeps its bespoke combined nav (key unified only). Spec: keyboard-ux-spec §9 K4.
+**K4 landed ✅ (this update):** attachment unification + reconcile verification. (A) **`A` = attach everywhere** — legacy `fbKeyActions` pages route shift-a to a new `attach` verb (common.js; bill-detail migrated off `a`); FB.form pages declare `A` (journal-new). (B) **journal-new pending queue** is an FB.form zone (`j`/`k` rows, `x` removes staged file; shared `.fb-attach-row` markup; new shared `api/public/fb-attachments.js` helper module). (C) **reconcile**: the audit's mouse-only-checkboxes item predates the FB.list migration — /bank/reconcile 301-redirects to /bank, whose Transactions tab already has j/k + `~` clear/unclear on the checkbox's own persistence path; closed with end-to-end verification (toggle + persistence), no new code. (D) **K3c regression fixed**: the default FB.form `active()` guard checked zone 0 only — journal-new (empty reversal zone at rest) and bank-import (closed bill panel at rest) were key-dead; guard now scans all zones. bill-edit queue nav deferred (K4b) *(resolved — PR #125, bill-edit migrated to FB.form, see §0hh)*; bill-detail keeps its bespoke combined nav (key unified only). Spec: keyboard-ux-spec §9 K4.
 
 ---
 
@@ -200,7 +200,7 @@ Post-merge review of Phase A (medium/high-reasoning pass over PRs #71/#72) found
 
 **A4 shipped (this update)** on `phase-a4-underlag` (`f3c8a91`) — code + tests as one PR per standing rule 5; spec §4.7 + R7 pre-landed on main (`6b5d81d`). Gate results on the branch: contract suite 62/60/2 (the 2 failures pre-existing on main and wall-clock fragile — see residual (f)), `tests/mcp-smoke.mjs` 28/28, `npm run test:keys` 26/26 (0 triage), Playwright `pw-phase-a4.mjs` 12/12 (untracked per convention). As-built additions over the ratified §4.7: an operator/test-triggerable GC endpoint `POST /api/admin/gc-attachments` (bearer-token gated exactly like `/api/admin/query`, 403 without `FREEBOOKS_ADMIN_TOKEN`), supplementing the boot-time + 24h `setInterval` GC; idempotent schema evolution for sha256 (`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS sha256` + `idx_attachments_company_sha256`) — the §4.7 binding convention itself stays schema-free; the 15 MB + pdf/jpg/png limits scoped to `entity_type='journal_proposal'` uploads only (other entity types keep the 32 MB status quo); dedupe global across entity types (shared blob unlinked only when no metadata row references the path). **Next:** the SRU engine refactor onto `filings/` descriptors + `emitters/` + `periods.tax_attrs` (SRU-only).
 
-**Residuals (backlog, none blocking):** (f) contract tests 12 ("draft flow: save → re-save keeps bill_id → post → void reverses journals") and 26 ("bill.payment.void") are wall-clock fragile — hardcoded dates vs seeded periods (fail as of 2026-08-01 — "Date 2026-08-01 does not fall within any defined period"; make the fixtures derive dates from the seeded periods).
+**Residuals (backlog, none blocking):** (f) contract tests 12 ("draft flow: save → re-save keeps bill_id → post → void reverses journals") and 26 ("bill.payment.void") are wall-clock fragile — hardcoded dates vs seeded periods (fail as of 2026-08-01 — "Date 2026-08-01 does not fall within any defined period"; make the fixtures derive dates from the seeded periods). *(Fixed — PR #117, see §0hh.)*
 
 ---
 
@@ -292,7 +292,7 @@ Phase B consumed the Phase A agent-readiness tranche (A1 actor model, A2 events,
 
 **Guard fix** ✅ Agent-writable whitelist updated for Phase B actions (PR #98).
 
-**What stays after Phase B:** P2 accounting completeness (year-end close, FX reval, bill_lines subledger, VAT unify) — all shipped. P3 scope (receivables, bank feeds beyond CSV) — bank feeds partially addressed by B5/B9 (drop-folder, in-process watcher), but full bank API integration remains P3. The new-vendor problem (vendor proposal pattern) is a future extension.
+**What stays after Phase B:** P2 accounting completeness (year-end close, FX reval, bill_lines subledger, VAT unify) — all shipped. P3 scope (receivables, bank feeds beyond CSV) — bank feeds partially addressed by B5/B9 (drop-folder, in-process watcher), but full bank API integration remains P3. The new-vendor problem (vendor proposal pattern) is a future extension. *(Solved — PR #124, see §0hh.)*
 
 ---
 
@@ -331,7 +331,7 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 
 **Build order for the wiring fixes:** §1 (record outcomes) and §5 (amount_sign schema) and §6 (specificity scoring) have no dependencies and can ship independently. §2 (historical tier) depends on §1. §4 (conflict detection) depends on §5 and §6. §3 (suggestion triggers) depends on §4. See the spec's §7 for the full dependency graph.
 
-**What stays after B9 + mapping-suggestions spec:** P2 accounting completeness (year-end close, FX reval, bill_lines subledger, VAT unify) — unchanged. P3 scope (receivables, bank feeds beyond CSV) — unchanged. The new-vendor problem (vendor proposal pattern) remains a future Phase B extension.
+**What stays after B9 + mapping-suggestions spec:** P2 accounting completeness (year-end close, FX reval, bill_lines subledger, VAT unify) — unchanged. P3 scope (receivables, bank feeds beyond CSV) — unchanged. The new-vendor problem (vendor proposal pattern) remains a future Phase B extension. *(Solved — PR #124, see §0hh.)*
 
 ---
 
@@ -356,7 +356,7 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 
 **PR #90 status:** merged (commit `972e0ac`).
 
-**What stays after mapping-suggestions wiring:** P2 accounting completeness (P2-1 year-end close, P2-2 FX reval, P2-3 bill_lines subledger, P2-4a VAT unify — P2-4b server-computed draft totals confirmed done) — unchanged. P3 scope (receivables, bank feeds beyond CSV) — unchanged. The new-vendor problem (vendor proposal pattern) remains a future Phase B extension.
+**What stays after mapping-suggestions wiring:** P2 accounting completeness (P2-1 year-end close, P2-2 FX reval, P2-3 bill_lines subledger, P2-4a VAT unify — P2-4b server-computed draft totals confirmed done) — unchanged. P3 scope (receivables, bank feeds beyond CSV) — unchanged. The new-vendor problem (vendor proposal pattern) remains a future Phase B extension. *(Solved — PR #124, see §0hh.)*
 
 ---
 
@@ -487,6 +487,24 @@ The agent loop iterates all companies with `agent_enabled='true'`, sequential pe
 
 ---
 
+## 0hh. Status update — 2026-08-08 (bill-edit FB.form, partner proposal, P3-3 FX automation, test hardening)
+
+**Bill-edit → FB.form migration ✅ (PR #125, closes #109).** The last bespoke form page — bill-edit — is migrated onto the shared `FB.form` framework. K4b (deferred since §0k) is resolved: bill-edit now uses the same zone/cursor/mode machine as journal-new, opening-balances, and bank-import. Every interactive page in the app now runs on `FB.form` or `FB.list`.
+
+**Partner proposal & partners unification ✅ (PRs #121–#124, closes #116).** The "new-vendor problem" — flagged as a future extension in §0z, §0aa, §0bb — is solved. Vendors table unified into a `partners` table; agent can propose new vendor/partner entries via the same propose/approve pattern as journal entries and mapping suggestions. Spec: `docs/partner-proposal-spec.md`.
+
+**P3-3 FX rate automation ✅ (PR #120, closes #115).** The roadmap P3-3 item — "spec'd NOT built" since 2026-07-23 — is now built: `fetchRange` (batch historical rate fetch), coverage tracking (period vs provider publication days), period-create backfill hook, 6h gap scanner, and a notifications subsystem (table + actions + 🔔 badge/dropdown). Spec: `docs/fx-automation-spec.md`.
+
+**Test hardening:**
+- **Wall-clock fragile dates fixed** (PR #117, closes #111) — contract tests that hardcoded dates (failing as of 2026-08-01 with "Date does not fall within any defined period") now derive dates from seeded periods. Residual (f) from §0s is resolved.
+- **SRU golden + reversal tests converted to in-process supertest** (PR #119, closes #112) — these integration tests previously required a running server (ECONNREFUSED without one); now run in-process via supertest like the rest of the suite.
+- **Legacy agent-loop script deleted** (PR #118, closes #108) — `scripts/freebooks-agent-loop.js` with placeholder bill extraction + tier-4 LLM implementations removed. The in-process agent loop (B9) is the sole path. (Already noted in §0aa; the issue is now formally closed.)
+- **Stale test issue #29 closed** (closes #113) — the "API write test — DELETE ME" issue from early development is gone.
+
+**Open issues (2 remaining):** #110 (P3-1 AR module — stub remains), #114 (P2-7 coaStyle — UI assumes numeric account codes).
+
+---
+
 ## 1. Verdict
 
 1. **Payables-as-standard is the right call.** The vim-modal tree-table with direct post and per-line accounts is a genuinely differentiated, coherent design. The rest of the app should be refactored to match it — but only after the pattern is extracted into shared code (see §4, P1-8).
@@ -596,7 +614,7 @@ The client already sends raw inputs and the server computes everything (FX, VAT 
 
 - **P3-1** AR/invoicing module built on the payables pattern (customers, invoices, AR aging, receipts).
 - **P3-2** ~~Bank feeds (beyond CSV import).~~ **Dropped 2026-08-07** — Phase B delivers the full processing pipeline: drop-folder watcher (B5/B9) uploads statements, agent loop runs the 4-tier matching cascade, proposals land in inbox for human approval, learning loop closes via matching_history + mapping_suggestions. The only remaining manual step is downloading the statement from the bank website (~30s/month). Bank API auto-fetch (PSD2/Open Banking, Tink, Plaid) is low-value engineering for that convenience at target scale. Revisit only if real-time or near-real-time bank data becomes a concrete requirement.
-- **P3-3** FX rate automation (agreed with magnus 2026-07-23, spec'd NOT built): `fx_tracking` company flag, provider `fetchRange`, period-create backfill hook, FX status column on Periods (coverage vs provider publication days — never naive weekdays), 6h gap scanner, and a minimal notifications subsystem (table + actions + 🔔 badge/dropdown). Spec: `docs/fx-automation-spec.md`.
+- **P3-3** ~~FX rate automation (agreed with magnus 2026-07-23, spec'd NOT built): `fx_tracking` company flag, provider `fetchRange`, period-create backfill hook, FX status column on Periods (coverage vs provider publication days — never naive weekdays), 6h gap scanner, and a minimal notifications subsystem (table + actions + 🔔 badge/dropdown). Spec: `docs/fx-automation-spec.md`.~~ ✅ **DONE 2026-08-08** (PR #120) — `fetchRange`, coverage tracking, period-create backfill hook, 6h gap scanner, notifications subsystem all shipped. See §0hh.
 
 ---
 

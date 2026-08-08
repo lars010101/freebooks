@@ -9,11 +9,9 @@
  * post, supplier-stated per-line GST with tolerance warnings.
  *
  * Deviations flagged for magnus (see commit message):
- * - `p` cannot be a letter-key command on an always-INSERT surface (it would
- *   type). Post = Ctrl+Enter (also a Post button). `p` fires only when focus
- *   is NOT in an editable field.
- * - Line delete is a per-row × icon (mouse); keyboard line-delete pending
- *   magnus's call (x would type).
+ * - Post = `p` (NORMAL verb) or Ctrl+Enter — also a Post button.
+ * - Line delete is keyboard-accessible: `x` (NORMAL verb) or Enter/Space on
+ *   the delete button cell (FB.form button-cell activation).
  */
 const { makeQuery, commonStyle, navBar, layoutEnd, getRelevanceFlags } = require('./common');
 
@@ -54,6 +52,7 @@ ${commonStyle()}
   table.be-lines input, table.be-lines select { width:100%; padding:5px 6px; border:1px solid #ccc; border-radius:3px; font-size:10pt; box-sizing:border-box; }
   .be-line-x { visibility:hidden; cursor:pointer; color:#999; border:none; background:none; font-size:12pt; padding:0 4px; }
   tr:hover .be-line-x { visibility:visible; }
+  .be-line-x.fb-form-cursor-btn { visibility: visible; }
   .be-add-row { margin-top:6px; font-size:10pt; color:#5b8def; cursor:pointer; user-select:none; }
   .be-add-row.faded { color:#999; opacity:0.3; cursor:default; }
   .be-status { position:sticky; bottom:0; background:var(--surface,#fff); border-top:1px solid var(--border,#e0e0e0); padding:8px 16px; display:flex; gap:18px; align-items:center; font-size:10pt; }
@@ -184,11 +183,9 @@ Promise.all([
   // a rejected fetch previously left the page static-HTML-only with no focus.
   msg('Load error: ' + (e && e.message ? e.message : e), 'err');
 }).finally(function () {
-  // Focus asserts unconditionally (even on wiring failure) and re-asserts
-  // after paint to win any race with fbNavigate's post-swap work.
-  var v = document.getElementById('be-vendor');
-  if (v) v.focus();
-  setTimeout(function () { var v2 = document.getElementById('be-vendor'); if (v2) v2.focus(); }, 50);
+  // FB.form owns cursor/mode now: paint the cursor on the first cell once
+  // rows exist. The form starts in NORMAL (user presses i/Enter to edit).
+  if (beForm) beForm.refresh();
 });
 
 async function prefillFromDraft(id) {
@@ -220,7 +217,7 @@ async function prefillFromDraft(id) {
 // ── Header wiring (dropdowns + vendor defaults) ─────────────────────────────
 function wireHeader() {
   FB.dropdown.attach(document.getElementById('be-vendor'), {
-    keys: true, minWidth: 260,
+    minWidth: 260,
     source: q => {
       q = (q || '').toLowerCase();
       return S.vendors.filter(v => (v.name || '').toLowerCase().includes(q))
@@ -246,7 +243,6 @@ function wireHeader() {
 }
 function attachCcy(input) {
   FB.dropdown.attach(input, {
-    keys: true,
     source: q => {
       q = (q || '').toLowerCase();
       return S.currencies.filter(c => c.code.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q))
@@ -257,7 +253,7 @@ function attachCcy(input) {
 }
 function attachAcct(input) {
   FB.dropdown.attach(input, {
-    keys: true, minWidth: 280,
+    minWidth: 280,
     source: q => {
       q = (q || '').toLowerCase();
       return S.accounts.filter(a => a.account_code.toLowerCase().includes(q) || (a.account_name || '').toLowerCase().includes(q))
@@ -268,7 +264,7 @@ function attachAcct(input) {
 }
 function attachVat(sel) {
   FB.dropdown.attach(sel, {
-    keys: true, minWidth: 220,
+    minWidth: 220,
     source: q => {
       q = (q || '').toLowerCase();
       return [{ vat_code: '', description: 'none', rate: 0 }].concat(S.vatCodes)
@@ -284,7 +280,7 @@ function attachVat(sel) {
 }
 function attachCenter(input, type) {
   FB.dropdown.attach(input, {
-    keys: true, minWidth: 180,
+    minWidth: 180,
     source: q => {
       q = (q || '').toLowerCase();
       return S.centers.filter(c => (!type || c.center_type === type))
@@ -337,24 +333,6 @@ document.getElementById('be-add-row').onclick = () => {
   const tr = addLine({});
   tr.querySelector('.bl-desc').focus();
 };
-
-// Tab from the last field of the last line creates a new line (sticky if empty)
-document.getElementById('be-lines-body').addEventListener('keydown', (e) => {
-  if (e.key !== 'Tab' || e.shiftKey) return;
-  const rows = document.querySelectorAll('#be-lines-body tr');
-  const last = rows[rows.length - 1];
-  if (!last) return;
-  const fields = last.querySelectorAll('input');
-  if (document.activeElement === fields[fields.length - 1] || document.activeElement === last.querySelector('.be-line-x')) {
-    if (lastLineHasData()) {
-      e.preventDefault();
-      const tr = addLine({});
-      tr.querySelector('.bl-desc').focus();
-    } else {
-      e.preventDefault(); // sticky — no empty-row spam
-    }
-  }
-});
 
 // ── Totals (display only — server is the authority at save/post) ────────────
 function collectLines() {
@@ -498,12 +476,6 @@ async function postBill() {
   } finally { S.saving = false; }
 }
 
-// Esc = exit edit mode (vim doctrine: Esc exits, w writes, never conflate)
-function exitToNormal() {
-  if (document.activeElement) document.activeElement.blur();
-  FB.mode.set('normal');
-}
-
 // q = quit (no save). Dirty → confirm discard (same guard as Vendors).
 function quitEditor() {
   const bill = gatherBill();
@@ -512,11 +484,6 @@ function quitEditor() {
   window.location.href = '/' + COMPANY + '/payables';
 }
 
-function enterInsert() {
-  FB.mode.set('insert');
-  const vendor = document.getElementById('be-vendor');
-  if (vendor) vendor.focus();
-}
 
 // ── Attachments (staged until first save) ───────────────────────────────────
 document.getElementById('be-attach-btn').onclick = () => document.getElementById('be-file').click();
@@ -563,36 +530,44 @@ async function loadAttachments() {
 document.getElementById('be-save').onclick = () => quitEditor();
 document.getElementById('be-post').onclick = () => postBill();
 
-// Page loads in INSERT (it IS an editing surface); Esc exits to NORMAL.
-FB.mode.set('insert');
-FB.keys.unregister('bill-edit'); // soft-nav re-execution guard
-FB.keys.register('bill-edit', {
-  active: () => true,
-  getMode: () => FB.mode.get(),
-  bindings: [
-    // ── INSERT: dropdown keys first (contract: dd bindings precede general) ──
-    { key: 'ArrowDown', mode: 'INSERT', when: () => FB.dropdown.isOpen(), swallow: true, run: () => FB.dropdown.move(1) },
-    { key: 'ArrowUp', mode: 'INSERT', when: () => FB.dropdown.isOpen(), swallow: true, run: () => FB.dropdown.move(-1) },
-    { key: 'Enter', mode: 'INSERT', when: () => FB.dropdown.isOpen(), swallow: true, run: () => FB.dropdown.pick() },
-    { key: 'Escape', mode: 'INSERT', when: () => FB.dropdown.isOpen(), swallow: true, run: () => FB.dropdown.close() },
-    // ── INSERT: Esc exits to NORMAL (no save — vim doctrine) ──
-    { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, swallow: true, run: exitToNormal },
-    // ── NORMAL: page commands ──
-    { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: enterInsert },
-    { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: false, run: enterInsert },
-    { key: 'w', mode: 'NORMAL', hint: 'write draft', hintBar: true, swallow: true,
-      run: () => saveDraft(false) },
-    { key: 'p', mode: 'NORMAL', hint: 'post bill', hintBar: true, swallow: true, run: postBill },
-    { key: 'a', mode: 'NORMAL', hint: 'add line', hintBar: true, swallow: true,
-      run: () => {
-        const tr = addLine({});
-        FB.mode.set('insert');
-        tr.querySelector('.bl-desc').focus();
+// ── FB.form (K3, keyboard-ux-spec §8) — the one form machine; this page ──
+// declares config + verbs only. Zones: header grid → lines table → attachments.
+// The page starts in NORMAL; user presses i/Enter to edit a cell.
+var beForm = FB.form.create({
+  formId: 'bill-edit',
+  zones: [
+    { id: 'header', rows: function () { return [document.querySelector('.be-header-grid')]; } },
+    { id: 'lines',  rows: function () { return Array.from(document.querySelectorAll('#be-lines-body tr')); },
+      cells: function (rowEl) {
+        return Array.prototype.slice.call(rowEl.querySelectorAll('input,select,button'))
+          .filter(function (el) { return !el.disabled && el.type !== 'hidden'; });
       } },
-    { key: 'A', mode: 'NORMAL', hint: 'attach file', hintBar: true, swallow: true,
-      run: () => document.getElementById('be-file').click() },
-    { key: 'q', mode: 'NORMAL', hint: 'quit', hintBar: true, swallow: true, run: quitEditor },
+    { id: 'attachments', rows: function () { return Array.from(document.querySelectorAll('#be-attach-list .be-attach-row')); },
+      cells: function () { return []; } },
   ],
+  verbs: {
+    add: { key: 'a', hint: 'add line', run: function (api) {
+      var tr = addLine({});
+      updateTotals();
+      api.moveTo(1, api.zoneRows(1).length - 1, 0, true);
+    } },
+    delete: { key: 'x', hint: 'delete',
+      when: function (api) { return api.cur().z === 1; },
+      run: function (api) {
+        var tr = api.zoneRows(1)[api.cur().r];
+        if (!tr) return;
+        tr.remove(); updateTotals(); refreshAddRow(); api.refresh();
+      } },
+    write: { key: 'w', hint: 'write draft', run: function () { saveDraft(false); } },
+    quit: { key: 'q', hint: 'quit', run: function () { quitEditor(); } }
+  },
+  extraBindings: function (api) {
+    return [
+      { key: 'p', mode: 'NORMAL', hint: 'post bill', hintBar: true, swallow: true, run: function () { postBill(); } },
+      { key: 'A', mode: 'NORMAL', hint: 'attach file', hintBar: true, swallow: true,
+        run: function () { document.getElementById('be-file').click(); } },
+    ];
+  }
 });
 FB.keys.renderHints('bill-edit', document.getElementById('sb-hints'), { layout: 'list' });
 })();

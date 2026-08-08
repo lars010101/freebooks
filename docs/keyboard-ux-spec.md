@@ -435,7 +435,7 @@ property on the iframe document.
   live in the form machine / shared nav surface rather than FB.list; the
   observable contract is identical (`j`/`k`/`x` + `A`). bill-detail keeps
   its bespoke combined nav (meta → lines → attach) — markup not swapped;
-  only the key was unified. bill-edit queue nav deferred (K4b).
+  only the key was unified. bill-edit queue nav done (K4b — FB.form migration).
   Reconciliation: the audit's "/bank/reconcile mouse-only checkboxes" item
   predates the FB.list migration — that URL now 301-redirects to
   /:company/bank, whose Transactions tab already carries the full contract:
@@ -480,8 +480,7 @@ property on the iframe document.
   design: `#hdr-clear-all` (bulk convenience; per-row `~` is the path —
   QBO/Xero have no bulk-clear hotkey), settings `#cr-delete-btn` (danger
   zone: GitHub/QBO pattern — mouse trigger + type-to-confirm modal owns
-  the keyboard once open), bill-edit `.be-line-x` (lands with its FB.form
-  migration). receivables is a ratified stub exemption (AR ships FB.list
+  the keyboard once open). receivables is a ratified stub exemption (AR ships FB.list
   day one). Coverage behavior is verified ONCE here, framework-level —
   not per tab.
 - `?` overlay GLOBAL section (chrome keys: g-map, `{`/`}`, `h`/`l`, `/`,

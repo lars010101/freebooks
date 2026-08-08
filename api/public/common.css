@@ -485,6 +485,53 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 }
 .tb-icon-btn:hover { background: var(--bg); color: var(--text); }
 
+/* ---- Notifications bell badge + dropdown (fx-automation-spec §7) ---- */
+.tb-notif-badge {
+  position: absolute;
+  top: -4px; right: -4px;
+  min-width: 16px; height: 16px;
+  border-radius: 8px;
+  background: #b91c1c;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  padding: 0 4px;
+}
+#tb-notif-btn { position: relative; }
+.tb-notif-dropdown {
+  position: fixed;
+  top: 52px; right: 16px;
+  width: 360px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  z-index: 1000;
+  font-size: 10pt;
+}
+.tb-notif-dropdown h4 {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 9pt; text-transform: uppercase; color: var(--text-muted);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.tb-notif-dropdown h4 a { font-size: 9pt; cursor: pointer; color: var(--accent); text-decoration: none; }
+.tb-notif-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.tb-notif-item:hover { background: var(--bg); }
+.tb-notif-item:last-child { border-bottom: none; }
+.tb-notif-item .notif-kind { font-size: 8.5pt; text-transform: uppercase; color: var(--text-muted); letter-spacing: .03em; }
+.tb-notif-item .notif-msg { margin-top: 2px; }
+.tb-notif-item .notif-time { font-size: 8.5pt; color: var(--text-faint); margin-top: 2px; }
+.tb-notif-empty { padding: 20px 14px; text-align: center; color: var(--text-faint); }
+
 /* ---- Page main ---- */
 #page-main {
   flex: 1;

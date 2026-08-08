@@ -21,13 +21,14 @@ const { handleVendors } = require('./vendors');
 const { handleViews } = require('./views');
 const { handleReports, mountReportRoutes } = require('./reports');
 const { handleVat } = require('./vat');
-const { handleFx, providerExists, listProviderIds, MANUAL_PROVIDER } = require('./fx');
+const { handleFx, providerExists, listProviderIds, MANUAL_PROVIDER, backfillPeriod } = require('./fx');
 const { handleSetup } = require('./setup');
 const { handleAttachments } = require('./attachments');
 const { handleEvents, emitEvent } = require('./events');
 const { handleTokens } = require('./tokens');
 const { handleSie } = require('./sie-import');
 const { handlePeriodsService } = require('./periods-page-service');
+const { handleNotifications } = require('./notifications');
 const { contactAttributesFor } = require('./jurisdiction-packs');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 const { auditCall } = require('./audit');
@@ -335,6 +336,7 @@ async function handleApiRequest(req, res) {
       case 'event':       result = await handleEvents(ctx, action); break;
       case 'auth':        result = await handleTokens(ctx, action); break;
       case 'sie':         result = await handleSie(ctx, action); break;
+      case 'notification': result = await handleNotifications(ctx, action); break;
       case 'agent':       result = await handleAgent(ctx, action); break;
       default:
         return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
@@ -1484,6 +1486,9 @@ async function handleSettings(ctx, action) {
       }
     } else {
       await bulkInsert('periods', [{ company_id: companyId, period_name: period.period_id, start_date: period.start_date, end_date: period.end_date, locked: !!period.locked, tax_attrs: taxAttrs, created_at: now, updated_at: now }]);
+      // fx-automation-spec §4: fire-and-forget backfill on new period creation.
+      // Never awaited — the upsert response returns immediately.
+      backfillPeriod(companyId, String(period.start_date).slice(0, 10), String(period.end_date).slice(0, 10));
     }
     return { saved: true };
   }
@@ -1662,6 +1667,12 @@ ensureDb().then(async () => {
   }, 24 * 60 * 60 * 1000);
   gcTimer.unref();
 
+  // ── fx-automation-spec §6: FX gap scanner ──────────────────────────────
+  // On startup + every 6h (FREEBOOKS_FX_SCAN_MS). Short-circuits if no company
+  // has fx_tracking='auto' with a real provider. Timer is unref'd.
+  const { startFxScanner } = require('./fx-scanner');
+  startFxScanner();
+
   // ── B9: in-process agent pipeline boot ─────────────────────────────────
   // Build a dispatchAction function that replicates the HTTP dispatch logic
   // but calls handlers directly in-process (no HTTP, no tokens). The agent
@@ -1720,6 +1731,7 @@ ensureDb().then(async () => {
       event: () => handleEvents(ctx, action),
       auth: () => require('./tokens').handleTokens(ctx, action),
       sie: () => require('./sie-import').handleSie(ctx, action),
+      notification: () => require('./notifications').handleNotifications(ctx, action),
       agent: () => require('./index').handleAgent(ctx, action),
     };
 

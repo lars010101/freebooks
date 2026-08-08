@@ -89,7 +89,7 @@ ${commonStyle()}
   <!-- PERIODS TAB — shared grid + row expansion (filings + close checklist) -->
   <div id="tab-periods" class="tab-panel active">
     <table class="edit-table" id="periods-table">
-      <thead><tr><th>Period Name</th><th>Start Date</th><th>End Date</th><th>Locked</th><th></th></tr></thead>
+      <thead><tr><th>Period Name</th><th>Start Date</th><th>End Date</th><th>Locked</th><th>FX</th><th></th></tr></thead>
       <tbody id="periods-body"></tbody>
     </table>
   </div>

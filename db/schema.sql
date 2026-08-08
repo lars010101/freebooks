@@ -676,6 +676,25 @@ CREATE INDEX IF NOT EXISTS idx_bill_lines_company_account
 CREATE INDEX IF NOT EXISTS idx_bill_lines_bill
   ON bill_lines(company_id, bill_id);
 
+-- =============================================================================
+-- notifications (fx-automation-spec §7 — minimal notifications subsystem)
+-- The topbar bell gets a backend. v1: fx-gap alerts from the scanner. Built
+-- once, reusable: future alerts (locked-period posts, failed imports) write
+-- to the same table. issue_key dedupes: one open row per key.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS notifications (
+  id          VARCHAR   NOT NULL DEFAULT (uuid()) PRIMARY KEY,
+  company_id  VARCHAR   NOT NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+  kind        VARCHAR   NOT NULL,    -- 'fx-gap', 'locked-period', ...
+  message     VARCHAR   NOT NULL,
+  issue_key   VARCHAR,                -- dedupe key, e.g. 'fx-gap:co:period'
+  read_at     TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_company_unread
+  ON notifications(company_id, read_at);
+
+-- =============================================================================
 -- MIGRATION (P2-3): backfill bill_lines for existing posted/partial/paid/void
 -- bills from journal entries. Uses the same filtering as the old getBillLines
 -- (debit > 0, not AP account, not reversed). VAT/GST lines are included for

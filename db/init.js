@@ -272,7 +272,6 @@ if (API_URL) {
     async function runNext(i) {
       if (i >= statements.length) {
         console.log(`\nSchema applied (${statements.length} statements).`);
-        await applyPartnersMigration();
         await seedJournals();
         console.log('Default journals seeded.');
         await applyUniqueConstraints();
@@ -293,6 +292,14 @@ if (API_URL) {
       }
     }
 
+    // Run the partners migration BEFORE schema.sql statements — an existing
+    // DB has a `vendors` table that must be renamed to `partners` (preserving
+    // data) before `CREATE TABLE IF NOT EXISTS partners` in schema.sql runs.
+    // On a fresh DB, applyPartnersMigration() finds no `vendors` table and
+    // no-ops.  This prevents the data-loss race where schema.sql creates an
+    // empty `partners` table first, causing the migration to DROP the real
+    // `vendors` data.
+    await applyPartnersMigration();
     await runNext(0);
   } // end runSchema
 }

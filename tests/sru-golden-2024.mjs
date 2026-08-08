@@ -10,43 +10,40 @@
  */
 
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { startServer, apiPost as apiPostImpl, apiGetText as apiGetTextImpl, apiGetJson as apiGetJsonImpl } from './lib/test-server.mjs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO = path.resolve(__dirname, '..');
-const API = 'http://localhost:4722/api';
-const SRU_GET = (c, qs) => `http://localhost:4722/api/${c}/sru/ink2?${qs}`;
-const REFERENCE = '/home/ubuntu/accounting/workspace-legal-accountant/mdu_ab_blanketter_2024_reference.sru';
-const JOURNAL_CSV = '/home/ubuntu/.hermes/profiles/accountant/cache/documents/doc_ef85f26ea0c4_journal_2024-01-01_2024-12-31.csv';
-const BS_CSV = '/home/ubuntu/.hermes/profiles/accountant/cache/documents/doc_aeee68fa39a0_bs_2024-01-01_2024-12-31.csv';
+// External data files — only present on the accountant's dev machine.
+// When absent the test SKIPS (exit 0) so `npm test` stays green in CI without
+// these fixtures. Issue #112: the server is now booted in-process, so the only
+// remaining prerequisite is the reference + CSV data.
+const REFERENCE = process.env.SRU_REFERENCE ?? '/home/ubuntu/accounting/workspace-legal-accountant/mdu_ab_blanketter_2024_reference.sru';
+const JOURNAL_CSV = process.env.SRU_JOURNAL_CSV ?? '/home/ubuntu/.hermes/profiles/accountant/cache/documents/doc_ef85f26ea0c4_journal_2024-01-01_2024-12-31.csv';
+const BS_CSV = process.env.SRU_BS_CSV ?? '/home/ubuntu/.hermes/profiles/accountant/cache/documents/doc_aeee68fa39a0_bs_2024-01-01_2024-12-31.csv';
+
+// Guard: skip cleanly when the golden fixtures are unavailable (e.g. CI).
+function haveFixtures() {
+  return [REFERENCE, JOURNAL_CSV, BS_CSV].every((p) => { try { return fs.statSync(p).size > 0; } catch { return false; } });
+}
 
 const COMPANY_ID = 'zz_srugold3';
 
+// baseUrl is resolved once the in-process server is booted (see main).
+let BASE = '';
+const sruGet = (c, qs) => `${BASE}/api/${c}/sru/ink2?${qs}`;
+
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
+// Thin wrappers around the imported helpers, closing over the booted BASE so
+// the rest of the script keeps its original call signatures.
 async function apiPost(action, companyId, body, idempotencyKey) {
-  const payload = { action, companyId, ...(body || {}) };
-  if (idempotencyKey) payload.idempotencyKey = idempotencyKey;
-  const headers = { 'Content-Type': 'application/json' };
-  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
-  const res = await fetch(API, { method: 'POST', headers, body: JSON.stringify(payload) });
-  const json = await res.json();
-  if (!json.ok) {
-    throw new Error(`API ${action} failed: ${JSON.stringify(json.error)}`);
-  }
-  return json.data;
+  return apiPostImpl(BASE, action, companyId, body, idempotencyKey);
 }
 
 async function apiGetText(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`GET ${url} -> ${res.status}: ${await res.text()}`);
-  return res.text();
+  return apiGetTextImpl(BASE, url);
 }
 
 async function apiGetJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`GET ${url} -> ${res.status}: ${await res.text()}`);
-  return res.json();
+  return apiGetJsonImpl(BASE, url);
 }
 
 // ── CSV parsing ──────────────────────────────────────────────────────────────
@@ -344,7 +341,7 @@ function normalizeIdent(text) {
 }
 
 async function generateAndCompare() {
-  const url = SRU_GET(COMPANY_ID, 'year=2024&loss_cf=85146');
+  const url = sruGet(COMPANY_ID, 'year=2024&loss_cf=85146');
   const generated = await apiGetText(url);
   const reference = fs.readFileSync(REFERENCE, 'utf8');
 
@@ -369,7 +366,7 @@ async function generateAndCompare() {
   }
 
   // check=1 warnings
-  const checkUrl = SRU_GET(COMPANY_ID, 'year=2024&loss_cf=85146&check=1');
+  const checkUrl = sruGet(COMPANY_ID, 'year=2024&loss_cf=85146&check=1');
   const check = await apiGetJson(checkUrl);
   console.log('\ncheck=1 fields:', JSON.stringify(check.fields, null, 2));
   console.log('check=1 warnings:', JSON.stringify(check.warnings, null, 2));
@@ -381,8 +378,22 @@ async function generateAndCompare() {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 (async () => {
+  // Skip (not fail) when the golden reference + CSV fixtures are absent —
+  // e.g. in CI where those dev-machine files do not exist. The in-process
+  // server removes the ECONNREFUSED dependency (issue #112); this guard only
+  // covers the remaining data-file prerequisite.
+  if (!haveFixtures()) {
+    console.log('=== SRU Golden Test (2024) — SKIP ===');
+    console.log('Reference/CSV fixtures not found. Set SRU_REFERENCE, SRU_JOURNAL_CSV,');
+    console.log('SRU_BS_CSV to run the golden comparison. Skipping (exit 0).');
+    process.exit(0);
+  }
+
+  const srv = await startServer();
+  BASE = srv.baseUrl;
   try {
     console.log('=== SRU Golden Test (2024) ===');
+    console.log(`In-process server: ${BASE}`);
     await ensureCompany();
 
     // Parse CSVs once, share between account-setup and book-posting.
@@ -407,6 +418,8 @@ async function generateAndCompare() {
     console.log('\nDone.');
   } catch (e) {
     console.error('Golden test error:', e);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await srv.cleanup();
   }
 })();

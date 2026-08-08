@@ -24,7 +24,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
   - **Tier 3** — trigram master-data match against chart of accounts and vendors.
   - **Tier 3.5** — historical outcome match against `matching_history` (`approved_unedited` outcomes) — "how was this same description posted last time?"
   - **Tier 4** — LLM reasoning for residual unmatched lines.
-- **Self-contained in-process agent pipeline (B9)** — folder watcher + agent loop run inside the Express server (no external scripts, no HTTP self-calls). Watches `inbox/{company_id}/{type}/`, calls `bank.match` → `journal.propose` → tier-4 LLM directly via `dispatchAction`. Legacy external scripts are retained in `scripts/` as a fallback. See `docs/b9-self-contained-agent-spec.md`.
+- **Self-contained in-process agent pipeline (B9)** — folder watcher + agent loop run inside the Express server (no external scripts, no HTTP self-calls). Watches `inbox/{company_id}/{type}/`, calls `bank.match` → `journal.propose` → tier-4 LLM directly via `dispatchAction`. The in-process loop is the sole agent path — the legacy `scripts/freebooks-agent-loop.js` was removed because its bill extraction and tier-4 LLM implementations were never completed (placeholders only); `scripts/freebooks-feed-watch.sh` remains as a fallback folder watcher. See `docs/b9-self-contained-agent-spec.md`.
 - **Mapping-suggestions learning loop (PR #90)** — approved/rejected proposals record outcomes in `matching_history`; tier 3.5 consults prior outcomes; unedited tier-4 approvals crystallize into `mapping_suggestions`; a throttled retrospective sweep finds recurring unruled patterns and suggests rules; `detectMappingConflicts` checks duplicate/contradiction/shadowing at suggest and approve time. Spec: `docs/bank-mapping-suggestions-spec.md`.
 - **Agent-first operating model (Phase A)** — agents prepare, humans approve (spec: `docs/agent-readiness-spec.md`):
   - **Journal proposals** — agent calls `journal.propose` → human reviews/approves/rejects in the unified Inbox queue (`y`/`x`); approve posts the journal; reject rolls back.
@@ -188,9 +188,8 @@ freebooks/
 │       ├── SE/                 # Sweden — K2/K3, BAS, SIE + SRU integrations, ink2/annual-report/vat-return filings
 │       ├── SG/                 # Singapore — SFRS, SFRS-SE
 │       └── _template/          # starting point for adding new jurisdictions
-├── scripts/                    # demoted fallback scripts (B9 in-process loop is primary)
-│   ├── freebooks-feed-watch.sh # fallback folder watcher (inotifywait)
-│   └── freebooks-agent-loop.js # fallback agent loop (HTTP self-call)
+├── scripts/                    # fallback scripts (B9 in-process loop is primary)
+│   └── freebooks-feed-watch.sh # fallback folder watcher (inotifywait)
 ├── reports/
 │   ├── render.js               # shared report HTML rendering (P&L, BS, CF, SCE, TB, GL, …)
 │   ├── generate.js             # CLI report generator

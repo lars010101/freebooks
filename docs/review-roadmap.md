@@ -303,15 +303,15 @@ Phase B consumed the Phase A agent-readiness tranche (A1 actor model, A2 events,
 | Component | Before (B5 + B7) | After (B9) |
 |---|---|---|
 | Folder watcher | External bash (`freebooks-feed-watch.sh`), `inotifywait` | In-process Node module, `setInterval` + `readdir` |
-| Agent loop | External script (`freebooks-agent-loop.js`), HTTP self-call | In-process module (`api/src/agent-loop.js`), direct handler calls via injected `dispatchAction` |
+| Agent loop | External script (`freebooks-agent-loop.js`), HTTP self-call | In-process module (`api/src/agent-loop.js`), direct handler calls via injected `dispatchAction` *(legacy script deleted — issue #108)* |
 | LLM config | Env vars, hardcoded tier-4 placeholder | `settings` table keys, Settings/AI tab (3 fields: endpoint_url, api_key, model + temperature) |
 | Multi-company | Single `FREEBOOKS_COMPANY` env var | Folder structure `inbox/{company_id}/{type}/` |
 | MCP | External agent transport (Hermes) | **Unchanged** |
-| External scripts | Primary pipeline | **Demoted to fallback** — kept in `scripts/`, not deleted |
+| External scripts | Primary pipeline | **In-process is sole path** — `freebooks-agent-loop.js` deleted (placeholders never implemented, issue #108); `freebooks-feed-watch.sh` retained as fallback |
 
 The agent loop iterates all companies with `agent_enabled='true'`, sequential per-company per-poll tick. Config read from the settings table (per-company). Cursor (`agent_last_seq`) persisted per-company. Started at boot if any company has the agent enabled.
 
-**B7 items closed:** the external `freebooks-agent-loop.js` script is demoted to fallback. B5's `freebooks-feed-watch.sh` likewise. The in-process loop calls `bank.match` → `journal.propose` → tier-4 LLM → `journal.propose` directly — no HTTP self-call, no tokens, no external process management.
+**B7 items closed:** the external `freebooks-agent-loop.js` script was deleted (issue #108) because its bill extraction and tier-4 LLM were placeholder-only and never implemented. B5's `freebooks-feed-watch.sh` remains as a fallback folder watcher. The in-process loop calls `bank.match` → `journal.propose` → tier-4 LLM → `journal.propose` directly — no HTTP self-call, no tokens, no external process management.
 
 ### Mapping-suggestions spec — wiring gaps found in B9 review
 

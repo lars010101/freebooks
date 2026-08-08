@@ -8,11 +8,11 @@
 | Component | Before (B5 + B7) | After (B9) |
 |---|---|---|
 | Folder watcher | External bash script (`freebooks-feed-watch.sh`), `inotifywait` | In-process Node module, `setInterval` + `readdir` |
-| Agent loop | External script (`freebooks-agent-loop.js`), HTTP self-call | In-process module, direct handler calls |
+| Agent loop | External script (`freebooks-agent-loop.js`), HTTP self-call | In-process module, direct handler calls *(legacy script subsequently deleted — see §7)* |
 | LLM config | Env vars, hardcoded tier-4 placeholder | `settings` table keys, Settings/AI tab |
 | Multi-company | Single `FREEBOOKS_COMPANY` env var | Folder structure `inbox/{company_id}/{type}/` |
 | MCP | External agent transport (Hermes) | **Unchanged** — stays as-is |
-| External scripts | Primary pipeline | **Demoted to fallback** — kept in `scripts/`, not deleted |
+| External scripts | Primary pipeline | **In-process is sole path** — `freebooks-agent-loop.js` deleted (placeholders never implemented); `freebooks-feed-watch.sh` retained as fallback |
 
 ## 1. Multi-tenant folder structure
 
@@ -95,7 +95,7 @@ Content hash (sha256) checked against `attachments.sha256` for the company. A re
 
 ### What moves inside
 
-The B7 script (`scripts/freebooks-agent-loop.js`, 794 lines) becomes a server module. The pipeline logic stays — event polling, bank statement parsing, cascade routing, tier-4 LLM, journal.propose, bill.create, input_rejection. What changes is the I/O boundary:
+The B7 script (`scripts/freebooks-agent-loop.js`, 794 lines) was ported into a server module. The pipeline logic stayed — event polling, bank statement parsing, cascade routing, tier-4 LLM, journal.propose, bill.create, input_rejection. What changed was the I/O boundary. The legacy script has since been deleted (issue #108) because its bill extraction and tier-4 LLM were placeholder-only and the in-process loop is the sole path:
 
 | B7 (external script) | B9 (in-process module) |
 |---|---|
@@ -180,7 +180,7 @@ async function tier4LLMReason(residualLines, context, companySettings) {
 
 ### What stays from B7
 
-The following functions port directly from `scripts/freebooks-agent-loop.js` to `api/src/agent-loop.js` with minimal changes (just replacing `callApi` with `dispatchAction`):
+The following functions ported directly from `scripts/freebooks-agent-loop.js` to `api/src/agent-loop.js` with minimal changes (just replacing `callApi` with `dispatchAction`). The legacy script has since been deleted (issue #108) — the in-process module is the sole implementation:
 
 - `parseBankStatementCsv()` — CSV parser
 - `parseCsvRows()` — row parser
@@ -297,14 +297,14 @@ The in-process agent loop and MCP serve different use cases:
 
 Both can run simultaneously. The MCP server is started by the external agent (Hermes spawns it), independent of whether the in-process loop is enabled.
 
-## 7. External scripts — demoted, not deleted
+## 7. External scripts — feed-watch retained, agent-loop deleted
 
 | Script | Status after B9 |
 |---|---|
-| `scripts/freebooks-feed-watch.sh` | **Demoted to fallback.** Kept in the repo. Operators who prefer the external watcher (e.g. running on a separate machine) can still use it. The bug in line 44 (`local` outside function) is fixed. |
-| `scripts/freebooks-agent-loop.js` | **Demoted to fallback.** Kept in the repo. Operators who prefer the external agent loop (e.g. running on a separate host) can still use it. The `--once` mode stays for testing. |
+| `scripts/freebooks-feed-watch.sh` | **Retained as fallback.** Kept in the repo. Operators who prefer the external watcher (e.g. running on a separate machine) can still use it. The bug in line 44 (`local` outside function) is fixed. |
+| `scripts/freebooks-agent-loop.js` | **Deleted (issue #108).** The legacy script had placeholder-only bill extraction and tier-4 LLM implementations that were never completed. The in-process `api/src/agent-loop.js` is the sole agent path — if it fails, the legacy script would fail too (same dependencies, same LLM config). Keeping it created a false sense of fallback capability. |
 
-The in-process modules (`api/src/feed-watcher.js`, `api/src/agent-loop.js`) are the primary path. The scripts are the fallback path. No code deletion.
+The in-process modules (`api/src/feed-watcher.js`, `api/src/agent-loop.js`) are the sole agent path. `freebooks-feed-watch.sh` remains as a fallback folder watcher only.
 
 ## 8. Files changed
 
@@ -316,7 +316,7 @@ The in-process modules (`api/src/feed-watcher.js`, `api/src/agent-loop.js`) are 
 | `api/src/index.js` | **Modified.** Add `settings.ai.test` action handler. Add boot calls to start feed watcher + agent loop. |
 | `api/src/server.js` | **Modified.** Wire feed-watcher + agent-loop start on boot. |
 | `scripts/freebooks-feed-watch.sh` | **Fixed.** Line 44 `local` bug. Otherwise unchanged. |
-| `scripts/freebooks-agent-loop.js` | **Unchanged.** Stays as external fallback. |
+| `scripts/freebooks-agent-loop.js` | **Deleted (issue #108).** Placeholder bill extraction and tier-4 LLM never implemented; in-process loop is sole path. |
 | `db/schema.sql` | **No changes.** No new tables — all config goes in existing `settings` table. |
 | `api/src/nav-registry.js` | **No changes.** No new sidebar items. Settings tab already exists. |
 

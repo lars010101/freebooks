@@ -2,7 +2,7 @@
 const { commonStyle, navBar, layoutEnd, getRelevanceFlags, flagsBootstrapJson } = require('./common');
 const { query } = require('../db');
 const { billsTabJS } = require('./payables-bills');
-const { vendorsTabJS } = require('./payables-vendors');
+const { partnersTabJS } = require('./payables-partners');
 
 async function handlePayablesPage(req, res) {
   const { company } = req.params;
@@ -321,7 +321,7 @@ ${commonStyle()}
 
   <div class="tabs" style="margin-bottom:20px">
     <div class="tab active" id="pay-tab-bills" onclick="showPayTab('bills')">Bills</div>
-    <div class="tab" id="pay-tab-vendors" onclick="showPayTab('vendors')">Vendors</div>
+    <div class="tab" id="pay-tab-partners" onclick="showPayTab('partners')">Partners</div>
   </div>
 
   <div id="pay-panel-bills">
@@ -367,7 +367,7 @@ ${commonStyle()}
 
   </div><!-- /pay-panel-bills -->
 
-  <div id="pay-panel-vendors" style="display:none">
+  <div id="pay-panel-partners" style="display:none">
     <div class="table-card">
       <table class="data-table" id="vendors-table">
         <thead>
@@ -390,7 +390,7 @@ ${commonStyle()}
       <!-- Vendors hints are rendered into the sidebar by showPayTab (static
            list until the Vendors tab migrates onto FB.keys). -->
     </div>
-  </div><!-- /pay-panel-vendors -->
+  </div><!-- /pay-panel-partners -->
 
 </div>
 
@@ -402,7 +402,7 @@ var BASE_CURRENCY = '${baseCurrency}';
 // per-code footers when vatRegistered=false, and lock CCY to base currency when
 // fxTracking='off' — no flash, no async client hiding.
 window.__fbFlags = ${flagsJson};
-${billsTabJS(flags)}${vendorsTabJS()}
+${billsTabJS(flags)}${partnersTabJS()}
 </script>
 ${layoutEnd()}
 </body>

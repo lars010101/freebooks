@@ -19,7 +19,7 @@
 const { query } = require('./db');
 const { listBills, getBillLines } = require('./bills');
 const { listReconcile } = require('./bank');
-const { listVendors } = require('./vendors');
+const { listPartners } = require('./partners');
 
 async function handleViews(ctx, action) {
   switch (action) {
@@ -39,7 +39,7 @@ async function handleViews(ctx, action) {
 async function viewBills(ctx) {
   const { companyId, body } = ctx;
   const [vendors, bills] = await Promise.all([
-    listVendors({ companyId }),
+    listPartners({ companyId }),
     listBills({ companyId, body }),
   ]);
   const billsWithLines = [];

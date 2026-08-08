@@ -17,7 +17,7 @@ const { handleJournal } = require('./journal');
 const { handleInbox } = require('./inbox');
 const { handleBank } = require('./bank');
 const { handleBills } = require('./bills');
-const { handleVendors } = require('./vendors');
+const { handlePartners } = require('./partners');
 const { handleViews } = require('./views');
 const { handleReports, mountReportRoutes } = require('./reports');
 const { handleVat } = require('./vat');
@@ -183,11 +183,23 @@ mountReportRoutes(app);
 async function handleApiRequest(req, res) {
   try {
     const body = req.body;
-    const { action, companyId } = body;
+    let { action, companyId } = body;
     let userEmail = body.userEmail;
 
     if (!action) return fail(res, 'INVALID_INPUT', 'Missing action');
     if (!action.startsWith('setup.') && !companyId) return fail(res, 'INVALID_INPUT', 'Missing companyId');
+
+    // Partner-proposal-spec §1.3: alias map for backward compat (vendor.* → partner.*)
+    const ACTION_ALIASES = {
+      'vendor.list':   'partner.list',
+      'vendor.save':   'partner.save',
+      'vendor.delete': 'partner.delete',
+      'vendor.upsert': 'partner.upsert',
+    };
+    if (ACTION_ALIASES[action]) {
+      console.warn(`[DEPRECATION] action '${action}' is deprecated, use '${ACTION_ALIASES[action]}'`);
+      action = ACTION_ALIASES[action];
+    }
 
     const requiredRole = ACTION_ROLES[action];
     if (!requiredRole) return fail(res, 'INVALID_INPUT', `Unknown action: ${action}`);
@@ -313,7 +325,7 @@ async function handleApiRequest(req, res) {
       case 'inbox':       result = await handleInbox(ctx, action); break;
       case 'bank':        result = await handleBank(ctx, action); break; // bank.process, bank.approve, bank.reconcile.*
       case 'bill':        result = await handleBills(ctx, action); break;
-      case 'vendor':      result = await handleVendors(ctx, action); break;
+      case 'partner':    result = await handlePartners(ctx, action); break;
       case 'view':        result = await handleViews(ctx, action); break; // P1-8 read models
       case 'report':      result = await handleReports(ctx, action); break;
       case 'vat':         result = await handleVat(ctx, action); break;
@@ -1433,7 +1445,7 @@ async function handleSettings(ctx, action) {
     // fx_rates is intentionally untouched — the rate table is installation-global.
     const TABLES = ['bill_payments', 'bills', 'attachments', 'reconciliations', 'bank_mappings',
       'centers', 'vat_codes', 'periods', 'journal_sequences', 'journals', 'accounts',
-      'settings', 'user_permissions', 'idempotency_keys', 'vendors', 'audit_log', 'companies'];
+      'settings', 'user_permissions', 'idempotency_keys', 'partners', 'audit_log', 'companies'];
     for (const t of TABLES) {
       await exec(`DELETE FROM ${t} WHERE company_id = @companyId`, { companyId });
     }
@@ -1684,7 +1696,21 @@ ensureDb().then(async () => {
   // dispatch above) — keeps the in-process agent pipeline in sync.
   const AGENT_ALLOWED = new Set(Object.entries(ACTIONS).filter(([, m]) => m.agentWritable).map(([name]) => name));
 
+  // Partner-proposal-spec §1.3: alias map for backward compat (vendor.* → partner.*)
+  const ACTION_ALIASES = {
+    'vendor.list':   'partner.list',
+    'vendor.save':   'partner.save',
+    'vendor.delete': 'partner.delete',
+    'vendor.upsert': 'partner.upsert',
+  };
+
   async function dispatchAction(action, params, companyId, agentEmail) {
+    // Resolve alias early so role checks + handler dispatch use the canonical name
+    const resolvedAction = ACTION_ALIASES[action] || action;
+    if (ACTION_ALIASES[action]) {
+      console.warn(`[DEPRECATION] action '${action}' is deprecated, use '${resolvedAction}'`);
+    }
+    action = resolvedAction;
     const body = { action, companyId, userEmail: agentEmail, ...params };
     const requiredRole = ACTION_ROLES[action];
     if (!requiredRole) throw Object.assign(new Error(`Unknown action: ${action}`), { code: 'UNKNOWN_ACTION' });
@@ -1708,7 +1734,7 @@ ensureDb().then(async () => {
       inbox: () => require('./inbox').handleInbox(ctx, action),
       bank: () => require('./bank').handleBank(ctx, action),
       bill: () => require('./bills').handleBills(ctx, action),
-      vendor: () => require('./vendors').handleVendors(ctx, action),
+      partner: () => require('./partners').handlePartners(ctx, action),
       view: () => require('./views').handleViews(ctx, action),
       report: () => require('./reports').handleReports(ctx, action),
       vat: () => require('./vat').handleVat(ctx, action),

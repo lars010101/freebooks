@@ -1322,7 +1322,7 @@ function showPayTab(t) {
     FB.list.guard(function(){ showPayTab(t); });
     return;
   }
-  ['bills','vendors'].forEach(function(id) {
+  ['bills','partners'].forEach(function(id) {
     document.getElementById('pay-panel-' + id).style.display = (id === t) ? '' : 'none';
     var tabEl = document.getElementById('pay-tab-' + id);
     if (tabEl) tabEl.classList.toggle('active', id === t);
@@ -1332,7 +1332,7 @@ function showPayTab(t) {
   document.querySelectorAll('tr.nav-row-focus, tr.bill-row-focus').forEach(function(r){
     r.classList.remove('nav-row-focus', 'bill-row-focus');
   });
-  if (t === 'vendors') { loadVendorTable(); loadVendorAccounts(); loadVendorCurrencies(); }
+  if (t === 'partners') { loadVendorTable(); loadVendorAccounts(); loadVendorCurrencies(); }
   // FB.list owns row focus/scroll now; the old bespoke cursor restore on tab
   // return was deleted with the cursor object in Task 7.
 }
@@ -1342,7 +1342,7 @@ function showPayTab(t) {
 function renderPayHints(tab) {
   var el = document.getElementById('sb-hints');
   if (!el) return;
-  FB.keys.renderHints(tab === 'vendors' ? 'vendors' : 'bills', el, { layout: 'list' });
+  FB.keys.renderHints(tab === 'partners' ? 'partners' : 'bills', el, { layout: 'list' });
 }
 `;
 }

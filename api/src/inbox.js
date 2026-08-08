@@ -84,6 +84,14 @@ async function listInbox(ctx) {
     return { items: await queryPeriodUnclosed(companyId, limit) };
   }
 
+  // Class B — partner_proposals proposed by the agent (partner-proposal-spec §5).
+  // status='partners' is a filter view of proposed partner proposals awaiting
+  // human approve/reject. The partner_proposals table IS the source of truth (R8);
+  // verbs are partner.proposal.approve/reject called against payload_ref (= proposal_id).
+  if (status === 'partners') {
+    return { items: await queryPartnerProposals(companyId, limit) };
+  }
+
   // Class A — journal_proposals (§10.3). `includeLines` so we can compute
   // the item `amount` as the sum of line debits parsed from the lines JSON.
   const rows = await queryProposals(companyId, { status, limit, includeLines: true });
@@ -364,6 +372,47 @@ async function queryPeriodUnclosed(companyId, limit) {
   }
 
   return items;
+}
+
+/**
+ * queryPartnerProposals — Class B partner-proposal items
+ * (partner-proposal-spec §5.1). Proposed partners from the agent, awaiting
+ * human approve/reject. Normalized to the inbox item shape. The
+ * partner_proposals table IS the source of truth (R8); no staging.
+ *
+ * Item shape: { type:'partner_proposal', source:'agent', counterparty:name,
+ * amount:null, date:created_at, proposed_at:created_at, summary,
+ * verbs:['approve','reject','open'], payload_ref:proposal_id,
+ * status, reference:name, description:name, created_by }.
+ */
+async function queryPartnerProposals(companyId, limit) {
+  var rows = await query(
+    `SELECT proposal_id, name, status, created_by, created_at
+     FROM partner_proposals
+     WHERE company_id = @companyId
+       AND status = 'proposed'
+     ORDER BY created_at DESC
+     LIMIT @lim`,
+    { companyId: companyId, lim: limit }
+  );
+
+  return rows.map(function (row) {
+    return {
+      type: 'partner_proposal',
+      source: 'agent',
+      counterparty: row.name,
+      amount: null,
+      date: row.created_at,
+      proposed_at: row.created_at,
+      summary: 'New partner suggested: ' + row.name,
+      verbs: ['approve', 'reject', 'open'],
+      payload_ref: row.proposal_id,
+      status: row.status,
+      reference: row.name,
+      description: row.name,
+      created_by: row.created_by,
+    };
+  });
 }
 
 module.exports = { handleInbox };

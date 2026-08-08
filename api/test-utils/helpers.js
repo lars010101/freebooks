@@ -206,11 +206,11 @@ async function seedCompany(baseUrl, companyId, { jurisdiction = 'SG', currency =
   });
   if (p.status !== 200) throw new Error(`period.upsert failed: ${JSON.stringify(p.body)}`);
 
-  const v = await api(baseUrl, 'vendor.upsert', {
+  const v = await api(baseUrl, 'partner.upsert', {
     companyId,
-    vendor: { name: 'Acme Pte Ltd', default_currency: currency },
+    partner: { name: 'Acme Pte Ltd', default_currency: currency },
   });
-  if (v.status !== 200) throw new Error(`vendor.upsert failed: ${JSON.stringify(v.body)}`);
+  if (v.status !== 200) throw new Error(`partner.upsert failed: ${JSON.stringify(v.body)}`);
 
   const coa = await api(baseUrl, 'coa.list', { companyId });
   const accounts = coa.body.data || [];

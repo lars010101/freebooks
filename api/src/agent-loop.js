@@ -321,6 +321,62 @@ async function fetchAttachment(attachmentId) {
   throw new Error('fetchAttachment not initialized');
 }
 
+/**
+ * Partner-proposal-spec §6: shared helper for both trigger points (tier-4
+ * residual + bill.create). Checks for existing partner + pending proposal,
+ * and if neither exists, calls partner.propose. Best-effort — all failures
+ * are caught and logged, never propagated.
+ */
+async function _maybeProposePartner({ companyId, agentEmail, name, default_expense_account,
+  suggested_vat_code, source_proposal_id, source_bill_id, source_description, evidence }) {
+  if (!name || !name.trim()) return; // no counterparty name to propose
+  name = name.trim();
+
+  // Check 1: existing partner by name (case-insensitive, is_vendor=TRUE)
+  const existingPartner = await query(
+    `SELECT partner_id FROM partners
+     WHERE company_id = @cid AND LOWER(name) = LOWER(@name) AND is_vendor = TRUE
+     LIMIT 1`,
+    { cid: companyId, name }
+  );
+  if (existingPartner.length > 0) return; // partner already exists
+
+  // Check 2: pending proposal by name
+  const existingProposal = await query(
+    `SELECT proposal_id FROM partner_proposals
+     WHERE company_id = @cid AND LOWER(name) = LOWER(@name) AND status = 'proposed'
+     LIMIT 1`,
+    { cid: companyId, name }
+  );
+  if (existingProposal.length > 0) return; // pending proposal already exists
+
+  // Get company default AP account
+  let defaultApAccount = null;
+  try {
+    const apRows = await query(
+      `SELECT account_code FROM accounts
+       WHERE company_id = @cid AND default_role = 'AP' AND is_active = true
+       LIMIT 1`,
+      { cid: companyId }
+    );
+    if (apRows.length > 0) defaultApAccount = apRows[0].account_code;
+  } catch (e) { /* non-fatal */ }
+
+  const params = {
+    name,
+    evidence: evidence || [{ type: 'agent_loop', description: 'Auto-proposed from agent loop' }],
+  };
+  if (default_expense_account) params.default_expense_account = default_expense_account;
+  if (defaultApAccount) params.default_ap_account = defaultApAccount;
+  if (suggested_vat_code) params.suggested_vat_code = suggested_vat_code;
+  if (source_proposal_id) params.source_proposal_id = source_proposal_id;
+  if (source_bill_id) params.source_bill_id = source_bill_id;
+  if (source_description) params.source_description = source_description;
+
+  await _dispatchAction('partner.propose', params, companyId, agentEmail);
+  log(`partner.propose: proposed new partner '${name}'`);
+}
+
 async function processBankStatement(ev, companyId, agentEmail, companySettings) {
   const attachmentId = ev.entity_id;
   let statementText;
@@ -418,16 +474,35 @@ async function processBankStatement(ev, companyId, agentEmail, companySettings) 
       if (!Array.isArray(proposals)) { warn(`statement ${attachmentId}: tier4 non-array`); continue; }
       for (const p of proposals) {
         if (!p || !Array.isArray(p.lines) || p.lines.length === 0) continue;
+        let journalProposalId = null;
         try {
-          await _dispatchAction('journal.propose', {
+          const jpRes = await _dispatchAction('journal.propose', {
             lines: p.lines, reference: p.reference || null,
             description: p.description || null,
             source_transaction_id: p.source_transaction_id || null,
             _match_meta: { tier: 4, source_type: 'llm_semantic',
               confidence: p.confidence || null, evidence: p.evidence || null },
           }, companyId, agentEmail);
+          journalProposalId = jpRes && jpRes.proposal_id;
         } catch (e) {
           err(`statement ${attachmentId}: tier4 journal.propose failed: ${e.message}`);
+        }
+
+        // ── Partner-proposal-spec §6.1: Trigger A — partner.propose after tier-4 ──
+        // Best-effort: extract counterparty name, check for existing partner /
+        // pending proposal, and if neither exists, propose a new partner.
+        try {
+          await _maybeProposePartner({
+            companyId, agentEmail,
+            name: (p.suggested_dimensions && p.suggested_dimensions.counterparty) || p.description || null,
+            default_expense_account: (p.lines && p.lines[0] && p.lines[0].account_code) || null,
+            suggested_vat_code: (p.lines && p.lines[0] && p.lines[0].vat_code) || null,
+            source_proposal_id: journalProposalId,
+            source_description: p.description || null,
+            evidence: [{ type: 'tier4_llm', description: p.description || '', confidence: p.confidence || null }],
+          });
+        } catch (partnerErr) {
+          warn(`statement ${attachmentId}: partner.propose trigger failed: ${partnerErr.message}`);
         }
       }
     }
@@ -724,11 +799,30 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
     warn(`bill ${attachmentId}: extraction returned no data (skipped)`);
     return;
   }
+  let billResult = null;
   try {
-    const result = await _dispatchAction('bill.create', { bill }, companyId, agentEmail);
-    log(`bill ${attachmentId}: draft created (bill_id=${result && result.bill_id || '?'})`);
+    billResult = await _dispatchAction('bill.create', { bill }, companyId, agentEmail);
+    log(`bill ${attachmentId}: draft created (bill_id=${billResult && billResult.bill_id || '?'})`);
   } catch (e) {
     err(`bill ${attachmentId}: bill.create failed: ${e.message}`);
+  }
+
+  // ── Partner-proposal-spec §6.2: Trigger B — partner.propose after bill.create ──
+  // Best-effort: check if vendor name matches an existing partner, and if not,
+  // propose a new partner. Failure doesn't affect the bill draft.
+  if (billResult) {
+    try {
+      await _maybeProposePartner({
+        companyId, agentEmail,
+        name: bill.vendor || bill.vendor_name || null,
+        default_expense_account: bill.expense_account || null,
+        source_bill_id: billResult.bill_id,
+        source_description: null,
+        evidence: [{ type: 'bill_extraction', bill_id: billResult.bill_id, filename: att.filename }],
+      });
+    } catch (partnerErr) {
+      warn(`bill ${attachmentId}: partner.propose trigger failed: ${partnerErr.message}`);
+    }
   }
 }
 

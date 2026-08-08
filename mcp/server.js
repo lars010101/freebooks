@@ -2,7 +2,7 @@
 /**
  * freebooks MCP server — stdio transport (Phase A, spec §5).
  *
- * Exposes the agent-ready freebooks action surface as seven MCP tools:
+ * Exposes the agent-ready freebooks action surface as eight MCP tools:
  *   - event_list              → action `event.list`            (work-discovery)
  *   - journal_propose         → action `journal.propose`       (ledger write path)
  *   - attachment_upload       → action `attachment.upload`     (base64 — agent never touches disk)
@@ -10,6 +10,7 @@
  *   - matching_history_record → action `matching_history.record` (learning-store write)
  *   - mapping_suggest         → action `mapping.suggest`       (propose bank-mapping rules)
  *   - bill_create             → action `bill.create`           (agent saves a draft; human posts)
+ *   - partner_propose          → action `partner.propose`        (propose new partner; human approves)
  *
  * Identity / correlation (spec §5.1):
  *   - FREEBOOKS_API_URL  (default http://127.0.0.1:3000)
@@ -189,6 +190,31 @@ const TOOLS = [
         idempotency_key: { type: 'string', description: 'Caller-supplied Idempotency-Key.' },
       },
       required: ['bill'],
+    },
+  },
+  {
+    name: 'partner_propose',
+    description: 'Propose a new partner (vendor or customer) for human approval. Writes to partner_proposals, never to partners directly. Maps to action partner.propose.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Proposed partner name.' },
+        tax_id: { type: 'string' },
+        default_currency: { type: 'string' },
+        payment_terms_days: { type: 'number' },
+        default_expense_account: { type: 'string' },
+        default_ap_account: { type: 'string' },
+        suggested_vat_code: { type: 'string' },
+        is_vendor: { type: 'boolean' },
+        is_customer: { type: 'boolean' },
+        evidence: { type: 'object', description: 'Why the agent is proposing this partner.' },
+        source_proposal_id: { type: 'string' },
+        source_bill_id: { type: 'string' },
+        source_description: { type: 'string' },
+        proposalId: { type: 'string', description: 'For idempotent upsert.' },
+        idempotency_key: { type: 'string' },
+      },
+      required: ['name', 'evidence'],
     },
   },
 ];
@@ -385,6 +411,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (args.payment_batch_id != null) params.payment_batch_id = args.payment_batch_id;
         const idempotencyKey = args.idempotency_key || newIdempotencyKey();
         const res = await callAction('bill.create', params, { idempotencyKey });
+        return fromApiResult(res);
+      }
+
+      case 'partner_propose': {
+        if (!args.name || !args.evidence) {
+          return errorResult('INVALID_INPUT', 'partner_propose requires `name` and `evidence`');
+        }
+        const params = { name: args.name, evidence: args.evidence };
+        if (args.tax_id != null) params.tax_id = args.tax_id;
+        if (args.default_currency != null) params.default_currency = args.default_currency;
+        if (args.payment_terms_days != null) params.payment_terms_days = args.payment_terms_days;
+        if (args.default_expense_account != null) params.default_expense_account = args.default_expense_account;
+        if (args.default_ap_account != null) params.default_ap_account = args.default_ap_account;
+        if (args.suggested_vat_code != null) params.suggested_vat_code = args.suggested_vat_code;
+        if (args.is_vendor != null) params.is_vendor = args.is_vendor;
+        if (args.is_customer != null) params.is_customer = args.is_customer;
+        if (args.source_proposal_id != null) params.source_proposal_id = args.source_proposal_id;
+        if (args.source_bill_id != null) params.source_bill_id = args.source_bill_id;
+        if (args.source_description != null) params.source_description = args.source_description;
+        if (args.proposalId != null) params.proposalId = args.proposalId;
+        const idempotencyKey = args.idempotency_key || newIdempotencyKey();
+        const res = await callAction('partner.propose', params, { idempotencyKey });
         return fromApiResult(res);
       }
 

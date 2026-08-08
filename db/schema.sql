@@ -414,22 +414,33 @@ CREATE TABLE IF NOT EXISTS reconciliations (
 );
 
 -- =============================================================================
--- vendors (master list for AP/AR)
+-- partners (unified master list for AP/AR — renamed from vendors)
+-- The rename + column additions run in init.js applyPartnersMigration() (guarded,
+-- idempotent). schema.sql only creates the table for FRESH databases. Existing
+-- databases get the rename migration on boot. See partner-proposal-spec §7.1.
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS vendors (
-  vendor_id          VARCHAR PRIMARY KEY DEFAULT (uuid()),
-  company_id         VARCHAR NOT NULL,
-  name               VARCHAR NOT NULL,
-  default_currency   VARCHAR,
-  payment_terms_days INTEGER DEFAULT 30,
-  tax_id             VARCHAR,
-  notes              VARCHAR,
-  is_active          BOOLEAN DEFAULT TRUE,
-  created_at         TIMESTAMP DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS partners (
+  partner_id             VARCHAR PRIMARY KEY DEFAULT (uuid()),
+  company_id             VARCHAR NOT NULL,
+  name                   VARCHAR NOT NULL,
+  default_currency       VARCHAR,
+  payment_terms_days     INTEGER DEFAULT 30,
+  tax_id                 VARCHAR,
+  notes                  VARCHAR,
+  is_active              BOOLEAN DEFAULT TRUE,
+  default_expense_account VARCHAR,
+  default_ap_account     VARCHAR,
+  is_vendor              BOOLEAN DEFAULT TRUE,
+  is_customer            BOOLEAN DEFAULT FALSE,
+  default_revenue_account VARCHAR,
+  default_ar_account     VARCHAR,
+  created_at             TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_vendors_company ON vendors(company_id);
-CREATE INDEX IF NOT EXISTS idx_vendors_name ON vendors(name);
+CREATE INDEX IF NOT EXISTS idx_partners_company ON partners(company_id);
+CREATE INDEX IF NOT EXISTS idx_partners_name ON partners(name);
+CREATE INDEX IF NOT EXISTS idx_partners_vendor ON partners(company_id, is_vendor);
+CREATE INDEX IF NOT EXISTS idx_partners_customer ON partners(company_id, is_customer);
 
 -- MIGRATION: add account_subtype, drop legacy bs_category and pl_category
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_subtype VARCHAR;
@@ -469,9 +480,9 @@ WHERE default_role IS NULL
       AND s.value IS NOT NULL AND TRIM(s.value) <> ''
   );
 
--- MIGRATION: vendor default expense and AP accounts
-ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
-ALTER TABLE vendors ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;
+-- MIGRATION: partner default expense and AP accounts (was vendor columns)
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;
 ALTER TABLE bills ADD COLUMN IF NOT EXISTS draft_lines TEXT DEFAULT NULL;
 
 -- MIGRATION (P1-9): payment subledger extensions — manual payments carry an
@@ -722,4 +733,37 @@ WHERE je.bill_id IS NOT NULL
   AND je.reversed_by IS NULL
   AND je.bill_id IN (SELECT bill_id FROM bills WHERE status IN ('posted', 'partial', 'paid', 'void'))
 ON CONFLICT (company_id, bill_id, line_number) DO NOTHING;
+
+-- =============================================================================
+-- partner_proposals (partner-proposal-spec §3.2)
+-- Agent-proposed partners awaiting human approval. Same lifecycle as
+-- mapping_suggestions: proposed → approved | rejected. "Approve" writes to
+-- partners (human-attributed). The agent never writes to partners directly.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS partner_proposals (
+  company_id              VARCHAR NOT NULL,
+  proposal_id             VARCHAR NOT NULL UNIQUE,
+  name                    VARCHAR NOT NULL,
+  tax_id                  VARCHAR,
+  default_currency        VARCHAR,
+  payment_terms_days      INTEGER DEFAULT 30,
+  default_expense_account VARCHAR,
+  default_ap_account      VARCHAR,
+  suggested_vat_code      VARCHAR,
+  is_vendor               BOOLEAN DEFAULT TRUE,
+  is_customer             BOOLEAN DEFAULT FALSE,
+  evidence                JSON,
+  source_proposal_id      VARCHAR,
+  source_bill_id          VARCHAR,
+  source_description      VARCHAR,
+  status                  VARCHAR NOT NULL DEFAULT 'proposed',
+  created_by              VARCHAR NOT NULL,
+  reviewed_by             VARCHAR,
+  reviewed_at             TIMESTAMP,
+  created_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_partner_proposals_company_status
+  ON partner_proposals(company_id, status);
+CREATE INDEX IF NOT EXISTS idx_partner_proposals_name
+  ON partner_proposals(company_id, name);
 

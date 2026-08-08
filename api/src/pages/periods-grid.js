@@ -39,7 +39,14 @@ var periodsList = FB.list.create({
     { field: 'end_date', type: 'date', width: null, filterType: 'date',
       display: function(v) { return v ? esc(FB.util.fmtDate(v)) : '<span class="pe-ro">—</span>'; } },
     { field: 'locked', type: 'checkbox', align: 'center',
-      display: function(v) { return '<input type="checkbox" disabled' + (v ? ' checked' : '') + '>'; } }
+      display: function(v) { return '<input type="checkbox" disabled' + (v ? ' checked' : '') + '>'; } },
+    { field: 'fx_status', type: 'text', align: 'center', ro: 'always', width: 50,
+      display: function(v) {
+        if (!v || v === 'na') return '<span class="pe-ro">—</span>';
+        if (v === 'red') return '<span style="color:#b91c1c" title="' + esc((window._fxMissing && window._fxMissing[this && this._key]) || '') + '">●</span>';
+        if (v === 'green') return '<span style="color:#166534">●</span>';
+        return '<span class="pe-ro">—</span>';
+      } }
   ],
   blank: function() { return { period_name: '', start_date: '', end_date: '', locked: false }; },
   isBlank: function(b) { return !b.period_name && !b.start_date && !b.end_date && !b.locked; },
@@ -66,7 +73,47 @@ var periodsList = FB.list.create({
   onChrome: function(dirty) { ${opts.onChromeBody || ''} }
 });
 
-function loadPeriods(focusKey) { periodsList.load(focusKey); }
+function loadPeriods(focusKey) { periodsList.load(focusKey); decorateFxStatus(); }
+
+// ── FX status decoration (fx-automation-spec §5) ─────────────────────────
+// Async decoration — never blocks the list render. After the grid loads,
+// fetch fx.coverage for each period and update the FX column with a dot.
+window._fxMissing = {};
+function decorateFxStatus() {
+  // Wait for the list to populate, then fetch coverage per period
+  setTimeout(function () {
+    var rows = document.querySelectorAll('#periods-body tr[data-key]');
+    if (!rows.length) return;
+    var today = new Date().toISOString().slice(0, 10);
+    rows.forEach(function (tr) {
+      var key = tr.dataset.key;
+      if (!key) return;
+      // Read start/end from the row's data (stored by FB.list on the TR)
+      var rowData = periodsList.getRow ? periodsList.getRow(key) : null;
+      if (!rowData) return;
+      var start = String(rowData.start_date || '').slice(0, 10);
+      var end = String(rowData.end_date || '').slice(0, 10);
+      if (!start || !end || start > today) return; // future period
+      var effectiveEnd = end < today ? end : today;
+      postAction('fx.coverage', { startDate: start, endDate: effectiveEnd }).then(function (res) {
+        var cov = (res && res.data) || res || {};
+        var status = cov.status || 'na';
+        var cell = tr.querySelector('td:nth-child(5)');
+        if (!cell) return;
+        if (status === 'red' && cov.missing && cov.missing.length > 0) {
+          window._fxMissing[key] = 'Missing ' + cov.missing.length + ' day(s). First: ' + cov.missing[0];
+          cell.innerHTML = '<span style="color:#b91c1c" title="' + esc(window._fxMissing[key]) + '">●</span>';
+        } else if (status === 'green') {
+          cell.innerHTML = '<span style="color:#166534" title="All rates covered">●</span>';
+        } else {
+          cell.innerHTML = '<span class="pe-ro">—</span>';
+        }
+      }).catch(function () {
+        // silently fail — FX status is decorative, never blocks
+      });
+    });
+  }, 200);
+}
 `;
 }
 

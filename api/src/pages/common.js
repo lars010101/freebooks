@@ -194,10 +194,11 @@ function navBar(company, activeKey) {
         <span id="tb-dyn-slots"></span>
         ${ctx.actions}
         <a href="/${company}/journal/new" class="tb-btn tb-btn-quiet">+ Journal Entry</a>
-        <button class="tb-icon-btn" title="Notifications">🔔</button>
+        <button class="tb-icon-btn" id="tb-notif-btn" title="Notifications">🔔<span id="tb-notif-badge" class="tb-notif-badge" hidden></span></button>
         <button class="tb-icon-btn" id="tb-help-btn" title="Keyboard shortcuts (?)">?</button>
       </div>
     </header>
+    <div id="tb-notif-dropdown" class="tb-notif-dropdown" hidden></div>
     <main id="page-main">`;
 }
 

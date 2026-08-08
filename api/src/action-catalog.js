@@ -436,6 +436,22 @@ const ACTIONS = {
     description: 'Configure an FX provider (incl. API key).',
     params: { provider: { type: 'string', required: true }, apiKey: { type: 'string' } },
   },
+  'fx.coverage': {
+    role: 'viewer', mutating: false,
+    description: 'Compute FX rate coverage for a date range (stored days vs provider publication days).',
+    params: { startDate: { type: 'date', required: true }, endDate: { type: 'date', required: true } },
+  },
+
+  // ── Notifications (fx-automation-spec §7) ────────────────────────────────
+  'notifications.list': {
+    role: 'viewer', mutating: false,
+    description: 'List notifications (unread first). Pass all=true to include read.',
+  },
+  'notifications.mark_read': {
+    role: 'data_entry', mutating: true, audit: false,
+    description: 'Mark notifications as read (by ids array or all=true).',
+    params: { ids: { type: 'array' }, all: { type: 'boolean' } },
+  },
 
   // ── Mappings / centers / journals / vendors ──────────────────────────────
   'mapping.list': { role: 'viewer', mutating: false, description: 'List bank-import mapping rules.' },

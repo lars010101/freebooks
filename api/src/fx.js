@@ -75,6 +75,7 @@ async function handleFx(ctx, action) {
     case 'fx.rates.save':           return saveRates(ctx);
     case 'fx.rates.delete':         return deleteRate(ctx);
     case 'fx.rates.get':            return getEffectiveRate(ctx);
+    case 'fx.coverage':             return coverageAction(ctx);
     case 'fx.providers.list':       return listProviders(ctx);
     case 'fx.provider.get':         return getProvider(ctx);
     case 'fx.provider.save':        return saveProvider(ctx);
@@ -353,6 +354,97 @@ async function revaluationPost(ctx) {
   return { posted: true, batchId, lineCount: lines.length, totalGainLoss: adjustments.reduce((s, a) => s + (a.fxGainLoss || 0), 0) };
 }
 
+// ── fx.coverage (fx-automation-spec §3) ─────────────────────────────────────
+// Coverage = stored days vs the provider's actual publication days — never
+// naive weekdays. Returns per-period: { status, missing, publicationDays }.
+async function coverageAction(ctx) {
+  const { companyId, body } = ctx;
+  const { startDate, endDate } = body;
+  if (!startDate || !endDate) {
+    throw Object.assign(new Error('startDate and endDate required'), { code: 'INVALID_INPUT' });
+  }
+
+  const companies = await query(
+    `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,
+    { companyId }
+  );
+  if (companies.length === 0) throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
+  const baseCurrency = companies[0].currency;
+
+  const { providerName, apiKey } = await loadProviderConfig(companyId);
+
+  // If tracking is off or provider is manual → na
+  const trackingRows = await query(
+    `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_tracking'`,
+    { companyId }
+  );
+  const tracking = trackingRows.length > 0 ? trackingRows[0].value : 'auto';
+  if (tracking === 'off' || providerName === MANUAL_PROVIDER) {
+    return { status: 'na', missing: [], reason: 'FX tracking off or provider is manual' };
+  }
+
+  if (!providerExists(providerName)) {
+    return { status: 'na', missing: [], reason: `Provider not found: ${providerName}` };
+  }
+
+  const provider = require(path.join(PROVIDERS_DIR, providerName + '.js'));
+  const { computeCoverage } = require('./fx-coverage');
+
+  const today = new Date().toISOString().slice(0, 10);
+  const effectiveEnd = endDate < today ? endDate : today;
+
+  const result = await computeCoverage(companyId, baseCurrency, startDate, effectiveEnd, provider, providerName);
+  return result;
+}
+
+// ── Period hook backfill (fx-automation-spec §4) ────────────────────────────
+// Called after period.upsert when fx_tracking='auto' and provider is real.
+// Fire-and-forget: the caller (period.upsert) never waits on this.
+async function backfillPeriod(companyId, periodStart, periodEnd) {
+  try {
+    const { providerName, apiKey } = await loadProviderConfig(companyId);
+    if (providerName === MANUAL_PROVIDER || !providerExists(providerName)) return;
+
+    const trackingRows = await query(
+      `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_tracking'`,
+      { companyId }
+    );
+    const tracking = trackingRows.length > 0 ? trackingRows[0].value : 'auto';
+    if (tracking === 'off') return;
+
+    const companies = await query(
+      `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,
+      { companyId }
+    );
+    if (companies.length === 0) return;
+    const baseCurrency = companies[0].currency;
+
+    const provider = require(path.join(PROVIDERS_DIR, providerName + '.js'));
+    const { fetchRange: doFetchRange } = require('./fx-coverage');
+
+    const today = new Date().toISOString().slice(0, 10);
+    const effectiveEnd = periodEnd < today ? periodEnd : today;
+
+    if (periodStart > today) return; // future period
+
+    const rows = await doFetchRange(provider, baseCurrency, periodStart, effectiveEnd, apiKey);
+    if (rows && rows.length > 0) {
+      const source = rows[0].source || providerName;
+      const dates = [...new Set(rows.map(r => r.date))];
+      for (const d of dates) {
+        await exec(
+          `DELETE FROM fx_rates WHERE date = @date AND source = @source AND (from_currency = @base OR to_currency = @base)`,
+          { date: d, source, base: baseCurrency }
+        );
+      }
+      await bulkInsert('fx_rates', rows);
+    }
+  } catch (e) {
+    // Fire-and-forget: never throw to the caller
+    console.error(`FX period backfill failed for ${companyId}:`, e.message);
+  }
+}
+
 async function listProviders(ctx) {
   // 'manual' is a first-class provider choice (fx-automation-spec rev. 3):
   // no automatic download — rates are entered by hand (source='manual').
@@ -430,4 +522,4 @@ async function saveProvider(ctx) {
   return { saved: true, provider };
 }
 
-module.exports = { handleFx, getRate, listRates, saveRates, deleteRate, getEffectiveRate, loadProviderConfig, providerExists, listProviderIds, MANUAL_PROVIDER };
+module.exports = { handleFx, getRate, listRates, saveRates, deleteRate, getEffectiveRate, loadProviderConfig, providerExists, listProviderIds, MANUAL_PROVIDER, backfillPeriod };

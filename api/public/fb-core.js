@@ -1412,4 +1412,86 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _refreshInboxBadge);
   else _refreshInboxBadge();
   window.addEventListener('fb:queue-changed', _refreshInboxBadge);
+
+  // ── fx-automation-spec §7: Notifications bell badge + dropdown ──────────
+  // The topbar bell shows unread count; click opens a dropdown list.
+  // Clicking a row marks it read. Refreshed on page boot.
+  function _refreshNotifBadge() {
+    var badge = document.getElementById('tb-notif-badge');
+    if (!badge) return;
+    var shell = document.getElementById('app-shell');
+    var company = shell && shell.dataset ? shell.dataset.company : null;
+    if (!company) return;
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'notifications.list', companyId: company }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        var n = (res && res.ok && res.data && typeof res.data.unread_count === 'number') ? res.data.unread_count : 0;
+        badge.textContent = n > 99 ? '99+' : String(n);
+        badge.hidden = n === 0;
+      })
+      .catch(function () { badge.hidden = true; });
+  }
+
+  function _toggleNotifDropdown() {
+    var dd = document.getElementById('tb-notif-dropdown');
+    if (!dd) return;
+    if (!dd.hidden) { dd.hidden = true; return; }
+    dd.hidden = false;
+    var shell = document.getElementById('app-shell');
+    var company = shell && shell.dataset ? shell.dataset.company : null;
+    if (!company) return;
+    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'notifications.list', companyId: company, all: false }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        var items = (res && res.ok && res.data && res.data.notifications) || [];
+        if (items.length === 0) {
+          dd.innerHTML = '<div class="tb-notif-empty">No unread notifications.</div>';
+          return;
+        }
+        var html = '<h4>Notifications <a id="tb-notif-markall">Mark all read</a></h4>';
+        items.forEach(function (n) {
+          var ts = n.created_at ? String(n.created_at).slice(0, 16).replace('T', ' ') : '';
+          html += '<div class="tb-notif-item" data-id="' + esc(n.id) + '">'
+            + '<div class="notif-kind">' + esc(n.kind || '') + '</div>'
+            + '<div class="notif-msg">' + esc(n.message || '') + '</div>'
+            + '<div class="notif-time">' + esc(ts) + '</div>'
+            + '</div>';
+        });
+        dd.innerHTML = html;
+        // Wire mark-all-read
+        var markAll = document.getElementById('tb-notif-markall');
+        if (markAll) markAll.onclick = function () {
+          fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'notifications.mark_read', companyId: company, all: true }) })
+            .then(function () { _refreshNotifBadge(); _toggleNotifDropdown(); });
+        };
+        // Wire per-item click → mark read
+        dd.querySelectorAll('.tb-notif-item').forEach(function (item) {
+          item.onclick = function () {
+            var id = item.dataset.id;
+            fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'notifications.mark_read', companyId: company, ids: [id] }) })
+              .then(function () { _refreshNotifBadge(); item.style.opacity = '0.4'; });
+          };
+        });
+      })
+      .catch(function () { dd.innerHTML = '<div class="tb-notif-empty">Failed to load.</div>'; });
+  }
+
+  // Wire the bell button
+  var notifBtn = document.getElementById('tb-notif-btn');
+  if (notifBtn) notifBtn.addEventListener('click', function (e) { e.preventDefault(); _toggleNotifDropdown(); });
+  // Close dropdown on outside click
+  document.addEventListener('click', function (e) {
+    var dd = document.getElementById('tb-notif-dropdown');
+    if (!dd || dd.hidden) return;
+    if (!dd.contains(e.target) && e.target.id !== 'tb-notif-btn' && !e.target.closest('#tb-notif-btn')) {
+      dd.hidden = true;
+    }
+  });
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _refreshNotifBadge);
+  else _refreshNotifBadge();
 })();

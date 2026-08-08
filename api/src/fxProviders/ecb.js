@@ -39,5 +39,42 @@ module.exports = {
     }
 
     return rows;
+  },
+
+  // fx-automation-spec §2: fetchRange — one call per period returns every
+  // published day via frankfurter's range endpoint. Also the efficient
+  // backfill mechanism and the ground-truth publication calendar.
+  async fetchRange(baseCurrency, startDate, endDate, apiKey) {
+    const url = `https://api.frankfurter.app/${startDate}..${endDate}?from=${baseCurrency}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`ECB fetchRange failed: ${response.status}`);
+
+    const data = await response.json();
+    const now = new Date().toISOString();
+    const rows = [];
+
+    // frankfurter returns { rates: { 'YYYY-MM-DD': { CUR: rate, ... }, ... } }
+    for (const [rateDate, rates] of Object.entries(data.rates)) {
+      for (const [currency, rate] of Object.entries(rates)) {
+        rows.push({
+          date: rateDate,
+          from_currency: baseCurrency,
+          to_currency: currency,
+          rate,
+          source: 'ecb',
+          fetched_at: now
+        });
+        rows.push({
+          date: rateDate,
+          from_currency: currency,
+          to_currency: baseCurrency,
+          rate: Math.round((1 / rate) * 1000000) / 1000000,
+          source: 'ecb',
+          fetched_at: now
+        });
+      }
+    }
+
+    return rows;
   }
 };

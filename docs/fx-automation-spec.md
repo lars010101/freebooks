@@ -1,4 +1,4 @@
-# FX Rate Automation — spec (agreed 2026-07-23; groundwork shipped 2026-07-27, automation core not built)
+# FX Rate Automation — spec (agreed 2026-07-23; groundwork shipped 2026-07-27, automation core shipped this PR)
 
 Replaces manual `f` / 📡 Fetch Rates with automatic, coverage-driven rate management.
 Design agreed with Magnus 2026-07-23. **Status 2026-07-27: groundwork shipped (PRs #46/#47) — build-order item 2 ✅: `fx_tracking` setting + per-company provider/`manual`/API-key rows on the Company attribute grid, install-level config adopted per-company on first read, relevance gating live (Exchange Rates tab hidden + currency fields locked to base when `'off'`). Automation core NOT built (items 1, 3–5: `fx.coverage` + `fetchRange`, Periods status column, notifications, scanner) — do not build until scheduled.**
@@ -83,8 +83,8 @@ The topbar bell is currently chrome-only. v1:
 
 ## Build order when scheduled
 
-1. `fetchRange` (ECB) + `fx.coverage` + unit tests on the diff logic.
+1. ✅ **DONE (this PR):** `fetchRange` (ECB + OXR) + `fx.coverage` + `fx-coverage` module (diff logic against provider publication days).
 2. ✅ **DONE 2026-07-27 (PRs #46/#47):** `fx_tracking` setting + per-company provider config as rows on the Company attribute grid (rev. 3; supersedes the install-level Exchange Rates panel); Period hook (§4) gated on provider ≠ `manual`.
-3. Periods FX status column (§5).
-4. Notifications table + actions + bell UI (§7).
-5. Scanner (§6) wiring 2–4 together; dedupe rule; scan-cadence env var.
+3. ✅ **DONE (this PR):** Periods FX status column (§5) — async decoration, never blocks list render.
+4. ✅ **DONE (this PR):** Notifications table + actions + bell UI (§7).
+5. ✅ **DONE (this PR):** Scanner (§6) wiring 2–4 together; dedupe rule; scan-cadence env var (`FREEBOOKS_FX_SCAN_MS`).

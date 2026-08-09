@@ -167,8 +167,8 @@ ${commonStyle()}
   <!-- Meta strip -->
   <div class="meta-strip">
     <div class="meta-field">
-      <div class="meta-label">Vendor</div>
-      <div class="meta-val" id="b-vendor">—</div>
+      <div class="meta-label">Partner</div>
+      <div class="meta-val" id="b-partner-name">—</div>
     </div>
     <div class="meta-field nav-meta-item">
       <div class="meta-label">Invoice Ref <span style="font-size:0.625rem;color:#bbb;font-weight:400;text-transform:none;letter-spacing:0">(i to edit)</span></div>
@@ -414,10 +414,10 @@ function loadBill() {
     body: JSON.stringify({ action:'bill.get', companyId: COMPANY, billId: BILL_ID }) })
   .then(function(r){ return r.json(); })
   .then(function(res){
-    if (!document.getElementById('b-vendor')) return;
+    if (!document.getElementById('b-partner-name')) return;
     var bill = res.data || res;
     if (!bill || res.error) {
-      document.getElementById('b-vendor').textContent = res.error || 'Bill not found';
+      document.getElementById('b-partner-name').textContent = res.error || 'Bill not found';
       return;
     }
     billData = bill;
@@ -427,15 +427,15 @@ function loadBill() {
     loadAttachments();
   })
   .catch(function(e){
-    var el = document.getElementById('b-vendor');
+    var el = document.getElementById('b-partner-name');
     if (el) el.textContent = 'Error: ' + e.message;
   });
 }
 
 function renderBill(bill) {
-  document.title = 'Bill \u2014 ' + (bill.vendor || BILL_ID) + ' \u2014 freeBooks';
+  document.title = 'Bill \u2014 ' + (bill.partner_name || BILL_ID) + ' \u2014 freeBooks';
   var ref = bill.vendor_ref || BILL_ID;
-  document.getElementById('b-vendor').textContent = bill.vendor || '\u2014';
+  document.getElementById('b-partner-name').textContent = bill.partner_name || '\u2014';
   document.getElementById('b-ref').value = ref;
   document.getElementById('b-date').textContent = bill.date ? fmtDate(bill.date) : '\u2014';
   document.getElementById('b-due').value = bill.due_date ? String(bill.due_date).slice(0,10) : '';

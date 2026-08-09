@@ -236,7 +236,7 @@ All data lives in a single DuckDB file (default `~/.freebooks/freebooks.duckdb`)
 | `journals` | Journal types per company (MISC, BANK, ADJ, AP, …) |
 | `journal_sequences` | Per-journal, per-year auto-incrementing reference counters |
 | `journal_proposals` | Agent-proposed journals awaiting human review (`proposed`/`approved`/`rejected`); carries `_match_meta` JSON |
-| `bills` | Accounts Payable bills (vendor, amounts, currency, FX rate, status, `amount_paid`) |
+| `bills` | Accounts Payable bills (partner_name, amounts, currency, FX rate, status, `amount_paid`) |
 | `bill_lines` | Bill line subledger — expense line items for posted bills (written alongside journal entries; never mutated) |
 | `bill_payments` | Payment allocations linking bills to settlement journal batches |
 | `vendors` | Vendor master with default currency, payment terms, and default expense/AP accounts |

@@ -29,7 +29,7 @@ const require = createRequire(import.meta.url);
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 
-// A canned LLM extraction (matches the §8 JSON shape).
+// A canned LLM extraction (matches the §8 JSON shape — LLM output field is `vendor`).
 const CANNED = {
   vendor: 'Acme',
   vendor_vat_code: 'SE556677889901',
@@ -164,7 +164,7 @@ test('12.1 text-PDF extraction uses the text LLM (layer 1) and populates the bil
   const bill = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
   // Bill populated from the canned LLM response.
-  assert.equal(bill.vendor, 'Acme');
+  assert.equal(bill.partner_name, 'Acme');
   assert.equal(bill.amount, 1000);
   assert.equal(bill.date, '2026-08-07');
   assert.equal(bill.due_date, '2026-08-21');
@@ -203,7 +203,7 @@ test('12.2 image extraction uses the vision LLM with image_url content + API key
 
   const bill = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
-  assert.equal(bill.vendor, 'Acme');
+  assert.equal(bill.partner_name, 'Acme');
   assert.equal(bill.amount, 1000);
   assert.equal(bill._source_attachment_id, 'att-2');
 
@@ -301,7 +301,7 @@ test('12.5-variant text LLM fails → vision LLM succeeds (layer 2)', async () =
   const bill = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
   assert.equal(_fetchCalls.length, 2, 'text LLM then vision LLM both called');
-  assert.equal(bill.vendor, 'Acme', 'bill populated from vision layer');
+  assert.equal(bill.partner_name, 'Acme', 'bill populated from vision layer');
   assert.equal(bill.amount, 1000);
   // Second call used the vision model + image_url content.
   const visionReq = _fetchCalls[1];
@@ -354,8 +354,8 @@ test('12.7 with no LLM config a dropped PDF still produces a skeleton bill.creat
   await processBill(ev, 'CO', 'agent@ct', settings);
 
   assert.ok(createdBill, 'bill.create was called with a bill object');
-  // Skeleton shape: vendor absent/null, no lines, attachment linkage carried through.
-  assert.ok(!createdBill.vendor, 'vendor null/absent in skeleton');
+  // Skeleton shape: partner_name absent/null, no lines, attachment linkage carried through.
+  assert.ok(!createdBill.partner_name, 'partner_name null/absent in skeleton');
   assert.equal(createdBill.currency, null);
   assert.deepEqual(createdBill.lines, []);
   assert.equal(createdBill._source_attachment_id, 'att-7');

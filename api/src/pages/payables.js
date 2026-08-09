@@ -343,7 +343,7 @@ ${commonStyle()}
       </colgroup>
       <thead>
         <tr>
-          <th class="sortable" data-col="vendor" data-filter-type="text"><div class="th-inner"><span class="th-label">Vendor</span><span class="th-sort"></span></div></th>
+          <th class="sortable" data-col="partner_name" data-filter-type="text"><div class="th-inner"><span class="th-label">Partner</span><span class="th-sort"></span></div></th>
           <th class="sortable" data-col="date" data-filter-type="date"><div class="th-inner"><span class="th-label">Date</span><span class="th-sort"></span></div></th>
           <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-label">Due</span><span class="th-sort"></span></div></th>
           <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span></div></th>

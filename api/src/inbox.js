@@ -148,7 +148,7 @@ async function listInbox(ctx) {
  * due_date ASC (oldest/most-overdue first). Normalized to the inbox item
  * shape. The bill's own row IS the source of truth (R8); no staging.
  *
- * Item shape: { type:'bill_due', source:'system', counterparty:vendor,
+ * Item shape: { type:'bill_due', source:'system', counterparty:partner_name,
  * amount:outstanding, date:due_date, proposed_at:created_at, summary,
  * verbs:['open'], payload_ref:bill_id, status:'overdue'|'due',
  * reference:vendor_ref, description, created_by, currency }.
@@ -157,7 +157,7 @@ async function listInbox(ctx) {
  */
 async function queryBillsDue(companyId, limit) {
   var rows = await query(
-    `SELECT bill_id, vendor, vendor_ref, date, due_date, amount,
+    `SELECT bill_id, partner_name, vendor_ref, date, due_date, amount,
             amount_paid, currency, status, description, created_by, created_at
      FROM bills
      WHERE company_id = @companyId
@@ -176,11 +176,11 @@ async function queryBillsDue(companyId, limit) {
     return {
       type: 'bill_due',
       source: 'system',
-      counterparty: row.vendor,
+      counterparty: row.partner_name,
       amount: outstanding,
       date: row.due_date,
       proposed_at: row.created_at,
-      summary: row.vendor + (row.vendor_ref ? ' ' + row.vendor_ref : ''),
+      summary: row.partner_name + (row.vendor_ref ? ' ' + row.vendor_ref : ''),
       verbs: ['open'],
       payload_ref: row.bill_id,
       status: overdue ? 'overdue' : 'due',
@@ -241,14 +241,14 @@ async function queryMappingSuggestions(companyId, limit) {
  * Sorted by created_at DESC (newest first). Normalized to the inbox item
  * shape. The bills table row IS the source of truth (R8); no staging.
  *
- * Item shape: { type:'bill_draft', source:'agent', counterparty:vendor,
+ * Item shape: { type:'bill_draft', source:'agent', counterparty:partner_name,
  * amount, date, proposed_at:created_at, summary,
  * verbs:['y','x'], payload_ref:bill_id, status:'draft',
  * reference:vendor_ref, description, created_by, currency }.
  */
 async function queryBillDrafts(companyId, limit) {
   var rows = await query(
-    `SELECT bill_id, vendor, vendor_ref, date, amount, currency, description, created_by, created_at
+    `SELECT bill_id, partner_name, vendor_ref, date, amount, currency, description, created_by, created_at
      FROM bills
      WHERE company_id = @companyId AND status = 'draft'
      ORDER BY created_at DESC
@@ -260,11 +260,11 @@ async function queryBillDrafts(companyId, limit) {
     return {
       type: 'bill_draft',
       source: 'agent',
-      counterparty: row.vendor,
+      counterparty: row.partner_name,
       amount: Number(row.amount) || 0,
       date: row.date,
       proposed_at: row.created_at,
-      summary: row.vendor + (row.vendor_ref ? ' ' + row.vendor_ref : ''),
+      summary: row.partner_name + (row.vendor_ref ? ' ' + row.vendor_ref : ''),
       verbs: ['y', 'x'],
       payload_ref: row.bill_id,
       status: 'draft',

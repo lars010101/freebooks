@@ -611,7 +611,7 @@ function _normalizeBillFromLLM(parsed, payload, att) {
   const firstLine = lines[0] || {};
   const lineSum = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
   return {
-    vendor: parsed.vendor || null,
+    partner_name: parsed.vendor || null,
     vendor_ref: parsed.vendor_invoice_number || null,
     date: parsed.bill_date || null,
     due_date: parsed.due_date || null,
@@ -814,7 +814,7 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
     try {
       await _maybeProposePartner({
         companyId, agentEmail,
-        name: bill.vendor || bill.vendor_name || null,
+        name: bill.partner_name || bill.vendor_name || null,
         default_expense_account: bill.expense_account || null,
         source_bill_id: billResult.bill_id,
         source_description: null,

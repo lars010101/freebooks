@@ -64,7 +64,7 @@ ${commonStyle()}
     <button onclick="closeModal()" style="position:absolute;top:12px;right:16px;background:none;border:none;font-size:18pt;cursor:pointer;color:#888">&times;</button>
     <h2 style="margin:0 0 18px;font-size:14pt">Bill Details</h2>
     <div class="modal-grid">
-      <div class="modal-field"><span class="mf-label">Vendor</span><span class="mf-val" id="m-vendor"></span></div>
+      <div class="modal-field"><span class="mf-label">Partner</span><span class="mf-val" id="m-partner-name"></span></div>
       <div class="modal-field"><span class="mf-label">Invoice Ref</span><span class="mf-val" id="m-ref"></span></div>
       <div class="modal-field"><span class="mf-label">Bill Date</span><span class="mf-val" id="m-date"></span></div>
       <div class="modal-field"><span class="mf-label">Due Date</span><span class="mf-val" id="m-due"></span></div>
@@ -134,8 +134,8 @@ function renderReport(rows, asOf) {
   // Group by vendor
   var vendors = {};
   rows.forEach(function(r) {
-    if (!vendors[r.vendor]) vendors[r.vendor] = [];
-    vendors[r.vendor].push(r);
+    if (!vendors[r.partner_name]) vendors[r.partner_name] = [];
+    vendors[r.partner_name].push(r);
   });
 
   var totals = { current:0, '1_30':0, '31_60':0, '61_90':0, '90plus':0, total:0 };
@@ -143,7 +143,7 @@ function renderReport(rows, asOf) {
   var html = '<div class="section-title">Summary — as of ' + asOf + '</div>';
   html += '<table class="aging-table">';
   html += '<thead><tr>'
-    + '<th style="text-align:left">Vendor</th>'
+    + '<th style="text-align:left">Partner</th>'
     + '<th>Current</th>'
     + '<th>1–30 days</th>'
     + '<th>31–60 days</th>'
@@ -234,7 +234,7 @@ function toggleDetails(vendor) {
 function viewBill(billId) {
   var bill = agingRows.find(function(b) { return b.bill_id === billId; });
   if (!bill) return;
-  document.getElementById('m-vendor').textContent = bill.vendor || '';
+  document.getElementById('m-partner-name').textContent = bill.partner_name || '';
   document.getElementById('m-ref').textContent = bill.vendor_ref || '—';
   document.getElementById('m-date').textContent = bill.date ? String(bill.date).slice(0,10) : '';
   document.getElementById('m-due').textContent = bill.due_date ? String(bill.due_date).slice(0,10) : '—';

@@ -913,7 +913,7 @@ function billSumGross(lines, stated) {
 // Named bill-level validate + save-body (Task 6f hoists them so extraBindings
 // can call them for the post flow; the cfg references the same functions).
 function billValidateBuf(b) {
-  if (!b.vendor) return 'Select vendor from dropdown before saving';
+  if (!b.partner_name) return 'Select partner from dropdown before saving';
   if (!b.date) return 'Bill date required';
   if (!b.due_date) return 'Due date required';
   if (b.due_date < b.date) return 'Due date must be ≥ bill date';
@@ -931,7 +931,7 @@ function billValidateBuf(b) {
 function billSaveBody(b) {
   return { bill: {
     bill_id: b._isNew ? null : b._key,
-    vendor: b.vendor, vendor_ref: b.vendor_ref, date: b.date, due_date: b.due_date,
+    partner_name: b.partner_name, vendor_ref: b.vendor_ref, date: b.date, due_date: b.due_date,
     amount: billSumGross(b.lines, b.vat_amount_stated), currency: b.currency, ap_account: b.ap_account,
     expense_account: b.expense_account,
     vat_amount_stated: (b.vat_amount_stated != null && !isNaN(Number(b.vat_amount_stated))) ? Number(b.vat_amount_stated) : null,
@@ -954,8 +954,8 @@ var billsList = FB.list.create({
   onFocus: function (tr) {},
   tree: true,
   columns: [
-    { field: 'vendor', type: 'text', attach: billAttachVendor, sortable: true,
-      display: function (v, r) { return vendorCell(r.vendor || v || ''); }, label: 'Vendor' },
+    { field: 'partner_name', type: 'text', attach: billAttachVendor, sortable: true,
+      display: function (v, r) { return vendorCell(r.partner_name || v || ''); }, label: 'Partner' },
     { field: 'date', type: 'date', sortable: true, filterType: 'date',
       display: function (v) {
         return '<span style="white-space:nowrap" title="' + esc(String(v || '').slice(0, 10)) + '">' + fmtDateShort(v) + '</span>';
@@ -1002,7 +1002,7 @@ var billsList = FB.list.create({
   list: { action: 'bill.list',
     map: function (b) {
       return {
-        _key: b.bill_id, bill_id: b.bill_id, vendor: b.vendor || '', date: b.date || '',
+        _key: b.bill_id, bill_id: b.bill_id, partner_name: b.partner_name || '', date: b.date || '',
         due_date: b.due_date || '', vendor_ref: b.vendor_ref || '', amount: b.amount || 0,
         amount_paid: b.amount_paid || 0, currency: b.currency || BASE_CURRENCY, status: b.status || '',
         ap_account: b.ap_account || '', expense_account: b.expense_account || '',
@@ -1033,7 +1033,7 @@ var billsList = FB.list.create({
   // (L1474-1494): true when vendor/date/ref all empty AND no line has a
   // description or positive amount (pre-filled defaults do not count).
   blank: function () {
-    return { _isBill: true, isNew: true, vendor: '', date: '', due_date: '',
+    return { _isBill: true, isNew: true, partner_name: '', date: '', due_date: '',
       vendor_ref: '', amount: 0, currency: BASE_CURRENCY,
       ap_account: companyDefaultAp, expense_account: companyDefaultExpense,
       status: 'draft',
@@ -1042,7 +1042,7 @@ var billsList = FB.list.create({
         currency: BASE_CURRENCY } ] };
   },
   isBlank: function (b) {
-    if (!b.vendor && !b.date && !b.vendor_ref) {
+    if (!b.partner_name && !b.date && !b.vendor_ref) {
       return !(b.lines || []).some(function (l) {
         return l.description || (parseFloat(l.amount) > 0);
       });
@@ -1055,7 +1055,7 @@ var billsList = FB.list.create({
   // header-only match is treated as same so a freshly opened saved draft with
   // no edits drops dirty. 6e refines this once saved-draft lines are loaded.
   same: function (b, s) {
-    if ((b.vendor || '') !== (s.vendor || '')) return false;
+    if ((b.partner_name || '') !== (s.partner_name || '')) return false;
     if (String(b.date || '') !== String(s.date || '')) return false;
     if (String(b.due_date || '') !== String(s.due_date || '')) return false;
     if ((b.vendor_ref || '') !== (s.vendor_ref || '')) return false;
@@ -1086,7 +1086,7 @@ var billsList = FB.list.create({
     }
     return true;
   },
-  firstField: function (isNew) { return 'vendor'; },
+  firstField: function (isNew) { return 'partner_name'; },
   // ── Task 6d: child-line edit unit ──
   // EDIT-mode child row (framework owns the <tr> shell). Lines carry only the
   // VAT code — VAT amounts are always computed (redesign 2026-07-26: the
@@ -1151,7 +1151,7 @@ var billsList = FB.list.create({
   // dataset empty → fall back to the row's saved values. Without this the
   // buffer drops AP/expense on every save (duplicate-save bug's silent twin).
   harvestExtra: function (tr, row, buf) {
-    var vin = tr.querySelector('.fb-e-vendor');
+    var vin = tr.querySelector('.fb-e-partner_name');
     var ds = (vin && vin.dataset) || {};
     buf.vat_amount_stated = (row.vat_amount_stated != null && !isNaN(Number(row.vat_amount_stated))) ? Number(row.vat_amount_stated) : null;
     buf.vendor_id = ds.vendorId || row.vendor_id || '';
@@ -1188,7 +1188,7 @@ var billsList = FB.list.create({
   del: {
     action: 'bill.draft.delete',
     body: function (b) { return { billId: b._key }; },
-    confirm: function (b) { return 'Delete draft bill from "' + (b.vendor || '?') + '"?'; },
+    confirm: function (b) { return 'Delete draft bill from "' + (b.partner_name || '?') + '"?'; },
     deleted: function () { return 'Draft deleted'; }
   },
   // Task 6f — drafts are the only editable/deletable bills; everything else
@@ -1209,7 +1209,7 @@ var billsList = FB.list.create({
     function voidBill(p) {
       if (p.status === 'void') { FB.status.show('Bill is already void — cannot be modified.', true); return; }
       if (p.status === 'paid') { FB.status.show('Bill is fully paid — reversal must be done via a credit note or payment reversal.', true); return; }
-      var vendor = p.vendor || p.bill_id;
+      var vendor = p.partner_name || p.bill_id;
       var msg = p.status === 'partial'
         ? 'Bill from "' + vendor + '" is partially paid. Reversing will void the bill but will not reverse the payment. Continue?'
         : 'Reverse bill from "' + vendor + '"? A reversal journal entry will be created. This cannot be undone.';

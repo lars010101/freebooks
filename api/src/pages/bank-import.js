@@ -100,7 +100,7 @@ function renderImportPanel(company) {
       <div style="font-weight:600;font-size:11pt">Link Bill <span id="bill-panel-row-label" style="font-size:9pt;color:#888"></span></div>
       <button onclick="closeBillPanel()" style="border:none;background:none;cursor:pointer;font-size:14pt;color:#888">&times;</button>
     </div>
-    <input type="text" id="bill-panel-search" placeholder="Filter by vendor or ref…" oninput="renderBillPanelList()"
+    <input type="text" id="bill-panel-search" placeholder="Filter by partner or ref…" oninput="renderBillPanelList()"
       style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt;margin-bottom:10px">
     <div id="bill-panel-list" style="max-height:320px;overflow-y:auto;border:1px solid #eee;border-radius:4px"></div>
   </div>
@@ -625,7 +625,7 @@ window.fbInitBankImport = function () {
     var q = document.getElementById('bill-panel-search').value.trim().toLowerCase();
     var filtered = openBills.filter(function(b){
       if (!q) return true;
-      return (b.vendor_name||'').toLowerCase().includes(q)
+      return (b.partner_name||'').toLowerCase().includes(q)
         || (b.vendor_ref||'').toLowerCase().includes(q)
         || (b.bill_id||'').toLowerCase().includes(q);
     });
@@ -637,7 +637,7 @@ window.fbInitBankImport = function () {
     }
     list.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:9.5pt">'
       +'<thead><tr style="background:#f0f0f0">'
-      +'<th style="padding:5px 8px;text-align:left">Vendor</th>'
+      +'<th style="padding:5px 8px;text-align:left">Partner</th>'
       +'<th style="padding:5px 8px;text-align:left">Ref</th>'
       +'<th style="padding:5px 8px;text-align:left">Date</th>'
       +'<th style="padding:5px 8px;text-align:right">Outstanding</th>'
@@ -650,7 +650,7 @@ window.fbInitBankImport = function () {
           // 'Unexpected end of input' on EVERY click — mouse was as broken
           // as keyboard. Latent bug surfaced by the K3b keyboard tests.
           return '<tr data-bill-idx="'+i+'" style="cursor:pointer;border-bottom:1px solid #f0f0f0">'
-            +'<td style="padding:5px 8px">'+escHtml(b.vendor_name||b.vendor_id||'')+'</td>'
+            +'<td style="padding:5px 8px">'+escHtml(b.partner_name||b.vendor_id||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(b.vendor_ref||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(String(b.bill_date||'').slice(0,10))+'</td>'
             +'<td style="padding:5px 8px;text-align:right;font-weight:600">'+outstanding.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'
@@ -670,7 +670,7 @@ window.fbInitBankImport = function () {
     if (billPanelRowIdx < 0 || !processedRows[billPanelRowIdx]) return;
     var r = processedRows[billPanelRowIdx];
     r.billId = bill.bill_id;
-    r.vendorShort = (bill.vendor_name||bill.vendor_id||'').slice(0,10);
+    r.vendorShort = (bill.partner_name||bill.vendor_id||'').slice(0,10);
     // Set AP account as debit (payment reduces AP), bank account as credit
     if (bill.ap_account) {
       var tr = document.querySelector('#review-body tr[data-i="'+billPanelRowIdx+'"]');

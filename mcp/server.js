@@ -184,7 +184,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        bill: { type: 'object', description: 'Bill object (vendor, amount, due date, line items, currency). Same shape as bill.create action.' },
+        bill: { type: 'object', description: 'Bill object (partner_name, amount, due date, line items, currency). Same shape as bill.create action.' },
         _replaceDraftId: { type: 'string' },
         payment_batch_id: { type: 'string' },
         idempotency_key: { type: 'string', description: 'Caller-supplied Idempotency-Key.' },

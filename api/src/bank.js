@@ -47,7 +47,7 @@ async function processBankStatement(ctx) {
   let openBills = [];
   if (company.accounting_method !== 'cash') {
     openBills = await query(
-      `SELECT bill_id, vendor, vendor_ref, amount_home, amount_paid, ap_account,
+      `SELECT bill_id, partner_name, vendor_ref, amount_home, amount_paid, ap_account,
               (amount_home - amount_paid) AS outstanding, due_date
        FROM bills
        WHERE company_id = @companyId AND status IN ('posted', 'partial')
@@ -145,7 +145,7 @@ async function processBankStatement(ctx) {
         result.matchType = m.tier === 'suggest' ? 'bill_suggest' : 'bill';
         result.matchConfidence = m.tier;
         result.billId = m.bill.bill_id;
-        result.description = `Payment: ${m.bill.vendor} ${m.bill.vendor_ref || ''}`.trim();
+        result.description = `Payment: ${m.bill.partner_name} ${m.bill.vendor_ref || ''}`.trim();
         result.debitAccount = isInflow ? bankAccount : (m.bill.ap_account || null);
         result.creditAccount = isInflow ? (m.bill.ap_account || null) : bankAccount;
       }
@@ -217,7 +217,7 @@ function matchBillRow(openBills, description, amount) {
   for (const bill of openBills) {
     const outstanding = Number(bill.outstanding);
     if (Math.abs(outstanding - amount) < 0.01) {
-      const vendor = (bill.vendor || '').toUpperCase();
+      const vendor = (bill.partner_name || '').toUpperCase();
       const ref = (bill.vendor_ref || '').toUpperCase();
       // vendor_ref as a WHOLE TOKEN in the narrative promotes the match to high
       if (ref) {
@@ -260,7 +260,7 @@ function matchOpenItem(openBills, amount, description) {
   for (const bill of openBills) {
     const outstanding = Number(bill.outstanding);
     if (Math.abs(outstanding - absAmount) < 0.01) {
-      const vendor = (bill.vendor || '').toUpperCase();
+      const vendor = (bill.partner_name || '').toUpperCase();
       const ref = (bill.vendor_ref || '').toUpperCase();
       let corroborated = false;
       if (ref) {
@@ -308,7 +308,7 @@ function matchOpenItem(openBills, amount, description) {
     if (!discrepancy_type) continue;
 
     // Vendor/ref corroboration promotes the match (same logic as exact path).
-    const vendor = (bill.vendor || '').toUpperCase();
+    const vendor = (bill.partner_name || '').toUpperCase();
     const ref = (bill.vendor_ref || '').toUpperCase();
     let corroborated = false;
     if (ref) {
@@ -326,7 +326,7 @@ function matchOpenItem(openBills, amount, description) {
   // (bank-matching-spec §4.1). Brute-force with cap N ≤ 8.
   const byVendor = new Map();
   for (const bill of openBills) {
-    const v = (bill.vendor || '').toUpperCase();
+    const v = (bill.partner_name || '').toUpperCase();
     if (!v) continue;
     if (!byVendor.has(v)) byVendor.set(v, []);
     byVendor.get(v).push(bill);
@@ -483,7 +483,7 @@ async function matchLine(ctx) {
 
   if (accountingMethod !== 'cash') {
     const openBills = await query(
-      `SELECT bill_id, vendor, vendor_ref, amount_home, amount_paid, ap_account,
+      `SELECT bill_id, partner_name, vendor_ref, amount_home, amount_paid, ap_account,
               currency, (amount_home - amount_paid) AS outstanding, due_date
        FROM bills
        WHERE company_id = @companyId AND status IN ('posted', 'partial')
@@ -502,8 +502,8 @@ async function matchLine(ctx) {
       const ev = {
         type: evidenceType,
         description: m.discrepancy_type === 'open_item_exact'
-          ? `Exact amount match: ${bill.vendor} ${bill.vendor_ref || ''}`
-          : `${m.discrepancy_type} (delta ${m.delta.toFixed(2)}): ${bill.vendor} ${bill.vendor_ref || ''}`,
+          ? `Exact amount match: ${bill.partner_name} ${bill.vendor_ref || ''}`
+          : `${m.discrepancy_type} (delta ${m.delta.toFixed(2)}): ${bill.partner_name} ${bill.vendor_ref || ''}`,
         bill_id: bill.bill_id,
         discrepancy_type: m.discrepancy_type,
         delta: m.delta,
@@ -517,13 +517,13 @@ async function matchLine(ctx) {
         confidence: {
           account:      { value: apAccount,    confidence: m.confidence, derived_from: ['bill'] },
           vat_code:      { value: null,         confidence: 0,           derived_from: [] },
-          counterparty:  { value: bill.vendor, confidence: m.confidence, derived_from: ['bill'] },
+          counterparty:  { value: bill.partner_name, confidence: m.confidence, derived_from: ['bill'] },
         },
         evidence: [ev],
         suggested_dimensions: {
           account: apAccount,
           vat_code: null,
-          counterparty: bill.vendor,
+          counterparty: bill.partner_name,
           cost_center: null,
           profit_center: null,
         },

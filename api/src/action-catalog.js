@@ -209,13 +209,13 @@ const ACTIONS = {
   },
   'bill.list': {
     role: 'viewer', mutating: false,
-    description: 'List bills with filters (status, vendor, date range).',
-    params: { status: { type: 'string' }, vendor: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, limit: { type: 'number' }, offset: { type: 'number' } },
+    description: 'List bills with filters (status, partner_name, date range).',
+    params: { status: { type: 'string' }, partner_name: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, limit: { type: 'number' }, offset: { type: 'number' } },
   },
   'bill.match': {
     role: 'viewer', mutating: false,
     description: 'Find open bills matching an amount/currency (payment matching).',
-    params: { amount: { type: 'number', required: true }, currency: { type: 'string', required: true }, vendor: { type: 'string' }, date: { type: 'date' } },
+    params: { amount: { type: 'number', required: true }, currency: { type: 'string', required: true }, partner_name: { type: 'string' }, date: { type: 'date' } },
   },
   'bill.lines': {
     role: 'viewer', mutating: false,
@@ -336,7 +336,7 @@ const ACTIONS = {
   'view.bills': {
     role: 'viewer', mutating: false,
     description: 'Read model: Payables Bills tab in one call — vendors + bills with embedded lines (draft JSON parsed, posted journal lines). Same filters as bill.list.',
-    params: { status: { type: 'string' }, vendor: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, limit: { type: 'number' }, offset: { type: 'number' } },
+    params: { status: { type: 'string' }, partner_name: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, limit: { type: 'number' }, offset: { type: 'number' } },
   },
   'view.bank': {
     role: 'viewer', mutating: false,

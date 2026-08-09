@@ -77,7 +77,7 @@ ${commonStyle()}
   <div class="be-card">
     <h3>Header</h3>
     <div class="be-header-grid">
-      <div class="be-field"><label>Vendor *</label><input id="be-vendor" autocomplete="off" placeholder="start typing…"></div>
+      <div class="be-field"><label>Partner *</label><input id="be-partner-name" autocomplete="off" placeholder="start typing…"></div>
       <div class="be-field"><label>Bill date *</label><input id="be-date" type="date"></div>
       <div class="be-field"><label>Due date</label><input id="be-due" type="date"></div>
       <div class="be-field"><label>Vendor ref</label><input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></div>
@@ -193,7 +193,7 @@ async function prefillFromDraft(id) {
     apiAction('bill.get', { billId: id }),
     apiAction('bill.lines', { billId: id }),
   ]);
-  document.getElementById('be-vendor').value = bill.vendor || '';
+  document.getElementById('be-partner-name').value = bill.partner_name || '';
   document.getElementById('be-date').value = (bill.date || '').slice(0, 10);
   document.getElementById('be-due').value = (bill.due_date || bill.date || '').slice(0, 10);
   document.getElementById('be-ref').value = bill.vendor_ref || '';
@@ -216,7 +216,7 @@ async function prefillFromDraft(id) {
 
 // ── Header wiring (dropdowns + vendor defaults) ─────────────────────────────
 function wireHeader() {
-  FB.dropdown.attach(document.getElementById('be-vendor'), {
+  FB.dropdown.attach(document.getElementById('be-partner-name'), {
     minWidth: 260,
     source: q => {
       q = (q || '').toLowerCase();
@@ -399,7 +399,7 @@ if (_beTotGst) _beTotGst.addEventListener('input', (e) => {
 function gatherBill() {
   return {
     bill_id: S.billId || undefined,
-    vendor: document.getElementById('be-vendor').value.trim(),
+    partner_name: document.getElementById('be-partner-name').value.trim(),
     date: document.getElementById('be-date').value,
     due_date: document.getElementById('be-due').value,
     vendor_ref: document.getElementById('be-ref').value.trim(),
@@ -414,7 +414,7 @@ function validateClient(bill, forPost) {
   const missing = [];
   document.querySelectorAll('.req').forEach(el => el.classList.remove('req'));
   const mark = id => { document.getElementById(id).classList.add('req'); };
-  if (!bill.vendor) { missing.push('vendor'); mark('be-vendor'); }
+  if (!bill.partner_name) { missing.push('partner'); mark('be-partner-name'); }
   if (!bill.date) { missing.push('bill date'); mark('be-date'); }
   if (forPost) {
     if (!bill.ap_account) { missing.push('AP account'); mark('be-ap'); }
@@ -433,7 +433,7 @@ function isDirty() { return JSON.stringify(gatherBill()) !== S.savedSnapshot; }
 async function saveDraft(quiet) {
   if (S.saving) return null;
   const bill = gatherBill();
-  const empty = !bill.vendor && !bill.lines.length;
+  const empty = !bill.partner_name && !bill.lines.length;
   if (empty) { if (!quiet) msg('Nothing to save — bill is empty', 'err'); return null; }
   const missing = validateClient(bill, false);
   if (missing.length) { msg('Missing: ' + missing.join(', '), 'err'); return null; }
@@ -479,7 +479,7 @@ async function postBill() {
 // q = quit (no save). Dirty → confirm discard (same guard as Vendors).
 function quitEditor() {
   const bill = gatherBill();
-  if (!bill.vendor && !bill.lines.length) { window.location.href = '/' + COMPANY + '/payables'; return; } // empty → exit silently
+  if (!bill.partner_name && !bill.lines.length) { window.location.href = '/' + COMPANY + '/payables'; return; } // empty → exit silently
   if (isDirty() && !confirm('Unsaved changes — discard?')) return;
   window.location.href = '/' + COMPANY + '/payables';
 }

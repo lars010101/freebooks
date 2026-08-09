@@ -115,7 +115,7 @@ test('permission check: unknown userEmail → 403', async () => {
 
 function validBill(overrides = {}) {
   return {
-    vendor: 'Acme Pte Ltd', vendor_ref: 'INV-1', date: TD.day20, due_date: TD.day25,
+    partner_name: 'Acme Pte Ltd', vendor_ref: 'INV-1', date: TD.day20, due_date: TD.day25,
     currency: 'SGD', ap_account: AP, amount: 100,
     lines: [{ description: 'Office supplies', expense_account: EXP, amount: 100, vat_code: '' }],
     ...overrides,
@@ -162,7 +162,7 @@ test('bill.create validation names every problem', async () => {
   const { status, body } = await api(baseUrl, 'bill.create', { companyId: CO, bill: {} });
   assert.equal(status, 400);
   const msg = body.error.details.errors.join(' | ');
-  for (const expected of ['Vendor name required', 'Invoice Ref is required', 'Due date is required']) {
+  for (const expected of ['Partner name required', 'Invoice Ref is required', 'Due date is required']) {
     assert.ok(msg.includes(expected), `names: ${expected}`);
   }
 });
@@ -456,7 +456,7 @@ test('view.bills returns vendors + bills with embedded lines (posted AND draft)'
   const d = await api(baseUrl, 'bill.draft.save', {
     companyId: CO,
     bill: {
-      vendor: 'Acme Pte Ltd', vendor_ref: 'DRAFT-VIEW-1', date: TD.day21, currency: 'SGD',
+      partner_name: 'Acme Pte Ltd', vendor_ref: 'DRAFT-VIEW-1', date: TD.day21, currency: 'SGD',
       ap_account: AP, status: 'draft',
       lines: [
         { description: 'L1', expense_account: EXP, amount: 40, vat_code: '' },
@@ -466,7 +466,7 @@ test('view.bills returns vendors + bills with embedded lines (posted AND draft)'
   });
   assert.equal(d.status, 200, JSON.stringify(d.body));
 
-  const v = await api(baseUrl, 'view.bills', { companyId: CO, vendor: 'Acme' });
+  const v = await api(baseUrl, 'view.bills', { companyId: CO, partner_name: 'Acme' });
   assert.equal(v.status, 200, JSON.stringify(v.body));
   assert.ok(Array.isArray(v.body.data.vendors), 'vendors array');
   assert.ok(v.body.data.vendors.length >= 1, 'seeded vendor present');
@@ -512,7 +512,7 @@ test('per-line centers: line override beats header through draft save + post', a
   const d = await api(baseUrl, 'bill.draft.save', {
     companyId: CO,
     bill: {
-      vendor: 'Acme Pte Ltd', vendor_ref: 'CC-TEST-1', date: TD.day21, currency: 'SGD',
+      partner_name: 'Acme Pte Ltd', vendor_ref: 'CC-TEST-1', date: TD.day21, currency: 'SGD',
       ap_account: AP, cost_center: 'CC-OPS', status: 'draft',
       lines: [
         { description: 'Header center line', expense_account: EXP, amount: 30, vat_code: '' },
@@ -528,7 +528,7 @@ test('per-line centers: line override beats header through draft save + post', a
     companyId: CO,
     bill: {
       bill_id: draftId,
-      vendor: 'Acme Pte Ltd', vendor_ref: 'CC-TEST-1', date: TD.day21, currency: 'SGD',
+      partner_name: 'Acme Pte Ltd', vendor_ref: 'CC-TEST-1', date: TD.day21, currency: 'SGD',
       ap_account: AP, cost_center: 'CC-OPS', status: 'draft',
       lines: [
         { description: 'Header center line', expense_account: EXP, amount: 30, vat_code: '' },
@@ -660,7 +660,7 @@ test('bill.payment.record: validation errors named', async () => {
 
   const d = await api(baseUrl, 'bill.draft.save', {
     companyId: CO,
-    bill: { vendor: 'Acme Pte Ltd', vendor_ref: 'PAY-DRAFT-1', date: TD.day21, currency: 'SGD', ap_account: AP, status: 'draft', lines: [{ description: 'x', expense_account: EXP, amount: 10, vat_code: '' }] },
+    bill: { partner_name: 'Acme Pte Ltd', vendor_ref: 'PAY-DRAFT-1', date: TD.day21, currency: 'SGD', ap_account: AP, status: 'draft', lines: [{ description: 'x', expense_account: EXP, amount: 10, vat_code: '' }] },
   });
   const onDraft = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: d.body.data.billId, date: TD.day21, bankAccount: '1020', amount: 10 });
   assert.equal(onDraft.status, 409);

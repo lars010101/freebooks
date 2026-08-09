@@ -1010,7 +1010,7 @@ async function buildAPAging(query, company, _start, end) {
       return;
     }
     var vendors = {};
-    rows.forEach(function(r) { if (!vendors[r.vendor]) vendors[r.vendor] = []; vendors[r.vendor].push(r); });
+    rows.forEach(function(r) { if (!vendors[r.partner_name]) vendors[r.partner_name] = []; vendors[r.partner_name].push(r); });
     var totals = { current: 0, '1_30': 0, '31_60': 0, '61_90': 0, '90plus': 0, total: 0 };
     var html = '<table><thead><tr>'
       + '<th style="text-align:left">Vendor</th>'

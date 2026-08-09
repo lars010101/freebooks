@@ -226,7 +226,7 @@ async function createBill(ctx) {
   const billRow = {
     company_id: companyId,
     bill_id: billId,
-    vendor: bill.vendor,
+    partner_name: bill.partner_name,
     vendor_ref: bill.vendor_ref || null,
     date: bill.date,
     due_date: bill.due_date,
@@ -252,7 +252,7 @@ async function createBill(ctx) {
       await exec(
         `UPDATE bills SET
            status='paid', amount_paid=@amount_paid,
-           vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date,
+           partner_name=@partner_name, vendor_ref=@vendor_ref, date=@date, due_date=@due_date,
            amount=@amount, amount_home=@amount_home, currency=@currency, fx_rate=@fx_rate,
            expense_account=@expense_account, ap_account=@ap_account,
            vat_code=@vat_code, vat_amount=@vat_amount, net_amount=@net_amount,
@@ -262,7 +262,7 @@ async function createBill(ctx) {
         {
           company_id: companyId,
           bill_id: billId,
-          vendor: billRow.vendor,
+          partner_name: billRow.partner_name,
           vendor_ref: billRow.vendor_ref,
           date: billRow.date,
           due_date: billRow.due_date,
@@ -319,7 +319,7 @@ async function createBill(ctx) {
     ? await getNextReference(companyId, apJournalId, year).catch(() => bill.vendor_ref || null)
     : (bill.vendor_ref || null);
   const lines = [];
-  const desc = [bill.vendor, bill.vendor_ref, bill.description].filter(Boolean).join(' / ');
+  const desc = [bill.partner_name, bill.vendor_ref, bill.description].filter(Boolean).join(' / ');
 
   // One DR line per expense line. VAT is accumulated per VAT code and posted
   // as GROUPED tax lines after the loop (redesign 2026-07-26: computed-only
@@ -402,20 +402,20 @@ async function createBill(ctx) {
     const amt = Math.round(b.computed * 100) / 100;
     if (amt === 0) continue;
     totalStdVat += amt;
-    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: b.account, debit: amt, credit: 0, currency, fx_rate: fxRate, debit_home: amt * fxRate, credit_home: 0, vat_code: code, vat_amount: amt, vat_amount_home: amt * fxRate, net_amount: b.net, net_amount_home: b.net * fxRate, description: `GST Input: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: b.account, debit: amt, credit: 0, currency, fx_rate: fxRate, debit_home: amt * fxRate, credit_home: 0, vat_code: code, vat_amount: amt, vat_amount_home: amt * fxRate, net_amount: b.net, net_amount_home: b.net * fxRate, description: `GST Input: ${bill.partner_name}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
   }
   for (const code of Object.keys(rcTaxByCode)) {
     const b = rcTaxByCode[code];
     const amt = Math.round(b.computed * 100) / 100;
     if (amt === 0) continue;
     totalRcVat += amt;
-    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: b.inputAccount, debit: amt, credit: 0, currency, fx_rate: fxRate, debit_home: amt * fxRate, credit_home: 0, vat_code: code, vat_amount: amt, vat_amount_home: amt * fxRate, net_amount: b.net, net_amount_home: b.net * fxRate, description: `Input VAT RC: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
-    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: b.outputAccount, debit: 0, credit: amt, currency, fx_rate: fxRate, debit_home: 0, credit_home: amt * fxRate, vat_code: code, vat_amount: amt, vat_amount_home: amt * fxRate, net_amount: 0, net_amount_home: 0, description: `Output VAT RC: ${bill.vendor}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: b.inputAccount, debit: amt, credit: 0, currency, fx_rate: fxRate, debit_home: amt * fxRate, credit_home: 0, vat_code: code, vat_amount: amt, vat_amount_home: amt * fxRate, net_amount: b.net, net_amount_home: b.net * fxRate, description: `Input VAT RC: ${bill.partner_name}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: b.outputAccount, debit: 0, credit: amt, currency, fx_rate: fxRate, debit_home: 0, credit_home: amt * fxRate, vat_code: code, vat_amount: amt, vat_amount_home: amt * fxRate, net_amount: 0, net_amount_home: 0, description: `Output VAT RC: ${bill.partner_name}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
   }
 
   // Totals for the AP credit and the bill record. AP owes net + standard VAT
   // only: reverse-charge VAT is self-assessed (its DR/CR pair nets to zero
-  // inside the journal) and is never owed to the vendor. bills.vat_amount
+  // inside the journal) and is never owed to the partner. bills.vat_amount
   // counts DR tax rows only (standard incl. stated delta + RC input).
   const totalNetAmount = lines.filter(l => l.net_amount > 0 && !l.vat_code).reduce((s, l) => s + Number(l.net_amount || 0), 0) || totalAmount;
   const totalVatAmount = totalStdVat + totalRcVat;
@@ -436,7 +436,7 @@ async function createBill(ctx) {
     await exec(
       `UPDATE bills SET
          status='posted',
-         vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date,
+         partner_name=@partner_name, vendor_ref=@vendor_ref, date=@date, due_date=@due_date,
          amount=@amount, amount_home=@amount_home, currency=@currency, fx_rate=@fx_rate,
          expense_account=@expense_account, ap_account=@ap_account,
          vat_code=@vat_code, vat_amount=@vat_amount, net_amount=@net_amount,
@@ -446,7 +446,7 @@ async function createBill(ctx) {
       {
         company_id: companyId,
         bill_id: billId,
-        vendor: billRow.vendor,
+        partner_name: billRow.partner_name,
         vendor_ref: billRow.vendor_ref,
         date: billRow.date,
         due_date: billRow.due_date,
@@ -473,7 +473,7 @@ async function createBill(ctx) {
   // bank batch (no journal posted here) and emits bill.payment.recorded
   // instead; this branch posts the bill's own AP journal → bill.posted.
   await emitEvent(ctx, 'bill.posted', 'bill', billId, {
-    vendor: bill.vendor,
+    partner_name: bill.partner_name,
     date: bill.date,
     amount: totalDebit,
     currency,
@@ -620,7 +620,7 @@ async function recordBillPayment(ctx) {
     homeCurrency,
     bankAmount,
     date: String(date).substring(0, 10),
-    description: `Payment: ${bill.vendor} ${bill.vendor_ref || ''}`.trim(),
+    description: `Payment: ${bill.partner_name} ${bill.vendor_ref || ''}`.trim(),
     settledForeign,
     method: 'manual',
     source: 'manual_payment',
@@ -708,13 +708,13 @@ async function voidBillPayment(ctx) {
 
 async function listBills(ctx) {
   const { companyId, body } = ctx;
-  const { status, vendor, description, dateFrom, dateTo, limit = 200, offset = 0 } = body;
+  const { status, partner_name, description, dateFrom, dateTo, limit = 200, offset = 0 } = body;
 
   let sql = `SELECT * FROM bills WHERE company_id = @companyId`;
   const params = { companyId };
 
   if (status) { sql += ` AND status = @status`; params.status = status; }
-  if (vendor) { sql += ` AND UPPER(vendor) LIKE '%' || UPPER(@vendor) || '%'`; params.vendor = vendor; }
+  if (partner_name) { sql += ` AND UPPER(partner_name) LIKE '%' || UPPER(@partner_name) || '%'`; params.partner_name = partner_name; }
   if (description) { sql += ` AND UPPER(description) LIKE '%' || UPPER(@description) || '%'`; params.description = description; }
   if (dateFrom) { sql += ` AND date >= @dateFrom`; params.dateFrom = dateFrom; }
   if (dateTo) { sql += ` AND date <= @dateTo`; params.dateTo = dateTo; }
@@ -728,17 +728,17 @@ async function listBills(ctx) {
 
 async function matchBill(ctx) {
   const { companyId, body } = ctx;
-  const { amount, currency, vendor, date } = body;
+  const { amount, currency, partner_name, date } = body;
   if (!amount) throw Object.assign(new Error('amount required'), { code: 'INVALID_INPUT' });
 
-  let sql = `SELECT bill_id, vendor, vendor_ref, date, due_date, amount, currency, status, amount_paid, ap_account, description
+  let sql = `SELECT bill_id, partner_name, vendor_ref, date, due_date, amount, currency, status, amount_paid, ap_account, description
              FROM bills
              WHERE company_id = @companyId
                AND status IN ('posted', 'partial')
                AND ABS(amount - @amount) < 0.01`;
   const params = { companyId, amount: Number(amount) };
 
-  if (vendor) { sql += ` AND UPPER(vendor) LIKE '%' || UPPER(@vendor) || '%'`; params.vendor = vendor; }
+  if (partner_name) { sql += ` AND UPPER(partner_name) LIKE '%' || UPPER(@partner_name) || '%'`; params.partner_name = partner_name; }
   if (date) { sql += ` AND date BETWEEN @dateFrom AND @dateTo`; params.dateFrom = new Date(new Date(date) - 90*86400000).toISOString().substring(0, 10); params.dateTo = new Date(new Date(date).getTime() + 90*86400000).toISOString().substring(0, 10); }
   if (currency) { sql += ` AND currency = @currency`; params.currency = currency; }
 
@@ -800,7 +800,7 @@ async function getAgingReport(ctx) {
 
   let sql = `
     SELECT
-      bill_id, vendor, vendor_ref, date, due_date, amount, currency,
+      bill_id, partner_name, vendor_ref, date, due_date, amount, currency,
       status, amount_paid, ap_account, description,
       COALESCE(amount - amount_paid, amount) AS balance_due,
       CASE
@@ -817,7 +817,7 @@ async function getAgingReport(ctx) {
   `;
   const params = { companyId, asOf };
   if (currency) { sql += ` AND currency = @currency`; params.currency = currency; }
-  sql += ` ORDER BY vendor, due_date`;
+  sql += ` ORDER BY partner_name, due_date`;
   return query(sql, params);
 }
 
@@ -864,7 +864,7 @@ async function saveDraftBill(ctx) {
   const { companyId, body } = ctx;
   const { bill } = body;
   if (!bill) throw Object.assign(new Error('bill required'), { code: 'INVALID_INPUT' });
-  // vendor and date optional — allows skeleton draft creation on row init
+  // partner_name and date optional — allows skeleton draft creation on row init
 
   // Apply company default accounts (same safety net as createBill) so blank
   // expense/ap accounts fall back to settings before hitting NOT NULL constraints.
@@ -883,7 +883,7 @@ async function saveDraftBill(ctx) {
   // total. VAT per line is always computed (amount × rate from vat_codes) —
   // the only override surface is the bill-level stated VAT total (redesign
   // 2026-07-26). Reverse-charge VAT is self-assessed and never owed to the
-  // vendor, so it is NOT part of the bill gross.
+  // partner, so it is NOT part of the bill gross.
   let totalAmount;
   let statedForDraft = null;
   if (Array.isArray(bill.lines) && bill.lines.length) {
@@ -937,7 +937,7 @@ async function saveDraftBill(ctx) {
   const billRow = {
     company_id: companyId,
     bill_id: billId,
-    vendor: bill.vendor,
+    partner_name: bill.partner_name,
     vendor_ref: bill.vendor_ref || null,
     date: bill.date,
     due_date: bill.due_date || bill.date || null,
@@ -966,8 +966,8 @@ async function saveDraftBill(ctx) {
   if (existing.length) {
     // update existing draft
     await query(
-      `UPDATE bills SET vendor=@vendor, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, vat_amount=@vat_amount, cost_center=@cost_center, profit_center=@profit_center, description=@description, draft_lines=@draft_lines WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
-      { vendor: billRow.vendor, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, vat_amount: billRow.vat_amount, cost_center: billRow.cost_center, profit_center: billRow.profit_center, description: billRow.description, draft_lines: bill.lines ? JSON.stringify(bill.lines) : null, bill_id: billId, company_id: companyId }
+      `UPDATE bills SET partner_name=@partner_name, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, vat_amount=@vat_amount, cost_center=@cost_center, profit_center=@profit_center, description=@description, draft_lines=@draft_lines WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
+      { partner_name: billRow.partner_name, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, vat_amount: billRow.vat_amount, cost_center: billRow.cost_center, profit_center: billRow.profit_center, description: billRow.description, draft_lines: bill.lines ? JSON.stringify(bill.lines) : null, bill_id: billId, company_id: companyId }
     );
   } else {
     await bulkInsert('bills', [billRow]);
@@ -1077,7 +1077,7 @@ async function postDraftBill(ctx) {
     ...ctx,
     body: {
       bill: {
-        vendor: bill.vendor,
+        partner_name: bill.partner_name,
         vendor_ref: bill.vendor_ref,
         date: bill.date,
         due_date: bill.due_date,

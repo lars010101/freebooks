@@ -23,7 +23,6 @@ const { handleInboxPage } = require('./pages/inbox');
 const { handleBillEditPage } = require('./pages/bill-edit');
 const { handleBillDetailPage } = require('./pages/bill-detail');
 const { handleBankReconcilePage } = require('./pages/bank-reconcile');
-const { handleBankPage } = require('./pages/bank');
 const { handlePayablesPage } = require('./pages/payables');
 const { handleApAgingPage } = require('./pages/ap-aging');
 const { handleNewCompanyPage } = require('./pages/new-company');
@@ -221,7 +220,13 @@ function mountReportRoutes(app) {
   });
   // /bank/reconcile + /bank/import routes REMOVED 2026-07-31 (agent-first UI
   // doctrine, roadmap §0q): both were 301 stubs; import is the Bank ?tab=import tab.
-  app.get('/:company/bank', handleBankPage);
+  // 2026-08-09 (issue #137): Bank page dissolved — pages/bank.js + pages/bank-import.js
+  // deleted. Old /:company/bank URL 302-redirects to the Reports hub (bank
+  // reconciliation is being moved to a report). api/src/bank.js server handlers
+  // (bank.match, bank.reconcile.*) are kept for the agent feed-watcher + reconcile actions.
+  app.get('/:company/bank', function(req, res) {
+    res.redirect(302, '/' + req.params.company + '/reports');
+  });
   // Opening Balances relocated to a Settings tab 2026-07-28 (magnus) —
   // old URL 302-redirects to the Settings → Opening Balances tab.
   app.get('/:company/opening-balances', function(req, res) {

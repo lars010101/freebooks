@@ -203,21 +203,21 @@
   //   visit:<section>   — page loads (and soft-nav arrivals) per section
   //   create:<action>   — successful create executions (screen-level, tracked on save)
   // Dynamic topbar: [+][screen₁] [+][screen₂] ranked by visits, current section
-  // skipped (sub-screens count as parent: bill-edit/detail → payables, bank/* → bank).
+  // skipped (sub-screens count as parent: bill-edit/detail → payables).
   // Each pair = create shortcut (the object's create route) + screen nav chip.
   (function() {
     var LS_KEY = 'fb-usage';
     function read() { try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return {}; } }
     function write(d) { try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) {} }
 
-    // section of a path: /co/bill/edit → payables; /co/bank?tab=import → bank; /co/journal/new → journal-new
+    // section of a path: /co/bill/edit → payables; /co/journal/new → journal-new
     window.fbSectionOfPath = function (path) {
       var m = String(path || '').match(/^\/[^/]+\/([^/?]+)/);
       if (!m) return 'dashboard';
       var seg = m[1];
       if (seg === 'bill') return 'payables';
       if (seg === 'journal') return 'journal-new';
-      return seg; // bank, payables, reports, settings, opening-balances
+      return seg; // payables, reports, settings, opening-balances
     };
     function sectionOf(path) { return window.fbSectionOfPath(path); }
 
@@ -231,11 +231,10 @@
     // Create route per section (plus-icon target) — only sections with a create object
     var CREATE_ROUTES = {
       'payables':   { label: 'Bill',      path: '/bill/edit' },
-      'bank':       { label: 'Statement', path: '/bank?tab=import' },
       'settings':   { label: 'Account',   path: '/settings?tab=coa&new=1' }
     };
     var SECTION_LABELS = {
-      'dashboard': 'Dashboard', 'bank': 'Bank', 'payables': 'Payables',
+      'dashboard': 'Dashboard', 'payables': 'Payables',
       'reports': 'Reports', 'settings': 'Settings',
       'opening-balances': 'Opening Balances', 'journal-new': 'Journal Entry'
     };
@@ -250,9 +249,9 @@
         .map(function (s) { return { s: s, n: d['visit:' + s] || 0 }; })
         .filter(function (x) { return x.n > 0 && x.s !== cur && x.s !== 'journal-new'; })
         .sort(function (a, b) { return b.n - a.n; });
-      // Cold start: no visits yet → seed with payables + bank
+      // Cold start: no visits yet → seed with payables + reports
       if (!Object.keys(d).some(function (k) { return k.indexOf('visit:') === 0; })) {
-        ranked = [{ s: 'payables' }, { s: 'bank' }];
+        ranked = [{ s: 'payables' }, { s: 'reports' }];
       }
       var html = '';
       ranked.slice(0, 2).forEach(function (x) {

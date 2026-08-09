@@ -330,7 +330,7 @@
     // page could claim the key (none do). NORMAL mode only, and never while
     // typing in a field: the same guard that keeps NORMAL verbs inert, so a
     // literal `?` in a description field stays text. No active hint-bearing
-    // set (journal/bank/settings/dashboard) → silent no-op.
+    // No active hint-bearing set (journal/settings/dashboard) → silent no-op.
     if (e.key === '?') {
       var cur = _activeSet();
       if (!cur) return;
@@ -1040,8 +1040,8 @@
       function groups() { return opts.grid ? (opts.grid() || []).filter(function (g) { return g.length; }) : null; }
 
       // K5: register a page-level coverage provider returning the nav's row
-      // elements. FB.nav.create is called by page scripts (bank, journal,
-      // etc.), so this is page-level — cleared by resetPage on soft-nav.
+      // elements. FB.nav.create is called by page scripts (journal, etc.),
+      // so this is page-level — cleared by resetPage on soft-nav.
       coverage.addProvider(function () {
         try {
           if (opts.grid) { var gs = groups() || []; return [].concat.apply([], gs); }
@@ -1211,9 +1211,9 @@
       });
       input.addEventListener('blur', function () { setTimeout(function () { _close(inst); }, 150); });
       // opts.keys: self-bind the behavior-contract keys on the input — for
-      // pages that do not route through FB.keys (journal-new, bank,
-      // bank-import, settings). FB.keys pages leave this off and wire
-      // move/pick/close via their binding tables instead.
+      // pages that do not route through FB.keys (journal-new, settings).
+      // FB.keys pages leave this off and wire move/pick/close via their
+      // binding tables instead.
       if (opts.keys) {
         input.addEventListener('keydown', function (e) {
           var mine = (_open === inst) && inst.el;

@@ -34,7 +34,7 @@ ${commonStyle()}
   .summary-bar .val { font-weight:700; font-size:12pt; }
 </style>
 </head>
-<body>${navBar(company, 'bank')}
+<body>${navBar(company, 'reports')}
 <div class="page">
   <div class="header"><h1>Bank Reconciliation</h1><p class="sub">${company}</p></div>
 

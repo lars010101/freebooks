@@ -510,14 +510,14 @@ The partners table and proposal flow are designed to serve both AP and AR from t
 
 ---
 
-## 9. Open questions
+## 9. Open questions (resolved/tracked)
 
-1. **Alias deprecation timeline.** How long should old `vendor.*` action names be accepted before removal? Proposed: one release cycle (next minor version). Low risk — the API is install-local, not a public platform.
+1. **Alias deprecation timeline.** ✅ Tracked — GitHub issue. Old `vendor.*` action names accepted via alias map for one release cycle. API is install-local; deprecation window can be short.
 
-2. **`bills.vendor` column rename.** Should `bills.vendor` → `bills.partner_name` happen in this migration or defer? Proposed: defer. The column is a denormalized name string; renaming it touches every bills query and UI reference for no functional gain. Flag as future cleanup.
+2. **`bills.vendor` column rename.** ✅ Tracked — GitHub issue. Deferred: the column is a denormalized name string; renaming touches every bills query. Flagged as future cleanup.
 
-3. **Partner proposal + bill draft ordering.** When both a bill draft and a partner proposal are created from the same extraction, should the inbox show them as linked? Proposed: no explicit linking in v1 — both items surface independently; the partner proposal's evidence cites the bill id. The human can approve in any order. If the partner is approved first, the bill draft is unaffected (it stores the name string, not a partner_id). If the bill is posted first, the partner proposal is still valid — the partner is created when approved, and future transactions benefit.
+3. **Partner proposal + bill draft ordering.** ✅ Resolved — shipped as proposed (§9.3 original). Both items surface independently; `partner_proposals.source_bill_id` provides the data-level link. No explicit inbox linking needed. Closed with issue #116 / PR #124.
 
-4. **Fuzzy duplicate detection.** Should the duplicate check (§2.4) use exact case-insensitive name match, or fuzzy (trigram) match to catch "Netflix Inc" vs "Netflix International BV"? Proposed: exact case-insensitive for v1. Fuzzy matching risks false-positive suppression (two genuinely different partners with similar names). The trigram alias table (bank-matching-spec §13 #2) handles known reformattings; partner proposals for genuinely different spellings of the same entity are a human-merge problem, not an agent-suppression problem. Revisit if duplicate proposals become noisy.
+4. **Fuzzy duplicate detection.** ✅ Tracked — GitHub issue. Exact case-insensitive match shipped for v1. Fuzzy (trigram) deferred — revisit if duplicate proposals become noisy.
 
-5. **UI: Partners as top-level sidebar item.** Should Partners move out from under Payables now, or when AR ships? Proposed: when AR ships. Today all partners are vendors; keeping the tab under Payables is accurate. Moving it prematurely adds a sidebar item for no user benefit.
+5. **UI: Partners as top-level sidebar item.** ❌ Obsolete — the sidebar is being dissolved (bank-dissolution-spec, ia-spec §5.3). Partners stays under Payables; no future sidebar move applies.

@@ -558,9 +558,9 @@ Payment today has exactly one path: bank-import auto-match. That leaves four gap
 
 ### Explicitly deferred
 
-- **Multi-bill settlement** (one payment → N bills, the monthly-statement case): needs an allocation UI; defer to its own phase.
-- **Bank-tab manual match** (`m` on an uncleared line → candidate list via dormant `bill.match`): defer; import flow covers the bulk, and the bank tab hasn't migrated to FB.keys yet (P1-3 remainder).
-- **Tolerance suggestions** (±2% amount window as a suggestion tier): defer until real usage data says it's needed.
+- **Multi-bill settlement** (one payment → N bills, the monthly-statement case): needs an allocation UI; defer to its own phase. ✅ Tracked — GitHub issue.
+- **Bank-tab manual match** (`m` on an uncleared line → candidate list via dormant `bill.match`): originally deferred because the bank tab hadn't migrated to FB.keys. **Re-scoped:** the Bank sidebar item has been dissolved (bank-dissolution-spec); reconciliation is now a report. The `m` verb should live on the reconciliation report if built. Consider whether the inbox-based Phase B matching flow makes this redundant. ✅ Tracked — GitHub issue.
+- **Tolerance suggestions** (±2% amount window as a suggestion tier): defer until real usage data says it's needed. ✅ Tracked — GitHub issue.
 
 ### Decisions (magnus, 2026-07-22)
 
@@ -640,9 +640,9 @@ Single-key verbs cover the frequent actions; written commands cover the rest:
 
 ### Explicitly deferred
 
-- Command arguments (`:bill INV-123`, `:goto 2026-06`), aliases, chaining.
-- Frecency beyond simple localStorage recency.
-- `/`-mode search-hits dropdown (today search filters per page in place; a unified hits dropdown is separate scope if ever wanted).
+- Command arguments (`:bill INV-123`, `:goto 2026-06`), aliases, chaining. ✅ Tracked — GitHub issue.
+- Frecency beyond simple localStorage recency. ✅ Tracked — GitHub issue.
+- `/`-mode search-hits dropdown (today search filters per page in place; a unified hits dropdown is separate scope if ever wanted). ✅ Tracked — GitHub issue.
 - `?`-overlay cross-link ("press `:` to run any command" footer line) — evaluate after both ship.
 - Mobile/touch considerations.
 

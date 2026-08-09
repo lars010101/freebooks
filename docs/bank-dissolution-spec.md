@@ -147,7 +147,7 @@ This is a page-level text change in `api/src/pages/inbox.js`, not a structural c
 
 ## 7. What this spec does NOT do
 
-- Does not delete `api/src/pages/bank.js` or `api/src/pages/bank-import.js` — they're orphaned, not removed. Deletion is a future cleanup after confirming no user reaches them.
+- Does not delete `api/src/pages/bank.js` or `api/src/pages/bank-import.js` — they're orphaned, not removed. Deletion is a future cleanup after confirming no user reaches them. ✅ Tracked — GitHub issue.
 - Does not change `bank.process` or `bank.approve` — they stay in the catalog. An operator who wants the old manual import path can still use it via URL.
 - Does not remove the Mappings tab from the Bank page — the page is orphaned; whatever it renders is irrelevant. The active mapping path is the inbox suggest/approve flow (B2).
-- Does not spec a reconciliation **alert** (e.g. "you have N uncleared entries older than 30 days" as an inbox item). That's a future enhancement — the report is sufficient for v1.
+- Does not spec a reconciliation **alert** (e.g. "you have N uncleared entries older than 30 days" as an inbox item). That's a future enhancement — the report is sufficient for v1. ✅ Tracked — GitHub issue.

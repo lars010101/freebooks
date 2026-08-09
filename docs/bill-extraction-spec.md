@@ -405,6 +405,6 @@ Tests live in `tests/` (Node's built-in test runner, same as the existing tier-4
 
 2. **VAT codes included in the prompt.** §8 loads VAT codes via `vat.list` and includes them in the system prompt so the LLM can suggest `vat_code` per line. Tier-4 bank statements don't pass VAT codes (bills have explicit VAT lines, bank statements don't) — bill extraction is the correct precedent for including them.
 
-3. **Scanned PDFs through vision: let it fail to layer 3.** Some vision endpoints accept PDFs natively (OpenAI does); others only accept JPEG/PNG and will 4xx. The spec's stance: let it fail to layer 3 (skeleton) rather than pulling in a PDF rasterizer dep. Optional rasterization deferred to a future enhancement if it becomes a real problem.
+3. **Scanned PDFs through vision: let it fail to layer 3.** Some vision endpoints accept PDFs natively (OpenAI does); others only accept JPEG/PNG and will 4xx. The spec's stance: let it fail to layer 3 (skeleton) rather than pulling in a PDF rasterizer dep. Optional rasterization deferred to a future enhancement if it becomes a real problem. ✅ Tracked — GitHub issue.
 
-4. **Prompt caching deferred.** COA + VAT codes are re-read and rebuilt per bill. At small-company volume (tens of bills/month) this is irrelevant. Defer to a follow-up if volume ever justifies it.
+4. **Prompt caching deferred.** COA + VAT codes are re-read and rebuilt per bill. At small-company volume (tens of bills/month) this is irrelevant. Defer to a follow-up if volume ever justifies it. ✅ Tracked — GitHub issue.

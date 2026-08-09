@@ -94,7 +94,7 @@ A line that produces no match at any tier becomes an `input_rejection` (§11) if
 
 Before the cascade runs, each statement line is checked against a bank-provided transaction ID (if the feed supplies one) or a content hash (date + amount + description + bank account) for dedup. If a `journal_proposals` row already exists for the same transaction ID / content hash, the line is skipped — no duplicate proposal is created. This guards against feed redelivery producing duplicate `journal.propose` calls.
 
-The transaction ID (or content hash) is stored on the `journal_proposals` row as `source_transaction_id` — a new nullable column. The dedup check is a server-side precondition in `bank.match` (or the agent's pre-cascade step), not an after-the-fact cleanup. Full dedup mechanics (collision handling, retroactive merges) are deferred to the P3 feed adapter spec.
+The transaction ID (or content hash) is stored on the `journal_proposals` row as `source_transaction_id` — a new nullable column. The dedup check is a server-side precondition in `bank.match` (or the agent's pre-cascade step), not an after-the-fact cleanup. ~~Full dedup mechanics (collision handling, retroactive merges) are deferred to the P3 feed adapter spec.~~ **Update:** P3-2 (bank feeds) was dropped (issue #103). The basic content-hash dedup is sufficient for the drop-folder watcher (B5/B9). Full collision/merge mechanics are no longer planned unless a future feed adapter revives the need.
 
 ---
 

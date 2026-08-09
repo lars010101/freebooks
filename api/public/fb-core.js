@@ -502,14 +502,15 @@
     var _grammarActive = false;
 
     function _detectGrammar(q) {
-      var trimmed = q.trim();
-      if (!trimmed) return null;
       // Bug 1b: don't engage grammar mode until the first token is complete
       // (i.e. a space follows it). While typing `:bil`, the dropdown should
       // fuzzy-match alias names; once `:bill ` is typed, grammar kicks in.
-      var firstSpace = trimmed.indexOf(' ');
+      // IMPORTANT: check for space on the RAW query, not trimmed — trim()
+      // strips trailing spaces, which would make `:bill ` look like `:bill`.
+      var firstSpace = q.indexOf(' ');
       if (firstSpace < 0) return null;
-      var firstTok = trimmed.slice(0, firstSpace).toLowerCase();
+      var firstTok = q.slice(0, firstSpace).trim().toLowerCase();
+      if (!firstTok) return null;
       if (firstTok === 'post!' || firstTok === 'pay!') firstTok = firstTok.slice(0, -1);
       if (window.FB && FB.command && FB.command.ALIASES[firstTok]) {
         return { alias: firstTok, grammar: FB.command.grammarFor(firstTok) };

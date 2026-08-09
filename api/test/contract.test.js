@@ -448,7 +448,7 @@ test('trial balance report balances (CSV)', async () => {
 });
 // ── Read models (P1-8) ──────────────────────────────────────────────────────
 
-test('view.bills returns vendors + bills with embedded lines (posted AND draft)', async () => {
+test('view.bills returns partners + bills with embedded lines (posted AND draft)', async () => {
   // Posted bill
   const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'INV-VIEW-1' }) });
   assert.equal(c.status, 200, JSON.stringify(c.body));
@@ -468,8 +468,8 @@ test('view.bills returns vendors + bills with embedded lines (posted AND draft)'
 
   const v = await api(baseUrl, 'view.bills', { companyId: CO, partner_name: 'Acme' });
   assert.equal(v.status, 200, JSON.stringify(v.body));
-  assert.ok(Array.isArray(v.body.data.vendors), 'vendors array');
-  assert.ok(v.body.data.vendors.length >= 1, 'seeded vendor present');
+  assert.ok(Array.isArray(v.body.data.partners), 'partners array');
+  assert.ok(v.body.data.partners.length >= 1, 'seeded partner present');
   const byRef = Object.fromEntries(v.body.data.bills.map((b) => [b.vendor_ref, b]));
   const posted = byRef['INV-VIEW-1'];
   const draft = byRef['DRAFT-VIEW-1'];
@@ -704,7 +704,7 @@ test('bill.payment.void: reverses journal, restores bill, refuses double-void', 
   assert.match(again.body.error.message, /already voided/);
 });
 
-test('bank.process: amount-only match demoted to suggestion; vendor/ref tiers', async () => {
+test('bank.process: amount-only match demoted to suggestion; partner/ref tiers', async () => {
   // Distinct amount (101) so only this test's bill matches by amount
   const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'INV-TIER-A', amount: 101, lines: [{ description: 'x', expense_account: EXP, amount: 101, vat_code: '' }] }) });
   assert.equal(c.status, 200, JSON.stringify(c.body));
@@ -714,7 +714,7 @@ test('bank.process: amount-only match demoted to suggestion; vendor/ref tiers', 
     bankAccount: '1020',
     rows: [
       { date: TD.day21, description: 'GIRO TRANSFER 998877', amount: -101 },        // amount-only → suggest
-      { date: TD.day21, description: 'PAYMENT ACME PTE LTD', amount: -101 },        // vendor substring → medium
+      { date: TD.day21, description: 'PAYMENT ACME PTE LTD', amount: -101 },        // partner substring → medium
       { date: TD.day21, description: 'TRF INV-TIER-A 9988', amount: -101 },         // ref whole token → high
       { date: TD.day21, description: 'TRF INV-TIER-A99', amount: -101 },           // ref glued to digits: substring, not token → medium
     ],

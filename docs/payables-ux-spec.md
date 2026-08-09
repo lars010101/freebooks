@@ -60,11 +60,11 @@ j/k navigation crosses bill boundaries seamlessly:
 **Dirty bill = amber.** The framework's whole-bill dirty buffer (keyed by the parent `_key`) carries the header + every child line as one unit; the bill (parent + its open children) renders amber until `w` or `u`.
 
 Entering INSERT mode (via `i`/Enter on any row of a draft bill):
-- **All** editable cells on the bill are rendered as inputs (parent fields + child fields) and the framework enters INSERT mode (`FB.mode`); focus lands on the first parent input (vendor).
+- **All** editable cells on the bill are rendered as inputs (parent fields + child fields) and the framework enters INSERT mode (`FB.mode`); focus lands on the first parent input (partner).
 - h/j/k/l/{/} are inert (they type into inputs).
 - Tab/Shift+Tab move between cells across the entire bill (parent → children).
 
-**New (unsaved) drafts:** activating the `+ Add bill` row (Enter/click) transforms it in place into the whole-bill INSERT unit — parent + first child rendered as inputs, fold open, focus on the vendor input — and enters INSERT mode.
+**New (unsaved) drafts:** activating the `+ Add bill` row (Enter/click) transforms it in place into the whole-bill INSERT unit — parent + first child rendered as inputs, fold open, focus on the partner input — and enters INSERT mode.
 
 **Saved drafts (status='draft', already in DB):** `i`/Enter on a draft (parent or child) re-enters the whole-bill edit unit — the parent + its open children re-render as inputs pre-filled with saved values, draft lines re-fetched from the server. The framework's whole-bill dirty buffer carries header + every child line as one unit.
 
@@ -80,9 +80,9 @@ Posted bills: `i`/Enter and double-click are no-ops (the framework's `editable` 
 
 Tab navigates across all editable cells in the bill. The forward flow for a bill is:
 
-**Parent:** vendor → date → due → ref → **first child:** description → expense account → amount → VAT code select → **next child:** description → … → last child VAT code select → **footer:** stated-VAT cell
+**Parent:** partner → date → due → ref → **first child:** description → expense account → amount → VAT code select → **next child:** description → … → last child VAT code select → **footer:** stated-VAT cell
 
-(The parent's total and CCY are read-only in edit — the total is computed from the lines and CCY follows the picked vendor. AP/expense accounts default from the vendor pick and travel on the vendor input's dataset; they are not row inputs.)
+(The parent's total and CCY are read-only in edit — the total is computed from the lines and CCY follows the picked partner. AP/expense accounts default from the partner pick and travel on the partner input's dataset; they are not row inputs.)
 
 - **Forward Tab on the last child's last field (VAT code select):** focus moves to the bill footer's stated-VAT cell. **Forward Tab on the stated-VAT cell:** if the current child has data (description or amount), a **new child row is created** (`createDraftLine`) and focus moves to its description input. If the child is empty, Tab stays (sticky — no empty rows created).
 - **Shift+Tab** flows in reverse. On the first child's description field, focus moves back to the parent's last input (vendor ref).
@@ -99,7 +99,7 @@ Esc exits INSERT only — it never persists. The dirty bill stays (amber) until 
 
 ### Empty Bill Discard
 
-If Esc is pressed on a completely empty draft (no vendor, no date, no child data — framework `isBlank`), the draft vanishes rather than entering the dirty state — cursor → add row. This prevents empty draft rows from accumulating.
+If Esc is pressed on a completely empty draft (no partner, no date, no child data — framework `isBlank`), the draft vanishes rather than entering the dirty state — cursor → add row. This prevents empty draft rows from accumulating.
 
 ## List Display (NORMAL Mode)
 
@@ -122,9 +122,9 @@ If Esc is pressed on a completely empty draft (no vendor, no date, no child data
 
 **Input geometry (2026-07-22):** every draft input **fills its cell** (`width:100%`, `box-sizing:border-box`) at a uniform **32px height** — no fixed pixel widths (the CCY input was 50px and the AP input 80px, which truncated the AP account and broke column alignment). The AP-account cell is a flex row (`.draft-ap-cell`: input grows, save icon / Draft badge fixed). The read-only total cell (`.draft-total-amount`) keeps the standard AMOUNT gutter (46px right padding) so the draft total aligns with posted figures — a stale `!important` padding override that killed this gutter was removed. Child-row amount inputs sit in an `td.amt` cell so they inherit the same gutter and align with data rows.
 
-- **Vendor input** (`.draft-vendor-input`) — free-text with dropdown autocomplete; selecting a vendor sets `data-vendor-id`, `data-vendor-name`, `data-ap-account`, and `data-expense-account` from vendor master data.
+- **Partner input** (`.draft-partner-input`) — free-text with dropdown autocomplete; selecting a partner sets `data-partner-id`, `data-partner-name`, `data-ap-account`, and `data-expense-account` from partner master data.
 - **Total** (`.draft-total-amount`) — read-only text showing the gross amount (net + GST), updated live by `updateParentDraftAmount`. Not an input, so Tab skips it.
-- **AP account input** (`.draft-ap-account`) — COA datalist autocomplete (`list="coa-options"`). Pre-filled from vendor default > company default > blank.
+- **AP account input** (`.draft-ap-account`) — COA datalist autocomplete (`list="coa-options"`). Pre-filled from partner default > company default > blank.
 - **Save chip** (💾, the `w` verb's mouse affordance) — in the STATUS column. Grayscale/faded when the bill is completely empty; full colour when any field has data. Clicking writes the whole bill (one `bill.draft.save`). Esc never saves.
 
 ### Child Row
@@ -134,7 +134,7 @@ If Esc is pressed on a completely empty draft (no vendor, no date, no child data
 | Description input | Expense account input (COA datalist) | Amount input (number) | VAT code select | add-row icon (+) on last child |
 
 - **Description** (`.child-desc`) — `colspan=3` (reduced from 4 in earlier versions to make room for the expense account column).
-- **Expense account** (`.child-expense-acct`) — COA datalist autocomplete (`list="coa-options"`). Pre-filled from vendor default > company default > blank.
+- **Expense account** (`.child-expense-acct`) — COA datalist autocomplete (`list="coa-options"`). Pre-filled from partner default > company default > blank.
 - **Amount** — numeric input; the net (tax-exclusive) amount for the line.
 - **VAT code** (`<select>`) — dropdown of active VAT codes, plus "— None —".
 - **Add-row icon** (+) — appears only on the last child row. Fades when that row is empty. Clicking creates a new child line (`addRowFromIcon` → `createDraftLine`).
@@ -156,7 +156,7 @@ GST is computed from each line's VAT code (no per-line VAT amount input; see [VA
 
 Both the AP account (parent) and the expense account (per child line) are resolved with a three-tier fallback:
 
-1. **Vendor default** — from vendor master data (set when a vendor is selected in the dropdown; stored on the vendor input's `data-ap-account` / `data-expense-account`).
+1. **Partner default** — from partner master data (set when a partner is selected in the dropdown; stored on the partner input's `data-ap-account` / `data-expense-account`).
 2. **Company default** — from Settings (`default_ap_account`, `default_expense_account`), loaded on page init into `companyDefaultAp` / `companyDefaultExpense`.
 3. **Blank** — no default; validation surfaces a clear "account is required" error.
 
@@ -215,7 +215,7 @@ Pressing `p` posts the bill **directly** — no preview step, no confirmation di
 
 The `p` verb (Bills `extraBinding`) routes to one of two server actions depending on the bill's state:
 
-1. **Inline unsaved draft (no `bill_id`):** the framework's whole-bill buffer is gathered by the `p` handler, client-side guards run (vendor, date, due date ≥ date, ref, amount > 0, at least one line), then it sends `bill.create` (creates AND posts in one call).
+1. **Inline unsaved draft (no `bill_id`):** the framework's whole-bill buffer is gathered by the `p` handler, client-side guards run (partner, date, due date ≥ date, ref, amount > 0, at least one line), then it sends `bill.create` (creates AND posts in one call).
 
 2. **Saved draft re-edited (has `bill_id`):** saves the draft first (`bill.draft.save` via `cfg.save.body`), then sends `bill.draft.post` which delegates to `createBill` with `_replaceDraftId`.
 
@@ -354,8 +354,8 @@ The following elements from earlier implementations are removed or simplified:
 
 *(2026-07-24: the bespoke machinery below is deleted — Bills runs on `FB.list` (`tree: true`). Behavior now lives in the framework + the Bills `cfg` in `payables-bills.js`. Notes retained as a map to where each behavior now lives.)*
 
-- Whole-bill INSERT is the framework's tree edit unit — `cfg.blank()` (new drafts: parent + first child, fold open, vendor focus) and re-entry on a saved draft via the `editable` predicate + re-render of inputs. Both render parent + children with all inputs simultaneously.
-- Tab navigation (forward Tab on the last child's last field spawns a new line; Shift+Tab on the first child's desc goes to the parent's last input — vendor ref) is now the framework child-renderer's Tab wiring.
+- Whole-bill INSERT is the framework's tree edit unit — `cfg.blank()` (new drafts: parent + first child, fold open, partner focus) and re-entry on a saved draft via the `editable` predicate + re-render of inputs. Both render parent + children with all inputs simultaneously.
+- Tab navigation (forward Tab on the last child's last field spawns a new line; Shift+Tab on the first child's desc goes to the parent's last input — partner ref) is now the framework child-renderer's Tab wiring.
 - Save is the `w` verb → `cfg.save.body(bill)` — one `bill.draft.save` carrying header + all lines, the only save path. Esc never saves.
 - After save, the framework re-renders the bill from `cfg.list.map` (display text); the dirty buffer is dropped.
 - Direct post (`p` verb) routes to `bill.create` (inline unsaved drafts: create+post in one call) or `bill.draft.save` → `bill.draft.post` (saved drafts), via the Bills `extraBindings` `p` handler.
@@ -376,10 +376,10 @@ The Vendors tab runs the **same interaction model as Bills** — it was previous
 | j / k | Click row | Move row selection (sticky at top/bottom, never deselects) |
 | gg / G | — | First / last row |
 | Enter or i | Double-click row | Enter INSERT (row-level edit) |
-| a | — | New vendor row at bottom, immediately in INSERT |
-| x | — | Delete vendor (unsaved row drops silently; saved vendor asks `confirm()`) |
-| ~ | Double-click ACTIVE badge | Toggle active/inactive (saved vendors only) |
-| h / l | Click tab | Switch Bills ↔ Vendors (NOT bound by the tab — falls through to common.js, same as Bills) |
+| a | — | New partner row at bottom, immediately in INSERT |
+| x | — | Delete partner (unsaved row drops silently; saved partner asks `confirm()`) |
+| ~ | Double-click ACTIVE badge | Toggle active/inactive (saved partners only) |
+| h / l | Click tab | Switch Bills ↔ Partners (NOT bound by the tab — falls through to common.js, same as Bills) |
 
 ### INSERT mode (row-level — the whole row becomes inputs)
 
@@ -389,15 +389,15 @@ Pressing `i`/`Enter`/double-click converts **all five editable cells at once** (
 - **Esc saves** — the only save trigger, same doctrine as Bills (no cancel path). Validation: name required (red `.req` border + message, stays in INSERT); CCY checked against the currency list. On server error the row stays in INSERT with inputs untouched.
 - **Empty new row + Esc discards** (never creates something from nothing).
 - **Enter also saves** (form convention; matches the pre-migration Enter-commit).
-- **Click-away saves**: clicking another row with an edit open saves first, then selects the clicked row. The async save does NOT reset `vendorSelRow` — the cursor stays where the click moved it (a completion-handler stomp that yanked it back was fixed on day one).
-- **Leaving the tab** (h/l/{/}) with an edit open saves-or-discards it first (`showPayTab` calls `vendorSaveAndExit()`).
+- **Click-away saves**: clicking another row with an edit open saves first, then selects the clicked row. The async save does NOT reset `partnerSelRow` — the cursor stays where the click moved it (a completion-handler stomp that yanked it back was fixed on day one).
+- **Leaving the tab** (h/l/{/}) with an edit open saves-or-discards it first (`showPayTab` calls `partnerSaveAndExit()`).
 - **Autocomplete dropdowns** (CCY, both account fields): ArrowUp/Down navigate, Enter selects, Tab selects-and-stays, Esc closes the dropdown only (a second Esc saves the row). Dropdown-aware bindings precede general ones — FB.keys takes the FIRST key+mode+`when` match.
 - j/k/a/x/~ are inert in INSERT (letters type into inputs, per the editable-target guard and mode-scoped bindings).
 
 ### Mechanics
 
-- Mode is the shared `FB.mode` store; keys are the `FB.keys` binding table `'vendors'` (sidebar hints are generated from it — the static `_VENDOR_HINTS` list is gone).
-- Save path: `vendorSaveAndExit()` → validate → `vendor.upsert` → `_renderVendorRowDisplay()` rebuilds just that row (keeps the list stable, no full re-render flash). `_vendorSaving` guards re-entrant Esc during the flight.
+- Mode is the shared `FB.mode` store; keys are the `FB.keys` binding table `'partners'` (sidebar hints are generated from it — the static `_PARTNER_HINTS` list is gone).
+- Save path: `partnerSaveAndExit()` → validate → `partner.upsert` → `_renderPartnerRowDisplay()` rebuilds just that row (keeps the list stable, no full re-render flash). `_partnerSaving` guards re-entrant Esc during the flight.
 - The old cell-cursor machinery is deleted: `vendorSelCol`, `vendorCellEdit`, `vendorCellPreEdit`, `enterVendorCellEdit`/`commitVendorCell`, `vendorMoveRow`/`vendorMoveCol`, per-cell save-on-nav (`vendorDirtyRows`), and the `VENDOR_KEYS` capture listener.
 - `window.fbVendorSelRow` is still maintained — common.js's j/k deferral reads it.
 

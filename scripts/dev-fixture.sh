@@ -66,21 +66,21 @@ cat > "$SEED_DIR/01-company.json" <<'JSON'
 {"action":"setup.add_company","company":{"company_id":"verify","company_name":"Verify Co","jurisdiction":"SE","currency":"USD","fy_start":"2026-01-01","fy_end":"2026-12-31"}}
 JSON
 
-cat > "$SEED_DIR/02-vendor.json" <<'JSON'
+cat > "$SEED_DIR/02-partner.json" <<'JSON'
 {"action":"partner.upsert","companyId":"verify","partner":{"partner_id":"v1","name":"future","default_currency":"USD"}}
 JSON
 
 cat > "$SEED_DIR/03-bill-b1.json" <<'JSON'
-{"action":"bill.draft.save","companyId":"verify","bill":{"bill_id":"b1","vendor_id":"v1","vendor":"future","date":"2026-01-01","issue_date":"2026-01-01","due_date":"2026-02-01","reference":"reference1","currency":"USD","lines":[{"description":"line one","expense_account":"5000","amount":100}]}}
+{"action":"bill.draft.save","companyId":"verify","bill":{"bill_id":"b1","partner_name":"future","date":"2026-01-01","issue_date":"2026-01-01","due_date":"2026-02-01","reference":"reference1","currency":"USD","lines":[{"description":"line one","expense_account":"5000","amount":100}]}}
 JSON
 
 cat > "$SEED_DIR/04-bill-b2.json" <<'JSON'
-{"action":"bill.draft.save","companyId":"verify","bill":{"bill_id":"b2","vendor_id":"v1","vendor":"future","date":"2026-01-01","issue_date":"2026-01-01","due_date":"2026-02-01","reference":"hhhhh","currency":"USD","lines":[{"description":"line two","expense_account":"5000","amount":50}]}}
+{"action":"bill.draft.save","companyId":"verify","bill":{"bill_id":"b2","partner_name":"future","date":"2026-01-01","issue_date":"2026-01-01","due_date":"2026-02-01","reference":"hhhhh","currency":"USD","lines":[{"description":"line two","expense_account":"5000","amount":50}]}}
 JSON
 
 echo "▸ Seeding:"
 post "$SEED_DIR/01-company.json"
-post "$SEED_DIR/02-vendor.json"
+post "$SEED_DIR/02-partner.json"
 post "$SEED_DIR/03-bill-b1.json"
 post "$SEED_DIR/04-bill-b2.json"
 
@@ -92,7 +92,7 @@ cat <<EOF
 ═══════════════════════════════════════════════════════════════════════════════
   URL            : $BASE/verify/payables
   Company id     : verify  (Verify Co, SE, USD)
-  Vendor         : future  (v1)
+  Partner        : future  (v1)
   Draft bills    : b1 (reference1, 100.00 USD)  ·  b2 (hhhhh, 50.00 USD)
   DB             : $DB_PATH  (throwaway — safe to delete)
 

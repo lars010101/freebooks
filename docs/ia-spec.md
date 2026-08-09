@@ -36,7 +36,7 @@ Entry shape: `{ key, route, label, icon, sidebar, gKey, palette, absolute }`. `r
 |-----|-------|-------|------|---------|------|---------|-------|
 | `inbox` | `/:company` | Inbox | 📥 | ✓ | `i` | ✓ | A5 unified review queue; root route (Dashboard dropped 2026-08-03) |
 | `bank` | `/:company/bank` | Bank | 🏦 | ✓ | `b` | ✓ | Transactions · Import · Mappings tabs |
-| `payables` | `/:company/payables` | Payables | 📋 | ✓ | `p` | ✓ | Bills tree + Vendors |
+| `payables` | `/:company/payables` | Payables | 📋 | ✓ | `p` | ✓ | Bills tree + Partners |
 | `reports` | `/:company/reports` | Reports | 📈 | ✓ | `r` | ✓ | Report hub |
 | `settings` | `/:company/settings` | Settings | ⚙ | ✓ | `s` | ✓ | Company · Periods · COA · Tax · Journals · FX · Opening Balances |
 | `journal-new` | `/:company/journal/new` | Journal Entry | — | ✗ | — | ✗ | Covered by action-catalog navigate entry |
@@ -71,7 +71,7 @@ Two modes, managed by `FB.mode` (fb-core):
 
 Every flat register in the app. A screen declares columns + actions; the framework owns ALL behavior.
 
-**Migrated:** Settings (Periods, COA, Tax Codes, Journals, Company attrs), Vendors, FX Rates, Bills (`tree: true`), Bank Mappings, Inbox, Journal.
+**Migrated:** Settings (Periods, COA, Tax Codes, Journals, Company attrs), Partners, FX Rates, Bills (`tree: true`), Bank Mappings, Inbox, Journal.
 
 **Core contract:**
 
@@ -232,8 +232,8 @@ The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). 
 
 ### 5.6 Payables (`/:company/payables`)
 
-- **Tabs:** Bills · Vendors
-- **Machine:** FB.list (`tree: true` for Bills; flat for Vendors)
+- **Tabs:** Bills · Partners
+- **Machine:** FB.list (`tree: true` for Bills; flat for Partners)
 
 **Bills tab:**
 - `j`/`k` navigate the flattened sequence (parents + open children), sticky ends
@@ -249,7 +249,7 @@ The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). 
 - Column filters: `filterType` per column; `c` clears all; `Esc` peels
 - Sortable columns: click header cycles asc → desc → none (mouse-only, no verb)
 
-**Vendors tab:**
+**Partners tab:**
 - Standard FB.list contract
 - `~` — toggle active (universal toggle verb)
 

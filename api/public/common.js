@@ -513,9 +513,9 @@
 
     // ── j / k → table row navigation ──
     if (e.key === 'j' || e.key === 'k') {
-      // Vendor cell nav owns j/k when active
-      var vendorPanelJK = document.getElementById('pay-panel-vendors');
-      if (vendorPanelJK && vendorPanelJK.style.display !== 'none' && typeof window.fbVendorSelRow !== 'undefined' && window.fbVendorSelRow >= 0) {
+      // Partner cell nav owns j/k when active
+      var partnerPanelJK = document.getElementById('pay-panel-partners');
+      if (partnerPanelJK && partnerPanelJK.style.display !== 'none' && typeof window.fbPartnerSelRow !== 'undefined' && window.fbPartnerSelRow >= 0) {
         return;
       }
       // Allow page to intercept j/k (e.g. for mixed table+div navigation)
@@ -557,13 +557,13 @@
       return;
     }
 
-    // ── a / d → vendor cell nav owns these when active ──
-    var vendorPanelAD = document.getElementById('pay-panel-vendors');
-    var vendorActive = vendorPanelAD && vendorPanelAD.style.display !== 'none';
+    // ── a / d → partner cell nav owns these when active ──
+    var partnerPanelAD = document.getElementById('pay-panel-partners');
+    var partnerActive = partnerPanelAD && partnerPanelAD.style.display !== 'none';
 
     // ── a → page-registered "new" action ──
     if (e.key === 'a') {
-      if (vendorActive) return;
+      if (partnerActive) return;
       if (window.fbKeyActions && typeof window.fbKeyActions['new'] === 'function') {
         e.preventDefault();
         window.fbKeyActions['new']();
@@ -576,7 +576,7 @@
     // fbKeyActions.attach; elsewhere A is inert. FB.keys pages swallow the
     // key at capture before this legacy bubble path runs.
     if (e.key === 'A') {
-      if (vendorActive) return;
+      if (partnerActive) return;
       if (window.fbKeyActions && typeof window.fbKeyActions['attach'] === 'function') {
         e.preventDefault();
         window.fbKeyActions['attach']();
@@ -586,7 +586,7 @@
 
     // ── d → delete focused row (page-registered) ──
     if (e.key === 'd') {
-      if (vendorActive) return;
+      if (partnerActive) return;
       if (window.fbKeyActions && typeof window.fbKeyActions['delete'] === 'function') {
         var focusedRowD = document.querySelector('tr.nav-row-focus');
         if (!focusedRowD) return; // nothing focused — previously crashed on null.dataset

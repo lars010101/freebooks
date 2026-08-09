@@ -658,6 +658,10 @@
       var A = (window.FB && FB.command && FB.command.ALIASES) || {};
       var out = [];
       Object.keys(A).forEach(function (name) {
+        // Skip page-context aliases (match, approve, reject) — they require
+        // a focused row on a specific page and have no standalone meaning
+        // in the command bar.
+        if (A[name] && A[name].palette === false) return;
         out.push({
           id: 'alias:' + name,
           label: name,

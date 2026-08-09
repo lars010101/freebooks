@@ -54,6 +54,7 @@
       action: 'bank.match',
       grammar: '(focused line — no args)',
       bang: false,
+      palette: false,  // page-context: needs focused bank line
       parse: function () { return { action: 'bank.match', commitMode: 'form' }; }
     },
     'approve': {
@@ -61,6 +62,7 @@
       pageVerb: 'y', scope: 'inbox',
       grammar: '(approves focused inbox item)',
       bang: false,
+      palette: false,  // page-context: needs focused inbox item
       parse: function () { return { pageVerb: 'y', commitMode: 'direct' }; }
     },
     'reject': {
@@ -68,6 +70,7 @@
       pageVerb: 'x', scope: 'inbox',
       grammar: '(rejects focused inbox item)',
       bang: false,
+      palette: false,  // page-context: needs focused inbox item
       parse: function () { return { pageVerb: 'x', commitMode: 'direct' }; }
     },
     'report': {

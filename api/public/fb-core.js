@@ -491,6 +491,7 @@
     var _items = [];           // current matches
     var _activeIdx = -1;
     var _catalog = null;       // /api/actions manifest (fetched once)
+    var _reports = null;      // /api/:company/reports/registry (fetched once)
     var _wired = false;
 
     // ── Grammar mode (command-bar-ux-spec §4–§5) ─────────────────────────────
@@ -534,6 +535,70 @@
     function _hideGrammarHint() {
       if (_grammarEl) { _grammarEl.style.display = 'none'; }
       _grammarActive = false;
+    }
+
+    // ── Browse mode (:show — spec §4) ──────────────────────────────────────
+    // Third palette mode: dropdown stays open, content is re-scoped to
+    // navigate-only items from catalog + reports registry, grouped by route
+    // prefix. Live-filterable as more is typed after ":show ".
+    var _browseActive = false;
+
+    function _showStructuredBrowse() {
+      _hideGrammarHint();
+      _browseActive = true;
+      if (!_el && _command) _open();
+      _items = _navigateTargets();
+      _items.sort(function (a, b) {
+        if (a.group !== b.group) return a.group < b.group ? -1 : 1;
+        return a.label < b.label ? -1 : 1;
+      });
+      _activeIdx = _items.length ? 0 : -1;
+      _renderBrowse();
+    }
+
+    function _renderBrowse() {
+      if (!_el) return;
+      if (!_items.length) {
+        _el.innerHTML = '<div class="fb-palette-empty">no navigation targets</div>';
+        return;
+      }
+      var html = '';
+      var lastGroup = null;
+      _items.forEach(function (c, i) {
+        if (c.group !== lastGroup) {
+          html += '<div class="fb-palette-header">' + esc(c.group) + '</div>';
+          lastGroup = c.group;
+        }
+        html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
+          '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
+          '<span class="fb-palette-scope">' + esc(c.group) + '</span>' +
+        '</div>';
+      });
+      _el.innerHTML = html;
+      Array.prototype.forEach.call(_el.querySelectorAll('.fb-palette-row'), function (row) {
+        row.onmousedown = function (e) { e.preventDefault(); };
+        row.onclick = function () { _execute(_items[Number(row.dataset.i)]); };
+        row.onmouseover = function () { _activeIdx = Number(row.dataset.i); _renderBrowse(); };
+      });
+      var act = _el.querySelector('.fb-palette-active');
+      if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
+    }
+
+    function _filterBrowse(q) {
+      q = q.trim().toLowerCase();
+      if (!q) {
+        _items = _navigateTargets();
+      } else {
+        _items = _navigateTargets().filter(function (c) {
+          return c.label.toLowerCase().indexOf(q) !== -1 || c.group.toLowerCase().indexOf(q) !== -1;
+        });
+      }
+      _items.sort(function (a, b) {
+        if (a.group !== b.group) return a.group < b.group ? -1 : 1;
+        return a.label < b.label ? -1 : 1;
+      });
+      _activeIdx = _items.length ? 0 : -1;
+      _renderBrowse();
     }
 
     function _executeGrammar() {
@@ -683,7 +748,10 @@
             _input.focus();
             _input.setSelectionRange(_input.value.length, _input.value.length);
             var g = _detectGrammar(name + ' ');
-            if (g) _showGrammarHint(g.grammar);
+            if (g) {
+              if (FB.command.ALIASES[g.alias] && FB.command.ALIASES[g.alias].structured) _showStructuredBrowse();
+              else _showGrammarHint(g.grammar);
+            }
             else _query(name + ' ');
           }
         });
@@ -750,6 +818,66 @@
       fetch('/api/actions').then(function (r) { return r.json(); }).then(function (res) {
         if (res && res.actions) { _catalog = res.actions; if (_el) _query(_rawQuery()); }
       }).catch(function () { /* palette works page-verbs-only without it */ });
+    }
+
+    function _fetchReports() {
+      if (_reports) return;
+      var co = _company();
+      if (!co) return;
+      fetch('/api/' + co + '/reports/registry').then(function (r) { return r.json(); }).then(function (res) {
+        if (Array.isArray(res)) { _reports = res; if (_el) _query(_rawQuery()); }
+      }).catch(function () { /* :show works for screens without reports */ });
+    }
+
+    // ── :show browse mode — navigate-only items from catalog + reports registry,
+    // grouped by route prefix. No execute actions, no page verbs.
+    function _navigateTargets() {
+      var out = [];
+      if (_catalog) {
+        Object.keys(_catalog).forEach(function (name) {
+          var meta = _catalog[name] || {};
+          if (meta.palette !== 'navigate' || !meta.route) return;
+          out.push({
+            id: 'nav:' + name,
+            label: meta.label || name,
+            route: meta.route,
+            absolute: !!meta.absolute,
+            group: _groupFor(meta.route),
+            scope: 'nav',
+            exec: function () {
+              if (meta.absolute) window.location.href = meta.route;
+              else window.fbNavigate('/' + _company() + meta.route);
+            }
+          });
+        });
+      }
+      var seenRoute = {};
+      out = out.filter(function (c) {
+        if (seenRoute[c.route]) return false;
+        seenRoute[c.route] = true;
+        return true;
+      });
+      (_reports || []).forEach(function (r) {
+        out.push({
+          id: 'report:' + r.id,
+          label: r.label,
+          group: 'Reports',
+          scope: 'nav',
+          exec: function () { window.fbNavigate('/' + _company() + '/reports?t=' + r.id); }
+        });
+      });
+      return out;
+    }
+
+    function _groupFor(route) {
+      if (!route) return 'Other';
+      if (route.indexOf('/settings') === 0) return 'Settings';
+      if (route.indexOf('/payables') === 0) return 'Payables';
+      if (route.indexOf('/periods') === 0)  return 'Periods';
+      if (route.indexOf('/reports') === 0)  return 'Reports';
+      if (route.indexOf('/journal') === 0)  return 'Journal';
+      if (route.indexOf('/setup') === 0)    return 'Setup';
+      return 'Other';
     }
 
     // ── fuzzy matching + ranking ────────────────────────────────────────────
@@ -910,6 +1038,7 @@
       if (!_input) return;
       _command = true;
       _fetchCatalog();
+      _fetchReports();
       _input.value = ':';
       _input.focus();
       _input.setSelectionRange(1, 1);
@@ -918,6 +1047,7 @@
     }
     function _exitCommand() {
       _command = false;
+      _browseActive = false;
       _close();
       _hideGrammarHint();
       if (_input) { _input.value = ''; _input.blur(); }
@@ -937,6 +1067,7 @@
         else if (e.key === 'Enter') {
           e.preventDefault(); e.stopImmediatePropagation();
           if (_grammarActive) { _executeGrammar(); }
+          else if (_browseActive) { _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]); }
           else { _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]); }
         }
         else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); _exitCommand(); }
@@ -951,20 +1082,32 @@
           if (_input.value.charAt(0) === ':') {
             _command = true;
             _fetchCatalog();
+            _fetchReports();
             _open();
             var q0 = _rawQuery();
+            if (_browseActive) { _filterBrowse(q0.replace(/^show\s*/, '')); return; }
             var g0 = _detectGrammar(q0);
-            if (g0) { _showGrammarHint(g0.grammar); }
+            if (g0) {
+              if (FB.command.ALIASES[g0.alias] && FB.command.ALIASES[g0.alias].structured) _showStructuredBrowse();
+              else _showGrammarHint(g0.grammar);
+            }
             else { _hideGrammarHint(); _query(q0); }
           }
           return;
         }
-        if (_input.value.charAt(0) !== ':') { _command = false; _close(); _hideGrammarHint(); return; }
+        if (_input.value.charAt(0) !== ':') { _command = false; _close(); _hideGrammarHint(); _browseActive = false; return; }
         var q = _rawQuery();
+        if (_browseActive) {
+          var browseQuery = q.replace(/^show\s*/, '');
+          _filterBrowse(browseQuery);
+          return;
+        }
         var g = _detectGrammar(q);
         if (g) {
-          _showGrammarHint(g.grammar);
+          if (FB.command.ALIASES[g.alias] && FB.command.ALIASES[g.alias].structured) _showStructuredBrowse();
+          else _showGrammarHint(g.grammar);
         } else {
+          _browseActive = false;
           _hideGrammarHint();
           _query(q);
         }

@@ -3,7 +3,6 @@ const { queryPositional } = require('../db');
 const fs = require('fs');
 const path = require('path');
 const { ROUTES } = require('../nav-registry');
-const { REPORT_REGISTRY } = require('../report-registry');
 
 function makeQuery() {
   return function query(sql, params = []) {
@@ -120,12 +119,11 @@ function navBar(company, activeKey) {
 
   // Inject the route registry for fb-core consumption (g-map + palette).
   const routesJson = JSON.stringify(ROUTES);
-  const reportIds = REPORT_REGISTRY.map(r => r.id);
 
   // Company switcher dropdown — detached from the (deleted) sidebar; lives in
   // the app-shell so fbToggleCompany(event) can still open it from the status
   // line or the g c keyboard shortcut.
-  return `<script>window.FB_ROUTES = ${routesJson}; window.FB_REPORT_IDS = ${JSON.stringify(reportIds)};</script>
+  return `<script>window.FB_ROUTES = ${routesJson};</script>
 <div id="app-shell" data-company="${company}">
   <div class="tb-company-dropdown" id="tb-company-dropdown" style="display:none"></div>
   <div id="main-area">

@@ -397,6 +397,22 @@ const ACTIONS = {
     description: 'Delete one VAT code.',
     params: { vatCode: { type: 'string', required: true } },
   },
+  'vat.codes.view': {
+    role: 'viewer', mutating: false,
+    description: 'View tax codes settings page.',
+  },
+  'journals.view': {
+    role: 'viewer', mutating: false,
+    description: 'View journals (books) settings page.',
+  },
+  'ai.view': {
+    role: 'viewer', mutating: false,
+    description: 'View AI settings page.',
+  },
+  'openingBalance.view': {
+    role: 'viewer', mutating: false,
+    description: 'View opening balances settings page.',
+  },
 
   // ── FX ───────────────────────────────────────────────────────────────────
   'fx.fetch_rates': {
@@ -728,6 +744,10 @@ const PALETTE = {
   'coa.update':             { palette: 'navigate', route: '/settings?tab=coa', label: 'Chart of accounts' },
   'coa.upsert':             { palette: 'navigate', route: '/settings?tab=coa', label: 'Chart of accounts' },
   'vat.codes.upsert':       { palette: 'navigate', route: '/settings?tab=vat&new=1', label: 'New VAT code' },
+  'vat.codes.view':         { palette: 'navigate', route: '/settings?tab=vat', label: 'Tax Codes' },
+  'journals.view':          { palette: 'navigate', route: '/settings?tab=journals', label: 'Journals' },
+  'ai.view':                { palette: 'navigate', route: '/settings?tab=ai', label: 'AI' },
+  'openingBalance.view':    { palette: 'navigate', route: '/settings?tab=opening-balances', label: 'Opening Balances' },
   'partner.save':            { palette: 'navigate', route: '/payables?tab=partners&new=1', label: 'New partner' },
   'partner.upsert':          { palette: 'navigate', route: '/payables?tab=partners', label: 'Partners' },
   'period.save':            { palette: 'navigate', route: '/periods?new=1', label: 'New period' },

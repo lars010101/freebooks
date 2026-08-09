@@ -1,6 +1,6 @@
 'use strict';
 // ── Route registry — the single source of truth for app navigation ──────────
-// K1 (keyboard-nav program). Every app route lives here once. Five consumers
+// K1 (keyboard-nav program). Every app route lives here once. Four consumers
 // share this table so they can never drift:
 //   1. sidebar        — api/src/pages/common.js navBar() renders the sidebar
 //                       anchors from the entries where sidebar:true.
@@ -11,9 +11,6 @@
 //   4. ? help overlay  — api/public/fb-core.js help.open() reads
 //                       window.FB_ROUTES and renders g-key destinations
 //                       as NAV rows (#149; relocated from : palette).
-//   5. :show command  — api/public/fb-command.js parseShow reads window.FB_ROUTES
-//                       (injected by navBar) and resolves screen/tab targets
-//                       from the key + tabs arrays (e.g. :show coa → /settings?tab=coa).
 //
 // Entry shape:
 //   {
@@ -30,10 +27,6 @@
 //                           route). Non-sidebar routes get null.
 //     palette:   bool     — surface as a 'Go to …' palette row?
 //     absolute:  bool     — company-less route (e.g. /setup/new-company)
-//     tabs:      array    — optional sub-tab targets for :show navigation.
-//                           Shape: [{ id, label, aliases? }] where id matches
-//                           the showTab/showPayTab calls in the page JS.
-//                           aliases are alternate names (e.g. 'accounts' → 'coa').
 //   }
 //
 // How to add a route:
@@ -69,11 +62,7 @@ const ROUTES = [
   // Journal-list queue half moved here; the Journal list is the pure register.
   // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
   { key: 'inbox',       route: '/:company',             label: 'Inbox',           icon: '📥', sidebar: true,  gKey: 'i',  palette: true,  absolute: false },
-  { key: 'payables',    route: '/:company/payables',     label: 'Payables',        icon: '📋', sidebar: true,  gKey: null, palette: true,  absolute: false,
-    tabs: [
-      { id: 'bills',    label: 'Bills' },
-      { id: 'partners', label: 'Partners' }
-    ] },
+  { key: 'payables',    route: '/:company/payables',     label: 'Payables',        icon: '📋', sidebar: true,  gKey: null, palette: true,  absolute: false },
   { key: 'reports',     route: '/:company/reports',      label: 'Reports',         icon: '📈', sidebar: true,  gKey: 'r',  palette: true,  absolute: false },
   // 2026-08-04 (IA-spec step 4): Periods promoted to a top-level sidebar route.
   //   g p was reassigned from Payables (kept sidebar+palette, gKey nulled) to
@@ -81,16 +70,7 @@ const ROUTES = [
   //   The grid config is lifted into api/src/pages/periods-grid.js (shared
   //   module) so this page and Settings don't drift.
   { key: 'periods',     route: '/:company/periods',      label: 'Periods',         icon: '📅', sidebar: true,  gKey: 'p',  palette: true,  absolute: false },
-  { key: 'settings',    route: '/:company/settings',     label: 'Settings',        icon: '⚙',  sidebar: true,  gKey: 's',  palette: true,  absolute: false,
-    tabs: [
-      { id: 'company',          label: 'Company' },
-      { id: 'coa',              label: 'Chart of Accounts', aliases: ['accounts'] },
-      { id: 'vat',              label: 'Tax Codes' },
-      { id: 'journals',         label: 'Journals',          aliases: ['books'] },
-      { id: 'fxrates',          label: 'Exchange Rates',    aliases: ['rates'] },
-      { id: 'ai',               label: 'AI' },
-      { id: 'opening-balances', label: 'Opening Balances',  aliases: ['ob'] }
-    ] },
+  { key: 'settings',    route: '/:company/settings',     label: 'Settings',        icon: '⚙',  sidebar: true,  gKey: 's',  palette: true,  absolute: false },
   // ── Non-sidebar routes. journal-new / new-company keep palette:false — the
   // action catalog already navigates to them with action labels (dedupe =
   // registry decision, spec §4). opening-balances has no catalog entry →

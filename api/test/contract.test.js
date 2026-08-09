@@ -2161,3 +2161,21 @@ test('A5: inbox.list empty', async () => {
   const jpItems = inbox.body.data.items.filter(i => i.type === 'journal_proposal');
   assert.equal(jpItems.length, 0, 'no journal_proposal items in a fresh company');
 });
+
+// ── Reports registry endpoint (v3 :show command) ────────────────────────────
+
+test('GET /api/:company/reports/registry returns id+label array', async () => {
+  const r = await fetch(`${baseUrl}/api/${CO}/reports/registry`);
+  assert.equal(r.status, 200);
+  const data = await r.json();
+  assert.ok(Array.isArray(data), 'returns an array');
+  assert.ok(data.length >= 8, 'has known reports');
+  for (const item of data) {
+    assert.ok(item.id, 'each entry has id');
+    assert.ok(item.label, 'each entry has label');
+  }
+  const ids = data.map(r => r.id);
+  assert.ok(ids.includes('pl'), 'includes pl');
+  assert.ok(ids.includes('bs'), 'includes bs');
+  assert.ok(ids.includes('tb'), 'includes tb');
+});

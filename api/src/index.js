@@ -189,18 +189,6 @@ async function handleApiRequest(req, res) {
     if (!action) return fail(res, 'INVALID_INPUT', 'Missing action');
     if (!action.startsWith('setup.') && !companyId) return fail(res, 'INVALID_INPUT', 'Missing companyId');
 
-    // Partner-proposal-spec §1.3: alias map for backward compat (vendor.* → partner.*)
-    const ACTION_ALIASES = {
-      'vendor.list':   'partner.list',
-      'vendor.save':   'partner.save',
-      'vendor.delete': 'partner.delete',
-      'vendor.upsert': 'partner.upsert',
-    };
-    if (ACTION_ALIASES[action]) {
-      console.warn(`[DEPRECATION] action '${action}' is deprecated, use '${ACTION_ALIASES[action]}'`);
-      action = ACTION_ALIASES[action];
-    }
-
     const requiredRole = ACTION_ROLES[action];
     if (!requiredRole) return fail(res, 'INVALID_INPUT', `Unknown action: ${action}`);
 
@@ -1696,21 +1684,7 @@ ensureDb().then(async () => {
   // dispatch above) — keeps the in-process agent pipeline in sync.
   const AGENT_ALLOWED = new Set(Object.entries(ACTIONS).filter(([, m]) => m.agentWritable).map(([name]) => name));
 
-  // Partner-proposal-spec §1.3: alias map for backward compat (vendor.* → partner.*)
-  const ACTION_ALIASES = {
-    'vendor.list':   'partner.list',
-    'vendor.save':   'partner.save',
-    'vendor.delete': 'partner.delete',
-    'vendor.upsert': 'partner.upsert',
-  };
-
   async function dispatchAction(action, params, companyId, agentEmail) {
-    // Resolve alias early so role checks + handler dispatch use the canonical name
-    const resolvedAction = ACTION_ALIASES[action] || action;
-    if (ACTION_ALIASES[action]) {
-      console.warn(`[DEPRECATION] action '${action}' is deprecated, use '${resolvedAction}'`);
-    }
-    action = resolvedAction;
     const body = { action, companyId, userEmail: agentEmail, ...params };
     const requiredRole = ACTION_ROLES[action];
     if (!requiredRole) throw Object.assign(new Error(`Unknown action: ${action}`), { code: 'UNKNOWN_ACTION' });

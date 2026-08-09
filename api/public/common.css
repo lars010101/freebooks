@@ -61,155 +61,32 @@ body {
   overflow: hidden;
 }
 
-/* ---- Sidebar ---- */
-#sidebar {
-  width: 220px;
-  flex-shrink: 0;
-  background: var(--sb-bg);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: width .2s ease;
-  z-index: 100;
-}
-#sidebar.sb-collapsed { width: 52px; }
-
-.sb-header {
-  padding: 20px 16px 18px;
-  border-bottom: 1px solid rgba(255,255,255,.07);
-  flex-shrink: 0;
-}
-.sb-co-name {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: opacity .15s;
-  letter-spacing: -.01em;
-}
-.sb-co-sub {
-  font-size: 0.75rem;
-  color: rgba(220,228,242,.38);
-  margin-top: 3px;
-  white-space: nowrap;
-  transition: opacity .15s;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
-.sb-co-caret { font-size: 0.625rem; }
-#sidebar.sb-collapsed .sb-co-name,
-#sidebar.sb-collapsed .sb-co-sub { opacity: 0; }
-
-.sb-nav {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 10px 0;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,.1) transparent;
-}
-.sb-item {
+/* ---- Bottom status line (replaces the sidebar) ---- */
+#fb-status-line {
+  height: 28px;
+  background: var(--tb-bg);
+  border-top: 1px solid var(--tb-border);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 18px;
-  color: var(--sb-text);
-  text-decoration: none;
-  font-size: 0.917rem;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-  background: none;
-  border: none;
-  width: 100%;
-  text-align: left;
-  transition: background .12s;
-  letter-spacing: .01em;
-}
-.sb-item:hover { background: var(--sb-hover-bg); color: #fff; }
-.sb-item.sb-active { background: var(--sb-active-bg); color: var(--sb-active-text); }
-.sb-item.sb-disabled { opacity: .35; pointer-events: none; cursor: default; }
-.sb-icon { font-size: 1.083rem; line-height: 1; flex-shrink: 0; width: 20px; text-align: center; }
-.sb-label { transition: opacity .15s, width .15s; overflow: hidden; }
-#sidebar.sb-collapsed .sb-label { opacity: 0; width: 0; }
-/* A3j §4.4: pending-proposal count on the Journal sidebar item — the
-   monitoring surface (there is work) without opening anything. Hidden when
-   zero or the sidebar is collapsed. */
-.sb-badge {
-  margin-left: auto;
-  min-width: 18px;
-  padding: 1px 6px;
-  border-radius: 9px;
-  background: #d97706;
-  color: #fff;
-  font-size: 0.667rem;
-  font-weight: 700;
-  text-align: center;
-  line-height: 1.5;
-}
-#sidebar.sb-collapsed .sb-badge { display: none; }
-
-/* Tooltip on collapsed hover */
-#sidebar.sb-collapsed .sb-item { position: relative; }
-#sidebar.sb-collapsed .sb-item:hover::after {
-  content: attr(data-label);
-  position: fixed;
-  left: 60px;
-  background: #333;
-  color: #fff;
-  padding: 5px 10px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  white-space: nowrap;
-  z-index: 200;
-  pointer-events: none;
-}
-
-.sb-footer {
-  border-top: 1px solid rgba(255,255,255,.07);
-  padding: 8px 0;
-  flex-shrink: 0;
-}
-
-/* ---- Keyboard hints panel (below nav, above footer) ---- */
-/* Content is generated per page/tab from FB.keys binding tables. */
-.sb-hints {
-  padding: 10px 18px 12px;
-  border-top: 1px solid rgba(255,255,255,.07);
-  flex-shrink: 0;
-  overflow: hidden;
-}
-.sb-hints:empty { display: none; border-top: none; }
-#sidebar.sb-collapsed .sb-hints { display: none; }
-.fb-hint-row {
-  display: flex;
-  align-items: center;
+  padding: 0 16px;
   gap: 8px;
-  padding: 2.5px 0;
-  font-size: 0.6875rem;
-  color: rgba(220,228,242,.42);
-  white-space: nowrap;
-}
-.fb-hint-row kbd {
-  font-family: 'SF Mono', 'Fira Mono', monospace;
-  font-size: 0.625rem;
-  color: rgba(220,228,242,.65);
-  background: rgba(255,255,255,.07);
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 3px;
-  padding: 1px 5px;
-  min-width: 34px;
-  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
   flex-shrink: 0;
+  z-index: 90;
 }
+.fb-sl-company { font-weight: 600; color: var(--text); cursor: pointer; }
+.fb-sl-company:hover { text-decoration: underline; }
+.fb-sl-sep { color: var(--border); }
+.fb-sl-inbox { color: var(--text-muted); }
+.fb-sl-spacer { flex: 1; }
+#fb-vim-mode { font-family: 'SF Mono', 'Fira Mono', monospace; font-size: 0.6875rem; font-weight: 600; letter-spacing: .05em; color: var(--text-muted); }
+#fb-vim-mode.insert { color: #4ade80; }
 
 /* ---- `?` keyboard-shortcut overlay (P1-6) ---- */
 /* Which-key-style exhaustive view of the active FB.keys binding set.        */
-/* Reuses .fb-hint-row markup; overrides the dark sidebar palette for the    */
-/* light panel. Content is generated from the same binding table as          */
-/* dispatch + sidebar hints — it cannot drift from behavior.                 */
+/* Content is generated from the same binding table as dispatch — it cannot  */
+/* drift from behavior.                                                      */
 #fb-keys-overlay {
   position: fixed;
   inset: 0;
@@ -256,15 +133,31 @@ body {
   padding-bottom: 4px;
   margin-bottom: 6px;
 }
+.fb-hint-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2.5px 0;
+  font-size: 0.6875rem;
+  color: #4a5468;
+  white-space: nowrap;
+}
+.fb-hint-row kbd {
+  font-family: 'SF Mono', 'Fira Mono', monospace;
+  font-size: 0.625rem;
+  color: #3a4356;
+  background: #f2f4f8;
+  border: 1px solid #dde1e9;
+  border-radius: 3px;
+  padding: 1px 5px;
+  min-width: 34px;
+  text-align: center;
+  flex-shrink: 0;
+}
 .fb-keys-panel .fb-hint-row {
   color: #4a5468;
   font-size: 0.75rem;
   padding: 3px 0;
-}
-.fb-keys-panel .fb-hint-row kbd {
-  color: #3a4356;
-  background: #f2f4f8;
-  border-color: #dde1e9;
 }
 .fb-keys-panel .fb-hint-row.fb-keys-none { color: #b6bcc9; }
 .fb-keys-footer {
@@ -275,22 +168,6 @@ body {
   gap: 24px;
 }
 .fb-keys-footer .fb-hint-row { padding: 0; }
-
-/* ---- Vim mode indicator ---- */
-#fb-vim-mode {
-  font-size: 9px;
-  font-family: 'SF Mono', 'Fira Mono', monospace;
-  color: rgba(220,228,242,.35);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  padding: 1px 8px 0;
-  white-space: nowrap;
-  overflow: hidden;
-  transition: color .15s;
-  user-select: none;
-}
-#fb-vim-mode.insert { color: #4ade80; }
-#sidebar.sb-collapsed #fb-vim-mode { opacity: 0; }
 
 /* ---- Table row keyboard focus ---- */
 /* :not(.row-editing) — a row in edit mode shows the edit band and boxed
@@ -559,30 +436,6 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 .company-list a:hover { color: var(--text-muted); }
 .company-list .id { font-size: 0.75rem; color: var(--text-faint); }
 
-/* ---- Sidebar footer icon row ---- */
-.sb-footer-row {
-  display: flex;
-  padding: 6px 10px;
-  gap: 4px;
-}
-.sb-icon-action {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px;
-  background: none;
-  border: none;
-  border-radius: 5px;
-  color: var(--sb-text);
-  cursor: pointer;
-  font-size: 1.083rem;
-  transition: background .12s;
-}
-.sb-icon-action:hover { background: var(--sb-hover-bg); color: #fff; }
-/* Hide theme icon when collapsed — only show expand/collapse */
-#sidebar.sb-collapsed #fb-theme-btn { display: none; }
-
 /* ---- Report controls (top bar) ---- */
 .tb-label {
   font-size: 0.75rem;
@@ -706,6 +559,26 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   padding: 10px 12px;
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* Grammar hint — shown under the bar when a typed command is recognized */
+.fb-grammar-hint {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Fira Mono', monospace;
+  z-index: 9999;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---- FB.list column filters + command box (spec §8) ---- */

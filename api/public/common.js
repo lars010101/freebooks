@@ -56,35 +56,12 @@
       if (!Array.isArray(cos)) return;
       var co = cos.find(function(c){ return c.company_id === coId; });
       if (co && (co.company_name || co.name)) {
-        var el = document.querySelector('.sb-co-name');
+        var el = document.querySelector('.fb-sl-company');
         if (el) el.textContent = co.company_name || co.name;
       }
     })
     .catch(function(){});
   })();
-
-  // ── Sidebar collapse ──
-  function fbApplySidebar(collapsed) {
-    var sb = document.getElementById('sidebar');
-    var icon = document.getElementById('fb-collapse-icon');
-    var btn = document.getElementById('fb-collapse-btn');
-    if (!sb) return;
-    if (collapsed) {
-      sb.classList.add('sb-collapsed');
-      if (icon) icon.textContent = '»';
-      if (btn)  btn.title = 'Expand sidebar';
-    } else {
-      sb.classList.remove('sb-collapsed');
-      if (icon) icon.textContent = '«';
-      if (btn)  btn.title = 'Collapse sidebar';
-    }
-  }
-  window.fbToggleSidebar = function() {
-    var collapsed = !document.getElementById('sidebar').classList.contains('sb-collapsed');
-    localStorage.setItem('fb-sidebar-collapsed', collapsed ? '1' : '0');
-    fbApplySidebar(collapsed);
-  };
-  fbApplySidebar(localStorage.getItem('fb-sidebar-collapsed') === '1');
 
   // ── Company switcher ──
   // onReady(opened) is optional — invoked after the open path completes
@@ -143,7 +120,7 @@
 
 (function() {
   // Leave-veto chokepoint (magnus review 2026-07-28): EVERY soft navigation
-  // consults the dirty-guard hook here — sidebar clicks, {/}, the g-map, and
+  // consults the dirty-guard hook here — g-map navigation, palette rows, and
   // palette navigate rows all funnel through fbNavigate, so wiring the veto
   // at this level closes the g-map/palette bypass for good. Guard-confirmed
   // continuations pass { force: true } to skip the re-check (the modal's
@@ -200,27 +177,6 @@
           document.body.appendChild(ns);
           ns.remove();
         });
-
-        // Update sidebar active state — use server-set sb-active from incoming doc
-        var sbItems = Array.from(document.querySelectorAll('.sb-nav a[href]'));
-        sbItems.forEach(function(el) { el.classList.remove('sb-active'); });
-        var incomingActive = doc.querySelector('.sb-nav a.sb-active');
-        if (incomingActive) {
-          var activeHref = incomingActive.getAttribute('href');
-          var matchItem = sbItems.find(function(el) { return el.getAttribute('href') === activeHref; });
-          if (matchItem) matchItem.classList.add('sb-active');
-        } else {
-          // Fallback: longest-match by URL
-          var active = sbItems.reduce(function(best, el) {
-            var href = el.getAttribute('href');
-            if (!href) return best;
-            if (url === href || url.startsWith(href + '/')) {
-              if (!best || href.length > best.getAttribute('href').length) return el;
-            }
-            return best;
-          }, null);
-          if (active) active.classList.add('sb-active');
-        }
 
         // Update top-bar right section
         var newTbRight = doc.querySelector('.tb-right');
@@ -314,15 +270,6 @@
     else window.fbRenderTopSlots();
   })();
 
-  // Intercept sidebar link clicks → SPA navigation (same as { } keyboard nav)
-  document.addEventListener('click', function(e) {
-    var a = e.target.closest('.sb-nav a[href]');
-    if (!a) return;
-    var href = a.getAttribute('href');
-    if (!href || href.startsWith('#') || e.metaKey || e.ctrlKey || e.shiftKey) return;
-    e.preventDefault();
-    window.fbNavigate(href);
-  });
 })();
 
 (function() {
@@ -330,7 +277,6 @@
   // Modes: normal (default) | insert (typing in a field)
   // Escape        → Normal mode (blur); or page fbKeyActions.escape if already in normal mode
   // i             → Insert mode (focus first input in page-main)
-  // { / }         → sidebar prev/next item (navigate pages)
   // h / l         → horizontal submenu tab prev/next
   // j / k         → table row prev/next (with visual focus)
   // Enter         → activate focused row (follow link or click)
@@ -455,7 +401,7 @@
     // While any page has a row edit open (window.fbEditActive), ALL read-mode
     // verbs are inert — regardless of focus. Closes the checkbox/select-focus
     // hole the text-input guard cannot see (e.g. Locked checkbox mid-edit).
-    if (window.fbEditActive && (e.key === 'i' || e.key === 'h' || e.key === 'l' || e.key === '{' || e.key === '}' || e.key === 'j' || e.key === 'k')) {
+    if (window.fbEditActive && (e.key === 'i' || e.key === 'h' || e.key === 'l' || e.key === 'j' || e.key === 'k')) {
       e.preventDefault();
       return;
     }
@@ -471,23 +417,6 @@
       // Generic: focus first input in page (vim insert mode)
       var first = document.querySelector('#page-main input:not([type=hidden]):not([disabled]), #page-main textarea:not([disabled])');
       if (first) { first.focus(); fbSetVimMode('insert'); }
-      return;
-    }
-
-    // ── { / } → sidebar navigation ──
-    if (e.key === '{' || e.key === '}') {
-      var sbItems = Array.from(document.querySelectorAll('.sb-nav a[href]'));
-      if (!sbItems.length) return;
-      var sbActiveIdx = sbItems.findIndex(function(el) { return el.classList.contains('sb-active'); });
-      if (sbActiveIdx === -1) sbActiveIdx = 0;
-      var sbNewIdx = e.key === '}' ? sbActiveIdx + 1 : sbActiveIdx - 1;
-      sbNewIdx = Math.max(0, Math.min(sbItems.length - 1, sbNewIdx));
-      e.preventDefault();
-      var sbHref = sbItems[sbNewIdx].getAttribute('href');
-      // Leave-veto (docs/settings-ux-spec.md §4): a page with unsaved work may
-      // intercept page navigation and route it through its save/discard modal.
-      if (typeof window.fbBeforeTabSwitch === 'function' && window.fbBeforeTabSwitch(sbHref) === false) return;
-      fbNavigate(sbHref);
       return;
     }
 

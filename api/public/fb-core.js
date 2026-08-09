@@ -462,6 +462,120 @@
     var _catalog = null;       // /api/actions manifest (fetched once)
     var _wired = false;
 
+    // ── Grammar mode (command-bar-ux-spec §4–§5) ─────────────────────────────
+    // When the first token after : matches a known alias, we switch from
+    // fuzzy-palette mode to typed-grammar mode: the dropdown closes, a syntax
+    // hint appears under the bar, and Enter parses the full input through
+    // FB.command.parse() instead of executing a fuzzy-matched row.
+    var _grammarEl = null;
+    var _grammarActive = false;
+
+    function _detectGrammar(q) {
+      var trimmed = q.trim();
+      if (!trimmed) return null;
+      var firstTok = trimmed.split(/\s/)[0].toLowerCase();
+      if (firstTok === 'post!' || firstTok === 'pay!') firstTok = firstTok.slice(0, -1);
+      if (window.FB && FB.command && FB.command.ALIASES[firstTok]) {
+        return { alias: firstTok, grammar: FB.command.grammarFor(firstTok) };
+      }
+      return null;
+    }
+
+    function _showGrammarHint(grammar) {
+      if (!_grammarEl) {
+        _grammarEl = document.createElement('div');
+        _grammarEl.className = 'fb-grammar-hint';
+        var wrap = _input.closest('.tb-search-wrap') || _input.parentElement;
+        if (wrap) wrap.appendChild(_grammarEl);
+      }
+      _grammarEl.textContent = grammar;
+      _grammarEl.style.display = '';
+      _grammarActive = true;
+      _close();
+    }
+
+    function _hideGrammarHint() {
+      if (_grammarEl) { _grammarEl.style.display = 'none'; }
+      _grammarActive = false;
+    }
+
+    function _executeGrammar() {
+      var q = _rawQuery();
+      var result = FB.command.parse(':' + q);
+      _exitCommand();
+      if (result.type === 'unknown') {
+        var el = document.getElementById('tb-status-msg');
+        if (el) { el.textContent = result.error; el.className = 'tb-status-msg err'; }
+        return;
+      }
+      if (result.type === 'empty') return;
+      if (result.type === 'alias' || result.type === 'raw') _executeParsed(result);
+    }
+
+    function _executeParsed(result) {
+      var parsed = result.parsed || {};
+      var co = _company();
+      if (parsed.warnings && parsed.warnings.length) {
+        var el = document.getElementById('tb-status-msg');
+        if (el) { el.textContent = parsed.warnings.join('; '); el.className = 'tb-status-msg warn'; }
+      }
+      if (parsed.pageVerb) {
+        if (window.fbKeyActions && typeof window.fbKeyActions[parsed.pageVerb] === 'function') {
+          window.fbKeyActions[parsed.pageVerb]();
+        }
+        return;
+      }
+      if (parsed.route) {
+        var url = '/' + co + parsed.route;
+        if (parsed.prefill) {
+          try { sessionStorage.setItem('fb-cmd-prefill', JSON.stringify(parsed.prefill)); } catch (e) {}
+        }
+        window.fbNavigate(url);
+        return;
+      }
+      if (parsed.commitMode === 'direct' && parsed.action) {
+        var idk = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random();
+        var body = { action: parsed.action, companyId: co };
+        if (parsed.params) Object.assign(body, parsed.params);
+        fetch('/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idk },
+          body: JSON.stringify(body)
+        }).then(function (r) { return r.json(); }).then(function (res) {
+          var st = document.getElementById('tb-status-msg');
+          if (!st) return;
+          if (res && res.ok === false) { st.textContent = ((res.error && res.error.message) || 'error'); st.className = 'tb-status-msg err'; }
+          else { st.textContent = (result.alias || result.action) + ' — done'; st.className = 'tb-status-msg ok'; }
+        }).catch(function () {
+          var st2 = document.getElementById('tb-status-msg');
+          if (st2) { st2.textContent = 'request failed'; st2.className = 'tb-status-msg err'; }
+        });
+        return;
+      }
+      if (parsed.commitMode === 'confirm' && parsed.action) {
+        var idk2 = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random();
+        var body2 = { action: parsed.action, companyId: co };
+        if (parsed.params) Object.assign(body2, parsed.params);
+        fetch('/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idk2 },
+          body: JSON.stringify(body2)
+        }).then(function (r) { return r.json(); }).then(function (res) {
+          var st = document.getElementById('tb-status-msg');
+          if (!st) return;
+          if (res && res.ok === false) { st.textContent = ((res.error && res.error.message) || 'error'); st.className = 'tb-status-msg err'; }
+          else { st.textContent = (result.alias || result.action) + ' — done'; st.className = 'tb-status-msg ok'; }
+        }).catch(function () {
+          var st3 = document.getElementById('tb-status-msg');
+          if (st3) { st3.textContent = 'request failed'; st3.className = 'tb-status-msg err'; }
+        });
+        return;
+      }
+      if (parsed.action) {
+        window.fbNavigate('/' + co + '/journal/new');
+      }
+    }
+
     var RECENT_KEY = 'fb.palette.recent';
     var CAP = 12;
 
@@ -668,6 +782,7 @@
     function _exitCommand() {
       _command = false;
       _close();
+      _hideGrammarHint();
       if (_input) { _input.value = ''; _input.blur(); }
     }
 
@@ -682,14 +797,24 @@
         if (!_command) return;
         if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) { e.preventDefault(); e.stopImmediatePropagation(); _move(1); }
         else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) { e.preventDefault(); e.stopImmediatePropagation(); _move(-1); }
-        else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]); }
+        else if (e.key === 'Enter') {
+          e.preventDefault(); e.stopImmediatePropagation();
+          if (_grammarActive) { _executeGrammar(); }
+          else { _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]); }
+        }
         else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); _exitCommand(); }
       }, true);
       input.addEventListener('input', function () {
         if (!_command) return;
-        // Deleting the ':' prefix drops back to search mode (honest state).
-        if (_input.value.charAt(0) !== ':') { _command = false; _close(); return; }
-        _query(_rawQuery());
+        if (_input.value.charAt(0) !== ':') { _command = false; _close(); _hideGrammarHint(); return; }
+        var q = _rawQuery();
+        var g = _detectGrammar(q);
+        if (g) {
+          _showGrammarHint(g.grammar);
+        } else {
+          _hideGrammarHint();
+          _query(q);
+        }
       });
       input.addEventListener('blur', function () {
         if (!_command) return;

@@ -335,7 +335,7 @@ const ACTIONS = {
   // ── Read models (P1-8) ───────────────────────────────────────────────────
   'view.bills': {
     role: 'viewer', mutating: false,
-    description: 'Read model: Payables Bills tab in one call — vendors + bills with embedded lines (draft JSON parsed, posted journal lines). Same filters as bill.list.',
+    description: 'Read model: Payables Bills tab in one call — partners + bills with embedded lines (draft JSON parsed, posted journal lines). Same filters as bill.list.',
     params: { status: { type: 'string' }, partner_name: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, limit: { type: 'number' }, offset: { type: 'number' } },
   },
   'view.bank': {
@@ -453,7 +453,7 @@ const ACTIONS = {
     params: { ids: { type: 'array' }, all: { type: 'boolean' } },
   },
 
-  // ── Mappings / centers / journals / vendors ──────────────────────────────
+  // ── Mappings / centers / journals / partners ──────────────────────────────
   'mapping.list': { role: 'viewer', mutating: false, description: 'List bank-import mapping rules.' },
   'mapping.save': {
     role: 'data_entry', mutating: true,

@@ -9,7 +9,7 @@
 //     (the server already does this; the client just stops collecting a code).
 //   - fxTracking='off'    → the CCY column/input locks to the company base
 //     currency: the parent CCY cell renders the base ccy as read-only text and
-//     the draft new-bill buffer + vendor-pick default-ccy sync are suppressed
+//     the draft new-bill buffer + partner-pick default-ccy sync are suppressed
 //     so a bill always submits in base currency.
 //
 // flags is { vatRegistered, fxTracking, baseCurrency }. When absent the full UI
@@ -26,7 +26,7 @@ function billsTabJS(flags) {
 // Relevance flags (settings-ux-spec §7 item 9 + fx-automation-spec §1).
 // Inlined server-side from getRelevanceFlags — VAT_ON gates the per-line VAT
 // code column + stated-VAT footer + per-code footers; FX_ON gates the CCY
-// column / vendor-default-ccy sync (locked to BASE_CURRENCY when off).
+// column / partner-default-ccy sync (locked to BASE_CURRENCY when off).
 var VAT_ON = ${VAT_ON};
 var FX_ON = ${FX_ON};
 // ========== BILLS STATE ==========
@@ -45,7 +45,7 @@ var taxCodeRateMap = {}; // vat_code -> { rate, is_reverse_charge } (for GST def
 // Company-level default AP/expense account codes, loaded from settings on page
 // init. Blank ('') when unset — used as fallbacks in place of the old hardcoded
 // '201100' (AP) and '400000' (expense) defaults. Vendor defaults still override
-// these; see _loadCompanyDefaults() and the vendor-selection handler.
+// these; see _loadCompanyDefaults() and the partner-selection handler.
 var companyDefaultAp = '';
 var companyDefaultExpense = '';
 
@@ -288,10 +288,10 @@ function _loadCompanyDefaults() {
 }
 
 function fbPageInitPayables() {
-  loadVendors();
+  loadPartners();
   billsList.load();
   loadPeriods();
-  registerVendorKeyActions();
+  registerPartnerKeyActions();
   // Sidebar hint panel is generated from the same binding table that drives
   // dispatch (P1-3/P1-6: single source of truth — cannot go stale).
   renderPayHints('bills');
@@ -434,11 +434,11 @@ function _refreshCcyVisibility(saved) {
   _applyCcyColVisibility();
 }
 // ========== UTILITY FUNCTIONS ==========
-function vendorCell(name) {
+function partnerCell(name) {
   if (!name) return '<span style="color:#aaa">—</span>';
   var initials = name.trim().split(/\\s+/).map(function(w){ return w[0]; }).slice(0,2).join('').toUpperCase();
   var color = AVATAR_COLORS[Math.abs(hashStr(name)) % AVATAR_COLORS.length];
-  return '<div class="vendor-cell">'
+  return '<div class="partner-cell">'
     + '<span class="avatar" style="background:' + color + '">' + esc(initials) + '</span>'
     + '<span>' + esc(name) + '</span>'
     + '</div>';
@@ -504,28 +504,28 @@ function _payAffordClick(btn) {
   if (bill) openPayRowData(tr, bill);
 }
 
-// billAttachVendor(input, tr) — column 'attach' hook for the vendor field in
-// edit mode (Task 6c). Reproduces today's _wireDraftParentEvents vendor branch
-// (L1703–1763) as a column attach: FB.dropdown over allVendors; on pick (and on
+// billAttachPartner(input, tr) — column 'attach' hook for the partner field in
+// edit mode (Task 6c). Reproduces today's _wireDraftParentEvents partner branch
+// (L1703–1763) as a column attach: FB.dropdown over allPartners; on pick (and on
 // blur-resolve of a typed name) the input's data-* datasets are populated with
-// the vendor id / name / default AP / default expense / default currency, and
+// the partner id / name / default AP / default expense / default currency, and
 // the displayed CCY cell is synced. The framework owns the dirty chip, so the
 // old refreshSaveIcon(tr) calls are gone; the Shift+Tab wrap to the last
 // child's VAT input is Task 6d (Tab wiring). 'attach' only fires in INSERT, so
 // this is inert while the old machinery still owns rendering.
 //
-// DEV NOTE: ap_account / expense_account / vendor_id / currency are not cfg
-// columns (the 6a cfg has 7 display columns; AP/expense travel on the vendor
+// DEV NOTE: ap_account / expense_account / partner_id / currency are not cfg
+// columns (the 6a cfg has 7 display columns; AP/expense travel on the partner
 // input's datasets, as in the old DOM). The framework harvests only declared
 // columns on Esc, so flowing these datasets into the bill save payload is
 // finalized in Task 6e (cfg.save.body / a harvest hook). For 6c the attach
-// faithfully reproduces the vendor-pick UX and stores the defaults for 6e.
-function billAttachVendor(input, tr) {
+// faithfully reproduces the partner-pick UX and stores the defaults for 6e.
+function billAttachPartner(input, tr) {
   if (!input) return;
   FB.dropdown.attach(input, {
     source: function (q) {
       q = (q || '').trim().toLowerCase();
-      return (allVendors || []).filter(function (v) {
+      return (allPartners || []).filter(function (v) {
         if (!q) return true;
         return (v.name || '').toLowerCase().indexOf(q) >= 0;
       }).map(function (v) {
@@ -534,44 +534,44 @@ function billAttachVendor(input, tr) {
     },
     onPick: function (item, inp) {
       var v = item.data.v;
-      inp.dataset.vendorId = v.vendor_id || '';
-      inp.dataset.vendorName = v.name || '';
+      inp.dataset.partnerId = v.partner_id || '';
+      inp.dataset.partnerName = v.name || '';
       inp.dataset.apAccount = v.default_ap_account || companyDefaultAp || '';
       inp.dataset.expenseAccount = v.default_expense_account || companyDefaultExpense || '';
-      inp.dataset.vendorCurrency = (FX_ON ? (v.default_currency || BASE_CURRENCY) : BASE_CURRENCY).toUpperCase();
+      inp.dataset.partnerCurrency = (FX_ON ? (v.default_currency || BASE_CURRENCY) : BASE_CURRENCY).toUpperCase();
       inp.value = v.name || '';
-      billSyncVendorCcy(tr, inp.dataset.vendorCurrency);
+      billSyncPartnerCcy(tr, inp.dataset.partnerCurrency);
     }
   });
   // Blur: resolve a typed (non-picked) name against master data; if it matches
-  // a vendor, populate the same datasets + CCY. Leave typed-but-unknown values
+  // a partner, populate the same datasets + CCY. Leave typed-but-unknown values
   // intact for server-side validation (today's L1742–1763 behavior).
   input.addEventListener('blur', function () {
     setTimeout(function () {
       var name = input.value.trim();
       if (!name) return;
-      if (input.dataset.vendorName) return; // already resolved via pick
-      var match = (allVendors || []).find(function (x) {
+      if (input.dataset.partnerName) return; // already resolved via pick
+      var match = (allPartners || []).find(function (x) {
         return (x.name || '').toLowerCase() === name.toLowerCase();
       });
       if (match) {
-        input.dataset.vendorId = match.vendor_id || '';
-        input.dataset.vendorName = match.name || '';
+        input.dataset.partnerId = match.partner_id || '';
+        input.dataset.partnerName = match.name || '';
         input.dataset.apAccount = match.default_ap_account || companyDefaultAp || '';
         input.dataset.expenseAccount = match.default_expense_account || companyDefaultExpense || '';
-        input.dataset.vendorCurrency = (FX_ON ? (match.default_currency || BASE_CURRENCY) : BASE_CURRENCY).toUpperCase();
+        input.dataset.partnerCurrency = (FX_ON ? (match.default_currency || BASE_CURRENCY) : BASE_CURRENCY).toUpperCase();
         input.value = match.name;
-        billSyncVendorCcy(tr, input.dataset.vendorCurrency);
+        billSyncPartnerCcy(tr, input.dataset.partnerCurrency);
       }
     }, 200);
   });
 }
 
-// billSyncVendorCcy(tr, ccy) — update the displayed CCY cell. The currency
+// billSyncPartnerCcy(tr, ccy) — update the displayed CCY cell. The currency
 // column is ro:'always', so in edit mode it renders its display() HTML (a
-// <span class="ccy-cell">). Picking a vendor updates that span to the vendor's
+// <span class="ccy-cell">). Picking a partner updates that span to the partner's
 // default currency for visual parity with today's CCY-input side-effect.
-function billSyncVendorCcy(tr, ccy) {
+function billSyncPartnerCcy(tr, ccy) {
   var span = tr && tr.querySelector('.ccy-cell');
   if (span) span.textContent = ccy;
 }
@@ -747,7 +747,7 @@ function billsChildRowHtml(parent, child, idx) {
 // = net + (stated ?? computed VAT); the footer cells show Net / VAT / Gross.
 // VAT is computed per line from its code (amount × rate) — lines carry no VAT
 // amount state (redesign 2026-07-26). Reverse-charge VAT is self-assessed and
-// never part of the gross owed to the vendor.
+// never part of the gross owed to the partner.
 function billRefreshParentTotal(childTr) {
   if (!childTr || !childTr.dataset || !childTr.dataset.childOf) return;
   var key = childTr.dataset.childOf;
@@ -779,7 +779,7 @@ function billRefreshParentTotal(childTr) {
 // description and the code's VAT amount. When a stated VAT total exists, the
 // delta is applied to the largest standard code (mirrors the posting rule) so
 // the rows always sum to the stated total. Reverse-charge codes get their own
-// rows (self-assessed — never part of the gross owed to the vendor).
+// rows (self-assessed — never part of the gross owed to the partner).
 function billCodeFooterRows(lines, stated) {
   if (!VAT_ON) return []; // vatRegistered=false: no tax codes, no per-code rows
   var std = {}, rc = {}, order = [];
@@ -896,7 +896,7 @@ function billLineNonEmpty(l) {
 // billSumGross sums net + VAT, matching the live parent total shown by
 // billRefreshParentTotal: VAT is computed per line from its code (lines carry
 // no VAT amounts — 2026-07-26), the bill-level stated total wins when given,
-// and reverse-charge VAT is excluded (self-assessed, never owed to the vendor).
+// and reverse-charge VAT is excluded (self-assessed, never owed to the partner).
 function billSumGross(lines, stated) {
   var net = 0, stdVat = 0;
   (lines || []).forEach(function (l) {
@@ -954,8 +954,8 @@ var billsList = FB.list.create({
   onFocus: function (tr) {},
   tree: true,
   columns: [
-    { field: 'partner_name', type: 'text', attach: billAttachVendor, sortable: true,
-      display: function (v, r) { return vendorCell(r.partner_name || v || ''); }, label: 'Partner' },
+    { field: 'partner_name', type: 'text', attach: billAttachPartner, sortable: true,
+      display: function (v, r) { return partnerCell(r.partner_name || v || ''); }, label: 'Partner' },
     { field: 'date', type: 'date', sortable: true, filterType: 'date',
       display: function (v) {
         return '<span style="white-space:nowrap" title="' + esc(String(v || '').slice(0, 10)) + '">' + fmtDateShort(v) + '</span>';
@@ -1006,7 +1006,7 @@ var billsList = FB.list.create({
         due_date: b.due_date || '', vendor_ref: b.vendor_ref || '', amount: b.amount || 0,
         amount_paid: b.amount_paid || 0, currency: b.currency || BASE_CURRENCY, status: b.status || '',
         ap_account: b.ap_account || '', expense_account: b.expense_account || '',
-        vendor_id: b.vendor_id || '', _isBill: true
+        partner_id: b.partner_id || '', _isBill: true
       };
     } },
   // Pre-resolved lazy children: the framework calls children(row)
@@ -1030,7 +1030,7 @@ var billsList = FB.list.create({
   // except currency/ap_account/expense_account seeded from company defaults,
   // status 'draft', and ONE empty line (description/amount/vat_code blank,
   // expense_account + currency seeded). isBlank mirrors _isDraftEmpty
-  // (L1474-1494): true when vendor/date/ref all empty AND no line has a
+  // (L1474-1494): true when partner/date/ref all empty AND no line has a
   // description or positive amount (pre-filled defaults do not count).
   blank: function () {
     return { _isBill: true, isNew: true, partner_name: '', date: '', due_date: '',
@@ -1146,25 +1146,25 @@ var billsList = FB.list.create({
       vat_code: ((tr.querySelector('.child-vat') || {}).value || '').trim()
     };
   },
-  // Non-column payload fields: vendor_id / ap_account / expense_account travel
-  // on the vendor input's dataset (set on pick/blur-resolve). Untouched edit →
+  // Non-column payload fields: partner_id / ap_account / expense_account travel
+  // on the partner input's dataset (set on pick/blur-resolve). Untouched edit →
   // dataset empty → fall back to the row's saved values. Without this the
   // buffer drops AP/expense on every save (duplicate-save bug's silent twin).
   harvestExtra: function (tr, row, buf) {
     var vin = tr.querySelector('.fb-e-partner_name');
     var ds = (vin && vin.dataset) || {};
     buf.vat_amount_stated = (row.vat_amount_stated != null && !isNaN(Number(row.vat_amount_stated))) ? Number(row.vat_amount_stated) : null;
-    buf.vendor_id = ds.vendorId || row.vendor_id || '';
+    buf.partner_id = ds.partnerId || row.partner_id || '';
     buf.ap_account = ds.apAccount || row.ap_account || '';
     buf.expense_account = ds.expenseAccount || row.expense_account || '';
-    if (ds.vendorCurrency && FX_ON) buf.currency = ds.vendorCurrency;
+    if (ds.partnerCurrency && FX_ON) buf.currency = ds.partnerCurrency;
   },
   // a-verb / Tab-spawn: the framework appends this shape to the bill buffer.
   addChild: function (parent) {
     return { description: '', expense_account: companyDefaultExpense || '', amount: 0, vat_code: '', currency: parent.currency || BASE_CURRENCY };
   },
   // Task 6e — bill-level draft validation. Mirrors saveDraftToDb guards
-  // (L2156-2163) plus the per-line checks the post path enforces: vendor
+  // (L2156-2163) plus the per-line checks the post path enforces: partner
   // from the dropdown, bill date present, due date present and not before
   // the bill date, at least one non-empty line, an expense account on every
   // line, numeric line amounts, and every VAT code blank or known. Returns
@@ -1209,10 +1209,10 @@ var billsList = FB.list.create({
     function voidBill(p) {
       if (p.status === 'void') { FB.status.show('Bill is already void — cannot be modified.', true); return; }
       if (p.status === 'paid') { FB.status.show('Bill is fully paid — reversal must be done via a credit note or payment reversal.', true); return; }
-      var vendor = p.partner_name || p.bill_id;
+      var partner = p.partner_name || p.bill_id;
       var msg = p.status === 'partial'
-        ? 'Bill from "' + vendor + '" is partially paid. Reversing will void the bill but will not reverse the payment. Continue?'
-        : 'Reverse bill from "' + vendor + '"? A reversal journal entry will be created. This cannot be undone.';
+        ? 'Bill from "' + partner + '" is partially paid. Reversing will void the bill but will not reverse the payment. Continue?'
+        : 'Reverse bill from "' + partner + '"? A reversal journal entry will be created. This cannot be undone.';
       if (!confirm(msg)) return;
       fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'bill.void', companyId: COMPANY, billId: p.bill_id }) })
@@ -1332,7 +1332,7 @@ function showPayTab(t) {
   document.querySelectorAll('tr.nav-row-focus, tr.bill-row-focus').forEach(function(r){
     r.classList.remove('nav-row-focus', 'bill-row-focus');
   });
-  if (t === 'partners') { loadVendorTable(); loadVendorAccounts(); loadVendorCurrencies(); }
+  if (t === 'partners') { loadPartnerTable(); loadPartnerAccounts(); loadPartnerCurrencies(); }
   // FB.list owns row focus/scroll now; the old bespoke cursor restore on tab
   // return was deleted with the cursor object in Task 7.
 }

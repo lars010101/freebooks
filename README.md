@@ -16,13 +16,13 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 - **Multi-period comparative reports** — month-over-month and year-over-year for P&L, BS, and CF, driven by company-defined fiscal periods
 - **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post) with jurisdiction-pack-driven monetary account types and gain/loss account (P2-2)
 - **VAT / GST engine** — tax-exclusive entry across bills and journal entries (entered amount IS the net; VAT computed on top and posted as separate per-code GL lines), reverse-charge support, supplier-stated VAT override with configurable tolerance (bills only), and VAT return generation grouped by report box. Bank import remains tax-inclusive (settled cash = gross)
-- **Accounts Payable** — vendor master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, and AP Aging report
-- **Partner proposal & unification** — vendors unified into a `partners` table; agent can propose new vendor/partner entries via the same propose/approve pattern as journal entries (inbox Class A item, `y`/`x` review). Spec: `docs/partner-proposal-spec.md`.
+- **Accounts Payable** — partner master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, and AP Aging report
+- **Partner proposal & unification** — partners unified into a `partners` table; agent can propose new vendor/partner entries via the same propose/approve pattern as journal entries (inbox Class A item, `y`/`x` review). Spec: `docs/partner-proposal-spec.md`.
 - **Accounts Receivable** — invoicing and AR aging are **dropped/deferred** from the current cycle; nav and page scaffolding remain in place but inactive.
 - **Bank statement processing** — CSV import with manual bill allocation linking import rows to open bills (multi-currency aware) and cleared/uncleared reconciliation tracking, backed by a **four-tier matching cascade** (spec: `docs/bank-matching-spec.md`):
   - **Tier 1** — learned rules (`bank_mappings`): pattern → offset account/VAT code, with `amount_sign` direction filtering and longest-match-wins specificity scoring.
-  - **Tier 2** — open-item matching against unpaid bills and vendor balances (amount-tolerance, 1:1/1:N/N:1 cardinality, counterparty evidence).
-  - **Tier 3** — trigram master-data match against chart of accounts and vendors.
+  - **Tier 2** — open-item matching against unpaid bills and partner balances (amount-tolerance, 1:1/1:N/N:1 cardinality, counterparty evidence).
+  - **Tier 3** — trigram master-data match against chart of accounts and partners.
   - **Tier 3.5** — historical outcome match against `matching_history` (`approved_unedited` outcomes) — "how was this same description posted last time?"
   - **Tier 4** — LLM reasoning for residual unmatched lines.
 - **Self-contained in-process agent pipeline (B9)** — folder watcher + agent loop run inside the Express server (no external scripts, no HTTP self-calls). Watches `inbox/{company_id}/{type}/`, calls `bank.match` → `journal.propose` → tier-4 LLM directly via `dispatchAction`. The in-process loop is the sole agent path — the legacy `scripts/freebooks-agent-loop.js` was removed because its bill extraction and tier-4 LLM implementations were never completed (placeholders only); `scripts/freebooks-feed-watch.sh` remains as a fallback folder watcher. See `docs/b9-self-contained-agent-spec.md`.
@@ -153,7 +153,7 @@ freebooks/
 │       ├── events.js           # append-only events table emission (valid-JSON truncation)
 │       ├── journal.js          # journal posting, reversal, search, reference sequencing, proposal approve/reject
 │       ├── bills.js            # Accounts Payable: create, void, list, match, drafts, aging
-│       ├── vendors.js          # vendor master CRUD
+│       ├── partners.js         # partner master CRUD
 │       ├── bank.js             # bank statement processing, approval, reconciliation, tier 1-3.5 matching
 │       ├── vat.js              # VAT/GST split, reverse charge, VAT return
 │       ├── fx.js               # FX rate lookup, manual entry, revaluation, provider config
@@ -239,7 +239,7 @@ All data lives in a single DuckDB file (default `~/.freebooks/freebooks.duckdb`)
 | `bills` | Accounts Payable bills (partner_name, amounts, currency, FX rate, status, `amount_paid`) |
 | `bill_lines` | Bill line subledger — expense line items for posted bills (written alongside journal entries; never mutated) |
 | `bill_payments` | Payment allocations linking bills to settlement journal batches |
-| `vendors` | Vendor master with default currency, payment terms, and default expense/AP accounts |
+| `partners` | Partner master with default currency, payment terms, and default expense/AP accounts |
 | `vat_codes` | VAT/GST codes: rate, input/output accounts, report box, reverse-charge flag |
 | `bank_mappings` | Rule-based bank import matching (pattern → offset account, VAT code), with `amount_sign` direction column |
 | `mapping_suggestions` | Agent-suggested mapping rules pending human approval (with conflict detection) |
@@ -271,7 +271,7 @@ Body: { "action": "<module>.<verb>", "companyId": "...", "userEmail": "...", ...
 Response: { "ok": true, "data": ... }   (or { "error": "..." })
 ```
 
-The `action` string is split on `.` to dispatch to a module handler (`journal.*`, `bill.*`, `bank.*`, `vat.*`, `fx.*`, `coa.*`, `vendor.*`, `mapping.*`, `period.*`, `settings.*`, `company.*`, `journals.*`, `center.*`, `permissions.*`, `attachment.*`, `setup.*`, `diag.*`, `report.*`, `sie.*`, `auth.*`, `event.*`, `inbox.*`, `matching_history.*`, `calibration.*`).
+The `action` string is split on `.` to dispatch to a module handler (`journal.*`, `bill.*`, `bank.*`, `vat.*`, `fx.*`, `coa.*`, `partner.*`, `mapping.*`, `period.*`, `settings.*`, `company.*`, `journals.*`, `center.*`, `permissions.*`, `attachment.*`, `setup.*`, `diag.*`, `report.*`, `sie.*`, `auth.*`, `event.*`, `inbox.*`, `matching_history.*`, `calibration.*`).
 
 The full action catalog (action → module → min role) is introspectable at `GET /api/actions`. Mutating actions accept an `Idempotency-Key` (per-company scoped) for safe agent retries. Errors use a single envelope `{ "error": "..." }`.
 
@@ -283,7 +283,7 @@ Every action maps to a required role in `ACTION_ROLES` (`api/src/index.js`). Whe
 |---|---|
 | `viewer` | Read/list actions (reports, lists, lookups) |
 | `data_entry` | Post entries, create/void bills, process bank, save FX rates, save mappings, approve/reject mapping suggestions |
-| `owner` | Manage company, COA, VAT codes, journals, periods, vendors, settings, FX provider, permissions, auth tokens |
+| `owner` | Manage company, COA, VAT codes, journals, periods, partners, settings, FX provider, permissions, auth tokens |
 | `agent` (level 1.5) | Default-deny whitelist — reads + `journal.propose` + `bill.create` (draft) + `attachment.upload` + `mapping.suggest` + `matching_history.record`. Everything else is denied. |
 
 A few representative actions:

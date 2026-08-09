@@ -2,36 +2,36 @@
 
 function partnersTabJS() {
   return `
-// ========== VENDORS — FB.list (P3 consolidated) ==========
-// The Vendors register is a declarative FB.list config. The framework owns the
+// ========== PARTNERS — FB.list (P3 consolidated) ==========
+// The Partners register is a declarative FB.list config. The framework owns the
 // add row, nav (j/k incl. add row, gg/G), edit lifecycle (i/Enter/click),
 // dirty buffers (w writes, u reverts, Esc exits WITHOUT saving — fixing the
 // old Esc-auto-saves doctrine violation), x delete with confirm, and the
 // shared leave-guard modal. Screen-specific extras (~ toggle active) are
 // declared via extraBindings.
-var vendorAccountsList = [];
-var vendorCurrenciesList = [];
-window.allVendors = []; // read by payables-bills.js bill vendor dropdown
+var partnerAccountsList = [];
+var partnerCurrenciesList = [];
+window.allPartners = []; // read by payables-bills.js bill partner dropdown
 
-function loadVendorAccounts() {
-  if (vendorAccountsList.length) return;
+function loadPartnerAccounts() {
+  if (partnerAccountsList.length) return;
   fetch('/api/' + COMPANY + '/accounts').then(function(r){ return r.json(); }).then(function(rows){
-    vendorAccountsList = Array.isArray(rows) ? rows : [];
+    partnerAccountsList = Array.isArray(rows) ? rows : [];
   }).catch(function(){});
 }
-function loadVendorCurrencies() {
-  if (vendorCurrenciesList.length) return;
+function loadPartnerCurrencies() {
+  if (partnerCurrenciesList.length) return;
   fetch('/db/currencies.json').then(function(r){ return r.json(); }).then(function(list){
-    vendorCurrenciesList = Array.isArray(list) ? list : [];
+    partnerCurrenciesList = Array.isArray(list) ? list : [];
   }).catch(function(){});
 }
 
-function vendorAttachCcy(inp) {
-  loadVendorCurrencies();
+function partnerAttachCcy(inp) {
+  loadPartnerCurrencies();
   FB.dropdown.attach(inp, {
     source: function(q) {
       q = (q || '').trim().toLowerCase();
-      return vendorCurrenciesList.filter(function(c) {
+      return partnerCurrenciesList.filter(function(c) {
         if (!q) return true;
         return (c.code || '').toLowerCase().indexOf(q) >= 0 ||
                (c.name || '').toLowerCase().indexOf(q) >= 0;
@@ -45,12 +45,12 @@ function vendorAttachCcy(inp) {
     }
   });
 }
-function vendorAttachAcct(inp) {
-  loadVendorAccounts();
+function partnerAttachAcct(inp) {
+  loadPartnerAccounts();
   FB.dropdown.attach(inp, {
     source: function(q) {
       q = (q || '').trim().toLowerCase();
-      return vendorAccountsList.filter(function(a) {
+      return partnerAccountsList.filter(function(a) {
         if (!q) return true;
         return (a.account_code || '').toLowerCase().indexOf(q) >= 0 ||
                (a.account_name || '').toLowerCase().indexOf(q) >= 0;
@@ -65,41 +65,41 @@ function vendorAttachAcct(inp) {
   });
 }
 
-function vendorMsg(msg, type) {
-  var el = document.getElementById('msg-vendors');
+function partnerMsg(msg, type) {
+  var el = document.getElementById('msg-partners');
   if (!el) return;
   el.textContent = msg;
   el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : '#888';
 }
 
-function vendorActiveBadge(v) {
+function partnerActiveBadge(v) {
   return v !== false
     ? '<span class="badge" style="background:#f0fff4;color:#2a8a2a">Active</span>'
     : '<span class="badge" style="background:#f0f0f0;color:#888">Inactive</span>';
 }
 
-var vendorsList = FB.list.create({
-  keysId: 'vendors',
+var partnersList = FB.list.create({
+  keysId: 'partners',
   active: function() {
     var panel = document.getElementById('pay-panel-partners');
     return !!panel && panel.style.display !== 'none';
   },
-  tbody: 'vendors-body',
+  tbody: 'partners-body',
   companyId: function() { return COMPANY; },
   focusClass: 'bill-row-focus',
   onFocus: function(tr) {
-    // common.js's j/k deferral reads this: >= 0 means vendor nav owns j/k.
-    window.fbVendorSelRow = (tr && !tr.classList.contains('fb-add-row')) ? +tr.dataset.idx : -1;
+    // common.js's j/k deferral reads this: >= 0 means partner nav owns j/k.
+    window.fbPartnerSelRow = (tr && !tr.classList.contains('fb-add-row')) ? +tr.dataset.idx : -1;
   },
   columns: [
     { field: 'name', type: 'text', width: 180 },
-    { field: 'default_currency', type: 'text', width: 40, align: 'center', uppercase: true, attach: vendorAttachCcy, filterType: 'list' },
+    { field: 'default_currency', type: 'text', width: 40, align: 'center', uppercase: true, attach: partnerAttachCcy, filterType: 'list' },
     { field: 'payment_terms_days', type: 'number', width: 55, align: 'center', filterType: 'amount' },
-    { field: 'default_expense_account', type: 'text', width: 130, attach: vendorAttachAcct },
-    { field: 'default_ap_account', type: 'text', width: 130, attach: vendorAttachAcct },
+    { field: 'default_expense_account', type: 'text', width: 130, attach: partnerAttachAcct },
+    { field: 'default_ap_account', type: 'text', width: 130, attach: partnerAttachAcct },
     { field: 'is_vendor', type: 'checkbox', align: 'center', width: 50, display: function(v) { return v !== false ? 'V' : '\u2014'; } },
     { field: 'is_customer', type: 'checkbox', align: 'center', width: 50, display: function(v) { return v === true ? 'C' : '\u2014'; } },
-    { field: 'is_active', type: 'checkbox', align: 'center', ro: 'always', display: vendorActiveBadge }
+    { field: 'is_active', type: 'checkbox', align: 'center', ro: 'always', display: partnerActiveBadge }
   ],
   blank: function() { return { name: '', default_currency: '', payment_terms_days: 30, default_expense_account: '', default_ap_account: '', is_vendor: true, is_customer: false, is_active: true }; },
   isBlank: function(b) { return !b.name; },
@@ -114,20 +114,20 @@ var vendorsList = FB.list.create({
   },
   validate: function(d) {
     if (!d.name) return 'Partner name required.';
-    if (d.default_currency && vendorCurrenciesList.length) {
-      var ok = vendorCurrenciesList.some(function(c){ return (c.code || '').toUpperCase() === d.default_currency; });
+    if (d.default_currency && partnerCurrenciesList.length) {
+      var ok = partnerCurrenciesList.some(function(c){ return (c.code || '').toUpperCase() === d.default_currency; });
       if (!ok) return 'Unknown currency: ' + d.default_currency;
     }
     return null;
   },
   firstField: function() { return 'name'; },
-  track: 'vendor',
+  track: 'partner',
   list: { action: 'partner.list',
-    map: function(v) { return { vendor_id: v.partner_id, name: v.name || '', default_currency: v.default_currency || '', payment_terms_days: v.payment_terms_days != null ? v.payment_terms_days : 30, default_expense_account: v.default_expense_account || '', default_ap_account: v.default_ap_account || '', is_active: v.is_active !== false, _key: v.partner_id }; } },
-  // payables-bills.js's bill vendor dropdown reads the raw allVendors array.
-  onLoaded: function(saved) { window.allVendors = saved; },
+    map: function(v) { return { partner_id: v.partner_id, name: v.name || '', default_currency: v.default_currency || '', payment_terms_days: v.payment_terms_days != null ? v.payment_terms_days : 30, default_expense_account: v.default_expense_account || '', default_ap_account: v.default_ap_account || '', is_active: v.is_active !== false, _key: v.partner_id }; } },
+  // payables-bills.js's bill partner dropdown reads the raw allPartners array.
+  onLoaded: function(saved) { window.allPartners = saved; },
   save: { action: 'partner.upsert',
-    body: function(d) { return { vendor: { partner_id: d._isNew ? null : d._key, name: d.name, default_currency: d.default_currency || null, payment_terms_days: parseInt(d.payment_terms_days, 10) || 30, default_expense_account: d.default_expense_account || null, default_ap_account: d.default_ap_account || null, is_active: d.is_active !== false } }; },
+    body: function(d) { return { partner: { partner_id: d._isNew ? null : d._key, name: d.name, default_currency: d.default_currency || null, payment_terms_days: parseInt(d.payment_terms_days, 10) || 30, default_expense_account: d.default_expense_account || null, default_ap_account: d.default_ap_account || null, is_active: d.is_active !== false } }; },
     focusKey: function(d, res) { return d._isNew ? (res.partnerId || d._key) : d._key; } },
   del: { action: 'partner.delete',
     body: function(d) { return { partnerId: d._key }; },
@@ -149,29 +149,29 @@ var vendorsList = FB.list.create({
             .then(function(r){ return r.json(); })
             .then(function(res){
               var dd = res.data || res;
-              if (dd.error || res.error) { vendorMsg((dd.error && dd.error.message) || dd.error || res.error, 'err'); return; }
-              vendorMsg(v.is_active ? 'Marked active.' : 'Marked inactive.', 'ok');
-              setTimeout(function(){ vendorMsg('', ''); }, 1500);
+              if (dd.error || res.error) { partnerMsg((dd.error && dd.error.message) || dd.error || res.error, 'err'); return; }
+              partnerMsg(v.is_active ? 'Marked active.' : 'Marked inactive.', 'ok');
+              setTimeout(function(){ partnerMsg('', ''); }, 1500);
               api.load(d._key);
             })
-            .catch(function(e){ vendorMsg(e.message, 'err'); });
+            .catch(function(e){ partnerMsg(e.message, 'err'); });
         } }
     ];
   }
 });
 
 // ── Compat shims for payables-bills.js init/showPayTab ──────────────────────
-function loadVendors() { vendorsList.load(); loadVendorCurrencies(); }
-function loadVendorTable() { vendorsList.load(); }
-function registerVendorKeyActions() { /* keys registered by FB.list at creation */ }
+function loadPartners() { partnersList.load(); loadPartnerCurrencies(); }
+function loadPartnerTable() { partnersList.load(); }
+function registerPartnerKeyActions() { /* keys registered by FB.list at creation */ }
 
 // Hover suppression while a row is being edited (matches bills tbody).
 FB.mode.onChange(function(m) {
-  var tb = document.getElementById('vendors-body');
+  var tb = document.getElementById('partners-body');
   if (tb) tb.classList.toggle('insert-mode', m === 'INSERT');
 });
 
-// Deep-link: ?tab=vendors opens the Vendors tab directly (palette navigate
+// Deep-link: ?tab=partners opens the Partners tab directly (palette navigate
 // entries target it — magnus K1 review 2026-07-28). Runs at the end of the
 // combined script block: showPayTab (billsTabJS) + vendorsList both exist.
 if ((new URLSearchParams(window.location.search)).get('tab') === 'partners') {

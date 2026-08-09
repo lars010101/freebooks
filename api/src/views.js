@@ -31,14 +31,14 @@ async function handleViews(ctx, action) {
 }
 
 /**
- * Payables Bills tab in one call: vendors + bills with embedded lines.
+ * Payables Bills tab in one call: partners + bills with embedded lines.
  * Draft lines come from draft_lines JSON (parsed, same shape as bill.lines);
  * posted lines from journal entries. Lines are fetched per bill server-side
  * (DuckDB-local, no HTTP fan-out) — batch-optimize only if profiling says so.
  */
 async function viewBills(ctx) {
   const { companyId, body } = ctx;
-  const [vendors, bills] = await Promise.all([
+  const [partners, bills] = await Promise.all([
     listPartners({ companyId }),
     listBills({ companyId, body }),
   ]);
@@ -47,7 +47,7 @@ async function viewBills(ctx) {
     const lines = await getBillLines({ companyId, body: { billId: b.bill_id } });
     billsWithLines.push({ ...b, lines });
   }
-  return { vendors, bills: billsWithLines };
+  return { partners, bills: billsWithLines };
 }
 
 /**

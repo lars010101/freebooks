@@ -25,9 +25,9 @@ ${commonStyle()}
   table.aging-table th:first-child { text-align:left; }
   table.aging-table td { padding:6px 8px; border-bottom:1px solid #f0f0f0; text-align:right; }
   table.aging-table td:first-child { text-align:left; }
-  table.aging-table tr.vendor-row { cursor:pointer; }
-  table.aging-table tr.vendor-row:hover td { background:#f5f5ff; }
-  table.aging-table tr.vendor-row td:first-child { font-weight:600; }
+  table.aging-table tr.partner-row { cursor:pointer; }
+  table.aging-table tr.partner-row:hover td { background:#f5f5ff; }
+  table.aging-table tr.partner-row td:first-child { font-weight:600; }
   table.aging-table tr.detail-row { cursor:pointer; }
   table.aging-table tr.detail-row:hover td { background:#f0f4ff; }
   table.aging-table tr.detail-row td { font-size:9pt; color:#555; background:#fafafa; padding:4px 8px 4px 24px; }
@@ -131,11 +131,11 @@ function renderReport(rows, asOf) {
     return;
   }
 
-  // Group by vendor
-  var vendors = {};
+  // Group by partner
+  var partners = {};
   rows.forEach(function(r) {
-    if (!vendors[r.partner_name]) vendors[r.partner_name] = [];
-    vendors[r.partner_name].push(r);
+    if (!partners[r.partner_name]) partners[r.partner_name] = [];
+    partners[r.partner_name].push(r);
   });
 
   var totals = { current:0, '1_30':0, '31_60':0, '61_90':0, '90plus':0, total:0 };
@@ -152,8 +152,8 @@ function renderReport(rows, asOf) {
     + '<th>Total</th>'
     + '</tr></thead><tbody id="aging-tbody">';
 
-  Object.keys(vendors).sort().forEach(function(vendor) {
-    var bills = vendors[vendor];
+  Object.keys(partners).sort().forEach(function(partner) {
+    var bills = partners[partner];
     var vt = { current:0, '1_30':0, '31_60':0, '61_90':0, '90plus':0, total:0 };
     bills.forEach(function(b) {
       var bal = Number(b.balance_due || 0);
@@ -162,8 +162,8 @@ function renderReport(rows, asOf) {
       totals[b.bucket] = (totals[b.bucket] || 0) + bal;
       totals.total += bal;
     });
-    html += '<tr class="vendor-row" data-vendor-key="' + esc(vendor) + '" onclick="toggleDetails(this.dataset.vendorKey)">'
-      + '<td>▶ ' + esc(vendor) + '</td>'
+    html += '<tr class="partner-row" data-partner-key="' + esc(partner) + '" onclick="toggleDetails(this.dataset.partnerKey)">'
+      + '<td>▶ ' + esc(partner) + '</td>'
       + '<td>' + fmt(vt.current) + '</td>'
       + '<td>' + fmt(vt['1_30']) + '</td>'
       + '<td>' + fmt(vt['31_60']) + '</td>'
@@ -175,7 +175,7 @@ function renderReport(rows, asOf) {
     bills.forEach(function(b, i) {
       var bal = Number(b.balance_due || 0);
       var label = b.vendor_ref || b.date ? String(b.date||'').slice(0,10) : b.bill_id.slice(0,8);
-      html += '<tr class="detail-row" data-bill-id="' + b.bill_id + '" id="dr-' + btoa(vendor) + '-' + i + '" style="display:none" onclick="viewBill(this.dataset.billId)">'
+      html += '<tr class="detail-row" data-bill-id="' + b.bill_id + '" id="dr-' + btoa(partner) + '-' + i + '" style="display:none" onclick="viewBill(this.dataset.billId)">'
         + '<td style="padding-left:24px">' + esc(label) + '</td>'
         + '<td>' + (b.bucket === 'current' ? fmt(bal) : '') + '</td>'
         + '<td>' + (b.bucket === '1_30'    ? fmt(bal) : '') + '</td>'
@@ -202,10 +202,10 @@ function renderReport(rows, asOf) {
   document.getElementById('report-area').innerHTML = html;
 }
 
-function toggleDetails(vendor) {
-  // vendor is passed as a string (either from data-vendor-key or direct call)
-  var key = btoa(vendor);
-  // toggle all detail rows for this vendor
+function toggleDetails(partner) {
+  // partner is passed as a string (either from data-partner-key or direct call)
+  var key = btoa(partner);
+  // toggle all detail rows for this partner
   var i = 0;
   var anyShowing = false;
   while (true) {
@@ -221,10 +221,10 @@ function toggleDetails(vendor) {
     el.style.display = anyShowing ? '' : 'none';
     i++;
   }
-  // flip arrow on vendor row
-  var allRows = document.querySelectorAll('.vendor-row');
+  // flip arrow on partner row
+  var allRows = document.querySelectorAll('.partner-row');
   allRows.forEach(function(row) {
-    if (row.querySelector('td:first-child') && row.querySelector('td:first-child').textContent.includes(vendor)) {
+    if (row.querySelector('td:first-child') && row.querySelector('td:first-child').textContent.includes(partner)) {
       var cell = row.querySelector('td:first-child');
       cell.textContent = cell.textContent.replace(/^[▶▼] /, (anyShowing ? '▼ ' : '▶ '));
     }

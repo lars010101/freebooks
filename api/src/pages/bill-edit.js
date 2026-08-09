@@ -138,7 +138,7 @@ const FX_ON = ${fxOn ? 'true' : 'false'};
 const editId = ${JSON.stringify(editId)};
 
 const S = {
-  vendors: [], accounts: [], vatCodes: [], centers: [], currencies: [],
+  partners: [], accounts: [], vatCodes: [], centers: [], currencies: [],
   billId: editId || null,
   stagedFiles: [],       // File objects staged pre-first-save
   saving: false,
@@ -162,7 +162,7 @@ function apiAction(action, payload) {
 
 // ── Load ────────────────────────────────────────────────────────────────────
 Promise.all([
-  apiAction('partner.list', { partner_type: 'vendor' }).then(d => { S.vendors = d || []; }),
+  apiAction('partner.list', { partner_type: 'vendor' }).then(d => { S.partners = d || []; }),
   apiAction('coa.list').then(d => { S.accounts = d || []; }),
   ...(VAT_ON ? [apiAction('vat.codes.list').then(d => { S.vatCodes = d || []; })] : []),
   apiAction('center.list').then(d => { S.centers = d || []; }),
@@ -214,13 +214,13 @@ async function prefillFromDraft(id) {
   loadAttachments();
 }
 
-// ── Header wiring (dropdowns + vendor defaults) ─────────────────────────────
+// ── Header wiring (dropdowns + partner defaults) ─────────────────────────────
 function wireHeader() {
   FB.dropdown.attach(document.getElementById('be-partner-name'), {
     minWidth: 260,
     source: q => {
       q = (q || '').toLowerCase();
-      return S.vendors.filter(v => (v.name || '').toLowerCase().includes(q))
+      return S.partners.filter(v => (v.name || '').toLowerCase().includes(q))
         .map(v => ({ primary: v.name, secondary: v.default_currency || '', data: v }));
     },
     onPick: (it, inp) => {
@@ -476,7 +476,7 @@ async function postBill() {
   } finally { S.saving = false; }
 }
 
-// q = quit (no save). Dirty → confirm discard (same guard as Vendors).
+// q = quit (no save). Dirty → confirm discard (same guard as Partners).
 function quitEditor() {
   const bill = gatherBill();
   if (!bill.partner_name && !bill.lines.length) { window.location.href = '/' + COMPANY + '/payables'; return; } // empty → exit silently

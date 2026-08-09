@@ -217,14 +217,14 @@ function matchBillRow(openBills, description, amount) {
   for (const bill of openBills) {
     const outstanding = Number(bill.outstanding);
     if (Math.abs(outstanding - amount) < 0.01) {
-      const vendor = (bill.partner_name || '').toUpperCase();
+      const partner = (bill.partner_name || '').toUpperCase();
       const ref = (bill.vendor_ref || '').toUpperCase();
       // vendor_ref as a WHOLE TOKEN in the narrative promotes the match to high
       if (ref) {
         const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
         if (token.test(desc)) return { bill, tier: 'high' };
       }
-      if ((vendor && desc.includes(vendor)) || (ref && desc.includes(ref))) return { bill, tier: 'medium' };
+      if ((partner && desc.includes(partner)) || (ref && desc.includes(ref))) return { bill, tier: 'medium' };
     }
   }
   // Amount-only fallback: returned as a suggestion tier — confirm-required (P1-9)
@@ -247,7 +247,7 @@ function matchBillRow(openBills, description, amount) {
  *   fx_rounding               — cross-currency (bill≠bank)       conf 0.65
  *   partial_payment           — amount < invoice (>2% below)     conf 0.50
  *
- * Vendor name / vendor_ref corroboration (mirrors matchBillRow) promotes
+ * Partner name / vendor_ref corroboration (mirrors matchBillRow) promotes
  * lower-confidence tolerance matches to 'high'.
  * Returns null if no open bill is a plausible amount match.
  */
@@ -256,18 +256,18 @@ function matchOpenItem(openBills, amount, description) {
   const desc = (description || '').toUpperCase();
   const absAmount = Math.abs(amount);
 
-  // 1) Exact amount match (within 0.01) — prefer vendor/ref corroboration.
+  // 1) Exact amount match (within 0.01) — prefer partner/ref corroboration.
   for (const bill of openBills) {
     const outstanding = Number(bill.outstanding);
     if (Math.abs(outstanding - absAmount) < 0.01) {
-      const vendor = (bill.partner_name || '').toUpperCase();
+      const partner = (bill.partner_name || '').toUpperCase();
       const ref = (bill.vendor_ref || '').toUpperCase();
       let corroborated = false;
       if (ref) {
         const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
         if (token.test(desc)) corroborated = true;
       }
-      if (!corroborated && vendor && desc.includes(vendor)) corroborated = true;
+      if (!corroborated && partner && desc.includes(partner)) corroborated = true;
       if (!corroborated && ref && desc.includes(ref)) corroborated = true;
       return {
         bill,
@@ -307,22 +307,22 @@ function matchOpenItem(openBills, amount, description) {
     }
     if (!discrepancy_type) continue;
 
-    // Vendor/ref corroboration promotes the match (same logic as exact path).
-    const vendor = (bill.partner_name || '').toUpperCase();
+    // Partner/ref corroboration promotes the match (same logic as exact path).
+    const partner = (bill.partner_name || '').toUpperCase();
     const ref = (bill.vendor_ref || '').toUpperCase();
     let corroborated = false;
     if (ref) {
       const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
       if (token.test(desc)) corroborated = true;
     }
-    if (!corroborated && vendor && desc.includes(vendor)) corroborated = true;
+    if (!corroborated && partner && desc.includes(partner)) corroborated = true;
     if (!corroborated && ref && desc.includes(ref)) corroborated = true;
     if (corroborated) confidence = Math.min(1.0, confidence + 0.10);
 
     return { bill, discrepancy_type, delta, confidence };
   }
 
-  // 3) 1:N — one transaction settles 2-8 open bills from the same vendor
+  // 3) 1:N — one transaction settles 2-8 open bills from the same partner
   // (bank-matching-spec §4.1). Brute-force with cap N ≤ 8.
   const byVendor = new Map();
   for (const bill of openBills) {
@@ -535,29 +535,29 @@ async function matchLine(ctx) {
     }
   }
 
-  // ── Tier 3 — master data / vendors (§1, source_type 'master_data') ────────
-  // v1: case-insensitive substring of vendor name in the description. The spec
+  // ── Tier 3 — master data / partners (§1, source_type 'master_data') ────────
+  // v1: case-insensitive substring of partner name in the description. The spec
   // mentions trigram similarity but says it's simplified for small companies.
-  const vendors = await query(
+  const partners = await query(
     `SELECT partner_id, name, default_expense_account AS expense_account FROM partners WHERE company_id = @companyId AND is_vendor = TRUE`,
     { companyId }
   );
-  if (vendors.length > 0) {
+  if (partners.length > 0) {
     const descLc = (line.description || '').toLowerCase();
-    let bestVendor = null;
-    for (const v of vendors) {
+    let bestPartner = null;
+    for (const v of partners) {
       const nameLc = (v.name || '').toLowerCase();
       if (nameLc && descLc.includes(nameLc)) {
         // Prefer the longest matching name (most specific).
-        if (!bestVendor || (v.name || '').length > (bestVendor.name || '').length) {
-          bestVendor = v;
+        if (!bestPartner || (v.name || '').length > (bestPartner.name || '').length) {
+          bestPartner = v;
         }
       }
     }
-    if (bestVendor) {
+    if (bestPartner) {
       const isInflow = Number(line.amount) > 0;
       const amount = Math.abs(Number(line.amount));
-      const expenseAccount = bestVendor.expense_account || null;
+      const expenseAccount = bestPartner.expense_account || null;
       const offsetAccount = expenseAccount;
       const debitAccount = isInflow ? bankAccount : offsetAccount;
       const creditAccount = isInflow ? offsetAccount : bankAccount;
@@ -579,8 +579,8 @@ async function matchLine(ctx) {
         },
         evidence: [{
           type: 'counterparty_name_fuzzy',
-          description: `Description '${line.description}' matches vendor '${bestVendor.name}'`,
-          partner_id: bestVendor.partner_id,
+          description: `Description '${line.description}' matches partner '${bestPartner.name}'`,
+          partner_id: bestPartner.partner_id,
         }],
         suggested_dimensions: {
           account: expenseAccount,

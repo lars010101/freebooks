@@ -439,7 +439,7 @@
     // ── Box expression <-> state ──
     // Plain tokens (no field:) join into filterQ; `field:value` qualifiers map
     // to colFilters. Operator syntax: amount:>100, amount:<=50, date:<2026-07,
-    // date:>=2026-01-01. Quoted values keep spaces: vendor:"Acme Corp".
+    // date:>=2026-01-01. Quoted values keep spaces: partner_name:"Acme Corp".
     function tokenize(str) {
       var out = [], i = 0, s = String(str || ''), n = s.length, cur = '';
       function push() { if (cur) { out.push(cur); cur = ''; } }
@@ -1103,8 +1103,8 @@
       if (d && tr) {
         var buf = {};
         cfg.columns.forEach(function (c) { harvestCell(c, d, tr, buf); });
-        // Non-column payload fields (Bills: vendor_id/ap/expense travel on the
-        // vendor input's dataset) — the screen merges them into the buffer.
+        // Non-column payload fields (Bills: partner_id/ap/expense travel on the
+        // partner input's dataset) — the screen merges them into the buffer.
         if (cfg.harvestExtra) cfg.harvestExtra(tr, d, buf);
         // Lines: harvest each open child <tr> (screen-provided cfg.harvestChild).
         var lines = [];

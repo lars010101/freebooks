@@ -453,7 +453,7 @@ var list = FB.list.create({
     { field: 'source', filterType: 'list', label: 'Source',
       display: function (v, r) {
         if (r._kind === 'group') return '';
-        // Bill rows: source is the counterparty (vendor), not agent/human.
+        // Bill rows: source is the counterparty (partner), not agent/human.
         if (r._kind === 'bill') return r.counterparty ? esc(String(r.counterparty)) : '<span class="pe-ro">—</span>';
         return v != null && v !== '' ? esc(String(v)) : '<span class="pe-ro">—</span>';
       } },
@@ -488,7 +488,7 @@ var list = FB.list.create({
       }
     }
     if (row._kind === 'bill') {
-      // Class B bill-due unfold: a single meta child row with vendor + bill info.
+      // Class B bill-due unfold: a single meta child row with partner + bill info.
       // No underlag, no journal lines — the bill's own row is the source of truth.
       var billMeta = esc(row.counterparty || '')
         + (row.reference ? ' · ref ' + esc(row.reference) : '')

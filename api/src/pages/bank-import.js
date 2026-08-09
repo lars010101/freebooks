@@ -650,7 +650,7 @@ window.fbInitBankImport = function () {
           // 'Unexpected end of input' on EVERY click — mouse was as broken
           // as keyboard. Latent bug surfaced by the K3b keyboard tests.
           return '<tr data-bill-idx="'+i+'" style="cursor:pointer;border-bottom:1px solid #f0f0f0">'
-            +'<td style="padding:5px 8px">'+escHtml(b.partner_name||b.vendor_id||'')+'</td>'
+            +'<td style="padding:5px 8px">'+escHtml(b.partner_name||b.partner_id||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(b.vendor_ref||'')+'</td>'
             +'<td style="padding:5px 8px;color:#555">'+escHtml(String(b.bill_date||'').slice(0,10))+'</td>'
             +'<td style="padding:5px 8px;text-align:right;font-weight:600">'+outstanding.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'
@@ -670,7 +670,7 @@ window.fbInitBankImport = function () {
     if (billPanelRowIdx < 0 || !processedRows[billPanelRowIdx]) return;
     var r = processedRows[billPanelRowIdx];
     r.billId = bill.bill_id;
-    r.vendorShort = (bill.partner_name||bill.vendor_id||'').slice(0,10);
+    r.vendorShort = (bill.partner_name||bill.partner_id||'').slice(0,10);
     // Set AP account as debit (payment reduces AP), bank account as credit
     if (bill.ap_account) {
       var tr = document.querySelector('#review-body tr[data-i="'+billPanelRowIdx+'"]');

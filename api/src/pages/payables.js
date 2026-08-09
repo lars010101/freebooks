@@ -100,18 +100,18 @@ ${commonStyle()}
   #bills-table tr[data-child-of]:not(.row-editing) td.amt { padding-right:46px; }
   /* Column weights (P1-3 density pass, agreed 2026-07-21; CCY widened 7→9%
      2026-07-22 — at 7% the corner-pinned filter icon overlapped the "CCY"
-     label at ≤1400px viewports). Vendor is information-dense; CCY only needs
+     label at ≤1400px viewports). Partner is information-dense; CCY only needs
      a 3-letter code + header affordances. */
-  #bills-table col.col-vendor { width:22%; }
+  #bills-table col.col-partner { width:22%; }
   #bills-table col.col-date   { width:12.5%; }
   #bills-table col.col-due    { width:12.5%; }
   #bills-table col.col-ref    { width:15%; }
   #bills-table col.col-amount { width:14%; }
   #bills-table col.col-ccy    { width:9%; }
   #bills-table col.col-status { width:15%; }
-  /* CCY collapsed: redistribute its 9% (vendor +6, ref +1, amount +0.5, status +0.5,
+  /* CCY collapsed: redistribute its 9% (partner +6, ref +1, amount +0.5, status +0.5,
      dates +0.5 each) so widths still sum to 100%. */
-  #bills-table.single-ccy col.col-vendor { width:28%; }
+  #bills-table.single-ccy col.col-partner { width:28%; }
   #bills-table.single-ccy col.col-date   { width:13%; }
   #bills-table.single-ccy col.col-due    { width:13%; }
   #bills-table.single-ccy col.col-ref    { width:16%; }
@@ -141,8 +141,8 @@ ${commonStyle()}
   .col-filter-dd-apply { width:100%; padding:7px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:0.8125rem; cursor:pointer; }
   .col-filter-dd-apply:hover { background:#333; }
 
-  /* Vendor avatar */
-  .vendor-cell { display:inline-flex; align-items:center; gap:10px; }
+  /* Partner avatar */
+  .partner-cell { display:inline-flex; align-items:center; gap:10px; }
   .avatar { width:32px; height:32px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:700; color:#fff; flex-shrink:0; }
 
   /* Badge */
@@ -207,7 +207,7 @@ ${commonStyle()}
   .draft-input.req { border:2px solid #cc2222; box-shadow:0 0 0 1px #cc2222; }
   select.draft-input { padding:4px 4px; }
   /* Make draft inputs fill their cells properly */
-  .draft-vendor-input { flex:1 !important; min-width:0 !important; margin-left:10px !important; width:auto !important; }
+  .draft-partner-input { flex:1 !important; min-width:0 !important; margin-left:10px !important; width:auto !important; }
   .draft-input[type="date"] { width:100%; }
   /* AP-account cell in the draft parent: input fills the column, save icon fixed */
   .draft-ap-cell { display:flex; align-items:center; gap:6px; }
@@ -282,13 +282,13 @@ ${commonStyle()}
   .msg-pay.ok { color:#2a8a2a; }
   .msg-pay.err { color:#cc2222; }
 
-  /* Vendor cell navigation (editing only; browse mode uses shared .bill-row-focus) */
+  /* Partner cell navigation (editing only; browse mode uses shared .bill-row-focus) */
   .data-table tbody td.vcell-selected { background:#1a3a6b !important; color:#fff !important; }
   .data-table tbody td.vcell-selected span:not(.avatar):not(.badge) { color:#fff !important; }
   .data-table tbody td.vcell-selected .badge { opacity:0.85; }
   .data-table tbody td.vcell-editing { background:#fff !important; color:#222 !important; box-shadow:inset 0 0 0 2px #1a3a6b; padding:3px 8px !important; }
   .data-table tbody td.vcell-editing input { border:none; outline:none; background:transparent; font-size:inherit; font-family:'Helvetica Neue',Arial,sans-serif !important; color:#222 !important; padding:0; box-sizing:border-box; }
-  #vendors-body input { font-family:'Helvetica Neue',Arial,sans-serif !important; font-size:inherit !important; }
+  #partners-body input { font-family:'Helvetica Neue',Arial,sans-serif !important; font-size:inherit !important; }
   .fb-dd { font-family:'Helvetica Neue',Arial,sans-serif; }
 </style>
 </head>
@@ -333,7 +333,7 @@ ${commonStyle()}
            truth — the .single-ccy state re-weights when CCY collapses). Fixed
            layout reads widths from the colgroup. -->
       <colgroup>
-        <col class="col-vendor">   <!-- VENDOR -->
+        <col class="col-partner">   <!-- PARTNER -->
         <col class="col-date">     <!-- DATE (year-elided "21 Jul" + ISO tooltip) -->
         <col class="col-due">      <!-- DUE -->
         <col class="col-ref">      <!-- REFERENCE -->
@@ -369,10 +369,10 @@ ${commonStyle()}
 
   <div id="pay-panel-partners" style="display:none">
     <div class="table-card">
-      <table class="data-table" id="vendors-table">
+      <table class="data-table" id="partners-table">
         <thead>
           <tr>
-            <th>Vendor</th>
+            <th>Partner</th>
             <th style="width:70px;text-align:center">CCY</th>
             <th style="width:110px;text-align:center">Terms (d)</th>
             <th style="width:140px">Expense A/C</th>
@@ -380,15 +380,15 @@ ${commonStyle()}
             <th style="width:90px;text-align:center">Active</th>
           </tr>
         </thead>
-        <tbody id="vendors-body">
+        <tbody id="partners-body">
           <tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
         </tbody>
       </table>
     </div>
     <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
-      <span id="msg-vendors" style="font-size:0.875rem"></span>
-      <!-- Vendors hints are rendered into the sidebar by showPayTab (static
-           list until the Vendors tab migrates onto FB.keys). -->
+      <span id="msg-partners" style="font-size:0.875rem"></span>
+      <!-- Partners hints are rendered into the sidebar by showPayTab (static
+           list until the Partners tab migrates onto FB.keys). -->
     </div>
   </div><!-- /pay-panel-partners -->
 

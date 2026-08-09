@@ -10,6 +10,29 @@ const assert = require('node:assert');
 global.window = global;
 global.document = { createElement: function() { return { style: {}, classList: { add: function(){}, remove: function(){} } }; } };
 
+// :show command reads from window.FB_ROUTES (nav-registry) and window.FB_REPORT_IDS
+// (report-registry) at parse time. Set these before eval'ing fb-command.js.
+global.window.FB_ROUTES = [
+  { key: 'inbox', route: '/:company', tabs: [] },
+  { key: 'bank', route: '/:company/bank', tabs: [] },
+  { key: 'payables', route: '/:company/payables', tabs: [
+    { id: 'bills', label: 'Bills' },
+    { id: 'partners', label: 'Partners' }
+  ]},
+  { key: 'reports', route: '/:company/reports', tabs: [] },
+  { key: 'periods', route: '/:company/periods', tabs: [] },
+  { key: 'settings', route: '/:company/settings', tabs: [
+    { id: 'company', label: 'Company' },
+    { id: 'coa', label: 'Chart of Accounts', aliases: ['accounts'] },
+    { id: 'vat', label: 'Tax Codes' },
+    { id: 'journals', label: 'Journals', aliases: ['books'] },
+    { id: 'fxrates', label: 'Exchange Rates', aliases: ['rates'] },
+    { id: 'ai', label: 'AI' },
+    { id: 'opening-balances', label: 'Opening Balances', aliases: ['ob'] }
+  ]}
+];
+global.window.FB_REPORT_IDS = ['pl','bs','cf','sce','voucher-register','tb','gl','journal','integrity','ap-aging','ap-control','ar'];
+
 // Load the IIFE
 const fs = require('fs');
 const path = require('path');
@@ -121,10 +144,80 @@ test('parse: :je', () => {
   assert.strictEqual(r.parsed.route, '/journal/new');
 });
 
-test('parse: :report', () => {
-  const r = cmd.parse(':report');
+test('parse: :show settings', () => {
+  const r = cmd.parse(':show settings');
   assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/reports');
+  assert.strictEqual(r.alias, 'show');
+  assert.strictEqual(r.parsed.route, '/settings');
+  assert.strictEqual(r.parsed.commitMode, 'navigate');
+});
+
+test('parse: :show coa', () => {
+  const r = cmd.parse(':show coa');
+  assert.strictEqual(r.type, 'alias');
+  assert.strictEqual(r.parsed.route, '/settings?tab=coa');
+  assert.strictEqual(r.parsed.commitMode, 'navigate');
+});
+
+test('parse: :show ob (alias → opening-balances)', () => {
+  const r = cmd.parse(':show ob');
+  assert.strictEqual(r.type, 'alias');
+  assert.strictEqual(r.parsed.route, '/settings?tab=opening-balances');
+});
+
+test('parse: :show bills', () => {
+  const r = cmd.parse(':show bills');
+  assert.strictEqual(r.type, 'alias');
+  assert.strictEqual(r.parsed.route, '/payables?tab=bills');
+});
+
+test('parse: :show pl (report id)', () => {
+  const r = cmd.parse(':show pl');
+  assert.strictEqual(r.type, 'alias');
+  assert.strictEqual(r.parsed.route, '/reports?t=pl');
+  assert.strictEqual(r.parsed.commitMode, 'navigate');
+});
+
+test('parse: :show pl q2 (report + period)', () => {
+  const r = cmd.parse(':show pl q2');
+  assert.strictEqual(r.type, 'alias');
+  assert.strictEqual(r.parsed.route, '/reports?t=pl&period=q2');
+});
+
+test('parse: :show coa q2 (screen tab doesn\'t take period)', () => {
+  const r = cmd.parse(':show coa q2');
+  assert.strictEqual(r.type, 'unknown');
+  assert.ok(r.error.indexOf("doesn't take a period") !== -1);
+});
+
+test('parse: :show frobnicate (unknown target)', () => {
+  const r = cmd.parse(':show frobnicate');
+  assert.strictEqual(r.type, 'unknown');
+  assert.ok(r.error.indexOf('unknown target') !== -1);
+  assert.ok(r.error.indexOf('Valid:') !== -1);
+});
+
+test('parse: :show! pl (bang not supported)', () => {
+  const r = cmd.parse(':show! pl');
+  assert.strictEqual(r.type, 'unknown');
+  assert.ok(r.error.indexOf('does not support !') !== -1);
+});
+
+test('parse: :report pl (renamed hint)', () => {
+  const r = cmd.parse(':report pl');
+  assert.strictEqual(r.type, 'unknown');
+  assert.ok(r.error.indexOf('is now :show') !== -1);
+});
+
+test('grammarFor: show returns usage string', () => {
+  const g = cmd.grammarFor('show');
+  assert.ok(g && g.indexOf('<screen|tab|report>') !== -1);
+});
+
+test('parse: :show (no args)', () => {
+  const r = cmd.parse(':show');
+  assert.strictEqual(r.type, 'unknown');
+  assert.ok(r.error.indexOf('usage') !== -1);
 });
 
 test('parse: :rate eur 1.09', () => {

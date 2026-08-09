@@ -259,88 +259,13 @@ test('parse: :rate eur 1.09 on baddate → error', () => {
   assert.ok(r.error.indexOf('invalid date') !== -1);
 });
 
-// ── :new unified create-noun router (2026-08-09) ───────────────────────────
+// ── :new alias removed (2026-08-09) — replaced by PALETTE navigate entries ──
 
-test('parse: :new account', () => {
-  const r = cmd.parse(':new account');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/settings?tab=coa');
-  assert.strictEqual(r.parsed.commitMode, 'form');
-});
-
-test('parse: :new partner', () => {
-  const r = cmd.parse(':new partner');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/payables?tab=partners');
-});
-
-test('parse: :new bill', () => {
-  const r = cmd.parse(':new bill');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/bill/edit');
-});
-
-test('parse: :new entry', () => {
-  const r = cmd.parse(':new entry');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/journal/new');
-});
-
-test('parse: :new company (absolute route)', () => {
-  const r = cmd.parse(':new company');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/setup/new-company');
-  assert.strictEqual(r.parsed.absolute, true);
-});
-
-test('parse: :new vat', () => {
-  const r = cmd.parse(':new vat');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/settings?tab=vat');
-});
-
-test('parse: :new period', () => {
-  const r = cmd.parse(':new period');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/periods');
-});
-
-test('parse: :new journal', () => {
-  const r = cmd.parse(':new journal');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/settings?tab=journals');
-});
-
-test('parse: :new center', () => {
-  const r = cmd.parse(':new center');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/settings');
-});
-
-test('parse: :new rate', () => {
-  const r = cmd.parse(':new rate');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/settings?tab=fxrates');
-});
-
-test('parse: :new (no args) → error', () => {
+test('parse: :new is now unknown (alias removed)', () => {
   const r = cmd.parse(':new');
   assert.strictEqual(r.type, 'unknown');
-  assert.ok(r.error.indexOf('usage') !== -1);
 });
 
-test('parse: :new frobnicate → error with valid options', () => {
-  const r = cmd.parse(':new frobnicate');
-  assert.strictEqual(r.type, 'unknown');
-  assert.ok(r.error.indexOf('frobnicate') !== -1);
-  assert.ok(r.error.indexOf('account') !== -1);
-  assert.ok(r.error.indexOf('partner') !== -1);
-});
-
-test('grammarFor: :new grammar lists object types', () => {
-  const g = cmd.grammarFor('new');
-  assert.ok(g && g.indexOf('account') !== -1);
-  assert.ok(g && g.indexOf('partner') !== -1);
-  assert.ok(g && g.indexOf('bill') !== -1);
-  assert.ok(g && g.indexOf('entry') !== -1);
+test('grammarFor: :new returns null (alias removed)', () => {
+  assert.strictEqual(cmd.grammarFor('new'), null);
 });

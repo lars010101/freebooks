@@ -719,26 +719,26 @@ const ACTIONS = {
 const PALETTE = {
   // Execute directly
   'fx.fetch_rates':         { palette: 'execute', label: 'Fetch exchange rates' },
-  // Navigate to form
+  // Navigate to form — create actions use &new=1 to auto-activate add-entry
   'journal.post':           { palette: 'navigate', route: '/journal/new', label: 'New journal entry' },
   'journal.import':         { palette: 'navigate', route: '/journal/new', label: 'New journal entry' },
   'bill.create':            { palette: 'navigate', route: '/bill/edit', label: 'New bill' },
   'bill.draft.save':        { palette: 'navigate', route: '/bill/edit', label: 'New bill' },
-  'coa.save':               { palette: 'navigate', route: '/settings?tab=coa', label: 'Chart of accounts' },
+  'coa.save':               { palette: 'navigate', route: '/settings?tab=coa&new=1', label: 'New account' },
   'coa.update':             { palette: 'navigate', route: '/settings?tab=coa', label: 'Chart of accounts' },
   'coa.upsert':             { palette: 'navigate', route: '/settings?tab=coa', label: 'Chart of accounts' },
-  'vat.codes.upsert':       { palette: 'navigate', route: '/settings?tab=vat', label: 'VAT codes' },
-  'partner.save':            { palette: 'navigate', route: '/payables?tab=partners', label: 'Partners' },
+  'vat.codes.upsert':       { palette: 'navigate', route: '/settings?tab=vat&new=1', label: 'New VAT code' },
+  'partner.save':            { palette: 'navigate', route: '/payables?tab=partners&new=1', label: 'New partner' },
   'partner.upsert':          { palette: 'navigate', route: '/payables?tab=partners', label: 'Partners' },
-  'period.save':            { palette: 'navigate', route: '/periods', label: 'Periods' },
+  'period.save':            { palette: 'navigate', route: '/periods?new=1', label: 'New period' },
   'period.upsert':          { palette: 'navigate', route: '/periods', label: 'Periods' },
   'period.close':           { palette: 'navigate', route: '/settings?tab=periods', label: 'Close period' },
-  'journals.save':          { palette: 'navigate', route: '/settings?tab=journals', label: 'Journals' },
+  'journals.save':          { palette: 'navigate', route: '/settings?tab=journals&new=1', label: 'New journal (book)' },
   // mapping.save/mapping.upsert palette entries removed 2026-08-09 (issue #137):
   // Bank page (which hosted the Mappings tab) deleted. Actions remain available
   // via action RPC; no UI surface for mappings management until rehomed.
-  'center.save':            { palette: 'navigate', route: '/settings', label: 'Settings' },
-  'fx.rates.save':          { palette: 'navigate', route: '/settings?tab=fxrates', label: 'Exchange rates' },
+  'center.save':            { palette: 'navigate', route: '/settings?new=1', label: 'New cost center' },
+  'fx.rates.save':          { palette: 'navigate', route: '/settings?tab=fxrates&new=1', label: 'New exchange rate' },
   'fx.provider.save':       { palette: 'navigate', route: '/settings?tab=fxrates', label: 'Exchange rates' },
   'fx.revaluation_post':    { palette: 'navigate', route: '/settings?tab=fxrates', label: 'Exchange rates' },
   'settings.save':          { palette: 'navigate', route: '/settings', label: 'Settings' },

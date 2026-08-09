@@ -175,6 +175,7 @@
     var editIdx = -1;
     var editKey = null; // _key of the in-edit row — filters must never hide it (2026-07-23)
     var newN = 0;
+    var autoNewFired = false; // ?new=1 triggers newRow() on first load only
     var filterQ = '';
     var nav = null;
     var ADD_ROW = '_add_row'; // render(focusKey) sentinel: focus the add row
@@ -1296,6 +1297,22 @@
         render(focusKey);
         syncChrome();
         if (cfg.onLoaded) cfg.onLoaded(saved);
+        // ?new=1 auto-activate: on first load, if the URL carries new=1 and
+        // this list can add rows, call newRow() to enter the add-entry flow.
+        // The param is consumed (removed from URL) so only the first list
+        // that loads — the deep-linked tab — gets it.
+        if (!autoNewFired && canAdd) {
+          try {
+            var sp = new URLSearchParams(window.location.search);
+            if (sp.get('new') === '1') {
+              autoNewFired = true;
+              sp.delete('new');
+              var qs = sp.toString();
+              history.replaceState(history.state, '', qs ? '?' + qs : location.pathname);
+              newRow();
+            }
+          } catch (e2) {}
+        }
       }).catch(function (e) {
         // Never fail silently: an unreachable backend must not read as an
         // empty register (Magnus 2026-07-27 — "COA shows no accounts" was a

@@ -108,12 +108,6 @@
       grammar: 'create <name> | revoke <name>',
       bang: false,
       parse: parseToken
-    },
-    'new': {
-      action: null,
-      grammar: '<account|partner|vat|period|journal|company|center|rate|bill|entry>',
-      bang: false,
-      parse: parseNew
     }
   };
 
@@ -332,30 +326,6 @@
     if (sub === 'create') return { action: 'auth.token.create', params: { name: name }, commitMode: 'confirm' };
     if (sub === 'revoke') return { action: 'auth.token.revoke', params: { name: name }, commitMode: 'confirm' };
     return { error: 'usage: :token create <name> | revoke <name>' };
-  }
-
-  // ── :new — unified create-noun router ──────────────────────────────────────
-  // Routes to the form that owns each creatable object type. No direct commit
-  // — the user lands on the form (commitMode: 'form' or 'navigate').
-  var NEW_ROUTES = {
-    'account':  { route: '/settings?tab=coa',       label: 'New account' },
-    'partner':  { route: '/payables?tab=partners',   label: 'New partner' },
-    'vat':      { route: '/settings?tab=vat',        label: 'New VAT code' },
-    'period':   { route: '/periods',                 label: 'New period' },
-    'journal':  { route: '/settings?tab=journals',   label: 'New journal (book)' },
-    'company':  { route: '/setup/new-company', absolute: true, label: 'New company' },
-    'center':   { route: '/settings',                label: 'New cost center' },
-    'rate':     { route: '/settings?tab=fxrates',    label: 'New exchange rate' },
-    'bill':     { route: '/bill/edit',               label: 'New bill' },
-    'entry':    { route: '/journal/new',             label: 'New journal entry' },
-  };
-
-  function parseNew(tokens) {
-    if (!tokens.length) return { error: 'usage: :new <account|partner|vat|period|journal|company|center|rate|bill|entry>' };
-    var noun = tokens[0].toLowerCase();
-    var r = NEW_ROUTES[noun];
-    if (!r) return { error: 'unknown object: ' + noun + '. Valid: account, partner, vat, period, journal, company, center, rate, bill, entry' };
-    return { route: r.route, absolute: !!r.absolute, commitMode: 'form', warnings: [r.label] };
   }
 
   // ── Main parse entry ────────────────────────────────────────────────────────

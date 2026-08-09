@@ -259,7 +259,7 @@ async function queryBillDrafts(companyId, limit) {
   return rows.map(function (row) {
     return {
       type: 'bill_draft',
-      source: 'agent',
+      source: (row.created_by && row.created_by !== 'agent') ? 'human' : 'agent',
       counterparty: row.partner_name,
       amount: Number(row.amount) || 0,
       date: row.date,
@@ -272,6 +272,7 @@ async function queryBillDrafts(companyId, limit) {
       description: row.description || '',
       created_by: row.created_by || '',
       currency: row.currency || '',
+      warning: null, // TODO: factor VAT-tolerance check into shared helper (spec §9)
     };
   });
 }

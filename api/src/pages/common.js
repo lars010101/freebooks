@@ -76,6 +76,7 @@ function assetV(file) {
 function commonStyle() {
   return `<link rel="stylesheet" href="/public/common.css?v=${assetV('common.css')}">
 <script src="/public/fb-core.js?v=${assetV('fb-core.js')}"></script>
+<script src="/public/fb-command.js?v=${assetV('fb-command.js')}"></script>
 <script src="/public/fb-list.js?v=${assetV('fb-list.js')}"></script>
 <script src="/public/fb-form.js?v=${assetV('fb-form.js')}"></script>
 <script src="/public/fb-attachments.js?v=${assetV('fb-attachments.js')}"></script>
@@ -111,75 +112,20 @@ function topBarContext(company, activeKey) {
 }
 
 // ── Main layout function ───────────────────────────────────────────────────────
-// Sidebar anchors render from the single-source route registry
-// (api/src/nav-registry.js). Sidebar DOM stays byte-equivalent to the
-// pre-registry hand-written markup: same anchors, hrefs, order, and
-// active-state classes. The registry is also injected as window.FB_ROUTES so
-// fb-core's g-prefix map and the palette nav source consume the same table.
-function _hrefFor(route, company) {
-  return route.replace(':company', company);
-}
-
+// The route registry (api/src/nav-registry.js) is injected as window.FB_ROUTES
+// so fb-core's g-prefix map and the palette nav source consume the same table.
 function navBar(company, activeKey) {
-  const sidebarItems = ROUTES.filter(r => r.sidebar).map(r => ({
-    key: r.key,
-    icon: r.icon,
-    label: r.label,
-    href: _hrefFor(r.route, company),
-    disabled: !!r.disabled,
-  }));
-
-  const navHtml = sidebarItems.map(item => {
-    const isActive = item.key === activeKey || (activeKey === 'newjv' && item.key === 'dashboard');
-    const cls = ['sb-item', isActive ? 'sb-active' : '', item.disabled ? 'sb-disabled' : ''].filter(Boolean).join(' ');
-    const tag = item.disabled ? 'span' : 'a';
-    const href = item.disabled ? '' : ` href="${item.href}"`;
-    return `<${tag}${href} class="${cls}" data-label="${item.label}">
-        <span class="sb-icon">${item.icon}</span>
-        <span class="sb-label">${item.label}</span>${item.key === 'inbox' ? '<span class="sb-badge" id="sb-inbox-badge" hidden></span>' : ''}
-      </${tag}>`;
-  }).join('\n      ');
-
   const ctx = topBarContext(company, activeKey);
-
-  // Prefetch adjacent sidebar pages for fast { } navigation
-  const activeIdx = sidebarItems.findIndex(i => i.key === activeKey || (activeKey === 'newjv' && i.key === 'dashboard'));
-  let prefetchHtml = '';
-  if (activeIdx > 0) prefetchHtml += `<link rel="prefetch" href="${sidebarItems[activeIdx - 1].href}">`;
-  if (activeIdx >= 0 && activeIdx < sidebarItems.length - 1) prefetchHtml += `<link rel="prefetch" href="${sidebarItems[activeIdx + 1].href}">`;
 
   // Inject the route registry for fb-core consumption (g-map + palette).
   const routesJson = JSON.stringify(ROUTES);
 
-  return `${prefetchHtml}
-<script>window.FB_ROUTES = ${routesJson};</script>
+  // Company switcher dropdown — detached from the (deleted) sidebar; lives in
+  // the app-shell so fbToggleCompany(event) can still open it from the status
+  // line or the g c keyboard shortcut.
+  return `<script>window.FB_ROUTES = ${routesJson};</script>
 <div id="app-shell" data-company="${company}">
-  <aside id="sidebar">
-    <div class="sb-header" onclick="fbToggleCompany(event)" style="cursor:pointer" title="Switch company">
-      <div class="sb-co-name">${company}</div>
-      <div class="sb-co-sub">freeBooks <span class="sb-co-caret">▾</span></div>
-      <div class="tb-company-dropdown" id="tb-company-dropdown" style="display:none;left:12px;top:auto;margin-top:6px"></div>
-    </div>
-    <nav class="sb-nav">
-      ${navHtml}
-    </nav>
-    <!-- Keyboard hints for the active page/tab, generated from FB.keys binding
-         tables (never hand-maintained). Pages render into this via
-         FB.keys.renderHints(name, document.getElementById('sb-hints'), {layout:'list'}). -->
-    <div class="sb-hints" id="sb-hints"></div>
-    <div class="sb-footer">
-      <div class="sb-footer-row">
-        <button class="sb-icon-action" id="fb-theme-btn" onclick="fbToggleTheme()" title="Toggle theme">
-          <span id="fb-theme-icon">☀</span>
-        </button>
-        <button class="sb-icon-action" id="fb-collapse-btn" onclick="fbToggleSidebar()" title="Collapse sidebar">
-          <span id="fb-collapse-icon">«</span>
-        </button>
-      </div>
-      <div id="fb-vim-mode">NORMAL</div>
-    </div>
-  </aside>
-
+  <div class="tb-company-dropdown" id="tb-company-dropdown" style="display:none"></div>
   <div id="main-area">
     <header id="top-bar">
       <div class="tb-left">
@@ -205,6 +151,15 @@ function navBar(company, activeKey) {
 // ── Layout close ──────────────────────────────────────────────────────────────
 function layoutEnd() {
   return `    </main>
+    <footer id="fb-status-line">
+      <span class="fb-sl-company" onclick="fbToggleCompany(event)" title="Switch company (g c)"></span>
+      <span class="fb-sl-sep">·</span>
+      <span class="fb-sl-period" id="fb-sl-period"></span>
+      <span class="fb-sl-sep">·</span>
+      <span class="fb-sl-inbox" id="fb-sl-inbox">0 pending</span>
+      <span class="fb-sl-spacer"></span>
+      <span id="fb-vim-mode">NORMAL</span>
+    </footer>
   </div>
 </div>
 <script src="/public/common.js?v=${assetV('common.js')}"></script>`;

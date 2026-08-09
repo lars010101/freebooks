@@ -384,14 +384,14 @@ window.fbKeyActions = {
   FB.keys.unregister('bill-detail'); // soft-nav re-execution guard
   FB.keys.register('bill-detail', {
     bindings: [
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: act('j') },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: act('k') },
-      { key: 'h', mode: 'NORMAL', hint: 'section ←', hintBar: true, run: act('h') },
-      { key: 'l', mode: 'NORMAL', hint: 'section →', hintBar: true, run: act('l') },
-      { key: 'e', mode: 'NORMAL', hint: 'edit', hintBar: true, run: act('edit') },
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: act('j') },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: act('k') },
+      { key: 'h', mode: 'NORMAL', hint: 'section ←', hintBar: true, paletteEligible: false, run: act('h') },
+      { key: 'l', mode: 'NORMAL', hint: 'section →', hintBar: true, paletteEligible: false, run: act('l') },
+      { key: 'e', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: act('edit') },
       { key: 'A', mode: 'NORMAL', hint: 'attach', hintBar: true, run: act('attach') },
       { key: 'd', mode: 'NORMAL', hint: 'delete/void', hintBar: true, run: act('delete') },
-      { key: 'Escape', mode: 'NORMAL', hint: 'back', hintBar: true, run: act('escape') }
+      { key: 'Escape', mode: 'NORMAL', hint: 'back', hintBar: true, paletteEligible: false, run: act('escape') }
     ]
   });
   FB.keys.renderHints('bill-detail', document.getElementById('sb-hints'), { layout: 'list' });

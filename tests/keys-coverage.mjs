@@ -87,29 +87,25 @@ if (BILL_ID) routes.push({ key: 'bill-detail', path: `/${CO}/bill/${BILL_ID}`, p
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 
-// ── Global: palette lists every palette:true registry route ──────────────────
-console.log('[global] palette route coverage');
-await page.goto(`${BASE}/${CO}/bank`, { waitUntil: 'networkidle' });
+// ── Global: ? overlay lists every g-key registry route in NAV section ────────
+// #149: NAV rows moved from : palette to ? overlay. The ? overlay reads
+// window.FB_ROUTES (same as _gResolve), so this proves the registry → help
+// wiring. Routes without a gKey (e.g. opening-balances) are sidebar-only
+// and not in the NAV section — they're excluded from this check.
+console.log('[global] ? overlay NAV coverage');
+await page.goto(`${BASE}/${CO}/inbox`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(400);
-await page.keyboard.press(':');
+await page.keyboard.press('?');
 await page.waitForTimeout(400);
-const paletteOpen = await page.evaluate(() => !!document.querySelector('.fb-palette'));
-ok('palette opens on :', paletteOpen);
-// The default view shows key hints + catalog actions; route rows are found
-// by typing the destination (registry → palette wiring is what we prove).
-// Re-open the palette per route — clearing the input mid-session flips the
-// palette out of command mode and non-sidebar route rows vanish (probe-
-// verified), so each check starts from a fresh ':' open.
-for (const r of ROUTES.filter(r => r.palette)) {
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(150);
-  await page.keyboard.press(':');
-  await page.waitForTimeout(300);
-  await page.keyboard.type(r.label, { delay: 15 });
-  await page.waitForTimeout(250);
-  const labels = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('.fb-palette-row .fb-palette-label')).map(el => el.textContent.trim()));
-  ok(`palette lists "Go to ${r.label}"`, labels.some(l => l.includes(r.label)), `got: ${labels.slice(0, 6).join(' | ') || '(no rows)'}`);
+const helpOpen = await page.evaluate(() => !!document.querySelector('#fb-keys-overlay'));
+ok('? overlay opens', helpOpen);
+const navLabels = await page.evaluate(() => {
+  var nav = document.querySelector('.fb-keys-nav');
+  if (!nav) return [];
+  return Array.from(nav.querySelectorAll('.fb-hint-row span')).map(el => el.textContent.trim());
+});
+for (const r of ROUTES.filter(r => r.gKey)) {
+  ok(`? NAV lists "${r.label}"`, navLabels.some(l => l.includes(r.label)), `got: ${navLabels.join(' | ') || '(no NAV rows)'}`);
 }
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);

@@ -1459,10 +1459,10 @@
     }
     var ddOpen = function () { return !!(window.FB && FB.dropdown && FB.dropdown.isOpen()); };
     var bindings = [
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { nav.move(1); } },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { nav.move(-1); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: editFocused },
-      { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true, run: openFocused },
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { nav.move(1); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { nav.move(-1); } },
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: editFocused },
+      { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true, paletteEligible: false, run: openFocused },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) writeAt(i); } },
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
       // G/gg: cursor to bottom/top AND page to absolute bottom/top (Bills parity —
@@ -1472,7 +1472,7 @@
       // g-prefix state machine (K1): fb-list registers its first-row behavior
       // via FB.nav.onGG below, so fb-core's `gg` calls nav.first() on whichever
       // list is visible. The old per-instance _gPending is deleted.
-      { key: 'G', mode: 'NORMAL', run: function () {
+      { key: 'G', mode: 'NORMAL', paletteEligible: false, run: function () {
           nav.last(); // bottom = add row
           // Absolute bottom on BOTH scroll containers, next frame — the row
           // paint's scrollIntoView must not cancel the page scroll (magnus
@@ -1498,7 +1498,7 @@
       { key: 'ArrowDown', mode: 'INSERT', when: function (e) { return !ddOpen() && FB.dropdown && FB.dropdown.attachable(e.target); },
         run: function (e) { FB.dropdown.openFull(e.target); } },
       // ── INSERT: general ──
-      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitEdit },
+      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, paletteEligible: false, run: exitEdit },
       { key: 'Enter', mode: 'INSERT', run: advanceField },
       { key: 'Tab', mode: 'INSERT', when: tabSticky, run: function () {} },
       { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function () {} }
@@ -1509,8 +1509,8 @@
     if (hasFilterSurface()) {
       // Esc peels one layer at a time (never writes): open filter dropdown →
       // close it; active filters → clear them; otherwise inert (falls through).
-      bindings.push({ key: 'Escape', mode: 'NORMAL', when: function () { return !!ddEl; }, run: closeColDropdown });
-      bindings.push({ key: 'Escape', mode: 'NORMAL', when: anyFilterActive, run: clearAllFilters });
+      bindings.push({ key: 'Escape', mode: 'NORMAL', paletteEligible: false, when: function () { return !!ddEl; }, run: closeColDropdown });
+      bindings.push({ key: 'Escape', mode: 'NORMAL', paletteEligible: false, when: anyFilterActive, run: clearAllFilters });
       bindings.push({ key: 'c', mode: 'NORMAL', hint: 'clear filters', hintBar: true, when: anyFilterActive, run: clearAllFilters });
     }
     if (cfg.actions) {
@@ -1577,6 +1577,7 @@
       if (cfg.rowVerbs) {
         var rvb = cfg.rowVerbs.map(function (v) {
           return { key: v.key, mode: 'NORMAL', hint: v.label, hintBar: true,
+            paletteEligible: v.paletteEligible !== undefined ? v.paletteEligible : true,
             when: function () { var d = focusedRow(); return !!(d && v.when(d)); },
             run: function () {
               var d = focusedRow();

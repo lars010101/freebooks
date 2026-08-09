@@ -504,7 +504,12 @@
     function _detectGrammar(q) {
       var trimmed = q.trim();
       if (!trimmed) return null;
-      var firstTok = trimmed.split(/\s/)[0].toLowerCase();
+      // Bug 1b: don't engage grammar mode until the first token is complete
+      // (i.e. a space follows it). While typing `:bil`, the dropdown should
+      // fuzzy-match alias names; once `:bill ` is typed, grammar kicks in.
+      var firstSpace = trimmed.indexOf(' ');
+      if (firstSpace < 0) return null;
+      var firstTok = trimmed.slice(0, firstSpace).toLowerCase();
       if (firstTok === 'post!' || firstTok === 'pay!') firstTok = firstTok.slice(0, -1);
       if (window.FB && FB.command && FB.command.ALIASES[firstTok]) {
         return { alias: firstTok, grammar: FB.command.grammarFor(firstTok) };
@@ -557,11 +562,12 @@
         return;
       }
       if (parsed.route) {
-        var url = '/' + co + parsed.route;
+        var url = parsed.absolute ? parsed.route : '/' + co + parsed.route;
         if (parsed.prefill) {
           try { sessionStorage.setItem('fb-cmd-prefill', JSON.stringify(parsed.prefill)); } catch (e) {}
         }
-        window.fbNavigate(url);
+        if (parsed.absolute || !window.fbNavigate) window.location.href = url;
+        else window.fbNavigate(url);
         return;
       }
       if (parsed.commitMode === 'direct' && parsed.action) {
@@ -855,6 +861,10 @@
       return v.charAt(0) === ':' ? v.slice(1) : v;
     }
     function _query(q) {
+      // Bug 1a: when grammar mode calls _close(), _el is destroyed. If the
+      // user then backspaces out of grammar mode, _query runs but _render
+      // bails on `if (!_el) return;` — dropdown never reappears. Reopen here.
+      if (!_el && _command) _open();
       _items = _match(q.trim());
       _activeIdx = _items.length ? 0 : -1;
       _render();

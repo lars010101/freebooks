@@ -149,6 +149,31 @@ ${layoutEnd()}
         document.getElementById('rpt-end').value   = e0;
         periodEl.value = s0 + '|' + e0;
       }
+      // ?period= shorthand resolution (e.g. :show pl q2 → ?t=pl&period=q2).
+      // Must run before the drillThrough load so the report uses the resolved dates.
+      var periodParam = urlParams.get('period');
+      if (periodParam) {
+        var resolved = resolvePeriodShorthand(periodParam, periods);
+        if (resolved) {
+          document.getElementById('rpt-start').value = resolved.start;
+          document.getElementById('rpt-end').value = resolved.end;
+          periodEl.value = resolved.start + '|' + resolved.end;
+          // Consume-and-strip: remove ?period= from URL so it doesn't re-fire on refresh
+          urlParams.delete('period');
+          var cleanUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+          window.history.replaceState({}, '', cleanUrl);
+        } else {
+          // No match — keep default behavior, show inline note
+          var note = document.createElement('div');
+          note.style.cssText = 'padding:4px 12px;color:var(--text-muted);font-size:0.8125rem';
+          note.textContent = "couldn't match period '" + periodParam + "' — showing latest";
+          var header = document.querySelector('.header');
+          if (header) header.appendChild(note);
+          urlParams.delete('period');
+          var cleanUrl2 = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+          window.history.replaceState({}, '', cleanUrl2);
+        }
+      }
       // Drill-through (?t=) is explicit navigation intent — load immediately;
       // plain visits stay manual (user picks params, report fires on interaction)
       if (drillThrough) fbLoadReport();
@@ -167,6 +192,68 @@ ${layoutEnd()}
     if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
     var dt = new Date(d);
     return isNaN(dt) ? String(d).slice(0, 10) : dt.toISOString().slice(0, 10);
+  }
+
+  /* Resolve ?period= shorthand tokens to {start, end} date strings.
+   * Supports: exact/fuzzy period_name match, q1–q4 quarterly slices, bare month
+   * names (jan–dec → current year calendar month). Returns null if no match. */
+  function resolvePeriodShorthand(token, periods) {
+    if (!token || !periods.length) return null;
+    token = token.toLowerCase();
+    // 1. Exact/fuzzy match against period_name
+    for (var i = 0; i < periods.length; i++) {
+      if (String(periods[i].period_name).toLowerCase() === token) {
+        return { start: fmtDate(periods[i].start_date), end: fmtDate(periods[i].end_date) };
+      }
+    }
+    // Fuzzy: starts-with
+    for (var i = 0; i < periods.length; i++) {
+      if (String(periods[i].period_name).toLowerCase().indexOf(token) === 0) {
+        return { start: fmtDate(periods[i].start_date), end: fmtDate(periods[i].end_date) };
+      }
+    }
+    // 2. qN → quarterly slice from the first fiscal-year period
+    var qm = token.match(/^q([1-4])$/);
+    if (qm) {
+      var qn = parseInt(qm[1], 10);
+      // Find a fiscal-year period (longest span, or one containing a January)
+      var fy = periods[0];
+      for (var i = 0; i < periods.length; i++) {
+        if (String(periods[i].start_date).slice(5, 7) === '01') { fy = periods[i]; break; }
+      }
+      var fyStart = String(fy.start_date).slice(0, 10);
+      var fyEnd = String(fy.end_date).slice(0, 10);
+      var fyYear = parseInt(fyStart.slice(0, 4), 10);
+      // Calendar-quarter approach (Jan-Mar=Q1, Apr-Jun=Q2, etc.)
+      // If FY starts in Jan, quarters align with calendar. If not, derive from FY start.
+      var fyStartMonth = parseInt(fyStart.slice(5, 7), 10);
+      var qStartMonth = (fyStartMonth + (qn - 1) * 3) - 1; // 0-indexed
+      var qYear = fyYear + Math.floor(qStartMonth / 12);
+      var qMonth = (qStartMonth % 12) + 1; // 1-indexed
+      var qStart = qYear + '-' + String(qMonth).padStart(2, '0') + '-01';
+      // End = last day of the quarter's last month
+      var qEndMonth = qMonth + 2;
+      var qEndYear = qYear + Math.floor((qEndMonth - 1) / 12);
+      var qEndMonthAdj = ((qEndMonth - 1) % 12) + 1;
+      var lastDay = new Date(Date.UTC(qEndYear, qEndMonthAdj, 0)).getUTCDate();
+      var qEnd = qEndYear + '-' + String(qEndMonthAdj).padStart(2, '0') + '-' + String(lastDay).padStart(2, '0');
+      // Clamp to FY bounds
+      if (qStart < fyStart) qStart = fyStart;
+      if (qEnd > fyEnd) qEnd = fyEnd;
+      return { start: qStart, end: qEnd };
+    }
+    // 3. Bare month (aug) → calendar month
+    var months = { jan:'01', feb:'02', mar:'03', apr:'04', may:'05', jun:'06',
+                   jul:'07', aug:'08', sep:'09', oct:'10', nov:'11', dec:'12' };
+    if (months[token]) {
+      var yr = new Date().getFullYear();
+      var ms = yr + '-' + months[token] + '-01';
+      var lastDayM = new Date(Date.UTC(yr, parseInt(months[token], 10), 0)).getUTCDate();
+      var me = yr + '-' + months[token] + '-' + String(lastDayM).padStart(2, '0');
+      return { start: ms, end: me };
+    }
+    // 4. No match
+    return null;
   }
 
   function buildReportUrl() {

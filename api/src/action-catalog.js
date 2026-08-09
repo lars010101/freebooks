@@ -340,7 +340,7 @@ const ACTIONS = {
   },
   'view.bank': {
     role: 'viewer', mutating: false,
-    description: 'Read model: Bank tab in one call — cash accounts + journals + (when accountCode) reconciliation rows and opening balance.',
+    description: 'Read model: cash accounts + journals + (when accountCode) reconciliation rows and opening balance. Formerly served the Bank tab UI; now used by the reconciliation report and action RPC callers.',
     params: { accountCode: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' } },
   },
 
@@ -724,11 +724,6 @@ const PALETTE = {
   'journal.import':         { palette: 'navigate', route: '/journal/new', label: 'New journal entry' },
   'bill.create':            { palette: 'navigate', route: '/bill/edit', label: 'New bill' },
   'bill.draft.save':        { palette: 'navigate', route: '/bill/edit', label: 'New bill' },
-  // K3e: bank.process removed from palette — the nav-registry bank-import
-  // route (/:company/bank?tab=import, gKey 'i', palette:true) now emits a
-  // 'Go to Bank Import' row that surfaces on 'bank import'/'import' queries.
-  // The catalog entry used the technical action description as its label,
-  // which didn't contain 'import', making it invisible in palette search.
   'coa.save':               { palette: 'navigate', route: '/settings?tab=coa', label: 'Chart of accounts' },
   'coa.update':             { palette: 'navigate', route: '/settings?tab=coa', label: 'Chart of accounts' },
   'coa.upsert':             { palette: 'navigate', route: '/settings?tab=coa', label: 'Chart of accounts' },
@@ -739,8 +734,9 @@ const PALETTE = {
   'period.upsert':          { palette: 'navigate', route: '/periods', label: 'Periods' },
   'period.close':           { palette: 'navigate', route: '/settings?tab=periods', label: 'Close period' },
   'journals.save':          { palette: 'navigate', route: '/settings?tab=journals', label: 'Journals' },
-  'mapping.save':           { palette: 'navigate', route: '/bank?tab=mappings', label: 'Bank mappings' },
-  'mapping.upsert':         { palette: 'navigate', route: '/bank?tab=mappings', label: 'Bank mappings' },
+  // mapping.save/mapping.upsert palette entries removed 2026-08-09 (issue #137):
+  // Bank page (which hosted the Mappings tab) deleted. Actions remain available
+  // via action RPC; no UI surface for mappings management until rehomed.
   'center.save':            { palette: 'navigate', route: '/settings', label: 'Settings' },
   'fx.rates.save':          { palette: 'navigate', route: '/settings?tab=fxrates', label: 'Exchange rates' },
   'fx.provider.save':       { palette: 'navigate', route: '/settings?tab=fxrates', label: 'Exchange rates' },

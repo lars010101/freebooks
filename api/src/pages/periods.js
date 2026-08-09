@@ -148,6 +148,11 @@ var periodChildCache = {};
 
 function periodsChildren(row) {
   var k = row._key;
+  // New unsaved rows carry a _new_N client key with no server-side period.
+  // Fetching filings/close_check against it 404s (periods-page-service.js
+  // throws NOT_FOUND). Skip the fetch entirely — a period that doesn't exist
+  // yet has no filings and no close checklist.
+  if (String(k).indexOf('_new_') === 0) return [];
   var c = periodChildCache[k];
   if (c && c.fetched) {
     return c.filings.map(filingChildRow).concat(c.checks.map(checklistChildRow));

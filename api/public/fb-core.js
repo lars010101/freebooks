@@ -608,8 +608,8 @@
     }
 
     var RECENT_KEY = 'fb.palette.recent';
-    var CAP = 12;
-    var SECTION_CAP = 5;  // max items per section (PAGE / NAV / API)
+    var CAP = 18;
+    var SECTION_CAP = 8;  // max items per section (ALIAS / PAGE / NAV / API)
 
     function _company() { return location.pathname.split('/')[1] || ''; }
 
@@ -648,6 +648,36 @@
         if (a && a.pageVerb && a.pageVerb === key && a.scope === setName) return true;
       }
       return false;
+    }
+
+    // #148: build palette items from FB.command.ALIASES — these are the
+    // `:`-prefixed typed commands (bill, post, pay, …) that need argument
+    // entry. They are the primary citizens of the `:` dropdown; page verbs
+    // with direct key bindings (Bug #4) are now excluded.
+    function _aliasCommands() {
+      var A = (window.FB && FB.command && FB.command.ALIASES) || {};
+      var out = [];
+      Object.keys(A).forEach(function (name) {
+        out.push({
+          id: 'alias:' + name,
+          label: name,
+          key: '',
+          scope: 'alias',
+          keepOpen: true,
+          exec: function () {
+            // Fill input with :name and trigger grammar mode — keep the
+            // dropdown open so the user continues typing arguments. The
+            // keepOpen flag tells _execute() NOT to call _exitCommand().
+            _input.value = ':' + name + ' ';
+            _input.focus();
+            _input.setSelectionRange(_input.value.length, _input.value.length);
+            var g = _detectGrammar(name + ' ');
+            if (g) _showGrammarHint(g.grammar);
+            else _query(name + ' ');
+          }
+        });
+      });
+      return out;
     }
 
     function _apiCommands() {
@@ -736,10 +766,13 @@
 
     function _match(q) {
       var recent = _recent();
-      // Score and cap each scope independently, then concatenate in
-      // #149: PAGE → API order (nav rows dropped — moved to ? overlay).
+      // #148: Score and cap each scope independently, then concatenate in
+      // ALIAS → API order. Page verbs (Bug #4) and nav rows are no longer in
+      // the `:` dropdown — page verbs have direct key bindings (`w`, `p`, …)
+      // and are taught via the `?` overlay; aliases need typed arguments and
+      // API actions have no keyboard shortcut.
       var groups = [
-        { items: _pageVerbs(), scope: 'page' },
+        { items: _aliasCommands(), scope: 'alias' },
         { items: _apiCommands(), scope: 'api' }
       ];
       var result = [];
@@ -780,7 +813,7 @@
       // Section headers (PAGE / NAV / API) are non-interactive separator divs:
       // no data-i, not bound by the click/keyboard handlers below (which only
       // operate on .fb-palette-row via dataset.i 0.._items.length-1).
-      var SCOPE_LABELS = { page: 'PAGE', nav: 'NAV', api: 'API' };
+      var SCOPE_LABELS = { alias: 'COMMANDS', page: 'PAGE', nav: 'NAV', api: 'API' };
       var html = '';
       var lastScope = null;
       _items.forEach(function (c, i) {
@@ -826,7 +859,10 @@
     function _execute(item) {
       if (!item) return;
       _pushRecent(item.id);
-      _exitCommand();
+      // #148: alias items set keepOpen:true so selecting them does NOT exit
+      // command mode — the input is filled with `:name ` and grammar mode
+      // engages so the user continues typing arguments.
+      if (!item.keepOpen) _exitCommand();
       item.exec();
     }
 
@@ -881,7 +917,23 @@
         else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); _exitCommand(); }
       }, true);
       input.addEventListener('input', function () {
-        if (!_command) return;
+        if (!_command) {
+          // #148 Bug 1: if the user clears the input and re-types `:` while
+          // the input is still focused, the common.js `:` keydown handler
+          // (which only fires when !inInput) won't run. Re-enter command
+          // mode here without resetting the value — preserves whatever was
+          // typed after the `:` (e.g. `:b`).
+          if (_input.value.charAt(0) === ':') {
+            _command = true;
+            _fetchCatalog();
+            _open();
+            var q0 = _rawQuery();
+            var g0 = _detectGrammar(q0);
+            if (g0) { _showGrammarHint(g0.grammar); }
+            else { _hideGrammarHint(); _query(q0); }
+          }
+          return;
+        }
         if (_input.value.charAt(0) !== ':') { _command = false; _close(); _hideGrammarHint(); return; }
         var q = _rawQuery();
         var g = _detectGrammar(q);

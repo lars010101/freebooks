@@ -1,213 +1,146 @@
 # `:show` Command Spec
 
-**Status:** Draft v2 — revised after review; not yet implemented.
-**Supersedes:** the bare `:report` alias (`fb-command.js` `ALIASES.report`) — deleted in the same change, with a bounded rename-hint (§6) rather than a dual-run synonym.
-**Depends on:** the typed-argument grammar layer in `docs/command-bar-ux-spec.md` (tokenizer, keyword slots, `parseDate`, per-alias `parse()` returning `{ route, params, commitMode, warnings }`). That spec deferred `:report pl q2`-style shorthand pending this layer (§10); the layer now exists.
-**Context:** single-user, self-hosted, one operator. Same optimization target as the command-bar spec: round-trip speed and fast re-learning after time away.
-
-**v2 changelog:** fixes a hardcoded-vs-registry-derived asymmetry between screen and report targets (§2), a silently-dropped-argument bug on screen targets (§3), and a discoverability gap in the `:report` → `:show` cutover (§6). Closes two citation/definition gaps from v1 (inbox sourcing, `validTargetsList()`).
+**Status:** Draft v3 — architecture settled after review; not yet implemented.
+**Supersedes:** v1 and v2 of this spec (both scrapped — see §1). Also supersedes the plain `:report` alias.
+**Depends on:** `action-catalog.js` (`palette: 'navigate'` entries), `report-registry.js`, and the existing palette component in `fb-core.js` (`_catalog`, `_match`, `_render`, `_detectGrammar`).
+**Context:** single-user, self-hosted, one operator — but per this revision, `:show` is explicitly also the app's answer to "I don't remember where things live," not just a speed tool. That's a second, real requirement alongside round-trip speed, not a contradiction of it.
 
 ---
 
-## 0. Why this exists (not just a rename)
+## 0. Why this exists
 
-Issue **#149** dropped NAV rows from the `:` palette entirely — reachable now only via the `?` overlay, and only for sidebar routes carrying a `gKey`. `g`-prefix motions cover only the fixed top-level set (`g i`, `g r`, `g p`, `g s`). Routes like Opening Balances (`nav-registry.js` key `opening-balances` — `sidebar:false`, `gKey:null`) have **no fast path today**: `g s`, then a mouse click on a tab.
-
-`:show` fills that gap for every tab-level and report-level destination the `#149` cleanup and the `g`-key set don't reach. It inherits `:report`'s slot (a pure-`navigate` command under `:`, per command-bar spec §2 — `:` covers "do something," including "report," even when nothing mutates) rather than creating a new one.
+Issue **#149** dropped NAV rows from the `:` palette, scoping it to "aliased + key-less API commands," and pushed navigation teaching to the `?` overlay. But `?`'s NAV section only covers sidebar routes with a `gKey` — tab-level destinations (Opening Balances, VAT codes, etc.) aren't in `?` either. So there is currently **no surface anywhere** — not `:`, not `?` — that teaches a newcomer the full set of places they can go. That's the gap `:show` closes, and it's why "scaffolding" is a real requirement, not scope creep.
 
 ---
 
-## 1. Grammar
+## 1. What changed from v1/v2, and why
 
-```
-:show <target> [period]
-```
+v1 built `:show` as a typed alias in `fb-command.js` reading from two hand-injected globals (`window.FB_ROUTES` with a `tabs` array, `window.FB_REPORT_IDS`). Review caught this correctly: it's a **parallel resolution system** sitting beside the action catalog — the exact thing the `:new` → `PALETTE` navigate-entries cutover (`91b2d1a`) had already established shouldn't happen. v2 tried to fix the symptom (hardcoded table → registry-derived table) without fixing the root cause (a second alias-and-parser layer duplicating what the catalog already does).
 
-Flat, single-token dispatch. `<target>` resolves against one merged lookup: screen/tab targets (§2) unioned with report ids sourced from `report-registry.js`'s `REPORT_REGISTRY` (§3). `[period]` is **only valid when `<target>` is a report** (§3.1 fixes the v1 bug where this wasn't enforced).
+The actual fix, worked out across this conversation:
 
-No `!`. This falls out of the existing dispatch generically — `parse()`'s main entry already does:
+1. **Split by argument shape, not by "screens vs. reports."** Zero-argument navigation (screens, tabs) fits the `:new` pattern exactly — dissolve into `PALETTE` navigate entries, no alias, no parser. Reports take an optional second argument (period), which a flat catalog entry can't express.
+2. **Checking the real catalog showed the "screens" gap was almost entirely already closed.** `coa.upsert`, `partner.upsert`, `period.upsert`, `fx.provider.save`, `settings.save` are already plain-navigate entries. Only 3–4 entries were actually missing (§2).
+3. **The scaffolding requirement means `:show` still needs to exist** — but as a **third mode of the palette component itself**, not a typed-grammar alias. It filters and groups data the catalog already has; it doesn't own or duplicate any of it.
+4. **Reports need exactly one new piece of state** — id→label pairs, so a browse view can say "Profit & Loss" instead of `pl`. That's sourced as a thin projection of `report-registry.js`, fetched the same way `_catalog` is already fetched — not a hand-maintained list, not a sync-injected global bolted onto `navBar()`.
 
-```js
-if (bang && !alias.bang) return { type: 'unknown', error: ':' + verb + ' does not support !' };
-```
-
-`:show` sets `bang: false` in its `ALIASES` entry like `:report`, `:void`, `:lock` do today, so `:show! pl` is rejected by that existing check before `parseShow` ever runs — `:show! pl` → `error: ':show does not support !'`. No special-casing needed; stated here so it isn't ambiguous by omission.
+Net effect: **no new alias, no new parser, no `fb-command.js` changes at all.** Everything lives in `action-catalog.js` (a few entries), one small new read endpoint (report metadata), and `fb-core.js` (a third palette mode).
 
 ---
 
-## 2. Screen/tab targets — registry-derived, not hand-maintained
+## 2. Screens/tabs: the actual gap
 
-**v1 problem:** `SCREEN_ROUTES` was a hardcoded object in `fb-command.js`. Report targets auto-discover from `REPORT_REGISTRY` (`report-registry.js`'s own header comment: *"A new report = a registry entry, not a new page"*) — but a new settings tab added to `settings.js` wouldn't appear in `:show` until someone remembered to hand-edit a second, unrelated file. That's exactly the staleness risk `nav-registry.js`'s own header comment names as the reason it's a single-source registry in the first place ("Four consumers share this table so they can never drift").
+Verified against the live `action-catalog.js`, not assumed. Already-reachable today (no change needed): Chart of Accounts, Partners, Periods, Exchange Rates, bare Settings. Missing:
 
-**Fix: extend `nav-registry.js`, don't invent a parallel table.**
+| New entry | Route | Note |
+|---|---|---|
+| `vat.codes.view` *(new key)* | `/settings?tab=vat` | only the `&new=1` create-shortcut exists today (`vat.codes.upsert`) |
+| `journals.view` *(new key)* | `/settings?tab=journals` | same — only `journals.save`'s create-shortcut exists |
+| `ai.view` *(new key)* | `/settings?tab=ai` | no entry at all today |
+| `openingBalance.view` *(new key, no backing action)* | `/settings?tab=opening-balances` | no entry at all today, and no existing action to attach to — every other navigate entry piggybacks on a real action; this one doesn't |
 
-`nav-registry.js` already states its job: *"the single source of truth for app navigation... consumed by [4 things] so they can never drift."* Add a fifth. Give sidebar entries an optional `tabs` array:
+That last row is worth a decision, not just a note: either add a synthetic view-only catalog entry (fine, precedented enough by `settings.save`/`company.save` which are also fairly thin), or decide Opening Balances should get a real lightweight action behind it for consistency. Either way, four entries, no new architecture.
+
+---
+
+## 3. Reports: one new endpoint, not a new global
+
+`report-registry.js` already has human labels (used to build `RPT_META` inline in `reports-hub.js`). For the palette (global chrome, not page-local) to show "Profit & Loss" instead of `pl`, that data needs to be reachable from anywhere, the same way `_catalog` already is.
+
+**Add `GET /api/:company/reports/registry` → `[{ id, label }, ...]`**, generated directly from `REPORT_REGISTRY` — the same data `reports-hub.js` already serializes into `RPT_META`, just also exposed as a lightweight endpoint. This is a projection, not a duplicate: there is exactly one place report metadata is authored (`report-registry.js`), and two places it's read (`reports-hub.js`'s inline `RPT_META`, and this new endpoint).
+
+Fetched once by the palette component, alongside the existing `_catalog` fetch, with the same graceful-degradation stance the code already documents for `_catalog` (*"palette works page-verbs-only without it"*) — if this fetch is slow or fails, `:show` still works for screens/tabs, it just doesn't show reports until it resolves.
+
+This was originally going to be a sync `window.FB_REPORTS` global injected via `navBar()`, matching how `window.FB_ROUTES` works. Switched to an async fetch instead because it's more consistent with how the palette already sources supplementary data (`_catalog` is fetched, not injected) — one pattern for "data the palette needs but doesn't own," not two.
+
+---
+
+## 4. The palette's third mode
+
+The palette already has two modes, both documented in `fb-core.js`'s own comments:
+
+- **fuzzy mode** — bare `:` or an incomplete first token. Flat list, `_aliasCommands()` + `_apiCommands()`, ranked by recency then fuzzy score.
+- **grammar mode** — first token matches a known alias + trailing space (`:bill `). Dropdown closes, a plain-text syntax hint appears, `Enter` calls `FB.command.parse()`.
+
+`:show` needs a **third**: dropdown *stays open*, content is re-scoped (navigate-only — no `:post`, `:pay!`, or other execute actions) and grouped, and it's still live-filterable as more is typed.
+
+### 4.1 Discovery
+
+`:show` is registered in `FB.command.ALIASES` (so `_aliasCommands()` picks it up automatically and it's findable by typing `:sh` in ordinary fuzzy mode, same as any other alias) with a new flag distinguishing it from grammar-mode aliases:
 
 ```js
-{ key: 'settings', route: '/:company/settings', label: 'Settings', icon: '⚙',
-  sidebar: true, gKey: 's', palette: true, absolute: false,
-  tabs: [
-    { id: 'company',           label: 'Company' },
-    { id: 'coa',                label: 'Chart of Accounts',  aliases: ['accounts'] },
-    { id: 'vat',                label: 'Tax Codes' },
-    { id: 'journals',           label: 'Journals',           aliases: ['books'] }, // see §5
-    { id: 'fxrates',            label: 'Exchange Rates',     aliases: ['rates'] },
-    { id: 'ai',                 label: 'AI' },
-    { id: 'opening-balances',   label: 'Opening Balances',   aliases: ['ob'] },
-  ]
-},
-{ key: 'payables', route: '/:company/payables', label: 'Payables', icon: '📋',
-  sidebar: true, gKey: null, palette: true, absolute: false,
-  tabs: [
-    { id: 'bills',    label: 'Bills' },
-    { id: 'partners', label: 'Partners' },
-  ]
-},
+'show': { action: null, grammar: '<target> [period]', bang: false, structured: true }
 ```
 
-This rides the existing injection for free: `common.js`'s `navBar()` does `JSON.stringify(ROUTES)` on the *whole* array into `window.FB_ROUTES` (`common.js:121`), and `navBar()` is called on every page. Adding `tabs` to an entry means it's already present in `window.FB_ROUTES` everywhere the command bar can be invoked from — no new global, no page-local script block, no bootstrapping gap.
+### 4.2 Entering browse mode
 
-`fb-command.js`'s `:show` builds its screen/tab target list at parse time from `window.FB_ROUTES`:
+The three call sites that currently do `_detectGrammar(...)` → `_showGrammarHint(g.grammar)` unconditionally need one branch: if `g.alias === 'show'` (i.e. `ALIASES.show.structured`), call a new `_showStructuredBrowse()` instead of `_showGrammarHint()`. `_showStructuredBrowse()` reuses the existing `_open()`/`_render()`/`_el` machinery — it's the same dropdown, just fed a different item list and never `_close()`d.
+
+### 4.3 Building the item list
 
 ```js
-function buildScreenTargets() {
-  var out = {};
-  (window.FB_ROUTES || []).forEach(function (r) {
-    out[r.key] = r.route.replace(':company', '').replace(/^\/*/, '/'); // e.g. '/settings'
-    (r.tabs || []).forEach(function (t) {
-      var route = out[r.key] + '?tab=' + t.id;
-      out[t.id] = route;
-      (t.aliases || []).forEach(function (a) { out[a] = route; });
+function _navigateTargets() {
+  var items = _apiCommands().filter(function (c) { return true; }); // already navigate-only + execute; need navigate-only subset
+  // (in practice: filter _catalog directly for palette === 'navigate', skip the 'execute' branch)
+  var groups = {};
+  items.forEach(function (c) {
+    var group = _groupFor(c.route); // 'Settings' | 'Payables' | 'Periods' | 'Reports' | 'Inbox'
+    (groups[group] = groups[group] || []).push(c);
+  });
+  (_reports || []).forEach(function (r) {
+    (groups['Reports'] = groups['Reports'] || []).push({
+      id: 'report:' + r.id, label: r.label, group: 'Reports',
+      exec: function () { window.fbNavigate('/' + _company() + '/reports?t=' + r.id); }
     });
   });
-  return out;
+  return groups;
+}
+
+function _groupFor(route) {
+  if (route.indexOf('/settings') === 0) return 'Settings';
+  if (route.indexOf('/payables') === 0) return 'Payables';
+  if (route.indexOf('/periods') === 0)  return 'Periods';
+  if (route.indexOf('/reports') === 0)  return 'Reports';
+  return 'Other';
 }
 ```
 
-`settings.js` / `payables.js` still own their own tab-bar *rendering* (`showTab('coa')` onclick handlers) — this doesn't require refactoring those pages to render from the registry too, only requires the registry to be the place new tab ids get declared. **Follow-up not in scope here:** a CI check (same pattern as `tests/jurisdiction-packs.mjs`, the pack linter) that greps `settings.js`/`payables.js` for `showTab('X')`/`showPayTab('X')` calls and fails if any `X` isn't present in `nav-registry.js`'s `tabs` — that's what actually closes the drift risk end-to-end (registry says a tab exists; test confirms the page agrees). Worth adding, but it's a test-authoring task independent of this spec.
+Grouping is derived from the route prefix already on each entry — no new `category` field to hand-maintain on every catalog entry.
 
-**Why this is the right split (not "acknowledge and move on"):** top-level screens (`inbox`, `payables`, `periods`, `reports`, `settings`) were already in `nav-registry.js` before this spec; only the tab layer was missing. Extending the existing registry closes the gap with the grain of the codebase's own stated architecture, rather than justifying a second hardcoded table alongside it.
+### 4.4 Selecting a screen/tab row
 
-### §2 corrects a v1 citation error
-v1 claimed all screen targets were "read directly off live tab ids in `settings.js` and `payables.js`" — untrue for `inbox`, `payables`, `periods`, `reports`, `settings` themselves, which come from `nav-registry.js`'s `route` field, not from any `showTab()` call. Only the *tab-level* entries (`coa`, `vat`, `partners`, etc.) are sourced from the pages' tab ids. §2's registry structure above makes this explicit: top-level keys come from `ROUTES[].route`, tab-level keys come from `ROUTES[].tabs[].id`.
+Same as any other catalog navigate entry today: click or `Enter` on the highlighted row calls `window.fbNavigate(...)` and exits command mode. No new behavior here — `:show`'s only contribution for this half is *scoping and grouping what's shown*, not changing what happens on selection.
 
----
+### 4.5 Selecting a report row, and the period argument
 
-## 3. Report targets
+Selecting a report row navigates immediately with no period (`/reports?t=pl`) — the reports hub already has its own period picker, so a newcomer's path ends there with zero typed syntax required.
 
-Ids come from `REPORT_REGISTRY` (`report-registry.js`): `pl`, `bs`, `cf`, `sce`, `tb`, `gl`, `journal`, `integrity`, `ap-aging`, `ap-control`, `ar`, `sie`, `voucher-register`. A new report type is `:show`-able automatically, no `fb-command.js` change required — matching the registry's own stated design goal.
+For someone who wants to type ahead (`:show pl q2` without touching the dropdown), the tricky bit is deciding when the palette stops treating further characters as a row-filter and starts treating them as a period token — e.g. after `pl` uniquely identifies a report, does typing a space commit to that report, or keep filtering? **This is the one piece of interaction design this spec doesn't fully resolve** — flagged honestly rather than specified with false precision. The period portion should stay a thin, unvalidated pass-through regardless (`&period=<raw token>`), resolved by `reports-hub.js` the same way `?t=` drill-through already is — no client-side period parsing, no new state for that half.
 
-### 3.1 Parser — period only accepted on report targets
+### 4.6 Validation is now free
 
-**v1 bug:** `:show coa q2` matched `coa` in the screen table, returned the route, and silently dropped `q2`. `:show settings aug` had the same problem. This directly contradicted the command-bar spec's own §7.2 stance — silently dropping an argument is worse than the "guess and warn" behavior that section already rejects; at least a guess is visible.
+Because browse mode requires `_catalog` and the reports list to already be loaded, both halves get immediate in-bar validation as a side effect — an unrecognized target can be flagged before navigating, rather than deferred to the destination page. That's a strict improvement over the thin-`:report`-alias design from earlier in this conversation, which deliberately traded away in-bar validation to avoid a second global; here the data's being fetched anyway, so the validation is free.
 
-**Fix:**
+### 4.7 The `journal` / `journals` collision, revisited
 
-```js
-function parseShow(tokens) {
-  if (!tokens.length) return { error: 'usage: :show <screen|tab|report> [period]' };
-  var target = tokens[0].toLowerCase();
-  var screens = buildScreenTargets();
-
-  if (screens[target]) {
-    if (tokens.length > 1) {
-      return { error: ':show ' + target + ' doesn\'t take a period — got "' + tokens[1] + '"' };
-    }
-    return { route: screens[target], commitMode: 'navigate' };
-  }
-  if (REPORT_IDS.indexOf(target) !== -1) {
-    var url = '/reports?t=' + target;
-    if (tokens[1]) url += '&period=' + encodeURIComponent(tokens[1]);
-    return { route: url, commitMode: 'navigate' };
-  }
-  return { error: 'unknown target: ' + target + '. Valid: ' + validTargetsList() };
-}
-
-function validTargetsList() {
-  return Object.keys(buildScreenTargets()).concat(REPORT_IDS).join(', ');
-}
-```
-
-`validTargetsList()` (referenced but undefined in v1) is now specified: screen/tab keys (registry-derived, §2) concatenated with report ids, matching the same "helpful list of valid options" UX the removed `:new`/`parseNew` error path used.
-
-`commitMode: 'navigate'` — matches what the removed `:report` entry already used, not the `commitMode: 'form'` + `warnings`-as-label pattern the removed `:new`/`NEW_ROUTES` table used.
-
-### 3.2 Period shorthand resolution (`:show pl q2`)
-
-Unchanged from v1: `fb-command.js` alias parsers stay synchronous — no network call. `q2`/`aug`/period-name tokens pass through raw as `&period=<token>` and get resolved in `reports-hub.js`, which already fetches `/api/:company/periods` on load and already has a `?t=` drill-through precedent:
-
-1. Exact/fuzzy match against a fetched `period_name`.
-2. `qN` → derive from the matched fiscal-year period using the same `addMonths`/`addDays` slicing `periods-page-service.js`'s `vatIntervalsFor()` already implements. Mirror it; don't reimplement it.
-3. Bare month (`aug`) → calendar-month start/end — the fallback when no period list is loaded yet or nothing matches.
-4. No match → keep the existing default-period behavior (most recent / last-used) and surface an inline note ("couldn't match period 'xyz' — showing latest") rather than guessing silently, per command-bar spec §7.2.
-
-Consume-and-strip the `period` param once resolved, the same way `fb-list.js`'s `?new=1` handler does (`91b2d1a`).
+Flagged in v1/v2 as a typo risk in a flat single-namespace dispatch table. It mostly dissolves under grouping: typing `:show journal` in browse mode can simply show *both* "Journals" (Settings group) and "Journal Line Listing" (Reports group) as two clearly-labeled rows — ambiguity becomes a non-issue when both options are visibly distinguished rather than one silently winning a dispatch order. It only resurfaces for the blind-typed, no-dropdown-interaction case (§4.5) as a tie-break question, and only for this one pair — worth a one-line rule when that interaction is implemented, not a structural fix.
 
 ---
 
-## 4. `parseShow` return values — summary
+## 5. Migration checklist
 
-| Case | Example | Result |
-|---|---|---|
-| Screen, no extra args | `:show settings` | `{ route: '/settings', commitMode: 'navigate' }` |
-| Tab, no extra args | `:show coa` | `{ route: '/settings?tab=coa', commitMode: 'navigate' }` |
-| Screen/tab **with** a trailing token | `:show coa q2` | `{ error: ':show coa doesn't take a period — got "q2"' }` |
-| Report, no period | `:show pl` | `{ route: '/reports?t=pl', commitMode: 'navigate' }` |
-| Report with period | `:show pl q2` | `{ route: '/reports?t=pl&period=q2', commitMode: 'navigate' }` |
-| Unknown target | `:show frobnicate` | `{ error: 'unknown target: frobnicate. Valid: ...' }` |
-| Bang | `:show! pl` | `{ type: 'unknown', error: ':show does not support !' }` (generic dispatch, §1) |
+- Add the four entries in §2 to `action-catalog.js`.
+- Add `GET /api/:company/reports/registry` (§3), generated from `REPORT_REGISTRY`.
+- Register `'show'` in `FB.command.ALIASES` with `structured: true` (§4.1) — no `parse()` function; it never goes through `FB.command.parse()`.
+- In `fb-core.js`: branch the three `_showGrammarHint` call sites on `structured`, add `_showStructuredBrowse()`, `_navigateTargets()`, `_groupFor()`, and a `_reports` fetch alongside the existing `_catalog` fetch.
+- Delete the plain `:report` alias if it still exists in `fb-command.js` — its job is fully absorbed by `:show`.
+- No changes to `nav-registry.js` — the `tabs` array idea from v2 is dropped along with v2.
+- Tests: palette-level coverage (not `command-parser.test.js`, since there's no parser) for: browse mode opens and stays open after `:show `, groups render correctly, a screen/tab row navigates, a report row navigates with no period, filtering narrows correctly, and the `journal`/`journals` pair both appear when ambiguous.
 
 ---
 
-## 5. Known collision risk (unresolved, flagged)
+## 6. Explicitly open / out of scope
 
-The settings tab id `journals` (plural — journal *books*: MISC/BANK/ADJ/AP) and the report id `journal` (singular — Journal Line Listing) are one character apart. Exact-match dispatch means they don't collide as keys, but they're an easy typo. §2's registry entry above adds `books` as a secondary alias for the tab, which sidesteps it without committing to renaming `journals` itself — not a full resolution, still a judgment call for whoever implements this.
-
----
-
-## 6. `:report` → `:show` cutover and discoverability
-
-**v1 problem:** v1 cited the `:new` → `PALETTE` navigate-entries cutover (`91b2d1a`) as precedent for deleting `:report` outright with no shim. That precedent doesn't fully transfer: `:new`'s replacement destinations became visible *in the `:` dropdown itself* — a user who forgot the old command sees the new options by typing `:` and looking. `:show` replacing `:report` has no equivalent surface; a user back after time away types `:report pl`, gets a bare "unknown command," and nothing points them at `:show`. For a tool whose explicitly stated optimization target is "fast re-learning after time away" (command-bar spec header), that's a real sharp edge, not a nitpick.
-
-**Rejected fix: silent auto-redirect.** Have `:report pl q2` transparently execute as `:show pl q2`. Rejected because it's the same category of problem §3.1 just fixed in the other direction — a command bar that can also fire `:post!`/`:pay!` shouldn't have a general mechanism for "silently reinterpret unrecognized input as a different command and run it." Grammar-compatible today doesn't guarantee grammar-compatible after the next rename; a visible hint is safer than an invisible substitution, and it's consistent with the existing "parse errors render inline in the bar itself, shell-style" philosophy (command-bar spec §4) — the fix stays in the same keystroke flow, it just doesn't run anything on the user's behalf.
-
-**Adopted fix: a small, explicit, temporary rename map**, checked in the `unknown`-verb path of `parse()`'s main entry:
-
-```js
-var RENAMED = { 'report': 'show' }; // delete this line once the rename has settled
-
-// inside parse(), where verb isn't found in ALIASES and isn't a raw catalog action:
-if (RENAMED[verb]) {
-  return { type: 'unknown', error: ':' + verb + ' is now :' + RENAMED[verb] + ' — try :' + RENAMED[verb] + ' ' + tk.tokens.join(' ') };
-}
-return { type: 'unknown', error: 'unknown command: ' + verb };
-```
-
-This is deliberately scaffolding, not a permanent alias — the comment says so, and removing it is a one-line diff once the muscle memory has moved (no different in spirit from how `ACTION_ALIASES`' `vendor.save` → `partner.save` shim was tracked for removal in `index.js`, per the command-bar spec §4 `:vendor`→`:partner` note). Unlike that shim, this one carries no runtime behavior to remove later — just an error-message improvement — so there's no correctness risk in leaving it slightly too long.
-
----
-
-## 7. Migration checklist
-
-- Add `tabs` arrays to the `settings` and `payables` entries in `nav-registry.js` (§2).
-- Add `'show'` to `ALIASES` in `fb-command.js`, with `buildScreenTargets()` / `parseShow()` / `validTargetsList()` as specified (§2–§4).
-- Delete the `'report'` entry from `ALIASES`.
-- Add the `RENAMED` map and its check to `parse()`'s unknown-verb path (§6).
-- Extend `reports-hub.js`'s period-loading `.then()` block to handle `?period=` (§3.2), mirroring the existing `?t=` drill-through and `fb-list.js`'s `?new=1` consume-and-strip pattern.
-- Update `command-parser.test.js`:
-  - remove `:report`-specific cases
-  - add: `:show <screen>`, `:show <tab>` (incl. an alias like `:show ob`), `:show <report>`, `:show <report> <period>`
-  - add: `:show coa q2` → error (§3.1 regression test — this is the bug this revision fixes, it should have a named test)
-  - add: `:show frobnicate` → error listing valid targets
-  - add: `:show! pl` → `:show does not support !`
-  - add: `:report pl` → rename hint (§6)
-  - add: `grammarFor('show')` returns the usage string
-- **Follow-up, not in this pass:** the tab-existence CI linter described in §2 (grep `showTab`/`showPayTab` call sites against `nav-registry.js` `tabs`).
-
----
-
-## 8. Explicitly out of scope for this pass
-
-- Refactoring `settings.js`/`payables.js` to *render* their tab bars from `nav-registry.js` — this spec only requires the registry to be the place tab ids get *declared*, not the rendering source. Worth doing eventually for the same drift reasons as §2, but it's a larger, separate change.
-- Resolving the `journals`/`journal` naming collision (§5) beyond the `books` alias.
-- Any new backend action or catalog entry — `:show` remains a pure route command, no `action-catalog.js` change.
+- §4.5's exact keystroke boundary between "still filtering" and "typing a period" — needs interaction-level iteration, not speccing further in the abstract.
+- The `openingBalance.view` synthetic-entry-vs-real-action decision (§2).
+- Refactoring `settings.js`/`payables.js` to render tab bars from a shared registry — still not needed for this; the catalog additions in §2 are independent of how the tabs render on their own pages.

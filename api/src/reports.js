@@ -196,6 +196,10 @@ function mountReportRoutes(app) {
   app.get('/', handleIndex);
   app.get('/setup/new-company', handleNewCompanyPage);
   app.get('/api/:company/report', handleReport);
+  app.get('/api/:company/reports/registry', function(req, res) {
+    const { REPORT_REGISTRY } = require('./report-registry');
+    res.json(REPORT_REGISTRY.map(r => ({ id: r.id, label: r.label })));
+  });
   app.get('/api/:company/periods', handlePeriods);
   app.get('/api/:company/accounts', handleAccounts);
   app.get('/api/:company/vat-codes', handleVatCodes);

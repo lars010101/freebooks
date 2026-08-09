@@ -75,9 +75,15 @@
     },
     'show': {
       action: null,
-      grammar: '<screen|tab|report> [period]',
+      grammar: '<target> [period]',
       bang: false,
-      parse: parseShow
+      structured: true
+    },
+    'report': {
+      action: null,
+      grammar: '(navigates to Reports hub)',
+      bang: false,
+      parse: function () { return { route: '/reports', commitMode: 'navigate' }; }
     },
     'rate': {
       action: 'fx.rates.save',
@@ -328,51 +334,6 @@
     return { error: 'usage: :token create <name> | revoke <name>' };
   }
 
-  // ── :show command — screen/tab/report navigation ───────────────────────────
-  // Reads from window.FB_ROUTES (injected by navBar from nav-registry.js) and
-  // window.FB_REPORT_IDS (injected from report-registry.js). Resolves a single
-  // target token to a route, optionally passing a period shorthand for reports.
-  var REPORT_IDS = window.FB_REPORT_IDS || [];
-
-  function buildScreenTargets() {
-    var out = {};
-    (window.FB_ROUTES || []).forEach(function (r) {
-      out[r.key] = r.route.replace(':company', '').replace(/^\/*/, '/');
-      (r.tabs || []).forEach(function (t) {
-        var route = out[r.key] + '?tab=' + t.id;
-        out[t.id] = route;
-        (t.aliases || []).forEach(function (a) { out[a] = route; });
-      });
-    });
-    return out;
-  }
-
-  function validTargetsList() {
-    return Object.keys(buildScreenTargets()).concat(REPORT_IDS).join(', ');
-  }
-
-  function parseShow(tokens) {
-    if (!tokens.length) return { error: 'usage: :show <screen|tab|report> [period]' };
-    var target = tokens[0].toLowerCase();
-    var screens = buildScreenTargets();
-    if (screens[target]) {
-      if (tokens.length > 1) {
-        return { error: ':show ' + target + ' doesn\'t take a period — got "' + tokens[1] + '"' };
-      }
-      return { route: screens[target], commitMode: 'navigate' };
-    }
-    if (REPORT_IDS.indexOf(target) !== -1) {
-      var url = '/reports?t=' + target;
-      if (tokens[1]) url += '&period=' + encodeURIComponent(tokens[1]);
-      return { route: url, commitMode: 'navigate' };
-    }
-    return { error: 'unknown target: ' + target + '. Valid: ' + validTargetsList() };
-  }
-
-  // ── Renamed commands map (spec §1) ──────────────────────────────────────────
-  // When a verb is unknown but was renamed, hint the user to the new name.
-  var RENAMED = { 'report': 'show' };
-
   // ── Main parse entry ────────────────────────────────────────────────────────
   function parse(input) {
     var raw = input;
@@ -384,17 +345,12 @@
     if (!tk.tokens.length) return { type: 'empty' };
     var verb = tk.tokens[0].toLowerCase();
     var bang = tk.bang;
-    // Handle ! attached to the verb (e.g. ":show! pl") — the tokenizer only
-    // extracts a standalone trailing !, so strip an attached one here.
-    if (verb.charAt(verb.length - 1) === '!') {
-      verb = verb.slice(0, -1);
-      bang = true;
-    }
     tk.tokens.shift();
 
     if (ALIASES[verb]) {
       var alias = ALIASES[verb];
       if (bang && !alias.bang) return { type: 'unknown', error: ':' + verb + ' does not support !' };
+      if (!alias.parse) return { type: 'unknown', error: ':' + verb + ' is a browse command — use the dropdown' };
       var parsed = alias.parse(tk.tokens, bang);
       if (parsed.error) return { type: 'unknown', error: parsed.error };
       if (bang && parsed.warnings && parsed.warnings.length) parsed.commitMode = 'form';
@@ -403,11 +359,6 @@
 
     // Tier 0: raw catalog action (e.g. :journal.propose companyId=...)
     if (verb.indexOf('.') !== -1) return { type: 'raw', action: verb, params: tk.tokens };
-
-    // Renamed command hint (spec §1)
-    if (RENAMED[verb]) {
-      return { type: 'unknown', error: ':' + verb + ' is now :' + RENAMED[verb] + ' — try :' + RENAMED[verb] + ' ' + tk.tokens.join(' ') };
-    }
 
     return { type: 'unknown', error: 'unknown command: ' + verb };
   }

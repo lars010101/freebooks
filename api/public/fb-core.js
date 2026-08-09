@@ -798,7 +798,12 @@
           else if (sk !== null) s = Math.min(s, sk);
           if (s === null) return;
           var ri = recent.indexOf(c.id);
-          scored.push({ c: c, score: (ri >= 0 ? ri - 100 : 0) + s });
+          // Recent items get a flat -1000 bonus (not -100-ri) so they sort
+          // first as a group, but alphabetical tiebreak still applies within
+          // the group. Without this, each recent item got a unique score
+          // (-100, -101, …) that defeated the alphabetical tiebreak.
+          var recBonus = ri >= 0 ? -1000 : 0;
+          scored.push({ c: c, score: recBonus + s, rec: ri >= 0 });
         });
         scored.sort(function (a, b) {
           if (a.score === b.score) return a.c.label.localeCompare(b.c.label, undefined, { sensitivity: 'base' });

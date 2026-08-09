@@ -560,6 +560,16 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   color: var(--text-muted);
   font-style: italic;
 }
+.fb-palette-header {
+  padding: 4px 10px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  cursor: default;
+  background: var(--dd-active);
+  border-bottom: 1px solid var(--border);
+}
 
 /* Grammar hint — shown under the bar when a typed command is recognized */
 .fb-grammar-hint {

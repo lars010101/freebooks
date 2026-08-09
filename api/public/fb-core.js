@@ -578,6 +578,7 @@
 
     var RECENT_KEY = 'fb.palette.recent';
     var CAP = 12;
+    var SECTION_CAP = 5;  // max items per section (PAGE / NAV / API)
 
     function _company() { return location.pathname.split('/')[1] || ''; }
 
@@ -602,16 +603,21 @@
     function _apiCommands() {
       if (!_catalog) return [];
       var out = [];
+      // navigate entries: dedupe by exact route string — all actions sharing a
+      // route surface as one palette row (same label, same nav behavior).
+      var seenRoute = {};
       Object.keys(_catalog).forEach(function (name) {
         var meta = _catalog[name] || {};
         if (meta.palette === 'execute') {
           out.push({
-            id: 'api:' + name, label: meta.description || name, key: '', scope: 'api',
+            id: 'api:' + name, label: meta.label || meta.description || name, key: '', scope: 'api',
             exec: function () { _runApi(name); }
           });
         } else if (meta.palette === 'navigate' && meta.route) {
+          if (seenRoute[meta.route]) return;  // first action for this route wins
+          seenRoute[meta.route] = true;
           out.push({
-            id: 'api:' + name, label: meta.description || name, key: '', scope: 'api',
+            id: 'api:' + name, label: meta.label || meta.description || name, key: '', scope: 'api',
             exec: function () {
               if (meta.absolute) window.location.href = meta.route; // company-less (e.g. /setup)
               else window.fbNavigate('/' + _company() + meta.route);
@@ -680,19 +686,29 @@
 
     function _match(q) {
       var recent = _recent();
-      var all = _pageVerbs().concat(_apiCommands()).concat(_routeCommands());
-      var scored = [];
-      all.forEach(function (c) {
-        var s = _fuzzy(q, c.label);
-        var sk = c.key ? _fuzzy(q, c.key) : null;
-        if (s === null) s = sk;
-        else if (sk !== null) s = Math.min(s, sk);
-        if (s === null) return;
-        var ri = recent.indexOf(c.id);
-        scored.push({ c: c, score: (ri >= 0 ? ri - 100 : 0) + s });
+      // Score and cap each scope independently, then concatenate in
+      // PAGE → NAV → API order (page verbs first, most contextually relevant).
+      var groups = [
+        { items: _pageVerbs(), scope: 'page' },
+        { items: _routeCommands(), scope: 'nav' },
+        { items: _apiCommands(), scope: 'api' }
+      ];
+      var result = [];
+      groups.forEach(function (g) {
+        var scored = [];
+        g.items.forEach(function (c) {
+          var s = _fuzzy(q, c.label);
+          var sk = c.key ? _fuzzy(q, c.key) : null;
+          if (s === null) s = sk;
+          else if (sk !== null) s = Math.min(s, sk);
+          if (s === null) return;
+          var ri = recent.indexOf(c.id);
+          scored.push({ c: c, score: (ri >= 0 ? ri - 100 : 0) + s });
+        });
+        scored.sort(function (a, b) { return a.score - b.score; });
+        result = result.concat(scored.slice(0, SECTION_CAP).map(function (x) { return x.c; }));
       });
-      scored.sort(function (a, b) { return a.score - b.score; });
-      return scored.slice(0, CAP).map(function (x) { return x.c; });
+      return result;
     }
 
     // ── dropdown UI ─────────────────────────────────────────────────────────
@@ -712,19 +728,30 @@
         _el.innerHTML = '<div class="fb-palette-empty">no matching commands</div>';
         return;
       }
-      _el.innerHTML = _items.map(function (c, i) {
-        return '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
+      // Section headers (PAGE / NAV / API) are non-interactive separator divs:
+      // no data-i, not bound by the click/keyboard handlers below (which only
+      // operate on .fb-palette-row via dataset.i 0.._items.length-1).
+      var SCOPE_LABELS = { page: 'PAGE', nav: 'NAV', api: 'API' };
+      var html = '';
+      var lastScope = null;
+      _items.forEach(function (c, i) {
+        if (c.scope !== lastScope) {
+          html += '<div class="fb-palette-header">' + esc(SCOPE_LABELS[c.scope] || c.scope) + '</div>';
+          lastScope = c.scope;
+        }
+        html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
           '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
           (c.key ? '<kbd>' + esc(c.key) + '</kbd>' : '') +
           '<span class="fb-palette-scope">' + esc(c.scope) + '</span>' +
         '</div>';
-      }).join('');
-      Array.prototype.forEach.call(_el.children, function (row) {
+      });
+      _el.innerHTML = html;
+      Array.prototype.forEach.call(_el.querySelectorAll('.fb-palette-row'), function (row) {
         row.onmousedown = function (e) { e.preventDefault(); }; // keep input focus
         row.onclick = function () { _execute(_items[Number(row.dataset.i)]); };
         row.onmouseover = function () { _activeIdx = Number(row.dataset.i); _render(); };
       });
-      var act = _el.children[_activeIdx];
+      var act = _el.querySelector('.fb-palette-active');
       if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
     }
 

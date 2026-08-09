@@ -198,7 +198,7 @@ CREATE TABLE IF NOT EXISTS user_permissions (
 CREATE TABLE IF NOT EXISTS bills (
   company_id      VARCHAR        NOT NULL,
   bill_id         VARCHAR        NOT NULL UNIQUE,
-  vendor          VARCHAR        NOT NULL,
+  partner_name    VARCHAR        NOT NULL,
   vendor_ref      VARCHAR,
   date            DATE           NOT NULL,
   due_date        DATE           NOT NULL,

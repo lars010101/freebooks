@@ -300,6 +300,24 @@ if (API_URL) {
     // empty `partners` table first, causing the migration to DROP the real
     // `vendors` data.
     await applyPartnersMigration();
+
+    // ── Issue #128: bills.vendor → bills.partner_name column rename ─────────
+    // The partners migration renamed the vendors table to partners but left
+    // bills.vendor (a denormalized name string, not a FK) as-is. Rename it
+    // here with try/catch — DuckDB errors if already renamed (idempotent).
+    async function applyBillsVendorRename() {
+      try {
+        await conn.run('ALTER TABLE bills RENAME COLUMN vendor TO partner_name', []);
+      } catch (e) {
+        // Already renamed (column 'vendor' doesn't exist) — expected on re-run
+        if (!/column "vendor" .*does not exist|Column "vendor" not found/i.test(String(e.message))) {
+          console.warn(`\n⚠ bills.vendor rename skipped: ${e.message}`);
+        }
+      }
+    }
+    await applyBillsVendorRename();
+
+
     await runNext(0);
   } // end runSchema
 }

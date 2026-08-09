@@ -800,7 +800,10 @@
           var ri = recent.indexOf(c.id);
           scored.push({ c: c, score: (ri >= 0 ? ri - 100 : 0) + s });
         });
-        scored.sort(function (a, b) { return a.score - b.score; });
+        scored.sort(function (a, b) {
+          if (a.score === b.score) return a.c.label.localeCompare(b.c.label, undefined, { sensitivity: 'base' });
+          return a.score - b.score;
+        });
         result = result.concat(scored.slice(0, SECTION_CAP).map(function (x) { return x.c; }));
       });
       return result;

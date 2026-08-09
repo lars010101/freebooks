@@ -716,7 +716,9 @@
           });
         }
       });
-      return out;
+      return out.sort(function (a, b) {
+        return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+      });
     }
 
     // K1: registry routes (window.FB_ROUTES) — 'Go to …' rows. Dedupe is

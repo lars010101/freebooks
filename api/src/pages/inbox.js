@@ -512,7 +512,7 @@ var list = FB.list.create({
     // A5 §10.4 — group header fold (Enter/click). Prepended ahead of the
     // built-in tree Enter (openFocused); the when-guard declines on item rows
     // so Enter keeps its unfold meaning there.
-    { key: 'Enter', label: 'fold group',
+    { key: 'Enter', label: 'fold group', paletteEligible: false,
       when: function (row) { return row._kind === 'group'; },
       affordance: function (r) { return '<a class="chip" title="fold/unfold group (Enter)" data-act="verb:Enter">' + (r._folded ? '&#9656;' : '&#9662;') + '</a>'; },
       run: function (api, row) { toggleGroupFold(row); } },

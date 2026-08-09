@@ -559,7 +559,7 @@ var beForm = FB.form.create({
         tr.remove(); updateTotals(); refreshAddRow(); api.refresh();
       } },
     write: { key: 'w', hint: 'write draft', run: function () { saveDraft(false); } },
-    quit: { key: 'q', hint: 'quit', run: function () { quitEditor(); } }
+    quit: { key: 'q', hint: 'quit', paletteEligible: false, run: function () { quitEditor(); } }
   },
   extraBindings: function (api) {
     return [

@@ -196,22 +196,22 @@ ${commonStyle()}
     var anyDashEl = function () { return document.querySelector('.dash-card, .dash-rpt-link'); };
     FB.keys.register('dashboard', {
       bindings: [
-        { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+        { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false,
           swallow: function () { return dashNav.current() || anyDashEl(); },
           run: function () { dashNav.move(1); } },
-        { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true,
+        { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false,
           swallow: function () { return dashNav.current() || anyDashEl(); },
           run: function () { dashNav.move(-1); } },
-        { key: 'h', mode: 'NORMAL', hint: 'left', hintBar: true,
+        { key: 'h', mode: 'NORMAL', hint: 'left', hintBar: true, paletteEligible: false,
           swallow: function () { return dashNav.current() || anyDashEl(); },
           run: function () { dashNav.moveH(-1); } },
-        { key: 'l', mode: 'NORMAL', hint: 'right', hintBar: true,
+        { key: 'l', mode: 'NORMAL', hint: 'right', hintBar: true, paletteEligible: false,
           swallow: function () { return dashNav.current() || anyDashEl(); },
           run: function () { dashNav.moveH(1); } },
-        { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true,
+        { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true, paletteEligible: false,
           swallow: function () { return dashNav.current(); },
           run: function () { var el = dashNav.current(); if (el) el.click(); } },
-        { key: 'Escape', mode: 'NORMAL', hint: 'clear focus', hintBar: true,
+        { key: 'Escape', mode: 'NORMAL', hint: 'clear focus', hintBar: true, paletteEligible: false,
           swallow: function () { return !!dashNav.current(); },
           run: function () { dashNav.clear(); } }
       ]

@@ -1280,9 +1280,9 @@ var billsList = FB.list.create({
     }
     return [
       // Pay-row sub-mode (NORMAL mode; the pay row is DOM-injected, not a bill edit).
-      { key: 'Enter', mode: 'NORMAL', when: payRowOpen, run: submitPayRow },
-      { key: 'Escape', mode: 'NORMAL', when: payRowOpen, run: closePayRow },
-      { key: 'I', mode: 'NORMAL', hint: 'edit in full editor',
+      { key: 'Enter', mode: 'NORMAL', paletteEligible: false, when: payRowOpen, run: submitPayRow },
+      { key: 'Escape', mode: 'NORMAL', paletteEligible: false, when: payRowOpen, run: closePayRow },
+      { key: 'I', mode: 'NORMAL', hint: 'edit in full editor', paletteEligible: false,
         when: function () { var p = parentOf(api.focusedRow()); return !!(p && p.status === 'draft'); },
         run: function () {
           var p = parentOf(api.focusedRow());

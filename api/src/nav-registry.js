@@ -8,8 +8,9 @@
 //                       come from this registry) for prev/next page nav.
 //   3. g-prefix map   — api/public/fb-core.js reads window.FB_ROUTES (injected
 //                       by navBar) and maps gKey letters → routes.
-//   4. command palette — api/public/fb-core.js FB.palette lists entries where
-//                       palette:true as 'Go to {label}' rows.
+//   4. ? help overlay  — api/public/fb-core.js help.open() reads
+//                       window.FB_ROUTES and renders g-key destinations
+//                       as NAV rows (#149; relocated from : palette).
 //
 // Entry shape:
 //   {
@@ -32,12 +33,10 @@
 //   1. Append an entry here (keep sidebar entries in sidebar display order).
 //   2. If it belongs in the sidebar, set sidebar:true + icon; navBar renders
 //      it automatically.
-//   3. Sidebar routes default to palette:true ('Go to …' rows). Non-sidebar
-//      routes: set palette:true ONLY when no action-catalog 'navigate' entry
-//      covers the same target (journal/new and new-company are
-//      covered by the catalog, so they stay palette:false here;
-//      opening-balances has no catalog entry, so it is palette:true). The
-//      palette itself does no runtime dedupe — this table is the decision.
+//   3. Sidebar routes are visible in the ? help overlay's NAV section
+//      (g-key destinations). Non-sidebar routes without a gKey (e.g.
+//      opening-balances) are sidebar/palette-reachable only; they do not
+//      appear in ? NAV. The : palette no longer lists routes (#149).
 //   4. Assign a gKey letter only for ratified go-to destinations; 'c' is
 //      reserved for the company switcher.
 //

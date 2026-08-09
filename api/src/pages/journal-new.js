@@ -736,7 +736,7 @@ ${commonStyle()}
         if (btn.disabled) { showStatus('Out of balance — see Diff', true); return; }
         postEntry();
       } },
-      quit: { key: 'q', hint: 'quit', run: function () {
+      quit: { key: 'q', hint: 'quit', paletteEligible: false, run: function () {
         fbNavigate(FROM_REPORT ? '/' + COMPANY + '/reports?t=' + FROM_REPORT : '/' + COMPANY);
       } }
     },

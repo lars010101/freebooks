@@ -11,7 +11,7 @@
 **This section matters — read before the rest.** A `:`-triggered command palette already exists and ships (`FB.palette`, `fb-core.js`, spec: `docs/payables-ux-spec.md` §P1-10, built 2026-07-23, commit `d1c2110`). It is **not** what the rest of this document describes. Its actual shape:
 
 - One topbar input, two modes (`/` = search, `:` = command), toggled by *how* you entered it (keyboard vs. click), not by content.
-- Commands are **derived, not parsed** — three sources: page verbs (current `FB.keys` scope's hinted bindings), API actions (catalog entries carrying a `palette: execute | navigate` disposition), and route commands (`window.FB_ROUTES`).
+- Commands are **derived, not parsed** — two sources (#149): page verbs (current `FB.keys` scope's hinted bindings, filtered: movement/chrome opt out via `paletteEligible: false`; business verbs covered by a `:` alias are deduped), and API actions (catalog entries carrying a `palette: execute | navigate` disposition). NAV rows (registry routes) were dropped from `:` and relocated to the `?` help overlay.
 - `execute` actions fire immediately with **no parameters beyond `companyId`** (e.g. `fx.fetch_rates`).
 - `navigate` actions route to the owning form/page — e.g. `bill.create` and `bill.draft.save` both currently route to the same blank `/bill/edit`, with nothing pre-filled.
 - Matching is fuzzy-subsequence over the item's label, ranked by localStorage recency then match quality. There is **no argument grammar, no keyword slots, no inline parsing of trailing text.**
@@ -19,7 +19,7 @@
 
 **What this means for §4–§7 below:** the typed grammar this spec proposes (`:bill acme 1200 due sep15`, keyword slots, Tier 0/1/2 parsing, bang-to-skip-the-form) is a **genuine extension beyond P1-10**, not a refinement of it. It knowingly overrides the "route to form, don't parse a dropdown" philosophy P1-10 recorded for a reason that's still valid in general — a one-line input truly can't collect a multi-line bill. The case for overriding it anyway, for a narrow set of high-frequency commands, rests entirely on this being a single-user tool optimized for round-trip speed (§ header) rather than general-audience polish; that trade only makes sense here because of that context, and should be read as a conscious deviation, not a gap P1-10 missed.
 
-**What still stands unchanged:** `/` search, page verbs, route commands, the `execute`/`navigate` disposition model for everything *not* explicitly upgraded to typed grammar in §4's alias table, and the underlying palette UI chrome (dropdown, fuzzy match, recency ranking) — this spec's empty-`:`/`/ ` suggestion behavior (§3) is describing the same mechanism P1-10 already built, not a new one.
+**What still stands unchanged:** `/` search, page verbs (filtered: movement/chrome excluded, alias-covered deduped — #149), the `execute`/`navigate` disposition model for everything *not* explicitly upgraded to typed grammar in §4's alias table, and the underlying palette UI chrome (dropdown, fuzzy match, recency ranking) — this spec's empty-`:`/`/ ` suggestion behavior (§3) is describing the same mechanism P1-10 already built, not a new one.
 
 ---
 

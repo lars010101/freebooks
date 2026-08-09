@@ -315,10 +315,10 @@
 
     var bindings = [
       // ── NORMAL ──
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { moveRow(1); } },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, run: function () { moveRow(-1); } },
-      { key: 'h', mode: 'NORMAL', hint: 'cell', hintBar: true, run: function () { moveCol(-1); } },
-      { key: 'l', mode: 'NORMAL', hint: 'cell', hintBar: true, run: function () { moveCol(1); } },
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { moveRow(1); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { moveRow(-1); } },
+      { key: 'h', mode: 'NORMAL', hint: 'cell', hintBar: true, paletteEligible: false, run: function () { moveCol(-1); } },
+      { key: 'l', mode: 'NORMAL', hint: 'cell', hintBar: true, paletteEligible: false, run: function () { moveCol(1); } },
       // ── NORMAL: dropdown overlay open (mouse-opened — magnus 2026-08-02:
       // dropdowns never alter NORMAL/INSERT, so the overlay can now be open
       // in NORMAL with DOM focus on the select). The overlay owns these keys
@@ -351,8 +351,8 @@
       // focusin/setMode never fire (global rule: toggles never flip modes).
       { key: ' ', mode: 'NORMAL', when: function () { var el = curCellEl(); return !!el && el.tagName === 'BUTTON'; },
         run: function () { var el = curCellEl(); el.click(); paint(); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
-      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, run: edit },
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: edit },
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: edit },
       // ArrowDown/ArrowUp on an attachable (FB.dropdown) select cell in
       // NORMAL: open the FULL option list (magnus 2026-07-28 — "drop down
       // the full list, not just switch the cell value"). The overlay owns
@@ -366,7 +366,7 @@
       // stay native; the when guard only passes for native select cells).
       { key: 'ArrowDown', mode: 'NORMAL', when: function () { return nativeSelect(curCellEl()); }, run: edit },
       { key: 'ArrowUp', mode: 'NORMAL', when: function () { return nativeSelect(curCellEl()); }, run: edit },
-      { key: 'G', mode: 'NORMAL', run: function () {
+      { key: 'G', mode: 'NORMAL', paletteEligible: false, run: function () {
           var flat = flatRows();
           if (!flat.length) return;
           var last = flat[flat.length - 1];
@@ -430,7 +430,7 @@
         // cursor-follows-focus keeps cursor/focus synced on each focus().
         when: function () { return !ddOpen(); },
         run: function (e) { if (e.shiftKey) retreat(); else advance(); } },
-      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, run: exitEdit }
+      { key: 'Escape', mode: 'INSERT', hint: 'exit edit', hintBar: true, paletteEligible: false, run: exitEdit }
     ];
 
     if (cfg.verbs) {
@@ -438,6 +438,7 @@
         var v = cfg.verbs[name];
         if (!v) return;
         bindings.push({ key: v.key, mode: 'NORMAL', hint: v.hint, hintBar: true,
+          paletteEligible: v.paletteEligible !== undefined ? v.paletteEligible : true,
           when: v.when ? function (e) { return v.when(api, e); } : undefined,
           run: function () { v.run(api); } });
       });

@@ -58,12 +58,14 @@
     },
     'approve': {
       action: null,
+      pageVerb: 'y', scope: 'inbox',
       grammar: '(approves focused inbox item)',
       bang: false,
       parse: function () { return { pageVerb: 'y', commitMode: 'direct' }; }
     },
     'reject': {
       action: null,
+      pageVerb: 'x', scope: 'inbox',
       grammar: '(rejects focused inbox item)',
       bang: false,
       parse: function () { return { pageVerb: 'x', commitMode: 'direct' }; }

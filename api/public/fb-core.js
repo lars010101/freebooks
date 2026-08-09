@@ -78,6 +78,8 @@
   //     when:   fn(e) → bool            — runtime predicate; fail = binding skipped
   //     swallow: bool | fn(e) → bool    — stopImmediatePropagation (default true)
   //     preventDefault: bool            — default true
+  //     paletteEligible: bool           — default true; false = omit from
+  //                                       : palette (movement/chrome keys)
   //     run:    fn(e)                   — the action
   //   }]
   // }
@@ -383,6 +385,9 @@
   // mode + not-typing guard); help.open() is the mouse-parity entry point
   // (topbar `?` button) and is deliberately not mode-gated — read-only
   // documentation, closable with Esc like any overlay.
+  // #149: a NAV section at the bottom shows g-key destinations from
+  // window.FB_ROUTES — relocated from : palette. Same source of truth as
+  // _gResolve(), so g-keys and help can never drift.
   var help = (function () {
     var _el = null;
     var _prevFocus = null;
@@ -393,6 +398,22 @@
       }).join('');
     }
 
+    // #149: NAV rows for the ? overlay — reads window.FB_ROUTES (the same
+    // registry _gResolve uses). Renders 'g r — Reports' style rows for every
+    // entry with a gKey (sidebar routes with go-to-map letters). Entries
+    // without a gKey (e.g. opening-balances) are still reachable via the
+    // sidebar; only g-key destinations belong in this section.
+    function _navRows() {
+      var R = window.FB_ROUTES || [];
+      var rows = [];
+      R.forEach(function (r) {
+        if (!r.gKey) return;
+        rows.push({ keys: 'g ' + r.gKey, hint: r.label });
+      });
+      if (!rows.length) return '';
+      return _rows(rows);
+    }
+
     function open() {
       if (_el) return true;
       var cur = _activeSet();
@@ -401,6 +422,10 @@
       if (!hinted.length) return false;
       var normal = hinted.filter(function (b) { return (b.mode || 'NORMAL') === 'NORMAL'; });
       var insert = hinted.filter(function (b) { return (b.mode || 'NORMAL') === 'INSERT'; });
+      // #149: NAV section — registry routes (window.FB_ROUTES) relocated here
+      // from the : palette. Same source of truth as _gResolve(), so g-keys
+      // and help can never drift.
+      var navRows = _navRows();
       var footer = _rows([{ keys: '?', hint: 'close' }, { keys: 'Esc', hint: 'close' }]);
       _prevFocus = document.activeElement;
       _el = document.createElement('div');
@@ -416,6 +441,7 @@
               (insert.length ? _rows(_groupHints(insert)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
             '</div>' +
           '</div>' +
+          (navRows ? '<div class="fb-keys-nav"><div class="fb-keys-mode">NAV</div>' + navRows + '</div>' : '') +
           '<div class="fb-keys-footer">' + footer + '</div>' +
         '</div>';
       _el.addEventListener('click', function (ev) { if (ev.target === _el) close(); });
@@ -447,12 +473,17 @@
   // unchanged) and `:` command. Mode is set by HOW you got there (keyboard
   // `:` → command; click → search — magnus decision 2), not by content.
   // Commands derive from two sources, no hand-written registry:
-  //   page verbs — NORMAL-mode hinted bindings of the active FB.keys set;
-  //                executing calls the binding's own run (same as the key).
+  //   page verbs — NORMAL-mode hinted bindings of the active FB.keys set,
+  //                filtered: movement/chrome bindings opt out via
+  //                paletteEligible: false; business verbs covered by an
+  //                explicit `:` alias (scoped pageVerb+scope in ALIASES)
+  //                are deduped — the alias is the sole : citizen.
   //   api        — catalog entries carrying a palette disposition (execute
   //                via POST /api/action + Idempotency-Key; navigate → form).
-  // Ranking = localStorage recency, then fuzzy exactness. Rows show the key
-  // equivalent — the palette doubles as a keyboard teacher (spec item 5).
+  // #149: NAV rows (registry routes, "Go to X") were dropped from : and
+  // relocated to the ? help overlay's NAV section. ? is the keyboard
+  // teacher now; : is for typed commands and API actions only.
+  // Ranking = localStorage recency, then fuzzy exactness.
   var palette = (function () {
     var _input = null;
     var _command = false;      // mode: false = search, true = command
@@ -590,6 +621,12 @@
       cur.set.bindings.forEach(function (b) {
         if ((b.mode || 'NORMAL') !== 'NORMAL') return;
         if (!b.hint || seen[b.hint]) return;
+        // #149: movement/chrome bindings opt out via paletteEligible: false.
+        // Business-action verbs also opt out when an explicit `:` alias
+        // already covers them (scoped by binding-set name) — the alias is
+        // the sole : citizen, the raw key stays taught via ?.
+        if (b.paletteEligible === false) return;
+        if (_aliasCovers(cur.name, b.key)) return;
         seen[b.hint] = true;
         out.push({
           id: 'page:' + cur.name + ':' + b.hint,
@@ -598,6 +635,19 @@
         });
       });
       return out;
+    }
+
+    // #149: check whether a scoped `:` alias already covers this binding.
+    // ALIASES entries may carry { pageVerb: 'y', scope: 'inbox' }; the binding
+    // is suppressed only when BOTH the key AND the binding-set name match —
+    // vim-convention key reuse across pages must not cause false suppression.
+    function _aliasCovers(setName, key) {
+      var A = (window.FB && FB.command && FB.command.ALIASES) || {};
+      for (var name in A) {
+        var a = A[name];
+        if (a && a.pageVerb && a.pageVerb === key && a.scope === setName) return true;
+      }
+      return false;
     }
 
     function _apiCommands() {
@@ -687,10 +737,9 @@
     function _match(q) {
       var recent = _recent();
       // Score and cap each scope independently, then concatenate in
-      // PAGE → NAV → API order (page verbs first, most contextually relevant).
+      // #149: PAGE → API order (nav rows dropped — moved to ? overlay).
       var groups = [
         { items: _pageVerbs(), scope: 'page' },
-        { items: _routeCommands(), scope: 'nav' },
         { items: _apiCommands(), scope: 'api' }
       ];
       var result = [];

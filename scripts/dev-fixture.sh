@@ -67,7 +67,7 @@ cat > "$SEED_DIR/01-company.json" <<'JSON'
 JSON
 
 cat > "$SEED_DIR/02-vendor.json" <<'JSON'
-{"action":"vendor.upsert","companyId":"verify","vendor":{"vendor_id":"v1","name":"future","default_currency":"USD"}}
+{"action":"partner.upsert","companyId":"verify","partner":{"partner_id":"v1","name":"future","default_currency":"USD"}}
 JSON
 
 cat > "$SEED_DIR/03-bill-b1.json" <<'JSON'

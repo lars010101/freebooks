@@ -7,7 +7,7 @@
  * audited); these are pure reads (role viewer, no audit, no idempotency).
  *
  * Rationale: pages previously assembled view models client-side — bills page
- * fanned out to vendor.list + bill.list + bill.lines per unfold; bank page to
+ * fanned out to partner.list + bill.list + bill.lines per unfold; bank page to
  * accounts + journals + reconciliation + balances. Server-side joins kill the
  * N+1 HTTP round-trips and give derived data a home. Reuses the exact list
  * logic from the command modules (exported for this purpose) so read models

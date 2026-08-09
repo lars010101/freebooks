@@ -13,19 +13,7 @@ const { query, exec, bulkInsert } = require('./db');
 const { emitEvent } = require('./events');
 const { normalizeDescription } = require('./mapping-utils');
 
-// ── Body-key backward compatibility for vendor.* → partner.* alias ─────────
-// When the ACTION_ALIASES map resolves an old action name (e.g. vendor.upsert →
-// partner.upsert), the body keys still carry the old names. Remap them here so
-// callers using old action names with old body keys work transparently.
-function remapLegacyVendorBody(ctx) {
-  if (!ctx.body) return;
-  if (ctx.body.vendor && !ctx.body.partner) ctx.body.partner = ctx.body.vendor;
-  if (ctx.body.vendors && !ctx.body.partners) ctx.body.partners = ctx.body.vendors;
-  if (ctx.body.vendorId && !ctx.body.partnerId) ctx.body.partnerId = ctx.body.vendorId;
-}
-
 async function handlePartners(ctx, action) {
-  remapLegacyVendorBody(ctx);
   switch (action) {
     case 'partner.list':              return listPartners(ctx);
     case 'partner.save':              return savePartners(ctx);

@@ -625,7 +625,16 @@ const ACTIONS = {
   },
   'company.attr.save': {
     role: 'owner', mutating: true,
-    description: 'Write ONE company attribute (server-authoritative validation). key ∈ company_name|currency|jurisdiction|tax_id|reporting_standard|vat_registered|multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct|contact_<pack-declared contact attribute>.',
+    description: 'Write ONE company attribute (server-authoritative validation). key ∈ company_name|currency|jurisdiction|tax_id|reporting_standard|vat_registered|contact_<pack-declared contact attribute>.',
+    params: { key: { type: 'string', required: true }, value: { required: true } },
+  },
+  'posting_rules.attr.list': {
+    role: 'viewer', mutating: false,
+    description: 'List posting-rules attribute rows for the Posting Rules settings grid (Multi-Currency, FX Provider, FX API Key, VAT Tolerance flat/%). Server-side registry: labels, display strings, per-row editor shapes.',
+  },
+  'posting_rules.attr.save': {
+    role: 'owner', mutating: true,
+    description: 'Write ONE posting-rules attribute (server-authoritative validation). key ∈ multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct.',
     params: { key: { type: 'string', required: true }, value: { required: true } },
   },
   'ai.attr.list': {

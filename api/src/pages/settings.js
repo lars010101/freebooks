@@ -75,6 +75,7 @@ ${commonStyle()}
 
   <div class="tabs">
     <div class="tab active" onclick="showTab('company')">Company<span id="tab-dot-company" style="display:none;color:#d97706"> ●</span></div>
+    <div class="tab" onclick="showTab('postrules')">Posting Rules<span id="tab-dot-postrules" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('coa')">Chart of Accounts<span id="tab-dot-coa" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:#d97706"> ●</span></div>
@@ -115,6 +116,16 @@ ${commonStyle()}
         <button type="button" class="btn-sm danger" id="cr-delete-btn" onclick="companyDanger.confirmDelete()">Delete this company</button>
       </div>
     </div>
+  </div>
+
+  <!-- POSTING RULES TAB — fields that govern automatic calculation during posting:
+       FX conversion rate sourcing and VAT match tolerance. Split from Company
+       (settings-ux-spec: Company tab is entity-only; posting rules are separate). -->
+  <div id="tab-postrules" class="tab-panel">
+    <table class="edit-table" id="postrules-attrs-table">
+      <thead><tr><th>Attribute</th><th>Value</th><th>Type</th><th></th></tr></thead>
+      <tbody id="postrules-attrs-body"></tbody>
+    </table>
   </div>
 
   <!-- COA TAB -->
@@ -187,10 +198,10 @@ function resetDirty(tab) {
 }
 
 // settings-ux-spec §7 item 9 + fx-automation-spec §1: relevance flags gate
-// whole Settings tabs. vat_registered=false hides Tax Codes (and with it the
-// VAT Tolerance panel); fx_tracking='off' hides Exchange Rates. Tabs stay in
-// the DOM (display:none) so showTab's index math is unaffected; h/l skips them
-// via common.js. If the active tab becomes hidden, fall back to Company.
+// whole Settings tabs. vat_registered=false hides Tax Codes; fx_tracking='off'
+// hides Exchange Rates. Tabs stay in the DOM (display:none) so showTab's index
+// math is unaffected; h/l skips them via common.js. If the active tab becomes
+// hidden, fall back to Company.
 function applyRelevanceFlags(c) {
   var vatOn = !c || c.vat_registered !== false; // default: show while unknown
   var fxOn = !c || c.fx_tracking !== 'off';
@@ -225,7 +236,7 @@ function showTab(t) {
       resetDirty(curTab);
     }
   }
-  var tabs = ['company','coa','vat','journals','fxrates','ai'];
+  var tabs = ['company','postrules','coa','vat','journals','fxrates','ai'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
@@ -234,6 +245,7 @@ function showTab(t) {
   var hintEl = document.getElementById('sb-hints');
   if (hintEl) {
     if (t === 'company') renderCompanyHints();
+    else if (t === 'postrules') renderPostRulesHints();
     else if (t === 'coa') renderCoaHints();
     else if (t === 'vat') renderVatHints();
     else if (t === 'journals') renderJournalHints();
@@ -244,6 +256,7 @@ function showTab(t) {
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
     if (t === 'company')  { loadCompanyAttrs(); }
+    if (t === 'postrules') { loadPostRulesAttrs(); }
     if (t === 'coa')      { loadCoa(); }
     if (t === 'vat')      { loadVat(); }
     if (t === 'journals') { loadJournals(); }
@@ -341,8 +354,7 @@ var companyAttrs = FB.list.create({
     rows.forEach(function(r) { byKey[r._key] = r; });
     window._companyCurrency = byKey.currency ? byKey.currency.value : '';
     applyRelevanceFlags({
-      vat_registered: byKey.vat_registered ? !!byKey.vat_registered.value : true,
-      fx_tracking: (byKey.multi_currency && byKey.multi_currency.value === false) ? 'off' : 'auto'
+      vat_registered: byKey.vat_registered ? !!byKey.vat_registered.value : true
     });
     if (byKey.jurisdiction && byKey.jurisdiction.value) {
       var vn = VAT_NAMES[byKey.jurisdiction.value] || 'Tax';
@@ -729,6 +741,76 @@ window.onbeforeunload = function(e) {
 };
 
 
+// ========== POSTING RULES TAB — FB.list ==========
+// Split from Company (settings-ux-spec): Multi-Currency, FX Provider, FX API
+// Key, VAT Tolerance (flat/%) — fields that govern automatic calculation
+// during posting. Same FB.list pattern as Company/AI tabs. Each row edits
+// and saves independently via posting_rules.attr.save (server-authoritative).
+var postRulesAttrs = FB.list.create({
+  keysId: 'settings-postrules',
+  active: function() { var p = document.getElementById('tab-postrules'); return !!(p && p.classList.contains('active')); },
+  tbody: 'postrules-attrs-body',
+  companyId: function() { return COMPANY; },
+  canAdd: false,
+  hint: 'Fixed rows — posting rules that govern FX conversion and VAT tolerance during posting. Only the Value cell edits (i); w writes one attribute, u reverts, Esc cancels. Validation happens on the server at write time. FX API Key: a blank edit keeps the stored key.',
+  columns: [
+    { field: 'label', type: 'text', width: 190, ro: 'always', label: 'Attribute',
+      display: function(v) { return '<span style="font-weight:600">' + esc(v) + '</span>'; } },
+    { field: 'value', type: 'text', width: 300, label: 'Value',
+      display: function(v, d) {
+        if (!d._dirty) return esc(d.display != null ? String(d.display) : '');
+        var ed = d.editor || {};
+        if (ed.type === 'checkbox') return v ? 'Yes' : 'No';
+        if (ed.type === 'select') {
+          var opts = ed.options || [];
+          for (var i = 0; i < opts.length; i++) {
+            var o = opts[i], ov = (typeof o === 'string') ? o : o.value;
+            if (ov === v) return esc((typeof o === 'string') ? (o || '- none -') : o.label);
+          }
+          return esc(String(v));
+        }
+        if (ed.type === 'number') {
+          return d._key === 'vat_tolerance_pct' ? esc(Number(v).toFixed(2) + '%') : esc(String(Number(v)));
+        }
+        return (v !== '' && v != null) ? esc(String(v)) : '<span class="pe-ro">—</span>';
+      },
+      editor: function(d) { return d.editor || { type: 'text' }; } },
+    { field: 'type_label', type: 'text', width: 70, ro: 'always', label: 'Type', filterType: null,
+      display: function(v) { return '<span class="pe-ro">' + esc(v) + '</span>'; } }
+  ],
+  editable: function(d) { return !d.readonly; },
+  same: function(b, s) { return b.value === s.value; },
+  validate: function() { return null; },
+  firstField: function() { return 'value'; },
+  track: 'postrules-attr',
+  list: { action: 'posting_rules.attr.list',
+    map: function(r) { return { label: r.label, value: r.value, display: r.display, type_label: r.type, editor: r.editor, readonly: !!r.readonly, _key: r.key }; } },
+  save: { action: 'posting_rules.attr.save',
+    body: function(d) { return { key: d._key, value: d.value }; },
+    focusKey: function(d) { return d._key; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-postrules');
+    if (dot) dot.style.display = dirty ? '' : 'none';
+    if (dirty) markDirty('postrules'); else resetDirty('postrules');
+  },
+  onLoaded: function(rows) {
+    // Relevance flag: Exchange Rates tab visibility depends on multi_currency.
+    // This tab is eager-loaded alongside Company, so the flag resolves before
+    // any tab renders. The Company tab still drives vat_registered → Tax Codes.
+    var byKey = {};
+    rows.forEach(function(r) { byKey[r._key] = r; });
+    applyRelevanceFlags({
+      fx_tracking: (byKey.multi_currency && byKey.multi_currency.value === false) ? 'off' : 'auto'
+    });
+  }
+});
+
+function loadPostRulesAttrs(focusKey) { return postRulesAttrs.load(focusKey); }
+function renderPostRulesHints() {
+  var el = document.getElementById('sb-hints');
+  if (el) postRulesAttrs.renderHints(el);
+}
+
 // ========== AI TAB — FB.list (settings-ai-flattened-spec.md) =========
 // Flattened from grouped sections into a single Attribute/Value/Type grid,
 // mirroring the Company tab pattern. Each row edits and saves independently
@@ -783,11 +865,15 @@ function renderAiHints() {
   var params = new URLSearchParams(window.location.search);
   var tab = params.get('tab');
   loadCurrencyList();
-  // Load the attribute grid EAGERLY even when ?tab= deep-links elsewhere:
-  // relevance flags (VAT tab / Exchange Rates tab visibility) are derived from
-  // its rows, so they must resolve before any tab renders.
+  // Load the Company AND Posting Rules attribute grids EAGERLY even when
+  // ?tab= deep-links elsewhere: relevance flags (VAT tab visibility from
+  // Company's vat_registered; Exchange Rates tab visibility from Posting
+  // Rules' multi_currency) are derived from their rows, so both must resolve
+  // before any tab renders.
   tabLoaded['company'] = true;
   loadCompanyAttrs();
+  tabLoaded['postrules'] = true;
+  loadPostRulesAttrs();
   showTab(tab || 'company');
 })();
 </script>

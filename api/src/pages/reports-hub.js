@@ -151,7 +151,83 @@ ${layoutEnd()}
       }
       // Drill-through (?t=) is explicit navigation intent — load immediately;
       // plain visits stay manual (user picks params, report fires on interaction)
-      if (drillThrough) fbLoadReport();
+      // ?period= shorthand: resolve against loaded periods and load if matched
+      var periodParam = urlParams.get('period') || '';
+      var periodLoaded = false;
+      if (periodParam && periods.length) {
+        var tok = periodParam.trim().toLowerCase();
+        var matchedPeriod = null;
+        var setAndLoad = function (p) {
+          var s = fmtDate(p.start_date), e = fmtDate(p.end_date);
+          for (var k = 0; k < periodEl.options.length; k++) {
+            if (periodEl.options[k].value === s + '|' + e) { periodEl.selectedIndex = k; break; }
+          }
+          document.getElementById('rpt-start').value = s;
+          document.getElementById('rpt-end').value = e;
+          localStorage.setItem('fb-rpt-period', s + '|' + e);
+          localStorage.setItem('fb-rpt-start', s);
+          localStorage.setItem('fb-rpt-end', e);
+          fbLoadReport();
+        };
+        // 1. exact period_name match (case-insensitive)
+        for (var pi = 0; pi < periods.length; pi++) {
+          if ((periods[pi].period_name || '').toLowerCase() === tok) { matchedPeriod = periods[pi]; break; }
+        }
+        // 2. quarter shorthand q1-q4
+        if (!matchedPeriod && /^q[1-4]$/.test(tok)) {
+          for (var pi2 = 0; pi2 < periods.length; pi2++) {
+            var pn = (periods[pi2].period_name || '').toLowerCase();
+            if (pn.indexOf(tok) !== -1) { matchedPeriod = periods[pi2]; break; }
+          }
+          if (!matchedPeriod) {
+            var qn = parseInt(tok.slice(1), 10);
+            var qStart = [0, 3, 6, 9][qn - 1];
+            var qEnd = qStart + 2;
+            var year = periods.length ? String(periods[0].start_date).slice(0, 4) : String(new Date().getFullYear());
+            for (var pi3 = 0; pi3 < periods.length; pi3++) {
+              var ps = String(periods[pi3].start_date).slice(0, 10);
+              var pe = String(periods[pi3].end_date).slice(0, 10);
+              var psm = parseInt(ps.slice(5, 7), 10);
+              var pem = parseInt(pe.slice(5, 7), 10);
+              if (ps.slice(0, 4) === year && psm >= qStart + 1 && pem <= qEnd + 1) { matchedPeriod = periods[pi3]; break; }
+            }
+          }
+        }
+        // 3. half-year shorthand h1/h2
+        if (!matchedPeriod && /^h[12]$/.test(tok)) {
+          var half = parseInt(tok.slice(1), 10);
+          var yearH = periods.length ? String(periods[0].start_date).slice(0, 4) : String(new Date().getFullYear());
+          for (var pi4 = 0; pi4 < periods.length; pi4++) {
+            var hs = String(periods[pi4].start_date).slice(0, 10);
+            var he = String(periods[pi4].end_date).slice(0, 10);
+            var hsm = parseInt(hs.slice(5, 7), 10);
+            var hem = parseInt(he.slice(5, 7), 10);
+            if (hs.slice(0, 4) === yearH && half === 1 && hsm >= 1 && hem <= 6) { matchedPeriod = periods[pi4]; break; }
+            if (hs.slice(0, 4) === yearH && half === 2 && hsm >= 7 && hem <= 12) { matchedPeriod = periods[pi4]; break; }
+          }
+        }
+        // 4. ytd — full range of all periods
+        if (!matchedPeriod && tok === 'ytd') {
+          var earliest = periods[0], latest = periods[0];
+          for (var pi5 = 0; pi5 < periods.length; pi5++) {
+            if (String(periods[pi5].start_date) < String(earliest.start_date)) earliest = periods[pi5];
+            if (String(periods[pi5].end_date) > String(latest.end_date)) latest = periods[pi5];
+          }
+          var sY = fmtDate(earliest.start_date), eY = fmtDate(latest.end_date);
+          periodEl.value = 'custom';
+          document.getElementById('rpt-start').value = sY;
+          document.getElementById('rpt-end').value = eY;
+          localStorage.setItem('fb-rpt-period', 'custom');
+          localStorage.setItem('fb-rpt-start', sY);
+          localStorage.setItem('fb-rpt-end', eY);
+          periodLoaded = true;
+          fbLoadReport();
+        } else if (matchedPeriod) {
+          periodLoaded = true;
+          setAndLoad(matchedPeriod);
+        }
+      }
+      if (drillThrough && !periodLoaded) fbLoadReport();
     })
     .catch(function() {
       if (savedStart && savedEnd) {

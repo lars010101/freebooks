@@ -26,12 +26,6 @@
       bang: true,
       parse: parsePost
     },
-    'je': {
-      action: 'journal.post',
-      grammar: '(no args — opens blank journal form)',
-      bang: false,
-      parse: function () { return { route: '/journal/new', commitMode: 'form' }; }
-    },
     'bill': {
       action: 'bill.draft.save',
       grammar: '<partner> <amount> [due <date>] [vat <amt>|net <amt>|rc]',
@@ -78,6 +72,13 @@
       grammar: '<target>',
       bang: false
       // No parse function — :show is a browse command; use the dropdown.
+      // itemSource is wired by the palette module (fb-core.js) at runtime.
+    },
+    'new': {
+      action: null,
+      grammar: '<target>',
+      bang: false
+      // No parse function — :new is a browse command; use the dropdown.
       // itemSource is wired by the palette module (fb-core.js) at runtime.
     },
     'report': {

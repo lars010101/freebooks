@@ -52,6 +52,13 @@ const ACTIONS = {
     description: 'Bulk-import journal entries (all-or-nothing). Entries carrying a reference keep it (source-system voucher identity preserved); entries without any reference get a sequential one minted (entry.journalId, else MISC).',
     params: { entries: { type: 'array', required: true } },
   },
+  // opening-balance-flattened-spec: dedicated POST for opening balances.
+  // Stamps the reserved OPEN journal + period onto every line; not auto-seeded.
+  'openingBalance.post': {
+    role: 'data_entry', mutating: true, idempotent: true,
+    description: 'Post opening-balance lines under the reserved OPEN journal and OPEN period. Validates both exist (and the period is unlocked), freezes the OPEN date onto every line, and stamps journal_id. Used during one-time migration only.',
+    params: { lines: { type: 'array', required: true } },
+  },
   'sie.import': {
     role: 'data_entry', mutating: true, idempotent: true,
     description: 'Import SIE file (types 1-4): chart of accounts, opening balances, vouchers. dryRun default true.',

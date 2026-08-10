@@ -1,6 +1,14 @@
 'use strict';
 const { commonStyle, navBar, layoutEnd } = require('./common');
 
+// opening-balance-flattened-spec: standalone migration-only page.
+// No page-level Date/Journal/Description inputs — those are hardcoded to the
+// reserved OPEN journal + OPEN period and derived at POST time. The grid is a
+// bulk-fill form (Account read-only, Debit/Credit editable). Description is
+// dropped (implicit). A simple search replaces the old filter-button bar.
+// POST goes through openingBalance.post, which validates the OPEN journal +
+// period exist and stamps journal_id onto every row.
+
 async function handleOpeningBalancesPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -15,21 +23,15 @@ function buildOpeningBalancesPage(company) {
 <title>Opening Balances — freeBooks</title>
 ${commonStyle()}
 <style>
-  .ob-header-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px 24px; max-width:700px; margin-bottom:20px; }
-  .ob-field { display:flex; flex-direction:column; gap:4px; }
-  .ob-field label { font-weight:600; font-size:10pt; color:#555; }
-  .ob-field input, .ob-field select { padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; }
-  .ob-field input:focus, .ob-field select:focus { outline:none; border-color:#888; }
-  .filter-btns { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center; }
-  .filter-btns button { padding:5px 14px; border:1px solid #ccc; border-radius:4px; font-size:10pt; cursor:pointer; background:#f5f5f5; }
-  .filter-btns button.active { background:var(--toggle-on,#f59e0b); color:var(--toggle-on-text,#1a1a1a); border-color:var(--toggle-on-border,#d97706); }
-  .filter-btns button:hover:not(.active) { background:#eee; }
   table.ob-table { width:100%; border-collapse:collapse; font-size:10pt; }
   table.ob-table th { text-align:left; font-size:9pt; color:#555; text-transform:uppercase; border-bottom:2px solid #ccc; padding:6px 8px; }
   table.ob-table td { padding:4px 6px; border-bottom:1px solid #f0f0f0; }
   table.ob-table tr:hover td { background:#fafafa; }
   table.ob-table input[type=number] { width:110px; padding:4px 7px; border:1px solid #ddd; border-radius:3px; font-size:10pt; text-align:right; }
   table.ob-table input[type=number]:focus { outline:none; border-color:#888; }
+  .ob-search-row { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .ob-search-row input { padding:5px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; width:240px; }
+  .ob-journal-pill { font-size:9pt; color:#555; background:#f0f4ff; border:1px solid #2255cc; border-radius:3px; padding:2px 8px; font-weight:600; }
   .ob-totals { display:flex; gap:24px; align-items:center; margin-top:14px; padding:12px 16px;
     background:#f8f8f8; border-radius:6px; font-size:10pt; flex-wrap:wrap; }
   .ob-totals .tot-item { display:flex; flex-direction:column; gap:2px; }
@@ -57,7 +59,7 @@ ${commonStyle()}
   </div>
 
   <div class="info-box">
-    Enter debit/credit amounts for each account as of your opening date. The journal must balance (Total DR = Total CR) before posting. Leave amount blank or zero to skip an account.
+    Enter debit/credit amounts for each account as of your opening date. Lines post under the reserved <strong>OPEN</strong> journal and <strong>OPEN</strong> period (create both first via Settings → Journals and Periods). The batch must balance (Total DR = Total CR) before posting. Leave amount blank or zero to skip an account.
   </div>
 
   <div id="success-panel" style="display:none" class="success-box">
@@ -70,28 +72,9 @@ ${commonStyle()}
   </div>
 
   <div id="ob-form">
-    <div class="ob-header-grid">
-      <div class="ob-field">
-        <label>As of Date *</label>
-        <input type="date" id="ob-date">
-      </div>
-      <div class="ob-field">
-        <label>Journal</label>
-        <select id="ob-journal"></select>
-      </div>
-      <div class="ob-field">
-        <label>Description</label>
-        <input type="text" id="ob-desc" value="Opening balances">
-      </div>
-    </div>
-
-    <div class="filter-btns">
-      <span style="font-weight:600;font-size:10pt;color:#555;margin-right:4px">Show:</span>
-      <button id="btn-filter-bs" class="active" onclick="toggleFilter('bs')" aria-pressed="true">Balance Sheet</button>
-      <button id="btn-filter-pl" onclick="toggleFilter('pl')" aria-pressed="false">P&amp;L</button>
-      <button id="btn-filter-nonzero" onclick="toggleFilter('nz')" aria-pressed="false">Non-Zero Only</button>
-      <input type="text" id="acct-search" placeholder="Search account…" style="padding:5px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt;width:200px"
-        oninput="renderTable()">
+    <div class="ob-search-row">
+      <input type="text" id="acct-search" placeholder="Search account…" oninput="renderTable()">
+      <span class="ob-journal-pill">Journal: OPEN</span>
     </div>
 
     <table class="ob-table">
@@ -133,23 +116,10 @@ ${commonStyle()}
 <script>
   var COMPANY = '${company}';
   var accountsList = [];
-  var journalsList = [];
   var drVals = {};
   var crVals = {};
-  // Independent toggle filters (magnus 2026-07-28): BS and P&L are separate
-  // on/off buttons — both on = all accounts ("All" button redundant), both
-  // off = empty grid (strict checkbox semantics, no magic case). nz ANDs.
-  var filtState = { bs: true, pl: false, nz: false };
 
-  var BS_TYPES = ['Asset', 'Liability', 'Equity'];
-  // P&L view (magnus K1 review 2026-07-28): mid-year migration needs YTD
-  // income/expense openings for correct full-year P&L (QBO/Xero pattern).
-  var PL_TYPES = ['Revenue', 'Income', 'Expense', 'Cost of Goods Sold', 'Other Income', 'Other Expense'];
-
-  // Set default date to today
-  document.getElementById('ob-date').value = new Date().toISOString().slice(0,10);
-
-  // Load accounts
+  // Load accounts (all active — no BS/PL filter buttons per spec).
   fetch('/api/' + COMPANY + '/accounts')
     .then(function(r){ return r.json(); })
     .then(function(rows){
@@ -157,66 +127,20 @@ ${commonStyle()}
       renderTable();
     });
 
-  // Load journals
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'journals.list', companyId: COMPANY }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      journalsList = res.data || res || [];
-      var sel = document.getElementById('ob-journal');
-      sel.innerHTML = '';
-      journalsList.filter(function(j){ return j.active !== false; }).forEach(function(j){
-        var opt = document.createElement('option');
-        opt.value = j.journal_id;
-        opt.textContent = j.code + ' — ' + j.name;
-        if (j.code === 'MISC') opt.selected = true;
-        sel.appendChild(opt);
-      });
-    }).catch(function(){});
-
-  function toggleFilter(k) {
-    filtState[k] = !filtState[k];
-    var ids = { bs: 'btn-filter-bs', pl: 'btn-filter-pl', nz: 'btn-filter-nonzero' };
-    Object.keys(ids).forEach(function(x){
-      var btn = document.getElementById(ids[x]);
-      if (btn) {
-        btn.className = filtState[x] ? 'active' : '';
-        btn.setAttribute('aria-pressed', filtState[x] ? 'true' : 'false');
-      }
-    });
-    renderTable();
-  }
-
   function renderTable() {
     var search = document.getElementById('acct-search').value.trim().toLowerCase();
     var rows = accountsList;
-
-    // Type filter: both on = all accounts (skip); both off = empty (strict).
-    if (!(filtState.bs && filtState.pl)) {
-      rows = rows.filter(function(a){
-        var isBS = BS_TYPES.indexOf(a.account_type) >= 0;
-        var isPL = PL_TYPES.indexOf(a.account_type) >= 0;
-        return (filtState.bs && isBS) || (filtState.pl && isPL);
-      });
-    }
-    if (filtState.nz) {
-      rows = rows.filter(function(a){
-        return (Number(drVals[a.account_code]||0) > 0) || (Number(crVals[a.account_code]||0) > 0);
-      });
-    }
-
     if (search) {
       rows = rows.filter(function(a){
         return a.account_code.toLowerCase().includes(search) || a.account_name.toLowerCase().includes(search);
       });
     }
-
     var tbody = document.getElementById('ob-tbody');
     if (!rows.length) {
       tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px">No accounts.</td></tr>';
+      updateTotals();
       return;
     }
-
     var html = '';
     rows.forEach(function(a){
       var typeColor = a.account_type === 'Asset' ? '#1a5276' :
@@ -269,8 +193,6 @@ ${commonStyle()}
   // esc now comes from fb-core.js (window.esc) — P1-3 shared core
 
   function collectLines() {
-    var date = document.getElementById('ob-date').value;
-    var desc = document.getElementById('ob-desc').value.trim() || 'Opening balances';
     var lines = [];
     accountsList.forEach(function(a){
       var dr = parseFloat(drVals[a.account_code] || 0);
@@ -278,32 +200,30 @@ ${commonStyle()}
       dr = isNaN(dr) ? 0 : dr;
       cr = isNaN(cr) ? 0 : cr;
       if (dr <= 0 && cr <= 0) return;
-      lines.push({ account_code: a.account_code, debit: dr, credit: cr, date: date, description: desc, source: 'manual' });
+      // date/description/source/journal are derived server-side by openingBalance.post
+      lines.push({ account_code: a.account_code, debit: dr, credit: cr });
     });
     return lines;
   }
 
   function postBalances() {
-    var date = document.getElementById('ob-date').value;
-    if (!date) { document.getElementById('post-status').textContent = 'Date is required.'; document.getElementById('post-status').style.color='#cc2222'; return; }
-    var journalId = document.getElementById('ob-journal').value;
     var lines = collectLines();
     if (!lines.length) { document.getElementById('post-status').textContent = 'No non-zero lines.'; return; }
 
     var btn = document.getElementById('btn-post');
     btn.disabled = true;
-    document.getElementById('post-status').textContent = 'Posting\u2026';
+    document.getElementById('post-status').textContent = 'Posting\\u2026';
     document.getElementById('post-status').style.color = '#555';
 
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'journal.post', companyId: COMPANY, journalId: journalId || undefined, lines: lines, source: 'manual' }) })
+      body: JSON.stringify({ action:'openingBalance.post', companyId: COMPANY, lines: lines }) })
       .then(function(r){ return r.json(); })
       .then(function(res){
         var d = res.data || res;
         var err = res.error || d.error || (d.errors && d.errors.join('; '));
         if (err) {
           btn.disabled = false;
-          document.getElementById('post-status').textContent = '\u2717 ' + err;
+          document.getElementById('post-status').textContent = '\\u2717 ' + err;
           document.getElementById('post-status').style.color = '#cc2222';
         } else {
           document.getElementById('ob-form').style.display = 'none';
@@ -313,26 +233,17 @@ ${commonStyle()}
       })
       .catch(function(e){
         btn.disabled = false;
-        document.getElementById('post-status').textContent = '\u2717 ' + e.message;
+        document.getElementById('post-status').textContent = '\\u2717 ' + e.message;
         document.getElementById('post-status').style.color = '#cc2222';
       });
   }
 
-  // ── FB.form (K3b, keyboard-ux-spec §8) — header → filter bar → the ──
-  // account grid. w = post (disabled-guard). The filter buttons are h/l-
-  // navigable cells of the filters row (standard cell cursor highlight);
-  // ~ toggles the FOCUSED button only — universal toggle verb = active
-  // cell's state, never a group cycle (magnus 2026-07-28).
+  // ── FB.form (K3b, keyboard-ux-spec §8) — search bar → account grid.
+  // w = post (disabled-guard). The page is a bulk-fill grid; no per-row CRUD.
   var obForm = FB.form.create({
     formId: 'opening-balances',
     zones: [
-      { id: 'header', rows: function () { return [document.querySelector('.ob-header-grid')]; } },
-      { id: 'filters', rows: function () { return [document.querySelector('.filter-btns')]; },
-        cells: function (rowEl) {
-          return ['btn-filter-bs', 'btn-filter-pl', 'btn-filter-nonzero', 'acct-search']
-            .map(function (id) { return document.getElementById(id); })
-            .filter(Boolean);
-        } },
+      { id: 'search', rows: function () { return [document.querySelector('.ob-search-row')]; } },
       { id: 'grid', rows: function () {
           return Array.prototype.slice.call(document.querySelectorAll('#ob-tbody tr'))
             .filter(function (tr) { return !!tr.querySelector('input'); });
@@ -349,20 +260,10 @@ ${commonStyle()}
         }
         postBalances();
       } }
-    },
-    extraBindings: function (api) {
-      return [
-        { key: '~', mode: 'NORMAL', hint: 'toggle filter', hintBar: true, run: function () {
-            var el = api.cellEl();
-            if (!el || el.tagName !== 'BUTTON') return; // toggle the focused control only
-            el.click();       // → toggleFilter → renderTable
-            api.refresh();    // re-clamp cursor: grid row count changed
-          } }
-      ];
     }
   });
   FB.keys.renderHints('opening-balances', document.getElementById('sb-hints'), { layout: 'list' });
-<\/script>
+<\\/script>
 ${layoutEnd()}
 </body>
 </html>`;

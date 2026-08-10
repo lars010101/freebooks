@@ -143,11 +143,44 @@ ${layoutEnd()}
         periodEl.value = 'custom'; matched = true;
       }
       if (!matched && periods.length) {
-        var p0 = periods[0];
-        var s0 = fmtDate(p0.start_date), e0 = fmtDate(p0.end_date);
-        document.getElementById('rpt-start').value = s0;
-        document.getElementById('rpt-end').value   = e0;
-        periodEl.value = s0 + '|' + e0;
+        // v7: Default to the period containing the most recent posted transaction.
+        // Fetch from the backend, then set it. Falls back to periods[0] if fetch fails.
+        fetch('/api/' + company + '/reports/default-period')
+          .then(function(r) { return r.json(); })
+          .then(function(res) {
+            if (res && res.period_id) {
+              // Find the period by period_id
+              for (var pi = 0; pi < periods.length; pi++) {
+                if (periods[pi].period_id === res.period_id) {
+                  var s = fmtDate(periods[pi].start_date), e = fmtDate(periods[pi].end_date);
+                  for (var k = 0; k < periodEl.options.length; k++) {
+                    if (periodEl.options[k].value === s + '|' + e) { periodEl.selectedIndex = k; break; }
+                  }
+                  document.getElementById('rpt-start').value = s;
+                  document.getElementById('rpt-end').value = e;
+                  localStorage.setItem('fb-rpt-period', s + '|' + e);
+                  if (drillThrough) fbLoadReport();
+                  return;
+                }
+              }
+            }
+            // Fallback: use periods[0] (latest by start_date)
+            var p0 = periods[0];
+            var s0 = fmtDate(p0.start_date), e0 = fmtDate(p0.end_date);
+            document.getElementById('rpt-start').value = s0;
+            document.getElementById('rpt-end').value = e0;
+            periodEl.value = s0 + '|' + e0;
+            if (drillThrough) fbLoadReport();
+          })
+          .catch(function() {
+            // Fallback: use periods[0]
+            var p0 = periods[0];
+            var s0 = fmtDate(p0.start_date), e0 = fmtDate(p0.end_date);
+            document.getElementById('rpt-start').value = s0;
+            document.getElementById('rpt-end').value = e0;
+            periodEl.value = s0 + '|' + e0;
+            if (drillThrough) fbLoadReport();
+          });
       }
       // Drill-through (?t=) is explicit navigation intent — load immediately;
       // plain visits stay manual (user picks params, report fires on interaction)

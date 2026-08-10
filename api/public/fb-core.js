@@ -543,7 +543,23 @@
       if (_ghostEl) return;
       _ghostEl = document.createElement('div');
       _ghostEl.className = 'fb-ghost-hint';
+      // Position relative to the input, not the wrapper — we need to match
+      // the input's exact position so the ghost text starts at the cursor.
+      var inputStyle = window.getComputedStyle(_input);
+      _ghostEl.style.font = inputStyle.font;
+      _ghostEl.style.padding = inputStyle.padding;
+      _ghostEl.style.border = inputStyle.border;
+      _ghostEl.style.letterSpacing = inputStyle.letterSpacing;
+      // Position the ghost at the input's exact location
+      var rect = _input.getBoundingClientRect();
       var wrap = _input.closest('.tb-search-wrap') || _input.parentElement;
+      if (wrap) {
+        var wrapRect = wrap.getBoundingClientRect();
+        _ghostEl.style.top = (rect.top - wrapRect.top) + 'px';
+        _ghostEl.style.left = (rect.left - wrapRect.left) + 'px';
+        _ghostEl.style.width = rect.width + 'px';
+        _ghostEl.style.height = rect.height + 'px';
+      }
       if (wrap) wrap.appendChild(_ghostEl);
     }
     function _removeGhost() {
@@ -552,10 +568,6 @@
     function _updateGhost() {
       if (!_currentHint || !_engagedAlias) { _removeGhost(); return; }
       _ensureGhost();
-      // The ghost text shows the remaining hint AFTER what's typed.
-      // We use a transparent span for the typed portion so the ghost text
-      // (in grey) appears after the cursor position, not overlapping the
-      // actual input text.
       var typed = _input ? _input.value : '';
       var fullText = ':' + _engagedAlias + ' ' + _currentHint;
       var typedLower = typed.toLowerCase();
@@ -566,10 +578,12 @@
       } else {
         ghost = _currentHint;
       }
-      // Prepend invisible spacing matching the typed text width so the
-      // ghost text appears after the input text, not at position 0.
-      _ghostEl.innerHTML = '<span style="visibility:hidden">' + esc(typed) + '</span>' +
-        '<span style="color:var(--text-muted);opacity:0.4">' + esc(ghost) + '</span>';
+      // Build the ghost: invisible text matching the input content (same width)
+      // followed by the grey ghost text. Both use the same font metrics as
+      // the input (set in _ensureGhost) so alignment is exact.
+      _ghostEl.innerHTML =
+        '<span style="visibility:hidden">' + esc(typed) + '</span>' +
+        '<span style="color:var(--text-muted);opacity:0.45">' + esc(ghost) + '</span>';
     }
 
     function _renderItems(items) {
@@ -915,10 +929,11 @@
           if (meta.route.indexOf('/setup') === 0) return; // exclude setup
           if (meta.label && /^close /i.test(meta.label)) return; // exclude "Close period"
           var lbl = meta.label || name;
+          var page = _pageLabelFor(meta.route);
           out.push({
             id: 'nav:' + name,
             label: lbl,
-            pageLabel: _pageLabelFor(meta.route),
+            group: page || 'Other',
             route: meta.route,
             scope: 'nav',
             exec: function () {
@@ -934,10 +949,15 @@
         seen[c.route] = true;
         return true;
       });
+      // Sort by group, then by label
+      out.sort(function (a, b) {
+        if (a.group !== b.group) return a.group < b.group ? -1 : 1;
+        return a.label < b.label ? -1 : 1;
+      });
       if (partial) {
         out = out.filter(function (c) {
           return c.label.toLowerCase().indexOf(partial.toLowerCase()) !== -1 ||
-                 (c.pageLabel && c.pageLabel.toLowerCase().indexOf(partial.toLowerCase()) !== -1);
+                 (c.group && c.group.toLowerCase().indexOf(partial.toLowerCase()) !== -1);
         });
       }
       return out;
@@ -1194,15 +1214,31 @@
         _el.innerHTML = '<div class="fb-palette-empty">no matching commands</div>';
         return;
       }
-      // v7: flat list — no section headers. Show pageLabel as muted right-side text.
+      // v7: If items have a `group` property, render grouped with headers.
+      // Otherwise flat list.
+      var hasGroups = _items.some(function (c) { return c.group; });
       var html = '';
-      _items.forEach(function (c, i) {
-        html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
-          '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
-          (c.pageLabel ? '<span class="fb-palette-page">' + esc(c.pageLabel) + '</span>' : '') +
-          (c.key ? '<kbd>' + esc(c.key) + '</kbd>' : '') +
-        '</div>';
-      });
+      if (hasGroups) {
+        var lastGroup = null;
+        _items.forEach(function (c, i) {
+          if (c.group !== lastGroup) {
+            html += '<div class="fb-palette-group">' + esc(c.group) + '</div>';
+            lastGroup = c.group;
+          }
+          html += '<div class="fb-palette-row fb-palette-indented' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
+            '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
+            (c.key ? '<kbd>' + esc(c.key) + '</kbd>' : '') +
+          '</div>';
+        });
+      } else {
+        _items.forEach(function (c, i) {
+          html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
+            '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
+            (c.pageLabel ? '<span class="fb-palette-page">' + esc(c.pageLabel) + '</span>' : '') +
+            (c.key ? '<kbd>' + esc(c.key) + '</kbd>' : '') +
+          '</div>';
+        });
+      }
       _el.innerHTML = html;
       Array.prototype.forEach.call(_el.querySelectorAll('.fb-palette-row'), function (row) {
         row.onmousedown = function (e) { e.preventDefault(); };

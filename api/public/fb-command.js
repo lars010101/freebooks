@@ -79,12 +79,6 @@
       bang: false,
       structured: true
     },
-    'report': {
-      action: null,
-      grammar: '(navigates to Reports hub)',
-      bang: false,
-      parse: function () { return { route: '/reports', commitMode: 'navigate' }; }
-    },
     'rate': {
       action: 'fx.rates.save',
       grammar: '<currency> <rate> [on <date>]',

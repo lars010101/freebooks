@@ -542,10 +542,12 @@
     // navigate-only items from catalog + reports registry, grouped by route
     // prefix. Live-filterable as more is typed after ":show ".
     var _browseActive = false;
+    var _browsePeriod = null;
 
     function _showStructuredBrowse() {
       _hideGrammarHint();
       _browseActive = true;
+      _browsePeriod = null;
       if (!_el && _command) _open();
       _items = _navigateTargets();
       _items.sort(function (a, b) {
@@ -563,12 +565,7 @@
         return;
       }
       var html = '';
-      var lastGroup = null;
       _items.forEach(function (c, i) {
-        if (c.group !== lastGroup) {
-          html += '<div class="fb-palette-header">' + esc(c.group) + '</div>';
-          lastGroup = c.group;
-        }
         html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
           '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
           '<span class="fb-palette-scope">' + esc(c.group) + '</span>' +
@@ -586,11 +583,21 @@
 
     function _filterBrowse(q) {
       q = q.trim().toLowerCase();
-      if (!q) {
+      var filterTok = '', periodTok = '';
+      if (q) {
+        var parts = q.split(/\s+/);
+        filterTok = parts[0] || '';
+        periodTok = parts[1] || '';
+      }
+      _browsePeriod = periodTok || null;
+      if (!filterTok) {
         _items = _navigateTargets();
       } else {
         _items = _navigateTargets().filter(function (c) {
-          return c.label.toLowerCase().indexOf(q) !== -1 || c.group.toLowerCase().indexOf(q) !== -1;
+          var idStr = (c.id || '').toLowerCase();
+          return c.label.toLowerCase().indexOf(filterTok) !== -1 ||
+                 c.group.toLowerCase().indexOf(filterTok) !== -1 ||
+                 idStr.indexOf(filterTok) !== -1;
         });
       }
       _items.sort(function (a, b) {
@@ -837,12 +844,19 @@
         Object.keys(_catalog).forEach(function (name) {
           var meta = _catalog[name] || {};
           if (meta.palette !== 'navigate' || !meta.route) return;
+          var lbl = meta.label || name;
+          var rt = meta.route || '';
+          if (rt.indexOf('new=1') !== -1) return;
+          if (/^new /i.test(lbl)) return;
+          if (/^add /i.test(lbl)) return;
+          if (/^close /i.test(lbl)) return;
+          if (/^refresh /i.test(lbl)) return;
           out.push({
             id: 'nav:' + name,
-            label: meta.label || name,
-            route: meta.route,
+            label: lbl,
+            route: rt,
             absolute: !!meta.absolute,
-            group: _groupFor(meta.route),
+            group: _groupFor(rt),
             scope: 'nav',
             exec: function () {
               if (meta.absolute) window.location.href = meta.route;
@@ -863,7 +877,11 @@
           label: r.label,
           group: 'Reports',
           scope: 'nav',
-          exec: function () { window.fbNavigate('/' + _company() + '/reports?t=' + r.id); }
+          exec: function () {
+            var url = '/' + _company() + '/reports?t=' + r.id;
+            if (_browsePeriod) url += '&period=' + encodeURIComponent(_browsePeriod);
+            window.fbNavigate(url);
+          }
         });
       });
       return out;
@@ -1048,6 +1066,7 @@
     function _exitCommand() {
       _command = false;
       _browseActive = false;
+      _browsePeriod = null;
       _close();
       _hideGrammarHint();
       if (_input) { _input.value = ''; _input.blur(); }

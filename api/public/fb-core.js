@@ -552,26 +552,24 @@
     function _updateGhost() {
       if (!_currentHint || !_engagedAlias) { _removeGhost(); return; }
       _ensureGhost();
-      // Build the full text the input *would* show if the alias were complete:
-      // :alias grammar-hint. Then prepend invisible spacing matching what's
-      // already typed so the ghost text appears after the cursor position.
+      // The ghost text shows the remaining hint AFTER what's typed.
+      // We use a transparent span for the typed portion so the ghost text
+      // (in grey) appears after the cursor position, not overlapping the
+      // actual input text.
       var typed = _input ? _input.value : '';
-      // What the full command looks like: :alias <grammar>
       var fullText = ':' + _engagedAlias + ' ' + _currentHint;
-      // The ghost shows the portion of fullText after what's already typed.
-      // If the user typed ":s" and engaged alias is "show", fullText is
-      // ":show <target>", so ghost shows "how <target>".
-      // We need to match what's typed against the beginning of fullText.
       var typedLower = typed.toLowerCase();
       var fullLower = fullText.toLowerCase();
+      var ghost;
       if (fullLower.indexOf(typedLower) === 0) {
-        // Ghost = the remainder after what's typed
-        _ghostEl.textContent = fullText.slice(typed.length);
+        ghost = fullText.slice(typed.length);
       } else {
-        // Typed text doesn't match the beginning (e.g. user typed args past alias)
-        // Show just the grammar hint
-        _ghostEl.textContent = _currentHint;
+        ghost = _currentHint;
       }
+      // Prepend invisible spacing matching the typed text width so the
+      // ghost text appears after the input text, not at position 0.
+      _ghostEl.innerHTML = '<span style="visibility:hidden">' + esc(typed) + '</span>' +
+        '<span style="color:var(--text-muted);opacity:0.4">' + esc(ghost) + '</span>';
     }
 
     function _renderItems(items) {
@@ -604,30 +602,37 @@
       _removeGhost();
     }
 
-    // §7: slot detection — scoped by alias shape, not one general solution.
+    // v7: slot detection — scoped by alias shape, not one general solution.
     // :report — token count only (first space = type/period boundary, §5.1).
     // :show — always slot 0 (single slot).
     // :bill — advance-on-selection via _billSlot variable, starts at 0.
+    // IMPORTANT: the user may have typed only a PREFIX of the alias (e.g. ":sh"
+    // for "show"). We strip the typed prefix, not the full alias name.
     function _slotIndex(alias) {
       if (alias === 'bill') return _billSlot;
       var q = _rawQuery();
-      var afterAlias = q.replace(new RegExp('^' + alias + '\\s*'), '');
+      // Strip the first token (whatever the user actually typed as the alias prefix)
+      var firstSpace = q.indexOf(' ');
+      var typedAlias = (firstSpace < 0 ? q : q.slice(0, firstSpace));
+      var afterAlias = q.slice(typedAlias.length).replace(/^\s*/, '');
       if (afterAlias.trim() === '') return 0;
       if (alias === 'report') {
-        // first space after the alias separates type from period
-        var firstSpace = afterAlias.indexOf(' ');
-        return firstSpace < 0 ? 0 : 1;
+        var fs = afterAlias.indexOf(' ');
+        return fs < 0 ? 0 : 1;
       }
       return 0; // :show and others — single slot
     }
 
-    // Get the text the user has typed for the current slot
+    // Get the text the user has typed for the current slot.
+    // Strips the typed alias prefix (not the full alias name) from the query.
     function _slotPartial(alias, slotIndex) {
       var q = _rawQuery();
-      var afterAlias = q.replace(new RegExp('^' + alias + '\\s*'), '');
+      var firstSpace = q.indexOf(' ');
+      var typedAlias = (firstSpace < 0 ? q : q.slice(0, firstSpace));
+      var afterAlias = q.slice(typedAlias.length).replace(/^\s*/, '');
       if (alias === 'report') {
         if (slotIndex === 0) {
-          // text after "report " up to first space (or end)
+          // text after alias up to first space (or end)
           var sp = afterAlias.indexOf(' ');
           return sp < 0 ? afterAlias : afterAlias.slice(0, sp);
         }
@@ -635,7 +640,7 @@
         var sp1 = afterAlias.indexOf(' ');
         return sp1 < 0 ? '' : afterAlias.slice(sp1 + 1);
       }
-      // :show, :bill slot 0 — everything after the alias
+      // :show, :new, :bill slot 0 — everything after the typed alias prefix
       return afterAlias;
     }
 
@@ -667,6 +672,10 @@
       }
       if (parsed.route) {
         var url = parsed.absolute ? parsed.route : '/' + co + parsed.route;
+        // v7: if it's a report route without a period, inject the default period
+        if (url.indexOf('/reports?t=') !== -1 && url.indexOf('&period=') === -1 && _defaultPeriod) {
+          url += '&period=' + encodeURIComponent(_defaultPeriod);
+        }
         if (parsed.prefill) {
           try { sessionStorage.setItem('fb-cmd-prefill', JSON.stringify(parsed.prefill)); } catch (e) {}
         }
@@ -973,11 +982,25 @@
     }
 
     // ── §5: reportTypes() — source from /api/:company/reports/registry ─────
+    var _defaultPeriod = null;
+    var _defaultPeriodFetching = false;
+    function _fetchDefaultPeriod() {
+      if (_defaultPeriod !== null || _defaultPeriodFetching) return;
+      var co = _company();
+      if (!co) return;
+      _defaultPeriodFetching = true;
+      fetch('/api/' + co + '/reports/default-period').then(function (r) { return r.json(); }).then(function (res) {
+        _defaultPeriodFetching = false;
+        if (res && res.period_id) _defaultPeriod = res.period_id;
+      }).catch(function () { _defaultPeriodFetching = false; });
+    }
+
     function reportTypes(partial) {
       if (!_reports) {
         _fetchReportsOnce();
         return [];
       }
+      _fetchDefaultPeriod(); // lazy fetch, cached
       var items = _reports.map(function (r) {
         return {
           id: 'report:' + r.id,
@@ -985,9 +1008,20 @@
           reportId: r.id,
           scope: 'api',
           exec: function () {
-            // Navigate on selection — the full type+period commit goes through
-            // FB.command.parse() on Enter (parseReport in fb-command.js).
+            // If no period typed, use the default period (latest posted txn).
+            // parseReport handles the URL construction via FB.command.parse().
+            var q = _rawQuery();
+            var afterReport = q.slice(q.indexOf(' ') + 1);
+            var hasPeriod = afterReport && afterReport.trim() && afterReport.indexOf(' ') >= 0;
             var url = '/' + _company() + '/reports?t=' + r.id;
+            if (hasPeriod) {
+              // period was typed — use it
+              var periodTok = afterReport.slice(afterReport.indexOf(' ') + 1);
+              url += '&period=' + encodeURIComponent(periodTok);
+            } else if (_defaultPeriod) {
+              // no period — use the default (latest posted transaction period)
+              url += '&period=' + encodeURIComponent(_defaultPeriod);
+            }
             window.fbNavigate(url);
           }
         };

@@ -200,6 +200,35 @@ function mountReportRoutes(app) {
     const { REPORT_REGISTRY } = require('./report-registry');
     res.json(REPORT_REGISTRY.map(r => ({ id: r.id, label: r.label })));
   });
+  // v7: returns the period_id of the most recent posted transaction.
+  // Never returns a future-dated period (start_date must be <= today).
+  app.get('/api/:company/reports/default-period', async function(req, res) {
+    const { company } = req.params;
+    const query = makeQuery();
+    try {
+      // Find the latest journal entry date, then the period containing it.
+      const today = new Date().toISOString().slice(0, 10);
+      const latest = await query(
+        `SELECT p.period_id, p.start_date, p.end_date
+         FROM periods p
+         WHERE p.company_id = ?
+           AND p.start_date <= ?
+           AND EXISTS (
+             SELECT 1 FROM journal_entries je
+             WHERE je.company_id = p.company_id
+               AND je.date >= p.start_date
+               AND je.date <= p.end_date
+           )
+         ORDER BY p.start_date DESC
+         LIMIT 1`,
+        [company, today]
+      );
+      if (latest.length) res.json({ period_id: latest[0].period_id });
+      else res.json({ period_id: null });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
   app.get('/api/:company/periods', handlePeriods);
   app.get('/api/:company/accounts', handleAccounts);
   app.get('/api/:company/vat-codes', handleVatCodes);

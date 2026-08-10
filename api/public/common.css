@@ -612,11 +612,9 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   padding: 6px 12px;
   font-size: 0.875rem;
   font-family: inherit;
-  color: var(--text-muted);
   pointer-events: none;
   white-space: pre;
   overflow: hidden;
-  opacity: 0.4;
   z-index: 1;
   border: 1px solid transparent;
   box-sizing: border-box;

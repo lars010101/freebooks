@@ -787,29 +787,28 @@
     // `:`-prefixed typed commands (bill, post, pay, …) that need argument
     // entry. They are the primary citizens of the `:` dropdown; page verbs
     // with direct key bindings (Bug #4) are now excluded.
-    // v7: bare : shows only high-volume inline commands.
+    // v7: bare : shows only high-volume inline commands, ordered by frequency.
     // Low-volume functions (lock, unlock, partner, rate, token, void) are
     // managed through their proper screens, not the command bar.
-    var INLINE_ALIASES = {
+    var INLINE_ALIASES = ['bill', 'pay', 'post', 'report', 'show', 'new'];
+    var ALIAS_AREA = {
       bill:   'Payables',
-      new:    'New',
       pay:    'Bank',
       post:   'Journal',
-      report: 'Reports',
-      show:   'Nav'
+      report: 'Reports'
+      // show and new: no area label
     };
 
     function _aliasCommands() {
       var A = (window.FB && FB.command && FB.command.ALIASES) || {};
       var out = [];
-      Object.keys(A).forEach(function (name) {
-        // Only high-volume inline aliases appear in the bare : list
-        if (!INLINE_ALIASES.hasOwnProperty(name)) return;
-        if (A[name] && A[name].palette === false) return;
+      INLINE_ALIASES.forEach(function (name) {
+        if (!A[name]) return;
+        if (A[name].palette === false) return;
         out.push({
           id: 'alias:' + name,
           label: name,
-          pageLabel: INLINE_ALIASES[name],
+          pageLabel: ALIAS_AREA[name] || '',
           key: '',
           scope: 'alias',
           keepOpen: true,

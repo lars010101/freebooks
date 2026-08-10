@@ -787,24 +787,33 @@
     // `:`-prefixed typed commands (bill, post, pay, …) that need argument
     // entry. They are the primary citizens of the `:` dropdown; page verbs
     // with direct key bindings (Bug #4) are now excluded.
+    // v7: bare : shows only high-volume inline commands.
+    // Low-volume functions (lock, unlock, partner, rate, token, void) are
+    // managed through their proper screens, not the command bar.
+    var INLINE_ALIASES = {
+      bill:   'Payables',
+      new:    'New',
+      pay:    'Bank',
+      post:   'Journal',
+      report: 'Reports',
+      show:   'Nav'
+    };
+
     function _aliasCommands() {
       var A = (window.FB && FB.command && FB.command.ALIASES) || {};
       var out = [];
       Object.keys(A).forEach(function (name) {
-        // Skip page-context aliases (match, approve, reject) — they require
-        // a focused row on a specific page and have no standalone meaning
-        // in the command bar.
+        // Only high-volume inline aliases appear in the bare : list
+        if (!INLINE_ALIASES.hasOwnProperty(name)) return;
         if (A[name] && A[name].palette === false) return;
         out.push({
           id: 'alias:' + name,
           label: name,
+          pageLabel: INLINE_ALIASES[name],
           key: '',
           scope: 'alias',
           keepOpen: true,
           exec: function () {
-            // Fill input with :name and trigger grammar mode — keep the
-            // dropdown open so the user continues typing arguments. The
-            // keepOpen flag tells _execute() NOT to call _exitCommand().
             _input.value = ':' + name + ' ';
             _input.focus();
             _input.setSelectionRange(_input.value.length, _input.value.length);
@@ -898,11 +907,9 @@
     function _isNavigate(c) { return c.scope === 'api' && c.isNavigate === true; }
 
     function _defaultItems() {
-      // v7: bare : shows aliases + execute actions only.
-      // Create-shortcuts (create: true) belong under :new, not bare :.
-      return _aliasCommands().concat(_apiCommands().filter(function (c) {
-        return !_isNavigate(c);
-      }));
+      // v7: bare : shows only the 6 inline aliases — no execute actions,
+      // no create-shortcuts, no navigate entries.
+      return _aliasCommands();
     }
 
     // Derive a human-readable page name from a route for display in the dropdown.

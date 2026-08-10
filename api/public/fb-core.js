@@ -742,7 +742,7 @@
 
     var RECENT_KEY = 'fb.palette.recent';
     var CAP = 18;
-    var SECTION_CAP = 8;  // max items per section (ALIAS / PAGE / NAV / API)
+    var SECTION_CAP = 20;  // v7: raised — flat list, no per-section grouping
 
     function _company() { return location.pathname.split('/')[1] || ''; }
 
@@ -898,8 +898,10 @@
     function _isNavigate(c) { return c.scope === 'api' && c.isNavigate === true; }
 
     function _defaultItems() {
+      // v7: bare : shows aliases + execute actions only.
+      // Create-shortcuts (create: true) belong under :new, not bare :.
       return _aliasCommands().concat(_apiCommands().filter(function (c) {
-        return !_isNavigate(c) || c.create === true;
+        return !_isNavigate(c);
       }));
     }
 

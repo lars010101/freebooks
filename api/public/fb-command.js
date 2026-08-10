@@ -75,9 +75,17 @@
     },
     'show': {
       action: null,
-      grammar: '<target> [period]',
+      grammar: '<target>',
+      bang: false
+      // No parse function — :show is a browse command; use the dropdown.
+      // itemSource is wired by the palette module (fb-core.js) at runtime.
+    },
+    'report': {
+      action: null,
+      grammar: '<type> [period]',
       bang: false,
-      structured: true
+      parse: parseReport
+      // itemSource is wired by the palette module (fb-core.js) at runtime.
     },
     'rate': {
       action: 'fx.rates.save',
@@ -326,6 +334,19 @@
     if (sub === 'create') return { action: 'auth.token.create', params: { name: name }, commitMode: 'confirm' };
     if (sub === 'revoke') return { action: 'auth.token.revoke', params: { name: name }, commitMode: 'confirm' };
     return { error: 'usage: :token create <name> | revoke <name>' };
+  }
+
+  // ── :report — pass type + period through to reports hub (show-command-spec §5) ─
+  function parseReport(tokens, bang) {
+    if (!tokens.length) return { error: 'usage: :report <type> [period]' };
+    var typeId = tokens[0].toLowerCase();
+    // Period = everything after the first whitespace-delimited token (§5.1).
+    // Report ids are single tokens (hyphenated, no internal whitespace), so
+    // "first token = type, rest = period" has no edge cases.
+    var period = tokens.length > 1 ? tokens.slice(1).join(' ') : null;
+    var route = '/reports?t=' + encodeURIComponent(typeId);
+    if (period) route += '&period=' + encodeURIComponent(period);
+    return { route: route, commitMode: 'form' };
   }
 
   // ── Main parse entry ────────────────────────────────────────────────────────

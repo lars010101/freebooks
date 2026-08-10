@@ -547,6 +547,13 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 }
 .fb-palette-row.fb-palette-active { background: var(--dd-active); }
 .fb-palette-label { flex: 1; }
+.fb-palette-page {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
 .fb-palette-row kbd {
   font-size: 0.72rem;
   padding: 1px 5px;
@@ -592,12 +599,16 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   text-overflow: ellipsis;
 }
 
-/* v7: Ghost text overlay — positioned over the input, shows the remaining
-   hint text in grey after what's typed. Transparent background, non-interactive. */
+/* v7: Ghost text overlay — positioned over the input, aligned after the
+   typed text. The element is positioned at the same padding as the input,
+   and its text content starts with invisible spacing matching what's typed
+   (added by JS) so the grey ghost text appears after the cursor. */
 .fb-ghost-hint {
   position: absolute;
   top: 0;
   left: 0;
+  width: 100%;
+  height: 100%;
   padding: 6px 12px;
   font-size: 0.875rem;
   font-family: inherit;
@@ -605,8 +616,10 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   pointer-events: none;
   white-space: pre;
   overflow: hidden;
-  opacity: 0.5;
+  opacity: 0.4;
   z-index: 1;
+  border: 1px solid transparent;
+  box-sizing: border-box;
 }
 
 /* Grammar hint — shown under the bar when a typed command is recognized */

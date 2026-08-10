@@ -552,21 +552,26 @@
     function _updateGhost() {
       if (!_currentHint || !_engagedAlias) { _removeGhost(); return; }
       _ensureGhost();
-      // Show: typed alias prefix + remaining alias name + hint grammar
-      var typed = _rawQuery();
-      var aliasLen = _engagedAlias.length;
-      // If the user typed a prefix (e.g. ":s"), show the rest of the alias
-      // name + the grammar. If they typed the full alias, show just the grammar.
-      var afterAlias = '';
-      if (typed.length < aliasLen) {
-        // Still typing the alias name — ghost the rest of it
-        afterAlias = _engagedAlias.slice(typed.length) + ' ' + _currentHint;
+      // Build the full text the input *would* show if the alias were complete:
+      // :alias grammar-hint. Then prepend invisible spacing matching what's
+      // already typed so the ghost text appears after the cursor position.
+      var typed = _input ? _input.value : '';
+      // What the full command looks like: :alias <grammar>
+      var fullText = ':' + _engagedAlias + ' ' + _currentHint;
+      // The ghost shows the portion of fullText after what's already typed.
+      // If the user typed ":s" and engaged alias is "show", fullText is
+      // ":show <target>", so ghost shows "how <target>".
+      // We need to match what's typed against the beginning of fullText.
+      var typedLower = typed.toLowerCase();
+      var fullLower = fullText.toLowerCase();
+      if (fullLower.indexOf(typedLower) === 0) {
+        // Ghost = the remainder after what's typed
+        _ghostEl.textContent = fullText.slice(typed.length);
       } else {
-        // Full alias typed — ghost just the grammar portion
-        afterAlias = _currentHint;
+        // Typed text doesn't match the beginning (e.g. user typed args past alias)
+        // Show just the grammar hint
+        _ghostEl.textContent = _currentHint;
       }
-      // Render: invisible text matching what's typed, then grey ghost text
-      _ghostEl.textContent = afterAlias;
     }
 
     function _renderItems(items) {
@@ -875,8 +880,21 @@
       }));
     }
 
+    // Derive a human-readable page name from a route for display in the dropdown.
+    // /settings?tab=vat → "Settings", /payables?tab=partners → "Payables", etc.
+    function _pageLabelFor(route) {
+      if (!route) return '';
+      if (route.indexOf('/settings') === 0) return 'Settings';
+      if (route.indexOf('/payables') === 0) return 'Payables';
+      if (route.indexOf('/periods') === 0) return 'Periods';
+      if (route.indexOf('/journal') === 0) return 'Journal';
+      if (route.indexOf('/bill') === 0) return 'Bills';
+      if (route.indexOf('/reports') === 0) return 'Reports';
+      return '';
+    }
+
     // ── §4: showTargets() — navigate-only, non-create, non-reports ──────────
-    function showTargets() {
+    function showTargets(partial) {
       var out = [];
       if (_catalog) {
         Object.keys(_catalog).forEach(function (name) {
@@ -884,10 +902,50 @@
           if (meta.palette !== 'navigate' || !meta.route) return;
           if (meta.create) return;                      // exclude create-shortcuts
           if (meta.route.indexOf('/reports') === 0) return; // exclude reports
+          if (meta.absolute) return;                     // exclude setup/add company
+          if (meta.route.indexOf('/setup') === 0) return; // exclude setup
+          if (meta.label && /^close /i.test(meta.label)) return; // exclude "Close period"
           var lbl = meta.label || name;
           out.push({
             id: 'nav:' + name,
             label: lbl,
+            pageLabel: _pageLabelFor(meta.route),
+            route: meta.route,
+            scope: 'nav',
+            exec: function () {
+              window.fbNavigate('/' + _company() + meta.route);
+            }
+          });
+        });
+      }
+      // Dedupe by route
+      var seen = {};
+      out = out.filter(function (c) {
+        if (seen[c.route]) return false;
+        seen[c.route] = true;
+        return true;
+      });
+      if (partial) {
+        out = out.filter(function (c) {
+          return c.label.toLowerCase().indexOf(partial.toLowerCase()) !== -1 ||
+                 (c.pageLabel && c.pageLabel.toLowerCase().indexOf(partial.toLowerCase()) !== -1);
+        });
+      }
+      return out;
+    }
+
+    // v7: newTargets() — create-shortcuts from the catalog. Navigates to forms.
+    function newTargets(partial) {
+      var out = [];
+      if (_catalog) {
+        Object.keys(_catalog).forEach(function (name) {
+          var meta = _catalog[name] || {};
+          if (meta.palette !== 'navigate' || !meta.route) return;
+          if (!meta.create) return;  // only create-shortcuts
+          out.push({
+            id: 'nav:' + name,
+            label: meta.label || name,
+            pageLabel: _pageLabelFor(meta.route),
             route: meta.route,
             absolute: !!meta.absolute,
             scope: 'nav',
@@ -898,34 +956,17 @@
           });
         });
       }
-      // Dedupe by route
+      // Dedupe by route (bill.create and bill.draft.save share /bill/edit, etc.)
       var seen = {};
-      return out.filter(function (c) {
+      out = out.filter(function (c) {
         if (seen[c.route]) return false;
         seen[c.route] = true;
         return true;
       });
-    }
-
-    // v7: newTargets() — create-shortcuts from the catalog. Navigates to forms.
-    function newTargets() {
-      var out = [];
-      if (_catalog) {
-        Object.keys(_catalog).forEach(function (name) {
-          var meta = _catalog[name] || {};
-          if (meta.palette !== 'navigate' || !meta.route) return;
-          if (!meta.create) return;  // only create-shortcuts
-          out.push({
-            id: 'nav:' + name,
-            label: meta.label || name,
-            route: meta.route,
-            absolute: !!meta.absolute,
-            scope: 'nav',
-            exec: function () {
-              if (meta.absolute) window.location.href = meta.route;
-              else window.fbNavigate('/' + _company() + meta.route);
-            }
-          });
+      if (partial) {
+        out = out.filter(function (c) {
+          return c.label.toLowerCase().indexOf(partial.toLowerCase()) !== -1 ||
+                 (c.pageLabel && c.pageLabel.toLowerCase().indexOf(partial.toLowerCase()) !== -1);
         });
       }
       return out;
@@ -1119,11 +1160,12 @@
         _el.innerHTML = '<div class="fb-palette-empty">no matching commands</div>';
         return;
       }
-      // v7: flat list — no section headers, no scope labels.
+      // v7: flat list — no section headers. Show pageLabel as muted right-side text.
       var html = '';
       _items.forEach(function (c, i) {
         html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
           '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
+          (c.pageLabel ? '<span class="fb-palette-page">' + esc(c.pageLabel) + '</span>' : '') +
           (c.key ? '<kbd>' + esc(c.key) + '</kbd>' : '') +
         '</div>';
       });

@@ -778,6 +778,7 @@ const PALETTE = {
   'settings.save':          { palette: 'navigate', route: '/settings', label: 'Settings' },
   'company.save':           { palette: 'navigate', route: '/settings', label: 'Settings' },
   'permissions.save':       { palette: 'navigate', route: '/settings', label: 'Settings' },
+  'posting_rules.attr.list': { palette: 'navigate', route: '/settings?tab=postrules', label: 'Posting Rules' },
   'ai.view':                { palette: 'navigate', route: '/settings?tab=ai', label: 'AI' },
   'report.refresh_vat_return': { palette: 'navigate', route: '/reports', label: 'Refresh VAT return' },
   'setup.add_company':      { palette: 'navigate', route: '/setup/new-company', absolute: true, label: 'Add company' },

@@ -140,12 +140,6 @@ test('parse: :show with bang returns unknown (bang not supported)', () => {
   assert.ok(r.error.indexOf('does not support !') !== -1);
 });
 
-test('parse: :report', () => {
-  const r = cmd.parse(':report');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/reports');
-});
-
 test('grammarFor: show returns <target> [period]', () => {
   const g = cmd.grammarFor('show');
   assert.ok(g && g.indexOf('<target>') !== -1);

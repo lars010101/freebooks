@@ -376,7 +376,7 @@ const ACTIONS = {
   },
   'coa.upsert': {
     role: 'owner', mutating: true,
-    description: 'Insert or update one account. account.default_role (optional, null|\'AP\'|\'Expense\') sets the company default AP/Expense account; single-holder enforced server-side in the same write (setting a new holder clears the previous one).',
+    description: 'Insert or update one account. account.default_role (optional, null|\'AP\'|\'Expense\'|\'FX Gain/Loss\') sets the company default AP/Expense/FX Gain/Loss account; single-holder enforced server-side in the same write (setting a new holder clears the previous one).',
     params: { account: { type: 'object', required: true } },
   },
   'coa.delete': {
@@ -625,7 +625,7 @@ const ACTIONS = {
   },
   'company.attr.save': {
     role: 'owner', mutating: true,
-    description: 'Write ONE company attribute (server-authoritative validation). key ∈ company_name|currency|jurisdiction|tax_id|reporting_standard|vat_registered|multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct|fx_gain_loss_account|contact_<pack-declared contact attribute>.',
+    description: 'Write ONE company attribute (server-authoritative validation). key ∈ company_name|currency|jurisdiction|tax_id|reporting_standard|vat_registered|multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct|contact_<pack-declared contact attribute>.',
     params: { key: { type: 'string', required: true }, value: { required: true } },
   },
   'ai.attr.list': {

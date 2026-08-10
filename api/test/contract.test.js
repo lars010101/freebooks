@@ -616,10 +616,10 @@ test('bill.payment.record: partial payments, overpayment refused, bill.payments 
 });
 
 test('bill.payment.record: foreign-currency bill posts FX gain/loss split', async () => {
-  await sql(baseUrl, srv.adminToken,
-    `DELETE FROM settings WHERE company_id='CT' AND key='fx_gain_loss_account'`);
-  await sql(baseUrl, srv.adminToken,
-    `INSERT INTO settings (company_id, key, value) VALUES ('CT','fx_gain_loss_account','${EXP}')`);
+  await api(baseUrl, 'coa.upsert', {
+    companyId: CO,
+    account: { account_code: EXP, account_name: 'FX Expense', account_type: 'Expense', is_active: true, default_role: 'FX Gain/Loss', effective_from: TD.day1 }
+  });
   const rateSave = await api(baseUrl, 'fx.rates.save', {
     companyId: CO, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }],
   });

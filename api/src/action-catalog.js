@@ -52,13 +52,6 @@ const ACTIONS = {
     description: 'Bulk-import journal entries (all-or-nothing). Entries carrying a reference keep it (source-system voucher identity preserved); entries without any reference get a sequential one minted (entry.journalId, else MISC).',
     params: { entries: { type: 'array', required: true } },
   },
-  // opening-balance-flattened-spec: dedicated POST for opening balances.
-  // Stamps the reserved OPEN journal + period onto every line; not auto-seeded.
-  'openingBalance.post': {
-    role: 'data_entry', mutating: true, idempotent: true,
-    description: 'Post opening-balance lines under the reserved OPEN journal and OPEN period. Validates both exist (and the period is unlocked), freezes the OPEN date onto every line, and stamps journal_id. Used during one-time migration only.',
-    params: { lines: { type: 'array', required: true } },
-  },
   'sie.import': {
     role: 'data_entry', mutating: true, idempotent: true,
     description: 'Import SIE file (types 1-4): chart of accounts, opening balances, vouchers. dryRun default true.',
@@ -416,10 +409,6 @@ const ACTIONS = {
     role: 'viewer', mutating: false,
     description: 'View AI settings page.',
   },
-  'openingBalance.view': {
-    role: 'viewer', mutating: false,
-    description: 'View opening balances settings page.',
-  },
 
   // ── FX ───────────────────────────────────────────────────────────────────
   'fx.fetch_rates': {
@@ -755,8 +744,6 @@ const PALETTE = {
   'vat.codes.upsert':       { palette: 'navigate', route: '/settings?tab=vat&new=1', label: 'New VAT code', create: true },
   'vat.codes.view':         { palette: 'navigate', route: '/settings?tab=vat', label: 'Tax Codes' },
   'journals.view':          { palette: 'navigate', route: '/settings?tab=journals', label: 'Journals' },
-  'ai.view':                { palette: 'navigate', route: '/settings?tab=ai', label: 'AI' },
-  'openingBalance.view':    { palette: 'navigate', route: '/settings?tab=opening-balances', label: 'Opening Balances' },
   'partner.save':            { palette: 'navigate', route: '/payables?tab=partners&new=1', label: 'New partner', create: true },
   'partner.upsert':          { palette: 'navigate', route: '/payables?tab=partners', label: 'Partners' },
   'period.save':            { palette: 'navigate', route: '/periods?new=1', label: 'New period', create: true },

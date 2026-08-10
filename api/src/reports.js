@@ -263,7 +263,7 @@ function mountReportRoutes(app) {
   // Opening Balances relocated to a Settings tab 2026-07-28 (magnus) —
   // old URL 302-redirects to the Settings → Opening Balances tab.
   app.get('/:company/opening-balances', function(req, res) {
-    res.redirect(302, '/' + req.params.company + '/settings?tab=opening-balances');
+    res.redirect(302, '/' + req.params.company + '/settings');
   });
   app.get('/:company/settings', handleSettingsPage);
   app.get('/:company/periods', handlePeriodsPage);

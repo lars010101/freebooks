@@ -486,6 +486,18 @@ WHERE default_role IS NULL
       AND s.value IS NOT NULL AND TRIM(s.value) <> ''
   );
 
+-- Backfill: migrate legacy fx_gain_loss_account setting to default_role.
+UPDATE accounts
+SET default_role = 'FX Gain/Loss'
+WHERE default_role IS NULL
+  AND (company_id, account_code) IN (
+    SELECT s.company_id, s.value
+    FROM settings s
+    WHERE s.key = 'fx_gain_loss_account'
+      AND s.value IS NOT NULL
+      AND s.value <> ''
+  );
+
 -- MIGRATION: partner default expense and AP accounts (was vendor columns)
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;

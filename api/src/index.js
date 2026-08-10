@@ -482,11 +482,11 @@ async function handleCoa(ctx, action) {
     // Single-holder is enforced here in the SAME write: setting a new holder
     // clears default_role from the company's other accounts that previously
     // held that role (settings-ux-spec §7 item 1, second bullet).
-    const ALLOWED_ROLES = new Set([null, '', 'AP', 'Expense']);
+    const ALLOWED_ROLES = new Set([null, '', 'AP', 'Expense', 'FX Gain/Loss']);
     let role = (account.default_role === undefined ? null : account.default_role);
     if (role === '') role = null;
     if (!ALLOWED_ROLES.has(role)) {
-      throw Object.assign(new Error(`default_role must be null, 'AP', or 'Expense' (got: ${JSON.stringify(account.default_role)})`), { code: 'INVALID_INPUT' });
+      throw Object.assign(new Error(`default_role must be null, 'AP', 'Expense', or 'FX Gain/Loss' (got: ${JSON.stringify(account.default_role)})`), { code: 'INVALID_INPUT' });
     }
     const roleValue = role; // null | 'AP' | 'Expense'
 
@@ -1299,7 +1299,6 @@ async function handleSettings(ctx, action) {
         editor: { type: 'text' }, note: 'Blank keeps the stored key' },
       { key: 'vat_tolerance', label: 'VAT Tolerance (flat)', type: 'Number', value: isNaN(flatNum) ? 0.5 : flatNum, display: (isNaN(flatNum) ? 0.5 : flatNum).toFixed(2), editor: { type: 'number', step: '0.01' } },
       { key: 'vat_tolerance_pct', label: 'VAT Tolerance (%)', type: 'Number', value: pctDisplay, display: pctDisplay.toFixed(2) + '%', editor: { type: 'number', step: '0.1' } },
-      { key: 'fx_gain_loss_account', label: 'FX Gain/Loss Account', type: 'String', value: s.fx_gain_loss_account || '', display: s.fx_gain_loss_account || dash, editor: { type: 'text' } },
     ];
     // Pack-declared contact attributes (SRU MEDIELEV #ADRESS/#POSTNR/#POSTORT
     // and contact person/email/phone). One registry row per pack attribute;
@@ -1376,18 +1375,6 @@ async function handleSettings(ctx, action) {
         const n = Number(value); // wire format is a PERCENT (1 = 1%); storage is a fraction
         if (!isFinite(n) || n < 0) throw invalid('Tolerance % must be a non-negative number');
         await putSetting(companyId, 'vat_tolerance_pct', String(n / 100));
-        break;
-      }
-      case 'fx_gain_loss_account': {
-        const v = String(value || '').trim();
-        if (v) {
-          const acct = await query(
-            `SELECT account_code FROM accounts WHERE company_id = @companyId AND account_code = @v LIMIT 1`,
-            { companyId, v }
-          );
-          if (acct.length === 0) throw invalid(`Account "${v}" not found in the chart of accounts`);
-        }
-        await putSetting(companyId, 'fx_gain_loss_account', v);
         break;
       }
       default: {

@@ -66,12 +66,12 @@ async function settleBillPayment(opts) {
     reference = await getNextReference(companyId, journalId, yr);
   }
 
-  // FX gain/loss account (settings key, mirrors bank.js)
-  const fxSettings = await query(
-    `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_gain_loss_account' LIMIT 1`,
+  // FX gain/loss account (default_role on accounts, mirrors bank.js)
+  const fxRows = await query(
+    `SELECT account_code FROM accounts WHERE company_id = @companyId AND default_role = 'FX Gain/Loss' AND is_active = true LIMIT 1`,
     { companyId }
   );
-  const fxAccount = fxSettings[0]?.value || null;
+  const fxAccount = fxRows[0]?.account_code || null;
 
   const mkRow = (line) => ({
     company_id: companyId,

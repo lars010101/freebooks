@@ -494,37 +494,80 @@
     var _reports = null;      // /api/:company/reports/registry (fetched once)
     var _wired = false;
 
-    // ── Grammar mode + generalized itemSource (v6 — show-command-spec §3, §8) ──
-    // When the first token after : matches a known alias, we engage grammar
-    // mode: the hint renders as a header row inside the same .fb-palette
-    // panel (no separate .fb-grammar-hint element — §8), and the dropdown
-    // stays open showing items sourced from the alias's per-slot itemSource.
-    // Enter on a highlighted item executes it; Enter with no highlighted item
-    // parses the full input through FB.command.parse().
+    // v7: grammar mode — prefix-based engagement, ghost text in input.
+    // The moment the typed prefix unambiguously matches one alias, engage
+    // that alias's grammar + itemSource. No space-gate.
     var _currentHint = null;     // current grammar hint text, or null
-    var _newExpanded = false;    // bare : "New…" row expanded state (§2.2)
-    var _billSlot = 0;           // :bill advance-on-selection slot index (§7)
+    var _engagedAlias = null;    // currently engaged alias name, or null
+    var _billSlot = 0;           // :bill advance-on-selection slot index
     var _partners = null;        // partner list cache for :bill itemSource
+    var _ghostEl = null;         // ghost text overlay element
 
+    // Prefix-based grammar detection: if the first token (everything before
+    // the first space, or the whole query if no space) is a unique prefix of
+    // exactly one alias, engage that alias. If it matches multiple aliases,
+    // don't engage — show the matching commands instead.
     function _detectGrammar(q) {
-      // Don't engage grammar mode until the first token is complete
-      // (i.e. a space follows it). While typing `:bil`, the dropdown should
-      // fuzzy-match alias names; once `:bill ` is typed, grammar kicks in.
-      // IMPORTANT: check for space on the RAW query, not trimmed — trim()
-      // strips trailing spaces, which would make `:bill ` look like `:bill`.
       var firstSpace = q.indexOf(' ');
-      if (firstSpace < 0) return null;
-      var firstTok = q.slice(0, firstSpace).trim().toLowerCase();
+      var firstTok = (firstSpace < 0 ? q : q.slice(0, firstSpace)).trim().toLowerCase();
       if (!firstTok) return null;
       if (firstTok === 'post!' || firstTok === 'pay!') firstTok = firstTok.slice(0, -1);
-      if (window.FB && FB.command && FB.command.ALIASES[firstTok]) {
-        return { alias: firstTok, grammar: FB.command.grammarFor(firstTok) };
+      if (window.FB && FB.command && FB.command.ALIASES && FB.command.ALIASES[firstTok]) {
+        return { alias: firstTok, grammar: FB.command.grammarFor(firstTok), exact: true };
       }
-      return null;
+      // Prefix match: how many aliases start with this token?
+      var matches = [];
+      if (window.FB && FB.command && FB.command.ALIASES) {
+        Object.keys(FB.command.ALIASES).forEach(function (name) {
+          if (FB.command.ALIASES[name].palette === false) return;
+          if (name.indexOf(firstTok) === 0) matches.push(name);
+        });
+      }
+      if (matches.length === 1) {
+        var alias = matches[0];
+        return { alias: alias, grammar: FB.command.grammarFor(alias), exact: false, typedLen: firstTok.length };
+      }
+      return null; // 0 or 2+ matches → no engagement, show command list
     }
 
-    // §3+§8: hint renders as a header row inside the dropdown, not a separate element.
-    function _renderHint(grammar) { _currentHint = grammar; }
+    // v7: hint renders as ghost text in the input, not as a dropdown header.
+    function _renderHint(grammar) {
+      _currentHint = grammar;
+      _updateGhost();
+    }
+
+    // Ghost text overlay: show the remaining hint after what's typed.
+    // Creates a transparent overlay positioned over the input showing the
+    // typed text as invisible spacing + the remaining hint in grey.
+    function _ensureGhost() {
+      if (_ghostEl) return;
+      _ghostEl = document.createElement('div');
+      _ghostEl.className = 'fb-ghost-hint';
+      var wrap = _input.closest('.tb-search-wrap') || _input.parentElement;
+      if (wrap) wrap.appendChild(_ghostEl);
+    }
+    function _removeGhost() {
+      if (_ghostEl) { _ghostEl.remove(); _ghostEl = null; }
+    }
+    function _updateGhost() {
+      if (!_currentHint || !_engagedAlias) { _removeGhost(); return; }
+      _ensureGhost();
+      // Show: typed alias prefix + remaining alias name + hint grammar
+      var typed = _rawQuery();
+      var aliasLen = _engagedAlias.length;
+      // If the user typed a prefix (e.g. ":s"), show the rest of the alias
+      // name + the grammar. If they typed the full alias, show just the grammar.
+      var afterAlias = '';
+      if (typed.length < aliasLen) {
+        // Still typing the alias name — ghost the rest of it
+        afterAlias = _engagedAlias.slice(typed.length) + ' ' + _currentHint;
+      } else {
+        // Full alias typed — ghost just the grammar portion
+        afterAlias = _currentHint;
+      }
+      // Render: invisible text matching what's typed, then grey ghost text
+      _ghostEl.textContent = afterAlias;
+    }
 
     function _renderItems(items) {
       _items = items;
@@ -532,9 +575,11 @@
       _render();
     }
 
-    // §3.3: engage grammar mode — open dropdown, show hint, populate from itemSource
+    // Engage grammar mode — show ghost text + populate dropdown from itemSource.
     function _engageGrammar(g) {
+      _engagedAlias = g.alias;
       _currentHint = g.grammar;
+      _updateGhost();
       if (!_el && _command) _open();
       var alias = (window.FB && FB.command && FB.command.ALIASES) ? FB.command.ALIASES[g.alias] : null;
       var slotIndex = _slotIndex(g.alias);
@@ -546,6 +591,12 @@
       } else {
         _renderItems([]);
       }
+    }
+
+    function _disengageGrammar() {
+      _engagedAlias = null;
+      _currentHint = null;
+      _removeGhost();
     }
 
     // §7: slot detection — scoped by alias shape, not one general solution.
@@ -814,31 +865,14 @@
       }).catch(function () { _reportsFetching = false; });
     }
 
-    // ── §2 — Bare : candidate list + collapse/expand ───────────────────────
+    // v7: bare : shows all aliases + execute actions — flat list, no headers,
+    // no "New…" collapse. :new is its own alias with its own itemSource.
     function _isNavigate(c) { return c.scope === 'api' && c.isNavigate === true; }
 
-    function _verbCandidates() {
-      return _aliasCommands().concat(_apiCommands()).filter(function (c) {
-        if (c.scope !== 'api') return true;   // aliases always included
-        if (!_isNavigate(c)) return true;     // execute actions always included
-        return c.create === true;             // navigate entries only if create-shortcuts
-      });
-    }
-
-    function _newGroupRow() {
-      return {
-        id: 'group:new', label: 'New…', scope: 'group',
-        exec: function () { _newExpanded = true; _query_default(''); }
-      };
-    }
-
-    function _collapsedDefaults() {
-      var out = [], seenNew = false;
-      _verbCandidates().forEach(function (c) {
-        if (c.create) { if (!seenNew) { out.push(_newGroupRow()); seenNew = true; } return; }
-        out.push(c);
-      });
-      return out;
+    function _defaultItems() {
+      return _aliasCommands().concat(_apiCommands().filter(function (c) {
+        return !_isNavigate(c) || c.create === true;
+      }));
     }
 
     // ── §4: showTargets() — navigate-only, non-create, non-reports ──────────
@@ -871,6 +905,30 @@
         seen[c.route] = true;
         return true;
       });
+    }
+
+    // v7: newTargets() — create-shortcuts from the catalog. Navigates to forms.
+    function newTargets() {
+      var out = [];
+      if (_catalog) {
+        Object.keys(_catalog).forEach(function (name) {
+          var meta = _catalog[name] || {};
+          if (meta.palette !== 'navigate' || !meta.route) return;
+          if (!meta.create) return;  // only create-shortcuts
+          out.push({
+            id: 'nav:' + name,
+            label: meta.label || name,
+            route: meta.route,
+            absolute: !!meta.absolute,
+            scope: 'nav',
+            exec: function () {
+              if (meta.absolute) window.location.href = meta.route;
+              else window.fbNavigate('/' + _company() + meta.route);
+            }
+          });
+        });
+      }
+      return out;
     }
 
     // ── §5: reportTypes() — source from /api/:company/reports/registry ─────
@@ -955,6 +1013,7 @@
     function _wireItemSources() {
       var A = (window.FB && FB.command && FB.command.ALIASES) || {};
       if (A.show) A.show.itemSource = [showTargets];
+      if (A.new) A.new.itemSource = [newTargets];
       if (A.report) A.report.itemSource = [reportTypes, null];
       if (A.bill) A.bill.itemSource = [partnerMatches, null, null, null];
     }
@@ -1056,40 +1115,21 @@
 
     function _render() {
       if (!_el) return;
-      if (!_items.length && !_currentHint) {
+      if (!_items.length) {
         _el.innerHTML = '<div class="fb-palette-empty">no matching commands</div>';
         return;
       }
+      // v7: flat list — no section headers, no scope labels.
       var html = '';
-      // §8: Hint header row — non-selectable, prepended inside the dropdown panel.
-      // _activeIdx indexes the _items array, not DOM rows, so the header has no
-      // data-i attribute and arrow movement naturally skips it.
-      if (_currentHint) {
-        html += '<div class="fb-palette-hint-header">' + esc(_currentHint) + '</div>';
-      }
-      if (!_items.length) {
-        _el.innerHTML = html || '<div class="fb-palette-empty">no matching commands</div>';
-        return;
-      }
-      // Section headers (PAGE / NAV / API) are non-interactive separator divs:
-      // no data-i, not bound by the click/keyboard handlers below (which only
-      // operate on .fb-palette-row via dataset.i 0.._items.length-1).
-      var SCOPE_LABELS = { alias: 'COMMANDS', page: 'PAGE', nav: 'NAV', api: 'API', group: 'NEW', partner: 'PARTNER' };
-      var lastScope = null;
       _items.forEach(function (c, i) {
-        if (c.scope !== lastScope) {
-          html += '<div class="fb-palette-header">' + esc(SCOPE_LABELS[c.scope] || c.scope) + '</div>';
-          lastScope = c.scope;
-        }
         html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
           '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
           (c.key ? '<kbd>' + esc(c.key) + '</kbd>' : '') +
-          '<span class="fb-palette-scope">' + esc(c.scope) + '</span>' +
         '</div>';
       });
       _el.innerHTML = html;
       Array.prototype.forEach.call(_el.querySelectorAll('.fb-palette-row'), function (row) {
-        row.onmousedown = function (e) { e.preventDefault(); }; // keep input focus
+        row.onmousedown = function (e) { e.preventDefault(); };
         row.onclick = function () { _execute(_items[Number(row.dataset.i)]); };
         row.onmouseover = function () { _activeIdx = Number(row.dataset.i); _render(); };
       });
@@ -1111,16 +1151,12 @@
       return v.charAt(0) === ':' ? v.slice(1) : v;
     }
     function _query_default(q) {
-      // v6 (§2): unified query path — uses _verbCandidates() for the candidate
-      // list in all states (empty, expanded, typed), so navigate-non-create
-      // entries never appear at bare :.
+      // v7: unified query path — flat list, no collapse/expand.
       if (!_el && _command) _open();
       if (q !== '') {
-        _items = _match(q.trim(), _verbCandidates());
-      } else if (_newExpanded) {
-        _items = _verbCandidates().filter(function (c) { return c.create; });
+        _items = _match(q.trim(), _defaultItems());
       } else {
-        _items = _collapsedDefaults();
+        _items = _defaultItems();
       }
       _activeIdx = _items.length ? 0 : -1;
       _render();
@@ -1164,8 +1200,7 @@
     }
     function _exitCommand() {
       _command = false;
-      _newExpanded = false;
-      _currentHint = null;
+      _disengageGrammar();
       _billSlot = 0;
       _close();
       if (_input) { _input.value = ''; _input.blur(); }
@@ -1185,38 +1220,46 @@
         else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) { e.preventDefault(); e.stopImmediatePropagation(); _move(-1); }
         else if (e.key === 'Enter') {
           e.preventDefault(); e.stopImmediatePropagation();
-          // v6: grammar mode (itemSource) — select highlighted item or parse
-          if (_currentHint) {
+          // Grammar mode: select highlighted item, or parse the full input
+          if (_engagedAlias) {
             if (_items.length && _activeIdx >= 0) _execute(_items[_activeIdx]);
             else _executeGrammar();
           } else {
-            _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]);
+            // If the typed prefix matches one alias, selecting it engages grammar
+            var g = _detectGrammar(_rawQuery());
+            if (g && !g.exact) {
+              // Prefix match — complete the alias name and engage
+              _input.value = ':' + g.alias + ' ';
+              _input.focus();
+              _input.setSelectionRange(_input.value.length, _input.value.length);
+              _engageGrammar(g);
+            } else if (g && g.exact) {
+              _engageGrammar(g);
+            } else {
+              _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]);
+            }
           }
-        }
-        else if (e.key === 'Backspace') {
-          // §2.2: Backspace at empty query in expanded state → back to collapsed
-          if (_newExpanded && _rawQuery() === '') {
-            e.preventDefault();
-            _newExpanded = false;
-            _query_default('');
-            return;
-          }
-          // otherwise let default backspace behavior happen
         }
         else if (e.key === 'Escape') {
           e.preventDefault(); e.stopImmediatePropagation();
-          // §2.2: Escape = back one level. expanded → collapsed → exit.
-          if (_newExpanded) { _newExpanded = false; _query_default(''); }
-          else _exitCommand();
+          _exitCommand();
+        }
+        else if (e.key === 'Tab') {
+          // v7: Tab completes the alias prefix if there's a unique match
+          if (!_engagedAlias) {
+            var g2 = _detectGrammar(_rawQuery());
+            if (g2 && !g2.exact) {
+              e.preventDefault();
+              _input.value = ':' + g2.alias + ' ';
+              _input.focus();
+              _input.setSelectionRange(_input.value.length, _input.value.length);
+              _engageGrammar(g2);
+            }
+          }
         }
       }, true);
       input.addEventListener('input', function () {
         if (!_command) {
-          // #148 Bug 1: if the user clears the input and re-types `:` while
-          // the input is still focused, the common.js `:` keydown handler
-          // (which only fires when !inInput) won't run. Re-enter command
-          // mode here without resetting the value — preserves whatever was
-          // typed after the `:` (e.g. `:b`).
           if (_input.value.charAt(0) === ':') {
             _command = true;
             _wireItemSources();
@@ -1225,19 +1268,19 @@
             var q0 = _rawQuery();
             var g0 = _detectGrammar(q0);
             if (g0) _engageGrammar(g0);
-            else { _currentHint = null; _query_default(q0); }
+            else { _disengageGrammar(); _query_default(q0); }
           }
           return;
         }
         if (_input.value.charAt(0) !== ':') {
-          _command = false; _close(); _currentHint = null; _billSlot = 0; return;
+          _command = false; _close(); _disengageGrammar(); _billSlot = 0; return;
         }
         var q = _rawQuery();
         var g = _detectGrammar(q);
         if (g) {
           _engageGrammar(g);
         } else {
-          _currentHint = null;
+          _disengageGrammar();
           _billSlot = 0;
           _query_default(q);
         }

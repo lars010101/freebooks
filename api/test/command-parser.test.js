@@ -115,10 +115,13 @@ test('parse: :bill "Nordic Freight AB" 1200', () => {
   assert.strictEqual(r.parsed.params.partner, 'Nordic Freight AB');
 });
 
-test('parse: :je', () => {
+test('parse: :je is now unknown (alias removed, v7)', () => {
   const r = cmd.parse(':je');
-  assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/journal/new');
+  assert.strictEqual(r.type, 'unknown');
+});
+
+test('grammarFor: :je returns null (alias removed, v7)', () => {
+  assert.strictEqual(cmd.grammarFor('je'), null);
 });
 
 test('parse: :show has no structured flag (v6 — generalized mechanism)', () => {
@@ -142,6 +145,20 @@ test('parse: :show with bang returns unknown (bang not supported)', () => {
 
 test('grammarFor: show returns <target>', () => {
   const g = cmd.grammarFor('show');
+  assert.ok(g && g.indexOf('<target>') !== -1);
+});
+
+// ── :new alias (v7) ────────────────────────────────────────────────────────
+
+test('parse: :new is in ALIASES with no parse function', () => {
+  const a = cmd.ALIASES['new'];
+  assert.ok(a, ':new is in ALIASES');
+  assert.strictEqual(a.structured, undefined);
+  assert.strictEqual(a.parse, undefined);
+});
+
+test('grammarFor: new returns <target>', () => {
+  const g = cmd.grammarFor('new');
   assert.ok(g && g.indexOf('<target>') !== -1);
 });
 
@@ -316,6 +333,7 @@ test('parse: :new is now unknown (alias removed)', () => {
   assert.strictEqual(r.type, 'unknown');
 });
 
-test('grammarFor: :new returns null (alias removed)', () => {
-  assert.strictEqual(cmd.grammarFor('new'), null);
+test('grammarFor: :new returns <target> (v7 — :new is now a real alias)', () => {
+  const g = cmd.grammarFor('new');
+  assert.ok(g !== null);
 });

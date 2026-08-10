@@ -37,6 +37,10 @@ async function handleJournal(ctx, action) {
     case 'journal.reject':        return rejectProposal(ctx);
     case 'journal.proposal.list': return listProposals(ctx);
     case 'journal.proposal.get':  return getProposal(ctx);
+    // opening-balance-flattened-spec: dedicated POST for opening balances.
+    // Stamps the OPEN journal + period onto every line, then delegates to
+    // the shared postJournalBatch core.
+    case 'openingBalance.post':   return postOpeningBalance(ctx);
     default:
       throw Object.assign(new Error(`Unknown journal action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -351,6 +355,7 @@ async function postJournalBatch(ctx, { enrichedLines, journalId, createdByEmail,
     reverses: null,
     reversed_by: null,
     bill_id: line.bill_id || null,
+    journal_id: effectiveJournalId || null,
     created_by: createdByEmail,
     created_at: now,
   }));
@@ -591,6 +596,83 @@ async function postEntry(ctx) {
     defaultedToMisc ? [`No journalId supplied — posted under default journal MISC (reference ${reference})`] : []
   );
   return { posted: true, batchId, reference, lineCount, warnings: outWarnings };
+}
+
+/**
+ * opening-balance-flattened-spec: dedicated POST for opening balances.
+ *
+ * Validates that the reserved OPEN journal and OPEN period exist (and the
+ * period is unlocked), then overrides each line's date/description/source and
+ * stamps the OPEN journal_id before delegating to the shared postJournalBatch
+ * core. The journal and period are NOT auto-seeded — the user must create them
+ * manually; a missing one surfaces a clear error so the user knows what to do.
+ *
+ * The OPEN period is a single-day cutover point (start = end); that single date
+ * is frozen onto every line at posting time and never re-derived.
+ */
+async function postOpeningBalance(ctx) {
+  const { companyId, userEmail, body } = ctx;
+  const { lines } = body;
+  if (!lines || !Array.isArray(lines) || lines.length === 0) {
+    throw Object.assign(new Error('lines array required'), { code: 'INVALID_INPUT' });
+  }
+
+  // 1. OPEN journal must exist and be active.
+  const journalRows = await query(
+    `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'OPEN' AND active = true LIMIT 1`,
+    { companyId }
+  );
+  if (journalRows.length === 0) {
+    throw Object.assign(
+      new Error('OPEN Journal required for migrated data. Create it, try again.'),
+      { code: 'VALIDATION' }
+    );
+  }
+  const openJournalId = journalRows[0].journal_id;
+
+  // 2. OPEN period must exist and be unlocked.
+  const periodRows = await query(
+    `SELECT period_name, start_date, end_date, locked FROM periods WHERE company_id = @companyId AND period_name = 'OPEN' ORDER BY created_at DESC LIMIT 1`,
+    { companyId }
+  );
+  if (periodRows.length === 0) {
+    throw Object.assign(
+      new Error('OPEN Period required for migrated data. Create it, try again.'),
+      { code: 'VALIDATION' }
+    );
+  }
+  const openPeriod = periodRows[0];
+  if (openPeriod.locked) {
+    throw Object.assign(
+      new Error('OPEN Period is locked. Unlock it, try again.'),
+      { code: 'PERIOD_LOCKED' }
+    );
+  }
+
+  // 3. Derive the date from OPEN period (start = end — single cutover point).
+  const openDate = String(openPeriod.start_date).slice(0, 10);
+
+  // 4. Override each line: date, description, source; pass OPEN journal_id.
+  const enrichedLines = lines.map((line) => ({
+    ...line,
+    date: openDate,
+    description: 'Opening balances',
+    source: 'opening_balance',
+  }));
+
+  // 5. Enrich + validate (balance check, account existence, period window), then
+  //    insert via the shared core with the OPEN journal_id stamped on each row.
+  const { enrichedLines: validatedLines, warnings, validation } = await enrichAndValidate(companyId, enrichedLines);
+  if (!validation.valid) throwValidation(validation);
+
+  const { batchId, reference, lineCount } = await postJournalBatch(ctx, {
+    enrichedLines: validatedLines,
+    journalId: openJournalId,
+    createdByEmail: userEmail,
+    source: 'opening_balance',
+  });
+
+  return { posted: true, batchId, reference, lineCount, warnings: warnings || [] };
 }
 
 async function reverseEntry(ctx) {

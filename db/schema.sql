@@ -67,6 +67,13 @@ CREATE TABLE IF NOT EXISTS journal_entries (
   created_at      TIMESTAMP        NOT NULL DEFAULT NOW()
 );
 
+-- MIGRATION: explicit journal linkage on journal_entries (opening-balance-spec).
+-- Makes the originating journal queryable via a real join rather than parsing
+-- the reference string prefix. Opening-balance lines are filtered via
+-- WHERE journal_id = (SELECT journal_id FROM journals WHERE code = 'OPEN').
+-- Legacy rows stay null (resolveDefaultJournalId treats null as MISC).
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS journal_id VARCHAR;
+
 -- =============================================================================
 -- vat_codes
 -- =============================================================================

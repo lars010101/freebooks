@@ -310,7 +310,6 @@ async function handleApiRequest(req, res) {
 
     switch (module) {
       case 'journal':     result = await handleJournal(ctx, action); break;
-      case 'openingBalance': result = await handleJournal(ctx, action); break;
       case 'inbox':       result = await handleInbox(ctx, action); break;
       case 'bank':        result = await handleBank(ctx, action); break; // bank.process, bank.approve, bank.reconcile.*
       case 'bill':        result = await handleBills(ctx, action); break;
@@ -1472,44 +1471,6 @@ async function handleSettings(ctx, action) {
     if (!period || !period.period_id || !period.start_date || !period.end_date) throw Object.assign(new Error('period_id, start_date, end_date required'), { code: 'INVALID_INPUT' });
     const now = new Date().toISOString();
 
-    // ── OPEN period validation (opening-balance-flattened-spec) ──────────
-    // OPEN is a single-day migration anchor: start_date MUST equal end_date,
-    // and it must be the oldest period (no existing period ends before it).
-    // Non-OPEN periods may not start on or before OPEN's date once OPEN exists.
-    const isOpen = String(period.period_id).toUpperCase() === 'OPEN';
-    const openRows = await query(
-      `SELECT period_name, start_date, end_date FROM periods WHERE company_id = @companyId AND period_name = 'OPEN' ORDER BY created_at DESC LIMIT 1`,
-      { companyId }
-    );
-    if (isOpen) {
-      if (String(period.start_date) !== String(period.end_date)) {
-        throw Object.assign(
-          new Error('OPEN period start_date and end_date must be equal (OPEN is a single-day cutover point).'),
-          { code: 'VALIDATION' }
-        );
-      }
-      // OPEN must be the oldest period: no existing period may end before OPEN's date.
-      const earlier = await query(
-        `SELECT period_name, end_date FROM periods WHERE company_id = @companyId AND period_name <> 'OPEN' AND end_date < @openDate ORDER BY end_date LIMIT 1`,
-        { companyId, openDate: period.start_date }
-      );
-      if (earlier.length > 0) {
-        throw Object.assign(
-          new Error(`OPEN period must be the oldest period. Period "${earlier[0].period_name}" ends ${earlier[0].end_date}, which is before OPEN's date ${period.start_date}.`),
-          { code: 'VALIDATION' }
-        );
-      }
-    } else if (openRows.length > 0) {
-      // A non-OPEN period may not start on or before OPEN's date.
-      const openDate = String(openRows[0].start_date);
-      if (String(period.start_date) <= openDate) {
-        throw Object.assign(
-          new Error(`Period "${period.period_id}" start_date ${period.start_date} is on or before the OPEN period date ${openDate}. No period may start on or before OPEN.`),
-          { code: 'VALIDATION' }
-        );
-      }
-    }
-
     const existing = await query(`SELECT period_name, locked FROM periods WHERE company_id = @companyId AND period_name = @name`, { companyId, name: period.period_id });
     const taxAttrs = period.tax_attrs != null ? JSON.stringify(period.tax_attrs) : null;
     if (existing.length > 0) {
@@ -1745,7 +1706,6 @@ ensureDb().then(async () => {
     // by calling them directly. Each handler takes (ctx, action).
     const handlers = {
       journal: () => require('./journal').handleJournal(ctx, action),
-      openingBalance: () => require('./journal').handleJournal(ctx, action),
       inbox: () => require('./inbox').handleInbox(ctx, action),
       bank: () => require('./bank').handleBank(ctx, action),
       bill: () => require('./bills').handleBills(ctx, action),

@@ -63,19 +63,6 @@ ${commonStyle()}
   .pe-ro { color:#888; }
   /* .fb-modal* rules moved to common.css 2026-07-28 (K2 — FB.modal is the
      one shared modal; page-local copies deleted, see keyboard-ux-spec §7). */
-  /* ── Opening Balances tab (FB.list, rev 2026-08-10) ── */
-  #ob-table input[type=number] { width:110px; padding:4px 7px; border:1px solid #ddd; border-radius:3px; font-size:10pt; text-align:right; }
-  #ob-table input[type=number]:focus { outline:none; border-color:#888; }
-  .ob-totals { display:flex; gap:24px; align-items:center; margin-top:14px; padding:12px 16px;
-    background:#f8f8f8; border-radius:6px; font-size:10pt; flex-wrap:wrap; }
-  .ob-totals .tot-item { display:flex; flex-direction:column; gap:2px; }
-  .ob-totals .tot-label { font-size:9pt; color:#888; font-weight:600; text-transform:uppercase; }
-  .ob-totals .tot-val { font-size:12pt; font-weight:700; font-family:monospace; }
-  .ob-totals .tot-diff-ok { color:#2a8a2a; }
-  .ob-totals .tot-diff-bad { color:#cc2222; }
-  .success-box { background:#f0fff4; border:1px solid #2a8a2a; border-radius:6px; padding:20px 24px; max-width:500px; }
-  .success-box h2 { color:#2a8a2a; margin:0 0 10px; }
-  .success-box a { color:#1a1a1a; font-weight:600; }
   .type-badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:9pt; font-weight:600; }
 
 </style>
@@ -93,7 +80,6 @@ ${commonStyle()}
     <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" id="tab-fxrates-label" onclick="showTab('fxrates')">Exchange Rates</div>
     <div class="tab" onclick="showTab('ai')">AI</div>
-    <div class="tab" onclick="showTab('opening-balances')">Opening Balances</div>
   </div>
 
   <!-- Periods tab REMOVED 2026-08-04 (IA-spec step 4, §5.10): Periods is now
@@ -114,15 +100,6 @@ ${commonStyle()}
       <thead><tr><th>Attribute</th><th>Value</th><th>Type</th><th></th></tr></thead>
       <tbody id="company-attrs-body"></tbody>
     </table>
-
-    <!-- SETUP — opening balances (Xero conversion-balances pattern, ratified
-         2026-07-28): the once-per-company migration screen is linked from
-         Settings, not the sidebar; also palette-reachable via the route
-         registry. -->
-    <div style="margin-top:18px;padding:12px 18px;border:1px solid #ddd;border-radius:6px;background:#fafafa;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap">
-      <div style="font-size:10pt;color:#333"><strong>Opening balances</strong> — per-account starting balances as of your go-live date (once-per-company migration).</div>
-      <a href="/${company}/settings?tab=opening-balances" class="btn-sm" style="text-decoration:none;display:inline-block">Opening Balances →</a>
-    </div>
 
     <!-- DANGER ZONE — settings-ux-spec §7 item 1 rev 2026-07-27 final.
          Deletes the CURRENT company via company.delete. Server guards:
@@ -269,27 +246,6 @@ ${commonStyle()}
     </div>
   </div>
 
-  <!-- OPENING BALANCES TAB — FB.list grid with column filters (rev 2026-08-10:
-       dropped custom search box + Journal:OPEN pill in favour of standard
-       FB.list ≡ header filters on Code, Account Name, Type). Debit/Credit
-       remain inline editable inputs (display columns, ro:'always'). POST goes
-       through openingBalance.post, which validates the OPEN journal + period
-       exist and stamps journal_id onto every row. -->
-  <div id="tab-opening-balances" class="tab-panel">
-    <table class="edit-table" id="ob-table">
-      <thead><tr><th>Code</th><th>Account Name</th><th>Type</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th><th></th></tr></thead>
-      <tbody id="ob-body"></tbody>
-    </table>
-    <div class="ob-totals">
-      <div class="tot-item"><span class="tot-label">Total DR</span><span class="tot-val" id="tot-dr">0.00</span></div>
-      <div class="tot-item"><span class="tot-label">Total CR</span><span class="tot-val" id="tot-cr">0.00</span></div>
-      <div class="tot-item"><span class="tot-label">Difference</span><span class="tot-val" id="tot-diff">0.00</span></div>
-      <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
-        <button class="btn-primary" id="btn-post" onclick="postBalances()" disabled>Post Opening Balances</button>
-        <span id="post-status" style="font-size:10pt"></span>
-      </div>
-    </div>
-  </div>
 </div>
 
 <script>
@@ -350,7 +306,7 @@ function showTab(t) {
       resetDirty(curTab);
     }
   }
-  var tabs = ['company','coa','vat','journals','fxrates','ai','opening-balances'];
+  var tabs = ['company','coa','vat','journals','fxrates','ai'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
@@ -363,7 +319,6 @@ function showTab(t) {
     else if (t === 'vat') renderVatHints();
     else if (t === 'journals') renderJournalHints();
     else if (t === 'fxrates') FB.keys.renderHints('settings-fxrates', hintEl, { layout: 'list' });
-    else if (t === 'opening-balances') renderOpeningBalancesHints();
     else hintEl.innerHTML = '';
   }
   if (!tabLoaded[t]) {
@@ -374,7 +329,6 @@ function showTab(t) {
     if (t === 'journals') { loadJournals(); }
     if (t === 'fxrates')  { loadFxRates(); loadBaseCurrencies(); }
     if (t === 'ai')       { loadAiSettings(); }
-    if (t === 'opening-balances') { loadOpeningBalances(); }
   }
 }
 
@@ -843,167 +797,6 @@ function attachCcyDd(input) {
 // (flat + %, % edited as a percentage and stored as a fraction — the storage
 // semantics bills.js has always read). The read-first panel that sat above
 // this register is deleted.
-
-// ========== OPENING BALANCES (FB.list, opening-balance-flattened-spec) =========
-// Filterable read-only grid: FB.list owns the table render + column filters
-// (≡ headers) on Code, Account Name, Type. Debit/Credit are display-only
-// columns with inline number inputs (ro:'always' — never enter FB.list edit
-// mode). The onAmtInput/updateTotals/collectLines/postBalances logic is
-// preserved from the custom-renderTable era; obDrVals/obCrVals track the
-// entered values. The w action posts when DR = CR. No CRUD, no add row.
-var obDrVals = {};
-var obCrVals = {};
-var obAccountsList = [];
-
-function obTypeBadge(v) {
-  var color = v === 'Asset' ? '#1a5276' :
-    v === 'Liability' ? '#7b241c' :
-    v === 'Equity' ? '#1e8449' :
-    v === 'Revenue' ? '#6c3483' : '#555';
-  return '<span class="type-badge" style="background:' + color + '22;color:' + color + '">' + esc(v) + '</span>';
-}
-
-function obDrInput(v, row) {
-  var val = obDrVals[row.account_code] || '';
-  return '<input type="number" min="0" step="0.01" placeholder="0.00" data-code="' + esc(row.account_code) + '" data-side="dr" value="' + esc(val) + '" oninput="onAmtInput(this)">';
-}
-
-function obCrInput(v, row) {
-  var val = obCrVals[row.account_code] || '';
-  return '<input type="number" min="0" step="0.01" placeholder="0.00" data-code="' + esc(row.account_code) + '" data-side="cr" value="' + esc(val) + '" oninput="onAmtInput(this)">';
-}
-
-var obList = FB.list.create({
-  keysId: 'settings-opening-balances',
-  active: function() { var p = document.getElementById('tab-opening-balances'); return !!(p && p.classList.contains('active')); },
-  tbody: 'ob-body',
-  companyId: function() { return COMPANY; },
-  canAdd: false,
-  hint: 'Column filters (≡ headers) narrow by Code, Name, Type. Type a debit or credit amount per row; w posts when DR = CR.',
-  columns: [
-    { field: 'account_code', type: 'text', width: 80, ro: 'saved', filterType: 'text' },
-    { field: 'account_name', type: 'text', width: 200, filterType: 'text' },
-    { field: 'account_type', type: 'select', width: 90, options: ACCT_TYPES, filterType: 'list', ro: 'always',
-      display: function(v) { return obTypeBadge(v); } },
-    { field: 'debit', type: 'text', width: 120, align: 'right', ro: 'always', filterType: null,
-      display: function(v, row) { return obDrInput(v, row); } },
-    { field: 'credit', type: 'text', width: 120, align: 'right', ro: 'always', filterType: null,
-      display: function(v, row) { return obCrInput(v, row); } }
-  ],
-  editable: function() { return false; }, // read-only grid — inline inputs handle editing
-  same: function() { return true; },
-  validate: function() { return null; },
-  list: {
-    fetch: function() {
-      return fetch('/api/' + COMPANY + '/accounts')
-        .then(function(r) { return r.json(); })
-        .then(function(rows) {
-          return Array.isArray(rows) ? rows.filter(function(a) { return a.is_active !== false; }) : [];
-        });
-    },
-    map: function(a) {
-      return { account_code: a.account_code, account_name: a.account_name, account_type: a.account_type, debit: 0, credit: 0, _key: a.account_code };
-    }
-  },
-  onLoaded: function(rows) { obAccountsList = rows; updateTotals(); },
-  actions: [{ key: 'w', label: 'Post', handler: function() {
-    var btn = document.getElementById('btn-post');
-    if (btn.disabled) {
-      var st = document.getElementById('post-status');
-      st.textContent = 'Not balanced yet — see Difference';
-      st.style.color = '#cc2222';
-      return;
-    }
-    postBalances();
-  } }],
-  onChrome: function() { /* no-op — dirty state lives in obDrVals/obCrVals */ }
-});
-
-function loadOpeningBalances(focusKey) { return obList.load(focusKey); }
-
-function onAmtInput(el) {
-  var code = el.dataset.code;
-  var side = el.dataset.side;
-  var val = el.value;
-  if (side === 'dr') obDrVals[code] = val;
-  else obCrVals[code] = val;
-  updateTotals();
-}
-
-function updateTotals() {
-  var totalDr = 0, totalCr = 0;
-  obAccountsList.forEach(function(a){
-    var dr = parseFloat(obDrVals[a.account_code] || 0);
-    var cr = parseFloat(obCrVals[a.account_code] || 0);
-    if (!isNaN(dr)) totalDr += dr;
-    if (!isNaN(cr)) totalCr += cr;
-  });
-  var diff = Math.abs(totalDr - totalCr);
-  document.getElementById('tot-dr').textContent = totalDr.toFixed(2);
-  document.getElementById('tot-cr').textContent = totalCr.toFixed(2);
-  var diffEl = document.getElementById('tot-diff');
-  diffEl.textContent = (totalDr - totalCr).toFixed(2);
-  diffEl.className = 'tot-val ' + (diff < 0.005 ? 'tot-diff-ok' : 'tot-diff-bad');
-  var postBtn = document.getElementById('btn-post');
-  var hasLines = (totalDr > 0 || totalCr > 0);
-  var balanced = diff < 0.005;
-  postBtn.disabled = !(hasLines && balanced);
-}
-
-function collectLines() {
-  var lines = [];
-  obAccountsList.forEach(function(a){
-    var dr = parseFloat(obDrVals[a.account_code] || 0);
-    var cr = parseFloat(obCrVals[a.account_code] || 0);
-    dr = isNaN(dr) ? 0 : dr;
-    cr = isNaN(cr) ? 0 : cr;
-    if (dr <= 0 && cr <= 0) return;
-    // date/description/source/journal are derived server-side by openingBalance.post
-    lines.push({ account_code: a.account_code, debit: dr, credit: cr });
-  });
-  return lines;
-}
-
-function postBalances() {
-  var lines = collectLines();
-  if (!lines.length) { document.getElementById('post-status').textContent = 'No non-zero lines.'; return; }
-
-  var btn = document.getElementById('btn-post');
-  btn.disabled = true;
-  document.getElementById('post-status').textContent = 'Posting\u2026';
-  document.getElementById('post-status').style.color = '#555';
-
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'openingBalance.post', companyId: COMPANY, lines: lines }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){
-      var d = res.data || res;
-      var err = res.error || d.error || (d.errors && d.errors.join('; '));
-      if (err) {
-        btn.disabled = false;
-        document.getElementById('post-status').textContent = '\u2717 ' + err;
-        document.getElementById('post-status').style.color = '#cc2222';
-      } else {
-        var st = document.getElementById('post-status');
-        st.textContent = '\u2713 Posted (batch ' + (d.batchId || d.batch_id || '') + ')';
-        st.style.color = '#2a8a2a';
-        // Clear the grid values — posted balances are now in the books.
-        obDrVals = {};
-        obCrVals = {};
-        obList.render();
-      }
-    })
-    .catch(function(e){
-      btn.disabled = false;
-      document.getElementById('post-status').textContent = '\u2717 ' + e.message;
-      document.getElementById('post-status').style.color = '#cc2222';
-    });
-}
-
-function renderOpeningBalancesHints() {
-  var el = document.getElementById('sb-hints');
-  if (el) obList.renderHints(el);
-}
 
 
 // ========== UNSAVED CHANGES PROTECTION ==========

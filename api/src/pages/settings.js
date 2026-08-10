@@ -283,15 +283,51 @@ ${commonStyle()}
     </div>
   </div>
 
-  <!-- OPENING BALANCES TAB — relocated to a standalone page (opening-balance-
-       flattened-spec). The bespoke in-tab grid was removed; this tab now just
-       links to /:company/opening-balances, the one-time migration page. -->
+  <!-- OPENING BALANCES TAB — inline grid (opening-balance-flattened-spec,
+       rev 2026-08-10: moved back inline per user request). Bulk-fill form:
+       Account read-only, Debit/Credit editable. No page-level inputs, no
+       filter buttons, no descriptive text. POST goes through
+       openingBalance.post, which validates the OPEN journal + period exist
+       and stamps journal_id onto every row. -->
   <div id="tab-opening-balances" class="tab-panel">
-    <div class="info-box" style="max-width:560px">
-      Opening balances are entered on a dedicated migration page. It posts under the reserved <strong>OPEN</strong> journal and <strong>OPEN</strong> period (create both first under the Journals and Periods tabs).
-      <div style="margin-top:14px">
-        <a class="btn-primary" style="display:inline-block;padding:10px 24px;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11pt;font-weight:600;text-decoration:none"
-           href="/${company}/opening-balances">Open Opening Balances →</a>
+    <div id="ob-form">
+      <div class="ob-search-row" style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <input type="text" id="acct-search" placeholder="Search account…" oninput="renderTable()" style="padding:5px 10px;border:1px solid #ccc;border-radius:4px;font-size:10pt;width:240px">
+        <span class="ob-journal-pill" style="font-size:9pt;color:#555;background:#f0f4ff;border:1px solid #2255cc;border-radius:3px;padding:2px 8px;font-weight:600">Journal: OPEN</span>
+      </div>
+
+      <table class="ob-table">
+        <thead>
+          <tr>
+            <th style="width:90px">Code</th>
+            <th>Account Name</th>
+            <th style="width:100px">Type</th>
+            <th style="width:120px;text-align:right">Debit</th>
+            <th style="width:120px;text-align:right">Credit</th>
+          </tr>
+        </thead>
+        <tbody id="ob-tbody">
+          <tr><td colspan="5" style="text-align:center;color:#888;padding:20px">Loading accounts…</td></tr>
+        </tbody>
+      </table>
+
+      <div class="ob-totals">
+        <div class="tot-item">
+          <span class="tot-label">Total DR</span>
+          <span class="tot-val" id="tot-dr">0.00</span>
+        </div>
+        <div class="tot-item">
+          <span class="tot-label">Total CR</span>
+          <span class="tot-val" id="tot-cr">0.00</span>
+        </div>
+        <div class="tot-item">
+          <span class="tot-label">Difference</span>
+          <span class="tot-val" id="tot-diff">0.00</span>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
+          <button class="btn-primary" id="btn-post" onclick="postBalances()" disabled>Post Opening Balances</button>
+          <span id="post-status" style="font-size:10pt"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -379,7 +415,7 @@ function showTab(t) {
     if (t === 'journals') { loadJournals(); }
     if (t === 'fxrates')  { loadFxRates(); loadBaseCurrencies(); }
     if (t === 'ai')       { loadAiSettings(); }
-    // opening-balances tab is now a static link — no lazy load needed.
+    if (t === 'opening-balances') { loadOpeningBalances(); }
   }
 }
 
@@ -849,13 +885,167 @@ function attachCcyDd(input) {
 // semantics bills.js has always read). The read-first panel that sat above
 // this register is deleted.
 
-// ========== OPENING BALANCES (relocated from standalone route 2026-07-28) =========
-// ========== OPENING BALANCES TAB — now a link to the standalone page =========
-// (opening-balance-flattened-spec) The bespoke in-tab grid was removed; the
-// tab panel now just links to /:company/opening-balances. No JS needed here.
+// ========== OPENING BALANCES (inline tab, opening-balance-flattened-spec) =========
+// Bulk-fill grid: Account read-only, Debit/Credit editable. No page-level
+// Date/Journal/Description inputs (server derives those). POST goes through
+// openingBalance.post, which validates the OPEN journal + period exist and
+// stamps journal_id onto every row. Lazy-loaded on first tab open.
+var _obLoaded = false;
+var obAccountsList = [];
+var obDrVals = {};
+var obCrVals = {};
+
+function loadOpeningBalances() {
+  if (_obLoaded) { renderTable(); return; }
+  _obLoaded = true;
+  // Wire the FB.form binding (K3b, keyboard-ux-spec §8) — search bar → grid,
+  // w = post (disabled-guard). The tab is a bulk-fill grid; no per-row CRUD.
+  FB.form.create({
+    formId: 'opening-balances',
+    zones: [
+      { id: 'search', rows: function () { return [document.querySelector('.ob-search-row')]; } },
+      { id: 'grid', rows: function () {
+          return Array.prototype.slice.call(document.querySelectorAll('#ob-tbody tr'))
+            .filter(function (tr) { return !!tr.querySelector('input'); });
+        } }
+    ],
+    verbs: {
+      write: { key: 'w', hint: 'post', run: function () {
+        var btn = document.getElementById('btn-post');
+        if (btn.disabled) {
+          var st = document.getElementById('post-status');
+          st.textContent = 'Not balanced yet — see Difference';
+          st.style.color = '#cc2222';
+          return;
+        }
+        postBalances();
+      } }
+    }
+  });
+  fetch('/api/' + COMPANY + '/accounts')
+    .then(function(r){ return r.json(); })
+    .then(function(rows){
+      obAccountsList = Array.isArray(rows) ? rows.filter(function(a){ return a.is_active !== false; }) : [];
+      renderTable();
+    });
+}
+
+function renderTable() {
+  var search = document.getElementById('acct-search').value.trim().toLowerCase();
+  var rows = obAccountsList;
+  if (search) {
+    rows = rows.filter(function(a){
+      return a.account_code.toLowerCase().includes(search) || a.account_name.toLowerCase().includes(search);
+    });
+  }
+  var tbody = document.getElementById('ob-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px">No accounts.</td></tr>';
+    updateTotals();
+    return;
+  }
+  var html = '';
+  rows.forEach(function(a){
+    var typeColor = a.account_type === 'Asset' ? '#1a5276' :
+      a.account_type === 'Liability' ? '#7b241c' :
+      a.account_type === 'Equity' ? '#1e8449' :
+      a.account_type === 'Revenue' ? '#6c3483' : '#555';
+    var drVal = obDrVals[a.account_code] || '';
+    var crVal = obCrVals[a.account_code] || '';
+    html += '<tr>' +
+      '<td style="font-family:monospace;color:#333">' + esc(a.account_code) + '</td>' +
+      '<td>' + esc(a.account_name) + '</td>' +
+      '<td><span class="type-badge" style="background:' + typeColor + '22;color:' + typeColor + '">' + esc(a.account_type) + '</span></td>' +
+      '<td style="text-align:right"><input type="number" min="0" step="0.01" placeholder="0.00" data-code="' + esc(a.account_code) + '" data-side="dr" value="' + esc(drVal) + '" oninput="onAmtInput(this)"></td>' +
+      '<td style="text-align:right"><input type="number" min="0" step="0.01" placeholder="0.00" data-code="' + esc(a.account_code) + '" data-side="cr" value="' + esc(crVal) + '" oninput="onAmtInput(this)"></td>' +
+      '</tr>';
+  });
+  tbody.innerHTML = html;
+  updateTotals();
+}
+
+function onAmtInput(el) {
+  var code = el.dataset.code;
+  var side = el.dataset.side;
+  var val = el.value;
+  if (side === 'dr') obDrVals[code] = val;
+  else obCrVals[code] = val;
+  updateTotals();
+}
+
+function updateTotals() {
+  var totalDr = 0, totalCr = 0;
+  obAccountsList.forEach(function(a){
+    var dr = parseFloat(obDrVals[a.account_code] || 0);
+    var cr = parseFloat(obCrVals[a.account_code] || 0);
+    if (!isNaN(dr)) totalDr += dr;
+    if (!isNaN(cr)) totalCr += cr;
+  });
+  var diff = Math.abs(totalDr - totalCr);
+  document.getElementById('tot-dr').textContent = totalDr.toFixed(2);
+  document.getElementById('tot-cr').textContent = totalCr.toFixed(2);
+  var diffEl = document.getElementById('tot-diff');
+  diffEl.textContent = (totalDr - totalCr).toFixed(2);
+  diffEl.className = 'tot-val ' + (diff < 0.005 ? 'tot-diff-ok' : 'tot-diff-bad');
+  var postBtn = document.getElementById('btn-post');
+  var hasLines = (totalDr > 0 || totalCr > 0);
+  var balanced = diff < 0.005;
+  postBtn.disabled = !(hasLines && balanced);
+}
+
+function collectLines() {
+  var lines = [];
+  obAccountsList.forEach(function(a){
+    var dr = parseFloat(obDrVals[a.account_code] || 0);
+    var cr = parseFloat(obCrVals[a.account_code] || 0);
+    dr = isNaN(dr) ? 0 : dr;
+    cr = isNaN(cr) ? 0 : cr;
+    if (dr <= 0 && cr <= 0) return;
+    // date/description/source/journal are derived server-side by openingBalance.post
+    lines.push({ account_code: a.account_code, debit: dr, credit: cr });
+  });
+  return lines;
+}
+
+function postBalances() {
+  var lines = collectLines();
+  if (!lines.length) { document.getElementById('post-status').textContent = 'No non-zero lines.'; return; }
+
+  var btn = document.getElementById('btn-post');
+  btn.disabled = true;
+  document.getElementById('post-status').textContent = 'Posting\u2026';
+  document.getElementById('post-status').style.color = '#555';
+
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'openingBalance.post', companyId: COMPANY, lines: lines }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var d = res.data || res;
+      var err = res.error || d.error || (d.errors && d.errors.join('; '));
+      if (err) {
+        btn.disabled = false;
+        document.getElementById('post-status').textContent = '\u2717 ' + err;
+        document.getElementById('post-status').style.color = '#cc2222';
+      } else {
+        var st = document.getElementById('post-status');
+        st.textContent = '\u2713 Posted (batch ' + (d.batchId || d.batch_id || '') + ')';
+        st.style.color = '#2a8a2a';
+        // Clear the grid values — posted balances are now in the books.
+        obDrVals = {};
+        obCrVals = {};
+        renderTable();
+      }
+    })
+    .catch(function(e){
+      btn.disabled = false;
+      document.getElementById('post-status').textContent = '\u2717 ' + e.message;
+      document.getElementById('post-status').style.color = '#cc2222';
+    });
+}
+
 function renderOpeningBalancesHints() {
   var el = document.getElementById('sb-hints');
-  if (el) el.innerHTML = '';
+  if (el && window.FB && FB.keys) FB.keys.renderHints('opening-balances', el, { layout: 'list' });
 }
 
 

@@ -327,7 +327,8 @@ async function handleApiRequest(req, res) {
       case 'journals':   result = await handleJournals(ctx, action); break;
       case 'settings':
       case 'company':
-      case 'period':      result = await handleSettings(ctx, action); break;
+      case 'period':
+      case 'ai':          result = await handleSettings(ctx, action); break;
       case 'filing':      result = await handlePeriodsService(ctx, action); break;
       case 'permissions': result = await handlePermissions(ctx, action); break;
       case 'setup':       result = await handleSetup(ctx, action); break;
@@ -1413,6 +1414,67 @@ async function handleSettings(ctx, action) {
     return { saved: true, key };
   }
 
+  if (action === 'ai.attr.list') {
+    const s = await settingsMap(companyId);
+    const dash = '—';
+    const aiAttrs = [
+      { key: 'agent_enabled', label: 'Enable agent pipeline', type: 'Boolean',
+        value: s.agent_enabled === 'true', display: s.agent_enabled === 'true' ? 'Yes' : 'No',
+        editor: { type: 'checkbox' } },
+      { key: 'agent_poll_interval_ms', label: 'Poll interval (ms)', type: 'Number',
+        value: s.agent_poll_interval_ms || '30000', display: s.agent_poll_interval_ms || '30000',
+        editor: { type: 'number' } },
+      { key: 'agent_inbox_path', label: 'Inbox path', type: 'String',
+        value: s.agent_inbox_path || '', display: s.agent_inbox_path || dash,
+        editor: { type: 'text' } },
+      { key: 'llm_endpoint_url', label: 'LLM endpoint URL', type: 'String',
+        value: s.llm_endpoint_url || '', display: s.llm_endpoint_url || dash,
+        editor: { type: 'text' } },
+      { key: 'llm_api_key', label: 'LLM API key', type: 'String',
+        value: '', display: s.llm_api_key ? '••••' + String(s.llm_api_key).slice(-4) : dash,
+        editor: { type: 'text' }, note: 'Blank keeps the stored key' },
+      { key: 'llm_model', label: 'LLM model', type: 'String',
+        value: s.llm_model || '', display: s.llm_model || dash,
+        editor: { type: 'text' } },
+      { key: 'llm_temperature', label: 'LLM temperature', type: 'Number',
+        value: s.llm_temperature || '0.1', display: s.llm_temperature || '0.1',
+        editor: { type: 'number', step: '0.1' } },
+      { key: 'llm_vision_endpoint_url', label: 'Vision endpoint URL', type: 'String',
+        value: s.llm_vision_endpoint_url || '', display: s.llm_vision_endpoint_url || dash,
+        editor: { type: 'text' } },
+      { key: 'llm_vision_model', label: 'Vision model', type: 'String',
+        value: s.llm_vision_model || '', display: s.llm_vision_model || dash,
+        editor: { type: 'text' } },
+      { key: 'llm_vision_api_key', label: 'Vision API key', type: 'String',
+        value: '', display: s.llm_vision_api_key ? '••••' + String(s.llm_vision_api_key).slice(-4) : dash,
+        editor: { type: 'text' }, note: 'Blank keeps the stored key' },
+    ];
+    return aiAttrs;
+  }
+
+  if (action === 'ai.attr.save') {
+    const { key, value } = body;
+    if (!key) throw Object.assign(new Error('key required'), { code: 'INVALID_INPUT' });
+    const validAiKeys = [
+      'agent_enabled', 'agent_poll_interval_ms', 'agent_inbox_path',
+      'llm_endpoint_url', 'llm_api_key', 'llm_model', 'llm_temperature',
+      'llm_vision_endpoint_url', 'llm_vision_model', 'llm_vision_api_key',
+    ];
+    if (!validAiKeys.includes(key)) {
+      throw Object.assign(new Error(`Unknown AI attribute: ${key}`), { code: 'INVALID_INPUT' });
+    }
+    // API keys: blank keeps the stored key (same convention as FX API key)
+    if ((key === 'llm_api_key' || key === 'llm_vision_api_key') && !value) {
+      return { saved: true, key };
+    }
+    if (key === 'agent_enabled') {
+      await putSetting(companyId, key, value === true || value === 'true' ? 'true' : 'false');
+    } else {
+      await putSetting(companyId, key, String(value));
+    }
+    return { saved: true, key };
+  }
+
   // settings-ux-spec §7 item 1 (rev 2026-07-27): danger-zone delete of the
   // CURRENT company (ctx.companyId is the target). Guards, in order:
   //   (1) cannot delete the LAST remaining company;
@@ -1724,6 +1786,7 @@ ensureDb().then(async () => {
       settings: () => require('./index').handleSettings(ctx, action),
       company: () => require('./index').handleSettings(ctx, action),
       period: () => require('./index').handleSettings(ctx, action),
+      ai: () => require('./index').handleSettings(ctx, action),
       filing: () => require('./index').handlePeriodsService(ctx, action),
       permissions: () => require('./index').handlePermissions(ctx, action),
       setup: () => { throw Object.assign(new Error('Agents may not run setup actions'), { code: 'FORBIDDEN' }); },

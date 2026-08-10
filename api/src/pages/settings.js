@@ -79,7 +79,7 @@ ${commonStyle()}
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" id="tab-fxrates-label" onclick="showTab('fxrates')">Exchange Rates</div>
-    <div class="tab" onclick="showTab('ai')">AI</div>
+    <div class="tab" onclick="showTab('ai')">AI<span id="tab-dot-ai" style="display:none;color:#d97706"> ●</span></div>
   </div>
 
   <!-- Periods tab REMOVED 2026-08-04 (IA-spec step 4, §5.10): Periods is now
@@ -154,96 +154,15 @@ ${commonStyle()}
     </table>
   </div>
 
-  <!-- AI TAB — agent pipeline config + LLM provider (B9 spec) -->
+  <!-- AI TAB — flattened attribute grid (settings-ai-flattened-spec.md).
+       Same FB.list pattern as Company tab: Attribute | Value | Type, per-row
+       edit/commit, tab-level dirty dot. No page-level Save button.
+       Test connection and Agent status are tracked as issues #179/#180. -->
   <div id="tab-ai" class="tab-panel">
-    <div style="padding:12px 18px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:18px">
-      <div style="font-size:10pt;color:#333;margin-bottom:8px"><strong>Agent pipeline</strong> — automatic processing of bank statements and bills dropped in the inbox folder.</div>
-      <table class="edit-table" style="background:transparent">
-        <tbody>
-          <tr>
-            <td style="white-space:nowrap">Enable agent pipeline</td>
-            <td><input type="checkbox" id="ai-agent-enabled" onchange="markDirty('ai')"></td>
-          </tr>
-          <tr>
-            <td style="white-space:nowrap">Poll interval (ms)</td>
-            <td><input type="number" id="ai-poll-interval" value="30000" style="width:120px" onchange="markDirty('ai')"></td>
-          </tr>
-          <tr>
-            <td style="white-space:nowrap">Inbox path</td>
-            <td><input type="text" id="ai-inbox-path" style="width:400px" placeholder="~/freebooks-inbox" onchange="markDirty('ai')"></td>
-          </tr>
-          <tr>
-            <td style="white-space:nowrap">Agent status</td>
-            <td><span id="ai-agent-status" style="color:#666;font-size:9pt">Loading…</span></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div style="padding:12px 18px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:18px">
-      <div style="font-size:10pt;color:#333;margin-bottom:8px"><strong>LLM provider</strong> — OpenAI-compatible endpoint for tier-4 residual matching. Works with local llama.cpp, OpenAI, or any compatible server.</div>
-      <table class="edit-table" style="background:transparent">
-        <tbody>
-          <tr>
-            <td style="white-space:nowrap">Endpoint URL</td>
-            <td><input type="text" id="ai-llm-endpoint" style="width:400px" placeholder="http://127.0.0.1:8080 or https://api.openai.com" onchange="markDirty('ai')"></td>
-          </tr>
-          <tr>
-            <td style="white-space:nowrap">API key</td>
-            <td><input type="password" id="ai-llm-key" style="width:400px" placeholder="(optional — empty for local)" onchange="markDirty('ai')"></td>
-          </tr>
-          <tr>
-            <td style="white-space:nowrap">Model</td>
-            <td><input type="text" id="ai-llm-model" style="width:300px" placeholder="qwen2.5-7b-instruct" onchange="markDirty('ai')"></td>
-          </tr>
-          <tr>
-            <td style="white-space:nowrap">Temperature</td>
-            <td><input type="number" id="ai-llm-temp" value="0.1" step="0.1" min="0" max="2" style="width:80px" onchange="markDirty('ai')"></td>
-          </tr>
-          <tr>
-            <td></td>
-            <td>
-              <button class="btn-sm" onclick="testLLM()">Test connection</button>
-              <span id="ai-test-result" style="margin-left:8px;font-size:9pt"></span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div style="padding:12px 18px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:18px">
-      <div style="font-size:10pt;color:#333;margin-bottom:8px">
-        <strong>Vision LLM</strong> — OpenAI-compatible vision-capable endpoint for bill/receipt
-        image extraction (scanned PDFs and JPG/PNG). Optional — leave blank to disable image
-        extraction; digital PDFs still extract via the text LLM above.
-      </div>
-      <table class="edit-table" style="background:transparent">
-        <tbody>
-          <tr>
-            <td style="white-space:nowrap">Vision endpoint URL</td>
-            <td><input type="text" id="ai-vision-endpoint" style="width:400px"
-                placeholder="https://api.openai.com or http://127.0.0.1:8080"
-                onchange="markDirty('ai')"></td>
-          </tr>
-          <tr>
-            <td style="white-space:nowrap">Vision model</td>
-            <td><input type="text" id="ai-vision-model" style="width:300px"
-                placeholder="gpt-4o-mini" onchange="markDirty('ai')"></td>
-          </tr>
-          <tr>
-            <td style="white-space:nowrap">Vision API key</td>
-            <td><input type="password" id="ai-vision-key" style="width:400px"
-                placeholder="(optional — leave blank to reuse the LLM API key)"
-                onchange="markDirty('ai')"></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div style="padding:12px 18px">
-      <button class="btn-sm" onclick="saveAiSettings()" style="font-size:10pt">Save AI settings</button>
-      <span id="ai-save-msg" style="margin-left:8px;font-size:9pt"></span>
-    </div>
+    <table class="edit-table" id="ai-attrs-table">
+      <thead><tr><th>Attribute</th><th>Value</th><th>Type</th><th></th></tr></thead>
+      <tbody id="ai-attrs-body"></tbody>
+    </table>
   </div>
 
 </div>
@@ -319,6 +238,7 @@ function showTab(t) {
     else if (t === 'vat') renderVatHints();
     else if (t === 'journals') renderJournalHints();
     else if (t === 'fxrates') FB.keys.renderHints('settings-fxrates', hintEl, { layout: 'list' });
+    else if (t === 'ai') renderAiHints();
     else hintEl.innerHTML = '';
   }
   if (!tabLoaded[t]) {
@@ -809,92 +729,53 @@ window.onbeforeunload = function(e) {
 };
 
 
-// ========== AI TAB (B9 spec) =========
-var _aiSettingsLoaded = false;
-function loadAiSettings() {
-  if (_aiSettingsLoaded) return;
-  _aiSettingsLoaded = true;
-  fetch('/api', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({action:'settings.get', companyId:CURRENT_COMPANY, userEmail:CURRENT_USER})
-  }).then(function(r){ return r.json(); }).then(function(r){
-    if (!r.ok) return;
-    var s = r.data || {};
-    document.getElementById('ai-agent-enabled').checked = s.agent_enabled === 'true';
-    document.getElementById('ai-poll-interval').value = s.agent_poll_interval_ms || '30000';
-    document.getElementById('ai-inbox-path').value = s.agent_inbox_path || '';
-    document.getElementById('ai-llm-endpoint').value = s.llm_endpoint_url || '';
-    document.getElementById('ai-llm-key').value = s.llm_api_key || '';
-    document.getElementById('ai-llm-model').value = s.llm_model || '';
-    document.getElementById('ai-llm-temp').value = s.llm_temperature || '0.1';
-    document.getElementById('ai-vision-endpoint').value = s.llm_vision_endpoint_url || '';
-    document.getElementById('ai-vision-model').value   = s.llm_vision_model || '';
-    document.getElementById('ai-vision-key').value    = s.llm_vision_api_key || '';
-    // Agent status
-    fetch('/api', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({action:'agent.status', companyId:CURRENT_COMPANY, userEmail:CURRENT_USER})
-    }).then(function(r){ return r.json(); }).then(function(r){
-      var el = document.getElementById('ai-agent-status');
-      if (r.ok && r.data) {
-        el.textContent = r.data.running ? 'Running' : 'Stopped';
-        el.style.color = r.data.running ? '#16a34a' : '#666';
-      } else {
-        el.textContent = 'Stopped'; el.style.color = '#666';
-      }
-    }).catch(function(){
-      var el = document.getElementById('ai-agent-status');
-      el.textContent = 'Stopped'; el.style.color = '#666';
-    });
-  }).catch(function(e){ showMsg('ai', 'Failed to load AI settings', true); });
-}
+// ========== AI TAB — FB.list (settings-ai-flattened-spec.md) =========
+// Flattened from grouped sections into a single Attribute/Value/Type grid,
+// mirroring the Company tab pattern. Each row edits and saves independently
+// via ai.attr.save (server-authoritative validation). Test connection and
+// Agent status are deferred (issues #179/#180).
+var aiAttrs = FB.list.create({
+  keysId: 'settings-ai',
+  active: function() { var p = document.getElementById('tab-ai'); return !!(p && p.classList.contains('active')); },
+  tbody: 'ai-attrs-body',
+  companyId: function() { return COMPANY; },
+  canAdd: false,
+  columns: [
+    { field: 'label', type: 'text', width: 190, ro: 'always', label: 'Attribute',
+      display: function(v) { return '<span style="font-weight:600">' + esc(v) + '</span>'; } },
+    { field: 'value', type: 'text', width: 300, label: 'Value',
+      display: function(v, d) {
+        if (!d._dirty) return esc(d.display != null ? String(d.display) : '');
+        var ed = d.editor || {};
+        if (ed.type === 'checkbox') return v ? 'Yes' : 'No';
+        if (ed.type === 'number') return esc(String(Number(v)));
+        return (v !== '' && v != null) ? esc(String(v)) : '<span class="pe-ro">—</span>';
+      },
+      editor: function(d) { return d.editor || { type: 'text' }; } },
+    { field: 'type_label', type: 'text', width: 70, ro: 'always', label: 'Type', filterType: null,
+      display: function(v) { return '<span class="pe-ro">' + esc(v) + '</span>'; } }
+  ],
+  editable: function(d) { return !d.readonly; },
+  same: function(b, s) { return b.value === s.value; },
+  validate: function() { return null; },
+  firstField: function() { return 'value'; },
+  track: 'ai-attr',
+  list: { action: 'ai.attr.list',
+    map: function(r) { return { label: r.label, value: r.value, display: r.display, type_label: r.type, editor: r.editor, readonly: !!r.readonly, _key: r.key }; } },
+  save: { action: 'ai.attr.save',
+    body: function(d) { return { key: d._key, value: d.value }; },
+    focusKey: function(d) { return d._key; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-ai');
+    if (dot) dot.style.display = dirty ? '' : 'none';
+    if (dirty) markDirty('ai'); else resetDirty('ai');
+  }
+});
 
-function saveAiSettings() {
-  var settings = {
-    agent_enabled: document.getElementById('ai-agent-enabled').checked ? 'true' : 'false',
-    agent_poll_interval_ms: document.getElementById('ai-poll-interval').value,
-    agent_inbox_path: document.getElementById('ai-inbox-path').value,
-    llm_endpoint_url: document.getElementById('ai-llm-endpoint').value,
-    llm_api_key: document.getElementById('ai-llm-key').value,
-    llm_model: document.getElementById('ai-llm-model').value,
-    llm_temperature: document.getElementById('ai-llm-temp').value,
-    llm_vision_endpoint_url: document.getElementById('ai-vision-endpoint').value,
-    llm_vision_model:        document.getElementById('ai-vision-model').value,
-    llm_vision_api_key:      document.getElementById('ai-vision-key').value,
-  };
-  fetch('/api', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({action:'settings.save', companyId:CURRENT_COMPANY, userEmail:CURRENT_USER, settings:settings})
-  }).then(function(r){ return r.json(); }).then(function(r){
-    var el = document.getElementById('ai-save-msg');
-    if (r.ok) { el.textContent = '✓ Saved'; el.style.color = '#16a34a'; resetDirty('ai'); }
-    else { el.textContent = '✗ ' + (r.error?.message || 'Save failed'); el.style.color = '#dc2626'; }
-  }).catch(function(e){
-    var el = document.getElementById('ai-save-msg');
-    el.textContent = '✗ Network error'; el.style.color = '#dc2626';
-  });
-}
-
-function testLLM() {
-  var el = document.getElementById('ai-test-result');
-  el.textContent = 'Testing…'; el.style.color = '#666';
-  fetch('/api', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      action:'settings.ai.test', companyId:CURRENT_COMPANY, userEmail:CURRENT_USER,
-      endpoint_url: document.getElementById('ai-llm-endpoint').value,
-      api_key: document.getElementById('ai-llm-key').value,
-      model: document.getElementById('ai-llm-model').value,
-    })
-  }).then(function(r){ return r.json(); }).then(function(r){
-    if (r.ok && r.data && r.data.ok) {
-      el.textContent = '✓ OK (' + r.data.latency_ms + 'ms)'; el.style.color = '#16a34a';
-    } else {
-      el.textContent = '✗ ' + (r.data?.error || r.error?.message || 'Failed'); el.style.color = '#dc2626';
-    }
-  }).catch(function(e){
-    el.textContent = '✗ Network error'; el.style.color = '#dc2626';
-  });
+function loadAiSettings(focusKey) { return aiAttrs.load(focusKey); }
+function renderAiHints() {
+  var el = document.getElementById('sb-hints');
+  if (el) aiAttrs.renderHints(el);
 }
 
 // ========== HANDLE ?tab= URL PARAM ==========

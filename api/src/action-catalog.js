@@ -628,6 +628,15 @@ const ACTIONS = {
     description: 'Write ONE company attribute (server-authoritative validation). key ∈ company_name|currency|jurisdiction|tax_id|reporting_standard|vat_registered|multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct|fx_gain_loss_account|contact_<pack-declared contact attribute>.',
     params: { key: { type: 'string', required: true }, value: { required: true } },
   },
+  'ai.attr.list': {
+    role: 'viewer', mutating: false,
+    description: 'List AI/agent attribute rows for the AI settings grid (server-side registry: labels, display strings, per-row editor shapes).',
+  },
+  'ai.attr.save': {
+    role: 'owner', mutating: true,
+    description: 'Write ONE AI/agent attribute (server-authoritative validation). key ∈ agent_enabled|agent_poll_interval_ms|agent_inbox_path|llm_endpoint_url|llm_api_key|llm_model|llm_temperature|llm_vision_endpoint_url|llm_vision_model|llm_vision_api_key.',
+    params: { key: { type: 'string', required: true }, value: { required: true } },
+  },
   'period.list': { role: 'viewer', mutating: false, description: 'List accounting periods.' },
   'period.close_check': {
     role: 'viewer', mutating: false,

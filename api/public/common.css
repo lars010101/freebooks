@@ -576,6 +576,22 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   border-bottom: 1px solid var(--border);
 }
 
+/* Hint header row — renders inside .fb-palette when grammar mode is active (§8).
+   Replaces the separate .fb-grammar-hint element. Non-selectable: no data-i,
+   _activeIdx indexes the _items array not DOM rows, so arrow keys skip it. */
+.fb-palette-hint-header {
+  padding: 4px 12px;
+  font-size: 0.72rem;
+  font-family: 'SF Mono', 'Fira Mono', monospace;
+  color: var(--text-muted);
+  background: var(--dd-active);
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Grammar hint — shown under the bar when a typed command is recognized */
 .fb-grammar-hint {
   position: absolute;

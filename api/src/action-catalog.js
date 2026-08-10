@@ -732,33 +732,35 @@ const ACTIONS = {
 //                covered by page verbs in context (x on a row, p on a bill).
 // New actions default to nothing shown until given an explicit disposition —
 // adding a route here is what makes the palette grow with the API.
+//   create: true — entry is a "create new X" shortcut; bare : palette
+//                  collapses these into one "New…" row (show-command-spec §2.1)
 const PALETTE = {
   // Execute directly
   'fx.fetch_rates':         { palette: 'execute', label: 'Fetch exchange rates' },
   // Navigate to form — create actions use &new=1 to auto-activate add-entry
-  'journal.post':           { palette: 'navigate', route: '/journal/new', label: 'New journal entry' },
-  'journal.import':         { palette: 'navigate', route: '/journal/new', label: 'New journal entry' },
-  'bill.create':            { palette: 'navigate', route: '/bill/edit', label: 'New bill' },
-  'bill.draft.save':        { palette: 'navigate', route: '/bill/edit', label: 'New bill' },
-  'coa.save':               { palette: 'navigate', route: '/settings?tab=coa&new=1', label: 'New account' },
+  'journal.post':           { palette: 'navigate', route: '/journal/new', label: 'New journal entry', create: true },
+  'journal.import':         { palette: 'navigate', route: '/journal/new', label: 'New journal entry', create: true },
+  'bill.create':            { palette: 'navigate', route: '/bill/edit', label: 'New bill', create: true },
+  'bill.draft.save':        { palette: 'navigate', route: '/bill/edit', label: 'New bill', create: true },
+  'coa.save':               { palette: 'navigate', route: '/settings?tab=coa&new=1', label: 'New account', create: true },
   'coa.update':             { palette: 'navigate', route: '/settings?tab=coa', label: 'Chart of accounts' },
   'coa.upsert':             { palette: 'navigate', route: '/settings?tab=coa', label: 'Chart of accounts' },
-  'vat.codes.upsert':       { palette: 'navigate', route: '/settings?tab=vat&new=1', label: 'New VAT code' },
+  'vat.codes.upsert':       { palette: 'navigate', route: '/settings?tab=vat&new=1', label: 'New VAT code', create: true },
   'vat.codes.view':         { palette: 'navigate', route: '/settings?tab=vat', label: 'Tax Codes' },
   'journals.view':          { palette: 'navigate', route: '/settings?tab=journals', label: 'Journals' },
   'ai.view':                { palette: 'navigate', route: '/settings?tab=ai', label: 'AI' },
   'openingBalance.view':    { palette: 'navigate', route: '/settings?tab=opening-balances', label: 'Opening Balances' },
-  'partner.save':            { palette: 'navigate', route: '/payables?tab=partners&new=1', label: 'New partner' },
+  'partner.save':            { palette: 'navigate', route: '/payables?tab=partners&new=1', label: 'New partner', create: true },
   'partner.upsert':          { palette: 'navigate', route: '/payables?tab=partners', label: 'Partners' },
-  'period.save':            { palette: 'navigate', route: '/periods?new=1', label: 'New period' },
+  'period.save':            { palette: 'navigate', route: '/periods?new=1', label: 'New period', create: true },
   'period.upsert':          { palette: 'navigate', route: '/periods', label: 'Periods' },
   'period.close':           { palette: 'navigate', route: '/settings?tab=periods', label: 'Close period' },
-  'journals.save':          { palette: 'navigate', route: '/settings?tab=journals&new=1', label: 'New journal (book)' },
+  'journals.save':          { palette: 'navigate', route: '/settings?tab=journals&new=1', label: 'New journal (book)', create: true },
   // mapping.save/mapping.upsert palette entries removed 2026-08-09 (issue #137):
   // Bank page (which hosted the Mappings tab) deleted. Actions remain available
   // via action RPC; no UI surface for mappings management until rehomed.
-  'center.save':            { palette: 'navigate', route: '/settings?new=1', label: 'New cost center' },
-  'fx.rates.save':          { palette: 'navigate', route: '/settings?tab=fxrates&new=1', label: 'New exchange rate' },
+  'center.save':            { palette: 'navigate', route: '/settings?new=1', label: 'New cost center', create: true },
+  'fx.rates.save':          { palette: 'navigate', route: '/settings?tab=fxrates&new=1', label: 'New exchange rate', create: true },
   'fx.provider.save':       { palette: 'navigate', route: '/settings?tab=fxrates', label: 'Exchange rates' },
   'fx.revaluation_post':    { palette: 'navigate', route: '/settings?tab=fxrates', label: 'Exchange rates' },
   'settings.save':          { palette: 'navigate', route: '/settings', label: 'Settings' },

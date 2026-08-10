@@ -494,16 +494,20 @@
     var _reports = null;      // /api/:company/reports/registry (fetched once)
     var _wired = false;
 
-    // ── Grammar mode (command-bar-ux-spec §4–§5) ─────────────────────────────
-    // When the first token after : matches a known alias, we switch from
-    // fuzzy-palette mode to typed-grammar mode: the dropdown closes, a syntax
-    // hint appears under the bar, and Enter parses the full input through
-    // FB.command.parse() instead of executing a fuzzy-matched row.
-    var _grammarEl = null;
-    var _grammarActive = false;
+    // ── Grammar mode + generalized itemSource (v6 — show-command-spec §3, §8) ──
+    // When the first token after : matches a known alias, we engage grammar
+    // mode: the hint renders as a header row inside the same .fb-palette
+    // panel (no separate .fb-grammar-hint element — §8), and the dropdown
+    // stays open showing items sourced from the alias's per-slot itemSource.
+    // Enter on a highlighted item executes it; Enter with no highlighted item
+    // parses the full input through FB.command.parse().
+    var _currentHint = null;     // current grammar hint text, or null
+    var _newExpanded = false;    // bare : "New…" row expanded state (§2.2)
+    var _billSlot = 0;           // :bill advance-on-selection slot index (§7)
+    var _partners = null;        // partner list cache for :bill itemSource
 
     function _detectGrammar(q) {
-      // Bug 1b: don't engage grammar mode until the first token is complete
+      // Don't engage grammar mode until the first token is complete
       // (i.e. a space follows it). While typing `:bil`, the dropdown should
       // fuzzy-match alias names; once `:bill ` is typed, grammar kicks in.
       // IMPORTANT: check for space on the RAW query, not trimmed — trim()
@@ -519,93 +523,64 @@
       return null;
     }
 
-    function _showGrammarHint(grammar) {
-      if (!_grammarEl) {
-        _grammarEl = document.createElement('div');
-        _grammarEl.className = 'fb-grammar-hint';
-        var wrap = _input.closest('.tb-search-wrap') || _input.parentElement;
-        if (wrap) wrap.appendChild(_grammarEl);
-      }
-      _grammarEl.textContent = grammar;
-      _grammarEl.style.display = '';
-      _grammarActive = true;
-      _close();
+    // §3+§8: hint renders as a header row inside the dropdown, not a separate element.
+    function _renderHint(grammar) { _currentHint = grammar; }
+
+    function _renderItems(items) {
+      _items = items;
+      _activeIdx = items.length ? 0 : -1;
+      _render();
     }
 
-    function _hideGrammarHint() {
-      if (_grammarEl) { _grammarEl.style.display = 'none'; }
-      _grammarActive = false;
-    }
-
-    // ── Browse mode (:show — spec §4) ──────────────────────────────────────
-    // Third palette mode: dropdown stays open, content is re-scoped to
-    // navigate-only items from catalog + reports registry, grouped by route
-    // prefix. Live-filterable as more is typed after ":show ".
-    var _browseActive = false;
-    var _browsePeriod = null;
-
-    function _showStructuredBrowse() {
-      _hideGrammarHint();
-      _browseActive = true;
-      _browsePeriod = null;
+    // §3.3: engage grammar mode — open dropdown, show hint, populate from itemSource
+    function _engageGrammar(g) {
+      _currentHint = g.grammar;
       if (!_el && _command) _open();
-      _items = _navigateTargets();
-      _items.sort(function (a, b) {
-        if (a.group !== b.group) return a.group < b.group ? -1 : 1;
-        return a.label < b.label ? -1 : 1;
-      });
-      _activeIdx = _items.length ? 0 : -1;
-      _renderBrowse();
-    }
-
-    function _renderBrowse() {
-      if (!_el) return;
-      if (!_items.length) {
-        _el.innerHTML = '<div class="fb-palette-empty">no navigation targets</div>';
-        return;
-      }
-      var html = '';
-      _items.forEach(function (c, i) {
-        html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
-          '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
-          '<span class="fb-palette-scope">' + esc(c.group) + '</span>' +
-        '</div>';
-      });
-      _el.innerHTML = html;
-      Array.prototype.forEach.call(_el.querySelectorAll('.fb-palette-row'), function (row) {
-        row.onmousedown = function (e) { e.preventDefault(); };
-        row.onclick = function () { _execute(_items[Number(row.dataset.i)]); };
-        row.onmouseover = function () { _activeIdx = Number(row.dataset.i); _renderBrowse(); };
-      });
-      var act = _el.querySelector('.fb-palette-active');
-      if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
-    }
-
-    function _filterBrowse(q) {
-      q = q.trim().toLowerCase();
-      var filterTok = '', periodTok = '';
-      if (q) {
-        var parts = q.split(/\s+/);
-        filterTok = parts[0] || '';
-        periodTok = parts[1] || '';
-      }
-      _browsePeriod = periodTok || null;
-      if (!filterTok) {
-        _items = _navigateTargets();
+      var alias = (window.FB && FB.command && FB.command.ALIASES) ? FB.command.ALIASES[g.alias] : null;
+      var slotIndex = _slotIndex(g.alias);
+      var itemSource = (alias && alias.itemSource) ? alias.itemSource[slotIndex] : null;
+      if (itemSource) {
+        var partial = _slotPartial(g.alias, slotIndex);
+        var items = itemSource(partial);
+        _renderItems(items);
       } else {
-        _items = _navigateTargets().filter(function (c) {
-          var idStr = (c.id || '').toLowerCase();
-          return c.label.toLowerCase().indexOf(filterTok) !== -1 ||
-                 c.group.toLowerCase().indexOf(filterTok) !== -1 ||
-                 idStr.indexOf(filterTok) !== -1;
-        });
+        _renderItems([]);
       }
-      _items.sort(function (a, b) {
-        if (a.group !== b.group) return a.group < b.group ? -1 : 1;
-        return a.label < b.label ? -1 : 1;
-      });
-      _activeIdx = _items.length ? 0 : -1;
-      _renderBrowse();
+    }
+
+    // §7: slot detection — scoped by alias shape, not one general solution.
+    // :report — token count only (first space = type/period boundary, §5.1).
+    // :show — always slot 0 (single slot).
+    // :bill — advance-on-selection via _billSlot variable, starts at 0.
+    function _slotIndex(alias) {
+      if (alias === 'bill') return _billSlot;
+      var q = _rawQuery();
+      var afterAlias = q.replace(new RegExp('^' + alias + '\\s*'), '');
+      if (afterAlias.trim() === '') return 0;
+      if (alias === 'report') {
+        // first space after the alias separates type from period
+        var firstSpace = afterAlias.indexOf(' ');
+        return firstSpace < 0 ? 0 : 1;
+      }
+      return 0; // :show and others — single slot
+    }
+
+    // Get the text the user has typed for the current slot
+    function _slotPartial(alias, slotIndex) {
+      var q = _rawQuery();
+      var afterAlias = q.replace(new RegExp('^' + alias + '\\s*'), '');
+      if (alias === 'report') {
+        if (slotIndex === 0) {
+          // text after "report " up to first space (or end)
+          var sp = afterAlias.indexOf(' ');
+          return sp < 0 ? afterAlias : afterAlias.slice(0, sp);
+        }
+        // slot 1: everything after the first space
+        var sp1 = afterAlias.indexOf(' ');
+        return sp1 < 0 ? '' : afterAlias.slice(sp1 + 1);
+      }
+      // :show, :bill slot 0 — everything after the alias
+      return afterAlias;
     }
 
     function _executeGrammar() {
@@ -755,11 +730,8 @@
             _input.focus();
             _input.setSelectionRange(_input.value.length, _input.value.length);
             var g = _detectGrammar(name + ' ');
-            if (g) {
-              if (FB.command.ALIASES[g.alias] && FB.command.ALIASES[g.alias].structured) _showStructuredBrowse();
-              else _showGrammarHint(g.grammar);
-            }
-            else _query(name + ' ');
+            if (g) _engageGrammar(g);
+            else _query_default(name + ' ');
           }
         });
       });
@@ -777,6 +749,7 @@
         if (meta.palette === 'execute') {
           out.push({
             id: 'api:' + name, label: meta.label || meta.description || name, key: '', scope: 'api',
+            isNavigate: false,
             exec: function () { _runApi(name); }
           });
         } else if (meta.palette === 'navigate' && meta.route) {
@@ -784,6 +757,7 @@
           seenRoute[meta.route] = true;
           out.push({
             id: 'api:' + name, label: meta.label || meta.description || name, key: '', scope: 'api',
+            isNavigate: true, create: !!meta.create,
             exec: function () {
               if (meta.absolute) window.location.href = meta.route; // company-less (e.g. /setup)
               else window.fbNavigate('/' + _company() + meta.route);
@@ -823,40 +797,65 @@
     function _fetchCatalog() {
       if (_catalog) return;
       fetch('/api/actions').then(function (r) { return r.json(); }).then(function (res) {
-        if (res && res.actions) { _catalog = res.actions; if (_el) _query(_rawQuery()); }
+        if (res && res.actions) { _catalog = res.actions; if (_el) _query_default(_rawQuery()); }
       }).catch(function () { /* palette works page-verbs-only without it */ });
     }
 
-    function _fetchReports() {
-      if (_reports) return;
+    // Lazy fetch — called on demand by reportTypes() itemSource, not on every command entry.
+    var _reportsFetching = false;
+    function _fetchReportsOnce() {
+      if (_reports || _reportsFetching) return;
       var co = _company();
       if (!co) return;
+      _reportsFetching = true;
       fetch('/api/' + co + '/reports/registry').then(function (r) { return r.json(); }).then(function (res) {
-        if (Array.isArray(res)) { _reports = res; if (_el) _query(_rawQuery()); }
-      }).catch(function () { /* :show works for screens without reports */ });
+        _reportsFetching = false;
+        if (Array.isArray(res)) { _reports = res; if (_el && _currentHint) _engageGrammar(_detectGrammar(_rawQuery()) || { alias: 'report', grammar: _currentHint }); }
+      }).catch(function () { _reportsFetching = false; });
     }
 
-    // ── :show browse mode — navigate-only items from catalog + reports registry,
-    // grouped by route prefix. No execute actions, no page verbs.
-    function _navigateTargets() {
+    // ── §2 — Bare : candidate list + collapse/expand ───────────────────────
+    function _isNavigate(c) { return c.scope === 'api' && c.isNavigate === true; }
+
+    function _verbCandidates() {
+      return _aliasCommands().concat(_apiCommands()).filter(function (c) {
+        if (c.scope !== 'api') return true;   // aliases always included
+        if (!_isNavigate(c)) return true;     // execute actions always included
+        return c.create === true;             // navigate entries only if create-shortcuts
+      });
+    }
+
+    function _newGroupRow() {
+      return {
+        id: 'group:new', label: 'New…', scope: 'group',
+        exec: function () { _newExpanded = true; _query_default(''); }
+      };
+    }
+
+    function _collapsedDefaults() {
+      var out = [], seenNew = false;
+      _verbCandidates().forEach(function (c) {
+        if (c.create) { if (!seenNew) { out.push(_newGroupRow()); seenNew = true; } return; }
+        out.push(c);
+      });
+      return out;
+    }
+
+    // ── §4: showTargets() — navigate-only, non-create, non-reports ──────────
+    function showTargets() {
       var out = [];
       if (_catalog) {
         Object.keys(_catalog).forEach(function (name) {
           var meta = _catalog[name] || {};
           if (meta.palette !== 'navigate' || !meta.route) return;
+          if (meta.create) return;                      // exclude create-shortcuts
+          if (meta.route.indexOf('/reports') === 0) return; // exclude reports
           var lbl = meta.label || name;
-          var rt = meta.route || '';
-          if (rt.indexOf('new=1') !== -1) return;
-          if (/^new /i.test(lbl)) return;
-          if (/^add /i.test(lbl)) return;
-          if (/^close /i.test(lbl)) return;
-          if (/^refresh /i.test(lbl)) return;
           out.push({
             id: 'nav:' + name,
             label: lbl,
-            route: rt,
+            route: meta.route,
             absolute: !!meta.absolute,
-            group: _groupFor(rt),
             scope: 'nav',
             exec: function () {
               if (meta.absolute) window.location.href = meta.route;
@@ -865,37 +864,99 @@
           });
         });
       }
-      var seenRoute = {};
-      out = out.filter(function (c) {
-        if (seenRoute[c.route]) return false;
-        seenRoute[c.route] = true;
+      // Dedupe by route
+      var seen = {};
+      return out.filter(function (c) {
+        if (seen[c.route]) return false;
+        seen[c.route] = true;
         return true;
       });
-      (_reports || []).forEach(function (r) {
-        out.push({
-          id: 'report:' + r.id,
-          label: r.label,
-          group: 'Reports',
-          scope: 'nav',
-          exec: function () {
-            var url = '/' + _company() + '/reports?t=' + r.id;
-            if (_browsePeriod) url += '&period=' + encodeURIComponent(_browsePeriod);
-            window.fbNavigate(url);
-          }
-        });
-      });
-      return out;
     }
 
-    function _groupFor(route) {
-      if (!route) return 'Other';
-      if (route.indexOf('/settings') === 0) return 'Settings';
-      if (route.indexOf('/payables') === 0) return 'Payables';
-      if (route.indexOf('/periods') === 0)  return 'Periods';
-      if (route.indexOf('/reports') === 0)  return 'Reports';
-      if (route.indexOf('/journal') === 0)  return 'Journal';
-      if (route.indexOf('/setup') === 0)    return 'Setup';
-      return 'Other';
+    // ── §5: reportTypes() — source from /api/:company/reports/registry ─────
+    function reportTypes(partial) {
+      if (!_reports) {
+        _fetchReportsOnce();
+        return [];
+      }
+      var items = _reports.map(function (r) {
+        return {
+          id: 'report:' + r.id,
+          label: r.label,
+          reportId: r.id,
+          scope: 'api',
+          exec: function () {
+            // Navigate on selection — the full type+period commit goes through
+            // FB.command.parse() on Enter (parseReport in fb-command.js).
+            var url = '/' + _company() + '/reports?t=' + r.id;
+            window.fbNavigate(url);
+          }
+        };
+      });
+      if (partial) {
+        items = items.filter(function (c) {
+          return c.label.toLowerCase().indexOf(partial.toLowerCase()) !== -1 ||
+                 c.reportId.toLowerCase().indexOf(partial.toLowerCase()) !== -1;
+        });
+      }
+      return items;
+    }
+
+    // ── §6: partnerMatches() — reuse partner data for :bill slot 0 ──────────
+    function partnerMatches(partial) {
+      var partners = window.fbPartnerData;
+      if (!partners && _partners) partners = _partners;
+      if (!partners) {
+        // Fetch via action RPC (partner.list) — no direct GET endpoint exists.
+        _fetchPartners();
+        return [];
+      }
+      var list = partners;
+      if (partial) {
+        list = partners.filter(function (p) {
+          var nm = (p.name || '').toLowerCase();
+          return nm.indexOf(partial.toLowerCase()) !== -1;
+        });
+      }
+      return list.map(function (p) {
+        return {
+          id: 'partner:' + (p.partner_id || p.id || p.name),
+          label: p.name,
+          scope: 'partner',
+          keepOpen: true,
+          exec: function () {
+            // §7: advance-on-selection — commit partner label into input, advance to slot 1.
+            _input.value = ':bill ' + p.name + ' ';
+            _input.focus();
+            _input.setSelectionRange(_input.value.length, _input.value.length);
+            _billSlot = 1;
+            _currentHint = FB.command.grammarFor('bill');
+            _renderItems([]);  // no items for amount slot (free text)
+          }
+        };
+      });
+    }
+
+    function _fetchPartners() {
+      if (_partners) return;
+      var co = _company();
+      if (!co) return;
+      fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'partner.list', companyId: co })
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res && !res.ok === false && Array.isArray(res.result)) { _partners = res.result; if (_el && _currentHint) _engageGrammar(_detectGrammar(_rawQuery()) || { alias: 'bill', grammar: _currentHint }); }
+        else if (Array.isArray(res)) { _partners = res; if (_el && _currentHint) _engageGrammar(_detectGrammar(_rawQuery()) || { alias: 'bill', grammar: _currentHint }); }
+      }).catch(function () {});
+    }
+
+    // Wire itemSource functions to ALIASES (§3.3) — called at wire() and enterCommand()
+    function _wireItemSources() {
+      var A = (window.FB && FB.command && FB.command.ALIASES) || {};
+      if (A.show) A.show.itemSource = [showTargets];
+      if (A.report) A.report.itemSource = [reportTypes, null];
+      if (A.bill) A.bill.itemSource = [partnerMatches, null, null, null];
     }
 
     // ── fuzzy matching + ranking ────────────────────────────────────────────
@@ -923,17 +984,39 @@
       try { localStorage.setItem(RECENT_KEY, JSON.stringify(r.slice(0, 20))); } catch (e) {}
     }
 
-    function _match(q) {
+    function _match(q, candidates) {
       var recent = _recent();
       // #148: Score and cap each scope independently, then concatenate in
       // ALIAS → API order. Page verbs (Bug #4) and nav rows are no longer in
       // the `:` dropdown — page verbs have direct key bindings (`w`, `p`, …)
       // and are taught via the `?` overlay; aliases need typed arguments and
       // API actions have no keyboard shortcut.
-      var groups = [
-        { items: _aliasCommands(), scope: 'alias' },
-        { items: _apiCommands(), scope: 'api' }
-      ];
+      //
+      // v6 (§2): callers pass a pre-filtered candidate list (_verbCandidates)
+      // so navigate-non-create entries are excluded from bare : in every state.
+      var groups;
+      if (candidates) {
+        // Group the provided candidates by scope for independent scoring/capping
+        var byScope = {};
+        candidates.forEach(function (c) {
+          var s = c.scope || 'api';
+          if (!byScope[s]) byScope[s] = [];
+          byScope[s].push(c);
+        });
+        groups = [
+          { items: byScope['alias'] || [], scope: 'alias' },
+          { items: byScope['api'] || [], scope: 'api' }
+        ];
+        // Include any other scopes that might be present (e.g. 'group')
+        Object.keys(byScope).forEach(function (s) {
+          if (s !== 'alias' && s !== 'api') groups.push({ items: byScope[s], scope: s });
+        });
+      } else {
+        groups = [
+          { items: _aliasCommands(), scope: 'alias' },
+          { items: _apiCommands(), scope: 'api' }
+        ];
+      }
       var result = [];
       groups.forEach(function (g) {
         var scored = [];
@@ -973,15 +1056,25 @@
 
     function _render() {
       if (!_el) return;
-      if (!_items.length) {
+      if (!_items.length && !_currentHint) {
         _el.innerHTML = '<div class="fb-palette-empty">no matching commands</div>';
+        return;
+      }
+      var html = '';
+      // §8: Hint header row — non-selectable, prepended inside the dropdown panel.
+      // _activeIdx indexes the _items array, not DOM rows, so the header has no
+      // data-i attribute and arrow movement naturally skips it.
+      if (_currentHint) {
+        html += '<div class="fb-palette-hint-header">' + esc(_currentHint) + '</div>';
+      }
+      if (!_items.length) {
+        _el.innerHTML = html || '<div class="fb-palette-empty">no matching commands</div>';
         return;
       }
       // Section headers (PAGE / NAV / API) are non-interactive separator divs:
       // no data-i, not bound by the click/keyboard handlers below (which only
       // operate on .fb-palette-row via dataset.i 0.._items.length-1).
-      var SCOPE_LABELS = { alias: 'COMMANDS', page: 'PAGE', nav: 'NAV', api: 'API' };
-      var html = '';
+      var SCOPE_LABELS = { alias: 'COMMANDS', page: 'PAGE', nav: 'NAV', api: 'API', group: 'NEW', partner: 'PARTNER' };
       var lastScope = null;
       _items.forEach(function (c, i) {
         if (c.scope !== lastScope) {
@@ -1017,12 +1110,18 @@
       var v = _input ? _input.value : '';
       return v.charAt(0) === ':' ? v.slice(1) : v;
     }
-    function _query(q) {
-      // Bug 1a: when grammar mode calls _close(), _el is destroyed. If the
-      // user then backspaces out of grammar mode, _query runs but _render
-      // bails on `if (!_el) return;` — dropdown never reappears. Reopen here.
+    function _query_default(q) {
+      // v6 (§2): unified query path — uses _verbCandidates() for the candidate
+      // list in all states (empty, expanded, typed), so navigate-non-create
+      // entries never appear at bare :.
       if (!_el && _command) _open();
-      _items = _match(q.trim());
+      if (q !== '') {
+        _items = _match(q.trim(), _verbCandidates());
+      } else if (_newExpanded) {
+        _items = _verbCandidates().filter(function (c) { return c.create; });
+      } else {
+        _items = _collapsedDefaults();
+      }
       _activeIdx = _items.length ? 0 : -1;
       _render();
     }
@@ -1055,20 +1154,20 @@
     function enterCommand() {
       if (!_input) return;
       _command = true;
+      _wireItemSources();
       _fetchCatalog();
-      _fetchReports();
       _input.value = ':';
       _input.focus();
       _input.setSelectionRange(1, 1);
       _open();
-      _query('');
+      _query_default('');
     }
     function _exitCommand() {
       _command = false;
-      _browseActive = false;
-      _browsePeriod = null;
+      _newExpanded = false;
+      _currentHint = null;
+      _billSlot = 0;
       _close();
-      _hideGrammarHint();
       if (_input) { _input.value = ''; _input.blur(); }
     }
 
@@ -1077,6 +1176,7 @@
       if (_wired || !input) return;
       _wired = true;
       _input = input;
+      _wireItemSources();
       // Capture phase: command-mode keys must beat the input's other bubble
       // listeners (Enter-blurs / Esc-clears) — those stay for search mode.
       input.addEventListener('keydown', function (e) {
@@ -1085,11 +1185,30 @@
         else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) { e.preventDefault(); e.stopImmediatePropagation(); _move(-1); }
         else if (e.key === 'Enter') {
           e.preventDefault(); e.stopImmediatePropagation();
-          if (_grammarActive) { _executeGrammar(); }
-          else if (_browseActive) { _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]); }
-          else { _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]); }
+          // v6: grammar mode (itemSource) — select highlighted item or parse
+          if (_currentHint) {
+            if (_items.length && _activeIdx >= 0) _execute(_items[_activeIdx]);
+            else _executeGrammar();
+          } else {
+            _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]);
+          }
         }
-        else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); _exitCommand(); }
+        else if (e.key === 'Backspace') {
+          // §2.2: Backspace at empty query in expanded state → back to collapsed
+          if (_newExpanded && _rawQuery() === '') {
+            e.preventDefault();
+            _newExpanded = false;
+            _query_default('');
+            return;
+          }
+          // otherwise let default backspace behavior happen
+        }
+        else if (e.key === 'Escape') {
+          e.preventDefault(); e.stopImmediatePropagation();
+          // §2.2: Escape = back one level. expanded → collapsed → exit.
+          if (_newExpanded) { _newExpanded = false; _query_default(''); }
+          else _exitCommand();
+        }
       }, true);
       input.addEventListener('input', function () {
         if (!_command) {
@@ -1100,35 +1219,27 @@
           // typed after the `:` (e.g. `:b`).
           if (_input.value.charAt(0) === ':') {
             _command = true;
+            _wireItemSources();
             _fetchCatalog();
-            _fetchReports();
             _open();
             var q0 = _rawQuery();
-            if (_browseActive) { _filterBrowse(q0.replace(/^show\s*/, '')); return; }
             var g0 = _detectGrammar(q0);
-            if (g0) {
-              if (FB.command.ALIASES[g0.alias] && FB.command.ALIASES[g0.alias].structured) _showStructuredBrowse();
-              else _showGrammarHint(g0.grammar);
-            }
-            else { _hideGrammarHint(); _query(q0); }
+            if (g0) _engageGrammar(g0);
+            else { _currentHint = null; _query_default(q0); }
           }
           return;
         }
-        if (_input.value.charAt(0) !== ':') { _command = false; _close(); _hideGrammarHint(); _browseActive = false; return; }
-        var q = _rawQuery();
-        if (_browseActive) {
-          var browseQuery = q.replace(/^show\s*/, '');
-          _filterBrowse(browseQuery);
-          return;
+        if (_input.value.charAt(0) !== ':') {
+          _command = false; _close(); _currentHint = null; _billSlot = 0; return;
         }
+        var q = _rawQuery();
         var g = _detectGrammar(q);
         if (g) {
-          if (FB.command.ALIASES[g.alias] && FB.command.ALIASES[g.alias].structured) _showStructuredBrowse();
-          else _showGrammarHint(g.grammar);
+          _engageGrammar(g);
         } else {
-          _browseActive = false;
-          _hideGrammarHint();
-          _query(q);
+          _currentHint = null;
+          _billSlot = 0;
+          _query_default(q);
         }
       });
       input.addEventListener('blur', function () {

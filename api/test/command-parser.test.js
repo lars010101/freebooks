@@ -121,10 +121,10 @@ test('parse: :je', () => {
   assert.strictEqual(r.parsed.route, '/journal/new');
 });
 
-test('parse: :show is structured alias with no parse function', () => {
+test('parse: :show has no structured flag (v6 — generalized mechanism)', () => {
   const a = cmd.ALIASES['show'];
   assert.ok(a, ':show is in ALIASES');
-  assert.strictEqual(a.structured, true);
+  assert.strictEqual(a.structured, undefined);
   assert.strictEqual(a.parse, undefined);
 });
 
@@ -140,9 +140,41 @@ test('parse: :show with bang returns unknown (bang not supported)', () => {
   assert.ok(r.error.indexOf('does not support !') !== -1);
 });
 
-test('grammarFor: show returns <target> [period]', () => {
+test('grammarFor: show returns <target>', () => {
   const g = cmd.grammarFor('show');
   assert.ok(g && g.indexOf('<target>') !== -1);
+});
+
+// ── :report alias (v6 — show-command-spec §5) ─────────────────────────────
+
+test('parse: :report pl', () => {
+  const r = cmd.parse(':report pl');
+  assert.strictEqual(r.type, 'alias');
+  assert.strictEqual(r.alias, 'report');
+  assert.strictEqual(r.parsed.route, '/reports?t=pl');
+});
+
+test('parse: :report pl q2', () => {
+  const r = cmd.parse(':report pl q2');
+  assert.strictEqual(r.type, 'alias');
+  assert.strictEqual(r.parsed.route, '/reports?t=pl&period=q2');
+});
+
+test('parse: :report voucher-register', () => {
+  const r = cmd.parse(':report voucher-register');
+  assert.strictEqual(r.type, 'alias');
+  assert.strictEqual(r.parsed.route, '/reports?t=voucher-register');
+});
+
+test('parse: :report with no args → error', () => {
+  const r = cmd.parse(':report');
+  assert.strictEqual(r.type, 'unknown');
+  assert.ok(r.error.indexOf('usage') !== -1);
+});
+
+test('grammarFor: report returns <type> [period]', () => {
+  const g = cmd.grammarFor('report');
+  assert.ok(g && g.indexOf('<type>') !== -1);
 });
 
 test('parse: :rate eur 1.09', () => {

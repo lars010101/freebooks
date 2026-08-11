@@ -44,6 +44,12 @@ ${commonStyle()}
   table.be-lines th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
   table.be-lines td { padding:3px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
   table.be-lines input, table.be-lines select { padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; box-sizing:border-box; }
+  /* CR: AP account row — sits inside the table thead so its input column
+     aligns with the DR: Expense account column below. Same visual weight as
+     the column headers, not a data row. */
+  .be-ap-row td { border:none; padding:0 4px 6px; vertical-align:bottom; }
+  .be-ap-row .be-ap-label { display:flex; flex-direction:column; gap:3px; font-weight:600; font-size:9pt; text-transform:uppercase; color:#555; }
+  .be-ap-row .be-ap-label input { border:1px solid #ccc; border-radius:4px; font-size:10pt; }
   .be-line-x { visibility:hidden; cursor:pointer; color:#999; border:none; background:none; font-size:12pt; padding:0 4px; }
   tr:hover .be-line-x { visibility:visible; }
   .be-line-x.fb-form-cursor-btn { visibility: visible; }
@@ -71,21 +77,27 @@ ${commonStyle()}
     <label>Bill date * <input id="be-date" type="date"></label>
     <label>Due date <input id="be-due" type="date"></label>
     <label>Bill no <input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></label>
-    <label>CCY ${fxOn
-      ? '<input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase">'
-      : '<input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase" value="' + baseCcy + '" readonly tabindex="-1" title="Single-currency company (fx_tracking off) — locked to base currency">'}</label>
-    <label>CR: AP account <input id="be-ap" autocomplete="off"></label>
   </div>
+  ${fxOn
+    ? '<div class="header-fields"><label>CCY <input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase"></label></div>'
+    : '<input id="be-ccy" type="hidden" value="' + baseCcy + '">'}
 
   <table class="be-lines">
-    <thead><tr>
+    <thead>
+      <tr class="be-ap-row">
+        <td colspan="${vatOn ? 4 : 3}"></td>
+        <td><label class="be-ap-label">CR: AP account <input id="be-ap" autocomplete="off"></label></td>
+        <td></td>
+      </tr>
+      <tr>
       <th style="width:28%">Description</th>
       <th style="width:10%">Amount</th>
       ${vatOn ? '<th style="width:10%">VAT code</th>' : ''}
       <th style="width:12%">Cost center</th>
       <th style="width:16%">DR: Expense account</th>
       <th style="width:2%"></th>
-    </tr></thead>
+      </tr>
+    </thead>
     <tbody id="be-lines-body"></tbody>
   </table>
   <div style="margin-top:6px">
@@ -524,7 +536,13 @@ var beForm = FB.form.create({
   formId: 'bill-edit',
   zones: [
     { id: 'header', rows: function () { return [document.querySelector('.header-fields')]; } },
-    { id: 'lines',  rows: function () { return Array.from(document.querySelectorAll('#be-lines-body tr')); },
+    { id: 'lines',  rows: function () {
+        var rows = [];
+        var apRow = document.querySelector('.be-ap-row');
+        if (apRow) rows.push(apRow);
+        rows = rows.concat(Array.from(document.querySelectorAll('#be-lines-body tr')));
+        return rows;
+      },
       cells: function (rowEl) {
         return Array.prototype.slice.call(rowEl.querySelectorAll('input,select,button'))
           .filter(function (el) { return !el.disabled && el.type !== 'hidden'; });
@@ -539,7 +557,7 @@ var beForm = FB.form.create({
       api.moveTo(1, api.zoneRows(1).length - 1, 0, true);
     } },
     delete: { key: 'x', hint: 'delete',
-      when: function (api) { return api.cur().z === 1; },
+      when: function (api) { return api.cur().z === 1 && api.cur().r > 0; },
       run: function (api) {
         var tr = api.zoneRows(1)[api.cur().r];
         if (!tr) return;

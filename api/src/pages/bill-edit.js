@@ -40,16 +40,41 @@ function buildBillEditPage(company, editId, flags) {
 <title>Bill Editor - freeBooks</title>
 ${commonStyle()}
 <style>
-  table.be-lines { width:100%; border-collapse:collapse; font-size:10pt; }
+  /* Grid header mirrors the table column widths so CR: AP account aligns
+     vertically with DR: Expense account below. Same template, same gaps. */
+  .be-grid-header {
+    display:grid;
+    grid-template-columns: ${vatOn ? '36% 13% 13% 15% 21% 2%' : '36% 13% 15% 21% 2%'};
+    column-gap:0;
+    align-items:end;
+    margin-bottom:12px;
+  }
+  .be-grid-header label {
+    display:flex; flex-direction:column; gap:3px;
+    font-weight:600; font-size:9pt; text-transform:uppercase; color:#555;
+    padding:0 4px;
+  }
+  .be-grid-header input, .be-grid-header select {
+    padding:4px 6px; border:1px solid #ccc; border-radius:4px;
+    font-size:10pt; box-sizing:border-box; height:32px;
+  }
+  /* Partner spans full width of row 1. Row 2 has bill date, due date,
+     bill no on the left, and CR: AP account aligned with the DR: Expense
+     account column (col 5 with VAT, col 4 without). */
+  .be-grid-header .be-gh-partner {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    padding-right:8px;
+  }
+  .be-grid-header .be-gh-ap {
+    grid-row: 2;
+    grid-column: ${vatOn ? '5 / 6' : '4 / 5'};
+  }
+  .be-grid-header .be-gh-row2 { grid-row: 2; }
+  table.be-lines { width:100%; border-collapse:collapse; font-size:10pt; table-layout:fixed; }
   table.be-lines th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
   table.be-lines td { padding:3px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
-  table.be-lines input, table.be-lines select { padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; box-sizing:border-box; }
-  /* CR: AP account row — sits inside the table thead so its input column
-     aligns with the DR: Expense account column below. Same visual weight as
-     the column headers, not a data row. */
-  .be-ap-row td { border:none; padding:0 4px 6px; vertical-align:bottom; }
-  .be-ap-row .be-ap-label { display:flex; flex-direction:column; gap:3px; font-weight:600; font-size:9pt; text-transform:uppercase; color:#555; }
-  .be-ap-row .be-ap-label input { border:1px solid #ccc; border-radius:4px; font-size:10pt; }
+  table.be-lines input, table.be-lines select { padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; box-sizing:border-box; height:32px; }
   .be-line-x { visibility:hidden; cursor:pointer; color:#999; border:none; background:none; font-size:12pt; padding:0 4px; }
   tr:hover .be-line-x { visibility:visible; }
   .be-line-x.fb-form-cursor-btn { visibility: visible; }
@@ -72,11 +97,12 @@ ${commonStyle()}
     </div>
   </div>
 
-  <div class="header-fields">
-    <label>Partner * <input id="be-partner-name" autocomplete="off" placeholder="start typing…"></label>
-    <label>Bill date * <input id="be-date" type="date"></label>
-    <label>Due date <input id="be-due" type="date"></label>
-    <label>Bill no <input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></label>
+  <div class="be-grid-header">
+    <label class="be-gh-partner">Partner * <input id="be-partner-name" autocomplete="off" placeholder="start typing…"></label>
+    <label class="be-gh-ap">CR: AP account <input id="be-ap" autocomplete="off"></label>
+    <label class="be-gh-row2" style="grid-column:1">Bill date * <input id="be-date" type="date"></label>
+    <label class="be-gh-row2">Due date <input id="be-due" type="date"></label>
+    <label class="be-gh-row2" style="${vatOn ? 'grid-column:4' : 'grid-column:3'}">Bill no <input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></label>
   </div>
   ${fxOn
     ? '<div class="header-fields"><label>CCY <input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase"></label></div>'
@@ -84,17 +110,12 @@ ${commonStyle()}
 
   <table class="be-lines">
     <thead>
-      <tr class="be-ap-row">
-        <td colspan="${vatOn ? 4 : 3}"></td>
-        <td><label class="be-ap-label">CR: AP account <input id="be-ap" autocomplete="off"></label></td>
-        <td></td>
-      </tr>
       <tr>
-      <th style="width:28%">Description</th>
-      <th style="width:10%">Amount</th>
-      ${vatOn ? '<th style="width:10%">VAT code</th>' : ''}
-      <th style="width:12%">Cost center</th>
-      <th style="width:16%">DR: Expense account</th>
+      <th style="width:36%">Description</th>
+      <th style="width:13%">Amount</th>
+      ${vatOn ? '<th style="width:13%">VAT code</th>' : ''}
+      <th style="width:15%">Cost center</th>
+      <th style="width:21%">DR: Expense account</th>
       <th style="width:2%"></th>
       </tr>
     </thead>
@@ -535,13 +556,9 @@ document.getElementById('be-post').onclick = () => postBill();
 var beForm = FB.form.create({
   formId: 'bill-edit',
   zones: [
-    { id: 'header', rows: function () { return [document.querySelector('.header-fields')]; } },
+    { id: 'header', rows: function () { return [document.querySelector('.be-grid-header')]; } },
     { id: 'lines',  rows: function () {
-        var rows = [];
-        var apRow = document.querySelector('.be-ap-row');
-        if (apRow) rows.push(apRow);
-        rows = rows.concat(Array.from(document.querySelectorAll('#be-lines-body tr')));
-        return rows;
+        return Array.from(document.querySelectorAll('#be-lines-body tr'));
       },
       cells: function (rowEl) {
         return Array.prototype.slice.call(rowEl.querySelectorAll('input,select,button'))

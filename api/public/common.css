@@ -441,7 +441,7 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 /* Form header fields (flex row of labeled inputs) */
 .header-fields { display:flex; gap:16px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap; }
 .header-fields label { display:flex; flex-direction:column; gap:3px; font-weight:600; font-size:10pt; color:#555; text-transform:uppercase; }
-.header-fields input, .header-fields select { padding:4px 6px; border:1px solid #ccc; border-radius:4px; font-size:10pt; box-sizing:border-box; }
+.header-fields input, .header-fields select { padding:4px 6px; border:1px solid #ccc; border-radius:4px; font-size:10pt; box-sizing:border-box; height:32px; }
 
 /* Totals bar */
 .totals { display:flex; gap:24px; margin-top:12px; font-size:10pt; align-items:center; }

@@ -99,13 +99,16 @@ function topBarContext(company, activeKey) {
   void actionBtn; // retained for potential future static slots
 
   const ctx = {
-    dashboard:  { nav: ``, actions: '' },
-    bank:       { nav: ``, actions: '' },
-    payables:   { nav: ``, actions: '' },
-    reports:    { nav: ``, actions: '' },
-    auditor:    { nav: ``, actions: '' },
-    settings:   { nav: ``, actions: '' },
-    newjv:      { nav: '',  actions: '' }
+    dashboard:   { nav: ``, actions: '' },
+    bank:        { nav: ``, actions: '' },
+    bills:       { nav: ``, actions: '' },
+    payables:    { nav: ``, actions: '' },  // kept for compat (old activeKey)
+    reports:     { nav: ``, actions: '' },
+    auditor:     { nav: ``, actions: '' },
+    settings:    { nav: ``, actions: '' },
+    'master-data': { nav: ``, actions: '' },
+    admin:       { nav: ``, actions: '' },
+    newjv:       { nav: '',  actions: '' }
   };
 
   return ctx[activeKey] || { nav: '', actions: '' };

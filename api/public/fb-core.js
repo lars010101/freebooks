@@ -916,7 +916,10 @@
     function _pageLabelFor(route) {
       if (!route) return '';
       if (route.indexOf('/settings') === 0) return 'Settings';
-      if (route.indexOf('/payables') === 0) return 'Payables';
+      if (route.indexOf('/master-data') === 0) return 'Master Data';
+      if (route.indexOf('/admin') === 0) return 'Admin';
+      if (route.indexOf('/bills') === 0) return 'Bills';
+      if (route.indexOf('/payables') === 0) return 'Bills';
       if (route.indexOf('/periods') === 0) return 'Periods';
       if (route.indexOf('/journal') === 0) return 'Journal';
       if (route.indexOf('/bill') === 0) return 'Bills';

@@ -24,10 +24,6 @@ ${commonStyle()}
   table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px; }
   table.edit-table td { padding:4px 6px; border-bottom:1px solid #f0f0f0; }
   table.edit-table input { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  .btn-sm { padding:0 14px; height:32px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
-  .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
-  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
-  button.btn-primary:hover { background:#333; }
   .msg { margin-top:10px; font-size:10pt; }
   .msg.err { color:#cc2222; }
 </style>

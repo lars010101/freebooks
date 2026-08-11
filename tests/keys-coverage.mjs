@@ -51,8 +51,7 @@ const EXEMPTIONS = {
   'bill-edit': [
     { id: 'be-post', verb: 'p', reason: 'verb parity — p posts the bill' },
     { id: 'be-save', verb: 'q', reason: 'verb parity — q quits' },
-    { text: '+ add line (a)', verb: 'a', reason: 'verb parity — a adds a line' },
-    { id: 'be-attach-btn', verb: 'A', reason: 'verb parity — A attaches a file' },
+    { id: 'be-add-row-btn', verb: 'a', reason: 'verb parity — a adds a line' },
   ],
 };
 

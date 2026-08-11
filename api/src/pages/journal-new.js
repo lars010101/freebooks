@@ -24,17 +24,6 @@ ${commonStyle()}
   table.jv-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
   table.jv-table td { padding:3px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
   table.jv-table input[type=text], table.jv-table input[type=number], table.jv-table select { padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  .header-fields { display:flex; gap:16px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap; }
-  .header-fields label { display:flex; flex-direction:column; gap:3px; font-weight:600; font-size:10pt; color:#555; }
-  .header-fields input { padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; }
-  .totals { display:flex; gap:24px; margin-top:12px; font-size:10pt; align-items:center; }
-  .totals span { font-weight:600; }
-  button.btn-primary:disabled { opacity:0.4; cursor:default; }
-  .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
-  .btn-sm { padding:0 14px; height:32px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
-  .btn-sm:hover { background:#e8e8e8; }
-  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
-  button.btn-primary:hover:not(:disabled) { background:#333; }
   /* K4: shared attachment-queue rows (fb-attachments.js classes) */
   .fb-attach-row { display:flex; justify-content:space-between; align-items:center; padding:3px 6px; border-bottom:1px solid #f5f5f5; border-radius:3px; }
   .fb-attach-row .fb-att-meta { color:#888; font-size:8.5pt; }

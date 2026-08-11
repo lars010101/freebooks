@@ -44,12 +44,6 @@ ${commonStyle()}
   .msg.ok { color:#2a8a2a; }
   .msg.err { color:#cc2222; }
   .search-bar { padding:6px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; margin-bottom:12px; width:260px; }
-  .btn-sm { padding:0 14px; height:32px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
-  .btn-sm:hover { background:#e8e8e8; }
-  .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
-  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
-  button.btn-primary:hover { background:#333; }
-  button.btn-primary:disabled { background:#ccc; color:#666; cursor:not-allowed; }
   /* Modal-edit doctrine (docs/settings-ux-spec.md) */
   #tab-coa tbody td, #tab-vat tbody td, #tab-journals tbody td { cursor:text; }
   tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 #d97706; }

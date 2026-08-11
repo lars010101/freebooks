@@ -314,6 +314,19 @@ CREATE TABLE IF NOT EXISTS journal_sequences (
   PRIMARY KEY (company_id, journal_id, year)
 );
 
+-- MIGRATION: backfill journal_id on historical journal_entries rows from the
+-- reference prefix. Pre-refactor references follow CODE/YEAR/NNNNN — the code
+-- segment maps to journals.code. Rows with no reference (pre-2026-08-02
+-- null-reference era) stay NULL — they're journal-less by original design.
+UPDATE journal_entries e
+SET journal_id = (
+  SELECT j.journal_id FROM journals j
+  WHERE j.company_id = e.company_id
+    AND j.code = split_part(e.reference, '/', 1)
+)
+WHERE e.journal_id IS NULL
+  AND e.reference LIKE '%/%/%';
+
 -- =============================================================================
 -- periods
 -- =============================================================================

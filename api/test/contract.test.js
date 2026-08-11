@@ -1487,8 +1487,8 @@ test('A3j approve post-failure rollback: delete journals row → approve fails �
   assert.equal(propose.status, 200, JSON.stringify(propose.body));
   const proposalId = propose.body.data.proposalId;
 
-  // Delete the journal series row so getNextReference's JOIN to journals fails
-  // (throws 'Failed to generate reference' inside postJournalBatch — a certain
+  // Delete the journal series row so postJournalBatch's journal existence
+  // check fails (throws 'journal not found' inside postJournalBatch — a certain
   // post-failure that happens AFTER the atomic claim, exercising the rollback).
   // No FK constraint exists on journal_sequences/journals, so the DELETE succeeds.
   await sql(baseUrl, srv.adminToken,
@@ -2007,7 +2007,7 @@ test('journal.post without journalId defaults to MISC sequence + warning', async
   });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.ok(r.body.data.posted);
-  assert.match(String(r.body.data.reference), new RegExp(`^MISC/${TD.year}/\\d{5}$`));
+  assert.match(String(r.body.data.reference), /^\d{5}$/, 'reference is bare 5-digit number (MISC journal default)');
   assert.ok((r.body.data.warnings || []).some((w) => /default journal MISC/.test(w)),
     'warning names the MISC default');
 });
@@ -2024,7 +2024,7 @@ test('journal.post with explicit journalId mints that journal\'s sequence, no MI
     ],
   });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.match(String(r.body.data.reference), new RegExp(`^ADJ/${TD.year}/\\d{5}$`));
+  assert.match(String(r.body.data.reference), /^\d{5}$/, 'reference is bare 5-digit number (explicit journal, no prefix)');
   assert.ok(!(r.body.data.warnings || []).some((w) => /default journal MISC/.test(w)));
 });
 
@@ -2048,7 +2048,7 @@ test('journal.import: reference-less entries get MISC sequences; carried referen
     `SELECT DISTINCT reference FROM journal_entries WHERE company_id='CT' AND date='${TD.day22}' AND source='csv_import'`);
   const refs = rows.map((x) => String(x.reference));
   assert.ok(refs.includes('LEGACY-KEEP-1'), 'carried reference preserved');
-  assert.ok(refs.some((x) => new RegExp(`^MISC/${TD.year}/\\d{5}$`).test(x)), 'minted MISC sequence present');
+  assert.ok(refs.some((x) => /^\d{5}$/.test(x)), 'minted MISC sequence present (bare 5-digit number)');
 });
 
 // ── A5: unified action inbox (§10) — inbox.list aggregator ─────────────────

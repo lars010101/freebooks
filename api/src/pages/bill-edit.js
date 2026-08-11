@@ -40,89 +40,80 @@ function buildBillEditPage(company, editId, flags) {
 <title>Bill Editor - freeBooks</title>
 ${commonStyle()}
 <style>
-  .be-wrap { max-width:1100px; }
-  .be-card { background:var(--surface,#fff); border:1px solid var(--border,#e0e0e0); border-radius:6px; padding:14px 16px; margin-bottom:14px; }
-  .be-card h3 { margin:0 0 10px 0; font-size:9pt; text-transform:uppercase; color:#888; letter-spacing:.05em; }
-  .be-header-grid { display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr; gap:10px; }
-  .be-field label { display:block; font-size:8pt; color:#888; margin-bottom:3px; text-transform:uppercase; }
-  .be-field input { width:100%; padding:6px 8px; border:1px solid #ccc; border-radius:4px; font-size:10pt; box-sizing:border-box; }
   table.be-lines { width:100%; border-collapse:collapse; font-size:10pt; }
-  table.be-lines th { text-align:left; font-size:8pt; text-transform:uppercase; color:#888; border-bottom:1px solid var(--border,#ddd); padding:4px 6px; }
-  table.be-lines td { padding:3px 4px; border-bottom:1px solid #f2f2f2; }
-  table.be-lines input, table.be-lines select { width:100%; padding:5px 6px; border:1px solid #ccc; border-radius:3px; font-size:10pt; box-sizing:border-box; }
+  table.be-lines th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
+  table.be-lines td { padding:3px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  table.be-lines input, table.be-lines select { padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; box-sizing:border-box; }
   .be-line-x { visibility:hidden; cursor:pointer; color:#999; border:none; background:none; font-size:12pt; padding:0 4px; }
   tr:hover .be-line-x { visibility:visible; }
   .be-line-x.fb-form-cursor-btn { visibility: visible; }
-  .be-add-row { margin-top:6px; font-size:10pt; color:#5b8def; cursor:pointer; user-select:none; }
-  .be-add-row.faded { color:#999; opacity:0.3; cursor:default; }
-  .be-status { position:sticky; bottom:0; background:var(--surface,#fff); border-top:1px solid var(--border,#e0e0e0); padding:8px 16px; display:flex; gap:18px; align-items:center; font-size:10pt; }
-  .be-totals { margin-left:auto; display:flex; gap:16px; font-variant-numeric:tabular-nums; }
-  .be-totals b { font-weight:600; }
-  .be-msg { min-height:1em; }
+  .be-msg { min-height:1em; font-size:10pt; }
   .be-msg.err { color:#cc2222; }
   .be-msg.ok { color:#2a8a2a; }
   .be-msg.warn { color:#856404; }
-  .be-attach-row { display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid #f2f2f2; font-size:10pt; }
+  .be-attach-row { display:flex; justify-content:space-between; align-items:center; padding:3px 6px; border-bottom:1px solid #f5f5f5; border-radius:3px; font-size:10pt; }
   .be-attach-row .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .be-attach-row .staged { color:#856404; font-size:8.5pt; }
-  .btn-primary { padding:7px 16px; background:#1a3a6b; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:10pt; }
   .btn-plain { padding:7px 12px; background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:10pt; }
   input.req { border-color:#cc2222 !important; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
-<div class="be-wrap">
-  <h1 id="be-title">New Bill <span style="color:#888;font-weight:400;font-size:10pt">— full editor</span></h1>
-
-  <div class="be-card">
-    <h3>Header</h3>
-    <div class="be-header-grid">
-      <div class="be-field"><label>Partner *</label><input id="be-partner-name" autocomplete="off" placeholder="start typing…"></div>
-      <div class="be-field"><label>Bill date *</label><input id="be-date" type="date"></div>
-      <div class="be-field"><label>Due date</label><input id="be-due" type="date"></div>
-      <div class="be-field"><label>Vendor ref</label><input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></div>
-      <div class="be-field"><label>CCY</label>${fxOn
-        ? '<input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase">'
-        : '<input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase" value="' + baseCcy + '" readonly tabindex="-1" title="Single-currency company (fx_tracking off) — locked to base currency">'}</div>
-      <div class="be-field"><label>AP account</label><input id="be-ap" autocomplete="off"></div>
+<div class="page">
+  <div class="header" style="display:flex;justify-content:space-between;align-items:flex-start">
+    <div>
+      <h1 id="be-title">New Bill</h1>
     </div>
   </div>
 
-  <div class="be-card">
-    <h3>Lines</h3>
-    <table class="be-lines">
-      <thead><tr>
-        <th style="width:28%">Description</th>
-        <th style="width:16%">Expense account</th>
-        <th style="width:10%">Amount</th>
-        ${vatOn ? '<th style="width:10%">VAT code</th>' : ''}
-        <th style="width:12%">Cost center</th>
-        <th style="width:12%">Profit center</th>
-        <th style="width:2%"></th>
-      </tr></thead>
-      <tbody id="be-lines-body"></tbody>
-    </table>
-    <div class="be-add-row" id="be-add-row">+ add line (a)</div>
+  <div class="header-fields">
+    <label>Partner * <input id="be-partner-name" autocomplete="off" placeholder="start typing…"></label>
+    <label>Bill date * <input id="be-date" type="date"></label>
+    <label>Due date <input id="be-due" type="date"></label>
+    <label>Bill no <input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></label>
+    <label>CCY ${fxOn
+      ? '<input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase">'
+      : '<input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase" value="' + baseCcy + '" readonly tabindex="-1" title="Single-currency company (fx_tracking off) — locked to base currency">'}</label>
+    <label>CR: AP account <input id="be-ap" autocomplete="off"></label>
   </div>
 
-  <div class="be-card">
-    <h3>Attachments</h3>
-    <div id="be-attach-list"></div>
-    <input type="file" id="be-file" style="display:none">
-    <button class="btn-plain" id="be-attach-btn" type="button">📎 attach file (A)</button>
-    <span style="font-size:8.5pt;color:#888;margin-left:8px">files stage locally until the first save</span>
+  <table class="be-lines">
+    <thead><tr>
+      <th style="width:28%">Description</th>
+      <th style="width:10%">Amount</th>
+      ${vatOn ? '<th style="width:10%">VAT code</th>' : ''}
+      <th style="width:12%">Cost center</th>
+      <th style="width:16%">DR: Expense account</th>
+      <th style="width:2%"></th>
+    </tr></thead>
+    <tbody id="be-lines-body"></tbody>
+  </table>
+  <div style="margin-top:6px">
+    <button class="btn-sm" id="be-add-row-btn" type="button">+ Add Line</button>
   </div>
 
-  <div class="be-status">
+  <div class="totals">
+    <div id="be-code-rows" style="font-size:8.5pt;color:#888;font-style:italic${vatOn ? '' : ';display:none'}"></div>
+    <span>Net <b id="be-tot-net">0.00</b></span>
+    ${vatOn ? '<span title="Supplier-stated VAT total — pre-filled computed; edit to match the supplier invoice; clear to return to computed">GST <input id="be-tot-gst" class="bill-vat-stated" type="number" step="0.01" style="width:90px;text-align:right"></span>' : ''}
+    <span>Gross <b id="be-tot-gross">0.00</b></span>
+  </div>
+
+  <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
     <button class="btn-primary" id="be-post" type="button">Post bill (p)</button>
-    <button class="btn-plain" id="be-save" type="button">Back (q)</button>
+    <button class="btn-sm" id="be-save" type="button">Back (q)</button>
     <span class="be-msg" id="be-msg"></span>
-    <div class="be-totals">
-      <div id="be-code-rows" style="width:100%;font-size:8.5pt;color:#888;font-style:italic${vatOn ? '' : ';display:none'}"></div>
-      <span>Net <b id="be-tot-net">0.00</b></span>
-      ${vatOn ? '<span title="Supplier-stated VAT total — pre-filled computed; edit to match the supplier invoice; clear to return to computed">GST <input id="be-tot-gst" class="bill-vat-stated" type="number" step="0.01" style="width:90px;text-align:right"></span>' : ''}
-      <span>Gross <b id="be-tot-gross">0.00</b></span>
+  </div>
+
+  <div style="margin-top:14px;padding:12px;border:1px solid #e8e8e8;border-radius:4px;background:#fafafa">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:10pt;font-weight:600">📎 Attachments</span>
+      <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#fff;font-size:9.5pt">
+        + Attach
+        <input type="file" id="be-file" style="display:none" multiple>
+      </label>
     </div>
+    <div id="be-attach-list" style="font-size:9.5pt;color:#aaa">No files queued</div>
   </div>
 </div>
 <script>
@@ -175,7 +166,7 @@ Promise.all([
     addLine({});
   }
   wireHeader();
-  if (S.billId) document.getElementById('be-title').innerHTML = 'Edit draft bill <span style="color:#888;font-weight:400;font-size:10pt">— full editor</span>';
+  if (S.billId) document.getElementById('be-title').textContent = 'Edit Draft Bill';
   updateTotals();
   takeSnapshot(); // baseline for dirty tracking
 }).catch(function (e) {
@@ -297,17 +288,15 @@ function addLine(data) {
   const tr = document.createElement('tr');
   tr.innerHTML =
     '<td><input class="bl-desc" value="' + FB.util.escAttr(data.description || '') + '" placeholder="line description"></td>' +
-    '<td><input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off"></td>' +
     '<td><input class="bl-amt" type="number" step="0.01" min="0" value="' + (data.amount !== '' && data.amount != null ? data.amount : '') + '"></td>' +
     (VAT_ON ? '<td><input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—"></td>' : '') +
     '<td><input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off"></td>' +
-    '<td><input class="bl-pc" value="' + FB.util.escAttr(data.profit_center || '') + '" autocomplete="off"></td>' +
+    '<td><input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off"></td>' +
     '<td><button class="be-line-x" type="button" title="delete line">×</button></td>';
   tbody.appendChild(tr);
   attachAcct(tr.querySelector('.bl-acct'));
   if (VAT_ON) attachVat(tr.querySelector('.bl-vat'));
   attachCenter(tr.querySelector('.bl-cc'), 'cost');
-  attachCenter(tr.querySelector('.bl-pc'), 'profit');
   tr.querySelector('.be-line-x').onclick = () => { tr.remove(); updateTotals(); refreshAddRow(); };
   tr.querySelectorAll('input').forEach(i => i.addEventListener('input', () => { updateTotals(); refreshAddRow(); }));
   refreshAddRow();
@@ -324,11 +313,11 @@ function lastLineHasData() {
   return !!(last.querySelector('.bl-desc').value.trim() || last.querySelector('.bl-amt').value);
 }
 function refreshAddRow() {
-  const el = document.getElementById('be-add-row');
+  const el = document.getElementById('be-add-row-btn');
   const has = lastLineHasData();
-  el.classList.toggle('faded', !has);
+  el.disabled = !has;
 }
-document.getElementById('be-add-row').onclick = () => {
+document.getElementById('be-add-row-btn').onclick = () => {
   if (!lastLineHasData()) return;
   const tr = addLine({});
   tr.querySelector('.bl-desc').focus();
@@ -342,7 +331,6 @@ function collectLines() {
     amount: parseFloat(tr.querySelector('.bl-amt').value) || 0,
     vat_code: (function(){ var s = tr.querySelector('.bl-vat'); return s ? (s.value.trim() || '') : ''; })(),
     cost_center: tr.querySelector('.bl-cc').value.trim() || null,
-    profit_center: tr.querySelector('.bl-pc').value.trim() || null,
   })).filter(l => l.description || l.amount || l.expense_account);
 }
 function updateTotals() {
@@ -486,7 +474,6 @@ function quitEditor() {
 
 
 // ── Attachments (staged until first save) ───────────────────────────────────
-document.getElementById('be-attach-btn').onclick = () => document.getElementById('be-file').click();
 document.getElementById('be-file').addEventListener('change', (e) => {
   Array.from(e.target.files).forEach(f => S.stagedFiles.push(f));
   e.target.value = '';
@@ -536,7 +523,7 @@ document.getElementById('be-post').onclick = () => postBill();
 var beForm = FB.form.create({
   formId: 'bill-edit',
   zones: [
-    { id: 'header', rows: function () { return [document.querySelector('.be-header-grid')]; } },
+    { id: 'header', rows: function () { return [document.querySelector('.header-fields')]; } },
     { id: 'lines',  rows: function () { return Array.from(document.querySelectorAll('#be-lines-body tr')); },
       cells: function (rowEl) {
         return Array.prototype.slice.call(rowEl.querySelectorAll('input,select,button'))

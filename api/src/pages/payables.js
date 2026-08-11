@@ -171,7 +171,6 @@ ${commonStyle()}
   .edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px; }
   .edit-table td { padding:4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
   .edit-table input[type=text], .edit-table select { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:0.8125rem; }
-  .btn-sm { padding:0 14px; height:32px; font-size:0.8125rem; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
 
   /* Tree table — child rows */
   .child-row td { background:#fafafa; border-bottom:1px solid #f0f0f0; color:#444; padding:14px 18px; font-size:0.8125rem; }
@@ -249,7 +248,6 @@ ${commonStyle()}
   tr.preview-row .preview-fx-header { color:#666; font-size:0.8125rem; font-style:italic; }
   tr.preview-row input.preview-acct-input:focus { outline:none; border-color:#2255cc; background:#fffef5; }
 
-  .btn-sm:hover { background:#e8e8e8; }
   .btn-save-draft { background:none; border:none; cursor:pointer; font-size:1rem; padding:2px 6px; color:#bbb; line-height:1; border-radius:4px; }
   .btn-save-draft:hover { color:#1a1a1a; background:#f0f0f0; }
   /* P1-9: hover-only Pay affordance on posted/partial parent rows — no chrome at rest */
@@ -274,10 +272,6 @@ ${commonStyle()}
   /* P1-9: payment history rows on unfold */
   .payment-history-row td { font-size:8pt; color:#555; font-style:italic; }
   .payment-history-row .pay-voided { text-decoration:line-through; color:#aaa; }
-  .btn-sm.danger { border-color:#cc2222; color:#cc2222; }
-  button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:0.9375rem; font-weight:600; cursor:pointer; }
-  button.btn-primary:hover { background:#333; }
-  button.btn-primary:disabled { background:#ccc; color:#666; cursor:not-allowed; }
   .msg-pay { margin-top:10px; font-size:0.8125rem; }
   .msg-pay.ok { color:#2a8a2a; }
   .msg-pay.err { color:#cc2222; }

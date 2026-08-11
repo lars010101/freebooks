@@ -23,6 +23,22 @@ function billsTabJS(flags) {
   const VAT_ON = vatOn ? 'true' : 'false';
   const FX_ON = fxOn ? 'true' : 'false';
   return `
+// 2026-08-11 IA restructure: Partners tab moved to Master Data page.
+// These shims keep the Bills page's partner dropdown working without the
+// Partners tab's partnersList being on the page.
+window.allPartners = window.allPartners || [];
+function loadPartners() {
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'partner.list', companyId: COMPANY }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var data = res.data || res;
+      window.allPartners = Array.isArray(data) ? data : (data.rows || []);
+    })
+    .catch(function(){});
+}
+function registerPartnerKeyActions() { /* keys registered by FB.list at creation */ }
+
 // Relevance flags (settings-ux-spec §7 item 9 + fx-automation-spec §1).
 // Inlined server-side from getRelevanceFlags — VAT_ON gates the per-line VAT
 // code column + stated-VAT footer + per-code footers; FX_ON gates the CCY
@@ -1314,35 +1330,22 @@ var billsList = FB.list.create({
   }
 });
 
-// ========== TAB SWITCHER ==========
+// ========== TAB SWITCHER (simplified — single Bills panel) ==========
+// 2026-08-11 IA restructure: Partners tab moved to Master Data page. Bills is
+// now the only panel; showPayTab is kept as a no-op shim for compatibility.
 function showPayTab(t) {
-  // Leaving a tab with dirty rows routes through the shared Save/Discard/Stay
-  // modal (FB.list leave-guard; Esc never auto-saves).
   if (window.FB && FB.list && FB.list.anyDirty()) {
     FB.list.guard(function(){ showPayTab(t); });
     return;
   }
-  ['bills','partners'].forEach(function(id) {
-    document.getElementById('pay-panel-' + id).style.display = (id === t) ? '' : 'none';
-    var tabEl = document.getElementById('pay-tab-' + id);
-    if (tabEl) tabEl.classList.toggle('active', id === t);
-  });
-  renderPayHints(t);
-  // Clear stale highlights from both systems when switching tabs
-  document.querySelectorAll('tr.nav-row-focus, tr.bill-row-focus').forEach(function(r){
-    r.classList.remove('nav-row-focus', 'bill-row-focus');
-  });
-  if (t === 'partners') { loadPartnerTable(); loadPartnerAccounts(); loadPartnerCurrencies(); }
-  // FB.list owns row focus/scroll now; the old bespoke cursor restore on tab
-  // return was deleted with the cursor object in Task 7.
+  renderPayHints('bills');
 }
 
-// Sidebar keyboard hints for the active Payables tab. Both tabs render from
-// their FB.keys binding tables (cannot drift from behavior).
+// Sidebar keyboard hints for the Bills page.
 function renderPayHints(tab) {
   var el = document.getElementById('sb-hints');
   if (!el) return;
-  FB.keys.renderHints(tab === 'partners' ? 'partners' : 'bills', el, { layout: 'list' });
+  FB.keys.renderHints('bills', el, { layout: 'list' });
 }
 `;
 }

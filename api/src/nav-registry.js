@@ -40,17 +40,18 @@
 //   4. Assign a gKey letter only for ratified go-to destinations; 'c' is
 //      reserved for the company switcher.
 //
-// g-key slate (ratified 2026-07-28; d/v added same day — magnus review):
-//   g d = (free — Dashboard dropped 2026-08-03) · g r = Reports ·
-//   g b = (free — Bank page dissolved 2026-08-09, page modules deleted;
-//             api/src/bank.js server handlers kept) ·
-//   g p = Periods (reassigned from Payables 2026-08-04, IA-spec step 4) ·
-//   g v = (free — Receivables dropped 2026-08-05) · g s = Settings
-//   g i = Inbox (now the root route /:company; was /:company/inbox)
-//   g j = (free — Journal dissolved into Reports as Voucher Register, 2026-08-03)
+// g-key slate (ratified 2026-08-11 IA restructure):
+//   g i = Inbox · g b = Bills (renamed from Payables; gKey 'b' assigned) ·
+//   g r = Reports · g p = Periods · g s = Settings (slimmed) ·
+//   g m = Master Data (new) · g a = Admin (new)
 //   g c = Company switcher (reserved, not a route)
-// Payables lost its gKey 'p' 2026-08-04 (step 4): 'p' now opens Periods.
-//   Payables stays sidebar+palette (reachable via sidebar click + palette search).
+//   g d / g v / g j = still free (Dashboard/Receivables/Journal, dropped earlier)
+// 2026-08-11 IA restructure: Payables renamed to Bills and assigned gKey 'b' (was
+//   null since 'p' was reassigned to Periods on 2026-08-04). Partners tab moved
+//   from Bills to the new Master Data page. Settings slimmed to Company · Posting
+//   Rules · AI; COA/Tax Codes/Journals/Exchange Rates moved to Master Data.
+//   New Admin page (Companies · Operations). Old /:company/payables URL
+//   302-redirects to /:company/bills; ?tab= deep-links redirect to master-data.
 // Receivables dropped 2026-08-05: sidebar entry + gKey 'v' removed; route + page handler deleted.
 // Bank page dropped 2026-08-09 (issue #137): sidebar entry + gKey 'b' removed; page modules
 //   (pages/bank.js, pages/bank-import.js) deleted. api/src/bank.js server handlers kept
@@ -62,7 +63,7 @@ const ROUTES = [
   // Journal-list queue half moved here; the Journal list is the pure register.
   // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
   { key: 'inbox',       route: '/:company',             label: 'Inbox',           icon: '📥', sidebar: true,  gKey: 'i',  palette: true,  absolute: false },
-  { key: 'payables',    route: '/:company/payables',     label: 'Payables',        icon: '📋', sidebar: true,  gKey: null, palette: true,  absolute: false },
+  { key: 'bills',       route: '/:company/bills',        label: 'Bills',           icon: '📋', sidebar: true,  gKey: 'b',  palette: true,  absolute: false },
   { key: 'reports',     route: '/:company/reports',      label: 'Reports',         icon: '📈', sidebar: true,  gKey: 'r',  palette: true,  absolute: false },
   // 2026-08-04 (IA-spec step 4): Periods promoted to a top-level sidebar route.
   //   g p was reassigned from Payables (kept sidebar+palette, gKey nulled) to
@@ -71,6 +72,12 @@ const ROUTES = [
   //   module) so this page and Settings don't drift.
   { key: 'periods',     route: '/:company/periods',      label: 'Periods',         icon: '📅', sidebar: true,  gKey: 'p',  palette: true,  absolute: false },
   { key: 'settings',    route: '/:company/settings',     label: 'Settings',        icon: '⚙',  sidebar: true,  gKey: 's',  palette: true,  absolute: false },
+  // 2026-08-11 IA restructure: Master Data (g m) — Partners · Chart of Accounts ·
+  //   Tax Codes · Journals · Exchange Rates · Cost/Profit Centers. Relocated from
+  //   Settings (COA/VAT/Journals/FX) and Payables (Partners); + new Centers tab.
+  { key: 'master-data', route: '/:company/master-data',  label: 'Master Data',    icon: '🗂', sidebar: true,  gKey: 'm',  palette: true,  absolute: false },
+  // 2026-08-11 IA restructure: Admin (g a) — Companies · Operations.
+  { key: 'admin',       route: '/:company/admin',        label: 'Admin',          icon: '🛠', sidebar: true,  gKey: 'a',  palette: true,  absolute: false },
   // ── Non-sidebar routes. journal-new / new-company keep palette:false — the
   // action catalog already navigates to them with action labels (dedupe =
   // registry decision, spec §4). opening-balances has no catalog entry →

@@ -1137,6 +1137,26 @@ async function handleCenter(ctx, action) {
     if (rows.length > 0) await bulkInsert('centers', rows);
     return { saved: rows.length };
   }
+
+  if (action === 'center.upsert') {
+    const { center } = body;
+    if (!center || !center.center_id) throw Object.assign(new Error('center_id required'), { code: 'INVALID_INPUT' });
+    const row = { company_id: companyId, center_id: center.center_id, center_type: center.center_type || 'cost', name: center.name || '', is_active: center.is_active !== false };
+    const existing = await query(`SELECT 1 FROM centers WHERE company_id = @companyId AND center_id = @center_id`, { companyId, center_id: center.center_id });
+    if (existing.length > 0) {
+      await exec(`UPDATE centers SET center_type = @center_type, name = @name, is_active = @is_active WHERE company_id = @companyId AND center_id = @center_id`, row);
+    } else {
+      await exec(`INSERT INTO centers (company_id, center_id, center_type, name, is_active) VALUES (@company_id, @center_id, @center_type, @name, @is_active)`, row);
+    }
+    return { saved: 1 };
+  }
+
+  if (action === 'center.delete') {
+    const { centerId } = body;
+    if (!centerId) throw Object.assign(new Error('centerId required'), { code: 'INVALID_INPUT' });
+    await exec(`DELETE FROM centers WHERE company_id = @companyId AND center_id = @centerId`, { companyId, centerId });
+    return { deleted: 1 };
+  }
 }
 
 // --- Journals ---

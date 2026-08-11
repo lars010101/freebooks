@@ -2,9 +2,8 @@
 const { commonStyle, navBar, layoutEnd, getRelevanceFlags, flagsBootstrapJson } = require('./common');
 const { query } = require('../db');
 const { billsTabJS } = require('./payables-bills');
-const { partnersTabJS } = require('./payables-partners');
 
-async function handlePayablesPage(req, res) {
+async function handleBillsPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   // Server-side relevance flags (settings-ux-spec §7 item 9 + fx-automation-spec
@@ -16,16 +15,16 @@ async function handlePayablesPage(req, res) {
   const [co] = await query(`SELECT jurisdiction, currency AS base_currency FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
   const taxLabel = (co && co.jurisdiction === 'SG') ? 'GST' : 'VAT';
   const baseCurrency = (flags && flags.baseCurrency) || (co && co.base_currency) || 'SGD';
-  res.send(buildPayablesPage(company, taxLabel, baseCurrency, flags));
+  res.send(buildBillsPage(company, taxLabel, baseCurrency, flags));
 }
 
-function buildPayablesPage(company, taxLabel = 'VAT', baseCurrency = 'SGD', flags = null) {
+function buildBillsPage(company, taxLabel = 'VAT', baseCurrency = 'SGD', flags = null) {
   const flagsJson = flagsBootstrapJson(flags);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Payables — freeBooks</title>
+<title>Bills — freeBooks</title>
 ${commonStyle()}
 <style>
   .page { max-width:1100px; }
@@ -286,12 +285,12 @@ ${commonStyle()}
   .fb-dd { font-family:'Helvetica Neue',Arial,sans-serif; }
 </style>
 </head>
-<body>${navBar(company, 'payables')}
+<body>${navBar(company, 'bills')}
 <div class="page">
 
   <!-- Page header -->
   <div class="header">
-    <h1>📋 Payables</h1>
+    <h1>📋 Bills</h1>
   </div>
 
   <!-- KPI cards (above tabs) -->
@@ -313,10 +312,8 @@ ${commonStyle()}
     </div>
   </div>
 
-  <div class="tabs" style="margin-bottom:20px">
-    <div class="tab active" id="pay-tab-bills" onclick="showPayTab('bills')">Bills</div>
-    <div class="tab" id="pay-tab-partners" onclick="showPayTab('partners')">Partners</div>
-  </div>
+  <!-- 2026-08-11 IA restructure: Partners tab moved to Master Data page.
+       Tab strip removed — Bills is now the only panel. -->
 
   <div id="pay-panel-bills">
 
@@ -361,31 +358,6 @@ ${commonStyle()}
 
   </div><!-- /pay-panel-bills -->
 
-  <div id="pay-panel-partners" style="display:none">
-    <div class="table-card">
-      <table class="data-table" id="partners-table">
-        <thead>
-          <tr>
-            <th>Partner</th>
-            <th style="width:70px;text-align:center">CCY</th>
-            <th style="width:110px;text-align:center">Terms (d)</th>
-            <th style="width:140px">Expense A/C</th>
-            <th style="width:140px">AP A/C</th>
-            <th style="width:90px;text-align:center">Active</th>
-          </tr>
-        </thead>
-        <tbody id="partners-body">
-          <tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
-      <span id="msg-partners" style="font-size:0.875rem"></span>
-      <!-- Partners hints are rendered into the sidebar by showPayTab (static
-           list until the Partners tab migrates onto FB.keys). -->
-    </div>
-  </div><!-- /pay-panel-partners -->
-
 </div>
 
 <script>
@@ -396,11 +368,11 @@ var BASE_CURRENCY = '${baseCurrency}';
 // per-code footers when vatRegistered=false, and lock CCY to base currency when
 // fxTracking='off' — no flash, no async client hiding.
 window.__fbFlags = ${flagsJson};
-${billsTabJS(flags)}${partnersTabJS()}
+${billsTabJS(flags)}
 </script>
 ${layoutEnd()}
 </body>
 </html>`;
 }
 
-module.exports = { handlePayablesPage };
+module.exports = { handleBillsPage, handlePayablesPage: handleBillsPage };

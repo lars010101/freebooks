@@ -23,7 +23,9 @@ const { handleInboxPage } = require('./pages/inbox');
 const { handleBillEditPage } = require('./pages/bill-edit');
 const { handleBillDetailPage } = require('./pages/bill-detail');
 const { handleBankReconcilePage } = require('./pages/bank-reconcile');
-const { handlePayablesPage } = require('./pages/payables');
+const { handlePayablesPage, handleBillsPage } = require('./pages/payables');
+const { handleMasterDataPage } = require('./pages/master-data');
+const { handleAdminPage } = require('./pages/admin-page');
 const { handleApAgingPage } = require('./pages/ap-aging');
 const { handleNewCompanyPage } = require('./pages/new-company');
 const { handleAdminQuery } = require('./pages/admin');
@@ -247,7 +249,14 @@ function mountReportRoutes(app) {
   app.get('/:company/journal/new', handleJournalNewPage);
   app.get('/:company/bill/edit', handleBillEditPage);
   app.get('/:company/bill/:id', handleBillDetailPage);
-  app.get('/:company/payables', handlePayablesPage);
+  app.get('/:company/bills', handleBillsPage);
+  // 2026-08-11 IA restructure: Payables renamed to Bills. Old URL redirects.
+  app.get('/:company/payables', function(req, res) {
+    if (req.query && req.query.tab === 'partners') {
+      return res.redirect(302, '/' + req.params.company + '/master-data?tab=partners');
+    }
+    res.redirect(302, '/' + req.params.company + '/bills');
+  });
   app.get('/:company/payables/aging', function(req, res) {
     res.redirect(302, '/' + req.params.company + '/reports?t=ap-aging');
   });
@@ -265,7 +274,16 @@ function mountReportRoutes(app) {
   app.get('/:company/opening-balances', function(req, res) {
     res.redirect(302, '/' + req.params.company + '/settings');
   });
-  app.get('/:company/settings', handleSettingsPage);
+  // 2026-08-11 IA restructure: Settings tab deep-links redirect to Master Data.
+  app.get('/:company/settings', function(req, res, next) {
+    var tab = req.query && req.query.tab;
+    if (tab === 'coa' || tab === 'vat' || tab === 'journals' || tab === 'fxrates') {
+      return res.redirect(302, '/' + req.params.company + '/master-data?tab=' + tab);
+    }
+    return handleSettingsPage(req, res, next);
+  });
+  app.get('/:company/master-data', handleMasterDataPage);
+  app.get('/:company/admin', handleAdminPage);
   app.get('/:company/periods', handlePeriodsPage);
   app.get('/:company/reports', handleReportsHubPage);
   app.get('/:company', handleInboxPage);

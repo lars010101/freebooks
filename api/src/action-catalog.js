@@ -531,6 +531,8 @@ const ACTIONS = {
     description: 'Replace cost/profit centers (bulk).',
     params: { centers: { type: 'array', required: true } },
   },
+  'center.upsert': { role: 'owner', mutating: true, description: 'Insert or update a cost/profit center.', params: { center: { type: 'object', required: true } } },
+  'center.delete': { role: 'owner', mutating: true, description: 'Delete a cost/profit center.', params: { centerId: { type: 'string', required: true } } },
   'journals.list': { role: 'viewer', mutating: false, description: 'List journals (reference sequences).' },
   'journals.save': {
     role: 'owner', mutating: true,

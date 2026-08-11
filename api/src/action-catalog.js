@@ -31,7 +31,7 @@ const ACTIONS = {
   // ── Journal ──────────────────────────────────────────────────────────────
   'journal.post': {
     role: 'data_entry', mutating: true, idempotent: true,
-    description: 'Post a balanced manual journal entry (DR=CR per line dates). A sequential {CODE}/{YYYY}/{NNNNN} reference is always minted — journalId omitted defaults to the MISC journal (warning returned).',
+    description: 'Post a balanced manual journal entry (DR=CR per line dates). A sequential doc-number reference (zero-padded, scoped per journal per year) is always minted — journalId omitted defaults to the MISC journal (warning returned).',
     params: {
       lines: { type: 'array', required: true },
       journalId: { type: 'string' },
@@ -45,7 +45,7 @@ const ACTIONS = {
   'journal.list': {
     role: 'viewer', mutating: false,
     description: 'List/search journal entries with filters.',
-    params: { dateFrom: { type: 'date' }, dateTo: { type: 'date' }, accountCode: { type: 'string' }, source: { type: 'string' }, journalCode: { type: 'string' }, billId: { type: 'string' }, sortBy: { type: 'string' }, sortDir: { type: 'string' }, limit: { type: 'number' } },
+    params: { dateFrom: { type: 'date' }, dateTo: { type: 'date' }, accountCode: { type: 'string' }, source: { type: 'string' }, journalId: { type: 'string' }, billId: { type: 'string' }, sortBy: { type: 'string' }, sortDir: { type: 'string' }, limit: { type: 'number' } },
   },
   'journal.import': {
     role: 'data_entry', mutating: true, idempotent: true,

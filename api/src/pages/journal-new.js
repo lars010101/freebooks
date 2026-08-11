@@ -570,12 +570,12 @@ ${commonStyle()}
     dateEl.dispatchEvent(new Event('change'));
     // Set description
     document.getElementById('entry-desc').value = 'Reversal: ' + ref;
-    // Match journal by reference prefix
-    var code = ref && ref.includes('/') ? ref.split('/')[0] : '';
-    if (code) {
+    // Match journal via journal_id already present on the fetched row —
+    // no string-parsing, works for old- and new-format reference alike.
+    var jId = (lines[0] && lines[0].journal_id) || '';
+    if (jId) {
       var jSel = document.getElementById('entry-journal');
-      var opt = Array.from(jSel.options).find(o => o.text.startsWith(code + ' '));
-      if (opt) jSel.value = opt.value;
+      jSel.value = jId;
     }
     // Clear existing lines and populate reversed
     document.getElementById('lines-body').innerHTML = '';

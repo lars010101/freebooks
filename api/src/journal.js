@@ -321,6 +321,15 @@ async function postJournalBatch(ctx, { enrichedLines, journalId, createdByEmail,
   const defaultedToMisc = !effectiveJournalId;
   if (defaultedToMisc) effectiveJournalId = await resolveDefaultJournalId(companyId);
   if (effectiveJournalId) {
+    // Verify the journal still exists (the old getNextReference checked this
+    // implicitly via a JOIN to journals for the code prefix; without that JOIN,
+    // this explicit check preserves the contract that posting to a deleted
+    // journal fails).
+    const jRows = await query(
+      `SELECT 1 FROM journals WHERE journal_id = @journalId AND company_id = @companyId LIMIT 1`,
+      { journalId: effectiveJournalId, companyId }
+    );
+    if (jRows.length === 0) throw new Error('Failed to generate reference: journal not found');
     const entryDate = enrichedLines[0].date;
     const year = parseInt(String(entryDate).substring(0, 4), 10);
     autoReference = await getNextReference(companyId, effectiveJournalId, year);
@@ -512,7 +521,7 @@ async function getEntry(ctx) {
 
 /**
  * Generate the next sequential reference for a journal.
- * Format: {CODE}/{YYYY}/{NNNN}
+ * Format: NNNNN (zero-padded to 5 digits, scoped per journal per year).
  * Atomically increments journal_sequences.last_seq and returns the new reference.
  */
 async function getNextReference(companyId, journalId, year) {
@@ -529,15 +538,13 @@ async function getNextReference(companyId, journalId, year) {
     { companyId, journalId, year }
   );
   const rows = await query(
-    `SELECT j.code, s.last_seq
-     FROM journal_sequences s
-     JOIN journals j ON j.journal_id = s.journal_id
-     WHERE s.company_id = @companyId AND s.journal_id = @journalId AND s.year = @year`,
+    `SELECT last_seq
+     FROM journal_sequences
+     WHERE company_id = @companyId AND journal_id = @journalId AND year = @year`,
     { companyId, journalId, year }
   );
   if (rows.length === 0) throw new Error('Failed to generate reference');
-  const { code, last_seq } = rows[0];
-  return `${code}/${year}/${String(last_seq).padStart(5, '0')}`;
+  return String(rows[0].last_seq).padStart(5, '0');
 }
 
 /**
@@ -558,18 +565,16 @@ async function getNextReferenceBatch(companyId, journalId, year, count) {
     { companyId, journalId, year, count }
   );
   const rows = await query(
-    `SELECT j.code, s.last_seq
-     FROM journal_sequences s
-     JOIN journals j ON j.journal_id = s.journal_id
-     WHERE s.company_id = @companyId AND s.journal_id = @journalId AND s.year = @year`,
+    `SELECT last_seq
+     FROM journal_sequences
+     WHERE company_id = @companyId AND journal_id = @journalId AND year = @year`,
     { companyId, journalId, year }
   );
   if (rows.length === 0) throw new Error('Failed to generate reference batch');
-  const { code, last_seq } = rows[0];
-  const endSeq = Number(last_seq);
+  const endSeq = Number(rows[0].last_seq);
   const startSeq = endSeq - count + 1;
   return Array.from({ length: count }, (_, i) =>
-    `${code}/${year}/${String(startSeq + i).padStart(5, '0')}`
+    String(startSeq + i).padStart(5, '0')
   );
 }
 
@@ -673,7 +678,7 @@ async function reverseEntry(ctx) {
 
 async function listEntries(ctx) {
   const { companyId, body } = ctx;
-  const { dateFrom, dateTo, accountCode, source, journalCode, billId, sortBy = 'date', sortDir = 'DESC', limit = 500 } = body;
+  const { dateFrom, dateTo, accountCode, source, journalId, billId, sortBy = 'date', sortDir = 'DESC', limit = 500 } = body;
 
   let sql = `SELECT * FROM journal_entries WHERE company_id = @companyId`;
   const params = { companyId };
@@ -682,7 +687,7 @@ async function listEntries(ctx) {
   if (dateTo) { sql += ` AND date <= @dateTo`; params.dateTo = dateTo; }
   if (accountCode) { sql += ` AND account_code = @accountCode`; params.accountCode = accountCode; }
   if (source) { sql += ` AND source = @source`; params.source = source; }
-  if (journalCode) { sql += ` AND reference LIKE @jCodePfx`; params.jCodePfx = journalCode + '/%'; }
+  if (journalId) { sql += ` AND journal_id = @journalId`; params.journalId = journalId; }
   if (billId) { sql += ` AND bill_id = @billId`; params.billId = billId; }
 
   const validSortCols = { date: 'date', reference: 'reference', account_code: 'account_code', debit: 'debit', credit: 'credit' };

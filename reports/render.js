@@ -404,8 +404,8 @@ async function buildJournal(query, company, start, end) {
 
   <div class="filter-bar">
     <div class="filter-row">
-      <label>Journal Code:</label>
-      <input type="text" id="f-journal" placeholder="e.g. BANK" maxlength="10" style="width: 120px;">
+      <label>Journal:</label>
+      <select id="f-journal" style="width: 160px;"><option value="">— all —</option></select>
       <label style="margin-left: 20px;">Account Code:</label>
       <input type="text" id="f-account" placeholder="e.g. 401000" maxlength="20" style="width: 120px;">
       <button onclick="doSearch()" style="margin-left: 20px;">Search</button>
@@ -440,6 +440,21 @@ async function buildJournal(query, company, start, end) {
   var currentFilters = { dateFrom: '${start}', dateTo: '${end}' };
   var accountsMap = {};
   
+  // Pre-fetch journals for the filter dropdown
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'journals.list', companyId: '${company}' }) })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      var sel = document.getElementById('f-journal');
+      (res.data || res || []).forEach(function (j) {
+        var opt = document.createElement('option');
+        opt.value = j.journal_id;
+        opt.textContent = j.code + ' — ' + j.name;
+        sel.appendChild(opt);
+      });
+    })
+    .catch(function() {});
+  
   // Pre-fetch accounts, then load journal (ensures account names are ready)
   fetch('/api/${company}/accounts')
     .then(function(r) { return r.json(); })
@@ -460,7 +475,7 @@ async function buildJournal(query, company, start, end) {
       dateFrom: '${start}',
       dateTo:   '${end}',
       accountCode:  document.getElementById('f-account').value.trim(),
-      journalCode:  document.getElementById('f-journal').value.trim()
+      journalId:    document.getElementById('f-journal').value
     };
     loadJournal();
   }

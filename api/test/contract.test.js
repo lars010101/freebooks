@@ -2179,3 +2179,36 @@ test('GET /api/:company/reports/registry returns id+label array', async () => {
   assert.ok(ids.includes('bs'), 'includes bs');
   assert.ok(ids.includes('tb'), 'includes tb');
 });
+
+// ── Settings/AI tab: ai.test_connection (issue #179) ────────────────────────
+
+test('ai.test_connection is in the catalog as a read-only viewer action', async () => {
+  const r = await fetch(`${baseUrl}/api/actions`);
+  const { actions } = await r.json();
+  assert.ok(actions['ai.test_connection'], 'ai.test_connection registered in catalog');
+  assert.equal(actions['ai.test_connection'].role, 'viewer');
+  assert.equal(actions['ai.test_connection'].mutating, false);
+});
+
+test('ai.attr.list includes the Test connection Action row', async () => {
+  const { status, body } = await api(baseUrl, 'ai.attr.list', { companyId: CO });
+  assert.equal(status, 200, JSON.stringify(body));
+  const rows = body.data || body;
+  assert.ok(Array.isArray(rows), 'ai.attr.list returns an array');
+  const tc = rows.find(r => r.key === 'test_connection');
+  assert.ok(tc, 'test_connection row present');
+  assert.equal(tc.type, 'Action');
+  assert.equal(tc.readonly, true);
+  assert.ok(tc.editor && tc.editor.type === 'action', 'editor.type is action');
+  assert.equal(tc.editor.action, 'ai.test_connection');
+});
+
+test('ai.test_connection with no endpoint configured returns ok:false', async () => {
+  // CT has no llm_endpoint_url set by default — the action must return a
+  // structured { ok: false, error } envelope, not throw.
+  const { status, body } = await api(baseUrl, 'ai.test_connection', { companyId: CO });
+  assert.equal(status, 200, JSON.stringify(body));
+  const d = body.data || body;
+  assert.equal(d.ok, false);
+  assert.match(d.error, /endpoint URL/i);
+});

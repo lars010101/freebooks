@@ -48,6 +48,9 @@ ${commonStyle()}
   .msg.err { color:#cc2222; }
   .pe-ro { color:#888; }
   .type-badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:9pt; font-weight:600; }
+  table.edit-table .action-btn { padding:4px 12px; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; cursor:pointer; font-size:10pt; }
+  table.edit-table .action-btn:hover { background:#e8e8e8; }
+  table.edit-table .action-btn:disabled { color:#888; cursor:default; }
 </style>
 </head>
 <body>${navBar(company, 'settings')}
@@ -403,8 +406,10 @@ function renderPostRulesHints() {
 // ========== AI TAB — FB.list (settings-ai-flattened-spec.md) =========
 // Flattened from grouped sections into a single Attribute/Value/Type grid,
 // mirroring the Company tab pattern. Each row edits and saves independently
-// via ai.attr.save (server-authoritative validation). Test connection and
-// Agent status are deferred (issues #179/#180).
+// via ai.attr.save (server-authoritative validation). The Test connection
+// row (#179) is type "Action": readonly, renders a button in the Value cell
+// that fires ai.test_connection — no edit/commit cycle. Agent status is
+// deferred (#180).
 var aiAttrs = FB.list.create({
   keysId: 'settings-ai',
   active: function() { var p = document.getElementById('tab-ai'); return !!(p && p.classList.contains('active')); },
@@ -416,6 +421,12 @@ var aiAttrs = FB.list.create({
       display: function(v) { return '<span style="font-weight:600">' + esc(v) + '</span>'; } },
     { field: 'value', type: 'text', width: 300, label: 'Value',
       display: function(v, d) {
+        // Action row (#179): render a button instead of text. The row is
+        // readonly so editable() returns false — it never enters edit mode;
+        // the click is wired separately in onLoaded below.
+        if (d.editor && d.editor.type === 'action') {
+          return '<button type="button" class="action-btn" data-action="' + esc(d.editor.action || '') + '" data-key="' + esc(d._key || '') + '">Test connection</button>';
+        }
         if (!d._dirty) return esc(d.display != null ? String(d.display) : '');
         var ed = d.editor || {};
         if (ed.type === 'checkbox') return v ? 'Yes' : 'No';
@@ -436,6 +447,43 @@ var aiAttrs = FB.list.create({
   save: { action: 'ai.attr.save',
     body: function(d) { return { key: d._key, value: d.value }; },
     focusKey: function(d) { return d._key; } },
+  onLoaded: function() {
+    // Wire up any Action-type buttons in the AI grid (#179). Each button
+    // posts ai.test_connection and reports the outcome through FB.status.
+    var tbody = document.getElementById('ai-attrs-body');
+    if (!tbody) return;
+    var btns = tbody.querySelectorAll('button.action-btn[data-action="ai.test_connection"]');
+    for (var i = 0; i < btns.length; i++) {
+      (function(btn) {
+        if (btn.dataset.wired) return;
+        btn.dataset.wired = '1';
+        btn.addEventListener('click', function() {
+          if (btn.disabled) return;
+          var orig = 'Test connection';
+          btn.disabled = true;
+          btn.textContent = 'Testing…';
+          fetch('/api/action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'ai.test_connection', companyId: COMPANY })
+          }).then(function(r) { return r.json(); }).then(function(res) {
+            var d = res.data || res;
+            if (res.ok || (d && d.ok)) {
+              var models = (d && d.models && d.models.length) ? ' (' + d.models.length + ' models)' : '';
+              if (window.FB && FB.status) FB.status.show('✓ Connected' + models, false);
+            } else {
+              if (window.FB && FB.status) FB.status.show('✗ ' + ((d && d.error) || res.error || 'Connection failed'), true);
+            }
+          }).catch(function(e) {
+            if (window.FB && FB.status) FB.status.show('✗ Connection failed: ' + (e && e.message || e), true);
+          }).then(function() {
+            btn.disabled = false;
+            btn.textContent = orig;
+          });
+        });
+      })(btns[i]);
+    }
+  },
   onChrome: function(dirty) {
     var dot = document.getElementById('tab-dot-ai');
     if (dot) dot.style.display = dirty ? '' : 'none';

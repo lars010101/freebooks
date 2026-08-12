@@ -365,10 +365,14 @@
     }
 
     // ── / → global search ──
+    // Bug fix: preventDefault blocks the '/' char from being typed, so we
+    // must set the value ourselves via FB.search.enter() (analogous to
+    // palette.enterCommand for ':'). Falls back to focus-only if the search
+    // module isn't loaded.
     if (!inInput && e.key === '/') {
       e.preventDefault();
-      var s = document.getElementById('tb-global-search');
-      if (s) { s.focus(); s.select(); }
+      if (window.FB && FB.search) FB.search.enter();
+      else { var s = document.getElementById('tb-global-search'); if (s) s.focus(); }
       return;
     }
 
@@ -563,7 +567,18 @@
             if (inst && inst.anyFilterActive()) inst.clearFilters();
           }
         }
-        if (e.key === 'Enter') { gs.blur(); }
+        if (e.key === 'Enter') {
+          // Bug fix: on list pages search mode is never active (deferred to
+          // page-filter), so onKeydown returned false and Enter fell through
+          // to blur. When the value starts with '/', force a global search
+          // via submit() (bypasses debounce, auto-selects first result).
+          if (window.FB && FB.search && gs.value.charAt(0) === '/') {
+            e.preventDefault();
+            FB.search.submit();
+          } else {
+            gs.blur();
+          }
+        }
       });
     }
 

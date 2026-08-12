@@ -1526,33 +1526,40 @@
       return { scope: 'all', query: parsed.query };
     }
 
+    // Core fetch + render. autoSelect=true (used by submit()) navigates to
+    // the first result on completion; false just renders the dropdown.
+    function _doFetch(scope, q, autoSelect) {
+      if (_debounce) { clearTimeout(_debounce); _debounce = null; }
+      var req = ++_lastReq;
+      var url = '/api/' + encodeURIComponent(_company()) + '/search?q=' +
+        encodeURIComponent(q) + '&scope=' + encodeURIComponent(scope);
+      fetch(url).then(function (r) { return r.json(); }).then(function (res) {
+        if (req !== _lastReq) return; // stale response
+        if (!res || !res.ok || !Array.isArray(res.results)) { _items = []; }
+        else {
+          _items = res.results.map(function (r2) {
+            return {
+              type: r2.type,
+              id: r2.id,
+              label: r2.label,
+              route: r2.route,
+              typeLabel: TYPE_LABELS[r2.type] || r2.type
+            };
+          });
+        }
+        _activeIdx = _items.length ? 0 : -1;
+        _render();
+        if (autoSelect && _items.length) _select(_activeIdx >= 0 ? _activeIdx : 0);
+      }).catch(function () {
+        if (req !== _lastReq) return;
+        _items = []; _activeIdx = -1; _render();
+      });
+    }
+
+    // Debounced fetch used by onInput() during live typing.
     function _fetch(scope, q) {
       if (_debounce) { clearTimeout(_debounce); _debounce = null; }
-      _debounce = setTimeout(function () {
-        var req = ++_lastReq;
-        var url = '/api/' + encodeURIComponent(_company()) + '/search?q=' +
-          encodeURIComponent(q) + '&scope=' + encodeURIComponent(scope);
-        fetch(url).then(function (r) { return r.json(); }).then(function (res) {
-          if (req !== _lastReq) return; // stale response
-          if (!res || !res.ok || !Array.isArray(res.results)) { _items = []; }
-          else {
-            _items = res.results.map(function (r2) {
-              return {
-                type: r2.type,
-                id: r2.id,
-                label: r2.label,
-                route: r2.route,
-                typeLabel: TYPE_LABELS[r2.type] || r2.type
-              };
-            });
-          }
-          _activeIdx = _items.length ? 0 : -1;
-          _render();
-        }).catch(function () {
-          if (req !== _lastReq) return;
-          _items = []; _activeIdx = -1; _render();
-        });
-      }, 150);
+      _debounce = setTimeout(function () { _doFetch(scope, q, false); }, 150);
     }
 
     // Called by common.js on every input event. Returns true if search mode
@@ -1586,6 +1593,9 @@
       if (e.key === 'Enter') {
         e.preventDefault(); e.stopImmediatePropagation();
         if (_items.length) _select(_activeIdx >= 0 ? _activeIdx : 0);
+        // Fetch pending (debounce not yet fired): bypass it and auto-select
+        // the first result on completion.
+        else submit();
         return true;
       }
       if (e.key === 'Escape') {
@@ -1594,6 +1604,37 @@
         return true;
       }
       return false;
+    }
+
+    // Called by common.js when the `/` key is pressed (analogous to
+    // palette.enterCommand for `:`). Sets the value to '/', focuses, and
+    // positions the cursor after the slash. Does NOT open the dropdown —
+    // there is nothing to search yet.
+    function enter() {
+      if (!_input) return;
+      _input.value = '/';
+      _input.focus();
+      _input.setSelectionRange(1, 1);
+    }
+
+    // Called by common.js when Enter is pressed and the value starts with '/'
+    // but search mode is NOT active (deferred to page-filter on list pages).
+    // Forces global search mode regardless of FB.list visibility, fetches
+    // immediately (bypassing debounce), and auto-selects the first result on
+    // completion. Also called from onKeydown() when search IS active but the
+    // fetch is still pending (items empty) — same debounce race fix.
+    function submit() {
+      var value = _input ? _input.value : '';
+      if (!value || value.charAt(0) !== '/') return;
+      var parsed = (FB.command && FB.command.parseSearchScope)
+        ? FB.command.parseSearchScope(value)
+        : { scope: null, query: value.slice(1) };
+      var scope = parsed.scope || 'all';
+      var query = parsed.query;
+      if (!query) return; // nothing to search yet
+      // Activate search mode (force, even if a FB.list is visible).
+      if (!_active) { _active = true; _open(); }
+      _doFetch(scope, query, true);
     }
 
     function wire(input) {
@@ -1606,6 +1647,8 @@
       wire: wire,
       onInput: onInput,
       onKeydown: onKeydown,
+      enter: enter,
+      submit: submit,
       isActive: function () { return _active; },
       close: _close
     };

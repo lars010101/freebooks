@@ -124,7 +124,13 @@ Every alias is sugar over a real `<module>.<verb>` action from the existing acti
 
 Single-letter scope prefixes chosen for terseness over self-documentation — this is a tool used hundreds of times by one person, not a stranger's first session.
 
+`/<query>` unprefixed always searches the full unscoped index; the letter prefixes narrow the search, they never gate it.
+
+"Everything" means the same curated identity-field index the scoped prefixes draw from (partner name, account name/code, journal reference, bill reference), unioned across entity types — not a raw scan of every table/column. Non-entity tables (`audit_log`, `events`, `api_tokens`, `idempotency_keys`, `settings`) are out of scope for search entirely.
+
 `/p:` is deliberately **direction-agnostic** — it doesn't distinguish vendor from customer, matching the unified `partners` table (`is_vendor`/`is_customer` flags on one entity, not two). Search only needs to find "Acme"; direction is expressed at the command level (`:bill` vs `:invoice`), not the search level. This mirrors the actual schema, which merged the former `vendors` table into `partners` for exactly this reason.
+
+**Journal references** (post-#195): `reference` is a plain `NNNNN` sequential doc number scoped per journal per year (5-digit zero-padded, e.g. `00001`). The old `CODE/YEAR/NNNNN` format has been simplified — the journal code prefix is redundant now that `journal_id` lives on the row. `/j:1023` matches the `reference` field on `journal_entries` and returns the owning `batch_id` as the navigation target.
 
 ---
 
@@ -164,6 +170,8 @@ That means the command bar cannot alias `:bill` to `bill.create` and get draft-s
 
 Tier 0/1 parses land in a prefilled form (§5) or, with `!`, commit directly.
 **Tier 2 parses never take `!` and never commit directly** — they route through `journal.propose` into the existing Inbox review queue, same as agent output. The reasoning: `!` expresses confidence in the operator's own input, not permission to skip catching a parser mistake the operator doesn't know exists yet. An LLM-inferred command reviewed asynchronously in the Inbox gets exactly the same trust treatment as an autonomous agent's proposal — same boundary, same UI, regardless of which "actor" produced it.
+
+**No-LLM-configured fallback:** when Tier 1 fails to parse and the company has no LLM configured (no `llm_endpoint_url`/`llm_api_key` — the same settings Tier 2 checks), the parse error renders inline in the bar itself, shell-style — the same behavior §4 already specifies for parse errors generally. There is no silent no-op and no toast. The operator stays in the same keystroke flow to fix and resubmit.
 
 **Residual risk once `:invoice`/AR exists:** the noun-command reading of `:bill` (§4) resolves the AP/AR ambiguity for literal command names, but doesn't fully carry over to Tier 2 free-form prose. Natural spoken/written English leans AR for the verb sense — "I billed Acme for 500" reads as "I charged them," not "I received a bill from them." Moot today since there's no AR target to misroute to, but the Tier-2 parsing prompt will need explicit disambiguation guidance once `:invoice` is wired — e.g. biasing toward the literal command name and treating loose "bill/billed" prose without one as ambiguous rather than guessing a direction.
 

@@ -535,12 +535,17 @@
     var gs = document.getElementById('tb-global-search');
     if (gs) {
       if (window.FB && FB.palette) FB.palette.wire(gs);
+      if (window.FB && FB.search) FB.search.wire(gs);
       // Unified search/filter (2026-07-23): ONE input — a value starting with
       // '/' is a screen-limited filter expression routed to the visible FB.list
       // (terms + field:value qualifiers); anything else is the global search.
       // `/` focuses the box (above), so `//` starts a screen filter.
+      // §4 search: an explicit scope prefix (/p: /a: /j: /b:) or the absence
+      // of a visible FB.list routes `/` to the global search endpoint instead.
       var lastWasFilter = false;
       gs.addEventListener('input', function() {
+        // §4: let FB.search claim scope-prefix and no-FB.list cases first.
+        if (window.FB && FB.search && FB.search.onInput(gs.value)) return;
         if (!(window.FB && FB.list && FB.list.visible)) return;
         var inst = FB.list.visible();
         var isFilter = gs.value.charAt(0) === '/';
@@ -549,6 +554,8 @@
         lastWasFilter = isFilter;
       });
       gs.addEventListener('keydown', function(e) {
+        // §4: search-mode owns Arrow/Enter/Esc when its dropdown is open.
+        if (window.FB && FB.search && FB.search.onKeydown(e)) return;
         if (e.key === 'Escape') {
           gs.value = ''; gs.blur(); lastWasFilter = false;
           if (window.FB && FB.list && FB.list.visible) {

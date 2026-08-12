@@ -33,6 +33,7 @@ const { makeQuery } = require('./pages/common');
 const { handleReportsHubPage } = require('./pages/reports-hub');
 const { handlePeriodsPage } = require('./pages/periods');
 const { handleSruInk2, handleSruInfo } = require('./filings');
+const { handleSearch } = require('./search');
 
 // ── Route: GET /api/:company/report ──────────────────────────────────────────
 async function handleReport(req, res) {
@@ -237,6 +238,8 @@ function mountReportRoutes(app) {
   // SRU (Skatteverket INK2) export — blanketter.sru + INFO.SRU.
   app.get('/api/:company/sru/ink2', handleSruInk2);
   app.get('/api/:company/sru/info', handleSruInfo);
+  // Global search — command-bar `/` mode (command-bar-ux-spec.md §4).
+  app.get('/api/:company/search', handleSearch);
   // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
   // Old /:company/inbox bookmarks 302-redirect to the root.
   app.get('/:company/inbox', function(req, res) { res.redirect(302, '/' + req.params.company); });

@@ -47,6 +47,10 @@ ${commonStyle()}
   .msg.ok { color:#2a8a2a; }
   .msg.err { color:#cc2222; }
   .pe-ro { color:#888; }
+  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 #d97706; }
+  .dirty-val { color:#b45309; }
+  tr.row-editing > td { background:#fffbeb; }
+  .row-actions { white-space:nowrap; text-align:right; }
   .type-badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:9pt; font-weight:600; }
   table.edit-table .action-btn { padding:4px 12px; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; cursor:pointer; font-size:10pt; }
   table.edit-table .action-btn:hover { background:#e8e8e8; }

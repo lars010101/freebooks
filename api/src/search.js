@@ -149,10 +149,18 @@ async function handleSearch(req, res) {
     const wantAll = scope === 'all';
     let results = [];
 
-    if (wantAll || scope === 'partner') results = results.concat(await _searchPartners(company, q));
-    if (wantAll || scope === 'account')  results = results.concat(await _searchAccounts(company, q));
-    if (wantAll || scope === 'journal')  results = results.concat(await _searchJournals(company, q));
-    if (wantAll || scope === 'bill')     results = results.concat(await _searchBills(company, q, scope));
+    // Each scope runs in its own try/catch so a single failing scope
+    // (e.g. a stale column name) doesn't kill the entire search —
+    // the other scopes still return their results.
+    async function _safe(label, fn) {
+      try { return await fn(); }
+      catch (err) { console.error('search error (' + label + '):', err); return []; }
+    }
+
+    if (wantAll || scope === 'partner') results = results.concat(await _safe('partner', () => _searchPartners(company, q)));
+    if (wantAll || scope === 'account')  results = results.concat(await _safe('account',  () => _searchAccounts(company, q)));
+    if (wantAll || scope === 'journal')  results = results.concat(await _safe('journal',  () => _searchJournals(company, q)));
+    if (wantAll || scope === 'bill')     results = results.concat(await _safe('bill',     () => _searchBills(company, q, scope)));
 
     // Total cap (each scope already capped at PER_SCOPE_CAP).
     if (results.length > TOTAL_CAP) results = results.slice(0, TOTAL_CAP);

@@ -511,6 +511,14 @@ WHERE default_role IS NULL
       AND s.value <> ''
   );
 
+-- MIGRATION: bills.vendor → bills.partner_name (Issue #128). This rename
+-- lived only in db/init.js, so a server that pulled new code without
+-- re-running init served a Binder Error on search (partner_name not found).
+-- Moving it here makes the boot-apply in db.js handle it idempotently.
+-- Errors on fresh/already-migrated DBs (column doesn't exist) are caught
+-- by the per-statement try/catch in _applySchemaOnBoot.
+ALTER TABLE bills RENAME COLUMN vendor TO partner_name;
+
 -- MIGRATION: partner default expense and AP accounts (was vendor columns)
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;

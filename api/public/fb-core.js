@@ -1429,6 +1429,188 @@
     };
   })();
 
+  // ── FB.search — `/` global search (command-bar-ux-spec.md §4) ──────────────
+  // The topbar input hosts three modes: `/` page-filter (when a FB.list IS
+  // visible and no scope prefix is used — owned by common.js), `/` global
+  // search (scope prefix /p: /a: /j: /b:, OR no FB.list visible), and `:`
+  // command mode (owned by FB.palette). This module owns the global-search
+  // dropdown: fetches from GET /api/:company/search and renders the same
+  // fb-palette-* CSS as the command palette.
+  var search = (function () {
+    var _input = null;
+    var _el = null;
+    var _items = [];
+    var _activeIdx = -1;
+    var _wired = false;
+    var _active = false;       // true while a search dropdown is open
+    var _debounce = null;
+    var _lastReq = 0;
+
+    function _company() { return location.pathname.split('/')[1] || ''; }
+
+    function _open() {
+      if (_el) return;
+      _el = document.createElement('div');
+      _el.className = 'fb-palette';
+      var wrap = _input.closest('.tb-search-wrap') || _input.parentElement;
+      if (wrap) wrap.style.position = wrap.style.position || 'relative';
+      (wrap || document.body).appendChild(_el);
+    }
+    function _close() {
+      if (_el) { _el.remove(); _el = null; }
+      _items = [];
+      _activeIdx = -1;
+      _active = false;
+    }
+
+    function _render() {
+      if (!_el) return;
+      if (!_items.length) {
+        _el.innerHTML = '<div class="fb-palette-empty">no results</div>';
+        return;
+      }
+      var html = '';
+      _items.forEach(function (c, i) {
+        html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
+          '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
+          '<span class="fb-palette-page">' + esc(c.typeLabel) + '</span>' +
+        '</div>';
+      });
+      _el.innerHTML = html;
+      Array.prototype.forEach.call(_el.querySelectorAll('.fb-palette-row'), function (row) {
+        row.onmousedown = function (e) { e.preventDefault(); };
+        row.onclick = function () { _select(Number(row.dataset.i)); };
+        row.onmouseover = function () { _activeIdx = Number(row.dataset.i); _render(); };
+      });
+      var act = _el.querySelector('.fb-palette-active');
+      if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
+    }
+
+    function _move(d) {
+      if (!_items.length) return;
+      var i = _activeIdx + d;
+      if (i < 0) i = 0;
+      if (i > _items.length - 1) i = _items.length - 1;
+      _activeIdx = i;
+      _render();
+    }
+
+    var TYPE_LABELS = {
+      partner: 'Partner', account: 'Account', journal: 'Journal', bill: 'Bill'
+    };
+
+    function _select(idx) {
+      var item = _items[idx];
+      if (!item) return;
+      _close();
+      if (_input) { _input.value = ''; _input.blur(); }
+      var url = '/' + _company() + item.route;
+      if (window.fbNavigate) window.fbNavigate(url);
+      else window.location.href = url;
+    }
+
+    // Decide whether the current input value should trigger search mode.
+    // Returns the {scope, query} to search with, or null to defer to the
+    // existing page-filter behavior in common.js.
+    function _resolveMode(value) {
+      if (value.charAt(0) !== '/') return null;
+      var parsed = (FB.command && FB.command.parseSearchScope)
+        ? FB.command.parseSearchScope(value)
+        : { scope: null, query: value.slice(1) };
+      // Explicit scope prefix (/p:, /a:, /j:, /b:) → always global search.
+      if (parsed.scope) return { scope: parsed.scope, query: parsed.query };
+      // No prefix: if a FB.list is visible, defer to page-filter (common.js).
+      var listVisible = window.FB && FB.list && FB.list.visible && FB.list.visible();
+      if (listVisible) return null;
+      // No FB.list → global "all" search.
+      return { scope: 'all', query: parsed.query };
+    }
+
+    function _fetch(scope, q) {
+      if (_debounce) { clearTimeout(_debounce); _debounce = null; }
+      _debounce = setTimeout(function () {
+        var req = ++_lastReq;
+        var url = '/api/' + encodeURIComponent(_company()) + '/search?q=' +
+          encodeURIComponent(q) + '&scope=' + encodeURIComponent(scope);
+        fetch(url).then(function (r) { return r.json(); }).then(function (res) {
+          if (req !== _lastReq) return; // stale response
+          if (!res || !res.ok || !Array.isArray(res.results)) { _items = []; }
+          else {
+            _items = res.results.map(function (r2) {
+              return {
+                type: r2.type,
+                id: r2.id,
+                label: r2.label,
+                route: r2.route,
+                typeLabel: TYPE_LABELS[r2.type] || r2.type
+              };
+            });
+          }
+          _activeIdx = _items.length ? 0 : -1;
+          _render();
+        }).catch(function () {
+          if (req !== _lastReq) return;
+          _items = []; _activeIdx = -1; _render();
+        });
+      }, 150);
+    }
+
+    // Called by common.js on every input event. Returns true if search mode
+    // consumed the event (so common.js should skip its page-filter path).
+    function onInput(value) {
+      var mode = _resolveMode(value);
+      if (!mode) {
+        if (_active) _close();
+        return false;
+      }
+      // Activate search mode.
+      if (!_active) { _active = true; _open(); }
+      if (mode.query.length < 1) {
+        _items = []; _activeIdx = -1; _render();
+        return true;
+      }
+      _fetch(mode.scope, mode.query);
+      return true;
+    }
+
+    // Called by common.js on keydown when value starts with `/`. Returns
+    // true if search mode handled the key.
+    function onKeydown(e) {
+      if (!_active) return false;
+      if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) {
+        e.preventDefault(); e.stopImmediatePropagation(); _move(1); return true;
+      }
+      if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) {
+        e.preventDefault(); e.stopImmediatePropagation(); _move(-1); return true;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (_items.length) _select(_activeIdx >= 0 ? _activeIdx : 0);
+        return true;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault(); e.stopImmediatePropagation();
+        _close(); if (_input) { _input.value = ''; _input.blur(); }
+        return true;
+      }
+      return false;
+    }
+
+    function wire(input) {
+      if (_wired || !input) return;
+      _wired = true;
+      _input = input;
+    }
+
+    return {
+      wire: wire,
+      onInput: onInput,
+      onKeydown: onKeydown,
+      isActive: function () { return _active; },
+      close: _close
+    };
+  })();
+
   var keys = {
     register: function (name, def) {
       _sets[name] = def;
@@ -2094,6 +2276,7 @@
     nav: nav,
     dropdown: dropdown,
     palette: palette,
+    search: search,
     modal: modal,
     status: status,
     switcher: switcher

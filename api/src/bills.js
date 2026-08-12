@@ -12,7 +12,7 @@ const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
 const { getNextReference } = require('./journal');
 const { validateBill } = require('./validation');
-const { settleBillPayment } = require('./settlement');
+const { settleBillPayment, settleMultiBillPayment } = require('./settlement');
 const { getRate } = require('./fx');
 const { emitEvent } = require('./events');
 // computeVatSplit removed — bills now use tax-exclusive direct VAT lookup
@@ -90,7 +90,7 @@ async function handleBills(ctx, action) {
     case 'bill.draft.save': return saveDraftBill(ctx);
     case 'bill.draft.post': return postDraftBill(ctx);
     case 'bill.draft.delete': return deleteDraftBill(ctx);
-    case 'bill.payment.record': return recordBillPayment(ctx);
+    case 'bill.payment.record': return ctx.body.allocations ? recordMultiBillPayment(ctx) : recordBillPayment(ctx);
     case 'bill.payment.void':   return voidBillPayment(ctx);
     case 'bill.payments':       return listBillPayments(ctx);
     default:
@@ -530,6 +530,57 @@ async function voidBill(ctx) {
 }
 
 /**
+ * validateBillForPayment — shared per-bill validation for the single-bill
+ * (recordBillPayment) and multi-bill (settleMultiBillPayment) payment paths.
+ * Loads the bill via queryFn (ambient query by default, or a transaction-
+ * scoped query for the atomic multi-bill path), enforces the status/amount/
+ * outstanding checks, and returns the validated bill + outstanding + isForeign
+ * flag. Throws NOT_FOUND / INVALID_STATUS / VALIDATION on failure.
+ *
+ * homeCurrency is optional — when omitted it is resolved inside via queryFn
+ * (one extra round-trip). Callers that already have it pass it in to avoid
+ * the lookup (recordBillPayment resolves it once for its shared checks).
+ */
+async function validateBillForPayment(companyId, billId, allocAmount, queryFn, homeCurrency) {
+  const q = queryFn || query;
+  const billRows = await q(
+    `SELECT * FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
+    { companyId, billId }
+  );
+  if (!billRows || billRows.length === 0) {
+    throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
+  }
+  const bill = billRows[0];
+
+  if (bill.status === 'draft') {
+    throw Object.assign(new Error('Bill is still a draft — post it before recording a payment'), { code: 'INVALID_STATUS' });
+  }
+  if (bill.status === 'void') {
+    throw Object.assign(new Error('Bill is void'), { code: 'INVALID_STATUS' });
+  }
+  if (bill.status === 'paid') {
+    throw Object.assign(new Error('Bill is already fully paid'), { code: 'INVALID_STATUS' });
+  }
+
+  const amt = Number(allocAmount);
+  if (!(amt > 0)) {
+    throw Object.assign(new Error('amount must be greater than zero'), { code: 'VALIDATION' });
+  }
+  const round4 = (n) => Math.round(n * 10000) / 10000;
+  const outstanding = round4(Number(bill.amount) - Number(bill.amount_paid));
+  if (amt > outstanding + 0.005) {
+    throw Object.assign(new Error(`Amount ${amt} exceeds outstanding ${outstanding} ${bill.currency}`), { code: 'VALIDATION' });
+  }
+
+  let hc = homeCurrency;
+  if (!hc) {
+    const co = await q(`SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`, { companyId });
+    hc = (co && co[0] && co[0].currency) || 'USD';
+  }
+  return { bill, outstanding, isForeign: !!(bill.currency && bill.currency !== hc) };
+}
+
+/**
  * bill.payment.record — manual pay-on-bill (P1-9 dual path).
  * Settles through the SAME core as bank-import approve (FX split included).
  * amount is in the BILL's currency; for foreign bills the home-currency bank
@@ -538,25 +589,6 @@ async function voidBill(ctx) {
 async function recordBillPayment(ctx) {
   const { companyId, userEmail, body } = ctx;
   const { billId, date, bankAccount, amount, reference = null, fxRate = null } = body;
-
-  const billRows = await query(
-    `SELECT * FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
-    { companyId, billId }
-  );
-  if (billRows.length === 0) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
-  const bill = billRows[0];
-
-  if (bill.status === 'draft') throw Object.assign(new Error('Bill is still a draft — post it before recording a payment'), { code: 'INVALID_STATUS' });
-  if (bill.status === 'void') throw Object.assign(new Error('Bill is void'), { code: 'INVALID_STATUS' });
-  if (bill.status === 'paid') throw Object.assign(new Error('Bill is already fully paid'), { code: 'INVALID_STATUS' });
-
-  const amt = Number(amount);
-  if (!(amt > 0)) throw Object.assign(new Error('amount must be greater than zero'), { code: 'VALIDATION' });
-  const round4 = (n) => Math.round(n * 10000) / 10000;
-  const outstandingBefore = round4(Number(bill.amount) - Number(bill.amount_paid));
-  if (amt > outstandingBefore + 0.005) {
-    throw Object.assign(new Error(`Amount ${amt} exceeds outstanding ${outstandingBefore} ${bill.currency}`), { code: 'VALIDATION' });
-  }
 
   // Bank account must be an active cash/bank account (cf_category='Cash' is the app-wide marker)
   const acct = await query(
@@ -596,11 +628,15 @@ async function recordBillPayment(ctx) {
   );
   const journalId = bankJournals[0]?.journal_id || null;
 
+  // Per-bill validation (shared with the multi-bill path).
+  const { bill } = await validateBillForPayment(companyId, billId, amount, query, homeCurrency);
+  const round4 = (n) => Math.round(n * 10000) / 10000;
+
   const isForeign = bill.currency && bill.currency !== homeCurrency;
   let bankAmount;
   let settledForeign = null;
   if (isForeign) {
-    settledForeign = amt;
+    settledForeign = Number(amount);
     let rate = fxRate != null ? Number(fxRate) : null;
     if (rate == null) {
       rate = await getRate(bill.currency, homeCurrency, String(date).substring(0, 10));
@@ -610,7 +646,7 @@ async function recordBillPayment(ctx) {
     }
     bankAmount = round4(settledForeign * rate);
   } else {
-    bankAmount = amt;
+    bankAmount = Number(amount);
   }
 
   const s = await settleBillPayment({
@@ -638,6 +674,54 @@ async function recordBillPayment(ctx) {
   };
   if (s.warning) out.warning = s.warning;
   return out;
+}
+
+/**
+ * bill.payment.record (multi-bill branch) — settle one bank payment across
+ * N bills from the same vendor in the same currency (issue #131). Dispatched
+ * from handleBills when body.allocations is present. Delegates the atomic
+ * settlement to settleMultiBillPayment (settlement.js) which runs inside a
+ * withTransaction wrapper. Resolves homeCurrency + journalId the same way
+ * recordBillPayment does (shared pre-transaction reads).
+ */
+async function recordMultiBillPayment(ctx) {
+  const { companyId, userEmail, body } = ctx;
+  const { date, bankAccount, allocations, reference = null, fxRate = null } = body;
+
+  if (!Array.isArray(allocations) || allocations.length === 0) {
+    throw Object.assign(new Error('allocations must be a non-empty array'), { code: 'VALIDATION' });
+  }
+  for (const a of allocations) {
+    if (!a.billId || !(Number(a.amount) > 0)) {
+      throw Object.assign(new Error('each allocation needs billId and amount > 0'), { code: 'VALIDATION' });
+    }
+  }
+
+  const companies = await query(
+    `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,
+    { companyId }
+  );
+  const homeCurrency = companies[0]?.currency || 'USD';
+  const bankJournals = await query(
+    `SELECT journal_id FROM journals WHERE company_id = @companyId AND code = 'BANK' AND active = true LIMIT 1`,
+    { companyId }
+  );
+  const journalId = bankJournals[0]?.journal_id || null;
+
+  const result = await settleMultiBillPayment({
+    ctx,
+    companyId,
+    userEmail,
+    date: String(date).substring(0, 10),
+    bankAccount,
+    homeCurrency,
+    allocations,
+    fxRate,
+    paymentReference: reference,
+    journalId,
+  });
+
+  return result;
 }
 
 /** bill.payments (viewer) — payment history for a bill. */
@@ -669,6 +753,54 @@ async function voidBillPayment(ctx) {
   const payment = rows[0];
   if (payment.voided_at) throw Object.assign(new Error('Payment already voided'), { code: 'INVALID_STATUS' });
 
+  // Detect multi-bill payment: a batch_id shared by >1 non-voided bill_payments rows.
+  const siblings = await query(
+    `SELECT payment_id, bill_id, amount, amount_foreign FROM bill_payments
+     WHERE company_id = @companyId AND batch_id = @batchId AND voided_at IS NULL`,
+    { companyId, batchId: payment.batch_id }
+  );
+  const isMulti = siblings.length > 1;
+
+  // Reverse the settlement journal (period-lock + double-reverse guards live in journal.reverse).
+  // journal.reverse is batch-level — one call reverses the entire multi-bill journal batch.
+  const { handleJournal } = require('./journal');
+  await handleJournal({ ...ctx, body: { batchId: payment.batch_id } }, 'journal.reverse');
+
+  if (isMulti) {
+    // Multi-bill void: reverse the whole batch, then restore every sibling bill.
+    const voidedPayments = [];
+    for (const sib of siblings) {
+      const billRows = await query(
+        `SELECT * FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
+        { companyId, billId: sib.bill_id }
+      );
+      if (billRows.length === 0) continue; // bill gone — skip (best effort)
+      const sibBill = billRows[0];
+      // amount_paid tracked in bill currency: unwind by the foreign amount when present
+      const decrement = Number(sib.amount_foreign != null ? sib.amount_foreign : sib.amount);
+      const newPaid = Math.max(0, Math.round((Number(sibBill.amount_paid) - decrement) * 10000) / 10000);
+      const newStatus = newPaid <= 0.005 ? 'posted' : 'partial';
+      await exec(
+        `UPDATE bills SET amount_paid = @newPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
+        { companyId, billId: sib.bill_id, newPaid, newStatus }
+      );
+      await exec(
+        `UPDATE bill_payments SET voided_at = NOW(), voided_by = @voidedBy WHERE company_id = @companyId AND payment_id = @paymentId`,
+        { companyId, paymentId: sib.payment_id, voidedBy: userEmail || 'user' }
+      );
+
+      await emitEvent(ctx, 'bill.payment.voided', 'payment', sib.payment_id, {
+        billId: sib.bill_id,
+        amount: Number(sib.amount_foreign != null ? sib.amount_foreign : sib.amount),
+        newStatus,
+        amountPaid: newPaid,
+      });
+      voidedPayments.push({ paymentId: sib.payment_id, billId: sib.bill_id, newStatus, amountPaid: newPaid });
+    }
+    return { voided: true, paymentIds: voidedPayments.map((v) => v.paymentId), payments: voidedPayments };
+  }
+
+  // ── Single-bill void (existing path) ──
   const billRows = await query(
     `SELECT * FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
     { companyId, billId: payment.bill_id }
@@ -676,10 +808,6 @@ async function voidBillPayment(ctx) {
   if (billRows.length === 0) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
   const bill = billRows[0];
   if (bill.status === 'void') throw Object.assign(new Error('Bill is void'), { code: 'INVALID_STATUS' });
-
-  // Reverse the settlement journal (period-lock + double-reverse guards live in journal.reverse)
-  const { handleJournal } = require('./journal');
-  await handleJournal({ ...ctx, body: { batchId: payment.batch_id } }, 'journal.reverse');
 
   // amount_paid is tracked in the bill's currency: unwind by the foreign amount when present
   const decrement = Number(payment.amount_foreign != null ? payment.amount_foreign : payment.amount);
@@ -1100,4 +1228,4 @@ async function postDraftBill(ctx) {
 }
 
 
-module.exports = { handleBills, listBills, getBillLines };
+module.exports = { handleBills, listBills, getBillLines, validateBillForPayment };

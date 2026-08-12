@@ -254,8 +254,16 @@ const ACTIONS = {
   },
   'bill.payment.record': {
     role: 'data_entry', mutating: true, idempotent: true,
-    description: 'Record a manual payment against a posted/partial bill (shared settlement core; FX split via booking-rate method). amount is in bill currency.',
-    params: { billId: { type: 'string', required: true }, date: { type: 'date', required: true }, bankAccount: { type: 'string', required: true }, amount: { type: 'number', required: true }, reference: { type: 'string' }, fxRate: { type: 'number' } },
+    description: 'Record a payment against one or more posted/partial bills. Single bill: pass billId + amount. Multi-bill: pass allocations array of {billId, amount}. amount is in bill currency.',
+    params: {
+      billId: { type: 'string' },
+      date: { type: 'date', required: true },
+      bankAccount: { type: 'string', required: true },
+      amount: { type: 'number' },
+      reference: { type: 'string' },
+      fxRate: { type: 'number' },
+      allocations: { type: 'array', items: { billId: { type: 'string', required: true }, amount: { type: 'number', required: true } } },
+    },
   },
   'bill.payments': {
     role: 'viewer', mutating: false,

@@ -13,11 +13,54 @@
  */
 
 const { v4: uuid } = require('uuid');
-const { query, exec, bulkInsert } = require('./db');
+const { query, exec, bulkInsert, withTransaction } = require('./db');
 const { getNextReference } = require('./journal');
 const { emitEvent } = require('./events');
+const { getRate } = require('./fx');
 
 const round4 = (n) => Math.round(n * 10000) / 10000;
+
+/**
+ * buildAllocationLines — shared per-bill FX line builder for the single-bill
+ * (settleBillPayment) and multi-bill (settleMultiBillPayment) settlement
+ * paths. Computes the AP debit line (at the bill's booking rate), the
+ * optional FX gain/loss line, and the bank-currency share for this
+ * allocation under the booking-rate method (IAS 21).
+ *
+ * @param {object} opts
+ * @param {object} opts.bill           - bill row (needs ap_account, fx_rate, currency)
+ * @param {number} opts.allocAmount    - amount in BILL currency
+ * @param {number} opts.bankRate       - payment-date rate (bill ccy → home)
+ * @param {string|null} opts.fxAccount - FX gain/loss account code (null = no FX line)
+ * @param {string} opts.homeCurrency
+ * @returns {{apLine, fxLine|null, bankShare, fxDiff, settledForeign, settledBooked}}
+ */
+function buildAllocationLines({ bill, allocAmount, bankRate, fxAccount, homeCurrency, bookingRateOverride }) {
+  const settledForeign = Number(allocAmount);
+  const isForeign = !!(bill.currency && bill.currency !== homeCurrency);
+  const bookingRate = isForeign
+    ? (bookingRateOverride != null ? Number(bookingRateOverride) : (Number(bill.fx_rate) || 1))
+    : 1;
+  const settledBooked = round4(settledForeign * bookingRate);
+  const bankShare = round4(settledForeign * Number(bankRate));
+  const fxDiff = round4(bankShare - settledBooked);
+
+  const apLine = isForeign
+    ? { account_code: bill.ap_account, debit: settledBooked, credit: 0 }
+    : { account_code: bill.ap_account, debit: allocAmount, credit: 0 };
+
+  let fxLine = null;
+  if (fxAccount && Math.abs(fxDiff) > 0.005) {
+    fxLine = {
+      account_code: fxAccount,
+      debit: fxDiff > 0 ? fxDiff : 0,
+      credit: fxDiff < 0 ? Math.abs(fxDiff) : 0,
+      description: 'FX ' + (fxDiff > 0 ? 'loss' : 'gain') + ': ' + bill.currency + ' payment',
+    };
+  }
+
+  return { apLine, fxLine, bankShare, fxDiff, settledForeign, settledBooked };
+}
 
 /**
  * @param {object} opts
@@ -109,16 +152,18 @@ async function settleBillPayment(opts) {
     // Booking-rate method (IAS 21): AP cleared at the bill's booked rate;
     // FX gain/loss absorbs the remainder. amount_paid tracked in foreign currency.
     const settledForeign = Number(opts.settledForeign);
-    const bookingRate = opts.billPayRate ? Number(opts.billPayRate) : (Number(bill.fx_rate) || 1);
-    const settledBooked = round4(settledForeign * bookingRate);
-    const fxDiff = round4(bankAmount - settledBooked);
-    // fxDiff > 0 = loss (paid more home than booked), fxDiff < 0 = gain
+    const bankRate = settledForeign > 0 ? (bankAmount / settledForeign) : 1;
+    const alloc = buildAllocationLines({
+      bill, allocAmount: settledForeign, bankRate, fxAccount, homeCurrency,
+      bookingRateOverride: opts.billPayRate,
+    });
+    const { settledBooked, fxDiff } = alloc;
 
-    if (fxAccount && Math.abs(fxDiff) > 0.005) {
+    if (alloc.fxLine) {
       // 3-line FX journal — all home currency (mirrors import's replacement journal)
       const fxLines = [
-        { account_code: bill.ap_account, debit: settledBooked, credit: 0, description },
-        { account_code: fxAccount, debit: fxDiff > 0 ? fxDiff : 0, credit: fxDiff < 0 ? Math.abs(fxDiff) : 0, description: 'FX ' + (fxDiff > 0 ? 'loss' : 'gain') + ': ' + bill.currency + ' payment' },
+        { ...alloc.apLine, description },
+        alloc.fxLine,
         { account_code: bankAccount, debit: 0, credit: bankAmount, description },
       ];
       await bulkInsert('journal_entries', fxLines.map((l) => mkRow({
@@ -158,7 +203,7 @@ async function settleBillPayment(opts) {
     // core — P1-9 dual path, do not diverge).
     await emitEvent(ctx, 'bill.payment.recorded', 'payment', paymentId, {
       billId, amount: settledForeign, currency: bill.currency,
-      method, date, status: newStatus, fxRate: bookingRate,
+      method, date, status: newStatus, fxRate: opts.billPayRate ? Number(opts.billPayRate) : (Number(bill.fx_rate) || 1),
     });
     return result;
   }
@@ -192,4 +237,254 @@ async function settleBillPayment(opts) {
   return result;
 }
 
-module.exports = { settleBillPayment };
+/**
+ * settleMultiBillPayment — settle one bank payment across N bills from the
+ * same vendor in the same currency, atomically (issue #131). Runs inside a
+ * withTransaction wrapper so a validation failure on any bill rolls back all
+ * bill updates, journal entries, and bill_payments rows.
+ *
+ * Same-currency + same-vendor only (Phase 1, server-validated). Each bill's
+ * FX gain/loss is computed independently via buildAllocationLines (each bill
+ * has its own booking rate from bill.fx_rate). One journal batch, N
+ * bill_payments rows sharing a batch_id, one CR Bank line for the total.
+ *
+ * Events (bill.payment.recorded) are emitted AFTER the transaction commits —
+ * emitEvent uses the ambient shared connection and must not run inside the
+ * dedicated transaction connection (DuckDB single-writer would deadlock).
+ */
+async function settleMultiBillPayment(opts) {
+  const {
+    ctx, companyId, userEmail, date, bankAccount, homeCurrency,
+    reference, allocations, fxRate, paymentReference, journalId,
+  } = opts;
+
+  if (!Array.isArray(allocations) || allocations.length === 0) {
+    throw Object.assign(new Error('allocations must be a non-empty array'), { code: 'VALIDATION' });
+  }
+  for (const a of allocations) {
+    if (!a.billId || !(Number(a.amount) > 0)) {
+      throw Object.assign(new Error('each allocation needs billId and amount > 0'), { code: 'VALIDATION' });
+    }
+  }
+
+  const batchId = uuid();
+  const now = new Date().toISOString();
+  const round4 = (n) => Math.round(n * 10000) / 10000;
+  const payDate = String(date).substring(0, 10);
+
+  // Pre-allocate the journal reference OUTSIDE the transaction — getNextReference
+  // uses the ambient shared connection (writes to journal_sequences) and would
+  // deadlock against the transaction's dedicated connection (DuckDB single-writer).
+  let ref = reference || null;
+  if (!ref && journalId) {
+    const yr = parseInt(payDate.substring(0, 4), 10);
+    ref = await getNextReference(companyId, journalId, yr);
+  }
+
+  // Resolve the payment-date FX rate OUTSIDE the transaction (getRate uses the
+  // ambient connection). Load the first bill's currency to know if this is foreign.
+  const firstBillRows = await query(
+    `SELECT currency FROM bills WHERE company_id = @companyId AND bill_id = @billId LIMIT 1`,
+    { companyId, billId: allocations[0].billId }
+  );
+  const billCurrency = (firstBillRows[0] && firstBillRows[0].currency) || homeCurrency;
+  const isForeign = billCurrency !== homeCurrency;
+  let bankRate = 1;
+  if (isForeign) {
+    bankRate = fxRate != null ? Number(fxRate) : await getRate(billCurrency, homeCurrency, payDate);
+    if (bankRate == null) {
+      throw Object.assign(new Error(`No FX rate for ${billCurrency} on ${payDate} — add it in Settings → Exchange Rates`), { code: 'VALIDATION' });
+    }
+  }
+
+  // Lazy require to avoid circular dependency (bills.js → settlement.js → bills.js).
+  const { validateBillForPayment } = require('./bills');
+
+  // ── Transaction: all writes + atomicity-critical reads ──
+  const txResult = await withTransaction(async (tx) => {
+    // Load FX gain/loss account (scoped read)
+    const fxRows = await tx.query(
+      `SELECT account_code FROM accounts WHERE company_id = @companyId AND default_role = 'FX Gain/Loss' AND is_active = true LIMIT 1`,
+      { companyId }
+    );
+    const fxAccount = (fxRows[0] && fxRows[0].account_code) || null;
+
+    // Bank account validity (scoped read, done once)
+    const acct = await tx.query(
+      `SELECT account_code, cf_category FROM accounts WHERE company_id = @companyId AND account_code = @bankAccount AND is_active = true LIMIT 1`,
+      { companyId, bankAccount }
+    );
+    if (!acct.length) throw Object.assign(new Error(`Unknown or inactive account: ${bankAccount}`), { code: 'INVALID_ACCOUNT' });
+    if (acct[0].cf_category !== 'Cash') {
+      throw Object.assign(new Error(`Not a cash/bank account (cf_category must be 'Cash'): ${bankAccount}`), { code: 'INVALID_ACCOUNT' });
+    }
+
+    // Period lock (scoped read, done once)
+    const periods = await tx.query(
+      `SELECT period_name, start_date, end_date, locked
+       FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
+             FROM periods WHERE company_id = @companyId) WHERE rn = 1`,
+      { companyId }
+    );
+    const payDateObj = new Date(payDate);
+    const covering = periods.filter((p) => new Date(p.start_date) <= payDateObj && new Date(p.end_date) >= payDateObj);
+    if (covering.length === 0) {
+      throw Object.assign(new Error(`Payment date ${date} does not fall within any defined accounting period`), { code: 'VALIDATION' });
+    }
+    const lockedPeriods = covering.filter((p) => p.locked);
+    if (lockedPeriods.length > 0) {
+      throw Object.assign(new Error(`Payment date ${date} falls into a locked accounting period (${lockedPeriods.map((p) => p.period_name).join(', ')})`), { code: 'PERIOD_LOCKED' });
+    }
+
+    // Per-allocation validation (scoped query — atomicity-critical)
+    const validated = [];
+    for (const alloc of allocations) {
+      const v = await validateBillForPayment(companyId, alloc.billId, alloc.amount, tx.query, homeCurrency);
+      validated.push({ bill: v.bill, outstanding: v.outstanding, alloc });
+    }
+
+    // All bills same currency
+    const currencies = new Set(validated.map((v) => v.bill.currency));
+    if (currencies.size > 1) {
+      throw Object.assign(new Error('All bills in a multi-bill payment must be the same currency'), { code: 'VALIDATION' });
+    }
+    // All bills same vendor (case-insensitive)
+    const partners = new Set(validated.map((v) => (v.bill.partner_name || '').toLowerCase()));
+    if (partners.size > 1) {
+      throw Object.assign(new Error('All bills in a multi-bill payment must be from the same vendor'), { code: 'VALIDATION' });
+    }
+
+    // ── Build journal lines ──
+    const mkRow = (line) => ({
+      company_id: companyId,
+      entry_id: uuid(),
+      batch_id: batchId,
+      date: payDate,
+      account_code: line.account_code,
+      debit: line.debit || 0,
+      credit: line.credit || 0,
+      currency: line.currency,
+      fx_rate: line.fx_rate,
+      debit_home: line.debit_home,
+      credit_home: line.credit_home,
+      vat_code: null,
+      vat_amount: 0,
+      vat_amount_home: 0,
+      net_amount: 0,
+      net_amount_home: 0,
+      description: line.description || `Multi-bill payment: ${validated[0].bill.partner_name || ''}`,
+      reference: ref,
+      source: 'manual_payment',
+      cost_center: null,
+      profit_center: null,
+      reverses: null,
+      reversed_by: null,
+      bill_id: line.bill_id || null,
+      created_by: userEmail,
+      created_at: now,
+    });
+
+    const journalLines = [];
+    const paymentRows = [];
+    const results = [];
+    const paymentIds = [];
+    let totalBankShare = 0;
+
+    for (const { bill, alloc } of validated) {
+      const allocResult = buildAllocationLines({
+        bill, allocAmount: alloc.amount, bankRate, fxAccount, homeCurrency,
+      });
+      totalBankShare = round4(totalBankShare + allocResult.bankShare);
+
+      // AP debit line (tagged with bill_id)
+      journalLines.push(mkRow({
+        ...allocResult.apLine,
+        bill_id: bill.bill_id,
+        currency: isForeign ? homeCurrency : bill.currency,
+        fx_rate: 1.0,
+        debit_home: allocResult.apLine.debit,
+        credit_home: allocResult.apLine.credit,
+      }));
+
+      // FX gain/loss line (tagged with bill_id)
+      if (allocResult.fxLine) {
+        journalLines.push(mkRow({
+          ...allocResult.fxLine,
+          bill_id: bill.bill_id,
+          currency: homeCurrency,
+          fx_rate: 1.0,
+          debit_home: allocResult.fxLine.debit,
+          credit_home: allocResult.fxLine.credit,
+        }));
+      }
+
+      // Update bill amount_paid + status (scoped exec)
+      const newAmountPaid = round4(Number(bill.amount_paid) + allocResult.settledForeign);
+      const newStatus = newAmountPaid >= Number(bill.amount) - 0.005 ? 'paid' : 'partial';
+      await tx.exec(
+        `UPDATE bills SET amount_paid = @newAmountPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
+        { companyId, billId: bill.bill_id, newAmountPaid, newStatus }
+      );
+
+      // bill_payments row
+      const paymentId = uuid();
+      paymentIds.push(paymentId);
+      paymentRows.push({
+        company_id: companyId,
+        payment_id: paymentId,
+        bill_id: bill.bill_id,
+        batch_id: batchId,
+        amount: allocResult.bankShare,
+        amount_foreign: isForeign ? allocResult.settledForeign : null,
+        date: payDate,
+        method: 'manual',
+        reference: paymentReference,
+        created_at: now,
+      });
+
+      results.push({
+        billId: bill.bill_id,
+        newStatus,
+        amountPaid: newAmountPaid,
+        outstanding: round4(Number(bill.amount) - newAmountPaid),
+      });
+    }
+
+    // One CR Bank line for the total (bill_id = null)
+    journalLines.push(mkRow({
+      account_code: bankAccount,
+      debit: 0,
+      credit: totalBankShare,
+      bill_id: null,
+      currency: isForeign ? homeCurrency : billCurrency,
+      fx_rate: 1.0,
+      debit_home: 0,
+      credit_home: totalBankShare,
+    }));
+
+    // Insert journal entries + bill_payments (scoped)
+    await tx.bulkInsert('journal_entries', journalLines);
+    await tx.bulkInsert('bill_payments', paymentRows);
+
+    return { results, paymentIds, validatedBills: validated.map((v) => v.bill) };
+  });
+
+  // ── Emit events AFTER the transaction commits ──
+  // emitEvent writes via the ambient shared connection — must not run inside
+  // the dedicated transaction connection (DuckDB single-writer would deadlock).
+  const { results, paymentIds, validatedBills } = txResult;
+  for (let i = 0; i < results.length; i++) {
+    await emitEvent(ctx, 'bill.payment.recorded', 'payment', paymentIds[i], {
+      billId: results[i].billId,
+      amount: Number(allocations[i].amount),
+      currency: validatedBills[i].currency,
+      method: 'manual',
+      date: payDate,
+      status: results[i].newStatus,
+    });
+  }
+
+  return { batchId, paymentIds, results };
+}
+
+module.exports = { settleBillPayment, settleMultiBillPayment, buildAllocationLines };

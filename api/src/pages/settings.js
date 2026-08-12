@@ -447,6 +447,15 @@ var aiAttrs = FB.list.create({
   save: { action: 'ai.attr.save',
     body: function(d) { return { key: d._key, value: d.value }; },
     focusKey: function(d) { return d._key; } },
+  rowVerbs: [
+    { key: 'Enter', label: 'test', hint: 'Run test connection',
+      when: function(d) { return d.editor && d.editor.type === 'action'; },
+      affordance: function(d) { return ''; },
+      run: function(api, d) {
+        var btn = document.querySelector('#ai-attrs-body button.action-btn[data-key="' + esc(d._key) + '"]');
+        if (btn && !btn.disabled) btn.click();
+      } }
+  ],
   onLoaded: function() {
     // Wire up any Action-type buttons in the AI grid (#179). Each button
     // posts ai.test_connection and reports the outcome through FB.status.

@@ -1523,8 +1523,7 @@ async function handleSettings(ctx, action) {
         signal: ctrl.signal,
       });
       if (!resp.ok) {
-        const body = await resp.text().catch(() => '');
-        return { ok: false, error: `LLM endpoint returned HTTP ${resp.status}: ${body.slice(0, 200)}` };
+        return { ok: false, error: `LLM connection failed (HTTP ${resp.status})` };
       }
       const data = await resp.json().catch(() => ({}));
       const models = Array.isArray(data?.data) ? data.data.map((m) => m.id).filter(Boolean)

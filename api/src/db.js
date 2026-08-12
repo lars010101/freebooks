@@ -187,6 +187,37 @@ async function exec(sql, params = {}) {
 async function bulkInsert(table, rows) {
   if (!rows || rows.length === 0) return;
   const conn = await ensureDb();
+  await bulkInsertOn(conn, table, rows);
+}
+
+/**
+ * Transaction-scoped helpers: identical logic to query/exec/bulkInsert but
+ * operate on a passed connection object (a dedicated DuckDB connection
+ * opened by withTransaction) instead of the shared _conn. This keeps a
+ * transaction's reads/writes on its own connection so BEGIN/COMMIT/ROLLBACK
+ * actually scope the work (the shared _conn is unaffected).
+ */
+async function queryOn(conn, sql, params = {}) {
+  const { sql: finalSql, params: namedParams } = bindParams(sql, params);
+  const hasParams = Object.keys(namedParams).length > 0;
+  const result = hasParams
+    ? await conn.runAndReadAll(finalSql, namedParams)
+    : await conn.runAndReadAll(finalSql);
+  return normalizeRows(result.getRowObjects());
+}
+
+async function execOn(conn, sql, params = {}) {
+  const { sql: finalSql, params: namedParams } = bindParams(sql, params);
+  const hasParams = Object.keys(namedParams).length > 0;
+  if (hasParams) {
+    await conn.run(finalSql, namedParams);
+  } else {
+    await conn.run(finalSql);
+  }
+}
+
+async function bulkInsertOn(conn, table, rows) {
+  if (!rows || rows.length === 0) return;
   const keys = Object.keys(rows[0]);
   const columnList = keys.map(k => `"${k}"`).join(', ');
 
@@ -203,6 +234,46 @@ async function bulkInsert(table, rows) {
 
   const sql = `INSERT INTO "${table}" (${columnList}) VALUES ${valueClauses.join(', ')}`;
   await conn.run(sql, allParams);
+}
+
+/**
+ * Return the DuckDBInstance. Throws if the DB has not been initialised
+ * (ensureDb() must have resolved first). withTransaction uses this to open
+ * a dedicated connection separate from the shared _conn.
+ */
+function getInstance() {
+  if (!_instance) throw new Error('DB not yet initialised — call ensureDb() first');
+  return _instance;
+}
+
+/**
+ * Run fn inside a single DuckDB transaction on a DEDICATED connection.
+ * Opens a fresh connection via _instance.connect(), runs BEGIN, passes scoped
+ * query/exec/bulkInsert helpers (bound to that connection) to fn, COMMITs on
+ * success, ROLLBACKs on error, and closes the connection in finally.
+ *
+ * The scoped helpers use the dedicated connection exclusively, so all reads
+ * and writes inside fn see the transaction's uncommitted state and are
+ * atomically committed or rolled back together. The shared _conn is untouched.
+ */
+async function withTransaction(fn) {
+  const instance = getInstance();
+  const conn = await instance.connect();
+  await conn.run('BEGIN');
+  try {
+    const result = await fn({
+      query:  (sql, params) => queryOn(conn, sql, params),
+      exec:   (sql, params) => execOn(conn, sql, params),
+      bulkInsert: (table, rows) => bulkInsertOn(conn, table, rows),
+    });
+    await conn.run('COMMIT');
+    return result;
+  } catch (err) {
+    await conn.run('ROLLBACK');
+    throw err;
+  } finally {
+    try { conn.closeSync(); } catch (e) { /* best effort */ }
+  }
 }
 
 /**
@@ -226,4 +297,4 @@ async function queryPositional(sql, params = []) {
   return normalizeRows(result.getRowObjects());
 }
 
-module.exports = { getDb, ensureDb, query, exec, bulkInsert, queryPositional };
+module.exports = { getDb, ensureDb, query, exec, bulkInsert, queryPositional, withTransaction, getInstance };

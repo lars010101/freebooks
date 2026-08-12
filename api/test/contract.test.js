@@ -2212,3 +2212,252 @@ test('ai.test_connection with no endpoint configured returns ok:false', async ()
   assert.equal(d.ok, false);
   assert.match(d.error, /endpoint URL/i);
 });
+
+// ── Issue #131: multi-bill settlement ──────────────────────────────────────
+// One bank payment split across N bills from the same vendor in the same
+// currency. All N bills settle atomically inside a withTransaction wrapper.
+
+test('bill.payment.record: multi-bill settlement splits one payment across N bills', async () => {
+  // SG template ships bank accounts cf_category='Excluded' — mark 1020 as Cash
+  await sql(baseUrl, srv.adminToken,
+    `UPDATE accounts SET cf_category='Cash' WHERE company_id='CT' AND account_code='1020'`);
+
+  // 3 bills for the same vendor, distinct amounts
+  const refs = ['MB-SPLIT-1', 'MB-SPLIT-2', 'MB-SPLIT-3'];
+  const amounts = [100, 200, 300];
+  const billIds = [];
+  for (let i = 0; i < refs.length; i++) {
+    const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: refs[i], amount: amounts[i], lines: [{ description: 'x', expense_account: EXP, amount: amounts[i], vat_code: '' }] }) });
+    assert.equal(c.status, 200, JSON.stringify(c.body));
+    billIds.push(c.body.data.billId);
+  }
+
+  const pay = await api(baseUrl, 'bill.payment.record', {
+    companyId: CO, date: TD.day21, bankAccount: '1020',
+    allocations: [
+      { billId: billIds[0], amount: 100 },
+      { billId: billIds[1], amount: 200 },
+      { billId: billIds[2], amount: 300 },
+    ],
+  });
+  assert.equal(pay.status, 200, JSON.stringify(pay.body));
+  const data = pay.body.data;
+  assert.ok(data.batchId, 'batchId returned');
+  assert.equal(data.paymentIds.length, 3, '3 paymentIds');
+  assert.equal(data.results.length, 3, '3 results');
+
+  // Verify each bill is fully paid
+  for (let i = 0; i < 3; i++) {
+    const r = data.results.find((r) => r.billId === billIds[i]);
+    assert.ok(r, `result for bill ${i}`);
+    assert.equal(r.newStatus, 'paid', `bill ${i} paid`);
+    assert.equal(r.outstanding, 0, `bill ${i} outstanding 0`);
+  }
+
+  // Verify one batch_id, N bill_payments rows
+  const bp = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c, COUNT(DISTINCT batch_id) b FROM bill_payments WHERE company_id='CT' AND bill_id IN ('${billIds.join("','")}')`);
+  assert.equal(Number(bp[0].c), 3, '3 bill_payments rows');
+  assert.equal(Number(bp[0].b), 1, 'all share one batch_id');
+
+  // Verify journal is balanced
+  const je = await sql(baseUrl, srv.adminToken,
+    `SELECT ROUND(SUM(debit_home),2) dr, ROUND(SUM(credit_home),2) cr FROM journal_entries WHERE company_id='CT' AND batch_id='${data.batchId}'`);
+  assert.equal(Number(je[0].dr), Number(je[0].cr), 'multi-bill journal balanced');
+  assert.equal(Number(je[0].dr), 600, 'total debit = 600');
+});
+
+test('bill.payment.record: multi-bill rejects cross-vendor', async () => {
+  const c1 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-XV-1', partner_name: 'Acme Pte Ltd' }) });
+  const c2 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-XV-2', partner_name: 'Beta Pte Ltd' }) });
+  assert.equal(c1.status, 200);
+  assert.equal(c2.status, 200);
+
+  const pay = await api(baseUrl, 'bill.payment.record', {
+    companyId: CO, date: TD.day21, bankAccount: '1020',
+    allocations: [{ billId: c1.body.data.billId, amount: 50 }, { billId: c2.body.data.billId, amount: 50 }],
+  });
+  assert.equal(pay.status, 400);
+  assert.equal(pay.body.error.code, 'VALIDATION');
+  assert.match(pay.body.error.message, /same vendor/i);
+});
+
+test('bill.payment.record: multi-bill rejects mixed currency', async () => {
+  // Need an FX rate for USD bills to be created
+  await api(baseUrl, 'fx.rates.save', { companyId: CO, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
+
+  const c1 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-MC-1', currency: 'SGD' }) });
+  const c2 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-MC-2', currency: 'USD' }) });
+  assert.equal(c1.status, 200, JSON.stringify(c1.body));
+  assert.equal(c2.status, 200, JSON.stringify(c2.body));
+
+  const pay = await api(baseUrl, 'bill.payment.record', {
+    companyId: CO, date: TD.day21, bankAccount: '1020', fxRate: 1.35,
+    allocations: [{ billId: c1.body.data.billId, amount: 50 }, { billId: c2.body.data.billId, amount: 50 }],
+  });
+  assert.equal(pay.status, 400);
+  assert.equal(pay.body.error.code, 'VALIDATION');
+  assert.match(pay.body.error.message, /same currency/i);
+});
+
+test('bill.payment.record: multi-bill rejects over-allocation', async () => {
+  const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-OV-1', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
+  assert.equal(c.status, 200);
+
+  const pay = await api(baseUrl, 'bill.payment.record', {
+    companyId: CO, date: TD.day21, bankAccount: '1020',
+    allocations: [{ billId: c.body.data.billId, amount: 999 }],
+  });
+  assert.equal(pay.status, 400);
+  assert.equal(pay.body.error.code, 'VALIDATION');
+  assert.match(pay.body.error.message, /exceeds outstanding/i);
+});
+
+test('bill.payment.record: multi-bill rejects empty allocations', async () => {
+  const pay = await api(baseUrl, 'bill.payment.record', {
+    companyId: CO, date: TD.day21, bankAccount: '1020',
+    allocations: [],
+  });
+  assert.equal(pay.status, 400);
+  assert.equal(pay.body.error.code, 'VALIDATION');
+});
+
+test('bill.payment.record: multi-bill with foreign currency posts per-allocation FX lines', async () => {
+  // Ensure EXP is the FX Gain/Loss account (existing test may have set this)
+  await api(baseUrl, 'coa.upsert', {
+    companyId: CO,
+    account: { account_code: EXP, account_name: 'FX Expense', account_type: 'Expense', is_active: true, default_role: 'FX Gain/Loss', effective_from: TD.day1 },
+  });
+  // FX rate for bill creation (USD → SGD at 1.35 and 1.40 for two bills)
+  await api(baseUrl, 'fx.rates.save', { companyId: CO, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
+  await api(baseUrl, 'fx.rates.save', { companyId: CO, rates: [{ date: TD.day21, from_currency: 'USD', to_currency: 'SGD', rate: 1.30 }] });
+
+  // Two USD bills with different fx_rates (bill creation rate 1.35)
+  const c1 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-FX-1', currency: 'USD', fx_rate: 1.35 }) });
+  const c2 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-FX-2', currency: 'USD', fx_rate: 1.40 }) });
+  assert.equal(c1.status, 200, JSON.stringify(c1.body));
+  assert.equal(c2.status, 200, JSON.stringify(c2.body));
+
+  // Pay both at 1.30 (bankRate) — bill 1 booked at 1.35 (gain), bill 2 booked at 1.40 (gain)
+  const pay = await api(baseUrl, 'bill.payment.record', {
+    companyId: CO, date: TD.day21, bankAccount: '1020', fxRate: 1.30,
+    allocations: [
+      { billId: c1.body.data.billId, amount: 100 },
+      { billId: c2.body.data.billId, amount: 100 },
+    ],
+  });
+  assert.equal(pay.status, 200, JSON.stringify(pay.body));
+  const batchId = pay.body.data.batchId;
+
+  // Verify FX lines exist per bill
+  const fxLines = await sql(baseUrl, srv.adminToken,
+    `SELECT bill_id, account_code, debit_home, credit_home FROM journal_entries
+     WHERE company_id='CT' AND batch_id='${batchId}' AND account_code='${EXP}' ORDER BY bill_id`);
+  assert.ok(fxLines.length >= 2, 'at least 2 FX lines (one per bill)');
+
+  // Bill 1: booked 135, bank 130 → 5 gain (credit)
+  const fx1 = fxLines.find((l) => l.bill_id === c1.body.data.billId);
+  assert.ok(fx1, 'FX line for bill 1');
+  assert.equal(Number(fx1.credit_home), 5, 'bill 1 FX gain = 5');
+
+  // Bill 2: booked 140, bank 130 → 10 gain (credit)
+  const fx2 = fxLines.find((l) => l.bill_id === c2.body.data.billId);
+  assert.ok(fx2, 'FX line for bill 2');
+  assert.equal(Number(fx2.credit_home), 10, 'bill 2 FX gain = 10');
+
+  // Journal balanced
+  const je = await sql(baseUrl, srv.adminToken,
+    `SELECT ROUND(SUM(debit_home),2) dr, ROUND(SUM(credit_home),2) cr FROM journal_entries WHERE company_id='CT' AND batch_id='${batchId}'`);
+  assert.equal(Number(je[0].dr), Number(je[0].cr), 'multi-bill FX journal balanced');
+});
+
+test('bill.payment.void: voiding multi-bill payment reverses entire batch', async () => {
+  const c1 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-VOID-1', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
+  const c2 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-VOID-2', amount: 200, lines: [{ description: 'x', expense_account: EXP, amount: 200, vat_code: '' }] }) });
+  assert.equal(c1.status, 200);
+  assert.equal(c2.status, 200);
+
+  const pay = await api(baseUrl, 'bill.payment.record', {
+    companyId: CO, date: TD.day21, bankAccount: '1020',
+    allocations: [
+      { billId: c1.body.data.billId, amount: 100 },
+      { billId: c2.body.data.billId, amount: 200 },
+    ],
+  });
+  assert.equal(pay.status, 200, JSON.stringify(pay.body));
+  const firstPaymentId = pay.body.data.paymentIds[0];
+
+  await seedVoidCoverPeriod();
+  const v = await api(baseUrl, 'bill.payment.void', { companyId: CO, paymentId: firstPaymentId });
+  assert.equal(v.status, 200, JSON.stringify(v.body));
+  assert.ok(v.body.data.voided, 'voided true');
+
+  // Both payments should be voided
+  const voidedCount = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM bill_payments WHERE company_id='CT' AND batch_id='${pay.body.data.batchId}' AND voided_at IS NOT NULL`);
+  assert.equal(Number(voidedCount[0].c), 2, 'both payments voided');
+
+  // Both bills restored to posted, amount_paid 0
+  for (const billId of [c1.body.data.billId, c2.body.data.billId]) {
+    const bill = await sql(baseUrl, srv.adminToken,
+      `SELECT status, amount_paid FROM bills WHERE company_id='CT' AND bill_id='${billId}'`);
+    assert.equal(String(bill[0].status), 'posted', `bill ${billId} restored to posted`);
+    assert.equal(Number(bill[0].amount_paid), 0, `bill ${billId} amount_paid 0`);
+  }
+});
+
+test('bill.payment.record: multi-bill is atomic — validation failure on bill 2 rolls back bill 1', async () => {
+  const c1 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-ATOM-1', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
+  const c2 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-ATOM-2', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
+  assert.equal(c1.status, 200);
+  assert.equal(c2.status, 200);
+
+  // Pay bill 2 fully via single-bill path (makes it 'paid')
+  const pay2 = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: c2.body.data.billId, date: TD.day21, bankAccount: '1020', amount: 100 });
+  assert.equal(pay2.status, 200, JSON.stringify(pay2.body));
+
+  // Now try multi-bill settlement on both — bill 2 is already paid → should fail and roll back bill 1
+  const multiPay = await api(baseUrl, 'bill.payment.record', {
+    companyId: CO, date: TD.day22, bankAccount: '1020',
+    allocations: [
+      { billId: c1.body.data.billId, amount: 100 },
+      { billId: c2.body.data.billId, amount: 100 },
+    ],
+  });
+  assert.notEqual(multiPay.status, 200, 'multi-bill must fail when bill 2 is already paid');
+  assert.equal(multiPay.body.error.code, 'INVALID_STATUS');
+
+  // Bill 1 must be unchanged (not paid, amount_paid still 0)
+  const bill1 = await sql(baseUrl, srv.adminToken,
+    `SELECT status, amount_paid FROM bills WHERE company_id='CT' AND bill_id='${c1.body.data.billId}'`);
+  assert.equal(String(bill1[0].status), 'posted', 'bill 1 rolled back to posted');
+  assert.equal(Number(bill1[0].amount_paid), 0, 'bill 1 amount_paid still 0');
+});
+
+test('bill.payment.record: multi-bill is idempotent', async () => {
+  const c1 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-IDEM-1', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
+  const c2 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-IDEM-2', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
+  assert.equal(c1.status, 200);
+  assert.equal(c2.status, 200);
+
+  const payload = {
+    companyId: CO, date: TD.day21, bankAccount: '1020',
+    allocations: [
+      { billId: c1.body.data.billId, amount: 100 },
+      { billId: c2.body.data.billId, amount: 100 },
+    ],
+  };
+
+  const first = await api(baseUrl, 'bill.payment.record', payload, { 'Idempotency-Key': 'mb-idem-1' });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+
+  const replay = await api(baseUrl, 'bill.payment.record', payload, { 'Idempotency-Key': 'mb-idem-1' });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.headers.get('idempotent-replay'), 'true');
+  assert.equal(replay.body.data.batchId, first.body.data.batchId, 'replay returns same batchId');
+
+  // No duplicate bill_payments
+  const bp = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM bill_payments WHERE company_id='CT' AND batch_id='${first.body.data.batchId}'`);
+  assert.equal(Number(bp[0].c), 2, 'exactly 2 bill_payments rows — no duplicate on replay');
+});

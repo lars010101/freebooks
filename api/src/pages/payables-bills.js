@@ -958,6 +958,305 @@ function billSaveBody(b) {
   } };
 }
 
+// ========== MULTI-BILL SETTLEMENT (Issue #131) ==========
+// One bank payment split across N bills from the same vendor + same currency.
+// Mirrors openPayRowData/closePayRow/submitPayRow patterns. The panel is a
+// child TR with data-multi-pay-row="true" inserted after the focused parent.
+
+function multiPayRowOpen() { return !!document.querySelector('tr[data-multi-pay-row="true"]'); }
+
+function openMultiPayPanel(anchorTr, focusedBill) {
+  if (!anchorTr || !focusedBill) return;
+  if (multiPayRowOpen() || payRowOpen()) return; // one panel at a time
+  if (!billAccountsList.length) { loadBillAccounts().then(function() { openMultiPayPanel(anchorTr, focusedBill); }); return; }
+
+  var partner = (focusedBill.partner_name || '').toLowerCase();
+  var ccy = focusedBill.currency || BASE_CURRENCY;
+
+  // Collect qualifying bills: same partner (case-insensitive), same currency,
+  // status 'posted' or 'partial'. Walk the DOM parent rows and resolve data
+  // via billsList.rowByKey (the framework keeps saved rows private).
+  var tb = document.getElementById('bills-tbody');
+  var qualifying = [];
+  if (tb) {
+    var parentTrs = tb.querySelectorAll('tr[data-key]');
+    Array.prototype.forEach.call(parentTrs, function(tr) {
+      var b = billsList.rowByKey(tr.dataset.key);
+      if (!b || !b.bill_id) return;
+      if ((b.partner_name || '').toLowerCase() !== partner) return;
+      if ((b.currency || BASE_CURRENCY) !== ccy) return;
+      if (b.status !== 'posted' && b.status !== 'partial') return;
+      var out = Math.max(0, Math.round(((parseFloat(b.amount) || 0) - (parseFloat(b.amount_paid) || 0)) * 100) / 100);
+      if (out <= 0) return;
+      qualifying.push({ bill: b, outstanding: out, tr: tr });
+    });
+  }
+
+  if (qualifying.length < 2) { billEditMsg('Only 1 bill for this vendor', 'err'); return; }
+
+  var today = new Date().toISOString().slice(0, 10);
+  var foreign = ccy.toUpperCase() !== BASE_CURRENCY.toUpperCase();
+  var totalOutstanding = 0;
+  qualifying.forEach(function(q) { totalOutstanding += q.outstanding; });
+  totalOutstanding = Math.round(totalOutstanding * 100) / 100;
+
+  var tr = document.createElement('tr');
+  tr.dataset.multiPayRow = 'true';
+  tr.dataset.parentId = focusedBill.bill_id;
+  tr.className = 'child-row multi-pay-row';
+  tr._idem = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('mpay-' + Date.now() + '-' + Math.random());
+
+  // Shared fields row + bill selection list + total + balance + hints.
+  var html = '<td colspan="7" class="multi-pay-cell">'
+    + '<div class="mp-shared">'
+    + '<span class="mp-lbl">Multi-Pay</span>'
+    + '<input type="date" class="draft-input mp-date" value="' + today + '" title="Payment date">'
+    + '<input class="draft-input mp-acct" placeholder="e.g. 1020" title="Bank/cash account">'
+    + '<input class="draft-input mp-ref" placeholder="e.g. bank ref" title="Payment reference (optional)">'
+    + (foreign ? '<input class="draft-input mp-fx" type="number" step="0.0001" min="0" placeholder="e.g. 1.35" title="FX rate ' + esc(ccy) + ' \u2192 ' + esc(BASE_CURRENCY) + '">' : '')
+    + '<span class="mp-ccy">' + esc(ccy) + '</span>'
+    + '</div>'
+    + '<div class="mp-list">';
+  qualifying.forEach(function(q, i) {
+    var b = q.bill;
+    html += '<div class="mp-item" data-bill-id="' + esc(b.bill_id) + '" data-outstanding="' + q.outstanding + '">'
+      + '<span class="mp-check" tabindex="0" title="Space to toggle">\u2713</span>'
+      + '<span class="mp-desc">' + esc(b.vendor_ref || '') + ' \u00b7 ' + esc(String(b.date || '').slice(0, 10)) + ' <span class="mp-amt">out ' + q.outstanding.toFixed(2) + '</span></span>'
+      + '<input class="draft-input mp-alloc" type="number" step="0.01" min="0" value="' + q.outstanding.toFixed(2) + '" title="Allocation in ' + esc(ccy) + '">'
+      + '</div>';
+  });
+  html += '</div>'
+    + '<div class="mp-shared">'
+    + '<span class="mp-lbl">Total</span>'
+    + '<input class="draft-input mp-total" type="number" step="0.01" min="0" value="' + totalOutstanding.toFixed(2) + '" title="Total payment amount in ' + esc(ccy) + '">'
+    + '<span class="mp-ccy">' + esc(ccy) + '</span>'
+    + '<span class="mp-balance ok">Allocated: ' + totalOutstanding.toFixed(2) + ' / ' + totalOutstanding.toFixed(2) + ' \u2713</span>'
+    + '<span class="mp-hint"><a class="mp-ok" title="Record payment">Enter \u2713</a> \u00b7 <a class="mp-cancel" title="Cancel">Esc \u2715</a></span>'
+    + '</div>'
+    + '</td>';
+  tr.innerHTML = html;
+  anchorTr.insertAdjacentElement('afterend', tr);
+
+  // Wire the bank account dropdown + FX rate (same as openPayRowData).
+  var acctIn = tr.querySelector('.mp-acct');
+  acctIn.value = localStorage.getItem('fb.payAccount.' + COMPANY) || '';
+  _attachCashDropdown(acctIn);
+  if (foreign) {
+    _getFxRate(ccy, today).then(function(rate) {
+      var fxIn = tr.querySelector('.mp-fx');
+      if (fxIn && rate != null && !fxIn.value) fxIn.value = rate;
+    });
+  }
+
+  // Click handlers.
+  tr.querySelector('.mp-ok').addEventListener('click', function(e) { e.stopPropagation(); submitMultiPayPanel(); });
+  tr.querySelector('.mp-cancel').addEventListener('click', function(e) { e.stopPropagation(); closeMultiPayPanel(); });
+
+  // Toggle a bill on check-click or alloc focus.
+  tr.querySelectorAll('.mp-item').forEach(function(item, idx) {
+    item._selected = true; // all selected by default
+    item.querySelector('.mp-check').addEventListener('click', function(e) {
+      e.stopPropagation();
+      _multiPayToggleItem(item);
+    });
+    var alloc = item.querySelector('.mp-alloc');
+    alloc.addEventListener('input', function() { _multiPayUpdateBalance(); });
+    alloc.addEventListener('focus', function() {
+      _multiPayFocusItem(item);
+      alloc.select();
+    });
+  });
+
+  // Total input → auto-distribute across selected bills.
+  tr.querySelector('.mp-total').addEventListener('input', function() {
+    var total = parseFloat(tr.querySelector('.mp-total').value) || 0;
+    _multiPayAutoDistribute(total);
+    _multiPayUpdateBalance();
+  });
+
+  // Panel-level keyboard navigation (Arrow Up/Down, Space, Enter, Esc).
+  tr._mpFocusIdx = 0;
+  _multiPayFocusItem(tr.querySelectorAll('.mp-item')[0]);
+  tr.addEventListener('keydown', _multiPayKeydown);
+
+  FB.mode.set('INSERT');
+  tr.querySelector('.mp-total').focus();
+  tr.querySelector('.mp-total').select();
+}
+
+function _multiPayToggleItem(item) {
+  item._selected = !item._selected;
+  item.classList.toggle('mp-off', !item._selected);
+  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
+  if (tr) {
+    var total = parseFloat(tr.querySelector('.mp-total').value) || 0;
+    _multiPayAutoDistribute(total);
+    _multiPayUpdateBalance();
+  }
+}
+
+function _multiPayFocusItem(item) {
+  if (!item) return;
+  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
+  if (!tr) return;
+  tr.querySelectorAll('.mp-item').forEach(function(it) { it.classList.remove('mp-focused'); });
+  item.classList.add('mp-focused');
+  tr._mpFocusIdx = Array.prototype.indexOf.call(tr.querySelectorAll('.mp-item'), item);
+}
+
+function _multiPayKeydown(e) {
+  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
+  if (!tr) return;
+  var items = tr.querySelectorAll('.mp-item');
+  if (!items.length) return;
+  // Only handle when focus is within the panel.
+  var inPanel = tr.contains(e.target);
+  if (!inPanel) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    var ni = Math.min(tr._mpFocusIdx + 1, items.length - 1);
+    _multiPayFocusItem(items[ni]);
+    var alloc = items[ni].querySelector('.mp-alloc');
+    if (alloc) alloc.focus();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    var pi = Math.max(tr._mpFocusIdx - 1, 0);
+    _multiPayFocusItem(items[pi]);
+    var alloc2 = items[pi].querySelector('.mp-alloc');
+    if (alloc2) alloc2.focus();
+  } else if (e.key === ' ') {
+    // Space toggles selection when the focused item's check or alloc is active.
+    if (e.target.classList.contains('mp-check') || e.target.classList.contains('mp-alloc')) {
+      e.preventDefault();
+      _multiPayToggleItem(items[tr._mpFocusIdx]);
+    }
+  }
+  // Enter / Esc are handled by the extraBindings key table (NORMAL mode).
+}
+
+function _multiPaySelectedBills() {
+  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
+  if (!tr) return [];
+  var out = [];
+  tr.querySelectorAll('.mp-item').forEach(function(item) {
+    if (item._selected) {
+      var billId = item.getAttribute('data-bill-id');
+      var outstanding = parseFloat(item.getAttribute('data-outstanding')) || 0;
+      var amt = parseFloat(item.querySelector('.mp-alloc').value) || 0;
+      out.push({ billId: billId, outstanding: outstanding, amount: amt });
+    }
+  });
+  return out;
+}
+
+function _multiPayAutoDistribute(totalAmount) {
+  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
+  if (!tr) return;
+  var selected = _multiPaySelectedBills();
+  if (!selected.length) return;
+  totalAmount = Math.round((parseFloat(totalAmount) || 0) * 100) / 100;
+  var sumOut = 0;
+  selected.forEach(function(s) { sumOut += s.outstanding; });
+  if (sumOut <= 0) return;
+  // Proportional by outstanding, 2dp. Remainder → largest bill.
+  var distributed = 0;
+  var largestIdx = 0;
+  selected.forEach(function(s, i) {
+    if (s.outstanding > selected[largestIdx].outstanding) largestIdx = i;
+  });
+  selected.forEach(function(s, i) {
+    if (i === largestIdx) return;
+    s.alloc = Math.round(totalAmount * (s.outstanding / sumOut) * 100) / 100;
+    distributed += s.alloc;
+  });
+  selected[largestIdx].alloc = Math.round((totalAmount - distributed) * 100) / 100;
+  // Write back to DOM.
+  tr.querySelectorAll('.mp-item').forEach(function(item) {
+    if (!item._selected) return;
+    var billId = item.getAttribute('data-bill-id');
+    var match = selected.filter(function(s) { return s.billId === billId; })[0];
+    if (match) item.querySelector('.mp-alloc').value = match.alloc.toFixed(2);
+  });
+}
+
+function _multiPayUpdateBalance() {
+  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
+  if (!tr) return;
+  var total = Math.round((parseFloat(tr.querySelector('.mp-total').value) || 0) * 100) / 100;
+  var allocated = 0;
+  tr.querySelectorAll('.mp-item').forEach(function(item) {
+    if (item._selected) allocated += parseFloat(item.querySelector('.mp-alloc').value) || 0;
+  });
+  allocated = Math.round(allocated * 100) / 100;
+  var bal = tr.querySelector('.mp-balance');
+  if (!bal) return;
+  if (allocated === total) {
+    bal.textContent = 'Allocated: ' + allocated.toFixed(2) + ' / ' + total.toFixed(2) + ' \u2713';
+    bal.className = 'mp-balance ok';
+  } else {
+    var diff = Math.round((total - allocated) * 100) / 100;
+    bal.textContent = 'Allocated: ' + allocated.toFixed(2) + ' / ' + total.toFixed(2) + ' \u26a0 ' + Math.abs(diff).toFixed(2) + (diff > 0 ? ' unallocated' : ' over');
+    bal.className = 'mp-balance warn';
+  }
+}
+
+function closeMultiPayPanel() {
+  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
+  if (tr) tr.remove();
+  FB.mode.set('NORMAL');
+}
+
+function submitMultiPayPanel() {
+  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
+  if (!tr || tr._submitting) return;
+  var date = tr.querySelector('.mp-date').value;
+  var acct = tr.querySelector('.mp-acct').value.trim();
+  var ref = tr.querySelector('.mp-ref').value.trim();
+  var total = Math.round((parseFloat(tr.querySelector('.mp-total').value) || 0) * 100) / 100;
+  var fxIn = tr.querySelector('.mp-fx');
+  var fxRate = (fxIn && fxIn.value !== '') ? parseFloat(fxIn.value) : null;
+  var selected = _multiPaySelectedBills();
+
+  if (!date) { billEditMsg('Payment date required', 'err'); return; }
+  if (!acct) { billEditMsg('Bank account required', 'err'); tr.querySelector('.mp-acct').focus(); return; }
+  if (selected.length < 2) { billEditMsg('Select at least 2 bills for multi-bill settlement', 'err'); return; }
+  var allocSum = 0, badAmt = false;
+  var allocations = selected.map(function(s) {
+    var a = Math.round((parseFloat(s.amount) || 0) * 100) / 100;
+    if (!(a > 0)) badAmt = true;
+    allocSum += a;
+    return { billId: s.billId, amount: a };
+  });
+  allocSum = Math.round(allocSum * 100) / 100;
+  if (badAmt) { billEditMsg('Each allocation must be greater than zero', 'err'); return; }
+  if (allocSum !== total) { billEditMsg('Allocations (' + allocSum.toFixed(2) + ') must equal total (' + total.toFixed(2) + ')', 'err'); return; }
+
+  tr._submitting = true;
+  billEditMsg('Recording multi-bill payment\u2026', '');
+  var body = { action: 'bill.payment.record', companyId: COMPANY, date: date, bankAccount: acct,
+    allocations: allocations };
+  if (ref) body.reference = ref;
+  if (fxRate != null) body.fxRate = fxRate;
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': tr._idem },
+    body: JSON.stringify(body) })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    tr._submitting = false;
+    var d = res.data || res;
+    if (res.error || (d && d.error)) {
+      billEditMsg('Payment failed: ' + (res.error || d.error), 'err');
+      return;
+    }
+    localStorage.setItem('fb.payAccount.' + COMPANY, acct);
+    var n = (d.paymentIds && d.paymentIds.length) || (d.results && d.results.length) || allocations.length;
+    closeMultiPayPanel();
+    billEditMsg('Multi-bill payment recorded \u2014 ' + n + ' bill' + (n !== 1 ? 's' : '') + ' settled', 'ok');
+    billChildCache = {};
+    billsList.load();
+  })
+  .catch(function(e) { tr._submitting = false; billEditMsg('Payment failed: ' + e.message, 'err'); });
+}
+
 var billsList = FB.list.create({
   keysId: 'bills',
   active: function () {
@@ -1242,7 +1541,10 @@ var billsList = FB.list.create({
     }
     function voidPayment(child) {
       if (child.voided === true || child.voided === 'true' || child.voided_at) { FB.status.show('Payment already voided', true); return; }
-      if (!confirm('Void this payment? A reversal journal entry will be created.')) return;
+      var msg = 'Void this payment? A reversal journal entry will be created.';
+      // Multi-bill payment: voiding reverses the entire batch (all bills).
+      if (child._isMultiBill) msg = 'This was part of a multi-bill payment. Voiding will reverse the entire payment (all bills). Continue?';
+      if (!confirm(msg)) return;
       fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'bill.payment.void', companyId: COMPANY, paymentId: child.payment_id }) })
         .then(function (r) { return r.json(); })
@@ -1305,7 +1607,7 @@ var billsList = FB.list.create({
           fbNavigate('/' + COMPANY + '/bill/edit?id=' + encodeURIComponent(p.bill_id));
         } },
       { key: 'p', mode: 'NORMAL', hint: 'post/pay', hintBar: true,
-        when: function () { return !payRowOpen() && !!parentOf(api.focusedRow()); },
+        when: function () { return !payRowOpen() && !multiPayRowOpen() && !!parentOf(api.focusedRow()); },
         run: function () {
           var p = parentOf(api.focusedRow()); if (!p) return;
           if (p.status === 'posted' || p.status === 'partial') {
@@ -1314,6 +1616,16 @@ var billsList = FB.list.create({
           }
           if (p.status === 'draft') postDraft(p);
         } },
+      { key: 'P', mode: 'NORMAL', hint: 'multi-pay', hintBar: true,
+        when: function () { return !multiPayRowOpen() && !payRowOpen() && !!parentOf(api.focusedRow()); },
+        run: function () {
+          var p = parentOf(api.focusedRow()); if (!p) return;
+          if (p.status !== 'posted' && p.status !== 'partial') { FB.status.show('Multi-bill settlement requires a posted or partial bill', true); return; }
+          var tr = focusedParentTr(); if (tr) openMultiPayPanel(tr, p);
+        } },
+      // Multi-pay panel submit/cancel (NORMAL mode; the panel is DOM-injected).
+      { key: 'Enter', mode: 'NORMAL', paletteEligible: false, when: multiPayRowOpen, run: submitMultiPayPanel },
+      { key: 'Escape', mode: 'NORMAL', paletteEligible: false, when: multiPayRowOpen, run: closeMultiPayPanel },
       { key: 'x', mode: 'NORMAL', hint: 'void', hintBar: true,
         when: function () {
           var d = api.focusedRow(); if (!d) return false;

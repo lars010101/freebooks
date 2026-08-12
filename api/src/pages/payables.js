@@ -268,6 +268,33 @@ ${commonStyle()}
   .pay-row .pay-hint { font-size:8pt; color:#999; margin-left:8px; }
   .pay-row .pay-hint a { color:#5b8def; cursor:pointer; text-decoration:none; }
   .pay-row .pay-hint a:hover { text-decoration:underline; }
+  /* Issue #131: multi-bill settlement panel (child row, same palette as pay-row) */
+  .multi-pay-row td.multi-pay-cell { padding:8px 12px 8px 60px; background:#f6f9ff; vertical-align:top; }
+  .multi-pay-row .mp-lbl { font-weight:600; font-size:8pt; color:#5b8def; text-transform:uppercase; letter-spacing:0.4px; margin-right:8px; }
+  .multi-pay-row .mp-shared { margin-bottom:6px; white-space:nowrap; }
+  tr.multi-pay-row td.multi-pay-cell input.draft-input { height:26px; font-size:9pt; margin-right:6px; width:auto; display:inline-block; }
+  tr.multi-pay-row td.multi-pay-cell input.mp-date { width:130px; }
+  tr.multi-pay-row td.multi-pay-cell input.mp-acct { width:90px; }
+  tr.multi-pay-row td.multi-pay-cell input.mp-ref { width:110px; }
+  tr.multi-pay-row td.multi-pay-cell input.mp-fx { width:70px; text-align:right; }
+  tr.multi-pay-row td.multi-pay-cell input.mp-total { width:100px; text-align:right; font-weight:600; }
+  tr.multi-pay-row td.multi-pay-cell input.mp-alloc { width:90px; text-align:right; }
+  .multi-pay-row .mp-ccy { font-size:8pt; color:#666; margin-right:6px; }
+  .multi-pay-row .mp-list { margin:4px 0 6px 0; }
+  .multi-pay-row .mp-item { display:flex; align-items:center; padding:3px 0; border-top:1px solid #e6efff; }
+  .multi-pay-row .mp-item:first-child { border-top:none; }
+  .multi-pay-row .mp-check { width:22px; font-weight:600; color:#5b8def; cursor:pointer; user-select:none; text-align:center; font-size:10pt; }
+  .multi-pay-row .mp-item.mp-off .mp-check { color:#bbb; }
+  .multi-pay-row .mp-item.mp-focused .mp-check { outline:1px solid #5b8def; }
+  .multi-pay-row .mp-item.mp-off .mp-alloc { opacity:0.4; }
+  .multi-pay-row .mp-desc { flex:1; font-size:9pt; color:#333; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0 8px; }
+  .multi-pay-row .mp-desc .mp-amt { color:#888; font-size:8pt; }
+  .multi-pay-row .mp-balance { font-size:8pt; font-weight:600; margin-left:8px; }
+  .multi-pay-row .mp-balance.ok { color:#2a8a2a; }
+  .multi-pay-row .mp-balance.warn { color:#c47b00; }
+  .multi-pay-row .mp-hint { font-size:8pt; color:#999; margin-left:8px; }
+  .multi-pay-row .mp-hint a { color:#5b8def; cursor:pointer; text-decoration:none; }
+  .multi-pay-row .mp-hint a:hover { text-decoration:underline; }
   /* P1-9: payment history rows on unfold */
   .payment-history-row td { font-size:8pt; color:#555; font-style:italic; }
   .payment-history-row .pay-voided { text-decoration:line-through; color:#aaa; }

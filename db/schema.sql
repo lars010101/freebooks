@@ -515,9 +515,15 @@ WHERE default_role IS NULL
 -- lived only in db/init.js, so a server that pulled new code without
 -- re-running init served a Binder Error on search (partner_name not found).
 -- Moving it here makes the boot-apply in db.js handle it idempotently.
--- Errors on fresh/already-migrated DBs (column doesn't exist) are caught
--- by the per-statement try/catch in _applySchemaOnBoot.
+--
+-- DuckDB 1.5+ blocks RENAME COLUMN when an explicit index depends on the
+-- table. init.js creates ux_bills_bill_id (CREATE UNIQUE INDEX fallback for
+-- the bill_id UNIQUE constraint). We must drop it, rename, then recreate.
+-- On fresh/already-migrated DBs the RENAME errors (column doesn't exist) —
+-- caught by the per-statement try/catch in _applySchemaOnBoot.
+DROP INDEX IF EXISTS ux_bills_bill_id;
 ALTER TABLE bills RENAME COLUMN vendor TO partner_name;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_bills_bill_id ON bills(bill_id);
 
 -- MIGRATION: partner default expense and AP accounts (was vendor columns)
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;

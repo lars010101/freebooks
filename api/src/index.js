@@ -1680,7 +1680,7 @@ async function handleSettings(ctx, action) {
   if (action === 'settings.ai.test') {
     const { endpoint_url, api_key, model } = body;
     if (!endpoint_url) throw Object.assign(new Error('endpoint_url required'), { code: 'INVALID_INPUT' });
-    const url = String(endpoint_url).replace(/\/$/, '');
+    const url = String(endpoint_url).replace(/\/v1\/?$/, '');
     const headers = { 'Content-Type': 'application/json' };
     if (api_key) headers['Authorization'] = `Bearer ${api_key}`;
     const t0 = Date.now();
@@ -1701,7 +1701,7 @@ async function handleSettings(ctx, action) {
     const latency_ms = Date.now() - t0;
     if (r.ok) return { ok: true, latency_ms };
     const text = await r.text().catch(() => '');
-    return { ok: false, error: `HTTP ${r.status}: ${text.slice(0, 200)}`, latency_ms };
+    return { ok: false, error: `LLM connection failed (HTTP ${r.status})`, latency_ms };
   }
 }
 

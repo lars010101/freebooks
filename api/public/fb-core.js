@@ -1430,12 +1430,13 @@
   })();
 
   // ── FB.search — `/` global search (command-bar-ux-spec.md §4) ──────────────
-  // The topbar input hosts three modes: `/` page-filter (when a FB.list IS
-  // visible and no scope prefix is used — owned by common.js), `/` global
-  // search (scope prefix /p: /a: /j: /b:, OR no FB.list visible), and `:`
+  // The topbar input hosts two `/` modes: `/` global search (always, with
+  // an optional "Filter current page" row when a FB.list is visible) and `:`
   // command mode (owned by FB.palette). This module owns the global-search
-  // dropdown: fetches from GET /api/:company/search and renders the same
-  // fb-palette-* CSS as the command palette.
+  // dropdown: fetches from GET /api/:company/search, renders the synthetic
+  // "Filter current page" row first when a FB.list is visible, and groups
+  // the rest of the results by entity type with headers showing hit counts
+  // (using the same fb-palette-* CSS as the command palette).
   var search = (function () {
     var _input = null;
     var _el = null;
@@ -1463,14 +1464,73 @@
       _active = false;
     }
 
+    var TYPE_LABELS = {
+      partner: 'Partner', account: 'Account', journal: 'Journal', bill: 'Bill'
+    };
+    // Plural labels used for group headers (e.g. "Partners (3)").
+    var TYPE_LABELS_PLURAL = {
+      partner: 'Partners', account: 'Accounts', journal: 'Journals', bill: 'Bills'
+    };
+    // Sort order for grouping: page-filter always first, then by entity type.
+    var TYPE_ORDER = { 'page-filter': 0, partner: 1, account: 2, journal: 3, bill: 4 };
+
+    // Build the synthetic "Filter current page" row. `query` is the text after
+    // the `/` (and any scope prefix) — what we hand to inst.applyFilterExpr().
+    function _pageFilterItem(query) {
+      return {
+        type: 'page-filter', id: 'page-filter',
+        label: 'Filter current page', route: null, typeLabel: '',
+        query: query
+      };
+    }
+
+    // Derive the page-filter query from the current input value (always
+    // reflects what the user has typed right now, not the possibly-stale
+    // query captured when a fetch was kicked off).
+    function _currentFilterQuery() {
+      var v = _input ? _input.value : '';
+      if (v.charAt(0) !== '/') return '';
+      var parsed = (FB.command && FB.command.parseSearchScope)
+        ? FB.command.parseSearchScope(v)
+        : { scope: null, query: v.slice(1) };
+      return parsed.query || '';
+    }
+
+    function _listVisible() {
+      return !!(window.FB && FB.list && FB.list.visible && FB.list.visible());
+    }
+
+    // Compose the final _items array: optional page-filter row first, then
+    // fetched results sorted by TYPE_ORDER so grouping in _render works.
+    function _composeItems(fetched) {
+      var sorted = fetched.slice().sort(function (a, b) {
+        var oa = TYPE_ORDER[a.type] != null ? TYPE_ORDER[a.type] : 99;
+        var ob = TYPE_ORDER[b.type] != null ? TYPE_ORDER[b.type] : 99;
+        return oa - ob;
+      });
+      if (_listVisible()) return [_pageFilterItem(_currentFilterQuery())].concat(sorted);
+      return sorted;
+    }
+
     function _render() {
       if (!_el) return;
       if (!_items.length) {
         _el.innerHTML = '<div class="fb-palette-empty">no results</div>';
         return;
       }
+      // Group items by type with headers showing hit counts. The page-filter
+      // row (type 'page-filter') is rendered first with NO group header.
+      var counts = {};
+      _items.forEach(function (c) { counts[c.type] = (counts[c.type] || 0) + 1; });
       var html = '';
+      var lastType = null;
       _items.forEach(function (c, i) {
+        if (c.type !== 'page-filter' && c.type !== lastType) {
+          var plural = TYPE_LABELS_PLURAL[c.type] || c.type;
+          var cnt = counts[c.type] || 0;
+          html += '<div class="fb-palette-group">' + esc(plural) + ' (' + cnt + ')</div>';
+          lastType = c.type;
+        }
         html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
           '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
           '<span class="fb-palette-page">' + esc(c.typeLabel) + '</span>' +
@@ -1495,13 +1555,18 @@
       _render();
     }
 
-    var TYPE_LABELS = {
-      partner: 'Partner', account: 'Account', journal: 'Journal', bill: 'Bill'
-    };
-
     function _select(idx) {
       var item = _items[idx];
       if (!item) return;
+      // "Filter current page" — apply the page-level list filter instead of
+      // navigating. The query carried on the item is the text after `/`.
+      if (item.type === 'page-filter') {
+        _close();
+        if (_input) { _input.value = ''; _input.blur(); }
+        var inst = _listVisible() ? (window.FB.list.visible()) : null;
+        if (inst) inst.applyFilterExpr(item.query);
+        return;
+      }
       _close();
       if (_input) { _input.value = ''; _input.blur(); }
       var url = '/' + _company() + item.route;
@@ -1510,20 +1575,17 @@
     }
 
     // Decide whether the current input value should trigger search mode.
-    // Returns the {scope, query} to search with, or null to defer to the
-    // existing page-filter behavior in common.js.
+    // `/` ALWAYS does global search now — returns {scope, query} when the
+    // value starts with `/`, or null otherwise (so common.js can ignore
+    // non-`/` input). Never returns null for a `/`-prefixed value.
     function _resolveMode(value) {
       if (value.charAt(0) !== '/') return null;
       var parsed = (FB.command && FB.command.parseSearchScope)
         ? FB.command.parseSearchScope(value)
         : { scope: null, query: value.slice(1) };
-      // Explicit scope prefix (/p:, /a:, /j:, /b:) → always global search.
-      if (parsed.scope) return { scope: parsed.scope, query: parsed.query };
-      // No prefix: if a FB.list is visible, defer to page-filter (common.js).
-      var listVisible = window.FB && FB.list && FB.list.visible && FB.list.visible();
-      if (listVisible) return null;
-      // No FB.list → global "all" search.
-      return { scope: 'all', query: parsed.query };
+      // Explicit scope prefix (/p:, /a:, /j:, /b:) → that scope.
+      // No prefix → global "all" search (regardless of FB.list visibility).
+      return { scope: parsed.scope || 'all', query: parsed.query };
     }
 
     // Core fetch + render. autoSelect=true (used by submit()) navigates to
@@ -1535,24 +1597,22 @@
         encodeURIComponent(q) + '&scope=' + encodeURIComponent(scope);
       fetch(url).then(function (r) { return r.json(); }).then(function (res) {
         if (req !== _lastReq) return; // stale response
-        if (!res || !res.ok || !Array.isArray(res.results)) { _items = []; }
-        else {
-          _items = res.results.map(function (r2) {
-            return {
-              type: r2.type,
-              id: r2.id,
-              label: r2.label,
-              route: r2.route,
-              typeLabel: TYPE_LABELS[r2.type] || r2.type
-            };
-          });
-        }
+        var fetched = (!res || !res.ok || !Array.isArray(res.results)) ? [] : res.results.map(function (r2) {
+          return {
+            type: r2.type,
+            id: r2.id,
+            label: r2.label,
+            route: r2.route,
+            typeLabel: TYPE_LABELS[r2.type] || r2.type
+          };
+        });
+        _items = _composeItems(fetched);
         _activeIdx = _items.length ? 0 : -1;
         _render();
         if (autoSelect && _items.length) _select(_activeIdx >= 0 ? _activeIdx : 0);
       }).catch(function () {
         if (req !== _lastReq) return;
-        _items = []; _activeIdx = -1; _render();
+        _items = _composeItems([]); _activeIdx = _items.length ? 0 : -1; _render();
       });
     }
 
@@ -1564,6 +1624,9 @@
 
     // Called by common.js on every input event. Returns true if search mode
     // consumed the event (so common.js should skip its page-filter path).
+    // `/` ALWAYS does global search now; when a FB.list is visible the
+    // "Filter current page" row is shown immediately (no debounce — it's a
+    // local action) and global results are appended when the fetch returns.
     function onInput(value) {
       var mode = _resolveMode(value);
       if (!mode) {
@@ -1572,10 +1635,13 @@
       }
       // Activate search mode.
       if (!_active) { _active = true; _open(); }
-      if (mode.query.length < 1) {
-        _items = []; _activeIdx = -1; _render();
-        return true;
-      }
+      // Show the page-filter row (if a FB.list is visible) immediately —
+      // it does not need the backend. With an empty query this is the only
+      // row; selecting it clears the list filter.
+      _items = _composeItems([]);
+      _activeIdx = _items.length ? 0 : -1;
+      _render();
+      if (mode.query.length < 1) return true;
       _fetch(mode.scope, mode.query);
       return true;
     }
@@ -1617,12 +1683,13 @@
       _input.setSelectionRange(1, 1);
     }
 
-    // Called by common.js when Enter is pressed and the value starts with '/'
-    // but search mode is NOT active (deferred to page-filter on list pages).
-    // Forces global search mode regardless of FB.list visibility, fetches
-    // immediately (bypassing debounce), and auto-selects the first result on
-    // completion. Also called from onKeydown() when search IS active but the
-    // fetch is still pending (items empty) — same debounce race fix.
+    // Called by common.js when Enter is pressed and the value starts with '/'.
+    // Forces an immediate fetch (bypassing debounce) and auto-selects the
+    // first result on completion. Also called from onKeydown() when search
+    // IS active but the fetch is still pending (items empty) — same debounce
+    // race fix. With the new always-global design, the first result is the
+    // page-filter row when a FB.list is visible (so Enter filters the page),
+    // otherwise the first global result.
     function submit() {
       var value = _input ? _input.value : '';
       if (!value || value.charAt(0) !== '/') return;

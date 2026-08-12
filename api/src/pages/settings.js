@@ -467,9 +467,13 @@ var aiAttrs = FB.list.create({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'ai.test_connection', companyId: COMPANY })
           }).then(function(r) { return r.json(); }).then(function(res) {
+            // The API wrapper sends { ok: true, data: result } for any action
+            // that doesn't throw — res.ok just means "action executed", not
+            // "connection succeeded". The test_connection action returns its
+            // own { ok, error, models } inside data. Check d.ok, not res.ok.
             var d = res.data || res;
-            if (res.ok || (d && d.ok)) {
-              var models = (d && d.models && d.models.length) ? ' (' + d.models.length + ' models)' : '';
+            if (d && d.ok) {
+              var models = (d.models && d.models.length) ? ' (' + d.models.length + ' models)' : '';
               if (window.FB && FB.status) FB.status.show('✓ Connected' + models, false);
             } else {
               if (window.FB && FB.status) FB.status.show('✗ ' + ((d && d.error) || res.error || 'Connection failed'), true);

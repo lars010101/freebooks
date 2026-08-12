@@ -748,7 +748,7 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
       const vKey = companySettings.llm_vision_api_key || companySettings.llm_api_key || '';
       const b64 = att.buffer.toString('base64');
       const dataUrl = `data:${att.contentType || 'application/octet-stream'};base64,${b64}`;
-      const response = await fetch(`${vUrl.replace(/\/$/, '')}/v1/chat/completions`, {
+      const response = await fetch(`${vUrl.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

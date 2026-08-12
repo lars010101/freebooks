@@ -540,38 +540,30 @@
     if (gs) {
       if (window.FB && FB.palette) FB.palette.wire(gs);
       if (window.FB && FB.search) FB.search.wire(gs);
-      // Unified search/filter (2026-07-23): ONE input — a value starting with
-      // '/' is a screen-limited filter expression routed to the visible FB.list
-      // (terms + field:value qualifiers); anything else is the global search.
-      // `/` focuses the box (above), so `//` starts a screen filter.
-      // §4 search: an explicit scope prefix (/p: /a: /j: /b:) or the absence
-      // of a visible FB.list routes `/` to the global search endpoint instead.
-      var lastWasFilter = false;
+      // `/` global search (command-bar-ux-spec §4): FB.search always claims
+      // a `/`-prefixed value — it owns the dropdown (global results grouped
+      // by entity type, with a synthetic "Filter current page" row first when
+      // a FB.list is visible). Non-`/` input is ignored here (no-op).
       gs.addEventListener('input', function() {
-        // §4: let FB.search claim scope-prefix and no-FB.list cases first.
         if (window.FB && FB.search && FB.search.onInput(gs.value)) return;
-        if (!(window.FB && FB.list && FB.list.visible)) return;
-        var inst = FB.list.visible();
-        var isFilter = gs.value.charAt(0) === '/';
-        if (isFilter && inst) inst.applyFilterExpr(gs.value.slice(1));
-        else if (lastWasFilter && inst && inst.anyFilterActive()) inst.clearFilters();
-        lastWasFilter = isFilter;
+        // Non-`/` input: nothing to do (page-level filters are now applied
+        // only via the "Filter current page" dropdown row, not live typing).
       });
       gs.addEventListener('keydown', function(e) {
         // §4: search-mode owns Arrow/Enter/Esc when its dropdown is open.
         if (window.FB && FB.search && FB.search.onKeydown(e)) return;
         if (e.key === 'Escape') {
-          gs.value = ''; gs.blur(); lastWasFilter = false;
+          gs.value = ''; gs.blur();
           if (window.FB && FB.list && FB.list.visible) {
             var inst = FB.list.visible();
             if (inst && inst.anyFilterActive()) inst.clearFilters();
           }
         }
         if (e.key === 'Enter') {
-          // Bug fix: on list pages search mode is never active (deferred to
-          // page-filter), so onKeydown returned false and Enter fell through
-          // to blur. When the value starts with '/', force a global search
-          // via submit() (bypasses debounce, auto-selects first result).
+          // Safety net: if search mode isn't active yet but the value starts
+          // with '/', force a global search via submit() (bypasses debounce,
+          // auto-selects first result). Normally onKeydown already handled
+          // Enter — this covers the brief window before activation.
           if (window.FB && FB.search && gs.value.charAt(0) === '/') {
             e.preventDefault();
             FB.search.submit();

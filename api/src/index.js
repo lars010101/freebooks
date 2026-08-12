@@ -1517,7 +1517,7 @@ async function handleSettings(ctx, action) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 10000);
     try {
-      const resp = await fetch(`${url.replace(/\/$/, '')}/v1/models`, {
+      const resp = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/models`, {
         method: 'GET',
         headers: { ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}) },
         signal: ctrl.signal,

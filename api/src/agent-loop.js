@@ -262,7 +262,7 @@ async function tier4LLMReason(residualLines, context, companySettings) {
   const apiKey = companySettings.llm_api_key || '';
   const model = companySettings.llm_model || 'default';
 
-  const response = await fetch(`${url.replace(/\/$/, '')}/v1/chat/completions`, {
+  const response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -711,7 +711,7 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
         const url = companySettings.llm_endpoint_url;
         const apiKey = companySettings.llm_api_key || '';
         const model = companySettings.llm_model || 'default';
-        const response = await fetch(`${url.replace(/\/$/, '')}/v1/chat/completions`, {
+        const response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

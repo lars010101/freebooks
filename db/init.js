@@ -306,12 +306,17 @@ if (API_URL) {
     // bills.vendor (a denormalized name string, not a FK) as-is. Rename it
     // here with try/catch — DuckDB errors if already renamed (idempotent).
     async function applyBillsVendorRename() {
+      // On a fresh DB, the bills table doesn't exist yet (CREATE TABLE runs
+      // later in runNext). On an already-migrated DB, the column is already
+      // partner_name. Both are expected — only warn on truly unexpected errors.
       try {
         await conn.run('ALTER TABLE bills RENAME COLUMN vendor TO partner_name', []);
       } catch (e) {
-        // Already renamed (column 'vendor' doesn't exist) — expected on re-run
-        if (!/column "vendor" .*does not exist|Column "vendor" not found/i.test(String(e.message))) {
-          console.warn(`\n⚠ bills.vendor rename skipped: ${e.message}`);
+        var msg = String(e.message);
+        if (/does not exist|not found/i.test(msg)) {
+          // Fresh DB (table doesn't exist yet) or already renamed — expected.
+        } else {
+          console.warn(`\n⚠ bills.vendor rename skipped: ${msg}`);
         }
       }
     }

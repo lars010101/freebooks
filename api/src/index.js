@@ -1439,6 +1439,8 @@ async function handleSettings(ctx, action) {
       { key: 'llm_vision_api_key', label: 'Vision API key', type: 'String',
         value: '', display: s.llm_vision_api_key ? '••••' + String(s.llm_vision_api_key).slice(-4) : dash,
         editor: { type: 'text' }, note: 'Blank keeps the stored key' },
+      { key: 'test_connection', label: 'Test LLM connection', type: 'Action',
+        value: '', display: '', editor: { type: 'action', action: 'ai.test_connection' }, readonly: true },
     ];
     return aiAttrs;
   }
@@ -1500,6 +1502,41 @@ async function handleSettings(ctx, action) {
       await putSetting(companyId, key, String(value));
     }
     return { saved: true, key };
+  }
+
+  // ai.test_connection (settings-ai-flattened-spec.md, issue #179): read-only
+  // health check against the configured LLM endpoint. Mirrors the request
+  // shape used by tier4LLMReason (agent-loop.js): GET {url}/v1/models with an
+  // Authorization Bearer header when an API key is set. 10s timeout so the UI
+  // never hangs waiting on an unresponsive endpoint.
+  if (action === 'ai.test_connection') {
+    const s = await settingsMap(companyId);
+    const url = s.llm_endpoint_url;
+    if (!url) return { ok: false, error: 'No LLM endpoint URL configured' };
+    const apiKey = s.llm_api_key || '';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10000);
+    try {
+      const resp = await fetch(`${url.replace(/\/$/, '')}/v1/models`, {
+        method: 'GET',
+        headers: { ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}) },
+        signal: ctrl.signal,
+      });
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => '');
+        return { ok: false, error: `LLM endpoint returned HTTP ${resp.status}: ${body.slice(0, 200)}` };
+      }
+      const data = await resp.json().catch(() => ({}));
+      const models = Array.isArray(data?.data) ? data.data.map((m) => m.id).filter(Boolean)
+        : Array.isArray(data?.models) ? data.models
+        : [];
+      return { ok: true, models };
+    } catch (err) {
+      if (err && err.name === 'AbortError') return { ok: false, error: 'Connection timed out (10s)' };
+      return { ok: false, error: `Connection failed: ${(err && err.message) || String(err)}` };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // settings-ux-spec §7 item 1 (rev 2026-07-27): danger-zone delete of the

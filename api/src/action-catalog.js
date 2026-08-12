@@ -648,6 +648,10 @@ const ACTIONS = {
     description: 'Write ONE AI/agent attribute (server-authoritative validation). key ∈ agent_enabled|agent_poll_interval_ms|agent_inbox_path|llm_endpoint_url|llm_api_key|llm_model|llm_temperature|llm_vision_endpoint_url|llm_vision_model|llm_vision_api_key.',
     params: { key: { type: 'string', required: true }, value: { required: true } },
   },
+  'ai.test_connection': {
+    role: 'viewer', mutating: false,
+    description: 'Test the LLM endpoint connection. Returns { ok: true } or { ok: false, error: "..." }. Reads llm_endpoint_url and llm_api_key from settings.',
+  },
   'period.list': { role: 'viewer', mutating: false, description: 'List accounting periods.' },
   'period.close_check': {
     role: 'viewer', mutating: false,

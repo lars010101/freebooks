@@ -78,6 +78,21 @@ test('parse: :post! 500 supplies from cash', () => {
   assert.strictEqual(r.parsed.params.amount, 500);
 });
 
+test('parse: :post 500 supplies on sep15 uses "on" date slot', () => {
+  const r = cmd.parse(':post 500 supplies on sep15');
+  assert.strictEqual(r.type, 'alias');
+  assert.strictEqual(r.alias, 'post');
+  assert.strictEqual(r.parsed.commitMode, 'form');
+  assert.ok(r.parsed.prefill.date);
+});
+
+test('parse: :post 500 supplies due sep15 ignores "due" (bill-only keyword)', () => {
+  const r = cmd.parse(':post 500 supplies due sep15');
+  assert.strictEqual(r.type, 'alias');
+  assert.strictEqual(r.alias, 'post');
+  assert.strictEqual(r.parsed.prefill.date, null);
+});
+
 test('parse: :bill acme 1200 due sep15', () => {
   const r = cmd.parse(':bill acme 1200 due sep15');
   assert.strictEqual(r.type, 'alias');

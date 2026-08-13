@@ -39,7 +39,7 @@ Entry shape: `{ key, route, label, icon, sidebar, gKey, palette, absolute }`. `r
 | `payables` | `/:company/payables` | Payables | 📋 | ✓ | `p` | ✓ | Bills tree + Partners |
 | `reports` | `/:company/reports` | Reports | 📈 | ✓ | `r` | ✓ | Report hub |
 | `settings` | `/:company/settings` | Settings | ⚙ | ✓ | `s` | ✓ | Company · Periods · COA · Tax · Journals · FX · Opening Balances |
-| `journal-new` | `/:company/journal/new` | Journal Entry | — | ✗ | — | ✗ | Covered by action-catalog navigate entry |
+| `journal-voucher` | `/:company/journal/voucher` | Journal Entry | — | ✗ | — | ✗ | Covered by action-catalog navigate entry |
 | `bank-import` | `/:company/bank?tab=import` | Bank Import | — | ✗ | — | ✓ | gKey dropped 2026-08-03 (A5); reachable via `g b` + palette |
 | `opening-balances` | `/:company/settings?tab=opening-balances` | Opening Balances | — | ✗ | — | ✓ | Settings tab (relocated 2026-07-28) |
 | `new-company` | `/setup/new-company` | New Company | — | ✗ | — | ✗ | Absolute route, company-less |
@@ -103,7 +103,7 @@ Every flat register in the app. A screen declares columns + actions; the framewo
 
 Model B (ratified 2026-07-28): NORMAL rest state + Tab/Shift+Tab inside edits — explicitly NOT QBO always-insert.
 
-**Pages:** journal-new (pilot), reports filter bar, bank-import, opening-balances, new-company.
+**Pages:** journal-voucher (pilot), reports filter bar, bank-import, opening-balances, new-company.
 
 **Core contract:**
 
@@ -116,7 +116,7 @@ Model B (ratified 2026-07-28): NORMAL rest state + Tab/Shift+Tab inside edits �
 | `Tab`/`Shift+Tab` | Move cursor next/prev cell (no INSERT) — crosses row/zone boundaries | Programmatic advance/retreat |
 | `G` | Last row | — |
 
-**Tab-strip precedence (2026-08-02, magnus):** On a page with a `.tabs` strip (Bank/Import, Settings/Opening Balances), `h`/`l` switch TABS — common.js's bubble handler owns them, so FB.form drops its `h`/`l` cell bindings at `create()`. Horizontal cell movement on tabbed pages is Tab/Shift+Tab only. Tabless FB.form pages (journal-new, reports-hub, new-company) keep `h`/`l` cell nav.
+**Tab-strip precedence (2026-08-02, magnus):** On a page with a `.tabs` strip (Bank/Import, Settings/Opening Balances), `h`/`l` switch TABS — common.js's bubble handler owns them, so FB.form drops its `h`/`l` cell bindings at `create()`. Horizontal cell movement on tabbed pages is Tab/Shift+Tab only. Tabless FB.form pages (journal-voucher, reports-hub, new-company) keep `h`/`l` cell nav.
 
 **Cell-type semantics:**
 - **Button cells** activate (`i`/`Enter` = click, focus stays NORMAL) — they never enter INSERT.
@@ -191,7 +191,7 @@ The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). 
 - **Date-range filter:** Start/end inputs re-query via the report endpoint.
 - **g j freed:** The `g j` go-to letter is no longer assigned (the register lives inside Reports = `g r`).
 
-### 5.4 Journal-new (`/:company/journal/new`) — JV entry form
+### 5.4 Journal-new (`/:company/journal/voucher`) — JV entry form
 
 - **Machine:** FB.form
 - **Zones:** reversal panel (present only in reversal mode) → header fields (date/journal/desc) → attachment queue → JV line grid
@@ -364,7 +364,7 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 ## 8. Attachment Model
 
 - **`A` = attach everywhere** (K4, ratified 2026-07-28). Legacy pages route shift-a to a page-registered `attach` verb; FB.form pages declare `A` as an extraBinding.
-- Attachment queues are **FB.form zones** (journal-new pending queue: `j`/`k` rows, `x` removes the staged file) or shared `.fb-attach-row` markup + `FB.attachments` helpers.
+- Attachment queues are **FB.form zones** (journal-voucher pending queue: `j`/`k` rows, `x` removes the staged file) or shared `.fb-attach-row` markup + `FB.attachments` helpers.
 - Attachment rows are read-only (no inline edit, no add row — `A` is the create verb).
 - **Disk controls (A4):** 15 MB per-file cap for `journal_proposal` uploads; pdf/jpg/png whitelist; sha256 dedupe per company. Other entity types keep the 32 MB status quo.
 
@@ -389,7 +389,7 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 | `d` | Download menu / delete (page-dependent) | Reports (download), legacy pages (delete) |
 | `p` | Post / paste (page-dependent) | Payables (post bill), Bank-import (paste CSV) |
 | `q` | Quit / navigate away | FB.form pages |
-| `R` | Reversal mode | journal-new only |
+| `R` | Reversal mode | journal-voucher only |
 | `gg`/`G` | First row / last row | Framework-level |
 | `?` | Which-key overlay | Global |
 | `/` | Focus topbar search | Global |
@@ -408,8 +408,8 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 | Report | Row represents | Drill target | Mechanism |
 |---|---|---|---|
 | **Transaction Register** | Batch (voucher) | Source-aware detail view (§10.2) | Click / `Enter` anywhere on row |
-| **Journal Line Listing** | Single journal line | The batch's detail view (journal-new view mode) | Click / `Enter` |
-| **General Ledger** | Account's lines for a period | The batch's detail view (journal-new view mode) | Click / `Enter` |
+| **Journal Line Listing** | Single journal line | The batch's detail view (journal-voucher view mode) | Click / `Enter` |
+| **General Ledger** | Account's lines for a period | The batch's detail view (journal-voucher view mode) | Click / `Enter` |
 | **Trial Balance** | Account total for a period | General Ledger filtered to that account + period | Click / `Enter` |
 | **Balance Sheet** | Account total for a period | General Ledger filtered to that account + period | Click / `Enter` |
 | **Profit & Loss** | Account total for a period | General Ledger filtered to that account + period | Click / `Enter` |
@@ -420,9 +420,9 @@ The Transaction Register row's drill target depends on the batch's origin:
 
 | Batch source | Detail view |
 |---|---|
-| `manual` / `reversal` / agent-proposed | journal-new view mode (`?batch=<batchId>`) |
+| `manual` / `reversal` / agent-proposed | journal-voucher view mode (`?batch=<batchId>`) |
 | `bill` (`bill_id` set) | Bill detail page |
-| `import` (bank import) | journal-new view mode (`?batch=<batchId>`) |
+| `import` (bank import) | journal-voucher view mode (`?batch=<batchId>`) |
 
 Links use `batch_id` or `bill_id` (UUIDs), never the reference string. The reference is a display label, not a key.
 
@@ -432,18 +432,18 @@ No verbs on reports. All corrections happen in detail views:
 
 | Source | Correction path |
 |---|---|
-| Manual journal entry / reversal / agent | journal-new view mode → `R` (reversal mode) |
+| Manual journal entry / reversal / agent | journal-voucher view mode → `R` (reversal mode) |
 | Bill (AP) | Bill detail → void (unpaid) or credit memo (paid — not yet built) |
 | Sales invoice (AR) | Invoice detail → void or credit memo (module unbuilt) |
-| Bank import | journal-new view mode → `R` (each imported line is its own batch) |
+| Bank import | journal-voucher view mode → `R` (each imported line is its own batch) |
 
 ### 10.4 Return-to-origin
 
 Every detail view honors a return stack: `Esc`/`q` returns to the exact screen, scroll position, and cursor position the user came from. Not a hardcoded destination. The origin's full state (route, scroll, cursor, filters) is pushed on drill and popped on return.
 
-### 10.5 journal-new view mode
+### 10.5 journal-voucher view mode
 
-`/:company/journal/new?batch=<batchId>` loads a posted batch read-only:
+`/:company/journal/voucher?batch=<batchId>` loads a posted batch read-only:
 - Header fields and lines render populated, non-editable.
 - `R` enters reversal mode pre-targeted at that batch (the existing reversal flow).
 - `Esc`/`q` returns to the origin (§10.4).
@@ -468,7 +468,7 @@ Every detail view honors a return stack: `Esc`/`q` returns to the exact screen, 
 
 - **API side:** Contract tests (`npm test` in `api/`) cover actions, not pixels.
 - **Keyboard coverage gate:** `tests/keys-coverage.mjs` (`npm run test:keys`) crawls every registry route + bill detail/edit and asserts, per route: zero uncaught JS errors · a live `FB.keys` set · non-empty hint surface · ≥1 active NORMAL binding · every visible interactive control is keyboard-managed.
-- **Single-screen gate:** `test:keys` runs the full key-coverage assertions on **journal-new** only (richest FB.form surface, primary human write path); every other route is smoke-checked (loads, zero uncaught JS errors).
+- **Single-screen gate:** `test:keys` runs the full key-coverage assertions on **journal-voucher** only (richest FB.form surface, primary human write path); every other route is smoke-checked (loads, zero uncaught JS errors).
 - **Per-migration:** Live browser verification of the framework cycle on ONE representative screen is sufficient — the behavior is shared code.
 
 ---

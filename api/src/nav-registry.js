@@ -78,11 +78,11 @@ const ROUTES = [
   { key: 'master-data', route: '/:company/master-data',  label: 'Master Data',    icon: '🗂', sidebar: true,  gKey: 'm',  palette: true,  absolute: false },
   // 2026-08-11 IA restructure: Admin (g a) — Companies · Operations.
   { key: 'admin',       route: '/:company/admin',        label: 'Admin',          icon: '🛠', sidebar: true,  gKey: 'a',  palette: true,  absolute: false },
-  // ── Non-sidebar routes. journal-new / new-company keep palette:false — the
+  // ── Non-sidebar routes. journal-voucher / new-company keep palette:false — the
   // action catalog already navigates to them with action labels (dedupe =
   // registry decision, spec §4). opening-balances has no catalog entry →
   // palette:true.
-  { key: 'journal-new',     route: '/:company/journal/new',       label: 'Journal Entry',   icon: null, sidebar: false, gKey: null, palette: false, absolute: false },
+  { key: 'journal-voucher', route: '/:company/journal/voucher',   label: 'Journal Entry',   icon: null, sidebar: false, gKey: null, palette: false, absolute: false },
   { key: 'opening-balances', route: '/:company/settings?tab=opening-balances', label: 'Opening Balances', icon: null, sidebar: false, gKey: null, palette: true,  absolute: false },
   { key: 'new-company',     route: '/setup/new-company',          label: 'New Company',     icon: null, sidebar: false, gKey: null, palette: false, absolute: true  },
 ];

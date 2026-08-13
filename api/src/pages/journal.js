@@ -105,7 +105,7 @@ function fetchUnderlag(entityKey, entityType, entityId) {
 // Render the underlag panel body for an _attSection child. Reuses the shared
 // FB.attachments.rowHtml (fb-attachments.js) so the markup matches every other
 // attachment surface; each row links to the existing GET /api/attachments/:id
-// route (target _blank — same pattern as journal-new.js). attachment.list
+// route (target _blank — same pattern as journal-voucher.js). attachment.list
 // returns uploaded_at; rowHtml expects created_at, so map it.
 function underlagPanelHtml(entityKey) {
   var cached = _attCache[entityKey];

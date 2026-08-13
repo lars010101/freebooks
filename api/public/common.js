@@ -210,13 +210,13 @@
     function read() { try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return {}; } }
     function write(d) { try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) {} }
 
-    // section of a path: /co/bill/edit → payables; /co/journal/new → journal-new
+    // section of a path: /co/bill/edit → payables; /co/journal/voucher → journal-voucher
     window.fbSectionOfPath = function (path) {
       var m = String(path || '').match(/^\/[^/]+\/([^/?]+)/);
       if (!m) return 'dashboard';
       var seg = m[1];
       if (seg === 'bill') return 'payables';
-      if (seg === 'journal') return 'journal-new';
+      if (seg === 'journal') return 'journal-voucher';
       return seg; // payables, reports, settings, opening-balances
     };
     function sectionOf(path) { return window.fbSectionOfPath(path); }
@@ -236,7 +236,7 @@
     var SECTION_LABELS = {
       'dashboard': 'Dashboard', 'payables': 'Payables',
       'reports': 'Reports', 'settings': 'Settings',
-      'opening-balances': 'Opening Balances', 'journal-new': 'Journal Entry'
+      'opening-balances': 'Opening Balances', 'journal-voucher': 'Journal Entry'
     };
 
     function company() { return (document.getElementById('app-shell') || {}).dataset ? document.getElementById('app-shell').dataset.company : ''; }
@@ -247,7 +247,7 @@
       var d = read(), cur = sectionOf(pathOverride || location.pathname), co = company();
       var ranked = Object.keys(SECTION_LABELS)
         .map(function (s) { return { s: s, n: d['visit:' + s] || 0 }; })
-        .filter(function (x) { return x.n > 0 && x.s !== cur && x.s !== 'journal-new'; })
+        .filter(function (x) { return x.n > 0 && x.s !== cur && x.s !== 'journal-voucher'; })
         .sort(function (a, b) { return b.n - a.n; });
       // Cold start: no visits yet → seed with payables + reports
       if (!Object.keys(d).some(function (k) { return k.indexOf('visit:') === 0; })) {
@@ -591,7 +591,7 @@
   // survives resetPage (it falls within the lazy baseline captured on the
   // first resetPage call). The attach markup classes span every page that
   // renders attachments: .attach-row (bill-detail), .fb-attach-row
-  // (journal-new staged queue), .be-attach-row (bill-edit). The provider
+  // (journal-voucher staged queue), .be-attach-row (bill-edit). The provider
   // returns the PARENT containers so every interactive control inside an
   // attachment panel is covered. The open .fb-dd dropdown element is also a
   // coverage root (its items are keyboard-managed via FB.dropdown).

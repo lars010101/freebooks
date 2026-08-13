@@ -459,7 +459,7 @@ Attach once per input at row build. The popup div is created on demand and remov
 
 1. **P2-1a** — `FB.dropdown` + common.css tokens. Bills INSERT: vendor dd, CCY dd, AP/expense accounts (delete `coa-options` + `_ensureCoaDatalist()`), child-line VAT `<select>` → dropdown.
 2. **P2-1b** — Vendors tab CCY + account dropdowns → component (near-mechanical; same dialect).
-3. **P2-1c** — journal-new `acct-dd`, bank `.acct-dd`, bank-import `bankAcctDropdown`, Settings `currency-list` datalist, Bank account-code datalist → component. Dialects B and C deleted. **bill-new.js is excluded — its dropdowns are rebuilt by the P1-4 full-page editor (decided 2026-07-22).**
+3. **P2-1c** — journal-voucher `acct-dd`, bank `.acct-dd`, bank-import `bankAcctDropdown`, Settings `currency-list` datalist, Bank account-code datalist → component. Dialects B and C deleted. **bill-new.js is excluded — its dropdowns are rebuilt by the P1-4 full-page editor (decided 2026-07-22).**
 
 ### Testing contract
 
@@ -631,7 +631,7 @@ Single-key verbs cover the frequent actions; written commands cover the rest:
    - **Page verbs** = NORMAL-mode bindings with a `hint` from the active FB.keys set. Executing one calls the binding's `run` — identical effect to pressing the key, against the current focus/context.
    - **API actions** = the action catalog (`GET /api/actions`, P1-1) — **all** API-accessible functions are represented (magnus 2026-07-22), each with an explicit disposition:
      - **Execute directly** — actions that need no parameters beyond current context (e.g. period lock, FX revaluation post). Executed via `fbApi` with `Idempotency-Key` — standing rule 3; no new backend surface.
-     - **Navigate to form** — actions requiring input (e.g. `bill.create` → open the bill editor; `journal.post` → open journal-new). A command can't collect a bill's lines in a dropdown; routing to the form is the honest execution.
+     - **Navigate to form** — actions requiring input (e.g. `bill.create` → open the bill editor; `journal.post` → open journal-voucher). A command can't collect a bill's lines in a dropdown; routing to the form is the honest execution.
      - **Excluded** — raw data viewers (`bill.list`, `vendor.list`, …) are meaningless as commands; their data is reached via navigation or the page verbs.
      The disposition map is small, explicit, and lives next to the catalog — new actions default to navigate-to-form, so the palette grows automatically with the API.
 4. **Matching:** fuzzy subsequence over label + key equivalent; ranking = recency (localStorage) then exactness. `↑/↓` (and `Ctrl-n`/`Ctrl-p`, vim convention) move in the dropdown; `Enter` executes (first match if none selected) and closes; `Esc` clears and blurs (the search bar's existing Esc behavior). While the input has focus, page bindings are inert — as today.

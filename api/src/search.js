@@ -101,7 +101,7 @@ async function _searchJournals(company, q) {
       type: 'journal',
       id: r.batch_id,
       label: r.reference || r.batch_id,
-      route: '/journal/new?batch=' + encodeURIComponent(r.batch_id)
+      route: '/journal/voucher?batch=' + encodeURIComponent(r.batch_id)
     };
   });
 }

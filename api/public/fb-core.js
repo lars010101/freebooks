@@ -915,7 +915,7 @@
         return;
       }
       if (parsed.action) {
-        window.fbNavigate('/' + co + '/journal/new');
+        window.fbNavigate('/' + co + '/journal/voucher');
       }
     }
 
@@ -1038,7 +1038,7 @@
 
     // K1: registry routes (window.FB_ROUTES) — 'Go to …' rows. Dedupe is
     // carried by the registry itself: routes already covered by an
-    // action-catalog navigate entry (journal/new, new-company)
+    // action-catalog navigate entry (journal/voucher, new-company)
     // keep palette:false there, so no runtime dedupe is needed here.
     function _routeCommands() {
       var R = window.FB_ROUTES || [];
@@ -2247,7 +2247,7 @@
       });
       input.addEventListener('blur', function () { setTimeout(function () { _close(inst); }, 150); });
       // opts.keys: self-bind the behavior-contract keys on the input — for
-      // pages that do not route through FB.keys (journal-new, settings).
+      // pages that do not route through FB.keys (journal-voucher, settings).
       // FB.keys pages leave this off and wire move/pick/close via their
       // binding tables instead.
       if (opts.keys) {

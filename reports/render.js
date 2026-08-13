@@ -261,7 +261,7 @@ async function buildGL(query, company, start, end, account) {
       runBal += parseFloat(r.debit_home || r.debit || 0) - parseFloat(r.credit_home || r.credit || 0);
       const dateStr = new Date(r.date).toISOString().slice(0, 10);
       tableRows += `<tr class="account" data-account="${r.account_code}">
-        <td>${dateStr}</td><td><a href="/${company}/journal/new?batch=${encodeURIComponent(r.batch_id)}&from=gl" target="_parent">${r.reference || r.batch_id}</a></td><td>${r.description || ''}</td>
+        <td>${dateStr}</td><td><a href="/${company}/journal/voucher?batch=${encodeURIComponent(r.batch_id)}&from=gl" target="_parent">${r.reference || r.batch_id}</a></td><td>${r.description || ''}</td>
         <td class="num">${fmt(r.debit_home || r.debit)}</td><td class="num">${fmt(r.credit_home || r.credit)}</td>
         <td class="num">${fmt(runBal)}</td>
       </tr>`;
@@ -544,7 +544,7 @@ async function buildJournal(query, company, start, end) {
         var desc = (r.description || '').substring(0, 80);
         html += '<tr>' +
           '<td>' + dateStr + '</td>' +
-          '<td><a href="/${company}/journal/new?batch=' + encodeURIComponent(r.batch_id || '') + '&from=journal" target="_parent">' + (r.reference || r.batch_id || '') + '</a></td>' +
+          '<td><a href="/${company}/journal/voucher?batch=' + encodeURIComponent(r.batch_id || '') + '&from=journal" target="_parent">' + (r.reference || r.batch_id || '') + '</a></td>' +
           '<td>' + (r.account_code || '') + '</td>' +
           '<td>' + (accountsMap[r.account_code] || '') + '</td>' +
           '<td>' + desc + '</td>' +
@@ -710,17 +710,17 @@ async function buildVoucherRegister(query, company, start, end) {
     if (b.bill_id) {
       return '/' + COMPANY + '/payables/bill/' + encodeURIComponent(b.bill_id) + '?from=voucher-register';
     }
-    return '/' + COMPANY + '/journal/new?batch=' + encodeURIComponent(b.batch_id) + '&from=voucher-register';
+    return '/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(b.batch_id) + '&from=voucher-register';
   }
 
   function statusCell(b) {
     if (b.reverses) {
       return '<span class="badge b-reversal">Reversal</span>'
-        + ' <a class="rev-link" href="/' + COMPANY + '/journal/new?batch=' + encodeURIComponent(b.reverses) + '&from=voucher-register" target="_parent">of ' + esc(String(b.reverses).slice(0, 8)) + '</a>';
+        + ' <a class="rev-link" href="/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(b.reverses) + '&from=voucher-register" target="_parent">of ' + esc(String(b.reverses).slice(0, 8)) + '</a>';
     }
     if (b.reversed_by) {
       return '<span class="badge b-reversed">Reversed</span>'
-        + ' <a class="rev-link" href="/' + COMPANY + '/journal/new?batch=' + encodeURIComponent(b.reversed_by) + '&from=voucher-register" target="_parent">by ' + esc(String(b.reversed_by).slice(0, 8)) + '</a>';
+        + ' <a class="rev-link" href="/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(b.reversed_by) + '&from=voucher-register" target="_parent">by ' + esc(String(b.reversed_by).slice(0, 8)) + '</a>';
     }
     return '<span class="badge b-posted">Posted</span>';
   }

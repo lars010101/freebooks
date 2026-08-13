@@ -105,7 +105,7 @@ async function run(chromium) {
   const jsErrors = [];
   page.on('pageerror', e => jsErrors.push(String(e)));
 
-  await page.goto(`${BASE}/${CO}/journal/new`, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/${CO}/journal/voucher`, { waitUntil: 'networkidle' });
   ok('page loads with zero JS errors', jsErrors.length === 0, jsErrors.join(' | ').slice(0, 200));
 
   // Sanity: introspection handle present, starts NORMAL, not reversing.

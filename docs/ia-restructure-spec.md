@@ -39,7 +39,7 @@ Three concrete issues, verified against the current code (not just the docs):
 | `settings` | `/:company/settings` | Settings | ⚙ | `g s` · palette | **slimmed** — Company · Posting Rules · AI |
 | `admin` | `/:company/admin` | Admin | 🛠 | `g a` · palette | **new** — Companies · Operations |
 
-Unchanged non-sidebar entries (`journal-new`, `opening-balances`, `new-company`) carry over as-is.
+Unchanged non-sidebar entries (`journal-voucher`, `opening-balances`, `new-company`) carry over as-is.
 
 ### 0.1 Correction: "sidebar-reachable" is not a real reachability path today
 

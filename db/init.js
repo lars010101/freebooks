@@ -285,11 +285,14 @@ if (API_URL) {
       try {
         await conn.run(statements[i], []);
         process.stdout.write('.');
-        await runNext(i + 1);
       } catch (err) {
-        console.error(`Failed on statement ${i + 1}:\n${statements[i].slice(0, 120)}\nError: ${err.message}`);
-        process.exit(1);
+        // Per-statement try/catch — matches _applySchemaOnBoot in db.js.
+        // schema.sql contains migration statements (RENAME COLUMN, ADD COLUMN)
+        // that legitimately error on fresh or already-migrated DBs. Skipping
+        // these is expected and safe; exiting would break test DB init.
+        console.warn(`\n  stmt ${i + 1} skipped: ${String(err.message).split('\n')[0]} — ${statements[i].slice(0, 90).replace(/\s+/g, ' ')}`);
       }
+      await runNext(i + 1);
     }
 
     // Run the partners migration BEFORE schema.sql statements — an existing

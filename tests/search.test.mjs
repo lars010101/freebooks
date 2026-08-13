@@ -161,7 +161,7 @@ async function main() {
       ok('journal label is the reference',
         r.results.some((x) => x.label === '00001'));
       ok('journal route targets the batch',
-        r.results.some((x) => x.route === '/journal/new?batch=batch-srch-1'));
+        r.results.some((x) => x.route === '/journal/voucher?batch=batch-srch-1'));
       // Distinct on batch_id: two entries share batch-srch-1 → one row.
       ok('journal scope dedupes by batch_id',
         r.results.filter((x) => x.id === 'batch-srch-1').length === 1);

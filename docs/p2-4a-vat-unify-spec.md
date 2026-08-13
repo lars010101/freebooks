@@ -17,7 +17,7 @@ netAmount = roundCurrency(gross / (1 + rate))
 vatAmount = gross - netAmount
 ```
 
-The posted `journal_entries` row keeps the *gross* in `debit`/`credit` — i.e. the user-entered Debit field becomes the gross line, with `net_amount` and `vat_amount` columns holding the back-calculated split. The journal UI (`journal-new.js`) has a Tax Code column, but the semantic is opaque: the user enters a gross amount in the Debit/Credit field and the system silently splits it with no visible feedback. This is the same `computeVatSplit` that bank import uses (see §1.2) — a single shared function that bakes the tax-inclusive assumption into both surfaces.
+The posted `journal_entries` row keeps the *gross* in `debit`/`credit` — i.e. the user-entered Debit field becomes the gross line, with `net_amount` and `vat_amount` columns holding the back-calculated split. The journal UI (`journal-voucher.js`) has a Tax Code column, but the semantic is opaque: the user enters a gross amount in the Debit/Credit field and the system silently splits it with no visible feedback. This is the same `computeVatSplit` that bank import uses (see §1.2) — a single shared function that bakes the tax-inclusive assumption into both surfaces.
 
 ### 1.2 `bank.js` — bank import path (line 811–821)
 
@@ -147,7 +147,7 @@ CR output VAT account, vatAmount  (paired)
 
 The original line stays at the full net `amount`. The RC pair nets to zero inside the batch. This is identical to `bills.js:407–413` and simpler than the current tax-inclusive path (which first back-calculates net from gross, then computes RC on the gross). No special handling.
 
-## 4. UI changes — `journal-new.js`
+## 4. UI changes — `journal-voucher.js`
 
 The Tax Code column already exists on the journal entry screen. The semantic change is: **the Debit/Credit the user enters IS the net amount when a Tax Code is set.** The system computes the VAT and posts it as a separate line. The UI must make this visible so the user isn't surprised by an extra VAT line on the posted batch.
 
@@ -201,7 +201,7 @@ Per §2.2, no toggle. QBO and Xero don't have one on journal entries. Adding one
 
 7. **Migration guard:** existing `journal_entries` rows are untouched — assert no row's `debit`/`credit` changed after deploy (compare a snapshot of `journal_entries` before and after).
 
-8. **UI readout:** on the journal-new page, selecting a Tax Code and typing 1,000 in a Debit cell shows a live `VAT 250.00` readout; the balance indicator includes the computed VAT.
+8. **UI readout:** on the journal-voucher page, selecting a Tax Code and typing 1,000 in a Debit cell shows a live `VAT 250.00` readout; the balance indicator includes the computed VAT.
 
 9. **Agent proposal path:** `journal.propose` with a VAT code produces a tax-exclusive expanded batch; `journal.approve` posts it via the same core; the inbox review surface shows both lines.
 
@@ -227,7 +227,7 @@ Per §2.2, no toggle. QBO and Xero don't have one on journal entries. Adding one
 |------|--------|
 | `api/src/journal.js` | `enrichAndValidate` (line 76–82): tax-exclusive VAT compute (`vatAmount = amount * rate`, `netAmount = amount`); add per-line VAT expansion (separate VAT journal line, mirroring `bills.js:329–353`); RC pairs. |
 | `api/src/vat.js` | Rename `computeVatSplit` → `computeVatSplitGross` (or JSDoc `grossAmount` tax-inclusive). `expandVatLines` unchanged. No longer imported by `journal.js`. |
-| `api/src/pages/journal-new.js` | Read-only computed-VAT readout per line; balance indicator includes computed VAT; no gross/net toggle. |
+| `api/src/pages/journal-voucher.js` | Read-only computed-VAT readout per line; balance indicator includes computed VAT; no gross/net toggle. |
 | `api/src/bank.js` | No logic change. Update the call-site comment to document *why* bank import is tax-inclusive while journal entries are not. |
 | `tests/journal-vat.test.js` (new) | Contract tests for §6 cases 1–3, 7, 9. |
 | `tests/bank-vat.test.js` (new or extend) | Regression: bank import split unchanged (cases 4–5). |

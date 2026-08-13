@@ -17,7 +17,7 @@ const { renderReport, renderComparative, generatePeriods, generateYoYPeriods, ge
 const { handleIndex } = require('./pages/index-page');
 const { handleCompanyPage } = require('./pages/company');
 const { handleSettingsPage } = require('./pages/settings');
-const { handleJournalNewPage } = require('./pages/journal-new');
+const { handleJournalVoucherPage } = require('./pages/journal-voucher');
 const { handleJournalPage } = require('./pages/journal');
 const { handleInboxPage } = require('./pages/inbox');
 const { handleBillEditPage } = require('./pages/bill-edit');
@@ -249,7 +249,7 @@ function mountReportRoutes(app) {
     // inside Reports; the reverse verb is surfaced on each voucher row.
     res.redirect(302, '/' + req.params.company + '/reports?t=voucher-register');
   });
-  app.get('/:company/journal/new', handleJournalNewPage);
+  app.get('/:company/journal/voucher', handleJournalVoucherPage);
   app.get('/:company/bill/edit', handleBillEditPage);
   app.get('/:company/bill/:id', handleBillDetailPage);
   app.get('/:company/bills', handleBillsPage);

@@ -48,9 +48,6 @@ ${commonStyle()}
       <h1>Journal Voucher</h1>
       <p class="sub">
         <span id="jv-status-badge" class="st-badge st-new">New</span>
-        <span style="margin-left:8px">${company}</span>
-        <span style="margin-left:12px;color:#888;font-size:9pt">Ref:</span>
-        <span id="jv-reference" style="font-weight:600;margin-left:4px"></span>
       </p>
     </div>
     <button class="btn-sm" id="btn-reversal-mode" onclick="toggleReversalMode()" style="margin-top:8px">⟲ Reversal</button>
@@ -68,6 +65,7 @@ ${commonStyle()}
   <div class="header-fields">
     <label>Date <input type="date" id="entry-date"></label>
     <label>Journal <select id="entry-journal" style="width:180px;height:32px;padding:4px 6px"><option value="">— loading —</option></select></label>
+    <label>Ref <input type="text" id="jv-reference" readonly style="width:80px;background:#f5f5f5;border:1px solid #ddd;border-radius:3px;padding:4px 6px;font-size:10pt"></label>
     <label>Description <input type="text" id="entry-desc" placeholder="e.g. Salary payment" style="width:240px"></label>
   </div>
 
@@ -143,7 +141,7 @@ ${commonStyle()}
   }
   function setReference(ref) {
     var el = document.getElementById('jv-reference');
-    if (el) el.textContent = ref || '';
+    if (el) el.value = ref || '';
   }
 
   fetch('/api/' + COMPANY + '/accounts')

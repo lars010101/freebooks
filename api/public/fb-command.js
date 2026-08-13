@@ -22,7 +22,7 @@
   var ALIASES = {
     'post': {
       action: 'journal.post',
-      grammar: '<amount> <account> [from <account>] [due <date>] [!]',
+      grammar: '<amount> <account> [from <account>] [on <date>] [!]',
       bang: true,
       parse: parsePost
     },
@@ -218,14 +218,14 @@
     if (bang) {
       return {
         action: 'journal.post',
-        params: { amount: amount, account: pos[1], fromAccount: ex.slots.from || null, date: ex.slots.due ? parseDate(ex.slots.due) : null },
+        params: { amount: amount, account: pos[1], fromAccount: ex.slots.from || null, date: ex.slots.on ? parseDate(ex.slots.on) : null },
         commitMode: 'direct',
         warnings: warnings
       };
     }
     return {
       route: '/journal/new',
-      prefill: { amount: amount, account: pos[1], fromAccount: ex.slots.from || null, date: ex.slots.due ? parseDate(ex.slots.due) : null },
+      prefill: { amount: amount, account: pos[1], fromAccount: ex.slots.from || null, date: ex.slots.on ? parseDate(ex.slots.on) : null },
       commitMode: 'form',
       warnings: warnings
     };

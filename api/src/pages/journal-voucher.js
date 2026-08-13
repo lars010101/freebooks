@@ -46,10 +46,14 @@ ${commonStyle()}
   /* Posted/view mode: flatten header fields to plain text — no borders,
      no input backgrounds. Matches the read-only line items below. */
   .header-fields.jv-flat-readonly input,
-  .header-fields.jv-flat-readonly select { border:none !important; background:transparent !important; box-shadow:none; outline:none; padding:4px 0; font-size:10pt; }
+  .header-fields.jv-flat-readonly select { border:none !important; background:transparent !important; box-shadow:none !important; outline:none !important; padding:4px 0 !important; font-size:10pt; -webkit-appearance:none; -moz-appearance:none; appearance:none; }
+  .header-fields.jv-flat-readonly input[type="date"]::-webkit-inner-spin-button,
+  .header-fields.jv-flat-readonly input[type="date"]::-webkit-clear-button,
+  .header-fields.jv-flat-readonly input[type="date"]::-webkit-calendar-picker-indicator { display:none !important; }
+  .header-fields.jv-flat-readonly select::-ms-expand { display:none; }
   .header-fields.jv-flat-readonly input:disabled,
   .header-fields.jv-flat-readonly select:disabled,
-  .header-fields.jv-flat-readonly input[readonly] { background:transparent !important; color:#333; -webkit-text-fill-color:#333; opacity:1; }
+  .header-fields.jv-flat-readonly input[readonly] { background:transparent !important; color:#333; -webkit-text-fill-color:#333; opacity:1; padding:4px 0 !important; }
 </style>
 </head>
 <body>${navBar(company, 'newjv')}

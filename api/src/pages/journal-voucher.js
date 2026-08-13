@@ -39,6 +39,10 @@ ${commonStyle()}
   .st-new { background:#e3f2fd; color:#1565c0; }
   .st-posted { background:#e8f5e9; color:#2e7d32; }
   .st-reversed { background:#ffebee; color:#c62828; }
+  /* Normalize disabled/readonly header fields to the same gray background
+     so posted/view-mode fields don't get browser-default mismatched shades. */
+  .header-fields input:disabled, .header-fields select:disabled,
+  .header-fields input[readonly] { background:#f5f5f5 !important; }
 </style>
 </head>
 <body>${navBar(company, 'newjv')}
@@ -65,8 +69,8 @@ ${commonStyle()}
   <div class="header-fields">
     <label>Date <input type="date" id="entry-date"></label>
     <label>Journal <select id="entry-journal" style="width:180px;height:32px;padding:4px 6px"><option value="">— loading —</option></select></label>
-    <label>Ref <input type="text" id="jv-reference" readonly style="width:80px;background:#f5f5f5;border:1px solid #ddd;border-radius:3px;padding:4px 6px;font-size:10pt"></label>
-    <label>Description <input type="text" id="entry-desc" placeholder="e.g. Salary payment" style="width:240px"></label>
+    <label>Doc Nr <input type="text" id="jv-reference" readonly style="width:80px;border:1px solid #ddd;border-radius:3px;padding:4px 6px;font-size:10pt"></label>
+    <label>Description <input type="text" id="entry-desc" placeholder="e.g. Salary payment" style="flex:1;min-width:240px"></label>
   </div>
 
   <table class="jv-table">

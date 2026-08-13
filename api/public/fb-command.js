@@ -224,7 +224,7 @@
       };
     }
     return {
-      route: '/journal/new',
+      route: '/journal/voucher',
       prefill: { amount: amount, account: pos[1], fromAccount: ex.slots.from || null, date: ex.slots.on ? parseDate(ex.slots.on) : null },
       commitMode: 'form',
       warnings: warnings

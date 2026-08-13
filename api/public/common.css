@@ -436,7 +436,7 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 .header h1 { font-size: clamp(1.25rem, 1.25vw + 0.875rem, 1.667rem); font-weight: 700; }
 .header .sub { color: var(--text-muted); font-size: 0.833rem; margin-top: 4px; }
 
-/* ---- Shared form components (extracted from journal-new + bill-edit) ---- */
+/* ---- Shared form components (extracted from journal-voucher + bill-edit) ---- */
 
 /* Form header fields (flex row of labeled inputs) */
 .header-fields { display:flex; gap:16px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap; }

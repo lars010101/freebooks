@@ -11,7 +11,7 @@
  * page declares its delete/download handlers; the machine owns j/k focus + x.
  * Pages that already have a combined j/k nav (bill-detail: meta→lines→attach)
  * do NOT use createNav — they fold attachment rows into their own nav and only
- * use rowHtml. Pages with a standalone attachment panel (journal-new) use both.
+ * use rowHtml. Pages with a standalone attachment panel (journal-voucher) use both.
  *
  * NOT FB.list: attachments are read-only display rows (no inline edit, no add
  * row — `A` is the create verb, not an add row). FB.list is for editable

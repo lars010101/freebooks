@@ -766,8 +766,8 @@ const PALETTE = {
   // Execute directly
   'fx.fetch_rates':         { palette: 'execute', label: 'Fetch exchange rates' },
   // Navigate to form — create actions use &new=1 to auto-activate add-entry
-  'journal.post':           { palette: 'navigate', route: '/journal/new', label: 'New journal entry', create: true },
-  'journal.import':         { palette: 'navigate', route: '/journal/new', label: 'New journal entry', create: true },
+  'journal.post':           { palette: 'navigate', route: '/journal/voucher', label: 'New journal entry', create: true },
+  'journal.import':         { palette: 'navigate', route: '/journal/voucher', label: 'New journal entry', create: true },
   'bill.create':            { palette: 'navigate', route: '/bill/edit', label: 'New bill', create: true },
   'bill.draft.save':        { palette: 'navigate', route: '/bill/edit', label: 'New bill', create: true },
   'coa.save':               { palette: 'navigate', route: '/master-data?tab=coa&new=1', label: 'New account', create: true },

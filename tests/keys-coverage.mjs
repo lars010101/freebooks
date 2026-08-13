@@ -1,13 +1,13 @@
 // K5 — keyboard-coverage gate, SINGLE-SCREEN (agent-first UI doctrine,
 // ratified 2026-07-31, roadmap §0q): full key-coverage assertions run on
-// ONE representative screen — journal-new (richest FB.form surface, primary
+// ONE representative screen — journal-voucher (richest FB.form surface, primary
 // human write path, self-checking verb exemptions R/a/w). Framework-level
 // behavior is verified once there, not per tab.
 //
 // Every other route gets a SMOKE check only: page loads with zero uncaught
 // JS errors (catches dead pages and load-time regressions).
 //
-// Gate-route assertions (journal-new):
+// Gate-route assertions (journal-voucher):
 //   b. FB.keys.hasActive() — a registered binding set is live
 //   c. the hint surface (#sb-hints or an inline .fb-hint-bar) is non-empty
 //   d. FB.keys.audit() shows ≥1 ACTIVE set with ≥1 NORMAL binding
@@ -35,7 +35,7 @@ const BASE = 'http://127.0.0.1:4722';
 const CO = 'testco';
 
 // The single gate route (agent-first UI doctrine 2026-07-31, roadmap §0q).
-const GATE_ROUTE = 'journal-new';
+const GATE_ROUTE = 'journal-voucher';
 
 // Ratified exemptions — GATE ROUTE ONLY (all other routes are smoke-checked:
 // page load + zero JS errors; their former exemption tables are in git
@@ -43,7 +43,7 @@ const GATE_ROUTE = 'journal-new';
 // live binding with that key exists on the route, so the exemption breaks
 // loudly if the verb is removed. Match by `id`, exact `text`, or `sel`.
 const EXEMPTIONS = {
-  'journal-new': [
+  'journal-voucher': [
     { id: 'btn-reversal-mode', verb: 'R', reason: 'verb parity — R toggles reversal mode' },
     { text: '+ Add Line', verb: 'a', reason: 'verb parity — a adds a line' },
     { id: 'btn-post', verb: 'w', reason: 'verb parity — w posts the entry' },

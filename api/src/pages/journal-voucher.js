@@ -1,23 +1,23 @@
 'use strict';
 const { commonStyle, navBar, layoutEnd, getRelevanceFlags } = require('./common');
 
-async function handleJournalNewPage(req, res) {
+async function handleJournalVoucherPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   // Relevance flags (settings-ux-spec §7 item 9): vatRegistered=false drops the
   // Tax Code column + the vat-codes fetch — journal lines carry no tax tags.
   const flags = await getRelevanceFlags(company);
-  res.send(buildJournalNewPage(company, flags));
+  res.send(buildJournalVoucherPage(company, flags));
 }
 
 
-function buildJournalNewPage(company, flags) {
+function buildJournalVoucherPage(company, flags) {
   const vatOn = !flags || flags.vatRegistered !== false;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>New JV — freeBooks</title>
+<title>Journal Voucher — freeBooks</title>
 ${commonStyle()}
 <style>
   table.jv-table { width:100%; border-collapse:collapse; font-size:10pt; }
@@ -34,14 +34,24 @@ ${commonStyle()}
   /* A1 (magnus 2026-07-28): read-only original-entry rows shown above the
      swapped reversal rows. Plain-text <td>s (no inputs) — grayed + italic. */
   .jv-orig-hdr td, .jv-orig-line td { color:#999; background:#f5f5f5; font-style:italic; }
+  /* Status badges (Journal Voucher form) */
+  .st-badge { display:inline-block; padding:1px 8px; border-radius:9px; font-size:8.5pt; font-weight:600; text-transform:uppercase; letter-spacing:.02em; }
+  .st-new { background:#e3f2fd; color:#1565c0; }
+  .st-posted { background:#e8f5e9; color:#2e7d32; }
+  .st-reversed { background:#ffebee; color:#c62828; }
 </style>
 </head>
 <body>${navBar(company, 'newjv')}
 <div class="page">
   <div class="header" style="display:flex;justify-content:space-between;align-items:flex-start">
     <div>
-      <h1 id="jv-mode-title">New JV</h1>
-      <p class="sub">${company}</p>
+      <h1>Journal Voucher</h1>
+      <p class="sub">
+        <span id="jv-status-badge" class="st-badge st-new">New</span>
+        <span style="margin-left:8px">${company}</span>
+        <span style="margin-left:12px;color:#888;font-size:9pt">Ref:</span>
+        <span id="jv-reference" style="font-weight:600;margin-left:4px"></span>
+      </p>
     </div>
     <button class="btn-sm" id="btn-reversal-mode" onclick="toggleReversalMode()" style="margin-top:8px">⟲ Reversal</button>
   </div>
@@ -121,6 +131,20 @@ ${commonStyle()}
   var VIEW_BATCH = new URLSearchParams(window.location.search).get('batch');
   var FROM_REPORT = new URLSearchParams(window.location.search).get('from');
   var viewBatchLines = null, viewBatchRef = '', viewBatchDate = '', viewBatchDesc = '';
+  var viewBatchReversed = false;
+
+  // ── Status badge + reference field ───────────────────────────────────
+  // jvStatus: 'new' | 'posted' | 'reversed' (client-side inferred).
+  function updateStatusBadge(status) {
+    var el = document.getElementById('jv-status-badge');
+    if (!el) return;
+    el.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    el.className = 'st-badge st-' + status;
+  }
+  function setReference(ref) {
+    var el = document.getElementById('jv-reference');
+    if (el) el.textContent = ref || '';
+  }
 
   fetch('/api/' + COMPANY + '/accounts')
     .then(r => r.json())
@@ -206,7 +230,7 @@ ${commonStyle()}
       +'<td><input type="number" class="debit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="number" class="credit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="text" class="desc-input" style="width:160px" placeholder="optional"></td>'
-      +(VAT_ON ? '<td><select class="tax-select" style="width:120px" onchange="updateTotals()"><option value="">\\u2014 none \\u2014</option></select></td>' : '')
+      +(VAT_ON ? '<td><select class="tax-select" style="width:120px" onchange="updateTotals()"><option value="">\u2014 none \u2014</option></select></td>' : '')
       +(VAT_ON ? '<td class="vat-display" style="width:70px;text-align:right;color:#555">0.00</td>' : '')
       +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove(); updateTotals()">&times;</button></td>';
     document.getElementById('lines-body').appendChild(tr);
@@ -364,13 +388,9 @@ ${commonStyle()}
           document.getElementById('jv-attachment-panel').style.display = '';
           document.getElementById('jv-attachments-list').innerHTML = '<span style="color:#aaa;font-size:9pt">No attachments yet</span>';
           uploadPendingJvAttachments(d.batchId).then(function() { if (currentBatchId) loadJvAttachments(); });
-          setTimeout(() => {
-            document.getElementById('lines-body').innerHTML = '';
-            document.getElementById('entry-desc').value = '';
-            addLine(); addLine();
-            updateTotals();
-            document.getElementById('status-msg').textContent = '';
-          }, 2000);
+          // Stay on the posted JV: render it read-only with status + reference
+          // instead of resetting to a blank form.
+          renderPostedVoucher(d);
         }
       })
       .catch(e => { showStatus(e.message, true); document.getElementById('btn-post').disabled = false; });
@@ -449,8 +469,9 @@ ${commonStyle()}
     var descEl = document.getElementById('entry-desc');
     descEl.value = viewBatchDesc;
     descEl.readOnly = true;
-    document.getElementById('jv-mode-title').textContent = 'View JV';
-    document.title = 'View JV — freeBooks';
+    document.title = 'Journal Voucher — freeBooks';
+    updateStatusBadge(viewBatchReversed ? 'reversed' : 'posted');
+    setReference(viewBatchRef);
     var body = document.getElementById('lines-body');
     body.innerHTML = '';
     var dr = 0, cr = 0;
@@ -484,6 +505,53 @@ ${commonStyle()}
     loadJvAttachments();
   }
 
+  // ── Post-stay mode ──────────────────────────────────────────────────
+  // After a successful post, render the posted lines read-only (same as
+  // view mode) using the post-response data instead of a separate fetch.
+  // Updates status → Posted, sets the reference, disables all inputs.
+  function renderPostedVoucher(d) {
+    var postedLines = d.rows || [];
+    var postedRef = d.reference || '';
+    var dateEl = document.getElementById('entry-date');
+    dateEl.disabled = true;
+    var jSel = document.getElementById('entry-journal');
+    jSel.disabled = true;
+    var descEl = document.getElementById('entry-desc');
+    descEl.readOnly = true;
+    updateStatusBadge('posted');
+    setReference(postedRef);
+    var body = document.getElementById('lines-body');
+    body.innerHTML = '';
+    var dr = 0, cr = 0;
+    postedLines.forEach(function (l) {
+      dr += parseFloat(l.debit || 0); cr += parseFloat(l.credit || 0);
+      var tr = document.createElement('tr');
+      tr.className = 'jv-view-line';
+      tr.innerHTML = '<td>' + esc(l.account_code || '') + '</td>'
+        + '<td>' + esc(accountsMap[l.account_code] || '') + '</td>'
+        + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
+        + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
+        + '<td>' + esc(l.description || '') + '</td>'
+        + (VAT_ON ? '<td>' + esc(l.vat_code || '') + '</td>' : '')
+        + (VAT_ON ? '<td class="num">' + (parseFloat(l.vat_amount || 0) || 0).toFixed(2) + '</td>' : '')
+        + '<td></td>';
+      body.appendChild(tr);
+    });
+    document.getElementById('total-dr').textContent = dr.toFixed(2);
+    document.getElementById('total-cr').textContent = cr.toFixed(2);
+    var postedVat = Math.round(postedLines.reduce(function (s, l) { return s + parseFloat(l.vat_amount || 0); }, 0) * 100) / 100;
+    var vatEl = document.getElementById('total-vat');
+    if (vatEl) vatEl.textContent = postedVat.toFixed(2);
+    var diff = Math.round((dr - cr) * 100) / 100;
+    var diffEl = document.getElementById('total-diff');
+    diffEl.textContent = diff.toFixed(2);
+    diffEl.style.color = diff === 0 ? '#2a8a2a' : '#cc2222';
+    setCreateControls(false);
+    document.getElementById('jv-pre-attach-section').style.display = 'none';
+    document.getElementById('jv-attachment-panel').style.display = '';
+    jvForm.refresh();
+  }
+
   function initViewMode() {
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'journal.get', companyId: COMPANY, batchId: VIEW_BATCH }) })
@@ -495,6 +563,7 @@ ${commonStyle()}
         viewBatchRef = lines[0].reference || '';
         viewBatchDate = lines[0].date ? String(lines[0].date).slice(0, 10) : '';
         viewBatchDesc = lines[0].description || viewBatchRef || '';
+        viewBatchReversed = !!lines[0].reversed_by;
         renderViewMode();
       })
       .catch(function (e) { showStatus(e.message, true); });
@@ -504,9 +573,7 @@ ${commonStyle()}
   // swapped rows directly from the already-loaded batch data.
   function toggleViewReversalMode() {
     reversalMode = !reversalMode;
-    var titleEl = document.getElementById('jv-mode-title');
     var btn = document.getElementById('btn-reversal-mode');
-    titleEl.textContent = reversalMode ? 'Reversal Entry' : 'View JV';
     btn.textContent = reversalMode ? '\u2715 Cancel Reversal' : '\u27f2 Reversal';
     btn.style.background = reversalMode ? '#f0e8ff' : '';
     document.getElementById('reversal-panel').style.display = 'none';
@@ -550,7 +617,6 @@ ${commonStyle()}
     if (VIEW_BATCH && viewBatchLines) return toggleViewReversalMode();
     reversalMode = !reversalMode;
     document.getElementById('reversal-panel').style.display = reversalMode ? '' : 'none';
-    document.getElementById('jv-mode-title').textContent = reversalMode ? 'Reversal Entry' : 'New JV';
     document.getElementById('btn-reversal-mode').textContent = reversalMode ? '\u2715 Cancel Reversal' : '\u27f2 Reversal';
     document.getElementById('btn-reversal-mode').style.background = reversalMode ? '#f0e8ff' : '';
     if (!reversalMode) {
@@ -733,7 +799,7 @@ ${commonStyle()}
   // declares config + verbs only. Zones: reversal panel (present only in
   // reversal mode) → header fields → the JV line grid.
   var jvForm = FB.form.create({
-    formId: 'journal-new',
+    formId: 'journal-voucher',
     zones: [
       { id: 'reversal', rows: function () { return reversalMode ? [document.getElementById('reversal-panel')] : []; } },
       { id: 'header',   rows: function () { return [document.querySelector('.header-fields')]; } },
@@ -813,7 +879,7 @@ ${commonStyle()}
       ];
     }
   });
-  FB.keys.renderHints('journal-new', document.getElementById('sb-hints'), { layout: 'list' });
+  FB.keys.renderHints('journal-voucher', document.getElementById('sb-hints'), { layout: 'list' });
   // Test/introspection handle (read-only): lets the committed regression
   // suite (tests/reversal.mjs) assert cursor zone/mode/reversal state without
   // poking closures. No behavior change.
@@ -828,4 +894,4 @@ ${layoutEnd()}
 </html>`;
 }
 
-module.exports = { handleJournalNewPage };
+module.exports = { handleJournalVoucherPage };

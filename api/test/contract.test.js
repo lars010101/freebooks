@@ -1790,7 +1790,7 @@ test('A4 approve re-points attachments: journal_proposal → journal/batchId (at
   const leftover = await attachmentsFor('journal_proposal', proposalId);
   assert.equal(leftover.length, 0, 'no attachments left on the journal_proposal entity after re-point');
 
-  // The journal-new-style query (entity_type='journal', entity_id=batchId) finds them.
+  // The journal-voucher-style query (entity_type='journal', entity_id=batchId) finds them.
   const journalList = await api(baseUrl, 'attachment.list', { companyId: CO, entityType: 'journal', entityId: batchId });
   assert.equal(journalList.status, 200, JSON.stringify(journalList.body));
   assert.equal(journalList.body.data.length, 2, 'attachment.list(journal, batchId) returns the 2 re-pointed rows');

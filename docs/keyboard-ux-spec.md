@@ -17,7 +17,7 @@ a viewer plus a small human correction surface. Consequences for this spec:
 - **The verb surface is frozen.** No new keyboard verbs without explicit
   magnus ratification (P2-6 rebinding is dropped).
 - **The coverage gate is single-screen.** `test:keys` runs the full
-  key-coverage assertions on journal-new only; every other route is
+  key-coverage assertions on journal-voucher only; every other route is
   smoke-checked (loads, zero uncaught JS errors). Per-screen exemption
   tables were retired with the crawl (git history keeps them).
 - **New scope ships API-first.** UI for new features is read-only rendering
@@ -123,7 +123,7 @@ support on those pages) so the row lands on the actual workflow, not the
 page's default tab (magnus K1 review 2026-07-28).
 
 **Dedupe rule:** the registry carries the decision. Routes already covered by
-an action-catalog `navigate` entry (`/journal/new`, `/setup/new-company`)
+an action-catalog `navigate` entry (`/journal/voucher`, `/setup/new-company`)
 keep `palette: false` — their catalog action labels describe the
 destination well enough. `/bank/import` moved to the registry (`palette:
 true`) because the catalog `bank.process` description lacked the word
@@ -275,7 +275,7 @@ config + verbs only — no per-page key handlers (FB.list doctrine).
 strip (Bank/Import, Settings/Opening Balances), `h`/`l` switch TABS —
 common.js's bubble handler owns them, so FB.form drops its `h`/`l` cell
 bindings at `create()` (hints stay truthful). Horizontal cell movement on
-tabbed pages is Tab/Shift+Tab only. Tabless FB.form pages (journal-new,
+tabbed pages is Tab/Shift+Tab only. Tabless FB.form pages (journal-voucher,
 reports-hub, new-company) keep `h`/`l` cell nav.
 
 Dropdown routing in INSERT is identical to fb-list (arrows move, Enter/Tab
@@ -321,7 +321,7 @@ the "stay NORMAL" design. Mouse click still opens the native popup
 forms (reports filter bar: one row, N control cells) therefore navigate
 `h`/`l`, not `j`/`k`.
 
-**journal-new pilot:** zones = reversal panel (present only in reversal
+**journal-voucher pilot:** zones = reversal panel (present only in reversal
 mode) → header (date/journal/desc) → JV line grid. `a` add line (cursor +
 edit), `x` delete line, `w` post (disabled-guard), `q` quit, `R` reversal
 mode (focus search; arrows/Enter navigate results, Esc cancels reversal
@@ -426,7 +426,7 @@ property on the iframe document.
   attach everywhere** — legacy pages (common.js `fbKeyActions` dispatcher)
   route shift-a to a page-registered `attach` verb (bill-detail; its old
   `a` = attach is retired); FB.form pages declare `A` as an extraBinding
-  (journal-new). Attachment queues are **FB.form zones** (journal-new
+  (journal-voucher). Attachment queues are **FB.form zones** (journal-voucher
   pending queue: `j`/`k` rows, `x` removes the staged file) or shared
   `.fb-attach-row` markup + `FB.attachments` helpers (api/public/
   fb-attachments.js: rowHtml, emptyHtml, createNav). Architectural
@@ -443,7 +443,7 @@ property on the iframe document.
   ratified 2026-07-28) wired to the same persistence as the checkbox. K4
   closes the item with end-to-end verification (toggle + persistence), no
   new code. K4 also fixed a K3c regression: the default `active()` guard
-  checked zone 0 only — journal-new (reversal zone empty at rest) and
+  checked zone 0 only — journal-voucher (reversal zone empty at rest) and
   bank-import (bill panel closed at rest) were key-dead; the guard now
   scans ALL zones.
 - **K5 (shipped 2026-07-28)** — Coverage gate, not CI (repo has no CI

@@ -58,8 +58,8 @@ const backCell = await p.evaluate(() => { const el = document.querySelector('.fb
 ok('k returns to the CREDIT cell of the original row (column preserved)', backCell.side === 'cr' && backCell.code === crCode);
 
 // ── #5: NORMAL Tab crosses from header into the grid ──
-console.log('[4] journal-new Tab traversal');
-await p.goto(`${BASE}/${CO}/journal/new`, { waitUntil: 'networkidle' });
+console.log('[4] journal-voucher Tab traversal');
+await p.goto(`${BASE}/${CO}/journal/voucher`, { waitUntil: 'networkidle' });
 await p.waitForTimeout(700);
 for (let i = 0; i < 3; i++) { await p.keyboard.press('Tab'); await p.waitForTimeout(120); } // date→journal→desc→(cross)
 const inGrid = await p.evaluate(() => { const el = document.querySelector('.fb-form-cursor'); return !!(el && el.closest('#lines-body')); });
@@ -88,10 +88,10 @@ await p.keyboard.press('Escape'); await p.waitForTimeout(150);
 console.log('[6] reversal flow');
 const tildeFree = await p.evaluate(() => {
   const a = FB.keys.audit();
-  const set = a.find(s => s.name === 'journal-new');
+  const set = a.find(s => s.name === 'journal-voucher');
   return !set.bindings.some(b => b.key === '~');
 });
-ok('journal-new has no ~ binding (moved to R)', tildeFree);
+ok('journal-voucher has no ~ binding (moved to R)', tildeFree);
 await p.keyboard.press('R');
 await p.waitForTimeout(300);
 ok('R opens reversal panel + focuses search', await p.evaluate(() =>

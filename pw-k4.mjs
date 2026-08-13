@@ -74,8 +74,8 @@ const instrumentFileInput = sel => page.evaluate(s => {
 }, sel);
 const clickCount = sel => page.evaluate(s => (document.querySelector(s) || {})._k4 || 0, sel);
 
-console.log('\n[1] journal-new — A attach + queue zone j/k/x + K3c regression (keys alive with empty reversal zone)');
-await page.goto(`${BASE}/${CO}/journal/new`, { waitUntil: 'networkidle' });
+console.log('\n[1] journal-voucher — A attach + queue zone j/k/x + K3c regression (keys alive with empty reversal zone)');
+await page.goto(`${BASE}/${CO}/journal/voucher`, { waitUntil: 'networkidle' });
 await instrumentFileInput('#jv-pre-attach-input');
 await page.keyboard.press('A');
 await page.waitForTimeout(150);
@@ -110,7 +110,7 @@ ok('A still attaches after queue ops', (await clickCount('#jv-pre-attach-input')
 const linesBefore = await page.locator('#lines-body tr').count();
 await page.keyboard.press('a');
 await page.waitForTimeout(150);
-ok('journal-new keys alive (a adds a line — empty reversal zone regression)', (await page.locator('#lines-body tr').count()) === linesBefore + 1);
+ok('journal-voucher keys alive (a adds a line — empty reversal zone regression)', (await page.locator('#lines-body tr').count()) === linesBefore + 1);
 
 console.log('\n[2] bill-detail — legacy A = attach (a retired)');
 await page.goto(`${BASE}/${CO}/bill/${BILL_ID}`, { waitUntil: 'networkidle' });

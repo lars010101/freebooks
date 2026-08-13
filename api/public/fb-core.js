@@ -565,19 +565,198 @@
     function _removeGhost() {
       if (_ghostEl) { _ghostEl.remove(); _ghostEl = null; }
     }
+    // ── Grammar-segment parser (for dynamic ghost text progression) ───────────
+    // Parses a grammar hint string (e.g. '<amount> <account> [from <account>]
+    // [due <date>] [!]') into ordered segment objects that can be consumed
+    // against the user's typed tokens.  Segment types:
+    //   placeholder  — <amount>, consumes 1 user token (any value)
+    //   keyword      — bare word (from/due/on/...), consumed only on exact match
+    //   optional     — [from <account>], sub-segments entered on keyword match
+    //   alternatives — [vat <amt>|net <amt>|rc] or top-level a | b
+    //   bang         — [!], consumed if user typed '!'
+
+    // Split a grammar string by top-level '|' (depth-0, outside [] and <>).
+    function _splitTopLevelAlts(s) {
+      var result = [], depth = 0, start = 0;
+      for (var k = 0; k < s.length; k++) {
+        if (s[k] === '[' || s[k] === '<') depth++;
+        else if (s[k] === ']' || s[k] === '>') depth--;
+        else if (s[k] === '|' && depth === 0) {
+          result.push(s.slice(start, k).trim());
+          start = k + 1;
+        }
+      }
+      result.push(s.slice(start).trim());
+      return result;
+    }
+
+    function _parseGrammarSegments(grammar) {
+      var s = grammar.trim();
+      // Top-level alternatives (e.g. :token 'create <name> | revoke <name>')
+      var alts = _splitTopLevelAlts(s);
+      if (alts.length > 1) {
+        return [{
+          type: 'alternatives',
+          options: alts.map(function (a) {
+            return { subSegments: _parseGrammarSegments(a), raw: a };
+          }),
+          raw: s
+        }];
+      }
+      var segments = [];
+      var i = 0;
+      while (i < s.length) {
+        while (i < s.length && s[i] === ' ') i++;
+        if (i >= s.length) break;
+        if (s[i] === '<') {
+          var end = s.indexOf('>', i);
+          if (end === -1) end = s.length - 1;
+          segments.push({ type: 'placeholder', raw: s.slice(i, end + 1) });
+          i = end + 1;
+        } else if (s[i] === '[') {
+          var endB = s.indexOf(']', i);
+          if (endB === -1) endB = s.length - 1;
+          var inner = s.slice(i + 1, endB).trim();
+          var rawG = s.slice(i, endB + 1);
+          var innerAlts = inner.split('|');
+          if (innerAlts.length > 1) {
+            segments.push({
+              type: 'alternatives',
+              options: innerAlts.map(function (a) {
+                return { subSegments: _parseGrammarSegments(a.trim()), raw: a.trim() };
+              }),
+              raw: rawG
+            });
+          } else if (inner === '!') {
+            segments.push({ type: 'bang', raw: rawG });
+          } else {
+            segments.push({ type: 'optional', subSegments: _parseGrammarSegments(inner), raw: rawG });
+          }
+          i = endB + 1;
+        } else {
+          // Bare keyword — read until whitespace, '<', or '['
+          var j = i;
+          while (j < s.length && s[j] !== ' ' && s[j] !== '<' && s[j] !== '[') j++;
+          segments.push({ type: 'keyword', raw: s.slice(i, j) });
+          i = j;
+        }
+      }
+      return segments;
+    }
+
+    // Tokenize the argument portion (after the alias), respecting double-quotes.
+    function _tokenizeArgs(str) {
+      var tokens = [];
+      var i = 0, s = str.trim();
+      while (i < s.length) {
+        while (i < s.length && s[i] === ' ') i++;
+        if (i >= s.length) break;
+        if (s[i] === '"') {
+          var end = s.indexOf('"', i + 1);
+          if (end === -1) { tokens.push(s.slice(i + 1)); i = s.length; }
+          else { tokens.push(s.slice(i + 1, end)); i = end + 1; }
+        } else {
+          var sp = s.indexOf(' ', i);
+          if (sp === -1) { tokens.push(s.slice(i)); i = s.length; }
+          else { tokens.push(s.slice(i, sp)); i = sp; }
+        }
+      }
+      return tokens;
+    }
+
+    // Consume user tokens against grammar segments.  Returns the remaining
+    // (unconsumed) segments.  cursor = { idx, trailingSpace } is mutable.
+    // The last token is "in-progress" when the input has no trailing space;
+    // an in-progress token that fails to match a keyword/optional group stops
+    // matching (shows remaining) instead of skipping the group.
+    function _consumeSegments(segments, tokens, cursor) {
+      for (var si = 0; si < segments.length; si++) {
+        var seg = segments[si];
+        if (cursor.idx >= tokens.length) return segments.slice(si);
+        var inProgress = (cursor.idx === tokens.length - 1) && !cursor.trailingSpace;
+        var tok = tokens[cursor.idx];
+
+        if (seg.type === 'placeholder') {
+          cursor.idx++;
+        } else if (seg.type === 'keyword') {
+          if (tok === seg.raw) cursor.idx++;
+          else return segments.slice(si); // required keyword — always stop
+        } else if (seg.type === 'optional') {
+          var firstSub = seg.subSegments[0];
+          if (firstSub && firstSub.type === 'keyword' && tok === firstSub.raw) {
+            var subRem = _consumeSegments(seg.subSegments, tokens, cursor);
+            if (subRem.length > 0) return subRem.concat(segments.slice(si + 1));
+          } else if (inProgress && firstSub && firstSub.type === 'keyword' &&
+                     firstSub.raw.indexOf(tok) === 0) {
+            // In-progress token is a prefix of this group's keyword → stop
+            return segments.slice(si);
+          }
+          // else skip (completed token, or in-progress not matching this group)
+        } else if (seg.type === 'bang') {
+          if (tok === '!') cursor.idx++;
+          else if (inProgress && '!'.indexOf(tok) === 0) return segments.slice(si);
+          // else skip
+        } else if (seg.type === 'alternatives') {
+          var matched = false, isPrefix = false;
+          for (var oi = 0; oi < seg.options.length; oi++) {
+            var opt = seg.options[oi];
+            var fo = opt.subSegments[0];
+            if (fo && fo.type === 'keyword') {
+              if (tok === fo.raw) {
+                var optRem = _consumeSegments(opt.subSegments, tokens, cursor);
+                if (optRem.length > 0) return optRem.concat(segments.slice(si + 1));
+                matched = true;
+                break;
+              }
+              if (inProgress && fo.raw.indexOf(tok) === 0) isPrefix = true;
+            }
+          }
+          if (matched) continue;
+          if (inProgress && isPrefix) return segments.slice(si);
+          // else skip (optional)
+        }
+      }
+      return [];
+    }
+
+    // Join remaining segments back into a grammar hint string.
+    function _segmentsToHint(segments) {
+      var parts = [];
+      for (var i = 0; i < segments.length; i++) parts.push(segments[i].raw);
+      return parts.join(' ');
+    }
+
     function _updateGhost() {
       if (!_currentHint || !_engagedAlias) { _removeGhost(); return; }
       _ensureGhost();
       var typed = _input ? _input.value : '';
-      var fullText = ':' + _engagedAlias + ' ' + _currentHint;
-      var typedLower = typed.toLowerCase();
-      var fullLower = fullText.toLowerCase();
+
+      // Extract the alias portion (before first space, after ':').
+      var afterColon = typed.charAt(0) === ':' ? typed.slice(1) : typed;
+      var firstSpace = afterColon.indexOf(' ');
+      var typedAlias = firstSpace < 0 ? afterColon : afterColon.slice(0, firstSpace);
+
       var ghost;
-      if (fullLower.indexOf(typedLower) === 0) {
-        ghost = fullText.slice(typed.length);
+      if (typedAlias !== _engagedAlias) {
+        // Alias-name completion mode (typed prefix like :po for :post):
+        // show the rest of the alias name + full grammar via literal matching.
+        var fullText = ':' + _engagedAlias + ' ' + _currentHint;
+        var typedLower = typed.toLowerCase();
+        var fullLower = fullText.toLowerCase();
+        if (fullLower.indexOf(typedLower) === 0) ghost = fullText.slice(typed.length);
+        else ghost = _currentHint;
       } else {
-        ghost = _currentHint;
+        // Grammar progression mode: consume typed tokens against segments.
+        var argsStr = firstSpace < 0 ? '' : afterColon.slice(firstSpace + 1);
+        var endsWithSpace = typed.length > 0 && typed.charAt(typed.length - 1) === ' ';
+        var tokens = _tokenizeArgs(argsStr);
+        var segments = _parseGrammarSegments(_currentHint);
+        var cursor = { idx: 0, trailingSpace: endsWithSpace };
+        var remaining = _consumeSegments(segments, tokens, cursor);
+        var remStr = _segmentsToHint(remaining);
+        ghost = (remStr && !endsWithSpace) ? ' ' + remStr : remStr;
       }
+
       // Build the ghost: invisible text matching the input content (same width)
       // followed by the grey ghost text. Both use the same font metrics as
       // the input (set in _ensureGhost) so alignment is exact.

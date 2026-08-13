@@ -46,7 +46,7 @@ ${commonStyle()}
   /* Posted/view mode: flatten header fields to plain text — no borders,
      no input backgrounds. Matches the read-only line items below. */
   .header-fields.jv-flat-readonly input,
-  .header-fields.jv-flat-readonly select { border:none; background:transparent !important; padding:4px 0; font-size:10pt; }
+  .header-fields.jv-flat-readonly select { border:none !important; background:transparent !important; box-shadow:none; outline:none; padding:4px 0; font-size:10pt; }
   .header-fields.jv-flat-readonly input:disabled,
   .header-fields.jv-flat-readonly select:disabled,
   .header-fields.jv-flat-readonly input[readonly] { background:transparent !important; color:#333; -webkit-text-fill-color:#333; opacity:1; }

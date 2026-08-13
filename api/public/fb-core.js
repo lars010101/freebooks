@@ -103,6 +103,10 @@
   var _baselineOrder = null; // captured at IIFE end — see bottom of file
 
   function _matchBinding(set, e, m) {
+    // Modifier guard: Ctrl/Cmd/Alt are browser/OS shortcut prefixes —
+    // a single-letter binding (e.g. 'R' for reversal) must NOT fire when
+    // the user intends Ctrl+Shift+R (reload), Cmd+R, Alt+R, etc.
+    if (e.ctrlKey || e.metaKey || e.altKey) return null;
     for (var i = 0; i < set.bindings.length; i++) {
       var b = set.bindings[i];
       if (b.key !== e.key) continue;

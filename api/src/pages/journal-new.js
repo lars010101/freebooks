@@ -127,6 +127,7 @@ ${commonStyle()}
     .then(rows => {
       rows.forEach(a => { accountsMap[a.account_code] = a.account_name; });
       if (VIEW_BATCH) initViewMode();   // accounts needed for line names
+      else applyPrefill();
     });
 
   if (VAT_ON)
@@ -384,6 +385,51 @@ ${commonStyle()}
   document.getElementById('entry-date').value = new Date().toISOString().slice(0, 10);
   if (!VIEW_BATCH) { addLine(); addLine(); }
   updateTotals();
+
+  // ── Prefill from :post command (stored in sessionStorage by fb-core.js) ─────
+  // :post <amount> <account> [from <account>] [due <date>]
+  //   → { amount, account, fromAccount, date }
+  // Populates date, then sets line 1 debit to <account> and line 2 credit
+  // to <fromAccount> (or leaves line 2 blank when fromAccount is null).
+  function applyPrefill() {
+    var raw = null;
+    try { raw = sessionStorage.getItem('fb-cmd-prefill'); } catch (e) { return; }
+    if (!raw) return;
+    try { sessionStorage.removeItem('fb-cmd-prefill'); } catch (e) {}
+    var pf;
+    try { pf = JSON.parse(raw); } catch (e) { return; }
+    if (!pf || typeof pf !== 'object') return;
+
+    if (pf.date) document.getElementById('entry-date').value = pf.date;
+
+    var rows = document.querySelectorAll('#lines-body tr');
+    if (rows.length < 2) { addLine(); addLine(); }
+    rows = document.querySelectorAll('#lines-body tr');
+
+    // Line 1: debit the target account
+    var r0 = rows[0];
+    var codeIn0 = r0.querySelector('.acct-input');
+    if (codeIn0 && pf.account) {
+      codeIn0.value = pf.account;
+      codeIn0.dispatchEvent(new Event('input'));
+    }
+    var debitIn0 = r0.querySelector('.debit-input');
+    if (debitIn0 && pf.amount != null) debitIn0.value = pf.amount;
+
+    // Line 2: credit the source account (from)
+    var r1 = rows[1];
+    if (r1 && pf.fromAccount) {
+      var codeIn1 = r1.querySelector('.acct-input');
+      if (codeIn1) {
+        codeIn1.value = pf.fromAccount;
+        codeIn1.dispatchEvent(new Event('input'));
+      }
+      var creditIn1 = r1.querySelector('.credit-input');
+      if (creditIn1 && pf.amount != null) creditIn1.value = pf.amount;
+    }
+
+    updateTotals();
+  }
 
   // ── View mode (?batch=<id>) ─────────────────────────────────────────
   // Loads a posted batch read-only. Reversal is pre-targeted at the viewed

@@ -43,6 +43,13 @@ ${commonStyle()}
      so posted/view-mode fields don't get browser-default mismatched shades. */
   .header-fields input:disabled, .header-fields select:disabled,
   .header-fields input[readonly] { background:#f5f5f5 !important; }
+  /* Posted/view mode: flatten header fields to plain text — no borders,
+     no input backgrounds. Matches the read-only line items below. */
+  .header-fields.jv-flat-readonly input,
+  .header-fields.jv-flat-readonly select { border:none; background:transparent !important; padding:4px 0; font-size:10pt; }
+  .header-fields.jv-flat-readonly input:disabled,
+  .header-fields.jv-flat-readonly select:disabled,
+  .header-fields.jv-flat-readonly input[readonly] { background:transparent !important; color:#333; -webkit-text-fill-color:#333; opacity:1; }
 </style>
 </head>
 <body>${navBar(company, 'newjv')}
@@ -70,7 +77,7 @@ ${commonStyle()}
     <label>Date <input type="date" id="entry-date"></label>
     <label>Journal <select id="entry-journal" style="width:180px;height:32px;padding:4px 6px"><option value="">— loading —</option></select></label>
     <label>Doc Nr <input type="text" id="jv-reference" readonly style="width:80px;border:1px solid #ddd;border-radius:3px;padding:4px 6px;font-size:10pt"></label>
-    <label>Description <input type="text" id="entry-desc" placeholder="e.g. Salary payment" style="flex:1;min-width:240px"></label>
+    <label>Description <input type="text" id="entry-desc" placeholder="e.g. Salary payment" style="width:400px"></label>
   </div>
 
   <table class="jv-table">
@@ -471,6 +478,7 @@ ${commonStyle()}
     var descEl = document.getElementById('entry-desc');
     descEl.value = viewBatchDesc;
     descEl.readOnly = true;
+    document.querySelector('.header-fields').classList.add('jv-flat-readonly');
     document.title = 'Journal Voucher — freeBooks';
     updateStatusBadge(viewBatchReversed ? 'reversed' : 'posted');
     setReference(viewBatchRef);
@@ -520,6 +528,7 @@ ${commonStyle()}
     jSel.disabled = true;
     var descEl = document.getElementById('entry-desc');
     descEl.readOnly = true;
+    document.querySelector('.header-fields').classList.add('jv-flat-readonly');
     updateStatusBadge('posted');
     setReference(postedRef);
     var body = document.getElementById('lines-body');
@@ -584,6 +593,7 @@ ${commonStyle()}
       dateEl.disabled = false;
       document.getElementById('entry-journal').disabled = false;
       document.getElementById('entry-desc').readOnly = false;
+      document.querySelector('.header-fields').classList.remove('jv-flat-readonly');
       setCreateControls(true);
       applyReversalLines(VIEW_BATCH, viewBatchRef, viewBatchLines);
     } else {

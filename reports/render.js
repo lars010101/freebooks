@@ -322,7 +322,7 @@ async function buildGL(query, company, start, end, account) {
   <div class="table-wrap">
     <table>
       <thead><tr>
-        <th>Date</th><th>Ref</th><th>Description</th>
+        <th>Date</th><th>Doc Nr</th><th>Description</th>
         <th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th>
       </tr></thead>
       <tbody id="gl-body">${tableRows}</tbody>

@@ -4,6 +4,7 @@
  */
 
 const { query } = require('./db');
+const { deriveProfitCenter } = require('./centers');
 
 async function validateJournalBatch(companyId, lines) {
   const errors = [];
@@ -213,4 +214,33 @@ async function validateBill(companyId, bill) {
   return { valid: errors.length === 0, errors, warnings };
 }
 
-module.exports = { validateJournalBatch, validateBill };
+module.exports = { validateJournalBatch, validateBill, validateCenterConsistency };
+
+/**
+ * Defense-in-depth center consistency check (spec §4d).
+ *
+ * Fires whenever cost_center is present: validates that profit_center matches
+ * the derived value, and backfills it if missing. Every line leaving this
+ * function has a correct profit_center or none at all.
+ *
+ * MUST only be called from inside an isDerivationEnabled-gated branch — this
+ * function has no flag check of its own, by design, so it stays a pure
+ * consistency check usable from any already-gated caller.
+ *
+ * allowInactive threads through to deriveProfitCenter for reversal/correction
+ * paths (journal.reverse re-posts against possibly-deactivated cost centers).
+ */
+async function validateCenterConsistency(companyId, lines, { allowInactive = false } = {}) {
+  for (const line of lines) {
+    if (line.cost_center) {
+      const expected = await deriveProfitCenter(companyId, line.cost_center, { allowInactive });
+      if (line.profit_center && line.profit_center !== expected) {
+        throw new Error(
+          `Line cost_center ${line.cost_center} belongs to profit_center ` +
+          `${expected}, but ${line.profit_center} was supplied`
+        );
+      }
+      line.profit_center = expected; // backfill if the write path omitted it
+    }
+  }
+}

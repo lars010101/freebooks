@@ -33,6 +33,7 @@ const { contactAttributesFor } = require('./jurisdiction-packs');
 const { getDb, ensureDb, query, exec, bulkInsert } = require('./db');
 const { auditCall } = require('./audit');
 const { detectMappingConflicts } = require('./mapping-utils');
+const { deriveProfitCenter, isDerivationEnabled } = require('./centers');
 const PORT = process.env.PORT || 3000;
 // Bind address: loopback-only by default (the safe posture). Set
 // FREEBOOKS_BIND to a LAN/Tailscale interface IP for the two-server
@@ -1126,14 +1127,63 @@ async function handleCenter(ctx, action) {
   const { companyId, body } = ctx;
 
   if (action === 'center.list') {
-    return query(`SELECT * FROM centers WHERE company_id = @companyId ORDER BY center_type, center_id`, { companyId });
+    return query(
+      `SELECT c.company_id, c.center_id, c.center_type, c.name, c.is_active,
+              c.profit_center_id, pc.name AS profit_center_name
+       FROM centers c
+       LEFT JOIN centers pc
+         ON pc.company_id = c.company_id AND pc.center_id = c.profit_center_id
+       WHERE c.company_id = @companyId
+       ORDER BY c.center_type, c.center_id`,
+      { companyId }
+    );
   }
 
   if (action === 'center.save') {
     const { centers } = body;
     if (!centers || !Array.isArray(centers)) throw Object.assign(new Error('centers array required'), { code: 'INVALID_INPUT' });
+
+    // Validate each center before the DELETE+INSERT so an invalid row
+    // doesn't wipe the table and leave nothing.
+    const derivationEnabled = await isDerivationEnabled(companyId);
+    // Build a set of Profit center_ids from the incoming batch so a Cost
+    // center can reference a Profit center being saved in the same batch.
+    const batchProfitIds = new Set(
+      centers.filter(c => c.center_type === 'Profit').map(c => c.center_id)
+    );
+    for (const c of centers) {
+      if (!['Cost', 'Profit'].includes(c.center_type)) {
+        throw Object.assign(new Error(`center_type must be 'Cost' or 'Profit' (got '${c.center_type}' for ${c.center_id})`), { code: 'INVALID_INPUT' });
+      }
+      if (c.center_type === 'Cost') {
+        if (c.profit_center_id) {
+          // Check the incoming batch first, then the DB.
+          if (!batchProfitIds.has(c.profit_center_id)) {
+            const [target] = await query(
+              `SELECT center_type FROM centers WHERE company_id = @companyId AND center_id = @profitCenterId`,
+              { companyId, profitCenterId: c.profit_center_id }
+            );
+            if (!target || target.center_type !== 'Profit') {
+              throw Object.assign(new Error(`${c.profit_center_id} is not a valid profit center`), { code: 'INVALID_INPUT' });
+            }
+          }
+        } else if (derivationEnabled) {
+          throw Object.assign(new Error(`Cost center ${c.center_id} requires a profit_center_id`), { code: 'INVALID_INPUT' });
+        }
+      } else if (c.profit_center_id) {
+        throw Object.assign(new Error(`Profit centers must not set profit_center_id`), { code: 'INVALID_INPUT' });
+      }
+    }
+
     await exec(`DELETE FROM centers WHERE company_id = @companyId`, { companyId });
-    const rows = centers.map((c) => ({ company_id: companyId, center_id: c.center_id, center_type: c.center_type, name: c.name, is_active: c.is_active !== false }));
+    const rows = centers.map((c) => ({
+      company_id: companyId,
+      center_id: c.center_id,
+      center_type: c.center_type,
+      name: c.name,
+      profit_center_id: c.profit_center_id || null,
+      is_active: c.is_active !== false
+    }));
     if (rows.length > 0) await bulkInsert('centers', rows);
     return { saved: rows.length };
   }
@@ -1141,12 +1191,42 @@ async function handleCenter(ctx, action) {
   if (action === 'center.upsert') {
     const { center } = body;
     if (!center || !center.center_id) throw Object.assign(new Error('center_id required'), { code: 'INVALID_INPUT' });
-    const row = { company_id: companyId, center_id: center.center_id, center_type: center.center_type || 'cost', name: center.name || '', is_active: center.is_active !== false };
+
+    const centerType = center.center_type || 'Cost';
+    if (!['Cost', 'Profit'].includes(centerType)) {
+      throw Object.assign(new Error(`center_type must be 'Cost' or 'Profit'`), { code: 'INVALID_INPUT' });
+    }
+
+    // Validate profit_center_id constraints (spec §6a).
+    if (centerType === 'Cost') {
+      if (center.profit_center_id) {
+        const [target] = await query(
+          `SELECT center_type FROM centers WHERE company_id = @companyId AND center_id = @profitCenterId`,
+          { companyId, profitCenterId: center.profit_center_id }
+        );
+        if (!target || target.center_type !== 'Profit') {
+          throw Object.assign(new Error(`${center.profit_center_id} is not a valid profit center`), { code: 'INVALID_INPUT' });
+        }
+      } else if (await isDerivationEnabled(companyId)) {
+        throw Object.assign(new Error(`Cost center ${center.center_id} requires a profit_center_id`), { code: 'INVALID_INPUT' });
+      }
+    } else if (center.profit_center_id) {
+      throw Object.assign(new Error(`Profit centers must not set profit_center_id`), { code: 'INVALID_INPUT' });
+    }
+
+    const row = {
+      company_id: companyId,
+      center_id: center.center_id,
+      center_type: centerType,
+      name: center.name || '',
+      profit_center_id: center.profit_center_id || null,
+      is_active: center.is_active !== false
+    };
     const existing = await query(`SELECT 1 FROM centers WHERE company_id = @companyId AND center_id = @center_id`, { companyId, center_id: center.center_id });
     if (existing.length > 0) {
-      await exec(`UPDATE centers SET center_type = @center_type, name = @name, is_active = @is_active WHERE company_id = @companyId AND center_id = @center_id`, row);
+      await exec(`UPDATE centers SET center_type = @center_type, name = @name, profit_center_id = @profit_center_id, is_active = @is_active WHERE company_id = @companyId AND center_id = @center_id`, row);
     } else {
-      await exec(`INSERT INTO centers (company_id, center_id, center_type, name, is_active) VALUES (@company_id, @center_id, @center_type, @name, @is_active)`, row);
+      await exec(`INSERT INTO centers (company_id, center_id, center_type, name, profit_center_id, is_active) VALUES (@company_id, @center_id, @center_type, @name, @profit_center_id, @is_active)`, row);
     }
     return { saved: 1 };
   }

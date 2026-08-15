@@ -111,7 +111,7 @@ ${commonStyle()}
   <!-- COST/PROFIT CENTERS TAB -->
   <div id="tab-centers" class="tab-panel">
     <table class="edit-table" id="centers-table">
-      <thead><tr><th>Center ID</th><th>Name</th><th>Type</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <thead><tr><th>Center ID</th><th>Name</th><th>Type</th><th>Profit Center</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="centers-body"></tbody>
     </table>
   </div>
@@ -610,23 +610,50 @@ var centersList = FB.list.create({
   columns: [
     { field: 'center_id', type: 'text', width: 120, ro: 'saved' },
     { field: 'name', type: 'text', width: 200 },
-    { field: 'center_type', type: 'select', width: 90, options: ['cost', 'profit'], filterType: 'list',
-      display: function(v) { return v ? v : '—'; } },
+    { field: 'center_type', type: 'select', width: 90, options: ['Cost', 'Profit'], filterType: 'list',
+      display: function(v) { return v ? v : '—'; },
+      onChange: function(row, val) {
+        // Profit centers don't have a profit_center_id; clear it when switching to Profit.
+        if (val === 'Profit') row.profit_center_id = '';
+      }
+    },
+    { field: 'profit_center_id', type: 'select', width: 140,
+      options: function() { return centersProfitCenterOptions; },
+      display: function(v, row) {
+        if (row && row.center_type === 'Profit') return '';
+        return v ? (centersProfitCenterNames[v] || v) : '—';
+      },
+      visible: function(row) { return !row || row.center_type !== 'Profit'; }
+    },
     { field: 'is_active', type: 'checkbox', align: 'center',
       display: function(v) { return v ? 'Yes' : 'No'; } }
   ],
-  blank: function() { return { center_id: '', name: '', center_type: 'cost', is_active: true }; },
+  blank: function() { return { center_id: '', name: '', center_type: 'Cost', is_active: true, profit_center_id: '' }; },
   isBlank: function(b) { return !b.center_id && !b.name; },
   same: function(b, s) {
-    return b.name === (s.name || '') && b.center_type === (s.center_type || 'cost') && b.is_active === !!s.is_active;
+    return b.name === (s.name || '') && b.center_type === (s.center_type || 'Cost') && b.is_active === !!s.is_active
+      && (b.profit_center_id || '') === (s.profit_center_id || '');
   },
   validate: function(d) { return d.center_id ? null : 'Center ID required'; },
   firstField: function(isNew) { return isNew ? 'center_id' : 'name'; },
   track: 'center',
   list: { action: 'center.list',
-    map: function(c) { return { center_id: c.center_id, name: c.name || '', center_type: c.center_type || 'cost', is_active: c.is_active !== false, _key: c.center_id }; } },
+    map: function(c) { return {
+      center_id: c.center_id,
+      name: c.name || '',
+      center_type: c.center_type || 'Cost',
+      profit_center_id: c.profit_center_id || '',
+      is_active: c.is_active !== false,
+      _key: c.center_id
+    }; } },
   save: { action: 'center.upsert',
-    body: function(d) { return { center: { center_id: d._isNew ? d.center_id : d._key, center_type: d.center_type || 'cost', name: d.name || '', is_active: d.is_active !== false } }; },
+    body: function(d) { return { center: {
+      center_id: d._isNew ? d.center_id : d._key,
+      center_type: d.center_type || 'Cost',
+      name: d.name || '',
+      profit_center_id: (d.center_type === 'Cost' && d.profit_center_id) ? d.profit_center_id : null,
+      is_active: d.is_active !== false
+    } }; },
     focusKey: function(d) { return d._isNew ? d.center_id : d._key; } },
   del: { action: 'center.delete',
     body: function(d) { return { centerId: d._key }; },
@@ -638,7 +665,28 @@ var centersList = FB.list.create({
   }
 });
 
-function loadCenters(focusKey) { centersList.load(focusKey); }
+// Cache profit-center options for the dropdown (loaded alongside center.list).
+var centersProfitCenterOptions = [];
+var centersProfitCenterNames = {};
+function refreshProfitCenterOptions(centers) {
+  centersProfitCenterOptions = [];
+  centersProfitCenterNames = {};
+  for (var i = 0; i < centers.length; i++) {
+    var c = centers[i];
+    if (c.center_type === 'Profit') {
+      centersProfitCenterOptions.push(c.center_id);
+      centersProfitCenterNames[c.center_id] = c.name || c.center_id;
+    }
+  }
+}
+var _originalLoadCenters = function(focusKey) { centersList.load(focusKey); };
+function loadCenters(focusKey) {
+  _originalLoadCenters(focusKey).then(function() {
+    // After the list loads, refresh the profit center options from the raw data.
+    var rows = centersList._raw || [];
+    refreshProfitCenterOptions(rows);
+  }).catch(function() {});
+}
 
 // ========== UNSAVED CHANGES PROTECTION ==========
 window.onbeforeunload = function(e) {

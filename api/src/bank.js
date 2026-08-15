@@ -10,6 +10,7 @@ const { expandVatLines } = require('./vat');
 const { getNextReference, getNextReferenceBatch } = require('./journal');
 const { settleBillPayment } = require('./settlement');
 const { amountSignMatches, normalizeDescription } = require('./mapping-utils');
+const { deriveProfitCenter, isDerivationEnabled } = require('./centers');
 
 async function handleBank(ctx, action) {
   switch (action) {
@@ -43,6 +44,9 @@ async function processBankStatement(ctx) {
     `SELECT * FROM bank_mappings WHERE company_id = @companyId AND is_active = TRUE ORDER BY priority ASC`,
     { companyId }
   );
+
+  // Spec §4c: read derivation flag once for the whole batch.
+  const derivationEnabled = await isDerivationEnabled(companyId);
 
   let openBills = [];
   if (company.accounting_method !== 'cash') {
@@ -133,7 +137,12 @@ async function processBankStatement(ctx) {
       }
       result.vatCode = mapping.vat_code;
       result.costCenter = mapping.cost_center;
-      result.profitCenter = mapping.profit_center;
+      // Spec §4c: derive profit_center instead of copying from mapping.
+      if (derivationEnabled && mapping.cost_center) {
+        result.profitCenter = await deriveProfitCenter(companyId, mapping.cost_center);
+      } else {
+        result.profitCenter = mapping.profit_center;
+      }
       if (mapping.description_override) result.description = mapping.description_override;
     }
 
@@ -694,6 +703,9 @@ async function approveBankEntries(ctx) {
   );
   const homeCurrency = companies[0]?.currency || 'USD';
 
+  // Spec §4c: read derivation flag once for the whole batch.
+  const derivationEnabled = await isDerivationEnabled(companyId);
+
   // CHANGE 3: Validate all accounts before posting any entries
   const accountCodes = new Set();
   for (const entry of entries) {
@@ -808,8 +820,14 @@ async function approveBankEntries(ctx) {
         continue;
       }
 
+      // Spec §4c: derive profit_center from cost_center when derivation is enabled.
+      let entryProfitCenter = entry.profitCenter || null;
+      if (derivationEnabled && entry.costCenter) {
+        entryProfitCenter = await deriveProfitCenter(companyId, entry.costCenter);
+      }
+
       let lines = [
-        { account_code: entry.debitAccount, debit: amount, credit: 0, date: entry.date, description: entry.description, vat_code: entry.vatCode || null, cost_center: entry.costCenter || null, profit_center: entry.profitCenter || null },
+        { account_code: entry.debitAccount, debit: amount, credit: 0, date: entry.date, description: entry.description, vat_code: entry.vatCode || null, cost_center: entry.costCenter || null, profit_center: entryProfitCenter },
         { account_code: entry.creditAccount, debit: 0, credit: amount, date: entry.date, description: entry.description },
       ];
 

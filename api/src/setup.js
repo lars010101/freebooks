@@ -168,6 +168,9 @@ async function addCompany(ctx) {
     // override accepted when |stated - computed| <= max(flat, pct * computed).
     { company_id: company.company_id, key: 'vat_tolerance', value: '0.50', updated_at: now },
     { company_id: company.company_id, key: 'vat_tolerance_pct', value: '0.01', updated_at: now },
+    // Center derivation rollout gate (spec §2/§7). Seeded false — owner flips
+    // to 'true' via settings.save when ready (after backfilling profit_center_id).
+    { company_id: company.company_id, key: 'center_derivation_enabled', value: 'false', updated_at: now },
   ]);
 
   // Seed default journals

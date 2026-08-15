@@ -19,6 +19,7 @@ const { validateJournalBatch } = require('./validation');
 const { auditLog } = require('./audit');
 const { emitEvent } = require('./events');
 const { normalizeDescription } = require('./mapping-utils');
+const { deriveProfitCenter, isDerivationEnabled } = require('./centers');
 
 async function handleJournal(ctx, action) {
   switch (action) {
@@ -111,6 +112,33 @@ async function enrichAndValidate(companyId, lines) {
   // tax-exclusive entry (net on the taxable line, gross on the offset) would
   // fail the pre-expansion balance check by exactly the computed VAT.
   const expandedLines = expandJournalVatLines(enrichedLines);
+
+  // Spec §4a: derive profit_center from cost_center when derivation is enabled.
+  // This is the shared path for journal.post AND journal.approve re-validation.
+  // isReversal is detected from the batch/lines — reversed entries carry
+  // `reverses` set to the original batch_id. For the enrichAndValidate path
+  // (direct posts and approvals), lines don't carry `reverses` (it's set in
+  // postJournalBatch's row builder), so isReversal is always false here.
+  // Reversals go through reverseEntry which copies cost_center/profit_center
+  // directly and doesn't call enrichAndValidate.
+  const derivationEnabled = await isDerivationEnabled(companyId);
+  if (derivationEnabled) {
+    for (const line of expandedLines) {
+      if (line.cost_center) {
+        line.profit_center = await deriveProfitCenter(companyId, line.cost_center);
+      } else if (line.profit_center) {
+        // Direct profit-center-only posting (no cost driver) — validate it
+        // resolves to an actual Profit-type center.
+        const [pc] = await query(
+          `SELECT center_type FROM centers WHERE company_id = @companyId AND center_id = @profitCenterId`,
+          { companyId, profitCenterId: line.profit_center }
+        );
+        if (!pc || pc.center_type !== 'Profit') {
+          throw new Error(`${line.profit_center} is not a valid profit center`);
+        }
+      }
+    }
+  }
 
   const validation = await validateJournalBatch(companyId, expandedLines);
   return { enrichedLines: expandedLines, warnings: validation.warnings, validation };

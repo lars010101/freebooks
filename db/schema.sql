@@ -268,6 +268,18 @@ CREATE TABLE IF NOT EXISTS centers (
 );
 
 -- =============================================================================
+-- MIGRATION: cost→profit center derivation
+-- For Cost centers only, links to the Profit center that absorbs their spend.
+-- This is the derivation source for journal_entries.profit_center /
+-- bills.profit_center at posting time. Backward-compatible: existing centers
+-- get profit_center_id = NULL and are backfilled via the one-time
+-- reconciliation in §5 before derivation goes live (§4).
+-- =============================================================================
+ALTER TABLE centers ADD COLUMN IF NOT EXISTS profit_center_id VARCHAR;
+
+CREATE INDEX IF NOT EXISTS idx_centers_company_type ON centers(company_id, center_type);
+
+-- =============================================================================
 -- audit_log
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -552,6 +564,18 @@ INSERT INTO settings (company_id, key, value, updated_at)
 SELECT c.company_id, 'vat_tolerance_pct', '0.01', NOW()
 FROM companies c
 WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'vat_tolerance_pct');
+
+-- MIGRATION: center derivation rollout gate (see spec §2/§3/§4/§6a/§7).
+-- Seeded false so deploying the derivation code (§4) is inert on its own —
+-- nothing in the posting paths runs differently until an owner explicitly
+-- flips this via settings.save. Same seed pattern as vat_tolerance above.
+INSERT INTO settings (company_id, key, value, updated_at)
+SELECT c.company_id, 'center_derivation_enabled', 'false', NOW()
+FROM companies c
+WHERE NOT EXISTS (
+  SELECT 1 FROM settings s
+  WHERE s.company_id = c.company_id AND s.key = 'center_derivation_enabled'
+);
 
 -- =============================================================================
 -- attachments

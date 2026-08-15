@@ -15,6 +15,7 @@ const { validateBill } = require('./validation');
 const { settleBillPayment, settleMultiBillPayment } = require('./settlement');
 const { getRate } = require('./fx');
 const { emitEvent } = require('./events');
+const { deriveProfitCenter, isDerivationEnabled } = require('./centers');
 // computeVatSplit removed — bills now use tax-exclusive direct VAT lookup
 
 // Read company-level default AP and expense account codes from the accounts
@@ -217,6 +218,11 @@ async function createBill(ctx) {
   const totalAmount = expenseLines.reduce((s, l) => s + Number(l.amount || 0), 0);
 
   const firstVatCode = expenseLines[0].vat_code;
+
+  // Spec §4b: derive profit_center from cost_center when derivation is enabled.
+  if (bill.cost_center && await isDerivationEnabled(companyId)) {
+    bill.profit_center = await deriveProfitCenter(companyId, bill.cost_center);
+  }
 
   // When posting a draft, reuse the draft's bill_id (preserves attachments +
   // audit trail). Otherwise mint a fresh id for a direct create+post.
@@ -1060,6 +1066,11 @@ async function saveDraftBill(ctx) {
     totalAmount = netTotal + ((statedForDraft !== null && stdComputed > 0) ? statedForDraft : stdComputed);
   } else {
     totalAmount = parseFloat(bill.amount) || 0;
+  }
+
+  // Spec §4b: derive profit_center from cost_center when derivation is enabled.
+  if (bill.cost_center && await isDerivationEnabled(companyId)) {
+    bill.profit_center = await deriveProfitCenter(companyId, bill.cost_center);
   }
 
   const billRow = {

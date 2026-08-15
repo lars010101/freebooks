@@ -641,12 +641,6 @@ async function buildVoucherRegister(query, company, start, end) {
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
   .period { font-size: 10pt; color: #666; margin-top: 2px; }
-  .filter-bar { background: #f8f8f8; border: 1px solid #eee; border-radius: 4px; padding: 12px 16px; margin-bottom: 16px; }
-  .filter-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .filter-row label { font-size: 9pt; color: #555; font-weight: 600; }
-  .filter-row input { padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px; font-size: 10pt; }
-  .filter-row button { padding: 5px 16px; background: #1a1a1a; color: #fff; border: none; border-radius: 3px; font-size: 10pt; font-weight: 600; cursor: pointer; }
-  .filter-row button:hover { background: #333; }
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; margin-top: 6px; }
   th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; }
@@ -671,6 +665,9 @@ async function buildVoucherRegister(query, company, start, end) {
   tr.nav-row-focus:not(.row-editing) > td a { color: #fff !important; }
   /* FB.list column filter/sort UI */
   th.fb-th-filterable { position: relative; padding-right: 24px; }
+  /* Right-aligned filterable column (Amount): td must match the th padding-right
+     so values align with the header text, not the filter button. */
+  td[data-field="total_debit"] { padding-right: 24px; }
   th .fb-filter-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
     cursor: pointer; opacity: 0.4; font-size: 14px; line-height: 1; }
   th:hover .fb-filter-btn { opacity: 1; color: #555; }
@@ -695,16 +692,6 @@ async function buildVoucherRegister(query, company, start, end) {
     <div class="company">${companyName}</div>
     <div class="report-title">Transaction Register</div>
     <div class="period">${start || ''} to ${end || ''}</div>
-  </div>
-
-  <div class="filter-bar">
-    <div class="filter-row">
-      <label>From:</label>
-      <input type="date" id="vr-start" value="${start || ''}">
-      <label>To:</label>
-      <input type="date" id="vr-end" value="${end || ''}">
-      <button onclick="vrRequery()">Apply</button>
-    </div>
   </div>
 
   <div class="table-wrap">
@@ -732,14 +719,6 @@ async function buildVoucherRegister(query, company, start, end) {
 <script>
   var COMPANY = ${JSON.stringify(company)};
   var VR_ROWS = ${JSON.stringify(rowsData)};
-
-  function vrRequery() {
-    var s = document.getElementById('vr-start').value;
-    var e = document.getElementById('vr-end').value;
-    if (!s || !e) return;
-    var url = '/api/' + COMPANY + '/report?type=voucher-register&start=' + encodeURIComponent(s) + '&end=' + encodeURIComponent(e);
-    window.location.href = url;
-  }
 
   function drillHref(b) {
     if (b.bill_id) {

@@ -502,8 +502,8 @@ test('per-line centers: line override beats header through draft save + post', a
   const cs = await api(baseUrl, 'center.save', {
     companyId: CO,
     centers: [
-      { center_id: 'CC-OPS', center_type: 'cost', name: 'Operations' },
-      { center_id: 'CC-RND', center_type: 'cost', name: 'R&D' },
+      { center_id: 'CC-OPS', center_type: 'Cost', name: 'Operations' },
+      { center_id: 'CC-RND', center_type: 'Cost', name: 'R&D' },
     ],
   });
   assert.equal(cs.status, 200, JSON.stringify(cs.body));

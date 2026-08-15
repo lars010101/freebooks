@@ -376,6 +376,18 @@ async function queryPeriodUnclosed(companyId, limit) {
 }
 
 /**
+ * partnerProposalSummary — builds the inbox summary text for a partner
+ * proposal, reflecting the proposed type (vendor, customer, or both) so a
+ * reviewer can approve/reject with full information without opening the
+ * detail view (partner-flags-ui-fix-spec §4.2).
+ */
+function partnerProposalSummary(row) {
+  if (row.is_vendor !== false && row.is_customer === true) return 'New partner suggested (vendor + customer): ' + row.name;
+  if (row.is_customer === true) return 'New customer suggested: ' + row.name;
+  return 'New vendor suggested: ' + row.name;
+}
+
+/**
  * queryPartnerProposals — Class B partner-proposal items
  * (partner-proposal-spec §5.1). Proposed partners from the agent, awaiting
  * human approve/reject. Normalized to the inbox item shape. The
@@ -388,7 +400,7 @@ async function queryPeriodUnclosed(companyId, limit) {
  */
 async function queryPartnerProposals(companyId, limit) {
   var rows = await query(
-    `SELECT proposal_id, name, status, created_by, created_at
+    `SELECT proposal_id, name, is_vendor, is_customer, status, created_by, created_at
      FROM partner_proposals
      WHERE company_id = @companyId
        AND status = 'proposed'
@@ -405,7 +417,7 @@ async function queryPartnerProposals(companyId, limit) {
       amount: null,
       date: row.created_at,
       proposed_at: row.created_at,
-      summary: 'New partner suggested: ' + row.name,
+      summary: partnerProposalSummary(row),
       verbs: ['approve', 'reject', 'open'],
       payload_ref: row.proposal_id,
       status: row.status,

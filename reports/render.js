@@ -684,6 +684,7 @@ async function buildVoucherRegister(query, company, start, end) {
   .fb-cf-item:hover { background: #f2f4f7; }
   .fb-cf-clear { color: #6b7a95; font-style: italic; }
   .row-actions { white-space: nowrap; text-align: right; }
+  td[data-field="date"] { white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -719,12 +720,17 @@ async function buildVoucherRegister(query, company, start, end) {
 <script>
   var COMPANY = ${JSON.stringify(company)};
   var VR_ROWS = ${JSON.stringify(rowsData)};
+  var REPORT_START = ${JSON.stringify(start || '')};
+  var REPORT_END = ${JSON.stringify(end || '')};
 
   function drillHref(b) {
+    var extra = '';
+    if (REPORT_START) extra += '&rpt_start=' + encodeURIComponent(REPORT_START);
+    if (REPORT_END) extra += '&rpt_end=' + encodeURIComponent(REPORT_END);
     if (b.bill_id) {
-      return '/' + COMPANY + '/payables/bill/' + encodeURIComponent(b.bill_id) + '?from=voucher-register';
+      return '/' + COMPANY + '/payables/bill/' + encodeURIComponent(b.bill_id) + '?from=voucher-register' + extra;
     }
-    return '/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(b.batch_id) + '&from=voucher-register';
+    return '/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(b.batch_id) + '&from=voucher-register' + extra;
   }
 
   function statusDisplay(v, row) {

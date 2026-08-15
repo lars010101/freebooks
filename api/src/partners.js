@@ -11,7 +11,7 @@
 const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
 const { emitEvent } = require('./events');
-const { normalizeDescription } = require('./mapping-utils');
+const { normalizeDescription, findFuzzyMatch } = require('./mapping-utils');
 
 async function handlePartners(ctx, action) {
   switch (action) {
@@ -211,7 +211,11 @@ async function proposePartner(ctx) {
   }
 
   // ── §2.4: Duplicate detection (server-side, same as mapping.suggest) ──────
-  // 1. Check for existing partner by name (case-insensitive)
+  // Two-phase: (1) fast SQL exact case-insensitive match, then (2) trigram
+  // fuzzy match against all in-scope rows (issue #130) to catch near-duplicates
+  // like "Netflix Inc" vs "Netflix Inc." that differ only by formatting.
+
+  // 1. Check for existing partner by name (case-insensitive, exact fast path)
   const existingPartner = await query(
     `SELECT partner_id FROM partners
      WHERE company_id = @companyId AND LOWER(name) = LOWER(@name)
@@ -225,8 +229,21 @@ async function proposePartner(ctx) {
       { code: 'CONFLICT' }
     );
   }
+  // 1b. Fuzzy match against existing vendor partners (issue #130, threshold 0.65)
+  const allVendorPartners = await query(
+    `SELECT name FROM partners
+     WHERE company_id = @companyId AND is_vendor = TRUE`,
+    { companyId }
+  );
+  const fuzzyPartner = findFuzzyMatch(name, allVendorPartners, 0.65);
+  if (fuzzyPartner) {
+    throw Object.assign(
+      new Error(`A partner with a similar name already exists: '${fuzzyPartner.candidate.name}' (similarity: ${fuzzyPartner.similarity.toFixed(2)})`),
+      { code: 'CONFLICT' }
+    );
+  }
 
-  // 2. Check for pending proposal by name
+  // 2. Check for pending proposal by name (case-insensitive, exact fast path)
   const existingProposal = await query(
     `SELECT proposal_id FROM partner_proposals
      WHERE company_id = @companyId AND LOWER(name) = LOWER(@name)
@@ -237,6 +254,19 @@ async function proposePartner(ctx) {
   if (existingProposal.length > 0) {
     throw Object.assign(
       new Error(`A pending partner proposal for '${name}' already exists`),
+      { code: 'CONFLICT' }
+    );
+  }
+  // 2b. Fuzzy match against pending proposals (issue #130, threshold 0.65)
+  const allPendingProposals = await query(
+    `SELECT name FROM partner_proposals
+     WHERE company_id = @companyId AND status = 'proposed'`,
+    { companyId }
+  );
+  const fuzzyProposal = findFuzzyMatch(name, allPendingProposals, 0.65);
+  if (fuzzyProposal) {
+    throw Object.assign(
+      new Error(`A pending partner proposal with a similar name already exists: '${fuzzyProposal.candidate.name}' (similarity: ${fuzzyProposal.similarity.toFixed(2)})`),
       { code: 'CONFLICT' }
     );
   }

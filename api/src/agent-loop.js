@@ -23,7 +23,7 @@ const { query, exec } = require('./db');
 const { v4: uuid } = require('uuid');
 const path = require('path');
 const fs = require('fs');
-const { normalizeDescription, detectMappingConflicts } = require('./mapping-utils');
+const { normalizeDescription, detectMappingConflicts, findFuzzyMatch } = require('./mapping-utils');
 
 // ── State ───────────────────────────────────────────────────────────────────
 
@@ -340,6 +340,17 @@ async function _maybeProposePartner({ companyId, agentEmail, name, default_expen
     { cid: companyId, name }
   );
   if (existingPartner.length > 0) return; // partner already exists
+  // Check 1b: fuzzy match against existing vendor partners (issue #130)
+  const allVendorPartners = await query(
+    `SELECT name FROM partners
+     WHERE company_id = @cid AND is_vendor = TRUE`,
+    { cid: companyId }
+  );
+  const fuzzyPartner = findFuzzyMatch(name, allVendorPartners, 0.65);
+  if (fuzzyPartner) {
+    warn(`_maybeProposePartner: skipping '${name}' — similar existing partner '${fuzzyPartner.candidate.name}' (similarity: ${fuzzyPartner.similarity.toFixed(2)})`);
+    return;
+  }
 
   // Check 2: pending proposal by name
   const existingProposal = await query(
@@ -349,6 +360,17 @@ async function _maybeProposePartner({ companyId, agentEmail, name, default_expen
     { cid: companyId, name }
   );
   if (existingProposal.length > 0) return; // pending proposal already exists
+  // Check 2b: fuzzy match against pending proposals (issue #130)
+  const allPendingProposals = await query(
+    `SELECT name FROM partner_proposals
+     WHERE company_id = @cid AND status = 'proposed'`,
+    { cid: companyId }
+  );
+  const fuzzyProposal = findFuzzyMatch(name, allPendingProposals, 0.65);
+  if (fuzzyProposal) {
+    warn(`_maybeProposePartner: skipping '${name}' — similar pending proposal '${fuzzyProposal.candidate.name}' (similarity: ${fuzzyProposal.similarity.toFixed(2)})`);
+    return;
+  }
 
   // Get company default AP account
   let defaultApAccount = null;

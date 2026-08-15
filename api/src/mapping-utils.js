@@ -267,10 +267,93 @@ function patternMatchesDescription(pattern, matchType, descUpper) {
   }
 }
 
+// ── Trigram similarity (issue #130) ──────────────────────────────────────────
+
+/**
+ * Normalize a string for trigram comparison: lowercase, trim, collapse spaces.
+ */
+function _normalizeForTrigram(s) {
+  if (!s || typeof s !== 'string') return '';
+  return s.toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Build the set of overlapping character-level trigrams for a normalized string.
+ * For strings shorter than 3 chars, returns a single-element set containing the
+ * whole string (used by the short-string edge case in trigramSimilarity).
+ */
+function _trigramSet(s) {
+  const set = new Set();
+  if (s.length < 3) {
+    set.add(s);
+    return set;
+  }
+  for (let i = 0; i <= s.length - 3; i++) {
+    set.add(s.slice(i, i + 3));
+  }
+  return set;
+}
+
+/**
+ * Trigram (Jaccard) similarity between two strings, range 0–1.
+ *
+ * Normalizes both inputs (lowercase, trim, collapse spaces), then computes
+ * Jaccard similarity = |intersection| / |union| over the character-level
+ * overlapping-trigram sets.
+ *
+ * Edge case: when either normalized string is shorter than 3 chars, exact match
+ * semantics are used (1.0 if equal, 0 otherwise) — trigrams over <3 chars are
+ * degenerate and not meaningful.
+ *
+ * Used by partner proposal duplicate detection (issue #130).
+ */
+function trigramSimilarity(a, b) {
+  const na = _normalizeForTrigram(a);
+  const nb = _normalizeForTrigram(b);
+  if (na.length < 3 || nb.length < 3) {
+    return na === nb ? 1.0 : 0.0;
+  }
+  const sa = _trigramSet(na);
+  const sb = _trigramSet(nb);
+  let inter = 0;
+  for (const g of sa) if (sb.has(g)) inter++;
+  const union = sa.size + sb.size - inter;
+  if (union === 0) return 1.0; // both empty
+  return inter / union;
+}
+
+/**
+ * Find the best fuzzy match for `name` among an array of candidate objects.
+ *
+ * @param {string} name            — the name to match
+ * @param {Array<{name: string, ...}>} candidates — candidate objects (uses the
+ *        `name` field of each)
+ * @param {number} [threshold=0.65] — minimum trigramSimilarity to consider a
+ *        candidate a match
+ * @returns {{candidate: object, similarity: number}|null} best match above
+ *          threshold, or null
+ */
+function findFuzzyMatch(name, candidates, threshold = 0.65) {
+  if (!name || !Array.isArray(candidates) || candidates.length === 0) return null;
+  let best = null;
+  let bestScore = threshold;
+  for (const c of candidates) {
+    if (!c || !c.name) continue;
+    const score = trigramSimilarity(name, c.name);
+    if (score > bestScore) {
+      bestScore = score;
+      best = { candidate: c, similarity: score };
+    }
+  }
+  return best;
+}
+
 module.exports = {
   normalizeDescription,
   amountSignMatches,
   detectMappingConflicts,
   analyzeConflict,
   patternMatchesDescription,
+  trigramSimilarity,
+  findFuzzyMatch,
 };

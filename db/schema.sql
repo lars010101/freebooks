@@ -836,3 +836,11 @@ CREATE INDEX IF NOT EXISTS idx_partner_proposals_company_status
 CREATE INDEX IF NOT EXISTS idx_partner_proposals_name
   ON partner_proposals(company_id, name);
 
+-- =============================================================================
+-- bills.partner_id — link to partners(partner_id) (bills-partner-fk-spec §1)
+-- Nullable, indexed, no enforced FK constraint (DuckDB limitation — see init.js
+-- applyUniqueConstraints comment). Referential integrity is app-level (§5 guard).
+-- =============================================================================
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS partner_id VARCHAR;
+CREATE INDEX IF NOT EXISTS idx_bills_partner_id ON bills(partner_id);
+

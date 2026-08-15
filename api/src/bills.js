@@ -120,6 +120,19 @@ async function createBill(ctx) {
 
   if (!bill) throw Object.assign(new Error('bill object required'), { code: 'INVALID_INPUT' });
 
+  // ── bills-partner-fk-spec §5: vendor-type guard ──────────────────────
+  // If partner_id is present, verify the partner is flagged is_vendor=TRUE.
+  // NULL/absent partner_id (free-text or unmatched name) passes through unguarded.
+  if (bill.partner_id) {
+    const partnerRows = await query(
+      `SELECT is_vendor FROM partners WHERE company_id = @companyId AND partner_id = @partnerId LIMIT 1`,
+      { companyId, partnerId: bill.partner_id }
+    );
+    if (partnerRows.length && partnerRows[0].is_vendor === false) {
+      throw Object.assign(new Error('Selected partner is not flagged as a vendor'), { code: 'INVALID_PARTNER_TYPE' });
+    }
+  }
+
   // Resolve company currency + FX rate BEFORE validation (validateBill checks bill.fx_rate)
   const companies = await query(
     `SELECT currency, vat_registered FROM companies WHERE company_id = @companyId LIMIT 1`,
@@ -233,6 +246,7 @@ async function createBill(ctx) {
     company_id: companyId,
     bill_id: billId,
     partner_name: bill.partner_name,
+    partner_id: bill.partner_id || null,
     vendor_ref: bill.vendor_ref || null,
     date: bill.date,
     due_date: bill.due_date,
@@ -1000,6 +1014,17 @@ async function saveDraftBill(ctx) {
   if (!bill) throw Object.assign(new Error('bill required'), { code: 'INVALID_INPUT' });
   // partner_name and date optional — allows skeleton draft creation on row init
 
+  // ── bills-partner-fk-spec §5: vendor-type guard (same as createBill) ──
+  if (bill.partner_id) {
+    const partnerRows = await query(
+      `SELECT is_vendor FROM partners WHERE company_id = @companyId AND partner_id = @partnerId LIMIT 1`,
+      { companyId, partnerId: bill.partner_id }
+    );
+    if (partnerRows.length && partnerRows[0].is_vendor === false) {
+      throw Object.assign(new Error('Selected partner is not flagged as a vendor'), { code: 'INVALID_PARTNER_TYPE' });
+    }
+  }
+
   // Apply company default accounts (same safety net as createBill) so blank
   // expense/ap accounts fall back to settings before hitting NOT NULL constraints.
   const companyDefaults = await getCompanyDefaultAccounts(companyId);
@@ -1077,6 +1102,7 @@ async function saveDraftBill(ctx) {
     company_id: companyId,
     bill_id: billId,
     partner_name: bill.partner_name,
+    partner_id: bill.partner_id || null,
     vendor_ref: bill.vendor_ref || null,
     date: bill.date,
     due_date: bill.due_date || bill.date || null,
@@ -1105,8 +1131,8 @@ async function saveDraftBill(ctx) {
   if (existing.length) {
     // update existing draft
     await query(
-      `UPDATE bills SET partner_name=@partner_name, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, vat_amount=@vat_amount, cost_center=@cost_center, profit_center=@profit_center, description=@description, draft_lines=@draft_lines WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
-      { partner_name: billRow.partner_name, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, vat_amount: billRow.vat_amount, cost_center: billRow.cost_center, profit_center: billRow.profit_center, description: billRow.description, draft_lines: bill.lines ? JSON.stringify(bill.lines) : null, bill_id: billId, company_id: companyId }
+      `UPDATE bills SET partner_name=@partner_name, partner_id=@partner_id, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, vat_amount=@vat_amount, cost_center=@cost_center, profit_center=@profit_center, description=@description, draft_lines=@draft_lines WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
+      { partner_name: billRow.partner_name, partner_id: billRow.partner_id, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, vat_amount: billRow.vat_amount, cost_center: billRow.cost_center, profit_center: billRow.profit_center, description: billRow.description, draft_lines: bill.lines ? JSON.stringify(bill.lines) : null, bill_id: billId, company_id: companyId }
     );
   } else {
     await bulkInsert('bills', [billRow]);
@@ -1217,6 +1243,7 @@ async function postDraftBill(ctx) {
     body: {
       bill: {
         partner_name: bill.partner_name,
+        partner_id: bill.partner_id || null,
         vendor_ref: bill.vendor_ref,
         date: bill.date,
         due_date: bill.due_date,

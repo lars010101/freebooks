@@ -164,6 +164,7 @@ const editId = ${JSON.stringify(editId)};
 const S = {
   partners: [], accounts: [], vatCodes: [], centers: [], currencies: [],
   billId: editId || null,
+  selectedPartnerId: null,  // partner_id from dropdown pick (bills-partner-fk-spec §4.2)
   stagedFiles: [],       // File objects staged pre-first-save
   saving: false,
   savedSnapshot: null,   // JSON of last-saved (or initial) form state
@@ -218,6 +219,7 @@ async function prefillFromDraft(id) {
     apiAction('bill.lines', { billId: id }),
   ]);
   document.getElementById('be-partner-name').value = bill.partner_name || '';
+  S.selectedPartnerId = bill.partner_id || null;  // bills-partner-fk-spec §4.2 — preserve link on re-save
   document.getElementById('be-date').value = (bill.date || '').slice(0, 10);
   document.getElementById('be-due').value = (bill.due_date || bill.date || '').slice(0, 10);
   document.getElementById('be-ref').value = bill.vendor_ref || '';
@@ -250,6 +252,7 @@ function wireHeader() {
     onPick: (it, inp) => {
       inp.value = it.primary;
       const v = it.data;
+      S.selectedPartnerId = v.partner_id || null;  // bills-partner-fk-spec §4.2
       if (FX_ON && v.default_currency && !document.getElementById('be-ccy').value) document.getElementById('be-ccy').value = v.default_currency;
       if (v.default_ap_account && !document.getElementById('be-ap').value) document.getElementById('be-ap').value = v.default_ap_account;
       if (v.payment_terms_days) {
@@ -264,6 +267,10 @@ function wireHeader() {
   });
   attachCcy(document.getElementById('be-ccy'));
   attachAcct(document.getElementById('be-ap'));
+  // bills-partner-fk-spec §4.2.4: if user types/edits the name without picking
+  // from the dropdown, clear the stored partner_id — same free-text behavior as §0.2.
+  const _partnerInput = document.getElementById('be-partner-name');
+  if (_partnerInput) _partnerInput.addEventListener('input', () => { S.selectedPartnerId = null; });
 }
 function attachCcy(input) {
   FB.dropdown.attach(input, {
@@ -421,6 +428,7 @@ function gatherBill() {
   return {
     bill_id: S.billId || undefined,
     partner_name: document.getElementById('be-partner-name').value.trim(),
+    partner_id: S.selectedPartnerId || null,  // bills-partner-fk-spec §4.2
     date: document.getElementById('be-date').value,
     due_date: document.getElementById('be-due').value,
     vendor_ref: document.getElementById('be-ref').value.trim(),

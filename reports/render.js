@@ -583,27 +583,48 @@ async function buildVoucherRegister(query, company, start, end) {
   // Group journal_entries by batch_id, server-side. One row per posted batch.
   // reverses/reversed_by are per-row but constant within a batch (the reversal
   // action writes them uniformly), so MIN/MAX is a safe representative.
+  // journal_code comes via LEFT JOIN on journal_id (may be NULL for legacy rows).
   const batches = await query(
-    `SELECT
-       batch_id,
-       MIN(date)                                   AS date,
-       MIN(reference)                              AS reference,
-       MIN(description)                            AS description,
-       MIN(source)                                 AS source,
-       SUM(debit)                                  AS total_debit,
-       SUM(credit)                                 AS total_credit,
-       COUNT(*)                                    AS line_count,
-       MIN(reverses)                               AS reverses,
-       MIN(reversed_by)                            AS reversed_by,
-       MAX(bill_id)                                AS bill_id
-     FROM journal_entries
-     WHERE company_id = ?
-       AND date >= ?
-       AND date <= ?
-     GROUP BY batch_id
-     ORDER BY MIN(date) DESC, batch_id`,
+    `SELECT b.*, j.code AS journal_code
+     FROM (
+       SELECT
+         batch_id,
+         MIN(date)                                   AS date,
+         MIN(reference)                              AS reference,
+         MIN(description)                            AS description,
+         MIN(source)                                 AS source,
+         MIN(journal_id)                             AS journal_id,
+         SUM(debit)                                  AS total_debit,
+         SUM(credit)                                 AS total_credit,
+         COUNT(*)                                    AS line_count,
+         MIN(reverses)                               AS reverses,
+         MIN(reversed_by)                            AS reversed_by,
+         MAX(bill_id)                                AS bill_id
+       FROM journal_entries
+       WHERE company_id = ?
+         AND date >= ?
+         AND date <= ?
+       GROUP BY batch_id
+     ) b
+     LEFT JOIN journals j ON j.journal_id = b.journal_id
+     ORDER BY b.date DESC, b.batch_id`,
     [company, start, end]
   );
+
+  const rowsData = batches.map(b => ({
+    batch_id: b.batch_id,
+    date: String(b.date || '').slice(0, 10),
+    journal: b.journal_code || '',
+    reference: b.reference || '',
+    description: b.description || '',
+    total_debit: Number(b.total_debit || 0),
+    total_credit: Number(b.total_credit || 0),
+    line_count: b.line_count,
+    reverses: b.reverses || null,
+    reversed_by: b.reversed_by || null,
+    bill_id: b.bill_id || null,
+    status: b.reverses ? 'Reversal' : (b.reversed_by ? 'Reversed' : 'Posted'),
+  }));
 
   const tableHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -611,6 +632,7 @@ async function buildVoucherRegister(query, company, start, end) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Transaction Register — freeBooks</title>
+<link rel="stylesheet" href="/public/common.css?v=${Date.now()}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
@@ -632,16 +654,39 @@ async function buildVoucherRegister(query, company, start, end) {
   td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   tr:hover td { background: #fafafa; }
-  .no-results { text-align: center; color: #888; padding: 20px; }
-  .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
   tr[data-href] { cursor: pointer; }
   tr[data-href]:hover td { background: #f0f4ff; }
-  tr[data-href]:focus { outline: 2px solid #3730a3; outline-offset: -2px; }
+  .no-results { text-align: center; color: #888; padding: 20px; }
+  .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
   .badge { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 8.5pt; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
   .b-posted   { background: #e8f5e9; color: #2e7d32; }
   .b-reversed { background: #ffebee; color: #c62828; }
   .b-reversal { background: #fff3e0; color: #e65100; }
   .rev-link { color: #e65100; text-decoration: underline; font-size: 9pt; }
+  .pe-ro { color: #bbb; }
+  /* FB.list keyboard-focus in the iframe */
+  tr.nav-row-focus:not(.row-editing) > td {
+    background: #18293f !important; color: #fff !important; outline: none;
+  }
+  tr.nav-row-focus:not(.row-editing) > td a { color: #fff !important; }
+  /* FB.list column filter/sort UI */
+  th.fb-th-filterable { position: relative; padding-right: 24px; }
+  th .fb-filter-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    cursor: pointer; opacity: 0.4; font-size: 14px; line-height: 1; }
+  th:hover .fb-filter-btn { opacity: 1; color: #555; }
+  th .fb-filter-btn.fb-filter-active { opacity: 1; color: #18293f; font-weight: 700; }
+  th.fb-th-sortable { cursor: pointer; user-select: none; }
+  .th-sort { font-size: 0.6875rem; color: #18293a; width: 12px; text-align: center; flex-shrink: 0; margin-left: 2px; }
+  .th-sort:empty { display: none; }
+  .fb-col-filter-dd { position: fixed; background: #fff; border: 1px solid #ccc; border-radius: 4px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.15); z-index: 9999; padding: 8px; min-width: 180px; }
+  .fb-col-filter-dd .fb-cf-input, .fb-col-filter-dd .fb-cf-op {
+    padding: 4px 6px; border: 1px solid #ddd; border-radius: 3px; font-size: 10pt; margin-bottom: 6px; }
+  .fb-cf-list { max-height: 240px; overflow-y: auto; }
+  .fb-cf-item { padding: 4px 8px; cursor: pointer; border-radius: 3px; font-size: 10pt; }
+  .fb-cf-item:hover { background: #f2f4f7; }
+  .fb-cf-clear { color: #6b7a95; font-style: italic; }
+  .row-actions { white-space: nowrap; text-align: right; }
 </style>
 </head>
 <body>
@@ -663,15 +708,16 @@ async function buildVoucherRegister(query, company, start, end) {
   </div>
 
   <div class="table-wrap">
-    <table>
+    <table class="edit-table">
       <thead>
         <tr>
-          <th>Date</th>
-          <th>Reference</th>
-          <th>Description</th>
-          <th class="num">Amount</th>
-          <th>Source</th>
-          <th>Status</th>
+          <th data-field="date">Date</th>
+          <th data-field="journal">Journal</th>
+          <th data-field="reference">Doc No</th>
+          <th data-field="description">Description</th>
+          <th data-field="total_debit" class="num">Amount</th>
+          <th data-field="status">Status</th>
+          <th></th>
         </tr>
       </thead>
       <tbody id="vr-body"></tbody>
@@ -681,79 +727,12 @@ async function buildVoucherRegister(query, company, start, end) {
   <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks · Transaction Register</div>
 </div>
 
+<script src="/public/fb-core.js?v=${Date.now()}"></script>
+<script src="/public/fb-list.js?v=${Date.now()}"></script>
 <script>
   var COMPANY = ${JSON.stringify(company)};
-  var VR_START = ${JSON.stringify(start || '')};
-  var VR_END   = ${JSON.stringify(end || '')};
-  var BATCHES  = ${JSON.stringify(batches.map(b => ({
-    batch_id: b.batch_id,
-    date: String(b.date || '').slice(0, 10),
-    reference: b.reference || '',
-    description: b.description || '',
-    source: b.source || '',
-    total_debit: Number(b.total_debit || 0),
-    total_credit: Number(b.total_credit || 0),
-    line_count: b.line_count,
-    reverses: b.reverses || null,
-    reversed_by: b.reversed_by || null,
-    bill_id: b.bill_id || null,
-  })))};
+  var VR_ROWS = ${JSON.stringify(rowsData)};
 
-  function fmtAmt(v) {
-    var n = Number(v || 0);
-    if (!n) return '';
-    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-
-  // Source-aware drill link for a batch row (IA spec §10.2).
-  function drillHref(b) {
-    if (b.bill_id) {
-      return '/' + COMPANY + '/payables/bill/' + encodeURIComponent(b.bill_id) + '?from=voucher-register';
-    }
-    return '/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(b.batch_id) + '&from=voucher-register';
-  }
-
-  function statusCell(b) {
-    if (b.reverses) {
-      return '<span class="badge b-reversal">Reversal</span>'
-        + ' <a class="rev-link" href="/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(b.reverses) + '&from=voucher-register" target="_parent">of ' + esc(String(b.reverses).slice(0, 8)) + '</a>';
-    }
-    if (b.reversed_by) {
-      return '<span class="badge b-reversed">Reversed</span>'
-        + ' <a class="rev-link" href="/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(b.reversed_by) + '&from=voucher-register" target="_parent">by ' + esc(String(b.reversed_by).slice(0, 8)) + '</a>';
-    }
-    return '<span class="badge b-posted">Posted</span>';
-  }
-
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
-
-  function rowHtml(b) {
-    var href = drillHref(b);
-    return '<tr data-batch="' + esc(b.batch_id) + '" tabindex="0" data-href="' + esc(href) + '">'
-      + '<td>' + esc(b.date) + '</td>'
-      + '<td><a href="' + esc(href) + '" target="_parent">' + esc(b.reference || b.batch_id) + '</a></td>'
-      + '<td>' + esc(b.description || '') + '</td>'
-      + '<td class="num">' + fmtAmt(b.total_debit) + '</td>'
-      + '<td>' + esc(b.source) + '</td>'
-      + '<td>' + statusCell(b) + '</td>'
-      + '</tr>';
-  }
-
-  function renderRows() {
-    var body = document.getElementById('vr-body');
-    if (!BATCHES.length) {
-      body.innerHTML = '<tr><td colspan="6" class="no-results">No posted transactions in this period.</td></tr>';
-      return;
-    }
-    body.innerHTML = BATCHES.map(rowHtml).join('');
-  }
-
-  // Re-query via the report endpoint (date-range filter). Replaces the iframe
-  // location so the Reports hub re-renders the report with new params.
   function vrRequery() {
     var s = document.getElementById('vr-start').value;
     var e = document.getElementById('vr-end').value;
@@ -762,15 +741,87 @@ async function buildVoucherRegister(query, company, start, end) {
     window.location.href = url;
   }
 
-  // Keyboard: Enter on a focused row activates its drill link.
-  document.getElementById('vr-body').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-      var tr = e.target.closest('tr[data-href]');
-      if (tr) { window.parent.location.href = tr.getAttribute('data-href'); }
+  function drillHref(b) {
+    if (b.bill_id) {
+      return '/' + COMPANY + '/payables/bill/' + encodeURIComponent(b.bill_id) + '?from=voucher-register';
     }
+    return '/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(b.batch_id) + '&from=voucher-register';
+  }
+
+  function statusDisplay(v, row) {
+    if (row.reverses) {
+      return '<span class="badge b-reversal">Reversal</span>'
+        + ' <a class="rev-link" href="/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(row.reverses) + '&from=voucher-register" target="_parent">of ' + esc(String(row.reverses).slice(0, 8)) + '</a>';
+    }
+    if (row.reversed_by) {
+      return '<span class="badge b-reversed">Reversed</span>'
+        + ' <a class="rev-link" href="/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(row.reversed_by) + '&from=voucher-register" target="_parent">by ' + esc(String(row.reversed_by).slice(0, 8)) + '</a>';
+    }
+    return '<span class="badge b-posted">Posted</span>';
+  }
+
+  function amtDisplay(v) {
+    var n = Number(v || 0);
+    if (!n) return '';
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  var vrList = FB.list.create({
+    keysId: 'voucher-register',
+    active: function () { return true; },
+    tbody: 'vr-body',
+    companyId: function () { return COMPANY; },
+    canAdd: false,
+    editable: function () { return false; },
+    same: function () { return true; },
+    validate: function () { return null; },
+    columns: [
+      { field: 'date', label: 'Date', type: 'text', filterType: 'date', sortable: true,
+        display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+      { field: 'journal', label: 'Journal', type: 'text', filterType: 'text', sortable: true },
+      { field: 'reference', label: 'Doc No', type: 'text', filterType: 'text', sortable: true },
+      { field: 'description', label: 'Description', type: 'text', filterType: 'text', sortable: true,
+        display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+      { field: 'total_debit', label: 'Amount', type: 'number', filterType: 'amount', sortable: true, align: 'right',
+        display: amtDisplay },
+      { field: 'status', label: 'Status', type: 'text', filterType: 'list', sortable: true,
+        display: statusDisplay },
+    ],
+    list: {
+      fetch: function () { return Promise.resolve(VR_ROWS); },
+      map: function (r) { return Object.assign({}, r, { _key: r.batch_id }); }
+    },
+    onChrome: function () {}
   });
 
-  renderRows();
+  // After load, wire drill-through data-href on each row + Enter key
+  vrList.load().then(function () {
+    var body = document.getElementById('vr-body');
+    if (!body) return;
+
+    body.querySelectorAll('tr[data-key]').forEach(function (tr) {
+      var key = tr.getAttribute('data-key');
+      var row = VR_ROWS.filter(function (r) { return r.batch_id === key; })[0];
+      if (row) tr.setAttribute('data-href', drillHref(row));
+    });
+
+    // Enter on a focused row → drill through to parent frame
+    body.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        var tr = e.target.closest('tr[data-href]');
+        if (tr) { e.preventDefault(); window.parent.location.href = tr.getAttribute('data-href'); }
+      }
+    });
+
+    // Click on a row → drill through (mouse parity)
+    body.addEventListener('click', function (e) {
+      var tr = e.target.closest('tr[data-href]');
+      if (!tr || e.target.closest('.fb-filter-btn') || e.target.closest('th')) return;
+      if (e.target.tagName === 'A') return; // let rev-link anchors work
+      e.preventDefault();
+      window.parent.location.href = tr.getAttribute('data-href');
+    });
+  });
 </script>
 </body>
 </html>`;

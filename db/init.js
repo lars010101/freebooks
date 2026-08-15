@@ -275,6 +275,43 @@ if (API_URL) {
         await seedJournals();
         console.log('Default journals seeded.');
         await applyUniqueConstraints();
+
+        // ── bills.partner_id backfill (bills-partner-fk-spec §2) ───────────
+        // Per-row loop: for every bill with partner_id IS NULL, attempt a
+        // case-insensitive name match against partners. Idempotent (the
+        // WHERE partner_id IS NULL guard). Unmatched rows stay NULL (§0.2).
+        async function backfillBillsPartnerId() {
+          try {
+            var unmatched = await conn.all(
+              `SELECT bill_id, partner_name FROM bills WHERE partner_id IS NULL`, []
+            );
+            if (!unmatched || unmatched.length === 0) {
+              console.log('Bills-partner backfill: no unmatched bills.');
+              return;
+            }
+            var matchedCount = 0;
+            for (var i = 0; i < unmatched.length; i++) {
+              var row = unmatched[i];
+              var matches = await conn.all(
+                `SELECT partner_id FROM partners WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+                [row.partner_name]
+              );
+              if (matches && matches.length > 0) {
+                await conn.run(
+                  `UPDATE bills SET partner_id = ? WHERE bill_id = ?`,
+                  [matches[0].partner_id, row.bill_id]
+                );
+                matchedCount++;
+              }
+            }
+            var unmatchedCount = unmatched.length - matchedCount;
+            console.log(`Bills-partner backfill: matched ${matchedCount}, left unmatched ${unmatchedCount} (unresolved partner_name — expected for free-text vendors).`);
+          } catch (e) {
+            console.warn(`\n⚠ Bills-partner backfill skipped: ${String(e.message).split('\n')[0]}`);
+          }
+        }
+        await backfillBillsPartnerId();
+
         // Force WAL flush before close
         await conn.run('CHECKPOINT', []);
         conn.closeSync();

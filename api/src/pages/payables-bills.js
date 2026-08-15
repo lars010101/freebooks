@@ -947,7 +947,7 @@ function billValidateBuf(b) {
 function billSaveBody(b) {
   return { bill: {
     bill_id: b._isNew ? null : b._key,
-    partner_name: b.partner_name, vendor_ref: b.vendor_ref, date: b.date, due_date: b.due_date,
+    partner_name: b.partner_name, partner_id: b.partner_id || null, vendor_ref: b.vendor_ref, date: b.date, due_date: b.due_date,
     amount: billSumGross(b.lines, b.vat_amount_stated), currency: b.currency, ap_account: b.ap_account,
     expense_account: b.expense_account,
     vat_amount_stated: (b.vat_amount_stated != null && !isNaN(Number(b.vat_amount_stated))) ? Number(b.vat_amount_stated) : null,

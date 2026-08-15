@@ -2461,3 +2461,110 @@ test('bill.payment.record: multi-bill is idempotent', async () => {
     `SELECT COUNT(*) c FROM bill_payments WHERE company_id='CT' AND batch_id='${first.body.data.batchId}'`);
   assert.equal(Number(bp[0].c), 2, 'exactly 2 bill_payments rows — no duplicate on replay');
 });
+
+// ── bills.partner_id (bills-partner-fk-spec §7) ─────────────────────────────
+
+test('partner_id round-trips: create → get returns partner_id', async () => {
+  // Create a vendor partner and get its id
+  const vp = await api(baseUrl, 'partner.upsert', {
+    companyId: CO, partner: { name: 'VendorCo Round-Trip', default_currency: 'SGD', is_vendor: true, is_customer: false },
+  });
+  assert.equal(vp.status, 200, JSON.stringify(vp.body));
+  const partnerId = vp.body.data.partnerId;
+
+  // Create a bill with partner_id
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO,
+    bill: validBill({ partner_name: 'VendorCo Round-Trip', partner_id: partnerId, vendor_ref: 'PID-RT-1' }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+
+  // bill.get should return partner_id
+  const g = await api(baseUrl, 'bill.get', { companyId: CO, billId: c.body.data.billId });
+  assert.equal(g.status, 200);
+  assert.equal(g.body.data.partner_id, partnerId, 'partner_id round-trips through bill.create → bill.get');
+});
+
+test('partner_id round-trips: draft save → post → get preserves partner_id', async () => {
+  const vp = await api(baseUrl, 'partner.upsert', {
+    companyId: CO, partner: { name: 'DraftPostCo', default_currency: 'SGD', is_vendor: true, is_customer: false },
+  });
+  const partnerId = vp.body.data.partnerId;
+
+  // Save a draft with partner_id
+  const d = await api(baseUrl, 'bill.draft.save', {
+    companyId: CO,
+    bill: { partner_name: 'DraftPostCo', partner_id: partnerId, vendor_ref: 'PID-DRAFT-1', date: TD.day21, currency: 'SGD', ap_account: AP,
+      lines: [{ description: 'L1', expense_account: EXP, amount: 50, vat_code: '' }] },
+  });
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+  const draftId = d.body.data.billId;
+
+  // Re-save (UPDATE path) — partner_id should survive
+  const r = await api(baseUrl, 'bill.draft.save', {
+    companyId: CO,
+    bill: { bill_id: draftId, partner_name: 'DraftPostCo', partner_id: partnerId, vendor_ref: 'PID-DRAFT-1b', date: TD.day21, currency: 'SGD', ap_account: AP,
+      lines: [{ description: 'L1', expense_account: EXP, amount: 50, vat_code: '' }] },
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+
+  // Post the draft
+  const p = await api(baseUrl, 'bill.draft.post', { companyId: CO, billId: draftId });
+  assert.equal(p.status, 200, JSON.stringify(p.body));
+
+  // bill.get should still have partner_id (regression-guards §3.3 postDraftBill whitelist)
+  const g = await api(baseUrl, 'bill.get', { companyId: CO, billId: draftId });
+  assert.equal(g.status, 200);
+  assert.equal(g.body.data.partner_id, partnerId, 'partner_id survives draft → post (postDraftBill passthrough)');
+});
+
+test('partner_id null when partner_name is free-text (no dropdown pick)', async () => {
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO,
+    bill: validBill({ partner_name: 'Some Unknown Vendor', vendor_ref: 'PID-FREE-1' }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  const g = await api(baseUrl, 'bill.get', { companyId: CO, billId: c.body.data.billId });
+  assert.equal(g.status, 200);
+  assert.ok(!g.body.data.partner_id, 'free-text partner_name → partner_id is null/undefined');
+});
+
+test('§5 guard: rejects bill.create against non-vendor partner', async () => {
+  // Create a customer-only partner
+  const cp = await api(baseUrl, 'partner.upsert', {
+    companyId: CO, partner: { name: 'CustomerOnly Inc', default_currency: 'SGD', is_vendor: false, is_customer: true },
+  });
+  assert.equal(cp.status, 200, JSON.stringify(cp.body));
+  const customerPartnerId = cp.body.data.partnerId;
+
+  // Attempt to create a bill with this customer-only partner_id
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO,
+    bill: validBill({ partner_name: 'CustomerOnly Inc', partner_id: customerPartnerId, vendor_ref: 'PID-GUARD-1' }),
+  });
+  assert.equal(c.status, 400);
+  assert.equal(c.body.error.code, 'INVALID_PARTNER_TYPE');
+});
+
+test('§5 guard: rejects draft save against non-vendor partner', async () => {
+  const cp = await api(baseUrl, 'partner.upsert', {
+    companyId: CO, partner: { name: 'CustOnly Draft', default_currency: 'SGD', is_vendor: false, is_customer: true },
+  });
+  const customerPartnerId = cp.body.data.partnerId;
+
+  const d = await api(baseUrl, 'bill.draft.save', {
+    companyId: CO,
+    bill: { partner_name: 'CustOnly Draft', partner_id: customerPartnerId, vendor_ref: 'PID-GUARD-2', date: TD.day21, currency: 'SGD', ap_account: AP,
+      lines: [{ description: 'L1', expense_account: EXP, amount: 10, vat_code: '' }] },
+  });
+  assert.equal(d.status, 400);
+  assert.equal(d.body.error.code, 'INVALID_PARTNER_TYPE');
+});
+
+test('§5 guard: allows bill.create with partner_id=null (free-text path)', async () => {
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO,
+    bill: validBill({ partner_name: 'Free Text Vendor', partner_id: null, vendor_ref: 'PID-NULL-1' }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+});

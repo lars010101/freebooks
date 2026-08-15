@@ -143,6 +143,8 @@ ${commonStyle()}
   // company root.
   var VIEW_BATCH = new URLSearchParams(window.location.search).get('batch');
   var FROM_REPORT = new URLSearchParams(window.location.search).get('from');
+  var RPT_START = new URLSearchParams(window.location.search).get('rpt_start') || '';
+  var RPT_END = new URLSearchParams(window.location.search).get('rpt_end') || '';
   var viewBatchLines = null, viewBatchRef = '', viewBatchDate = '', viewBatchDesc = '';
   var viewBatchReversed = false;
 
@@ -854,7 +856,11 @@ ${commonStyle()}
         postEntry();
       } },
       quit: { key: 'q', hint: 'quit', paletteEligible: false, run: function () {
-        fbNavigate(FROM_REPORT ? '/' + COMPANY + '/reports?t=' + FROM_REPORT : '/' + COMPANY);
+        var url = FROM_REPORT ? '/' + COMPANY + '/reports?t=' + FROM_REPORT : '/' + COMPANY;
+        if (FROM_REPORT && RPT_START && RPT_END) {
+          url += '&start=' + encodeURIComponent(RPT_START) + '&end=' + encodeURIComponent(RPT_END);
+        }
+        fbNavigate(url);
       } }
     },
     extraBindings: function (api) {

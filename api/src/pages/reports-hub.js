@@ -82,6 +82,8 @@ ${layoutEnd()}
   var drillThrough = !!urlParams.get('t');
   if (drillThrough) { currentType = urlParams.get('t'); localStorage.setItem('fb-rpt-type', currentType); }
   var drillAccount = urlParams.get('account') || '';
+  var startParam = urlParams.get('start') || '';
+  var endParam = urlParams.get('end') || '';
 
   var currentStep = localStorage.getItem('fb-rpt-step') || '';
   var savedPeriod = localStorage.getItem('fb-rpt-period') || '';
@@ -205,6 +207,27 @@ ${layoutEnd()}
           periodLoaded = true;
           setAndLoad(matchedPeriod);
         }
+      } else if (startParam && endParam) {
+        // Restore period from ?start=&end= (drill-through return navigation).
+        // Try to match a known period for the dropdown; fall back to "custom".
+        var matched = false;
+        for (var si = 0; si < periods.length; si++) {
+          var ss = fmtDate(periods[si].start_date), se = fmtDate(periods[si].end_date);
+          if (ss === startParam && se === endParam) {
+            for (var sj = 0; sj < periodEl.options.length; sj++) {
+              if (periodEl.options[sj].value === ss + '|' + se) { periodEl.selectedIndex = sj; break; }
+            }
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) periodEl.value = 'custom';
+        document.getElementById('rpt-start').value = startParam;
+        document.getElementById('rpt-end').value = endParam;
+        localStorage.setItem('fb-rpt-start', startParam);
+        localStorage.setItem('fb-rpt-end', endParam);
+        periodLoaded = true;
+        if (drillThrough) fbLoadReport();
       } else if (periods.length) {
         // v7: No ?period= param — fetch the latest posted-transaction period.
         // This always runs, ignoring stale localStorage.

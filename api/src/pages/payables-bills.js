@@ -29,7 +29,7 @@ function billsTabJS(flags) {
 window.allPartners = window.allPartners || [];
 function loadPartners() {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'partner.list', companyId: COMPANY }) })
+    body: JSON.stringify({ action:'partner.list', companyId: COMPANY, partner_type: 'vendor' }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
       var data = res.data || res;

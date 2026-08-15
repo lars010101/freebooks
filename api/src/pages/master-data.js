@@ -66,9 +66,9 @@ ${commonStyle()}
   <!-- PARTNERS TAB -->
   <div id="tab-partners" class="tab-panel active">
     <table class="edit-table" id="partners-table">
-      <thead><tr><th>Partner</th><th style="width:70px;text-align:center">CCY</th><th style="width:110px;text-align:center">Terms (d)</th><th style="width:140px">Expense A/C</th><th style="width:140px">AP A/C</th><th style="width:90px;text-align:center">Active</th></tr></thead>
+      <thead><tr><th>Partner</th><th style="width:70px;text-align:center">CCY</th><th style="width:110px;text-align:center">Terms (d)</th><th style="width:140px">Expense A/C</th><th style="width:140px">AP A/C</th><th style="width:60px;text-align:center">Vendor</th><th style="width:60px;text-align:center">Customer</th><th style="width:90px;text-align:center">Active</th></tr></thead>
       <tbody id="partners-body">
-        <tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
+        <tr><td colspan="8" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>
       </tbody>
     </table>
     <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
@@ -309,10 +309,10 @@ var partnersList = FB.list.create({
   firstField: function() { return 'name'; },
   track: 'partner',
   list: { action: 'partner.list',
-    map: function(v) { return { partner_id: v.partner_id, name: v.name || '', default_currency: v.default_currency || '', payment_terms_days: v.payment_terms_days != null ? v.payment_terms_days : 30, default_expense_account: v.default_expense_account || '', default_ap_account: v.default_ap_account || '', is_active: v.is_active !== false, _key: v.partner_id }; } },
+    map: function(v) { return { partner_id: v.partner_id, name: v.name || '', default_currency: v.default_currency || '', payment_terms_days: v.payment_terms_days != null ? v.payment_terms_days : 30, default_expense_account: v.default_expense_account || '', default_ap_account: v.default_ap_account || '', is_vendor: v.is_vendor !== false, is_customer: v.is_customer === true, is_active: v.is_active !== false, _key: v.partner_id }; } },
   onLoaded: function(saved) { window.allPartners = saved; },
   save: { action: 'partner.upsert',
-    body: function(d) { return { partner: { partner_id: d._isNew ? null : d._key, name: d.name, default_currency: d.default_currency || null, payment_terms_days: parseInt(d.payment_terms_days, 10) || 30, default_expense_account: d.default_expense_account || null, default_ap_account: d.default_ap_account || null, is_active: d.is_active !== false } }; },
+    body: function(d) { return { partner: { partner_id: d._isNew ? null : d._key, name: d.name, default_currency: d.default_currency || null, payment_terms_days: parseInt(d.payment_terms_days, 10) || 30, default_expense_account: d.default_expense_account || null, default_ap_account: d.default_ap_account || null, is_vendor: d.is_vendor !== false, is_customer: d.is_customer === true, is_active: d.is_active !== false } }; },
     focusKey: function(d, res) { return d._isNew ? (res.partnerId || d._key) : d._key; } },
   del: { action: 'partner.delete',
     body: function(d) { return { partnerId: d._key }; },
@@ -328,6 +328,7 @@ var partnersList = FB.list.create({
             payment_terms_days: d.payment_terms_days != null ? d.payment_terms_days : 30,
             default_expense_account: d.default_expense_account || null,
             default_ap_account: d.default_ap_account || null,
+            is_vendor: d.is_vendor !== false, is_customer: d.is_customer === true,
             is_active: d.is_active === false };
           fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ action:'partner.upsert', companyId: COMPANY, partner: v }) })

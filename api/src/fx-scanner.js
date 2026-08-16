@@ -17,7 +17,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { query, exec, bulkInsert } = require('./db');
+const { query, exec, bulkInsert, withTransaction } = require('./db');
 const { loadProviderConfig, MANUAL_PROVIDER, providerExists } = require('./fx');
 const { computeCoverage, recomputeCoverage, fetchRange } = require('./fx-coverage');
 const { raiseNotification } = require('./notifications');
@@ -108,14 +108,18 @@ async function scanCompany(companyId, baseCurrency) {
     // them instead of re-downloading the same range.
     if (coverage.rows && coverage.rows.length > 0) {
       try {
-        const dates = [...new Set(coverage.rows.map(r => r.date))];
-        for (const d of dates) {
-          await exec(
-            `DELETE FROM fx_rates WHERE date = @date AND source = @source AND (from_currency = @base OR to_currency = @base)`,
-            { date: d, source, base: baseCurrency }
+        await withTransaction(async (tx) => {
+          // Single DELETE for the entire period range — not per-date
+          await tx.exec(
+            `DELETE FROM fx_rates WHERE date >= @start AND date <= @end AND source = @source AND (from_currency = @base OR to_currency = @base)`,
+            { start, end: effectiveEnd, source, base: baseCurrency }
           );
-        }
-        await bulkInsert('fx_rates', coverage.rows);
+          // Batch INSERT (500 rows at a time) to avoid massive SQL strings
+          const BATCH = 500;
+          for (let i = 0; i < coverage.rows.length; i += BATCH) {
+            await tx.bulkInsert('fx_rates', coverage.rows.slice(i, i + BATCH));
+          }
+        });
         fetched += coverage.rows.length / 2;
       } catch (e) {
         console.error(`FX insert error for ${companyId} period ${period.period_name}:`, e.message);

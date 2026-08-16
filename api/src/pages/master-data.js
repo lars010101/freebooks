@@ -141,9 +141,14 @@ function resetDirty(tab) {
 // vat_registered=false hides Tax Codes; fx_tracking='false' hides Exchange Rates.
 // Tabs stay in the DOM (display:none) so showTab's index math is unaffected;
 // h/l skips them via common.js. If the active tab becomes hidden, fall back.
+var _relevanceState = { vat_registered: true, fx_tracking: 'false' };
 function applyRelevanceFlags(c) {
-  var vatOn = !c || c.vat_registered !== false;
-  var fxOn = !c || c.fx_tracking === 'true';
+  if (c) {
+    if (c.vat_registered !== undefined) _relevanceState.vat_registered = c.vat_registered;
+    if (c.fx_tracking !== undefined) _relevanceState.fx_tracking = c.fx_tracking;
+  }
+  var vatOn = _relevanceState.vat_registered !== false;
+  var fxOn = _relevanceState.fx_tracking === 'true';
   var vatTab = document.getElementById('tab-vat-label');
   var fxTab = document.getElementById('tab-fxrates-label');
   if (vatTab) vatTab.style.display = vatOn ? '' : 'none';

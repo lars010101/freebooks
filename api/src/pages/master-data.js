@@ -724,7 +724,7 @@ function loadCompanyFlags() {
     .catch(function(){});
 }
 
-function loadPostRulesFlags() {
+function loadPostRulesFlags(cb) {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'posting_rules.attr.list', companyId: COMPANY }) })
     .then(function(r){ return r.json(); })
@@ -736,8 +736,9 @@ function loadPostRulesFlags() {
       applyRelevanceFlags({
         fx_tracking: (byKey.multi_currency && byKey.multi_currency.value === true) ? 'true' : 'false'
       });
+      if (cb) cb();
     })
-    .catch(function(){});
+    .catch(function(){ if (cb) cb(); });
 }
 
 // ========== HANDLE ?tab= URL PARAM ==========
@@ -745,10 +746,13 @@ function loadPostRulesFlags() {
   var params = new URLSearchParams(window.location.search);
   var tab = params.get('tab');
   loadCurrencyList();
-  // Eager-load Company + Posting Rules for relevance flags
+  // Eager-load Company + Posting Rules for relevance flags.
+  // showTab is deferred until after flags resolve so that a ?tab=fxrates
+  // deep link doesn't bail out because the tab is still display:none.
   loadCompanyFlags();
-  loadPostRulesFlags();
-  showTab(tab || 'partners');
+  loadPostRulesFlags(function() {
+    showTab(tab || 'partners');
+  });
 })();
 </script>
 ${layoutEnd()}

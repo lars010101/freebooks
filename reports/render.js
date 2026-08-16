@@ -728,7 +728,7 @@ async function buildVoucherRegister(query, company, start, end) {
     if (REPORT_START) extra += '&rpt_start=' + encodeURIComponent(REPORT_START);
     if (REPORT_END) extra += '&rpt_end=' + encodeURIComponent(REPORT_END);
     if (b.bill_id) {
-      return '/' + COMPANY + '/payables/bill/' + encodeURIComponent(b.bill_id) + '?from=voucher-register' + extra;
+      return '/' + COMPANY + '/bill/' + encodeURIComponent(b.bill_id) + '?from=voucher-register' + extra;
     }
     return '/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(b.batch_id) + '&from=voucher-register' + extra;
   }
@@ -992,6 +992,7 @@ async function buildAPAging(query, company, _start, end) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AP Aging — freeBooks</title>
+<link rel="stylesheet" href="/public/common.css?v=${Date.now()}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
@@ -1005,13 +1006,22 @@ async function buildAPAging(query, company, _start, end) {
   th:first-child { text-align: left; }
   td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; text-align: right; }
   td:first-child { text-align: left; }
-  tr.vendor-row { cursor: pointer; }
-  tr.vendor-row:hover td { background: #f5f5ff; }
-  tr.vendor-row td:first-child { font-weight: 600; }
-  tr.detail-row td { font-size: 9pt; color: #555; background: #fafafa; padding: 4px 8px 4px 24px; }
-  tr.detail-row td:first-child { text-align: left; }
   tr.total-row td { font-weight: 700; border-top: 2px solid #ccc; background: #f8f8f8; }
   .col-90plus { color: #cc2222; font-weight: 600; }
+  /* Child rows: bill detail under a vendor */
+  tr[data-child-of] td { font-size: 9pt; color: #555; background: #fafafa; padding: 4px 8px; }
+  tr[data-child-of] td:first-child { padding-left: 24px; text-align: left; }
+  tr[data-child-of][data-href] { cursor: pointer; }
+  tr[data-child-of][data-href]:hover td { background: #f0f4ff; }
+  tr[data-child-of] td.col-90plus { color: #cc2222; }
+  /* FB.list keyboard-focus in the iframe */
+  tr.nav-row-focus:not(.row-editing) > td {
+    background: #18293f !important; color: #fff !important; outline: none;
+  }
+  tr.nav-row-focus:not(.row-editing) > td.col-90plus { color: #ff9999 !important; }
+  /* FB.list fold caret */
+  .fb-fold { display: inline-block; width: 14px; cursor: pointer; opacity: 0.6; font-size: 11px; }
+  .fb-fold:hover { opacity: 1; }
   .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
 </style>
 </head>
@@ -1022,88 +1032,210 @@ async function buildAPAging(query, company, _start, end) {
     <div class="report-title">AP Aging</div>
     <div class="period">As of ${asOf}</div>
   </div>
-  <div id="report-area"><p style="color:#888">Loading\u2026</p></div>
+  <div class="table-wrap">
+    <table class="edit-table">
+      <thead>
+        <tr>
+          <th data-field="partner_name" style="text-align:left">Vendor</th>
+          <th data-field="current" class="num">Current</th>
+          <th data-field="1_30" class="num">1\u201330 days</th>
+          <th data-field="31_60" class="num">31\u201360 days</th>
+          <th data-field="61_90" class="num">61\u201390 days</th>
+          <th data-field="90plus" class="num col-90plus">90+ days</th>
+          <th data-field="total" class="num">Total</th>
+        </tr>
+      </thead>
+      <tbody id="ap-body"></tbody>
+      <tfoot id="ap-foot"></tfoot>
+    </table>
+  </div>
   <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} \u00b7 freeBooks</div>
 </div>
+<script src="/public/fb-core.js?v=${Date.now()}"></script>
+<script src="/public/fb-list.js?v=${Date.now()}"></script>
 <script>
-  var COMPANY = '${company}';
-  var AS_OF   = '${asOf}';
-
-  fetch('/api/action', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'bill.aging', companyId: COMPANY, asOfDate: AS_OF })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(res) {
-    var rows = res.data || res || [];
-    if (!Array.isArray(rows)) rows = [];
-    renderAging(rows);
-  })
-  .catch(function(e) {
-    document.getElementById('report-area').innerHTML = '<p style="color:#cc2222">Error: ' + e.message + '</p>';
-  });
+  var COMPANY = ${JSON.stringify(company)};
+  var AS_OF   = ${JSON.stringify(asOf)};
 
   function fmt(n) {
     if (!n || n === 0) return '';
     return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-  function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function toggleDetail(row) {
-    var next = row.nextElementSibling;
-    if (!next) return;
-    next.style.display = next.style.display === 'none' ? '' : 'none';
+
+  // Group rows into vendor parents with bills as children.
+  // Each vendor row carries computed bucket totals + _bills array.
+  function groupByVendor(rows) {
+    var vendors = {};
+    var order = [];
+    rows.forEach(function(r) {
+      var name = r.partner_name || '(unknown)';
+      if (!vendors[name]) {
+        vendors[name] = {
+          _key: name, _bills: [],
+          partner_name: name,
+          current: 0, '1_30': 0, '31_60': 0, '61_90': 0, '90plus': 0, total: 0
+        };
+        order.push(name);
+      }
+      var v = vendors[name];
+      var bal = Number(r.balance_due || 0);
+      v[r.bucket] = (v[r.bucket] || 0) + bal;
+      v.total += bal;
+      v._bills.push(r);
+    });
+    return order.sort().map(function(name) { return vendors[name]; });
   }
 
-  function renderAging(rows) {
-    if (!rows.length) {
-      document.getElementById('report-area').innerHTML = '<p style="color:#888">No outstanding payables as of ' + AS_OF + '.</p>';
-      return;
+  // childRowHtml: one <td> per parent column, same order (7 columns).
+  // Child rows get no fold caret (framework only prepends it to parent
+  // rows). The first cell carries a padding-left nesting cue.
+  function childRowHtml(parent, bill, idx) {
+    var label = bill.vendor_ref || String(bill.date || '').slice(0, 10) || String(bill.bill_id || '').slice(0, 8);
+    var bal = Number(bill.balance_due || 0);
+    var html = '<td>' + esc(label) + '</td>';
+    html += '<td>' + (bill.bucket === 'current' ? fmt(bal) : '') + '</td>';
+    html += '<td>' + (bill.bucket === '1_30'    ? fmt(bal) : '') + '</td>';
+    html += '<td>' + (bill.bucket === '31_60'   ? fmt(bal) : '') + '</td>';
+    html += '<td>' + (bill.bucket === '61_90'   ? fmt(bal) : '') + '</td>';
+    html += '<td' + (bill.bucket === '90plus' ? ' class="col-90plus"' : '') + '>' + (bill.bucket === '90plus' ? fmt(bal) : '') + '</td>';
+    html += '<td>' + fmt(bal) + '</td>';
+    return html;
+  }
+
+  var vendorRows = [];
+
+  var agingList = FB.list.create({
+    keysId: 'ap-aging',
+    active: function () { return true; },
+    tbody: 'ap-body',
+    companyId: function () { return COMPANY; },
+    canAdd: false,
+    editable: function () { return false; },
+    deletable: function () { return false; },
+    same: function () { return true; },
+    validate: function () { return null; },
+    tree: true,
+    children: function (vendorRow) { return vendorRow._bills; },
+    foldKey: function (row) { return row._key; },
+    columns: [
+      { field: 'partner_name', label: 'Vendor', type: 'text', filterType: 'text', sortable: true,
+        display: function (v) { return v ? esc(v) : ''; } },
+      { field: 'current', label: 'Current', type: 'number', align: 'right', sortable: true,
+        display: function (v) { return fmt(Number(v || 0)); } },
+      { field: '1_30', label: '1\u201330 days', type: 'number', align: 'right', sortable: true,
+        display: function (v) { return fmt(Number(v || 0)); } },
+      { field: '31_60', label: '31\u201360 days', type: 'number', align: 'right', sortable: true,
+        display: function (v) { return fmt(Number(v || 0)); } },
+      { field: '61_90', label: '61\u201390 days', type: 'number', align: 'right', sortable: true,
+        display: function (v) { return fmt(Number(v || 0)); } },
+      { field: '90plus', label: '90+ days', type: 'number', align: 'right', sortable: true,
+        display: function (v) { return fmt(Number(v || 0)); } },
+      { field: 'total', label: 'Total', type: 'number', align: 'right', sortable: true,
+        display: function (v) { return fmt(Number(v || 0)); } },
+    ],
+    childRowHtml: childRowHtml,
+    list: {
+      fetch: function () {
+        return fetch('/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'bill.aging', companyId: COMPANY, asOfDate: AS_OF })
+        }).then(function(r) { return r.json(); }).then(function(res) {
+          var rows = res.data || res || [];
+          if (!Array.isArray(rows)) rows = [];
+          vendorRows = groupByVendor(rows);
+          return vendorRows;
+        });
+      },
+      map: function (r) { return Object.assign({}, r, { _key: r._key }); }
+    },
+    onChrome: function () {},
+    // Override Enter on child rows: instead of the framework's fold-parent
+    // behavior (openFocused → toggleFold for read-only tree rows), drill
+    // through to the bill. extraBindings prepend to built-ins, so this
+    // Enter wins when the focused row is a child (when-guard declines on
+    // parent rows → built-in Enter fires → fold/unfold as expected).
+    extraBindings: function (api) {
+      return [
+        { key: 'Enter', mode: 'NORMAL', hint: 'open bill', hintBar: true,
+          when: function () {
+            var d = api.focusedRow();
+            return !!(d && d._childOf && d.bill_id);
+          },
+          run: function () {
+            var d = api.focusedRow();
+            if (!d || !d.bill_id) return;
+            window.parent.location.href = '/' + COMPANY + '/bill/'
+              + encodeURIComponent(d.bill_id)
+              + '?from=ap-aging&asof=' + encodeURIComponent(AS_OF);
+          }
+        }
+      ];
     }
-    var vendors = {};
-    rows.forEach(function(r) { if (!vendors[r.partner_name]) vendors[r.partner_name] = []; vendors[r.partner_name].push(r); });
+  });
+
+  agingList.load().then(function () {
+    var body = document.getElementById('ap-body');
+    if (!body) return;
+
+    // Render totals row in tfoot
     var totals = { current: 0, '1_30': 0, '31_60': 0, '61_90': 0, '90plus': 0, total: 0 };
-    var html = '<table><thead><tr>'
-      + '<th style="text-align:left">Vendor</th>'
-      + '<th>Current</th><th>1\u201330 days</th><th>31\u201360 days</th><th>61\u201390 days</th>'
-      + '<th class="col-90plus">90+ days</th><th>Total</th>'
-      + '</tr></thead><tbody>';
-    Object.keys(vendors).sort().forEach(function(vendor) {
-      var bills = vendors[vendor];
-      var vt = { current: 0, '1_30': 0, '31_60': 0, '61_90': 0, '90plus': 0, total: 0 };
-      bills.forEach(function(b) {
-        var bal = Number(b.balance_due || 0);
-        vt[b.bucket] = (vt[b.bucket] || 0) + bal;
-        vt.total += bal;
-        totals[b.bucket] = (totals[b.bucket] || 0) + bal;
-        totals.total += bal;
+    vendorRows.forEach(function(v) {
+      ['current','1_30','31_60','61_90','90plus','total'].forEach(function(k) {
+        totals[k] += Number(v[k] || 0);
       });
-      html += '<tr class="vendor-row" onclick="toggleDetail(this)">';
-      html += '<td>\u25b6 ' + esc(vendor) + '</td>';
-      html += '<td>' + fmt(vt.current) + '</td><td>' + fmt(vt['1_30']) + '</td>';
-      html += '<td>' + fmt(vt['31_60']) + '</td><td>' + fmt(vt['61_90']) + '</td>';
-      html += '<td' + (vt['90plus'] > 0 ? ' class="col-90plus"' : '') + '>' + fmt(vt['90plus']) + '</td>';
-      html += '<td>' + fmt(vt.total) + '</td></tr>';
-      html += '<tr class="detail-group" style="display:none"><td colspan="7" style="padding:0"><table style="width:100%;border-collapse:collapse">';
-      bills.forEach(function(b) {
-        var bal = Number(b.balance_due || 0);
-        var label = b.vendor_ref || String(b.date || '').slice(0, 10) || String(b.bill_id || '').slice(0, 8);
-        html += '<tr class="detail-row"><td style="padding-left:24px">' + esc(label) + '</td>';
-        html += '<td>' + (b.bucket === 'current' ? fmt(bal) : '') + '</td>';
-        html += '<td>' + (b.bucket === '1_30'    ? fmt(bal) : '') + '</td>';
-        html += '<td>' + (b.bucket === '31_60'   ? fmt(bal) : '') + '</td>';
-        html += '<td>' + (b.bucket === '61_90'   ? fmt(bal) : '') + '</td>';
-        html += '<td' + (b.bucket === '90plus' ? ' class="col-90plus"' : '') + '>' + (b.bucket === '90plus' ? fmt(bal) : '') + '</td>';
-        html += '<td>' + fmt(bal) + '</td></tr>';
-      });
-      html += '</table></td></tr>';
     });
-    html += '<tr class="total-row"><td>Total</td>';
-    html += '<td>' + fmt(totals.current) + '</td><td>' + fmt(totals['1_30']) + '</td>';
-    html += '<td>' + fmt(totals['31_60']) + '</td><td>' + fmt(totals['61_90']) + '</td>';
-    html += '<td class="col-90plus">' + fmt(totals['90plus']) + '</td><td>' + fmt(totals.total) + '</td></tr>';
-    html += '</tbody></table>';
-    document.getElementById('report-area').innerHTML = html;
+    var footHtml = '<tr class="total-row"><td>Total</td>'
+      + '<td>' + fmt(totals.current) + '</td>'
+      + '<td>' + fmt(totals['1_30']) + '</td>'
+      + '<td>' + fmt(totals['31_60']) + '</td>'
+      + '<td>' + fmt(totals['61_90']) + '</td>'
+      + '<td class="col-90plus">' + fmt(totals['90plus']) + '</td>'
+      + '<td>' + fmt(totals.total) + '</td></tr>';
+    var foot = document.getElementById('ap-foot');
+    if (foot) foot.innerHTML = footHtml;
+
+    // Click on a child row → drill through (mouse parity for the Enter
+    // binding above). Delegated on tbody so it survives re-renders. The
+    // framework's own click handler sets focus (nav.set) before returning
+    // for read-only child rows — no conflict. Fold-caret clicks are
+    // stopPropagation'd by the framework, so they don't reach here.
+    body.addEventListener('click', function (e) {
+      var tr = e.target.closest('tr[data-child-of]');
+      if (!tr) return;
+      if (e.target.closest('.fb-fold')) return;
+      var idx = +tr.getAttribute('data-idx');
+      var billId = resolveChildBillId(idx);
+      if (billId) {
+        e.preventDefault();
+        window.parent.location.href = '/' + COMPANY + '/bill/'
+          + encodeURIComponent(billId)
+          + '?from=ap-aging&asof=' + encodeURIComponent(AS_OF);
+      }
+    });
+  }).catch(function(e) {
+    var area = document.getElementById('ap-body');
+    if (area) area.innerHTML = '<tr><td colspan="7" style="color:#cc2222">Error: ' + esc(e.message) + '</td></tr>';
+  });
+
+  // Resolve a child row's bill_id from its flat data-idx in the merged array.
+  // The merged array is: parent[0], (children if unfolded), parent[1], ...
+  // Walk vendorRows tracking the running index to find the child at flatIdx.
+  function resolveChildBillId(flatIdx) {
+    var idx = 0;
+    for (var vi = 0; vi < vendorRows.length; vi++) {
+      var v = vendorRows[vi];
+      idx++; // parent row
+      // Children only exist in the merged array if the vendor is unfolded.
+      // We don't know fold state here, so we check if a child exists at
+      // this idx position — if the querySelector matched a [data-child-of]
+      // tr, the children ARE in the DOM (vendor is unfolded).
+      for (var bi = 0; bi < v._bills.length; bi++) {
+        if (idx === flatIdx) return v._bills[bi].bill_id;
+        idx++;
+      }
+    }
+    return null;
   }
 </script>
 </body>

@@ -25,7 +25,7 @@ function makeQuery() {
 //     fields to base currency and hides FX revaluation entry points);
 //   baseCurrency  — companies.currency (the lock target when fxTracking='off').
 async function getRelevanceFlags(companyId) {
-  if (!companyId) return { vatRegistered: true, fxTracking: 'auto', baseCurrency: '' };
+  if (!companyId) return { vatRegistered: true, fxTracking: 'off', baseCurrency: '' };
   try {
     const { query } = require('../db');
     const [co] = await query(
@@ -42,11 +42,11 @@ async function getRelevanceFlags(companyId) {
     for (const r of sRows) settings[r.key] = r.value;
     return {
       vatRegistered: !co || co.vat_registered !== false && co.vat_registered !== 0,
-      fxTracking: settings.fx_tracking === 'off' ? 'off' : 'auto',
+      fxTracking: settings.fx_tracking === 'auto' ? 'auto' : 'off',
       baseCurrency: (co && co.base_currency) || ''
     };
   } catch (e) {
-    return { vatRegistered: true, fxTracking: 'auto', baseCurrency: '' };
+    return { vatRegistered: true, fxTracking: 'off', baseCurrency: '' };
   }
 }
 

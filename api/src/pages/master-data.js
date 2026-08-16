@@ -143,7 +143,7 @@ function resetDirty(tab) {
 // h/l skips them via common.js. If the active tab becomes hidden, fall back.
 function applyRelevanceFlags(c) {
   var vatOn = !c || c.vat_registered !== false;
-  var fxOn = !c || c.fx_tracking !== 'off';
+  var fxOn = !c || c.fx_tracking === 'auto';
   var vatTab = document.getElementById('tab-vat-label');
   var fxTab = document.getElementById('tab-fxrates-label');
   if (vatTab) vatTab.style.display = vatOn ? '' : 'none';
@@ -685,7 +685,7 @@ function loadPostRulesFlags() {
       var byKey = {};
       rows.forEach(function(r) { byKey[r.key] = r; });
       applyRelevanceFlags({
-        fx_tracking: (byKey.multi_currency && byKey.multi_currency.value === false) ? 'off' : 'auto'
+        fx_tracking: (byKey.multi_currency && byKey.multi_currency.value === true) ? 'auto' : 'off'
       });
     })
     .catch(function(){});

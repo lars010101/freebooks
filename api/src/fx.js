@@ -378,8 +378,8 @@ async function coverageAction(ctx) {
     `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_tracking'`,
     { companyId }
   );
-  const tracking = trackingRows.length > 0 ? trackingRows[0].value : 'auto';
-  if (tracking === 'off' || providerName === MANUAL_PROVIDER) {
+  const tracking = trackingRows.length > 0 ? trackingRows[0].value : 'off';
+  if (tracking !== 'auto' || providerName === MANUAL_PROVIDER) {
     return { status: 'na', missing: [], reason: 'FX tracking off or provider is manual' };
   }
 
@@ -409,8 +409,8 @@ async function backfillPeriod(companyId, periodStart, periodEnd) {
       `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_tracking'`,
       { companyId }
     );
-    const tracking = trackingRows.length > 0 ? trackingRows[0].value : 'auto';
-    if (tracking === 'off') return;
+    const tracking = trackingRows.length > 0 ? trackingRows[0].value : 'off';
+    if (tracking !== 'auto') return;
 
     const companies = await query(
       `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,

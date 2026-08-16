@@ -403,6 +403,11 @@ var postRulesAttrs = FB.list.create({
     },
     // The save response carries fxScanResult when a scan ran.
     onSaved: function(d, res) {
+      // When multi_currency is toggled, re-fetch the posting rules to
+      // update the Exchange Rates tab visibility on the Master Data page.
+      // The Settings page itself has no FX tab (IA restructure moved it
+      // to Master Data), so we just ensure the value is correct for the
+      // next navigation. The Master Data page re-evaluates on every load.
       var r = res && res.fxScanResult;
       if (!r) return null; // no scan — default 'Saved'
       if (r.error) return 'FX scan failed: ' + r.error;

@@ -138,12 +138,12 @@ function resetDirty(tab) {
 }
 
 // Relevance-flag gating (settings-ux-spec §7 item 9 + fx-automation-spec §1):
-// vat_registered=false hides Tax Codes; fx_tracking='off' hides Exchange Rates.
+// vat_registered=false hides Tax Codes; fx_tracking='false' hides Exchange Rates.
 // Tabs stay in the DOM (display:none) so showTab's index math is unaffected;
 // h/l skips them via common.js. If the active tab becomes hidden, fall back.
 function applyRelevanceFlags(c) {
   var vatOn = !c || c.vat_registered !== false;
-  var fxOn = !c || c.fx_tracking === 'auto';
+  var fxOn = !c || c.fx_tracking === 'true';
   var vatTab = document.getElementById('tab-vat-label');
   var fxTab = document.getElementById('tab-fxrates-label');
   if (vatTab) vatTab.style.display = vatOn ? '' : 'none';
@@ -734,7 +734,7 @@ function loadPostRulesFlags() {
       var byKey = {};
       rows.forEach(function(r) { byKey[r.key] = r; });
       applyRelevanceFlags({
-        fx_tracking: (byKey.multi_currency && byKey.multi_currency.value === true) ? 'auto' : 'off'
+        fx_tracking: (byKey.multi_currency && byKey.multi_currency.value === true) ? 'true' : 'false'
       });
     })
     .catch(function(){});

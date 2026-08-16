@@ -378,8 +378,8 @@ async function coverageAction(ctx) {
     `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_tracking'`,
     { companyId }
   );
-  const tracking = trackingRows.length > 0 ? trackingRows[0].value : 'off';
-  if (tracking !== 'auto' || providerName === MANUAL_PROVIDER) {
+  const tracking = trackingRows.length > 0 ? trackingRows[0].value : 'false';
+  if (tracking !== 'true' || providerName === MANUAL_PROVIDER) {
     return { status: 'na', missing: [], reason: 'FX tracking off or provider is manual' };
   }
 
@@ -398,7 +398,7 @@ async function coverageAction(ctx) {
 }
 
 // ── Period hook backfill (fx-automation-spec §4) ────────────────────────────
-// Called after period.upsert when fx_tracking='auto' and provider is real.
+// Called after period.upsert when fx_tracking='true' and provider is real.
 // Fire-and-forget: the caller (period.upsert) never waits on this.
 async function backfillPeriod(companyId, periodStart, periodEnd) {
   try {
@@ -409,8 +409,8 @@ async function backfillPeriod(companyId, periodStart, periodEnd) {
       `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_tracking'`,
       { companyId }
     );
-    const tracking = trackingRows.length > 0 ? trackingRows[0].value : 'off';
-    if (tracking !== 'auto') return;
+    const tracking = trackingRows.length > 0 ? trackingRows[0].value : 'false';
+    if (tracking !== 'true') return;
 
     const companies = await query(
       `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,

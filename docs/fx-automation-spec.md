@@ -1,24 +1,24 @@
 # FX Rate Automation — spec (agreed 2026-07-23; groundwork shipped 2026-07-27, automation core shipped this PR)
 
 Replaces manual `f` / 📡 Fetch Rates with automatic, coverage-driven rate management.
-Design agreed with Magnus 2026-07-23. **Status 2026-07-27: groundwork shipped (PRs #46/#47) — build-order item 2 ✅: `fx_tracking` setting + per-company provider/`manual`/API-key rows on the Company attribute grid, install-level config adopted per-company on first read, relevance gating live (Exchange Rates tab hidden + currency fields locked to base when `'off'`). Automation core NOT built (items 1, 3–5: `fx.coverage` + `fetchRange`, Periods status column, notifications, scanner) — do not build until scheduled.**
+Design agreed with Magnus 2026-07-23. **Status 2026-07-27: groundwork shipped (PRs #46/#47) — build-order item 2 ✅: `fx_tracking` setting + per-company provider/`manual`/API-key rows on the Company attribute grid, install-level config adopted per-company on first read, relevance gating live (Exchange Rates tab hidden + currency fields locked to base when `'false'`). Automation core NOT built (items 1, 3–5: `fx.coverage` + `fetchRange`, Periods status column, notifications, scanner) — do not build until scheduled.**
 
 **Revision 2026-07-27 (ratified, Magnus, Slack Settings thread):**
 1. **Provider config is install-level, not per-company.** One provider + API key for the whole installation: the rate table is global, so per-company providers only produced duplicate fetches and last-writer-wins on shared rows. Provider UI is a read-first panel with explicit Save on the **Exchange Rates tab** (placement rev. 2, 2026-07-27: no admin page is built — deferred until install-level surface area accumulates. ✅ Tracked — GitHub issue). Revises §1, §6.
-2. **`fx_tracking` blast radius expanded.** `'off'` additionally means simplified UI for domestic-only companies: Exchange Rates tab hidden, currency fields on bills/journals locked to base currency, FX revaluation actions hidden. Revises §1.
-3. **Zero-company short-circuit.** If no company has `fx_tracking = 'auto'`, nothing is downloaded and no gap scanning runs at all. Revises §6.
+2. **`fx_tracking` blast radius expanded.** `'false'` additionally means simplified UI for domestic-only companies: Exchange Rates tab hidden, currency fields on bills/journals locked to base currency, FX revaluation actions hidden. Revises §1.
+3. **Zero-company short-circuit.** If no company has `fx_tracking = 'true'`, nothing is downloaded and no gap scanning runs at all. Revises §6.
 
 **Revision 2026-07-27 (rev. 3, ratified, Magnus, same thread — supersedes rev. 1 above):**
 1. **Provider config is PER-COMPANY after all.** `fx_provider` + `fx_provider_api_key` are per-company settings rows on the Company tab's attribute grid (settings-ux-spec §7 item 1 rev. 3); the install-level (`__install__`) era is dropped, with existing install config adopted per-company on first read. Duplicate-fetch / last-writer-wins on the global rate table is accepted: fetches are idempotent per date+source (delete-then-insert), and in practice one installation runs one provider per company.
-2. **`manual` is a first-class provider choice.** `fx_provider = 'manual'` (the default) = no automatic download — fetch verbs, period hooks, and the scanner skip the company; hand-entered rates (`source='manual'`) still satisfy coverage. The old tri-state collapses: **Multi-Currency boolean** (`fx_tracking` auto/off) governs UI visibility; the provider choice governs automation. Old mapping: `off` → multi-currency No; `manual` behavior → multi-currency Yes + provider `manual`; `auto` → multi-currency Yes + a real provider.
-3. **Scanner scope (revises §6):** per company, automation runs iff `fx_tracking = 'auto'` AND `fx_provider` is a real provider (not `manual`). Zero qualifying companies → short-circuit unchanged.
+2. **`manual` is a first-class provider choice.** `fx_provider = 'manual'` (the default) = no automatic download — fetch verbs, period hooks, and the scanner skip the company; hand-entered rates (`source='manual'`) still satisfy coverage. The old tri-state collapses: **Multi-Currency boolean** (`fx_tracking` true/false) governs UI visibility; the provider choice governs automation. Old mapping: `off` → multi-currency No; `manual` behavior → multi-currency Yes + provider `manual`; `auto` → multi-currency Yes + a real provider. (The stored `fx_tracking` values are now `'true'`/`'false'` boolean strings, not the legacy `'auto'`/`'off'`.)
+3. **Scanner scope (revises §6):** per company, automation runs iff `fx_tracking = 'true'` AND `fx_provider` is a real provider (not `manual`). Zero qualifying companies → short-circuit unchanged.
 
 ## 1. Company opt-out: `fx_tracking`
 
-- New per-company setting `fx_tracking`: `'auto'` (default) | `'off'` (domestic-only company).
+- New per-company setting `fx_tracking`: `'true'` (default) | `'false'` (domestic-only company).
 - UI: **Multi-Currency** Boolean row on the **Company tab** attribute grid (rev. 3). The provider config sits two rows below it in the same grid — per-company (rev. 3), with `manual` as a first-class choice.
-- `'off'` disables everything below: no fetch verb, no status column, no scanning, no notifications.
-- **Simplified UI (rev. 2026-07-27):** `'off'` also hides multi-currency surface area app-wide — Exchange Rates tab hidden, currency fields on bills/journals locked to the base currency, FX revaluation actions hidden. Companies with no FX exposure see a single-currency app. The flag is reversible (visibility/relevance, not an accounting lock).
+- `'false'` disables everything below: no fetch verb, no status column, no scanning, no notifications.
+- **Simplified UI (rev. 2026-07-27):** `'false'` also hides multi-currency surface area app-wide — Exchange Rates tab hidden, currency fields on bills/journals locked to the base currency, FX revaluation actions hidden. Companies with no FX exposure see a single-currency app. The flag is reversible (visibility/relevance, not an accounting lock).
 
 ## 2. Provider interface: `fetchRange` (new, optional)
 
@@ -44,7 +44,7 @@ heuristic would false-flag red ~10 times a year; comparing against what the sour
 
 ## 4. Period hook — auto-download on period create
 
-- `period.upsert` (server-side): after creating a period, if `fx_tracking = 'auto'` and a provider is
+- `period.upsert` (server-side): after creating a period, if `fx_tracking = 'true'` and a provider is
   configured, asynchronously backfill `[start, min(end, today)]` via `fetchRange` (insert missing days only).
   Fire-and-forget: the upsert response never waits on the provider.
 
@@ -57,7 +57,7 @@ heuristic would false-flag red ~10 times a year; comparing against what the sour
 ## 6. Gap scanner
 
 - Server job: on startup + every **6 h** (env-tunable `FREEBOOKS_FX_SCAN_MS`).
-- **Per-company (rev. 3, supersedes the install-level rev):** the scanner iterates companies; a company is automated iff `fx_tracking = 'auto'` AND its provider is a real one (not `manual`). Shared-table last-writer-wins is accepted (fetches are idempotent per date+source).
+- **Per-company (rev. 3, supersedes the install-level rev):** the scanner iterates companies; a company is automated iff `fx_tracking = 'true'` AND its provider is a real one (not `manual`). Shared-table last-writer-wins is accepted (fetches are idempotent per date+source).
 - **Short-circuit (rev. 2026-07-27):** if zero companies qualify, the scanner does nothing — no downloads, no coverage computation, no notifications.
 - For each company with tracking on, for each period intersecting `[company start, today]`:
   compute coverage → fetch missing ranges → recompute.

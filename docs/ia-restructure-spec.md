@@ -100,7 +100,7 @@ Five of the six are existing FB.list registers relocated verbatim — no field, 
 
 Adopt the same `?tab=` deep-link handling Settings already has (`handleSettingsPage`'s `req.query.tab` check) so `/:company/master-data?tab=journals` etc. work.
 
-`vat_registered=false` still hides Tax Codes; `fx_tracking='off'` still hides Exchange Rates — the relevance-flag gating (`applyRelevanceFlags`) moves with its tab, unchanged in logic, just now scoped to the Master Data tab strip instead of Settings'.
+`vat_registered=false` still hides Tax Codes; `fx_tracking='false'` still hides Exchange Rates — the relevance-flag gating (`applyRelevanceFlags`) moves with its tab, unchanged in logic, just now scoped to the Master Data tab strip instead of Settings'.
 
 ### 3.3 Settings (`/:company/settings`, slimmed)
 

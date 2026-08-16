@@ -844,3 +844,13 @@ CREATE INDEX IF NOT EXISTS idx_partner_proposals_name
 ALTER TABLE bills ADD COLUMN IF NOT EXISTS partner_id VARCHAR;
 CREATE INDEX IF NOT EXISTS idx_bills_partner_id ON bills(partner_id);
 
+
+-- =============================================================================
+-- 005: fx_tracking 'auto'/'off' → 'true'/'false' (boolean string)
+-- The setting was a collapsed tri-state that should have been boolean all
+-- along. Rename existing stored values; idempotent (no-ops on already-migrated
+-- or absent rows). Runs on every boot via schema boot-apply (db.js), so a
+-- server that pulls new code without re-running init.js still migrates.
+-- =============================================================================
+UPDATE settings SET value = 'true'  WHERE key = 'fx_tracking' AND value = 'auto';
+UPDATE settings SET value = 'false' WHERE key = 'fx_tracking' AND value = 'off';

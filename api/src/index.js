@@ -1475,7 +1475,7 @@ async function handleSettings(ctx, action) {
     const flatNum = parseFloat(s.vat_tolerance);
     const dash = '—';
     const attrs = [
-      { key: 'multi_currency', label: 'Multi-Currency', type: 'Boolean', value: s.fx_tracking === 'auto', display: s.fx_tracking === 'auto' ? 'Yes' : 'No', editor: { type: 'checkbox' } },
+      { key: 'multi_currency', label: 'Multi-Currency', type: 'Boolean', value: s.fx_tracking === 'true', display: s.fx_tracking === 'true' ? 'Yes' : 'No', editor: { type: 'checkbox' } },
       { key: 'fx_provider', label: 'FX Provider', type: 'Choice', value: curProvider, display: providerNames[curProvider] || curProvider,
         editor: { type: 'select', options: [{ value: MANUAL_PROVIDER, label: providerNames[MANUAL_PROVIDER] }].concat(providerIds.map((id) => ({ value: id, label: providerNames[id] }))) } },
       { key: 'fx_provider_api_key', label: 'FX API Key', type: 'String', value: '', display: s.fx_provider_api_key ? '••••' + String(s.fx_provider_api_key).slice(-4) : dash,
@@ -1532,7 +1532,7 @@ async function handleSettings(ctx, action) {
     const invalid = (m) => Object.assign(new Error(m), { code: 'INVALID_INPUT' });
     switch (key) {
       case 'multi_currency':
-        await putSetting(companyId, 'fx_tracking', (value === true || value === 'true') ? 'auto' : 'off');
+        await putSetting(companyId, 'fx_tracking', (value === true || value === 'true') ? 'true' : 'false');
         break;
       case 'fx_provider': {
         if (value !== MANUAL_PROVIDER && !providerExists(value)) throw invalid(`Unknown FX provider: ${value}`);
@@ -1876,7 +1876,7 @@ ensureDb().then(async () => {
 
   // ── fx-automation-spec §6: FX gap scanner ──────────────────────────────
   // On startup + every 6h (FREEBOOKS_FX_SCAN_MS). Short-circuits if no company
-  // has fx_tracking='auto' with a real provider. Timer is unref'd.
+  // has fx_tracking='true' with a real provider. Timer is unref'd.
   const { startFxScanner } = require('./fx-scanner');
   startFxScanner();
 

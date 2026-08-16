@@ -1197,11 +1197,23 @@
       }
       var err = cfg.validate(d);
       if (err) { msg(err, true); return Promise.resolve(false); }
+      // Optional pre-save hook (e.g. show "Downloading FX rates..." in the
+      // status bar before a potentially long blocking save round-trip).
+      if (typeof cfg.save.onSaveStart === 'function') {
+        try { cfg.save.onSaveStart(d); } catch (e) { /* non-fatal */ }
+      }
       return post(cfg.save.action, cfg.save.body(d)).then(function (res) {
         var dd = res.data || res;
         if ((dd && dd.error) || res.error) { msg(dd.error || res.error, true); return false; } // stays dirty
         delete dirty[d._key];
-        msg('Saved', false);
+        // Optional post-save hook: receives the server response and may
+        // return a custom status message; otherwise default to 'Saved'.
+        if (typeof cfg.save.onSaved === 'function') {
+          var custom = cfg.save.onSaved(d, res);
+          msg(custom || 'Saved', false);
+        } else {
+          msg('Saved', false);
+        }
         load(cfg.save.focusKey ? cfg.save.focusKey(d, dd) : d._key);
         return true;
       }).catch(function (e) { msg(e.message, true); return false; });

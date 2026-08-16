@@ -24,18 +24,22 @@ const { query } = require('./db');
  * @returns { status: 'na'|'red'|'green', missing: [dates], publicationDays: [dates] }
  */
 async function computeCoverage(companyId, baseCurrency, startDate, endDate, provider, source) {
-  // 1. Get the provider's publication days for this range
+  // 1. Get the provider's publication days + the actual rate rows in one
+  // call (so the scanner can insert them directly without re-fetching).
   let publicationDays;
+  let fetchedRows = null;
   try {
-    publicationDays = await getPublicationDays(provider, baseCurrency, startDate, endDate);
+    const result = await getPublicationDaysWithRows(provider, baseCurrency, startDate, endDate);
+    publicationDays = result.days;
+    fetchedRows = result.rows;
   } catch (e) {
     // Provider down or unreachable — can't determine coverage
-    return { status: 'na', missing: [], publicationDays: [], error: e.message };
+    return { status: 'na', missing: [], publicationDays: [], rows: null, error: e.message };
   }
 
   if (!publicationDays || publicationDays.length === 0) {
     // No publication days in range (e.g. future range, all weekends)
-    return { status: 'na', missing: [], publicationDays: [] };
+    return { status: 'na', missing: [], publicationDays: [], rows: null };
   }
 
   // 2. Get stored rate dates for this currency pair in the range
@@ -51,10 +55,31 @@ async function computeCoverage(companyId, baseCurrency, startDate, endDate, prov
   const missing = publicationDays.filter(d => !storedDays.has(d));
 
   if (missing.length === 0) {
-    return { status: 'green', missing: [], publicationDays };
+    return { status: 'green', missing: [], publicationDays, rows: null };
   }
 
-  return { status: 'red', missing, publicationDays };
+  return { status: 'red', missing, publicationDays, rows: fetchedRows };
+}
+
+/**
+ * Recompute coverage using ONLY stored dates against already-known
+ * publication days — no provider call. Use this after inserting fetched
+ * rows to confirm the gap closed (or didn't) without re-downloading data.
+ */
+async function recomputeCoverage(companyId, baseCurrency, startDate, endDate, publicationDays) {
+  if (!publicationDays || publicationDays.length === 0) {
+    return { status: 'na', missing: [] };
+  }
+  const storedRows = await query(
+    `SELECT DISTINCT date FROM fx_rates
+     WHERE date >= @start AND date <= @end
+       AND (from_currency = @base OR to_currency = @base)`,
+    { start: startDate, end: endDate, base: baseCurrency }
+  );
+  const storedDays = new Set(storedRows.map(r => String(r.date).slice(0, 10)));
+  const missing = publicationDays.filter(d => !storedDays.has(d));
+  if (missing.length === 0) return { status: 'green', missing: [] };
+  return { status: 'red', missing };
 }
 
 /**
@@ -67,18 +92,30 @@ async function computeCoverage(companyId, baseCurrency, startDate, endDate, prov
  * by providers without a range endpoint).
  */
 async function getPublicationDays(provider, baseCurrency, startDate, endDate, apiKey) {
+  return (await getPublicationDaysWithRows(provider, baseCurrency, startDate, endDate, apiKey)).days;
+}
+
+/**
+ * Like getPublicationDays, but also returns the fetched rate rows so callers
+ * that need the data (e.g. the scanner inserting missing rates) don't have to
+ * download the same range a second time.
+ *
+ * @returns { days: [YYYY-MM-DD], rows: [rateRow, ...] }
+ */
+async function getPublicationDaysWithRows(provider, baseCurrency, startDate, endDate, apiKey) {
   // Prefer fetchRange (spec §2)
   if (typeof provider.fetchRange === 'function') {
     const rows = await provider.fetchRange(baseCurrency, startDate, endDate, apiKey);
     // The dates the provider actually returned ARE the publication days
     const days = [...new Set(rows.map(r => r.date))].sort();
-    return days;
+    return { days, rows };
   }
 
   // Fallback: per-day fetchRates (spec §2 — providers without fetchRange)
   // This is a best-effort heuristic: we call fetchRates for each day and
   // collect the dates that actually return data.
   const days = [];
+  const allRows = [];
   let cur = new Date(startDate + 'T00:00:00Z');
   const end = new Date(endDate + 'T00:00:00Z');
 
@@ -89,6 +126,7 @@ async function getPublicationDays(provider, baseCurrency, startDate, endDate, ap
       if (rows && rows.length > 0) {
         const rateDate = rows[0].date || ymd;
         if (!days.includes(rateDate)) days.push(rateDate);
+        allRows.push(...rows);
       }
     } catch (e) {
       // Provider didn't have data for this day — skip (not a publication day)
@@ -96,7 +134,7 @@ async function getPublicationDays(provider, baseCurrency, startDate, endDate, ap
     cur.setUTCDate(cur.getUTCDate() + 1);
   }
 
-  return days.sort();
+  return { days: days.sort(), rows: allRows };
 }
 
 /**
@@ -129,4 +167,4 @@ async function fetchRange(provider, baseCurrency, startDate, endDate, apiKey) {
   return allRows;
 }
 
-module.exports = { computeCoverage, getPublicationDays, fetchRange };
+module.exports = { computeCoverage, recomputeCoverage, getPublicationDays, getPublicationDaysWithRows, fetchRange };

@@ -393,7 +393,22 @@ var postRulesAttrs = FB.list.create({
     map: function(r) { return { label: r.label, value: r.value, display: r.display, type_label: r.type, editor: r.editor, readonly: !!r.readonly, _key: r.key }; } },
   save: { action: 'posting_rules.attr.save',
     body: function(d) { return { key: d._key, value: d.value }; },
-    focusKey: function(d) { return d._key; } },
+    focusKey: function(d) { return d._key; },
+    // Show "Downloading FX rates..." in the status bar before the save
+    // round-trip when this edit triggers a blocking FX scan server-side.
+    onSaveStart: function(d) {
+      var triggers = (d._key === 'multi_currency' && (d.value === true || d.value === 'true')) ||
+                     (d._key === 'fx_provider' && d.value !== 'manual');
+      if (triggers && window.FB && FB.status) FB.status.show('Downloading FX rates...', false);
+    },
+    // The save response carries fxScanResult when a scan ran.
+    onSaved: function(d, res) {
+      var r = res && res.fxScanResult;
+      if (!r) return null; // no scan — default 'Saved'
+      if (r.error) return 'FX scan failed: ' + r.error;
+      var fetched = r.fetched || 0, notified = r.notified || 0;
+      return 'FX rates downloaded: ' + fetched + (notified ? ' (' + notified + ' gap notification' + (notified === 1 ? '' : 's') + ')' : '');
+    } },
   onChrome: function(dirty) {
     var dot = document.getElementById('tab-dot-postrules');
     if (dot) dot.style.display = dirty ? '' : 'none';

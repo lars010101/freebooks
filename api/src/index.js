@@ -1530,13 +1530,16 @@ async function handleSettings(ctx, action) {
     const { key, value } = body;
     if (!key) throw Object.assign(new Error('key required'), { code: 'INVALID_INPUT' });
     const invalid = (m) => Object.assign(new Error(m), { code: 'INVALID_INPUT' });
+    let triggerFxScan = false; // fire-and-forget after the switch
     switch (key) {
       case 'multi_currency':
         await putSetting(companyId, 'fx_tracking', (value === true || value === 'true') ? 'true' : 'false');
+        triggerFxScan = (value === true || value === 'true');
         break;
       case 'fx_provider': {
         if (value !== MANUAL_PROVIDER && !providerExists(value)) throw invalid(`Unknown FX provider: ${value}`);
         await putSetting(companyId, 'fx_provider', value);
+        triggerFxScan = value !== MANUAL_PROVIDER;
         break;
       }
       case 'fx_provider_api_key': {
@@ -1558,6 +1561,19 @@ async function handleSettings(ctx, action) {
       }
       default:
         throw Object.assign(new Error(`Unknown posting rules attribute: ${key}`), { code: 'INVALID_INPUT' });
+    }
+    // Fire-and-forget: when multi-currency is enabled or a real provider is set,
+    // kick off an immediate FX scan for this company (don't wait for the 6h cycle).
+    if (triggerFxScan) {
+      const { scanCompany } = require('./fx-scanner');
+      const { query } = require('./db');
+      query('SELECT currency FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies) t WHERE company_id = @cid AND rn = 1', { cid: String(companyId) })
+        .then((rows) => {
+          if (rows.length > 0 && rows[0].currency) {
+            scanCompany(String(companyId), String(rows[0].currency)).catch((e) => console.error('Triggered FX scan failed:', e.message));
+          }
+        })
+        .catch((e) => console.error('Triggered FX scan company lookup failed:', e.message));
     }
     return { saved: true, key };
   }

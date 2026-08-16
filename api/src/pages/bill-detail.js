@@ -370,7 +370,19 @@ window.fbKeyActions = {
   },
   'h': function() { moveMetaNav(-1); },
   'l': function() { moveMetaNav(1); },
-  'escape': function() {
+  'escape': function () {
+    var params = new URLSearchParams(window.location.search);
+    var from = params.get('from');
+    if (from === 'ap-aging') {
+      var asof = params.get('asof') || '';
+      var ccy  = params.get('ccy') || '';
+      // asof= (not end=) on the outbound URL by design — see spec §5.
+      // Mapped to reports-hub's end= param at the destination, not here.
+      var url = '/' + COMPANY + '/reports?t=ap-aging&end=' + encodeURIComponent(asof);
+      if (ccy) url += '&ccy=' + encodeURIComponent(ccy);
+      fbNavigate(url);
+      return;
+    }
     if (typeof COMPANY !== 'undefined') fbNavigate('/' + COMPANY + '/payables');
   }
 };

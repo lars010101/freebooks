@@ -207,6 +207,13 @@ ${layoutEnd()}
           periodLoaded = true;
           setAndLoad(matchedPeriod);
         }
+      } else if (endParam && RPT_META[currentType] && !RPT_META[currentType].needsStart) {
+        // needsStart:false reports (e.g. AP Aging) return with end= only —
+        // no start param to restore. Set end and load; explicit return-context
+        // wins over the computed default period.
+        document.getElementById('rpt-end').value = endParam;
+        periodLoaded = true;
+        if (drillThrough) fbLoadReport();
       } else if (startParam && endParam) {
         // Restore period from ?start=&end= (drill-through return navigation).
         // Try to match a known period for the dropdown; fall back to "custom".

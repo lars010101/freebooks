@@ -48,6 +48,13 @@ heuristic would false-flag red ~10 times a year; comparing against what the sour
   configured, asynchronously backfill `[start, min(end, today)]` via `fetchRange` (insert missing days only).
   Fire-and-forget: the upsert response never waits on the provider.
 
+## 4b. Settings trigger — immediate scan on opt-in
+
+- `posting_rules.attr.save` (server-side): when `multi_currency` is set to `true` or `fx_provider` is changed
+  to a real provider (not `manual`), fire-and-forget `scanCompany` for that company. The save response
+  returns immediately; the scan runs in the background. Same fire-and-forget pattern as the period hook (§4).
+  This ensures the first fetch happens immediately on opt-in, not on the next 6h scanner cycle.
+
 ## 5. FX status column on the Periods register
 
 - New read-only column (right side): FX status flag — `—` (na), red dot (missing days), green dot (complete).

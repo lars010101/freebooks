@@ -394,7 +394,10 @@ async function coverageAction(ctx) {
   const effectiveEnd = endDate < today ? endDate : today;
 
   const result = await computeCoverage(companyId, baseCurrency, startDate, effectiveEnd, provider, providerName);
-  return result;
+  // `rows` (the fetched rate data) is for the scanner's internal use only —
+  // never expose it to clients via the fx.coverage API.
+  const { rows, ...coverage } = result;
+  return coverage;
 }
 
 // ── Period hook backfill (fx-automation-spec §4) ────────────────────────────

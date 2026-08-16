@@ -1562,20 +1562,23 @@ async function handleSettings(ctx, action) {
       default:
         throw Object.assign(new Error(`Unknown posting rules attribute: ${key}`), { code: 'INVALID_INPUT' });
     }
-    // Fire-and-forget: when multi-currency is enabled or a real provider is set,
-    // kick off an immediate FX scan for this company (don't wait for the 6h cycle).
+    // When multi-currency is enabled or a real provider is set,
+    // run an immediate FX scan for this company. Await it so the
+    // response includes the result — the frontend shows status.
+    let fxScanResult = null;
     if (triggerFxScan) {
       const { scanCompany } = require('./fx-scanner');
-      const { query } = require('./db');
-      query('SELECT currency FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies) t WHERE company_id = @cid AND rn = 1', { cid: String(companyId) })
-        .then((rows) => {
-          if (rows.length > 0 && rows[0].currency) {
-            scanCompany(String(companyId), String(rows[0].currency)).catch((e) => console.error('Triggered FX scan failed:', e.message));
-          }
-        })
-        .catch((e) => console.error('Triggered FX scan company lookup failed:', e.message));
+      try {
+        const rows = await query('SELECT currency FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies) t WHERE company_id = @cid AND rn = 1', { cid: String(companyId) });
+        if (rows.length > 0 && rows[0].currency) {
+          fxScanResult = await scanCompany(String(companyId), String(rows[0].currency));
+        }
+      } catch (e) {
+        console.error('Triggered FX scan failed:', e.message);
+        fxScanResult = { error: e.message };
+      }
     }
-    return { saved: true, key };
+    return { saved: true, key, fxScanResult };
   }
 
   if (action === 'ai.attr.save') {

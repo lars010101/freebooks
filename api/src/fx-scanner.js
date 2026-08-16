@@ -19,7 +19,7 @@ const path = require('path');
 const fs = require('fs');
 const { query, exec, bulkInsert } = require('./db');
 const { loadProviderConfig, MANUAL_PROVIDER, providerExists } = require('./fx');
-const { computeCoverage, fetchRange } = require('./fx-coverage');
+const { computeCoverage, recomputeCoverage, fetchRange } = require('./fx-coverage');
 const { raiseNotification } = require('./notifications');
 
 const SCAN_MS = parseInt(process.env.FREEBOOKS_FX_SCAN_MS || (6 * 60 * 60 * 1000), 10);
@@ -98,36 +98,33 @@ async function scanCompany(companyId, baseCurrency) {
 
     if (start > today) continue; // future period — skip
 
-    // 1. Compute coverage
+    // 1. Compute coverage (fetches publication days + rate rows in one call)
     const coverage = await computeCoverage(companyId, baseCurrency, start, effectiveEnd, provider, source);
 
     if (coverage.status === 'na' || coverage.status === 'green') continue;
 
-    // 2. Fetch missing ranges
-    if (coverage.missing && coverage.missing.length > 0) {
+    // 2. Insert the fetched rows directly (no redundant second fetch).
+    // computeCoverage already downloaded the rate rows via fetchRange; reuse
+    // them instead of re-downloading the same range.
+    if (coverage.rows && coverage.rows.length > 0) {
       try {
-        const minMissing = coverage.missing[0];
-        const maxMissing = coverage.missing[coverage.missing.length - 1];
-        const rows = await fetchRange(provider, baseCurrency, minMissing, maxMissing, apiKey);
-        if (rows && rows.length > 0) {
-          // Delete existing rows for these dates+source, then insert
-          const dates = [...new Set(rows.map(r => r.date))];
-          for (const d of dates) {
-            await exec(
-              `DELETE FROM fx_rates WHERE date = @date AND source = @source AND (from_currency = @base OR to_currency = @base)`,
-              { date: d, source, base: baseCurrency }
-            );
-          }
-          await bulkInsert('fx_rates', rows);
-          fetched += rows.length / 2;
+        const dates = [...new Set(coverage.rows.map(r => r.date))];
+        for (const d of dates) {
+          await exec(
+            `DELETE FROM fx_rates WHERE date = @date AND source = @source AND (from_currency = @base OR to_currency = @base)`,
+            { date: d, source, base: baseCurrency }
+          );
         }
+        await bulkInsert('fx_rates', coverage.rows);
+        fetched += coverage.rows.length / 2;
       } catch (e) {
-        console.error(`FX fetch error for ${companyId} period ${period.period_name}:`, e.message);
+        console.error(`FX insert error for ${companyId} period ${period.period_name}:`, e.message);
       }
     }
 
-    // 3. Recompute coverage
-    const rechecked = await computeCoverage(companyId, baseCurrency, start, effectiveEnd, provider, source);
+    // 3. Recompute coverage (DB-only — no provider call, just check which
+    // publication days are now stored).
+    const rechecked = await recomputeCoverage(companyId, baseCurrency, start, effectiveEnd, coverage.publicationDays);
 
     // 4. Still missing → raise notification
     if (rechecked.status === 'red' && rechecked.missing && rechecked.missing.length > 0) {

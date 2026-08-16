@@ -268,7 +268,7 @@ The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). 
 
 - **Tabs:** Company · Periods · COA · Tax Codes · Journals · Exchange Rates · Opening Balances
 - **Machine:** FB.list (all tabs except Company danger zone)
-- **Tab visibility:** Relevance flags gate tabs — `vat_registered=false` hides Tax Codes; `fx_tracking='off'` hides Exchange Rates. Hidden tabs are `display:none` and skipped by `h`/`l`.
+- **Tab visibility:** Relevance flags gate tabs — `vat_registered=false` hides Tax Codes; `fx_tracking='false'` hides Exchange Rates. Hidden tabs are `display:none` and skipped by `h`/`l`.
 
 **Company tab:**
 - FB.list attribute/value grid (`canAdd: false` — fixed rows, no add, no delete)

@@ -3,7 +3,7 @@
  * freeBooks — FX gap scanner (fx-automation-spec §6)
  *
  * Server job: on startup + every 6h (env-tunable FREEBOOKS_FX_SCAN_MS).
- * Per company (rev. 3): a company is automated iff fx_tracking='auto' AND
+ * Per company (rev. 3): a company is automated iff fx_tracking='true' AND
  * its provider is a real one (not 'manual'). Zero qualifying companies →
  * short-circuit: nothing is downloaded, no coverage computation, no
  * notifications.
@@ -30,11 +30,11 @@ const SCAN_MS = parseInt(process.env.FREEBOOKS_FX_SCAN_MS || (6 * 60 * 60 * 1000
  */
 async function runFxScan() {
   try {
-    // Get all companies with fx_tracking='auto' and a real provider
+    // Get all companies with fx_tracking='true' and a real provider
     const companies = await query(
       `SELECT c.company_id, c.currency
          FROM companies c
-         JOIN settings s ON c.company_id = s.company_id AND s.key = 'fx_tracking' AND s.value = 'auto'
+         JOIN settings s ON c.company_id = s.company_id AND s.key = 'fx_tracking' AND s.value = 'true'
          JOIN settings p ON c.company_id = p.company_id AND p.key = 'fx_provider' AND p.value != 'manual'
          ORDER BY c.company_id`
     );

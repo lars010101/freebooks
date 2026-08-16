@@ -157,9 +157,9 @@ async function addCompany(ctx) {
 
   await bulkInsert('settings', [
     { company_id: company.company_id, key: 'fx_auto_fetch', value: 'false', updated_at: now },
-    // fx-automation-spec §1: per-company FX relevance flag — 'auto' (default)
-    // tracks FX rates; 'off' = domestic-only company (simplified UI, no scanning).
-    { company_id: company.company_id, key: 'fx_tracking', value: 'auto', updated_at: now },
+    // fx-automation-spec §1: per-company FX relevance flag — 'true' (default)
+    // tracks FX rates; 'false' = domestic-only company (simplified UI, no scanning).
+    { company_id: company.company_id, key: 'fx_tracking', value: 'true', updated_at: now },
     // fx-automation-spec rev. 3: provider is per-company; 'manual' (default) =
     // no automatic download until the company explicitly chooses a provider.
     { company_id: company.company_id, key: 'fx_provider', value: 'manual', updated_at: now },

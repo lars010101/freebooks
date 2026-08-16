@@ -362,6 +362,22 @@ if (API_URL) {
     }
     await applyBillsVendorRename();
 
+    // ── 005: fx_tracking 'auto'/'off' → 'true'/'false' (boolean string) ──────
+    // The setting was a collapsed tri-state that should have been boolean all
+    // along. Rename existing stored values so already-created companies keep
+    // their intended Multi-Currency state. Idempotent UPDATEs; never throws.
+    async function applyFxTrackingBooleanMigration() {
+      const stmts = [
+        "UPDATE settings SET value = 'true'  WHERE key = 'fx_tracking' AND value = 'auto'",
+        "UPDATE settings SET value = 'false' WHERE key = 'fx_tracking' AND value = 'off'",
+      ];
+      for (const sql of stmts) {
+        try { await conn.run(sql, []); }
+        catch (e) { console.warn(`\n  fx_tracking boolean migration skipped: ${String(e.message).split('\n')[0]}`); }
+      }
+      console.log('fx_tracking boolean migration applied.');
+    }
+    await applyFxTrackingBooleanMigration();
 
     await runNext(0);
   } // end runSchema

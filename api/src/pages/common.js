@@ -14,18 +14,18 @@ function makeQuery() {
 // Single server-side read of the two visibility flags that gate whole UI
 // surfaces app-wide. Page handlers await this and pass the result into their
 // templates for server-side conditional rendering (no async client hiding,
-// no flash of gated content). Defaults: vatRegistered=true, fxTracking='auto'
+// no flash of gated content). Defaults: vatRegistered=true, fxTracking='true'
 // — unknown/absent values render the full UI (the safe superset) so a fresh
 // company with no settings row yet isn't accidentally stripped.
 //
 // Returns { vatRegistered, fxTracking, baseCurrency }:
 //   vatRegistered — boolean (companies.vat_registered; false hides all tax/VAT
 //     surface area on documents and reports);
-//   fxTracking    — 'auto' | 'off' (settings.fx_tracking; 'off' locks currency
+//   fxTracking    — 'true' | 'false' (settings.fx_tracking; 'false' locks currency
 //     fields to base currency and hides FX revaluation entry points);
-//   baseCurrency  — companies.currency (the lock target when fxTracking='off').
+//   baseCurrency  — companies.currency (the lock target when fxTracking='false').
 async function getRelevanceFlags(companyId) {
-  if (!companyId) return { vatRegistered: true, fxTracking: 'off', baseCurrency: '' };
+  if (!companyId) return { vatRegistered: true, fxTracking: 'false', baseCurrency: '' };
   try {
     const { query } = require('../db');
     const [co] = await query(
@@ -42,11 +42,11 @@ async function getRelevanceFlags(companyId) {
     for (const r of sRows) settings[r.key] = r.value;
     return {
       vatRegistered: !co || co.vat_registered !== false && co.vat_registered !== 0,
-      fxTracking: settings.fx_tracking === 'auto' ? 'auto' : 'off',
+      fxTracking: settings.fx_tracking === 'true' ? 'true' : 'false',
       baseCurrency: (co && co.base_currency) || ''
     };
   } catch (e) {
-    return { vatRegistered: true, fxTracking: 'off', baseCurrency: '' };
+    return { vatRegistered: true, fxTracking: 'false', baseCurrency: '' };
   }
 }
 
@@ -57,7 +57,7 @@ function flagsBootstrapJson(flags) {
   const f = flags || {};
   return JSON.stringify({
     vatRegistered: f.vatRegistered !== false,
-    fxTracking: f.fxTracking === 'off' ? 'off' : 'auto',
+    fxTracking: f.fxTracking === 'false' ? 'false' : 'true',
     baseCurrency: f.baseCurrency || ''
   });
 }

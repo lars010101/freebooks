@@ -209,8 +209,8 @@ const ACTIONS = {
   },
   'bill.list': {
     role: 'viewer', mutating: false,
-    description: 'List bills with filters (status, partner_name, date range).',
-    params: { status: { type: 'string' }, partner_name: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, limit: { type: 'number' }, offset: { type: 'number' } },
+    description: 'List bills with filters (status, partner_name, date range). Returns {data, total} or {data:[], total, tooMany:true} when over threshold.',
+    params: { status: { type: 'string' }, partner_name: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, threshold: { type: 'number', required: true } },
   },
   'bill.match': {
     role: 'viewer', mutating: false,
@@ -433,7 +433,7 @@ const ACTIONS = {
     description: 'Post FX revaluation adjustments (FXREVAL- batches).',
     params: { revalDate: { type: 'date', required: true }, fxGainLossAccount: { type: 'string' }, adjustments: { type: 'array', required: true } },
   },
-  'fx.rates.list': { role: 'viewer', mutating: false, description: 'List stored FX rates.' },
+  'fx.rates.list': { role: 'viewer', mutating: false, description: 'List stored FX rates for one foreign currency within a date range. Returns {data, total} or {data:[], total, tooMany:true} when over threshold.', params: { foreignCurrency: { type: 'string', required: true }, baseCurrency: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, threshold: { type: 'number', required: true } } },
   'fx.rates.save': {
     role: 'data_entry', mutating: true,
     description: 'Add/update FX rates manually.',

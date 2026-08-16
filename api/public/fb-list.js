@@ -114,6 +114,12 @@
 (function () {
   'use strict';
 
+  // Row-count threshold for list screens (threshold spec §4).
+  // The ONE definition — list.body() reads this and sends it with every request;
+  // the backend never has its own copy (§3). Past this, the list renders a block
+  // message instead of rows, and the user narrows the date range to get under it.
+  var LIST_THRESHOLD = 1500;
+
   var instances = []; // live lists — the shared leave-guard consults these
 
   function el(id) { return document.getElementById(id); }
@@ -788,6 +794,19 @@
     // a grayed input replica. Reachable by click, j (sticky past the last data
     // row) and G. While a new row is being created the add row IS the edit row
     // (navy) — on exit it reappears at the bottom.
+    // Threshold spec §4: replaces data rows with a spanning message row when
+    // the backend reports tooMany. Same <tr><td colspan> pattern as addRowHtml.
+    // The add row still renders alongside this — creating a new record shouldn't
+    // require seeing existing ones.
+    function renderTooMany(total) {
+      var tb = tbody();
+      if (!tb) return;
+      var msg = cfg.list.tooManyMessage
+        ? cfg.list.tooManyMessage(total)
+        : total.toLocaleString() + ' rows — too many to display. Apply a filter to narrow this down.';
+      tb.innerHTML = '<tr class="fb-toomany-row"><td colspan="' + (cfg.columns.length + 1) + '">'
+        + esc(msg) + '</td></tr>' + (canAdd ? addRowHtml() : '');
+    }
     function addRowHtml() {
       return '<tr class="fb-add-row"><td class="fb-add-cell" colspan="' + (cfg.columns.length + 1) + '">'
         + esc(cfg.label || '+ Add entry') + '</td></tr>';
@@ -1304,7 +1323,22 @@
         ? fetch(cfg.list.url()).then(function (r) { return r.json(); })
         : post(cfg.list.action, cfg.list.body ? cfg.list.body() : {});
       return p.then(function (rowsRaw) {
-        var rowsData = rowsRaw.data || rowsRaw;
+        // The API wrapper returns { ok: true, data: <handler_result> }.
+        // Unwrap to the handler result first — it's either a bare array (old
+        // screens) or { data: [...], total, tooMany? } (threshold-enabled screens).
+        var res = (rowsRaw && rowsRaw.data != null && typeof rowsRaw.data === 'object' && !Array.isArray(rowsRaw.data))
+          ? rowsRaw.data   // { data, total, tooMany? }
+          : rowsRaw;       // bare array or other
+        // Threshold spec §4: if the backend reports tooMany, render the block
+        // message instead of rows. saved = [] so nothing can be dirty.
+        if (res && res.tooMany) {
+          saved = [];
+          renderTooMany(res.total);
+          syncChrome();
+          if (cfg.onLoaded) cfg.onLoaded(saved);
+          return;
+        }
+        var rowsData = res.data || res;
         saved = (Array.isArray(rowsData) ? rowsData : []).map(cfg.list.map);
         render(focusKey);
         syncChrome();
@@ -1775,6 +1809,9 @@
   window.FB = window.FB || {};
   FB.list = {
     create: create,
+    // Threshold spec §4: the shared constant — page-level list.body() reads this
+    // and includes it in every request so the backend has no copy of its own (§3).
+    threshold: LIST_THRESHOLD,
     // Page-level guard API: in-page tab switches use the same modal as page nav.
     anyDirty: function () { return dirtyInstances().length > 0; },
     guard: function (proceed) { openLeaveModal(proceed); },

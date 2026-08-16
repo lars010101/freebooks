@@ -38,10 +38,14 @@ async function handleViews(ctx, action) {
  */
 async function viewBills(ctx) {
   const { companyId, body } = ctx;
-  const [partners, bills] = await Promise.all([
+  // view.bills is a read model for the entire payables tab — it needs all bills
+  // (threshold/blocking is a UI list concern, not a read-model concern). Pass a
+  // very high threshold so listBills never blocks, and unwrap .data.
+  const [partners, billsResult] = await Promise.all([
     listPartners({ companyId }),
-    listBills({ companyId, body }),
+    listBills({ companyId, body: { ...body, threshold: Number.MAX_SAFE_INTEGER } }),
   ]);
+  const bills = billsResult.data || billsResult;
   const billsWithLines = [];
   for (const b of bills) {
     const lines = await getBillLines({ companyId, body: { billId: b.bill_id } });

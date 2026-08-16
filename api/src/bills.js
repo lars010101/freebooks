@@ -856,22 +856,32 @@ async function voidBillPayment(ctx) {
 
 async function listBills(ctx) {
   const { companyId, body } = ctx;
-  const { status, partner_name, description, dateFrom, dateTo, limit = 200, offset = 0 } = body;
+  const { status, partner_name, description, dateFrom, dateTo, threshold } = body;
 
-  let sql = `SELECT * FROM bills WHERE company_id = @companyId`;
+  if (threshold == null) {
+    throw Object.assign(new Error('threshold required'), { code: 'INVALID_INPUT' });
+  }
+
+  let where = ` WHERE company_id = @companyId`;
   const params = { companyId };
 
-  if (status) { sql += ` AND status = @status`; params.status = status; }
-  if (partner_name) { sql += ` AND UPPER(partner_name) LIKE '%' || UPPER(@partner_name) || '%'`; params.partner_name = partner_name; }
-  if (description) { sql += ` AND UPPER(description) LIKE '%' || UPPER(@description) || '%'`; params.description = description; }
-  if (dateFrom) { sql += ` AND date >= @dateFrom`; params.dateFrom = dateFrom; }
-  if (dateTo) { sql += ` AND date <= @dateTo`; params.dateTo = dateTo; }
+  if (status) { where += ` AND status = @status`; params.status = status; }
+  if (partner_name) { where += ` AND UPPER(partner_name) LIKE '%' || UPPER(@partner_name) || '%'`; params.partner_name = partner_name; }
+  if (description) { where += ` AND UPPER(description) LIKE '%' || UPPER(@description) || '%'`; params.description = description; }
+  if (dateFrom) { where += ` AND date >= @dateFrom`; params.dateFrom = dateFrom; }
+  if (dateTo) { where += ` AND date <= @dateTo`; params.dateTo = dateTo; }
 
-  sql += ` ORDER BY date DESC, created_at DESC LIMIT @lim OFFSET @off`;
-  params.lim = limit;
-  params.off = offset;
+  // Step 1: cheap COUNT — avoids materializing the full row set on the over-threshold path
+  const countRow = await query(`SELECT COUNT(*) AS _total FROM bills` + where, params);
+  const total = countRow[0]._total;
 
-  return query(sql, params);
+  if (total > threshold) {
+    return { data: [], total, tooMany: true };
+  }
+
+  // Step 2: only fetch rows when under threshold — no LIMIT, the date range + threshold are the bounds
+  const rows = await query(`SELECT * FROM bills` + where + ` ORDER BY date DESC, created_at DESC`, params);
+  return { data: rows, total };
 }
 
 async function matchBill(ctx) {

@@ -1475,7 +1475,7 @@ async function handleSettings(ctx, action) {
     const flatNum = parseFloat(s.vat_tolerance);
     const dash = '—';
     const attrs = [
-      { key: 'multi_currency', label: 'Multi-Currency', type: 'Boolean', value: s.fx_tracking !== 'off', display: s.fx_tracking !== 'off' ? 'Yes' : 'No', editor: { type: 'checkbox' } },
+      { key: 'multi_currency', label: 'Multi-Currency', type: 'Boolean', value: s.fx_tracking === 'auto', display: s.fx_tracking === 'auto' ? 'Yes' : 'No', editor: { type: 'checkbox' } },
       { key: 'fx_provider', label: 'FX Provider', type: 'Choice', value: curProvider, display: providerNames[curProvider] || curProvider,
         editor: { type: 'select', options: [{ value: MANUAL_PROVIDER, label: providerNames[MANUAL_PROVIDER] }].concat(providerIds.map((id) => ({ value: id, label: providerNames[id] }))) } },
       { key: 'fx_provider_api_key', label: 'FX API Key', type: 'String', value: '', display: s.fx_provider_api_key ? '••••' + String(s.fx_provider_api_key).slice(-4) : dash,

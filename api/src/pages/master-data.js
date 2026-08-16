@@ -102,6 +102,16 @@ ${commonStyle()}
 
   <!-- EXCHANGE RATES TAB -->
   <div id="tab-fxrates" class="tab-panel">
+    <!-- Currency picker + date-range toolbar (default-period spec).
+         The picker is persistent — switching currencies is a normal action. -->
+    <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+      <select id="fx-foreign-currency" class="tb-select" style="min-width:130px" onchange="onFxForeignCurrencyChange()" title="Foreign currency">
+        <option value="" disabled selected>Loading\u2026</option>
+      </select>
+      <input type="date" id="fx-date-from" class="tb-date-input" onchange="fxList.load()" title="Start date">
+      <span style="color:#aaa; padding:0 3px; font-size:0.875rem;">\u2013</span>
+      <input type="date" id="fx-date-to" class="tb-date-input" onchange="fxList.load()" title="End date">
+    </div>
     <table class="edit-table" id="fx-rates-table">
       <thead><tr><th>Date</th><th>From</th><th>To</th><th style="text-align:right">Rate</th><th>Source</th><th></th></tr></thead>
       <tbody id="fx-rates-body"></tbody>
@@ -540,7 +550,23 @@ var fxList = FB.list.create({
     { key: 'f', label: '📡 Fetch Rates', handler: function (api) { fetchFromEcb(); } }
   ],
   list: { action: 'fx.rates.list',
-    body: function() { var c = window._companyCurrency || ''; return c ? { baseCurrency: c } : {}; },
+    body: function() {
+      var fcSel = document.getElementById('fx-foreign-currency');
+      var foreignCurrency = fcSel ? fcSel.value : '';
+      if (!foreignCurrency) return {};
+      var df = document.getElementById('fx-date-from');
+      var dt = document.getElementById('fx-date-to');
+      return {
+        foreignCurrency: foreignCurrency,
+        baseCurrency: window._companyCurrency || '',
+        dateFrom: df ? df.value : '',
+        dateTo: dt ? dt.value : '',
+        threshold: FB.list.threshold
+      };
+    },
+    tooManyMessage: function(total) {
+      return total.toLocaleString() + ' rates for this currency \u2014 narrow the date range above to see this list.';
+    },
     map: function(r) { return { date: r.date ? String(r.date).slice(0, 10) : '', from_currency: r.from_currency || '', to_currency: r.to_currency || '', rate: Number(r.rate), source: r.source || 'manual', _key: String(r.date).slice(0, 10) + '|' + r.from_currency + '|' + r.to_currency + '|' + (r.source || 'manual') }; } },
   save: { action: 'fx.rates.save',
     body: function(d) {
@@ -565,7 +591,137 @@ function loadBaseCurrencies() {
   }
 }
 
-function loadFxRates() { fxList.load().then(loadBaseCurrencies); }
+// ========== FX CURRENCY PICKER GATE + DATE-RANGE INIT ==========
+// (default-period spec) — the FX tab no longer loads unconditionally. A
+// persistent currency picker (<select #fx-foreign-currency>) must be
+// resolved first: options come from the company's tracked foreign currencies
+// (distinct partner default_currency values, excluding the base currency).
+// Once a currency is chosen, the date range is resolved (URL params →
+// default-period → setup-state fallback) and fxList.load() fires.
+var _fxCurrenciesLoaded = false;
+
+function loadFxRates() {
+  loadBaseCurrencies();
+  if (!_fxCurrenciesLoaded) {
+    loadTrackedForeignCurrencies(function (currencies) {
+      _fxCurrenciesLoaded = true;
+      populateFxCurrencyPicker(currencies);
+      _gateFxRatesLoad();
+    });
+  } else {
+    _gateFxRatesLoad();
+  }
+}
+
+// Fetch distinct foreign currencies from partner default_currency values
+// (excluding the base currency — rates are base-anchored). Sorted A→Z.
+function loadTrackedForeignCurrencies(cb) {
+  var baseCcy = (window._companyCurrency || '').toUpperCase();
+  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'partner.list', companyId: COMPANY }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      var data = res.data || res || [];
+      if (!Array.isArray(data)) data = [];
+      var seen = {};
+      var currencies = [];
+      data.forEach(function (p) {
+        var c = (p.default_currency || '').toUpperCase();
+        if (c && c !== baseCcy && !seen[c]) { seen[c] = 1; currencies.push(c); }
+      });
+      currencies.sort();
+      cb(currencies);
+    })
+    .catch(function () { cb([]); });
+}
+
+// Populate the persistent currency picker. If no foreign currencies are
+// tracked, show a setup message and do NOT call fx.rates.list.
+function populateFxCurrencyPicker(currencies) {
+  var sel = document.getElementById('fx-foreign-currency');
+  if (!sel) return;
+  if (!currencies.length) {
+    sel.innerHTML = '<option value="" disabled selected>No currencies configured</option>';
+    renderFxSetupState('No currencies configured for tracking. Add one on the Company attribute grid.');
+    return;
+  }
+  var currentVal = sel.value;
+  sel.innerHTML = '<option value="" disabled selected>Select currency\u2026</option>'
+    + currencies.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+  // Restore previous selection if still valid (e.g. after ECB fetch reload).
+  if (currentVal && currencies.indexOf(currentVal.toUpperCase()) >= 0) sel.value = currentVal;
+  if (!sel.value) {
+    renderFxSetupState('Select a currency to view exchange rates.');
+  }
+}
+
+// Gate: only load rates when a currency is selected AND the date range is
+// resolved. Otherwise the setup message is already showing.
+function _gateFxRatesLoad() {
+  var sel = document.getElementById('fx-foreign-currency');
+  if (!sel || !sel.value) return;
+  var fromEl = document.getElementById('fx-date-from');
+  var toEl = document.getElementById('fx-date-to');
+  if (fromEl && fromEl.value && toEl && toEl.value) {
+    fxList.load();
+  } else {
+    initFxDateRange();
+  }
+}
+
+// onchange handler for the persistent currency picker — switching currencies
+// is a normal action (the picker never disappears).
+function onFxForeignCurrencyChange() {
+  var sel = document.getElementById('fx-foreign-currency');
+  if (!sel || !sel.value) {
+    renderFxSetupState('Select a currency to view exchange rates.');
+    return;
+  }
+  var fromEl = document.getElementById('fx-date-from');
+  var toEl = document.getElementById('fx-date-to');
+  if (fromEl && fromEl.value && toEl && toEl.value) {
+    fxList.load();
+  } else {
+    initFxDateRange();
+  }
+}
+
+// Resolve FX date range: URL params → default-period → setup-state fallback.
+function initFxDateRange() {
+  var params = new URLSearchParams(window.location.search);
+  var ps = params.get('periodStart');
+  var pe = params.get('periodEnd');
+  var fromEl = document.getElementById('fx-date-from');
+  var toEl = document.getElementById('fx-date-to');
+  if (ps && pe) {
+    if (fromEl) fromEl.value = ps;
+    if (toEl) toEl.value = pe;
+    fxList.load();
+    return;
+  }
+  fetch('/api/' + COMPANY + '/reports/default-period')
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (res && res.start_date && res.end_date) {
+        if (fromEl) fromEl.value = String(res.start_date).slice(0, 10);
+        if (toEl) toEl.value = String(res.end_date).slice(0, 10);
+        fxList.load();
+      } else {
+        renderFxSetupState('No accounting periods configured yet.');
+      }
+    })
+    .catch(function () { renderFxSetupState('No accounting periods configured yet.'); });
+}
+
+// Setup-state spanning row — same pattern as FB.list's renderTooMany: one
+// <tr><td colspan> with the message + the add row (display-only).
+// fxList has 5 columns + 1 actions column = 6.
+function renderFxSetupState(msg) {
+  var tb = document.getElementById('fx-rates-body');
+  if (!tb) return;
+  tb.innerHTML = '<tr class="fb-toomany-row"><td colspan="6">' + esc(msg) + '</td></tr>'
+    + '<tr class="fb-add-row"><td class="fb-add-cell" colspan="6">+ Add entry</td></tr>';
+}
 
 function fetchFromEcb() {
   var baseCcy = window._companyCurrency || '';

@@ -149,19 +149,46 @@ async function getRate(fromCurrency, toCurrency, date) {
 async function listRates(ctx) {
   const { companyId, body } = ctx;
   const baseCurrency = body.baseCurrency || null;
+  const foreignCurrency = body.foreignCurrency;
+  const { dateFrom, dateTo, threshold } = body;
 
-  let sql = `SELECT date, from_currency, to_currency, rate, source, fetched_at FROM fx_rates`;
+  if (!foreignCurrency) {
+    throw Object.assign(new Error('foreignCurrency required'), { code: 'INVALID_INPUT' });
+  }
+  if (threshold == null) {
+    throw Object.assign(new Error('threshold required'), { code: 'INVALID_INPUT' });
+  }
+
+  let where = ` WHERE from_currency != to_currency`;
   const params = {};
 
+  // Company scoping (loose — fx_rates has no company_id column; see schema.sql)
   if (baseCurrency) {
-    sql += ` WHERE (from_currency = @base OR to_currency = @base)`;
+    where += ` AND (from_currency = @base OR to_currency = @base)`;
     params.base = baseCurrency;
   }
 
-  sql += ` ORDER BY date DESC, from_currency, to_currency LIMIT 500`;
+  // §5a: mandatory, exactly one foreign currency
+  where += ` AND (from_currency = @fc OR to_currency = @fc)`;
+  params.fc = foreignCurrency;
 
-  const rows = await query(sql, params);
-  return rows;
+  if (dateFrom) { where += ` AND date >= @dateFrom`; params.dateFrom = dateFrom; }
+  if (dateTo) { where += ` AND date <= @dateTo`; params.dateTo = dateTo; }
+
+  // Step 1: cheap COUNT
+  const countRow = await query(`SELECT COUNT(*) AS _total FROM fx_rates` + where, params);
+  const total = countRow[0]._total;
+
+  if (total > threshold) {
+    return { data: [], total, tooMany: true };
+  }
+
+  // Step 2: fetch rows only when under threshold — no LIMIT
+  const rows = await query(
+    `SELECT date, from_currency, to_currency, rate, source, fetched_at FROM fx_rates` + where + ` ORDER BY date DESC, from_currency, to_currency`,
+    params
+  );
+  return { data: rows, total };
 }
 
 async function saveRates(ctx) {

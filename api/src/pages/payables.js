@@ -342,6 +342,15 @@ ${commonStyle()}
   <!-- 2026-08-11 IA restructure: Partners tab moved to Master Data page.
        Tab strip removed — Bills is now the only panel. -->
 
+  <!-- Date-range toolbar (default-period spec) — seeds from the default
+       accounting period on page load; onchange re-fetches the bill list. -->
+  <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+    <span style="font-size:0.75rem; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.05em;">Date range</span>
+    <input type="date" id="bill-date-from" class="tb-date-input" onchange="billsList.load()" title="Start date">
+    <span style="color:#aaa; padding:0 3px; font-size:0.875rem;">\u2013</span>
+    <input type="date" id="bill-date-to" class="tb-date-input" onchange="billsList.load()" title="End date">
+  </div>
+
   <div id="pay-panel-bills">
 
   <!-- Table card -->

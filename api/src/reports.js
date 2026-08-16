@@ -226,7 +226,7 @@ function mountReportRoutes(app) {
          LIMIT 1`,
         [company, today]
       );
-      if (latest.length) res.json({ period_id: latest[0].period_id });
+      if (latest.length) res.json({ period_id: latest[0].period_id, start_date: latest[0].start_date, end_date: latest[0].end_date });
       else res.json({ period_id: null });
     } catch (err) {
       res.status(500).json({ error: err.message });

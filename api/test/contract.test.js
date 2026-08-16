@@ -206,11 +206,11 @@ test('bill.get 404s, bill.list filters, bill.lines returns journal lines', async
   assert.equal(missing.status, 404);
   assert.equal(missing.body.error.code, 'NOT_FOUND');
 
-  const list = await api(baseUrl, 'bill.list', { companyId: CO, status: 'posted' });
+  const list = await api(baseUrl, 'bill.list', { companyId: CO, status: 'posted', threshold: 1500 });
   assert.equal(list.status, 200);
-  assert.ok(list.body.data.length >= 2, 'posted bills listed');
+  assert.ok(list.body.data.data.length >= 2, 'posted bills listed');
 
-  const posted = list.body.data[0];
+  const posted = list.body.data.data[0];
   const lines = await api(baseUrl, 'bill.lines', { companyId: CO, billId: posted.bill_id });
   assert.equal(lines.status, 200);
   assert.ok(Array.isArray(lines.body.data) && lines.body.data.length >= 1);

@@ -256,6 +256,10 @@ CREATE TABLE IF NOT EXISTS fx_rates (
   fetched_at    TIMESTAMP      NOT NULL DEFAULT NOW()
 );
 
+-- Indexes for fx_rates — threshold spec §7: cover the OR (from_currency/to_currency) + date range
+CREATE INDEX IF NOT EXISTS idx_fx_rates_from_date ON fx_rates(from_currency, date);
+CREATE INDEX IF NOT EXISTS idx_fx_rates_to_date   ON fx_rates(to_currency, date);
+
 -- =============================================================================
 -- centers (Cost/Profit Centers)
 -- =============================================================================
@@ -843,6 +847,9 @@ CREATE INDEX IF NOT EXISTS idx_partner_proposals_name
 -- =============================================================================
 ALTER TABLE bills ADD COLUMN IF NOT EXISTS partner_id VARCHAR;
 CREATE INDEX IF NOT EXISTS idx_bills_partner_id ON bills(partner_id);
+
+-- Index for threshold spec §7: covers company_id + date range used by bill.list COUNT/query
+CREATE INDEX IF NOT EXISTS idx_bills_company_date ON bills(company_id, date);
 
 
 -- =============================================================================

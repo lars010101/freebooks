@@ -303,9 +303,52 @@ function _loadCompanyDefaults() {
     });
 }
 
+// ========== DATE-RANGE INIT (default-period spec) ==========
+// Resolves the bill list date range before the first load:
+//   1. ?periodStart=/?periodEnd= URL params (return-context seam for future
+//      item 4 — drill-through from reports/bill detail back to this list)
+//   2. /api/:company/reports/default-period (latest posted-transaction period)
+//   3. No periods configured → setup-state spanning row (add row still visible;
+//      bill.list is NOT called)
+function initBillDateRange() {
+  var params = new URLSearchParams(window.location.search);
+  var ps = params.get('periodStart');
+  var pe = params.get('periodEnd');
+  var fromEl = document.getElementById('bill-date-from');
+  var toEl = document.getElementById('bill-date-to');
+  if (ps && pe) {
+    if (fromEl) fromEl.value = ps;
+    if (toEl) toEl.value = pe;
+    billsList.load();
+    return;
+  }
+  fetch('/api/' + COMPANY + '/reports/default-period')
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (res && res.start_date && res.end_date) {
+        if (fromEl) fromEl.value = String(res.start_date).slice(0, 10);
+        if (toEl) toEl.value = String(res.end_date).slice(0, 10);
+        billsList.load();
+      } else {
+        renderBillsSetupState();
+      }
+    })
+    .catch(function () { renderBillsSetupState(); });
+}
+
+// Setup-state spanning row — same pattern as FB.list's renderTooMany: one
+// <tr><td colspan> with the message, followed by the add row (display-only;
+// not click-wired, consistent with the tooMany state).
+function renderBillsSetupState() {
+  var tb = document.getElementById('bills-tbody');
+  if (!tb) return;
+  tb.innerHTML = '<tr class="fb-toomany-row"><td colspan="8">No accounting periods configured yet.</td></tr>'
+    + '<tr class="fb-add-row"><td class="fb-add-cell" colspan="8">+ Add bill</td></tr>';
+}
+
 function fbPageInitPayables() {
   loadPartners();
-  billsList.load();
+  initBillDateRange();
   loadPeriods();
   registerPartnerKeyActions();
   // Sidebar hint panel is generated from the same binding table that drives
@@ -357,24 +400,38 @@ function loadPeriods() {
   }).catch(function(){});
 }
 
-function loadFxRatesForKpi(callback) {
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action: 'fx.rates.list', companyId: COMPANY }) })
-  .then(function(r){ return r.json(); })
-  .then(function(res){
-    var rates = res.data || res || [];
-    if (!Array.isArray(rates)) rates = [];
-    var rateMap = {};
-    rates.forEach(function(r) {
-      if (!r.from_currency || !r.to_currency || !r.rate) return;
-      var key = r.from_currency + '_' + r.to_currency;
-      if (!rateMap[key] || String(r.rate_date||'') > String(rateMap[key].date||'')) {
-        rateMap[key] = { rate: Number(r.rate), date: r.rate_date };
+function loadFxRatesForKpi(callback, bills) {
+  // Collect distinct foreign currencies from bills (exclude base currency).
+  var ccys = {};
+  (bills || []).forEach(function (b) {
+    var c = b.currency || '';
+    if (c && c !== BASE_CURRENCY) ccys[c] = 1;
+  });
+  var list = Object.keys(ccys);
+  if (!list.length) { callback({}); return; }
+
+  // Fetch the effective rate for each currency via fx.rates.get (threshold-free,
+  // one currency at a time — fx.rates.list now requires foreignCurrency + threshold).
+  var today = new Date().toISOString().slice(0, 10);
+  var rateMap = {};
+  var done = 0;
+  list.forEach(function (ccy) {
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'fx.rates.get', companyId: COMPANY, fromCurrency: ccy, toCurrency: BASE_CURRENCY, date: today }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      var data = res.data || res;
+      var rate = data ? data.rate : null;
+      if (rate != null) {
+        rateMap[ccy + '_' + BASE_CURRENCY] = { rate: Number(rate), date: data.rateDate || null };
       }
+    })
+    .catch(function(){})
+    .then(function(){
+      done++;
+      if (done === list.length) callback(rateMap);
     });
-    callback(rateMap);
-  })
-  .catch(function(){ callback({}); });
+  });
 }
 
 function convertToBase(amt, currency, rateMap) {
@@ -1315,6 +1372,20 @@ var billsList = FB.list.create({
   ],
   label: '+ Add bill',
   list: { action: 'bill.list',
+    // default-period spec: send dateFrom/dateTo (from the toolbar date inputs)
+    // + the shared threshold so the backend can cap the result set.
+    body: function () {
+      var df = document.getElementById('bill-date-from');
+      var dt = document.getElementById('bill-date-to');
+      return {
+        dateFrom: df ? df.value : '',
+        dateTo: dt ? dt.value : '',
+        threshold: FB.list.threshold
+      };
+    },
+    tooManyMessage: function (total) {
+      return total.toLocaleString() + ' bills \u2014 narrow the date range above to see this list.';
+    },
     map: function (b) {
       return {
         _key: b.bill_id, bill_id: b.bill_id, partner_name: b.partner_name || '', date: b.date || '',
@@ -1333,7 +1404,7 @@ var billsList = FB.list.create({
   childRowHtml: billsChildRowHtml,
   onLoaded: function (saved) {
     _refreshCcyVisibility(saved);
-    loadFxRatesForKpi(function (rm) { computeKpis(saved, rm); });
+    loadFxRatesForKpi(function (rm) { computeKpis(saved, rm); }, saved);
   },
   onChrome: function () { _applyCcyColVisibility(); },
   // Task 6c — blank / isBlank / same / firstField. The framework calls these

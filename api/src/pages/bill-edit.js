@@ -69,13 +69,31 @@ ${commonStyle()}
     grid-row: 3;
     grid-column: 1 / -1;
   }
-  table.be-lines { width:100%; border-collapse:collapse; font-size:10pt; table-layout:fixed; }
-  table.be-lines th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
-  table.be-lines td { padding:3px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
-  table.be-lines input, table.be-lines select { padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; box-sizing:border-box; height:32px; }
+  .be-lines-wrap, .bl-header, .bl-row { column-gap: 8px; }
+  .bl-header, .bl-row { display: grid; grid-template-columns: var(--bl-cols); }
+  .bl-header { font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px 8px; }
+  .bl-row { border-bottom:1px solid #f0f0f0; padding:3px 0; }
+  .bl-group { display: contents; }
+  .bl-cell { padding:3px 4px; display:flex; align-items:center; min-width:0; }
+  .bl-cell input, .bl-cell select { min-width:0; width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; box-sizing:border-box; height:32px; }
   .be-line-x { visibility:hidden; cursor:pointer; color:#999; border:none; background:none; font-size:12pt; padding:0 4px; }
-  tr:hover .be-line-x { visibility:visible; }
+  .bl-row:hover .be-line-x { visibility:visible; }
   .be-line-x.fb-form-cursor-btn { visibility: visible; }
+  @media (max-width: 1100px) {
+    .bl-header { display: none; }
+    .bl-row {
+      display: flex;
+      flex-direction: column;
+      row-gap: 4px;
+      padding-bottom: 8px;
+    }
+    .bl-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .bl-group .bl-cell { flex: 1 1 120px; }
+  }
   .be-msg { min-height:1em; font-size:10pt; }
   .be-msg.err { color:#cc2222; }
   .be-msg.ok { color:#2a8a2a; }
@@ -88,7 +106,7 @@ ${commonStyle()}
 </style>
 </head>
 <body>${navBar(company, 'payables')}
-<div class="page">
+<div class="page page-wide">
   <div class="header" style="display:flex;justify-content:space-between;align-items:flex-start">
     <div>
       <h1 id="be-title">New Bill</h1>
@@ -106,19 +124,10 @@ ${commonStyle()}
     ? '<div class="header-fields"><label>CCY <input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase"></label></div>'
     : '<input id="be-ccy" type="hidden" value="' + baseCcy + '">'}
 
-  <table class="be-lines">
-    <thead>
-      <tr>
-      <th style="width:36%">Description</th>
-      <th style="width:13%">Amount</th>
-      ${vatOn ? '<th style="width:13%">VAT code</th>' : ''}
-      <th style="width:15%">Cost center</th>
-      <th style="width:21%">DR: Expense account</th>
-      <th style="width:2%"></th>
-      </tr>
-    </thead>
-    <tbody id="be-lines-body"></tbody>
-  </table>
+  <div class="be-lines-wrap" id="be-lines-wrap">
+    <div class="bl-header" id="be-lines-header"></div>
+    <div id="be-lines-body"></div>
+  </div>
   <div style="margin-top:6px">
     <button class="btn-sm" id="be-add-row-btn" type="button">+ Add Line</button>
   </div>
@@ -169,6 +178,40 @@ const S = {
   savedSnapshot: null,   // JSON of last-saved (or initial) form state
 };
 
+// ── Line-item column config — single source of truth ──────────────────────
+// Extend this array (not hand-typed widths in separate places) when #3
+// (qty × unit price) and #4 (withholding tax) land — see §3.2 of
+// bill-line-items-layout-prep-spec.md for the reserved slots.
+//
+// INVARIANT: tier-1 entries must precede tier-2 entries in this array.
+// §3.4's Tier-B rendering groups cells by tier and relies on each group's
+// internal order matching this array's order — see §2.3.
+const LINE_COLUMNS = [
+  { id: 'desc', label: 'Description',        cls: 'bl-desc',   tier: 1 },
+  // Reserved for the #3 spec (qty × unit price) — do not build ahead of it:
+  // { id: 'qty',  label: 'Qty',                cls: 'bl-qty',    tier: 1 },
+  // { id: 'rate', label: 'Rate',               cls: 'bl-rate',   tier: 1 },
+  { id: 'amt',  label: 'Amount',              cls: 'bl-amt',    tier: 1 },
+  { id: 'vat',  label: 'VAT code',            cls: 'bl-vat',    tier: 2, conditionalOn: () => VAT_ON },
+  // Reserved for the #4 spec (withholding tax) — do not build ahead of it:
+  // { id: 'wht',  label: 'WHT code',           cls: 'bl-wht',    tier: 2, conditionalOn: () => WHT_ON },
+  { id: 'cc',   label: 'Cost center',         cls: 'bl-cc',     tier: 2 },
+  { id: 'acct', label: 'DR: Expense account', cls: 'bl-acct',   tier: 2 },
+  { id: 'del',  label: '',                    cls: 'be-line-x', tier: 2 },
+];
+function activeColumns() { return LINE_COLUMNS.filter(c => !c.conditionalOn || c.conditionalOn()); }
+
+// Tier A (wide, single row) column-track widths, keyed by column id — see
+// §3.3. Kept separate from LINE_COLUMNS itself so the reserved/commented
+// entries above can stay terse; a width only needs to exist once its column
+// is actually wired up in renderCell (§2.3).
+const WIDE_TRACK_WIDTH = {
+  desc: 'minmax(240px,3fr)', qty: 'minmax(70px,0.6fr)', rate: 'minmax(90px,0.7fr)',
+  amt:  'minmax(90px,0.8fr)', vat: 'minmax(90px,0.8fr)', wht:  'minmax(90px,0.8fr)',
+  cc:   'minmax(120px,1fr)',  acct: 'minmax(180px,1.6fr)', del: '32px',
+};
+function computeWideColumns() { return activeColumns().map(c => WIDE_TRACK_WIDTH[c.id] || '1fr').join(' '); }
+
 function msg(text, cls) {
   const el = document.getElementById('be-msg');
   el.textContent = text || '';
@@ -199,6 +242,8 @@ Promise.all([
     addLine({});
   }
   wireHeader();
+  renderLinesHeader();
+  applyGridColumns();
   if (S.billId) document.getElementById('be-title').textContent = 'Edit Draft Bill';
   updateTotals();
   takeSnapshot(); // baseline for dirty tracking
@@ -322,31 +367,50 @@ function attachCenter(input, type) {
 }
 
 // ── Lines ───────────────────────────────────────────────────────────────────
+function renderLinesHeader() {
+  document.getElementById('be-lines-header').innerHTML =
+    activeColumns().map(c => '<div class="bl-cell">' + FB.util.esc(c.label) + '</div>').join('');
+}
+function applyGridColumns() {
+  document.getElementById('be-lines-wrap').style.setProperty('--bl-cols', computeWideColumns());
+}
+function renderCell(col, data) {
+  var inner;
+  switch (col.id) {
+    case 'desc': inner = '<input class="bl-desc" value="' + FB.util.escAttr(data.description || '') + '" placeholder="line description">'; break;
+    case 'amt':  inner = '<input class="bl-amt" type="number" step="0.01" min="0" placeholder="Amount" value="' + (data.amount !== '' && data.amount != null ? data.amount : '') + '">'; break;
+    case 'vat':  inner = '<input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—">'; break;
+    case 'cc':   inner = '<input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off" placeholder="Cost center">'; break;
+    case 'acct': inner = '<input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off" placeholder="Expense acct">'; break;
+    case 'del':  inner = '<button class="be-line-x" type="button" title="delete line">×</button>'; break;
+    default:
+      throw new Error('renderCell: no case for column "' + col.id + '" — add one before enabling it in LINE_COLUMNS.');
+  }
+  return '<div class="bl-cell">' + inner + '</div>';
+}
 function addLine(data) {
-  const tbody = document.getElementById('be-lines-body');
-  const tr = document.createElement('tr');
-  tr.innerHTML =
-    '<td><input class="bl-desc" value="' + FB.util.escAttr(data.description || '') + '" placeholder="line description"></td>' +
-    '<td><input class="bl-amt" type="number" step="0.01" min="0" value="' + (data.amount !== '' && data.amount != null ? data.amount : '') + '"></td>' +
-    (VAT_ON ? '<td><input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—"></td>' : '') +
-    '<td><input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off"></td>' +
-    '<td><input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off"></td>' +
-    '<td><button class="be-line-x" type="button" title="delete line">×</button></td>';
-  tbody.appendChild(tr);
-  attachAcct(tr.querySelector('.bl-acct'));
-  if (VAT_ON) attachVat(tr.querySelector('.bl-vat'));
-  attachCenter(tr.querySelector('.bl-cc'), 'cost');
-  tr.querySelector('.be-line-x').onclick = () => { tr.remove(); updateTotals(); refreshAddRow(); };
-  tr.querySelectorAll('input').forEach(i => i.addEventListener('input', () => { updateTotals(); refreshAddRow(); }));
+  const container = document.getElementById('be-lines-body');
+  const cols = activeColumns();
+  const row = document.createElement('div');
+  row.className = 'bl-row';
+  const g1 = cols.filter(c => c.tier === 1).map(c => renderCell(c, data)).join('');
+  const g2 = cols.filter(c => c.tier === 2).map(c => renderCell(c, data)).join('');
+  row.innerHTML = '<div class="bl-group">' + g1 + '</div><div class="bl-group">' + g2 + '</div>';
+  container.appendChild(row);
+  attachAcct(row.querySelector('.bl-acct'));
+  if (VAT_ON) attachVat(row.querySelector('.bl-vat'));
+  attachCenter(row.querySelector('.bl-cc'), 'cost');
+  row.querySelector('.be-line-x').onclick = () => { row.remove(); updateTotals(); refreshAddRow(); };
+  row.querySelectorAll('input').forEach(i => i.addEventListener('input', () => { updateTotals(); refreshAddRow(); }));
   refreshAddRow();
-  return tr;
+  return row;
 }
 function vatRateOf(code) {
   const v = S.vatCodes.find(x => x.vat_code === code);
   return v ? Number(v.rate != null ? v.rate : (v.rate_percent || 0)) : 0;
 }
 function lastLineHasData() {
-  const rows = document.querySelectorAll('#be-lines-body tr');
+  const rows = document.querySelectorAll('#be-lines-body .bl-row');
   if (!rows.length) return false;
   const last = rows[rows.length - 1];
   return !!(last.querySelector('.bl-desc').value.trim() || last.querySelector('.bl-amt').value);
@@ -358,18 +422,18 @@ function refreshAddRow() {
 }
 document.getElementById('be-add-row-btn').onclick = () => {
   if (!lastLineHasData()) return;
-  const tr = addLine({});
-  tr.querySelector('.bl-desc').focus();
+  const row = addLine({});
+  row.querySelector('.bl-desc').focus();
 };
 
 // ── Totals (display only — server is the authority at save/post) ────────────
 function collectLines() {
-  return Array.from(document.querySelectorAll('#be-lines-body tr')).map(tr => ({
-    description: tr.querySelector('.bl-desc').value.trim(),
-    expense_account: tr.querySelector('.bl-acct').value.trim(),
-    amount: parseFloat(tr.querySelector('.bl-amt').value) || 0,
-    vat_code: (function(){ var s = tr.querySelector('.bl-vat'); return s ? (s.value.trim() || '') : ''; })(),
-    cost_center: tr.querySelector('.bl-cc').value.trim() || null,
+  return Array.from(document.querySelectorAll('#be-lines-body .bl-row')).map(row => ({
+    description: row.querySelector('.bl-desc').value.trim(),
+    expense_account: row.querySelector('.bl-acct').value.trim(),
+    amount: parseFloat(row.querySelector('.bl-amt').value) || 0,
+    vat_code: (function(){ var s = row.querySelector('.bl-vat'); return s ? (s.value.trim() || '') : ''; })(),
+    cost_center: row.querySelector('.bl-cc').value.trim() || null,
   })).filter(l => l.description || l.amount || l.expense_account);
 }
 function updateTotals() {
@@ -567,7 +631,7 @@ var beForm = FB.form.create({
   zones: [
     { id: 'header', rows: function () { return [document.querySelector('.be-grid-header')]; } },
     { id: 'lines',  rows: function () {
-        return Array.from(document.querySelectorAll('#be-lines-body tr'));
+        return Array.from(document.querySelectorAll('#be-lines-body .bl-row'));
       },
       cells: function (rowEl) {
         return Array.prototype.slice.call(rowEl.querySelectorAll('input,select,button'))
@@ -578,16 +642,16 @@ var beForm = FB.form.create({
   ],
   verbs: {
     add: { key: 'a', hint: 'add line', run: function (api) {
-      var tr = addLine({});
+      var row = addLine({});
       updateTotals();
       api.moveTo(1, api.zoneRows(1).length - 1, 0, true);
     } },
     delete: { key: 'x', hint: 'delete',
       when: function (api) { return api.cur().z === 1 && api.cur().r > 0; },
       run: function (api) {
-        var tr = api.zoneRows(1)[api.cur().r];
-        if (!tr) return;
-        tr.remove(); updateTotals(); refreshAddRow(); api.refresh();
+        var row = api.zoneRows(1)[api.cur().r];
+        if (!row) return;
+        row.remove(); updateTotals(); refreshAddRow(); api.refresh();
       } },
     write: { key: 'w', hint: 'write draft', run: function () { saveDraft(false); } },
     quit: { key: 'q', hint: 'quit', paletteEligible: false, run: function () { quitEditor(); } }

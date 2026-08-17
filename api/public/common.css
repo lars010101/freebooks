@@ -428,6 +428,7 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   max-width: 1100px;
   color: var(--text);
 }
+.page.page-wide { max-width: min(94vw, 1600px); }
 .page h1 { font-size: clamp(1.375rem, 1.5vw + 1rem, 1.833rem); font-weight: 700; letter-spacing: -.02em; }
 .sub { color: var(--text-muted); font-size: 0.833rem; margin-top: 4px; }
 

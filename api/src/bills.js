@@ -961,6 +961,8 @@ async function getBillLines(ctx) {
         description: l.description || '',
         amount: l.amount || 0,
         vat_code: l.vat_code || null,
+        wht_code: l.wht_code || null,
+        cost_center: l.cost_center || null,
         currency: l.currency || null,
         fx_rate: 1,
         vat_amount_override: (l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override))) ? Number(l.vat_amount_override) : null,
@@ -976,6 +978,8 @@ async function getBillLines(ctx) {
        bl.description,
        bl.amount,
        bl.vat_code,
+       bl.wht_code,
+       bl.cost_center,
        b.currency,
        b.fx_rate,
        bl.amount_home

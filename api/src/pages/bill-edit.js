@@ -40,11 +40,9 @@ function buildBillEditPage(company, editId, flags) {
 <title>Bill Editor - freeBooks</title>
 ${commonStyle()}
 <style>
-  /* Grid header mirrors the table column widths so CR: AP account aligns
-     vertically with DR: Expense account below. Same template, same gaps. */
   .be-grid-header {
     display:grid;
-    grid-template-columns: ${vatOn ? '36% 13% 13% 15% 21% 2%' : '36% 13% 15% 21% 2%'};
+    grid-template-columns: repeat(3, 1fr);
     column-gap:0;
     align-items:end;
     margin-bottom:12px;
@@ -58,19 +56,19 @@ ${commonStyle()}
     padding:4px 6px; border:1px solid #ccc; border-radius:4px;
     font-size:10pt; box-sizing:border-box; height:32px;
   }
-  /* Partner spans full width of row 1. Row 2 has bill date, due date,
-     bill no on the left, and CR: AP account aligned with the DR: Expense
-     account column (col 5 with VAT, col 4 without). */
+  /* Partner spans full width of row 1. Bill date, due date, and bill no
+     share row 2 evenly — no longer tied to the line table's column widths
+     now that CR: AP account (the thing that required the alignment) is gone. */
   .be-grid-header .be-gh-partner {
     grid-row: 1;
     grid-column: 1 / -1;
     padding-right:8px;
   }
-  .be-grid-header .be-gh-ap {
-    grid-row: 2;
-    grid-column: ${vatOn ? '5 / 6' : '4 / 5'};
-  }
   .be-grid-header .be-gh-row2 { grid-row: 2; }
+  .be-grid-header .be-gh-memo {
+    grid-row: 3;
+    grid-column: 1 / -1;
+  }
   table.be-lines { width:100%; border-collapse:collapse; font-size:10pt; table-layout:fixed; }
   table.be-lines th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
   table.be-lines td { padding:3px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
@@ -99,10 +97,10 @@ ${commonStyle()}
 
   <div class="be-grid-header">
     <label class="be-gh-partner">Partner * <input id="be-partner-name" autocomplete="off" placeholder="start typing…"></label>
-    <label class="be-gh-ap">CR: AP account <input id="be-ap" autocomplete="off"></label>
-    <label class="be-gh-row2" style="grid-column:1">Bill date * <input id="be-date" type="date"></label>
+    <label class="be-gh-row2">Bill date * <input id="be-date" type="date"></label>
     <label class="be-gh-row2">Due date <input id="be-due" type="date"></label>
-    <label class="be-gh-row2" style="${vatOn ? 'grid-column:4' : 'grid-column:3'}">Bill no <input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></label>
+    <label class="be-gh-row2">Bill no <input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></label>
+    <label class="be-gh-memo">Memo <input id="be-memo" autocomplete="off" placeholder="internal note (optional)"></label>
   </div>
   ${fxOn
     ? '<div class="header-fields"><label>CCY <input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase"></label></div>'
@@ -165,6 +163,7 @@ const S = {
   partners: [], accounts: [], vatCodes: [], centers: [], currencies: [],
   billId: editId || null,
   selectedPartnerId: null,  // partner_id from dropdown pick (bills-partner-fk-spec §4.2)
+  selectedApAccount: null,  // resolved ap_account — no visible field; §1 of bill-edit-header-cleanup-spec.md
   stagedFiles: [],       // File objects staged pre-first-save
   saving: false,
   savedSnapshot: null,   // JSON of last-saved (or initial) form state
@@ -224,7 +223,8 @@ async function prefillFromDraft(id) {
   document.getElementById('be-due').value = (bill.due_date || bill.date || '').slice(0, 10);
   document.getElementById('be-ref').value = bill.vendor_ref || '';
   document.getElementById('be-ccy').value = bill.currency || '';
-  document.getElementById('be-ap').value = bill.ap_account || '';
+  S.selectedApAccount = bill.ap_account || null;
+  document.getElementById('be-memo').value = bill.description || '';
   if (VAT_ON && Number(bill.vat_amount) > 0) { // drafts: stated VAT total (0 = none); element absent when vat_registered=false
     const el = document.getElementById('be-tot-gst');
     el.dataset.stated = '1';
@@ -253,8 +253,8 @@ function wireHeader() {
       inp.value = it.primary;
       const v = it.data;
       S.selectedPartnerId = v.partner_id || null;  // bills-partner-fk-spec §4.2
+      S.selectedApAccount = v.default_ap_account || null;  // §1.4 — carried silently
       if (FX_ON && v.default_currency && !document.getElementById('be-ccy').value) document.getElementById('be-ccy').value = v.default_currency;
-      if (v.default_ap_account && !document.getElementById('be-ap').value) document.getElementById('be-ap').value = v.default_ap_account;
       if (v.payment_terms_days) {
         const d = document.getElementById('be-date').value;
         if (d) {
@@ -266,11 +266,10 @@ function wireHeader() {
     },
   });
   attachCcy(document.getElementById('be-ccy'));
-  attachAcct(document.getElementById('be-ap'));
   // bills-partner-fk-spec §4.2.4: if user types/edits the name without picking
   // from the dropdown, clear the stored partner_id — same free-text behavior as §0.2.
   const _partnerInput = document.getElementById('be-partner-name');
-  if (_partnerInput) _partnerInput.addEventListener('input', () => { S.selectedPartnerId = null; });
+  if (_partnerInput) _partnerInput.addEventListener('input', () => { S.selectedPartnerId = null; S.selectedApAccount = null; });
 }
 function attachCcy(input) {
   FB.dropdown.attach(input, {
@@ -433,7 +432,8 @@ function gatherBill() {
     due_date: document.getElementById('be-due').value,
     vendor_ref: document.getElementById('be-ref').value.trim(),
     currency: document.getElementById('be-ccy').value.trim().toUpperCase() || undefined,
-    ap_account: document.getElementById('be-ap').value.trim() || undefined,
+    ap_account: S.selectedApAccount || undefined,
+    description: document.getElementById('be-memo').value.trim() || undefined,
     vat_amount_stated: (function () { const el = document.getElementById('be-tot-gst'); return (el && el.dataset.stated === '1' && el.value !== '') ? (parseFloat(el.value) || 0) : null; })(),
     lines: collectLines(),
     // NO amount — server computes (P2-4)
@@ -446,7 +446,6 @@ function validateClient(bill, forPost) {
   if (!bill.partner_name) { missing.push('partner'); mark('be-partner-name'); }
   if (!bill.date) { missing.push('bill date'); mark('be-date'); }
   if (forPost) {
-    if (!bill.ap_account) { missing.push('AP account'); mark('be-ap'); }
     bill.lines.forEach((l, i) => { if (!l.expense_account) missing.push('line ' + (i + 1) + ' expense account'); });
     if (!bill.lines.length) missing.push('at least one line');
     if (!bill.lines.some(l => l.amount > 0)) missing.push('a positive line amount');
@@ -501,7 +500,9 @@ async function postBill() {
     setTimeout(() => { window.location.href = '/' + COMPANY + '/payables'; }, 900);
   } catch (e) {
     const det = e.details && e.details.errors ? ': ' + e.details.errors.join('; ') : '';
-    msg(e.message + det, 'err');
+    let m = e.message + det;
+    if (e.message.includes('AP account is required')) m += ' — set a default AP account for this vendor or in Settings → Chart of Accounts.';
+    msg(m, 'err');
   } finally { S.saving = false; }
 }
 

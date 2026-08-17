@@ -33,7 +33,7 @@ ${commonStyle()}
   table.edit-table .ro { background:#f5f5f5; color:#888; padding:4px 6px; border-radius:3px; display:block; }
   .search-bar { padding:6px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; margin-bottom:12px; width:260px; }
   /* Modal-edit doctrine (docs/settings-ux-spec.md) */
-  #tab-coa tbody td, #tab-vat tbody td, #tab-journals tbody td, #tab-centers tbody td { cursor:text; }
+  #tab-coa tbody td, #tab-vat tbody td, #tab-wht tbody td, #tab-journals tbody td, #tab-centers tbody td { cursor:text; }
   tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 #d97706; }
   .dirty-val { color:#b45309; }
   tr.row-editing > td { background:#fffbeb; }
@@ -58,6 +58,7 @@ ${commonStyle()}
     <div class="tab active" onclick="showTab('partners')">Partners<span id="tab-dot-partners" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('coa')">Chart of Accounts<span id="tab-dot-coa" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" id="tab-vat-label" onclick="showTab('vat')">Tax Codes<span id="tab-dot-vat" style="display:none;color:#d97706"> ●</span></div>
+    <div class="tab" id="tab-wht-label" onclick="showTab('wht')">WHT Codes<span id="tab-dot-wht" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" id="tab-fxrates-label" onclick="showTab('fxrates')">Exchange Rates</div>
     <div class="tab" onclick="showTab('centers')">Cost/Profit Centers<span id="tab-dot-centers" style="display:none;color:#d97706"> ●</span></div>
@@ -89,6 +90,14 @@ ${commonStyle()}
     <table class="edit-table" id="vat-table">
       <thead><tr><th>Code</th><th>Description</th><th>Rate %</th><th>Input Acct</th><th>Output Acct</th><th>Report Box</th><th style="text-align:center">Rev.Chg</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="vat-body"></tbody>
+    </table>
+  </div>
+
+  <!-- WHT CODES TAB -->
+  <div id="tab-wht" class="tab-panel">
+    <table class="edit-table" id="wht-table">
+      <thead><tr><th>Code</th><th>Description</th><th>Rate %</th><th>Payable Acct</th><th>Report Box</th><th style="text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="wht-body"></tbody>
     </table>
   </div>
 
@@ -184,7 +193,7 @@ function showTab(t) {
       resetDirty(curTab);
     }
   }
-  var tabs = ['partners','coa','vat','journals','fxrates','centers'];
+  var tabs = ['partners','coa','vat','wht','journals','fxrates','centers'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
@@ -193,6 +202,7 @@ function showTab(t) {
     if (t === 'partners') FB.keys.renderHints('partners', hintEl);
     else if (t === 'coa') renderCoaHints();
     else if (t === 'vat') renderVatHints();
+    else if (t === 'wht') renderWhtHints();
     else if (t === 'journals') renderJournalHints();
     else if (t === 'fxrates') FB.keys.renderHints('md-fxrates', hintEl, { layout: 'list' });
     else if (t === 'centers') FB.keys.renderHints('md-centers', hintEl);
@@ -203,6 +213,7 @@ function showTab(t) {
     if (t === 'partners')  { loadPartners(); }
     if (t === 'coa')      { loadCoa(); }
     if (t === 'vat')      { loadVat(); }
+    if (t === 'wht')      { loadWht(); }
     if (t === 'journals') { loadJournals(); }
     if (t === 'fxrates')  { loadFxRates(); loadBaseCurrencies(); }
     if (t === 'centers')  { loadCenters(); }
@@ -477,6 +488,51 @@ function loadVat(focusKey) { vatList.load(focusKey); }
 function renderVatHints() {
   var el = document.getElementById('sb-hints');
   if (el) vatList.renderHints(el);
+}
+
+// ========== WHT CODES — FB.list (mirrors VAT codes, minus RC) =========
+var whtList = FB.list.create({
+  keysId: 'md-wht',
+  active: function() { var p = document.getElementById('tab-wht'); return !!(p && p.classList.contains('active')); },
+  tbody: 'wht-body',
+  companyId: function() { return COMPANY; },
+  columns: [
+    { field: 'wht_code', type: 'text', width: 60, ro: 'saved' },
+    { field: 'description', type: 'text', width: 160 },
+    { field: 'rate', type: 'number', step: '0.01', width: 55, filterType: 'amount' },
+    { field: 'wht_account', type: 'text', width: 70 },
+    { field: 'report_box', type: 'text', width: 50 },
+    { field: 'is_active', type: 'checkbox', align: 'center',
+      display: function(v) { return v ? 'Yes' : 'No'; } }
+  ],
+  blank: function() { return { wht_code: '', description: '', rate: 0, wht_account: '', report_box: '', is_active: true }; },
+  isBlank: function(b) { return !b.wht_code && !b.description && !b.wht_account; },
+  same: function(b, s) {
+    return b.description === (s.description || '') && b.rate === (s.rate || 0)
+      && b.wht_account === (s.wht_account || '') && b.report_box === (s.report_box || '') && b.is_active === !!s.is_active;
+  },
+  validate: function(d) { return d.wht_code ? null : 'WHT code required'; },
+  firstField: function(isNew) { return isNew ? 'wht_code' : 'description'; },
+  track: 'tax-code',
+  list: { url: function() { return '/api/' + COMPANY + '/wht-codes'; },
+    map: function(w) { return { wht_code: w.wht_code, description: w.description || '', rate: w.rate || 0, wht_account: w.wht_account || '', report_box: w.report_box || '', is_active: !!w.is_active, _key: w.wht_code }; } },
+  save: { action: 'wht.codes.upsert',
+    body: function(d) { return { whtCode: { wht_code: d._isNew ? d.wht_code : d._key, description: d.description || null, rate: d.rate || 0, wht_account: d.wht_account || null, report_box: d.report_box || null, is_active: !!d.is_active } }; },
+    focusKey: function(d) { return d._isNew ? d.wht_code : d._key; } },
+  del: { action: 'wht.codes.delete',
+    body: function(d) { return { whtCode: d._key }; },
+    confirm: function(d) { return 'Delete WHT code "' + d.wht_code + '"?'; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-wht');
+    if (dot) dot.style.display = dirty ? '' : 'none';
+    if (dirty) markDirty('wht'); else resetDirty('wht');
+  }
+});
+
+function loadWht(focusKey) { whtList.load(focusKey); }
+function renderWhtHints() {
+  var el = document.getElementById('sb-hints');
+  if (el) whtList.renderHints(el);
 }
 
 // ========== JOURNALS — FB.list (relocated from settings.js) ==========

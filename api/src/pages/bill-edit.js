@@ -32,6 +32,7 @@ function buildBillEditPage(company, editId, flags) {
   // fxOn=false locks the CCY field to the company base currency.
   const vatOn = !flags || flags.vatRegistered !== false;
   const fxOn = !flags || flags.fxTracking !== 'off';
+  const whtOn = !!(flags && flags.whtTracking === 'true');
   const baseCcy = (flags && flags.baseCurrency) || '';
   return `<!DOCTYPE html>
 <html lang="en">
@@ -137,6 +138,7 @@ ${commonStyle()}
     <span>Net <b id="be-tot-net">0.00</b></span>
     ${vatOn ? '<span title="Supplier-stated VAT total — pre-filled computed; edit to match the supplier invoice; clear to return to computed">GST <input id="be-tot-gst" class="bill-vat-stated" type="number" step="0.01" style="width:90px;text-align:right"></span>' : ''}
     <span>Gross <b id="be-tot-gross">0.00</b></span>
+    ${whtOn ? '<span title="Withheld and remitted to the tax authority separately — not paid to the vendor">WHT <b id="be-tot-wht" style="color:#b26a00">0.00</b></span><span>Payable to vendor <b id="be-tot-payable">0.00</b></span>' : ''}
   </div>
 
   <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -164,12 +166,13 @@ ${commonStyle()}
 const COMPANY = ${JSON.stringify(company)};
 const VAT_ON = ${vatOn ? 'true' : 'false'};
 const FX_ON = ${fxOn ? 'true' : 'false'};
+const WHT_ON = ${whtOn ? 'true' : 'false'};
 // Server-embedded: fbNavigate re-executes this script BEFORE pushState, so
 // window.location.search still holds the OLD page's query at parse time.
 const editId = ${JSON.stringify(editId)};
 
 const S = {
-  partners: [], accounts: [], vatCodes: [], centers: [], currencies: [],
+  partners: [], accounts: [], vatCodes: [], whtCodes: [], centers: [], currencies: [],
   billId: editId || null,
   selectedPartnerId: null,  // partner_id from dropdown pick (bills-partner-fk-spec §4.2)
   selectedApAccount: null,  // resolved ap_account — no visible field; §1 of bill-edit-header-cleanup-spec.md
@@ -194,7 +197,7 @@ const LINE_COLUMNS = [
   { id: 'amt',  label: 'Amount',              cls: 'bl-amt',    tier: 1 },
   { id: 'vat',  label: 'VAT code',            cls: 'bl-vat',    tier: 2, conditionalOn: () => VAT_ON },
   // Reserved for the #4 spec (withholding tax) — do not build ahead of it:
-  // { id: 'wht',  label: 'WHT code',           cls: 'bl-wht',    tier: 2, conditionalOn: () => WHT_ON },
+  { id: 'wht',  label: 'WHT code',           cls: 'bl-wht',    tier: 2, conditionalOn: () => WHT_ON },
   { id: 'cc',   label: 'Cost center',         cls: 'bl-cc',     tier: 2 },
   { id: 'acct', label: 'DR: Expense account', cls: 'bl-acct',   tier: 2 },
   { id: 'del',  label: '',                    cls: 'be-line-x', tier: 2 },
@@ -232,6 +235,7 @@ Promise.all([
   apiAction('partner.list', { partner_type: 'vendor' }).then(d => { S.partners = d || []; }),
   apiAction('coa.list').then(d => { S.accounts = d || []; }),
   ...(VAT_ON ? [apiAction('vat.codes.list').then(d => { S.vatCodes = d || []; })] : []),
+  ...(WHT_ON ? [apiAction('wht.codes.list').then(d => { S.whtCodes = d || []; })] : []),
   apiAction('center.list').then(d => { S.centers = d || []; }),
   fetch('/db/currencies.json').then(r => r.json()).then(d => { S.currencies = d || []; }),
 ]).then(async () => {
@@ -280,6 +284,7 @@ async function prefillFromDraft(id) {
     expense_account: l.account_code || '',
     amount: l.amount || '',
     vat_code: l.vat_code || '',
+    wht_code: l.wht_code || '',
   }));
   if (!(lines || []).length) addLine({});
   loadAttachments();
@@ -353,6 +358,18 @@ function attachVat(sel) {
     },
   });
 }
+function attachWht(input) {
+  FB.dropdown.attach(input, {
+    minWidth: 220,
+    source: q => {
+      q = (q || '').toLowerCase();
+      return [{ wht_code: '', description: 'none', rate: 0 }].concat(S.whtCodes)
+        .filter(w => (w.wht_code || '').toLowerCase().includes(q) || (w.description || '').toLowerCase().includes(q))
+        .map(w => ({ primary: w.wht_code || '—', secondary: w.description || '', data: w }));
+    },
+    onPick: (it, inp) => { inp.value = it.data.wht_code; inp.dispatchEvent(new Event('input', { bubbles: true })); },
+  });
+}
 function attachCenter(input, type) {
   FB.dropdown.attach(input, {
     minWidth: 180,
@@ -380,6 +397,7 @@ function renderCell(col, data) {
     case 'desc': inner = '<input class="bl-desc" value="' + FB.util.escAttr(data.description || '') + '" placeholder="line description">'; break;
     case 'amt':  inner = '<input class="bl-amt" type="number" step="0.01" min="0" placeholder="Amount" value="' + (data.amount !== '' && data.amount != null ? data.amount : '') + '">'; break;
     case 'vat':  inner = '<input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—">'; break;
+    case 'wht':  inner = '<input class="bl-wht" value="' + FB.util.escAttr(data.wht_code || '') + '" autocomplete="off" placeholder="—">'; break;
     case 'cc':   inner = '<input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off" placeholder="Cost center">'; break;
     case 'acct': inner = '<input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off" placeholder="Expense acct">'; break;
     case 'del':  inner = '<button class="be-line-x" type="button" title="delete line">×</button>'; break;
@@ -399,6 +417,7 @@ function addLine(data) {
   container.appendChild(row);
   attachAcct(row.querySelector('.bl-acct'));
   if (VAT_ON) attachVat(row.querySelector('.bl-vat'));
+  if (WHT_ON) attachWht(row.querySelector('.bl-wht'));
   attachCenter(row.querySelector('.bl-cc'), 'cost');
   row.querySelector('.be-line-x').onclick = () => { row.remove(); updateTotals(); refreshAddRow(); };
   row.querySelectorAll('input').forEach(i => i.addEventListener('input', () => { updateTotals(); refreshAddRow(); }));
@@ -433,6 +452,7 @@ function collectLines() {
     expense_account: row.querySelector('.bl-acct').value.trim(),
     amount: parseFloat(row.querySelector('.bl-amt').value) || 0,
     vat_code: (function(){ var s = row.querySelector('.bl-vat'); return s ? (s.value.trim() || '') : ''; })(),
+    wht_code: (function(){ var w = row.querySelector('.bl-wht'); return w ? (w.value.trim() || '') : ''; })(),
     cost_center: row.querySelector('.bl-cc').value.trim() || null,
   })).filter(l => l.description || l.amount || l.expense_account);
 }
@@ -476,7 +496,20 @@ function updateTotals() {
     el.style.color = stated !== null ? '#b26a00' : '';
   }
   document.getElementById('be-tot-net').textContent = net.toFixed(2);
-  document.getElementById('be-tot-gross').textContent = (net + gst).toFixed(2);
+  // WHT totals (display-only — no stated/override per §0.5)
+  var whtTotal = 0;
+  if (typeof WHT_ON !== 'undefined' && WHT_ON) {
+    lines.forEach(l => {
+      var w = S.whtCodes ? S.whtCodes.find(x => x.wht_code === l.wht_code) : null;
+      if (w) whtTotal += Math.round(l.amount * Number(w.rate) * 100) / 100;
+    });
+  }
+  var gross = net + gst;
+  var whtEl = document.getElementById('be-tot-wht');
+  var payEl = document.getElementById('be-tot-payable');
+  if (whtEl) whtEl.textContent = whtTotal.toFixed(2);
+  if (payEl) payEl.textContent = (gross - whtTotal).toFixed(2);
+  document.getElementById('be-tot-gross').textContent = gross.toFixed(2);
 }
 // Element absent when vat_registered=false — guard or the whole page script
 // dies here on non-VAT companies (keys, post wiring, attachments all lost).

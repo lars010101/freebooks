@@ -870,3 +870,30 @@ CREATE INDEX IF NOT EXISTS idx_bills_company_date ON bills(company_id, date);
 -- =============================================================================
 UPDATE settings SET value = 'true'  WHERE key = 'fx_tracking' AND value = 'auto';
 UPDATE settings SET value = 'false' WHERE key = 'fx_tracking' AND value = 'off';
+
+-- =============================================================================
+-- wht_codes (Withholding Tax)
+-- Mirrors vat_codes minus the input/output account split and is_reverse_charge
+-- flag — WHT has a single liability account (wht_account) and one rate. The
+-- optional report_box is preserved for jurisdictional filing boxes (e.g. IRAS
+-- form fields). bill_lines/bills/journal_entries gain wht_code + wht_amount
+-- columns so withholding can be tracked at the document and posting levels.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS wht_codes (
+  company_id     VARCHAR        NOT NULL,
+  wht_code       VARCHAR        NOT NULL,
+  description    VARCHAR        NOT NULL,
+  rate           DECIMAL(8,4)   NOT NULL,
+  wht_account    VARCHAR,
+  report_box     VARCHAR,
+  is_active      BOOLEAN        NOT NULL DEFAULT TRUE,
+  effective_from DATE           NOT NULL,
+  effective_to   DATE
+);
+
+ALTER TABLE bill_lines     ADD COLUMN IF NOT EXISTS wht_code VARCHAR;
+ALTER TABLE bills          ADD COLUMN IF NOT EXISTS wht_code VARCHAR;
+ALTER TABLE bills          ADD COLUMN IF NOT EXISTS wht_amount DECIMAL(18,4) DEFAULT 0;
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS wht_code VARCHAR;
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS wht_amount DECIMAL(18,4) DEFAULT 0;
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS wht_amount_home DECIMAL(18,4) DEFAULT 0;

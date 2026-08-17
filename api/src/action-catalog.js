@@ -393,6 +393,13 @@ const ACTIONS = {
     params: { accountCode: { type: 'string', required: true } },
   },
 
+  // ── WHT codes ────────────────────────────────────────────────────────────
+  'wht.codes.list':   { role: 'viewer', mutating: false, description: 'List withholding-tax codes.' },
+  'wht.codes.upsert': { role: 'owner', mutating: true, description: 'Insert or update one WHT code.',
+    params: { whtCode: { type: 'object', required: true } } },
+  'wht.codes.delete': { role: 'owner', mutating: true, description: 'Delete one WHT code.',
+    params: { whtCode: { type: 'string', required: true } } },
+
   // ── VAT codes ────────────────────────────────────────────────────────────
   'vat.codes.list': { role: 'viewer', mutating: false, description: 'List VAT/GST codes.' },
   'vat.codes.upsert': {

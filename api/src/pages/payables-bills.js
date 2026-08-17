@@ -1342,7 +1342,15 @@ var billsList = FB.list.create({
     { field: 'vendor_ref', type: 'text', filterType: 'text',
       display: function (v, r) {
         var id = String(r.bill_id || r._key || '');
-        return '<a href="/' + esc(COMPANY) + '/bill/' + esc(id) + '" class="ref-link" onclick="event.stopPropagation()">' + esc(v || '') + '</a>';
+        var qs = 'from=bills';
+        // fb-list-bills-return-context-spec §4: carry the active date range
+        // (both-or-neither, matching initBillDateRange's if (ps && pe) guard)
+        var df = document.getElementById('bill-date-from');
+        var dt = document.getElementById('bill-date-to');
+        if (df && df.value && dt && dt.value) {
+          qs += '&dateFrom=' + encodeURIComponent(df.value) + '&dateTo=' + encodeURIComponent(dt.value);
+        }
+        return '<a href="/' + esc(COMPANY) + '/bill/' + esc(id) + '?' + qs + '" class="ref-link" onclick="event.stopPropagation()">' + esc(v || '') + '</a>';
       } },
     { field: 'amount', type: 'number', ro: 'always', sortable: true, filterType: 'amount', align: 'right',
       display: function (v, r) {

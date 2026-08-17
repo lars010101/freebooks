@@ -383,6 +383,18 @@ window.fbKeyActions = {
       fbNavigate(url);
       return;
     }
+    // fb-list-bills-return-context-spec §5: return to Bills with the date
+    // range that was active when the user drilled in (both-or-neither).
+    if (from === 'bills') {
+      var dateFrom = params.get('dateFrom') || '';
+      var dateTo   = params.get('dateTo')   || '';
+      var qs = [];
+      if (dateFrom && dateTo) {
+        qs.push('dateFrom=' + encodeURIComponent(dateFrom), 'dateTo=' + encodeURIComponent(dateTo));
+      }
+      fbNavigate('/' + COMPANY + '/bills' + (qs.length ? '?' + qs.join('&') : ''));
+      return;
+    }
     if (typeof COMPANY !== 'undefined') fbNavigate('/' + COMPANY + '/payables');
   }
 };

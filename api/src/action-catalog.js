@@ -461,6 +461,10 @@ const ACTIONS = {
     description: 'Compute FX rate coverage for a date range (stored days vs provider publication days).',
     params: { startDate: { type: 'date', required: true }, endDate: { type: 'date', required: true } },
   },
+  'fx.exposed_currencies': {
+    role: 'viewer', mutating: false,
+    description: 'List currencies with non-zero balance-sheet exposure, for the FX Rates currency picker and scanner scoping.',
+  },
 
   // ── Notifications (fx-automation-spec §7) ────────────────────────────────
   'notifications.list': {

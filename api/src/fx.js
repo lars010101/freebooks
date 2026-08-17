@@ -69,6 +69,7 @@ async function loadProviderConfig(companyId) {
 async function handleFx(ctx, action) {
   switch (action) {
     case 'fx.fetch_rates':          return fetchRates(ctx);
+    case 'fx.exposed_currencies':   return exposedCurrenciesAction(ctx);
     case 'fx.revaluation_preview':  return revaluationPreview(ctx);
     case 'fx.revaluation_post':     return revaluationPost(ctx);
     case 'fx.rates.list':           return listRates(ctx);
@@ -287,6 +288,64 @@ async function getEffectiveRate(ctx) {
   return { rate, source: rows[0].source, rateDate: rows[0].date, direction };
 }
 
+// ── getExposedCurrencies (fx-tracked-currency-scoping-spec §4) ──────────────
+// Shared definition of "which currencies does this company have real exposure
+// to."  Non-zero balance-sheet exposure on monetary (Asset/Liability) accounts,
+// per IAS 21.  Netting happens per (currency, account_code) — NOT per currency
+// alone — so a EUR receivable at +1,000 and a EUR payable at −1,000 both
+// remain exposed (each needs its own closing rate).  Equity is excluded
+// (monetary items only).
+//
+// Called by:
+//   - revaluationPreview (below) — for its currency set
+//   - fx-scanner.js scanCompany() — to scope which rate rows to persist
+//   - fx.exposed_currencies action — for the frontend currency picker
+async function getExposedCurrencies(companyId, homeCurrency, jurisdiction, asOfDate) {
+  const fxConfig = fxRevaluationConfigFor(jurisdiction);
+  const monetaryTypes = (fxConfig && fxConfig.monetaryTypes) || ['Asset', 'Liability'];
+
+  const typeParams = {};
+  const inClause = monetaryTypes.map((t, i) => {
+    typeParams[`mt${i}`] = t;
+    return `@mt${i}`;
+  }).join(', ');
+
+  const rows = await query(
+    `SELECT DISTINCT currency FROM (
+       SELECT je.currency, je.account_code
+       FROM journal_entries je
+       JOIN accounts a ON je.company_id = a.company_id AND je.account_code = a.account_code
+       WHERE je.company_id = @companyId AND je.date <= @asOfDate
+         AND je.currency != @homeCurrency AND a.account_type IN (${inClause})
+       GROUP BY je.currency, je.account_code
+       HAVING SUM(je.debit - je.credit) != 0
+     ) exposed`,
+    { companyId, homeCurrency, asOfDate, ...typeParams }
+  );
+  return rows.map(r => r.currency);
+}
+
+// ── fx.exposed_currencies action (fx-tracked-currency-scoping-spec §6) ──────
+// Thin wrapper around getExposedCurrencies for the frontend currency picker.
+// Returns { currencies: ['EUR', 'USD', ...] } sorted A→Z.
+async function exposedCurrenciesAction(ctx) {
+  const { companyId } = ctx;
+
+  const companies = await query(
+    `SELECT currency, jurisdiction FROM companies WHERE company_id = @companyId LIMIT 1`,
+    { companyId }
+  );
+  if (companies.length === 0) throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
+
+  const homeCurrency = companies[0].currency;
+  const jurisdiction = companies[0].jurisdiction;
+  const today = new Date().toISOString().slice(0, 10);
+
+  const currencies = await getExposedCurrencies(companyId, homeCurrency, jurisdiction, today);
+  currencies.sort();
+  return { currencies };
+}
+
 async function revaluationPreview(ctx) {
   const { companyId, body } = ctx;
   const { revalDate } = body;
@@ -308,6 +367,15 @@ async function revaluationPreview(ctx) {
     return `@mt${i}`;
   });
   const inClause = typePlaceholders.join(', ');
+
+  // Currency set sourced from getExposedCurrencies (fx-tracked-currency-scoping-
+  // spec §4) — one shared definition, not a drifted duplicate.  The per-account
+  // balance/rate/gain-loss logic below stays inlined here since it needs the
+  // full (account_code, currency) breakdown, not just the currency list.
+  const exposedCurrencies = await getExposedCurrencies(companyId, homeCurrency, jurisdiction, revalDate);
+  if (exposedCurrencies.length === 0) {
+    return { revalDate, homeCurrency, adjustments: [], totalGainLoss: 0 };
+  }
 
   const balances = await query(
     `SELECT je.account_code, a.account_name, je.currency,
@@ -552,4 +620,4 @@ async function saveProvider(ctx) {
   return { saved: true, provider };
 }
 
-module.exports = { handleFx, getRate, listRates, saveRates, deleteRate, getEffectiveRate, loadProviderConfig, providerExists, listProviderIds, MANUAL_PROVIDER, backfillPeriod };
+module.exports = { handleFx, getRate, listRates, saveRates, deleteRate, getEffectiveRate, loadProviderConfig, providerExists, listProviderIds, MANUAL_PROVIDER, backfillPeriod, getExposedCurrencies };

@@ -260,6 +260,15 @@ CREATE TABLE IF NOT EXISTS fx_rates (
 CREATE INDEX IF NOT EXISTS idx_fx_rates_from_date ON fx_rates(from_currency, date);
 CREATE INDEX IF NOT EXISTS idx_fx_rates_to_date   ON fx_rates(to_currency, date);
 
+-- fx-tracked-currency-scoping-spec §8.8: getExposedCurrencies filters on
+-- company_id (equality) + date (range) + currency (equality) and joins on
+-- account_code.  This composite index covers the scanner (every 6h), the
+-- currency picker (interactive), and revaluation preview.  Confirm with
+-- EXPLAIN against real data — DuckDB's columnar engine doesn't necessarily
+-- behave like a traditional B-tree index would suggest.
+CREATE INDEX IF NOT EXISTS idx_journal_entries_company_currency_date
+  ON journal_entries(company_id, currency, date);
+
 -- =============================================================================
 -- centers (Cost/Profit Centers)
 -- =============================================================================

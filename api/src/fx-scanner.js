@@ -18,7 +18,7 @@
 const path = require('path');
 const fs = require('fs');
 const { query, exec, bulkInsert, withTransaction } = require('./db');
-const { loadProviderConfig, MANUAL_PROVIDER, providerExists } = require('./fx');
+const { loadProviderConfig, MANUAL_PROVIDER, providerExists, getExposedCurrencies } = require('./fx');
 const { computeCoverage, recomputeCoverage, fetchRange } = require('./fx-coverage');
 const { raiseNotification } = require('./notifications');
 
@@ -106,7 +106,30 @@ async function scanCompany(companyId, baseCurrency) {
     // 2. Insert the fetched rows directly (no redundant second fetch).
     // computeCoverage already downloaded the rate rows via fetchRange; reuse
     // them instead of re-downloading the same range.
-    if (coverage.rows && coverage.rows.length > 0) {
+    //
+    // fx-tracked-currency-scoping-spec §5: scope persisted rows to currencies
+    // with non-zero balance-sheet exposure.  Coverage/publication-day
+    // computation stays basket-wide (above); only the persisted rows narrow.
+    // A currency that drops out of exposure stops receiving NEW rows —
+    // historical rows already in fx_rates are never deleted.
+    let rowsToInsert = coverage.rows;
+    if (rowsToInsert && rowsToInsert.length > 0) {
+      // Get the company's jurisdiction for getExposedCurrencies
+      const coRows = await query(
+        `SELECT jurisdiction FROM companies WHERE company_id = @companyId LIMIT 1`,
+        { companyId }
+      );
+      const jurisdiction = coRows.length > 0 ? coRows[0].jurisdiction : null;
+      const today = new Date().toISOString().slice(0, 10);
+      const exposed = await getExposedCurrencies(companyId, baseCurrency, jurisdiction, today);
+      const exposedSet = new Set(exposed.map(c => c.toUpperCase()));
+      rowsToInsert = rowsToInsert.filter(r =>
+        exposedSet.has((r.from_currency || '').toUpperCase()) ||
+        exposedSet.has((r.to_currency || '').toUpperCase())
+      );
+    }
+
+    if (rowsToInsert && rowsToInsert.length > 0) {
       try {
         await withTransaction(async (tx) => {
           // Single DELETE for the entire period range — not per-date
@@ -116,11 +139,11 @@ async function scanCompany(companyId, baseCurrency) {
           );
           // Batch INSERT (500 rows at a time) to avoid massive SQL strings
           const BATCH = 500;
-          for (let i = 0; i < coverage.rows.length; i += BATCH) {
-            await tx.bulkInsert('fx_rates', coverage.rows.slice(i, i + BATCH));
+          for (let i = 0; i < rowsToInsert.length; i += BATCH) {
+            await tx.bulkInsert('fx_rates', rowsToInsert.slice(i, i + BATCH));
           }
         });
-        fetched += coverage.rows.length / 2;
+        fetched += rowsToInsert.length / 2;
       } catch (e) {
         console.error(`FX insert error for ${companyId} period ${period.period_name}:`, e.message);
       }

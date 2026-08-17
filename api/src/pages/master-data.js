@@ -613,23 +613,17 @@ function loadFxRates() {
   }
 }
 
-// Fetch distinct foreign currencies from partner default_currency values
-// (excluding the base currency — rates are base-anchored). Sorted A→Z.
+// Fetch foreign currencies with non-zero balance-sheet exposure via the
+// fx.exposed_currencies action (fx-tracked-currency-scoping-spec §6).
+// Exposure is derived from journal entries, not configured — the list
+// populates automatically when a bill or JV creates a foreign-currency
+// balance on a monetary (Asset/Liability) account.  Sorted A→Z by the server.
 function loadTrackedForeignCurrencies(cb) {
-  var baseCcy = (window._companyCurrency || '').toUpperCase();
   fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'partner.list', companyId: COMPANY }) })
+    body: JSON.stringify({ action: 'fx.exposed_currencies', companyId: COMPANY }) })
     .then(function (r) { return r.json(); })
     .then(function (res) {
-      var data = res.data || res || [];
-      if (!Array.isArray(data)) data = [];
-      var seen = {};
-      var currencies = [];
-      data.forEach(function (p) {
-        var c = (p.default_currency || '').toUpperCase();
-        if (c && c !== baseCcy && !seen[c]) { seen[c] = 1; currencies.push(c); }
-      });
-      currencies.sort();
+      var currencies = (res && Array.isArray(res.currencies)) ? res.currencies : [];
       cb(currencies);
     })
     .catch(function () { cb([]); });
@@ -642,7 +636,7 @@ function populateFxCurrencyPicker(currencies) {
   if (!sel) return;
   if (!currencies.length) {
     sel.innerHTML = '<option value="" disabled selected>No currencies configured</option>';
-    renderFxSetupState('No currencies configured for tracking. Add one on the Company attribute grid.');
+    renderFxSetupState('No foreign-currency balances yet. This list populates once a bill or journal entry creates one.');
     return;
   }
   var currentVal = sel.value;

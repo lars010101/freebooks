@@ -36,6 +36,7 @@
     if (icon) icon.textContent = t === 'dark' ? '🌙' : '☀';
     if (btn)  btn.title = t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   }
+  window.fbApplyTheme = fbApplyTheme;  // exposed for :light/:dark command-bar aliases
   window.fbToggleTheme = function() {
     var cur = document.documentElement.getAttribute('data-theme') || 'light';
     var next = cur === 'dark' ? 'light' : 'dark';

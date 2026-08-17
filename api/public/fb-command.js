@@ -117,6 +117,18 @@
       grammar: 'create <name> | revoke <name>',
       bang: false,
       parse: parseToken
+    },
+    'light': {
+      action: null,
+      grammar: '(switch to light theme)',
+      bang: false,
+      parse: function () { return { clientFn: 'fbApplyTheme', clientArgs: ['light'], commitMode: 'client' }; }
+    },
+    'dark': {
+      action: null,
+      grammar: '(switch to dark theme)',
+      bang: false,
+      parse: function () { return { clientFn: 'fbApplyTheme', clientArgs: ['dark'], commitMode: 'client' }; }
     }
   };
 

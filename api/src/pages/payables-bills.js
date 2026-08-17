@@ -305,15 +305,15 @@ function _loadCompanyDefaults() {
 
 // ========== DATE-RANGE INIT (default-period spec) ==========
 // Resolves the bill list date range before the first load:
-//   1. ?periodStart=/?periodEnd= URL params (return-context seam for future
+//   1. ?dateFrom=/?dateTo= URL params (return-context seam for future
 //      item 4 — drill-through from reports/bill detail back to this list)
 //   2. /api/:company/reports/default-period (latest posted-transaction period)
 //   3. No periods configured → setup-state spanning row (add row still visible;
 //      bill.list is NOT called)
 function initBillDateRange() {
   var params = new URLSearchParams(window.location.search);
-  var ps = params.get('periodStart');
-  var pe = params.get('periodEnd');
+  var ps = params.get('dateFrom');
+  var pe = params.get('dateTo');
   var fromEl = document.getElementById('bill-date-from');
   var toEl = document.getElementById('bill-date-to');
   if (ps && pe) {

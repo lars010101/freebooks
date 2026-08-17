@@ -689,8 +689,8 @@ function onFxForeignCurrencyChange() {
 // Resolve FX date range: URL params → default-period → setup-state fallback.
 function initFxDateRange() {
   var params = new URLSearchParams(window.location.search);
-  var ps = params.get('periodStart');
-  var pe = params.get('periodEnd');
+  var ps = params.get('dateFrom');
+  var pe = params.get('dateTo');
   var fromEl = document.getElementById('fx-date-from');
   var toEl = document.getElementById('fx-date-to');
   if (ps && pe) {

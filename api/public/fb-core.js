@@ -880,6 +880,16 @@
         else window.fbNavigate(url);
         return;
       }
+      if (parsed.commitMode === 'client' && parsed.clientFn) {
+        var fn = window[parsed.clientFn];
+        if (typeof fn === 'function') {
+          fn.apply(null, parsed.clientArgs || []);
+          localStorage.setItem('fb-theme', parsed.clientArgs[0]);
+          var stc = document.getElementById('tb-status-msg');
+          if (stc) { stc.textContent = 'theme: ' + parsed.clientArgs[0]; stc.className = 'tb-status-msg ok'; }
+        }
+        return;
+      }
       if (parsed.commitMode === 'direct' && parsed.action) {
         var idk = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random();
         var body = { action: parsed.action, companyId: co };

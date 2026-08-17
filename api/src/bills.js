@@ -276,6 +276,7 @@ async function createBill(ctx) {
            amount=@amount, amount_home=@amount_home, currency=@currency, fx_rate=@fx_rate,
            expense_account=@expense_account, ap_account=@ap_account,
            vat_code=@vat_code, vat_amount=@vat_amount, net_amount=@net_amount,
+           wht_code=@wht_code, wht_amount=@wht_amount,
            cost_center=@cost_center, profit_center=@profit_center,
            description=@description, draft_lines=NULL
          WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
@@ -295,6 +296,8 @@ async function createBill(ctx) {
           vat_code: billRow.vat_code,
           vat_amount: 0,
           net_amount: totalAmount,
+          wht_code: null,
+          wht_amount: 0,
           cost_center: billRow.cost_center,
           profit_center: billRow.profit_center,
           description: billRow.description,
@@ -302,7 +305,7 @@ async function createBill(ctx) {
         }
       );
     } else {
-      await bulkInsert('bills', [{ ...billRow, status: 'paid', amount_paid: totalAmount }]);
+      await bulkInsert('bills', [{ ...billRow, status: 'paid', amount_paid: totalAmount, wht_code: null, wht_amount: 0 }]);
     }
     await bulkInsert('bill_payments', [{
       company_id: companyId,
@@ -346,6 +349,7 @@ async function createBill(ctx) {
   // line tax, bill-level stated VAT, one tax journal line per code).
   const stdTaxByCode = {}; // standard code -> { account, computed, net }
   const rcTaxByCode = {};  // reverse-charge code -> { inputAccount, outputAccount, computed, net }
+  const whtByCode = {};    // wht code -> { account, computed, net }
   for (const expLine of expenseLines) {
     const lineAmount = Number(expLine.amount || 0);
     const lineNet = lineAmount; // tax-exclusive — the user entered the net amount
@@ -369,6 +373,21 @@ async function createBill(ctx) {
         }
       }
     }
+    if (expLine.wht_code) {
+      const whtRows = await query(
+        `SELECT rate, wht_account FROM wht_codes WHERE company_id = @companyId AND wht_code = @whtCode AND is_active = true LIMIT 1`,
+        { companyId, whtCode: expLine.wht_code }
+      );
+      if (whtRows.length > 0) {
+        const wc = whtRows[0];
+        const expectedWht = Math.round(lineNet * Number(wc.rate) * 100) / 100;
+        const b = whtByCode[expLine.wht_code] || (whtByCode[expLine.wht_code] = { account: wc.wht_account, computed: 0, net: 0 });
+        b.computed += expectedWht;
+        b.net += lineNet;
+      } else {
+        validation.warnings.push(`WHT code ${expLine.wht_code} not found or inactive — line posted without withholding`);
+      }
+    }
     const lineDesc = expLine.description ? `${desc} / ${expLine.description}` : desc;
     lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: expLine.expense_account, debit: lineNet, credit: 0, currency, fx_rate: fxRate, debit_home: lineNet * fxRate, credit_home: 0, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: lineNet, net_amount_home: lineNet * fxRate, description: lineDesc, reference: apRef, source: 'manual', cost_center: expLine.cost_center || bill.cost_center || null, profit_center: expLine.profit_center || bill.profit_center || null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
   }
@@ -388,6 +407,7 @@ async function createBill(ctx) {
       description: expLine.description || null,
       cost_center: expLine.cost_center || bill.cost_center || null,
       profit_center: expLine.profit_center || bill.profit_center || null,
+      wht_code: expLine.wht_code || null,
       created_at: now,
     };
   });
@@ -441,8 +461,22 @@ async function createBill(ctx) {
   const totalVatAmount = totalStdVat + totalRcVat;
   const totalDebit = totalNetAmount + totalStdVat;
 
-  // Single CR AP line for total (net + VAT)
-  lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: bill.ap_account, debit: 0, credit: totalDebit, currency, fx_rate: fxRate, debit_home: 0, credit_home: totalDebit * fxRate, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, description: `AP: ${desc}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+  // WHT credit lines: one CR per WHT code (mirrors the grouped VAT pattern).
+  // The AP credit below is reduced by the total withheld so the journal still
+  // balances: net + std VAT = DR expense/std-VAT = CR AP + CR WHT payable.
+  let totalWht = 0;
+  for (const code of Object.keys(whtByCode)) {
+    const b = whtByCode[code];
+    const amt = Math.round(b.computed * 100) / 100;
+    if (amt === 0) continue;
+    totalWht += amt;
+    lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: b.account, debit: 0, credit: amt, currency, fx_rate: fxRate, debit_home: 0, credit_home: amt * fxRate, wht_code: code, wht_amount: amt, wht_amount_home: amt * fxRate, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, description: `WHT Payable: ${bill.partner_name}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
+  }
+
+  const totalAp = totalDebit - totalWht;
+
+  // Single CR AP line for total (net + VAT − WHT)
+  lines.push({ company_id: companyId, entry_id: uuid(), batch_id: batchId, date: bill.date, account_code: bill.ap_account, debit: 0, credit: totalAp, currency, fx_rate: fxRate, debit_home: 0, credit_home: totalAp * fxRate, vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0, description: `AP: ${desc}`, reference: apRef, source: 'manual', cost_center: null, profit_center: null, reverses: null, reversed_by: null, bill_id: billId, created_by: userEmail, created_at: now });
 
   await bulkInsert('journal_entries', lines);
   await bulkInsert('bill_lines', billLineRows);  // P2-3
@@ -460,6 +494,7 @@ async function createBill(ctx) {
          amount=@amount, amount_home=@amount_home, currency=@currency, fx_rate=@fx_rate,
          expense_account=@expense_account, ap_account=@ap_account,
          vat_code=@vat_code, vat_amount=@vat_amount, net_amount=@net_amount,
+         wht_code=@wht_code, wht_amount=@wht_amount,
          cost_center=@cost_center, profit_center=@profit_center,
          description=@description, draft_lines=NULL, amount_paid=0
        WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
@@ -470,8 +505,8 @@ async function createBill(ctx) {
         vendor_ref: billRow.vendor_ref,
         date: billRow.date,
         due_date: billRow.due_date,
-        amount: totalDebit,
-        amount_home: totalDebit * fxRate,
+        amount: totalAp,
+        amount_home: totalAp * fxRate,
         currency: billRow.currency,
         fx_rate: billRow.fx_rate,
         expense_account: billRow.expense_account,
@@ -479,13 +514,15 @@ async function createBill(ctx) {
         vat_code: billRow.vat_code,
         vat_amount: totalVatAmount,
         net_amount: totalNetAmount,
+        wht_code: expenseLines[0].wht_code || null,
+        wht_amount: totalWht,
         cost_center: billRow.cost_center,
         profit_center: billRow.profit_center,
         description: billRow.description,
       }
     );
   } else {
-    await bulkInsert('bills', [{ ...billRow, amount: totalDebit, amount_home: totalDebit * fxRate, vat_amount: totalVatAmount, net_amount: totalNetAmount, status: 'posted', amount_paid: 0 }]);
+    await bulkInsert('bills', [{ ...billRow, amount: totalAp, amount_home: totalAp * fxRate, vat_amount: totalVatAmount, net_amount: totalNetAmount, wht_code: expenseLines[0].wht_code || null, wht_amount: totalWht, status: 'posted', amount_paid: 0 }]);
   }
 
   // A2 (§3.2): emit bill.posted on the draft→posted transition. The
@@ -495,7 +532,7 @@ async function createBill(ctx) {
   await emitEvent(ctx, 'bill.posted', 'bill', billId, {
     partner_name: bill.partner_name,
     date: bill.date,
-    amount: totalDebit,
+    amount: totalAp,
     currency,
     status: 'posted',
     batchId,
@@ -1071,10 +1108,28 @@ async function saveDraftBill(ctx) {
       );
       for (const r of rateRows) rateCache[r.vat_code] = { rate: Number(r.rate), rc: !!r.is_reverse_charge };
     }
-    let netTotal = 0, stdComputed = 0, legacyStatedSum = 0, sawLegacyOverride = false;
+    const seenWhtCodes = Array.from(new Set(
+      bill.lines.map(l => (l && l.wht_code ? String(l.wht_code).trim() : '')).filter(Boolean)
+    ));
+    const whtRateCache = {};
+    if (seenWhtCodes.length) {
+      const wPlaceholders = seenWhtCodes.map((_, i) => `@wc${i}`).join(',');
+      const wParams = { companyId };
+      seenWhtCodes.forEach((c, i) => { wParams[`wc${i}`] = c; });
+      const whtRateRows = await query(
+        `SELECT wht_code, rate FROM wht_codes WHERE company_id = @companyId AND wht_code IN (${wPlaceholders}) AND is_active = true`,
+        wParams
+      );
+      for (const r of whtRateRows) whtRateCache[r.wht_code] = Number(r.rate);
+    }
+    let netTotal = 0, stdComputed = 0, legacyStatedSum = 0, sawLegacyOverride = false, whtTotal = 0;
     for (const l of bill.lines) {
       const amt = Number(l.amount || 0);
       netTotal += amt;
+      const wcode = (l && l.wht_code ? String(l.wht_code).trim() : '');
+      if (wcode && whtRateCache[wcode] != null) {
+        whtTotal += Math.round(amt * whtRateCache[wcode] * 100) / 100;
+      }
       const code = (l && l.vat_code ? String(l.vat_code).trim() : '');
       const info = code ? rateCache[code] : undefined;
       const computed = info ? Math.round(amt * info.rate * 100) / 100 : 0;
@@ -1098,7 +1153,7 @@ async function saveDraftBill(ctx) {
     }
     // Stated VAT only counts toward gross when taxable (non-RC) lines exist —
     // mirrors createBill, which ignores stated otherwise (with a warning).
-    totalAmount = netTotal + ((statedForDraft !== null && stdComputed > 0) ? statedForDraft : stdComputed);
+    totalAmount = netTotal + ((statedForDraft !== null && stdComputed > 0) ? statedForDraft : stdComputed) - whtTotal;
   } else {
     totalAmount = parseFloat(bill.amount) || 0;
   }
@@ -1202,6 +1257,7 @@ async function postDraftBill(ctx) {
           description: l.description || '',
           cost_center: l.cost_center || null,
           profit_center: l.profit_center || null,
+          wht_code: l.wht_code || null,
         };
       })
     : [

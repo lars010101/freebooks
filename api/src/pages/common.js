@@ -25,7 +25,7 @@ function makeQuery() {
 //     fields to base currency and hides FX revaluation entry points);
 //   baseCurrency  — companies.currency (the lock target when fxTracking='false').
 async function getRelevanceFlags(companyId) {
-  if (!companyId) return { vatRegistered: true, fxTracking: 'false', baseCurrency: '' };
+  if (!companyId) return { vatRegistered: true, fxTracking: 'false', whtTracking: 'false', baseCurrency: '' };
   try {
     const { query } = require('../db');
     const [co] = await query(
@@ -43,10 +43,11 @@ async function getRelevanceFlags(companyId) {
     return {
       vatRegistered: !co || co.vat_registered !== false && co.vat_registered !== 0,
       fxTracking: settings.fx_tracking === 'true' ? 'true' : 'false',
+      whtTracking: settings.wht_tracking === 'true' ? 'true' : 'false',
       baseCurrency: (co && co.base_currency) || ''
     };
   } catch (e) {
-    return { vatRegistered: true, fxTracking: 'false', baseCurrency: '' };
+    return { vatRegistered: true, fxTracking: 'false', whtTracking: 'false', baseCurrency: '' };
   }
 }
 
@@ -58,6 +59,7 @@ function flagsBootstrapJson(flags) {
   return JSON.stringify({
     vatRegistered: f.vatRegistered !== false,
     fxTracking: f.fxTracking === 'false' ? 'false' : 'true',
+    whtTracking: f.whtTracking === 'true' ? 'true' : 'false',
     baseCurrency: f.baseCurrency || ''
   });
 }

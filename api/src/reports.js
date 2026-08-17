@@ -179,6 +179,18 @@ async function handleVatCodes(req, res) {
   }
 }
 
+// ── Route: GET /api/:company/wht-codes ───────────────────────────────────────
+async function handleWhtCodes(req, res) {
+  const { company } = req.params;
+  const q = makeQuery();
+  try {
+    const rows = await q(`SELECT * FROM wht_codes WHERE company_id = ? ORDER BY wht_code`, [company]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 // ── Action handler for report.* actions ──────────────────────────────────────
 function handleReports(ctx, action) {
   switch (action) {
@@ -235,6 +247,7 @@ function mountReportRoutes(app) {
   app.get('/api/:company/periods', handlePeriods);
   app.get('/api/:company/accounts', handleAccounts);
   app.get('/api/:company/vat-codes', handleVatCodes);
+  app.get('/api/:company/wht-codes', handleWhtCodes);
   // SRU (Skatteverket INK2) export — blanketter.sru + INFO.SRU.
   app.get('/api/:company/sru/ink2', handleSruInk2);
   app.get('/api/:company/sru/info', handleSruInfo);

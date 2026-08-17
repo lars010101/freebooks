@@ -166,6 +166,31 @@ async function validateBill(companyId, bill) {
   if (expenseAcct && !foundCodes.has(expenseAcct)) errors.push(`Expense account ${expenseAcct} does not exist in COA`);
   if (apAcct && !foundCodes.has(apAcct)) errors.push(`AP account ${apAcct} does not exist in COA`);
 
+  // WHT: every line's wht_code must exist, be active, and have a payable
+  // account configured — otherwise posting either silently under-books a real
+  // tax liability or crashes on the NOT NULL constraint.
+  const whtCodesUsed = Array.from(new Set(
+    (Array.isArray(bill.lines) ? bill.lines : [])
+      .map(l => (l && l.wht_code ? String(l.wht_code).trim() : ''))
+      .filter(Boolean)
+  ));
+  if (whtCodesUsed.length) {
+    const wPlaceholders = whtCodesUsed.map((_, i) => '@wc' + i).join(', ');
+    const wParams = { companyId };
+    whtCodesUsed.forEach((c, i) => { wParams['wc' + i] = c; });
+    const whtRows = await query(
+      `SELECT wht_code, wht_account, is_active FROM wht_codes WHERE company_id = @companyId AND wht_code IN (${wPlaceholders})`,
+      wParams
+    );
+    const whtFound = {};
+    whtRows.forEach((r) => { whtFound[r.wht_code] = r; });
+    whtCodesUsed.forEach((code) => {
+      const row = whtFound[code];
+      if (!row || row.is_active === false) errors.push(`WHT code ${code} does not exist or is inactive`);
+      else if (!row.wht_account) errors.push(`WHT code ${code} has no payable account configured — set it in Settings → WHT Codes`);
+    });
+  }
+
   if (bill.due_date && bill.date && new Date(bill.due_date) < new Date(bill.date)) {
     warnings.push('Due date is before bill date');
   }

@@ -32,7 +32,7 @@ async function initSchema(ctx) {
     `SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'`
   );
   const names = tables.map((t) => t.table_name);
-  const expected = ['companies','accounts','journal_entries','vat_codes','bank_mappings','settings','periods','user_permissions','bills','bill_payments','fx_rates','centers','audit_log'];
+  const expected = ['companies','accounts','journal_entries','vat_codes','wht_codes','bank_mappings','settings','periods','user_permissions','bills','bill_payments','fx_rates','centers','audit_log'];
   const present = expected.filter((t) => names.includes(t));
   const missing = expected.filter((t) => !names.includes(t));
 
@@ -155,11 +155,34 @@ async function addCompany(ctx) {
     vatCodesInserted = vatCodes.length;
   }
 
+  let resolvedWhtCodes = null;
+  const whtPath = path.join(JURISDICTIONS_DIR, company.jurisdiction || 'SE', 'wht_codes.json');
+  if (fs.existsSync(whtPath)) {
+    resolvedWhtCodes = JSON.parse(fs.readFileSync(whtPath, 'utf8'));
+  }
+  let whtCodesInserted = 0;
+  if (resolvedWhtCodes && Array.isArray(resolvedWhtCodes) && resolvedWhtCodes.length > 0) {
+    const whtCodes = resolvedWhtCodes.map((w) => ({
+      company_id: company.company_id,
+      wht_code: w.wht_code,
+      description: w.description,
+      rate: w.rate,
+      wht_account: w.wht_account || null,
+      report_box: w.report_box || null,
+      is_active: true,
+      effective_from: company.fy_start,
+      effective_to: null,
+    }));
+    await bulkInsert('wht_codes', whtCodes);
+    whtCodesInserted = whtCodes.length;
+  }
+
   await bulkInsert('settings', [
     { company_id: company.company_id, key: 'fx_auto_fetch', value: 'false', updated_at: now },
     // fx-automation-spec §1: per-company FX relevance flag — 'true' (default)
     // tracks FX rates; 'false' = domestic-only company (simplified UI, no scanning).
     { company_id: company.company_id, key: 'fx_tracking', value: 'true', updated_at: now },
+    { company_id: company.company_id, key: 'wht_tracking', value: 'false', updated_at: now },
     // fx-automation-spec rev. 3: provider is per-company; 'manual' (default) =
     // no automatic download until the company explicitly chooses a provider.
     { company_id: company.company_id, key: 'fx_provider', value: 'manual', updated_at: now },
@@ -188,7 +211,7 @@ async function addCompany(ctx) {
     active: true,
   })));
 
-  return { created: true, companyId: company.company_id, accountsInserted, vatCodesInserted, journalsInserted: DEFAULT_JOURNALS.length };
+  return { created: true, companyId: company.company_id, accountsInserted, vatCodesInserted, whtCodesInserted, journalsInserted: DEFAULT_JOURNALS.length };
 }
 
 module.exports = { handleSetup };

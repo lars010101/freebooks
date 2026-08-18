@@ -20,6 +20,7 @@ const { auditLog } = require('./audit');
 const { emitEvent } = require('./events');
 const { normalizeDescription } = require('./mapping-utils');
 const { deriveProfitCenter, isDerivationEnabled } = require('./centers');
+const { getRate } = require('./fx');
 
 async function handleJournal(ctx, action) {
   switch (action) {
@@ -72,7 +73,24 @@ async function enrichAndValidate(companyId, lines) {
   const enrichedLines = [];
   for (const line of lines) {
     const currency = line.currency || company.currency;
-    const fxRate = currency === company.currency ? 1.0 : (line.fx_rate || 0);
+    // §1.4: explicit fx_rate if >0, else getRate fallback, else throw.
+    // Mirrors bills.js:144-157 so foreign-currency manual entries never
+    // silently default to fx_rate=0 (zeroing debit_home/credit_home).
+    let fxRate = 1.0;
+    if (currency !== company.currency) {
+      if (line.fx_rate && Number(line.fx_rate) > 0) {
+        fxRate = Number(line.fx_rate);
+      } else {
+        const resolved = await getRate(currency, company.currency, String(line.date).substring(0, 10));
+        if (resolved === null) {
+          throw Object.assign(
+            new Error(`No FX rate found for ${currency} \u2192 ${company.currency} on ${line.date}. Add the rate in Settings \u2192 Exchange Rates.`),
+            { code: 'INVALID_INPUT' }
+          );
+        }
+        fxRate = resolved;
+      }
+    }
     const debit = line.debit || 0;
     const credit = line.credit || 0;
 
@@ -819,7 +837,23 @@ async function importEntries(ctx) {
 
     for (const line of lines) {
       const currency = line.currency || company.currency;
-      const fxRate = currency === company.currency ? 1.0 : (line.fx_rate || 1.0);
+      // §1.4: explicit fx_rate if >0, else getRate fallback, else throw.
+      // (Same pattern as enrichAndValidate above and bills.js:144-157.)
+      let fxRate = 1.0;
+      if (currency !== company.currency) {
+        if (line.fx_rate && Number(line.fx_rate) > 0) {
+          fxRate = Number(line.fx_rate);
+        } else {
+          const resolved = await getRate(currency, company.currency, String(line.date).substring(0, 10));
+          if (resolved === null) {
+            throw Object.assign(
+              new Error(`No FX rate found for ${currency} \u2192 ${company.currency} on ${line.date}. Add the rate in Settings \u2192 Exchange Rates.`),
+              { code: 'INVALID_INPUT' }
+            );
+          }
+          fxRate = resolved;
+        }
+      }
       const debit = line.debit || 0;
       const credit = line.credit || 0;
 

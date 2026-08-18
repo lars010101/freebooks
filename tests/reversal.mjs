@@ -158,7 +158,7 @@ async function run(chromium) {
       hasHdr: !!hdr,
       hdrAboveEdits: firstOrigIdx >= 0 && firstEditIdx > firstOrigIdx,
       origHasInputs,
-      firstOrigDebit: origRows[0] ? origRows[0].children[2].textContent.trim() : null,
+      firstOrigDebit: origRows[0] ? origRows[0].children[1].textContent.trim() : null,
     };
   });
   ok('A1: original read-only rows render (≥2)', a1.origCount >= 2, JSON.stringify(a1));
@@ -170,7 +170,9 @@ async function run(chromium) {
   const a1b = await page.evaluate(() => {
     const editRows = Array.from(document.querySelectorAll('#lines-body tr:not(.jv-orig-line):not(.jv-orig-hdr)'));
     return editRows.map(tr => ({
-      code: tr.querySelector('.acct-input') && tr.querySelector('.acct-input').value,
+      // §3. account input now holds "CODE — Name" combined; parse the code
+      code: tr.querySelector('.acct-input') && (tr.querySelector('.acct-input').dataset.code
+        || tr.querySelector('.acct-input').value.trim().split(' \u2014 ')[0]),
       dr: tr.querySelector('.debit-input') && tr.querySelector('.debit-input').value,
       cr: tr.querySelector('.credit-input') && tr.querySelector('.credit-input').value,
     }));

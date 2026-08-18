@@ -13,6 +13,8 @@ async function handleJournalVoucherPage(req, res) {
 
 function buildJournalVoucherPage(company, flags) {
   const vatOn = !flags || flags.vatRegistered !== false;
+  const fxOn = !!(flags && flags.fxTracking === 'true');
+  const baseCcy = (flags && flags.baseCurrency) || '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -82,13 +84,17 @@ ${commonStyle()}
     <label>Journal <select id="entry-journal" style="width:180px;height:32px;padding:4px 6px"><option value="">— loading —</option></select></label>
     <label>Doc Nr <input type="text" id="jv-reference" readonly style="width:80px;border:1px solid #ddd;border-radius:3px;padding:4px 6px;font-size:10pt"></label>
     <label>Description <input type="text" id="entry-desc" placeholder="e.g. Salary payment" style="width:400px"></label>
+    ${fxOn
+      ? '<label>CCY <input type="text" id="entry-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase;width:60px" value="' + baseCcy + '"></label>'
+      : '<input type="hidden" id="entry-ccy" value="' + baseCcy + '">'}
+    <label class="fx-rate-field" style="display:none">FX Rate <input type="number" id="entry-fx-rate" step="0.000001" style="width:90px"></label>
   </div>
 
   <table class="jv-table">
     <thead>
       <tr>
-        <th>Code</th><th>Account Name</th><th class="num">Debit</th><th class="num">Credit</th>
-        <th>Line Description</th>${vatOn ? '<th>Tax Code</th><th class="num">VAT</th>' : ''}<th></th>
+        <th>Account</th><th class="num">Debit</th><th class="num">Credit</th>
+        <th>Line Description</th>${vatOn ? '<th>Tax Code</th><th class="num">VAT</th>' : ''}<th>Cost Center</th><th></th>
       </tr>
     </thead>
     <tbody id="lines-body"></tbody>
@@ -134,8 +140,12 @@ ${commonStyle()}
 <script>
   var COMPANY = '${company}';
   var VAT_ON = ${vatOn ? 'true' : 'false'};
+  var BASE_CCY = '${baseCcy}';
+  var FX_ON = ${fxOn ? 'true' : 'false'};
   var accountsMap = {};
   var vatCodes = [];
+  var centers = [];
+  var currencies = [];
   var currentBatchId = null;
   var pendingJvAttachments = [];
   // View mode (?batch=<id>): a posted batch loaded read-only. FROM_REPORT
@@ -159,6 +169,40 @@ ${commonStyle()}
   function setReference(ref) {
     var el = document.getElementById('jv-reference');
     if (el) el.value = ref || '';
+  }
+
+  // ── §1.2 FX Rate behavior ───────────────────────────────────────────────
+  // Resolve the FX rate for the currently-selected header currency against
+  // BASE_CCY. Hides + clears the field when ccy is blank or the base; shows
+  // it and (if empty) pre-fills via fx.rates.get for a foreign currency.
+  // Mirrors bill-edit.js's be-ccy resolution pattern.
+  function resolveFxRate() {
+    var ccyEl = document.getElementById('entry-ccy');
+    if (!ccyEl) return;
+    var ccy = ccyEl.value.trim().toUpperCase();
+    var frf = document.querySelector('.fx-rate-field');
+    var rateEl = document.getElementById('entry-fx-rate');
+    if (!ccy || ccy === BASE_CCY) {
+      if (frf) frf.style.display = 'none';
+      if (rateEl) rateEl.value = '';
+      return;
+    }
+    if (frf) frf.style.display = '';
+    if (rateEl && !rateEl.value) {
+      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          action: 'fx.rates.get', companyId: COMPANY,
+          body: { fromCurrency: ccy, toCurrency: BASE_CCY, date: document.getElementById('entry-date').value }
+        }) })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          // fx.rates.get returns { rate } (or null when no rate for date)
+          var r = res && (res.data && res.data.rate != null ? res.data.rate : res.rate);
+          if (r != null && rateEl && !rateEl.value) rateEl.value = r;
+          // If null, leave field empty — postEntry validation will block post
+        })
+        .catch(function () { /* leave empty — validation will block */ });
+    }
   }
 
   fetch('/api/' + COMPANY + '/accounts')
@@ -199,6 +243,16 @@ ${commonStyle()}
       document.getElementById('entry-journal').innerHTML = '<option value="">— unavailable —</option>';
     });
 
+  // §2: fetch cost centers once on page load (centers array is consumed by
+  // attachCenterDd's source function). Re-attach to any .cc-input already in
+  // the DOM (initial blank lines + reversal-prefilled rows).
+  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'center.list', companyId: COMPANY }) })
+    .then(r => r.json())
+    .then(res => { centers = (res.data || res) || []; })
+    .then(() => { document.querySelectorAll('.cc-input').forEach(attachCenterDd); })
+    .catch(() => { /* centers stays empty — autocomplete degrades gracefully */ });
+
   function populateTaxSelect(sel) {
     var current = sel.value;
     sel.innerHTML = '<option value="">\u2014 none \u2014</option>'
@@ -211,13 +265,8 @@ ${commonStyle()}
   }
 
   function pickAccount(acct, input) {
-    var tr = input.closest('tr');
-    var codeInput = tr.querySelector('.acct-input');
-    var nameInput = tr.querySelector('.acct-name-input');
-    codeInput.value = acct.code;
-    nameInput.value = acct.name;
-    codeInput.style.color = '';
-    nameInput.style.color = '#555';
+    input.value = acct.code + ' — ' + acct.name;
+    input.dataset.code = acct.code;
   }
 
   function attachAcctDd(input) {
@@ -235,33 +284,59 @@ ${commonStyle()}
       onPick: function (it, inp) { pickAccount(it.data, inp); }
     });
   }
+
+  // ── §2.1 Cost Center autocomplete (FB.dropdown) ────────────────────────────
+  // Filtered on center_type === 'Cost' (capitalized — centers.js's
+  // deriveProfitCenter checks !== 'Cost' on stored/validated values; matching
+  // lowercase 'cost' as bill-edit.js does would match nothing against real
+  // data — see spec §2.1 divergence note).
+  function attachCenterDd(input) {
+    if (!window.FB || !FB.dropdown) return;
+    FB.dropdown.attach(input, {
+      minWidth: 180,
+      source: function (q) {
+        q = (q || '').toLowerCase();
+        return centers.filter(function (c) { return c.center_type === 'Cost'; })
+          .filter(function (c) {
+            return (c.center_id || '').toLowerCase().indexOf(q) >= 0
+              || (c.name || '').toLowerCase().indexOf(q) >= 0;
+          })
+          .map(function (c) { return { primary: c.center_id, secondary: c.name, data: c }; });
+      },
+      onPick: function (it, inp) { inp.value = it.primary; }
+    });
+  }
   // ──────────────────────────────────────────────────────────────────────────
 
   function addLine() {
     var tr = document.createElement('tr');
     tr.innerHTML =
-      '<td><input type="text" class="acct-input" style="width:90px" placeholder="101414"></td>'
-      +'<td><input type="text" class="acct-name-input" style="width:160px;color:#555;border:1px solid #ddd;border-radius:3px;padding:3px 6px;font-size:10pt" placeholder="search by name"></td>'
+      '<td><input type="text" class="acct-input" style="width:200px" placeholder="Code or name…"></td>'
       +'<td><input type="number" class="debit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="number" class="credit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="text" class="desc-input" style="width:160px" placeholder="optional"></td>'
       +(VAT_ON ? '<td><select class="tax-select" style="width:120px" onchange="updateTotals()"><option value="">\u2014 none \u2014</option></select></td>' : '')
       +(VAT_ON ? '<td class="vat-display" style="width:70px;text-align:right;color:#555">0.00</td>' : '')
+      +'<td><input type="text" class="cc-input" style="width:120px" placeholder="Cost center"></td>'
       +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove(); updateTotals()">&times;</button></td>';
     document.getElementById('lines-body').appendChild(tr);
     if (VAT_ON) populateTaxSelect(tr.querySelector('.tax-select'));
     var codeIn = tr.querySelector('.acct-input');
     attachAcctDd(codeIn);
-    attachAcctDd(tr.querySelector('.acct-name-input'));
-    // Exact code typed → sync the name field (preserved from onCodeInput)
-    codeIn.addEventListener('input', function () {
-      var nameInput = tr.querySelector('.acct-name-input');
-      if (accountsMap[codeIn.value.trim()]) {
-        nameInput.value = accountsMap[codeIn.value.trim()];
-        nameInput.style.color = '#555';
-      } else {
-        nameInput.value = '';
+    attachCenterDd(tr.querySelector('.cc-input'));
+    // §3.2: exact code typed directly (no dropdown pick) → resolve to
+    // "CODE — Name" display form on blur. If the dropdown already set
+    // dataset.code, leave as-is. Unknown text is left untouched —
+    // postEntry's "Unknown account(s)" validation will catch it.
+    codeIn.addEventListener('blur', function () {
+      var v = codeIn.value.trim();
+      if (!v) { delete codeIn.dataset.code; return; }
+      if (accountsMap[v]) {
+        pickAccount({ code: v, name: accountsMap[v] }, codeIn);
+      } else if (codeIn.dataset.code) {
+        // Already resolved via dropdown — leave as-is
       }
+      // else: unknown — postEntry validation will catch it
     });
     return tr;
   }
@@ -369,16 +444,29 @@ ${commonStyle()}
     if (!date) { showStatus('Date is required', true); return; }
     if (!journalId) { showStatus('Select a journal', true); return; }
 
+    // §1.3: currency + fx_rate are header-level — read once, stamp per line.
+    var currency = document.getElementById('entry-ccy') ? document.getElementById('entry-ccy').value.trim().toUpperCase() : BASE_CCY;
+    var fxRate   = document.getElementById('entry-fx-rate') ? document.getElementById('entry-fx-rate').value : null;
+    // §5 validation: foreign currency with no rate → block post
+    if (FX_ON && currency && currency !== BASE_CCY && !fxRate) {
+      showStatus('Exchange rate required for ' + currency, true);
+      return;
+    }
+
     var lines = Array.from(document.querySelectorAll('#lines-body tr'))
       // A1: skip read-only original-entry rows (no inputs) before mapping
       .filter(function(tr) { return !tr.classList.contains('jv-orig-line') && !tr.classList.contains('jv-orig-hdr'); })
       .map(tr => ({
       date,
-      account_code:  tr.querySelector('.acct-input').value.trim(),
+      account_code:  tr.querySelector('.acct-input').dataset.code
+        || tr.querySelector('.acct-input').value.trim().split(' \u2014 ')[0],
       debit:         parseFloat(tr.querySelector('.debit-input').value  || 0),
       credit:        parseFloat(tr.querySelector('.credit-input').value || 0),
       description:   tr.querySelector('.desc-input').value.trim() || desc || null,
       vat_code:      (function(){ var s = tr.querySelector('.tax-select'); return s ? (s.value || null) : null; })(),
+      cost_center:   tr.querySelector('.cc-input') ? (tr.querySelector('.cc-input').value.trim() || null) : null,
+      currency,
+      fx_rate:       fxRate ? Number(fxRate) : undefined,
     })).filter(l => l.account_code && (l.debit > 0 || l.credit > 0));
     // Validate codes
     var badCodes = lines.filter(l => !accountsMap[l.account_code]).map(l => l.account_code);
@@ -418,6 +506,22 @@ ${commonStyle()}
   }
 
   document.getElementById('entry-date').value = new Date().toISOString().slice(0, 10);
+  // §1.2: Currency blur/change and Date change re-resolve the FX rate field.
+  var ccyField = document.getElementById('entry-ccy');
+  if (ccyField) {
+    ccyField.addEventListener('blur', resolveFxRate);
+    ccyField.addEventListener('change', resolveFxRate);
+  }
+  var dateField = document.getElementById('entry-date');
+  if (dateField) {
+    dateField.addEventListener('change', function () {
+      // Only re-resolve if a foreign currency is already set
+      var c = document.getElementById('entry-ccy');
+      if (c && c.value.trim().toUpperCase() && c.value.trim().toUpperCase() !== BASE_CCY) {
+        resolveFxRate();
+      }
+    });
+  }
   if (!VIEW_BATCH) { addLine(); addLine(); }
   updateTotals();
 
@@ -484,6 +588,12 @@ ${commonStyle()}
     var descEl = document.getElementById('entry-desc');
     descEl.value = viewBatchDesc;
     descEl.readOnly = true;
+    // §3.5: show currency read-only for posted/viewed foreign-currency vouchers
+    var ccyEl = document.getElementById('entry-ccy');
+    if (ccyEl) {
+      ccyEl.value = (viewBatchLines[0] && viewBatchLines[0].currency) || BASE_CCY;
+      ccyEl.readOnly = true;
+    }
     document.querySelector('.header-fields').classList.add('jv-flat-readonly');
     document.title = 'Journal Voucher — freeBooks';
     updateStatusBadge(viewBatchReversed ? 'reversed' : 'posted');
@@ -495,13 +605,13 @@ ${commonStyle()}
       dr += parseFloat(l.debit || 0); cr += parseFloat(l.credit || 0);
       var tr = document.createElement('tr');
       tr.className = 'jv-view-line';
-      tr.innerHTML = '<td>' + esc(l.account_code || '') + '</td>'
-        + '<td>' + esc(accountsMap[l.account_code] || '') + '</td>'
+      tr.innerHTML = '<td>' + esc(l.account_code || '') + ' \u2014 ' + esc(accountsMap[l.account_code] || '') + '</td>'
         + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
         + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
         + '<td>' + esc(l.description || '') + '</td>'
         + (VAT_ON ? '<td>' + esc(l.vat_code || '') + '</td>' : '')
         + (VAT_ON ? '<td class="num">' + (parseFloat(l.vat_amount || 0) || 0).toFixed(2) + '</td>' : '')
+        + '<td>' + esc(l.cost_center || '') + '</td>'
         + '<td></td>';
       body.appendChild(tr);
     });
@@ -534,6 +644,12 @@ ${commonStyle()}
     jSel.disabled = true;
     var descEl = document.getElementById('entry-desc');
     descEl.readOnly = true;
+    // §3.5: show currency read-only for posted vouchers
+    var ccyEl = document.getElementById('entry-ccy');
+    if (ccyEl) {
+      ccyEl.value = (postedLines[0] && postedLines[0].currency) || BASE_CCY;
+      ccyEl.readOnly = true;
+    }
     document.querySelector('.header-fields').classList.add('jv-flat-readonly');
     updateStatusBadge('posted');
     setReference(postedRef);
@@ -544,13 +660,13 @@ ${commonStyle()}
       dr += parseFloat(l.debit || 0); cr += parseFloat(l.credit || 0);
       var tr = document.createElement('tr');
       tr.className = 'jv-view-line';
-      tr.innerHTML = '<td>' + esc(l.account_code || '') + '</td>'
-        + '<td>' + esc(accountsMap[l.account_code] || '') + '</td>'
+      tr.innerHTML = '<td>' + esc(l.account_code || '') + ' \u2014 ' + esc(accountsMap[l.account_code] || '') + '</td>'
         + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
         + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
         + '<td>' + esc(l.description || '') + '</td>'
         + (VAT_ON ? '<td>' + esc(l.vat_code || '') + '</td>' : '')
         + (VAT_ON ? '<td class="num">' + (parseFloat(l.vat_amount || 0) || 0).toFixed(2) + '</td>' : '')
+        + '<td>' + esc(l.cost_center || '') + '</td>'
         + '<td></td>';
       body.appendChild(tr);
     });
@@ -707,6 +823,21 @@ ${commonStyle()}
       var jSel = document.getElementById('entry-journal');
       jSel.value = jId;
     }
+    // §3.4: pre-fill Currency + FX Rate from the original batch (header-level,
+    // uniform across lines per §1.1). Without this, reversing a foreign-
+    // currency entry silently drops back to base currency and posts the
+    // reversal at fx_rate=1.0 — the exact failure §1.4 exists to prevent.
+    var ccy = (lines[0] && lines[0].currency) || BASE_CCY;
+    var rate = (lines[0] && lines[0].fx_rate) || null;
+    if (document.getElementById('entry-ccy')) document.getElementById('entry-ccy').value = ccy;
+    if (ccy !== BASE_CCY && document.getElementById('entry-fx-rate') && rate) {
+      document.getElementById('entry-fx-rate').value = rate;
+      var frf = document.querySelector('.fx-rate-field');
+      if (frf) frf.style.display = '';
+    } else if (ccy === BASE_CCY) {
+      var frf2 = document.querySelector('.fx-rate-field');
+      if (frf2) frf2.style.display = 'none';
+    }
     // Clear existing lines and populate reversed
     document.getElementById('lines-body').innerHTML = '';
     // A1 (magnus 2026-07-28): render the ORIGINAL (un-swapped) lines as
@@ -723,28 +854,29 @@ ${commonStyle()}
     lines.forEach(function(l) {
       var otr = document.createElement('tr');
       otr.className = 'jv-orig-line';
-      otr.innerHTML = '<td>' + esc(l.account_code || '') + '</td>'
-        + '<td>' + esc(accountsMap[l.account_code] || '') + '</td>'
+      otr.innerHTML = '<td>' + esc(l.account_code || '') + ' \u2014 ' + esc(accountsMap[l.account_code] || '') + '</td>'
         + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
         + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
         + '<td>' + esc(l.description || '') + '</td>'
         + (VAT_ON ? '<td></td><td></td>' : '')
+        + '<td>' + esc(l.cost_center || '') + '</td>'
         + '<td></td>';
       document.getElementById('lines-body').appendChild(otr);
     });
     lines.forEach(function(l) {
       var tr = addLine();
-      var codeIn  = tr.querySelector('.acct-input');
-      var nameIn  = tr.querySelector('.acct-name-input');
+      var acctInput = tr.querySelector('.acct-input');
+      pickAccount({ code: l.account_code || '', name: accountsMap[l.account_code] || '' }, acctInput);
       var debitIn = tr.querySelector('.debit-input');
       var creditIn = tr.querySelector('.credit-input');
-      codeIn.value  = l.account_code || '';
-      nameIn.value  = accountsMap[l.account_code] || '';
       // Swap debit ↔ credit
       debitIn.value  = parseFloat(l.credit || 0) || '';
       creditIn.value = parseFloat(l.debit  || 0) || '';
       var descIn = tr.querySelector('.desc-input');
       descIn.value = l.description || '';
+      // §2: pre-fill cost center if present on the original line
+      var ccIn = tr.querySelector('.cc-input');
+      if (ccIn && l.cost_center) ccIn.value = l.cost_center;
     });
     updateTotals();
     showStatus('Reversal loaded — review and post', false);

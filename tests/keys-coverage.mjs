@@ -89,7 +89,7 @@ const page = await browser.newPage();
 // ── Global: ? overlay lists every g-key registry route in NAV section ────────
 // #149: NAV rows moved from : palette to ? overlay. The ? overlay reads
 // window.FB_ROUTES (same as _gResolve), so this proves the registry → help
-// wiring. Routes without a gKey (e.g. opening-balances) are sidebar-only
+// wiring. Routes without a gKey are sidebar-only
 // and not in the NAV section — they're excluded from this check.
 console.log('[global] ? overlay NAV coverage');
 await page.goto(`${BASE}/${CO}/inbox`, { waitUntil: 'networkidle' });

@@ -62,7 +62,7 @@ ${commonStyle()}
        inline here instead of the (absent) #sb-hints. -->
   <div class="fb-hint-bar" id="nc-hints" style="margin-top:14px"></div>
   <div id="post-links" style="display:none;margin-top:14px;display:none">
-    <a id="lnk-ob" href="#" style="display:inline-block;padding:9px 20px;background:#1a5276;color:#fff;text-decoration:none;border-radius:4px;font-size:10pt;font-weight:600;margin-right:10px">📂 Enter Opening Balances &rarr;</a>
+    <a id="lnk-jv" href="#" style="display:inline-block;padding:9px 20px;background:#1a5276;color:#fff;text-decoration:none;border-radius:4px;font-size:10pt;font-weight:600;margin-right:10px">📝 Enter Journal Entry &rarr;</a>
     <a id="lnk-settings" href="#" style="display:inline-block;padding:9px 20px;background:#f5f5f5;color:#333;text-decoration:none;border-radius:4px;font-size:10pt;border:1px solid #ccc">⚙ Go to Settings</a>
   </div>
 </div>
@@ -114,7 +114,7 @@ function createCompany() {
         msg.style.color = '#2a8a2a';
         document.getElementById('btn-create').textContent = 'Created \u2713';
         document.getElementById('post-links').style.display = '';
-        document.getElementById('lnk-ob').href = '/'+co.company_id+'/settings?tab=opening-balances';
+        document.getElementById('lnk-jv').href = '/'+co.company_id+'/journal/voucher';
         document.getElementById('lnk-settings').href = '/'+co.company_id+'/settings';
         return;
       }
@@ -127,7 +127,7 @@ function createCompany() {
           msg.style.color = '#2a8a2a';
           document.getElementById('btn-create').textContent = 'Created ✓';
           document.getElementById('post-links').style.display = '';
-          document.getElementById('lnk-ob').href = '/'+co.company_id+'/settings?tab=opening-balances';
+          document.getElementById('lnk-jv').href = '/'+co.company_id+'/journal/voucher';
           document.getElementById('lnk-settings').href = '/'+co.company_id+'/settings';
         });
     })

@@ -405,7 +405,7 @@
     // #149: NAV rows for the ? overlay — reads window.FB_ROUTES (the same
     // registry _gResolve uses). Renders 'g r — Reports' style rows for every
     // entry with a gKey (sidebar routes with go-to-map letters). Entries
-    // without a gKey (e.g. opening-balances) are still reachable via the
+    // without a gKey are still reachable via the
     // sidebar; only g-key destinations belong in this section.
     function _navRows() {
       var R = window.FB_ROUTES || [];

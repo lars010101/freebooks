@@ -446,7 +446,7 @@
 
     // Tab strips own h/l — common.js's bubble handler clicks the adjacent
     // .tab, but FB.keys capture bindings win over it. A form living on a
-    // TABBED page (Bank/Import, Settings/Opening Balances, …) must not claim
+    // TABBED page (e.g. Settings) must not claim
     // h/l, or tab switching dies there (magnus 2026-08-02). Horizontal cell
     // movement on those pages stays on Tab/Shift+Tab. Forms on pages without
     // a tab strip (journal-voucher, reports-hub, new-company) keep h/l cell nav.
@@ -516,7 +516,7 @@
       // K3c: defense-in-depth active() guard. If the page doesn't supply one,
       // default to checking whether ANY zone still has a row in the document
       // (K4 fix: zone 0 alone was wrong — journal-voucher's reversal zone and
-      // bank-import's bill panel are empty in their default states, which
+      // journal-voucher's reversal zone is empty in its default state, which
       // made the guard kill those forms outright). After a soft-nav content
       // swap, ALL of the departing page's rows are gone → active() returns
       // false → the set yields dispatch. Belt-and-braces alongside

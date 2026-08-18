@@ -1,6 +1,6 @@
 # freebooks — Interaction Architecture Spec (IA Spec)
 
-**Date:** 2026-08-03 · **Status:** RATIFIED (magnus, Slack design thread) · **Scope:** All views, all modes, all verbs — the complete keyboard/interaction contract
+**Date:** 2026-08-18 · **Status:** RATIFIED (magnus, Slack design thread) · **Scope:** All views, all modes, all verbs — the complete keyboard/interaction contract
 **Consumers:** `api/src/nav-registry.js`, `api/public/fb-core.js`, `api/public/fb-list.js`, `api/public/fb-form.js`, `api/public/common.js`, `api/src/pages/*.js`
 **Companions:** `keyboard-ux-spec.md` (K1–K5 program history), `fb-list-ux-spec.md` (list machine), `agent-readiness-spec.md` (A1–A5 agent model), `UI.md` (typography/colour)
 
@@ -30,18 +30,18 @@ Every app route lives once in `api/src/nav-registry.js`. Four consumers share th
 
 Entry shape: `{ key, route, label, icon, sidebar, gKey, palette, absolute }`. `route` uses the `:company` placeholder; `absolute: true` for company-less routes (`/setup/new-company`).
 
-### Current routes (as of 2026-08-03)
+### Current routes (as of 2026-08-18)
 
-| Key | Route | Label | Icon | Sidebar | gKey | Palette | Notes |
+|| Key | Route | Label | Icon | Sidebar | gKey | Palette | Notes |
 |-----|-------|-------|------|---------|------|---------|-------|
 | `inbox` | `/:company` | Inbox | 📥 | ✓ | `i` | ✓ | A5 unified review queue; root route (Dashboard dropped 2026-08-03) |
-| `bank` | `/:company/bank` | Bank | 🏦 | ✓ | `b` | ✓ | Transactions · Import · Mappings tabs |
-| `payables` | `/:company/payables` | Payables | 📋 | ✓ | `p` | ✓ | Bills tree + Partners |
+| `bills` | `/:company/bills` | Bills | 📋 | ✓ | `b` | ✓ | Bills tree (renamed from Payables 2026-08-11) |
 | `reports` | `/:company/reports` | Reports | 📈 | ✓ | `r` | ✓ | Report hub |
-| `settings` | `/:company/settings` | Settings | ⚙ | ✓ | `s` | ✓ | Company · Periods · COA · Tax · Journals · FX · Opening Balances |
+| `periods` | `/:company/periods` | Periods | 📅 | ✓ | `p` | ✓ | Promoted to top-level 2026-08-04 |
+| `settings` | `/:company/settings` | Settings | ⚙ | ✓ | `s` | ✓ | Company · Posting Rules · AI |
+| `master-data` | `/:company/master-data` | Master Data | 🗂 | ✓ | `m` | ✓ | Partners · COA · Tax Codes · Journals · FX · Centers (new 2026-08-11) |
+| `admin` | `/:company/admin` | Admin | 🛠 | ✓ | `a` | ✓ | Companies · Operations (new 2026-08-11) |
 | `journal-voucher` | `/:company/journal/voucher` | Journal Entry | — | ✗ | — | ✗ | Covered by action-catalog navigate entry |
-| `bank-import` | `/:company/bank?tab=import` | Bank Import | — | ✗ | — | ✓ | gKey dropped 2026-08-03 (A5); reachable via `g b` + palette |
-| `opening-balances` | `/:company/settings?tab=opening-balances` | Opening Balances | — | ✗ | — | ✓ | Settings tab (relocated 2026-07-28) |
 | `new-company` | `/setup/new-company` | New Company | — | ✗ | — | ✗ | Absolute route, company-less |
 
 ---
@@ -103,7 +103,7 @@ Every flat register in the app. A screen declares columns + actions; the framewo
 
 Model B (ratified 2026-07-28): NORMAL rest state + Tab/Shift+Tab inside edits — explicitly NOT QBO always-insert.
 
-**Pages:** journal-voucher (pilot), reports filter bar, bank-import, opening-balances, new-company.
+**Pages:** journal-voucher (pilot), reports filter bar, new-company.
 
 **Core contract:**
 
@@ -116,7 +116,7 @@ Model B (ratified 2026-07-28): NORMAL rest state + Tab/Shift+Tab inside edits �
 | `Tab`/`Shift+Tab` | Move cursor next/prev cell (no INSERT) — crosses row/zone boundaries | Programmatic advance/retreat |
 | `G` | Last row | — |
 
-**Tab-strip precedence (2026-08-02, magnus):** On a page with a `.tabs` strip (Bank/Import, Settings/Opening Balances), `h`/`l` switch TABS — common.js's bubble handler owns them, so FB.form drops its `h`/`l` cell bindings at `create()`. Horizontal cell movement on tabbed pages is Tab/Shift+Tab only. Tabless FB.form pages (journal-voucher, reports-hub, new-company) keep `h`/`l` cell nav.
+**Tab-strip precedence (2026-08-02, magnus):** On a page with a `.tabs` strip, `h`/`l` switch TABS — common.js's bubble handler owns them, so FB.form drops its `h`/`l` cell bindings at `create()`. Horizontal cell movement on tabbed pages is Tab/Shift+Tab only. Tabless FB.form pages (journal-voucher, reports-hub, new-company) keep `h`/`l` cell nav.
 
 **Cell-type semantics:**
 - **Button cells** activate (`i`/`Enter` = click, focus stays NORMAL) — they never enter INSERT.
@@ -206,31 +206,11 @@ The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). 
 - **Reversal pick:** Cursor lands on the header date cell in NORMAL (search blurred, results collapsed). Original entry renders read-only (grayed, italic) above the editable swapped rows.
 - **Attachment queue:** FB.form zone (read-only rows, no cells). `j`/`k` reach it, `x` removes the cursor row.
 
-### 5.5 Bank (`/:company/bank`)
+### 5.5 Bank — dissolved (2026-08-09, issue #137)
 
-- **Tabs:** Transactions · Import · Mappings
-- **Machine:** FB.list (Transactions, Mappings) + FB.form (Import wizard)
+The Bank page and its page modules (`pages/bank.js`, `pages/bank-import.js`) were deleted. The old `/:company/bank` URL 302-redirects to `/:company/reports`. Bank reconciliation is being moved to a report. The server handlers in `api/src/bank.js` (`bank.match`, `bank.reconcile.*`) are kept for the agent feed-watcher + reconcile actions. Bank imports are handled through the agent inbox, not a dedicated import wizard.
 
-**Transactions tab:**
-- `j`/`k` row cursor (FB.nav)
-- `~` — clear/unclear (universal toggle verb, wired to the same persistence as the checkbox)
-- `f` — cycle cleared-filter (uncleared → cleared → both)
-- `c` — clear filters (topbar unified search)
-- `#hdr-clear-all` — bulk clear (mouse-only by ratified design; per-row `~` is the keyboard path)
-
-**Import tab (FB.form wizard):**
-- Zones: bill panel (when open) → upload → mapping → review
-- `a` — attach file
-- `p` — paste CSV
-- `w` — process/post (stage-dispatched)
-- `b` — link bill
-- `Space` — toggle skip
-- Bill-panel results use the reversal-search pattern (arrows/Enter, Esc closes)
-
-**Mappings tab (FB.list):**
-- Standard FB.list contract (add row, `i`/`Enter` edit, `w` write, `u` revert, `x` delete, `c` clear filters)
-
-### 5.6 Payables (`/:company/payables`)
+### 5.6 Bills (`/:company/bills`)
 
 - **Tabs:** Bills · Partners
 - **Machine:** FB.list (`tree: true` for Bills; flat for Partners)
@@ -266,9 +246,8 @@ The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). 
 
 ### 5.8 Settings (`/:company/settings`)
 
-- **Tabs:** Company · Periods · COA · Tax Codes · Journals · Exchange Rates · Opening Balances
+- **Tabs:** Company · Posting Rules · AI
 - **Machine:** FB.list (all tabs except Company danger zone)
-- **Tab visibility:** Relevance flags gate tabs — `vat_registered=false` hides Tax Codes; `fx_tracking='false'` hides Exchange Rates. Hidden tabs are `display:none` and skipped by `h`/`l`.
 
 **Company tab:**
 - FB.list attribute/value grid (`canAdd: false` — fixed rows, no add, no delete)
@@ -276,15 +255,10 @@ The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). 
 - `w` writes ONE attribute via `company.attr.save`; `u` reverts; `Esc` never saves
 - **Danger zone:** Type the exact company name to arm `Delete company`; `Enter` in the input fires it; server refusals surface in the modal's error slot. `#cr-delete-btn` is mouse-only by ratified design (danger zone: GitHub/QBO pattern).
 
-**Periods / COA / Tax Codes / Journals / Exchange Rates tabs:**
+**Posting Rules / AI tabs:**
 - Standard FB.list contract (add row, `i`/`Enter` edit, `w` write, `u` revert, `x` delete, `c` clear filters)
-- COA: `filterType: 'text'` on Code/Name columns (the old `#coa-search` box is deleted)
-- FX Rates: ECB rows read-only (`editable`/`deletable` false), `f` = Fetch Rates list-level action
 
-**Opening Balances tab (FB.form):**
-- Header → filter bar (BS/P&L/Non-Zero toggle buttons + search, all `h`/`l` cells) → account grid
-- `w` — post (disabled-guard: out-of-balance blocks)
-- `~` — toggle the focused filter button
+> **Note:** Periods, COA, Tax Codes, Journals, and Exchange Rates moved to the Master Data page (`/:company/master-data`) on 2026-08-11. Partners also moved there from Bills.
 
 ### 5.9 New Company (`/setup/new-company`)
 
@@ -387,7 +361,7 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 | `c` | Clear filters | FB.list filter surfaces |
 | `f` | Cycle filter (list-level action) | Inbox (status), Bank (cleared), FX (fetch rates) |
 | `d` | Download menu / delete (page-dependent) | Reports (download), legacy pages (delete) |
-| `p` | Post / paste (page-dependent) | Payables (post bill), Bank-import (paste CSV) |
+| `p` | Post / pay (page-dependent) | Payables (post bill / pay) |
 | `q` | Quit / navigate away | FB.form pages |
 | `R` | Reversal mode | journal-voucher only |
 | `gg`/`G` | First row / last row | Framework-level |
@@ -422,7 +396,6 @@ The Transaction Register row's drill target depends on the batch's origin:
 |---|---|
 | `manual` / `reversal` / agent-proposed | journal-voucher view mode (`?batch=<batchId>`) |
 | `bill` (`bill_id` set) | Bill detail page |
-| `import` (bank import) | journal-voucher view mode (`?batch=<batchId>`) |
 
 Links use `batch_id` or `bill_id` (UUIDs), never the reference string. The reference is a display label, not a key.
 
@@ -435,7 +408,6 @@ No verbs on reports. All corrections happen in detail views:
 | Manual journal entry / reversal / agent | journal-voucher view mode → `R` (reversal mode) |
 | Bill (AP) | Bill detail → void (unpaid) or credit memo (paid — not yet built) |
 | Sales invoice (AR) | Invoice detail → void or credit memo (module unbuilt) |
-| Bank import | journal-voucher view mode → `R` (each imported line is its own batch) |
 
 ### 10.4 Return-to-origin
 
@@ -491,3 +463,4 @@ Every detail view honors a return stack: `Esc`/`q` returns to the exact screen, 
 | 2026-08-03 | Journal dissolves: Transaction Register report in Reports; journal sidebar entry removed; drill-through doctrine (§10) ratified |
 | 2026-08-04 | Drill-through fix: PL/BS account rows → GL (not TB); reports hub forwards ?account= to report iframe; GL filter bar prefilled from URL |
 | 2026-08-05 | Receivables stub removed from sidebar + `g v` keybind dropped; route + page handler deleted (AR module dropped, §0m) |
+| 2026-08-18 | Bank Import page removed from spec (done through agent inbox); Opening Balances feature removed (use journal voucher instead); orphaned nav-registry entry + redirect + new-company link cleaned up |

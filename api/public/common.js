@@ -218,7 +218,7 @@
       var seg = m[1];
       if (seg === 'bill') return 'payables';
       if (seg === 'journal') return 'journal-voucher';
-      return seg; // payables, reports, settings, opening-balances
+      return seg; // payables, reports, settings, journal-voucher
     };
     function sectionOf(path) { return window.fbSectionOfPath(path); }
 
@@ -237,7 +237,7 @@
     var SECTION_LABELS = {
       'dashboard': 'Dashboard', 'payables': 'Payables',
       'reports': 'Reports', 'settings': 'Settings',
-      'opening-balances': 'Opening Balances', 'journal-voucher': 'Journal Entry'
+      'journal-voucher': 'Journal Entry'
     };
 
     function company() { return (document.getElementById('app-shell') || {}).dataset ? document.getElementById('app-shell').dataset.company : ''; }

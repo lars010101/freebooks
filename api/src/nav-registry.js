@@ -34,9 +34,9 @@
 //   2. If it belongs in the sidebar, set sidebar:true + icon; navBar renders
 //      it automatically.
 //   3. Sidebar routes are visible in the ? help overlay's NAV section
-//      (g-key destinations). Non-sidebar routes without a gKey (e.g.
-//      opening-balances) are sidebar/palette-reachable only; they do not
-//      appear in ? NAV. The : palette no longer lists routes (#149).
+//      (g-key destinations). Non-sidebar routes without a gKey are
+//      sidebar/palette-reachable only; they do not appear in ? NAV. The :
+//      palette no longer lists routes (#149).
 //   4. Assign a gKey letter only for ratified go-to destinations; 'c' is
 //      reserved for the company switcher.
 //
@@ -80,10 +80,8 @@ const ROUTES = [
   { key: 'admin',       route: '/:company/admin',        label: 'Admin',          icon: '🛠', sidebar: true,  gKey: 'a',  palette: true,  absolute: false },
   // ── Non-sidebar routes. journal-voucher / new-company keep palette:false — the
   // action catalog already navigates to them with action labels (dedupe =
-  // registry decision, spec §4). opening-balances has no catalog entry →
-  // palette:true.
+  // registry decision, spec §4).
   { key: 'journal-voucher', route: '/:company/journal/voucher',   label: 'Journal Entry',   icon: null, sidebar: false, gKey: null, palette: false, absolute: false },
-  { key: 'opening-balances', route: '/:company/settings?tab=opening-balances', label: 'Opening Balances', icon: null, sidebar: false, gKey: null, palette: true,  absolute: false },
   { key: 'new-company',     route: '/setup/new-company',          label: 'New Company',     icon: null, sidebar: false, gKey: null, palette: false, absolute: true  },
 ];
 

@@ -285,10 +285,11 @@ function mountReportRoutes(app) {
   app.get('/:company/bank', function(req, res) {
     res.redirect(302, '/' + req.params.company + '/reports');
   });
-  // Opening Balances relocated to a Settings tab 2026-07-28 (magnus) —
-  // old URL 302-redirects to the Settings → Opening Balances tab.
+  // Opening Balances feature removed 2026-08-18 (magnus): users post opening
+  // balances via a simple journal voucher instead. Old /:company/opening-balances
+  // URL now 302-redirects to the journal voucher entry form.
   app.get('/:company/opening-balances', function(req, res) {
-    res.redirect(302, '/' + req.params.company + '/settings');
+    res.redirect(302, '/' + req.params.company + '/journal/voucher');
   });
   // 2026-08-11 IA restructure: Settings tab deep-links redirect to Master Data.
   app.get('/:company/settings', function(req, res, next) {

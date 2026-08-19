@@ -12,7 +12,9 @@
 Journal Voucher (`journal-voucher.js`) is the only human-facing entry point for manual double-entry postings. Auditing it against `db/schema.sql`, `journal.js`, and the sibling `bill-edit.js` form surfaces three defects:
 
 1. **Missing: Currency / FX rate.** `journal_entries` carries `currency`, `fx_rate`, `debit_home`, `credit_home` per line, and `journal.post` already accepts and applies `line.currency`/`line.fx_rate` — but the form never collects either. Every manual entry silently posts at `fx_rate = 1.0`, home currency only. `bill-edit.js` exposes a `CCY` field for the equivalent workflow.
-2. **Missing: Cost Center.** `journal_entries.cost_center`/`profit_center` exist, `journal.post` derives `profit_center` from `cost_center` server-side, and Master Data has a Cost/Profit Centers tab — but no line on the Journal Voucher form can be tagged with a center. `bill-edit.js` exposes a per-line cost-center field (`.bl-cc`) against the same `center.list` action.
+2. **Missing: Cost Center *and* Profit Center.** `journal_entries.cost_center`/`profit_center` exist, and `journal.post` supports two distinct server-validated paths — derive `profit_center` from a supplied `cost_center`, *or* accept a `profit_center` directly with no cost driver (`enrichAndValidate`'s `if (line.cost_center) {...} else if (line.profit_center) {...}`) — but no line on the Journal Voucher form can be tagged with either. `bill-edit.js` exposes a per-line cost-center field (`.bl-cc`) against the same `center.list` action, but has no profit-center field, and `bills.js`'s own derivation logic has no direct-profit-center branch to expose one for — Bills structurally can only ever be cost-side. Since AR/invoicing is dropped from this build (README: "dropped/deferred from the current cycle; nav and page scaffolding remain in place but inactive"), **JV is currently the only form in the app where that direct-profit-center branch is reachable at all** — this isn't parity-for-parity's-sake, it's the one place a human can book a revenue-side or otherwise cost-driver-less entry against a profit center.
+
+   *Review question answered:* whether mdab_se's Master Data currently has a profit center with no cost center rolling up into it can't be checked — mdab_se doesn't use cost/profit centers at all today (no centers configured). This is being designed as a general, industry-standard capability rather than one validated against live configuration: revenue-side and non-cost-driven entries (revenue recognition, intercompany allocations, non-operating income, reclasses/corrections) are the standard case for direct profit-center posting in dimensional-accounting systems generally (SAP CO, NetSuite, Dynamics), independent of what's configured for any one company. Because the need is general rather than immediate, §2.1 below detects whether a company has actually configured any centers and hides both fields entirely until it has — the reviewer's "UI complexity for no practical use" concern is addressed by not showing that complexity to companies that aren't using the feature, rather than by leaving it out of the capability.
 3. **Redundant: Account Code + Account Name.** Each line renders two separate free-text inputs (`.acct-input`, `.acct-name-input`) synced by a JS listener, both wired to the same account-autocomplete source. Only `account_code` is ever read in `postEntry()` — `.acct-name-input` is never submitted. This is UI duplication with no corresponding data need.
 
 This spec addresses only these three items. Per-line customer/vendor tagging and a draft/save-without-posting state are explicitly out of scope (see §7).
@@ -79,24 +81,58 @@ else fxRate = await getRate(currency, company.currency, date);
 
 ---
 
-## 2. Cost Center (line field)
+## 2. Cost Center & Profit Center (line fields)
 
-### 2.1 Design
+### 2.1 Visibility: detected, not toggled
 
-Add one line-level field, **Cost Center**, positioned after Line Description (or after Tax Code when VAT is on — final column order is an implementation choice, not a spec requirement). Mirrors `bill-edit.js` exactly:
+**Revised from the prior draft.** The original version of this section gated Cost Center/Profit Center visibility behind a `centersOn` flag sourced from `center_derivation_enabled` — mirroring how `fxTracking` gates Currency. On further review that's the wrong signal, for a specific, verified reason: `centers.js`'s own docstring describes `center_derivation_enabled` as a rollout/cutover gate specifically for *derivation strictness* (whether a Cost center must carry a `profit_center_id`, whether auto-derivation runs on posting) — not a general "has this company adopted centers" flag. Confirmed against `index.js`'s `center.upsert` handler (`~line 1194`): creating a Cost or Profit center works fine with the flag off; it's only checked for one narrow rule (`else if (await isDerivationEnabled(companyId)) throw ... requires a profit_center_id`). So a company can fully populate Master Data → Cost/Profit Centers without ever touching that flag — meaning gating JV's fields on it would hide the columns from a company that has genuinely set the feature up, purely because a separate, narrower migration flag happens to still be off.
+
+**Design: visibility is detected from whether the company has configured at least one active center, not from any setting.** Computed server-side at page-render time — the same architectural pattern already used for `vatOn`/`fxOn` (`getRelevanceFlags`, called once inside the Express handler, baked into the initial HTML) — rather than a client-side check after `center.list` resolves, which would cause the columns to visibly pop in after page load:
+
+```js
+// getRelevanceFlags (common.js), alongside the existing settings/company query
+const [centerRow] = await query(
+  `SELECT 1 FROM centers WHERE company_id = @cid AND is_active = true LIMIT 1`,
+  { cid: String(companyId) }
+);
+// ...
+return { ..., centersConfigured: !!centerRow };
+```
+
+`journal-voucher.js`'s page handler reads `flags.centersConfigured` the same way it will read `flags.fxTracking` (§1.1) — rendering the `Cost Center`/`Profit Center` `<th>`s and inputs in the initial HTML only when true, nothing client-side-conditional. The moment an owner creates their first center in Master Data, the columns appear on the next JV page load — no separate feature switch to discover or flip, which resolves the confirmed gap flagged in the prior draft (no Settings UI exists for `center_derivation_enabled`, and now none is needed for this purpose).
+
+**Known, accepted tradeoff — not silently resolved:** `journal.js`'s `enrichAndValidate` still gates its actual reference validation (`deriveProfitCenter`, and the direct-profit-center `center_type === 'Profit'` check) behind `isDerivationEnabled` — a separate condition from `centersConfigured`. A company that has created centers (fields visible) but hasn't turned `center_derivation_enabled` on (mid pre-cutover migration, per that flag's own documented purpose) can type an unknown or wrong-type value into either field and have it silently accepted with no server-side rejection. Decoupling basic reference validation ("does this resolve to a real, correctly-typed, active center") from derivation-strictness ("should the system auto-derive and require full linkage") would close this cleanly, and arguably should happen regardless of this spec — but that's a change to `journal.js`'s/`index.js`'s existing validation semantics, not a UI decision, and isn't proposed here. Flagged for the centers-rollout owner as a follow-up, not blocking this spec.
+
+**Also flag for `bill-edit.js`, separately:** its cost-center field is unconditionally rendered — no detection, no flag, just always visible regardless of whether the company has any centers configured. Not in scope to fix here, but worth noting alongside the two other `bill-edit.js` issues this spec surfaced: the `fxOn` gate bug (§1.1, above) and the lowercase `center_type` filter bug (§2.2, below) — three separate pre-existing `bill-edit.js` issues found while building this spec, none of them this spec's job to fix.
+
+### 2.2 Design — Cost Center
+
+Add one line-level field, **Cost Center**, positioned after Line Description (or after Tax Code when VAT is on — final column order is an implementation choice, not a spec requirement). Mirrors `bill-edit.js` exactly, aside from visibility gating (§2.1, no precedent in `bill-edit.js`) — this half of §2 otherwise has a direct precedent; §2.3 below does not:
 
 - Fetch `center.list` once on page load into a module-level array (`var centers = []`), same as `bill-edit.js`'s `S.centers`.
 - Render `<input class="cc-input" placeholder="Cost center">` per line.
-- Attach an `FB.dropdown` autocomplete filtered to `center_type === 'Cost'`, matching on `center_id`/`name`:
+- Attach the shared autocomplete helper (defined once, in §2.3, since Profit Center needs the identical logic filtered on a different `center_type`), called as `attachCenterDd(input, 'Cost')`:
 
 ```js
-function attachCenterDd(input) {
+attachCenterDd(row.querySelector('.cc-input'), 'Cost');
+```
+
+**Divergence from `bill-edit.js`, deliberate:** `centers.js`'s `deriveProfitCenter` (line 44) checks `center.center_type !== 'Cost'` — the stored/validated value is capitalized `'Cost'`. `bill-edit.js` calls `attachCenter(row.querySelector('.bl-cc'), 'cost')` (line 421), filtering on lowercase `'cost'` — which matches nothing against real data. That's a second pre-existing bug in `bill-edit.js`, not a pattern to mirror; copying it here would ship a cost-center autocomplete that never returns results. This spec deliberately uses `'Cost'`. `bill-edit.js`'s filter should be fixed separately; it is not in scope here.
+
+- Field is optional. Blank → `cost_center: null`, unchanged current behavior.
+
+### 2.3 Design — Profit Center (direct, no cost driver)
+
+Add a second line-level field, **Profit Center**, next to Cost Center. **No precedent in `bill-edit.js` for this one** — `bills.js`'s derivation logic (`if (bill.cost_center && await isDerivationEnabled(...)) { derive }`) has no direct-profit-center branch at all, so there was never anything to mirror for Bills. This field exists specifically because `journal.js`'s `enrichAndValidate` does have that branch (`else if (line.profit_center) { validate center_type === 'Profit' }`), and — with AR/invoicing dropped from this build (README) — JV is the only form that can currently reach it.
+
+```js
+function attachCenterDd(input, type) { // type: 'Cost' | 'Profit'
   if (!window.FB || !FB.dropdown) return;
   FB.dropdown.attach(input, {
     minWidth: 180,
     source: q => {
       q = (q || '').toLowerCase();
-      return centers.filter(c => c.center_type === 'Cost')
+      return centers.filter(c => c.center_type === type)
         .filter(c => c.center_id.toLowerCase().includes(q) || (c.name || '').toLowerCase().includes(q))
         .map(c => ({ primary: c.center_id, secondary: c.name, data: c }));
     },
@@ -105,24 +141,37 @@ function attachCenterDd(input) {
 }
 ```
 
-**Divergence from `bill-edit.js`, deliberate:** `centers.js`'s `deriveProfitCenter` (line 44) checks `center.center_type !== 'Cost'` — the stored/validated value is capitalized `'Cost'`. `bill-edit.js` calls `attachCenter(row.querySelector('.bl-cc'), 'cost')` (line 421), filtering on lowercase `'cost'` — which matches nothing against real data. That's a second pre-existing bug in `bill-edit.js`, not a pattern to mirror; copying it here would ship a cost-center autocomplete that never returns results. This spec deliberately uses `'Cost'`. `bill-edit.js`'s filter should be fixed separately; it is not in scope here.
+(Single parameterized helper — same body as would otherwise have been written twice — both fields attach through it: `attachCenterDd(row.querySelector('.cc-input'), 'Cost')` in §2.2, `attachCenterDd(row.querySelector('.pc-input'), 'Profit')` here.)
 
-- No separate Profit Center field — `journal.post` already derives `profit_center` from `cost_center` server-side (existing `deriveProfitCenter` call). This matches `bill-edit.js`, which also exposes cost center only.
-- Field is optional. Blank → `cost_center: null`, unchanged current behavior.
+Field is optional. Blank → `profit_center: null`.
 
-### 2.2 Submission
+### 2.4 Mutual exclusivity
+
+The backend's precedence is `if (cost_center) derive-and-overwrite-profit_center; else if (profit_center) validate-as-typed`. If both fields are filled, `journal.post` will silently discard whatever the user typed into Profit Center and replace it with the derived value from Cost Center — a silent-overwrite trap if the UI lets both sit filled at once. The form must prevent this rather than let the server's precedence surprise the user:
+
+```js
+function attachCenterExclusivity(ccInput, pcInput) {
+  ccInput.addEventListener('input', () => { if (ccInput.value.trim()) { pcInput.value = ''; pcInput.disabled = true; } else { pcInput.disabled = false; } });
+  pcInput.addEventListener('input', () => { if (pcInput.value.trim()) { ccInput.value = ''; ccInput.disabled = true; } else { ccInput.disabled = false; } });
+}
+```
+
+Typing in either field clears and disables the other. Clearing a field re-enables its counterpart. This makes the row's actual behavior (cost-side derivation *or* direct profit-side tagging, never both) visible at the point of entry instead of only discoverable after a confusing post result.
+
+### 2.5 Submission
 
 `postEntry()`'s line-mapping adds:
 
 ```js
 cost_center: tr.querySelector('.cc-input').value.trim() || null,
+profit_center: tr.querySelector('.pc-input').value.trim() || null,
 ```
 
-### 2.3 Validation
+### 2.6 Validation
 
-`journal.js`'s `enrichAndValidate` already calls `deriveProfitCenter` (`centers.js`) for any line carrying a `cost_center`, which throws `Unknown cost_center: ${id}`, `${id} is not a Cost center`, `Cost center ${id} is inactive`, or `Cost center ${id} has no profit center assigned` as appropriate — so server-side rejection of a bad cost center already exists and this spec does not need to add it.
+`journal.js`'s `enrichAndValidate` already calls `deriveProfitCenter` (`centers.js`) for any line carrying a `cost_center`, which throws `Unknown cost_center: ${id}`, `${id} is not a Cost center`, `Cost center ${id} is inactive`, or `Cost center ${id} has no profit center assigned` as appropriate. For a line carrying `profit_center` directly (no `cost_center`), the `else if` branch throws `${line.profit_center} is not a valid profit center` if the `center_type` isn't `'Profit'`. Both paths already exist server-side and this spec does not need to add either.
 
-**Caveat:** that call is itself gated — `enrichAndValidate` only runs `deriveProfitCenter` when `isDerivationEnabled(companyId)` returns true (reads the `center_derivation_enabled` setting). `bill-edit.js`'s cost-center field is *not* gated on this setting (always rendered), so this spec follows the same precedent and always shows the field — but during the pre-cutover window (flag off, which appears to be the default), an invalid `cost_center` string typed into this field will be accepted and stored with **no server-side validation at all**, silently. That's existing, intentional rollout behavior per `centers.js`'s own doctrine comments, not something this spec should change — but the client-side autocomplete (§2.1) is the only real safeguard against typos while the flag is off, which is a good reason to keep it wired to `center.list` rather than treating it as a free-text field.
+**Caveat, applies to both fields:** both branches sit inside `if (derivationEnabled)` — `enrichAndValidate` only runs either check when `isDerivationEnabled(companyId)` returns true (`center_derivation_enabled`). Unlike the prior draft of this spec, that's now a genuinely *different* condition from what gates the fields' visibility (§2.1's `centersConfigured`, sourced from whether any center exists — not from this setting). So the "visible but not validated" gap flagged as resolved in the prior draft is back, specifically for a company with centers configured but the derivation flag still off: the fields show, autocomplete works, but a typed value that happens to be wrong (unknown id, wrong type, inactive) is accepted with no server-side rejection. §2.1 documents this as a known, deliberate tradeoff rather than something this section should silently paper over. The client-side autocomplete (§2.2/§2.3) is the only real safeguard against typos in that state, which is a good reason to keep both wired to `center.list` rather than free-text fields regardless of how the flag question gets resolved.
 
 ---
 
@@ -205,8 +254,8 @@ No change to FB.form cell semantics — this remains a plain text input with `FB
 | Journal | Debit / Credit |
 | Doc Nr (auto, read-only) | Line Description |
 | Description | Tax Code (VAT) + computed VAT — unchanged, VAT-gated |
-| **Currency** *(new, fxTracking-gated)* | **Cost Center** *(new)* |
-| **FX Rate** *(new, shown when Currency ≠ base)* | — |
+| **Currency** *(new, fxTracking-gated)* | **Cost Center** *(new, shown when a center is configured)* |
+| **FX Rate** *(new, shown when Currency ≠ base)* | **Profit Center** *(new, shown when a center is configured, mutually exclusive with Cost Center)* |
 
 ---
 
@@ -214,7 +263,8 @@ No change to FB.form cell semantics — this remains a plain text input with `FB
 
 - If `fxTracking === 'true'` and Currency is set to a non-base currency with no resolvable rate and no manual override → block post: *"Exchange rate required for `<CCY>`."* (mirrors the existing `diff !== 0` disable pattern on `btn-post`).
 - Currency, if entered, must be a 3-letter code present in `/db/currencies.json` — the same static list `bill-edit.js` fetches (`fetch('/db/currencies.json')`, line ~240) for its own `be-ccy` field; fetch it the same way for parity rather than hardcoding a list in `journal-voucher.js`.
-- Cost Center: no new client-side existence check is needed beyond what `deriveProfitCenter` already enforces server-side (§2.3) when `center_derivation_enabled` is on. When it's off, there is currently no server-side rejection of an unknown `cost_center` string — the client-side autocomplete (§2.1) is the only guard, which is expected/unchanged rollout behavior, not a defect this spec introduces or needs to close.
+- Cost Center / Profit Center: no new client-side existence check is needed beyond what `deriveProfitCenter` / the direct-profit-center branch already enforce server-side (§2.6) when `center_derivation_enabled` is on. Note that's a narrower condition than field visibility (§2.1's `centersConfigured`) — a company with centers configured but that flag still off will see the fields with no server-side rejection of a bad value typed into them. Documented as a known tradeoff in §2.1/§2.6, not something this spec closes.
+- Mutual exclusivity (§2.4) is enforced client-side only; there is no server-side rejection of a payload carrying both `cost_center` and `profit_center` on one line — `journal.post` just applies its existing precedence (cost-center derivation wins) silently. Client-side prevention is the only safeguard, which is why §2.4 is not optional.
 - Account field: unchanged — must resolve to a known `account_code`, else `"Unknown account(s): …"` (existing check, now checked once per line as today).
 
 ---
@@ -224,20 +274,25 @@ No change to FB.form cell semantics — this remains a plain text input with `FB
 - No customer/vendor ("Name") tagging per line.
 - No draft/save-without-posting state for manually-typed vouchers — `w`/"Post Entry" remains the only save path, unchanged.
 - No mixed-currency lines within a single voucher (Currency stays header-level, applied uniformly). If a genuine need for per-line currency on manual entries surfaces later, it is a separate spec.
-- No UI change to Bills (`bill-edit.js`) — it already has both fields; it's the reference pattern, not a target of this work.
+- No UI change to Bills (`bill-edit.js`) — it already has the cost-center field (unconditionally visible, unlike this spec's §2.1 detection) and has no backend path for a direct profit-center posting to expose (§0); it's the reference pattern for §2.2 only, not a target of this work. Its missing visibility detection is noted (§2.1) but not fixed here.
 
 ---
 
 ## 7. Open Questions
 
-- Should Cost Center sit before or after Tax Code in column order? No functional impact — deferred to implementation/design review.
+- Should Cost Center / Profit Center sit before or after Tax Code in column order, and adjacent to each other? No functional impact — deferred to implementation/design review.
 - Should the FX Rate override, once edited by hand, render amber like the Stated-VAT override on Bills, to visually flag a manual override at a glance? Recommended for consistency but not blocking.
+- Should disabling the "off" field in §2.4 (mutual exclusivity) also visually gray it out / show a tooltip explaining why, or is a plain `disabled` attribute sufficient? Recommended: a short inline hint (e.g. "cleared — cost center derives this") rather than a silent disable, so the behavior isn't mysterious.
+- **No longer a visibility blocker, but still a real gap for validation strictness:** there is no Settings UI anywhere in the app to toggle `center_derivation_enabled` — grepped `settings.js`, `master-data.js`, `company.js`, and `admin-page.js`/`admin.js` for it, zero matches. It can only be flipped via a direct `settings.save` API call. Under §2.1's detection-based design this no longer blocks a company from *using* Cost Center/Profit Center on JV — creating a center makes the fields appear regardless of this flag (verified: `center.upsert` doesn't require it). What it still blocks is the stricter server-side behavior (§2.6): auto-derivation of `profit_center` from `cost_center`, and mandatory `profit_center_id` linkage on new Cost centers, only turn on once this flag is set — and right now no owner can set it through the product. Worth raising with whoever owns the centers rollout as a real (if lower-urgency than before) product gap, separate from this spec's scope.
 
 ---
 
 ## 8. Rollout / Testing
 
-- `journal-voucher` is explicitly the single-screen key-coverage gate (`tests/keys-coverage.mjs` / `npm run test:keys`, per `ia-spec.md` §11) — the new Currency/FX Rate/Cost Center inputs and the collapsed Account field must all pass that gate (live `FB.keys` set, non-empty hints, every visible interactive control keyboard-managed) before merge.
+- `journal-voucher` is explicitly the single-screen key-coverage gate (`tests/keys-coverage.mjs` / `npm run test:keys`, per `ia-spec.md` §11) — the new Currency/FX Rate/Cost Center/Profit Center inputs and the collapsed Account field must all pass that gate (live `FB.keys` set, non-empty hints, every visible interactive control keyboard-managed) before merge.
+- §2.4's mutual-exclusivity behavior needs its own test: filling Cost Center clears/disables Profit Center and vice versa, and a payload can never be submitted with both populated.
+- §2.1's detection means Cost Center/Profit Center are testable end-to-end simply by seeding one active row in `centers` for a test company — no settings flag needs to be set for the fields to appear (unlike Currency/FX Rate, §1, which still needs `fxTracking` set). A separate test should confirm the fields stay hidden with zero centers seeded, and appear once exactly one exists.
+- A separate test should also cover §2.6's caveat directly: seed a center, leave `center_derivation_enabled` off, and confirm the fields are visible but an invalid `cost_center`/`profit_center` value is still accepted by `journal.post` — documenting the known gap rather than assuming it's closed.
 - `journal.js`'s `getRate()` fallback (§1.4) needs a contract test asserting a foreign-currency line with no `fx_rate` supplied resolves via the FX table/provider rather than defaulting to `0`.
 - Existing contract tests asserting `account_code`-only submission continue to pass unchanged (§3 doesn't change the wire shape of `lines[]`, only how the code is captured client-side).
 
@@ -249,3 +304,6 @@ No change to FB.form cell semantics — this remains a plain text input with `FB
 |------|--------|
 | 2026-08-18 | Initial draft: currency/FX rate + cost center added, account code/name fields consolidated |
 | 2026-08-18 | Review pass: fixed `fxTracking` gate (was mis-stated as matching `bill-edit.js`; `bill-edit.js`'s `!== 'off'` gate is a separate pre-existing bug, called out not copied) · fixed `center_type` filter capitalization (`'Cost'`, not `'cost'`; `bill-edit.js` has the same lowercase bug, called out not copied) · added Currency/FX Rate reversal pre-fill (§3.4, was silently missing) · added Currency display to view-mode/posted rendering (§3.5, was silently missing) · corrected `fx.rates.get` call shape to nest params under `body` · added `/db/currencies.json` fetch-path parity note · clarified `deriveProfitCenter` validation is gated by `center_derivation_enabled` and not unconditional |
+| 2026-08-18 | Added a direct **Profit Center** field (§2.3) alongside Cost Center, plus client-side mutual exclusivity (§2.4): `journal.js` has a validated direct-profit-center-only posting branch (`enrichAndValidate`'s `else if (line.profit_center)`) that `bills.js` structurally cannot reach and that has no other UI in the app now that AR/invoicing is dropped — JV is the only reachable path for it. Updated §0, §4, §5, §6, §7, §8 accordingly. |
+| 2026-08-18 | Review pass: answered the "concrete use case?" question re: direct profit-center posting (§0) — mdab_se has no centers configured, so this is designed as a general/industry-standard capability, not one validated against live data (per explicit instruction: "this is a general feature, not tailored to my current needs"). Added §2.1 visibility gating behind `center_derivation_enabled` (superseded by the next entry) so Cost Center/Profit Center don't appear for companies not using the feature — corrects an inconsistency where the original design mirrored `bill-edit.js`'s ungated (and now-flagged-as-buggy) behavior instead of this spec's own §1 precedent. Confirmed via grep that no Settings UI currently exists to toggle `center_derivation_enabled` at all. Renumbered §2.2–§2.6 accordingly and fixed a stale §2.6 caveat that had contradicted the new gating. |
+| 2026-08-18 | Design question: should center visibility be an explicit toggle or detected from configured data? Verified `center.upsert` (`index.js` ~line 1194) doesn't require `center_derivation_enabled` to create a center, removing the circularity concern — data can exist independently of the flag. Reworked §2.1: visibility is now detected server-side from whether the company has any active center configured (`centersConfigured`, a lightweight `EXISTS` query added to `getRelevanceFlags`, computed and baked into the page the same way `vatOn`/`fxOn` already are), not gated behind `center_derivation_enabled` — that flag's documented purpose is migration/derivation strictness, not feature adoption, and repurposing it for visibility was the wrong call in the prior entry. Explicitly re-opened and documented the "visible but not validated" gap this reintroduces for centers configured before the flag is on (§2.1, §2.6, §5) rather than let the prior entry's "resolved" claim stand uncorrected. Downgraded §7's missing-toggle item from a visibility blocker to a validation-strictness gap. Updated §0, §4, §6, §8 and this changelog accordingly. |

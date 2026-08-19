@@ -15,6 +15,10 @@ function buildJournalVoucherPage(company, flags) {
   const vatOn = !flags || flags.vatRegistered !== false;
   const fxOn = !!(flags && flags.fxTracking === 'true');
   const baseCcy = (flags && flags.baseCurrency) || '';
+  // §2.1: Cost Center/Profit Center columns are visible when the company has
+  // ≥1 active center configured (detected server-side by getRelevanceFlags,
+  // not a settings toggle). Same baked-in pattern as vatOn/fxOn.
+  const centersOn = !!(flags && flags.centersConfigured);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -93,8 +97,8 @@ ${commonStyle()}
   <table class="jv-table">
     <thead>
       <tr>
-        <th>Account</th><th class="num">Debit</th><th class="num">Credit</th>
-        <th>Line Description</th>${vatOn ? '<th>Tax Code</th><th class="num">VAT</th>' : ''}<th>Cost Center</th><th></th>
+        <th>Account</th><th class=\"num\">Debit</th><th class=\"num\">Credit</th>
+        <th>Line Description</th>${vatOn ? '<th>Tax Code</th><th class=\"num\">VAT</th>' : ''}${centersOn ? '<th>Cost Center</th><th>Profit Center</th>' : ''}<th></th>
       </tr>
     </thead>
     <tbody id="lines-body"></tbody>
@@ -142,6 +146,7 @@ ${commonStyle()}
   var VAT_ON = ${vatOn ? 'true' : 'false'};
   var BASE_CCY = '${baseCcy}';
   var FX_ON = ${fxOn ? 'true' : 'false'};
+  var CENTERS_ON = ${centersOn ? 'true' : 'false'};
   var accountsMap = {};
   var vatCodes = [];
   var centers = [];
@@ -250,7 +255,10 @@ ${commonStyle()}
     body: JSON.stringify({ action:'center.list', companyId: COMPANY }) })
     .then(r => r.json())
     .then(res => { centers = (res.data || res) || []; })
-    .then(() => { document.querySelectorAll('.cc-input').forEach(attachCenterDd); })
+    .then(() => {
+      document.querySelectorAll('.cc-input').forEach(function (el) { attachCenterDd(el, 'Cost'); });
+      document.querySelectorAll('.pc-input').forEach(function (el) { attachCenterDd(el, 'Profit'); });
+    })
     .catch(() => { /* centers stays empty — autocomplete degrades gracefully */ });
 
   function populateTaxSelect(sel) {
@@ -285,18 +293,19 @@ ${commonStyle()}
     });
   }
 
-  // ── §2.1 Cost Center autocomplete (FB.dropdown) ────────────────────────────
-  // Filtered on center_type === 'Cost' (capitalized — centers.js's
-  // deriveProfitCenter checks !== 'Cost' on stored/validated values; matching
-  // lowercase 'cost' as bill-edit.js does would match nothing against real
-  // data — see spec §2.1 divergence note).
-  function attachCenterDd(input) {
-    if (!window.FB || !FB.dropdown) return;
+  // ── §2.2/§2.3 Cost Center + Profit Center autocomplete (FB.dropdown) ────────
+  // Single parameterized helper: type is 'Cost' or 'Profit', filtered on
+  // c.center_type === type. Capitalized — centers.js's deriveProfitCenter
+  // checks !== 'Cost' on stored/validated values; matching lowercase 'cost'
+  // as bill-edit.js does would match nothing against real data (spec §2.2
+  // divergence note).
+  function attachCenterDd(input, type) {
+    if (!input || !window.FB || !FB.dropdown) return;
     FB.dropdown.attach(input, {
       minWidth: 180,
       source: function (q) {
         q = (q || '').toLowerCase();
-        return centers.filter(function (c) { return c.center_type === 'Cost'; })
+        return centers.filter(function (c) { return c.center_type === type; })
           .filter(function (c) {
             return (c.center_id || '').toLowerCase().indexOf(q) >= 0
               || (c.name || '').toLowerCase().indexOf(q) >= 0;
@@ -304,6 +313,23 @@ ${commonStyle()}
           .map(function (c) { return { primary: c.center_id, secondary: c.name, data: c }; });
       },
       onPick: function (it, inp) { inp.value = it.primary; }
+    });
+  }
+
+  // ── §2.4 Mutual exclusivity — Cost Center vs Profit Center ────────────────
+  // journal.post's precedence silently overwrites profit_center when both
+  // fields are filled (cost-side derivation wins). Prevent the user from
+  // ever having both populated: typing in either clears + disables the other;
+  // clearing a field re-enables its counterpart.
+  function attachCenterExclusivity(ccInput, pcInput) {
+    if (!ccInput || !pcInput) return;
+    ccInput.addEventListener('input', function () {
+      if (ccInput.value.trim()) { pcInput.value = ''; pcInput.disabled = true; }
+      else { pcInput.disabled = false; }
+    });
+    pcInput.addEventListener('input', function () {
+      if (pcInput.value.trim()) { ccInput.value = ''; ccInput.disabled = true; }
+      else { ccInput.disabled = false; }
     });
   }
   // ──────────────────────────────────────────────────────────────────────────
@@ -317,13 +343,22 @@ ${commonStyle()}
       +'<td><input type="text" class="desc-input" style="width:160px" placeholder="optional"></td>'
       +(VAT_ON ? '<td><select class="tax-select" style="width:120px" onchange="updateTotals()"><option value="">\u2014 none \u2014</option></select></td>' : '')
       +(VAT_ON ? '<td class="vat-display" style="width:70px;text-align:right;color:#555">0.00</td>' : '')
-      +'<td><input type="text" class="cc-input" style="width:120px" placeholder="Cost center"></td>'
+      +(CENTERS_ON ? '<td><input type="text" class="cc-input" style="width:120px" placeholder="Cost center"></td>' : '')
+      +(CENTERS_ON ? '<td><input type="text" class="pc-input" style="width:120px" placeholder="Profit center"></td>' : '')
       +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove(); updateTotals()">&times;</button></td>';
     document.getElementById('lines-body').appendChild(tr);
     if (VAT_ON) populateTaxSelect(tr.querySelector('.tax-select'));
     var codeIn = tr.querySelector('.acct-input');
     attachAcctDd(codeIn);
-    attachCenterDd(tr.querySelector('.cc-input'));
+    // §2.2/§2.3: attach center autocompletes + mutual exclusivity (only when
+    // the columns are rendered, i.e. CENTERS_ON).
+    if (CENTERS_ON) {
+      var ccInput = tr.querySelector('.cc-input');
+      var pcInput = tr.querySelector('.pc-input');
+      attachCenterDd(ccInput, 'Cost');
+      attachCenterDd(pcInput, 'Profit');
+      attachCenterExclusivity(ccInput, pcInput);
+    }
     // §3.2: exact code typed directly (no dropdown pick) → resolve to
     // "CODE — Name" display form on blur. If the dropdown already set
     // dataset.code, leave as-is. Unknown text is left untouched —
@@ -465,6 +500,7 @@ ${commonStyle()}
       description:   tr.querySelector('.desc-input').value.trim() || desc || null,
       vat_code:      (function(){ var s = tr.querySelector('.tax-select'); return s ? (s.value || null) : null; })(),
       cost_center:   tr.querySelector('.cc-input') ? (tr.querySelector('.cc-input').value.trim() || null) : null,
+      profit_center: tr.querySelector('.pc-input') ? (tr.querySelector('.pc-input').value.trim() || null) : null,
       currency,
       fx_rate:       fxRate ? Number(fxRate) : undefined,
     })).filter(l => l.account_code && (l.debit > 0 || l.credit > 0));
@@ -611,7 +647,8 @@ ${commonStyle()}
         + '<td>' + esc(l.description || '') + '</td>'
         + (VAT_ON ? '<td>' + esc(l.vat_code || '') + '</td>' : '')
         + (VAT_ON ? '<td class="num">' + (parseFloat(l.vat_amount || 0) || 0).toFixed(2) + '</td>' : '')
-        + '<td>' + esc(l.cost_center || '') + '</td>'
+        + (CENTERS_ON ? '<td>' + esc(l.cost_center || '') + '</td>' : '')
+        + (CENTERS_ON ? '<td>' + esc(l.profit_center || '') + '</td>' : '')
         + '<td></td>';
       body.appendChild(tr);
     });
@@ -666,7 +703,8 @@ ${commonStyle()}
         + '<td>' + esc(l.description || '') + '</td>'
         + (VAT_ON ? '<td>' + esc(l.vat_code || '') + '</td>' : '')
         + (VAT_ON ? '<td class="num">' + (parseFloat(l.vat_amount || 0) || 0).toFixed(2) + '</td>' : '')
-        + '<td>' + esc(l.cost_center || '') + '</td>'
+        + (CENTERS_ON ? '<td>' + esc(l.cost_center || '') + '</td>' : '')
+        + (CENTERS_ON ? '<td>' + esc(l.profit_center || '') + '</td>' : '')
         + '<td></td>';
       body.appendChild(tr);
     });
@@ -859,7 +897,8 @@ ${commonStyle()}
         + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
         + '<td>' + esc(l.description || '') + '</td>'
         + (VAT_ON ? '<td></td><td></td>' : '')
-        + '<td>' + esc(l.cost_center || '') + '</td>'
+        + (CENTERS_ON ? '<td>' + esc(l.cost_center || '') + '</td>' : '')
+        + (CENTERS_ON ? '<td>' + esc(l.profit_center || '') + '</td>' : '')
         + '<td></td>';
       document.getElementById('lines-body').appendChild(otr);
     });
@@ -874,9 +913,11 @@ ${commonStyle()}
       creditIn.value = parseFloat(l.debit  || 0) || '';
       var descIn = tr.querySelector('.desc-input');
       descIn.value = l.description || '';
-      // §2: pre-fill cost center if present on the original line
+      // §2: pre-fill cost center + profit center if present on the original line
       var ccIn = tr.querySelector('.cc-input');
       if (ccIn && l.cost_center) ccIn.value = l.cost_center;
+      var pcIn = tr.querySelector('.pc-input');
+      if (pcIn && l.profit_center) pcIn.value = l.profit_center;
     });
     updateTotals();
     showStatus('Reversal loaded — review and post', false);

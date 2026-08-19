@@ -24,8 +24,11 @@ function makeQuery() {
 //   fxTracking    — 'true' | 'false' (settings.fx_tracking; 'false' locks currency
 //     fields to base currency and hides FX revaluation entry points);
 //   baseCurrency  — companies.currency (the lock target when fxTracking='false').
+//   centersConfigured — boolean (true when ≥1 active row exists in `centers`
+//     for this company; gates the Cost Center/Profit Center JV columns, per
+//     journal-voucher-field-fixes-spec §2.1 — detected, not toggled).
 async function getRelevanceFlags(companyId) {
-  if (!companyId) return { vatRegistered: true, fxTracking: 'false', whtTracking: 'false', baseCurrency: '' };
+  if (!companyId) return { vatRegistered: true, fxTracking: 'false', whtTracking: 'false', baseCurrency: '', centersConfigured: false };
   try {
     const { query } = require('../db');
     const [co] = await query(
@@ -40,14 +43,23 @@ async function getRelevanceFlags(companyId) {
     );
     const settings = {};
     for (const r of sRows) settings[r.key] = r.value;
+    // §2.1: lightweight EXISTS — does this company have ≥1 active center?
+    // Gates JV Cost Center/Profit Center column visibility (detected, not a
+    // settings flag). Computed once here, baked into the page the same way
+    // vatRegistered/fxTracking already are.
+    const [centerRow] = await query(
+      `SELECT 1 FROM centers WHERE company_id = @cid AND is_active = true LIMIT 1`,
+      { cid: String(companyId) }
+    );
     return {
       vatRegistered: !co || co.vat_registered !== false && co.vat_registered !== 0,
       fxTracking: settings.fx_tracking === 'true' ? 'true' : 'false',
       whtTracking: settings.wht_tracking === 'true' ? 'true' : 'false',
-      baseCurrency: (co && co.base_currency) || ''
+      baseCurrency: (co && co.base_currency) || '',
+      centersConfigured: !!centerRow
     };
   } catch (e) {
-    return { vatRegistered: true, fxTracking: 'false', whtTracking: 'false', baseCurrency: '' };
+    return { vatRegistered: true, fxTracking: 'false', whtTracking: 'false', baseCurrency: '', centersConfigured: false };
   }
 }
 
@@ -60,7 +72,8 @@ function flagsBootstrapJson(flags) {
     vatRegistered: f.vatRegistered !== false,
     fxTracking: f.fxTracking === 'false' ? 'false' : 'true',
     whtTracking: f.whtTracking === 'true' ? 'true' : 'false',
-    baseCurrency: f.baseCurrency || ''
+    baseCurrency: f.baseCurrency || '',
+    centersConfigured: f.centersConfigured === true
   });
 }
 

@@ -2133,4 +2133,21 @@ async function shutdown(signal) {
 process.on('SIGINT',  () => shutdown('SIGINT').catch(() => process.exit(1)));
 process.on('SIGTERM', () => shutdown('SIGTERM').catch(() => process.exit(1)));
 
+// Export app and all in-process handlers used by the agent-loop dispatch
+// table. The dispatch table in dispatchAction() calls require('./index').handleX
+// for modules whose handlers live in this file — without these exports, those
+// calls return undefined and crash with "is not a function".
 module.exports = app;
+module.exports.handleCoa = handleCoa;
+module.exports.handleMapping = handleMapping;
+module.exports.handleMatchingHistory = handleMatchingHistory;
+module.exports.handleInputRejection = handleInputRejection;
+module.exports.handleCalibration = handleCalibration;
+module.exports.handleCenter = handleCenter;
+module.exports.handleJournals = handleJournals;
+module.exports.handleSettings = handleSettings;
+module.exports.handlePeriodsService = handlePeriodsService;
+module.exports.handlePermissions = handlePermissions;
+module.exports.handleSetup = handleSetup;
+module.exports.handleDiag = handleDiag;
+module.exports.handleAgent = handleAgent;

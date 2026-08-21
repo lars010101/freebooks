@@ -78,7 +78,7 @@ if (action === 'permissions.delete') {
 
 Importing `ROLE_HIERARCHY` from `auth.js` rather than re-declaring the role list here is deliberate: it's already the single source of truth the permission checker itself uses (`checkPermission`/`resolveActor`). Duplicating it as a literal array in the handler would work today but silently drift the moment a role is added to `auth.js` — the Access tab would then reject the new role with "role must be one of…" for no diagnosable reason.
 
-### 2.4a Email case sensitivity (client side)
+### 2.1a Email case sensitivity (client side)
 
 The server-side normalization above is the actual fix, but it should be mirrored client-side so the grid doesn't render two rows that look identical-but-different while a save is in flight. In the FB.list config's `validate()` (§3.2):
 
@@ -134,6 +134,55 @@ Unrelated pre-existing gap, surfaced while reading this code: `getAgentAccount()
 
 Not a blocker for this spec's actual value, though: `permissions.upsert` writes `company_id = @companyId` rows (§2.1), so the Access tab's own agent-grant flow (the pain point from the original ticket) is unaffected either way — this gap only bites the separate, no-UI-today path of a `'*'`-scoped agent grant.
 
+### 2.6 Multiple `agent`-role rows — pipeline identity must be explicit, not picked
+
+The Access tab makes it trivial to grant the `agent` role to more than one email (e.g. one account for the built-in pipeline, another for an MCP integration — both legitimate). `getAgentAccount()`'s `SELECT email ... WHERE role = 'agent' LIMIT 1` has no `ORDER BY`, so with 2+ candidates the "winner" is whatever DuckDB happens to return — undefined today, and liable to shift further once `permissions.upsert`'s delete-then-insert (§2.1) starts reordering rows on unrelated edits.
+
+A deterministic tiebreak (`ORDER BY granted_at ASC`) would remove the *nondeterminism* but not the actual problem: it would still silently pick one of several agent accounts with no visibility into which, or why, and no way to change the choice short of revoking the "wrong" one's agent role entirely — which may be needed for its own integration. That's not a fix, just a quieter version of the same bug. The real fix is to stop inferring the pipeline's identity from "any row that happens to have the agent role" and make it an explicit, single-valued setting instead:
+
+- **New setting**, same shape as every other AI-tab key (`settings` table, per-company): `agent_pipeline_email`.
+- **`ai.attr.list`** gains a `Choice`-type row, same pattern already used for FX Provider / Default Accounts (single-holder select sourced from live data, not a hardcoded list):
+  ```js
+  { key: 'agent_pipeline_email', label: 'Pipeline agent account', type: 'Choice',
+    value: s.agent_pipeline_email || '', display: s.agent_pipeline_email || dash,
+    editor: { type: 'select', nullable: true,
+      options: await query(
+        `SELECT DISTINCT email FROM user_permissions
+         WHERE (company_id = @companyId OR company_id = '*') AND role = 'agent'
+         ORDER BY email`, { companyId }
+      ).then(rows => rows.map(r => r.email)) } }
+  ```
+  Empty/`- none -` is a valid selection (zero agent accounts, or "not configured yet") — the poller's existing "no agent-role account — skipping" warning already covers that state.
+- **`ai.attr.save`** validates the chosen email still holds the `agent` role for this company (or `'*'`) at save time, same server-authoritative posture as every other AI-tab field: reject with `INVALID_INPUT` — *"X does not have the agent role — grant it in Admin → Access first"* — rather than silently accepting a stale choice.
+- **`getAgentAccount()` becomes:**
+  ```js
+  async function getAgentAccount(companyId) {
+    const s = await getCompanySettings(companyId);
+    if (s.agent_pipeline_email) {
+      const [row] = await query(
+        `SELECT 1 FROM user_permissions
+         WHERE (company_id = @cid OR company_id = '*') AND role = 'agent' AND email = @email LIMIT 1`,
+        { cid: companyId, email: s.agent_pipeline_email }
+      );
+      if (row) return s.agent_pipeline_email;
+      warn(`company ${companyId}: configured agent_pipeline_email (${s.agent_pipeline_email}) no longer has the agent role`);
+      return null; // fail closed, don't fall back to guessing among the rest
+    }
+    // Not configured: the common zero-setup case is exactly one agent-role account —
+    // keep that working with no config needed. 0 or 2+ candidates without an explicit
+    // choice is refused rather than guessed at.
+    const candidates = await query(
+      `SELECT DISTINCT email FROM user_permissions
+       WHERE (company_id = @cid OR company_id = '*') AND role = 'agent'`, { cid: companyId }
+    );
+    if (candidates.length === 1) return candidates[0].email;
+    if (candidates.length > 1) warn(`company ${companyId}: ${candidates.length} agent-role accounts and no agent_pipeline_email configured — set one in Settings \u2192 AI`);
+    return null;
+  }
+  ```
+
+This keeps zero-config installs working exactly as today (one agent account → just works), turns the ambiguous case into a clear, actionable warning instead of a silent wrong guess, and once configured makes the pipeline's identity a visible setting instead of an emergent property of row order. It also folds the §2.5 gap into the same query (`OR company_id = '*'` is already present above), so implementing this supersedes fixing §2.5 separately rather than duplicating the work.
+
 ---
 
 ## 3. UI — Access tab
@@ -185,7 +234,7 @@ var accessList = FB.list.create({
   same: function(b, s) { return b.email === s.email && b.role === s.role; },
   validate: function(d) {
     if (!d.email) return 'Email required.';
-    d.email = d.email.trim().toLowerCase(); // \u00a72.4a \u2014 normalize before same()/save() see it
+    d.email = d.email.trim().toLowerCase(); // \u00a72.1a \u2014 normalize before same()/save() see it
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) return 'Not a valid email address.';
     return null; // role membership + last-owner guard are server-authoritative (\u00a72.1/\u00a72.3)
   },
@@ -227,18 +276,18 @@ If the last-owner guard (§2.3) rejects a write, the row's `w` fails and the row
 
 ## 4. Closing the actual pain point (the AI tab)
 
-The original bug report's flow was: enable the agent pipeline → agent loop finds no `agent`-role account → stuck. With this tab, the fix is real (Admin → Access → add row, email + `Agent` role, `w`) instead of a SQL escape hatch. Two small connective changes make that discoverable instead of requiring the reader to already know Access exists:
+The original bug report's flow was: enable the agent pipeline → agent loop finds no `agent`-role account → stuck. With this tab, the fix is real (Admin → Access → add row, email + `Agent` role, `w`) instead of a SQL escape hatch. Two connective changes on the AI tab make that discoverable and, once more than one agent account exists, actually necessary:
 
-1. **AI tab, "Enable agent pipeline" row** — when toggled on and no agent-role account exists for the company, show inline guidance next to the row (not a blocking error — the toggle itself should still save): *"No agent account configured yet \u2014 [Admin \u2192 Access](/:company/admin?tab=access)."* This requires `ai.attr.list` (or a light new read) to check `SELECT 1 FROM user_permissions WHERE (company_id=@companyId OR company_id='*') AND role='agent'` and pass a flag through; cheap, one query, cached the same 60s window as everything else in `auth.js` if desired.
-2. **`settings-ai-flattened-spec.md` open question #2** ("where does Agent status surface once it's off this tab") is partially answered: the *account* half of agent status belongs on Access (does an agent identity exist at all); the *runtime* half (is the loop actually running, last poll time) stays a separate, still-open concern for Admin → Operations or a dashboard, unchanged by this spec.
+1. **"Pipeline agent account" row (§2.6)** — the `agent_pipeline_email` picker. In the common single-agent-account case it's optional (the zero-config fallback in §2.6 just works); the moment a second `agent`-role account exists anywhere reachable by this company, it stops being optional — `getAgentAccount()` refuses to guess and the pipeline sits idle with a log warning until someone picks one here. So this isn't additive polish sitting alongside the Access tab; it's the piece that keeps the pipeline runnable once Access makes multiple agent accounts easy to create. Empty state when zero agent accounts exist at all: *"No agent account configured yet — [Admin → Access](/:company/admin?tab=access)."*
+2. **`settings-ai-flattened-spec.md` open question #2** ("where does Agent status surface once it's off this tab") is now more fully answered: the *account* half of agent status is this row — which email is configured, and (via §2.6's save-time validation) whether it's actually a valid agent account right now. The *runtime* half (is the loop actually running, last poll time) stays a separate, still-open concern for Admin → Operations or a dashboard, unchanged by this spec.
 
-This is additive polish, not a hard dependency — the Access tab is useful and shippable without it.
+Sequencing note: §2.6 (the setting + picker) should ship in the same pass as the Access tab, not as a follow-up — Access is what makes a second agent account trivial to create, so shipping one without the other reopens a silent-failure window the moment someone adds a second agent grant for an unrelated integration (e.g. an MCP client) without realizing it now shadows the built-in pipeline's account resolution.
 
 ---
 
 ## 5. Roles shown
 
-All four roles from `auth.js`'s `ROLE_HIERARCHY` are selectable: `owner` (3), `data_entry` (2), `agent` (1.5), `viewer` (1). No role is hidden or specially gated in the picker — an owner can grant any role to anyone, including creating additional owners or multiple agent accounts (the loop only needs *one*, but nothing stops more; `agent-loop.js`'s `getAgentAccount` takes `LIMIT 1`, so a second agent row is inert, not harmful — worth a one-line hint if it comes up, not a blocker).
+All four roles from `auth.js`'s `ROLE_HIERARCHY` are selectable: `owner` (3), `data_entry` (2), `agent` (1.5), `viewer` (1). No role is hidden or specially gated in the picker — an owner can grant any role to anyone, including creating additional owners or multiple agent accounts. Multiple agent accounts are a legitimate pattern (one per integration — the built-in pipeline, an MCP client, etc.), not just tolerated: see §2.6 for how the built-in pipeline picks *which* one is its own identity once more than one exists.
 
 ---
 
@@ -282,7 +331,7 @@ No direct test of `permissions.save`/`permissions.list` exists today (grep confi
 ## 9. Open questions / explicitly deferred
 
 1. **Managing `'*'` (global) grants themselves.** This tab surfaces them read-only; creating/editing/revoking a cross-company grant has no UI anywhere and stays deferred, same as `settings-ux-spec.md` §7 always intended (paired with an eventual audit-log viewer).
-2. **`agent-loop.js`'s `getAgentAccount` missing `OR company_id = '*'`** (§2.5) — real, pre-existing, one-line fix; bundle with this work or file separately, implementer's call.
+2. ~~`agent-loop.js`'s `getAgentAccount` missing `OR company_id = '*'`~~ — resolved by §2.6: the rewritten `getAgentAccount()` already includes `OR company_id = '*'` in both its configured-email check and its zero-config candidate query, so this is fixed as a byproduct rather than a separate loose end.
 3. **Retire `permissions.save` or keep it?** No caller today; Centers kept its bulk `center.save` around post-migration rather than force a removal in the same PR. Same "implementer's call, low urgency" applies here.
-4. **AI-tab tie-in (§4)** is a nice-to-have close of an existing open question in `settings-ai-flattened-spec.md`, not a hard dependency — can ship in a follow-up if it doesn't fit the same PR.
+4. **AI-tab tie-in (§4)** is no longer optional polish, per §2.6's sequencing note — the `agent_pipeline_email` picker should land alongside the Access tab itself, not as a follow-up.
 5. **`granted_by` will be `null`** for grants made through this tab in the default trust mode, for the same reason §7 describes (no identity on browser calls). Harmless today (nothing reads it back), but worth knowing before treating it as an audit trail.

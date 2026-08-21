@@ -61,30 +61,39 @@ One key stored with a synthetic `company_id = '__install__'`:
 
 ```js
 // Started once at boot when any company has agent_enabled = 'true'
-// One setInterval, walks all company inbox roots
-setInterval(() => {
-  for (const company of companies) {
-    const inboxPath = settings[company].agent_inbox_path || defaultInbox;
-    scanFolder(inboxPath, company.company_id);
+// Uses fs.watch() (inotify on Linux) for instant detection, with a polling
+// fallback for unsupported filesystems (NFS, etc.)
+//
+// 1. Immediate startup scan — catches files dropped while server was down
+// 2. fs.watch() on each company subfolder — instant, zero idle CPU
+// 3. If fs.watch() fails, falls back to setInterval(readdir)
+for (const company of companies) {
+  for (const subfolder of ['bank','bills','receipts','journal']) {
+    fs.watch(inboxPath/company/subfolder, (eventType, filename) => {
+      processFile(company, subfolder, filename);
+    });
   }
-}, watcherInterval);
+}
 ```
 
-### scanFolder logic
+### file processing logic
 
-1. `readdir` each subfolder (`bank/`, `bills/`, `receipts/`, `journal/`)
-2. For each file not yet processed (tracked by content sha256 vs `attachments` table):
-   - Read file, base64-encode
-   - Call `attachment.upload` handler directly (in-process function call)
-   - Pass `Idempotency-Key: feed-<sha256>` for dedup
-   - Log result
-3. Startup scan: on boot, scan all folders — catches files dropped while the server was down (the inotify script couldn't do this)
+1. `fs.watch()` fires on file creation/rename into the watched directory
+2. Debounce 300ms — coalesces rapid rename+change bursts from one logical write
+3. Verify extension matches the subfolder's accepted types
+4. Content-hash dedup (sha256 vs `attachments` table)
+5. Read file, base64-encode
+6. Call `attachment.upload` handler directly (in-process function call)
+7. Pass `Idempotency-Key: feed-<sha256>` for dedup
+8. Log result
 
-### Why polling over fs.watch/inotify
+### Startup scan
 
-- **Robustness:** `setInterval` + `readdir` catches files dropped while the server was down. `inotify`/`fs.watch` only catches events while running — missed files sit unnoticed.
-- **Simplicity:** no event subscriptions, no debouncing partial writes, no platform quirks.
-- **Latency is irrelevant:** bank statement processing is a background task. 5 seconds of delay is invisible.
+On boot, a one-time `readdir` sweep of all folders — catches files dropped while the server was down (`fs.watch` only sees events after it starts). This is the same scan used for the polling fallback.
+
+### Polling fallback
+
+If `fs.watch()` fails on a folder (NFS, unsupported filesystem, or environments without inotify), the watcher falls back to `setInterval(readdir, 30000)` for those folders. The fallback interval is configurable via `feed_watcher_interval_ms` (install-level setting).
 
 ### Dedup strategy
 

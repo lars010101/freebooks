@@ -121,6 +121,14 @@ module.exports = { ts, log, warn, err, getCompanySettings, getEnabledCompanies, 
 // ── CSV parsing (ported from B7) ────────────────────────────────────────────
 
 function parseCsvRows(text) {
+  // Auto-detect delimiter: Swedish/European Excel exports use semicolons,
+  // English exports use commas. Count which is more common in the first
+  // non-empty line and use that as the delimiter for the whole file.
+  const sampleLine = text.split(/\r?\n/).find((l) => l.trim()) || '';
+  const semiCount = (sampleLine.match(/;/g) || []).length;
+  const commaCount = (sampleLine.match(/,/g) || []).length;
+  const delimiter = semiCount > commaCount ? ';' : ',';
+
   const rows = [];
   let row = [];
   let field = '';
@@ -137,7 +145,7 @@ function parseCsvRows(text) {
       continue;
     }
     if (c === '"') { inQuotes = true; continue; }
-    if (c === ',') { row.push(field); field = ''; continue; }
+    if (c === delimiter) { row.push(field); field = ''; continue; }
     if (c === '\r') { continue; }
     if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; continue; }
     field += c;

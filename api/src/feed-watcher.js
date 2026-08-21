@@ -2,14 +2,13 @@
 /**
  * In-process feed watcher (Phase B9).
  *
- * Polls company inbox folders on a setInterval, detects new files by content
- * hash dedup against the attachments table, and uploads them via the attachment
- * handler directly (in-process function call, no HTTP).
+ * Uses fs.watch() (inotify on Linux) for instant file detection — zero polling,
+ * zero idle CPU. Falls back to interval-based readdir polling if fs.watch()
+ * fails (NFS, unsupported filesystem, or environments without inotify).
  *
  * Started at boot when any company has agent_enabled = 'true' (consolidated
  * gate — previously required a separate feed_watcher_enabled install-level
- * setting, which had no UI and caused silent failures). One interval serves
- * all companies — no per-company timers.
+ * setting, which had no UI and caused silent failures).
  *
  * Folder structure (multi-tenant):
  *   {inbox_path}/{company_id}/bank/     → entityType: bank_statement
@@ -34,12 +33,15 @@ const SUBFOLDERS = {
   journal:  { entityType: 'journal_proposal', exts: ['.pdf', '.jpg', '.jpeg', '.png'] },
 };
 
-const DEFAULT_INTERVAL_MS = 5000;
+const DEFAULT_FALLBACK_INTERVAL_MS = 30000; // polling fallback only
+const DEBOUNCE_MS = 300; // coalesce rapid rename/write bursts
 const INSTALL_COMPANY_ID = '__install__';
 
-let _timer = null;
+let _watchers = [];       // fs.watch() handles, one per subfolder per company
+let _fallbackTimer = null; // setInterval handle for polling fallback
 let _lastScan = null;
 let _shuttingDown = false;
+let _uploadFn = null;
 
 function ts() { return new Date().toISOString(); }
 function log(...args) { console.log(`[${ts()}] [feed-watcher]`, ...args); }
@@ -97,9 +99,62 @@ function fileSha256(filePath) {
 }
 
 /**
+ * Process a single file: hash dedup, read, upload.
+ */
+async function processFile(companyId, subfolder, filePath, filename, config) {
+  if (_shuttingDown) return;
+
+  const ext = path.extname(filename).toLowerCase();
+  if (!config.exts.includes(ext)) return;
+
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch (e) {
+    return; // file may have been moved/deleted between event and processing
+  }
+  if (!stat.isFile()) return;
+
+  // Content-hash dedup
+  let hash;
+  try {
+    hash = fileSha256(filePath);
+  } catch (e) {
+    warn(`could not hash ${filePath}: ${e.message}`);
+    return;
+  }
+
+  if (await isAlreadyUploaded(companyId, hash)) return;
+
+  // Read and upload
+  let buffer;
+  try {
+    buffer = fs.readFileSync(filePath);
+  } catch (e) {
+    warn(`could not read ${filePath}: ${e.message}`);
+    return;
+  }
+
+  const contentType = ext === '.csv' ? 'text/csv'
+    : ext === '.pdf' ? 'application/pdf'
+    : ext === '.png' ? 'image/png'
+    : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
+    : 'application/octet-stream';
+
+  const entityId = uuid();
+  const idempotencyKey = `feed-${hash}`;
+
+  try {
+    await _uploadFn(companyId, config.entityType, entityId, filename, buffer, contentType, idempotencyKey);
+    log(`uploaded ${companyId}/${subfolder}/${filename} (${config.entityType})`);
+  } catch (e) {
+    warn(`upload failed for ${companyId}/${subfolder}/${filename}: ${e.message}`);
+  }
+}
+
+/**
  * Scan a single company's inbox folders for new files.
- * Calls the provided uploadFn(companyId, entityType, entityId, filename, buffer, contentType)
- * for each new file found.
+ * Used for startup sweep and polling fallback.
  */
 async function scanCompanyFolders(companyId, inboxPath, uploadFn) {
   for (const [subfolder, config] of Object.entries(SUBFOLDERS)) {
@@ -116,54 +171,8 @@ async function scanCompanyFolders(companyId, inboxPath, uploadFn) {
 
     for (const filename of files) {
       if (_shuttingDown) return;
-
-      const ext = path.extname(filename).toLowerCase();
-      if (!config.exts.includes(ext)) continue;
-
       const filePath = path.join(dir, filename);
-      let stat;
-      try {
-        stat = fs.statSync(filePath);
-      } catch (e) {
-        continue; // file may have been moved/deleted between readdir and stat
-      }
-      if (!stat.isFile()) continue;
-
-      // Content-hash dedup
-      let hash;
-      try {
-        hash = fileSha256(filePath);
-      } catch (e) {
-        warn(`could not hash ${filePath}: ${e.message}`);
-        continue;
-      }
-
-      if (await isAlreadyUploaded(companyId, hash)) continue;
-
-      // Read and upload
-      let buffer;
-      try {
-        buffer = fs.readFileSync(filePath);
-      } catch (e) {
-        warn(`could not read ${filePath}: ${e.message}`);
-        continue;
-      }
-
-      const contentType = ext === '.csv' ? 'text/csv'
-        : ext === '.pdf' ? 'application/pdf'
-        : ext === '.png' ? 'image/png'
-        : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
-        : 'application/octet-stream';
-
-      const entityId = uuid();
-      const idempotencyKey = `feed-${hash}`;
-
-      try {
-        await uploadFn(companyId, config.entityType, entityId, filename, buffer, contentType, idempotencyKey);
-        log(`uploaded ${companyId}/${subfolder}/${filename} (${config.entityType})`);
-      } catch (e) {
-        warn(`upload failed for ${companyId}/${subfolder}/${filename}: ${e.message}`);
-      }
+      await processFile(companyId, subfolder, filePath, filename, config);
     }
   }
 }
@@ -195,54 +204,152 @@ async function scanOnce(uploadFn) {
 }
 
 /**
- * Start the watcher. The uploadFn is injected by the caller (server.js)
+ * Set up fs.watch() on a single company's subfolder.
+ * Returns the watcher handle, or null if watch failed (caller should fall back to polling).
+ */
+function watchCompanySubfolder(companyId, subfolder, dir, config) {
+  let watcher;
+  try {
+    watcher = fs.watch(dir, { persistent: false }, (eventType, filename) => {
+      if (!filename || _shuttingDown) return;
+
+      const filePath = path.join(dir, filename);
+      const ext = path.extname(filename).toLowerCase();
+      if (!config.exts.includes(ext)) return;
+
+      // Debounce: fs.watch can fire multiple events for one logical
+      // operation (rename + change, or multiple writes during copy).
+      // Wait DEBOUNCE_MS then process the file once.
+      if (watcher._debounceTimer) clearTimeout(watcher._debounceTimer);
+      watcher._debounceTimer = setTimeout(() => {
+        watcher._debounceTimer = null;
+        if (_shuttingDown) return;
+        // Verify file still exists (rename events fire for both src and dst)
+        if (!fs.existsSync(filePath)) return;
+        processFile(companyId, subfolder, filePath, filename, config).catch((e) => {
+          warn(`error processing ${filePath}: ${e.message}`);
+        });
+      }, DEBOUNCE_MS);
+    });
+  } catch (e) {
+    warn(`fs.watch failed on ${dir}: ${e.message} — will use polling fallback`);
+    return null;
+  }
+
+  // fs.watch can emit 'error' events (e.g. watched directory deleted)
+  watcher.on('error', (e) => {
+    warn(`watch error on ${dir}: ${e.message || e}`);
+  });
+
+  return watcher;
+}
+
+/**
+ * Start the watcher. The uploadFn is injected by the caller (server.js / index.js)
  * to avoid a circular dependency on index.js.
+ *
+ * Strategy:
+ * 1. Run an immediate full scan (catches files dropped while server was down)
+ * 2. Set up fs.watch() on each company's subfolders (instant detection)
+ * 3. If fs.watch() fails on all folders, fall back to interval-based polling
  *
  * @param {function} uploadFn — async (companyId, entityType, entityId, filename, buffer, contentType, idempotencyKey) => void
  */
 function startFeedWatcher(uploadFn) {
-  if (_timer) {
+  if (_watchers.length > 0 || _fallbackTimer) {
     warn('already running');
     return;
   }
   _shuttingDown = false;
+  _uploadFn = uploadFn;
 
-  // Run an immediate scan on startup (catches files dropped while server was down)
-  scanOnce(uploadFn).catch((e) => warn(`startup scan failed: ${e.message}`));
+  // 1. Immediate startup scan — catches files dropped while server was down.
+  //    fs.watch only sees events after it starts, so anything already in the
+  //    folder would be missed without this.
+  scanOnce(uploadFn).then(async () => {
+    if (_shuttingDown) return;
 
-  // Read interval from settings (checked once at start; restart to change)
-  getInstallSetting('feed_watcher_interval_ms').then((val) => {
-    const intervalMs = val && Number(val) > 0 ? Math.floor(Number(val)) : DEFAULT_INTERVAL_MS;
+    // 2. Set up fs.watch() on each company's subfolders
+    let companies;
+    try {
+      companies = await getAllCompanies();
+    } catch (e) {
+      warn(`could not list companies for watch setup: ${e.message}`);
+      return;
+    }
 
-    _timer = setInterval(() => {
-      scanOnce(uploadFn).catch((e) => warn(`scan cycle failed: ${e.message}`));
-    }, intervalMs);
-    _timer.unref(); // don't keep the event loop alive on its own
+    let watchCount = 0;
+    let fallbackNeeded = false;
 
-    log(`started (interval=${intervalMs}ms)`);
-  }).catch((e) => {
-    warn(`could not read feed_watcher_interval_ms, using default ${DEFAULT_INTERVAL_MS}ms: ${e.message}`);
-    _timer = setInterval(() => {
-      scanOnce(uploadFn).catch((e) => warn(`scan cycle failed: ${e.message}`));
-    }, DEFAULT_INTERVAL_MS);
-    _timer.unref();
-    log(`started (interval=${DEFAULT_INTERVAL_MS}ms, default)`);
-  });
+    for (const { company_id: companyId } of companies) {
+      if (_shuttingDown) return;
+      const inboxPath = await getCompanyInboxPath(companyId);
+
+      for (const [subfolder, config] of Object.entries(SUBFOLDERS)) {
+        if (_shuttingDown) return;
+        const dir = path.join(inboxPath, companyId, subfolder);
+        if (!fs.existsSync(dir)) continue;
+
+        // Ensure directory exists — create it so the user can drop files
+        // without having to pre-create the structure
+        try {
+          fs.mkdirSync(dir, { recursive: true });
+        } catch { /* may already exist */ }
+
+        const watcher = watchCompanySubfolder(companyId, subfolder, dir, config);
+        if (watcher) {
+          _watchers.push(watcher);
+          watchCount++;
+        } else {
+          fallbackNeeded = true;
+        }
+      }
+    }
+
+    // 3. If any watch setup failed, or no folders exist to watch, use polling fallback
+    if (fallbackNeeded || watchCount === 0) {
+      const intervalMs = await getFallbackInterval();
+      _fallbackTimer = setInterval(() => {
+        scanOnce(uploadFn).catch((e) => warn(`fallback scan failed: ${e.message}`));
+      }, intervalMs);
+      _fallbackTimer.unref();
+      log(`started (inotify on ${watchCount} folder(s), polling fallback every ${intervalMs}ms)`);
+    } else {
+      log(`started (inotify on ${watchCount} folder(s))`);
+    }
+  }).catch((e) => warn(`startup scan failed: ${e.message}`));
+}
+
+async function getFallbackInterval() {
+  try {
+    const val = await getInstallSetting('feed_watcher_interval_ms');
+    return val && Number(val) > 0 ? Math.floor(Number(val)) : DEFAULT_FALLBACK_INTERVAL_MS;
+  } catch {
+    return DEFAULT_FALLBACK_INTERVAL_MS;
+  }
 }
 
 function stopFeedWatcher() {
   _shuttingDown = true;
-  if (_timer) {
-    clearInterval(_timer);
-    _timer = null;
+  for (const w of _watchers) {
+    if (w._debounceTimer) clearTimeout(w._debounceTimer);
+    w.close();
   }
+  _watchers = [];
+  if (_fallbackTimer) {
+    clearInterval(_fallbackTimer);
+    _fallbackTimer = null;
+  }
+  _uploadFn = null;
   log('stopped');
 }
 
 function getStatus() {
   return {
-    running: !!_timer,
+    running: _watchers.length > 0 || !!_fallbackTimer,
     lastScan: _lastScan ? new Date(_lastScan).toISOString() : null,
+    watchers: _watchers.length,
+    fallback: !!_fallbackTimer,
   };
 }
 

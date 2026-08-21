@@ -12,7 +12,7 @@ const express = require('express');
 const cors = require('cors');
 const { v4: uuid } = require('uuid');
 
-const { checkPermission, resolveActor, resolveToken, remoteTokenRequired } = require('./auth');
+const { checkPermission, resolveActor, resolveToken, remoteTokenRequired, ROLE_HIERARCHY } = require('./auth');
 const { handleJournal } = require('./journal');
 const { handleInbox } = require('./inbox');
 const { handleBank } = require('./bank');
@@ -70,6 +70,7 @@ const ERROR_STATUS = {
   INVALID_PARTNER_TYPE: 400,
   UNKNOWN_ACTION: 400,
   PERIOD_UNDEFINED: 400,
+  INVALID_STATE: 400,
   NOT_FOUND: 404,
   FORBIDDEN: 403,
   UNAUTHENTICATED: 401,
@@ -1809,6 +1810,19 @@ async function handleSettings(ctx, action) {
 
 // --- Permissions ---
 
+async function assertNotLastOwner(companyId, { excludeEmail, newRole }) {
+  if (newRole === 'owner') return; // still an owner after the write, trivially fine
+  const rows = await query(
+    `SELECT 1 FROM user_permissions
+     WHERE (company_id = @companyId OR company_id = '*') AND role = 'owner' AND email != @excludeEmail
+     LIMIT 1`,
+    { companyId, excludeEmail }
+  );
+  if (rows.length === 0) {
+    throw Object.assign(new Error(`Cannot remove the last owner of "${companyId}". Grant another owner first.`), { code: 'INVALID_STATE' });
+  }
+}
+
 async function handlePermissions(ctx, action) {
   const { companyId, body, userEmail } = ctx;
 
@@ -1824,6 +1838,34 @@ async function handlePermissions(ctx, action) {
     const rows = permissions.map((p) => ({ email: p.email, company_id: companyId, role: p.role, granted_at: now, granted_by: userEmail }));
     if (rows.length > 0) await bulkInsert('user_permissions', rows);
     return { saved: rows.length };
+  }
+
+  if (action === 'permissions.upsert') {
+    let { email, role } = body;
+    if (!email) throw Object.assign(new Error('email required'), { code: 'INVALID_INPUT' });
+    const ROLES = Object.keys(ROLE_HIERARCHY);
+    if (!ROLES.includes(role)) throw Object.assign(new Error(`role must be one of ${ROLES.join(', ')}`), { code: 'INVALID_INPUT' });
+    email = email.toLowerCase(); // normalize BEFORE the DELETE match — DuckDB string comparison
+                                  // is case-sensitive; without this, upserting "Agent@x.com" then
+                                  // "agent@x.com" misses the existing row and creates a silent
+                                  // duplicate instead of updating it (see §2.4a)
+
+    await assertNotLastOwner(companyId, { excludeEmail: email, newRole: role }); // §2.3
+
+    const now = new Date().toISOString();
+    await exec(`DELETE FROM user_permissions WHERE company_id = @companyId AND email = @email`, { companyId, email });
+    await bulkInsert('user_permissions', [{ email, company_id: companyId, role, granted_at: now, granted_by: userEmail || null }]);
+    return { saved: 1 };
+  }
+
+  if (action === 'permissions.delete') {
+    let { email } = body;
+    if (!email) throw Object.assign(new Error('email required'), { code: 'INVALID_INPUT' });
+    email = email.toLowerCase(); // same normalization, same reason — an exact-match delete on
+                                  // mismatched casing would silently no-op and leave the row behind
+    await assertNotLastOwner(companyId, { excludeEmail: email, newRole: null }); // §2.3
+    await exec(`DELETE FROM user_permissions WHERE company_id = @companyId AND email = @email`, { companyId, email });
+    return { deleted: 1 };
   }
 }
 

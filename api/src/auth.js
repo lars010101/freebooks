@@ -148,4 +148,5 @@ module.exports = {
   resolveToken,
   isLoopbackRequest,
   remoteTokenRequired,
+  ROLE_HIERARCHY,
 };

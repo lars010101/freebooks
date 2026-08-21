@@ -2568,3 +2568,163 @@ test('§5 guard: allows bill.create with partner_id=null (free-text path)', asyn
   });
   assert.equal(c.status, 200, JSON.stringify(c.body));
 });
+
+// ── Access tab: permissions.upsert / permissions.delete (spec §8) ──────────
+
+test('permissions.upsert as owner creates a row, confirmed via permissions.list', async () => {
+  const CO_P = 'CPA';
+  await seedCompany(baseUrl, CO_P);
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${CO_P}', 'owner', now(), 'test')`);
+
+  const r = await api(baseUrl, 'permissions.upsert', {
+    companyId: CO_P, userEmail: 'owner@ct',
+    email: 'newperson@test.com', role: 'viewer',
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.data.saved, 1);
+
+  const list = await api(baseUrl, 'permissions.list', { companyId: CO_P, userEmail: 'owner@ct' });
+  assert.equal(list.status, 200);
+  const rows = list.body.data;
+  const found = rows.find((x) => x.email === 'newperson@test.com' && x.company_id === CO_P);
+  assert.ok(found, 'upserted row present in permissions.list');
+  assert.equal(found.role, 'viewer');
+});
+
+test('permissions.upsert changing role replaces, does not duplicate', async () => {
+  const CO_P = 'CPB';
+  await seedCompany(baseUrl, CO_P);
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${CO_P}', 'owner', now(), 'test')`);
+
+  // First upsert: viewer
+  const r1 = await api(baseUrl, 'permissions.upsert', {
+    companyId: CO_P, userEmail: 'owner@ct',
+    email: 'changer@test.com', role: 'viewer',
+  });
+  assert.equal(r1.status, 200, JSON.stringify(r1.body));
+
+  // Second upsert: same email, different role
+  const r2 = await api(baseUrl, 'permissions.upsert', {
+    companyId: CO_P, userEmail: 'owner@ct',
+    email: 'changer@test.com', role: 'agent',
+  });
+  assert.equal(r2.status, 200, JSON.stringify(r2.body));
+
+  const cnt = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM user_permissions WHERE company_id='${CO_P}' AND email='changer@test.com'`);
+  assert.equal(Number(cnt[0].c), 1, 'exactly one row for this email+company — no duplicate');
+
+  const list = await api(baseUrl, 'permissions.list', { companyId: CO_P, userEmail: 'owner@ct' });
+  const row = list.body.data.find((x) => x.email === 'changer@test.com');
+  assert.equal(row.role, 'agent', 'role updated to agent');
+});
+
+test('permissions.upsert/delete as non-owner → FORBIDDEN', async () => {
+  const CO_P = 'CPC';
+  await seedCompany(baseUrl, CO_P);
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${CO_P}', 'owner', now(), 'test'),
+            ('viewer@ct', '${CO_P}', 'viewer', now(), 'test')`);
+
+  const up = await api(baseUrl, 'permissions.upsert', {
+    companyId: CO_P, userEmail: 'viewer@ct',
+    email: 'x@test.com', role: 'viewer',
+  });
+  assert.equal(up.status, 403);
+  assert.equal(up.body.error.code, 'FORBIDDEN');
+
+  const del = await api(baseUrl, 'permissions.delete', {
+    companyId: CO_P, userEmail: 'viewer@ct',
+    email: 'owner@ct',
+  });
+  assert.equal(del.status, 403);
+  assert.equal(del.body.error.code, 'FORBIDDEN');
+});
+
+test('permissions.delete on the only owner → INVALID_STATE, row untouched', async () => {
+  const CO_P = 'CPD';
+  await seedCompany(baseUrl, CO_P);
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${CO_P}', 'owner', now(), 'test')`);
+
+  const del = await api(baseUrl, 'permissions.delete', {
+    companyId: CO_P, userEmail: 'owner@ct',
+    email: 'owner@ct',
+  });
+  assert.equal(del.status, 400);
+  assert.equal(del.body.error.code, 'INVALID_STATE');
+
+  // Row still present
+  const cnt = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM user_permissions WHERE company_id='${CO_P}' AND email='owner@ct'`);
+  assert.equal(Number(cnt[0].c), 1, 'owner row untouched after failed delete');
+});
+
+test('permissions.delete on only company-scoped owner when *-scoped owner exists → succeeds', async () => {
+  const CO_P = 'CPE';
+  await seedCompany(baseUrl, CO_P);
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${CO_P}', 'owner', now(), 'test'),
+            ('global-owner@ct', '*', 'owner', now(), 'test')`);
+
+  const del = await api(baseUrl, 'permissions.delete', {
+    companyId: CO_P, userEmail: 'owner@ct',
+    email: 'owner@ct',
+  });
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+  assert.equal(del.body.data.deleted, 1);
+
+  // Company-scoped row gone, global row untouched
+  const cnt = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM user_permissions WHERE company_id='${CO_P}' AND email='owner@ct'`);
+  assert.equal(Number(cnt[0].c), 0, 'company-scoped owner row deleted');
+
+  const gcnt = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM user_permissions WHERE company_id='*' AND email='global-owner@ct'`);
+  assert.equal(Number(gcnt[0].c), 1, 'global owner row untouched');
+});
+
+test('permissions.upsert/delete never touch company_id = * rows', async () => {
+  const CO_P = 'CPF';
+  await seedCompany(baseUrl, CO_P);
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${CO_P}', 'owner', now(), 'test'),
+            ('shared@ct', '*', 'agent', now(), 'test')`);
+
+  // upsert with the same email as the global row — should create a company-scoped row,
+  // NOT modify or duplicate the global one
+  const up = await api(baseUrl, 'permissions.upsert', {
+    companyId: CO_P, userEmail: 'owner@ct',
+    email: 'shared@ct', role: 'viewer',
+  });
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+
+  const gRows = await sql(baseUrl, srv.adminToken,
+    `SELECT role FROM user_permissions WHERE company_id='*' AND email='shared@ct'`);
+  assert.equal(gRows.length, 1, 'global row still exactly one');
+  assert.equal(gRows[0].role, 'agent', 'global row role unchanged');
+
+  const cRows = await sql(baseUrl, srv.adminToken,
+    `SELECT role FROM user_permissions WHERE company_id='${CO_P}' AND email='shared@ct'`);
+  assert.equal(cRows.length, 1, 'company-scoped row created');
+  assert.equal(cRows[0].role, 'viewer', 'company-scoped row has the new role');
+
+  // delete the company-scoped row — global row untouched
+  const del = await api(baseUrl, 'permissions.delete', {
+    companyId: CO_P, userEmail: 'owner@ct',
+    email: 'shared@ct',
+  });
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+
+  const gAfter = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM user_permissions WHERE company_id='*' AND email='shared@ct'`);
+  assert.equal(Number(gAfter[0].c), 1, 'global row survives company-scoped delete');
+});

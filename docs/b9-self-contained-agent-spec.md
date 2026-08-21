@@ -47,21 +47,20 @@ These are per-company — each company can have a different LLM endpoint, poll i
 
 ### Install-level settings (not per-company)
 
-Two keys stored with a synthetic `company_id = '__install__'`:
+One key stored with a synthetic `company_id = '__install__'`:
 
 | Key | Description |
 |---|---|
-| `feed_watcher_enabled` | Master switch for the folder watcher |
 | `feed_watcher_interval_ms` | readdir poll interval (default `'5000'`) |
 
-These are read at boot and control the watcher process, which serves all companies.
+> **Note:** `feed_watcher_enabled` was previously a separate install-level master switch. It has been consolidated into `agent_enabled` — the feed watcher now starts automatically when any company has `agent_enabled = 'true'`. The separate gate had no UI and caused silent failures (agent loop running with nothing feeding it). Existing `feed_watcher_enabled` rows in settings are inert and harmless.
 
 ## 2. In-process folder watcher (`api/src/feed-watcher.js`)
 
 ### Design
 
 ```js
-// Started once at boot if feed_watcher_enabled === 'true'
+// Started once at boot when any company has agent_enabled = 'true'
 // One setInterval, walks all company inbox roots
 setInterval(() => {
   for (const company of companies) {
@@ -196,12 +195,11 @@ The following functions ported directly from `scripts/freebooks-agent-loop.js` t
 
 ```js
 // In server.js, after schema and routes are ready:
-if (installSettings.feed_watcher_enabled === 'true') {
+// Feed watcher + agent loop both start when any company has agent_enabled = 'true'.
+if (anyAgentEnabled) {
   startFeedWatcher();
-  log('[feed-watcher] started');
+  startAgentLoop();
 }
-// Per-company agent loops start when the first poll tick fires
-// and finds companies with agent_enabled = 'true'.
 ```
 
 On shutdown (SIGINT/SIGTERM): the interval is cleared, any in-flight `processCompanyEvents` call finishes, then the server exits. The event_seq cursor is persisted to the `settings` table (`agent_last_seq` key per company) so the next boot resumes without replay.
@@ -257,12 +255,7 @@ Sends a minimal prompt (`"Respond with: ok"`) to the configured endpoint and ret
 
 ### Install-level settings
 
-A second sub-section at the bottom of the AI tab, shown only when the user has owner role:
-
-| Field | Setting key | Notes |
-|---|---|---|
-| Enable feed watcher | Toggle | `feed_watcher_enabled` (company_id `__install__`) |
-| Feed scan interval (ms) | Number input | `feed_watcher_interval_ms` |
+> Consolidated into `agent_enabled` — the feed watcher starts automatically when any company has `agent_enabled = 'true'`. No separate install-level toggle. The poll interval (`feed_watcher_interval_ms`) remains if you need to tune it (default 5s), also at `company_id = '__install__'`.
 
 ### No provider dropdown
 

@@ -2080,7 +2080,12 @@ ensureDb().then(async () => {
     });
   }
 
-  // Start feed watcher if enabled (install-level setting)
+  // Start feed watcher + agent loop when any company has agent_enabled.
+  // Previously these were gated separately (feed_watcher_enabled at install
+  // level vs agent_enabled at company level), but the split had no UI for the
+  // feed-watcher gate and produced a silent failure: agent loop running with
+  // nothing feeding it. Consolidated into a single gate — agent_enabled
+  // starts both the watcher and the loop.
   const { query: q } = require('./db');
   const feedWatcher = require('./feed-watcher');
   const agentLoop = require('./agent-loop');
@@ -2088,24 +2093,14 @@ ensureDb().then(async () => {
   bootState.setFeedWatcher(feedWatcher);
   bootState.setAgentLoop(agentLoop);
 
-  // Check if feed watcher is enabled at install level
-  let fwEnabled = false;
-  try {
-    const rows = await q(`SELECT value FROM settings WHERE company_id = '__install__' AND key = 'feed_watcher_enabled' LIMIT 1`);
-    fwEnabled = rows.length > 0 && rows[0].value === 'true';
-  } catch (e) { /* settings table may not exist yet — non-fatal */ }
-
-  // Check if any company has agent_enabled
   let anyAgentEnabled = false;
   try {
     const rows = await q(`SELECT 1 FROM settings WHERE key = 'agent_enabled' AND value = 'true' LIMIT 1`);
     anyAgentEnabled = rows.length > 0;
   } catch (e) { /* non-fatal */ }
 
-  if (fwEnabled) {
-    feedWatcher.startFeedWatcher(feedWatcherUpload);
-  }
   if (anyAgentEnabled) {
+    feedWatcher.startFeedWatcher(feedWatcherUpload);
     agentLoop.startAgentLoop(dispatchAction, fetchAttachmentFn);
   }
 

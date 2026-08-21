@@ -6,8 +6,10 @@
  * hash dedup against the attachments table, and uploads them via the attachment
  * handler directly (in-process function call, no HTTP).
  *
- * Started at boot if install-level setting feed_watcher_enabled = 'true'.
- * One interval serves all companies — no per-company timers.
+ * Started at boot when any company has agent_enabled = 'true' (consolidated
+ * gate — previously required a separate feed_watcher_enabled install-level
+ * setting, which had no UI and caused silent failures). One interval serves
+ * all companies — no per-company timers.
  *
  * Folder structure (multi-tenant):
  *   {inbox_path}/{company_id}/bank/     → entityType: bank_statement

@@ -48,6 +48,7 @@ ${commonStyle()}
   <div class="tabs">
     <div class="tab active" onclick="showTab('companies')">Companies</div>
     <div class="tab" onclick="showTab('operations')">Operations</div>
+    <div class="tab" onclick="showTab('access')">Access<span id="tab-dot-access" style="display:none;color:#d97706"> \u25cf</span></div>
   </div>
 
   <!-- COMPANIES TAB -->
@@ -70,6 +71,14 @@ ${commonStyle()}
     </div>
   </div>
 
+  <!-- ACCESS TAB -->
+  <div id="tab-access" class="tab-panel">
+    <table class="edit-table" id="access-table">
+      <thead><tr><th>Email</th><th>Role</th><th></th><th></th></tr></thead>
+      <tbody id="access-body"></tbody>
+    </table>
+  </div>
+
 </div>
 
 <script>
@@ -85,7 +94,7 @@ function showTab(t) {
       return;
     }
   }
-  var tabs = ['companies','operations'];
+  var tabs = ['companies','operations','access'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
@@ -93,12 +102,14 @@ function showTab(t) {
   if (hintEl) {
     if (t === 'companies') FB.keys.renderHints('admin-companies', hintEl);
     else if (t === 'operations') FB.keys.renderHints('admin-ops', hintEl, { layout: 'list' });
+    else if (t === 'access') FB.keys.renderHints('admin-access', hintEl);
     else hintEl.innerHTML = '';
   }
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
     if (t === 'companies') loadCompanies();
     if (t === 'operations') initOpsNav();
+    if (t === 'access') loadAccess();
   }
 }
 
@@ -182,6 +193,56 @@ function initOpsNav() {
     ]
   });
 }
+
+// ========== ACCESS TAB — FB.list (full CRUD register) =========
+var accessList = FB.list.create({
+  keysId: 'admin-access',
+  active: function() { var p = document.getElementById('tab-access'); return !!(p && p.classList.contains('active')); },
+  tbody: 'access-body',
+  companyId: function() { return COMPANY; },
+  hint: 'Email is the key \u2014 to change a person\u2019s email, remove the row and add a new one. Role changes edit in place. Rows marked Global come from a cross-company grant and can\u2019t be edited here.',
+  columns: [
+    { field: 'email', type: 'text', width: 240, ro: 'saved', label: 'Email' },
+    { field: 'role', type: 'select', width: 130, label: 'Role', filterType: 'list',
+      options: [
+        { value: 'owner', label: 'Owner' },
+        { value: 'data_entry', label: 'Data Entry' },
+        { value: 'agent', label: 'Agent' },
+        { value: 'viewer', label: 'Viewer' }
+      ] },
+    { field: 'scope_badge', type: 'text', width: 70, ro: 'always', filterType: null,
+      display: function(v, d) { return d.isGlobal ? '<span class="type-badge" style="background:#eef;color:#446">Global</span>' : ''; } }
+  ],
+  blank: function() { return { email: '', role: 'viewer' }; },
+  isBlank: function(b) { return !b.email; },
+  same: function(b, s) { return b.email === s.email && b.role === s.role; },
+  validate: function(d) {
+    if (!d.email) return 'Email required.';
+    d.email = d.email.trim().toLowerCase(); // \u00a72.4a \u2014 normalize before same()/save() see it
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(d.email)) return 'Not a valid email address.';
+    return null; // role membership + last-owner guard are server-authoritative (\u00a72.1/\u00a72.3)
+  },
+  editable: function(d) { return !d.isGlobal; },
+  deletable: function(d) { return !d.isGlobal; },
+  firstField: function() { return 'email'; },
+  track: 'access-grant',
+  list: { action: 'permissions.list',
+    map: function(r) {
+      return { email: r.email, role: r.role, isGlobal: r.company_id === '*', _key: r.email };
+    } },
+  save: { action: 'permissions.upsert',
+    body: function(d) { return { email: d.email, role: d.role }; },
+    focusKey: function(d) { return d.email; } },
+  del: { action: 'permissions.delete',
+    body: function(d) { return { email: d.email }; },
+    confirm: function(d) { return 'Revoke access for "' + d.email + '"?'; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-access');
+    if (dot) dot.style.display = dirty ? '' : 'none';
+  }
+});
+
+function loadAccess() { accessList.load(); }
 
 // ========== HANDLE ?tab= URL PARAM ==========
 (function() {

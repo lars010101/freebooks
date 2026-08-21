@@ -698,6 +698,16 @@ const ACTIONS = {
     description: 'Replace user permissions (bulk).',
     params: { permissions: { type: 'array', required: true } },
   },
+  'permissions.upsert': {
+    role: 'owner', mutating: true,
+    description: 'Insert or update one user_permissions row (email, role) for the current company.',
+    params: { email: { type: 'string', required: true }, role: { type: 'string', required: true } },
+  },
+  'permissions.delete': {
+    role: 'owner', mutating: true,
+    description: 'Revoke one user\u2019s permission on the current company.',
+    params: { email: { type: 'string', required: true } },
+  },
 
   // ── API tokens (spec §2.6): owner-only management. Agents are excluded by
   // the role check (create/revoke are mutating and also outside AGENT_ALLOWED;
@@ -804,6 +814,8 @@ const PALETTE = {
   'settings.save':          { palette: 'navigate', route: '/settings?tab=company', label: 'Company' },
   'company.save':           { palette: 'navigate', route: '/settings?tab=company', label: 'Company' },
   'permissions.save':       { palette: 'navigate', route: '/settings?tab=company', label: 'Company' },
+  'permissions.upsert':      { palette: 'navigate', route: '/admin?tab=access&new=1', label: 'Grant access', create: true },
+  'permissions.list':        { palette: 'navigate', route: '/admin?tab=access', label: 'Access' },
   'posting_rules.attr.list': { palette: 'navigate', route: '/settings?tab=postrules', label: 'Posting Rules' },
   'ai.view':                { palette: 'navigate', route: '/settings?tab=ai', label: 'AI' },
   'report.refresh_vat_return': { palette: 'navigate', route: '/reports', label: 'Refresh VAT return' },

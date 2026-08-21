@@ -10,6 +10,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const { startTestServer, api, sql, seedCompany, testDates } = require('../test-utils/helpers');
 const { ACTIONS } = require('../src/action-catalog');
 
@@ -2727,4 +2728,181 @@ test('permissions.upsert/delete never touch company_id = * rows', async () => {
   const gAfter = await sql(baseUrl, srv.adminToken,
     `SELECT COUNT(*) c FROM user_permissions WHERE company_id='*' AND email='shared@ct'`);
   assert.equal(Number(gAfter[0].c), 1, 'global row survives company-scoped delete');
+});
+
+// ── §2.6: agent_pipeline_email — AI-tab picker + getAgentAccount rewrite ──
+
+test('§2.6 ai.attr.list includes agent_pipeline_email row with options from agent-role accounts', async () => {
+  const CO_A = 'APA';
+  await seedCompany(baseUrl, CO_A);
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${CO_A}', 'owner', now(), 'test'),
+            ('agent-pick@test.com', '${CO_A}', 'agent', now(), 'test')`);
+
+  const { status, body } = await api(baseUrl, 'ai.attr.list', { companyId: CO_A });
+  assert.equal(status, 200, JSON.stringify(body));
+  const rows = body.data || body;
+  const row = rows.find(r => r.key === 'agent_pipeline_email');
+  assert.ok(row, 'agent_pipeline_email row present in ai.attr.list');
+  assert.equal(row.type, 'Choice');
+  assert.equal(row.label, 'Pipeline agent account');
+  assert.ok(row.editor, 'editor present');
+  assert.equal(row.editor.type, 'select');
+  assert.equal(row.editor.nullable, true, 'nullable select (empty = clear)');
+  assert.ok(Array.isArray(row.editor.options), 'options is an array');
+  const opt = row.editor.options.find(o => o.value === 'agent-pick@test.com');
+  assert.ok(opt, 'options populated from live agent-role accounts');
+  assert.equal(opt.label, 'agent-pick@test.com');
+});
+
+test('§2.6 ai.attr.save agent_pipeline_email with a valid agent email → saved, retrievable', async () => {
+  const CO_V = 'APV';
+  await seedCompany(baseUrl, CO_V);
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${CO_V}', 'owner', now(), 'test'),
+            ('agent-apv@test.com', '${CO_V}', 'agent', now(), 'test')`);
+
+  // Mixed-case on the wire → stored lowercased (server-authoritative normalization)
+  const r = await api(baseUrl, 'ai.attr.save', {
+    companyId: CO_V, userEmail: 'owner@ct',
+    key: 'agent_pipeline_email', value: 'Agent-APV@Test.com',
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.data.saved, true);
+
+  const list = await api(baseUrl, 'ai.attr.list', { companyId: CO_V });
+  assert.equal(list.status, 200);
+  const rows = list.body.data || list.body;
+  const row = rows.find(x => x.key === 'agent_pipeline_email');
+  assert.ok(row, 'agent_pipeline_email row present after save');
+  assert.equal(row.value, 'agent-apv@test.com', 'stored value is lowercased');
+});
+
+test('§2.6 ai.attr.save agent_pipeline_email with a non-agent email → INVALID_INPUT', async () => {
+  const CO_N = 'APN';
+  await seedCompany(baseUrl, CO_N);
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${CO_N}', 'owner', now(), 'test'),
+            ('agent-apn@test.com', '${CO_N}', 'agent', now(), 'test'),
+            ('viewer-apn@test.com', '${CO_N}', 'viewer', now(), 'test')`);
+
+  const r = await api(baseUrl, 'ai.attr.save', {
+    companyId: CO_N, userEmail: 'owner@ct',
+    key: 'agent_pipeline_email', value: 'viewer-apn@test.com',
+  });
+  assert.equal(r.status, 400, JSON.stringify(r.body));
+  assert.equal(r.body.error.code, 'INVALID_INPUT');
+  assert.match(r.body.error.message, /does not have the agent role/);
+});
+
+test('§2.6 ai.attr.save agent_pipeline_email with empty string → clears the setting', async () => {
+  const CO_C = 'APC';
+  await seedCompany(baseUrl, CO_C);
+  await sql(baseUrl, srv.adminToken,
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES ('owner@ct', '${CO_C}', 'owner', now(), 'test'),
+            ('agent-apc@test.com', '${CO_C}', 'agent', now(), 'test')`);
+
+  // First set it to a real agent email
+  const set = await api(baseUrl, 'ai.attr.save', {
+    companyId: CO_C, userEmail: 'owner@ct',
+    key: 'agent_pipeline_email', value: 'agent-apc@test.com',
+  });
+  assert.equal(set.status, 200, JSON.stringify(set.body));
+
+  // Then clear with an empty string
+  const clr = await api(baseUrl, 'ai.attr.save', {
+    companyId: CO_C, userEmail: 'owner@ct',
+    key: 'agent_pipeline_email', value: '',
+  });
+  assert.equal(clr.status, 200, JSON.stringify(clr.body));
+  assert.equal(clr.body.data.saved, true);
+
+  const list = await api(baseUrl, 'ai.attr.list', { companyId: CO_C });
+  const rows = (list.body.data || list.body);
+  const row = rows.find(x => x.key === 'agent_pipeline_email');
+  assert.ok(row);
+  assert.equal(row.value, '', 'setting cleared to empty string');
+});
+
+// ── §2.6: getAgentAccount (direct module tests) ───────────────────────────
+// getAgentAccount() is internal to agent-loop.js (no HTTP surface), so we
+// exercise it directly against a dedicated in-process DuckDB — a SEPARATE
+// file from the contract server's DB to avoid cross-process file locks. The
+// schema is applied lazily on first query (db.js _applySchemaOnBoot).
+
+let _alEnv = null;
+async function agentLoopEnv() {
+  if (_alEnv) return _alEnv;
+  const alPath = `/tmp/fb-al-${process.pid}.duckdb`;
+  for (const s of ['', '.wal']) { try { fs.unlinkSync(alPath + s); } catch { /* fresh */ } }
+  process.env.FREEBOOKS_DB_PATH = alPath;
+  // db.js reads FREEBOOKS_DB_PATH at module-load and caches a singleton
+  // connection, so clear the cache and re-require to bind to our temp file.
+  for (const m of ['../src/db.js', '../src/agent-loop.js']) delete require.cache[require.resolve(m)];
+  const db = require('../src/db.js');
+  const agentLoop = require('../src/agent-loop.js');
+  await db.query('SELECT 1'); // trigger ensureDb + schema apply
+  _alEnv = { db, agentLoop };
+  return _alEnv;
+}
+
+async function alGrant(db, email, companyId, role) {
+  await db.exec(
+    `INSERT INTO user_permissions (email, company_id, role, granted_at, granted_by)
+     VALUES (@email, @cid, @role, now(), 'test')`,
+    { email, cid: companyId, role }
+  );
+}
+
+async function alSetPipeline(db, companyId, email) {
+  // Mirror putSetting's delete-then-insert (settings has no unique constraint).
+  await db.exec(`DELETE FROM settings WHERE company_id = @cid AND key = 'agent_pipeline_email'`, { cid: companyId });
+  await db.exec(
+    `INSERT INTO settings (company_id, key, value, updated_at)
+     VALUES (@cid, 'agent_pipeline_email', @val, now())`,
+    { cid: companyId, val: email }
+  );
+}
+
+test('§2.6 getAgentAccount: 0 agent accounts → null', async () => {
+  const { agentLoop } = await agentLoopEnv();
+  // Fresh company, no permissions rows, no setting
+  const r = await agentLoop.getAgentAccount('AL0');
+  assert.equal(r, null, 'no agent-role accounts → null (not guessed)');
+});
+
+test('§2.6 getAgentAccount: exactly 1 agent account → that email (zero-config fallback)', async () => {
+  const { db, agentLoop } = await agentLoopEnv();
+  await alGrant(db, 'solo@al', 'AL1', 'agent');
+  const r = await agentLoop.getAgentAccount('AL1');
+  assert.equal(r, 'solo@al', 'single agent-role account returned without configuration');
+});
+
+test('§2.6 getAgentAccount: 2+ agent accounts, no configured email → null (refuses to guess)', async () => {
+  const { db, agentLoop } = await agentLoopEnv();
+  await alGrant(db, 'a@al', 'AL2', 'agent');
+  await alGrant(db, 'b@al', 'AL2', 'agent');
+  const r = await agentLoop.getAgentAccount('AL2');
+  assert.equal(r, null, 'ambiguous (2+ candidates) → null rather than a nondeterministic pick');
+});
+
+test('§2.6 getAgentAccount: configured email that still has agent role → returns configured email', async () => {
+  const { db, agentLoop } = await agentLoopEnv();
+  await alGrant(db, 'configured@al', 'AL3', 'agent');
+  await alSetPipeline(db, 'AL3', 'configured@al');
+  const r = await agentLoop.getAgentAccount('AL3');
+  assert.equal(r, 'configured@al', 'explicit choice respected when it still holds the agent role');
+});
+
+test('§2.6 getAgentAccount: configured email that lost agent role → null (fail closed)', async () => {
+  const { db, agentLoop } = await agentLoopEnv();
+  // Email exists but as a viewer, not agent; pipeline is configured to it.
+  await alGrant(db, 'gone@al', 'AL4', 'viewer');
+  await alSetPipeline(db, 'AL4', 'gone@al');
+  const r = await agentLoop.getAgentAccount('AL4');
+  assert.equal(r, null, 'fail closed — do not fall back to guessing among the rest');
 });

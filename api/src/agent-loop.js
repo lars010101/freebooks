@@ -62,12 +62,27 @@ async function getEnabledCompanies() {
 }
 
 async function getAgentAccount(companyId) {
-  const rows = await query(
-    `SELECT email FROM user_permissions
-     WHERE company_id = @cid AND role = 'agent' LIMIT 1`,
-    { cid: companyId }
+  const s = await getCompanySettings(companyId);
+  if (s.agent_pipeline_email) {
+    const [row] = await query(
+      `SELECT 1 FROM user_permissions
+       WHERE (company_id = @cid OR company_id = '*') AND role = 'agent' AND email = @email LIMIT 1`,
+      { cid: companyId, email: s.agent_pipeline_email }
+    );
+    if (row) return s.agent_pipeline_email;
+    warn(`company ${companyId}: configured agent_pipeline_email (${s.agent_pipeline_email}) no longer has the agent role`);
+    return null; // fail closed, don't fall back to guessing among the rest
+  }
+  // Not configured: the common zero-setup case is exactly one agent-role account —
+  // keep that working with no config needed. 0 or 2+ candidates without an explicit
+  // choice is refused rather than guessed at.
+  const candidates = await query(
+    `SELECT DISTINCT email FROM user_permissions
+     WHERE (company_id = @cid OR company_id = '*') AND role = 'agent'`, { cid: companyId }
   );
-  return rows.length > 0 ? rows[0].email : null;
+  if (candidates.length === 1) return candidates[0].email;
+  if (candidates.length > 1) warn(`company ${companyId}: ${candidates.length} agent-role accounts and no agent_pipeline_email configured — set one in Settings → AI`);
+  return null;
 }
 
 async function loadCursor(companyId) {

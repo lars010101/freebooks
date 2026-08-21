@@ -664,7 +664,7 @@ const ACTIONS = {
   },
   'ai.attr.save': {
     role: 'owner', mutating: true,
-    description: 'Write ONE AI/agent attribute (server-authoritative validation). key ∈ agent_enabled|agent_poll_interval_ms|agent_inbox_path|llm_endpoint_url|llm_api_key|llm_model|llm_temperature|llm_vision_endpoint_url|llm_vision_model|llm_vision_api_key.',
+    description: 'Write ONE AI/agent attribute (server-authoritative validation). key ∈ agent_enabled|agent_pipeline_email|agent_poll_interval_ms|agent_inbox_path|llm_endpoint_url|llm_api_key|llm_model|llm_temperature|llm_vision_endpoint_url|llm_vision_model|llm_vision_api_key.',
     params: { key: { type: 'string', required: true }, value: { required: true } },
   },
   'ai.test_connection': {

@@ -1496,6 +1496,15 @@ async function handleSettings(ctx, action) {
       { key: 'agent_enabled', label: 'Enable agent pipeline', type: 'Boolean',
         value: s.agent_enabled === 'true', display: s.agent_enabled === 'true' ? 'Yes' : 'No',
         editor: { type: 'checkbox' } },
+      { key: 'agent_pipeline_email', label: 'Pipeline agent account', type: 'Choice',
+        value: s.agent_pipeline_email || '', display: s.agent_pipeline_email || dash,
+        editor: { type: 'select', nullable: true,
+          options: (await query(
+            `SELECT DISTINCT email FROM user_permissions
+             WHERE (company_id = @companyId OR company_id = '*') AND role = 'agent'
+             ORDER BY email`, { companyId }
+          )).map(r => ({ value: r.email, label: r.email }))
+        } },
       { key: 'agent_poll_interval_ms', label: 'Poll interval (ms)', type: 'Number',
         value: Number(s.agent_poll_interval_ms || '30000'), display: s.agent_poll_interval_ms || '30000',
         editor: { type: 'number' } },
@@ -1588,7 +1597,7 @@ async function handleSettings(ctx, action) {
     const { key, value } = body;
     if (!key) throw Object.assign(new Error('key required'), { code: 'INVALID_INPUT' });
     const validAiKeys = [
-      'agent_enabled', 'agent_poll_interval_ms', 'agent_inbox_path',
+      'agent_enabled', 'agent_pipeline_email', 'agent_poll_interval_ms', 'agent_inbox_path',
       'llm_endpoint_url', 'llm_api_key', 'llm_model', 'llm_temperature',
       'llm_vision_endpoint_url', 'llm_vision_model', 'llm_vision_api_key',
     ];
@@ -1601,9 +1610,24 @@ async function handleSettings(ctx, action) {
     }
     if (key === 'agent_enabled') {
       await putSetting(companyId, key, value === true || value === 'true' ? 'true' : 'false');
-    } else {
-      await putSetting(companyId, key, String(value));
+      return { saved: true, key };
     }
+    if (key === 'agent_pipeline_email') {
+      const email = String(value || '').trim().toLowerCase();
+      if (email) {
+        const [agentRow] = await query(
+          `SELECT 1 FROM user_permissions
+           WHERE (company_id = @companyId OR company_id = '*') AND role = 'agent' AND email = @email LIMIT 1`,
+          { companyId, email }
+        );
+        if (!agentRow) {
+          throw Object.assign(new Error(`${email} does not have the agent role — grant it in Admin → Access first`), { code: 'INVALID_INPUT' });
+        }
+      }
+      await putSetting(companyId, 'agent_pipeline_email', email);
+      return { saved: true, key };
+    }
+    await putSetting(companyId, key, String(value));
     return { saved: true, key };
   }
 

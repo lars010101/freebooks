@@ -16,10 +16,10 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 - **Multi-period comparative reports** — month-over-month and year-over-year for P&L, BS, and CF, driven by company-defined fiscal periods
 - **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post) with jurisdiction-pack-driven monetary account types and gain/loss account (P2-2)
 - **VAT / GST engine** — tax-exclusive entry across bills and journal entries (entered amount IS the net; VAT computed on top and posted as separate per-code GL lines), reverse-charge support, supplier-stated VAT override with configurable tolerance (bills only), and VAT return generation grouped by report box. Bank import remains tax-inclusive (settled cash = gross)
-- **Accounts Payable** — partner master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, and AP Aging report
+- **Accounts Payable** — partner master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, multi-bill settlement (one payment allocated across several open bills from the same vendor/currency, atomic, whole-batch void — issue #131), and AP Aging report
 - **Partner proposal & unification** — partners unified into a `partners` table; agent can propose new vendor/partner entries via the same propose/approve pattern as journal entries (inbox Class A item, `y`/`x` review). Spec: `docs/partner-proposal-spec.md`.
 - **Accounts Receivable** — invoicing and AR aging are **dropped/deferred** from the current cycle; nav and page scaffolding remain in place but inactive.
-- **Bank statement processing** — CSV import with manual bill allocation linking import rows to open bills (multi-currency aware) and cleared/uncleared reconciliation tracking, backed by a **four-tier matching cascade** (spec: `docs/bank-matching-spec.md`):
+- **Bank statement processing** — statements drop into the agent pipeline (§ below), which runs a **four-tier matching cascade** (spec: `docs/bank-matching-spec.md`) and proposes journal entries for human review in the Inbox; cleared/uncleared reconciliation against the bank's statement balance is a dedicated report (`type=reconciliation`). The old manual CSV-upload wizard (`bank.process`/`bank.approve`) has been removed (issue #260) — agent ingestion is the only import path:
   - **Tier 1** — learned rules (`bank_mappings`): pattern → offset account/VAT code, with `amount_sign` direction filtering and longest-match-wins specificity scoring.
   - **Tier 2** — open-item matching against unpaid bills and partner balances (amount-tolerance, 1:1/1:N/N:1 cardinality, counterparty evidence).
   - **Tier 3** — trigram master-data match against chart of accounts and partners.
@@ -282,7 +282,7 @@ Every action maps to a required role in `ACTION_ROLES` (`api/src/index.js`). Whe
 | Role | Can do |
 |---|---|
 | `viewer` | Read/list actions (reports, lists, lookups) |
-| `data_entry` | Post entries, create/void bills, process bank, save FX rates, save mappings, approve/reject mapping suggestions |
+| `data_entry` | Post entries, create/void bills, clear/unclear bank reconciliation entries, save FX rates, save mappings, approve/reject mapping suggestions |
 | `owner` | Manage company, COA, VAT codes, journals, periods, partners, settings, FX provider, permissions, auth tokens |
 | `agent` (level 1.5) | Default-deny whitelist — reads + `journal.propose` + `bill.create` (draft) + `attachment.upload` + `mapping.suggest` + `matching_history.record`. Everything else is denied. |
 

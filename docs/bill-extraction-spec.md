@@ -1,7 +1,8 @@
 # extractBillData() — AI Document Extraction for AP Intake
 
-**Status:** DRAFT — proposed 2026-08-24, pending review
-**Context:** `extractBillData()` was ported from the B7 script into `api/src/agent-loop.js` as part of B9, but flagged explicitly as "placeholder bill extraction (stays as placeholder)." This spec replaces the placeholder with a real implementation. It fills the one gap identified as highest-leverage after auditing the four intake folders (`bank/`, `bills/`, `receipts/`, `journal/`) — `bank/` has the full tier 1–4 cascade; `bills/` has the plumbing (`processBill()` → `bill.create`) but no actual document understanding; `receipts/` and `journal/` have no processing logic at all and are out of scope here.
+**Status:** DRAFT — proposed 2026-08-24, revised 2026-08-24 (partner terminology corrected; §11.1 superseded by `partner-proposal-spec.md`)
+**Depends on:** `agent-data-feeding-guide.md` §4.3 (folder→`entityType` routing this spec's trigger relies on), `b9-self-contained-agent-spec.md` (tier-4 LLM call pattern reused in §3.2), `bills-partner-fk-spec.md` (this spec's output maps directly onto `bills.partner_name`/`bills.partner_id`, §4.2), `partner-proposal-spec.md` (§6.2 Trigger B — the new-partner mechanism this spec feeds data into rather than reimplementing, §11.1).
+**Context:** `extractBillData()` was ported from the B7 script into `api/src/agent-loop.js` as part of B9, but flagged explicitly as "placeholder bill extraction (stays as placeholder)." This spec replaces the placeholder with a real implementation. Per `docs/agent-data-feeding-guide.md` §4.3, all four intake folders have a defined `entityType`/processing path — `bank/` has the full tier 1–4 cascade already implemented; `bills/` has the plumbing (`processBill()` → `bill.create`) but no extraction logic; `receipts/` and `journal/` are specified to go `Extract → journal.propose`, but that extraction function doesn't exist yet either. This spec covers `bills/` only — `receipts/`/`journal/` need a differently-shaped extractor (balanced journal lines, not vendor/line-item/total) and are left for a follow-on spec.
 
 ## 0. Scope
 
@@ -10,10 +11,10 @@
 **Out of scope:**
 
 - **No automatic posting.** Output is always a draft bill (`status='draft'`) — same posting/approval boundary as `journal_proposals`.
-- **No silent vendor creation.** Extraction proposes a vendor match or flags "new vendor needed"; it never inserts into `vendors` unattended, consistent with `vendor.*` write actions being human-gated today.
+- **No silent partner creation.** Extraction proposes a partner match or flags "no match" (`needs_new_partner`); it never inserts into `partners` unattended. The new-partner path itself is not designed here — it's already fully specified in `partner-proposal-spec.md`'s Trigger B (§6.2); see the corrected §11.1.
 - **No changes to the VAT engine.** Reuses `vat.js`'s existing tolerance mechanism rather than adding a parallel one.
 - **No new LLM provider configuration.** Reuses the Settings/AI tab (`llm_endpoint_url`/`llm_api_key`/`llm_model`/`llm_temperature`) shipped in B9 — no provider dropdown, no vision-specific config.
-- **No `receipts/` behavior.** `extractBillData()` is written to be reusable there, but receipts likely need "match against an existing bill/bank line" logic rather than "create a new bill" — that's a separate spec.
+- **No `receipts/`/`journal/` behavior.** Per `agent-data-feeding-guide.md` §4.3, both are already specified to route `Extract → journal.propose` — the pipeline isn't undefined, only the extraction function is unbuilt. That extractor targets a different output shape (balanced journal lines) than a bill's vendor/line-item/total shape, so it's a separate spec rather than an extension of this one.
 - **No learning loop.** A `matching_history`-style correction loop for extraction is deferred until real dogfooding data exists (see prior discussion — prove the review pattern on AP before extending or automating further).
 - **No UI/UX changes.** Extraction populates the existing draft-bill shape; any friction surfaced by dogfooding is a follow-on, scoped spec — not this one.
 
@@ -24,7 +25,7 @@ Called from `processBill()` in `api/src/agent-loop.js`, triggered when an `attac
 ```js
 async function extractBillData(attachment, context, companySettings) {
   // attachment: { id, path, mime_type, sha256, company_id, entity_type }
-  // context: { vendors, accounts, vatCodes, currency, jurisdiction }
+  // context: { partners, accounts, vatCodes, currency, jurisdiction }
   // companySettings: { llm_endpoint_url, llm_api_key, llm_model, llm_temperature }
   // returns: ExtractionResult (see §4)
 }
@@ -47,7 +48,7 @@ Detecting scanned vs. text-native: check **per page**, not on the aggregated doc
 
 Parallel to the existing `buildTier4Context()` (reuse/refactor into a shared "company financial context" builder if convenient, not required):
 
-- Vendor master: id, name, default currency, default expense account, default VAT code — so the model is steered toward matching existing vendors rather than inventing new ones.
+- Partner master (`partners` where `is_vendor = TRUE`): `partner_id`, name, default currency, default expense account, default VAT code — so the model is steered toward matching existing vendor-flagged partners rather than inventing new ones. Filtering to `is_vendor = TRUE` matters, not just for prompt relevance: matching a customer-only partner would later trip the `INVALID_PARTNER_TYPE` guard at `bill.create` (`bills-partner-fk-spec.md` §5).
 - Chart of accounts: expense-type accounts only (`accounts.type = 'expense'`, using the existing type column — no new classification logic needed), to keep the prompt small.
 - VAT/GST codes: code, rate, reverse-charge flag.
 - Company currency + jurisdiction (for tax-authority-specific terms — VAT vs. GST, "Moms" for SE).
@@ -59,12 +60,12 @@ Parallel to the existing `buildTier4Context()` (reuse/refactor into a shared "co
 System prompt instructs the model to:
 
 - Extract into the schema in §4.1.
-- Match vendor name against the supplied vendor list (fuzzy matching allowed, but flag ambiguity rather than silently picking between close candidates).
+- Match the extracted counterparty name against the supplied partner list (vendor-flagged partners only — fuzzy matching allowed, but flag ambiguity rather than silently picking between close candidates).
 - Only assign a VAT/GST code if a rate is actually printed on the document — otherwise leave null and flag, never guess a tax treatment.
 - Never invent a due date if none is printed.
 - Report line items and the stated total as printed — don't let the model do the arithmetic; that's checked deterministically in §3.3.
 - Recognize reverse-charge language (e.g. "Reverse charge", "Omvänd betalningsskyldighet" for SE) as a distinct case from "no VAT code found" — these documents legitimately carry no printed rate. Set `reverse_charge_detected` rather than leaving the reviewer to see the same generic `no_vat_code_detected` flag they'd see for a genuinely incomplete document (see §4.1).
-- Default every line's `expense_account` to the vendor's `default_expense_account` (supplied in context, §2.2) and only override it where the document clearly indicates a different account — don't force a fresh choice among all expense accounts for every line. This narrows the decision space instead of asking the model to pick from the full chart on every line item.
+- Default every line's `expense_account` to the matched partner's `default_expense_account` (supplied in context, §2.2) and only override it where the document clearly indicates a different account — don't force a fresh choice among all expense accounts for every line. This narrows the decision space instead of asking the model to pick from the full chart on every line item.
 
 ### 3.2 Model call
 
@@ -78,10 +79,10 @@ No pre-flight vision-capability check. If the configured model can't handle imag
 
 The model's own `confidence` self-report (if any) is discarded entirely — every flag and the final `confidence` bucket (§4.1) are computed here, not taken from the prompt response.
 
-**Vendor match — deterministic, not LLM-judged.** If the model proposes a `vendor_id`, compute a string-similarity ratio (e.g. Levenshtein ratio) between `vendor_name_raw` and that vendor's stored name:
-  - ratio ≥ 0.90 → clear match, accept `vendor_id`.
-  - 0.70–0.89 → ambiguous: keep the proposed `vendor_id` but set flag `ambiguous_vendor` for review.
-  - < 0.70 → treat as no match: `vendor_id: null`, `needs_new_vendor: true` (routes to `vendor.propose`, §11.1).
+**Partner match — deterministic, not LLM-judged.** If the model proposes a counterparty match, compute a string-similarity ratio (e.g. Levenshtein ratio) between the extracted name and candidate partners **restricted to `partners WHERE is_vendor = TRUE`** for this company — never match against a customer-only partner, since that would later trip the `INVALID_PARTNER_TYPE` guard at `bill.create` (`bills-partner-fk-spec.md` §5):
+  - ratio ≥ 0.90 → clear match, set `partner_id`.
+  - 0.70–0.89 → ambiguous: keep the proposed `partner_id` but set flag `ambiguous_partner_match` for review. This band does **not** trigger new-partner creation — a plausible match stays attached to the bill for a human to confirm or correct.
+  - < 0.70 → treat as no match: `partner_id: null`, `needs_new_partner: true`. This is the only band that feeds the new-partner path — see the corrected §11.1, which points to `partner-proposal-spec.md`'s Trigger B rather than a new mechanism invented here.
   These thresholds are code constants, not a company setting — not something an operator needs to tune.
 
 **Line-level checks (cheap, catch hallucinations early):**
@@ -110,9 +111,9 @@ The model's own `confidence` self-report (if any) is discarded entirely — ever
   ok: true | false,
   confidence: 'high' | 'medium' | 'low',  // only meaningful when ok: true
   data: {
-    vendor_id: string | null,        // null is a valid, expected state — see §11.1
-    vendor_name_raw: string,
-    needs_new_vendor: boolean,
+    partner_id: string | null,       // null is a valid, expected state — see §11.1
+    partner_name_raw: string,        // maps directly onto bills.partner_name (bills-partner-fk-spec.md §3.1)
+    needs_new_partner: boolean,
     currency: string,                // never null when ok: true
     invoice_number: string | null,   // genuinely optional — some documents omit it
     invoice_date: string,            // never null when ok: true (§3.3)
@@ -129,7 +130,7 @@ The model's own `confidence` self-report (if any) is discarded entirely — ever
     total_stated: number,
     total_computed: number,
   },
-  flags: string[],           // 'total_mismatch' | 'ambiguous_vendor' | 'no_vat_code_detected' |
+  flags: string[],           // 'total_mismatch' | 'ambiguous_partner_match' | 'no_vat_code_detected' |
                              // 'reverse_charge_detected' | 'duplicate_line_description' |
                              // 'possible_duplicate' (see §6) — confidence (above) is derived
                              // from this array's length per §3.3, never from the model itself.
@@ -139,7 +140,7 @@ The model's own `confidence` self-report (if any) is discarded entirely — ever
 
 ### 4.2 Mapping to `bill.create`
 
-`processBill()` maps `ExtractionResult.data` onto `bill.create` with `status='draft'`. A new `_extraction_meta` field (parallel to `journal_proposals._match_meta`) stores model, confidence, flags, raw model output, **and the exact prompt + context sent** (not just the response) — without the input snapshot, a wrong extraction isn't reproducible and it's impossible to tell later whether a bad result came from a bad prompt/context or a model error. This also feeds the deferred learning-loop spec.
+`processBill()` maps `ExtractionResult.data` onto `bill.create` with `status='draft'`. `partner_name_raw` and `partner_id` map directly onto `bills.partner_name` and `bills.partner_id` (`bills-partner-fk-spec.md` §3.1, §4) — no adapter needed; a `null` `partner_id` is the exact same accepted state as today's free-text vendor entry (`bills-partner-fk-spec.md` §0.2). A new `_extraction_meta` field (parallel to `journal_proposals._match_meta`) stores model, confidence, flags, raw model output, **and the exact prompt + context sent** (not just the response) — without the input snapshot, a wrong extraction isn't reproducible and it's impossible to tell later whether a bad result came from a bad prompt/context or a model error. This also feeds the deferred learning-loop spec.
 
 ## 5. Failure handling
 
@@ -154,15 +155,15 @@ The model's own `confidence` self-report (if any) is discarded entirely — ever
 
 ### 5.2 Soft failures → draft bill still created, `confidence='low'`, flags populated
 
-Total mismatch, ambiguous vendor, missing VAT code, or any line marked `needs_review`. Drafts stay cheap; review is the safety net — this preserves the existing AP posture rather than introducing a new "silent guess" failure mode.
+Total mismatch, ambiguous partner match, missing VAT code, or any line marked `needs_review`. Drafts stay cheap; review is the safety net — this preserves the existing AP posture rather than introducing a new "silent guess" failure mode.
 
 ## 6. Duplicate / re-drop protection
 
 Separate from the existing sha256 attachment dedup (which only catches an identical file re-dropped): a re-scanned or re-photographed version of the same invoice has a different hash but the same content.
 
-After extraction, check for an existing non-voided bill matching `(vendor_id, invoice_number, total_stated)` for this company. **This check must not assume `vendor_id` is populated** — §11.1 establishes that `vendor_id` can legitimately be `null` while a vendor proposal is pending, and without a fallback, every bill from an unrecognized vendor would silently bypass duplicate detection. When `vendor_id` is null, match on `(vendor_name_raw, invoice_number, total_stated)` instead.
+After extraction, check for an existing non-voided bill matching `(partner_id, invoice_number, total_stated)` for this company. **This check must not assume `partner_id` is populated** — a `null` `partner_id` is an expected, accepted state (`bills-partner-fk-spec.md` §0.2; §11.1 below), and without a fallback, every bill from an unrecognized partner would silently bypass duplicate detection. When `partner_id` is null, match on `(partner_name_raw, invoice_number, total_stated)` instead.
 
-On match: attach the new document to the existing bill instead of creating a second draft, and flag `possible_duplicate` rather than discarding outright — a genuine repeat charge from the same vendor for the same amount (e.g. an identical recurring subscription) isn't actually rare.
+On match: attach the new document to the existing bill instead of creating a second draft, and flag `possible_duplicate` rather than discarding outright — a genuine repeat charge from the same partner for the same amount (e.g. an identical recurring subscription) isn't actually rare.
 
 ## 7. Settings / configuration
 
@@ -182,7 +183,7 @@ Default mirrors the shape of the ratified VAT tolerance (`max(0.50, 1%)`) rather
 - Does not implement a correction learning loop — deferred until real dogfooding data exists.
 - Does not change `bill.create`, the Inbox UI, or the draft-bill form.
 - Does not add vision-capability negotiation with the LLM provider.
-- Does not auto-create vendors — always surfaces `needs_new_vendor` for a human decision.
+- Does not auto-create partners — always surfaces `needs_new_partner` for the mechanism `partner-proposal-spec.md` already owns (§11.1).
 
 ## 9. Files changed (anticipated)
 
@@ -199,35 +200,29 @@ Default mirrors the shape of the ratified VAT tolerance (`max(0.50, 1%)`) rather
 1. **`_extraction_meta` storage** — inline JSON column on `bills`, or a separate `bill_extraction_meta` side table keyed by `bill_id`? `journal_proposals` uses an inline column, but `bills` is a larger, more heavily-touched table — a side table may avoid migration risk.
 2. **Vision-capability signaling** — leave failures silent-and-flagged indefinitely (per the "no instance lifecycle management" precedent), or add a manual "this model supports images" checkbox to the Settings/AI tab to short-circuit doomed attempts? Leaning toward leaving it as-is; flagging for confirmation.
 3. **Tolerance setting placement** — alongside VAT tolerance, or its own field once an AP settings section exists? Cosmetic.
+4. **Underlag binding for `bill.create`.** `agent-data-feeding-guide.md`'s event table states attachment processing happens "with the same `proposalId` for underlag binding" across all four folder types, and the drop-folder watcher (§4.3) mints a UUID as `entityId` at upload time uniformly — including for `bills/`. But §4.5b never actually specifies how that pre-minted id reconciles with the bill `bill.create` produces: does `bill.create` accept a client-supplied id (so the attachment's existing `entityId` becomes the bill's id, and the binding just carries over), or does it return a new `bill_id` requiring an explicit re-bind step — the way bank-statement lines are explicitly re-uploaded under each `proposalId` (§4.3)? This needs to be checked against the actual `bill.create` implementation before `processBill()` is written, not assumed either way — get it wrong and the source invoice image silently stops being retrievable as underlag for the bill it produced.
 
 ## 11. Resolved decisions
 
-### 11.1 `needs_new_vendor` handling — separate approval queue (resolved 2026-08-24)
+### 11.1 `needs_new_partner` handling — no new mechanism; wires into the already-ratified `partner-proposal-spec.md` (revised 2026-08-24)
 
-A `needs_new_vendor` result does **not** fold into the draft-bill review screen. It's modeled as its own approvable item, consistent with the existing pattern used by `journal_proposals`, `mapping_suggestions`, and `input_rejections` — all first-class, independently actionable, and surfaced through the existing unified Inbox (`inbox.list`) rather than embedded in whatever screen produced them. This keeps the approval workflow decoupled from the current draft-bill UI, which may change independently.
+**This section originally proposed a new `vendor_proposals`/`vendor_suggestions` table and matching actions. That design is retracted.** `partner-proposal-spec.md` already specifies exactly this mechanism — more completely, with the partners-unification model, auto-learning, and both a bank-matching and a bill-extraction trigger — and its own dependency line names this spec explicitly for its Trigger B ("Bill extraction," §6.2, §2.3). The two documents were written to compose, not to duplicate each other; re-specifying the same concept under a different name here would produce two competing, drifting implementations. This spec's remaining job for the no-match case is narrow: hand `processBill()` the right data, correctly named, for the *existing* `partner.propose` call — not to invent a new approval path.
 
-**New table — `vendor_proposals`:**
+**What `extractBillData()` produces (already specified above, using partner terminology throughout):**
 
-| Column | Purpose |
+- `partner_id: string | null` — set only on a confident deterministic match (ratio ≥ 0.90, §3.3) against `partners WHERE is_vendor = TRUE`.
+- `partner_name_raw: string` — always present, maps directly onto `bills.partner_name`.
+- `needs_new_partner: boolean` — `true` only below the 0.70 ratio floor. The 0.70–0.89 ambiguous band does *not* set this — a plausible-but-unconfirmed match stays attached to the bill for human review; it does not also spawn a new-partner proposal.
+
+**Composition with `partner-proposal-spec.md` §6.2 (Trigger B):** after `bill.create` returns (the draft already carries `partner_id: null`, `partner_name: <raw>`), `processBill()` reads `needs_new_partner` off the extraction result. If true, it calls `partner.propose` (role `agent`, per that spec's §4.2/§4.3) with:
+
+| `partner.propose` param | Sourced from |
 |---|---|
-| `id` | Proposal id |
-| `company_id` | Scope |
-| `vendor_name_raw` | As extracted from the document |
-| `suggested_defaults` | JSON — proposed currency, expense account, VAT code (editable at approval time) |
-| `source_attachment_id` | The document that triggered this proposal |
-| `status` | `proposed` / `approved` / `rejected` |
-| `created_at`, `resolved_at`, `resolved_by` | Audit trail |
+| `name` | `partner_name_raw` |
+| `default_expense_account` | The extraction's suggested `expense_account`, if any (§4.1 `lines[]`) |
+| `default_ap_account` | The company's default AP account (`account.list` filtered `default_role='AP'`) — fetched by `processBill()` itself, not part of extraction's output |
+| `suggested_vat_code` | The extraction's `vat_code` field(s), if any |
+| `evidence` | Built by `processBill()` from `_extraction_meta` (§4.2) — the retained raw model output and prompt/context snapshot is sufficient material |
+| `source_bill_id` | The `bill_id` `bill.create` just returned |
 
-**New actions** (naming parallels `journal.propose`/`mapping.suggest`):
-
-| Action | Min. role | Behavior |
-|---|---|---|
-| `vendor.propose` | `agent` | Creates a `vendor_proposals` row from `extractBillData()`'s `needs_new_vendor` output |
-| `vendor.propose.approve` | `data_entry` | Creates the vendor from `suggested_defaults` (editable), marks `approved`, back-fills `vendor_id` on every linked draft bill **that is not voided or deleted** — a bill removed between proposal creation and approval is skipped and logged, not silently left dangling |
-| `vendor.propose.reject` | `data_entry` | Marks `rejected`; linked bill(s) keep `vendor_id: null` and require a human to assign an *existing* vendor via the normal bill-edit flow |
-
-**Bill linkage while pending:** `bill.create` is still called immediately with `vendor_id: null`; the bill's `_extraction_meta` carries `pending_vendor_proposal_id`. The draft bill sits in the Inbox as a bill with an unresolved dependency — it isn't blocked from existing, just from being complete.
-
-**Deduplication:** Before creating a new proposal, check for an existing `proposed`-status row with a matching (fuzzy) `vendor_name_raw` for the company; if found, link the new bill to that proposal instead of creating a second one. This directly reuses the conflict-detection approach `mapping_suggestions` already applies via `detectMappingConflicts`, rather than introducing a new dedup mechanism.
-
-**Surfacing:** New Class B item type in the existing Inbox aggregator (`inbox.list`) — no new page, no new nav entry.
+This is `processBill()`'s responsibility, not `extractBillData()`'s — `extractBillData()` remains a pure extraction function with no knowledge of the proposal/approval machinery, consistent with its scope (§0). Duplicate-suppression before actually firing `partner.propose` (an existing partner already matching this name, or an already-pending proposal) is `partner-proposal-spec.md` §2.4's job unchanged — `processBill()` doesn't re-implement that check.

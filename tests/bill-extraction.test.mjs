@@ -35,8 +35,8 @@ const require = createRequire(import.meta.url);
 
 // A canned LLM extraction matching the v2 schema.
 const CANNED = {
-  vendor_name_raw: 'Acme Corp',
-  vendor_id: null,
+  partner_name_raw: 'Acme Corp',
+  partner_id: null,
   currency: 'SEK',
   invoice_number: 'INV-001',
   invoice_date: '2026-08-07',
@@ -176,7 +176,7 @@ function restorePdfParse() {
   _pdfOriginal = undefined;
 }
 
-// A mock dispatchAction that returns vendor list, COA, VAT codes, and bill.create.
+// A mock dispatchAction that returns partner list, COA, VAT codes, and bill.create.
 function makeDispatch(billCreateImpl) {
   return async (action, params, companyId, agentEmail) => {
     if (action === 'coa.list') {
@@ -225,7 +225,7 @@ test('1. text-PDF extraction returns ExtractionResult with ok=true', async () =>
   const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
   assert.equal(result.ok, true);
-  assert.equal(result.data.vendor_name_raw, 'Acme Corp');
+  assert.equal(result.data.partner_name_raw, 'Acme Corp');
   assert.equal(result.data.currency, 'SEK');
   assert.equal(result.data.invoice_number, 'INV-001');
   assert.equal(result.data.invoice_date, '2026-08-07');
@@ -272,7 +272,7 @@ test('2. image extraction uses the same endpoint with image_url content', async 
   const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
   assert.equal(result.ok, true);
-  assert.equal(result.data.vendor_name_raw, 'Acme Corp');
+  assert.equal(result.data.partner_name_raw, 'Acme Corp');
 
   assert.equal(_fetchCalls.length, 1);
   const req = _fetchCalls[0];
@@ -539,15 +539,15 @@ test('12. scanned PDF with low text per-page uses image path', async () => {
 
 // ── 13. _validateExtraction: vendor matching ────────────────────────────────
 
-test('13. _validateExtraction: vendor_id match accepts when name matches', () => {
+test('13. _validateExtraction: partner_id match accepts when name matches', () => {
   const context = {
-    vendors: [{ partner_id: 'p-1', name: 'Acme Corp', default_expense_account: '6000' }],
+    partners: [{ partner_id: 'p-1', name: 'Acme Corp', default_expense_account: '6000' }],
     expenseAccounts: [],
     vatCodes: [{ vat_code: 'S25', rate: 0.25, is_reverse_charge: false }],
   };
   const parsed = {
-    vendor_name_raw: 'Acme Corp',
-    vendor_id: 'p-1',
+    partner_name_raw: 'Acme Corp',
+    partner_id: 'p-1',
     currency: 'SEK',
     invoice_date: '2026-08-07',
     total_stated: 1000,
@@ -555,20 +555,20 @@ test('13. _validateExtraction: vendor_id match accepts when name matches', () =>
   };
   const result = _validateExtraction(parsed, context, {});
   assert.equal(result.ok, true);
-  assert.equal(result.data.vendor_id, 'p-1');
-  assert.equal(result.data.needs_new_vendor, false);
+  assert.equal(result.data.partner_id, 'p-1');
+  assert.equal(result.data.needs_new_partner, false);
   assert.equal(result.confidence, 'high');
 });
 
-test('13b. _validateExtraction: vendor_id null + vendor_name_raw unmatched → needs_new_vendor', () => {
+test('13b. _validateExtraction: partner_id null + partner_name_raw unmatched → needs_new_partner', () => {
   const context = {
-    vendors: [{ partner_id: 'p-1', name: 'Acme Corp', default_expense_account: '6000' }],
+    partners: [{ partner_id: 'p-1', name: 'Acme Corp', default_expense_account: '6000' }],
     expenseAccounts: [],
     vatCodes: [{ vat_code: 'S25', rate: 0.25, is_reverse_charge: false }],
   };
   const parsed = {
-    vendor_name_raw: 'Completely Different Vendor Name',
-    vendor_id: null,
+    partner_name_raw: 'Completely Different Vendor Name',
+    partner_id: null,
     currency: 'SEK',
     invoice_date: '2026-08-07',
     total_stated: 1000,
@@ -576,8 +576,8 @@ test('13b. _validateExtraction: vendor_id null + vendor_name_raw unmatched → n
   };
   const result = _validateExtraction(parsed, context, {});
   assert.equal(result.ok, true);
-  assert.equal(result.data.vendor_id, null);
-  assert.equal(result.data.needs_new_vendor, true);
+  assert.equal(result.data.partner_id, null);
+  assert.equal(result.data.needs_new_partner, true);
 });
 
 // ── 14. processBill: hard failure creates input_rejection ───────────────────
@@ -666,24 +666,24 @@ test('15. processBill creates draft bill and writes _extraction_meta', async () 
   assert.ok(createdBill._extraction_meta.raw_model_output, 'raw_model_output in _extraction_meta');
 });
 
-// ── 16. Prompt builder includes vendor list, COA, and VAT codes ─────────────
+// ── 16. Prompt builder includes partner list, COA, and VAT codes ─────────────
 
-test('16. buildBillExtractionPrompt includes vendor list, COA, and VAT codes', () => {
+test('16. buildBillExtractionPrompt includes partner list, COA, and VAT codes', () => {
   const prompt = buildBillExtractionPrompt({
-    vendors: [{ partner_id: 'p-1', name: 'Acme Corp', default_expense_account: '6000' }],
+    partners: [{ partner_id: 'p-1', name: 'Acme Corp', default_expense_account: '6000' }],
     expenseAccounts: [{ account_code: '6000', account_name: 'Consulting' }],
     vatCodes: [{ vat_code: 'S25', rate: 0.25, is_reverse_charge: false }],
     currency: 'SEK',
     jurisdiction: 'SE',
   });
-  assert.match(prompt, /Vendor list/);
+  assert.match(prompt, /Partner list/);
   assert.match(prompt, /Acme Corp/);
   assert.match(prompt, /Chart of expense accounts/);
   assert.match(prompt, /6000 Consulting/);
   assert.match(prompt, /VAT codes/);
   assert.match(prompt, /S25 25%/);
   assert.match(prompt, /reverse_charge/);
-  assert.match(prompt, /vendor_name_raw/);
+  assert.match(prompt, /partner_name_raw/);
   assert.match(prompt, /total_stated/);
   assert.match(prompt, /invoice_date/);
 });

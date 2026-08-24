@@ -638,7 +638,7 @@ async function buildBillExtractionContext(companyId, agentEmail) {
 
   // Vendor master: id, name, default currency, default expense account
   try {
-    ctx.vendors = await query(
+    ctx.partners = await query(
       `SELECT partner_id, name, default_currency, default_expense_account
        FROM partners
        WHERE company_id = @cid AND is_vendor = TRUE AND is_active = TRUE
@@ -692,7 +692,7 @@ async function buildBillExtractionContext(companyId, agentEmail) {
  */
 function buildBillExtractionPrompt(context) {
   const ctx = context || {};
-  const vendorLines = (ctx.vendors || [])
+  const partnerLines = (ctx.partners || [])
     .map((v) => `${v.partner_id} | ${v.name}${v.default_expense_account ? ' | expense: ' + v.default_expense_account : ''}`)
     .join('\n');
   const coaLines = (ctx.expenseAccounts || [])
@@ -707,8 +707,8 @@ function buildBillExtractionPrompt(context) {
   return `You are a bookkeeping assistant. Extract bill/invoice data from the document below.
 Return a JSON object with exactly these fields:
 
-  vendor_name_raw     — supplier name as printed on the document (string)
-  vendor_id           — the partner_id from the vendor list below if you are confident this is that vendor, otherwise null (string | null)
+  partner_name_raw     — supplier name as printed on the document (string)
+  partner_id           — the partner_id from the partner list below if you are confident this is that vendor, otherwise null (string | null)
   currency            — ISO 4217 currency code as printed (string, e.g. "SEK", "EUR")
   invoice_number      — supplier's invoice/reference number if visible (string | null)
   invoice_date        — invoice date, ISO YYYY-MM-DD (string)
@@ -725,19 +725,19 @@ Return a JSON object with exactly these fields:
     }
 
 Rules:
-- Match vendor name against the vendor list below. If confident, set vendor_id; otherwise null.
+- Match partner name against the partner list below. If confident, set partner_id; otherwise null.
 - Only assign a vat_code if a rate is actually printed on the document. Never guess a tax treatment.
 - If the document contains reverse-charge language (e.g. "Reverse charge", "Omvänd betalningsskyldighet"), set reverse_charge: true on the relevant lines and leave vat_code null.
 - Never invent a due_date if none is printed — leave null.
 - Report line items and total_stated as printed. Do NOT do arithmetic — the engine checks totals deterministically.
-- Default each line's expense_account to the vendor's default_expense_account (from the vendor list) if the vendor is matched. Only override when the document clearly indicates a different account.
+- Default each line's expense_account to the partner's default_expense_account (from the partner list) if the partner is matched. Only override when the document clearly indicates a different account.
 - Amounts are numbers, not strings. Do not omit lines.
 
 Company currency: ${currency}
 Jurisdiction: ${jurisdiction}
 
-Vendor list (partner_id | name | default expense account):
-${vendorLines || '(none)'}
+Partner list (partner_id | name | default expense account):
+${partnerLines || '(none)'}
 
 Chart of expense accounts (code name):
 ${coaLines || '(none)'}
@@ -814,55 +814,55 @@ function _validateExtraction(parsed, context, companySettings) {
   }
 
   // ── Vendor match — deterministic, not LLM-judged (§3.3) ──
-  const vendorNameRaw = String(parsed.vendor_name_raw || '').trim();
-  let vendorId = parsed.vendor_id || null;
-  let needsNewVendor = false;
+  const partnerNameRaw = String(parsed.partner_name_raw || '').trim();
+  let partnerId = parsed.partner_id || null;
+  let needsNewPartner = false;
 
-  // If the model proposed a vendor_id, validate it against the vendor list
-  if (vendorId) {
-    const vendor = (ctx.vendors || []).find((v) => v.partner_id === vendorId);
-    if (!vendor) {
-      // Proposed vendor_id doesn't exist in this company — treat as no match
-      vendorId = null;
-    } else if (vendorNameRaw) {
-      const sim = trigramSimilarity(vendorNameRaw, vendor.name);
+  // If the model proposed a partner_id, validate it against the partner list
+  if (partnerId) {
+    const partner = (ctx.partners || []).find((v) => v.partner_id === partnerId);
+    if (!partner) {
+      // Proposed partner_id doesn't exist in this company — treat as no match
+      partnerId = null;
+    } else if (partnerNameRaw) {
+      const sim = trigramSimilarity(partnerNameRaw, partner.name);
       if (sim < VENDOR_MATCH_AMBIGUOUS) {
         // Below threshold — treat as no match
-        vendorId = null;
+        partnerId = null;
       } else if (sim < VENDOR_MATCH_CLEAR) {
-        // Ambiguous — keep vendor_id but flag
-        flags.push('ambiguous_vendor');
+        // Ambiguous — keep partner_id but flag
+        flags.push('ambiguous_partner_match');
       }
       // ≥ CLEAR: accept silently
     }
   }
 
-  // If no vendor_id matched, try matching vendor_name_raw against the list
-  if (!vendorId && vendorNameRaw) {
-    const candidates = (ctx.vendors || []).map((v) => ({ name: v.name, partner_id: v.partner_id }));
-    const fuzzy = findFuzzyMatch(vendorNameRaw, candidates, VENDOR_MATCH_AMBIGUOUS);
+  // If no partner_id matched, try matching partner_name_raw against the list
+  if (!partnerId && partnerNameRaw) {
+    const candidates = (ctx.partners || []).map((v) => ({ name: v.name, partner_id: v.partner_id }));
+    const fuzzy = findFuzzyMatch(partnerNameRaw, candidates, VENDOR_MATCH_AMBIGUOUS);
     if (fuzzy && fuzzy.similarity >= VENDOR_MATCH_CLEAR) {
-      vendorId = fuzzy.candidate.partner_id;
+      partnerId = fuzzy.candidate.partner_id;
     } else if (fuzzy && fuzzy.similarity >= VENDOR_MATCH_AMBIGUOUS) {
-      vendorId = fuzzy.candidate.partner_id;
-      flags.push('ambiguous_vendor');
+      partnerId = fuzzy.candidate.partner_id;
+      flags.push('ambiguous_partner_match');
     } else {
-      // No match at all — needs new vendor
-      needsNewVendor = true;
+      // No match at all — needs new partner
+      needsNewPartner = true;
     }
   }
 
-  if (!vendorId && !vendorNameRaw) {
-    needsNewVendor = true;
+  if (!partnerId && !partnerNameRaw) {
+    needsNewPartner = true;
   }
 
-  // Default expense_account to vendor's default if matched (§3.1)
-  if (vendorId) {
-    const vendor = (ctx.vendors || []).find((v) => v.partner_id === vendorId);
-    if (vendor && vendor.default_expense_account) {
+  // Default expense_account to partner's default if matched (§3.1)
+  if (partnerId) {
+    const partner = (ctx.partners || []).find((v) => v.partner_id === partnerId);
+    if (partner && partner.default_expense_account) {
       for (const l of validLines) {
         if (!l.expense_account) {
-          l.expense_account = vendor.default_expense_account;
+          l.expense_account = partner.default_expense_account;
         }
       }
     }
@@ -907,9 +907,9 @@ function _validateExtraction(parsed, context, companySettings) {
     ok: true,
     confidence,
     data: {
-      vendor_id: vendorId,
-      vendor_name_raw: vendorNameRaw || '(unknown)',
-      needs_new_vendor: needsNewVendor,
+      partner_id: partnerId,
+      partner_name_raw: partnerNameRaw || '(unknown)',
+      needs_new_partner: needsNewPartner,
       currency: String(currency),
       invoice_number: parsed.invoice_number || null,
       invoice_date: invoiceDate,
@@ -925,9 +925,9 @@ function _validateExtraction(parsed, context, companySettings) {
 }
 
 /**
- * Check for an existing non-voided bill matching (vendor_id, invoice_number,
- * total_stated) for this company (spec §6). When vendor_id is null, falls
- * back to (vendor_name_raw, invoice_number, total_stated). Returns the
+ * Check for an existing non-voided bill matching (partner_id, invoice_number,
+ * total_stated) for this company (spec §6). When partner_id is null, falls
+ * back to (partner_name_raw, invoice_number, total_stated). Returns the
  * existing bill_id if a duplicate is found, or null.
  */
 async function _checkDuplicate(companyId, result) {
@@ -938,25 +938,25 @@ async function _checkDuplicate(companyId, result) {
   if (!invNum) return null; // can't check duplicates without an invoice number
 
   try {
-    if (d.vendor_id) {
+    if (d.partner_id) {
       const rows = await query(
         `SELECT bill_id FROM bills
          WHERE company_id = @cid AND partner_id = @vid
            AND vendor_ref = @invNum AND amount = @total
            AND status != 'void'
          LIMIT 1`,
-        { cid: companyId, vid: d.vendor_id, invNum, total }
+        { cid: companyId, vid: d.partner_id, invNum, total }
       );
       if (rows.length > 0) return rows[0].bill_id;
     } else {
-      // vendor_id null — fall back to vendor_name_raw (spec §6)
+      // partner_id null — fall back to partner_name_raw (spec §6)
       const rows = await query(
         `SELECT bill_id FROM bills
          WHERE company_id = @cid AND partner_name = @vname
            AND vendor_ref = @invNum AND amount = @total
            AND status != 'void'
          LIMIT 1`,
-        { cid: companyId, vname: d.vendor_name_raw, invNum, total }
+        { cid: companyId, vname: d.partner_name_raw, invNum, total }
       );
       if (rows.length > 0) return rows[0].bill_id;
     }
@@ -1035,7 +1035,7 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
   const promptSnapshot = {
     system_prompt: systemPrompt,
     context: {
-      vendor_count: (context.vendors || []).length,
+      partner_count: (context.vendors || []).length,
       expense_account_count: (context.expenseAccounts || []).length,
       vat_code_count: (context.vatCodes || []).length,
       currency: context.currency,
@@ -1194,8 +1194,8 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
   const d = result.data;
   const firstLine = (d.lines && d.lines[0]) || {};
   const bill = {
-    partner_id: d.vendor_id || null,
-    partner_name: d.vendor_name_raw || null,
+    partner_id: d.partner_id || null,
+    partner_name: d.partner_name_raw || null,
     vendor_ref: d.invoice_number || null,
     date: d.invoice_date,
     due_date: d.due_date || d.invoice_date, // default due to invoice date if not printed
@@ -1222,7 +1222,7 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
       raw_model_output: result.raw_model_output,
       prompt_snapshot: result.prompt_snapshot,
       total_computed: d.total_computed,
-      pending_vendor_proposal_id: d.needs_new_vendor ? null : undefined,
+      pending_partner_proposal_id: d.needs_new_partner ? null : undefined,
     },
   };
 
@@ -1241,7 +1241,7 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
       const meta = bill._extraction_meta;
       await exec(
         `INSERT INTO bill_extraction_meta
-           (bill_id, company_id, model, confidence, flags, raw_model_output, prompt_snapshot, pending_vendor_proposal_id, created_at)
+           (bill_id, company_id, model, confidence, flags, raw_model_output, prompt_snapshot, pending_partner_proposal_id, created_at)
          VALUES
            (@billId, @companyId, @model, @confidence, @flags, @rawOutput, @promptSnapshot, @pendingVendorProposal, @now)`,
         {
@@ -1252,7 +1252,7 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
           flags: JSON.stringify(meta.flags || []),
           rawOutput: JSON.stringify(meta.raw_model_output || {}),
           promptSnapshot: JSON.stringify(meta.prompt_snapshot || {}),
-          pendingVendorProposal: meta.pending_vendor_proposal_id || null,
+          pendingVendorProposal: meta.pending_partner_proposal_id || null,
           now: new Date().toISOString(),
         }
       );
@@ -1262,16 +1262,19 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
   }
 
   // ── Partner-proposal-spec §6.2: Trigger B — partner.propose after bill.create ──
-  // When needs_new_vendor is true, the existing partner proposal flow handles
-  // surfacing the new-vendor decision via the unified Inbox. This is the
-  // existing mechanism — the spec's vendor_proposals (§11.1) maps onto the
-  // already-shipped partner_proposals table + partner.propose action.
-  if (billResult && d.needs_new_vendor && d.vendor_name_raw) {
+  // When needs_new_partner is true, the existing partner proposal flow handles
+  // surfacing the new-partner decision via the unified Inbox (partner-proposal-spec
+  // §6.2 Trigger B). This spec's §11.1 retracts the vendor_proposals table —
+  // partner.propose / partner_proposals is the sole mechanism.
+  if (billResult && d.needs_new_partner && d.partner_name_raw) {
     try {
+      const suggestedVatCode = d.lines.length === 1 ? firstLine.vat_code
+        : (d.lines.find((l) => l.vat_code) || {}).vat_code || null;
       await _maybeProposePartner({
         companyId, agentEmail,
-        name: d.vendor_name_raw,
+        name: d.partner_name_raw,
         default_expense_account: d.lines.length === 1 ? firstLine.expense_account : null,
+        suggested_vat_code: suggestedVatCode,
         source_bill_id: billResult.bill_id,
         source_description: null,
         evidence: [{ type: 'bill_extraction', bill_id: billResult.bill_id, filename: att.filename }],

@@ -246,11 +246,34 @@ function checkCriticalData(line) {
   return { rejected: false };
 }
 
+/**
+ * Detect Swedish bank-statement metadata rows that are not transactions:
+ * the company-name header row, opening balance ("Ingående saldo …"), and
+ * closing balance ("Utgående saldo …"). These land in the parsed line set
+ * when the CSV has no header row (resolveColumns returns headerRows=0) and
+ * would otherwise fail checkCriticalData and become rejected lines, which
+ * then breaks input_rejection.create (the company name ends up as the date).
+ *
+ * A row is metadata when its date column is not a valid YYYY-MM-DD date AND
+ * either the description contains "saldo" or the date column holds a
+ * company-name-like value (contains letters rather than being empty/numeric).
+ */
+function isMetadataRow(line) {
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (dateRe.test(line.date || '')) return false;
+  const desc = (line.description || '').toLowerCase();
+  if (desc.includes('saldo')) return true;
+  // Date column holds a company name (letters) instead of a date.
+  if ((line.date || '').trim() && /[a-zåäö]/i.test(line.date)) return true;
+  return false;
+}
+
 module.exports.parseCsvRows = parseCsvRows;
 module.exports.resolveColumns = resolveColumns;
 module.exports.parseAmount = parseAmount;
 module.exports.parseBankStatementCsv = parseBankStatementCsv;
 module.exports.checkCriticalData = checkCriticalData;
+module.exports.isMetadataRow = isMetadataRow;
 
 // ── Tier 4 — LLM reasoning (OpenAI-compatible) ─────────────────────────────
 
@@ -450,6 +473,14 @@ async function processBankStatement(ev, companyId, agentEmail, companySettings) 
     const line = lines[i];
     const lineNo = i + 1;
 
+    // Skip Swedish bank-statement metadata rows (company-name header,
+    // "Ingående saldo", "Utgående saldo") — they are not transactions and
+    // would otherwise become rejected lines (and corrupt statementDate).
+    if (isMetadataRow(line)) {
+      log(`statement ${attachmentId} line ${lineNo}: skipping metadata row`);
+      continue;
+    }
+
     const cd = checkCriticalData(line);
     if (cd.rejected) {
       rejectedLines.push({ line: lineNo, reason: cd.reason,
@@ -555,7 +586,8 @@ async function processBankStatement(ev, companyId, agentEmail, companySettings) 
 
   // Input rejections
   if (rejectedLines.length > 0) {
-    const statementDate = lines.map((l) => l.date).filter(Boolean)[0]
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const statementDate = lines.map((l) => l.date).filter((d) => d && dateRe.test(d))[0]
       || new Date().toISOString().substring(0, 10);
     try {
       await _dispatchAction('input_rejection.create', {
@@ -572,10 +604,8 @@ async function processBankStatement(ev, companyId, agentEmail, companySettings) 
 async function buildTier4Context(companyId, agentEmail) {
   const ctx = { chartOfAccounts: [], businessProfile: null, matchingHistory: [] };
   try {
-    ctx.chartOfAccounts = await _dispatchAction('freebooks_read', {
-      action: 'account.list', params: {},
-    }, companyId, agentEmail) || [];
-  } catch (e) { warn(`tier4 context: account.list failed: ${e.message}`); }
+    ctx.chartOfAccounts = await _dispatchAction('coa.list', {}, companyId, agentEmail) || [];
+  } catch (e) { warn(`tier4 context: coa.list failed: ${e.message}`); }
   try {
     ctx.matchingHistory = await _dispatchAction('matching_history.query', {
       limit: 50,
@@ -729,12 +759,10 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
   let coa = [], vatCodes = [];
   if (_dispatchAction) {
     try {
-      coa = await _dispatchAction('freebooks_read', { action: 'account.list', params: {} },
-        companyId, agentEmail) || [];
-    } catch (e) { warn(`bill: account.list failed: ${e.message}`); }
+      coa = await _dispatchAction('coa.list', {}, companyId, agentEmail) || [];
+    } catch (e) { warn(`bill: coa.list failed: ${e.message}`); }
     try {
-      vatCodes = await _dispatchAction('freebooks_read', { action: 'vat.codes.list', params: {} },
-        companyId, agentEmail) || [];
+      vatCodes = await _dispatchAction('vat.codes.list', {}, companyId, agentEmail) || [];
     } catch (e) { warn(`bill: vat.codes.list failed: ${e.message}`); }
   }
   const systemPrompt = buildBillExtractionPrompt(coa, vatCodes);

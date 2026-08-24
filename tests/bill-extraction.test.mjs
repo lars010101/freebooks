@@ -1,14 +1,15 @@
 'use strict';
 /**
- * Bill / receipt extraction — contract tests (bill-extraction-spec §12).
+ * Bill extraction v2 — contract tests (bill-extraction-spec v2, ratified 2026-08-24).
  *
  * Run:  node --test tests/bill-extraction.test.mjs
  *
- * Tests exercise the layered extractBillData() directly:
- *   Layer 1: PDF text → text LLM   (12.1, 12.4, 12.5)
- *   Layer 2: vision LLM (image)     (12.2, 12.3, 12.5-variant)
- *   Layer 3: skeleton fallback      (12.3, 12.4, 12.5, 12.7)
- * plus processBill-level contracts (12.6 bill.create failure, 12.7 end-to-end).
+ * Tests exercise:
+ *   - extractBillData(): ExtractionResult schema, hard failures, soft failures
+ *   - _validateExtraction(): deterministic validation (vendor match, totals,
+ *     line checks, reverse-charge, confidence derivation)
+ *   - processBill(): end-to-end (draft creation, input_rejections, meta write)
+ *   - buildBillExtractionPrompt(): prompt includes context
  *
  * The text-LLM path uses pdf-parse; we stub it via require.cache (no binary
  * PDF fixture needed) so the tests are deterministic and add no deps beyond
@@ -20,42 +21,98 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
-import { extractBillData, processBill, _setLoopDeps, buildBillExtractionPrompt } from '../api/src/agent-loop.js';
+import {
+  extractBillData,
+  processBill,
+  _setLoopDeps,
+  _validateExtraction,
+  buildBillExtractionPrompt,
+} from '../api/src/agent-loop.js';
 
-// ESM can't see `require`/`require.cache` directly, but createRequire shares the
-// process-wide CommonJS module cache — so stubbing pdf-parse here affects the
-// lazy `require('pdf-parse')` inside extractBillData (agent-loop.js is CJS).
 const require = createRequire(import.meta.url);
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 
-// A canned LLM extraction (matches the §8 JSON shape — LLM output field is `vendor`).
+// A canned LLM extraction matching the v2 schema.
 const CANNED = {
-  vendor: 'Acme',
-  vendor_vat_code: 'SE556677889901',
-  vendor_invoice_number: 'INV-001',
-  bill_date: '2026-08-07',
-  due_date: '2026-08-21',
+  vendor_name_raw: 'Acme Corp',
+  vendor_id: null,
   currency: 'SEK',
-  amount: 1000,
-  vat_amount: 200,
+  invoice_number: 'INV-001',
+  invoice_date: '2026-08-07',
+  due_date: '2026-08-21',
+  total_stated: 1000,
+  vat_amount_stated: 200,
   lines: [
     {
       description: 'Consulting',
-      account_code_hint: '6000',
-      quantity: 1,
-      unit_price: 1000,
       amount: 1000,
+      expense_account: '6000',
       vat_code: 'S25',
-      vat_rate: 25,
+      reverse_charge: false,
     },
   ],
-  notes: 'Monthly retainer',
+};
+
+// A canned extraction with total mismatch (sum of lines != total_stated).
+const CANNED_MISMATCH = {
+  ...CANNED,
+  total_stated: 1500, // lines sum to 1000 — mismatch
+};
+
+// A canned extraction with no invoice_date (hard failure).
+const CANNED_NO_DATE = {
+  ...CANNED,
+  invoice_date: null,
+};
+
+// A canned extraction with zero lines (hard failure).
+const CANNED_NO_LINES = {
+  ...CANNED,
+  lines: [],
+};
+
+// A canned extraction with negative line amount (hard failure).
+const CANNED_NEG_LINE = {
+  ...CANNED,
+  lines: [{ ...CANNED.lines[0], amount: -100 }],
+};
+
+// A canned extraction with reverse-charge line.
+const CANNED_REVERSE_CHARGE = {
+  ...CANNED,
+  lines: [
+    {
+      description: 'Service',
+      amount: 800,
+      expense_account: '6000',
+      vat_code: null,
+      reverse_charge: true,
+    },
+    {
+      description: 'Goods',
+      amount: 200,
+      expense_account: '4000',
+      vat_code: 'S25',
+      reverse_charge: false,
+    },
+  ],
+  total_stated: 1000,
+};
+
+// A canned extraction with duplicate line descriptions but different amounts.
+const CANNED_DUP_DESC = {
+  ...CANNED,
+  lines: [
+    { description: 'Service', amount: 600, expense_account: '6000', vat_code: 'S25', reverse_charge: false },
+    { description: 'Service', amount: 400, expense_account: '6000', vat_code: 'S25', reverse_charge: false },
+  ],
+  total_stated: 1000,
 };
 
 // A 1×1 PNG (valid, tiny) for image-path tests.
 const PNG_1x1 = Buffer.from(
-  'iVBORw0KGgAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
   'base64',
 );
 
@@ -104,12 +161,12 @@ function failResponse(status, body) {
 // Stub pdf-parse in the require cache so extractBillData's lazy require gets
 // our mock. `text` is the embedded text the fake PDF yields.
 let _pdfOriginal;
-function stubPdfParse(text) {
+function stubPdfParse(text, numpages = 1) {
   const modPath = require.resolve('pdf-parse');
   _pdfOriginal = require.cache[modPath];
   require.cache[modPath] = {
     id: modPath, filename: modPath, loaded: true,
-    exports: async () => ({ text, numpages: 1 }),
+    exports: async () => ({ text, numpages }),
   };
 }
 function restorePdfParse() {
@@ -119,24 +176,23 @@ function restorePdfParse() {
   _pdfOriginal = undefined;
 }
 
-// A mock dispatchAction that returns a small COA + VAT list for the
-// freebooks_read sub-actions and delegates bill.create to an impl.
+// A mock dispatchAction that returns vendor list, COA, VAT codes, and bill.create.
 function makeDispatch(billCreateImpl) {
   return async (action, params, companyId, agentEmail) => {
-    if (action === 'freebooks_read') {
-      const sub = params && params.action;
-      if (sub === 'account.list') return [{ account_code: '4000', account_name: 'Supplies' }];
-      if (sub === 'vat.codes.list') return [{ vat_code: 'S25', rate: 0.25 }];
-      return [];
+    if (action === 'coa.list') {
+      return [{ account_code: '6000', account_name: 'Consulting', account_type: 'Expense' }];
+    }
+    if (action === 'vat.codes.list') {
+      return [{ vat_code: 'S25', rate: 0.25, is_reverse_charge: false }];
     }
     if (action === 'bill.create') return billCreateImpl(params);
+    if (action === 'input_rejection.create') return { rejection_id: 'rej-1', status: 'open' };
+    if (action === 'partner.propose') return { proposal_id: 'pp-1' };
     throw new Error(`unexpected action ${action}`);
   };
 }
 
 beforeEach(() => {
-  // Start each test with no injected deps + a COA-returning dispatch is set
-  // per-test where needed. Reset to null by default.
   _setLoopDeps({ dispatchAction: null, fetchAttachmentFn: null });
 });
 
@@ -146,11 +202,16 @@ afterEach(() => {
   _setLoopDeps({ dispatchAction: null, fetchAttachmentFn: null });
 });
 
-// ── 12.1 Text-PDF extraction path (layer 1) ────────────────────────────────
+// ── 1. Text-PDF extraction path ────────────────────────────────────────────
 
-test('12.1 text-PDF extraction uses the text LLM (layer 1) and populates the bill', async () => {
-  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nVendor invoice: INV-001\nDue: 2026-08-21\nCurrency: SEK\nThis is a digital invoice with an embedded text layer long enough to pass the heuristic.');
+test('1. text-PDF extraction returns ExtractionResult with ok=true', async () => {
+  stubPdfParse('Vendor: Acme Corp\nAmount: 1000\nDate: 2026-08-07\nInvoice: INV-001\nDue: 2026-08-21\nCurrency: SEK\nThis is a digital invoice with an embedded text layer long enough to pass the per-page threshold.');
   mockFetch(() => okResponse(JSON.stringify(CANNED)));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-1' })),
+    fetchAttachmentFn: null,
+  });
 
   const att = { contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4 dummy'), text: '' };
   const payload = { entityId: 'att-1', filename: 'invoice.pdf', contentType: 'application/pdf' };
@@ -161,22 +222,25 @@ test('12.1 text-PDF extraction uses the text LLM (layer 1) and populates the bil
     llm_temperature: '0.1',
   };
 
-  const bill = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
-  // Bill populated from the canned LLM response.
-  assert.equal(bill.partner_name, 'Acme');
-  assert.equal(bill.amount, 1000);
-  assert.equal(bill.date, '2026-08-07');
-  assert.equal(bill.due_date, '2026-08-21');
-  assert.equal(bill.currency, 'SEK');
-  assert.equal(bill.vendor_ref, 'INV-001');
-  assert.ok(Array.isArray(bill.lines) && bill.lines.length === 1);
-  assert.equal(bill.lines[0].expense_account, '6000');
-  assert.equal(bill.lines[0].vat_code, 'S25');
-  assert.equal(bill._source_attachment_id, 'att-1');
+  assert.equal(result.ok, true);
+  assert.equal(result.data.vendor_name_raw, 'Acme Corp');
+  assert.equal(result.data.currency, 'SEK');
+  assert.equal(result.data.invoice_number, 'INV-001');
+  assert.equal(result.data.invoice_date, '2026-08-07');
+  assert.equal(result.data.due_date, '2026-08-21');
+  assert.equal(result.data.total_stated, 1000);
+  assert.ok(Array.isArray(result.data.lines) && result.data.lines.length === 1);
+  assert.equal(result.data.lines[0].expense_account, '6000');
+  assert.equal(result.data.lines[0].vat_code, 'S25');
+  assert.equal(result.confidence, 'high');
+  assert.deepEqual(result.flags, []);
+  assert.ok(result.prompt_snapshot, 'prompt_snapshot retained');
+  assert.ok(result.raw_model_output, 'raw_model_output retained');
 
-  // Exactly one LLM call — layer 2 (vision) must NOT have been invoked.
-  assert.equal(_fetchCalls.length, 1, 'layer 1 LLM called exactly once; layer 2 not invoked');
+  // Exactly one LLM call — text path, not image.
+  assert.equal(_fetchCalls.length, 1);
   const req = _fetchCalls[0];
   assert.equal(req.body.model, 'test-model');
   assert.deepEqual(req.body.response_format, { type: 'json_object' });
@@ -186,195 +250,440 @@ test('12.1 text-PDF extraction uses the text LLM (layer 1) and populates the bil
   assert.equal(typeof req.body.messages[1].content, 'string');
 });
 
-// ── 12.2 Image / scanned-PDF path (layer 2) ────────────────────────────────
+// ── 2. Image extraction path (same endpoint, image_url content) ────────────
 
-test('12.2 image extraction uses the vision LLM with image_url content + API key fallback', async () => {
+test('2. image extraction uses the same endpoint with image_url content', async () => {
   mockFetch(() => okResponse(JSON.stringify(CANNED)));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-2' })),
+    fetchAttachmentFn: null,
+  });
 
   const att = { contentType: 'image/png', filename: 'receipt.png', buffer: PNG_1x1, text: '' };
   const payload = { entityId: 'att-2', filename: 'receipt.png', contentType: 'image/png' };
   const settings = {
-    llm_api_key: 'text-key', // vision key blank → must fall back to this
-    llm_vision_endpoint_url: 'https://vision.example.com',
-    llm_vision_model: 'test-vision-model',
+    llm_endpoint_url: 'https://llm.example.com',
+    llm_api_key: 'text-key',
+    llm_model: 'test-model',
     llm_temperature: '0.1',
-    // llm_vision_api_key intentionally omitted (empty)
   };
 
-  const bill = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
-  assert.equal(bill.partner_name, 'Acme');
-  assert.equal(bill.amount, 1000);
-  assert.equal(bill._source_attachment_id, 'att-2');
+  assert.equal(result.ok, true);
+  assert.equal(result.data.vendor_name_raw, 'Acme Corp');
 
-  assert.equal(_fetchCalls.length, 1, 'vision LLM called exactly once');
+  assert.equal(_fetchCalls.length, 1);
   const req = _fetchCalls[0];
-  assert.equal(req.body.model, 'test-vision-model');
+  assert.equal(req.body.model, 'test-model');
   assert.deepEqual(req.body.response_format, { type: 'json_object' });
-  // Authorization falls back to llm_api_key.
-  assert.equal(req.opts.headers['Authorization'], 'Bearer text-key');
-  assert.equal(req.url, 'https://vision.example.com/v1/chat/completions');
-
   // User message is an array with a text part + an image_url part.
   const userContent = req.body.messages[1].content;
   assert.ok(Array.isArray(userContent), 'user content is a multimodal array');
   const imgPart = userContent.find((p) => p.type === 'image_url');
   assert.ok(imgPart, 'image_url part present');
-  assert.ok(typeof imgPart.image_url.url === 'string');
   assert.match(imgPart.image_url.url, /^data:image\/png;base64,/);
 });
 
-// ── 12.3 No vision config → skeleton fallback (layer 3) ────────────────────
+// ── 3. Hard failure: no LLM configured ────────────────────────────────────
 
-test('12.3 image with no vision config falls back to skeleton without calling fetch', async () => {
+test('3. no LLM configured returns ok=false with no_llm_configured', async () => {
   mockFetch(() => okResponse(JSON.stringify(CANNED)));
 
   const att = { contentType: 'image/png', filename: 'receipt.png', buffer: PNG_1x1, text: '' };
   const payload = { entityId: 'att-3', filename: 'receipt.png', contentType: 'image/png' };
-  const settings = {}; // no vision config, no text LLM
+  const settings = {}; // no llm_endpoint_url
 
-  const bill = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'no_llm_configured');
   assert.equal(_fetchCalls.length, 0, 'fetch never called');
-  assert.equal(bill.currency, null);
-  assert.deepEqual(bill.lines, []);
-  assert.equal(bill._source_attachment_id, 'att-3');
-  assert.equal(bill._source_filename, 'receipt.png');
 });
 
-// ── 12.4 No LLM configured at all → skeleton ───────────────────────────────
+// ── 4. Hard failure: missing critical data (no invoice_date) ───────────────
 
-test('12.4 text PDF with no LLM configured at all falls back to skeleton', async () => {
-  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nThis text layer is long enough to clear the 50-char floor heuristic for sure.');
-  mockFetch(() => okResponse(JSON.stringify(CANNED)));
+test('4. missing invoice_date returns ok=false with missing_critical_data', async () => {
+  stubPdfParse('Vendor: Acme\nAmount: 1000\nCurrency: SEK\nThis text is long enough to pass the per-page threshold for sure.');
+  mockFetch(() => okResponse(JSON.stringify(CANNED_NO_DATE)));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-4' })),
+    fetchAttachmentFn: null,
+  });
 
   const att = { contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4 dummy'), text: '' };
   const payload = { entityId: 'att-4', filename: 'invoice.pdf', contentType: 'application/pdf' };
-  const settings = {}; // no llm_endpoint_url, no vision
+  const settings = {
+    llm_endpoint_url: 'https://llm.example.com',
+    llm_model: 'test-model',
+  };
 
-  const bill = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
-  assert.equal(_fetchCalls.length, 0, 'fetch never called');
-  assert.equal(bill.currency, null);
-  assert.deepEqual(bill.lines, []);
-  assert.equal(bill._source_attachment_id, 'att-4');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'missing_critical_data');
+  assert.match(result.detail, /invoice date/i);
 });
 
-// ── 12.5 Unparseable LLM JSON → fall through ────────────────────────────────
+// ── 5. Hard failure: zero lines ────────────────────────────────────────────
 
-test('12.5 text LLM returns non-JSON and no vision → skeleton (layer 3)', async () => {
-  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nPlenty of embedded text to exceed the 50 character floor comfortably.');
-  mockFetch(() => okResponse('not json'));
+test('5. zero lines returns ok=false with missing_critical_data', async () => {
+  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nCurrency: SEK\nThis text is long enough to pass the per-page threshold for sure.');
+  mockFetch(() => okResponse(JSON.stringify(CANNED_NO_LINES)));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-5' })),
+    fetchAttachmentFn: null,
+  });
 
   const att = { contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4 dummy'), text: '' };
   const payload = { entityId: 'att-5', filename: 'invoice.pdf', contentType: 'application/pdf' };
   const settings = {
     llm_endpoint_url: 'https://llm.example.com',
     llm_model: 'test-model',
-    // no vision configured
   };
 
-  const bill = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
-  assert.equal(_fetchCalls.length, 1, 'text LLM attempted once');
-  assert.equal(bill.currency, null, 'fell through to skeleton');
-  assert.deepEqual(bill.lines, []);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'missing_critical_data');
+  assert.match(result.detail, /line/i);
 });
 
-test('12.5-variant text LLM fails → vision LLM succeeds (layer 2)', async () => {
-  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nEmbedded text that exceeds the heuristic floor so layer 1 is entered and calls the text LLM.');
-  // First call (text LLM, model test-model) → non-JSON. Second (vision) → canned.
-  mockFetch((_url, _opts, call) => {
-    if (call.body.model === 'test-model') return okResponse('not json');
-    return okResponse(JSON.stringify(CANNED));
+// ── 6. Hard failure: negative line amount ──────────────────────────────────
+
+test('6. negative line amount returns ok=false with missing_critical_data', async () => {
+  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nCurrency: SEK\nThis text is long enough to pass the per-page threshold for sure.');
+  mockFetch(() => okResponse(JSON.stringify(CANNED_NEG_LINE)));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-6' })),
+    fetchAttachmentFn: null,
   });
 
-  const att = { contentType: 'application/pdf', filename: 'scan.pdf', buffer: PNG_1x1, text: '' };
-  const payload = { entityId: 'att-5b', filename: 'scan.pdf', contentType: 'application/pdf' };
+  const att = { contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4 dummy'), text: '' };
+  const payload = { entityId: 'att-6', filename: 'invoice.pdf', contentType: 'application/pdf' };
   const settings = {
     llm_endpoint_url: 'https://llm.example.com',
     llm_model: 'test-model',
-    llm_vision_endpoint_url: 'https://vision.example.com',
-    llm_vision_model: 'test-vision-model',
   };
 
-  const bill = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
 
-  assert.equal(_fetchCalls.length, 2, 'text LLM then vision LLM both called');
-  assert.equal(bill.partner_name, 'Acme', 'bill populated from vision layer');
-  assert.equal(bill.amount, 1000);
-  // Second call used the vision model + image_url content.
-  const visionReq = _fetchCalls[1];
-  assert.equal(visionReq.body.model, 'test-vision-model');
-  assert.ok(Array.isArray(visionReq.body.messages[1].content));
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'missing_critical_data');
+  assert.match(result.detail, /line amount invalid/i);
 });
 
-// ── 12.6 bill.create failure does not create a draft ───────────────────────
+// ── 7. Hard failure: LLM HTTP error ────────────────────────────────────────
 
-test('12.6 bill.create failure is handled by processBill (no draft, no throw)', async () => {
-  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nNo LLM configured, so extraction yields a skeleton; bill.create then throws.');
-  let billCreateCalls = 0;
-  const dispatch = makeDispatch(async (params) => {
-    billCreateCalls++;
-    throw new Error('boom: bill.create failed');
+test('7. LLM HTTP error returns ok=false with extraction_failed', async () => {
+  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nCurrency: SEK\nThis text is long enough to pass the per-page threshold for sure.');
+  mockFetch(() => failResponse(500, 'Internal Server Error'));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-7' })),
+    fetchAttachmentFn: null,
   });
-  _setLoopDeps({ dispatchAction: dispatch, fetchAttachmentFn: async () => ({
-    contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4'), text: '',
-  }) });
 
-  // No LLM configured → extractBillData returns skeleton; processBill then
-  // dispatches bill.create which throws.
-  const ev = { entity_id: 'att-6' };
-  const settings = {};
+  const att = { contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4 dummy'), text: '' };
+  const payload = { entityId: 'att-7', filename: 'invoice.pdf', contentType: 'application/pdf' };
+  const settings = {
+    llm_endpoint_url: 'https://llm.example.com',
+    llm_model: 'test-model',
+  };
 
-  // processBill must not throw — it catches the bill.create error.
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'extraction_failed');
+  assert.match(result.detail, /HTTP 500/);
+});
+
+// ── 8. Hard failure: non-JSON content from LLM ─────────────────────────────
+
+test('8. non-JSON LLM content returns ok=false with extraction_failed', async () => {
+  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nCurrency: SEK\nThis text is long enough to pass the per-page threshold for sure.');
+  mockFetch(() => okResponse('not json'));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-8' })),
+    fetchAttachmentFn: null,
+  });
+
+  const att = { contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4 dummy'), text: '' };
+  const payload = { entityId: 'att-8', filename: 'invoice.pdf', contentType: 'application/pdf' };
+  const settings = {
+    llm_endpoint_url: 'https://llm.example.com',
+    llm_model: 'test-model',
+  };
+
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'extraction_failed');
+  assert.match(result.detail, /Non-JSON/);
+});
+
+// ── 9. Soft failure: total_mismatch flag + confidence=medium ────────────────
+
+test('9. total mismatch sets total_mismatch flag and confidence=medium', async () => {
+  stubPdfParse('Vendor: Acme\nAmount: 1500\nDate: 2026-08-07\nCurrency: SEK\nThis text is long enough to pass the per-page threshold for sure.');
+  mockFetch(() => okResponse(JSON.stringify(CANNED_MISMATCH)));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-9' })),
+    fetchAttachmentFn: null,
+  });
+
+  const att = { contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4 dummy'), text: '' };
+  const payload = { entityId: 'att-9', filename: 'invoice.pdf', contentType: 'application/pdf' };
+  const settings = {
+    llm_endpoint_url: 'https://llm.example.com',
+    llm_model: 'test-model',
+    bill_extraction_tolerance: '0.50',
+  };
+
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+
+  assert.equal(result.ok, true);
+  assert.ok(result.flags.includes('total_mismatch'));
+  assert.equal(result.confidence, 'medium');
+  assert.equal(result.data.lines[0].needs_review, true);
+});
+
+// ── 10. Reverse-charge detection ────────────────────────────────────────────
+
+test('10. reverse-charge line sets reverse_charge_detected flag', async () => {
+  stubPdfParse('Vendor: Acme\nReverse charge\nAmount: 1000\nDate: 2026-08-07\nCurrency: SEK\nThis text is long enough to pass the per-page threshold for sure.');
+  mockFetch(() => okResponse(JSON.stringify(CANNED_REVERSE_CHARGE)));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-10' })),
+    fetchAttachmentFn: null,
+  });
+
+  const att = { contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4 dummy'), text: '' };
+  const payload = { entityId: 'att-10', filename: 'invoice.pdf', contentType: 'application/pdf' };
+  const settings = {
+    llm_endpoint_url: 'https://llm.example.com',
+    llm_model: 'test-model',
+  };
+
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+
+  assert.equal(result.ok, true);
+  assert.ok(result.flags.includes('reverse_charge_detected'));
+  assert.ok(result.data.lines[0].reverse_charge);
+  assert.equal(result.data.lines[0].vat_code, null);
+  assert.equal(result.data.lines[0].needs_review, true);
+  // confidence: 1 flag (reverse_charge_detected) → medium
+  // (no_vat_code_detected should NOT fire because RC was detected)
+  assert.equal(result.confidence, 'medium');
+});
+
+// ── 11. Duplicate line description with different amounts ───────────────────
+
+test('11. duplicate line descriptions with different amounts sets flag', async () => {
+  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nCurrency: SEK\nThis text is long enough to pass the per-page threshold for sure.');
+  mockFetch(() => okResponse(JSON.stringify(CANNED_DUP_DESC)));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-11' })),
+    fetchAttachmentFn: null,
+  });
+
+  const att = { contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4 dummy'), text: '' };
+  const payload = { entityId: 'att-11', filename: 'invoice.pdf', contentType: 'application/pdf' };
+  const settings = {
+    llm_endpoint_url: 'https://llm.example.com',
+    llm_model: 'test-model',
+  };
+
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+
+  assert.equal(result.ok, true);
+  assert.ok(result.flags.includes('duplicate_line_description'));
+  assert.ok(result.data.lines.some((l) => l.needs_review));
+});
+
+// ── 12. Scanned PDF (low text) falls through to image path ──────────────────
+
+test('12. scanned PDF with low text per-page uses image path', async () => {
+  // numpages=3 but very little text → perPageAvg below threshold
+  stubPdfParse('short', 3);
+  mockFetch(() => okResponse(JSON.stringify(CANNED)));
+
+  _setLoopDeps({
+    dispatchAction: makeDispatch(() => ({ bill_id: 'b-12' })),
+    fetchAttachmentFn: null,
+  });
+
+  const att = { contentType: 'application/pdf', filename: 'scan.pdf', buffer: PNG_1x1, text: '' };
+  const payload = { entityId: 'att-12', filename: 'scan.pdf', contentType: 'application/pdf' };
+  const settings = {
+    llm_endpoint_url: 'https://llm.example.com',
+    llm_model: 'test-model',
+  };
+
+  const result = await extractBillData(att, payload, settings, 'CO', 'agent@ct');
+
+  assert.equal(result.ok, true);
+  assert.equal(_fetchCalls.length, 1);
+  // Image path → multimodal content
+  const userContent = _fetchCalls[0].body.messages[1].content;
+  assert.ok(Array.isArray(userContent), 'image path used');
+});
+
+// ── 13. _validateExtraction: vendor matching ────────────────────────────────
+
+test('13. _validateExtraction: vendor_id match accepts when name matches', () => {
+  const context = {
+    vendors: [{ partner_id: 'p-1', name: 'Acme Corp', default_expense_account: '6000' }],
+    expenseAccounts: [],
+    vatCodes: [{ vat_code: 'S25', rate: 0.25, is_reverse_charge: false }],
+  };
+  const parsed = {
+    vendor_name_raw: 'Acme Corp',
+    vendor_id: 'p-1',
+    currency: 'SEK',
+    invoice_date: '2026-08-07',
+    total_stated: 1000,
+    lines: [{ description: 'Service', amount: 1000, vat_code: 'S25', reverse_charge: false }],
+  };
+  const result = _validateExtraction(parsed, context, {});
+  assert.equal(result.ok, true);
+  assert.equal(result.data.vendor_id, 'p-1');
+  assert.equal(result.data.needs_new_vendor, false);
+  assert.equal(result.confidence, 'high');
+});
+
+test('13b. _validateExtraction: vendor_id null + vendor_name_raw unmatched → needs_new_vendor', () => {
+  const context = {
+    vendors: [{ partner_id: 'p-1', name: 'Acme Corp', default_expense_account: '6000' }],
+    expenseAccounts: [],
+    vatCodes: [{ vat_code: 'S25', rate: 0.25, is_reverse_charge: false }],
+  };
+  const parsed = {
+    vendor_name_raw: 'Completely Different Vendor Name',
+    vendor_id: null,
+    currency: 'SEK',
+    invoice_date: '2026-08-07',
+    total_stated: 1000,
+    lines: [{ description: 'Service', amount: 1000, vat_code: 'S25', reverse_charge: false }],
+  };
+  const result = _validateExtraction(parsed, context, {});
+  assert.equal(result.ok, true);
+  assert.equal(result.data.vendor_id, null);
+  assert.equal(result.data.needs_new_vendor, true);
+});
+
+// ── 14. processBill: hard failure creates input_rejection ───────────────────
+
+test('14. processBill routes hard failure to input_rejection.create', async () => {
+  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nCurrency: SEK\nThis text is long enough to pass the per-page threshold for sure.');
+  mockFetch(() => okResponse(JSON.stringify(CANNED_NO_DATE)));
+
+  let rejectionCreated = false;
+  let billCreated = false;
+  const dispatch = makeDispatch(async (params) => {
+    billCreated = true;
+    return { bill_id: 'b-fail' };
+  });
+  // Override input_rejection.create
+  const origDispatch = dispatch;
+  const wrappedDispatch = async (action, params, companyId, agentEmail) => {
+    if (action === 'input_rejection.create') {
+      rejectionCreated = true;
+      return { rejection_id: 'rej-1', status: 'open' };
+    }
+    return origDispatch(action, params, companyId, agentEmail);
+  };
+  _setLoopDeps({
+    dispatchAction: wrappedDispatch,
+    fetchAttachmentFn: async () => ({
+      contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4'), text: '',
+    }),
+  });
+
+  const ev = { entity_id: 'att-14' };
+  const settings = {
+    llm_endpoint_url: 'https://llm.example.com',
+    llm_model: 'test-model',
+  };
+
   await assert.doesNotReject(() => processBill(ev, 'CO', 'agent@ct', settings));
 
-  assert.equal(billCreateCalls, 1, 'bill.create was attempted exactly once');
-  // No draft created because the dispatch threw — the contract is that the
-  // error is logged and intake is not blocked (no throw to the caller).
+  assert.equal(rejectionCreated, true, 'input_rejection.create was called');
+  assert.equal(billCreated, false, 'bill.create was NOT called');
 });
 
-// ── 12.7 Non-regression: skeleton still works end-to-end ───────────────────
+// ── 15. processBill: successful extraction creates draft + meta ──────────────
 
-test('12.7 with no LLM config a dropped PDF still produces a skeleton bill.create draft', async () => {
-  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nNo LLM endpoints configured so this falls all the way to the skeleton floor.');
+test('15. processBill creates draft bill and writes _extraction_meta', async () => {
+  stubPdfParse('Vendor: Acme\nAmount: 1000\nDate: 2026-08-07\nCurrency: SEK\nThis text is long enough to pass the per-page threshold for sure.');
+  mockFetch(() => okResponse(JSON.stringify(CANNED)));
+
   let createdBill = null;
+  let metaInserted = false;
+  let metaBillId = null;
+
   const dispatch = makeDispatch(async (params) => {
     createdBill = params.bill;
-    return { bill_id: 'b-skeleton-1' };
+    return { bill_id: 'b-15' };
   });
-  _setLoopDeps({ dispatchAction: dispatch, fetchAttachmentFn: async () => ({
-    contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4'), text: '',
-  }) });
 
-  const ev = { entity_id: 'att-7' };
-  const settings = {}; // no LLM, no vision
+  // We need to also intercept the exec call for bill_extraction_meta INSERT.
+  // Since we can't intercept exec directly (it's in the module scope), we
+  // just verify the bill object carries _extraction_meta and bill.create is
+  // called. The meta insert is best-effort and logged on failure.
+  _setLoopDeps({
+    dispatchAction: dispatch,
+    fetchAttachmentFn: async () => ({
+      contentType: 'application/pdf', filename: 'invoice.pdf', buffer: Buffer.from('%PDF-1.4'), text: '',
+    }),
+  });
+
+  const ev = { entity_id: 'att-15' };
+  const settings = {
+    llm_endpoint_url: 'https://llm.example.com',
+    llm_model: 'test-model',
+  };
 
   await processBill(ev, 'CO', 'agent@ct', settings);
 
   assert.ok(createdBill, 'bill.create was called with a bill object');
-  // Skeleton shape: partner_name absent/null, no lines, attachment linkage carried through.
-  assert.ok(!createdBill.partner_name, 'partner_name null/absent in skeleton');
-  assert.equal(createdBill.currency, null);
-  assert.deepEqual(createdBill.lines, []);
-  assert.equal(createdBill._source_attachment_id, 'att-7');
-  assert.equal(createdBill._source_filename, 'invoice.pdf');
+  assert.equal(createdBill.partner_name, 'Acme Corp');
+  assert.equal(createdBill.currency, 'SEK');
+  assert.equal(createdBill.date, '2026-08-07');
+  assert.equal(createdBill.amount, 1000);
+  assert.ok(createdBill._extraction_meta, '_extraction_meta present on bill');
+  assert.equal(createdBill._extraction_meta.confidence, 'high');
+  assert.equal(createdBill._extraction_meta.model, 'test-model');
+  assert.ok(createdBill._extraction_meta.prompt_snapshot, 'prompt_snapshot in _extraction_meta');
+  assert.ok(createdBill._extraction_meta.raw_model_output, 'raw_model_output in _extraction_meta');
 });
 
-// ── Prompt builder sanity (spec §8) ─────────────────────────────────────────
+// ── 16. Prompt builder includes vendor list, COA, and VAT codes ─────────────
 
-test('buildBillExtractionPrompt includes COA and VAT codes', () => {
-  const prompt = buildBillExtractionPrompt(
-    [{ account_code: '4000', account_name: 'Supplies' }, { account_code: '6000', account_name: 'Consulting' }],
-    [{ vat_code: 'S25', rate: 0.25 }],
-  );
-  assert.match(prompt, /Chart of accounts \(code name\):/);
-  assert.match(prompt, /4000 Supplies/);
+test('16. buildBillExtractionPrompt includes vendor list, COA, and VAT codes', () => {
+  const prompt = buildBillExtractionPrompt({
+    vendors: [{ partner_id: 'p-1', name: 'Acme Corp', default_expense_account: '6000' }],
+    expenseAccounts: [{ account_code: '6000', account_name: 'Consulting' }],
+    vatCodes: [{ vat_code: 'S25', rate: 0.25, is_reverse_charge: false }],
+    currency: 'SEK',
+    jurisdiction: 'SE',
+  });
+  assert.match(prompt, /Vendor list/);
+  assert.match(prompt, /Acme Corp/);
+  assert.match(prompt, /Chart of expense accounts/);
   assert.match(prompt, /6000 Consulting/);
-  assert.match(prompt, /VAT codes \(code rate\):/);
+  assert.match(prompt, /VAT codes/);
   assert.match(prompt, /S25 25%/);
-  assert.match(prompt, /vendor_invoice_number/);
-  assert.match(prompt, /account_code_hint/);
-  assert.match(prompt, /vat_code/);
+  assert.match(prompt, /reverse_charge/);
+  assert.match(prompt, /vendor_name_raw/);
+  assert.match(prompt, /total_stated/);
+  assert.match(prompt, /invoice_date/);
 });

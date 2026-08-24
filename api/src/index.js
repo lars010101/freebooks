@@ -1485,6 +1485,7 @@ async function handleSettings(ctx, action) {
         editor: { type: 'text' }, note: 'Blank keeps the stored key' },
       { key: 'vat_tolerance', label: 'VAT Tolerance (flat)', type: 'Number', value: isNaN(flatNum) ? 0.5 : flatNum, display: (isNaN(flatNum) ? 0.5 : flatNum).toFixed(2), editor: { type: 'number', step: '0.01' } },
       { key: 'vat_tolerance_pct', label: 'VAT Tolerance (%)', type: 'Number', value: pctDisplay, display: pctDisplay.toFixed(2) + '%', editor: { type: 'number', step: '0.1' } },
+      { key: 'bill_extraction_tolerance', label: 'Bill Extraction Tolerance', type: 'Number', value: isNaN(parseFloat(s.bill_extraction_tolerance)) ? 0.5 : parseFloat(s.bill_extraction_tolerance), display: (isNaN(parseFloat(s.bill_extraction_tolerance)) ? 0.5 : parseFloat(s.bill_extraction_tolerance)).toFixed(2), editor: { type: 'number', step: '0.01' } },
     ];
     return attrs;
   }
@@ -1569,6 +1570,12 @@ async function handleSettings(ctx, action) {
         const n = Number(value);
         if (!isFinite(n) || n < 0) throw invalid('Tolerance % must be a non-negative number');
         await putSetting(companyId, 'vat_tolerance_pct', String(n / 100));
+        break;
+      }
+      case 'bill_extraction_tolerance': {
+        const n = Number(value);
+        if (!isFinite(n) || n < 0) throw invalid('Bill extraction tolerance must be a non-negative number');
+        await putSetting(companyId, 'bill_extraction_tolerance', String(n));
         break;
       }
       default:

@@ -23,7 +23,7 @@ const { query, exec } = require('./db');
 const { v4: uuid } = require('uuid');
 const path = require('path');
 const fs = require('fs');
-const { normalizeDescription, detectMappingConflicts, findFuzzyMatch } = require('./mapping-utils');
+const { normalizeDescription, detectMappingConflicts, findFuzzyMatch, trigramSimilarity } = require('./mapping-utils');
 
 // ── State ───────────────────────────────────────────────────────────────────
 
@@ -618,133 +618,366 @@ module.exports.processBankStatement = processBankStatement;
 module.exports.buildTier4Context = buildTier4Context;
 module.exports.fetchAttachment = fetchAttachment;
 
-// ── Bill processing (layered extraction — bill-extraction-spec) ──────────────
+// ── Bill processing (bill-extraction-spec v2, ratified 2026-08-24) ───────────
+
+// Vendor match thresholds (spec §3.3) — code constants, not settings.
+const VENDOR_MATCH_CLEAR = 0.90;
+const VENDOR_MATCH_AMBIGUOUS = 0.70;
+
+// Per-page text extraction threshold (spec §2.1). Below this → treat page as
+// scanned and fall through to the image path.
+const PDF_TEXT_PAGE_THRESHOLD = 40;
 
 /**
- * Build the shared system prompt for bill extraction (spec §8). Includes the
- * company chart of accounts and VAT codes so the LLM can suggest
- * account_code_hint and vat_code per line. Modeled on buildTier4Prompt().
+ * Build the company financial context for bill extraction (spec §2.2).
+ * Loads vendor master (partners where is_vendor=true), expense-type accounts,
+ * VAT codes, and company currency + jurisdiction. Modeled on buildTier4Context.
  */
-function buildBillExtractionPrompt(coa, vatCodes) {
-  const coaLines = (coa || [])
-    .map((a) => `${a.account_code} ${a.account_name}`)
-    .join('\n');
-  const vatLines = (vatCodes || [])
-    .map((v) => `${v.vat_code} ${(Number(v.rate) * 100).toFixed(0)}%`)
-    .join('\n');
-  return `You are a bookkeeping assistant. Extract bill data from the document below.
-Return a JSON object with these fields:
+async function buildBillExtractionContext(companyId, agentEmail) {
+  const ctx = { vendors: [], expenseAccounts: [], vatCodes: [], currency: null, jurisdiction: null };
 
-  vendor              — supplier name (string)
-  vendor_vat_code     — supplier VAT/registration number if visible (string | null)
-  vendor_invoice_number — supplier's invoice/reference number if visible (string | null)
-  bill_date            — invoice date, ISO YYYY-MM-DD (string | null)
-  due_date             — payment due date, ISO YYYY-MM-DD (string | null)
-  currency             — ISO 4217 currency code if visible (string, e.g. "SEK")
-  amount               — total bill amount, tax-inclusive, as a number
-  vat_amount           — stated total VAT/tax amount, as a number (0 if none stated)
-  lines                — array of line items, each:
-    {
-      description,       — line description (string)
-      account_code_hint,  — best-guess account code from the chart of accounts below (string | null)
-      quantity,           — quantity if stated (number, default 1)
-      unit_price,         — unit price if stated (number | null)
-      amount,             — line total amount including tax (number)
-      vat_code,           — VAT code from the list below if identifiable (string | null)
-      vat_rate            — VAT rate as a percent if stated (number | null)
+  // Vendor master: id, name, default currency, default expense account
+  try {
+    ctx.vendors = await query(
+      `SELECT partner_id, name, default_currency, default_expense_account
+       FROM partners
+       WHERE company_id = @cid AND is_vendor = TRUE AND is_active = TRUE
+       ORDER BY name`,
+      { cid: companyId }
+    ) || [];
+  } catch (e) { warn(`bill context: vendors query failed: ${e.message}`); }
+
+  // Chart of accounts: expense-type accounts only (spec §2.2)
+  try {
+    ctx.expenseAccounts = await query(
+      `SELECT account_code, account_name, account_type
+       FROM (
+         SELECT *, ROW_NUMBER() OVER(PARTITION BY account_code ORDER BY created_at DESC) AS rn
+         FROM accounts WHERE company_id = @cid
+       ) t WHERE rn = 1 AND account_type = 'Expense' AND is_active = TRUE
+       ORDER BY account_code`,
+      { cid: companyId }
+    ) || [];
+  } catch (e) { warn(`bill context: expense accounts query failed: ${e.message}`); }
+
+  // VAT/GST codes: code, rate, reverse-charge flag
+  try {
+    if (_dispatchAction) {
+      ctx.vatCodes = await _dispatchAction('vat.codes.list', {}, companyId, agentEmail) || [];
     }
-  notes                — any other useful free-text notes (string | null)
+  } catch (e) { warn(`bill context: vat.codes.list failed: ${e.message}`); }
 
-Use the company's chart of accounts and VAT codes below to suggest
-account_code_hint and vat_code. If unsure, still fill the field with your best
-guess — a human reviews the result. Do not omit lines. Amounts are numbers,
-not strings.
+  // Company currency + jurisdiction
+  try {
+    const coRows = await query(
+      `SELECT currency, jurisdiction FROM (
+         SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn
+         FROM companies WHERE company_id = @cid
+       ) t WHERE rn = 1`,
+      { cid: companyId }
+    );
+    if (coRows.length > 0) {
+      ctx.currency = coRows[0].currency;
+      ctx.jurisdiction = coRows[0].jurisdiction;
+    }
+  } catch (e) { warn(`bill context: company query failed: ${e.message}`); }
 
-Chart of accounts (code name):
-${coaLines}
-
-VAT codes (code rate):
-${vatLines}`;
+  return ctx;
 }
 
 /**
- * Normalize the LLM-parsed JSON (spec §8 shape) into the bill.create draft
- * object that saveDraftBill expects (spec §7). The draft is a *proposal* —
- * account_code_hint / vat_code are suggestions a human reviews before posting.
+ * Build the system prompt for bill extraction (spec §3.1). Instructs the model
+ * on the extraction schema, vendor matching, VAT handling, reverse-charge
+ * recognition, and expense-account defaults.
  */
-function _normalizeBillFromLLM(parsed, payload, att) {
-  const filename = payload.filename || att.filename || null;
-  const lines = Array.isArray(parsed.lines) ? parsed.lines.map((l) => ({
-    expense_account: l.account_code_hint || null,
-    amount: Number(l.amount) || 0,
-    vat_code: l.vat_code || null,
-    description: l.description || null,
-    ...(l.quantity != null ? { quantity: Number(l.quantity) } : {}),
-    ...(l.unit_price != null ? { unit_price: Number(l.unit_price) } : {}),
-    ...(l.vat_rate != null ? { vat_rate: Number(l.vat_rate) } : {}),
-  })) : [];
-  const firstLine = lines[0] || {};
-  const lineSum = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+function buildBillExtractionPrompt(context) {
+  const ctx = context || {};
+  const vendorLines = (ctx.vendors || [])
+    .map((v) => `${v.partner_id} | ${v.name}${v.default_expense_account ? ' | expense: ' + v.default_expense_account : ''}`)
+    .join('\n');
+  const coaLines = (ctx.expenseAccounts || [])
+    .map((a) => `${a.account_code} ${a.account_name}`)
+    .join('\n');
+  const vatLines = (ctx.vatCodes || [])
+    .map((v) => `${v.vat_code} ${(Number(v.rate) * 100).toFixed(0)}%${v.is_reverse_charge ? ' (reverse charge)' : ''}`)
+    .join('\n');
+  const currency = ctx.currency || '(unknown)';
+  const jurisdiction = ctx.jurisdiction || '(unknown)';
+
+  return `You are a bookkeeping assistant. Extract bill/invoice data from the document below.
+Return a JSON object with exactly these fields:
+
+  vendor_name_raw     — supplier name as printed on the document (string)
+  vendor_id           — the partner_id from the vendor list below if you are confident this is that vendor, otherwise null (string | null)
+  currency            — ISO 4217 currency code as printed (string, e.g. "SEK", "EUR")
+  invoice_number      — supplier's invoice/reference number if visible (string | null)
+  invoice_date        — invoice date, ISO YYYY-MM-DD (string)
+  due_date            — payment due date, ISO YYYY-MM-DD if printed (string | null)
+  total_stated        — total bill amount as printed, tax-inclusive (number)
+  vat_amount_stated   — stated total VAT/tax amount if printed (number | null)
+  lines               — array of line items, each:
+    {
+      description,      — line description as printed (string)
+      amount,           — line total amount as printed, including tax (number)
+      expense_account,  — best-guess account code from the chart of accounts below (string | null)
+      vat_code,         — VAT code from the list below if a rate is printed (string | null)
+      reverse_charge    — true if this line carries reverse-charge language (boolean)
+    }
+
+Rules:
+- Match vendor name against the vendor list below. If confident, set vendor_id; otherwise null.
+- Only assign a vat_code if a rate is actually printed on the document. Never guess a tax treatment.
+- If the document contains reverse-charge language (e.g. "Reverse charge", "Omvänd betalningsskyldighet"), set reverse_charge: true on the relevant lines and leave vat_code null.
+- Never invent a due_date if none is printed — leave null.
+- Report line items and total_stated as printed. Do NOT do arithmetic — the engine checks totals deterministically.
+- Default each line's expense_account to the vendor's default_expense_account (from the vendor list) if the vendor is matched. Only override when the document clearly indicates a different account.
+- Amounts are numbers, not strings. Do not omit lines.
+
+Company currency: ${currency}
+Jurisdiction: ${jurisdiction}
+
+Vendor list (partner_id | name | default expense account):
+${vendorLines || '(none)'}
+
+Chart of expense accounts (code name):
+${coaLines || '(none)'}
+
+VAT codes (code rate):
+${vatLines || '(none)'}`;
+}
+
+/**
+ * Deterministic validation of the LLM-parsed output (spec §3.3).
+ * Returns an ExtractionResult object. The model's own confidence self-report
+ * (if any) is discarded — every flag and the final confidence bucket are
+ * computed here.
+ */
+function _validateExtraction(parsed, context, companySettings) {
+  const flags = [];
+  const ctx = context || {};
+  companySettings = companySettings || {};
+
+  // ── Hard-failure checks (§5.1): these return ok:false ──
+
+  if (!parsed || typeof parsed !== 'object') {
+    return { ok: false, reason: 'extraction_failed', detail: 'LLM returned non-object', raw_model_output: parsed };
+  }
+
+  const totalStated = Number(parsed.total_stated);
+  if (!isFinite(totalStated) || totalStated == null) {
+    return { ok: false, reason: 'missing_critical_data', detail: 'No extractable total', raw_model_output: parsed };
+  }
+
+  const currency = parsed.currency;
+  if (!currency || typeof currency !== 'string') {
+    return { ok: false, reason: 'missing_critical_data', detail: 'No extractable currency', raw_model_output: parsed };
+  }
+
+  const invoiceDate = parsed.invoice_date;
+  if (!invoiceDate || !/^\d{4}-\d{2}-\d{2}$/.test(invoiceDate)) {
+    return { ok: false, reason: 'missing_critical_data', detail: 'No extractable invoice date', raw_model_output: parsed };
+  }
+
+  // Lines: must be non-empty array (§3.3)
+  const rawLines = Array.isArray(parsed.lines) ? parsed.lines : [];
+  if (rawLines.length === 0) {
+    return { ok: false, reason: 'missing_critical_data', detail: 'Zero valid line items', raw_model_output: parsed };
+  }
+
+  // ── Line-level checks (§3.3) ──
+  const validLines = [];
+  for (const l of rawLines) {
+    const amt = Number(l && l.amount);
+    if (!isFinite(amt) || amt == null || amt <= 0) {
+      // Non-numeric/null/negative line amount — hard-fail that line
+      return { ok: false, reason: 'missing_critical_data', detail: `Line amount invalid: ${l && l.amount}`, raw_model_output: parsed };
+    }
+    validLines.push({
+      description: String((l && l.description) || '').trim(),
+      amount: amt,
+      expense_account: (l && l.expense_account) || null,
+      vat_code: (l && l.vat_code) || null,
+      reverse_charge: !!(l && l.reverse_charge),
+      needs_review: false,
+    });
+  }
+
+  // Duplicate line descriptions with different amounts (§3.3)
+  const descMap = {};
+  for (const l of validLines) {
+    if (!l.description) continue;
+    if (descMap[l.description] !== undefined && descMap[l.description] !== l.amount) {
+      flags.push('duplicate_line_description');
+      l.needs_review = true;
+    }
+    descMap[l.description] = l.amount;
+  }
+
+  // ── Vendor match — deterministic, not LLM-judged (§3.3) ──
+  const vendorNameRaw = String(parsed.vendor_name_raw || '').trim();
+  let vendorId = parsed.vendor_id || null;
+  let needsNewVendor = false;
+
+  // If the model proposed a vendor_id, validate it against the vendor list
+  if (vendorId) {
+    const vendor = (ctx.vendors || []).find((v) => v.partner_id === vendorId);
+    if (!vendor) {
+      // Proposed vendor_id doesn't exist in this company — treat as no match
+      vendorId = null;
+    } else if (vendorNameRaw) {
+      const sim = trigramSimilarity(vendorNameRaw, vendor.name);
+      if (sim < VENDOR_MATCH_AMBIGUOUS) {
+        // Below threshold — treat as no match
+        vendorId = null;
+      } else if (sim < VENDOR_MATCH_CLEAR) {
+        // Ambiguous — keep vendor_id but flag
+        flags.push('ambiguous_vendor');
+      }
+      // ≥ CLEAR: accept silently
+    }
+  }
+
+  // If no vendor_id matched, try matching vendor_name_raw against the list
+  if (!vendorId && vendorNameRaw) {
+    const candidates = (ctx.vendors || []).map((v) => ({ name: v.name, partner_id: v.partner_id }));
+    const fuzzy = findFuzzyMatch(vendorNameRaw, candidates, VENDOR_MATCH_AMBIGUOUS);
+    if (fuzzy && fuzzy.similarity >= VENDOR_MATCH_CLEAR) {
+      vendorId = fuzzy.candidate.partner_id;
+    } else if (fuzzy && fuzzy.similarity >= VENDOR_MATCH_AMBIGUOUS) {
+      vendorId = fuzzy.candidate.partner_id;
+      flags.push('ambiguous_vendor');
+    } else {
+      // No match at all — needs new vendor
+      needsNewVendor = true;
+    }
+  }
+
+  if (!vendorId && !vendorNameRaw) {
+    needsNewVendor = true;
+  }
+
+  // Default expense_account to vendor's default if matched (§3.1)
+  if (vendorId) {
+    const vendor = (ctx.vendors || []).find((v) => v.partner_id === vendorId);
+    if (vendor && vendor.default_expense_account) {
+      for (const l of validLines) {
+        if (!l.expense_account) {
+          l.expense_account = vendor.default_expense_account;
+        }
+      }
+    }
+  }
+
+  // ── Totals: sum(lines) vs total_stated (§3.3) ──
+  const totalComputed = validLines.reduce((s, l) => s + l.amount, 0);
+  const tolerance = parseFloat(companySettings.bill_extraction_tolerance || '0.50');
+  if (Math.abs(totalComputed - totalStated) > tolerance) {
+    flags.push('total_mismatch');
+    validLines.forEach((l) => { l.needs_review = true; });
+  }
+
+  // ── VAT code validation (§3.3) ──
+  const validVatCodes = new Set((ctx.vatCodes || []).map((v) => v.vat_code));
+  let reverseChargeDetected = false;
+  for (const l of validLines) {
+    if (l.reverse_charge) {
+      reverseChargeDetected = true;
+      l.vat_code = null; // RC lines never carry a vat_code
+      l.needs_review = true;
+    } else if (l.vat_code && !validVatCodes.has(l.vat_code)) {
+      // Proposed vat_code doesn't exist — leave unset and flag
+      l.vat_code = null;
+      l.needs_review = true;
+    }
+  }
+  if (reverseChargeDetected) {
+    flags.push('reverse_charge_detected');
+  } else {
+    // Check if any line is missing a vat_code and no RC was detected
+    const missingVat = validLines.some((l) => !l.vat_code && !l.reverse_charge);
+    if (missingVat) {
+      flags.push('no_vat_code_detected');
+    }
+  }
+
+  // ── Confidence derivation (§3.3): flag count, not self-reported ──
+  const confidence = flags.length === 0 ? 'high' : flags.length === 1 ? 'medium' : 'low';
+
   return {
-    partner_name: parsed.vendor || null,
-    vendor_ref: parsed.vendor_invoice_number || null,
-    date: parsed.bill_date || null,
-    due_date: parsed.due_date || null,
-    currency: parsed.currency || null,
-    amount: parsed.amount != null ? Number(parsed.amount) : (lines.length ? lineSum : null),
-    expense_account: lines.length === 1 ? firstLine.expense_account : null,
-    ap_account: null, // server default (applyCompanyDefaults, bills.js:48) fills it
-    vat_code: lines.length === 1 ? firstLine.vat_code : null,
-    vat_amount: parsed.vat_amount != null ? Number(parsed.vat_amount) : 0,
-    description: parsed.notes || null,
-    lines,
-    _source_attachment_id: payload.entityId || null,
-    _source_filename: filename,
+    ok: true,
+    confidence,
+    data: {
+      vendor_id: vendorId,
+      vendor_name_raw: vendorNameRaw || '(unknown)',
+      needs_new_vendor: needsNewVendor,
+      currency: String(currency),
+      invoice_number: parsed.invoice_number || null,
+      invoice_date: invoiceDate,
+      due_date: parsed.due_date || null,
+      lines: validLines,
+      total_stated: totalStated,
+      total_computed: Math.round(totalComputed * 100) / 100,
+      vat_amount_stated: parsed.vat_amount_stated != null ? Number(parsed.vat_amount_stated) : null,
+    },
+    flags,
+    raw_model_output: parsed,
   };
 }
 
 /**
- * Shared LLM response handling for layers 1 and 2 (spec §6.4). Returns a
- * normalized bill object on success, or null to signal "fall through" to the
- * next layer. Never throws.
+ * Check for an existing non-voided bill matching (vendor_id, invoice_number,
+ * total_stated) for this company (spec §6). When vendor_id is null, falls
+ * back to (vendor_name_raw, invoice_number, total_stated). Returns the
+ * existing bill_id if a duplicate is found, or null.
  */
-async function _handleBillLLMResponse(response, att, payload) {
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    warn(`bill: LLM HTTP ${response.status}: ${body.slice(0, 200)}`);
-    return null;
-  }
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) {
-    warn('bill: empty LLM response');
-    return null;
-  }
-  let parsed;
+async function _checkDuplicate(companyId, result) {
+  const d = result.data;
+  if (!d) return null;
+  const total = d.total_stated;
+  const invNum = d.invoice_number;
+  if (!invNum) return null; // can't check duplicates without an invoice number
+
   try {
-    parsed = JSON.parse(content);
+    if (d.vendor_id) {
+      const rows = await query(
+        `SELECT bill_id FROM bills
+         WHERE company_id = @cid AND partner_id = @vid
+           AND vendor_ref = @invNum AND amount = @total
+           AND status != 'void'
+         LIMIT 1`,
+        { cid: companyId, vid: d.vendor_id, invNum, total }
+      );
+      if (rows.length > 0) return rows[0].bill_id;
+    } else {
+      // vendor_id null — fall back to vendor_name_raw (spec §6)
+      const rows = await query(
+        `SELECT bill_id FROM bills
+         WHERE company_id = @cid AND partner_name = @vname
+           AND vendor_ref = @invNum AND amount = @total
+           AND status != 'void'
+         LIMIT 1`,
+        { cid: companyId, vname: d.vendor_name_raw, invNum, total }
+      );
+      if (rows.length > 0) return rows[0].bill_id;
+    }
   } catch (e) {
-    warn(`bill: non-JSON response: ${content.slice(0, 200)}`);
-    return null;
+    warn(`bill dedup check failed: ${e.message}`);
   }
-  if (!parsed
-      || (parsed.vendor == null && parsed.amount == null && !Array.isArray(parsed.lines))) {
-    warn('bill: LLM JSON missing required fields');
-    return null;
-  }
-  return _normalizeBillFromLLM(parsed, payload, att);
+  return null;
 }
 
 /**
- * Layered bill/receipt extraction (spec §6).
+ * Extract structured bill data from a single attachment (spec §1-§5).
  *
- *   Layer 1: local PDF text → text LLM          (digital PDFs)
- *   Layer 2: vision LLM (base64 image_url)       (scanned PDFs, JPG/PNG)
- *   Layer 3: skeleton draft (current stub)       (fallback)
+ * Pipeline:
+ *   1. Read document (PDF text extraction per-page, or image base64)
+ *   2. Build company financial context
+ *   3. Build system prompt
+ *   4. Call LLM (same endpoint for text and image)
+ *   5. Deterministic validation (§3.3)
  *
- * Fail-soft: every internal failure degrades to the skeleton. Never throws
- * to processBill. Vision config is opt-in (three new per-company settings,
- * spec §4); absent → layer 2 skipped.
+ * Returns an ExtractionResult (§4.1). Hard failures return ok:false with a
+ * reason for input_rejections. Never throws to processBill.
  */
 async function extractBillData(att, payload, companySettings, companyId, agentEmail) {
   const filename = payload.filename || att.filename || '(unknown)';
@@ -754,85 +987,84 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
     || /\.(jpe?g|png)$/i.test(filename);
   companySettings = companySettings || {};
 
-  // Load COA + VAT codes once per call (spec §8). Best-effort — empty lists
-  // on failure (the LLM still extracts vendor/amount/date; hints come back null).
-  let coa = [], vatCodes = [];
-  if (_dispatchAction) {
-    try {
-      coa = await _dispatchAction('coa.list', {}, companyId, agentEmail) || [];
-    } catch (e) { warn(`bill: coa.list failed: ${e.message}`); }
-    try {
-      vatCodes = await _dispatchAction('vat.codes.list', {}, companyId, agentEmail) || [];
-    } catch (e) { warn(`bill: vat.codes.list failed: ${e.message}`); }
+  // ── Hard failure: no LLM configured (§5.1) ──
+  if (!companySettings.llm_endpoint_url) {
+    warn(`bill ${filename}: no llm_endpoint_url configured`);
+    return { ok: false, reason: 'no_llm_configured', detail: 'No LLM endpoint configured',
+             raw_model_output: null };
   }
-  const systemPrompt = buildBillExtractionPrompt(coa, vatCodes);
-  const temperature = parseFloat(companySettings.llm_temperature || '0.1');
 
-  // ── Layer 1: local PDF text → text LLM (digital PDFs) ──
+  // ── Build context (§2.2) ──
+  const context = await buildBillExtractionContext(companyId, agentEmail);
+  const systemPrompt = buildBillExtractionPrompt(context);
+  const temperature = parseFloat(companySettings.llm_temperature || '0.1');
+  const url = companySettings.llm_endpoint_url;
+  const apiKey = companySettings.llm_api_key || '';
+  const model = companySettings.llm_model || 'default';
+
+  // ── Document read: determine text vs image path (§2.1) ──
+  let useImage = isImage; // images always go image path
+  let extractedText = '';
+
   if (isPdf) {
-    let text = '';
     try {
       const pdfParse = require('pdf-parse');
       const parsedPdf = await pdfParse(att.buffer);
-      text = (parsedPdf.text || '').trim();
-    } catch (e) {
-      warn(`bill ${filename}: pdf-parse failed: ${e.message} — trying vision layer`);
-      // fall through to layer 2
-    }
-    if (text.length >= 50 && companySettings.llm_endpoint_url) {
-      try {
-        const url = companySettings.llm_endpoint_url;
-        const apiKey = companySettings.llm_api_key || '';
-        const model = companySettings.llm_model || 'default';
-        const response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: text },
-            ],
-            temperature,
-            response_format: { type: 'json_object' },
-          }),
-        });
-        const bill = await _handleBillLLMResponse(response, att, payload);
-        if (bill) return bill;
-        // else fall through to layer 2
-      } catch (e) {
-        warn(`bill ${filename}: text LLM call failed: ${e.message}`);
+      // Per-page check (spec §2.1): if any page is below threshold, treat
+      // the entire document as image-based.
+      const numPages = parsedPdf.numpages || 1;
+      // pdf-parse returns all text as a single string; approximate per-page
+      // by splitting on form-feed characters (\f). If the total text is below
+      // the threshold scaled by page count, treat as scanned.
+      const fullText = (parsedPdf.text || '').trim();
+      const perPageAvg = fullText.length / Math.max(1, numPages);
+      if (perPageAvg < PDF_TEXT_PAGE_THRESHOLD) {
+        useImage = true;
+        warn(`bill ${filename}: PDF text per-page avg ${perPageAvg.toFixed(0)} < ${PDF_TEXT_PAGE_THRESHOLD} — treating as scanned`);
+      } else {
+        extractedText = fullText;
+        useImage = false;
       }
+    } catch (e) {
+      warn(`bill ${filename}: pdf-parse failed: ${e.message} — trying image path`);
+      useImage = true;
     }
   }
 
-  // ── Layer 2: vision LLM (scanned PDFs and images) ──
-  // Trigger: layer 1 found no text (scanned PDF) OR file is an image, AND
-  // vision is configured (llm_vision_endpoint_url + llm_vision_model both set).
-  const visionConfigured = !!(companySettings.llm_vision_endpoint_url
-    && companySettings.llm_vision_model);
-  if ((isPdf || isImage) && visionConfigured) {
-    try {
-      const vUrl = companySettings.llm_vision_endpoint_url;
-      const vModel = companySettings.llm_vision_model;
-      const vKey = companySettings.llm_vision_api_key || companySettings.llm_api_key || '';
+  // ── LLM call (§3.2): same endpoint for text and image ──
+  const promptSnapshot = {
+    system_prompt: systemPrompt,
+    context: {
+      vendor_count: (context.vendors || []).length,
+      expense_account_count: (context.expenseAccounts || []).length,
+      vat_code_count: (context.vatCodes || []).length,
+      currency: context.currency,
+      jurisdiction: context.jurisdiction,
+    },
+    model,
+    temperature,
+    content_type: useImage ? 'image' : 'text',
+  };
+
+  let response;
+  try {
+    if (useImage && att.buffer) {
+      // Image path: base64-encode and send as image_url content block
       const b64 = att.buffer.toString('base64');
-      const dataUrl = `data:${att.contentType || 'application/octet-stream'};base64,${b64}`;
-      const response = await fetch(`${vUrl.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
+      const mimeType = att.contentType || 'application/octet-stream';
+      const dataUrl = `data:${mimeType};base64,${b64}`;
+      response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(vKey ? { 'Authorization': `Bearer ${vKey}` } : {}),
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
         },
         body: JSON.stringify({
-          model: vModel,
+          model,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: [
-              { type: 'text', text: 'Extract the bill data from this document image.' },
+              { type: 'text', text: 'Extract the bill data from this document.' },
               { type: 'image_url', image_url: { url: dataUrl } },
             ] },
           ],
@@ -840,23 +1072,83 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
           response_format: { type: 'json_object' },
         }),
       });
-      const bill = await _handleBillLLMResponse(response, att, payload);
-      if (bill) return bill;
-      // else fall through to layer 3
-    } catch (e) {
-      warn(`bill ${filename}: vision LLM call failed: ${e.message}`);
+    } else if (extractedText) {
+      // Text path: send extracted text as plain string
+      response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: extractedText },
+          ],
+          temperature,
+          response_format: { type: 'json_object' },
+        }),
+      });
+    } else {
+      // No text extracted and not an image with buffer — can't proceed
+      warn(`bill ${filename}: no extractable content (not text, not image with buffer)`);
+      return { ok: false, reason: 'extraction_failed', detail: 'No extractable content',
+               raw_model_output: null, prompt_snapshot: promptSnapshot };
     }
+  } catch (e) {
+    // LLM call error (§5.1): timeout, network, etc.
+    warn(`bill ${filename}: LLM call failed: ${e.message}`);
+    return { ok: false, reason: 'extraction_failed', detail: e.message,
+             raw_model_output: null, prompt_snapshot: promptSnapshot };
   }
 
-  // ── Layer 3: skeleton draft (fallback, current stub behavior) ──
-  warn(`bill ${filename}: extraction failed (no text, no vision, or LLM error) — creating skeleton draft`);
-  return {
-    currency: null, lines: [],
-    _source_attachment_id: payload.entityId || null,
-    _source_filename: payload.filename || att.filename || null,
-  };
+  // ── Parse LLM response ──
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    warn(`bill ${filename}: LLM HTTP ${response.status}: ${body.slice(0, 200)}`);
+    return { ok: false, reason: 'extraction_failed', detail: `LLM HTTP ${response.status}`,
+             raw_model_output: { http_status: response.status, body: body.slice(0, 500) },
+             prompt_snapshot: promptSnapshot };
+  }
+
+  let llmData;
+  try {
+    llmData = await response.json();
+  } catch (e) {
+    warn(`bill ${filename}: LLM returned non-JSON envelope: ${e.message}`);
+    return { ok: false, reason: 'extraction_failed', detail: 'Non-JSON response envelope',
+             raw_model_output: null, prompt_snapshot: promptSnapshot };
+  }
+
+  const content = llmData?.choices?.[0]?.message?.content;
+  if (!content) {
+    warn(`bill ${filename}: empty LLM response`);
+    return { ok: false, reason: 'extraction_failed', detail: 'Empty LLM response',
+             raw_model_output: llmData, prompt_snapshot: promptSnapshot };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    warn(`bill ${filename}: non-JSON content: ${content.slice(0, 200)}`);
+    return { ok: false, reason: 'extraction_failed', detail: 'Non-JSON content from LLM',
+             raw_model_output: { raw_content: content.slice(0, 1000) },
+             prompt_snapshot: promptSnapshot };
+  }
+
+  // ── Deterministic validation (§3.3) ──
+  const result = _validateExtraction(parsed, context, companySettings);
+  result.prompt_snapshot = promptSnapshot;
+  return result;
 }
 
+/**
+ * Process a bill attachment event (spec §1, §4.2, §5, §6).
+ * Called from processEvent when entityType='bill'. Maps the ExtractionResult
+ * to bill.create (status='draft') or input_rejections. Never throws.
+ */
 async function processBill(ev, companyId, agentEmail, companySettings) {
   const attachmentId = ev.entity_id;
   let att;
@@ -867,28 +1159,119 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
     return;
   }
   const payload = { entityId: attachmentId, filename: att.filename, contentType: att.contentType };
-  const bill = await extractBillData(att, payload, companySettings, companyId, agentEmail);
-  if (!bill) {
-    warn(`bill ${attachmentId}: extraction returned no data (skipped)`);
+
+  const result = await extractBillData(att, payload, companySettings, companyId, agentEmail);
+
+  // ── Hard failure → input_rejections (§5.1) ──
+  if (!result.ok) {
+    const reason = result.reason || 'extraction_failed';
+    const detail = result.detail || 'Unknown extraction failure';
+    warn(`bill ${attachmentId}: hard failure — ${reason}: ${detail}`);
+    try {
+      await _dispatchAction('input_rejection.create', {
+        statement_id: attachmentId,
+        statement_date: new Date().toISOString().substring(0, 10),
+        rejected_lines: [{ reason: `${reason}: ${detail}`, raw: JSON.stringify(result.raw_model_output || {}).slice(0, 500) }],
+      }, companyId, agentEmail);
+      log(`bill ${attachmentId}: input_rejection created (${reason})`);
+    } catch (e) {
+      err(`bill ${attachmentId}: input_rejection.create failed: ${e.message}`);
+    }
     return;
   }
+
+  // ── Duplicate detection (§6) ──
+  const dupBillId = await _checkDuplicate(companyId, result);
+  if (dupBillId) {
+    if (!result.flags.includes('possible_duplicate')) {
+      result.flags.push('possible_duplicate');
+    }
+    log(`bill ${attachmentId}: possible duplicate of bill ${dupBillId} — flagging`);
+    // Still create the draft; the flag surfaces it for review.
+  }
+
+  // ── Map ExtractionResult.data → bill.create draft (§4.2) ──
+  const d = result.data;
+  const firstLine = (d.lines && d.lines[0]) || {};
+  const bill = {
+    partner_id: d.vendor_id || null,
+    partner_name: d.vendor_name_raw || null,
+    vendor_ref: d.invoice_number || null,
+    date: d.invoice_date,
+    due_date: d.due_date || d.invoice_date, // default due to invoice date if not printed
+    currency: d.currency,
+    amount: d.total_stated,
+    expense_account: d.lines.length === 1 ? firstLine.expense_account : null,
+    ap_account: null, // server default (applyCompanyDefaults) fills it
+    vat_code: d.lines.length === 1 ? firstLine.vat_code : null,
+    vat_amount: d.vat_amount_stated || 0,
+    description: null,
+    lines: d.lines.map((l) => ({
+      description: l.description,
+      amount: l.amount,
+      expense_account: l.expense_account,
+      vat_code: l.vat_code,
+      needs_review: l.needs_review,
+    })),
+    _source_attachment_id: payload.entityId || null,
+    _source_filename: payload.filename || att.filename || null,
+    _extraction_meta: {
+      model: companySettings.llm_model || 'default',
+      confidence: result.confidence,
+      flags: result.flags,
+      raw_model_output: result.raw_model_output,
+      prompt_snapshot: result.prompt_snapshot,
+      total_computed: d.total_computed,
+      pending_vendor_proposal_id: d.needs_new_vendor ? null : undefined,
+    },
+  };
+
   let billResult = null;
   try {
     billResult = await _dispatchAction('bill.create', { bill }, companyId, agentEmail);
-    log(`bill ${attachmentId}: draft created (bill_id=${billResult && billResult.bill_id || '?'})`);
+    log(`bill ${attachmentId}: draft created (bill_id=${billResult && billResult.bill_id || '?'}, confidence=${result.confidence}, flags=[${result.flags.join(',') || 'none'}])`);
   } catch (e) {
     err(`bill ${attachmentId}: bill.create failed: ${e.message}`);
+    return;
+  }
+
+  // ── Write _extraction_meta to side table (§4.2) ──
+  if (billResult && billResult.bill_id) {
+    try {
+      const meta = bill._extraction_meta;
+      await exec(
+        `INSERT INTO bill_extraction_meta
+           (bill_id, company_id, model, confidence, flags, raw_model_output, prompt_snapshot, pending_vendor_proposal_id, created_at)
+         VALUES
+           (@billId, @companyId, @model, @confidence, @flags, @rawOutput, @promptSnapshot, @pendingVendorProposal, @now)`,
+        {
+          billId: billResult.bill_id,
+          companyId,
+          model: meta.model,
+          confidence: meta.confidence,
+          flags: JSON.stringify(meta.flags || []),
+          rawOutput: JSON.stringify(meta.raw_model_output || {}),
+          promptSnapshot: JSON.stringify(meta.prompt_snapshot || {}),
+          pendingVendorProposal: meta.pending_vendor_proposal_id || null,
+          now: new Date().toISOString(),
+        }
+      );
+    } catch (e) {
+      warn(`bill ${attachmentId}: bill_extraction_meta insert failed: ${e.message}`);
+    }
   }
 
   // ── Partner-proposal-spec §6.2: Trigger B — partner.propose after bill.create ──
-  // Best-effort: check if vendor name matches an existing partner, and if not,
-  // propose a new partner. Failure doesn't affect the bill draft.
-  if (billResult) {
+  // When needs_new_vendor is true, the existing partner proposal flow handles
+  // surfacing the new-vendor decision via the unified Inbox. This is the
+  // existing mechanism — the spec's vendor_proposals (§11.1) maps onto the
+  // already-shipped partner_proposals table + partner.propose action.
+  if (billResult && d.needs_new_vendor && d.vendor_name_raw) {
     try {
       await _maybeProposePartner({
         companyId, agentEmail,
-        name: bill.partner_name || bill.vendor_name || null,
-        default_expense_account: bill.expense_account || null,
+        name: d.vendor_name_raw,
+        default_expense_account: d.lines.length === 1 ? firstLine.expense_account : null,
         source_bill_id: billResult.bill_id,
         source_description: null,
         evidence: [{ type: 'bill_extraction', bill_id: billResult.bill_id, filename: att.filename }],
@@ -910,6 +1293,9 @@ function _setLoopDeps({ dispatchAction, fetchAttachmentFn } = {}) {
 module.exports.processBill = processBill;
 module.exports.extractBillData = extractBillData;
 module.exports.buildBillExtractionPrompt = buildBillExtractionPrompt;
+module.exports.buildBillExtractionContext = buildBillExtractionContext;
+module.exports._validateExtraction = _validateExtraction;
+module.exports._checkDuplicate = _checkDuplicate;
 module.exports._setLoopDeps = _setLoopDeps;
 
 // ── Event routing ────────────────────────────────────────────────────────────

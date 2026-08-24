@@ -253,7 +253,7 @@ Bank statements flow through the same `attachment.upload → event → agent →
 
 **Approve as usual** in `/:company/inbox` — `y` approves, `x` rejects. After review, the agent calls `matching_history.record` with the outcome to feed calibration and learning (bank-matching-spec §6, §10).
 
-**`bank.process` / `bank.approve` (legacy CSV wizard):** remain functional as a fallback for manual import via `/bank?tab=import`. They are not the target architecture — the cascade replaces them. The wizard will be retired when the cascade is production-validated.
+The manual CSV wizard (`bank.process`/`bank.approve`, `/bank?tab=import`) has been removed (issue #260) — the cascade above is the only import path.
 
 ### 4.5b Bills — agent creates a draft, human posts (Option C ratified)
 

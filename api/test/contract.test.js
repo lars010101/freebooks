@@ -51,7 +51,7 @@ test('GET /api/actions serves the full catalog', async () => {
     assert.equal(typeof meta.mutating, 'boolean', `${name} declares mutating`);
   }
   for (const a of ['bill.create', 'bill.draft.post', 'bill.void', 'journal.post',
-                   'journal.reverse', 'journal.import', 'bank.process', 'fx.revaluation_post']) {
+                   'journal.reverse', 'journal.import', 'fx.revaluation_post']) {
     assert.equal(actions[a].idempotent, true, `${a} flagged idempotent`);
   }
 });
@@ -93,11 +93,6 @@ test('param type mismatches are named (catalog strict types)', async () => {
   const b = await api(baseUrl, 'bill.create', { companyId: CO, bill: 'x' });
   assert.equal(b.status, 400);
   assert.match(b.body.error.details.typeMismatch[0], /bill \(expected object/);
-
-  // amount accepts numeric strings (form-encoded callers) — passes dispatch,
-  // then fails INSIDE bill.match (or succeeds) but never with a type 400
-  const m = await api(baseUrl, 'bill.match', { companyId: CO, amount: '100.50', currency: 'SGD' });
-  assert.notEqual(m.status, 400, 'numeric string must pass the number type check');
 
   // date must look like YYYY-MM-DD — garbage 400s
   const d = await api(baseUrl, 'fx.rates.get', { companyId: CO, fromCurrency: 'USD', toCurrency: 'SGD', date: 'yesterday' });
@@ -703,71 +698,6 @@ test('bill.payment.void: reverses journal, restores bill, refuses double-void', 
   const again = await api(baseUrl, 'bill.payment.void', { companyId: CO, paymentId });
   assert.equal(again.status, 409);
   assert.match(again.body.error.message, /already voided/);
-});
-
-test('bank.process: amount-only match demoted to suggestion; partner/ref tiers', async () => {
-  // Distinct amount (101) so only this test's bill matches by amount
-  const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'INV-TIER-A', amount: 101, lines: [{ description: 'x', expense_account: EXP, amount: 101, vat_code: '' }] }) });
-  assert.equal(c.status, 200, JSON.stringify(c.body));
-
-  const proc = await api(baseUrl, 'bank.process', {
-    companyId: CO,
-    bankAccount: '1020',
-    rows: [
-      { date: TD.day21, description: 'GIRO TRANSFER 998877', amount: -101 },        // amount-only → suggest
-      { date: TD.day21, description: 'PAYMENT ACME PTE LTD', amount: -101 },        // partner substring → medium
-      { date: TD.day21, description: 'TRF INV-TIER-A 9988', amount: -101 },         // ref whole token → high
-      { date: TD.day21, description: 'TRF INV-TIER-A99', amount: -101 },           // ref glued to digits: substring, not token → medium
-    ],
-  });
-  assert.equal(proc.status, 200, JSON.stringify(proc.body));
-  const p = proc.body.data.processed;
-  assert.equal(p[0].matchType, 'bill_suggest', 'amount-only is a suggestion, not an auto-match');
-  assert.equal(p[0].matchConfidence, 'suggest');
-  assert.ok(p[0].billId, 'suggestion carries the candidate billId');
-  assert.equal(p[1].matchType, 'bill');
-  assert.equal(p[1].matchConfidence, 'medium');
-  assert.equal(p[2].matchType, 'bill');
-  assert.equal(p[2].matchConfidence, 'high', 'vendor_ref whole token promotes to high');
-  assert.equal(p[3].matchConfidence, 'medium', 'ref substring without token boundary stays medium');
-  assert.equal(proc.body.data.summary.billSuggest, 1);
-  assert.equal(proc.body.data.summary.billMatched, 3);
-});
-
-test('bank.process + approve: import row matching a recorded manual payment clears, never re-posts', async () => {
-  const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'PAY-REC-1' }) });
-  const billId = c.body.data.billId;
-  const pay = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 100 });
-  assert.equal(pay.status, 200, JSON.stringify(pay.body));
-
-  const before = await sql(baseUrl, srv.adminToken,
-    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND bill_id='${billId}'`);
-
-  const proc = await api(baseUrl, 'bank.process', {
-    companyId: CO,
-    bankAccount: '1020',
-    rows: [{ date: TD.day21, description: 'GIRO ACME PAY-REC-1', amount: -100 }],
-  });
-  assert.equal(proc.status, 200, JSON.stringify(proc.body));
-  const row = proc.body.data.processed[0];
-  assert.equal(row.matchType, 'recorded_payment', 'tagged as already-recorded');
-  assert.ok(row.paymentBatchId, 'payment batch attached for clearing');
-
-  const ap = await api(baseUrl, 'bank.approve', {
-    companyId: CO,
-    entries: [{ date: TD.day21, description: row.description, amount: -100, recordedPayment: true, paymentBatchId: row.paymentBatchId, bankAccount: '1020' }],
-  });
-  assert.equal(ap.status, 200, JSON.stringify(ap.body));
-  assert.equal(ap.body.data.results[0].recordedPayment, true);
-  assert.equal(ap.body.data.results[0].cleared, true);
-
-  const after = await sql(baseUrl, srv.adminToken,
-    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND bill_id='${billId}'`);
-  assert.equal(Number(after[0].c), Number(before[0].c), 'no new journal lines — no double-count');
-
-  const rec = await sql(baseUrl, srv.adminToken,
-    `SELECT account_code FROM reconciliations WHERE company_id='CT' AND batch_id='${row.paymentBatchId}'`);
-  assert.equal(String(rec[0].account_code), '1020', 'payment bank leg cleared in reconciliations');
 });
 
 // ── A1: agent actor model (§2) ──────────────────────────────────────────────

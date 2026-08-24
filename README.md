@@ -294,7 +294,6 @@ A few representative actions:
 | `journal.propose`, `bank.match` | `agent` |
 | `bill.create` (draft) | `agent` |
 | `bill.void`, `bill.draft.*` | `data_entry` |
-| `bank.process`, `bank.approve` | `data_entry` |
 | `attachment.upload` | `agent` |
 | `mapping.suggest`, `matching_history.record` | `agent` |
 | `auth.token.create`, `auth.token.revoke` | `owner` |
@@ -302,7 +301,7 @@ A few representative actions:
 | `coa.save`, `coa.upsert`, `vat.codes.save` | `owner` |
 | `period.save`, `company.save`, `settings.save` | `owner` |
 | `setup.add_company`, `permissions.save` | `owner` |
-| `*.list`, `journal.search`, `bill.match`, `settings.get`, `event.list` | `viewer` |
+| `*.list`, `journal.search`, `settings.get`, `event.list` | `viewer` |
 
 The agent-callable surface (`AGENT_ALLOWED`, the default-deny whitelist) covers: `event.list`, `journal.propose`, `bank.match`, `mapping.suggest`, `matching_history.record`, `bill.create`, `attachment.upload`, plus the read actions. The MCP server exposes the same set as tools.
 

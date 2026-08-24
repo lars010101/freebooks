@@ -640,7 +640,7 @@ const ACTIONS = {
   },
   'posting_rules.attr.save': {
     role: 'owner', mutating: true,
-    description: 'Write ONE posting-rules attribute (server-authoritative validation). key ∈ multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct.',
+    description: 'Write ONE posting-rules attribute (server-authoritative validation). key ∈ multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct|bill_extraction_tolerance.',
     params: { key: { type: 'string', required: true }, value: { required: true } },
   },
   'ai.attr.list': {

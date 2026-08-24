@@ -897,3 +897,26 @@ ALTER TABLE bills          ADD COLUMN IF NOT EXISTS wht_amount DECIMAL(18,4) DEF
 ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS wht_code VARCHAR;
 ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS wht_amount DECIMAL(18,4) DEFAULT 0;
 ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS wht_amount_home DECIMAL(18,4) DEFAULT 0;
+
+-- =============================================================================
+-- bill_extraction_meta (bill-extraction-spec §4.2)
+-- Side table keyed by bill_id — stores the full extraction audit trail: model
+-- used, confidence, flags, raw model output, and the exact prompt + context
+-- sent. Separated from bills (which is heavily-touched) to avoid bloating
+-- every SELECT. One row per draft bill created by extractBillData().
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS bill_extraction_meta (
+  bill_id               VARCHAR        NOT NULL,
+  company_id            VARCHAR        NOT NULL,
+  model                 VARCHAR,
+  confidence            VARCHAR,
+  flags                 VARCHAR,       -- JSON array of flag strings
+  raw_model_output      VARCHAR,       -- JSON — full LLM response
+  prompt_snapshot        VARCHAR,       -- JSON — system+user prompt, context sent
+  pending_vendor_proposal_id VARCHAR,  -- set when vendor_id is null (§11.1)
+  created_at            TIMESTAMP      NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_bill_extraction_meta_company
+  ON bill_extraction_meta(company_id);
+CREATE INDEX IF NOT EXISTS idx_bill_extraction_meta_bill
+  ON bill_extraction_meta(bill_id);

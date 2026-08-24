@@ -769,7 +769,7 @@ function billsMergeChildRows(cache, parent) {
     out.push({ _kind: 'payment', payment_id: pmt.payment_id || '',
       date: pmt.date || '', method: pmt.method || '',
       reference: pmt.reference || '', amount: Number(pmt.amount || 0),
-      voided: !!pmt.voided_at });
+      voided: !!pmt.voided_at, _isMultiBill: !!pmt.is_multi_bill });
   });
   return out;
 }

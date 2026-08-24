@@ -785,12 +785,30 @@ async function recordMultiBillPayment(ctx) {
 async function listBillPayments(ctx) {
   const { companyId, body } = ctx;
   const { billId } = body;
-  return query(
+  const rows = await query(
     `SELECT payment_id, bill_id, batch_id, amount, amount_foreign, date, method, reference, voided_at
      FROM bill_payments WHERE company_id = @companyId AND bill_id = @billId
      ORDER BY date, created_at`,
     { companyId, billId }
   );
+  // Tag multi-bill payments: a batch_id shared by >1 non-voided bill_payments row.
+  const batchCounts = {};
+  for (const r of rows) {
+    if (r.batch_id && !r.voided_at) {
+      const cnt = await query(
+        `SELECT COUNT(*) AS n FROM bill_payments
+         WHERE company_id = @companyId AND batch_id = @batchId AND voided_at IS NULL`,
+        { companyId, batchId: r.batch_id }
+      );
+      r.is_multi_bill = (cnt[0] && cnt[0].n > 1);
+      batchCounts[r.batch_id] = r.is_multi_bill;
+    } else if (r.batch_id && batchCounts[r.batch_id] !== undefined) {
+      r.is_multi_bill = batchCounts[r.batch_id];
+    } else {
+      r.is_multi_bill = false;
+    }
+  }
+  return rows;
 }
 
 /**

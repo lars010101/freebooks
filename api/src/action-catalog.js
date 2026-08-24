@@ -146,16 +146,6 @@ const ACTIONS = {
   },
 
   // ── Bank ─────────────────────────────────────────────────────────────────
-  'bank.process': {
-    role: 'data_entry', mutating: true, idempotent: true,
-    description: 'Match pre-parsed bank rows against ledger (rules + suggestions).',
-    params: { rows: { type: 'array', required: true }, bankAccount: { type: 'string' } },
-  },
-  'bank.approve': {
-    role: 'data_entry', mutating: true,
-    description: 'Post approved bank-match entries to the ledger.',
-    params: { entries: { type: 'array', required: true }, newMappings: { type: 'array' }, journalId: { type: 'string' } },
-  },
   'bank.reconcile.list': {
     role: 'viewer', mutating: false,
     description: 'List reconciliation batches for an account.',
@@ -211,11 +201,6 @@ const ACTIONS = {
     role: 'viewer', mutating: false,
     description: 'List bills with filters (status, partner_name, date range). Returns {data, total} or {data:[], total, tooMany:true} when over threshold.',
     params: { status: { type: 'string' }, partner_name: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, threshold: { type: 'number', required: true } },
-  },
-  'bill.match': {
-    role: 'viewer', mutating: false,
-    description: 'Find open bills matching an amount/currency (payment matching).',
-    params: { amount: { type: 'number', required: true }, currency: { type: 'string', required: true }, partner_name: { type: 'string' }, date: { type: 'date' } },
   },
   'bill.lines': {
     role: 'viewer', mutating: false,

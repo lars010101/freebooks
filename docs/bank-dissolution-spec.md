@@ -103,13 +103,14 @@ The Bank page's reconciliation JS (the checkbox toggle, the statement-balance in
 
 | Asset | Disposition |
 |-------|-------------|
-| `api/src/bank.js` — all handlers | **Stays.** `bank.match` (B4) is new and active. `bank.process`, `bank.approve`, `bank.reconcile.*`, `bank.uncleared.list` stay as the server-side backing for the report and the orphaned page. No code deletion. |
-| `api/src/pages/bank.js` — the page module | **Stays, orphaned.** The route exists with `sidebar: false, palette: false`. Anyone who navigates to `/:company/bank` still gets the page. It's not deleted — it's just not surfaced. Future cleanup can remove it if confirmed unused. |
-| `api/src/pages/bank-import.js` — import wizard | **Stays, orphaned.** Same disposition. The drop-folder watcher (B5) is the primary path; the manual wizard is a fallback. |
+| `api/src/bank.js` — `bank.match` + reconcile handlers | **Stays.** `bank.match` (B4) is active. `bank.reconcile.*`, `bank.uncleared.list` stay as the server-side backing for the report. |
+| `api/src/pages/bank.js` — the page module | **Deleted (issue #260).** The route and page module are gone. |
+| `api/src/pages/bank-import.js` — import wizard | **Deleted (issue #260).** The drop-folder watcher (B5) is the sole path. |
 | `bank_mappings` table | **Stays.** Still the source of truth for tier-1 learned rules. The Mappings tab's manual CRUD is replaced by the inbox suggest/approve flow (B2), but the table itself is unchanged. |
 | `reconciliations` table | **Stays.** Backs the new reconciliation report. |
-| `bank.process` action | **Stays** in the catalog and handler. Orphaned from the UI but callable via API/palette. |
-| `bank-import` palette entry | **Set `palette: false`.** Not surfaced. Route stays. |
+| `bank.process` action | **Deleted (issue #260).** Removed from the catalog and handler. The agent-side CSV parser in `agent-loop.js` uses `bank.match` + `journal.propose` instead. |
+| `bank.approve` action | **Deleted (issue #260).** Removed from the catalog and handler. |
+| `bank.import` palette entry | **Deleted (issue #260).** The palette entry and route are gone. |
 
 ## 4. g-key slate after this change
 
@@ -147,7 +148,7 @@ This is a page-level text change in `api/src/pages/inbox.js`, not a structural c
 
 ## 7. What this spec does NOT do
 
-- Does not delete `api/src/pages/bank.js` or `api/src/pages/bank-import.js` — they're orphaned, not removed. Deletion is a future cleanup after confirming no user reaches them. ✅ Tracked — GitHub issue.
-- Does not change `bank.process` or `bank.approve` — they stay in the catalog. An operator who wants the old manual import path can still use it via URL.
+- ~~Does not delete `api/src/pages/bank.js` or `api/src/pages/bank-import.js` — they're orphaned, not removed.~~ **Update (2026-08-24, issue #260):** The page deletions tracked above have been completed. See issue #260.
+- ~~Does not change `bank.process` or `bank.approve` — they stay in the catalog.~~ **Update (2026-08-24, issue #260):** The `bank.process`/`bank.approve` removal tracked above has been completed. See issue #260.
 - Does not remove the Mappings tab from the Bank page — the page is orphaned; whatever it renders is irrelevant. The active mapping path is the inbox suggest/approve flow (B2).
 - Does not spec a reconciliation **alert** (e.g. "you have N uncleared entries older than 30 days" as an inbox item). That's a future enhancement — the report is sufficient for v1. ✅ Tracked — GitHub issue.

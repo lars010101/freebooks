@@ -83,7 +83,6 @@ async function handleBills(ctx, action) {
     case 'bill.create': return createBill(ctx);
     case 'bill.void':   return voidBill(ctx);
     case 'bill.list':   return listBills(ctx);
-    case 'bill.match':  return matchBill(ctx);
     case 'bill.lines':  return getBillLines(ctx);
     case 'bill.aging':  return getAgingReport(ctx);
     case 'bill.get':    return getBill(ctx);
@@ -319,7 +318,7 @@ async function createBill(ctx) {
     }]);
     // A2 (§3.2): a bill_payments row is inserted here (settlement path) →
     // emit bill.payment.recorded. The journal for this payment is owned by
-    // the external bank.approve batch (payment_batch_id), not posted here.
+    // the settlement core (settlement.js), not posted here.
     await emitEvent(ctx, 'bill.payment.recorded', 'payment', billId, {
       billId,
       amount: totalAmount,
@@ -937,27 +936,6 @@ async function listBills(ctx) {
   // Step 2: only fetch rows when under threshold — no LIMIT, the date range + threshold are the bounds
   const rows = await query(`SELECT * FROM bills` + where + ` ORDER BY date DESC, created_at DESC`, params);
   return { data: rows, total };
-}
-
-async function matchBill(ctx) {
-  const { companyId, body } = ctx;
-  const { amount, currency, partner_name, date } = body;
-  if (!amount) throw Object.assign(new Error('amount required'), { code: 'INVALID_INPUT' });
-
-  let sql = `SELECT bill_id, partner_name, vendor_ref, date, due_date, amount, currency, status, amount_paid, ap_account, description
-             FROM bills
-             WHERE company_id = @companyId
-               AND status IN ('posted', 'partial')
-               AND ABS(amount - @amount) < 0.01`;
-  const params = { companyId, amount: Number(amount) };
-
-  if (partner_name) { sql += ` AND UPPER(partner_name) LIKE '%' || UPPER(@partner_name) || '%'`; params.partner_name = partner_name; }
-  if (date) { sql += ` AND date BETWEEN @dateFrom AND @dateTo`; params.dateFrom = new Date(new Date(date) - 90*86400000).toISOString().substring(0, 10); params.dateTo = new Date(new Date(date).getTime() + 90*86400000).toISOString().substring(0, 10); }
-  if (currency) { sql += ` AND currency = @currency`; params.currency = currency; }
-
-  sql += ` ORDER BY date DESC LIMIT 10`;
-
-  return query(sql, params);
 }
 
 async function getBillLines(ctx) {

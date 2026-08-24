@@ -315,7 +315,7 @@ async function handleApiRequest(req, res) {
     switch (module) {
       case 'journal':     result = await handleJournal(ctx, action); break;
       case 'inbox':       result = await handleInbox(ctx, action); break;
-      case 'bank':        result = await handleBank(ctx, action); break; // bank.process, bank.approve, bank.reconcile.*
+      case 'bank':        result = await handleBank(ctx, action); break; // bank.match, bank.reconcile.*
       case 'bill':        result = await handleBills(ctx, action); break;
       case 'partner':    result = await handlePartners(ctx, action); break;
       case 'view':        result = await handleViews(ctx, action); break; // P1-8 read models

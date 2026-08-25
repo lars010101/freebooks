@@ -399,7 +399,7 @@ var coaList = FB.list.create({
     { field: 'is_active', type: 'checkbox', align: 'center',
       display: function(v) { return v ? 'Yes' : 'No'; } },
     { field: 'default_role', type: 'select', width: 70, nullable: true, align: 'center',
-      options: ['', 'AP', 'Expense', 'FX Gain/Loss'],
+      options: ['', 'AP', 'Expense', 'FX Gain/Loss', 'Cash'],
       display: function(v) { return v ? v : '—'; } },
     { field: 'effective_from', type: 'date', width: 100, filterType: 'date' }
   ],

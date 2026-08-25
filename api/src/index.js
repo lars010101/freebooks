@@ -488,11 +488,11 @@ async function handleCoa(ctx, action) {
     // Single-holder is enforced here in the SAME write: setting a new holder
     // clears default_role from the company's other accounts that previously
     // held that role (settings-ux-spec §7 item 1, second bullet).
-    const ALLOWED_ROLES = new Set([null, '', 'AP', 'Expense', 'FX Gain/Loss']);
+    const ALLOWED_ROLES = new Set([null, '', 'AP', 'Expense', 'FX Gain/Loss', 'Cash']);
     let role = (account.default_role === undefined ? null : account.default_role);
     if (role === '') role = null;
     if (!ALLOWED_ROLES.has(role)) {
-      throw Object.assign(new Error(`default_role must be null, 'AP', 'Expense', or 'FX Gain/Loss' (got: ${JSON.stringify(account.default_role)})`), { code: 'INVALID_INPUT' });
+      throw Object.assign(new Error(`default_role must be null, 'AP', 'Expense', 'FX Gain/Loss', or 'Cash' (got: ${JSON.stringify(account.default_role)})`), { code: 'INVALID_INPUT' });
     }
     const roleValue = role; // null | 'AP' | 'Expense'
 

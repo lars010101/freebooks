@@ -1301,6 +1301,613 @@ module.exports._validateExtraction = _validateExtraction;
 module.exports._checkDuplicate = _checkDuplicate;
 module.exports._setLoopDeps = _setLoopDeps;
 
+// ── Journal document extraction (journal-document-extraction-spec, 2026-08-24) ──
+
+/**
+ * Build the company financial context for journal document extraction
+ * (spec §2.2). Loads ALL postable accounts (not just expense-type — a
+ * document-sourced journal entry can touch any account), VAT codes,
+ * company currency + jurisdiction, and the defaultCashAccount (§7).
+ * Modeled on buildBillExtractionContext.
+ */
+async function buildJournalExtractionContext(companyId, agentEmail) {
+  const ctx = { accounts: [], vatCodes: [], currency: null, jurisdiction: null, defaultCashAccount: null };
+
+  // All postable accounts (spec §2.2 — not filtered to Expense type).
+  // Same dedup ROW_NUMBER pattern as buildBillExtractionContext.
+  try {
+    ctx.accounts = await query(
+      `SELECT account_code, account_name, account_type
+       FROM (
+         SELECT *, ROW_NUMBER() OVER(PARTITION BY account_code ORDER BY created_at DESC) AS rn
+         FROM accounts WHERE company_id = @cid
+       ) t WHERE rn = 1 AND is_active = TRUE
+       ORDER BY account_code`,
+      { cid: companyId }
+    ) || [];
+  } catch (e) { warn(`journal context: accounts query failed: ${e.message}`); }
+
+  // VAT/GST codes: code, rate, reverse-charge flag — same shape as bill extraction.
+  try {
+    if (_dispatchAction) {
+      ctx.vatCodes = await _dispatchAction('vat.codes.list', {}, companyId, agentEmail) || [];
+    }
+  } catch (e) { warn(`journal context: vat.codes.list failed: ${e.message}`); }
+
+  // Company currency + jurisdiction
+  try {
+    const coRows = await query(
+      `SELECT currency, jurisdiction FROM (
+         SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn
+         FROM companies WHERE company_id = @cid
+       ) t WHERE rn = 1`,
+      { cid: companyId }
+    );
+    if (coRows.length > 0) {
+      ctx.currency = coRows[0].currency;
+      ctx.jurisdiction = coRows[0].jurisdiction;
+    }
+  } catch (e) { warn(`journal context: company query failed: ${e.message}`); }
+
+  // defaultCashAccount (§7): the account flagged default_role='Cash'
+  try {
+    const cashRows = await query(
+      `SELECT account_code FROM accounts
+       WHERE company_id = @cid AND default_role = 'Cash' AND is_active = TRUE
+       LIMIT 1`,
+      { cid: companyId }
+    );
+    if (cashRows.length > 0) ctx.defaultCashAccount = cashRows[0].account_code;
+  } catch (e) { warn(`journal context: default cash account query failed: ${e.message}`); }
+
+  return ctx;
+}
+
+/**
+ * Build the system prompt for journal document extraction (spec §3.1).
+ * The core instruction: read the GROSS total, identify VAT code, do NOT
+ * compute net (that's deterministic in code). Suggest expense account
+ * for debit, payment account for credit ONLY if document indicates one.
+ */
+function buildJournalExtractionPrompt(context) {
+  const ctx = context || {};
+  const coaLines = (ctx.accounts || [])
+    .map((a) => `${a.account_code} ${a.account_name}`)
+    .join('\n');
+  const vatLines = (ctx.vatCodes || [])
+    .map((v) => `${v.vat_code} ${(Number(v.rate) * 100).toFixed(0)}%${v.is_reverse_charge ? ' (reverse charge)' : ''}`)
+    .join('\n');
+  const currency = ctx.currency || '(unknown)';
+  const jurisdiction = ctx.jurisdiction || '(unknown)';
+  const defaultCash = ctx.defaultCashAccount || '(none configured)';
+
+  return `You are a bookkeeping assistant. Extract journal-entry data from the receipt/invoice/document below.
+Return a JSON object with exactly these fields:
+
+  gross_total     — the GROSS total actually paid (cash outflow), tax-inclusive (number)
+  date            — document date, ISO YYYY-MM-DD (string)
+  printed_net     — printed net subtotal if the document shows one (number | null)
+  printed_vat     — printed VAT/tax amount if the document shows one (number | null)
+  lines           — array of line items, each:
+    {
+      description,     — line description as printed (string)
+      gross_amount,     — line gross amount, tax-inclusive (number)
+      expense_account,  — best-guess account code from the chart of accounts below (string | null)
+      vat_code,         — VAT code from the list below if applicable (string | null)
+      reverse_charge,   — true if this line carries reverse-charge language (boolean)
+      counterparty,     — merchant/counterparty name if visible (string | null, optional)
+      payment_account   — credit-side account code ONLY if the document explicitly indicates a payment source, e.g. "paid by card ending 1234" or a named bank account (string | null, optional)
+    }
+
+Rules:
+- Read the GROSS total actually paid — the cash-outflow figure, tax-inclusive.
+- Identify the VAT code from the list below. Recognize reverse-charge language ("Reverse charge", "Omvänd betalningsskyldighet") as a distinct case — set reverse_charge: true and leave vat_code null.
+- Do NOT compute the net amount. The net is computed deterministically in code from the matched VAT code's rate. Never divide or subtract tax yourself.
+- Suggest an expense (or other appropriate) account for the debit side from the chart of accounts.
+- Suggest a credit-side (payment) account ONLY if the document itself indicates one (e.g. "paid by card ending 1234", a named bank account). Otherwise leave payment_account null — the system falls back to the default cash account.
+- If the document shows a printed net subtotal and a printed VAT amount, report both (printed_net, printed_vat) for cross-checking. If not shown, set both to null.
+- Amounts are numbers, not strings. Do not omit lines.
+- All lines share the same document date.
+
+Company currency: ${currency}
+Jurisdiction: ${jurisdiction}
+Default cash account (used when document doesn't indicate a payment source): ${defaultCash}
+
+Chart of accounts (code name):
+${coaLines || '(none)'}
+
+VAT codes (code rate):
+${vatLines || '(none)'}`;
+}
+
+/**
+ * Deterministic validation of the LLM-parsed journal extraction output
+ * (spec §3.3). Computes net from gross + VAT rate, cross-checks stated
+ * totals, constructs balanced debit/credit lines, and derives confidence
+ * from flag count. The model's own confidence (if any) is discarded.
+ */
+function _validateJournalExtraction(parsed, context, companySettings) {
+  const flags = [];
+  const ctx = context || {};
+  companySettings = companySettings || {};
+
+  // ── Hard-failure checks (§5.1) ──
+
+  if (!parsed || typeof parsed !== 'object') {
+    return { ok: false, reason: 'extraction_failed', detail: 'LLM returned non-object', raw_model_output: parsed };
+  }
+
+  const grossTotal = Number(parsed.gross_total);
+  if (!isFinite(grossTotal) || grossTotal == null || grossTotal <= 0) {
+    return { ok: false, reason: 'missing_critical_data', detail: 'No extractable gross total', raw_model_output: parsed };
+  }
+
+  const date = parsed.date;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { ok: false, reason: 'missing_critical_data', detail: 'No extractable date', raw_model_output: parsed };
+  }
+
+  const rawLines = Array.isArray(parsed.lines) ? parsed.lines : [];
+  if (rawLines.length === 0) {
+    return { ok: false, reason: 'missing_critical_data', detail: 'Zero valid line items', raw_model_output: parsed };
+  }
+
+  // ── Build lookup tables from context ──
+  const validAccounts = new Set((ctx.accounts || []).map((a) => a.account_code));
+  const vatRateMap = {};
+  for (const v of (ctx.vatCodes || [])) {
+    vatRateMap[v.vat_code] = Number(v.rate);
+  }
+
+  // ── Line-level validation (§3.3) ──
+  const lineItems = [];
+  let reverseChargeDetected = false;
+  let noCashSignal = true; // becomes false if any line states a payment_account
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const l = rawLines[i];
+    const grossAmount = Number(l && l.gross_amount);
+    if (!isFinite(grossAmount) || grossAmount == null || grossAmount <= 0) {
+      return { ok: false, reason: 'missing_critical_data', detail: `Line ${i + 1} gross amount invalid: ${l && l.gross_amount}`, raw_model_output: parsed };
+    }
+
+    // One date per document (§3.3): differing per-line dates = hard failure
+    const lineDate = l && l.date ? String(l.date) : date;
+    if (lineDate !== date) {
+      return { ok: false, reason: 'missing_critical_data', detail: `Line ${i + 1} date (${lineDate}) differs from document date (${date})`, raw_model_output: parsed };
+    }
+
+    // Account validation (§3.3): debit account should exist in chart of accounts
+    const expenseAccount = (l && l.expense_account) || null;
+    if (!expenseAccount || !validAccounts.has(expenseAccount)) {
+      return { ok: false, reason: 'missing_critical_data', detail: `Line ${i + 1} expense account not in chart of accounts: ${expenseAccount}`, raw_model_output: parsed };
+    }
+
+    // VAT code validation: must exist in the supplied list
+    let vatCode = (l && l.vat_code) || null;
+    const reverseCharge = !!(l && l.reverse_charge);
+
+    if (reverseCharge) {
+      reverseChargeDetected = true;
+      vatCode = null; // RC lines never carry a vat_code
+    } else if (vatCode && vatRateMap[vatCode] === undefined) {
+      // Proposed vat_code doesn't exist — leave unset
+      vatCode = null;
+    }
+
+    const paymentAccount = (l && l.payment_account) || null;
+    if (paymentAccount) noCashSignal = false;
+
+    lineItems.push({
+      description: String((l && l.description) || '').trim(),
+      gross_amount: grossAmount,
+      expense_account: expenseAccount,
+      vat_code: vatCode,
+      reverse_charge: reverseCharge,
+      counterparty: (l && l.counterparty) || null,
+      payment_account: paymentAccount,
+    });
+  }
+
+  // ── VAT-related flags ──
+  if (reverseChargeDetected) {
+    flags.push('reverse_charge_detected');
+  }
+  const missingVat = lineItems.some((l) => !l.vat_code && !l.reverse_charge);
+  if (missingVat) {
+    flags.push('no_vat_code_detected');
+  }
+
+  // ── Net computation (§3.3): deterministic, from the matched code's rate ──
+  // net_i = round(g_i / (1 + r_i), 2) when VAT code applies, net_i = g_i when no code
+  for (const l of lineItems) {
+    if (l.vat_code && vatRateMap[l.vat_code] !== undefined) {
+      const r = vatRateMap[l.vat_code];
+      l.net = Math.round((l.gross_amount / (1 + r)) * 100) / 100;
+    } else {
+      l.net = l.gross_amount;
+    }
+  }
+
+  // ── Tolerance (reuse bill extraction's setting) ──
+  const tolerance = parseFloat(companySettings.bill_extraction_tolerance || '0.50');
+
+  // ── Cross-check: Σ(g_i) vs printed grand total (§3.3 multi-line) ──
+  const sumGross = lineItems.reduce((s, l) => s + l.gross_amount, 0);
+  if (Math.abs(sumGross - grossTotal) > tolerance) {
+    flags.push('total_mismatch');
+  }
+
+  // ── Cross-check: printed net vs computed net (§3.3) ──
+  const printedNet = parsed.printed_net != null ? Number(parsed.printed_net) : null;
+  if (printedNet != null && isFinite(printedNet)) {
+    const computedNet = lineItems.reduce((s, l) => s + l.net, 0);
+    if (Math.abs(computedNet - printedNet) > tolerance) {
+      flags.push('stated_vat_mismatch');
+    }
+  }
+
+  // ── Cash account resolution (§3.3, §7) ──
+  // Use payment_account from any line if stated, else defaultCashAccount
+  let cashAccount = null;
+  for (const l of lineItems) {
+    if (l.payment_account) { cashAccount = l.payment_account; break; }
+  }
+  if (!cashAccount) {
+    cashAccount = ctx.defaultCashAccount || null;
+    if (cashAccount) {
+      flags.push('no_cash_signal');
+    }
+  }
+  if (!cashAccount) {
+    // No payment account on document and no default Cash account configured
+    return { ok: false, reason: 'missing_critical_data', detail: 'No cash/payment account available (no payment_account on document and no default Cash account configured)', raw_model_output: parsed };
+  }
+
+  // ── Balanced-line construction (§3.3) ──
+  // Debit lines: one per line item, amount = computed net, vat_code attached.
+  // Credit line: resolved cash account, amount = Σ(g_i) (gross), NO vat_code.
+  // For multi-line: one debit per line item, ONE credit line for the sum.
+  const currency = ctx.currency || null;
+  const outputLines = [];
+
+  for (const l of lineItems) {
+    outputLines.push({
+      account_code: l.expense_account,
+      debit: l.net,
+      credit: null,
+      date,
+      description: l.description,
+      vat_code: l.vat_code || null,
+      currency,
+      counterparty: l.counterparty || null,
+    });
+  }
+
+  outputLines.push({
+    account_code: cashAccount,
+    debit: null,
+    credit: Math.round(sumGross * 100) / 100,
+    date,
+    description: 'Cash payment',
+    vat_code: null,
+    currency,
+    counterparty: null,
+  });
+
+  // ── Confidence derivation (§3.3): flag count, not self-reported ──
+  const confidence = flags.length === 0 ? 'high' : flags.length === 1 ? 'medium' : 'low';
+
+  return {
+    ok: true,
+    confidence,
+    data: {
+      lines: outputLines,
+      gross_total: grossTotal,
+    },
+    flags,
+    raw_model_output: parsed,
+  };
+}
+
+/**
+ * Extract structured journal-entry data from a single document attachment
+ * (spec §1-§5). Pipeline mirrors extractBillData:
+ *   1. Read document (PDF text per-page, or image base64)
+ *   2. Build company financial context
+ *   3. Build system prompt
+ *   4. Call LLM (same endpoint for text and image)
+ *   5. Deterministic validation (§3.3)
+ *
+ * Returns an ExtractionResult (§4). Hard failures return ok:false with a
+ * reason for input_rejections. Never throws to processJournalDocument.
+ */
+async function extractJournalDocumentData(att, payload, companySettings, companyId, agentEmail) {
+  const filename = payload.filename || att.filename || '(unknown)';
+  const ct = (att.contentType || '').toLowerCase();
+  const isPdf = ct === 'application/pdf' || /\.pdf$/i.test(filename);
+  const isImage = ct === 'image/jpeg' || ct === 'image/png'
+    || /\.(jpe?g|png)$/i.test(filename);
+  companySettings = companySettings || {};
+
+  // ── Hard failure: no LLM configured (§5.1) ──
+  if (!companySettings.llm_endpoint_url) {
+    warn(`journal ${filename}: no llm_endpoint_url configured`);
+    return { ok: false, reason: 'no_llm_configured', detail: 'No LLM endpoint configured',
+             raw_model_output: null };
+  }
+
+  // ── Build context (§2.2) ──
+  const context = await buildJournalExtractionContext(companyId, agentEmail);
+  const systemPrompt = buildJournalExtractionPrompt(context);
+  const temperature = parseFloat(companySettings.llm_temperature || '0.1');
+  const url = companySettings.llm_endpoint_url;
+  const apiKey = companySettings.llm_api_key || '';
+  const model = companySettings.llm_model || 'default';
+
+  // ── Document read: determine text vs image path (§2.1) ──
+  let useImage = isImage;
+  let extractedText = '';
+
+  if (isPdf) {
+    try {
+      const pdfParse = require('pdf-parse');
+      const parsedPdf = await pdfParse(att.buffer);
+      const numPages = parsedPdf.numpages || 1;
+      const fullText = (parsedPdf.text || '').trim();
+      const perPageAvg = fullText.length / Math.max(1, numPages);
+      if (perPageAvg < PDF_TEXT_PAGE_THRESHOLD) {
+        useImage = true;
+        warn(`journal ${filename}: PDF text per-page avg ${perPageAvg.toFixed(0)} < ${PDF_TEXT_PAGE_THRESHOLD} — treating as scanned`);
+      } else {
+        extractedText = fullText;
+        useImage = false;
+      }
+    } catch (e) {
+      warn(`journal ${filename}: pdf-parse failed: ${e.message} — trying image path`);
+      useImage = true;
+    }
+  }
+
+  // ── LLM call (§3.2): same fetch pattern as bill extraction ──
+  const promptSnapshot = {
+    system_prompt: systemPrompt,
+    context: {
+      account_count: (context.accounts || []).length,
+      vat_code_count: (context.vatCodes || []).length,
+      currency: context.currency,
+      jurisdiction: context.jurisdiction,
+      default_cash_account: context.defaultCashAccount,
+    },
+    model,
+    temperature,
+    content_type: useImage ? 'image' : 'text',
+  };
+
+  let response;
+  try {
+    if (useImage && att.buffer) {
+      const b64 = att.buffer.toString('base64');
+      const mimeType = att.contentType || 'application/octet-stream';
+      const dataUrl = `data:${mimeType};base64,${b64}`;
+      response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: [
+              { type: 'text', text: 'Extract the journal-entry data from this document.' },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ] },
+          ],
+          temperature,
+          response_format: { type: 'json_object' },
+        }),
+      });
+    } else if (extractedText) {
+      response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: extractedText },
+          ],
+          temperature,
+          response_format: { type: 'json_object' },
+        }),
+      });
+    } else {
+      warn(`journal ${filename}: no extractable content (not text, not image with buffer)`);
+      return { ok: false, reason: 'extraction_failed', detail: 'No extractable content',
+               raw_model_output: null, prompt_snapshot: promptSnapshot };
+    }
+  } catch (e) {
+    warn(`journal ${filename}: LLM call failed: ${e.message}`);
+    return { ok: false, reason: 'extraction_failed', detail: e.message,
+             raw_model_output: null, prompt_snapshot: promptSnapshot };
+  }
+
+  // ── Parse LLM response ──
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    warn(`journal ${filename}: LLM HTTP ${response.status}: ${body.slice(0, 200)}`);
+    return { ok: false, reason: 'extraction_failed', detail: `LLM HTTP ${response.status}`,
+             raw_model_output: { http_status: response.status, body: body.slice(0, 500) },
+             prompt_snapshot: promptSnapshot };
+  }
+
+  let llmData;
+  try {
+    llmData = await response.json();
+  } catch (e) {
+    warn(`journal ${filename}: LLM returned non-JSON envelope: ${e.message}`);
+    return { ok: false, reason: 'extraction_failed', detail: 'Non-JSON response envelope',
+             raw_model_output: null, prompt_snapshot: promptSnapshot };
+  }
+
+  const content = llmData?.choices?.[0]?.message?.content;
+  if (!content) {
+    warn(`journal ${filename}: empty LLM response`);
+    return { ok: false, reason: 'extraction_failed', detail: 'Empty LLM response',
+             raw_model_output: llmData, prompt_snapshot: promptSnapshot };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    warn(`journal ${filename}: non-JSON content: ${content.slice(0, 200)}`);
+    return { ok: false, reason: 'extraction_failed', detail: 'Non-JSON content from LLM',
+             raw_model_output: { raw_content: content.slice(0, 1000) },
+             prompt_snapshot: promptSnapshot };
+  }
+
+  // ── Deterministic validation (§3.3) ──
+  const result = _validateJournalExtraction(parsed, context, companySettings);
+  result.prompt_snapshot = promptSnapshot;
+  return result;
+}
+
+/**
+ * Check for an existing non-rejected journal_proposal matching (gross_total,
+ * date, company_id) within ±1 day + description similarity (spec §6).
+ * Returns true if a duplicate is found, false otherwise.
+ */
+async function _checkJournalDuplicate(companyId, grossTotal, date, description) {
+  try {
+    // ±1 day window
+    const d = new Date(date + 'T00:00:00Z');
+    const dMinus1 = new Date(d.getTime() - 86400000).toISOString().substring(0, 10);
+    const dPlus1 = new Date(d.getTime() + 86400000).toISOString().substring(0, 10);
+
+    const rows = await query(
+      `SELECT proposal_id, lines, description FROM journal_proposals
+       WHERE company_id = @cid
+         AND status != 'rejected'
+         AND date BETWEEN @dMinus1 AND @dPlus1`,
+      { cid: companyId, dMinus1, dPlus1 }
+    );
+
+    for (const r of rows) {
+      // Extract the credit amount from the lines JSON — the credit line
+      // carries the gross total (§3.3 balanced-line construction).
+      let creditAmount = null;
+      try {
+        const lines = JSON.parse(r.lines);
+        const creditLine = lines.find((l) => l.credit);
+        if (creditLine) creditAmount = Number(creditLine.credit);
+      } catch { /* skip unparseable */ }
+
+      if (creditAmount == null) continue;
+      const tol = 0.50;
+      if (Math.abs(creditAmount - grossTotal) > tol) continue;
+
+      // Description similarity check
+      if (description && r.description) {
+        const sim = trigramSimilarity(description, r.description);
+        if (sim >= 0.70) return true;
+      } else if (!description && !r.description) {
+        // Both empty — amount+date match is enough
+        return true;
+      }
+    }
+  } catch (e) {
+    warn(`journal dedup check failed: ${e.message}`);
+  }
+  return false;
+}
+
+/**
+ * Process a journal document attachment event (spec §1, §4.1, §5, §6).
+ * Called from processEvent when entityType='journal_proposal'. Mints a
+ * proposalId client-side, extracts, dedup-checks, and calls journal.propose
+ * or input_rejections. Never throws.
+ */
+async function processJournalDocument(ev, companyId, agentEmail, companySettings) {
+  const attachmentId = ev.entity_id;
+  let att;
+  try {
+    att = await fetchAttachment(attachmentId);
+  } catch (e) {
+    err(`journal ${attachmentId}: fetch failed: ${e.message}`);
+    return;
+  }
+  const payload = { entityId: attachmentId, filename: att.filename, contentType: att.contentType };
+
+  const result = await extractJournalDocumentData(att, payload, companySettings, companyId, agentEmail);
+
+  // ── Hard failure → input_rejections (§5.1) ──
+  if (!result.ok) {
+    const reason = result.reason || 'extraction_failed';
+    const detail = result.detail || 'Unknown extraction failure';
+    warn(`journal ${attachmentId}: hard failure — ${reason}: ${detail}`);
+    try {
+      await _dispatchAction('input_rejection.create', {
+        statement_id: attachmentId,
+        statement_date: new Date().toISOString().substring(0, 10),
+        rejected_lines: [{ reason: `${reason}: ${detail}`, raw: JSON.stringify(result.raw_model_output || {}).slice(0, 500) }],
+      }, companyId, agentEmail);
+      log(`journal ${attachmentId}: input_rejection created (${reason})`);
+    } catch (e) {
+      err(`journal ${attachmentId}: input_rejection.create failed: ${e.message}`);
+    }
+    return;
+  }
+
+  // ── Duplicate detection (§6) ──
+  // Query existing non-rejected journal_proposals matching (gross_total, date)
+  // within ±1 day + description similarity. On match, flag but still create.
+  const firstLine = (result.data.lines.find((l) => l.debit) || {});
+  const dupDescription = firstLine.description || '';
+  const isDup = await _checkJournalDuplicate(companyId, result.data.gross_total,
+    result.data.lines[0].date, dupDescription);
+  if (isDup) {
+    if (!result.flags.includes('possible_duplicate')) {
+      result.flags.push('possible_duplicate');
+    }
+    log(`journal ${attachmentId}: possible duplicate — flagging`);
+  }
+
+  // ── Mint proposalId client-side (§4.1) ──
+  const proposalId = uuid();
+
+  // ── Call journal.propose (§4.1) — same _match_meta pattern as processBill ──
+  try {
+    await _dispatchAction('journal.propose', {
+      lines: result.data.lines,
+      proposalId,
+      _extraction_meta: {
+        model: companySettings.llm_model || 'default',
+        confidence: result.confidence,
+        flags: result.flags,
+        raw_model_output: result.raw_model_output,
+        prompt_snapshot: result.prompt_snapshot,
+        gross_total: result.data.gross_total,
+      },
+    }, companyId, agentEmail);
+    log(`journal ${attachmentId}: proposal created (proposal_id=${proposalId}, confidence=${result.confidence}, flags=[${result.flags.join(',') || 'none'}])`);
+  } catch (e) {
+    err(`journal ${attachmentId}: journal.propose failed: ${e.message}`);
+  }
+}
+
+module.exports.processJournalDocument = processJournalDocument;
+module.exports.extractJournalDocumentData = extractJournalDocumentData;
+module.exports.buildJournalExtractionContext = buildJournalExtractionContext;
+module.exports.buildJournalExtractionPrompt = buildJournalExtractionPrompt;
+module.exports._validateJournalExtraction = _validateJournalExtraction;
+module.exports._checkJournalDuplicate = _checkJournalDuplicate;
+
 // ── Event routing ────────────────────────────────────────────────────────────
 
 async function processEvent(ev, companyId, agentEmail, companySettings) {
@@ -1324,7 +1931,7 @@ async function processEvent(ev, companyId, agentEmail, companySettings) {
       await processBill(ev, companyId, agentEmail, companySettings);
       break;
     case 'journal_proposal':
-      log(`event ${ev.event_seq}: journal_proposal attachment — skipped`);
+      await processJournalDocument(ev, companyId, agentEmail, companySettings);
       break;
     default:
       log(`event ${ev.event_seq}: unknown entityType '${entityType}' — skipped`);

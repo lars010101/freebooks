@@ -687,3 +687,79 @@ test('16. buildBillExtractionPrompt includes partner list, COA, and VAT codes', 
   assert.match(prompt, /total_stated/);
   assert.match(prompt, /invoice_date/);
 });
+
+// ── 17. Gross→net conversion: line amount with VAT code is converted ──────
+
+test('17. _validateExtraction converts gross line amount to net when VAT code present', () => {
+  const context = {
+    partners: [],
+    expenseAccounts: [],
+    vatCodes: [{ vat_code: 'S25', rate: 0.25, is_reverse_charge: false }],
+  };
+  const parsed = {
+    partner_name_raw: 'Acme Corp',
+    partner_id: null,
+    currency: 'SEK',
+    invoice_date: '2026-08-07',
+    total_stated: 1000, // gross
+    lines: [{ description: 'Service', amount: 1000, vat_code: 'S25', reverse_charge: false }],
+  };
+  const result = _validateExtraction(parsed, context, {});
+  assert.equal(result.ok, true);
+  // 1000 gross @ 25% → net = round(1000 / 1.25, 2) = 800
+  assert.equal(result.data.lines[0].amount, 800);
+  assert.equal(result.data.total_stated, 1000, 'total_stated retains gross');
+  assert.equal(result.data.total_computed, 1000, 'total_computed retains gross sum');
+});
+
+// ── 18. Gross→net: no VAT code means amount stays as-is ─────────────────────
+
+test('18. _validateExtraction leaves amount unchanged when no VAT code', () => {
+  const context = {
+    partners: [],
+    expenseAccounts: [],
+    vatCodes: [{ vat_code: 'S25', rate: 0.25, is_reverse_charge: false }],
+  };
+  const parsed = {
+    partner_name_raw: 'Acme Corp',
+    partner_id: null,
+    currency: 'SEK',
+    invoice_date: '2026-08-07',
+    total_stated: 1000,
+    lines: [{ description: 'Service', amount: 1000, vat_code: null, reverse_charge: false }],
+  };
+  const result = _validateExtraction(parsed, context, {});
+  assert.equal(result.ok, true);
+  assert.equal(result.data.lines[0].amount, 1000, 'no conversion without VAT code');
+});
+
+// ── 19. Gross→net: multi-line with different rates ─────────────────────────
+
+test('19. _validateExtraction converts multi-line gross to net per line', () => {
+  const context = {
+    partners: [],
+    expenseAccounts: [],
+    vatCodes: [
+      { vat_code: 'S25', rate: 0.25, is_reverse_charge: false },
+      { vat_code: 'S12', rate: 0.12, is_reverse_charge: false },
+    ],
+  };
+  const parsed = {
+    partner_name_raw: 'Acme Corp',
+    partner_id: null,
+    currency: 'SEK',
+    invoice_date: '2026-08-07',
+    total_stated: 1120, // 500 gross @25% + 620 gross @12%
+    lines: [
+      { description: 'Consulting', amount: 500, vat_code: 'S25', reverse_charge: false },
+      { description: 'Goods', amount: 620, vat_code: 'S12', reverse_charge: false },
+    ],
+  };
+  const result = _validateExtraction(parsed, context, {});
+  assert.equal(result.ok, true);
+  // 500 / 1.25 = 400
+  assert.equal(result.data.lines[0].amount, 400);
+  // 620 / 1.12 = 553.57
+  assert.equal(result.data.lines[1].amount, 553.57);
+  assert.equal(result.data.total_stated, 1120, 'total_stated retains gross');
+});

@@ -1582,22 +1582,23 @@ async function handleSettings(ctx, action) {
         throw Object.assign(new Error(`Unknown posting rules attribute: ${key}`), { code: 'INVALID_INPUT' });
     }
     // When multi-currency is enabled or a real provider is set,
-    // run an immediate FX scan for this company. Await it so the
-    // response includes the result — the frontend shows status.
-    let fxScanResult = null;
+    // fire-and-forget an immediate FX scan for this company (fx-automation-
+    // spec §4b). The save response returns immediately; the scan runs in the
+    // background — same pattern as the period hook (§4).
     if (triggerFxScan) {
       const { scanCompany } = require('./fx-scanner');
       try {
         const rows = await query('SELECT currency FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies) t WHERE company_id = @cid AND rn = 1', { cid: String(companyId) });
         if (rows.length > 0 && rows[0].currency) {
-          fxScanResult = await scanCompany(String(companyId), String(rows[0].currency));
+          scanCompany(String(companyId), String(rows[0].currency)).catch((e) => {
+            console.error('Triggered FX scan failed:', e.message);
+          });
         }
       } catch (e) {
-        console.error('Triggered FX scan failed:', e.message);
-        fxScanResult = { error: e.message };
+        console.error('Triggered FX scan setup failed:', e.message);
       }
     }
-    return { saved: true, key, fxScanResult };
+    return { saved: true, key };
   }
 
   if (action === 'ai.attr.save') {

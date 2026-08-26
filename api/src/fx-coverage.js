@@ -21,15 +21,16 @@ const { query } = require('./db');
  * @param endDate       YYYY-MM-DD (inclusive, capped at today by caller)
  * @param provider      provider module (must have fetchRange or fetchRates)
  * @param source        provider name for rate row matching
+ * @param apiKey        provider API key (required by OXR; ignored by ECB)
  * @returns { status: 'na'|'red'|'green', missing: [dates], publicationDays: [dates] }
  */
-async function computeCoverage(companyId, baseCurrency, startDate, endDate, provider, source) {
+async function computeCoverage(companyId, baseCurrency, startDate, endDate, provider, source, apiKey) {
   // 1. Get the provider's publication days + the actual rate rows in one
   // call (so the scanner can insert them directly without re-fetching).
   let publicationDays;
   let fetchedRows = null;
   try {
-    const result = await getPublicationDaysWithRows(provider, baseCurrency, startDate, endDate);
+    const result = await getPublicationDaysWithRows(provider, baseCurrency, startDate, endDate, apiKey);
     publicationDays = result.days;
     fetchedRows = result.rows;
   } catch (e) {

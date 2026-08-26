@@ -99,7 +99,7 @@ async function scanCompany(companyId, baseCurrency) {
     if (start > today) continue; // future period — skip
 
     // 1. Compute coverage (fetches publication days + rate rows in one call)
-    const coverage = await computeCoverage(companyId, baseCurrency, start, effectiveEnd, provider, source);
+    const coverage = await computeCoverage(companyId, baseCurrency, start, effectiveEnd, provider, source, apiKey);
 
     if (coverage.status === 'na' || coverage.status === 'green') continue;
 

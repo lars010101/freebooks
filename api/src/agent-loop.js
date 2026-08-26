@@ -20,7 +20,7 @@
  */
 
 const { query, exec } = require('./db');
-const { v4: uuid } = require('uuid');
+const { v4: uuid } = require('uuid'); // eslint-disable-line no-unused-vars
 const path = require('path');
 const fs = require('fs');
 const { normalizeDescription, detectMappingConflicts, findFuzzyMatch, trigramSimilarity } = require('./mapping-utils');
@@ -908,17 +908,24 @@ function _validateExtraction(parsed, context, companySettings) {
   // tax-inclusive figure — double-counting the tax. The totals check above
   // (line ~872) already ran against the original gross amounts, so
   // total_computed retains the gross sum for the audit cross-check.
+  //
+  // We now preserve BOTH the original printed (gross) amount and the
+  // computed net amount on each line, so downstream code (processBill,
+  // bill.create mapping) can choose the correct field:
+  //   gross_amount — tax-inclusive figure as printed on the invoice
+  //   net_amount   — gross / (1 + rate), rounded to 2 decimals
   const vatRateMap = {};
   for (const v of (ctx.vatCodes || [])) {
     vatRateMap[v.vat_code] = Number(v.rate);
   }
   for (const l of validLines) {
+    l.gross_amount = l.amount; // preserve original printed (gross) amount
     if (l.vat_code && vatRateMap[l.vat_code] !== undefined) {
       const r = vatRateMap[l.vat_code];
-      l.amount = Math.round((l.amount / (1 + r)) * 100) / 100;
+      l.net_amount = Math.round((l.amount / (1 + r)) * 100) / 100;
+    } else {
+      l.net_amount = l.amount; // gross = net when no VAT applies
     }
-    // No vat_code (invalid-nulled, RC, or genuinely none): amount stays as-is
-    // (gross = net when no VAT applies).
   }
 
   // ── Confidence derivation (§3.3): flag count, not self-reported ──
@@ -1230,7 +1237,7 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
     description: null,
     lines: d.lines.map((l) => ({
       description: l.description,
-      amount: l.amount,
+      amount: l.net_amount,
       expense_account: l.expense_account,
       vat_code: l.vat_code,
       needs_review: l.needs_review,
@@ -1247,6 +1254,8 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
       pending_partner_proposal_id: d.needs_new_partner ? null : undefined,
     },
   };
+
+  bill.bill_id = payload.entityId || null; // preserve attachment link (spec §4.2)
 
   let billResult = null;
   try {
@@ -1299,7 +1308,15 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
         suggested_vat_code: suggestedVatCode,
         source_bill_id: billResult.bill_id,
         source_description: null,
-        evidence: [{ type: 'bill_extraction', bill_id: billResult.bill_id, filename: att.filename }],
+        evidence: [{
+          type: 'bill_extraction',
+          bill_id: billResult.bill_id,
+          filename: att.filename,
+          model: bill._extraction_meta?.model,
+          confidence: bill._extraction_meta?.confidence,
+          flags: bill._extraction_meta?.flags,
+          raw_model_output: bill._extraction_meta?.raw_model_output,
+        }],
       });
     } catch (partnerErr) {
       warn(`bill ${attachmentId}: partner.propose trigger failed: ${partnerErr.message}`);
@@ -1901,14 +1918,14 @@ async function processJournalDocument(ev, companyId, agentEmail, companySettings
   }
 
   // ── Mint proposalId client-side (§4.1) ──
-  const proposalId = uuid();
+  const proposalId = ev.entity_id; // reuse attachment's entity_id so underlag lookup works (spec §4.1)
 
   // ── Call journal.propose (§4.1) — same _match_meta pattern as processBill ──
   try {
     await _dispatchAction('journal.propose', {
       lines: result.data.lines,
       proposalId,
-      _extraction_meta: {
+      _match_meta: {
         model: companySettings.llm_model || 'default',
         confidence: result.confidence,
         flags: result.flags,

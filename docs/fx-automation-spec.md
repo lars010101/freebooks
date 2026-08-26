@@ -16,7 +16,7 @@ Design agreed with Magnus 2026-07-23. **Status 2026-07-27: groundwork shipped (P
 ## 1. Company opt-out: `fx_tracking`
 
 - New per-company setting `fx_tracking`: `'true'` (default) | `'false'` (domestic-only company).
-- UI: **Multi-Currency** Boolean row on the **Company tab** attribute grid (rev. 3). The provider config sits two rows below it in the same grid — per-company (rev. 3), with `manual` as a first-class choice.
+- UI: **Multi-Currency** Boolean row on the **Posting Rules tab** attribute grid (rev. 4, 2026-08-26 — moved from Company tab). The provider config sits two rows below it in the same grid — per-company (rev. 3), with `manual` as a first-class choice. Persisted via `posting_rules.attr.list` / `posting_rules.attr.save` (not `company.attr.*`).
 - `'false'` disables everything below: no fetch verb, no status column, no scanning, no notifications.
 - **Simplified UI (rev. 2026-07-27):** `'false'` also hides multi-currency surface area app-wide — Exchange Rates tab hidden, currency fields on bills/journals locked to the base currency, FX revaluation actions hidden. Companies with no FX exposure see a single-currency app. The flag is reversible (visibility/relevance, not an accounting lock).
 
@@ -54,6 +54,9 @@ heuristic would false-flag red ~10 times a year; comparing against what the sour
   to a real provider (not `manual`), fire-and-forget `scanCompany` for that company. The save response
   returns immediately; the scan runs in the background. Same fire-and-forget pattern as the period hook (§4).
   This ensures the first fetch happens immediately on opt-in, not on the next 6h scanner cycle.
+- `fx.provider.save` (server-side): same trigger — when `provider` is set to a real provider (not `manual`),
+  fire-and-forget `scanCompany`. Ensures API/agent callers that bypass the Posting Rules grid still get the
+  immediate scan (rev. 2026-08-26).
 
 ## 5. FX status column on the Periods register
 

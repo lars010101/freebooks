@@ -488,7 +488,7 @@ async function coverageAction(ctx) {
   const today = new Date().toISOString().slice(0, 10);
   const effectiveEnd = endDate < today ? endDate : today;
 
-  const result = await computeCoverage(companyId, baseCurrency, startDate, effectiveEnd, provider, providerName);
+  const result = await computeCoverage(companyId, baseCurrency, startDate, effectiveEnd, provider, providerName, apiKey);
   // `rows` (the fetched rate data) is for the scanner's internal use only —
   // never expose it to clients via the fx.coverage API.
   const { rows, ...coverage } = result;
@@ -615,6 +615,25 @@ async function saveProvider(ctx) {
       value: apiKey,
       updated_at: now
     }]);
+  }
+
+  // fx-automation-spec §4b: when a real provider is set, fire-and-forget an
+  // immediate scan for this company — same trigger as posting_rules.attr.save.
+  if (provider !== MANUAL_PROVIDER) {
+    try {
+      const coRows = await query(
+        `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,
+        { companyId }
+      );
+      if (coRows.length > 0 && coRows[0].currency) {
+        const { scanCompany } = require('./fx-scanner');
+        scanCompany(String(companyId), String(coRows[0].currency)).catch((e) => {
+          console.error('Triggered FX scan failed (fx.provider.save):', e.message);
+        });
+      }
+    } catch (e) {
+      console.error('FX scan trigger setup failed (fx.provider.save):', e.message);
+    }
   }
 
   return { saved: true, provider };

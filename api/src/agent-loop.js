@@ -900,6 +900,27 @@ function _validateExtraction(parsed, context, companySettings) {
     }
   }
 
+  // ── Gross→net conversion (bill-extraction-spec §3.3/§4.2, mirroring
+  // journal-document-extraction-spec §3.3): the prompt instructs the model
+  // to report line amounts as printed, including tax (gross). bills.js
+  // treats lines[].amount as net and computes VAT on top (p2-4a-vat-unify-
+  // spec §1.4). Failing to convert means VAT is computed on an already-
+  // tax-inclusive figure — double-counting the tax. The totals check above
+  // (line ~872) already ran against the original gross amounts, so
+  // total_computed retains the gross sum for the audit cross-check.
+  const vatRateMap = {};
+  for (const v of (ctx.vatCodes || [])) {
+    vatRateMap[v.vat_code] = Number(v.rate);
+  }
+  for (const l of validLines) {
+    if (l.vat_code && vatRateMap[l.vat_code] !== undefined) {
+      const r = vatRateMap[l.vat_code];
+      l.amount = Math.round((l.amount / (1 + r)) * 100) / 100;
+    }
+    // No vat_code (invalid-nulled, RC, or genuinely none): amount stays as-is
+    // (gross = net when no VAT applies).
+  }
+
   // ── Confidence derivation (§3.3): flag count, not self-reported ──
   const confidence = flags.length === 0 ? 'high' : flags.length === 1 ? 'medium' : 'low';
 
@@ -1204,7 +1225,8 @@ async function processBill(ev, companyId, agentEmail, companySettings) {
     expense_account: d.lines.length === 1 ? firstLine.expense_account : null,
     ap_account: null, // server default (applyCompanyDefaults) fills it
     vat_code: d.lines.length === 1 ? firstLine.vat_code : null,
-    vat_amount: d.vat_amount_stated || 0,
+    vat_amount: 0, // drafts store the bill-level stated VAT in vat_amount_stated (below)
+    vat_amount_stated: d.vat_amount_stated || null,
     description: null,
     lines: d.lines.map((l) => ({
       description: l.description,

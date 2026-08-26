@@ -1,6 +1,6 @@
 # FX Tracked-Currency Scoping Spec
 
-Status: **DRAFT — proposal, not yet ratified.** Companion: `fx-automation-spec.md` (the automation this scopes), `fb-list-default-period-spec.md` §7 (the FX Rates currency picker this spec's frontend half replaces — `loadTrackedForeignCurrencies`), `fb-list-row-threshold-spec.md` (the threshold this spec makes far less likely to fire in the first place).
+Status: **RATIFIED — implemented 2026-08-17 (PR #242).** Companion: `fx-automation-spec.md` (the automation this scopes; its §6 scanner cross-references this spec), `fb-list-default-period-spec.md` §7 (the FX Rates currency picker this spec's frontend half replaces — `loadTrackedForeignCurrencies`), `fb-list-row-threshold-spec.md` (the threshold this spec makes far less likely to fire in the first place).
 
 ---
 

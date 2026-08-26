@@ -125,10 +125,10 @@ async function upsertVatCode(ctx) {
   if (!vatCode || !vatCode.vat_code) throw Object.assign(new Error('vat_code required'), { code: 'INVALID_INPUT' });
   const existing = await query(`SELECT vat_code FROM vat_codes WHERE company_id = @companyId AND vat_code = @code`, { companyId, code: vatCode.vat_code });
   if (existing.length > 0) {
-    await exec(`UPDATE vat_codes SET description=@desc, rate=@rate, input_account=@inp, output_account=@out, report_box=@box, is_reverse_charge=@rc, is_active=@active WHERE company_id=@companyId AND vat_code=@code`,
+    await exec(`UPDATE vat_codes SET description=@desc, rate=@rate, vat_account_input=@inp, vat_account_output=@out, report_box=@box, is_reverse_charge=@rc, is_active=@active WHERE company_id=@companyId AND vat_code=@code`,
       { companyId, code: vatCode.vat_code, desc: vatCode.description || null, rate: vatCode.rate || 0, inp: vatCode.input_account || null, out: vatCode.output_account || null, box: vatCode.report_box || null, rc: !!vatCode.is_reverse_charge, active: vatCode.is_active !== false });
   } else {
-    await bulkInsert('vat_codes', [{ company_id: companyId, vat_code: vatCode.vat_code, description: vatCode.description || null, rate: vatCode.rate || 0, input_account: vatCode.input_account || null, output_account: vatCode.output_account || null, report_box: vatCode.report_box || null, is_reverse_charge: !!vatCode.is_reverse_charge, is_active: vatCode.is_active !== false }]);
+    await bulkInsert('vat_codes', [{ company_id: companyId, vat_code: vatCode.vat_code, description: vatCode.description || null, rate: vatCode.rate || 0, vat_account_input: vatCode.input_account || null, vat_account_output: vatCode.output_account || null, report_box: vatCode.report_box || null, is_reverse_charge: !!vatCode.is_reverse_charge, is_active: vatCode.is_active !== false, effective_from: vatCode.effective_from || new Date().toISOString().slice(0, 10), effective_to: null }]);
   }
   return { saved: true };
 }

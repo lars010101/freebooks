@@ -1,8 +1,8 @@
 # extractBillData() — AI Document Extraction for AP Intake
 
-**Status:** DRAFT — proposed 2026-08-24, revised 2026-08-24 (partner terminology corrected; §11.1 superseded by `partner-proposal-spec.md`)
-**Depends on:** `agent-data-feeding-guide.md` §4.3 (folder→`entityType` routing this spec's trigger relies on), `b9-self-contained-agent-spec.md` (tier-4 LLM call pattern reused in §3.2), `bills-partner-fk-spec.md` (this spec's output maps directly onto `bills.partner_name`/`bills.partner_id`, §4.2), `partner-proposal-spec.md` (§6.2 Trigger B — the new-partner mechanism this spec feeds data into rather than reimplementing, §11.1).
-**Context:** `extractBillData()` was ported from the B7 script into `api/src/agent-loop.js` as part of B9, but flagged explicitly as "placeholder bill extraction (stays as placeholder)." This spec replaces the placeholder with a real implementation. Per `docs/agent-data-feeding-guide.md` §4.3, all four intake folders have a defined `entityType`/processing path — `bank/` has the full tier 1–4 cascade already implemented; `bills/` has the plumbing (`processBill()` → `bill.create`) but no extraction logic; `receipts/` and `journal/` are specified to go `Extract → journal.propose`, but that extraction function doesn't exist yet either. This spec covers `bills/` only — `receipts/`/`journal/` need a differently-shaped extractor (balanced journal lines, not vendor/line-item/total) and are left for a follow-on spec.
+**Status:** IMPLEMENTED — revised 2026-08-26 after a second validation pass against live code (following a code fix between passes). The VAT double-counting bug from the previous pass is **confirmed fixed** (`_validateExtraction()` now converts gross→net, `processBill()` passes the converted amount). Two issues remain: the conversion mutates in place rather than preserving both `gross_amount` and `net_amount` (§3.3/§4.1), and the source-attachment link is still not persisted anywhere (§4.2, Open Question 4 — unchanged from the prior pass, not yet fixed).
+**Depends on:** `agent-data-feeding-guide.md` §4.3 (folder→`entityType` routing this spec's trigger relies on), `b9-self-contained-agent-spec.md` (tier-4 LLM call pattern reused in §3.2), `bills-partner-fk-spec.md` (this spec's output maps directly onto `bills.partner_name`/`bills.partner_id`, §4.2), `partner-proposal-spec.md` (§6.2 Trigger B — the new-partner mechanism this spec feeds data into rather than reimplementing, §11.1), `p2-4a-vat-unify-spec.md` §1.4 (bills are tax-exclusive — line amounts are net; `vat_amount_stated` is a transient input field `bill.create` uses to reconcile against computed VAT, not a persisted column — confirmed directly against `bills.js` source, §3.3/§4.2).
+**Context:** `extractBillData()` was originally a placeholder ported from the B7 script (B9 spec) and has since been fully implemented. This document was originally written to design that implementation; it's now been revalidated line-by-line against the actual deployed code, correcting both a bug in that code and several incorrect assumptions in the spec's own earlier drafts (see the Status line above and the inline corrections throughout).
 
 ## 0. Scope
 
@@ -63,7 +63,8 @@ System prompt instructs the model to:
 - Match the extracted counterparty name against the supplied partner list (vendor-flagged partners only — fuzzy matching allowed, but flag ambiguity rather than silently picking between close candidates).
 - Only assign a VAT/GST code if a rate is actually printed on the document — otherwise leave null and flag, never guess a tax treatment.
 - Never invent a due date if none is printed.
-- Report line items and the stated total as printed — don't let the model do the arithmetic; that's checked deterministically in §3.3.
+- Report line items as **gross amounts, tax-inclusive** (as actually printed) — not net. An earlier draft of this spec assumed most invoices print net line amounts and asked the model to report net directly; that's an unverified assumption about document conventions, and asking the model to silently convert gross-to-net when a document happens to print gross would be exactly the "let the model do arithmetic" failure this spec otherwise avoids. Reporting gross-as-printed is a direct read regardless of the document's own convention, and the net conversion is computed deterministically in §3.3 — mirroring `extractJournalDocumentData()`'s already-correct pattern (`journal-document-extraction-spec.md` §3.3) exactly, rather than diverging from it.
+- Report the invoice's own **stated VAT amount** if printed, separately — this becomes a transient field on the `bill.create` payload (§4.2), *not* a persisted `bills` column (there isn't one — confirmed directly against `bills.js`, see §4.2), and is not something this extraction function reconciles itself; that reconciliation already exists downstream in `createBill()`.
 - Recognize reverse-charge language (e.g. "Reverse charge", "Omvänd betalningsskyldighet" for SE) as a distinct case from "no VAT code found" — these documents legitimately carry no printed rate. Set `reverse_charge_detected` rather than leaving the reviewer to see the same generic `no_vat_code_detected` flag they'd see for a genuinely incomplete document (see §4.1).
 - Default every line's `expense_account` to the matched partner's `default_expense_account` (supplied in context, §2.2) and only override it where the document clearly indicates a different account — don't force a fresh choice among all expense accounts for every line. This narrows the decision space instead of asking the model to pick from the full chart on every line item.
 
@@ -86,11 +87,22 @@ The model's own `confidence` self-report (if any) is discarded entirely — ever
   These thresholds are code constants, not a company setting — not something an operator needs to tune.
 
 **Line-level checks (cheap, catch hallucinations early):**
-  - Every line's `amount` is a positive number (reject non-numeric/null/negative as a hard failure input for that line — it does not silently become 0).
+  - Every line's `gross_amount` is a positive number (reject non-numeric/null/negative as a hard failure input for that line — it does not silently become 0).
   - At least one line is present; zero lines is a hard failure (§5.1).
   - Duplicate `description` values with different `amount`s are flagged (`duplicate_line_description`) — a common OCR failure mode where one line item gets split or misread as two.
 
-**Totals:** `sum(lines[].amount)` must equal `total_stated` within `bill_extraction_tolerance` (§7) — mismatch sets `total_mismatch`, not silently accepted.
+**Totals — completeness check.** `sum(lines[].gross_amount)` (as reported per line — see §3.1) must equal the gross `total_stated` within tolerance (§7) — mismatch sets `total_mismatch`. This is a straightforward gross-vs-gross comparison; there is no net/gross mismatch to reconcile here because both sides are gross at this point in the pipeline. An earlier draft of this spec introduced a `net_subtotal_stated` field and a more elaborate two-branch check — that's retracted as unnecessary complexity once the per-line values stay consistently gross through this check, matching the simpler approach already verified in the deployed sibling function (`_validateJournalExtraction`'s `sumGross` check).
+
+**Net conversion — the double-count bug is now fixed in deployed code, but introduced a new, narrower problem.** `bill.create`'s `lines[].amount` is treated as **net** by `bills.js` (`lineNet = lineAmount`, confirmed directly from source — `p2-4a-vat-unify-spec.md` §1.4). Every line above was validated as **gross**. The conversion:
+
+```
+net_i = round(gross_i / (1 + r_i), 2)     // when the line has a matched vat_code with rate r_i
+net_i = gross_i                            // when no vat_code applies
+```
+
+is now implemented in `_validateExtraction()` (`agent-loop.js` lines 903–922, confirmed) — the double-counting bug from the previous validation pass is genuinely fixed; `processBill()` now passes the converted net amount through. **But the fix as deployed mutates `l.amount` from gross to net in place, rather than keeping both.** That destroys the original printed gross figure per line — after conversion, the only place the gross amount survives at all is buried in `raw_model_output`, not as a queryable structured field. **The required fix: preserve both.** `gross_amount` (as validated, tax-inclusive, matching what's printed) and `net_amount` (computed) must both be present on each line in `ExtractionResult.data.lines[]` — not one field silently overwritten by the other. This is cheap (one extra field per line) and the alternative — reconstructing a line's original gross amount by re-parsing `raw_model_output` — is exactly the kind of audit-trail loss this spec's `_extraction_meta`/prompt-snapshot retention (§4.2) exists to prevent elsewhere; losing it here via in-place mutation undercuts that same principle.
+
+**VAT reconciliation itself is not this function's job.** `vat_amount_stated` is populated straight from the document (§3.1) and passed as a field on the `bill.create` payload — it is not a persisted column (§4.2). `createBill()` already reconciles it against computed VAT via `getVatTolerance()` (settings keys `vat_tolerance`/`vat_tolerance_pct`, default `0.50`/`0.01` — confirmed directly from `bills.js`): within tolerance, the stated figure is actually absorbed into the posted VAT amount (the delta lands on the largest computed tax line); outside tolerance, a warning is emitted but the bill still posts. Extraction does not duplicate any of this — it only supplies the input.
 
 **Currency:** must be a valid ISO 4217 code (cross-checked against `db/currencies.json`).
 
@@ -121,14 +133,19 @@ The model's own `confidence` self-report (if any) is discarded entirely — ever
     lines: [
       {
         description: string,
-        amount: number,
+        gross_amount: number,    // as validated in §3.3 — tax-inclusive, matches what's printed
+        net_amount: number,      // computed in §3.3 from gross_amount and the matched vat_code's rate —
+                                  // THIS is what bill.create's lines[].amount must receive, not gross_amount
         expense_account: string | null,
         vat_code: string | null,
         needs_review: boolean,
       }
     ],
-    total_stated: number,
-    total_computed: number,
+    vat_amount_stated: number | null,    // printed VAT figure, if shown — NOT a persisted bills column;
+                                          // passed as a transient field on the bill.create payload (§4.2),
+                                          // reconciled against computed VAT by createBill() itself
+    total_stated: number,                // the gross grand total — never null when ok: true
+    total_computed: number,              // sum(lines[].gross_amount) — gross, for the §3.3 completeness check
   },
   flags: string[],           // 'total_mismatch' | 'ambiguous_partner_match' | 'no_vat_code_detected' |
                              // 'reverse_charge_detected' | 'duplicate_line_description' |
@@ -140,7 +157,9 @@ The model's own `confidence` self-report (if any) is discarded entirely — ever
 
 ### 4.2 Mapping to `bill.create`
 
-`processBill()` maps `ExtractionResult.data` onto `bill.create` with `status='draft'`. `partner_name_raw` and `partner_id` map directly onto `bills.partner_name` and `bills.partner_id` (`bills-partner-fk-spec.md` §3.1, §4) — no adapter needed; a `null` `partner_id` is the exact same accepted state as today's free-text vendor entry (`bills-partner-fk-spec.md` §0.2). A new `_extraction_meta` field (parallel to `journal_proposals._match_meta`) stores model, confidence, flags, raw model output, **and the exact prompt + context sent** (not just the response) — without the input snapshot, a wrong extraction isn't reproducible and it's impossible to tell later whether a bad result came from a bad prompt/context or a model error. This also feeds the deferred learning-loop spec.
+`processBill()` maps `ExtractionResult.data` onto `bill.create` with `status='draft'`. **`bill.create`'s `lines[].amount` receives each line's `net_amount`** — confirmed fixed in deployed code (`agent-loop.js` line 1233 passes the converted amount, following the in-place conversion in `_validateExtraction()` lines 903–922). The remaining fix is narrower than originally found: stop the in-place mutation and emit both `gross_amount` and `net_amount` as separate fields (§3.3), so `bill.create` still receives `net_amount` but the original gross figure isn't destroyed in the process. `partner_name_raw` and `partner_id` map directly onto `bills.partner_name` and `bills.partner_id` (`bills-partner-fk-spec.md` §3.1, §4) — no adapter needed; a `null` `partner_id` is the exact same accepted state as today's free-text vendor entry (`bills-partner-fk-spec.md` §0.2). `vat_amount_stated` is passed as a transient field on the `bill.create` payload — **there is no `bills.vat_amount_stated` column** (confirmed against `schema.sql` — no such column exists anywhere, including in later `ALTER TABLE` migrations); `createBill()` uses it only as an input to `getVatTolerance()`'s reconciliation, after which the (possibly adjusted) figure is posted into the existing `vat_amount` column. A new `_extraction_meta` field (already implemented as a side table, `bill_extraction_meta` — confirmed populated, see §9) stores model, confidence, flags, raw model output, **and the exact prompt + context sent** (not just the response) — without the input snapshot, a wrong extraction isn't reproducible and it's impossible to tell later whether a bad result came from a bad prompt/context or a model error. This also feeds the deferred learning-loop spec.
+
+**Second confirmed gap, still unfixed as of this pass: the source-attachment link isn't persisted.** `processBill()` sets `_source_attachment_id`/`_source_filename` on the `bill` object (`agent-loop.js` lines 1238–1239) — but the `bills` table has no such columns anywhere in `schema.sql`, and they aren't written to `bill_extraction_meta` either. Both fields are silently dropped; there is still no way to look up which attachment produced a given bill. **Recommended fix, unchanged from the prior pass:** wire `replaceDraftId` through to `bill.create`, passing the attachment's existing `entityId` — this makes the bill's own id *the same id* the attachment was already uploaded under, preserving the link with no new column at all, and is more consistent with how underlag binding works elsewhere in this codebase (bank/journal proposals) than a bolt-on reference column would be.
 
 ## 5. Failure handling
 
@@ -169,13 +188,11 @@ On match: attach the new document to the existing bill instead of creating a sec
 
 No new LLM settings — reuses `llm_endpoint_url` / `llm_api_key` / `llm_model` / `llm_temperature` as-is.
 
-One new company-level setting, matching the existing VAT-tolerance pattern:
+**`bill_extraction_tolerance` is real, already implemented, and correctly shared with `extractJournalDocumentData()` — a prior draft of this spec incorrectly retracted it.** Checked directly against `agent-loop.js`: both `_validateExtraction` (bills) and `_validateJournalExtraction` (journal docs) read `companySettings.bill_extraction_tolerance` (default `'0.50'`) for their respective gross-vs-gross completeness checks. This is a distinct, legitimately separate mechanism from `bills.js`'s own `vat_tolerance`/`vat_tolerance_pct` settings (§3.3) — the two check different things (line-item completeness vs. stated-VAT reconciliation) and both existing side by side is correct, not duplicative. The name is slightly misleading now that it's shared across two extraction functions, but renaming a settings key already read in two places is a larger, separate change — not bundled into this correction.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `bill_extraction_tolerance` | string (decimal) | `'0.50'` | Max allowed difference between stated and computed total before flagging `total_mismatch` |
-
-Default mirrors the shape of the ratified VAT tolerance (`max(0.50, 1%)`) rather than a flat near-zero value — bills go through OCR/vision extraction, and a flat `0.01` would flag routine rounding (e.g. `1,234.50` read as `1,234.49`) as a mismatch. This is a distinct setting from VAT tolerance, not a shared one, since bill totals and VAT amounts are different quantities with different sources of error.
+| `bill_extraction_tolerance` | string (decimal) | `'0.50'` | Max allowed difference between sum(gross line amounts) and gross `total_stated` before flagging `total_mismatch`. Shared with `extractJournalDocumentData()`'s equivalent check. |
 
 ## 8. What this spec does NOT do
 
@@ -185,22 +202,24 @@ Default mirrors the shape of the ratified VAT tolerance (`max(0.50, 1%)`) rather
 - Does not add vision-capability negotiation with the LLM provider.
 - Does not auto-create partners — always surfaces `needs_new_partner` for the mechanism `partner-proposal-spec.md` already owns (§11.1).
 
-## 9. Files changed (anticipated)
+## 9. Files changed (confirmed against source, second pass)
 
 | File | Change |
 |---|---|
-| `api/src/agent-loop.js` | Replace placeholder `extractBillData()`; add `buildBillExtractionContext()`, `buildBillExtractionPrompt()` |
-| `api/src/bills.js` | No change to `bill.create` itself; `processBill()` passes `_extraction_meta` through |
-| `api/src/pages/settings.js` | Add `bill_extraction_tolerance` field near the existing VAT tolerance setting |
-| `db/schema.sql` | Add `_extraction_meta` (JSON) — column vs. side table, see Open Question 1 |
-| `api/package.json` | Add a PDF text-extraction dependency (e.g. `pdf-parse`) |
+| `api/src/agent-loop.js` | ~~Fix `processBill()` line 1211~~ — **done**, confirmed (double-count bug fixed). **Remaining:** stop `_validateExtraction()`'s in-place `l.amount` gross→net mutation (lines 903–922); emit `gross_amount`/`net_amount` as separate fields instead. Decide and wire the source-attachment link (§4.2 — still unfixed; `_source_attachment_id`/`_source_filename` set at lines 1238–1239 but dropped, nothing persists them). |
+| `api/src/bills.js` | No change — confirmed correct, the bug was entirely caller-side |
+| `api/src/pages/settings.js` | No change — `bill_extraction_tolerance` confirmed shared correctly (§7) |
+| `db/schema.sql` | Add a persisted column for the source-attachment reference, if that's the chosen fix over `replaceDraftId` (§4.2) |
+| `api/package.json` | No change |
 
 ## 10. Open questions
 
-1. **`_extraction_meta` storage** — inline JSON column on `bills`, or a separate `bill_extraction_meta` side table keyed by `bill_id`? `journal_proposals` uses an inline column, but `bills` is a larger, more heavily-touched table — a side table may avoid migration risk.
-2. **Vision-capability signaling** — leave failures silent-and-flagged indefinitely (per the "no instance lifecycle management" precedent), or add a manual "this model supports images" checkbox to the Settings/AI tab to short-circuit doomed attempts? Leaning toward leaving it as-is; flagging for confirmation.
-3. **Tolerance setting placement** — alongside VAT tolerance, or its own field once an AP settings section exists? Cosmetic.
-4. **Underlag binding for `bill.create`.** `agent-data-feeding-guide.md`'s event table states attachment processing happens "with the same `proposalId` for underlag binding" across all four folder types, and the drop-folder watcher (§4.3) mints a UUID as `entityId` at upload time uniformly — including for `bills/`. But §4.5b never actually specifies how that pre-minted id reconciles with the bill `bill.create` produces: does `bill.create` accept a client-supplied id (so the attachment's existing `entityId` becomes the bill's id, and the binding just carries over), or does it return a new `bill_id` requiring an explicit re-bind step — the way bank-statement lines are explicitly re-uploaded under each `proposalId` (§4.3)? This needs to be checked against the actual `bill.create` implementation before `processBill()` is written, not assumed either way — get it wrong and the source invoice image silently stops being retrievable as underlag for the bill it produced.
+1. ~~`_extraction_meta` storage~~ — **Resolved:** confirmed as a side table, `bill_extraction_meta`, populated correctly.
+2. **Vision-capability signaling** — leave failures silent-and-flagged indefinitely, or add a manual capability checkbox to Settings/AI? Still genuinely open; no vision-capability handling exists either way in the current implementation.
+3. ~~Exact existing tolerance constant/setting name~~ — **Resolved:** `companySettings.bill_extraction_tolerance` (default `'0.50'`), confirmed shared verbatim with `_validateJournalExtraction()`.
+4. **Source-attachment persistence (§4.2) — confirmed still unfixed on this second pass.** Recommendation stands: wire `replaceDraftId` through to `bill.create` using the attachment's existing `entityId`, rather than adding a new reference column — more consistent with how underlag binding works elsewhere in this codebase. Not yet implemented as of this validation.
+5. ~~Underlag binding — mechanism exists~~ — superseded by Open Question 4 above; the mechanism (`replaceDraftId`) is confirmed to exist, only its use in `processBill()` remains outstanding.
+6. **`_extraction_meta` built from a simple evidence object, not the retained prompt/context snapshot, in the `partner.propose` trigger (§11.1).** Minor, lower priority than the above — the `evidence` payload `_maybeProposePartner()` receives (`agent-loop.js` lines 1291–1307) is a simple object rather than pulling from `_extraction_meta` as this spec describes. Worth a follow-up but not blocking.
 
 ## 11. Resolved decisions
 

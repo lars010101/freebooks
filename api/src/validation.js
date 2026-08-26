@@ -99,9 +99,11 @@ async function validateJournalBatch(companyId, lines) {
       }
     }
 
-    if (company.vat_registered && !line.vat_code && account && (account.account_type === 'Revenue' || account.account_type === 'Expense')) {
-      warnings.push(`${lineLabel}: No VAT code for ${account.account_type} account ${line.account_code}`);
-    }
+    // "No VAT code" check lives in enrichAndValidate (pre-expansion), NOT here.
+    // validateJournalBatch runs on POST-expansion lines, where the original taxable
+    // line's vat_code is deliberately nulled (expandJournalVatLines moves VAT to a
+    // separate GL line). Checking here would fire a false positive on every VAT-coded
+    // journal entry. enrichAndValidate checks the ORIGINAL user lines before expansion.
 
     if (line.cost_center && !centerSet.has(line.cost_center)) errors.push(`${lineLabel}: Cost center ${line.cost_center} does not exist`);
     if (line.profit_center && !centerSet.has(line.profit_center)) errors.push(`${lineLabel}: Profit center ${line.profit_center} does not exist`);

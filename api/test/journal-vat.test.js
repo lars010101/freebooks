@@ -98,7 +98,7 @@ function sum(rows, field) {
 // ── 1. Standard tax-exclusive posting ────────────────────────────────────────
 
 test('tax-exclusive journal: 1000 net + SE25 → expense DR 1000, VAT DR 250, offset CR 1250', async () => {
-  const { entries } = await postAndFetch([
+  const { entries, warnings } = await postAndFetch([
     { account_code: EXP1.account_code, debit: 1000, vat_code: 'SE25', date: TD.day15, description: 'office supplies' },
     { account_code: AP.account_code, credit: 1250, date: TD.day15, description: 'offset' },
   ], 'std-vat');
@@ -131,6 +131,12 @@ test('tax-exclusive journal: 1000 net + SE25 → expense DR 1000, VAT DR 250, of
   // The posted batch balances (net + VAT = gross).
   assert.equal(sum(entries, 'debit'), 1250, 'total debit = 1250');
   assert.equal(sum(entries, 'credit'), 1250, 'total credit = 1250');
+
+  // Bug fix: a VAT-coded entry must NOT produce a false "No VAT code" warning.
+  // expandJournalVatLines nulls vat_code on the original line (by design), but the
+  // pre-expansion check in enrichAndValidate should recognize the VAT was coded.
+  const falseVatWarning = warnings.find((w) => /No VAT code for.*4010/.test(w));
+  assert.ok(!falseVatWarning, `false "No VAT code" warning on VAT-coded entry: ${JSON.stringify(warnings)}`);
 });
 
 // ── 2. Per-code grouping ─────────────────────────────────────────────────────
@@ -210,7 +216,7 @@ test('reverse charge: SERC → DR input (2645) + CR output (2614), nets to zero'
 // ── 4. No VAT code ────────────────────────────────────────────────────────────
 
 test('no VAT code: a plain pair posts with no VAT GL expansion', async () => {
-  const { entries } = await postAndFetch([
+  const { entries, warnings } = await postAndFetch([
     { account_code: EXP1.account_code, debit: 100, date: TD.day18, description: 'plain' },
     { account_code: AP.account_code, credit: 100, date: TD.day18, description: 'plain offset' },
   ], 'no-vat');
@@ -220,4 +226,8 @@ test('no VAT code: a plain pair posts with no VAT GL expansion', async () => {
   assert.equal(entries.filter((e) => e.vat_code).length, 0, 'no line carries a vat_code');
   assert.equal(sum(entries, 'debit'), 100);
   assert.equal(sum(entries, 'credit'), 100);
+
+  // A genuinely missing VAT code on an Expense account SHOULD still warn.
+  const missingVatWarning = warnings.find((w) => /No VAT code for Expense account 4010/.test(w));
+  assert.ok(missingVatWarning, `expected "No VAT code for Expense account 4010" warning, got: ${JSON.stringify(warnings)}`);
 });

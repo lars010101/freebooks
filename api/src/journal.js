@@ -124,6 +124,38 @@ async function enrichAndValidate(companyId, lines) {
     enrichedLines.push({ ...line, currency, fx_rate: fxRate, debit, credit, debit_home: debit * fxRate, credit_home: credit * fxRate, vat_amount: vatAmount, vat_amount_home: vatAmountHome, net_amount: netAmount, net_amount_home: netAmountHome, _vatMeta: vatMeta });
   }
 
+  // "No VAT code" warning — checked on the ORIGINAL user lines (pre-expansion),
+  // NOT on the post-expansion lines. expandJournalVatLines deliberately nulls
+  // vat_code on the original taxable line once VAT moves to a companion GL line,
+  // so checking post-expansion would fire a false positive on every VAT-coded
+  // entry. This mirrors the old validateJournalBatch check but runs at the right
+  // point in the pipeline. Only Revenue/Expense accounts trigger the warning;
+  // offset lines (Liability/Asset) legitimately carry no VAT code.
+  const preExpansionWarnings = [];
+  if (company.vat_registered) {
+    const origAccountCodes = [...new Set(lines.map((l) => l.account_code).filter(Boolean))];
+    if (origAccountCodes.length > 0) {
+      const placeholders = origAccountCodes.map((_, i) => '@ac' + i).join(', ');
+      const acctParams = { companyId };
+      origAccountCodes.forEach((c, i) => { acctParams['ac' + i] = c; });
+      const acctRows = await query(
+        `SELECT account_code, account_type FROM accounts WHERE company_id = @companyId AND account_code IN (${placeholders})`,
+        acctParams
+      );
+      const acctTypeMap = new Map(acctRows.map((a) => [a.account_code, a.account_type]));
+      for (let i = 0; i < enrichedLines.length; i++) {
+        const line = enrichedLines[i];
+        // Only original taxable lines (_vatMeta === null means no VAT was attached;
+        // lines that DO have _vatMeta had a valid vat_code that will be moved to GL).
+        if (line._vatMeta) continue; // VAT was coded — will be on a GL line
+        const acctType = acctTypeMap.get(line.account_code);
+        if (!line.vat_code && (acctType === 'Revenue' || acctType === 'Expense')) {
+          preExpansionWarnings.push(`Line ${i + 1}: No VAT code for ${acctType} account ${line.account_code}`);
+        }
+      }
+    }
+  }
+
   // P2-4a: expand VAT-bearing lines into separate per-code GL lines BEFORE
   // validation so the balance check sees the final balanced set (net + VAT GL
   // lines = gross offset). Mirrors bills.js:396-414. Without this the
@@ -159,7 +191,8 @@ async function enrichAndValidate(companyId, lines) {
   }
 
   const validation = await validateJournalBatch(companyId, expandedLines);
-  return { enrichedLines: expandedLines, warnings: validation.warnings, validation };
+  const allWarnings = [...preExpansionWarnings, ...validation.warnings];
+  return { enrichedLines: expandedLines, warnings: allWarnings, validation };
 }
 
 /**

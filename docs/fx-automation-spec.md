@@ -69,6 +69,7 @@ heuristic would false-flag red ~10 times a year; comparing against what the sour
 - Server job: on startup + every **6 h** (env-tunable `FREEBOOKS_FX_SCAN_MS`).
 - **Per-company (rev. 3, supersedes the install-level rev):** the scanner iterates companies; a company is automated iff `fx_tracking = 'true'` AND its provider is a real one (not `manual`). Shared-table last-writer-wins is accepted (fetches are idempotent per date+source).
 - **Short-circuit (rev. 2026-07-27):** if zero companies qualify, the scanner does nothing — no downloads, no coverage computation, no notifications.
+- **Currency scoping (rev. 2026-08-17, per `fx-tracked-currency-scoping-spec.md` — ratified, implemented PR #242):** coverage/publication-day computation stays basket-wide, but the scanner now filters persisted `fx_rates` rows to currencies with non-zero balance-sheet exposure (`getExposedCurrencies`) before the DELETE-and-replace INSERT. A currency that drops out of exposure stops receiving new rows going forward; historical rows already in `fx_rates` are never deleted. Without this, the scanner stored ~60 rows/day per company for the full ECB basket regardless of need — the scoping spec narrowed that to only currencies with actual open balances.
 - For each company with tracking on, for each period intersecting `[company start, today]`:
   compute coverage → fetch missing ranges → recompute.
 - Still missing after the fetch attempt (provider down, currency unavailable, historical gap) →

@@ -400,7 +400,12 @@ ${commonStyle()}
           var rate = Number(vc.rate) || 0;
           var amt = d || c || 0;
           lineVat = Math.round(amt * rate * 100) / 100;
-          if (d > 0) vatDebit += lineVat; else vatCredit += lineVat;
+          if (vc.is_reverse_charge) {
+            vatDebit += lineVat;   // DR input VAT
+            vatCredit += lineVat;  // CR output VAT (self-balancing)
+          } else {
+            if (d > 0) vatDebit += lineVat; else vatCredit += lineVat;
+          }
         }
       }
       if (vatEl) vatEl.textContent = lineVat.toFixed(2);

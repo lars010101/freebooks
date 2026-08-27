@@ -183,19 +183,19 @@ test('parse: :report pl', () => {
   const r = cmd.parse(':report pl');
   assert.strictEqual(r.type, 'alias');
   assert.strictEqual(r.alias, 'report');
-  assert.strictEqual(r.parsed.route, '/reports?t=pl');
+  assert.strictEqual(r.parsed.route, '/statements?t=pl');
 });
 
 test('parse: :report pl q2', () => {
   const r = cmd.parse(':report pl q2');
   assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/reports?t=pl&period=q2');
+  assert.strictEqual(r.parsed.route, '/statements?t=pl&period=q2');
 });
 
 test('parse: :report voucher-register', () => {
   const r = cmd.parse(':report voucher-register');
   assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/reports?t=voucher-register');
+  assert.strictEqual(r.parsed.route, '/books?t=voucher-register');
 });
 
 test('parse: :report with no args → error', () => {

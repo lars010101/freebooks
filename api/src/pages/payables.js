@@ -2,8 +2,9 @@
 const { commonStyle, navBar, layoutEnd, getRelevanceFlags, flagsBootstrapJson } = require('./common');
 const { query } = require('../db');
 const { billsTabJS } = require('./payables-bills');
+const { partnersTabJS } = require('./payables-partners');
 
-async function handleBillsPage(req, res) {
+async function handlePayablesPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   // Server-side relevance flags (settings-ux-spec §7 item 9 + fx-automation-spec
@@ -15,16 +16,16 @@ async function handleBillsPage(req, res) {
   const [co] = await query(`SELECT jurisdiction, currency AS base_currency FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
   const taxLabel = (co && co.jurisdiction === 'SG') ? 'GST' : 'VAT';
   const baseCurrency = (flags && flags.baseCurrency) || (co && co.base_currency) || 'SGD';
-  res.send(buildBillsPage(company, taxLabel, baseCurrency, flags));
+  res.send(buildPayablesPage(company, taxLabel, baseCurrency, flags));
 }
 
-function buildBillsPage(company, taxLabel = 'VAT', baseCurrency = 'SGD', flags = null) {
+function buildPayablesPage(company, taxLabel = 'VAT', baseCurrency = 'SGD', flags = null) {
   const flagsJson = flagsBootstrapJson(flags);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Bills — freeBooks</title>
+<title>Payables — freeBooks</title>
 ${commonStyle()}
 <style>
   .page { max-width:1100px; }
@@ -310,17 +311,32 @@ ${commonStyle()}
   .data-table tbody td.vcell-editing input { border:none; outline:none; background:transparent; font-size:inherit; font-family:'Helvetica Neue',Arial,sans-serif !important; color:#222 !important; padding:0; box-sizing:border-box; }
   #partners-body input { font-family:'Helvetica Neue',Arial,sans-serif !important; font-size:inherit !important; }
   .fb-dd { font-family:'Helvetica Neue',Arial,sans-serif; }
+
+  /* Report iframe (Aging/Control tabs — IA restructure 2) */
+  .rpt-iframe { border:none; width:100%; height:calc(100vh - 220px); min-height:500px; display:block; background:#fff; border-radius:8px; }
 </style>
 </head>
-<body>${navBar(company, 'bills')}
+<body>${navBar(company, 'payables')}
 <div class="page">
 
   <!-- Page header -->
   <div class="header">
-    <h1>📋 Bills</h1>
+    <h1>📋 Payables</h1>
   </div>
 
-  <!-- KPI cards (above tabs) -->
+  <!-- Tab strip (IA restructure 2: 4 tabs — Bills · Vendors · Aging · Control) -->
+  <div class="tabs">
+    <div class="tab active" data-tab="bills" onclick="showTab('bills')">Bills</div>
+    <div class="tab" data-tab="vendors" onclick="showTab('vendors')">Vendors</div>
+    <div class="tab" data-tab="aging" onclick="showTab('aging')">Aging</div>
+    <div class="tab" data-tab="control" onclick="showTab('control')">Control</div>
+  </div>
+
+  <!-- BILLS TAB -->
+  <div id="tab-bills" class="tab-panel active">
+  <div id="pay-panel-bills">
+
+  <!-- KPI cards -->
   <div class="kpi-row">
     <div class="kpi-card">
       <div class="kpi-label">Total Outstanding (${baseCurrency})</div>
@@ -339,9 +355,6 @@ ${commonStyle()}
     </div>
   </div>
 
-  <!-- 2026-08-11 IA restructure: Partners tab moved to Master Data page.
-       Tab strip removed — Bills is now the only panel. -->
-
   <!-- Date-range toolbar (default-period spec) — seeds from the default
        accounting period on page load; onchange re-fetches the bill list. -->
   <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
@@ -350,8 +363,6 @@ ${commonStyle()}
     <span style="color:#aaa; padding:0 3px; font-size:0.875rem;">\u2013</span>
     <input type="date" id="bill-date-to" class="tb-date-input" onchange="billsList.load()" title="End date">
   </div>
-
-  <div id="pay-panel-bills">
 
   <!-- Table card -->
   <div class="table-card">
@@ -393,6 +404,25 @@ ${commonStyle()}
        FB.keys.renderHints from the binding table — never hand-written here. -->
 
   </div><!-- /pay-panel-bills -->
+  </div><!-- /tab-bills -->
+
+  <!-- VENDORS TAB -->
+  <div id="tab-vendors" class="tab-panel">
+    <table class="edit-table" id="vendors-table">
+      <thead><tr><th>Name</th><th>AP Account</th><th>Expense Account</th><th>Currency</th><th>Terms (days)</th><th>Active</th></tr></thead>
+      <tbody id="vendors-body"></tbody>
+    </table>
+  </div>
+
+  <!-- AGING TAB — iframe embed of report?type=ap-aging -->
+  <div id="tab-aging" class="tab-panel">
+    <iframe id="aging-frame" src="about:blank" class="rpt-iframe"></iframe>
+  </div>
+
+  <!-- CONTROL TAB — iframe embed of report?type=ap-control -->
+  <div id="tab-control" class="tab-panel">
+    <iframe id="control-frame" src="about:blank" class="rpt-iframe"></iframe>
+  </div>
 
 </div>
 
@@ -405,10 +435,56 @@ var BASE_CURRENCY = '${baseCurrency}';
 // fxTracking='off' — no flash, no async client hiding.
 window.__fbFlags = ${flagsJson};
 ${billsTabJS(flags)}
+${partnersTabJS()}
+
+// ========== TAB SWITCHER (IA restructure 2: Bills · Vendors · Aging · Control) ==========
+var PAYABLES_TABS = ['bills','vendors','aging','control'];
+function showTab(t) {
+  // Modal guard — don't abandon a dirty row mid-edit.
+  if (window.FB && FB.list && FB.list.anyDirty()) {
+    FB.list.guard(function(){ showTab(t); }); return;
+  }
+  PAYABLES_TABS.forEach(function(tab) {
+    var el = document.querySelector('.tab[data-tab="' + tab + '"]');
+    var panel = document.getElementById('tab-' + tab);
+    if (el) el.classList.toggle('active', tab === t);
+    if (panel) panel.classList.toggle('active', tab === t);
+  });
+  // Load tab content on first visit.
+  if (t === 'vendors' && !window._vendorsLoaded) {
+    window._vendorsLoaded = true;
+    if (typeof loadPartners === 'function') loadPartners();
+  }
+  if (t === 'aging' && !window._agingLoaded) {
+    window._agingLoaded = true;
+    var f = document.getElementById('aging-frame');
+    if (f) f.src = '/api/' + COMPANY + '/report?type=ap-aging';
+  }
+  if (t === 'control' && !window._controlLoaded) {
+    window._controlLoaded = true;
+    var cf = document.getElementById('control-frame');
+    if (cf) cf.src = '/api/' + COMPANY + '/report?type=ap-control';
+  }
+  // Persist last-active tab (session-scoped, §2.4).
+  try { sessionStorage.setItem('fb.tab.payables', t); } catch(e) {}
+}
+
+// Restore last-active tab on load (or ?tab= param, which takes precedence).
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var tab = params.get('tab') || '';
+  if (!tab) {
+    try { tab = sessionStorage.getItem('fb.tab.payables') || ''; } catch(e) {}
+  }
+  if (tab && PAYABLES_TABS.indexOf(tab) >= 0 && tab !== 'bills') {
+    showTab(tab);
+  }
+})();
+
 </script>
 ${layoutEnd()}
 </body>
 </html>`;
 }
 
-module.exports = { handleBillsPage, handlePayablesPage: handleBillsPage };
+module.exports = { handlePayablesPage, handleBillsPage: handlePayablesPage };

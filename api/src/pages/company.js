@@ -1,6 +1,6 @@
 'use strict';
 const { makeQuery, commonStyle, navBar, layoutEnd } = require('./common');
-const { reportsByCategory } = require('../report-registry');
+const { reportsByPage } = require('../report-registry');
 
 // Simple TTL cache for dashboard card data (per company, 30s TTL)
 const _dashCache = new Map(); // key: company_id, value: { data, expiresAt }
@@ -89,13 +89,20 @@ async function handleCompanyPage(req, res) {
 function buildCompanyPage(co, stats = {}) {
   const fmt = n => `${n < 0 ? '-' : ''}${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const reportGroups = reportsByCategory().map(g => `
-    <div class="dash-rpt-group">
-      <span class="dash-rpt-cat">${g.label}</span>
+  const reportGroups = reportsByPage('statements').length > 0
+    ? `<div class="dash-rpt-group">
+      <span class="dash-rpt-cat">Statements</span>
       <span class="dash-rpt-links">
-        ${g.reports.map(r => `<a class="dash-rpt-link" href="/${co.company_id}/reports?t=${r.id}">${r.label.replace(/&/g, '&amp;')}</a>`).join('\n        ')}
+        ${reportsByPage('statements').map(r => `<a class="dash-rpt-link" href="/${co.company_id}/statements?t=${r.id}">${r.label.replace(/&/g, '&amp;')}</a>`).join('\n        ')}
       </span>
-    </div>`).join('');
+    </div>
+    <div class="dash-rpt-group">
+      <span class="dash-rpt-cat">Books</span>
+      <span class="dash-rpt-links">
+        ${reportsByPage('books').map(r => `<a class="dash-rpt-link" href="/${co.company_id}/books?t=${r.id}">${r.label.replace(/&/g, '&amp;')}</a>`).join('\n        ')}
+      </span>
+    </div>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -147,7 +154,7 @@ ${commonStyle()}
       <span class="card-label">Bank Balance</span>
       <span class="card-value">${fmt(stats.bankBalance)}</span>
     </a>
-    <a class="dash-card" href="/${co.company_id}/reports?t=pl">
+    <a class="dash-card" href="/${co.company_id}/statements?t=pl">
       <span class="card-icon">📈</span>
       <span class="card-label">P&amp;L</span>
       <span class="card-value" style="color:${stats.netIncome >= 0 ? '#2a8a2a' : '#cc2222'}">${fmt(stats.netIncome)}</span>

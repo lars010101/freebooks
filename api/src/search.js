@@ -45,7 +45,7 @@ async function _searchPartners(company, q) {
       type: 'partner',
       id: r.partner_id,
       label: r.name,
-      route: '/master-data?tab=partners'
+      route: '/payables?tab=vendors'
     };
   });
 }
@@ -78,7 +78,7 @@ async function _searchAccounts(company, q) {
       type: 'account',
       id: r.account_code,
       label: r.account_code + ' ' + r.account_name,
-      route: '/master-data?tab=coa'
+      route: '/accounting?tab=coa'
     };
   });
 }

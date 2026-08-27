@@ -1,66 +1,77 @@
 'use strict';
 const { navBar, layoutEnd, commonStyle } = require('./common');
-const { REPORT_REGISTRY, reportsByCategory } = require('../report-registry');
+const { REPORT_REGISTRY, reportsByPage } = require('../report-registry');
 const { queryPositional } = require('../db');
 const { packIntegration } = require('../jurisdiction-packs');
 
-async function handleReportsHubPage(req, res) {
+/**
+ * Shared page builder for the Statements and Books hubs.
+ *
+ * The two hubs are structurally identical — they differ only in which slice of
+ * the report registry they expose (page='statements' vs page='books'), the
+ * page title, the navbar active key, and whether the SIE export affordance
+ * is rendered (Books only — SIE is a Swedish statutory audit export).
+ *
+ * @param {object}   req
+ * @param {object}   res
+ * @param {object}   opts
+ * @param {string}   opts.pageKey    'statements' | 'books' — selects reportsByPage()
+ * @param {string}   opts.pageTitle  Human title, e.g. 'Statements'
+ * @param {string}   opts.activeKey  navBar active key, e.g. 'statements' | 'books'
+ */
+async function buildHubPage(req, res, opts) {
+  const { pageKey, pageTitle, activeKey } = opts;
   const company = req.params.company;
 
   // SIE is a Swedish statutory format — the export affordance only renders
-  // when the company's jurisdiction pack declares integrations.sie.export
+  // on the Books page (it's an audit export), and only when the company's
+  // jurisdiction pack declares integrations.sie.export
   // (the /report?type=sie endpoint enforces the same gate server-side).
-  let sieExportEnabled = false;
-  try {
-    const jurRows = await queryPositional(
-      `SELECT jurisdiction FROM companies WHERE company_id = ? ORDER BY created_at DESC LIMIT 1`, [company]);
-    const integ = jurRows.length ? packIntegration(jurRows[0].jurisdiction, 'sie') : null;
-    sieExportEnabled = !!(integ && integ.export);
-  } catch { sieExportEnabled = false; }
+  const sieExportEnabled = (pageKey === 'books') ? await isSieExportEnabled(company) : false;
 
   // Dropdown + client behavior driven by the report registry
   // (docs/reports-dashboard-spec.md §4) — add a report there, not here.
+  // The page IS the category now, so the dropdown is a flat list (no optgroups).
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const typeOptgroups = reportsByCategory().map(g =>
-    `<optgroup label="${esc(g.label)}">` +
-    g.reports.map(r => `<option value="${r.id}">${esc(r.label)}</option>`).join('') +
-    `</optgroup>`
+  const pageReports = reportsByPage(pageKey);
+  const typeOptions = pageReports.map(r =>
+    `<option value="${r.id}">${esc(r.label)}</option>`
   ).join('\n      ');
   const rptMeta = {};
-  for (const r of REPORT_REGISTRY) rptMeta[r.id] = { multiperiod: !!r.multiperiod, needsStart: !!r.needsStart };
+  for (const r of pageReports) rptMeta[r.id] = { multiperiod: !!r.multiperiod, needsStart: !!r.needsStart };
 
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Reports \u2014 freeBooks</title>
+<title>${esc(pageTitle)} \u2014 freeBooks</title>
 ${commonStyle()}
 </head>
-<body>${navBar(company, 'reports')}
+<body>${navBar(company, activeKey)}
 <div class="page" style="display:flex; flex-direction:column; height:100%; padding:0; overflow:hidden; max-width:none;">
   <div class="header" style="flex-shrink:0; padding:2.25rem 3rem 0;">
-    <h1>\u{1F4C8} Reports</h1>
+    <h1>\u{1F4C8} ${esc(pageTitle)}</h1>
   </div>
 
   <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:0.75rem 3rem; border-bottom:1px solid var(--border,#e8e8e8); flex-shrink:0;">
     <select id="rpt-type" class="tb-select" style="min-width:168px" onchange="fbOnTypeChange()">
-      <option value="" disabled selected>Select report…</option>
-      ${typeOptgroups}
+      <option value="" disabled selected>Select report\u2026</option>
+      ${typeOptions}
     </select>
     <div class="tb-divider"></div>
-    <select id="rpt-period" class="tb-select" style="min-width:110px" onchange="fbOnPeriodChange()" title="Period"><option value="">—</option></select>
+    <select id="rpt-period" class="tb-select" style="min-width:110px" onchange="fbOnPeriodChange()" title="Period"><option value="">\u2014</option></select>
     <input type="date" id="rpt-start" class="tb-date-input" onchange="fbLoadReport()" title="Start date">
-    <span style="color:var(--text-muted);padding:0 3px;font-size:0.875rem">–</span>
+    <span style="color:var(--text-muted);padding:0 3px;font-size:0.875rem">\u2013</span>
     <input type="date" id="rpt-end" class="tb-date-input" onchange="fbLoadReport()" title="End date">
     <button class="tb-toggle-btn" id="rpt-mom" onclick="fbToggleComparison('mom')" title="Month-over-month" style="margin-left:8px">MoM</button>
     <button class="tb-toggle-btn" id="rpt-yoy" onclick="fbToggleComparison('yoy')" title="Year-over-year">YoY</button>
     <div style="position:relative;margin-left:auto">
-      <button class="tb-icon-btn" id="rpt-dl-btn" onclick="fbToggleDownload(event)" title="Download report">⬇</button>
+      <button class="tb-icon-btn" id="rpt-dl-btn" onclick="fbToggleDownload(event)" title="Download report">\u2B07</button>
       <div id="rpt-dl-dd" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:300;min-width:140px;padding:4px 0">
-        <button onclick="fbExportPDF()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">🖳 Print / PDF</button>
-        <button onclick="fbExportCSV()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">⬇ CSV</button>
-        ${sieExportEnabled ? '<button onclick="fbExportSIE()" title="SIE 4 ledger export (Gredor/Bolagsverket)" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">⬇ SIE</button>' : ''}
+        <button onclick="fbExportPDF()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">\uD83D\uDDA8 Print / PDF</button>
+        <button onclick="fbExportCSV()" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">\u2B07 CSV</button>
+        ${sieExportEnabled ? '<button onclick="fbExportSIE()" title="SIE 4 ledger export (Gredor/Bolagsverket)" style="display:block;width:100%;padding:9px 16px;background:none;border:none;text-align:left;cursor:pointer;font-size:0.875rem;color:var(--text)">\u2B07 SIE</button>' : ''}
       </div>
     </div>
   </div>
@@ -287,7 +298,7 @@ ${layoutEnd()}
   /* ── Helpers ── */
   function fmtDate(d) {
     if (!d) return '';
-    if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+    if (typeof d === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(d)) return d;
     var dt = new Date(d);
     return isNaN(dt) ? String(d).slice(0, 10) : dt.toISOString().slice(0, 10);
   }
@@ -556,4 +567,29 @@ FB.dropdown.attachSelect(document.getElementById('rpt-period'));
   res.send(html);
 }
 
-module.exports = { handleReportsHubPage };
+/**
+ * Resolve whether the SIE export affordance should render for this company.
+ * SIE is a Swedish statutory audit format — the export only renders when the
+ * company's jurisdiction pack declares integrations.sie.export (the
+ * /report?type=sie endpoint enforces the same gate server-side).
+ */
+async function isSieExportEnabled(company) {
+  try {
+    const jurRows = await queryPositional(
+      `SELECT jurisdiction FROM companies WHERE company_id = ? ORDER BY created_at DESC LIMIT 1`, [company]);
+    const integ = jurRows.length ? packIntegration(jurRows[0].jurisdiction, 'sie') : null;
+    return !!(integ && integ.export);
+  } catch { return false; }
+}
+
+/** Statements hub — financial statement output (PL, BS, CF, SCE). */
+async function handleStatementsHubPage(req, res) {
+  return buildHubPage(req, res, { pageKey: 'statements', pageTitle: 'Statements', activeKey: 'statements' });
+}
+
+/** Books hub — ledger / audit tooling (voucher register, TB, GL, journal, integrity). */
+async function handleBooksHubPage(req, res) {
+  return buildHubPage(req, res, { pageKey: 'books', pageTitle: 'Books', activeKey: 'books' });
+}
+
+module.exports = { handleStatementsHubPage, handleBooksHubPage };

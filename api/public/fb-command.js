@@ -129,6 +129,18 @@
       grammar: '(switch to dark theme)',
       bang: false,
       parse: function () { return { clientFn: 'fbApplyTheme', clientArgs: ['dark'], commitMode: 'client' }; }
+    },
+    'vat-tolerance': {
+      action: 'posting_rules.attr.save',
+      grammar: '[<value>]',
+      bang: false,
+      parse: parseVatTolerance
+    },
+    'gst-tolerance': {
+      action: 'posting_rules.attr.save',
+      grammar: '[<value%>]',
+      bang: false,
+      parse: parseGstTolerance
     }
   };
 
@@ -349,6 +361,30 @@
     return { error: 'usage: :token create <name> | revoke <name>' };
   }
 
+  // ── :vat-tolerance / :gst-tolerance — set or echo VAT/GST tolerance (§7) ───
+  // Bare (no arg) → echo current value via a read action.
+  // With arg → write via posting_rules.attr.save.
+  function parseVatTolerance(tokens) {
+    if (!tokens.length) {
+      // Echo mode — read and display current value.
+      return { action: 'posting_rules.attr.list', params: {}, commitMode: 'client',
+        clientFn: 'fbEchoTolerance', clientArgs: ['vat_tolerance'] };
+    }
+    var val = parseFloat(tokens[0]);
+    if (isNaN(val)) return { error: 'invalid value: ' + tokens[0] + ' (expected a number)' };
+    return { action: 'posting_rules.attr.save', params: { key: 'vat_tolerance', value: String(val) }, commitMode: 'direct' };
+  }
+
+  function parseGstTolerance(tokens) {
+    if (!tokens.length) {
+      return { action: 'posting_rules.attr.list', params: {}, commitMode: 'client',
+        clientFn: 'fbEchoTolerance', clientArgs: ['vat_tolerance_pct'] };
+    }
+    var val = parseFloat(tokens[0]);
+    if (isNaN(val)) return { error: 'invalid value: ' + tokens[0] + ' (expected a percentage number)' };
+    return { action: 'posting_rules.attr.save', params: { key: 'vat_tolerance_pct', value: String(val) }, commitMode: 'direct' };
+  }
+
   // ── :report — pass type + period through to reports hub (show-command-spec §5) ─
   function parseReport(tokens, bang) {
     if (!tokens.length) return { error: 'usage: :report <type> [period]' };
@@ -357,7 +393,11 @@
     // Report ids are single tokens (hyphenated, no internal whitespace), so
     // "first token = type, rest = period" has no edge cases.
     var period = tokens.length > 1 ? tokens.slice(1).join(' ') : null;
-    var route = '/reports?t=' + encodeURIComponent(typeId);
+    // 2026-08-27 IA restructure 2: Reports split into Statements + Books.
+    // Route to the correct page based on the report type.
+    var statementsIds = ['pl','bs','cf','sce'];
+    var page = statementsIds.indexOf(typeId) >= 0 ? 'statements' : 'books';
+    var route = '/' + page + '?t=' + encodeURIComponent(typeId);
     if (period) route += '&period=' + encodeURIComponent(period);
     return { route: route, commitMode: 'form' };
   }
@@ -403,6 +443,24 @@
     }
     return { scope: null, query: q };
   }
+
+  // ── fbEchoTolerance — displays current VAT/GST tolerance value (§7) ──────
+  // Called when :vat-tolerance or :gst-tolerance is invoked bare (no arg).
+  // The action result from posting_rules.attr.list is passed in; this function
+  // extracts the relevant key and displays it via FB.status.
+  window.fbEchoTolerance = function(key, result) {
+    var rows = (result && result.data && result.data.rows) || (result && result.rows) || [];
+    var row = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].key === key) { row = rows[i]; break; }
+    }
+    if (!row) { if (window.FB && FB.status) FB.status.show(key + ' is not set', false); return; }
+    var label = key === 'vat_tolerance_pct' ? 'GST tolerance' : 'VAT tolerance';
+    var val = row.value;
+    if (key === 'vat_tolerance_pct') val = Number(val).toFixed(2) + '%';
+    else val = String(Number(val));
+    if (window.FB && FB.status) FB.status.show(label + ': ' + val, false);
+  };
 
   // ── Public API ──────────────────────────────────────────────────────────────
   window.FB = window.FB || {};

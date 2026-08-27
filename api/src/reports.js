@@ -138,7 +138,7 @@ async function handlePeriods(req, res) {
   const query = makeQuery();
   try {
     const rows = await query(
-      `SELECT period_name, start_date, end_date, locked
+      `SELECT period_name, period_name AS period_id, start_date, end_date, locked
        FROM periods WHERE company_id = ?
        ORDER BY start_date DESC`,
       [company]
@@ -224,7 +224,7 @@ function mountReportRoutes(app) {
       // Find the latest journal entry date, then the period containing it.
       const today = new Date().toISOString().slice(0, 10);
       const latest = await query(
-        `SELECT p.period_id, p.start_date, p.end_date
+        `SELECT p.period_name AS period_id, p.start_date, p.end_date
          FROM periods p
          WHERE p.company_id = ?
            AND p.start_date <= ?

@@ -64,17 +64,11 @@ ${commonStyle()}
     </table>
   </div>
 
-  <!-- TAX CODES TAB (merged: VAT/GST + WHT as two sub-grids) -->
+  <!-- TAX CODES TAB (merged: VAT/GST + WHT in one grid) -->
   <div id="tab-taxcodes" class="tab-panel">
-    <div class="subhead" id="tax-vat-head">VAT / GST Codes</div>
-    <table class="edit-table" id="vat-table">
-      <thead><tr><th>Code</th><th>Description</th><th>Rate %</th><th>Input Acct</th><th>Output Acct</th><th>Report Box</th><th style="text-align:center">Rev.Chg</th><th style="text-align:center">Active</th><th></th></tr></thead>
-      <tbody id="vat-body"></tbody>
-    </table>
-    <div class="subhead">WHT Codes</div>
-    <table class="edit-table" id="wht-table">
-      <thead><tr><th>Code</th><th>Description</th><th>Rate %</th><th>Payable Acct</th><th>Report Box</th><th style="text-align:center">Active</th><th></th></tr></thead>
-      <tbody id="wht-body"></tbody>
+    <table class="edit-table" id="taxcodes-table">
+      <thead><tr><th style="width:50px">Type</th><th style="width:60px">Code</th><th>Description</th><th style="width:55px">Rate %</th><th style="width:70px">In Acct</th><th style="width:70px">Out Acct / WHT</th><th style="width:50px;text-align:center">RC</th><th style="width:50px">Report Box</th><th style="width:50px;text-align:center">Active</th><th></th></tr></thead>
+      <tbody id="taxcodes-body"></tbody>
     </table>
   </div>
 
@@ -145,7 +139,7 @@ function showTab(t) {
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
     if (t === 'coa') loadCoa();
-    if (t === 'taxcodes') { loadVat(); loadWht(); }
+    if (t === 'taxcodes') loadTaxCodes();
     if (t === 'journals') loadJournals();
     if (t === 'centers') loadCenters();
   }
@@ -216,97 +210,126 @@ function renderCoaHints() {
   if (el) coaList.renderHints(el);
 }
 
-// ========== VAT/GST CODES — FB.list ==========
-var vatList = FB.list.create({
-  keysId: 'md-vat',
+// ========== TAX CODES — merged VAT/GST + WHT in one FB.list =========
+// One grid, one tbody. Rows carry a 'type' field ('vat' or 'wht') that drives:
+// - which account columns are editable (In Acct + RC read-only for WHT,
+//   Out Acct / WHT read-only for VAT)
+// - which backend action save/del routes to (vat.codes.* vs wht.codes.*)
+// The 'code' field maps to vat_code or wht_code on the backend.
+var TAX_TYPES = ['VAT', 'WHT'];
+var _taxCfg = {
+  keysId: 'acct-taxcodes',
   active: function() { var p = document.getElementById('tab-taxcodes'); return !!(p && p.classList.contains('active')); },
-  tbody: 'vat-body',
+  tbody: 'taxcodes-body',
   companyId: function() { return COMPANY; },
   columns: [
-    { field: 'vat_code', type: 'text', width: 60, ro: 'saved' },
+    { field: 'type', type: 'select', width: 50, options: TAX_TYPES, filterType: 'list',
+      display: function(v, d) {
+        if (!d._dirty) return esc(v === 'wht' ? 'WHT' : (VAT_NAMES[_curJurisdiction] || 'VAT'));
+        return esc(v === 'wht' ? 'WHT' : 'VAT');
+      },
+      ro: 'saved'
+    },
+    { field: 'code', type: 'text', width: 60, ro: 'saved' },
     { field: 'description', type: 'text', width: 160 },
     { field: 'rate', type: 'number', step: '0.01', width: 55, filterType: 'amount' },
-    { field: 'input_account', type: 'text', width: 70 },
-    { field: 'output_account', type: 'text', width: 70 },
-    { field: 'report_box', type: 'text', width: 50 },
+    { field: 'in_acct', type: 'text', width: 70,
+      ro: function(d) { return d.type === 'wht'; },
+      display: function(v, d) { return d.type === 'wht' ? '' : esc(v || ''); } },
+    { field: 'out_wht_acct', type: 'text', width: 70,
+      ro: function(d) { return d.type !== 'wht'; },
+      display: function(v, d) { return d.type === 'wht' ? esc(v || '') : esc(v || ''); } },
     { field: 'is_reverse_charge', type: 'checkbox', align: 'center',
-      display: function(v) { return v ? 'Yes' : 'No'; } },
+      ro: function(d) { return d.type === 'wht'; },
+      display: function(v, d) { return d.type === 'wht' ? '\u2014' : (v ? 'Yes' : 'No'); } },
+    { field: 'report_box', type: 'text', width: 50 },
     { field: 'is_active', type: 'checkbox', align: 'center',
       display: function(v) { return v ? 'Yes' : 'No'; } }
   ],
-  blank: function() { return { vat_code: '', description: '', rate: 0, input_account: '', output_account: '', report_box: '', is_reverse_charge: false, is_active: true }; },
-  isBlank: function(b) { return !b.vat_code && !b.description && !b.input_account && !b.output_account; },
+  blank: function() { return { type: 'vat', code: '', description: '', rate: 0, in_acct: '', out_wht_acct: '', is_reverse_charge: false, report_box: '', is_active: true }; },
+  isBlank: function(b) { return !b.code && !b.description; },
   same: function(b, s) {
-    return b.description === (s.description || '') && b.rate === (s.rate || 0)
-      && b.input_account === (s.input_account || '') && b.output_account === (s.output_account || '')
+    return b.type === s.type && b.description === (s.description || '') && b.rate === (s.rate || 0)
+      && b.in_acct === (s.in_acct || '') && b.out_wht_acct === (s.out_wht_acct || '')
       && b.report_box === (s.report_box || '') && b.is_reverse_charge === !!s.is_reverse_charge && b.is_active === !!s.is_active;
   },
-  validate: function(d) { return d.vat_code ? null : 'VAT code required'; },
-  firstField: function(isNew) { return isNew ? 'vat_code' : 'description'; },
+  validate: function(d) { return d.code ? null : 'Code required'; },
+  firstField: function(isNew) { return isNew ? 'code' : 'description'; },
   track: 'tax-code',
-  list: { url: function() { return '/api/' + COMPANY + '/vat-codes'; },
-    map: function(v) { return { vat_code: v.vat_code, description: v.description || '', rate: v.rate || 0, input_account: v.input_account || v.vat_account_input || '', output_account: v.output_account || v.vat_account_output || '', report_box: v.report_box || '', is_reverse_charge: !!v.is_reverse_charge, is_active: !!v.is_active, _key: v.vat_code }; } },
+  // Load from BOTH endpoints, merge into one row set (list.fetch is supported
+  // by FB.list for multi-source registers).
+  list: { fetch: function() { return _loadTaxCodes(); },
+    map: function(r) { return r; } },
+  // Save/del: FB.list calls post(cfg.save.action, cfg.save.body(d)) — the action
+  // string is read from the config object at call time. We mutate _taxCfg.save.action
+  // / _taxCfg.del.action per-row in onSaveStart / confirm() to route correctly.
   save: { action: 'vat.codes.upsert',
-    body: function(d) { return { vatCode: { vat_code: d._isNew ? d.vat_code : d._key, description: d.description || null, rate: d.rate || 0, input_account: d.input_account || null, output_account: d.output_account || null, report_box: d.report_box || null, is_reverse_charge: !!d.is_reverse_charge, is_active: !!d.is_active } }; },
-    focusKey: function(d) { return d._isNew ? d.vat_code : d._key; } },
+    body: function(d) {
+      if (d.type === 'wht') {
+        return { whtCode: { wht_code: d._isNew ? d.code : d._key.replace(/^wht:/, ''), description: d.description || null, rate: d.rate || 0, wht_account: d.out_wht_acct || null, report_box: d.report_box || null, is_active: !!d.is_active } };
+      }
+      return { vatCode: { vat_code: d._isNew ? d.code : d._key.replace(/^vat:/, ''), description: d.description || null, rate: d.rate || 0, input_account: d.in_acct || null, output_account: d.out_wht_acct || null, report_box: d.report_box || null, is_reverse_charge: !!d.is_reverse_charge, is_active: !!d.is_active } };
+    },
+    focusKey: function(d) { return d._key; },
+    onSaveStart: function(d) {
+      _taxCfg.save.action = d.type === 'wht' ? 'wht.codes.upsert' : 'vat.codes.upsert';
+    } },
   del: { action: 'vat.codes.delete',
-    body: function(d) { return { vatCode: d._key }; },
-    confirm: function(d) { return 'Delete VAT code "' + d.vat_code + '"?'; } },
+    body: function(d) {
+      if (d.type === 'wht') return { whtCode: d._key.replace(/^wht:/, '') };
+      return { vatCode: d._key.replace(/^vat:/, '') };
+    },
+    confirm: function(d) {
+      _taxCfg.del.action = d.type === 'wht' ? 'wht.codes.delete' : 'vat.codes.delete';
+      return 'Delete tax code "' + d.code + '"?';
+    },
+    deleted: 'Deleted' },
   onChrome: function(dirty) {
     var dot = document.getElementById('tab-dot-taxcodes');
     if (dot) dot.style.display = dirty ? '' : 'none';
     if (dirty) markDirty('taxcodes'); else resetDirty('taxcodes');
   }
-});
+};
+var taxCodesList = FB.list.create(_taxCfg);
 
-function loadVat(focusKey) { vatList.load(focusKey); }
+var _curJurisdiction = 'SE';
 
-// ========== WHT CODES — FB.list ==========
-var whtList = FB.list.create({
-  keysId: 'md-wht',
-  active: function() { var p = document.getElementById('tab-taxcodes'); return !!(p && p.classList.contains('active')); },
-  tbody: 'wht-body',
-  companyId: function() { return COMPANY; },
-  columns: [
-    { field: 'wht_code', type: 'text', width: 60, ro: 'saved' },
-    { field: 'description', type: 'text', width: 160 },
-    { field: 'rate', type: 'number', step: '0.01', width: 55, filterType: 'amount' },
-    { field: 'wht_account', type: 'text', width: 70 },
-    { field: 'report_box', type: 'text', width: 50 },
-    { field: 'is_active', type: 'checkbox', align: 'center',
-      display: function(v) { return v ? 'Yes' : 'No'; } }
-  ],
-  blank: function() { return { wht_code: '', description: '', rate: 0, wht_account: '', report_box: '', is_active: true }; },
-  isBlank: function(b) { return !b.wht_code && !b.description && !b.wht_account; },
-  same: function(b, s) {
-    return b.description === (s.description || '') && b.rate === (s.rate || 0)
-      && b.wht_account === (s.wht_account || '') && b.report_box === (s.report_box || '') && b.is_active === !!s.is_active;
-  },
-  validate: function(d) { return d.wht_code ? null : 'WHT code required'; },
-  firstField: function(isNew) { return isNew ? 'wht_code' : 'description'; },
-  track: 'tax-code',
-  list: { url: function() { return '/api/' + COMPANY + '/wht-codes'; },
-    map: function(w) { return { wht_code: w.wht_code, description: w.description || '', rate: w.rate || 0, wht_account: w.wht_account || '', report_box: w.report_box || '', is_active: !!w.is_active, _key: w.wht_code }; } },
-  save: { action: 'wht.codes.upsert',
-    body: function(d) { return { whtCode: { wht_code: d._isNew ? d.wht_code : d._key, description: d.description || null, rate: d.rate || 0, wht_account: d.wht_account || null, report_box: d.report_box || null, is_active: !!d.is_active } }; },
-    focusKey: function(d) { return d._isNew ? d.wht_code : d._key; } },
-  del: { action: 'wht.codes.delete',
-    body: function(d) { return { whtCode: d._key }; },
-    confirm: function(d) { return 'Delete WHT code "' + d.wht_code + '"?'; } },
-  onChrome: function(dirty) {
-    var dot = document.getElementById('tab-dot-taxcodes');
-    if (dot) dot.style.display = dirty ? '' : 'none';
-    if (dirty) markDirty('taxcodes'); else resetDirty('taxcodes');
-  }
-});
+function _loadTaxCodes() {
+  return Promise.all([
+    fetch('/api/' + COMPANY + '/vat-codes').then(function(r) { return r.json(); }),
+    fetch('/api/' + COMPANY + '/wht-codes').then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    var vatRows = Array.isArray(results[0]) ? results[0] : (results[0].rows || []);
+    var whtRows = Array.isArray(results[1]) ? results[1] : (results[1].rows || []);
+    var merged = [];
+    for (var i = 0; i < vatRows.length; i++) {
+      var v = vatRows[i];
+      merged.push({
+        type: 'vat', code: v.vat_code, description: v.description || '', rate: v.rate || 0,
+        in_acct: v.vat_account_input || v.input_account || '', out_wht_acct: v.vat_account_output || v.output_account || '',
+        is_reverse_charge: !!v.is_reverse_charge, report_box: v.report_box || '', is_active: !!v.is_active,
+        _key: 'vat:' + v.vat_code
+      });
+    }
+    for (var j = 0; j < whtRows.length; j++) {
+      var w = whtRows[j];
+      merged.push({
+        type: 'wht', code: w.wht_code, description: w.description || '', rate: w.rate || 0,
+        in_acct: '', out_wht_acct: w.wht_account || '',
+        is_reverse_charge: false, report_box: w.report_box || '', is_active: !!w.is_active,
+        _key: 'wht:' + w.wht_code
+      });
+    }
+    return merged;
+  });
+}
 
-function loadWht(focusKey) { whtList.load(focusKey); }
+function loadTaxCodes(focusKey) { taxCodesList.load(focusKey); }
 
 function renderTaxHints() {
   var el = document.getElementById('sb-hints');
   if (el) {
-    // Show VAT hints by default; both lists share the tax-code track.
-    vatList.renderHints(el);
+    taxCodesList.renderHints(el);
   }
 }
 
@@ -457,11 +480,10 @@ function loadCompanyJurisdiction() {
       var byKey = {};
       rows.forEach(function(r) { byKey[r.key] = r; });
       if (byKey.jurisdiction && byKey.jurisdiction.value) {
+        _curJurisdiction = byKey.jurisdiction.value;
         var vn = VAT_NAMES[byKey.jurisdiction.value] || 'Tax';
-        var head = document.getElementById('tax-vat-head');
-        if (head) head.textContent = vn + ' Codes';
         var lbl = document.getElementById('tab-taxcodes-label');
-        if (lbl) lbl.innerHTML = vn + '/WHT Codes<span id="tab-dot-taxcodes" style="display:none;color:#d97706"> ●</span>';
+        if (lbl) lbl.innerHTML = 'Tax Codes<span id="tab-dot-taxcodes" style="display:none;color:#d97706"> \u25cf</span>';
       }
     })
     .catch(function(){});

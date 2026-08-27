@@ -451,22 +451,38 @@ function showTab(t) {
     window._vendorsLoaded = true;
     if (typeof loadPartners === 'function') loadPartners();
   }
-  if (t === 'aging' && !window._agingLoaded) {
-    window._agingLoaded = true;
-    var f = document.getElementById('aging-frame');
-    if (f) f.src = '/api/' + COMPANY + '/report?type=ap-aging';
-  }
-  if (t === 'control' && !window._controlLoaded) {
-    window._controlLoaded = true;
-    var cf = document.getElementById('control-frame');
-    if (cf) cf.src = '/api/' + COMPANY + '/report?type=ap-control';
-  }
+  if (t === 'aging') loadReportFrame('aging-frame', 'ap-aging');
+  if (t === 'control') loadReportFrame('control-frame', 'ap-control');
   // Persist last-active tab (session-scoped, §2.4).
   // Per-tab relevance override (global-period-selector-chrome-spec §4.2):
   // bills→range, vendors→none, aging→asOf, control→asOf.
   var TAB_RELEVANCE = { bills: 'range', vendors: 'none', aging: 'asOf', control: 'asOf' };
   if (window.FB && FB.period) FB.period.setRelevance(TAB_RELEVANCE[t] || 'none');
   try { sessionStorage.setItem('fb.tab.payables', t); } catch(e) {}
+}
+
+// Load (or reload) a report iframe for the Aging/Control tabs. Reads the
+// as-of date from FB.period.get().end — the server requires ?end= for all
+// report types including as-of reports (ap-aging, ap-control). If no
+// period is resolved yet (fresh company, no transactions), the iframe is
+// left at about:blank rather than firing a 400.
+function loadReportFrame(frameId, reportType) {
+  var f = document.getElementById(frameId);
+  if (!f) return;
+  var st = window.FB && FB.period ? FB.period.get() : { end: '' };
+  var end = st.end || '';
+  if (!end) { f.src = 'about:blank'; return; }
+  f.src = '/api/' + COMPANY + '/report?type=' + reportType + '&end=' + encodeURIComponent(end);
+}
+
+// Reload the visible report tab when the global period changes.
+if (window.FB && FB.period) {
+  FB.period.onChange(function () {
+    var active = document.querySelector('.tab-panel.active');
+    if (!active) return;
+    if (active.id === 'tab-aging') loadReportFrame('aging-frame', 'ap-aging');
+    if (active.id === 'tab-control') loadReportFrame('control-frame', 'ap-control');
+  });
 }
 
 // Restore last-active tab on load (or ?tab= param, which takes precedence).

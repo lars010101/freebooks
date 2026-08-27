@@ -42,8 +42,6 @@ ${commonStyle()}
     <label>Account <select id="rec-account" style="width:220px;height:32px;padding:4px 6px">
       ${acctOptions || '<option>No cash accounts found</option>'}
     </select></label>
-    <label>From <input type="date" id="rec-from"></label>
-    <label>To <input type="date" id="rec-to"></label>
     <button class="btn-primary" onclick="loadReconcile()">Load</button>
   </div>
 
@@ -66,18 +64,17 @@ ${commonStyle()}
   var COMPANY = '${company}';
   var recRows = [];
 
-  // Set default date range: current month
-  var now = new Date();
-  document.getElementById('rec-from').value = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
-  document.getElementById('rec-to').value = now.toISOString().slice(0,10);
+  // Date range comes from the global Period Selector (FB.period) — no local
+  // date inputs (retired per global-period-selector-chrome-spec §5).
   document.getElementById('stmt-balance').addEventListener('input', updateSummary);
 
   var openingBalance = 0;
 
   function loadReconcile() {
     var accountCode = document.getElementById('rec-account').value;
-    var dateFrom = document.getElementById('rec-from').value;
-    var dateTo = document.getElementById('rec-to').value;
+    var st = FB.period.get();
+    var dateFrom = st.start;
+    var dateTo = st.end;
     if (!accountCode) return;
     document.getElementById('rec-status').textContent = 'Loading…';
     fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -154,7 +151,10 @@ ${commonStyle()}
   }
 
   function fmt(n) { return parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-<\/script>
+
+    // Reload reconcile when the global period changes (global-period-selector-chrome-spec §5).
+    FB.period.onChange(loadReconcile);
+  <\\/script>
 </body>
 </html>`;
 }

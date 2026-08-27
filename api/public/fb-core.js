@@ -2572,6 +2572,425 @@
   // registrations are covered.
   _baselineOrder = _order.slice();
 
+  // ── Global Period Selector (global-period-selector-chrome-spec §3) ─────────
+  // One shared Period-or-Custom control in the top bar. Dimmed (not hidden,
+  // not disabled) on pages where the date dimension doesn't apply
+  // (dateRelevance='none'). _resolve is the pure resolution engine hoisted from
+  // reports-hub.js — no DOM reads/writes, no localStorage; returns a data
+  // object the caller applies via set(). localStorage is NEVER used for initial
+  // auto-selection (hard-won lesson from reports-hub.js v7 — stale 2025
+  // periods). It is written only on manual pick / Custom date commit, and read
+  // for in-session continuity (a manual pick on one page carries to the next
+  // date-relevant page in the same session), validated against the current
+  // periods list so a deleted period cannot resurface.
+  var _pState = { mode: 'period', periodId: null, start: '', end: '' };
+  var _pRelevance = 'range';        // 'range' | 'asOf' | 'none'
+  var _pListeners = [];
+  var _pPeriods = [];               // fetched defined periods (desc by start_date)
+  var _pPopoverOpen = false;
+
+  function _pTrigger() { return document.getElementById('tb-period-trigger'); }
+  function _pPopover() { return document.getElementById('tb-period-popover'); }
+
+  function _pLabel() {
+    if (!_pState.start && !_pState.end) return 'Period';
+    if (_pState.mode === 'period') {
+      for (var i = 0; i < _pPeriods.length; i++) {
+        if (_pPeriods[i].period_id === _pState.periodId) {
+          return _pPeriods[i].period_name || (_pState.start + ' \u2013 ' + _pState.end);
+        }
+      }
+    }
+    if (_pState.start && _pState.end) return _pState.start + ' \u2013 ' + _pState.end;
+    if (_pState.end) return 'as of ' + _pState.end;
+    return 'Period';
+  }
+
+  function _pRenderTrigger() {
+    var el = _pTrigger();
+    if (el) el.textContent = _pLabel();
+  }
+
+  function _pPersist() {
+    try {
+      localStorage.setItem('fb-period-mode', _pState.mode);
+      localStorage.setItem('fb-period-id', _pState.periodId || '');
+      localStorage.setItem('fb-period-start', _pState.start || '');
+      localStorage.setItem('fb-period-end', _pState.end || '');
+    } catch (e) { /* private mode */ }
+  }
+
+  function _pReadLs(periods) {
+    // Read localStorage for in-session continuity. Validated: period mode
+    // requires the periodId to still exist in the current periods list (a
+    // deleted/stale period is discarded — prevents the stale-2025 bug).
+    // Returns a state object or null (nothing stored / stale).
+    try {
+      var mode = localStorage.getItem('fb-period-mode') || '';
+      var pid = localStorage.getItem('fb-period-id') || '';
+      var s = localStorage.getItem('fb-period-start') || '';
+      var e = localStorage.getItem('fb-period-end') || '';
+      if (!s && !e) return null;
+      if (mode === 'period' && pid) {
+        for (var i = 0; i < periods.length; i++) {
+          if (periods[i].period_id === pid) {
+            return { mode: 'period', periodId: pid, start: s, end: e };
+          }
+        }
+        return null; // period no longer exists — stale, discard
+      }
+      if (s && e) return { mode: 'custom', periodId: null, start: s, end: e };
+      if (e) return { mode: 'custom', periodId: null, start: '', end: e };
+      return null;
+    } catch (e) { return null; }
+  }
+
+  function _pFire() {
+    for (var i = 0; i < _pListeners.length; i++) {
+      try { _pListeners[i](_pState); } catch (e) { /* listener must not break */ }
+    }
+    try { document.dispatchEvent(new CustomEvent('fb:period-change', { detail: _pState })); }
+    catch (e) { /* CustomEvent may be unavailable in old engines */ }
+  }
+
+  function _pApplyDim() {
+    var el = _pTrigger();
+    if (el) el.classList.toggle('tb-period-dimmed', _pRelevance === 'none');
+  }
+
+  function _pBuildPopover() {
+    var pop = _pPopover();
+    if (!pop) return;
+    var opts = '<option value="custom">Custom</option>';
+    for (var i = 0; i < _pPeriods.length; i++) {
+      var p = _pPeriods[i];
+      var s = String(p.start_date).slice(0, 10), e = String(p.end_date).slice(0, 10);
+      var val = s + '|' + e;
+      var pid = p.period_id || val;
+      opts += '<option value="' + esc(val) + '" data-pid="' + esc(String(pid)) + '">' + esc(p.period_name || s) + '</option>';
+    }
+    var html = '<select id="tb-period-select" class="tb-select" onchange="FB.period._onPick()">' + opts + '</select>';
+    // Custom dates: range → Start + End; asOf → End only (Start never rendered)
+    if (_pRelevance !== 'asOf') {
+      html += '<div class="tb-period-custom">'
+        + '<label>Start</label> <input type="date" id="tb-period-start" onchange="FB.period._onCustomDate()">'
+        + '<span class="tb-period-dash">\u2013</span>'
+        + '<label>End</label> <input type="date" id="tb-period-end" onchange="FB.period._onCustomDate()">'
+        + '</div>';
+    } else {
+      html += '<div class="tb-period-custom">'
+        + '<label>As of</label> <input type="date" id="tb-period-end" onchange="FB.period._onCustomDate()">'
+        + '</div>';
+    }
+    pop.innerHTML = html;
+    _pSyncPopover();
+  }
+
+  function _pSyncPopover() {
+    var sel = document.getElementById('tb-period-select');
+    if (!sel) return;
+    if (_pState.mode === 'custom') {
+      sel.value = 'custom';
+    } else {
+      var val = _pState.start + '|' + _pState.end;
+      sel.value = val;
+      if (sel.value !== val) sel.value = 'custom';
+    }
+    var se = document.getElementById('tb-period-start');
+    var ee = document.getElementById('tb-period-end');
+    if (se) se.value = _pState.start || '';
+    if (ee) ee.value = _pState.end || '';
+  }
+
+  function _pClosePopover() {
+    _pPopoverOpen = false;
+    var pop = _pPopover();
+    if (pop) { pop.hidden = true; pop.style.display = 'none'; }
+  }
+
+  var period = {
+    // → { mode, periodId, start, end } — current resolved state
+    get: function () {
+      return { mode: _pState.mode, periodId: _pState.periodId, start: _pState.start, end: _pState.end };
+    },
+    // Programmatic set (drill-through, URL restoration). Does NOT persist to
+    // localStorage — only manual picks persist (§3.3).
+    set: function (state) {
+      if (!state) return;
+      _pState = {
+        mode: state.mode === 'custom' ? 'custom' : 'period',
+        periodId: state.periodId || null,
+        start: state.start || '',
+        end: state.end || ''
+      };
+      _pRenderTrigger();
+      _pFire();
+    },
+    // 'range' | 'asOf' | 'none' — per-tab/per-report override (§4.2).
+    // 'none' → dimmed (opacity, NOT pointer-events:none, NOT disabled).
+    setRelevance: function (level) {
+      _pRelevance = level === 'asOf' ? 'asOf' : (level === 'none' ? 'none' : 'range');
+      _pApplyDim();
+      if (_pPopoverOpen) _pBuildPopover();
+    },
+    getRelevance: function () { return _pRelevance; },
+    // Subscribe to period changes. Also fires as 'fb:period-change' on document.
+    onChange: function (cb) { _pListeners.push(cb); },
+    // Open/close the period selector popover (trigger onclick).
+    togglePopover: function (event) {
+      if (event) event.stopPropagation();
+      var pop = _pPopover();
+      if (!pop) return;
+      if (_pPopoverOpen) { _pClosePopover(); return; }
+      _pBuildPopover();
+      pop.hidden = false;
+      pop.style.display = '';
+      _pPopoverOpen = true;
+    },
+    // Period-dropdown pick — closes popover immediately, fires change (§3.2).
+    _onPick: function () {
+      var sel = document.getElementById('tb-period-select');
+      if (!sel) return;
+      var val = sel.value;
+      if (val === 'custom') {
+        // Switch to custom mode — keep existing dates, popover stays open.
+        _pState.mode = 'custom';
+        _pState.periodId = null;
+        _pPersist();
+        _pRenderTrigger();
+        _pFire();
+        return;
+      }
+      var pts = val.split('|');
+      var s = pts[0], e = pts[1];
+      var pid = null;
+      var opt = sel.options[sel.selectedIndex];
+      if (opt) pid = opt.getAttribute('data-pid') || null;
+      _pState = { mode: 'period', periodId: pid, start: s, end: e };
+      _pPersist();
+      _pRenderTrigger();
+      _pFire();
+      _pClosePopover();
+    },
+    // Custom Start/End commit on change (blur or Enter). Popover stays open (§3.2).
+    _onCustomDate: function () {
+      var se = document.getElementById('tb-period-start');
+      var ee = document.getElementById('tb-period-end');
+      var s = se ? se.value : '';
+      var e = ee ? ee.value : '';
+      _pState = { mode: 'custom', periodId: null, start: s, end: e };
+      _pPersist();
+      _pRenderTrigger();
+      _pFire();
+    },
+    // PURE resolution engine (§3.5). No DOM, no localStorage. Returns a state
+    // object if URL params matched, or null if no URL params to resolve from.
+    // Caller (init) then handles localStorage → default-period → periods[0].
+    _resolve: function (urlParams, periods) {
+      function fmtD(d) {
+        if (!d) return '';
+        var str = String(d);
+        if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+        var dt = new Date(d);
+        return isNaN(dt) ? str.slice(0, 10) : dt.toISOString().slice(0, 10);
+      }
+      var periodParam = urlParams.get('period') || '';
+      var startParam = urlParams.get('start') || '';
+      var endParam = urlParams.get('end') || '';
+      var dateFromParam = urlParams.get('dateFrom') || '';
+      var dateToParam = urlParams.get('dateTo') || '';
+
+      // 1. ?period= matching (exact name, substring, q1-q4, h1/h2, ytd)
+      if (periodParam && periods.length) {
+        var tok = periodParam.trim().toLowerCase();
+        for (var i = 0; i < periods.length; i++) {
+          if ((periods[i].period_name || '').toLowerCase() === tok) {
+            return { mode: 'period', periodId: periods[i].period_id, start: fmtD(periods[i].start_date), end: fmtD(periods[i].end_date) };
+          }
+        }
+        for (var i2 = 0; i2 < periods.length; i2++) {
+          if ((periods[i2].period_name || '').toLowerCase().indexOf(tok) !== -1) {
+            return { mode: 'period', periodId: periods[i2].period_id, start: fmtD(periods[i2].start_date), end: fmtD(periods[i2].end_date) };
+          }
+        }
+        if (/^q[1-4]$/.test(tok)) {
+          for (var i3 = 0; i3 < periods.length; i3++) {
+            var pn = (periods[i3].period_name || '').toLowerCase();
+            if (pn.indexOf(tok) !== -1) {
+              return { mode: 'period', periodId: periods[i3].period_id, start: fmtD(periods[i3].start_date), end: fmtD(periods[i3].end_date) };
+            }
+          }
+          var qn = parseInt(tok.slice(1), 10);
+          var qStart = [0, 3, 6, 9][qn - 1];
+          var qEnd = qStart + 2;
+          var year = String(periods[0].start_date).slice(0, 4);
+          for (var i4 = 0; i4 < periods.length; i4++) {
+            var ps4 = String(periods[i4].start_date).slice(0, 10);
+            var pe4 = String(periods[i4].end_date).slice(0, 10);
+            var psm4 = parseInt(ps4.slice(5, 7), 10);
+            var pem4 = parseInt(pe4.slice(5, 7), 10);
+            if (ps4.slice(0, 4) === year && psm4 >= qStart + 1 && pem4 <= qEnd + 1) {
+              return { mode: 'period', periodId: periods[i4].period_id, start: fmtD(ps4), end: fmtD(pe4) };
+            }
+          }
+        }
+        if (/^h[12]$/.test(tok)) {
+          var half = parseInt(tok.slice(1), 10);
+          var yearH = String(periods[0].start_date).slice(0, 4);
+          for (var i5 = 0; i5 < periods.length; i5++) {
+            var hs5 = String(periods[i5].start_date).slice(0, 10);
+            var he5 = String(periods[i5].end_date).slice(0, 10);
+            var hsm5 = parseInt(hs5.slice(5, 7), 10);
+            var hem5 = parseInt(he5.slice(5, 7), 10);
+            if (hs5.slice(0, 4) === yearH && half === 1 && hsm5 >= 1 && hem5 <= 6) {
+              return { mode: 'period', periodId: periods[i5].period_id, start: fmtD(hs5), end: fmtD(he5) };
+            }
+            if (hs5.slice(0, 4) === yearH && half === 2 && hsm5 >= 7 && hem5 <= 12) {
+              return { mode: 'period', periodId: periods[i5].period_id, start: fmtD(hs5), end: fmtD(he5) };
+            }
+          }
+        }
+        if (tok === 'ytd') {
+          var earliest = periods[0], latest = periods[0];
+          for (var i6 = 0; i6 < periods.length; i6++) {
+            if (String(periods[i6].start_date) < String(earliest.start_date)) earliest = periods[i6];
+            if (String(periods[i6].end_date) > String(latest.end_date)) latest = periods[i6];
+          }
+          return { mode: 'custom', periodId: null, start: fmtD(earliest.start_date), end: fmtD(latest.end_date) };
+        }
+      }
+
+      // 2. ?start=/?end= drill-through restoration (with period-matching fallback)
+      if (startParam && endParam) {
+        for (var i7 = 0; i7 < periods.length; i7++) {
+          var ss7 = fmtD(periods[i7].start_date), se7 = fmtD(periods[i7].end_date);
+          if (ss7 === startParam && se7 === endParam) {
+            return { mode: 'period', periodId: periods[i7].period_id, start: ss7, end: se7 };
+          }
+        }
+        return { mode: 'custom', periodId: null, start: startParam, end: endParam };
+      }
+      if (endParam) {  // end-only (asOf reports)
+        return { mode: 'custom', periodId: null, start: '', end: endParam };
+      }
+
+      // 3. ?dateFrom=/?dateTo= (bills/exchange-rates return-context seam)
+      if (dateFromParam && dateToParam) {
+        for (var i8 = 0; i8 < periods.length; i8++) {
+          var ds8 = fmtD(periods[i8].start_date), de8 = fmtD(periods[i8].end_date);
+          if (ds8 === dateFromParam && de8 === dateToParam) {
+            return { mode: 'period', periodId: periods[i8].period_id, start: ds8, end: de8 };
+          }
+        }
+        return { mode: 'custom', periodId: null, start: dateFromParam, end: dateToParam };
+      }
+
+      return null; // no URL params to resolve from
+    },
+    // Auto-init: fetch periods, resolve (URL → localStorage → default-period →
+    // periods[0]), set, apply page-level relevance from the route registry.
+    _init: function (company, activeKey) {
+      var urlParams = new URLSearchParams(window.location.search);
+
+      // Apply page-level dateRelevance from the route registry (§3.6).
+      if (window.FB_ROUTES) {
+        for (var i = 0; i < window.FB_ROUTES.length; i++) {
+          if (window.FB_ROUTES[i].key === activeKey) {
+            if (window.FB_ROUTES[i].dateRelevance) period.setRelevance(window.FB_ROUTES[i].dateRelevance);
+            break;
+          }
+        }
+      }
+
+      fetch('/api/' + company + '/periods')
+        .then(function (r) { return r.json(); })
+        .then(function (raw) {
+          var periods = (Array.isArray(raw) ? raw : (raw.data || [])).slice().sort(function (a, b) {
+            return String(b.start_date) > String(a.start_date) ? 1 : -1;
+          });
+          _pPeriods = periods;
+
+          // Step 1: URL params (explicit navigation intent — always wins)
+          var resolved = period._resolve(urlParams, periods);
+          if (resolved) { period.set(resolved); return; }
+
+          // Step 2: localStorage (in-session continuity, validated against
+          // current periods list — stale periods are discarded)
+          var lsState = _pReadLs(periods);
+          if (lsState) { period.set(lsState); return; }
+
+          // Step 3: latest posted-transaction period
+          if (periods.length) {
+            fetch('/api/' + company + '/reports/default-period')
+              .then(function (r) { return r.json(); })
+              .then(function (res) {
+                if (res && res.period_id) {
+                  for (var pi = 0; pi < periods.length; pi++) {
+                    if (periods[pi].period_id === res.period_id) {
+                      period.set({ mode: 'period', periodId: periods[pi].period_id,
+                        start: String(periods[pi].start_date).slice(0, 10),
+                        end: String(periods[pi].end_date).slice(0, 10) });
+                      return;
+                    }
+                  }
+                }
+                // Step 4: fallback — latest defined period (periods[0])
+                var p0 = periods[0];
+                period.set({ mode: 'period', periodId: p0.period_id,
+                  start: String(p0.start_date).slice(0, 10),
+                  end: String(p0.end_date).slice(0, 10) });
+              })
+              .catch(function () {
+                var p0c = periods[0];
+                period.set({ mode: 'period', periodId: p0c.period_id,
+                  start: String(p0c.start_date).slice(0, 10),
+                  end: String(p0c.end_date).slice(0, 10) });
+              });
+          }
+        })
+        .catch(function () {
+          // periods fetch failed — try localStorage, else leave empty
+          var lsState = _pReadLs([]);
+          if (lsState) period.set(lsState);
+        });
+    }
+  };
+
+  // Close period popover on outside click (like the notif dropdown).
+  document.addEventListener('click', function (e) {
+    if (!_pPopoverOpen) return;
+    var pop = _pPopover();
+    var trg = _pTrigger();
+    if (pop && pop.contains(e.target)) return;
+    if (trg && trg.contains(e.target)) return;
+    _pClosePopover();
+  });
+
+  // Auto-init on DOMContentLoaded: resolve company + active route from the
+  // app-shell and the current URL path.
+  document.addEventListener('DOMContentLoaded', function () {
+    var shell = document.getElementById('app-shell');
+    var company = shell && shell.dataset ? shell.dataset.company : null;
+    if (!company) return;
+    // Resolve active route key from the current path against FB_ROUTES.
+    var activeKey = '';
+    var path = window.location.pathname;
+    if (window.FB_ROUTES) {
+      for (var i = 0; i < window.FB_ROUTES.length; i++) {
+        var r = window.FB_ROUTES[i];
+        if (!r.route) continue;
+        // Match :company-prefixed routes (e.g. /:company/payables → /acme/payables)
+        var pattern = r.route.replace('/:company', '/[^/]+');
+        if (r.absolute) {
+          if (path === r.route) { activeKey = r.key; break; }
+        } else if (new RegExp('^' + pattern + '/?$').test(path)) {
+          activeKey = r.key; break;
+        }
+      }
+    }
+    period._init(company, activeKey);
+  });
+
   window.FB = {
     util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today, forwardIframeKeys: forwardIframeKeys },
     mode: mode,
@@ -2583,7 +3002,8 @@
     search: search,
     modal: modal,
     status: status,
-    switcher: switcher
+    switcher: switcher,
+    period: period
   };
 
   // Legacy global so template-string pages can drop their local esc copies.

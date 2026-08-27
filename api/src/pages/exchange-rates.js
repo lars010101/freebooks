@@ -50,9 +50,6 @@ ${commonStyle()}
     <select id="fx-foreign-currency" class="tb-select" style="min-width:130px" onchange="onFxForeignCurrencyChange()" title="Foreign currency">
       <option value="" disabled selected>Loading\u2026</option>
     </select>
-    <input type="date" id="fx-date-from" class="tb-date-input" onchange="fxList.load()" title="Start date">
-    <span style="color:#aaa; padding:0 3px; font-size:0.875rem;">\u2013</span>
-    <input type="date" id="fx-date-to" class="tb-date-input" onchange="fxList.load()" title="End date">
   </div>
   <table class="edit-table" id="fx-rates-table">
     <thead><tr><th>Date</th><th>From</th><th>To</th><th style="text-align:right">Rate</th><th>Source</th><th></th></tr></thead>
@@ -102,13 +99,12 @@ var fxList = FB.list.create({
       var fcSel = document.getElementById('fx-foreign-currency');
       var foreignCurrency = fcSel ? fcSel.value : '';
       if (!foreignCurrency) return {};
-      var df = document.getElementById('fx-date-from');
-      var dt = document.getElementById('fx-date-to');
+      var st = FB.period.get();
       return {
         foreignCurrency: foreignCurrency,
         baseCurrency: window._companyCurrency || '',
-        dateFrom: df ? df.value : '',
-        dateTo: dt ? dt.value : '',
+        dateFrom: st.start || '',
+        dateTo: st.end || '',
         threshold: FB.list.threshold
       };
     },
@@ -197,18 +193,17 @@ function populateFxCurrencyPicker(currencies) {
   }
 }
 
-// Gate: only load rates when a currency is selected AND the date range is
-// resolved. Otherwise the setup message is already showing.
+// Gate: only load rates when a currency is selected AND the global Period
+// Selector has resolved (FB.period.get().start/end). Otherwise wait —
+// FB.period.onChange will trigger when the period resolves.
 function _gateFxRatesLoad() {
   var sel = document.getElementById('fx-foreign-currency');
   if (!sel || !sel.value) return;
-  var fromEl = document.getElementById('fx-date-from');
-  var toEl = document.getElementById('fx-date-to');
-  if (fromEl && fromEl.value && toEl && toEl.value) {
+  var st = FB.period.get();
+  if (st.start && st.end) {
     fxList.load();
-  } else {
-    initFxDateRange();
   }
+  // else: FB.period hasn't resolved yet — onChange will trigger.
 }
 
 // onchange handler for the persistent currency picker — switching currencies
@@ -219,40 +214,11 @@ function onFxForeignCurrencyChange() {
     renderFxSetupState('Select a currency to view exchange rates.');
     return;
   }
-  var fromEl = document.getElementById('fx-date-from');
-  var toEl = document.getElementById('fx-date-to');
-  if (fromEl && fromEl.value && toEl && toEl.value) {
+  var st = FB.period.get();
+  if (st.start && st.end) {
     fxList.load();
-  } else {
-    initFxDateRange();
   }
-}
-
-// Resolve FX date range: URL params → default-period → setup-state fallback.
-function initFxDateRange() {
-  var params = new URLSearchParams(window.location.search);
-  var ps = params.get('dateFrom');
-  var pe = params.get('dateTo');
-  var fromEl = document.getElementById('fx-date-from');
-  var toEl = document.getElementById('fx-date-to');
-  if (ps && pe) {
-    if (fromEl) fromEl.value = ps;
-    if (toEl) toEl.value = pe;
-    fxList.load();
-    return;
-  }
-  fetch('/api/' + COMPANY + '/reports/default-period')
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      if (res && res.start_date && res.end_date) {
-        if (fromEl) fromEl.value = String(res.start_date).slice(0, 10);
-        if (toEl) toEl.value = String(res.end_date).slice(0, 10);
-        fxList.load();
-      } else {
-        renderFxSetupState('No accounting periods configured yet.');
-      }
-    })
-    .catch(function () { renderFxSetupState('No accounting periods configured yet.'); });
+  // else: FB.period hasn't resolved yet — onChange will trigger.
 }
 
 // Setup-state spanning row — same pattern as FB.list's renderTooMany: one
@@ -335,6 +301,8 @@ window.onbeforeunload = function(e) {
   loadCurrencyList();
   loadCompanyCurrency();
   loadFxRates();
+  // Reload rates when the global period changes (global-period-selector-chrome-spec §5).
+  FB.period.onChange(function () { _gateFxRatesLoad(); });
 })();
 </script>
 ${layoutEnd()}

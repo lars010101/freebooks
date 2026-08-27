@@ -303,38 +303,10 @@ function _loadCompanyDefaults() {
     });
 }
 
-// ========== DATE-RANGE INIT (default-period spec) ==========
-// Resolves the bill list date range before the first load:
-//   1. ?dateFrom=/?dateTo= URL params (return-context seam for future
-//      item 4 — drill-through from reports/bill detail back to this list)
-//   2. /api/:company/reports/default-period (latest posted-transaction period)
-//   3. No periods configured → setup-state spanning row (add row still visible;
-//      bill.list is NOT called)
-function initBillDateRange() {
-  var params = new URLSearchParams(window.location.search);
-  var ps = params.get('dateFrom');
-  var pe = params.get('dateTo');
-  var fromEl = document.getElementById('bill-date-from');
-  var toEl = document.getElementById('bill-date-to');
-  if (ps && pe) {
-    if (fromEl) fromEl.value = ps;
-    if (toEl) toEl.value = pe;
-    billsList.load();
-    return;
-  }
-  fetch('/api/' + COMPANY + '/reports/default-period')
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      if (res && res.start_date && res.end_date) {
-        if (fromEl) fromEl.value = String(res.start_date).slice(0, 10);
-        if (toEl) toEl.value = String(res.end_date).slice(0, 10);
-        billsList.load();
-      } else {
-        renderBillsSetupState();
-      }
-    })
-    .catch(function () { renderBillsSetupState(); });
-}
+// ========== DATE-RANGE INIT — retired (global-period-selector-chrome-spec §5)
+// The bill list date range is now resolved by the global Period Selector
+// (FB.period). The ?dateFrom=/?dateTo= URL params are handled by
+// FB.period._resolve. No local init function needed. ==========
 
 // Setup-state spanning row — same pattern as FB.list's renderTooMany: one
 // <tr><td colspan> with the message, followed by the add row (display-only;
@@ -348,9 +320,10 @@ function renderBillsSetupState() {
 
 function fbPageInitPayables() {
   loadPartners();
-  initBillDateRange();
   loadPeriods();
   registerPartnerKeyActions();
+  // Reload bills when the global period changes (global-period-selector-chrome-spec §5).
+  FB.period.onChange(function () { billsList.load(); });
   // Sidebar hint panel is generated from the same binding table that drives
   // dispatch (P1-3/P1-6: single source of truth — cannot go stale).
   renderPayHints('bills');
@@ -1344,11 +1317,11 @@ var billsList = FB.list.create({
         var id = String(r.bill_id || r._key || '');
         var qs = 'from=bills';
         // fb-list-bills-return-context-spec §4: carry the active date range
-        // (both-or-neither, matching initBillDateRange's if (ps && pe) guard)
-        var df = document.getElementById('bill-date-from');
-        var dt = document.getElementById('bill-date-to');
-        if (df && df.value && dt && dt.value) {
-          qs += '&dateFrom=' + encodeURIComponent(df.value) + '&dateTo=' + encodeURIComponent(dt.value);
+        // (both-or-neither) as ?dateFrom=/?dateTo= URL params so FB.period._resolve
+        // can pick them up on return. Reads from the global Period Selector.
+        var st = FB.period.get();
+        if (st.start && st.end) {
+          qs += '&dateFrom=' + encodeURIComponent(st.start) + '&dateTo=' + encodeURIComponent(st.end);
         }
         return '<a href="/' + esc(COMPANY) + '/bill/' + esc(id) + '?' + qs + '" class="ref-link" onclick="event.stopPropagation()">' + esc(v || '') + '</a>';
       } },
@@ -1380,14 +1353,13 @@ var billsList = FB.list.create({
   ],
   label: '+ Add bill',
   list: { action: 'bill.list',
-    // default-period spec: send dateFrom/dateTo (from the toolbar date inputs)
-    // + the shared threshold so the backend can cap the result set.
+    // global-period-selector-chrome-spec §5: dateFrom/dateTo come from the
+    // global Period Selector (FB.period.get()) + the shared threshold.
     body: function () {
-      var df = document.getElementById('bill-date-from');
-      var dt = document.getElementById('bill-date-to');
+      var st = FB.period.get();
       return {
-        dateFrom: df ? df.value : '',
-        dateTo: dt ? dt.value : '',
+        dateFrom: st.start || '',
+        dateTo: st.end || '',
         threshold: FB.list.threshold
       };
     },

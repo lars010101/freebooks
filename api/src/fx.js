@@ -525,17 +525,35 @@ async function backfillPeriod(companyId, periodStart, periodEnd) {
 
     if (periodStart > today) return; // future period
 
-    const rows = await doFetchRange(provider, baseCurrency, periodStart, effectiveEnd, apiKey);
-    if (rows && rows.length > 0) {
-      const source = rows[0].source || providerName;
-      const dates = [...new Set(rows.map(r => r.date))];
+    const allRows = await doFetchRange(provider, baseCurrency, periodStart, effectiveEnd, apiKey);
+    if (allRows && allRows.length > 0) {
+      // §5a: scope persisted rows to currencies with non-zero balance-sheet
+      // exposure, identical to scanCompany's filter (fx-tracked-currency-scoping-
+      // spec §5a).  getExposedCurrencies is defined in this module.
+      const coRows = await query(
+        `SELECT jurisdiction FROM companies WHERE company_id = @companyId LIMIT 1`,
+        { companyId }
+      );
+      const jurisdiction = coRows.length > 0 ? coRows[0].jurisdiction : null;
+      const exposed = await getExposedCurrencies(companyId, baseCurrency, jurisdiction, effectiveEnd);
+      const exposedSet = new Set(exposed.map(c => c.toUpperCase()));
+
+      const rowsToInsert = allRows.filter(r =>
+        exposedSet.has((r.from_currency || '').toUpperCase()) ||
+        exposedSet.has((r.to_currency || '').toUpperCase())
+      );
+
+      if (rowsToInsert.length === 0) return; // no exposed currencies — store nothing
+
+      const source = rowsToInsert[0].source || providerName;
+      const dates = [...new Set(rowsToInsert.map(r => r.date))];
       for (const d of dates) {
         await exec(
           `DELETE FROM fx_rates WHERE date = @date AND source = @source AND (from_currency = @base OR to_currency = @base)`,
           { date: d, source, base: baseCurrency }
         );
       }
-      await bulkInsert('fx_rates', rows);
+      await bulkInsert('fx_rates', rowsToInsert);
     }
   } catch (e) {
     // Fire-and-forget: never throw to the caller

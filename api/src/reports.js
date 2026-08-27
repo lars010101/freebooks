@@ -24,14 +24,14 @@ const { handleBillEditPage } = require('./pages/bill-edit');
 const { handleBillDetailPage } = require('./pages/bill-detail');
 const { handleBankReconcilePage } = require('./pages/bank-reconcile');
 const { handlePayablesPage, handleBillsPage } = require('./pages/payables');
-const { handleMasterDataPage } = require('./pages/master-data');
-const { handleAdminPage } = require('./pages/admin-page');
 const { handleApAgingPage } = require('./pages/ap-aging');
+const { handleAccountingPage } = require('./pages/accounting');
+const { handleExchangeRatesPage } = require('./pages/exchange-rates');
 const { handleNewCompanyPage } = require('./pages/new-company');
 const { handleAdminQuery } = require('./pages/admin');
 const { makeQuery } = require('./pages/common');
-const { handleReportsHubPage } = require('./pages/reports-hub');
-const { handlePeriodsPage } = require('./pages/periods');
+const { handleStatementsHubPage, handleBooksHubPage } = require('./pages/reports-hub');
+const { handleFiscalPage } = require('./pages/fiscal');
 const { handleSruInk2, handleSruInfo } = require('./filings');
 const { handleSearch } = require('./search');
 
@@ -256,53 +256,44 @@ function mountReportRoutes(app) {
   // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
   // Old /:company/inbox bookmarks 302-redirect to the root.
   app.get('/:company/inbox', function(req, res) { res.redirect(302, '/' + req.params.company); });
+  // ── 2026-08-27 IA restructure 2: clean cutover, no compatibility redirects ──
   app.get('/:company/journal', function(req, res) {
-    // 2026-08-03: Journal page dissolved into the Reports hub as the
-    // "Voucher Register" report (Step 3). The register is now a report type
-    // inside Reports; the reverse verb is surfaced on each voucher row.
-    res.redirect(302, '/' + req.params.company + '/reports?t=voucher-register');
+    // Journal page dissolved into the Books hub as the "Transaction Register"
+    // report. The reverse verb is surfaced on each voucher row.
+    res.redirect(302, '/' + req.params.company + '/books?t=voucher-register');
   });
   app.get('/:company/journal/voucher', handleJournalVoucherPage);
   app.get('/:company/bill/edit', handleBillEditPage);
   app.get('/:company/bill/:id', handleBillDetailPage);
-  app.get('/:company/bills', handleBillsPage);
-  // 2026-08-11 IA restructure: Payables renamed to Bills. Old URL redirects.
-  app.get('/:company/payables', function(req, res) {
-    if (req.query && req.query.tab === 'partners') {
-      return res.redirect(302, '/' + req.params.company + '/master-data?tab=partners');
-    }
-    res.redirect(302, '/' + req.params.company + '/bills');
-  });
-  app.get('/:company/payables/aging', function(req, res) {
-    res.redirect(302, '/' + req.params.company + '/reports?t=ap-aging');
-  });
+  // Payables (was Bills) — re-expanded to Bills · Vendors · Aging · Control
+  app.get('/:company/payables', handlePayablesPage);
   // /bank/reconcile + /bank/import routes REMOVED 2026-07-31 (agent-first UI
   // doctrine, roadmap §0q): both were 301 stubs; import is the Bank ?tab=import tab.
   // 2026-08-09 (issue #137): Bank page dissolved — pages/bank.js + pages/bank-import.js
-  // deleted. Old /:company/bank URL 302-redirects to the Reports hub (bank
-  // reconciliation is being moved to a report). api/src/bank.js server handlers
-  // (bank.match, bank.reconcile.*) are kept for the agent feed-watcher + reconcile actions.
+  // deleted. Old /:company/bank URL 302-redirects to Books (bank reconciliation
+  // is being moved to a report). api/src/bank.js server handlers kept for the
+  // agent feed-watcher + reconcile actions.
   app.get('/:company/bank', function(req, res) {
-    res.redirect(302, '/' + req.params.company + '/reports');
+    res.redirect(302, '/' + req.params.company + '/books');
   });
   // Opening Balances feature removed 2026-08-18 (magnus): users post opening
-  // balances via a simple journal voucher instead. Old /:company/opening-balances
-  // URL now 302-redirects to the journal voucher entry form.
+  // balances via a simple journal voucher instead. Old URL redirects.
   app.get('/:company/opening-balances', function(req, res) {
     res.redirect(302, '/' + req.params.company + '/journal/voucher');
   });
-  // 2026-08-11 IA restructure: Settings tab deep-links redirect to Master Data.
-  app.get('/:company/settings', function(req, res, next) {
-    var tab = req.query && req.query.tab;
-    if (tab === 'coa' || tab === 'vat' || tab === 'journals' || tab === 'fxrates') {
-      return res.redirect(302, '/' + req.params.company + '/master-data?tab=' + tab);
-    }
-    return handleSettingsPage(req, res, next);
-  });
-  app.get('/:company/master-data', handleMasterDataPage);
-  app.get('/:company/admin', handleAdminPage);
-  app.get('/:company/periods', handlePeriodsPage);
-  app.get('/:company/reports', handleReportsHubPage);
+  // 2026-08-27 IA restructure 2: Settings slimmed — Company · Access · Extensions.
+  // Old redirect handlers for ?tab=periods and ?tab={coa,vat,journals,fxrates} deleted
+  // (those routes no longer exist — clean cutover, §2.3).
+  app.get('/:company/settings', handleSettingsPage);
+  // 2026-08-27 IA restructure 2: new routes
+  app.get('/:company/statements', handleStatementsHubPage);
+  app.get('/:company/books', handleBooksHubPage);
+  app.get('/:company/fiscal', handleFiscalPage);
+  app.get('/:company/accounting', handleAccountingPage);
+  app.get('/:company/exchange-rates', handleExchangeRatesPage);
+  // 2026-08-27 IA restructure 2: old routes deleted (no redirects, §2.3):
+  //   /:company/bills, /:company/master-data, /:company/admin,
+  //   /:company/periods, /:company/reports
   app.get('/:company', handleInboxPage);
   app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);
 }

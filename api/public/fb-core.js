@@ -1109,14 +1109,14 @@
     function _pageLabelFor(route) {
       if (!route) return '';
       if (route.indexOf('/settings') === 0) return 'Settings';
-      if (route.indexOf('/master-data') === 0) return 'Master Data';
-      if (route.indexOf('/admin') === 0) return 'Admin';
-      if (route.indexOf('/bills') === 0) return 'Bills';
-      if (route.indexOf('/payables') === 0) return 'Bills';
-      if (route.indexOf('/periods') === 0) return 'Periods';
+      if (route.indexOf('/accounting') === 0) return 'Accounting';
+      if (route.indexOf('/exchange-rates') === 0) return 'Exchange Rates';
+      if (route.indexOf('/payables') === 0) return 'Payables';
+      if (route.indexOf('/statements') === 0) return 'Statements';
+      if (route.indexOf('/books') === 0) return 'Books';
+      if (route.indexOf('/fiscal') === 0) return 'Fiscal';
       if (route.indexOf('/journal') === 0) return 'Journal';
-      if (route.indexOf('/bill') === 0) return 'Bills';
-      if (route.indexOf('/reports') === 0) return 'Reports';
+      if (route.indexOf('/bill') === 0) return 'Payables';
       return '';
     }
 
@@ -1128,7 +1128,8 @@
           var meta = _catalog[name] || {};
           if (meta.palette !== 'navigate' || !meta.route) return;
           if (meta.create) return;                      // exclude create-shortcuts
-          if (meta.route.indexOf('/reports') === 0) return; // exclude reports
+          if (meta.route.indexOf('/books') === 0) return; // exclude books
+          if (meta.route.indexOf('/statements') === 0) return; // exclude statements
           if (meta.absolute) return;                     // exclude setup/add company
           if (meta.route.indexOf('/setup') === 0) return; // exclude setup
           if (meta.label && /^close /i.test(meta.label)) return; // exclude "Close period"

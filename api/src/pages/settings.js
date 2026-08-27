@@ -3,16 +3,8 @@ const { makeQuery, commonStyle, navBar, layoutEnd } = require('./common');
 
 async function handleSettingsPage(req, res) {
   const { company } = req.params;
-  // IA-spec step 4 (§5.10, 2026-08-04): Periods promoted to a top-level
-  // section; the Settings Periods tab was removed. Old deep links redirect.
-  if (req.query && req.query.tab === 'periods') {
-    return res.redirect(302, '/' + company + '/periods');
-  }
-  // 2026-08-11 IA restructure: COA, Tax Codes, Journals, Exchange Rates moved
-  // to Master Data. Deep links redirect there.
-  if (req.query && ['coa', 'vat', 'journals', 'fxrates'].includes(req.query.tab)) {
-    return res.redirect(302, '/' + company + '/master-data?tab=' + req.query.tab);
-  }
+  // 2026-08-27 IA restructure 2: old redirect handlers deleted (clean cutover).
+  // ?tab= is still read on initial load for palette deep-links (§2.4).
   try {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(buildSettingsPage(company));
@@ -65,12 +57,14 @@ ${commonStyle()}
 
   <div class="tabs">
     <div class="tab active" onclick="showTab('company')">Company<span id="tab-dot-company" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" onclick="showTab('postrules')">Posting Rules<span id="tab-dot-postrules" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" onclick="showTab('ai')">AI<span id="tab-dot-ai" style="display:none;color:#d97706"> ●</span></div>
+    <div class="tab" onclick="showTab('access')">Access<span id="tab-dot-access" style="display:none;color:#d97706"> ●</span></div>
+    <div class="tab" onclick="showTab('extensions')">Extensions<span id="tab-dot-extensions" style="display:none;color:#d97706"> ●</span></div>
   </div>
 
-  <!-- 2026-08-11 IA restructure: COA, Tax Codes, Journals, Exchange Rates moved
-       to the new Master Data page (/:company/master-data). Deep links redirect. -->
+  <!-- 2026-08-27 IA restructure 2: Settings slimmed to Company · Access · Extensions.
+       Posting Rules tab deleted (VAT tolerance → command-bar only, §7).
+       AI tab renamed Extensions (absorbs FX Provider, FX API Key, Bill Extraction
+       Tolerance from dissolved Posting Rules). Access moved from dissolved Admin. -->
 
   <!-- COMPANY TAB — FB.list attribute/value grid (settings-ux-spec §7 item 1
        rev. 3, supersedes the slim record form). One FIXED row per company
@@ -99,24 +93,33 @@ ${commonStyle()}
     </div>
   </div>
 
-  <!-- POSTING RULES TAB — fields that govern automatic calculation during posting:
-       FX conversion rate sourcing and VAT match tolerance. Split from Company
-       (settings-ux-spec: Company tab is entity-only; posting rules are separate). -->
-  <div id="tab-postrules" class="tab-panel">
-    <table class="edit-table" id="postrules-attrs-table">
-      <thead><tr><th>Attribute</th><th>Value</th><th>Type</th><th></th></tr></thead>
-      <tbody id="postrules-attrs-body"></tbody>
+  <!-- ACCESS TAB — moved from dissolved Admin page (2026-08-27 IA restructure 2).
+       Same register (permissions.list/upsert/delete), same columns
+       (Email, Role, Global-scope badge). -->
+  <div id="tab-access" class="tab-panel">
+    <table class="edit-table" id="access-table">
+      <thead><tr><th>Email</th><th>Role</th><th>Scope</th><th></th></tr></thead>
+      <tbody id="access-body"></tbody>
     </table>
   </div>
 
-  <!-- AI TAB — flattened attribute grid (settings-ai-flattened-spec.md).
-       Same FB.list pattern as Company tab: Attribute | Value | Type, per-row
-       edit/commit, tab-level dirty dot. No page-level Save button.
-       Test connection and Agent status are tracked as issues #179/#180. -->
-  <div id="tab-ai" class="tab-panel">
-    <table class="edit-table" id="ai-attrs-table">
+  <!-- EXTENSIONS TAB — renamed from AI (2026-08-27 IA restructure 2).
+       Absorbs FX Provider, FX API Key, Bill Extraction Tolerance from the
+       dissolved Posting Rules tab, plus the existing agent/LLM/Vision config
+       rows and the "Test connection" action. Two action families back this tab:
+       posting_rules.attr.* (inherited fields) and ai.attr.* (original AI fields). -->
+  <div id="tab-extensions" class="tab-panel">
+    <!-- Extensions posting-rules rows (Multi-Currency, FX Provider, FX API Key,
+         Bill Extraction Tolerance) — same FB.list as the old Posting Rules tab,
+         minus the deleted VAT tolerance fields. -->
+    <table class="edit-table" id="ext-postrules-table">
       <thead><tr><th>Attribute</th><th>Value</th><th>Type</th><th></th></tr></thead>
-      <tbody id="ai-attrs-body"></tbody>
+      <tbody id="ext-postrules-body"></tbody>
+    </table>
+    <!-- Extensions AI rows (agent/LLM/Vision config + Test connection) -->
+    <table class="edit-table" id="ext-ai-table" style="margin-top:24px">
+      <thead><tr><th>Attribute</th><th>Value</th><th>Type</th><th></th></tr></thead>
+      <tbody id="ext-ai-body"></tbody>
     </table>
   </div>
 
@@ -156,22 +159,22 @@ function showTab(t) {
       resetDirty(curTab);
     }
   }
-  var tabs = ['company','postrules','ai'];
+  var tabs = ['company','access','extensions'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
   var hintEl = document.getElementById('sb-hints');
   if (hintEl) {
     if (t === 'company') renderCompanyHints();
-    else if (t === 'postrules') renderPostRulesHints();
-    else if (t === 'ai') renderAiHints();
+    else if (t === 'access') renderAccessHints();
+    else if (t === 'extensions') renderExtensionsHints();
     else hintEl.innerHTML = '';
   }
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
     if (t === 'company')  { loadCompanyAttrs(); }
-    if (t === 'postrules') { loadPostRulesAttrs(); }
-    if (t === 'ai')       { loadAiSettings(); }
+    if (t === 'access')   { loadAccess(); }
+    if (t === 'extensions') { loadExtPostRules(); loadAiSettings(); }
   }
 }
 
@@ -347,15 +350,15 @@ window.onbeforeunload = function(e) {
 };
 
 
-// ========== POSTING RULES TAB — FB.list =========
-// Split from Company (settings-ux-spec): Multi-Currency, FX Provider, FX API
-// Key, VAT Tolerance (flat/%) — fields that govern automatic calculation
-// during posting. Same FB.list pattern as Company/AI tabs. Each row edits
-// and saves independently via posting_rules.attr.save (server-authoritative).
+// ========== EXTENSIONS — POSTING RULES ROWS (FB.list) =========
+// 2026-08-27 IA restructure 2: Posting Rules tab dissolved; non-VAT fields moved
+// to Extensions. Same FB.list pattern, new tbody. VAT tolerance fields
+// (vat_tolerance, vat_tolerance_pct) are filtered out client-side — they have
+// no UI surface (§7, command-bar only).
 var postRulesAttrs = FB.list.create({
-  keysId: 'settings-postrules',
-  active: function() { var p = document.getElementById('tab-postrules'); return !!(p && p.classList.contains('active')); },
-  tbody: 'postrules-attrs-body',
+  keysId: 'settings-extensions-postrules',
+  active: function() { var p = document.getElementById('tab-extensions'); return !!(p && p.classList.contains('active')); },
+  tbody: 'ext-postrules-body',
   companyId: function() { return COMPANY; },
   canAdd: false,
   hint: 'Fixed rows — posting rules that govern FX conversion and VAT tolerance during posting. Only the Value cell edits (i); w writes one attribute, u reverts, Esc cancels. Validation happens on the server at write time. FX API Key: a blank edit keeps the stored key.',
@@ -390,7 +393,9 @@ var postRulesAttrs = FB.list.create({
   firstField: function() { return 'value'; },
   track: 'postrules-attr',
   list: { action: 'posting_rules.attr.list',
-    map: function(r) { return { label: r.label, value: r.value, display: r.display, type_label: r.type, editor: r.editor, readonly: !!r.readonly, _key: r.key }; } },
+    map: function(r) { return { label: r.label, value: r.value, display: r.display, type_label: r.type, editor: r.editor, readonly: !!r.readonly, _key: r.key }; },
+    // Filter out VAT tolerance fields — they have no UI surface (§7, command-bar only).
+    filter: function(r) { return r.key !== 'vat_tolerance' && r.key !== 'vat_tolerance_pct'; } },
   save: { action: 'posting_rules.attr.save',
     body: function(d) { return { key: d._key, value: d.value }; },
     focusKey: function(d) { return d._key; },
@@ -415,29 +420,27 @@ var postRulesAttrs = FB.list.create({
       return 'FX rates downloaded: ' + fetched + (notified ? ' (' + notified + ' gap notification' + (notified === 1 ? '' : 's') + ')' : '');
     } },
   onChrome: function(dirty) {
-    var dot = document.getElementById('tab-dot-postrules');
+    var dot = document.getElementById('tab-dot-extensions');
     if (dot) dot.style.display = dirty ? '' : 'none';
-    if (dirty) markDirty('postrules'); else resetDirty('postrules');
+    if (dirty) markDirty('extensions'); else resetDirty('extensions');
   }
 });
 
-function loadPostRulesAttrs(focusKey) { return postRulesAttrs.load(focusKey); }
+function loadExtPostRules(focusKey) { return postRulesAttrs.load(focusKey); }
 function renderPostRulesHints() {
   var el = document.getElementById('sb-hints');
   if (el) postRulesAttrs.renderHints(el);
 }
 
-// ========== AI TAB — FB.list (settings-ai-flattened-spec.md) =========
-// Flattened from grouped sections into a single Attribute/Value/Type grid,
-// mirroring the Company tab pattern. Each row edits and saves independently
-// via ai.attr.save (server-authoritative validation). The Test connection
-// row (#179) is type "Action": readonly, renders a button in the Value cell
-// that fires ai.test_connection — no edit/commit cycle. Agent status is
-// deferred (#180).
+// ========== EXTENSIONS — AI ROWS (FB.list, settings-ai-flattened-spec.md) =====
+// 2026-08-27 IA restructure 2: AI tab renamed Extensions. Same grid, new tbody.
+// Flattened from grouped sections into a single Attribute/Value/Type grid.
+// Each row edits and saves independently via ai.attr.save (server-authoritative).
+// The Test connection row (#179) is type "Action": readonly, renders a button.
 var aiAttrs = FB.list.create({
-  keysId: 'settings-ai',
-  active: function() { var p = document.getElementById('tab-ai'); return !!(p && p.classList.contains('active')); },
-  tbody: 'ai-attrs-body',
+  keysId: 'settings-extensions-ai',
+  active: function() { var p = document.getElementById('tab-extensions'); return !!(p && p.classList.contains('active')); },
+  tbody: 'ext-ai-body',
   companyId: function() { return COMPANY; },
   canAdd: false,
   columns: [
@@ -481,9 +484,8 @@ var aiAttrs = FB.list.create({
       } }
   ],
   onLoaded: function() {
-    // Wire up any Action-type buttons in the AI grid (#179). Each button
-    // posts ai.test_connection and reports the outcome through FB.status.
-    var tbody = document.getElementById('ai-attrs-body');
+    // Wire up any Action-type buttons in the Extensions AI grid (#179).
+    var tbody = document.getElementById('ext-ai-body');
     if (!tbody) return;
     var btns = tbody.querySelectorAll('button.action-btn[data-action="ai.test_connection"]');
     for (var i = 0; i < btns.length; i++) {
@@ -522,9 +524,9 @@ var aiAttrs = FB.list.create({
     }
   },
   onChrome: function(dirty) {
-    var dot = document.getElementById('tab-dot-ai');
+    var dot = document.getElementById('tab-dot-extensions');
     if (dot) dot.style.display = dirty ? '' : 'none';
-    if (dirty) markDirty('ai'); else resetDirty('ai');
+    if (dirty) markDirty('extensions'); else resetDirty('extensions');
   }
 });
 
@@ -533,17 +535,74 @@ function renderAiHints() {
   var el = document.getElementById('sb-hints');
   if (el) aiAttrs.renderHints(el);
 }
+function renderExtensionsHints() {
+  var el = document.getElementById('sb-hints');
+  if (el) { postRulesAttrs.renderHints(el); }
+}
+
+// ========== ACCESS TAB — FB.list (moved from dissolved Admin, 2026-08-27) =====
+var accessList = FB.list.create({
+  keysId: 'settings-access',
+  active: function() { var p = document.getElementById('tab-access'); return !!(p && p.classList.contains('active')); },
+  tbody: 'access-body',
+  companyId: function() { return COMPANY; },
+  hint: 'Email is the key — to change a person\u2019s email, remove the row and add a new one. Role changes edit in place. Rows marked Global come from a cross-company grant and can\u2019t be edited here.',
+  columns: [
+    { field: 'email', type: 'text', width: 240, ro: 'saved', label: 'Email' },
+    { field: 'role', type: 'select', width: 130, label: 'Role', filterType: 'list',
+      options: [
+        { value: 'owner', label: 'Owner' },
+        { value: 'data_entry', label: 'Data Entry' },
+        { value: 'agent', label: 'Agent' },
+        { value: 'viewer', label: 'Viewer' }
+      ] },
+    { field: 'scope_badge', type: 'text', width: 70, ro: 'always', filterType: null,
+      display: function(v, d) { return d.isGlobal ? '<span class="type-badge" style="background:#eef;color:#446">Global</span>' : ''; } }
+  ],
+  blank: function() { return { email: '', role: 'viewer' }; },
+  isBlank: function(b) { return !b.email; },
+  same: function(b, s) { return b.email === s.email && b.role === s.role; },
+  validate: function(d) {
+    if (!d.email) return 'Email required.';
+    d.email = d.email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) return 'Not a valid email address.';
+    return null;
+  },
+  editable: function(d) { return !d.isGlobal; },
+  deletable: function(d) { return !d.isGlobal; },
+  firstField: function() { return 'email'; },
+  track: 'access-grant',
+  list: { action: 'permissions.list',
+    map: function(r) {
+      return { email: r.email, role: r.role, isGlobal: r.company_id === '*', _key: r.email };
+    } },
+  save: { action: 'permissions.upsert',
+    body: function(d) { return { email: d.email, role: d.role }; },
+    focusKey: function(d) { return d.email; } },
+  del: { action: 'permissions.delete',
+    body: function(d) { return { email: d.email }; },
+    confirm: function(d) { return 'Revoke access for "' + d.email + '"?'; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-access');
+    if (dot) dot.style.display = dirty ? '' : 'none';
+    if (dirty) markDirty('access'); else resetDirty('access');
+  }
+});
+
+function loadAccess() { accessList.load(); }
+function renderAccessHints() {
+  var el = document.getElementById('sb-hints');
+  if (el) accessList.renderHints(el);
+}
 
 // ========== HANDLE ?tab= URL PARAM ==========
 (function() {
   var params = new URLSearchParams(window.location.search);
   var tab = params.get('tab');
-  // Load the Company AND Posting Rules attribute grids EAGERLY even when
-  // ?tab= deep-links elsewhere: relevance flags are derived from their rows.
+  // Load the Company attribute grid EAGERLY: relevance flags are derived from
+  // its rows and needed by Extensions too.
   tabLoaded['company'] = true;
   loadCompanyAttrs();
-  tabLoaded['postrules'] = true;
-  loadPostRulesAttrs();
   showTab(tab || 'company');
 })();
 </script>

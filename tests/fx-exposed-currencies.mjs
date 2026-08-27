@@ -13,7 +13,7 @@
 //   4. fx.exposed_currencies action is registered in the catalog
 //   5. revaluationPreview sources its currency set from getExposedCurrencies
 //   6. fx-scanner.js imports and calls getExposedCurrencies
-//   7. master-data.js calls fx.exposed_currencies (not partner.list)
+//   7. exchange-rates.js calls fx.exposed_currencies (not partner.list)
 //   8. The empty-state message matches the spec (no "configured" language)
 //   9. schema.sql has the journal_entries index
 //  10. The query uses a subquery + SELECT DISTINCT (not bare GROUP BY currency)
@@ -145,16 +145,17 @@ if (!scannerSource.includes('rowsToInsert') || !scannerSource.includes('exposedS
   fail('fx-scanner.js does not filter coverage rows by exposure before insert');
 }
 
-// ── 7. master-data.js calls fx.exposed_currencies ───────────────────────────
+// ── 7. exchange-rates.js calls fx.exposed_currencies ──────────────────────
+// (was master-data.js — IA restructure 2 moved Exchange Rates to its own page)
 
-const masterDataSource = readSrc('api/src/pages/master-data.js');
+const exchangeRatesSource = readSrc('api/src/pages/exchange-rates.js');
 
-if (!masterDataSource.includes("'fx.exposed_currencies'")) {
-  fail('master-data.js does not call fx.exposed_currencies action');
+if (!exchangeRatesSource.includes("'fx.exposed_currencies'")) {
+  fail('exchange-rates.js does not call fx.exposed_currencies action');
 }
 
 // Must NOT use partner.list for currency tracking anymore
-const loadTrackedMatch = masterDataSource.match(/function loadTrackedForeignCurrencies[\s\S]*?\n\}/);
+const loadTrackedMatch = exchangeRatesSource.match(/function loadTrackedForeignCurrencies[\s\S]*?\n\}/);
 if (loadTrackedMatch) {
   if (loadTrackedMatch[0].includes('partner.list')) {
     fail('loadTrackedForeignCurrencies still uses partner.list — should use fx.exposed_currencies');
@@ -163,18 +164,18 @@ if (loadTrackedMatch) {
     fail('loadTrackedForeignCurrencies still scans default_currency — should use fx.exposed_currencies');
   }
 } else {
-  fail('Could not extract loadTrackedForeignCurrencies from master-data.js');
+  fail('Could not extract loadTrackedForeignCurrencies from exchange-rates.js');
 }
 
 // ── 8. Empty-state message updated ─────────────────────────────────────────
 
-if (!masterDataSource.includes('No foreign-currency balances yet. This list populates once a bill or journal entry creates one.')) {
-  fail('master-data.js empty-state message not updated to spec text');
+if (!exchangeRatesSource.includes('No foreign-currency balances yet. This list populates once a bill or journal entry creates one.')) {
+  fail('exchange-rates.js empty-state message not updated to spec text');
 }
 
 // Must NOT contain the old message
-if (masterDataSource.includes('No currencies configured for tracking. Add one on the Company attribute grid.')) {
-  fail('master-data.js still has old empty-state message referencing Company attribute grid');
+if (exchangeRatesSource.includes('No currencies configured for tracking. Add one on the Company attribute grid.')) {
+  fail('exchange-rates.js still has old empty-state message referencing Company attribute grid');
 }
 
 // ── 9. schema.sql has the journal_entries index ────────────────────────────

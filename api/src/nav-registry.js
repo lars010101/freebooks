@@ -14,19 +14,23 @@
 //
 // Entry shape:
 //   {
-//     key:       string   — stable section id (sidebar active-state match,
-//                           usage-tracking section, palette dedupe id)
-//     route:     string   — route template; ':company' is the company segment
-//                           placeholder (e.g. '/:company/bank'). Absolute
-//                           company-less routes set absolute:true.
-//     label:     string   — human label (sidebar text + palette 'Go to …')
-//     icon:      string|null — sidebar glyph (null for non-sidebar routes)
-//     sidebar:   bool     — render in the sidebar nav?
-//     gKey:      string|null — go-to-map letter (e.g. 'b' for bank) or null.
-//                           'c' is RESERVED for the company switcher (not a
-//                           route). Non-sidebar routes get null.
-//     palette:   bool     — surface as a 'Go to …' palette row?
-//     absolute:  bool     — company-less route (e.g. /setup/new-company)
+//     key:          string   — stable section id (sidebar active-state match,
+//                              usage-tracking section, palette dedupe id)
+//     route:        string   — route template; ':company' is the company segment
+//                              placeholder (e.g. '/:company/bank'). Absolute
+//                              company-less routes set absolute:true.
+//     label:        string   — human label (sidebar text + palette 'Go to …')
+//     icon:         string|null — sidebar glyph (null for non-sidebar routes)
+//     sidebar:      bool     — render in the sidebar nav?
+//     gKey:         string|null — go-to-map letter (e.g. 'b' for bank) or null.
+//                              'c' is RESERVED for the company switcher (not a
+//                              route). Non-sidebar routes get null.
+//     palette:      bool     — surface as a 'Go to …' palette row?
+//     absolute:     bool     — company-less route (e.g. /setup/new-company)
+//     dateRelevance: 'range'|'asOf'|'none' — stub for the follow-up chrome
+//                              spec's global Period Selector (§9 of
+//                              ia-restructure-2-spec.md). Consumed by nothing
+//                              yet; declared now so pages aren't touched twice.
 //   }
 //
 // How to add a route:
@@ -40,49 +44,62 @@
 //   4. Assign a gKey letter only for ratified go-to destinations; 'c' is
 //      reserved for the company switcher.
 //
-// g-key slate (ratified 2026-08-11 IA restructure):
-//   g i = Inbox · g b = Bills (renamed from Payables; gKey 'b' assigned) ·
-//   g r = Reports · g p = Periods · g s = Settings (slimmed) ·
-//   g m = Master Data (new) · g a = Admin (new)
-//   g c = Company switcher (reserved, not a route)
-//   g d / g v / g j = still free (Dashboard/Receivables/Journal, dropped earlier)
-// 2026-08-11 IA restructure: Payables renamed to Bills and assigned gKey 'b' (was
-//   null since 'p' was reassigned to Periods on 2026-08-04). Partners tab moved
-//   from Bills to the new Master Data page. Settings slimmed to Company · Posting
-//   Rules · AI; COA/Tax Codes/Journals/Exchange Rates moved to Master Data.
-//   New Admin page (Companies · Operations). Old /:company/payables URL
-//   302-redirects to /:company/bills; ?tab= deep-links redirect to master-data.
+// g-key slate (ratified 2026-08-27 IA restructure 2):
+//   g i = Inbox              · g b = Books (was Reports, trimmed)
+//   g p = Payables (was Bills)   · g f = Fiscal (was Periods/Filings)
+//   g t = Statements (new)   · g s = Settings
+//   g a = Accounting (new — reuses Admin's freed key)
+//   g x = Exchange Rates (new)
+//   g c = Company switcher (reserved, not a route — unchanged)
+//   g r = reserved for future Receivables (freed from Reports moving to `b`)
+//   g m = FREE (Master Data dissolved) · g v = FREE · g d / g j = still free
+// 2026-08-27 IA restructure 2: Bills → Payables (gKey `p`); Reports split into
+//   Statements (gKey `t`) + Books (gKey `b`); Periods → Fiscal (gKey `f`);
+//   Settings slimmed (Company · Access · Extensions); Accounting new (gKey `a`,
+//   reuses Admin's freed key — COA · Tax Codes · Journals · Cost/Profit Centers);
+//   Exchange Rates promoted standalone (gKey `x`); Master Data dissolved;
+//   Admin dissolved (Companies → switcher, Access → Settings, Operations dropped).
+//   No compatibility redirects — single-user install, clean cutover.
 // Receivables dropped 2026-08-05: sidebar entry + gKey 'v' removed; route + page handler deleted.
 // Bank page dropped 2026-08-09 (issue #137): sidebar entry + gKey 'b' removed; page modules
 //   (pages/bank.js, pages/bank-import.js) deleted. api/src/bank.js server handlers kept
-//   (bank.match, bank.reconcile.*). Old /:company/bank URL 302-redirects to /:company/reports.
+//   (bank.match, bank.reconcile.*).
 
 const ROUTES = [
   // ── Sidebar entries (display order = array order) ──
   // A5 §10: Inbox is the human's review queue (sidebar first, 📥, g i). The
   // Journal-list queue half moved here; the Journal list is the pure register.
   // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
-  { key: 'inbox',       route: '/:company',             label: 'Inbox',           icon: '📥', sidebar: true,  gKey: 'i',  palette: true,  absolute: false },
-  { key: 'bills',       route: '/:company/bills',        label: 'Bills',           icon: '📋', sidebar: true,  gKey: 'b',  palette: true,  absolute: false },
-  { key: 'reports',     route: '/:company/reports',      label: 'Reports',         icon: '📈', sidebar: true,  gKey: 'r',  palette: true,  absolute: false },
-  // 2026-08-04 (IA-spec step 4): Periods promoted to a top-level sidebar route.
-  //   g p was reassigned from Payables (kept sidebar+palette, gKey nulled) to
-  //   Periods. The Settings Periods tab was removed and now 302-redirects here.
-  //   The grid config is lifted into api/src/pages/periods-grid.js (shared
-  //   module) so this page and Settings don't drift.
-  { key: 'periods',     route: '/:company/periods',      label: 'Periods',         icon: '📅', sidebar: true,  gKey: 'p',  palette: true,  absolute: false },
-  { key: 'settings',    route: '/:company/settings',     label: 'Settings',        icon: '⚙',  sidebar: true,  gKey: 's',  palette: true,  absolute: false },
-  // 2026-08-11 IA restructure: Master Data (g m) — Partners · Chart of Accounts ·
-  //   Tax Codes · Journals · Exchange Rates · Cost/Profit Centers. Relocated from
-  //   Settings (COA/VAT/Journals/FX) and Payables (Partners); + new Centers tab.
-  { key: 'master-data', route: '/:company/master-data',  label: 'Master Data',    icon: '🗂', sidebar: true,  gKey: 'm',  palette: true,  absolute: false },
-  // 2026-08-11 IA restructure: Admin (g a) — Companies · Operations.
-  { key: 'admin',       route: '/:company/admin',        label: 'Admin',          icon: '🛠', sidebar: true,  gKey: 'a',  palette: true,  absolute: false },
+  { key: 'inbox',          route: '/:company',             label: 'Inbox',           icon: '📥', sidebar: true,  gKey: 'i',  palette: true,  absolute: false, dateRelevance: 'none' },
+  // 2026-08-27 IA restructure 2: Bills renamed Payables (gKey `p`, freed by Fiscal
+  //   moving off it). Re-expanded to four tabs: Bills · Vendors · Aging · Control.
+  { key: 'payables',       route: '/:company/payables',    label: 'Payables',        icon: '📋', sidebar: true,  gKey: 'p',  palette: true,  absolute: false, dateRelevance: 'range' },
+  // 2026-08-27 IA restructure 2: Reports split into Statements + Books. Statements
+  //   (gKey `t`) — P&L · Balance Sheet · Cash Flow · Statement of Equity.
+  //   dateRelevance is per-report (REPORT_REGISTRY's multiperiod/needsStart), not
+  //   a page-level flag — 'none' here is a placeholder, the chrome spec reads the
+  //   registry directly.
+  { key: 'statements',     route: '/:company/statements',  label: 'Statements',      icon: '📊', sidebar: true,  gKey: 't',  palette: true,  absolute: false, dateRelevance: 'none' },
+  // 2026-08-27 IA restructure 2: Reports trimmed and renamed Books (gKey `b`, freed
+  //   by Payables moving off it). Ledger/audit tooling: Transaction Register ·
+  //   Trial Balance · General Ledger · Journal Line Listing · Integrity Check.
+  { key: 'books',          route: '/:company/books',       label: 'Books',           icon: '📈', sidebar: true,  gKey: 'b',  palette: true,  absolute: false, dateRelevance: 'none' },
+  // 2026-08-27 IA restructure 2: Periods renamed Fiscal (gKey `f`). Fully flattened
+  //   — Periods · Filings · Close Checklist, no tree expansion.
+  { key: 'fiscal',         route: '/:company/fiscal',      label: 'Fiscal',          icon: '📅', sidebar: true,  gKey: 'f',  palette: true,  absolute: false, dateRelevance: 'none' },
+  // 2026-08-27 IA restructure 2: Settings slimmed — Company · Access · Extensions.
+  { key: 'settings',       route: '/:company/settings',    label: 'Settings',        icon: '⚙',  sidebar: true,  gKey: 's',  palette: true,  absolute: false, dateRelevance: 'none' },
+  // 2026-08-27 IA restructure 2: Accounting (gKey `a`, reuses Admin's freed key) —
+  //   Chart of Accounts · Tax Codes (VAT+WHT merged) · Journals · Cost/Profit Centers.
+  { key: 'accounting',     route: '/:company/accounting',  label: 'Accounting',      icon: '🗂', sidebar: true,  gKey: 'a',  palette: true,  absolute: false, dateRelevance: 'none' },
+  // 2026-08-27 IA restructure 2: Exchange Rates promoted standalone (gKey `x`) —
+  //   no tabs, single page (was the sole tenant of dissolved Master Data).
+  { key: 'exchange-rates', route: '/:company/exchange-rates', label: 'Exchange Rates', icon: '💱', sidebar: true,  gKey: 'x',  palette: true,  absolute: false, dateRelevance: 'range' },
   // ── Non-sidebar routes. journal-voucher / new-company keep palette:false — the
-  // action catalog already navigates to them with action labels (dedupe =
+  // action catalog already navigates to them with action labels (dedupe =\n
   // registry decision, spec §4).
-  { key: 'journal-voucher', route: '/:company/journal/voucher',   label: 'Journal Entry',   icon: null, sidebar: false, gKey: null, palette: false, absolute: false },
-  { key: 'new-company',     route: '/setup/new-company',          label: 'New Company',     icon: null, sidebar: false, gKey: null, palette: false, absolute: true  },
+  { key: 'journal-voucher', route: '/:company/journal/voucher',   label: 'Journal Entry',   icon: null, sidebar: false, gKey: null, palette: false, absolute: false, dateRelevance: 'none' },
+  { key: 'new-company',     route: '/setup/new-company',          label: 'New Company',     icon: null, sidebar: false, gKey: null, palette: false, absolute: true,  dateRelevance: 'none' },
 ];
 
 module.exports = { ROUTES };

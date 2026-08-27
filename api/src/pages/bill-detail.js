@@ -392,7 +392,7 @@ window.fbKeyActions = {
       if (dateFrom && dateTo) {
         qs.push('dateFrom=' + encodeURIComponent(dateFrom), 'dateTo=' + encodeURIComponent(dateTo));
       }
-      fbNavigate('/' + COMPANY + '/bills' + (qs.length ? '?' + qs.join('&') : ''));
+      fbNavigate('/' + COMPANY + '/payables' + (qs.length ? '?' + qs.join('&') : ''));
       return;
     }
     if (typeof COMPANY !== 'undefined') fbNavigate('/' + COMPANY + '/payables');

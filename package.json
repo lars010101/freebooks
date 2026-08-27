@@ -2,7 +2,7 @@
   "name": "freebooks",
   "private": true,
   "scripts": {
-    "test": "npm test --prefix api && node tests/reversal.mjs && node tests/jurisdiction-packs.mjs && node tests/fx-reval.mjs && node tests/fx-exposed-currencies.mjs && node tests/mcp-smoke.mjs && node --test tests/bill-extraction.test.mjs tests/periods-children-guard.test.mjs && node tests/sru-golden-2024.mjs",
+    "test": "npm test --prefix api && node tests/reversal.mjs && node tests/jurisdiction-packs.mjs && node tests/fx-reval.mjs && node tests/fx-exposed-currencies.mjs && node tests/mcp-smoke.mjs && node --test tests/bill-extraction.test.mjs && node tests/sru-golden-2024.mjs",
     "test:api": "npm test --prefix api",
     "test:e2e": "node pw-phase-a4.mjs",
     "test:keys": "node tests/keys-coverage.mjs",

@@ -103,7 +103,7 @@ async function buildPL(query, company, start, end) {
     const code = r.account_code || '';
     const name = r.row_type === 'total' ? `<strong>${r.account_name}</strong>` : r.account_name;
     const codeCell = code
-      ? `<a href="/${company}/reports?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      ? `<a href="/${company}/books?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
       : code;
     tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
   }
@@ -183,7 +183,7 @@ async function buildBS(query, company, start, end) {
     const code = r.account_code || '';
     const name = r.row_type === 'subtotal' ? `<em>${r.account_name}</em>` : r.account_name;
     const codeCell = code
-      ? `<a href="/${company}/reports?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      ? `<a href="/${company}/books?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
       : code;
     tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.balance)}</td></tr>`;
   }
@@ -205,7 +205,7 @@ async function buildBS(query, company, start, end) {
 async function buildTB(query, company, start, end) {
   const rows = await query(`SELECT * FROM tb(?, ?, ?)`, [company, start, end]);
   let tableRows = rows.map(r => `<tr class="account">
-    <td><a href="/${company}/reports?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a></td><td>${r.account_name}</td><td>${r.account_type}</td>
+      <td><a href="/${company}/books?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a></td><td>${r.account_name}</td><td>${r.account_type}</td>
     <td class="num">${fmt(r.total_debit)}</td>
     <td class="num">${fmt(r.total_credit)}</td>
     <td class="num">${fmt(r.net_balance)}</td>
@@ -826,7 +826,10 @@ async function buildCF(query, company, start, end) {
     const cls = r.row_type + (r.amount == 0 && r.row_type === 'account' ? ' zero' : '');
     const code = r.account_code || '';
     const name = r.row_type === 'total' ? `<strong>${r.account_name}</strong>` : r.account_name;
-    tableRows += `<tr class="${cls}"><td>${code}</td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
+    const codeCell = code
+      ? `<a href="/${company}/books?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      : code;
+    tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
   }
   const tableHtml = `<table>
     <thead><tr><th>Code</th><th>Description</th><th class="num">Amount</th></tr></thead>
@@ -838,7 +841,7 @@ async function buildCF(query, company, start, end) {
 async function buildSCE(query, company, start, end) {
   const rows = await query(`SELECT * FROM sce(?, ?, ?)`, [company, start, end]);
   let tableRows = rows.map(r => `<tr class="account">
-    <td>${r.account_code}</td><td>${r.account_name}</td>
+    <td>${r.account_code ? `<a href="/${company}/books?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a>` : ''}</td><td>${r.account_name}</td>
     <td class="num">${fmt(r.opening_balance)}</td>
     <td class="num">${fmt(r.movements)}</td>
     <td class="num">${fmt(r.closing_balance)}</td>

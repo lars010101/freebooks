@@ -229,11 +229,14 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
   flex-shrink: 0;
 }
 
-/* Company switcher dropdown (sidebar) */
+/* Company switcher dropdown — position:fixed matching .tb-notif-dropdown
+   (global-period-selector-chrome-spec §2.1: no positioned ancestor in the
+   containing-block chain, so absolute anchored to the initial containing
+   block/viewport — switch to fixed at the known top-bar height). */
 .tb-company-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
+  position: fixed;
+  top: 52px;
+  left: 24px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -414,6 +417,67 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 .tb-notif-item .notif-time { font-size: 8.5pt; color: var(--text-faint); margin-top: 2px; }
 .tb-notif-empty { padding: 20px 14px; text-align: center; color: var(--text-faint); }
 
+/* ── Global Period Selector (global-period-selector-chrome-spec §3) ──────── */
+.tb-period-trigger {
+  font-size: 0.8125rem;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 0 6px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.tb-period-trigger:hover { background: var(--bg); }
+/* Dimmed (dateRelevance='none'): reduced opacity, NOT pointer-events:none,
+   NOT disabled — control stays fully operable (§3.6, §0 item 3). */
+.tb-period-trigger.tb-period-dimmed { opacity: 0.45; }
+
+.tb-period-popover {
+  position: fixed;
+  top: 52px;
+  left: 180px;
+  min-width: 280px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  z-index: 300;
+  padding: 12px 14px;
+  font-size: 0.8125rem;
+}
+.tb-period-popover .tb-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  background: var(--surface);
+  color: var(--text);
+}
+.tb-period-custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.tb-period-custom label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tb-period-custom input[type=date] {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  background: var(--surface);
+  color: var(--text);
+}
+.tb-period-dash { color: var(--text-muted); font-size: 0.875rem; }
+
 /* ---- Page main ---- */
 #page-main {
   flex: 1;
@@ -545,7 +609,8 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
    Lives inside .tb-search-wrap (position:relative'd by FB.palette). */
 .fb-palette {
   position: absolute;
-  top: calc(100% + 4px);
+  bottom: calc(100% + 4px);
+  top: auto;
   left: 0;
   min-width: 100%;
   width: max-content;
@@ -650,7 +715,8 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
 /* Grammar hint — shown under the bar when a typed command is recognized */
 .fb-grammar-hint {
   position: absolute;
-  top: calc(100% + 4px);
+  bottom: calc(100% + 4px);
+  top: auto;
   left: 0;
   min-width: 100%;
   background: var(--surface);

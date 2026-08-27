@@ -355,13 +355,9 @@ ${commonStyle()}
     </div>
   </div>
 
-  <!-- Date-range toolbar (default-period spec) — seeds from the default
-       accounting period on page load; onchange re-fetches the bill list. -->
+  <!-- Date-range toolbar retired (global-period-selector-chrome-spec §5):
+       bills now read from the global Period Selector (FB.period). -->
   <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
-    <span style="font-size:0.75rem; color:#aaa; font-weight:600; text-transform:uppercase; letter-spacing:.05em;">Date range</span>
-    <input type="date" id="bill-date-from" class="tb-date-input" onchange="billsList.load()" title="Start date">
-    <span style="color:#aaa; padding:0 3px; font-size:0.875rem;">\u2013</span>
-    <input type="date" id="bill-date-to" class="tb-date-input" onchange="billsList.load()" title="End date">
   </div>
 
   <!-- Table card -->
@@ -466,6 +462,10 @@ function showTab(t) {
     if (cf) cf.src = '/api/' + COMPANY + '/report?type=ap-control';
   }
   // Persist last-active tab (session-scoped, §2.4).
+  // Per-tab relevance override (global-period-selector-chrome-spec §4.2):
+  // bills→range, vendors→none, aging→asOf, control→asOf.
+  var TAB_RELEVANCE = { bills: 'range', vendors: 'none', aging: 'asOf', control: 'asOf' };
+  if (window.FB && FB.period) FB.period.setRelevance(TAB_RELEVANCE[t] || 'none');
   try { sessionStorage.setItem('fb.tab.payables', t); } catch(e) {}
 }
 

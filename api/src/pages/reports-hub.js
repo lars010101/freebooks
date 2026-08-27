@@ -60,10 +60,6 @@ ${commonStyle()}
       ${typeOptions}
     </select>
     <div class="tb-divider"></div>
-    <select id="rpt-period" class="tb-select" style="min-width:110px" onchange="fbOnPeriodChange()" title="Period"><option value="">\u2014</option></select>
-    <input type="date" id="rpt-start" class="tb-date-input" onchange="fbLoadReport()" title="Start date">
-    <span style="color:var(--text-muted);padding:0 3px;font-size:0.875rem">\u2013</span>
-    <input type="date" id="rpt-end" class="tb-date-input" onchange="fbLoadReport()" title="End date">
     <button class="tb-toggle-btn" id="rpt-mom" onclick="fbToggleComparison('mom')" title="Month-over-month" style="margin-left:8px">MoM</button>
     <button class="tb-toggle-btn" id="rpt-yoy" onclick="fbToggleComparison('yoy')" title="Year-over-year">YoY</button>
     <div style="position:relative;margin-left:auto">
@@ -93,13 +89,8 @@ ${layoutEnd()}
   var drillThrough = !!urlParams.get('t');
   if (drillThrough) { currentType = urlParams.get('t'); localStorage.setItem('fb-rpt-type', currentType); }
   var drillAccount = urlParams.get('account') || '';
-  var startParam = urlParams.get('start') || '';
-  var endParam = urlParams.get('end') || '';
 
   var currentStep = localStorage.getItem('fb-rpt-step') || '';
-  var savedPeriod = localStorage.getItem('fb-rpt-period') || '';
-  var savedStart  = localStorage.getItem('fb-rpt-start')  || '';
-  var savedEnd    = localStorage.getItem('fb-rpt-end')    || '';
 
   /* ── Type dropdown ── */
   var typeEl = document.getElementById('rpt-type');
@@ -123,189 +114,24 @@ ${layoutEnd()}
   }
   updateStepButtons();
 
-  /* ── Load periods ── */
-  fetch('/api/' + company + '/periods')
-    .then(function(r) { return r.json(); })
-    .then(function(raw) {
-      var periods = (Array.isArray(raw) ? raw : (raw.data || [])).slice().sort(function(a, b) {
-        return String(b.start_date) > String(a.start_date) ? 1 : -1;
-      });
-      var periodEl = document.getElementById('rpt-period');
-      if (!periodEl) return;
-      var opts = '<option value="custom">Custom</option>';
-      opts += periods.map(function(p) {
-        var s = fmtDate(p.start_date), e = fmtDate(p.end_date);
-        return '<option value="' + s + '|' + e + '">' + (p.period_name || s) + '</option>';
-      }).join('');
-      periodEl.innerHTML = opts;
-      var periodParam = urlParams.get('period') || '';
-      var periodLoaded = false;
-      // v7: Priority for period selection:
-      //   1. ?period= URL param (explicit navigation intent from :report)
-      //   2. Latest posted-transaction period (fetched from backend)
-      //   3. Fallback: periods[0] (latest by start_date)
-      // localStorage is NOT used for auto-selection — it was causing stale 2025 periods.
-      // localStorage is only written when the user manually picks a period.
-      if (periodParam && periods.length) {
-        var tok = periodParam.trim().toLowerCase();
-        var matchedPeriod = null;
-        var setAndLoad = function (p) {
-          var s = fmtDate(p.start_date), e = fmtDate(p.end_date);
-          for (var k = 0; k < periodEl.options.length; k++) {
-            if (periodEl.options[k].value === s + '|' + e) { periodEl.selectedIndex = k; break; }
-          }
-          document.getElementById('rpt-start').value = s;
-          document.getElementById('rpt-end').value = e;
-          localStorage.setItem('fb-rpt-period', s + '|' + e);
-          localStorage.setItem('fb-rpt-start', s);
-          localStorage.setItem('fb-rpt-end', e);
-          fbLoadReport();
-        };
-        // 1. exact period_name match (case-insensitive)
-        for (var pi = 0; pi < periods.length; pi++) {
-          if ((periods[pi].period_name || '').toLowerCase() === tok) { matchedPeriod = periods[pi]; break; }
-        }
-        // 2. quarter shorthand q1-q4
-        if (!matchedPeriod && /^q[1-4]$/.test(tok)) {
-          for (var pi2 = 0; pi2 < periods.length; pi2++) {
-            var pn = (periods[pi2].period_name || '').toLowerCase();
-            if (pn.indexOf(tok) !== -1) { matchedPeriod = periods[pi2]; break; }
-          }
-          if (!matchedPeriod) {
-            var qn = parseInt(tok.slice(1), 10);
-            var qStart = [0, 3, 6, 9][qn - 1];
-            var qEnd = qStart + 2;
-            var year = periods.length ? String(periods[0].start_date).slice(0, 4) : String(new Date().getFullYear());
-            for (var pi3 = 0; pi3 < periods.length; pi3++) {
-              var ps = String(periods[pi3].start_date).slice(0, 10);
-              var pe = String(periods[pi3].end_date).slice(0, 10);
-              var psm = parseInt(ps.slice(5, 7), 10);
-              var pem = parseInt(pe.slice(5, 7), 10);
-              if (ps.slice(0, 4) === year && psm >= qStart + 1 && pem <= qEnd + 1) { matchedPeriod = periods[pi3]; break; }
-            }
-          }
-        }
-        // 3. half-year shorthand h1/h2
-        if (!matchedPeriod && /^h[12]$/.test(tok)) {
-          var half = parseInt(tok.slice(1), 10);
-          var yearH = periods.length ? String(periods[0].start_date).slice(0, 4) : String(new Date().getFullYear());
-          for (var pi4 = 0; pi4 < periods.length; pi4++) {
-            var hs = String(periods[pi4].start_date).slice(0, 10);
-            var he = String(periods[pi4].end_date).slice(0, 10);
-            var hsm = parseInt(hs.slice(5, 7), 10);
-            var hem = parseInt(he.slice(5, 7), 10);
-            if (hs.slice(0, 4) === yearH && half === 1 && hsm >= 1 && hem <= 6) { matchedPeriod = periods[pi4]; break; }
-            if (hs.slice(0, 4) === yearH && half === 2 && hsm >= 7 && hem <= 12) { matchedPeriod = periods[pi4]; break; }
-          }
-        }
-        // 4. ytd — full range of all periods
-        if (!matchedPeriod && tok === 'ytd') {
-          var earliest = periods[0], latest = periods[0];
-          for (var pi5 = 0; pi5 < periods.length; pi5++) {
-            if (String(periods[pi5].start_date) < String(earliest.start_date)) earliest = periods[pi5];
-            if (String(periods[pi5].end_date) > String(latest.end_date)) latest = periods[pi5];
-          }
-          var sY = fmtDate(earliest.start_date), eY = fmtDate(latest.end_date);
-          periodEl.value = 'custom';
-          document.getElementById('rpt-start').value = sY;
-          document.getElementById('rpt-end').value = eY;
-          localStorage.setItem('fb-rpt-period', 'custom');
-          localStorage.setItem('fb-rpt-start', sY);
-          localStorage.setItem('fb-rpt-end', eY);
-          periodLoaded = true;
-          fbLoadReport();
-        } else if (matchedPeriod) {
-          periodLoaded = true;
-          setAndLoad(matchedPeriod);
-        }
-      } else if (endParam && RPT_META[currentType] && !RPT_META[currentType].needsStart) {
-        // needsStart:false reports (e.g. AP Aging) return with end= only —
-        // no start param to restore. Set end and load; explicit return-context
-        // wins over the computed default period.
-        document.getElementById('rpt-end').value = endParam;
-        periodLoaded = true;
-        if (drillThrough) fbLoadReport();
-      } else if (startParam && endParam) {
-        // Restore period from ?start=&end= (drill-through return navigation).
-        // Try to match a known period for the dropdown; fall back to "custom".
-        var matched = false;
-        for (var si = 0; si < periods.length; si++) {
-          var ss = fmtDate(periods[si].start_date), se = fmtDate(periods[si].end_date);
-          if (ss === startParam && se === endParam) {
-            for (var sj = 0; sj < periodEl.options.length; sj++) {
-              if (periodEl.options[sj].value === ss + '|' + se) { periodEl.selectedIndex = sj; break; }
-            }
-            matched = true;
-            break;
-          }
-        }
-        if (!matched) periodEl.value = 'custom';
-        document.getElementById('rpt-start').value = startParam;
-        document.getElementById('rpt-end').value = endParam;
-        localStorage.setItem('fb-rpt-start', startParam);
-        localStorage.setItem('fb-rpt-end', endParam);
-        periodLoaded = true;
-        if (drillThrough) fbLoadReport();
-      } else if (periods.length) {
-        // v7: No ?period= param — fetch the latest posted-transaction period.
-        // This always runs, ignoring stale localStorage.
-        fetch('/api/' + company + '/reports/default-period')
-          .then(function(r) { return r.json(); })
-          .then(function(res) {
-            if (res && res.period_id) {
-              for (var pi = 0; pi < periods.length; pi++) {
-                if (periods[pi].period_id === res.period_id) {
-                  var s = fmtDate(periods[pi].start_date), e = fmtDate(periods[pi].end_date);
-                  for (var k = 0; k < periodEl.options.length; k++) {
-                    if (periodEl.options[k].value === s + '|' + e) { periodEl.selectedIndex = k; break; }
-                  }
-                  document.getElementById('rpt-start').value = s;
-                  document.getElementById('rpt-end').value = e;
-                  if (drillThrough) fbLoadReport();
-                  return;
-                }
-              }
-            }
-            // Fallback: periods[0]
-            var p0 = periods[0];
-            var s0 = fmtDate(p0.start_date), e0 = fmtDate(p0.end_date);
-            document.getElementById('rpt-start').value = s0;
-            document.getElementById('rpt-end').value = e0;
-            periodEl.value = s0 + '|' + e0;
-            if (drillThrough) fbLoadReport();
-          })
-          .catch(function() {
-            var p0 = periods[0];
-            var s0 = fmtDate(p0.start_date), e0 = fmtDate(p0.end_date);
-            document.getElementById('rpt-start').value = s0;
-            document.getElementById('rpt-end').value = e0;
-            periodEl.value = s0 + '|' + e0;
-            if (drillThrough) fbLoadReport();
-          });
-      }
-      // Note: drillThrough loads happen inside the period resolution above
-      // (both in the ?period= path and the default-period fetch path).
-      // No synchronous fallback load here — the async fetch handles it.
-    })
-    .catch(function() {
-      if (savedStart && savedEnd) {
-        document.getElementById('rpt-start').value = savedStart;
-        document.getElementById('rpt-end').value   = savedEnd;
-      }
-      if (drillThrough) fbLoadReport();
-    });
+  /* ── Per-report relevance override (§4.2) ── */
+  /* REPORT_REGISTRY[currentType].needsStart → 'range' | 'asOf'. Called every
+     time currentType changes (dropdown, drill-through). */
+  function applyReportRelevance() {
+    if (!currentType || !RPT_META[currentType]) return;
+    FB.period.setRelevance(RPT_META[currentType].needsStart ? 'range' : 'asOf');
+  }
+  if (currentType) applyReportRelevance();
+
+  /* ── Wire FB.period — report reloads when the global period changes ── */
+  FB.period.onChange(function () { fbLoadReport(); });
 
   /* ── Helpers ── */
-  function fmtDate(d) {
-    if (!d) return '';
-    if (typeof d === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(d)) return d;
-    var dt = new Date(d);
-    return isNaN(dt) ? String(d).slice(0, 10) : dt.toISOString().slice(0, 10);
-  }
-
+  /* buildReportUrl reads from FB.period.get() — the local #rpt-period /
+     #rpt-start / #rpt-end DOM elements no longer exist (retired per spec §5). */
   function buildReportUrl() {
-    var start = (document.getElementById('rpt-start') || {}).value || '';
-    var end   = (document.getElementById('rpt-end')   || {}).value || '';
+    var st = FB.period.get();
+    var start = st.start, end = st.end;
     if (!currentType || !end) return null;
     /* As-of reports (registry needsStart:false, e.g. AP Aging) need end only */
     if (RPT_META[currentType] && !RPT_META[currentType].needsStart) {
@@ -367,16 +193,7 @@ ${layoutEnd()}
     if (val) currentType = val;
     localStorage.setItem('fb-rpt-type', currentType);
     updateStepButtons();
-    fbLoadReport();
-  };
-
-  window.fbOnPeriodChange = function() {
-    var val = (document.getElementById('rpt-period') || {}).value || '';
-    if (val && val !== 'custom') {
-      var pts = val.split('|');
-      document.getElementById('rpt-start').value = pts[0];
-      document.getElementById('rpt-end').value   = pts[1];
-    }
+    applyReportRelevance();
     fbLoadReport();
   };
 
@@ -396,13 +213,9 @@ ${layoutEnd()}
    */
   var _rptLoadPending = false;
   var _doLoadReport = function() {
-    var start  = (document.getElementById('rpt-start')  || {}).value || '';
-    var end    = (document.getElementById('rpt-end')    || {}).value || '';
-    var period = (document.getElementById('rpt-period') || {}).value || 'custom';
-    localStorage.setItem('fb-rpt-type',   currentType);
-    localStorage.setItem('fb-rpt-period', period);
-    if (start) localStorage.setItem('fb-rpt-start', start);
-    if (end)   localStorage.setItem('fb-rpt-end',   end);
+    var st = FB.period.get();
+    var end = st.end;
+    localStorage.setItem('fb-rpt-type', currentType);
     if (!end) return;
     var frame = document.getElementById('report-frame');
     if (!frame) return;
@@ -445,8 +258,8 @@ ${layoutEnd()}
   window.fbExportCSV = function() {
     closeDownloadMenu();
     var frame = document.getElementById('report-frame');
-    var start = (document.getElementById('rpt-start') || {}).value || '';
-    var end   = (document.getElementById('rpt-end')   || {}).value || '';
+    var st = FB.period.get();
+    var start = st.start, end = st.end;
     if (!frame || frame.src === 'about:blank') { alert('Load a report first.'); return; }
     try {
       var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
@@ -478,8 +291,8 @@ ${layoutEnd()}
      browser save it directly from the URL. */
   window.fbExportSIE = function() {
     closeDownloadMenu();
-    var start = (document.getElementById('rpt-start') || {}).value || '';
-    var end   = (document.getElementById('rpt-end')   || {}).value || '';
+    var st = FB.period.get();
+    var start = st.start, end = st.end;
     if (!start || !end) { alert('Select a date range first.'); return; }
     var a = document.createElement('a');
     a.href = '/api/' + company + '/report?type=sie&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
@@ -522,9 +335,6 @@ ${layoutEnd()}
         cells: function (row) {
           return [
             document.getElementById('rpt-type'),
-            document.getElementById('rpt-period'),
-            document.getElementById('rpt-start'),
-            document.getElementById('rpt-end'),
             document.getElementById('rpt-mom'),
             document.getElementById('rpt-yoy'),
             document.getElementById('rpt-dl-btn')
@@ -556,7 +366,6 @@ ${layoutEnd()}
 // the cell value"). The source reads live options, so the periods fetch
 // needs no coordination. Pick fires change → the handlers above reload.
 FB.dropdown.attachSelect(document.getElementById('rpt-type'));
-FB.dropdown.attachSelect(document.getElementById('rpt-period'));
 
 })();
 </script>

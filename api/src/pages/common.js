@@ -146,12 +146,8 @@ function navBar(company, activeKey) {
   <div id="main-area">
     <header id="top-bar">
       <div class="tb-left">
-        <div class="tb-global-controls">
-          <div class="tb-search-wrap">
-            <input type="text" id="tb-global-search" class="tb-search" placeholder="Search (/) or Command (:) — leading / filters this list …" autocomplete="off" tabindex="-1">
-          </div>
-          <span id="tb-status-msg" class="tb-status-msg"></span>
-        </div>
+        <span class="fb-sl-company" onclick="fbToggleCompany(event)" title="Switch company (g c)"></span>
+        <span id="tb-period-trigger" class="tb-period-trigger" onclick="FB.period.togglePopover(event)" title="Period selector">Period</span>
       </div>
       <div class="tb-right">
         <span id="tb-dyn-slots"></span>
@@ -162,6 +158,7 @@ function navBar(company, activeKey) {
       </div>
     </header>
     <div id="tb-notif-dropdown" class="tb-notif-dropdown" hidden></div>
+    <div id="tb-period-popover" class="tb-period-popover" hidden></div>
     <main id="page-main">`;
 }
 
@@ -169,9 +166,12 @@ function navBar(company, activeKey) {
 function layoutEnd() {
   return `    </main>
     <footer id="fb-status-line">
-      <span class="fb-sl-company" onclick="fbToggleCompany(event)" title="Switch company (g c)"></span>
-      <span class="fb-sl-sep">·</span>
-      <span class="fb-sl-period" id="fb-sl-period"></span>
+      <div class="tb-global-controls">
+        <div class="tb-search-wrap">
+          <input type="text" id="tb-global-search" class="tb-search" placeholder="Search (/) or Command (:) — leading / filters this list …" autocomplete="off" tabindex="-1">
+        </div>
+        <span id="tb-status-msg" class="tb-status-msg"></span>
+      </div>
       <span class="fb-sl-sep">·</span>
       <span class="fb-sl-inbox" id="fb-sl-inbox">0 pending</span>
       <span class="fb-sl-spacer"></span>

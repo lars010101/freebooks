@@ -49,8 +49,6 @@ ${commonStyle()}
   </div>
 
   <div class="controls-row">
-    <label>As of date</label>
-    <input type="date" id="asof-date">
     <label>Currency</label>
     <input type="text" id="f-currency" maxlength="3" placeholder="All" style="width:60px;text-transform:uppercase">
     <button onclick="doLoad()">Refresh</button>
@@ -96,14 +94,17 @@ var COMPANY = '${company}';
 var agingRows = []; // stores all bill rows for modal lookup
 
 function fbPageInitApAging() {
-  document.getElementById('asof-date').value = new Date().toISOString().slice(0,10);
+  // As-of date comes from the global Period Selector (FB.period.get().end).
+  // No local #asof-date input — retired per global-period-selector-chrome-spec §5.
+  FB.period.onChange(doLoad);
   doLoad();
 }
 window.addEventListener('DOMContentLoaded', fbPageInitApAging);
 window.fbPageInit = fbPageInitApAging;
 
 function doLoad() {
-  var asOf = document.getElementById('asof-date').value;
+  var asOf = FB.period.get().end;
+  if (!asOf) asOf = new Date().toISOString().slice(0, 10);
   var currency = document.getElementById('f-currency').value.trim().toUpperCase();
   var payload = { action: 'bill.aging', companyId: COMPANY, asOfDate: asOf };
   if (currency) payload.currency = currency;

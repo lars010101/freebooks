@@ -88,6 +88,14 @@ async function scanCompany(companyId, baseCurrency) {
   );
 
   const today = new Date().toISOString().slice(0, 10);
+
+  // Jurisdiction for getExposedCurrencies — queried once per scan, not per period.
+  const coRows = await query(
+    `SELECT jurisdiction FROM companies WHERE company_id = @companyId LIMIT 1`,
+    { companyId }
+  );
+  const jurisdiction = coRows.length > 0 ? coRows[0].jurisdiction : null;
+
   let fetched = 0;
   let notified = 0;
 
@@ -97,6 +105,12 @@ async function scanCompany(companyId, baseCurrency) {
     const effectiveEnd = end < today ? end : today;
 
     if (start > today) continue; // future period — skip
+
+    // §5b: if the company has zero currency exposure, skip this period
+    // entirely (na) — no fetch, no coverage computation, no notification.
+    // A company can't have a coverage gap in currencies it has no need for.
+    const exposed = await getExposedCurrencies(companyId, baseCurrency, jurisdiction, effectiveEnd);
+    if (exposed.length === 0) continue;
 
     // 1. Compute coverage (fetches publication days + rate rows in one call)
     const coverage = await computeCoverage(companyId, baseCurrency, start, effectiveEnd, provider, source, apiKey);
@@ -114,14 +128,7 @@ async function scanCompany(companyId, baseCurrency) {
     // historical rows already in fx_rates are never deleted.
     let rowsToInsert = coverage.rows;
     if (rowsToInsert && rowsToInsert.length > 0) {
-      // Get the company's jurisdiction for getExposedCurrencies
-      const coRows = await query(
-        `SELECT jurisdiction FROM companies WHERE company_id = @companyId LIMIT 1`,
-        { companyId }
-      );
-      const jurisdiction = coRows.length > 0 ? coRows[0].jurisdiction : null;
-      const today = new Date().toISOString().slice(0, 10);
-      const exposed = await getExposedCurrencies(companyId, baseCurrency, jurisdiction, today);
+      const exposed = await getExposedCurrencies(companyId, baseCurrency, jurisdiction, effectiveEnd);
       const exposedSet = new Set(exposed.map(c => c.toUpperCase()));
       rowsToInsert = rowsToInsert.filter(r =>
         exposedSet.has((r.from_currency || '').toUpperCase()) ||

@@ -335,9 +335,6 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
 /* Quiet variant: permanent/secondary topbar actions (+ Journal Entry, dynamic slots) */
 .tb-btn.tb-btn-quiet { opacity: .72; }
 .tb-btn.tb-btn-quiet:hover { opacity: 1; }
-/* Dynamic slot pair: + icon snug against its screen chip */
-.tb-dyn-plus { padding-left: 8px; padding-right: 8px; margin-right: -4px; font-weight: 600; }
-.tb-dyn-chip { margin-right: 10px; }
 
 /* P3 add row: the single create affordance, pinned at the BOTTOM of every
    FB.list table (QuickBooks/Xero "+ Add line" pattern). Plain muted text —
@@ -460,13 +457,14 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 
 /* ── Global Period Selector (global-period-selector-chrome-spec §3) ──────── */
 .tb-period-trigger {
-  font-size: 0.8125rem;
+  font-size: 1.083rem;
   color: var(--navy-text);
   cursor: pointer;
   white-space: nowrap;
   padding: 0 6px;
   border-radius: 4px;
   transition: background 0.15s;
+  line-height: 32px;
 }
 .tb-period-trigger:hover { background: var(--navy-hover); color: var(--navy-text-strong); }
 /* Dimmed (dateRelevance='none'): reduced opacity, NOT pointer-events:none,

@@ -1620,7 +1620,8 @@
       enterCommand: enterCommand,
       isCommand: function () { return _command; },
       isOpen: function () { return !!_el; },
-      newTargets: newTargets
+      newTargets: newTargets,
+      preloadCatalog: _fetchCatalog
     };
   })();
 
@@ -3156,7 +3157,13 @@
     if (!dd) return;
     var getNT = (window.FB && FB.util && FB.util.newTargets) ? FB.util.newTargets : function () { return []; };
     var items = getNT();
-    if (!items.length) { dd.innerHTML = '<div class="tb-new-empty">No create actions.</div>'; return; }
+    if (!items.length) {
+      // Catalog not loaded yet — trigger fetch and retry shortly
+      dd.innerHTML = '<div class="tb-new-empty">Loading…</div>';
+      if (window.FB && FB.palette && FB.palette.preloadCatalog) FB.palette.preloadCatalog();
+      setTimeout(_populateNewMenu, 300);
+      return;
+    }
     var html = '';
     items.forEach(function (item) {
       var route = item.route || '';
@@ -3175,6 +3182,8 @@
   function _wireNewMenu() {
     var newBtn = document.getElementById('tb-new-btn');
     if (!newBtn) return;
+    // Preload the action catalog so newTargets() returns items on first click
+    if (window.FB && FB.palette && FB.palette.preloadCatalog) FB.palette.preloadCatalog();
     newBtn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();

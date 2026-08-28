@@ -509,13 +509,8 @@ var list = FB.list.create({
       + '<td colspan="3"></td><td></td>';
   },
   rowVerbs: [
-    // A5 §10.4 — group header fold (Enter/click). Prepended ahead of the
-    // built-in tree Enter (openFocused); the when-guard declines on item rows
-    // so Enter keeps its unfold meaning there.
-    { key: 'Enter', label: 'fold group', paletteEligible: false,
-      when: function (row) { return row._kind === 'group'; },
-      affordance: function (r) { return '<a class="chip" title="fold/unfold group (Enter)" data-act="verb:Enter">' + (r._folded ? '&#9656;' : '&#9662;') + '</a>'; },
-      run: function (api, row) { toggleGroupFold(row); } },
+    // A5 §10.4 — group header fold is now Space-only (the built-in tree
+    // binding). Enter falls through to the built-in openFocused (edit/detail).
     { key: 'y', label: 'approve',
       when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
       affordance: function () { return '<a class="chip chip-ok" title="approve (y)" data-act="verb:y">&#10003;</a>'; },

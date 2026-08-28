@@ -1525,7 +1525,7 @@
       { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { nav.move(1); } },
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { nav.move(-1); } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: editFocused },
-      { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true, paletteEligible: false, run: openFocused },
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: openFocused },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) writeAt(i); } },
       { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
       // G/gg: cursor to bottom/top AND page to absolute bottom/top (Bills parity —
@@ -1582,12 +1582,24 @@
       });
     }
     if (cfg.tree) {
-      // Space = FOLD (vim fold semantics, Task 4): toggles the bill under the
-      // cursor — on a parent folds that bill, on a child folds its parent;
-      // inert on the add row (focusedRow() returns null there). Mouse parity
-      // is the ▸/▾ caret in rowHtml. Enter = edit everywhere is already wired
-      // (Task 3 — editFocused resolves child→parent; posted bills no-op).
-      bindings.push({ key: ' ', mode: 'NORMAL', hint: 'fold', hintBar: true,
+      // Space = EXPAND/COLLAPSE (vim fold semantics, Task 4): toggles the bill
+      // under the cursor — on a parent folds that bill, on a child folds its
+      // parent; inert on the add row (focusedRow() returns null there). Mouse
+      // parity is the ▸/▾ caret in rowHtml. Enter = edit everywhere is already
+      // wired (Task 3 — editFocused resolves child→parent; posted bills no-op).
+      // ~ is a silent alias for Space when no ~ binding exists on the page
+      // ( Partners ~ toggle-active, Reports ~ comparison, etc.). The alias is
+      // NOT shown in the help overlay — Space is the documented key.
+      bindings.push({ key: ' ', mode: 'NORMAL', hint: 'Expand/Collapse', hintBar: true,
+        when: function () { return !!focusedRow(); },
+        run: function () {
+          var d = focusedRow();
+          if (d) toggleFold(d._childOf ? rowByKey(d._childOf) : d);
+        } });
+      // Silent ~ alias for expand/collapse — only fires if no page-level ~
+      // binding matched first (extraBindings are prepended, so page verbs
+      // win in _matchBinding's first-match order). No hint → not in overlay.
+      bindings.push({ key: '~', mode: 'NORMAL', paletteEligible: false,
         when: function () { return !!focusedRow(); },
         run: function () {
           var d = focusedRow();

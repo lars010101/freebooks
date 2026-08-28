@@ -412,9 +412,9 @@ window.fbKeyActions = {
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: act('k') },
       { key: 'h', mode: 'NORMAL', hint: 'section ←', hintBar: true, paletteEligible: false, run: act('h') },
       { key: 'l', mode: 'NORMAL', hint: 'section →', hintBar: true, paletteEligible: false, run: act('l') },
-      { key: 'e', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: act('edit') },
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: act('edit') },
       { key: 'A', mode: 'NORMAL', hint: 'attach', hintBar: true, run: act('attach') },
-      { key: 'd', mode: 'NORMAL', hint: 'delete/void', hintBar: true, run: act('delete') },
+      { key: 'x', mode: 'NORMAL', hint: 'delete/void', hintBar: true, run: act('delete') },
       { key: 'Escape', mode: 'NORMAL', hint: 'back', hintBar: true, paletteEligible: false, run: act('escape') }
     ]
   });

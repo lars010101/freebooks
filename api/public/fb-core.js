@@ -249,13 +249,16 @@
 
   function _dispatch(e) {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
-    // Help overlay open: swallow EVERY key — page bindings and common.js's
-    // bubble handler stay inert until it closes (Esc / `?` / backdrop click).
+    // Help overlay open: close on ANY key and let it fall through to normal
+    // dispatch so the user can immediately act on what they read (e.g. press
+    // `g i` to go to Inbox — the `g` closes the overlay and arms the g-prefix,
+    // `i` navigates). Modifier-only keys don't reach here (early return above).
     if (help.isOpen()) {
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      if (e.key === 'Escape' || e.key === '?') help.close();
-      return;
+      help.close();
+      // Fall through — do NOT stopImmediatePropagation or preventDefault.
+      // The key proceeds through normal dispatch as if the overlay wasn't
+      // open. The overlay is already gone, so the user sees their key take
+      // effect immediately.
     }
     // K2: a pushed modal scope owns dispatch exclusively — page sets, the
     // switcher, the g-prefix and common.js all stay inert until it pops.

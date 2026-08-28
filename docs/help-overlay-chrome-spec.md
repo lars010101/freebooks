@@ -1,11 +1,15 @@
-# `?` Help Overlay Restructure — Global section, NAV reordered
+# `?` Help Overlay — NAVIGATION + ACTIONS two-column (v2)
 
-**Status:** Draft — design agreed (magnus, 2026-08-28), not yet built.
+**Status:** Built — ratified design (magnus, 2026-08-28), implemented in
+`api/public/fb-core.js` `help.open()` + `api/public/common.css`.
 **Amends:** the overlay described in `docs/payables-ux-spec.md` P1-6 and the
 deferred item in `docs/keyboard-ux-spec.md` §9 ("`?` overlay GLOBAL
 section... the overlay currently documents the active page set only").
-**Depends on:** `fb-core.js`'s `help` module (`open()`, `_navRows()`,
-`_rows()`, `_groupHints()`), `window.FB_ROUTES`, the active page's `FB.keys`
+**Supersedes:** the earlier Global + Go to page stacked layout (PR #283),
+which this v2 merges into a single NAVIGATION column and pairs with an
+ACTIONS column.
+**Depends on:** `fb-core.js`'s `help` module (`open()`, `_rows()`,
+`_groupHints()`), `window.FB_ROUTES`, the active page's `FB.keys`
 binding table.
 **Deferred, tracked separately:** `docs/topbar-chrome-spec.md` §7 also
 deferred this same overlay restructure and `:show`'s fate together — this
@@ -44,75 +48,100 @@ change here: freebooks' overlay already renders everything at once with no
 progressive disclosure, matching the exhaustive-by-default doctrine from
 `payables-ux-spec.md` P1-6 ("Overlay is exhaustive... one source of truth").
 
-**Adopted:** the vertical-stack-of-named-sections structure, applied to the
-*two new* sections below (§2).
-**Not adopted:** collapsing the existing NORMAL | INSERT side-by-side
-columns into vertically-stacked sections too — a truer 1:1 copy of GitHub
-would do this, but the columns stay as-is (magnus, 2026-08-28); only Global
-and Go to page are added as new stacked sections above them.
+**Adopted:** the named-sections structure, now realized as a two-column
+side-by-side layout (§2) — NAVIGATION on the left, ACTIONS on the right.
+
+**Not adopted (v1 → v2 revision):** the earlier Global + Go to page stacked
+sections (PR #283) are merged into the single NAVIGATION column. The old
+separate "Global" and "Go to page" headings are gone.
+
+**Not adopted:** the INSERT column is removed entirely. INSERT bindings
+(Esc-to-cancel, etc.) are obvious and only cluttered the panel; they are
+no longer rendered. The old NORMAL heading is renamed to ACTIONS.
+
+**Not adopted:** Esc, `?`, and standalone `g` are not shown anywhere in the
+overlay. Esc closes the overlay (still wired functionally in `_dispatch`),
+`?` toggles it (obvious — you pressed it to get here), and `g` is obvious
+from the `g <key>` Go to page rows listed below it in NAVIGATION.
+
 **Not adopted:** GitHub's row format (description on the left, key badge(s)
-right-aligned). The two new sections use freebooks' own existing row
-format (`<kbd>` left, description right, via `_rows()`) instead, for
-consistency with the unchanged NORMAL/INSERT columns directly below them —
-introducing a second row convention in the same panel would look like two
-different tools glued together. Flagging this as a judgment call, not
-something explicitly decided in the design conversation.
+right-aligned). Both columns use freebooks' own existing row format
+(`<kbd>` left, description right, via `_rows()`) for consistency.
 
 ---
 
 ## 2. New layout
 
+Two columns side by side under a single title row:
+
 ```
-┌─────────────────────────────────────────────┐
-│ Keyboard shortcuts            <page name>    │
-├─────────────────────────────────────────────┤
-│ Global                                       │
-│   /  Search        :  Command                │
-│   g  Go to page (see below)                  │
-│   ?  Toggle this help    Esc  Close           │
-├─────────────────────────────────────────────┤
-│ Go to page                                   │
-│   ...                                        │
-├───────────────────────┬───────────────────────┤
-│ NORMAL                 │ INSERT                │
-│   (unchanged)          │   (unchanged)         │
-└───────────────────────┴───────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│ Keyboard shortcuts            <page name>                │
+├──────────────────────────┬──────────────────────────────┤
+│ NAVIGATION               │ ACTIONS                      │
+│   /  Search               │   (page bindings,             │
+│   :  Command              │    grouped by hint)           │
+│   h/l  Move left / right   │                              │
+│   j/k  Move up / down      │                              │
+│   gg/G  Move to first /    │                              │
+│          last row          │                              │
+│   g i  Go to Inbox         │                              │
+│   g p  Go to Payables      │                              │
+│   ...                     │                              │
+└──────────────────────────┴──────────────────────────────┘
 ```
 
-The diagram deliberately omits named example rows for "Go to page" —
-`window.FB_ROUTES` (`api/src/nav-registry.js`) has been through multiple IA
-restructures in the last few weeks (Bank dropped entirely per issue #137,
-Reports split into Statements/Books, `b` reassigned from Bank to Books,
-`g d`/`g r` no longer exist), so a hardcoded example here would only add
-another stale copy of a table that's already drifted once in
-`keyboard-ux-spec.md` §2. `_navRows()` (§2 below) is the actual source of
-truth; the diagram's job is to show layout position, not content.
+The diagram shows example `g`-map rows for illustration; the actual entries
+come from `window.FB_ROUTES` (`api/src/nav-registry.js`), which has been
+through multiple IA restructures (Bank dropped per issue #137, Reports
+split into Statements/Books, `b` reassigned, `g d`/`g r` no longer exist).
+A hardcoded list here would only add another stale copy of a table that's
+already drifted once. The inlined g-map loop in `help.open()` is the actual
+source of truth; the diagram's job is to show layout position, not content.
 
-Concretely, in `help.open()`'s template: a new `.fb-keys-global` block and
-the existing `.fb-keys-nav` block (renamed heading, see below) both render
-**before** `.fb-keys-cols`, in that order. The standalone footer
-(`? close` / `Esc close`) is removed — folded into the Global section's own
-`?`/`Esc` rows, so close-hints aren't duplicated in two places.
+Concretely, in `help.open()`'s template: a `.fb-keys-main` flex container
+holds `.fb-keys-nav` (left) and `.fb-keys-actions` (right). The standalone
+footer (`? close` / `Esc close`) is removed entirely; the old Global and
+Go to page stacked sections are merged into NAVIGATION.
 
-**Global section rows** (new; static, not derived from any binding table —
-these are true chrome constants, not page verbs):
+**NAVIGATION section rows** (left column; static chrome constants, NOT
+derived from any binding table — true chrome, not page verbs), in order:
 
 | Keys | Hint |
 |---|---|
 | `/` | Search |
 | `:` | Command |
-| `g` | Go to page (see below) |
-| `?` | Toggle this help |
-| `Esc` | Close |
+| `h/l` | Move left / right |
+| `j/k` | Move up / down |
+| `gg/G` | Move to first / last row |
 
-**Go to page section:** `_navRows()`'s existing output, unchanged — reads
-`window.FB_ROUTES` exactly as today (same source `_gResolve()` uses, so the
-`g`-map and this section can't drift apart). Only the heading label changes,
-from `NAV` to `Go to page`, and its position moves from after `.fb-keys-cols`
-to before it.
+followed by the g-map entries from `window.FB_ROUTES`, each with its hint
+prefixed **"Go to "** (e.g. "Go to Inbox", "Go to Payables"):
 
-**NORMAL / INSERT columns:** unchanged in every respect — same `_groupHints`
-grouping, same per-page binding table, same position relative to each other.
+| Keys | Hint |
+|---|---|
+| `g <key>` | Go to <route label> |
+| ... | ... |
+
+The "Go to " prefix makes the g-map rows self-describing as navigation
+targets, distinct from the page verbs in ACTIONS.
+
+**ACTIONS section** (right column): the active page's NORMAL-mode hinted
+bindings, grouped via `_groupHints()` — same grouping as before. The
+heading is "ACTIONS" (was "NORMAL"). If there is no active set or zero
+hinted NORMAL bindings, an honest `—` placeholder is shown (same empty
+state as the old per-mode placeholder).
+
+**Removed from the overlay:**
+- The INSERT column — removed entirely. INSERT bindings exist but are
+  not rendered (Esc-to-cancel is obvious).
+- Esc — not shown (it closes the overlay; obvious).
+- `?` toggle help — not shown (you pressed it to open this; obvious).
+- `g` standalone — not shown (obvious from the `g <key>` Go to page rows
+  directly below the static rows).
+- The old "Global" and "Go to page" section headings — replaced by the
+  single "NAVIGATION" heading.
+- The old standalone footer (?/Esc close) — already gone since PR #283.
 
 ---
 
@@ -120,33 +149,15 @@ grouping, same per-page binding table, same position relative to each other.
 
 Today, `open()` returns `false` (silent no-op, per `_activeSet()` returning
 null, or a set with zero hinted bindings) on pages with no `FB.keys` set at
-all. Once Global and Go to page render independently of the active page's
-bindings, there is no longer a reason for the overlay to open empty-handed
-on those pages — it should always show at least Global + Go to page, with
-NORMAL/INSERT sections omitted (or shown as an honest "—" placeholder,
-matching the existing per-mode empty state already used when one mode has
-no hinted bindings) rather than declining to open at all.
+all. Once NAVIGATION renders independently of the active page's bindings,
+there is no longer a reason for the overlay to open empty-handed on those
+pages — it should always show at least NAVIGATION, with ACTIONS shown as an
+honest "—" placeholder rather than declining to open at all.
 
 **This is not enough on its own.** The keyboard trigger in `_dispatch`
-(`fb-core.js` L340–348) has its own, separate `_activeSet()` gate that
-short-circuits *before* `help.open()` is ever called:
-
-```js
-if (e.key === '?') {
-  var cur = _activeSet();
-  if (!cur) return;                                    // ← never reaches help.open()
-  var cm = cur.set.getMode ? cur.set.getMode() : 'NORMAL';
-  if (cm !== 'NORMAL' || _isEditableTarget(e)) return;
-  ...
-  help.open();
-}
-```
-
-Fixing only `open()`'s internal behavior leaves the keyboard path exactly
-as broken as it is today on a keyless page — pressing `?` would still do
-nothing, because the dispatcher bails before `open()` runs at all. Since
-the entire reason for this fix (§0) is the keyboard press, not a topbar
-button, the trigger must be relaxed too:
+(`fb-core.js` L340–348) had its own, separate `_activeSet()` gate that
+short-circuits *before* `help.open()` is ever called. PR #283 already
+relaxed it to:
 
 ```js
 if (e.key === '?') {
@@ -159,13 +170,9 @@ if (e.key === '?') {
 ```
 
 Dropping the `if (!cur) return;` line and defaulting `cm` to `'NORMAL'`
-when there's no active set (there's no mode to be in INSERT *of* when
-nothing is bound) lets `help.open()` be called unconditionally in NORMAL
-mode outside editable targets, exactly the same guard the trigger already
-applies everywhere else. `open()` itself then decides what to render, per
-the always-open behavior above. This directly fixes the original complaint
-that started this design thread: `?` on a page you don't have muscle memory
-for was exactly where it was most likely to do nothing.
+when there's no active set lets `help.open()` be called unconditionally in
+NORMAL mode outside editable targets. `open()` itself then decides what to
+render, per the always-open behavior above. v2 inherits this fix unchanged.
 
 ---
 
@@ -174,15 +181,21 @@ for was exactly where it was most likely to do nothing.
 - `:show`'s fate — tracked in `docs/topbar-chrome-spec.md` §7, unresolved.
 - Any change to `?`'s trigger guards (NORMAL-mode-only, not-while-typing) —
   unchanged from `payables-ux-spec.md` P1-6.
-- Collapsing NORMAL/INSERT into stacked sections (§1) — deliberately not
-  done here.
+- Showing INSERT bindings anywhere — deliberately removed (§2).
 
 ---
 
 ## 5. Files touched
 
-- `api/public/fb-core.js` — `help.open()` (new Global block, `_navRows()`
-  heading rename + reposition, footer removal, always-open fix per §3);
-  `_dispatch`'s `?` trigger (L340–348, relax the `_activeSet()` gate, §3).
-- `api/public/common.css` — `.fb-keys-global` styling (likely identical to
-  `.fb-keys-nav`'s existing rules, reused rather than duplicated).
+- `api/public/fb-core.js` — `help.open()` rewritten: NAVIGATION column
+  (static `/ : h/l j/k gg/G` rows + g-map entries with "Go to " prefix,
+  inlined from `window.FB_ROUTES`) + ACTIONS column (NORMAL bindings via
+  `_groupHints()`, renamed from "NORMAL"); INSERT column, Global block, and
+  "Go to page" heading removed. The `_dispatch` `?` trigger relax
+  (always-open fix) was already applied in PR #283 and is unchanged here.
+  The now-unused `_navRows()` helper is left in place (harmless).
+- `api/public/common.css` — `.fb-keys-cols`/`.fb-keys-col` replaced by
+  `.fb-keys-main` (flex container) + `.fb-keys-nav` (left, `flex: 0 0 auto`)
+  + `.fb-keys-actions` (right, `flex: 1; min-width: 0`); `.fb-keys-global`
+  removed.
+- `docs/help-overlay-chrome-spec.md` — this document (v2 layout).

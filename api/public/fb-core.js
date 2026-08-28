@@ -422,31 +422,37 @@
       var cur = _activeSet();
       var hinted = cur ? cur.set.bindings.filter(function (b) { return !!b.hint; }) : [];
       var normal = hinted.filter(function (b) { return (b.mode || 'NORMAL') === 'NORMAL'; });
-      var insert = hinted.filter(function (b) { return (b.mode || 'NORMAL') === 'INSERT'; });
-      // Global section — static chrome constants (/ : g ? Esc), not page
-      // verbs. Folded the old footer (?/Esc close) into here.
-      var globalRows = _rows([
+      // Navigation section — static chrome constants + g-map entries.
+      // Static rows are NOT derived from any binding table.
+      var navStatic = [
         { keys: '/', hint: 'Search' },
         { keys: ':', hint: 'Command' },
-        { keys: 'g', hint: 'Go to page (see below)' },
-        { keys: '?', hint: 'Toggle this help' },
-        { keys: 'Esc', hint: 'Close' }
-      ]);
-      var navRows = _navRows();
+        { keys: 'h/l', hint: 'Move left / right' },
+        { keys: 'j/k', hint: 'Move up / down' },
+        { keys: 'gg/G', hint: 'Move to first / last row' }
+      ];
+      var navRows = _rows(navStatic);
+      // g-map entries from window.FB_ROUTES, each hint prefixed with "Go to "
+      var R = window.FB_ROUTES || [];
+      var gRows = [];
+      R.forEach(function (r) {
+        if (!r.gKey) return;
+        gRows.push({ keys: 'g ' + r.gKey, hint: 'Go to ' + r.label });
+      });
+      if (gRows.length) navRows += _rows(gRows);
       _prevFocus = document.activeElement;
       _el = document.createElement('div');
       _el.id = 'fb-keys-overlay';
       _el.innerHTML =
         '<div class="fb-keys-panel" role="dialog" aria-label="Keyboard shortcuts">' +
           '<div class="fb-keys-title">Keyboard shortcuts' + (cur ? ' <span class="fb-keys-page">' + esc(cur.name) + '</span>' : '') + '</div>' +
-          '<div class="fb-keys-global"><div class="fb-keys-mode">Global</div>' + globalRows + '</div>' +
-          (navRows ? '<div class="fb-keys-nav"><div class="fb-keys-mode">Go to page</div>' + navRows + '</div>' : '') +
-          '<div class="fb-keys-cols">' +
-            '<div class="fb-keys-col"><div class="fb-keys-mode">NORMAL</div>' +
-              (normal.length ? _rows(_groupHints(normal)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
+          '<div class="fb-keys-main">' +
+            '<div class="fb-keys-nav">' +
+              '<div class="fb-keys-mode">NAVIGATION</div>' + navRows +
             '</div>' +
-            '<div class="fb-keys-col"><div class="fb-keys-mode">INSERT</div>' +
-              (insert.length ? _rows(_groupHints(insert)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
+            '<div class="fb-keys-actions">' +
+              '<div class="fb-keys-mode">ACTIONS</div>' +
+              (normal.length ? _rows(_groupHints(normal)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
             '</div>' +
           '</div>' +
         '</div>';

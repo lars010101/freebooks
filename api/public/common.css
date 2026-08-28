@@ -70,6 +70,8 @@ body {
 /* ---- Company switcher (topbar, restyled for navy bg) ---- */
 .fb-sl-company { font-weight: 600; color: var(--navy-text); cursor: pointer; }
 .fb-sl-company:hover { text-decoration: underline; color: var(--navy-text-strong); }
+.tb-company-caret { font-size: 0.75rem; color: var(--navy-text); cursor: pointer; margin-left: 2px; opacity: .7; }
+.tb-company-caret:hover { color: var(--navy-text-strong); opacity: 1; }
 
 /* ---- Status banner (topbar-chrome-spec §3) — pushes page content, not overlay ---- */
 .fb-status-banner {
@@ -223,8 +225,13 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
   display: flex;
   align-items: center;
   gap: 0;
+  flex-shrink: 0;
+}
+.tb-center {
+  display: flex;
+  align-items: center;
   flex: 1;
-  min-width: 0;
+  justify-content: center;
 }
 .tb-right {
   display: flex;
@@ -456,7 +463,7 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 /* ── Global Period Selector (global-period-selector-chrome-spec §3) ──────── */
 .tb-period-trigger {
   font-size: 1.083rem;
-  color: var(--navy-text);
+  color: var(--navy-text-strong);
   cursor: pointer;
   white-space: nowrap;
   padding: 0 6px;
@@ -464,10 +471,10 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   transition: background 0.15s;
   line-height: 32px;
 }
-.tb-period-trigger:hover { background: var(--navy-hover); color: var(--navy-text-strong); }
+.tb-period-trigger:hover { background: var(--navy-hover); }
 /* Dimmed (dateRelevance='none'): reduced opacity, NOT pointer-events:none,
    NOT disabled — control stays fully operable (§3.6, §0 item 3). */
-.tb-period-trigger.tb-period-dimmed { opacity: 0.45; }
+.tb-period-trigger.tb-period-dimmed { opacity: 0.7; }
 
 .tb-period-popover {
   position: fixed;

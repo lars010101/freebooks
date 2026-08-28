@@ -84,14 +84,14 @@ Every flat register in the app. A screen declares columns + actions; the framewo
 | read, tree | `a` | Add child to the focused draft bill |
 | read | `x` | Delete — confirm for saved rows; no-op on `deletable:false` rows; discards dirty-new rows |
 | read, dirty | `w` / ✓ chip | **Write — the only save** |
-| read, dirty | `u` / ✕ chip | Revert to saved values |
+| read, dirty | `u` / ✕ chip | Undo to saved values |
 | edit | Enter / Tab / Shift+Tab | Next / prev field, sticky ends — never saves |
 | edit | Esc | Dropdown open → close dropdown; otherwise exit to read, buffer stays dirty |
 | any | `h`/`l` · `{`/`}` · `?` | Shared chrome via common.js / FB.keys |
 
 **Add row:** A plain muted text row pinned at the **bottom** of the list, reading `+ Add entry`. Reachable by click; `j` (sticky past the last data row); `G`. `i`/`Enter`/click transforms it in place into the live navy edit row (INSERT mode, first field focused).
 
-**Leave-guard:** One shared modal per page across all mounted FB.list instances: switching tab/page or sidebar-navigating with any editing-or-dirty row opens **Save / Discard / Stay**. Save = write all dirty rows, proceed only when all succeed; Discard = revert all, proceed; Stay = abort.
+**Leave-guard:** One shared modal per page across all mounted FB.list instances: switching tab/page or sidebar-navigating with any editing-or-dirty row opens **Save / Discard / Stay**. Save = write all dirty rows, proceed only when all succeed; Discard = undo all, proceed; Stay = abort.
 
 **Filtering:** Per-column dropdown (mouse) + topbar search input (keyboard) render the same filter state. `c` clears all filters. NORMAL-mode `Esc` peels one layer. Edit/dirty rows always bypass filters.
 
@@ -157,7 +157,7 @@ For non-table surfaces (dashboard cards, report links). `FB.nav.create({ grid })
 
 **Modal (`FB.modal`):** One modal app-wide. `Esc`/backdrop = cancel (NEVER confirms). Button letters per-modal, shown in the button (`Save w`). Type-to-confirm for destructive actions: `requiresConfirm` buttons stay disabled until the input matches exactly; `Enter` in the input fires it; the danger button carries NO letter key.
 
-**Leave-guard (FB.list):** `w` = write & leave, `u` = revert & leave, `Esc` = Stay.
+**Leave-guard (FB.list):** `w` = write & leave, `u` = undo & leave, `Esc` = Stay.
 
 **Status messages:** All transient feedback routes through `FB.status.show(text, sev)` into the single topbar slot `#tb-status-msg`. Severity: `true`/`'err'` red, `'warn'` amber, falsy green/neutral. **Never auto-dismisses.**
 
@@ -222,7 +222,7 @@ The Bank page and its page modules (`pages/bank.js`, `pages/bank-import.js`) wer
 - `a` — add child line to the focused draft bill
 - `x` — delete bill (confirm for saved); on a dirty-new row = discard
 - `w` — write the whole bill in one request (header + lines)
-- `u` — revert all
+- `u` — undo all
 - `p` — post (draft → posted); on posted/partial → inline payment row
 - `o` — new bill (master object)
 - `A` — attach (bill-level)
@@ -252,11 +252,11 @@ The Bank page and its page modules (`pages/bank.js`, `pages/bank-import.js`) wer
 **Company tab:**
 - FB.list attribute/value grid (`canAdd: false` — fixed rows, no add, no delete)
 - Per-row typed editors (text/number/checkbox/select) resolved from server-sent row shape
-- `w` writes ONE attribute via `company.attr.save`; `u` reverts; `Esc` never saves
+- `w` writes ONE attribute via `company.attr.save`; `u` undoes; `Esc` never saves
 - **Danger zone:** Type the exact company name to arm `Delete company`; `Enter` in the input fires it; server refusals surface in the modal's error slot. `#cr-delete-btn` is mouse-only by ratified design (danger zone: GitHub/QBO pattern).
 
 **Posting Rules / AI tabs:**
-- Standard FB.list contract (add row, `i`/`Enter` edit, `w` write, `u` revert, `x` delete, `c` clear filters)
+- Standard FB.list contract (add row, `i`/`Enter` edit, `w` write, `u` undo, `x` delete, `c` clear filters)
 
 > **Note:** Periods, COA, Tax Codes, Journals, and Exchange Rates moved to the Master Data page (`/:company/master-data`) on 2026-08-11. Partners also moved there from Bills.
 
@@ -353,7 +353,7 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 | `i`/`Enter` | Edit cell / activate row / create from add row | Universal |
 | `Esc` | Peel one layer; never writes | Universal |
 | `w` | **Write — the only save** | Universal |
-| `u` | Revert to saved values | FB.list |
+| `u` | Undo to saved values | FB.list |
 | `x` | Delete / discard | Universal |
 | `y`/`x` | Approve / reject (review pair) | Inbox queue only |
 | `~` | **Universal toggle verb** — toggles the state of the ACTIVE CELL / focused control | Universal |

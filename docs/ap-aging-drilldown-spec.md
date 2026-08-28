@@ -67,7 +67,7 @@ FB.list.create({
 })
 ```
 
-This replaces `toggleDetail()` with the framework's native fold — vendor-row click/`Space` folds, same as any other FB.list tree screen. No bespoke expand/collapse code to maintain.
+This replaces `toggleDetail()` with the framework's native fold — vendor-row click/`Space` expands/collapses, same as any other FB.list tree screen. No bespoke expand/collapse code to maintain.
 
 ## 5. Drill-through wiring (bill rows only)
 

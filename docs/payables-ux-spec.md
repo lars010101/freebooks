@@ -24,7 +24,7 @@
 | { | Click sidebar page | Previous sidebar page |
 | } | Click sidebar page | Next sidebar page |
 | Enter | Double-click row | **Edit** — whole-bill INSERT on drafts (no-op on posted bills); create on the `+ Add bill` row |
-| Space | Click ▸/▾ fold icon on parent | **Fold** — toggle the fold of the bill under the cursor (parent folds itself; a child folds its parent); inert on the add row (vim fold semantics) |
+| Space | Click ▸/▾ fold icon on parent | **Expand/Collapse** — toggle the fold of the bill under the cursor (parent folds itself; a child folds its parent); inert on the add row (vim fold semantics). `~` is a silent alias for Space when no page-level `~` binding is active (PR #288) |
 | i | Double-click editable row | Enter INSERT mode (opens entire draft bill for editing) |
 | I | — | Open the focused draft bill in the full-page editor (`bill-edit.js`); no-op on posted bills |
 | a | — | Append new child line to the focused draft bill |
@@ -283,7 +283,7 @@ In INSERT mode, pressing Enter on the CCY input when a non-base currency is ente
 ## Foldable Rows
 
 ### Fold Toggle (Space — vim fold semantics)
-- Space (keyboard): toggle the fold of the bill under the cursor — on a parent it folds that bill; on a child it folds the parent; inert on the add row. (Enter is **edit**, not fold — see NORMAL table.)
+- Space (keyboard): expand/collapse the bill under the cursor — on a parent it folds that bill; on a child it folds the parent; inert on the add row. (Enter is **edit**, not fold — see NORMAL table.)
 - Click ▸/▾ icon (mouse): toggle fold on that parent
 - Clicking the parent row body (not the icon) selects the row — does NOT toggle fold
 
@@ -340,7 +340,7 @@ The following elements from earlier implementations are removed or simplified:
 | `billEditState` object | No longer needed without per-cell edit |
 | `dd` double-tap delete | Replaced by single `x` key |
 | `dd` double-tap timer (`_ddPending`, `_ddTimer`) | No double-key sequences except `gg` |
-| `za/zo/zc/zR/zM` fold keys (dead code) | Never implemented; Enter/Space used instead |
+| `za/zo/zc/zR/zM` fold keys (dead code) | Never implemented; Space (Expand/Collapse) used instead; Enter = edit |
 | `:w` save command (`fbCmdDispatch`) | `w` is the save verb; no command bar needed |
 | `~` hidden shortcut | Removed; use `p` to post |
 | `_expandAll` / `_collapseAll` | Removed; no bulk expand/collapse |

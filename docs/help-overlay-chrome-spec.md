@@ -1,13 +1,23 @@
-# `?` Help Overlay — NAVIGATION + ACTIONS two-column (v2)
+# `?` Help Overlay — NAVIGATION + ACTIONS two-column (v3)
 
 **Status:** Built — ratified design (magnus, 2026-08-28), implemented in
 `api/public/fb-core.js` `help.open()` + `api/public/common.css`.
+**v3 amendments (PRs #286–#288):** actions heading = page/tab name (not
+the literal "ACTIONS"); `j`/`k`/`h`/`l` filtered from page bindings
+(dedup with NAVIGATION); hint strings capitalized; title is just
+"Keyboard shortcuts" (no page name); `_keyLabel` Ctrl/Cmd probe removed
+(dead code — dispatch rejects all modifier keys); Space relabeled to
+"Expand/Collapse"; Enter relabeled to "edit" on FB.list; `~` added as a
+silent alias for Space on tree pages when no page-level `~` binding is
+active (not shown in the overlay).
 **Amends:** the overlay described in `docs/payables-ux-spec.md` P1-6 and the
 deferred item in `docs/keyboard-ux-spec.md` §9 ("`?` overlay GLOBAL
 section... the overlay currently documents the active page set only").
 **Supersedes:** the earlier Global + Go to page stacked layout (PR #283),
-which this v2 merges into a single NAVIGATION column and pairs with an
-ACTIONS column.
+which v2 merged into a single NAVIGATION column and paired with an
+ACTIONS column; v3 (PRs #286–#288) refined the ACTIONS heading to the
+page name, deduped movement keys, capitalized hints, removed the dead
+Ctrl/Cmd probe, and relabeled Space/Enter.
 **Depends on:** `fb-core.js`'s `help` module (`open()`, `_rows()`,
 `_groupHints()`), `window.FB_ROUTES`, the active page's `FB.keys`
 binding table.
@@ -53,11 +63,13 @@ side-by-side layout (§2) — NAVIGATION on the left, ACTIONS on the right.
 
 **Not adopted (v1 → v2 revision):** the earlier Global + Go to page stacked
 sections (PR #283) are merged into the single NAVIGATION column. The old
-separate "Global" and "Go to page" headings are gone.
+separate "Global" and "Go to page" headings are gone. (v3 keeps this — no
+change.)
 
 **Not adopted:** the INSERT column is removed entirely. INSERT bindings
 (Esc-to-cancel, etc.) are obvious and only cluttered the panel; they are
-no longer rendered. The old NORMAL heading is renamed to ACTIONS.
+no longer rendered. The old NORMAL heading is renamed to ACTIONS (v2),
+then to the page/tab name (v3).
 
 **Not adopted:** Esc, `?`, and standalone `g` are not shown anywhere in the
 overlay. Esc closes the overlay (still wired functionally in `_dispatch`),
@@ -76,9 +88,9 @@ Two columns side by side under a single title row:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ Keyboard shortcuts            <page name>                │
+│ Keyboard shortcuts                                       │
 ├──────────────────────────┬──────────────────────────────┤
-│ NAVIGATION               │ ACTIONS                      │
+│ NAVIGATION               │ <page name>                   │
 │   /  Search               │   (page bindings,             │
 │   :  Command              │    grouped by hint)           │
 │   h/l  Move left / right   │                              │
@@ -90,6 +102,32 @@ Two columns side by side under a single title row:
 │   ...                     │                              │
 └──────────────────────────┴──────────────────────────────┘
 ```
+
+**v3 changes (PRs #286–#288):**
+
+- **Title** is just "Keyboard shortcuts" — no page name appended (the
+  page name is the actions heading; showing it twice was redundant).
+- **Actions heading** = the active page's name (or tab name on tabbed
+  pages), not the literal string "ACTIONS" — e.g. "Bills", "Vendors",
+  "Journal voucher", "Bank". This makes the right column self-labeling.
+- **`j`/`k`/`h`/`l` filtered** from page bindings before rendering
+  ACTIONS — they are already in NAVIGATION, so showing them twice was
+  noise. Other page verbs that happen to duplicate a NAVIGATION entry
+  are NOT filtered (only the four movement keys).
+- **Hint strings capitalized** — first letter uppercase for consistency
+  (e.g. "Edit", "Delete/void", "Expand/collapse").
+- **`_keyLabel` Ctrl/Cmd probe removed** — the overlay's `_keyLabel`
+  helper probed `when()` with a synthetic Ctrl/Cmd modifier to label
+  modifier-gated bindings (e.g. "Ctrl+Enter"). Dispatch rejects ALL
+  modifier keys (fb-core `_isEditableTarget` + the modifier guard),
+  so no binding with a Ctrl/Cmd `when()` can ever fire — the probe was
+  dead code. Removed (PR #287).
+- **Space relabeled** to "Expand/Collapse" on tree pages (was "Fold").
+- **Enter relabeled** to "edit" on FB.list (was "open" —
+  `openFocused` already calls `enterEdit`; the hint now matches).
+- **`~` silent alias** for Space on tree pages when no page-level `~`
+  binding is active. NOT shown in the overlay — it is a convenience
+  alias, not a discoverable verb.
 
 The diagram shows example `g`-map rows for illustration; the actual entries
 come from `window.FB_ROUTES` (`api/src/nav-registry.js`), which has been
@@ -128,9 +166,11 @@ targets, distinct from the page verbs in ACTIONS.
 
 **ACTIONS section** (right column): the active page's NORMAL-mode hinted
 bindings, grouped via `_groupHints()` — same grouping as before. The
-heading is "ACTIONS" (was "NORMAL"). If there is no active set or zero
-hinted NORMAL bindings, an honest `—` placeholder is shown (same empty
-state as the old per-mode placeholder).
+heading is the **page/tab name** (v3 — was the literal "ACTIONS" in v2,
+was "NORMAL" in v1). `j`/`k`/`h`/`l` are filtered out (dedup with
+NAVIGATION). Hint strings are capitalized. If there is no active set or
+zero hinted NORMAL bindings, an honest `—` placeholder is shown (same
+empty state as the old per-mode placeholder).
 
 **Removed from the overlay:**
 - The INSERT column — removed entirely. INSERT bindings exist but are
@@ -194,8 +234,12 @@ render, per the always-open behavior above. v2 inherits this fix unchanged.
   "Go to page" heading removed. The `_dispatch` `?` trigger relax
   (always-open fix) was already applied in PR #283 and is unchanged here.
   The now-unused `_navRows()` helper is left in place (harmless).
+  **v3 (PRs #286–#288):** actions heading = page/tab name; `j`/`k`/`h`/`l`
+  filtered from page bindings; hint strings capitalized; title = just
+  "Keyboard shortcuts"; `_keyLabel` Ctrl/Cmd probe removed (dead code);
+  Space hint = "Expand/Collapse"; Enter hint = "edit" on FB.list.
 - `api/public/common.css` — `.fb-keys-cols`/`.fb-keys-col` replaced by
   `.fb-keys-main` (flex container) + `.fb-keys-nav` (left, `flex: 0 0 auto`)
   + `.fb-keys-actions` (right, `flex: 1; min-width: 0`); `.fb-keys-global`
   removed.
-- `docs/help-overlay-chrome-spec.md` — this document (v2 layout).
+- `docs/help-overlay-chrome-spec.md` — this document (v3 layout).

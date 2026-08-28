@@ -175,6 +175,10 @@ e.g. reports comparison: `~` on active MoM → none).
 - **`~` never changes NORMAL/INSERT mode** (ratified 2026-07-28): toggles
   act via `click()` (no focus, no setMode). **Space activates the focused
   toggle/button** — parity alias of `~`/`Enter` on button cells (fb-form).
+  On FB.list tree pages (Bills, AP Aging), Space = **Expand/Collapse**
+  (vim fold semantics); `~` is a silent alias for Space on those pages when
+  no page-level `~` binding is active (PR #288). `~` is not shown in the help
+  overlay — it is a convenience alias, not a discoverable verb.
 - **Toggle-button visuals (ratified 2026-07-28):** three states must be
   readable at a glance — OFF (default surface), ON (amber `--toggle-on`,
   never the cursor navy), FOCUSED (navy outline ring `.fb-form-cursor-btn`;
@@ -425,7 +429,8 @@ property on the iframe document.
 - **K4 (shipped 2026-07-28)** — Attachment keyboard unification: **`A` =
   attach everywhere** — legacy pages (common.js `fbKeyActions` dispatcher)
   route shift-a to a page-registered `attach` verb (bill-detail; its old
-  `a` = attach is retired); FB.form pages declare `A` as an extraBinding
+  `a` = attach is retired; bill-detail's `e` = edit is now `i`, and `d` =
+  delete/void is now `x` — PR #288, aligning with universal i/x); FB.form pages declare `A` as an extraBinding
   (journal-voucher). Attachment queues are **FB.form zones** (journal-voucher
   pending queue: `j`/`k` rows, `x` removes the staged file) or shared
   `.fb-attach-row` markup + `FB.attachments` helpers (api/public/
@@ -470,7 +475,8 @@ property on the iframe document.
   common.css, a CSS class only so NORMAL-mode doctrine holds — no DOM
   focus is grabbed, Enter follows the anchor via `el.click()`, Esc clears);
   bill-detail registers an FB.keys set delegating to its fbKeyActions
-  handlers; bank gained **`f` = cycle cleared-filter** (uncleared →
+  handlers (keys: `i` = edit, `A` = attach, `x` = delete/void — PR #288
+  aligned bill-detail with universal i/x); bank gained **`f` = cycle cleared-filter** (uncleared →
   cleared → both); new-company renders hints inline (`#nc-hints` — no
   sidebar chrome there); **fb-core `hasActive()` semantics fixed** (sets
   with no `active` fn were reported inactive — dispatch treats them as
@@ -484,6 +490,12 @@ property on the iframe document.
   day one). Coverage behavior is verified ONCE here, framework-level —
   not per tab.
 - `?` overlay GLOBAL section (chrome keys: g-map, `{`/`}`, `h`/`l`, `/`,
-  `:`) — the overlay currently documents the active page set only.
+  `:`) — ~~the overlay currently documents the active page set only.~~
+  **RESOLVED** (PRs #283–#286): built as NAVIGATION + ACTIONS two-column
+  layout per `docs/help-overlay-chrome-spec.md` (v3). NAVIGATION renders
+  static chrome (`/ : h/l j/k gg/G` + g-map entries with "Go to " prefix)
+  independently of the active page's bindings; ACTIONS shows the page's
+  NORMAL-mode bindings under a page-name heading. No INSERT column; Esc,
+  `?`, and standalone `g` are omitted (obvious from context).
 - Vimium-style `f` hint overlay as a universal mouse-parity fallback —
   likely unnecessary once K1–K4 land; revisit after K5 measurement.

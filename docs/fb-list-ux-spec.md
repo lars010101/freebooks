@@ -27,7 +27,7 @@ A plain muted text row pinned at the **bottom** of the list, reading `+ Add entr
 ```
 clean ──i/Enter/click──▶ editing ──Esc──▶ dirty ──w──▶ clean (saved)
                             │             │
-                            │             └──u──▶ clean (reverted)
+                            │             └──u──▶ clean (undone)
                             │
                             └── Esc on an untouched NEW row ──▶ vanishes;
                                 cursor returns to the add row
@@ -49,7 +49,7 @@ clean ──i/Enter/click──▶ editing ──Esc──▶ dirty ──w─�
 | read, tree | `a` | add child to the focused draft bill (§5's `a` = add child) |
 | read | `x` | delete — confirm for saved rows; no-op on `deletable:false` rows (e.g. ECB rates); discards dirty-new rows |
 | read, dirty | `w` / `✓` chip | **write — the only save** |
-| read, dirty | `u` / `✕` chip | revert to saved values |
+| read, dirty | `u` / `✕` chip | undo to saved values |
 | edit | Enter / Tab / Shift+Tab | next / prev field, sticky ends — never saves |
 | edit | Esc | dropdown open → close dropdown; otherwise exit to read, buffer stays dirty |
 | any | `h`/`l` · `{`/`}` · `?` | shared chrome via common.js / FB.keys |
@@ -96,13 +96,13 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `harvestExtra(tr, row, buf)` | merge non-column payload fields into the edit buffer (Bills: `vendor_id`/`ap_account`/`expense_account` travel on the vendor input's dataset) (optional) |
 | `hint` | register note rendered in the sidebar under the tab's keyboard help — the only sanctioned note location |
 
-In tree mode `editable`/`deletable` gate the **whole-parent edit unit**: `i` on parent or child opens the parent with all children; `save.body(d)` carries header + lines in ONE write; `u` reverts all.
+In tree mode `editable`/`deletable` gate the **whole-parent edit unit**: `i` on parent or child opens the parent with all children; `save.body(d)` carries header + lines in ONE write; `u` undoes all.
 **Status messages (retired 2026-07-23):** the per-screen `msg` span config is gone. All transient feedback ("Saved", validation errors) routes through **`FB.status.show(text, sev)`** (fb-core) into the single topbar slot `#tb-status-msg`. Severity: `true`/`'err'` red, `'warn'` amber, falsy green/neutral. **Never auto-dismisses** — a message stays until the next one replaces it (vim cmdline semantics). Distinct channel from the 🔔 (persistent alerts, fx-automation-spec §7).
 
 ### 6.1 Tree mode — fold / filter / edit-unit semantics
 
 - The visible sequence is parents + **open** children, flattened; `j`/`k` walk the flattened sequence (sticky ends), the add row stays bottom.
-- **Collapsed-by-default (2026-07-24, Magnus):** a fresh list renders parents folded (▸); children lazy-fetch on first open. Entering edit opens the fold; `w` (save) and `u` (revert) collapse it — a saved bill renders as one collapsed line.
+- **Collapsed-by-default (2026-07-24, Magnus):** a fresh list renders parents folded (▸); children lazy-fetch on first open. Entering edit opens the fold; `w` (save) and `u` (undo) collapse it — a saved bill renders as one collapsed line.
 - Column filters evaluate on **parents**; children follow their parent's visibility.
 - Fold state is a row property, **untouched by filters** — a folded bill stays folded when a filter applies and clears.
 - A dirty/editing parent bypasses filters **as a unit** — parent and all children stay visible until `w`/`u`.
@@ -170,7 +170,7 @@ Dropdown choices and the topbar expression are two renderings of the same filter
 
 ## 9. Leave-guard
 
-One shared modal per page across all mounted FB.list instances: switching tab/page or sidebar-navigating with any editing-or-dirty row opens **Save / Discard / Stay**. Save = write all dirty rows, proceed only when all succeed; Discard = revert all, proceed; Stay = abort. Hooks: the page's own tab-switch function, `window.fbBeforeTabSwitch` (common.js `{/}` path), and a capture-phase sidebar click handler (mouse parity).
+One shared modal per page across all mounted FB.list instances: switching tab/page or sidebar-navigating with any editing-or-dirty row opens **Save / Discard / Stay**. Save = write all dirty rows, proceed only when all succeed; Discard = undo all, proceed; Stay = abort. Hooks: the page's own tab-switch function, `window.fbBeforeTabSwitch` (common.js `{/}` path), and a capture-phase sidebar click handler (mouse parity).
 
 ## 10. Bills — migrated
 

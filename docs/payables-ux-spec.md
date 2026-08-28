@@ -7,7 +7,7 @@
 1. Two modes only: NORMAL (browsing) and INSERT (editing). No ambiguous middle state.
 2. Every keyboard action has a mouse equivalent and vice versa. No interaction requires both. No interaction is available through only one input method.
 3. NORMAL mode is row-oriented (vim line semantics). INSERT mode is bill-oriented — the entire draft bill (parent + all child lines) opens for editing simultaneously.
-4. Save timing is unambiguous: `Esc` never saves — it exits INSERT only. `w` is the only save path (one `bill.draft.save` carrying header + all lines). `u` reverts. No blur-chasing, no timers, no deferred checks. (FB.list §3 doctrine, adopted 2026-07-24.)
+4. Save timing is unambiguous: `Esc` never saves — it exits INSERT only. `w` is the only save path (one `bill.draft.save` carrying header + all lines). `u` undoes. No blur-chasing, no timers, no deferred checks. (FB.list §3 doctrine, adopted 2026-07-24.)
 5. Per-line accounts: each child line carries its own expense account; the parent row carries the AP (creditor) account. Both use COA datalist autocomplete.
 6. Tax-exclusive entry: the user types the net amount per line; VAT is computed on top from the line's VAT code — lines carry no VAT amount state. The only override surface is the bill-level stated VAT (editable footer cell, agreed 2026-07-26).
 
@@ -53,7 +53,7 @@ j/k navigation crosses bill boundaries seamlessly:
 | Enter | — | Move to next input within the bill (sticky at the last field; never saves) |
 | Esc | — | Exit INSERT only — **never saves**; the dirty bill stays (amber). `w` persists. |
 | w | Click 💾 chip | Write the whole bill (header + all lines) in ONE server write — the only save (read, dirty state) |
-| u | — | Revert the whole bill to saved values (read, dirty state) |
+| u | — | Undo the whole bill to saved values (read, dirty state) |
 | x | — | On a dirty-new bill, discard it — cursor → add row |
 | (all other keys) | — | Type into the focused input (h/j/k/l/{/}/a/o/x/p/G/gg all inert) |
 
@@ -71,7 +71,7 @@ Entering INSERT mode (via `i`/Enter on any row of a draft bill):
 Exiting INSERT mode (Esc; or click-outside — see below):
 - Esc **never saves.** It exits INSERT only; every input across the parent + open children is harvested into the framework's whole-bill dirty buffer (keyed by the parent `_key`) and the bill re-renders as display text marked dirty (amber).
 - If the bill is completely empty (framework `isBlank`), it vanishes instead — cursor → add row.
-- The dirty bill stays until `w` (write — the only save, one `bill.draft.save` carrying header + all lines) or `u` (revert).
+- The dirty bill stays until `w` (write — the only save, one `bill.draft.save` carrying header + all lines) or `u` (undo).
 - Returns to NORMAL mode with selection on the parent row.
 
 Posted bills: `i`/Enter and double-click are no-ops (the framework's `editable` predicate is false). The row is read-only. No INSERT mode is entered.
@@ -93,9 +93,9 @@ This keeps the user inside the bill editing flow. Creating a new line is natural
 
 When a mouse user is in INSERT mode and clicks another row, the bill exits INSERT (Esc equivalent — **never saves**; the dirty buffer stays, amber) and the clicked row is selected (j/k equivalent). No intermediate NORMAL state should be visible; the dirty bill remains until `w`/`u`. This is the framework's leave-guard parity: click-away does not silently persist.
 
-### Esc never saves; `u` reverts (FB.list §3 doctrine)
+### Esc never saves; `u` undoes (FB.list §3 doctrine)
 
-Esc exits INSERT only — it never persists. The dirty bill stays (amber) until `w` (the only save, one `bill.draft.save` for the whole bill) or `u` (revert to saved values). `x` on a dirty-new bill discards it (cursor → add row). This is the framework-native doctrine shared by every FB.list screen (see `fb-list-ux-spec.md` §3); the pre-interim "Esc always saves / no cancel path" doctrine is superseded (2026-07-24).
+Esc exits INSERT only — it never persists. The dirty bill stays (amber) until `w` (the only save, one `bill.draft.save` for the whole bill) or `u` (undo to saved values). `x` on a dirty-new bill discards it (cursor → add row). This is the framework-native doctrine shared by every FB.list screen (see `fb-list-ux-spec.md` §3); the pre-interim "Esc always saves / no cancel path" doctrine is superseded (2026-07-24).
 
 ### Empty Bill Discard
 

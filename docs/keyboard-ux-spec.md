@@ -237,8 +237,8 @@ typing into a modal input works while page verbs stay dead.
   stay disabled until the input matches exactly. `getMode` returns INSERT
   while the input is focused, so a name containing `w`/`u`/`~` never fires
   a verb.
-- **Leave-guard** (FB.list): `w` = write & leave, `u` = revert & leave,
-  `Esc` = Stay — the w/u keys mirror the list's own write/revert doctrine.
+- **Leave-guard** (FB.list): `w` = write & leave, `u` = undo & leave,
+  `Esc` = Stay — the w/u keys mirror the list's own write/undo doctrine.
   Esc/backdrop keeps buffers and cancels navigation.
 - **Danger zone** (Settings → Company delete): type the exact company name
   to arm `Delete company`; Enter in the input fires it; server refusals

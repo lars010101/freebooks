@@ -127,14 +127,20 @@ body {
   font-size: 0.8125rem;
   margin-left: 6px;
 }
-.fb-keys-cols {
+.fb-keys-main {
   display: flex;
   gap: 32px;
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid #eceef2;
 }
-.fb-keys-col { flex: 1; min-width: 0; }
+.fb-keys-nav {
+  flex: 0 0 auto;
+}
+.fb-keys-actions {
+  flex: 1;
+  min-width: 0;
+}
 .fb-keys-mode {
   font-size: 0.625rem;
   font-weight: 700;
@@ -171,14 +177,7 @@ body {
   padding: 3px 0;
 }
 .fb-keys-panel .fb-hint-row.fb-keys-none { color: #b6bcc9; }
-.fb-keys-global {
-  margin-top: 10px;
-}
-.fb-keys-nav {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid #eceef2;
-}
+
 
 /* ---- Table row keyboard focus ---- */
 /* :not(.row-editing) — a row in edit mode shows the edit band and boxed

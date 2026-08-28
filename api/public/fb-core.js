@@ -339,8 +339,7 @@
     // No active hint-bearing set (journal/settings/dashboard) → silent no-op.
     if (e.key === '?') {
       var cur = _activeSet();
-      if (!cur) return;
-      var cm = cur.set.getMode ? cur.set.getMode() : 'NORMAL';
+      var cm = (cur && cur.set.getMode) ? cur.set.getMode() : 'NORMAL';
       if (cm !== 'NORMAL' || _isEditableTarget(e)) return;
       e.stopImmediatePropagation();
       e.preventDefault();
@@ -421,22 +420,27 @@
     function open() {
       if (_el) return true;
       var cur = _activeSet();
-      if (!cur) return false; // no FB.keys set on this page — silent no-op
-      var hinted = cur.set.bindings.filter(function (b) { return !!b.hint; });
-      if (!hinted.length) return false;
+      var hinted = cur ? cur.set.bindings.filter(function (b) { return !!b.hint; }) : [];
       var normal = hinted.filter(function (b) { return (b.mode || 'NORMAL') === 'NORMAL'; });
       var insert = hinted.filter(function (b) { return (b.mode || 'NORMAL') === 'INSERT'; });
-      // #149: NAV section — registry routes (window.FB_ROUTES) relocated here
-      // from the : palette. Same source of truth as _gResolve(), so g-keys
-      // and help can never drift.
+      // Global section — static chrome constants (/ : g ? Esc), not page
+      // verbs. Folded the old footer (?/Esc close) into here.
+      var globalRows = _rows([
+        { keys: '/', hint: 'Search' },
+        { keys: ':', hint: 'Command' },
+        { keys: 'g', hint: 'Go to page (see below)' },
+        { keys: '?', hint: 'Toggle this help' },
+        { keys: 'Esc', hint: 'Close' }
+      ]);
       var navRows = _navRows();
-      var footer = _rows([{ keys: '?', hint: 'close' }, { keys: 'Esc', hint: 'close' }]);
       _prevFocus = document.activeElement;
       _el = document.createElement('div');
       _el.id = 'fb-keys-overlay';
       _el.innerHTML =
         '<div class="fb-keys-panel" role="dialog" aria-label="Keyboard shortcuts">' +
-          '<div class="fb-keys-title">Keyboard shortcuts <span class="fb-keys-page">' + esc(cur.name) + '</span></div>' +
+          '<div class="fb-keys-title">Keyboard shortcuts' + (cur ? ' <span class="fb-keys-page">' + esc(cur.name) + '</span>' : '') + '</div>' +
+          '<div class="fb-keys-global"><div class="fb-keys-mode">Global</div>' + globalRows + '</div>' +
+          (navRows ? '<div class="fb-keys-nav"><div class="fb-keys-mode">Go to page</div>' + navRows + '</div>' : '') +
           '<div class="fb-keys-cols">' +
             '<div class="fb-keys-col"><div class="fb-keys-mode">NORMAL</div>' +
               (normal.length ? _rows(_groupHints(normal)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
@@ -445,8 +449,6 @@
               (insert.length ? _rows(_groupHints(insert)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
             '</div>' +
           '</div>' +
-          (navRows ? '<div class="fb-keys-nav"><div class="fb-keys-mode">NAV</div>' + navRows + '</div>' : '') +
-          '<div class="fb-keys-footer">' + footer + '</div>' +
         '</div>';
       _el.addEventListener('click', function (ev) { if (ev.target === _el) close(); });
       document.body.appendChild(_el);

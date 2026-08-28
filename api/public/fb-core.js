@@ -417,11 +417,24 @@
       return _rows(rows);
     }
 
+    function _cap(s) {
+      return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    }
+
     function open() {
       if (_el) return true;
       var cur = _activeSet();
       var hinted = cur ? cur.set.bindings.filter(function (b) { return !!b.hint; }) : [];
-      var normal = hinted.filter(function (b) { return (b.mode || 'NORMAL') === 'NORMAL'; });
+      // Filter out j/k/h/l — they are already in NAVIGATION. Same shortcut
+      // should never appear in two places. Capitalize first letter of each hint.
+      var navKeys = { 'j': 1, 'k': 1, 'h': 1, 'l': 1 };
+      var normal = hinted.filter(function (b) {
+        return (b.mode || 'NORMAL') === 'NORMAL' && !navKeys[b.key];
+      }).map(function (b) {
+        var c = Object.assign({}, b);
+        c.hint = _cap(b.hint);
+        return c;
+      });
       // Navigation section — static chrome constants + g-map entries.
       // Static rows are NOT derived from any binding table.
       var navStatic = [
@@ -440,18 +453,20 @@
         gRows.push({ keys: 'g ' + r.gKey, hint: 'Go to ' + r.label });
       });
       if (gRows.length) navRows += _rows(gRows);
+      // Actions heading = the active set's name (capitalized), not "ACTIONS".
+      var actionsHeading = cur ? _cap(cur.name) : 'Actions';
       _prevFocus = document.activeElement;
       _el = document.createElement('div');
       _el.id = 'fb-keys-overlay';
       _el.innerHTML =
         '<div class="fb-keys-panel" role="dialog" aria-label="Keyboard shortcuts">' +
-          '<div class="fb-keys-title">Keyboard shortcuts' + (cur ? ' <span class="fb-keys-page">' + esc(cur.name) + '</span>' : '') + '</div>' +
+          '<div class="fb-keys-title">Keyboard shortcuts</div>' +
           '<div class="fb-keys-main">' +
             '<div class="fb-keys-nav">' +
               '<div class="fb-keys-mode">NAVIGATION</div>' + navRows +
             '</div>' +
             '<div class="fb-keys-actions">' +
-              '<div class="fb-keys-mode">ACTIONS</div>' +
+              '<div class="fb-keys-mode">' + esc(actionsHeading) + '</div>' +
               (normal.length ? _rows(_groupHints(normal)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
             '</div>' +
           '</div>' +

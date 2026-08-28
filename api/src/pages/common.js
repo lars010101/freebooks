@@ -100,32 +100,29 @@ function commonStyle() {
 
 // ── Top-bar context items per section ─────────────────────────────────────────
 function topBarContext(company, activeKey) {
-  // Returns { nav: html, actions: html }
+  // Returns { nav: html } — actions slot deleted (topbar-chrome-spec §8:
+  // every actions value was already '' — dead code, removed outright).
   const sep = `<div class="tb-divider"></div>`;
 
   function navLink(label, href, active, disabled) {
     const cls = ['tb-nav-link', active ? 'tb-nav-active' : '', disabled ? 'tb-disabled' : ''].filter(Boolean).join(' ');
     return `<a href="${href}" class="${cls}">${label}</a>`;
   }
-  function actionBtn(label, href, primary) {
-    return `<a href="${href}" class="tb-btn${primary ? ' tb-btn-primary' : ''}">${label}</a>`;
-  }
-
-  void actionBtn; // retained for potential future static slots
+  void sep; void navLink; // retained for potential future static slots
 
   const ctx = {
-    inbox:       { nav: ``, actions: '' },
-    payables:    { nav: ``, actions: '' },
-    statements:  { nav: ``, actions: '' },
-    books:       { nav: ``, actions: '' },
-    fiscal:      { nav: ``, actions: '' },
-    settings:    { nav: ``, actions: '' },
-    accounting:  { nav: ``, actions: '' },
-    'exchange-rates': { nav: ``, actions: '' },
-    newjv:       { nav: '',  actions: '' }
+    inbox:       { nav: `` },
+    payables:    { nav: `` },
+    statements:  { nav: `` },
+    books:       { nav: `` },
+    fiscal:      { nav: `` },
+    settings:    { nav: `` },
+    accounting:  { nav: `` },
+    'exchange-rates': { nav: `` },
+    newjv:       { nav: '' }
   };
 
-  return ctx[activeKey] || { nav: '', actions: '' };
+  return ctx[activeKey] || { nav: '' };
 }
 
 // ── Main layout function ───────────────────────────────────────────────────────
@@ -151,12 +148,22 @@ function navBar(company, activeKey) {
       </div>
       <div class="tb-right">
         <span id="tb-dyn-slots"></span>
-        ${ctx.actions}
-        <a href="/${company}/journal/voucher" class="tb-btn tb-btn-quiet">+ Journal Entry</a>
+        <div class="tb-search-wrap">
+          <input type="text" id="tb-global-search" class="tb-search" placeholder="Search (/) or Command (:) — leading / filters this list …" autocomplete="off" tabindex="-1">
+        </div>
+        <button class="tb-icon-btn tb-chat-btn" id="tb-chat-btn" title="Chat with AI (coming soon)" disabled>💬</button>
+        <button class="tb-icon-btn" id="tb-new-btn" title="New">+</button>
+        <div id="tb-new-dropdown" class="tb-new-dropdown" hidden></div>
         <button class="tb-icon-btn" id="tb-notif-btn" title="Notifications">🔔<span id="tb-notif-badge" class="tb-notif-badge" hidden></span></button>
+        <button class="tb-icon-btn" id="fb-theme-btn" title="Switch theme" onclick="fbToggleTheme()"><span id="fb-theme-icon">☀</span></button>
         <button class="tb-icon-btn" id="tb-help-btn" title="Keyboard shortcuts (?)">?</button>
       </div>
     </header>
+    <div id="fb-status-banner" class="fb-status-banner">
+      <div class="fb-banner-inner">
+        <span id="tb-status-msg" class="tb-status-msg"></span>
+      </div>
+    </div>
     <div id="tb-notif-dropdown" class="tb-notif-dropdown" hidden></div>
     <div id="tb-period-popover" class="tb-period-popover" hidden></div>
     <main id="page-main">`;
@@ -165,18 +172,6 @@ function navBar(company, activeKey) {
 // ── Layout close ──────────────────────────────────────────────────────────────
 function layoutEnd() {
   return `    </main>
-    <footer id="fb-status-line">
-      <div class="tb-global-controls">
-        <div class="tb-search-wrap">
-          <input type="text" id="tb-global-search" class="tb-search" placeholder="Search (/) or Command (:) — leading / filters this list …" autocomplete="off" tabindex="-1">
-        </div>
-        <span id="tb-status-msg" class="tb-status-msg"></span>
-      </div>
-      <span class="fb-sl-sep">·</span>
-      <span class="fb-sl-inbox" id="fb-sl-inbox">0 pending</span>
-      <span class="fb-sl-spacer"></span>
-      <span id="fb-vim-mode">NORMAL</span>
-    </footer>
   </div>
 </div>
 <script src="/public/common.js?v=${assetV('common.js')}"></script>`;

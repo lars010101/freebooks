@@ -129,6 +129,8 @@
   window.fbNavigate = function(url, opts) {
     if (!(opts && opts.force) && typeof window.fbBeforeTabSwitch === 'function'
         && window.fbBeforeTabSwitch(url) === false) return;
+    // topbar-chrome-spec §3: instant dismiss of status banner on navigation
+    if (window.FB && FB.status && FB.status.dismiss) FB.status.dismiss();
     fetch(url)
       .then(function(r) { return r.text(); })
       .then(function(html) {
@@ -179,10 +181,11 @@
           ns.remove();
         });
 
-        // Update top-bar right section
-        var newTbRight = doc.querySelector('.tb-right');
-        var oldTbRight = document.querySelector('.tb-right');
-        if (newTbRight && oldTbRight) oldTbRight.innerHTML = newTbRight.innerHTML;
+        // topbar-chrome-spec: topbar is identical across pages — skip the .tb-right
+        // swap to preserve event listeners on search, +, bell, theme, help buttons.
+        // Close any open dropdowns on navigation.
+        var _nd = document.getElementById('tb-notif-dropdown'); if (_nd) _nd.hidden = true;
+        var _nmd = document.getElementById('tb-new-dropdown'); if (_nmd) _nmd.hidden = true;
         // Re-render dynamic slots + track the arrival as a visit
         if (window.FB && FB.track && typeof fbSectionOfPath === 'function') FB.track.visit(fbSectionOfPath(url));
         if (typeof window.fbRenderTopSlots === 'function') window.fbRenderTopSlots(url);

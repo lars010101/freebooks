@@ -71,16 +71,11 @@ ${commonStyle()}
         <span id="jv-status-badge" class="st-badge st-new">New</span>
       </p>
     </div>
-    <button class="btn-sm" id="btn-reversal-mode" onclick="toggleReversalMode()" style="margin-top:8px">⟲ Reversal</button>
-  </div>
-
-  <!-- Reversal search panel (hidden by default) -->
-  <div id="reversal-panel" style="display:none;margin-bottom:16px;padding:14px;background:#f8f4ff;border:1px solid #c9b8e8;border-radius:6px">
-    <div style="font-weight:600;margin-bottom:8px;color:#5a3ea0">Find entry to reverse</div>
-    <input type="text" id="reversal-search" placeholder="Search by reference or description…"
-      oninput="onReversalSearch(this.value)"
-      style="width:400px;padding:7px 10px;border:1px solid #c9b8e8;border-radius:4px;font-size:10pt">
-    <div id="reversal-results" style="margin-top:6px;max-height:200px;overflow-y:auto;background:#fff;border:1px solid #ddd;border-radius:4px;display:none"></div>
+    <!-- Reversal is only meaningful once a posted batch is loaded (?batch=)
+         — renderViewMode() reveals this button. Reversing a fresh/draft
+         entry (search any batch to pull from) was removed (magnus
+         2026-08-28); reverse an entry by opening its posted view first. -->
+    <button class="btn-sm" id="btn-reversal-mode" onclick="toggleReversalMode()" style="margin-top:8px;display:none">⟲ Reversal</button>
   </div>
 
   <div class="header-fields">
@@ -477,6 +472,25 @@ ${commonStyle()}
       .catch(function(){});
   }
 
+  // Escape-quit guard on a fresh/draft entry (VIEW_BATCH is read-only, so
+  // never dirty there): true if the description or any line carries an
+  // account code or a nonzero amount — same "is there anything to lose"
+  // read as postEntry's own line gathering below.
+  function jvHasContent() {
+    var descEl = document.getElementById('entry-desc');
+    if (descEl && descEl.value.trim()) return true;
+    return Array.from(document.querySelectorAll('#lines-body tr'))
+      .filter(function (tr) { return !tr.classList.contains('jv-orig-line') && !tr.classList.contains('jv-orig-hdr'); })
+      .some(function (tr) {
+        var acct = tr.querySelector('.acct-input');
+        var debit = tr.querySelector('.debit-input');
+        var credit = tr.querySelector('.credit-input');
+        var acctVal = acct && (acct.dataset.code || acct.value.trim());
+        var amt = (debit && parseFloat(debit.value || 0)) || (credit && parseFloat(credit.value || 0));
+        return !!(acctVal || amt);
+      });
+  }
+
   function postEntry() {
     var date      = document.getElementById('entry-date').value;
     var journalId = document.getElementById('entry-journal').value;
@@ -638,6 +652,7 @@ ${commonStyle()}
     document.querySelector('.header-fields').classList.add('jv-flat-readonly');
     document.title = 'Journal Voucher — freeBooks';
     updateStatusBadge(viewBatchReversed ? 'reversed' : 'posted');
+    document.getElementById('btn-reversal-mode').style.display = '';
     setReference(viewBatchRef);
     var body = document.getElementById('lines-body');
     body.innerHTML = '';
@@ -752,7 +767,6 @@ ${commonStyle()}
     var btn = document.getElementById('btn-reversal-mode');
     btn.textContent = reversalMode ? '\u2715 Cancel Reversal' : '\u27f2 Reversal';
     btn.style.background = reversalMode ? '#f0e8ff' : '';
-    document.getElementById('reversal-panel').style.display = 'none';
     if (reversalMode) {
       var dateEl = document.getElementById('entry-date');
       dateEl.disabled = false;
@@ -767,83 +781,14 @@ ${commonStyle()}
   }
 
   // ── Reversal mode ──────────────────────────────────────────────────
+  // magnus 2026-08-28: the draft-compose flow (search any batch, apply its
+  // lines reversed into a fresh entry) was removed — reversal is now only
+  // reachable from a loaded posted batch (?batch=), via toggleViewReversalMode.
   var reversalMode = false;
-  var reversalSearchTimer = null;
-
-  // K3: keyboard navigation for reversal results — ArrowUp/Down inside the
-  // search input move the highlight (sticky), Enter picks (FB.dropdown
-  // contract feel), Esc peels back to NORMAL via the form's general binding.
-  var reversalRows = [];
-  var revIdx = -1;
-  function paintReversal() {
-    reversalRows.forEach(function (d, i) { d.style.background = (i === revIdx) ? '#f0f4ff' : ''; });
-    if (reversalRows[revIdx] && reversalRows[revIdx].scrollIntoView) reversalRows[revIdx].scrollIntoView({ block: 'nearest' });
-  }
-  function moveReversal(d) {
-    if (!reversalRows.length) return;
-    revIdx += d;
-    if (revIdx < 0) revIdx = 0;
-    if (revIdx > reversalRows.length - 1) revIdx = reversalRows.length - 1;
-    paintReversal();
-  }
-  function pickReversal() {
-    if (revIdx >= 0 && reversalRows[revIdx]) reversalRows[revIdx].click();
-  }
 
   function toggleReversalMode() {
     if (VIEW_BATCH && viewBatchLines) return toggleViewReversalMode();
-    reversalMode = !reversalMode;
-    document.getElementById('reversal-panel').style.display = reversalMode ? '' : 'none';
-    document.getElementById('btn-reversal-mode').textContent = reversalMode ? '\u2715 Cancel Reversal' : '\u27f2 Reversal';
-    document.getElementById('btn-reversal-mode').style.background = reversalMode ? '#f0e8ff' : '';
-    if (!reversalMode) {
-      document.getElementById('reversal-search').value = '';
-      document.getElementById('reversal-results').style.display = 'none';
-      document.getElementById('entry-desc').value = '';
-      document.getElementById('lines-body').innerHTML = '';
-      addLine(); addLine();
-      updateTotals();
-    }
-  }
-
-  function onReversalSearch(q) {
-    clearTimeout(reversalSearchTimer);
-    var res = document.getElementById('reversal-results');
-    // Min query length 1 (magnus 2026-07-28 — single chars silently showed
-    // nothing at min-2; an empty box hides results instead).
-    if (q.trim().length < 1) { res.style.display = 'none'; reversalRows = []; revIdx = -1; return; }
-    reversalSearchTimer = setTimeout(function() {
-      fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action:'journal.search', companyId: COMPANY, q: q.trim() }) })
-        .then(r => r.json())
-        .then(function(resp) {
-          var rows = resp.data || resp;
-          res.innerHTML = '';
-          if (!Array.isArray(rows) || !rows.length) {
-            res.innerHTML = '<div style="padding:8px 12px;color:#888;font-size:10pt">No matching entries</div>';
-            res.style.display = '';
-            reversalRows = []; revIdx = -1;
-            return;
-          }
-          rows.forEach(function(r) {
-            var d = document.createElement('div');
-            d.style.cssText = 'padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:10pt';
-            var ref = r.reference || r.batch_id;
-            var date = r.date ? String(r.date).slice(0,10) : '';
-            d.innerHTML = '<span style="font-weight:600">' + ref + '</span>'
-              + '<span style="color:#888;margin-left:10px">' + date + '</span>'
-              + (r.description ? '<span style="color:#555;margin-left:10px">' + r.description + '</span>' : '');
-            d.onmouseenter = function() { d.style.background='#f0f4ff'; };
-            d.onmouseleave = function() { d.style.background=''; };
-            d.onclick = function() { loadReversalEntry(r.batch_id, ref); };
-            res.appendChild(d);
-          });
-          res.style.display = '';
-          reversalRows = Array.from(res.children);
-          revIdx = 0;
-          paintReversal();
-        });
-    }, 300);
+    showStatus('Load a posted entry to reverse it', true);
   }
 
   function applyReversalLines(batchId, ref, lines) {
@@ -926,28 +871,9 @@ ${commonStyle()}
     });
     updateTotals();
     showStatus('Reversal loaded — review and post', false);
-    // A2 (magnus 2026-07-28): land the cursor on the header date cell
-    // (NORMAL) so the reviewer isn't stranded in the search input.
-    // Blur the search + collapse results so the reversal zone rows()
-    // is empty and the cursor isn't stuck there; j/k from the date
-    // cell moves down into the line grid.
-    var rs = document.getElementById('reversal-search');
-    if (rs) rs.blur();
+    // A2 (magnus 2026-07-28): land the cursor on the header date cell (NORMAL).
     jvForm.moveTo(1, 0, 0, false);
     jvForm.refresh();
-  }
-
-  function loadReversalEntry(batchId, ref) {
-    document.getElementById('reversal-results').style.display = 'none';
-    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'journal.get', companyId: COMPANY, batchId: batchId }) })
-      .then(r => r.json())
-      .then(function(resp) {
-        var lines = resp.data || resp;
-        if (!Array.isArray(lines) || !lines.length) { showStatus('Entry not found', true); return; }
-        applyReversalLines(batchId, ref, lines);
-      })
-      .catch(function(e) { showStatus(e.message, true); });
   }
 
   function addJvAttachment(input) {
@@ -992,12 +918,17 @@ ${commonStyle()}
   }
 
   // ── FB.form (K3, keyboard-ux-spec §8) — the one form machine; this page ──
-  // declares config + verbs only. Zones: reversal panel (present only in
-  // reversal mode) → header fields → the JV line grid.
+  // declares config + verbs only. Zones: reversal (always empty — see zone
+  // def below) → header fields → attachments → the JV line grid.
   var jvForm = FB.form.create({
     formId: 'journal-voucher',
+    heading: 'Journal Voucher',
     zones: [
-      { id: 'reversal', rows: function () { return reversalMode ? [document.getElementById('reversal-panel')] : []; } },
+      // magnus 2026-08-28: always empty — the reversal-search panel this
+      // zone used to surface was removed. Slot kept (not renumbered) since
+      // zones 2/3 below are addressed by hardcoded index elsewhere in this
+      // file (verbs, moveTo calls).
+      { id: 'reversal', rows: function () { return []; } },
       { id: 'header',   rows: function () { return [document.querySelector('.header-fields')]; } },
       // K4: the pending-attachment queue is a form zone (read-only rows, no
       // cells) — j/k reach it, x removes the cursor row via the delete verb.
@@ -1006,7 +937,7 @@ ${commonStyle()}
       { id: 'lines',    rows: function () { return Array.from(document.querySelectorAll('#lines-body tr:not(.jv-orig-line):not(.jv-orig-hdr)')); } }
     ],
     verbs: {
-      add: { key: 'a', hint: 'add line', run: function (api) {
+      add: { key: 'i', hint: 'insert line item', run: function (api) {
         if (VIEW_BATCH && !reversalMode) return;   // read-only in view mode
         addLine(); updateTotals();
         api.moveTo(3, api.zoneRows(3).length - 1, 0, true);
@@ -1033,7 +964,10 @@ ${commonStyle()}
         if (btn.disabled) { showStatus('Out of balance — see Diff', true); return; }
         postEntry();
       } },
-      quit: { key: 'q', hint: 'quit', paletteEligible: false, run: function () {
+      // No hint: Escape is the universal quit/cancel key and doesn't need to
+      // be taught via the sidebar hint bar or the ? overlay (magnus 2026-08-28).
+      quit: { key: 'Escape', paletteEligible: false, run: function () {
+        if (!VIEW_BATCH && jvHasContent() && !confirm('Unsaved changes — discard?')) return;
         var url = FROM_REPORT ? '/' + COMPANY + '/books?t=' + FROM_REPORT : '/' + COMPANY;
         if (FROM_REPORT && RPT_START && RPT_END) {
           url += '&start=' + encodeURIComponent(RPT_START) + '&end=' + encodeURIComponent(RPT_END);
@@ -1042,39 +976,30 @@ ${commonStyle()}
       } }
     },
     extraBindings: function (api) {
-      function searchFocused() { return document.activeElement === document.getElementById('reversal-search'); }
       return [
-        // K4: A = attach everywhere (keyboard-ux-spec §8) — opens the file
+        // a = attach everywhere (keyboard-ux-spec §8), moved off Shift-A
+        // (magnus 2026-08-28 — a is exclusively attach app-wide now;
+        // line-insert moved to i, see verbs.add above) — opens the file
         // picker for the pending-attachment queue
-        { key: 'A', mode: 'NORMAL', hint: 'attach', hintBar: true, run: function () {
+        { key: 'a', mode: 'NORMAL', hint: 'attach', hintBar: true, run: function () {
             var inp = document.getElementById('jv-pre-attach-input');
             if (inp) inp.click();
           } },
-        // R = reversal MODE (vim's R = replace mode — a mode key for a mode;
-        // magnus 2026-07-28: ~ stays pure toggle-true/false, so reversal
-        // moves off ~). Esc in the search cancels the whole reversal flow.
-        { key: 'R', mode: 'NORMAL', hint: 'reversal', hintBar: true, run: function () {
+        // u = reversal (magnus 2026-08-28, reusing the universal undo key —
+        // a posted batch is immutable, so there's nothing left to literally
+        // undo; issuing a reversing entry IS the undo-equivalent for a
+        // posted JV). Only meaningful once a posted batch is loaded
+        // (?batch=) — toggleReversalMode() no-ops with a status message
+        // otherwise. Replaces the old 'R' binding and its draft-compose
+        // search-then-apply flow (removed).
+        { key: 'u', mode: 'NORMAL', hint: 'reversal', hintBar: true, run: function () {
             toggleReversalMode();
-            api.refresh();
-            if (reversalMode && !VIEW_BATCH) { var s = document.getElementById('reversal-search'); if (s) s.focus(); }
-          } },
-        { key: 'ArrowDown', mode: 'INSERT', when: searchFocused, run: function () { moveReversal(1); } },
-        { key: 'ArrowUp', mode: 'INSERT', when: searchFocused, run: function () { moveReversal(-1); } },
-        // Enter inside the search always stays local (never advances the form)
-        { key: 'Enter', mode: 'INSERT', when: searchFocused, run: pickReversal },
-        // A3 (magnus 2026-07-28): Esc contract — INSERT Esc from the search
-        // ONLY exits edit → NORMAL (reversal stays active); NORMAL Esc cancels
-        // reversal. R → (INSERT in search) Esc → NORMAL (still active) →
-        // Esc → cancels reversal. The NORMAL when-guard (reversalMode)
-        // keeps global Esc behavior untouched when reversalMode is false.
-        { key: 'Escape', mode: 'INSERT', when: searchFocused, run: function () {
-            api.exitEdit();         // blur + NORMAL — reversal stays active
             api.refresh();
           } },
         { key: 'Escape', mode: 'NORMAL', when: function () { return reversalMode; },
           run: function () {
-            toggleReversalMode();   // off — resets search/desc/lines
-            api.refresh();          // reversal zone emptied → cursor to header
+            toggleReversalMode();   // off — back to the read-only posted view
+            api.refresh();
           } }
       ];
     }

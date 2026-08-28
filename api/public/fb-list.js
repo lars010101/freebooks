@@ -1400,10 +1400,16 @@
       if (d && cfg.editable && !cfg.editable(d)) return; // read-only row
       enterEdit(idx >= 0 ? idx : 0);
     }
-    // Enter = OPEN (A3j §4.4): like editFocused, but on a read-only tree row
-    // (posted batch, proposal — editable→false) Enter unfolds/folds instead of
-    // no-oping. This keeps Enter's open/unfold meaning on registers where no
-    // row is editable (the queue) without stealing `i`'s edit-only semantics.
+    // Enter = edit (A3j §4.4, revised magnus 2026-08-28): a read-only tree
+    // row (posted batch, proposal — editable→false) is a no-op, same as a
+    // read-only flat row below. Previously Enter also folded read-only tree
+    // rows, duplicating Space — Space already toggles fold independently
+    // (resolves the focused row's parent off `focusedRow()` directly, not
+    // through this function), so that branch only ever did what Space
+    // already does. Removing it frees Enter to mean exactly one thing
+    // everywhere (edit, or nothing) and lets a page wire something more
+    // useful into Enter on its non-editable rows via `rowVerbs` (e.g.
+    // Inbox's bill-due rows: Enter opens the bill, not fold).
     function openFocused() {
       var tr = nav && nav.current();
       if (tr && tr.classList.contains('fb-add-row')) { newRow(); return; }
@@ -1411,7 +1417,7 @@
       var d = idx >= 0 ? merged()[idx] : null;
       if (cfg.tree) {
         var res = d ? billParentOf(d) : null;
-        if (res && cfg.editable && !cfg.editable(res.parent)) { toggleFold(res.parent); return; }
+        if (res && cfg.editable && !cfg.editable(res.parent)) return; // read-only: no-op
         enterEdit(idx >= 0 ? idx : 0);
         return;
       }
@@ -1524,7 +1530,6 @@
     var bindings = [
       { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { nav.move(1); } },
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { nav.move(-1); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: editFocused },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: openFocused },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) writeAt(i); } },
       { key: 'u', mode: 'NORMAL', hint: 'undo', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
@@ -1605,18 +1610,44 @@
           var d = focusedRow();
           if (d) toggleFold(d._childOf ? rowByKey(d._childOf) : d);
         } });
-      // `a` = add child line to the focused draft bill (Task 4). cfg.addChild
-      // provides the blank line shape; the framework appends it + focuses the
-      // new child's first field. Guarded on the parent's editability (drafts).
-      bindings.push({ key: 'a', mode: 'NORMAL', hint: 'add line', hintBar: true,
-        when: function () {
-          var d = focusedRow();
-          if (!d) return false;
-          var p = d._childOf ? rowByKey(d._childOf) : d;
-          return !!(p && (!cfg.editable || cfg.editable(p)));
-        },
-        run: addChildLine });
+      // i = add a line to the focused draft bill (moved off `a`, magnus
+      // 2026-08-28 — `a` is now exclusively attach; `i` is now exclusively
+      // insert). cfg.addChild provides the blank line shape; the framework
+      // appends it + focuses the new child's first field. Guarded on the
+      // parent's editability (drafts). More specific than the generic
+      // insert-new-row fallback below (same key, same hint text — collapses
+      // to one overlay row, dispatch prefers this one first when it applies).
+      //
+      // Gated on cfg.addChild — a tree page with no line-shape hook has no
+      // "insert a line" concept at all (Inbox/journal.js: editable() is
+      // hardcoded false, review-only registers), so registering this binding
+      // there would falsely advertise "insert line item" in the ?  overlay
+      // (which doesn't evaluate `when`) even though pressing it can never
+      // do anything — or worse, on a hypothetical tree page with a real
+      // editable() but no addChild, addChildLine()'s own fallback would
+      // silently EDIT instead, contradicting the "insert" label. Only Bills
+      // defines cfg.addChild today.
+      if (cfg.addChild) {
+        bindings.push({ key: 'i', mode: 'NORMAL', hint: 'insert line item', hintBar: true,
+          when: function () {
+            var d = focusedRow();
+            if (!d) return false;
+            var p = d._childOf ? rowByKey(d._childOf) : d;
+            return !!(p && (!cfg.editable || cfg.editable(p)));
+          },
+          run: addChildLine });
+      }
     }
+    // i = insert a new row, from anywhere (magnus 2026-08-28 — unifies the
+    // old "navigate to the add row, then i/Enter" two-step into one direct
+    // key on every FB.list page). Falls through to the more specific tree
+    // add-child binding above when that one applies (bill row focused);
+    // otherwise creates a new top-level row (a new bill, on tree pages).
+    // Guarded on canAdd — fixed-row registers (Settings attribute grids)
+    // have no add row at all, so the key stays silent/un-hinted there.
+    bindings.push({ key: 'i', mode: 'NORMAL', hint: 'insert line item', hintBar: true,
+      when: function () { return canAdd; },
+      run: newRow });
     function registerKeys() {
       if (!(window.FB && FB.keys)) return;
       nav = FB.nav.create({ rows: navRows, focusClass: cfg.focusClass || 'nav-row-focus', onFocus: cfg.onFocus || undefined });
@@ -1672,7 +1703,8 @@
       FB.keys.register(cfg.keysId, {
         active: cfg.active,
         getMode: function () { return editIdx >= 0 ? 'INSERT' : 'NORMAL'; },
-        bindings: all
+        bindings: all,
+        label: cfg.heading
       });
     }
     wireLeaveGuard();
@@ -1722,7 +1754,13 @@
       writeFocused: function () { var i = focusedIdx(); return i >= 0 ? writeAt(i) : Promise.resolve(false); },
       addChild: addChildLine, // tree: same flow as the `a` verb (Tab-spawn uses it)
       writeAllDirty: writeAllDirty,
-      discardAll: discardAll
+      discardAll: discardAll,
+      // Bills (magnus 2026-08-28): a human's only path to persistence is
+      // posting, not saving a draft — cfg.draftSaveOnLeave:false tells the
+      // shared leave-guard modal to drop its "Save" button for this
+      // register (Discard/Stay only). Default true (every other FB.list
+      // register's dirty rows are legitimately save-and-leave).
+      draftSaveOnLeave: cfg.draftSaveOnLeave !== false
     };
     registerKeys();
 
@@ -1768,33 +1806,44 @@
   // K2: rendered through FB.modal (keyboard contract §7 — Esc = Stay, never
   // saves; w = write & leave; u = undo & leave — the w/u keys mirror the
   // list's own write/undo doctrine, button keys show in the buttons).
+  // Bills (magnus 2026-08-28): draftSaveOnLeave:false drops "Save" here too
+  // — a human's only path to persistence is posting (see the register's own
+  // w binding), and posting can fail validation in ways a generic leave
+  // modal isn't equipped to surface, so it isn't offered as a leave option
+  // either. Discard/Stay only when any dirty instance opts out.
   var leaveWired = false;
   function dirtyInstances() {
     return instances.filter(function (i) { return i.mounted() && i.anyDirty(); });
   }
   function openLeaveModal(proceed) {
-    FB.modal.open({
-      title: 'Unsaved changes',
-      body: 'Rows have unsaved changes.',
-      onCancel: function () { /* Stay — navigation cancelled, buffers kept */ },
-      buttons: [
-        { label: 'Save', primary: true, key: 'w', hint: 'write & leave', onClick: function (api) {
-            var chain = Promise.resolve(true);
-            dirtyInstances().forEach(function (i) {
-              chain = chain.then(function (ok) { return ok ? i.writeAllDirty() : false; });
-            });
-            chain.then(function (ok) {
-              if (ok) { api.close(); proceed(); }
-              else api.error('Some rows could not be saved — fix them or Discard.');
-            });
-          } },
-        { label: 'Discard', danger: true, key: 'u', hint: 'undo & leave', onClick: function (api) {
+    var dirty = dirtyInstances();
+    var canSave = dirty.every(function (i) { return i.draftSaveOnLeave !== false; });
+    var buttons = [];
+    if (canSave) {
+      buttons.push({ label: 'Save', primary: true, key: 'w', hint: 'write & leave', onClick: function (api) {
+          var chain = Promise.resolve(true);
+          dirtyInstances().forEach(function (i) {
+            chain = chain.then(function (ok) { return ok ? i.writeAllDirty() : false; });
+          });
+          chain.then(function (ok) {
+            if (ok) { api.close(); proceed(); }
+            else api.error('Some rows could not be saved — fix them or Discard.');
+          });
+        } });
+    }
+    buttons.push(
+        { label: 'Discard', danger: true, primary: !canSave, key: 'u', hint: 'undo & leave', onClick: function (api) {
             dirtyInstances().forEach(function (i) { i.discardAll(); });
             api.close();
             proceed();
           } },
         { label: 'Stay', onClick: function (api) { api.close(); } }
-      ]
+    );
+    FB.modal.open({
+      title: 'Unsaved changes',
+      body: canSave ? 'Rows have unsaved changes.' : 'This row has not been posted — leaving now discards it.',
+      onCancel: function () { /* Stay — navigation cancelled, buffers kept */ },
+      buttons: buttons
     });
   }
   function wireLeaveGuard() {

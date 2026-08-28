@@ -303,6 +303,7 @@ if (window.FB && FB.keys) {
       var el = document.getElementById('tab-checklist');
       return !!(el && el.classList.contains('active'));
     },
+    label: 'Close Checklist',
     bindings: [
       { key: '~', mode: 'NORMAL', hint: 'attest', hintBar: true,
         run: function () {

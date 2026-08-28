@@ -10,6 +10,48 @@ the literal "ACTIONS"); `j`/`k`/`h`/`l` filtered from page bindings
 "Expand/Collapse"; Enter relabeled to "edit" on FB.list; `~` added as a
 silent alias for Space on tree pages when no page-level `~` binding is
 active (not shown in the overlay).
+**v4 amendments (PR #293, user review of P1-6):** three gaps between this
+doc and the actual `help.open()`/`_groupHints()` code, found by inspection —
+the "page/tab name" heading (v3) and the "Delete/void" example hint (§2)
+were both already specified here but never implemented:
+1. **Heading was the raw `FB.keys` registration id, not a page/tab name.**
+   `_cap(cur.name)` capitalized only the id's first letter, so tabs
+   registered under an internal `keysId` (e.g. Chart of Accounts as
+   `md-coa`, the Extensions tab's two grids as `settings-extensions-postrules`
+   / `settings-extensions-ai`) showed that raw slug as the heading instead of
+   a human name. Fixed by adding an optional curated label — `cfg.heading` on
+   `FB.list.create`/`FB.form.create`, or `label` directly on a bare
+   `FB.keys.register(name, def)` call — read as `cur.set.label` ahead of the
+   `_cap(cur.name)` fallback. Applied to every page/tab whose `keysId` wasn't
+   already a clean word.
+2. **Same key, two different hints rendered as two separate rows**, e.g.
+   Bills' `x` (void on a posted/paid bill or payment row, delete on a draft)
+   showed both "x Void" and "x Delete" simultaneously, since `_groupHints()`
+   only ever merged *consecutive* entries sharing the same hint text (for
+   `j`/`k` → "navigate"), never entries sharing the same *key*. Rejected
+   approach: making the overlay evaluate each binding's `when()` against the
+   focused row — adds per-row context-awareness to an otherwise static,
+   declarative surface. Adopted instead: `_groupHints()` first collapses all
+   bindings sharing a key into one row with their distinct hints joined
+   (`"Void/Delete"`), then applies the existing same-hint merge on top — this
+   is what §2's "Delete/void" example already implied. Since dispatch is
+   first-match-wins, at most one joined hint is ever the binding that
+   actually fires for a given row, so the joined label is always an accurate
+   "one of these" reading with no `when()` evaluation needed. This fix lives
+   in the shared `_groupHints()`, so it also fixes the sidebar hint bar
+   (`renderHints`), which had the identical duplicate-row bug.
+3. **Actions had no ordering by commonality.** Rows rendered in raw
+   declaration order, which is dispatch-precedence order — screen
+   `extraBindings`/`rowVerbs` (page-specific verbs like Post, Pay, Void)
+   are prepended ahead of the framework's universal built-ins (Edit, Write,
+   Undo, Delete) so that screens can override same-key defaults. That's the
+   right order for dispatch but pushes the least-common verbs to the top of
+   the list a human is trying to memorize. `help.open()` now stable-sorts the
+   grouped ACTIONS rows by a fixed commonality tier (Edit, Write, Undo,
+   Delete/Void, Expand/Collapse first; everything else keeps its declared
+   order after) — overlay only. The sidebar hint bar is left in declaration
+   order, where a page-specific verb appearing first is arguably the more
+   useful contextual read.
 **Amends:** the overlay described in `docs/payables-ux-spec.md` P1-6 and the
 deferred item in `docs/keyboard-ux-spec.md` §9 ("`?` overlay GLOBAL
 section... the overlay currently documents the active page set only").
@@ -238,6 +280,20 @@ render, per the always-open behavior above. v2 inherits this fix unchanged.
   filtered from page bindings; hint strings capitalized; title = just
   "Keyboard shortcuts"; `_keyLabel` Ctrl/Cmd probe removed (dead code);
   Space hint = "Expand/Collapse"; Enter hint = "edit" on FB.list.
+  **v4 (PR #293):** `_groupHints()` gains the same-key merge pass (§0 item
+  2); `open()` reads `cur.set.label` for the ACTIONS heading and sorts the
+  grouped rows by commonality tier before rendering (§0 items 1 and 3).
+- `api/public/fb-list.js` / `api/public/fb-form.js` — `FB.keys.register`
+  calls now pass `label: cfg.heading` so `FB.list.create`/`FB.form.create`
+  callers can supply a curated ACTIONS heading (v4).
+- `api/src/pages/*.js` — `heading:`/`label:` added at every `keysId`/direct
+  `FB.keys.register` call site whose id wasn't already a clean word:
+  `accounting.js` (Chart of Accounts, Tax Codes, Journals, Cost/Profit
+  Centers), `exchange-rates.js` (Exchange Rates), `settings.js` (Company,
+  Extensions ×2, Access), `fiscal.js` (Close Checklist), `bill-detail.js`
+  (Bill Details), plus the `FB.form` pages (`new-company.js`,
+  `bill-edit.js`, `reports-hub.js`, `journal-voucher.js`) for consistency
+  (v4).
 - `api/public/common.css` — `.fb-keys-cols`/`.fb-keys-col` replaced by
   `.fb-keys-main` (flex container) + `.fb-keys-nav` (left, `flex: 0 0 auto`)
   + `.fb-keys-actions` (right, `flex: 1; min-width: 0`); `.fb-keys-global`

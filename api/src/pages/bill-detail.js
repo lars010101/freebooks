@@ -352,9 +352,8 @@ window.fbKeyActions = {
     }
   },
   'attach': function() {
-    // K4: A = attach everywhere (keyboard-ux-spec §8). The legacy common.js
-    // dispatcher routes shift-a to fbKeyActions.attach; the old 'new' entry
-    // (a = attach) is retired on this page — freed for add-line semantics.
+    // a = attach everywhere (keyboard-ux-spec §8; moved off Shift-A, magnus
+    // 2026-08-28 — a is now exclusively attach app-wide, i is exclusively insert).
     var inp = document.getElementById('attach-input');
     if (inp) inp.click();
   },
@@ -402,18 +401,22 @@ window.fbKeyActions = {
 // K5: register an FB.keys set delegating to the same handlers (gate: every
 // route must have a live, hint-rendered set). fb-core claims these keys at
 // capture phase, so the legacy common.js dispatcher never double-fires;
-// keys NOT claimed here (legacy 'a', 'i') keep bubbling to fbKeyActions.
+// keys not claimed here fall through to whatever else is listening.
 (function () {
   function act(name) { return function () { window.fbKeyActions[name](); }; }
   FB.keys.unregister('bill-detail'); // soft-nav re-execution guard
   FB.keys.register('bill-detail', {
+    label: 'Bill Details',
     bindings: [
       { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: act('j') },
       { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: act('k') },
       { key: 'h', mode: 'NORMAL', hint: 'section ←', hintBar: true, paletteEligible: false, run: act('h') },
       { key: 'l', mode: 'NORMAL', hint: 'section →', hintBar: true, paletteEligible: false, run: act('l') },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: act('edit') },
-      { key: 'A', mode: 'NORMAL', hint: 'attach', hintBar: true, run: act('attach') },
+      // i is exclusively insert app-wide (magnus 2026-08-28); this page has
+      // no add-line capability (that's bill-edit's job), so i stays unbound
+      // here — Enter alone covers edit.
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: act('edit') },
+      { key: 'a', mode: 'NORMAL', hint: 'attach', hintBar: true, run: act('attach') },
       { key: 'x', mode: 'NORMAL', hint: 'delete/void', hintBar: true, run: act('delete') },
       { key: 'Escape', mode: 'NORMAL', hint: 'back', hintBar: true, paletteEligible: false, run: act('escape') }
     ]

@@ -352,20 +352,39 @@
 
   document.addEventListener('keydown', _dispatch, true); // capture: before common.js bubble handler
 
-  var KEY_LABELS = { 'Escape': 'Esc', ' ': 'Space', 'ArrowDown': '↓', 'ArrowUp': '↑' };
+  var KEY_LABELS = { 'Escape': 'Esc', ' ': '␣', 'Enter': '↵', 'ArrowDown': '↓', 'ArrowUp': '↑' };
 
-  // Shared hint grouping (sidebar hint panel AND the `?` overlay): consecutive
-  // bindings that share one hint collapse into a single row ("j/k navigate"),
-  // so both surfaces speak the same labels. Modifier-gated bindings get an
-  // explicit prefix ("Ctrl+Enter post") so the label tells the truth.
+  // Shared hint grouping (sidebar hint panel AND the `?` overlay). Two passes:
+  //
+  // Pass 1 — same key, different hints (e.g. Bills' `x` is bound twice: void
+  // on a posted bill, delete on a draft, picked by a `when()` guard at
+  // dispatch time) collapse into one row with the hints joined ("Void/Delete")
+  // instead of showing the same key twice. Dispatch only ever fires one of
+  // them for a given row, so this is always an accurate "one of these"
+  // reading — no need to evaluate `when()` here to know which.
+  //
+  // Pass 2 — consecutive bindings that share one hint collapse into a single
+  // row ("j/k navigate"), so both surfaces speak the same labels.
   function _groupHints(bs) {
-    var groups = [];
+    var byKey = [];
+    var indexOfKey = {};
     for (var i = 0; i < bs.length; i++) {
-      var cur = bs[i];
+      var b = bs[i];
+      var pos = indexOfKey[b.key];
+      if (pos === undefined) {
+        indexOfKey[b.key] = byKey.length;
+        byKey.push({ key: b.key, hint: b.hint });
+      } else if (byKey[pos].hint.split('/').indexOf(b.hint) === -1) {
+        byKey[pos].hint += '/' + b.hint;
+      }
+    }
+    var groups = [];
+    for (var j = 0; j < byKey.length; j++) {
+      var cur = byKey[j];
       var keysLabel = _keyLabel(cur);
-      while (i + 1 < bs.length && bs[i + 1].hint === cur.hint) {
-        i++;
-        keysLabel += '/' + _keyLabel(bs[i]);
+      while (j + 1 < byKey.length && byKey[j + 1].hint === cur.hint) {
+        j++;
+        keysLabel += '/' + _keyLabel(byKey[j]);
       }
       groups.push({ keys: keysLabel, hint: cur.hint });
     }
@@ -417,6 +436,26 @@
       return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
     }
 
+    // Actions ordered by cross-page commonality: verbs that recur on nearly
+    // every page (edit, write, undo, delete/void, expand-collapse) read as
+    // recognizable landmarks and sort first; page-specific verbs (Post, Pay,
+    // Attest, ...) follow in their declared/dispatch order. Overlay-only —
+    // the sidebar hint bar keeps declaration order, where page-specific verbs
+    // being first is the more useful contextual read.
+    var COMMON_HINTS = ['edit', 'write', 'undo', 'delete', 'void', 'expand/collapse'];
+    function _commonality(hint) {
+      var parts = hint.toLowerCase().split('/');
+      var best = COMMON_HINTS.length;
+      for (var i = 0; i < parts.length; i++) {
+        var idx = COMMON_HINTS.indexOf(parts[i].trim());
+        if (idx !== -1 && idx < best) best = idx;
+      }
+      return best;
+    }
+    function _byCommonality(groups) {
+      return groups.slice().sort(function (a, b) { return _commonality(a.hint) - _commonality(b.hint); });
+    }
+
     function open() {
       if (_el) return true;
       var cur = _activeSet();
@@ -449,8 +488,11 @@
         gRows.push({ keys: 'g ' + r.gKey, hint: 'Go to ' + r.label });
       });
       if (gRows.length) navRows += _rows(gRows);
-      // Actions heading = the active set's name (capitalized), not "ACTIONS".
-      var actionsHeading = cur ? _cap(cur.name) : 'Actions';
+      // Actions heading = the active set's curated label when the page/tab
+      // supplied one (cfg.heading / def.label), else falls back to the raw
+      // registration name capitalized — which is why internal keysIds like
+      // 'md-coa' used to leak into the UI before pages started passing labels.
+      var actionsHeading = cur ? (cur.set.label || _cap(cur.name)) : 'Actions';
       _prevFocus = document.activeElement;
       _el = document.createElement('div');
       _el.id = 'fb-keys-overlay';
@@ -463,7 +505,7 @@
             '</div>' +
             '<div class="fb-keys-actions">' +
               '<div class="fb-keys-mode">' + esc(actionsHeading) + '</div>' +
-              (normal.length ? _rows(_groupHints(normal)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
+              (normal.length ? _rows(_byCommonality(_groupHints(normal))) : '<div class="fb-hint-row fb-keys-none">—</div>') +
             '</div>' +
           '</div>' +
         '</div>';

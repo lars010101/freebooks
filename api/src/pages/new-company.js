@@ -140,12 +140,13 @@ function createCompany() {
 // hints render into the inline #nc-hints bar (K5).
 var ncForm = FB.form.create({
   formId: 'new-company',
+  heading: 'New Company',
   zones: [
     { id: 'company', rows: function () { return Array.prototype.slice.call(document.querySelectorAll('.field-row')); } },
     { id: 'periods', rows: function () { return Array.prototype.slice.call(document.querySelectorAll('#periods-body tr')); } }
   ],
   verbs: {
-    add: { key: 'a', hint: 'add period', run: function (api) {
+    add: { key: 'i', hint: 'insert period', run: function (api) {
       addRow();
       api.moveTo(1, api.zoneRows(1).length - 1, 0, true);
     } },

@@ -156,6 +156,7 @@ var SUBTYPES = ['','Cash and Equivalents','Cost of Goods Sold','Cost of Revenue'
 
 var coaList = FB.list.create({
   keysId: 'md-coa',
+  heading: 'Chart of Accounts',
   active: function() { var p = document.getElementById('tab-coa'); return !!(p && p.classList.contains('active')); },
   tbody: 'coa-body',
   companyId: function() { return COMPANY; },
@@ -219,6 +220,7 @@ function renderCoaHints() {
 var TAX_TYPES = ['VAT', 'WHT'];
 var _taxCfg = {
   keysId: 'acct-taxcodes',
+  heading: 'Tax Codes',
   active: function() { var p = document.getElementById('tab-taxcodes'); return !!(p && p.classList.contains('active')); },
   tbody: 'taxcodes-body',
   companyId: function() { return COMPANY; },
@@ -336,6 +338,7 @@ function renderTaxHints() {
 // ========== JOURNALS — FB.list ==========
 var journalsList = FB.list.create({
   keysId: 'md-journals',
+  heading: 'Journals',
   active: function() { var p = document.getElementById('tab-journals'); return !!(p && p.classList.contains('active')); },
   tbody: 'journals-body',
   companyId: function() { return COMPANY; },
@@ -376,6 +379,7 @@ function renderJournalHints() {
 // ========== COST/PROFIT CENTERS — FB.list ==========
 var centersList = FB.list.create({
   keysId: 'md-centers',
+  heading: 'Cost/Profit Centers',
   active: function() { var p = document.getElementById('tab-centers'); return !!(p && p.classList.contains('active')); },
   tbody: 'centers-body',
   companyId: function() { return COMPANY; },

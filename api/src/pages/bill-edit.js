@@ -603,7 +603,7 @@ async function postBill() {
   } finally { S.saving = false; }
 }
 
-// q = quit (no save). Dirty → confirm discard (same guard as Partners).
+// Escape = quit (no save). Dirty → confirm discard (same guard as Partners).
 function quitEditor() {
   const bill = gatherBill();
   if (!bill.partner_name && !bill.lines.length) { window.location.href = '/' + COMPANY + '/payables'; return; } // empty → exit silently
@@ -661,6 +661,7 @@ document.getElementById('be-post').onclick = () => postBill();
 // The page starts in NORMAL; user presses i/Enter to edit a cell.
 var beForm = FB.form.create({
   formId: 'bill-edit',
+  heading: 'Bill',
   zones: [
     { id: 'header', rows: function () { return [document.querySelector('.be-grid-header')]; } },
     { id: 'lines',  rows: function () {
@@ -674,7 +675,7 @@ var beForm = FB.form.create({
       cells: function () { return []; } },
   ],
   verbs: {
-    add: { key: 'a', hint: 'add line', run: function (api) {
+    add: { key: 'i', hint: 'insert line item', run: function (api) {
       var row = addLine({});
       updateTotals();
       api.moveTo(1, api.zoneRows(1).length - 1, 0, true);
@@ -686,13 +687,27 @@ var beForm = FB.form.create({
         if (!row) return;
         row.remove(); updateTotals(); refreshAddRow(); api.refresh();
       } },
-    write: { key: 'w', hint: 'write draft', run: function () { saveDraft(false); } },
-    quit: { key: 'q', hint: 'quit', paletteEligible: false, run: function () { quitEditor(); } }
+    // w now posts instead of saving a draft (magnus 2026-08-28) — killed the
+    // human "save draft, don't post" path; an agent can still create/leave a
+    // bill in draft (bill.create/bill.draft.save are agentWritable —
+    // action-catalog.js), but a human's write action always commits straight
+    // to posted. postBill() already handles both cases (a truly-new bill
+    // goes through bill.create directly, no draft ever touched; an existing
+    // draft — e.g. one opened from an Inbox review — gets a final silent
+    // save then bill.draft.post). No hint: silent alias for the p binding
+    // below (same pattern as the Escape/quit alias), so the overlay isn't
+    // cluttered with two rows for one action.
+    write: { key: 'w', run: function () { postBill(); } },
+    // No hint: Escape is the universal quit/cancel key and doesn't need to
+    // be taught via the sidebar hint bar or the ? overlay (magnus 2026-08-28).
+    quit: { key: 'Escape', paletteEligible: false, run: function () { quitEditor(); } }
   },
   extraBindings: function (api) {
     return [
       { key: 'p', mode: 'NORMAL', hint: 'post bill', hintBar: true, swallow: true, run: function () { postBill(); } },
-      { key: 'A', mode: 'NORMAL', hint: 'attach file', hintBar: true, swallow: true,
+      // a = attach, moved off Shift-A (magnus 2026-08-28 — a is exclusively
+      // attach app-wide now; line-insert moved to i, see verbs.add above).
+      { key: 'a', mode: 'NORMAL', hint: 'attach file', hintBar: true, swallow: true,
         run: function () { document.getElementById('be-file').click(); } },
     ];
   }

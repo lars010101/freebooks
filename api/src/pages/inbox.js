@@ -20,13 +20,18 @@
  *
  * Group rendering: items group by item.type under a collapsible group header
  * row (label 'Journal proposals' for type journal_proposal, plus count). Header
- * Enter/click folds/unfolds its rows; fold state is client-side per type. v1
+ * Space/click folds/unfolds its rows (magnus 2026-08-28: Space-only, see
+ * below — was Enter/click); fold state is client-side per type. v1
  * has one type — the structure is generic so Class B types slot in later.
  *
  * Row verbs (FB.list rowVerbs — fb-list-ux-spec §13):
- *   y = approve (confirm modal: date, line count, total debit, optional note)
+ *   w = approve (confirm modal: date, line count, total debit, optional note;
+ *       moved off `y` 2026-08-28 — same "commit" key as everywhere else)
  *   x = reject  (required note — the proposer reads it via event.list)
- * Enter unfolds lines read-only (framework openFocused); Esc never writes.
+ *   Enter = open bill (Class B bill-due rows only — moved off `o`)
+ * Space unfolds a proposal's lines read-only; Enter is a no-op on proposal
+ * rows (nothing to edit or open there — magnus 2026-08-28, was "Enter
+ * unfolds", duplicating Space). Esc never writes.
  */
 
 const { commonStyle, navBar, layoutEnd } = require('./common');
@@ -200,7 +205,7 @@ function underlagBadge(row) {
 // PROPOSED item. attachment.list is fetched LAZILY on first unfold (the queue
 // is a review surface, not every item needs its underlag on load) and cached
 // per proposalId; the bare list.render() path re-renders the section when the
-// fetch resolves. No new keys/verbs — Enter unfolds via the existing tree
+// fetch resolves. No new keys/verbs — Space unfolds via the existing tree
 // mechanism; this just adds a child row to that unfold. R6: the panel is
 // read-only display; the existing y/x flow is untouched.
 var _attCache = {}; // proposalId → undefined(unfetched) | '__pending' | Array<att>
@@ -509,21 +514,33 @@ var list = FB.list.create({
       + '<td colspan="3"></td><td></td>';
   },
   rowVerbs: [
-    // A5 §10.4 — group header fold is now Space-only (the built-in tree
-    // binding). Enter falls through to the built-in openFocused (edit/detail).
-    { key: 'y', label: 'approve',
+    // A5 §10.4 — fold is Space-only, everywhere (magnus 2026-08-28: Enter no
+    // longer folds on any tree page — see fb-list.js openFocused). Enter is
+    // a no-op on proposal rows (nothing to edit or open there; Space still
+    // unfolds a proposal's lines for review) and "open bill" on bill rows —
+    // see below.
+    // Moved off the old y key (magnus 2026-08-28) — approve IS the same
+    // "commit" action w means everywhere else (write on Chart of Accounts,
+    // post on Bills/Journal Voucher): it's what turns this row into a
+    // permanent ledger entry. w is never otherwise reachable on Inbox rows
+    // (they're never dirty — no in-place edit — so the built-in FB.list w
+    // binding, which only matches a dirty row, never fires here).
+    { key: 'w', label: 'approve',
       when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" data-act="verb:y">&#10003;</a>'; },
+      affordance: function () { return '<a class="chip chip-ok" title="approve (w)" data-act="verb:w">&#10003;</a>'; },
       run: function (api, row) { review(row, 'approve'); } },
     { key: 'x', label: 'reject',
       when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
       affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { review(row, 'reject'); } },
-    // Class B bill-due (§10.7 item 4): 'o' opens the bill's native surface
+    // Class B bill-due (§10.7 item 4): Enter opens the bill's native surface
     // (Payables). The inbox is read-only; the bill is worked in its own page.
-    { key: 'o', label: 'open bill',
+    // Moved off the old o key (magnus 2026-08-28) — Enter has nothing else
+    // to do on a bill-due row (not editable), so it's the natural key for
+    // this rather than a separate chord.
+    { key: 'Enter', label: 'open bill',
       when: function (row) { return row._kind === 'bill'; },
-      affordance: function () { return '<a class="chip" title="open in Payables (o)" data-act="verb:o">&#8599;</a>'; },
+      affordance: function () { return '<a class="chip" title="open in Payables (Enter)" data-act="verb:Enter">&#8599;</a>'; },
       run: function (api, row) {
         // Navigate to the Payables page where the bill lives.
         window.location.href = '/' + COMPANY + '/payables';
@@ -538,7 +555,7 @@ var list = FB.list.create({
     if (statusState === 'proposed') {
       note.textContent = items.length === 0
         ? 'Nothing to review — agent-proposed journal batches will appear here'
-        : items.length + ' proposed batch' + (items.length === 1 ? '' : 'es') + ' awaiting review (y approve · x reject · Enter unfold)';
+        : items.length + ' proposed batch' + (items.length === 1 ? '' : 'es') + ' awaiting review (w approve · x reject · Space unfolds)';
     } else if (statusState === 'rejected') {
       note.textContent = 'Rejected proposals (' + items.length + ') — f returns to the queue';
     } else {
@@ -547,10 +564,10 @@ var list = FB.list.create({
       var overdue = bills.filter(function (r) { return r.status === 'overdue'; }).length;
       note.textContent = bills.length + ' bill' + (bills.length === 1 ? '' : 's') + ' due for payment'
         + (overdue ? ' (' + overdue + ' overdue)' : '')
-        + ' — o opens in Payables · Enter unfolds · f returns to the queue';
+        + ' — Enter opens in Payables · f returns to the queue';
     }
   },
-  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, o open bill, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → bills.'
+  hint: 'Inbox: action items awaiting review, grouped by type (w approve, x reject, Enter opens a bill-due row in Payables, Space folds/unfolds). f cycles filters: proposed → rejected → bills.'
 });
 
 list.load();

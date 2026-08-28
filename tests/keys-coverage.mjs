@@ -44,14 +44,14 @@ const GATE_ROUTE = 'journal-voucher';
 // loudly if the verb is removed. Match by `id`, exact `text`, or `sel`.
 const EXEMPTIONS = {
   'journal-voucher': [
-    { id: 'btn-reversal-mode', verb: 'R', reason: 'verb parity — R toggles reversal mode' },
-    { text: '+ Add Line', verb: 'a', reason: 'verb parity — a adds a line' },
+    { id: 'btn-reversal-mode', verb: 'u', reason: 'verb parity — u toggles reversal mode' },
+    { text: '+ Add Line', verb: 'i', reason: 'verb parity — i inserts a line' },
     { id: 'btn-post', verb: 'w', reason: 'verb parity — w posts the entry' },
   ],
   'bill-edit': [
     { id: 'be-post', verb: 'p', reason: 'verb parity — p posts the bill' },
-    { id: 'be-save', verb: 'q', reason: 'verb parity — q quits' },
-    { id: 'be-add-row-btn', verb: 'a', reason: 'verb parity — a adds a line' },
+    { id: 'be-save', verb: 'Escape', reason: 'verb parity — Escape quits' },
+    { id: 'be-add-row-btn', verb: 'i', reason: 'verb parity — i inserts a line' },
   ],
 };
 

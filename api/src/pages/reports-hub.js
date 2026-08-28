@@ -324,6 +324,7 @@ ${layoutEnd()}
 
   var rptForm = FB.form.create({
     formId: 'reports',
+    heading: 'Reports',
     onCommit: function () { fbLoadReport(); },
     zones: [
       // The filter bar is a single header row whose cells are the bar's

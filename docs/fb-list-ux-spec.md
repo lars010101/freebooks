@@ -44,9 +44,9 @@ clean ──i/Enter/click──▶ editing ──Esc──▶ dirty ──w─�
 |---|---|---|
 | read | `j`/`k` | navigate rows, sticky ends; the add row is a nav position (bottom) |
 | read | `gg` / `G` | first row / bottom (= add row) — framework-level since 2026-07-23 |
-| read | `i` / Enter / click cell | edit focused row; on the add row = create. Tree mode: on a child = edit the parent bill (whole-bill unit); on a posted bill = no-op (`editable` false) |
-| read, tree | `Space` / click ▸ | fold — toggle the parent under the cursor (children lazy-fetch on first open); inert on the add row |
-| read, tree | `a` | add child to the focused draft bill (§5's `a` = add child) |
+| read | Enter / click cell | edit focused row; on the add row = create. Tree mode: on a child = edit the parent bill (whole-bill unit); on a posted bill = no-op (`editable` false — was fold before 2026-08-28, see below) |
+| read | `i` | insert a new row, from anywhere (magnus 2026-08-28 — was edit; moved off `a`). Tree mode: adds a child to the focused draft bill when `cfg.addChild` is defined and the parent is editable (more specific, wins first); otherwise creates a brand-new top-level row. Guarded on `canAdd` |
+| read, tree | `Space` / click ▸ | fold — toggle the parent under the cursor (children lazy-fetch on first open); inert on the add row. **The only fold key** (magnus 2026-08-28): Enter used to also fold a read-only tree row, duplicating this — removed, since Space already covered every fold case independently. A page can now wire something more useful into Enter on its non-editable rows via `rowVerbs` (Inbox: Enter opens a bill-due row in Payables) |
 | read | `x` | delete — confirm for saved rows; no-op on `deletable:false` rows (e.g. ECB rates); discards dirty-new rows |
 | read, dirty | `w` / `✓` chip | **write — the only save** |
 | read, dirty | `u` / `✕` chip | undo to saved values |
@@ -58,9 +58,9 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 
 ## 5. Verb convention (app-wide, ratified 2026-07-22)
 
-- `o`/`O` = **new** master object (opens a new top-level entity — bill on Bills).
-- `a`/`A` = **add** child to an existing parent (bill line, attachment).
-- On master-only FB.list screens `a` is unbound; create is the add row's job.
+- `i` = **insert** — a new top-level row from anywhere, or (tree mode, `cfg.addChild` defined) a child line on the focused draft bill. Was `a` before the app-wide i/a/Enter consolidation (magnus 2026-08-28, `docs/keyboard-ux-spec.md` §8); `o`/`O` predates that and was already retired earlier (2026-07-24, `docs/payables-ux-spec.md`) in favor of the add row + `I` (full-page editor).
+- `a` = **attach** a file, exclusively, app-wide (moved off Shift-`A` same date). On screens with no attachment concept, `a` is simply unbound.
+- On master-only FB.list screens with no tree/addChild, `i` still works (creates a new top-level row from anywhere) — it no longer requires navigating to the add row first.
 
 ## 6. Config contract
 
@@ -79,6 +79,7 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `track` | FB.track.create name (optional) |
 | `label` | add-row text (default `+ Add entry`) |
 | `canAdd` | `false` = fixed-row register — no add row, no create verb; every row critical, rows never added/removed (Company attribute grid; added 2026-07-27). Omit `blank()` with it. Default `true` |
+| `draftSaveOnLeave` | `false` = the shared "Unsaved changes" leave-guard modal (`wireLeaveGuard`) drops its "Save" button for this register — Discard/Stay only. For a register where "save without committing" shouldn't exist for a human at all (Bills: a human's only path to persistence is posting — added 2026-08-28). Default `true`. **Known gap:** the per-row ✓ "write" mouse chip is unaffected by this flag — it still calls plain `writeAt` regardless; only the keyboard `w` binding and this leave-guard modal are covered today |
 | `list` | `{ action }` or `{ url }` + `map(raw)` → saved row incl. `_key` |
 | `save` | `{ action, body(d), focusKey(d,res) }` |
 | `del` | `{ action, body(d), confirm(d) }` \| null — optional `deleted(d)`: success message (default `'Deleted'`) |
@@ -92,7 +93,7 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `foldKey(row)` / `isFolded(row)` / `fold(row, open)` | fold state — defaults: `row._key` + an internal **open-state** map (absent key = **folded** — collapsed-by-default) |
 | `childRowHtml(parent, child, idx)` / `editChildRowHtml` | view-mode child `<tr>` inner HTML; edit-mode override (defaults to `childRowHtml`) |
 | `editFooterRowHtml(parent)` / `attachFooter(tr, parent)` | optional ONE bill-level row rendered after the last edit child (Bills: stated-VAT row); tagged `data-footer-of` (NOT `data-child-of`) so child harvest never sees it; `render()` removes it (optional; added 2026-07-26) |
-| `addChild(parent)` / `attachChild(tr, parent, idx)` | the `a` verb — append a child line in edit; post-render child-row hook |
+| `addChild(parent)` / `attachChild(tr, parent, idx)` | the `i` verb (was `a` — see §5) — append a child line in edit; post-render child-row hook |
 | `harvestExtra(tr, row, buf)` | merge non-column payload fields into the edit buffer (Bills: `vendor_id`/`ap_account`/`expense_account` travel on the vendor input's dataset) (optional) |
 | `hint` | register note rendered in the sidebar under the tab's keyboard help — the only sanctioned note location |
 

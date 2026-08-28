@@ -67,6 +67,7 @@ function showMsg(id, msg, isErr) {
 // ========== EXCHANGE RATES — FB.list ==========
 var fxList = FB.list.create({
   keysId: 'md-fxrates',
+  heading: 'Exchange Rates',
   active: function() { return true; }, // standalone page — always active
   tbody: 'fx-rates-body',
   companyId: function() { return COMPANY; },

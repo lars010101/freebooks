@@ -206,6 +206,7 @@ function wireDirty(tr, tab) {
 // is a read-only row (editable false). The danger zone stays an action below.
 var companyAttrs = FB.list.create({
   keysId: 'settings-company',
+  heading: 'Company',
   active: function() { var p = document.getElementById('tab-company'); return !!(p && p.classList.contains('active')); },
   tbody: 'company-attrs-body',
   companyId: function() { return COMPANY; },
@@ -357,6 +358,7 @@ window.onbeforeunload = function(e) {
 // no UI surface (§7, command-bar only).
 var postRulesAttrs = FB.list.create({
   keysId: 'settings-extensions-postrules',
+  heading: 'Extensions',
   active: function() { var p = document.getElementById('tab-extensions'); return !!(p && p.classList.contains('active')); },
   tbody: 'ext-postrules-body',
   companyId: function() { return COMPANY; },
@@ -439,6 +441,7 @@ function renderPostRulesHints() {
 // The Test connection row (#179) is type "Action": readonly, renders a button.
 var aiAttrs = FB.list.create({
   keysId: 'settings-extensions-ai',
+  heading: 'Extensions',
   active: function() { var p = document.getElementById('tab-extensions'); return !!(p && p.classList.contains('active')); },
   tbody: 'ext-ai-body',
   companyId: function() { return COMPANY; },
@@ -543,6 +546,7 @@ function renderExtensionsHints() {
 // ========== ACCESS TAB — FB.list (moved from dissolved Admin, 2026-08-27) =====
 var accessList = FB.list.create({
   keysId: 'settings-access',
+  heading: 'Access',
   active: function() { var p = document.getElementById('tab-access'); return !!(p && p.classList.contains('active')); },
   tbody: 'access-body',
   companyId: function() { return COMPANY; },

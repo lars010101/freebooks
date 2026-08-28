@@ -1,6 +1,8 @@
 # Payables UX Specification
 
 > **2026-07-24 rev. 4 — Bills migrated onto `FB.list` (`tree: true`).** The bespoke Bills interaction machinery (render/draft/filter/nav/fold) is deleted; the Bills tab is now a declarative `FB.list.create(cfg)` call. This spec's Bills-specific sections now describe the framework-native behavior (see `fb-list-ux-spec.md`). The bill editor screen (`bill-edit.js`) and the bill-detail page remain separate. The pre-interim "Esc always saves / no cancel path" doctrine is **superseded** — `Esc` never saves; `w` is the only save path (FB.list §3 doctrine).
+>
+> **2026-08-28 — `w` posts, not drafts (magnus).** Below, "`w` saves a draft (`bill.draft.save`)" describes the *pre-2026-08-28* behavior — kept for history, not current truth. A **human's** `w` (Bills grid and the full-page editor) now posts directly (`postDraft`/`postBill`, same as `p` — silent alias on the editor, merged into one "w/p Post/pay" overlay row on the grid); the standalone "save as draft, don't post" gesture is gone for humans. `bill.draft.save`/`bill.draft.post` still exist and still matter — they're how an **agent** proposes a bill for human review (`bill.create` is `agentWritable`; the handler forces `status='draft'` for an agent actor — `action-catalog.js`), reviewed via Inbox's "Class A — bill drafts" queue exactly like journal proposals. A human opening one of those from Inbox and pressing `w`/`p` posts it directly too — `postDraft`/`postBill` already silently persist-then-post as one gesture when needed, so this never required exposing a separate "just save" step to a human in the first place. The shared "Unsaved changes" leave-guard modal also drops its "Save" button for Bills (`cfg.draftSaveOnLeave: false`, `fb-list-ux-spec.md` §6) — leaving with an unposted bill can only Discard or Stay now, never silently park it in draft.
 
 ## Design Principles
 
@@ -25,16 +27,16 @@
 | } | Click sidebar page | Next sidebar page |
 | Enter | Double-click row | **Edit** — whole-bill INSERT on drafts (no-op on posted bills); create on the `+ Add bill` row |
 | Space | Click ▸/▾ fold icon on parent | **Expand/Collapse** — toggle the fold of the bill under the cursor (parent folds itself; a child folds its parent); inert on the add row (vim fold semantics). `~` is a silent alias for Space when no page-level `~` binding is active (PR #288) |
-| i | Double-click editable row | Enter INSERT mode (opens entire draft bill for editing) |
+| i | — | **Insert line item** (magnus 2026-08-28, moved off `a` — see below): on a focused draft bill, append a new child line; otherwise (no focus, or the focused bill isn't a draft) create a brand-new bill instead of no-op'ing |
 | I | — | Open the focused draft bill in the full-page editor (`bill-edit.js`); no-op on posted bills |
-| a | — | Append new child line to the focused draft bill |
 | x | Click delete icon (on hover) | Delete draft bill / delete current child line / void posted bill (confirm) / void payment (on a payment-history child) |
 | p | Click "Post"/"Pay" affordance | Post draft bill directly (no preview step); on posted/partial bills open the inline pay row |
+| w | Click ✓ chip (mouse parity gap — see §4 verb table) | Post the bill directly — same as `p` on a draft (magnus 2026-08-28, was "write draft") |
 | G | Scroll to bottom | Jump to last row (= add row) |
 | gg | Scroll to top | Scroll to top |
 | Esc | — | No-op (already in NORMAL) |
 
-`o`/`O` are **retired** on Bills (2026-07-24) — the `+ Add bill` row is the only create path; the full-page editor is reached via `I` or the ref-link / double-click.
+`o`/`O` are **retired** on Bills (2026-07-24) — the `+ Add bill` row is the only create path; the full-page editor is reached via `I` or the ref-link / double-click. (2026-08-28: `i` is now also a direct create path — see the table above — but the `+ Add bill` row still works via `Enter`.)
 
 Row selection highlights the complete row (parent or child). No cell-level cursor in NORMAL mode.
 
@@ -52,21 +54,21 @@ j/k navigation crosses bill boundaries seamlessly:
 | Shift+Tab | Click cell in bill | Move to previous editable cell |
 | Enter | — | Move to next input within the bill (sticky at the last field; never saves) |
 | Esc | — | Exit INSERT only — **never saves**; the dirty bill stays (amber). `w` persists. |
-| w | Click 💾 chip | Write the whole bill (header + all lines) in ONE server write — the only save (read, dirty state) |
+| w | Click ✓ chip (title still says "write (w)") | Post the bill directly (magnus 2026-08-28 — was "write draft"; same action as `p`, merged into one overlay row on keyboard). **Known gap:** the ✓ chip is fb-list's generic per-row "write" mouse affordance (`api/public/fb-list.js` — renders for any dirty row on any FB.list page) and still calls plain `writeAt`/`bill.draft.save` directly — it was not repointed, so a mouse-only user can still park a bill in draft this way. Needs a `cfg` hook analogous to `draftSaveOnLeave` before this is airtight for mouse users too. |
 | u | — | Undo the whole bill to saved values (read, dirty state) |
 | x | — | On a dirty-new bill, discard it — cursor → add row |
 | (all other keys) | — | Type into the focused input (h/j/k/l/{/}/a/o/x/p/G/gg all inert) |
 
 **Dirty bill = amber.** The framework's whole-bill dirty buffer (keyed by the parent `_key`) carries the header + every child line as one unit; the bill (parent + its open children) renders amber until `w` or `u`.
 
-Entering INSERT mode (via `i`/Enter on any row of a draft bill):
+Entering INSERT mode (via `Enter` on any row of a draft bill — `i` no longer edits, see above):
 - **All** editable cells on the bill are rendered as inputs (parent fields + child fields) and the framework enters INSERT mode (`FB.mode`); focus lands on the first parent input (partner).
 - h/j/k/l/{/} are inert (they type into inputs).
 - Tab/Shift+Tab move between cells across the entire bill (parent → children).
 
 **New (unsaved) drafts:** activating the `+ Add bill` row (Enter/click) transforms it in place into the whole-bill INSERT unit — parent + first child rendered as inputs, fold open, focus on the partner input — and enters INSERT mode.
 
-**Saved drafts (status='draft', already in DB):** `i`/Enter on a draft (parent or child) re-enters the whole-bill edit unit — the parent + its open children re-render as inputs pre-filled with saved values, draft lines re-fetched from the server. The framework's whole-bill dirty buffer carries header + every child line as one unit.
+**Saved drafts (status='draft', already in DB):** `Enter` on a draft (parent or child) re-enters the whole-bill edit unit — the parent + its open children re-render as inputs pre-filled with saved values, draft lines re-fetched from the server. The framework's whole-bill dirty buffer carries header + every child line as one unit.
 
 Exiting INSERT mode (Esc; or click-outside — see below):
 - Esc **never saves.** It exits INSERT only; every input across the parent + open children is harvested into the framework's whole-bill dirty buffer (keyed by the parent `_key`) and the bill re-renders as display text marked dirty (amber).
@@ -74,7 +76,7 @@ Exiting INSERT mode (Esc; or click-outside — see below):
 - The dirty bill stays until `w` (write — the only save, one `bill.draft.save` carrying header + all lines) or `u` (undo).
 - Returns to NORMAL mode with selection on the parent row.
 
-Posted bills: `i`/Enter and double-click are no-ops (the framework's `editable` predicate is false). The row is read-only. No INSERT mode is entered.
+Posted bills: `Enter` and double-click are no-ops for editing (the framework's `editable` predicate is false). The row is read-only. No INSERT mode is entered. (`i` on a posted-bill row is NOT a no-op — it falls through to the generic insert fallback and creates a brand-new draft bill, per the table above.)
 
 ### Tab Behavior at Bill Boundaries
 
@@ -87,7 +89,7 @@ Tab navigates across all editable cells in the bill. The forward flow for a bill
 - **Forward Tab on the last child's last field (VAT code select):** focus moves to the bill footer's stated-VAT cell. **Forward Tab on the stated-VAT cell:** if the current child has data (description or amount), a **new child row is created** (`createDraftLine`) and focus moves to its description input. If the child is empty, Tab stays (sticky — no empty rows created).
 - **Shift+Tab** flows in reverse. On the first child's description field, focus moves back to the parent's last input (vendor ref).
 
-This keeps the user inside the bill editing flow. Creating a new line is natural — just Tab past the last field. No need to Esc → `a` → `i` to add a line.
+This keeps the user inside the bill editing flow. Creating a new line is natural — just Tab past the last field. No need to Esc → `i` to add a line.
 
 ### Click-Outside (Mouse Esc Equivalent)
 

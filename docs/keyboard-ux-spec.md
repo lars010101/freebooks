@@ -270,10 +270,56 @@ config + verbs only — no per-page key handlers (FB.list doctrine).
 |---|---|---|
 | `j`/`k` | next/prev row (zones flatten; sticky at form ends; **column preserved** — goal-column, 2026-07-28) | — |
 | `h`/`l` | next/prev cell (sticky) | — |
-| `i`/`Enter` | edit cell → INSERT | advance to next cell (fb-list parity) |
+| `Enter` | edit cell → INSERT | advance to next cell (fb-list parity) |
+| `i` | page-supplied `add` verb (insert; magnus 2026-08-28 — see below) | — |
 | `Esc` | — | exit edit → NORMAL (never writes) |
 | `Tab`/`Shift+Tab` | move cursor next/prev cell (no INSERT) — **crosses row/zone boundaries** (2026-07-28: was row-clamped; header→grid must flow) | native traversal; cursor follows focus |
 | `G` | last row | — |
+
+**i/a/Enter consolidation (magnus 2026-08-28), app-wide — FB.list and
+FB.form both:** supersedes every earlier "universal i/x, `i` = edit" note
+elsewhere in this doc (those describe PR #288's state, now superseded here).
+Previously `i` and `Enter` were near-duplicates (FB.form literally bound
+both to the same `edit` function; FB.list's `i` was a subset of what
+`Enter` already covered) while `a` meant "add" and `A` (Shift) meant
+"attach" — two case-shifted variants of the same letter. Consolidated to
+three exclusive roles:
+
+- **`Enter` = edit**, exclusively. No behavior change — this is what it
+  already did everywhere.
+- **`a` = attach**, exclusively — dropped the Shift requirement. `A` is
+  retired on every page that had it (`bill-detail`, `bill-edit`,
+  `journal-voucher`); the corresponding legacy `common.js` bubble-phase `A`
+  handler (dead code — FB.keys pages already swallowed it at capture) is
+  deleted.
+- **`i` = insert**, exclusively — moved off `a`, and no longer edits. On
+  FB.form, `i` is wherever a page's `verbs.add` is now keyed (was `a`);
+  the framework's own `i`→edit binding is deleted, `Enter` alone covers
+  edit. On FB.list, `i` now triggers `newRow()` **from anywhere** — this
+  is a real capability change, not just a rename: previously, a flat grid
+  (Tax Codes, Settings, Access, …) had no direct "add" key at all — you
+  navigated down to the "+ Add entry" row, then pressed `i`/`Enter` there.
+  Bills (tree mode) already had a direct key (`a` = add a line to the
+  focused draft bill), so that binding moves to `i` unchanged — it's more
+  specific than the new generic fallback (same key, same hint text, so the
+  `?` overlay/hint bar show one merged "insert line item" row) and wins
+  when a draft bill is focused; otherwise `i` falls through to the generic
+  `newRow()` fallback (a brand-new bill on Bills, a new row elsewhere).
+  Guarded on `canAdd` — fixed-row registers (Company/Extensions/Access
+  attribute grids) have no add row at all, so `i` stays silent there.
+  `bill-detail` has no add-line capability at all (that's bill-edit's job)
+  — `i` is simply unbound on that page now. **The tree-specific binding is
+  further gated on `cfg.addChild`** (bugfix, magnus 2026-08-28, caught by
+  user review): `tree: true` alone doesn't mean a page can add a line —
+  Inbox and the Journal register are also `tree: true` (for fold/expand)
+  but define no `cfg.addChild` and hardcode `editable() → false` (review-only
+  / immutable). Without this gate, those pages inherited the "insert line
+  item" hint in the `?` overlay (which never evaluates `when`) despite
+  having nothing for it to do — harmless there since `editable` already
+  declines the binding at dispatch, but on a hypothetical tree page with a
+  real `editable()` and no `addChild`, `addChildLine()`'s own fallback
+  silently calls `editFocused()` instead — pressing "insert" would actually
+  edit. Only Bills defines `cfg.addChild` today.
 
 **Tab-strip precedence (2026-08-02, magnus):** on a page with a `.tabs`
 strip (Bank/Import, Settings/Opening Balances), `h`/`l` switch TABS —
@@ -294,8 +340,9 @@ opens the FB.dropdown overlay / native popup in whatever mode was active;
 while the overlay is open it owns arrows/Enter/Tab/Esc in BOTH modes
 (fb-core's editable-target guard has an `isOpen()` carve-out so the NORMAL
 ddOpen bindings dispatch from a focused select). Keyboard entry
-(`i`/`Enter`/`ArrowDown` on a select cell) still enters INSERT via
-`edit()`/`openFull` per the ratified loop above. Mechanics: `attachSelect`'s
+(`Enter`/`ArrowDown` on a select cell) still enters INSERT via
+`edit()`/`openFull` per the ratified loop above (`i` no longer enters
+edit — see below). Mechanics: `attachSelect`'s
 mousedown opens the overlay BEFORE focusing the anchor (focusin → paint()
 would otherwise blur it pre-render); fb-form's K3e no-focus-in-NORMAL
 enforcement spares a control whose overlay is open (`ae.__fbdd.el`) and is
@@ -304,8 +351,12 @@ binding blurs it too); `edit()` calls `setMode(true)` BEFORE `el.focus()`
 so K3e can't strip the cell being entered. **Pages on FB.form
 must NOT pass `keys: true` to FB.dropdown**. `gg` = first row via the K1
 `FB.nav.onGG` hook. Mouse parity: clicking a cell moves the cursor (focusin
-sync). Verbs (`a` add, `x` delete, `w` write, `q` quit) are per-page config
-with `when` predicates.
+sync). Verbs (`a` add, `x` delete, `w` write, Escape quit) are per-page
+config with `when` predicates. **Quit moved off `q` onto Escape (magnus
+2026-08-28):** Escape is the universal cancel/back key already, so a
+separate `q` chord was redundant — deliberately un-hinted (no sidebar/`?`
+overlay row) since Escape needs no teaching. `bill-edit` and
+`journal-voucher` both carry the `quit` verb this way now.
 
 **Cell-type semantics (K3b fix, ratified by magnus 2026-07-28):** a zone may
 override `cells(row)` to declare arbitrary controls as cells in visual order
@@ -325,13 +376,26 @@ the "stay NORMAL" design. Mouse click still opens the native popup
 forms (reports filter bar: one row, N control cells) therefore navigate
 `h`/`l`, not `j`/`k`.
 
-**journal-voucher pilot:** zones = reversal panel (present only in reversal
-mode) → header (date/journal/desc) → JV line grid. `a` add line (cursor +
-edit), `x` delete line, `w` post (disabled-guard), `q` quit, `R` reversal
-mode (focus search; arrows/Enter navigate results, Esc cancels reversal
-outright — 2026-07-28). `h`/`l` = cell movement here (page has no tabs —
-context override). Reversal search matches on a single character
-(min-length 1; the old min-2 gate failed silently on "a"/"2").
+**journal-voucher pilot:** zones = reversal (always empty — slot kept but
+unused, see below) → header (date/journal/desc) → attachments → JV line
+grid. `a` add line (cursor + edit), `x` delete line, `w` post
+(disabled-guard), Escape quit (guards a dirty draft with `confirm()` —
+2026-08-28, previously unguarded). `h`/`l` = cell movement here (page has no
+tabs — context override).
+
+**Reversal (rewritten 2026-08-28, magnus):** the old flow let a fresh/draft
+entry search any posted batch and pull its lines in reversed, bound to `R`
+(vim's replace-mode letter, chosen as a mode key for a mode). That
+draft-compose search step is **removed**. Reversal is now reachable only
+from a loaded posted batch (`?batch=`) and is bound to `u` — reusing the
+universal undo key, since a posted batch is immutable (nothing left to
+literally undo) and issuing a reversing entry IS the undo-equivalent for a
+posted JV. `u` on a fresh/draft entry is a silent no-op (status message,
+button stays hidden) rather than opening a search panel. `applyReversalLines`
+(swap debit/credit, prefill desc/date/ccy/fx-rate, render the original lines
+read-only above the swapped rows, land the cursor on the header date cell)
+is unchanged — only the entry point changed. `Escape` in NORMAL mode still
+cancels an active reversal, back to the read-only posted view.
 
 **K3b adoption (shipped 2026-07-28):** four pages onto FB.form, each
 declaring config only:

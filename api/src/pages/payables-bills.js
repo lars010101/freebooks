@@ -1547,6 +1547,14 @@ var billsList = FB.list.create({
     body: billSaveBody,
     focusKey: function (b, res) { return b._isNew ? (res.billId || b._key) : b._key; }
   },
+  // cfg.save (above) stays wired — it's still needed internally (postDraft's
+  // write-then-post for a dirty new bill; agent-created drafts via
+  // bill.create/bill.draft.save). But a human's own commit action always
+  // posts (see the w binding below), and draftSaveOnLeave:false makes the
+  // shared "Unsaved changes" leave-guard modal drop "Save" too — offering
+  // it there would silently re-open the same "human parks a bill in draft"
+  // path this change is meant to close (magnus 2026-08-28).
+  draftSaveOnLeave: false,
   // Task 6e — draft delete. confirm prompts before the framework posts
   // bill.draft.delete; body sends the saved draft's _key as billId. cfg.
   // deletable (Task 6f) restricts x to drafts; the framework drops unsaved
@@ -1656,6 +1664,19 @@ var billsList = FB.list.create({
         run: function () {
           var p = parentOf(api.focusedRow());
           fbNavigate('/' + COMPANY + '/bill/edit?id=' + encodeURIComponent(p.bill_id));
+        } },
+      // w now posts directly on a draft bill (magnus 2026-08-28) — killed
+      // the human "save draft, don't post" path (the built-in w →
+      // bill.draft.save). An agent can still create/leave a bill in draft
+      // (bill.create/bill.draft.save are agentWritable — action-catalog.js);
+      // a human's write action always commits straight to posted. Same hint
+      // text as p, adjacent below, so _groupHints collapses them into one
+      // "w/p Post/pay" overlay row rather than two near-duplicate ones.
+      { key: 'w', mode: 'NORMAL', hint: 'post/pay', hintBar: true,
+        when: function () { var p = parentOf(api.focusedRow()); return !!(p && p.status === 'draft'); },
+        run: function () {
+          var p = parentOf(api.focusedRow()); if (!p) return;
+          postDraft(p);
         } },
       { key: 'p', mode: 'NORMAL', hint: 'post/pay', hintBar: true,
         when: function () { return !payRowOpen() && !multiPayRowOpen() && !!parentOf(api.focusedRow()); },

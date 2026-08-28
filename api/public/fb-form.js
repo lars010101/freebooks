@@ -351,7 +351,8 @@
       // focusin/setMode never fire (global rule: toggles never flip modes).
       { key: ' ', mode: 'NORMAL', when: function () { var el = curCellEl(); return !!el && el.tagName === 'BUTTON'; },
         run: function () { var el = curCellEl(); el.click(); paint(); } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: edit },
+      // i freed for the page-supplied `add` verb (magnus 2026-08-28 — i is
+      // now exclusively insert; Enter alone covers edit, unchanged below).
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: edit },
       // ArrowDown/ArrowUp on an attachable (FB.dropdown) select cell in
       // NORMAL: open the FULL option list (magnus 2026-07-28 — "drop down
@@ -530,7 +531,8 @@
         return false;
       },
       getMode: function () { return editing ? 'INSERT' : 'NORMAL'; },
-      bindings: all
+      bindings: all,
+      label: cfg.heading
     });
 
     // gg first-row hook for fb-core's unified g-prefix machine (K1).

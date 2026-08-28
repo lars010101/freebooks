@@ -1,15 +1,22 @@
-// tests/reversal.mjs — JV reversal UX regression (magnus 2026-07-28).
+// tests/reversal.mjs — JV reversal UX regression (magnus 2026-07-28; updated
+// 2026-08-28 when reversal moved off a draft-compose search flow onto the
+// posted-batch view — see docs/keyboard-ux-spec.md).
 //
-// Covers the three ratified reversal behaviors (keyboard-ux-spec §5):
-//   A1 — picking a source entry renders the ORIGINAL (un-swapped) lines as
-//        grayed, read-only rows ABOVE the swapped reversal rows (.jv-orig-line),
-//        excluded from the editable `lines` zone and from post.
-//   A2 — after the pick, the FB.form cursor lands on the header DATE cell
-//        (zone 1, NORMAL) — never stranded in the search input.
-//   A3 — Esc contract: INSERT-Esc from the search ONLY exits edit → NORMAL
-//        (reversal stays active); NORMAL-Esc cancels the reversal.
-// Also seeds a dedicated dated batch and asserts the new server-side
-// posting-date search (CAST(date AS TEXT) ILIKE q) finds it.
+// Covers the ratified reversal behaviors:
+//   A0 — reversal is unreachable on a fresh/draft entry: the button stays
+//        hidden and `u` is a silent no-op (status message only).
+//   A1 — entering reversal from a loaded posted batch (?batch=) renders the
+//        ORIGINAL (un-swapped) lines as grayed, read-only rows ABOVE the
+//        swapped reversal rows (.jv-orig-line), excluded from the editable
+//        `lines` zone and from post.
+//   A2 — after entering reversal, the FB.form cursor lands on the header
+//        DATE cell (zone 1, NORMAL).
+//   A3 — NORMAL `Escape` cancels reversal and returns to the read-only
+//        posted view.
+// Also seeds a dedicated dated batch and asserts the server-side posting-date
+// search (CAST(date AS TEXT) ILIKE q) finds it — journal.search still backs
+// other callers (e.g. the `:post` command palette) even though the JV page
+// itself no longer searches for a reversal target.
 //
 // The server is booted IN-PROCESS (issue #112) — no separately-started server
 // required. Playwright/chromium is imported dynamically; if it is not
@@ -77,8 +84,8 @@ async function seedCompany() {
 
 async function run(chromium) {
   // ── 0. Seed a dedicated, uniquely-dated, balanced batch via journal.post ─────
-  // A distinctive date (2026-07-12) + marker description so the date search and
-  // the picker target THIS batch deterministically, independent of other seeds.
+  // A distinctive date (2026-07-12) + marker description, so the batch is
+  // deterministically identifiable independent of other seeds.
   const MARK = 'REVTEST marker 3f9a';
   const seed = await act('journal.post', {
     journalId: undefined,
@@ -91,11 +98,11 @@ async function run(chromium) {
   ok('seed journal.post returns batch id', !!(seed && (seed.batch_id || seed.batchId)), JSON.stringify(seed).slice(0, 120));
   const SEED_BATCH = seed.batch_id || seed.batchId;
 
-  // Server-side posting-date search (3a): the date string must surface the batch.
+  // Server-side posting-date search (still backs other callers, e.g. the
+  // `:post` command palette, even though the JV page no longer uses it).
   const byDate = await act('journal.search', { q: '2026-07-12' });
   ok('journal.search matches by posting date', Array.isArray(byDate) && byDate.some(r => r.batch_id === SEED_BATCH),
     JSON.stringify(byDate).slice(0, 160));
-  // And the marker description finds it too (existing behavior, sanity).
   const byDesc = await act('journal.search', { q: '3f9a' });
   ok('journal.search matches by description marker', Array.isArray(byDesc) && byDesc.some(r => r.batch_id === SEED_BATCH));
 
@@ -105,42 +112,49 @@ async function run(chromium) {
   const jsErrors = [];
   page.on('pageerror', e => jsErrors.push(String(e)));
 
+  // ── A0: reversal is unreachable on a fresh/draft entry ───────────────────────
   await page.goto(`${BASE}/${CO}/journal/voucher`, { waitUntil: 'networkidle' });
-  ok('page loads with zero JS errors', jsErrors.length === 0, jsErrors.join(' | ').slice(0, 200));
+  ok('fresh page loads with zero JS errors', jsErrors.length === 0, jsErrors.join(' | ').slice(0, 200));
 
-  // Sanity: introspection handle present, starts NORMAL, not reversing.
   const boot = await page.evaluate(() => ({ has: !!window.__jn, mode: window.__jn && window.__jn.mode(), rev: window.__jn && window.__jn.reversal() }));
   ok('__jn handle present, NORMAL, not reversing', boot.has && boot.mode === 'NORMAL' && boot.rev === false, JSON.stringify(boot));
 
-  // ── R enters reversal mode ───────────────────────────────────────────────────
-  // `R` is uppercase (ratified binding) — Playwright needs Shift+R for 'R'.
-  async function pressR() { await page.keyboard.down('Shift'); await page.keyboard.press('R'); await page.keyboard.up('Shift'); }
-  await pressR();
-  // R focuses the search asynchronously — wait for it before asserting.
-  await page.waitForFunction(() => window.__jn && window.__jn.reversal() === true, { timeout: 3000 }).catch(() => {});
-  await page.waitForFunction(() => document.activeElement === document.getElementById('reversal-search'), { timeout: 3000 }).catch(() => {});
-  const afterR = await page.evaluate(() => ({
-    rev: window.__jn.reversal(),
-    panelVisible: (document.getElementById('reversal-panel').style.display !== 'none'),
-    searchFocused: document.activeElement === document.getElementById('reversal-search'),
-    mode: window.__jn.mode()
-  }));
-  ok('R enters reversal mode + shows panel + focuses search', afterR.rev === true && afterR.panelVisible && afterR.searchFocused, JSON.stringify(afterR));
+  const a0Before = await page.evaluate(() => {
+    const btn = document.getElementById('btn-reversal-mode');
+    return { btnHidden: !btn.offsetParent };
+  });
+  ok('A0: reversal button hidden on a fresh entry', a0Before.btnHidden, JSON.stringify(a0Before));
 
-  // ── Type the marker → results render ─────────────────────────────────────────
-  await page.keyboard.type('3f9a', { delay: 10 });
+  await page.keyboard.press('u');
+  await page.waitForTimeout(150);
+  const a0After = await page.evaluate(() => ({ rev: window.__jn.reversal(), mode: window.__jn.mode() }));
+  ok('A0: u is a no-op on a fresh entry (still NORMAL, not reversing)', a0After.rev === false && a0After.mode === 'NORMAL', JSON.stringify(a0After));
+
+  // ── Load the posted batch (?batch=) ──────────────────────────────────────────
+  await page.goto(`${BASE}/${CO}/journal/voucher?batch=${encodeURIComponent(SEED_BATCH)}`, { waitUntil: 'networkidle' });
+  // Wait for renderViewMode() specifically (not just __jn existing, which is
+  // synchronous and would race the async journal.get fetch it depends on) —
+  // the reversal button is only revealed once that fetch resolves and renders.
   await page.waitForFunction(() => {
-    const res = document.getElementById('reversal-results');
-    return res && res.style.display !== 'none' && res.children.length > 0 && !/No matching/.test(res.textContent);
+    var btn = document.getElementById('btn-reversal-mode');
+    return !!(window.__jn && btn && btn.offsetParent);
   }, { timeout: 4000 }).catch(() => {});
-  const resultCount = await page.evaluate(() => document.getElementById('reversal-results').children.length);
-  ok('search renders ≥1 result row', resultCount > 0, `count=${resultCount}`);
+  ok('view page loads with zero JS errors', jsErrors.length === 0, jsErrors.join(' | ').slice(0, 200));
 
-  // ── Enter picks the highlighted result ───────────────────────────────────────
-  await page.keyboard.press('Enter');
-  // loadReversalEntry is async (journal.get) — wait for original rows + cursor.
+  const viewBoot = await page.evaluate(() => {
+    const btn = document.getElementById('btn-reversal-mode');
+    return { rev: window.__jn.reversal(), btnVisible: !!btn.offsetParent };
+  });
+  ok('view mode: not reversing yet, reversal button visible', viewBoot.rev === false && viewBoot.btnVisible, JSON.stringify(viewBoot));
+
+  // ── u enters reversal mode, applying the batch's lines directly (no search) ──
+  await page.keyboard.press('u');
+  await page.waitForFunction(() => window.__jn && window.__jn.reversal() === true, { timeout: 3000 }).catch(() => {});
   await page.waitForFunction(() => document.querySelectorAll('#lines-body tr.jv-orig-line').length > 0, { timeout: 4000 }).catch(() => {});
   await page.waitForTimeout(150);
+
+  const afterU = await page.evaluate(() => window.__jn.reversal());
+  ok('u enters reversal mode', afterU === true, `rev=${afterU}`);
 
   // A1: original rows present, grayed/read-only, above the editable rows.
   const a1 = await page.evaluate(() => {
@@ -152,7 +166,7 @@ async function run(chromium) {
     const firstEditIdx = rows.findIndex(tr => !tr.classList.contains('jv-orig-line') && !tr.classList.contains('jv-orig-hdr'));
     // read-only: original rows must contain NO inputs
     const origHasInputs = origRows.some(tr => tr.querySelector('input,select,textarea'));
-    // original credit/debit: the seed was 1090 DR 42 / 1930 CR 42 → original row 1 shows debit 42
+    // original credit/debit: the seed was 1010 DR 42 / 1020 CR 42 → original row 1 shows debit 42
     return {
       origCount: origRows.length,
       hasHdr: !!hdr,
@@ -166,13 +180,13 @@ async function run(chromium) {
   ok('A1: original rows carry no inputs (read-only)', a1.origHasInputs === false, JSON.stringify(a1));
   ok('A1: original row shows ORIGINAL debit (42.00)', a1.firstOrigDebit === '42.00', `got ${a1.firstOrigDebit}`);
 
-  // A1b: editable (swapped) rows hold the REVERSAL amounts (1090 now CR, 1930 now DR).
+  // A1b: editable (swapped) rows hold the REVERSAL amounts (1010 now CR, 1020 now DR).
   const a1b = await page.evaluate(() => {
     const editRows = Array.from(document.querySelectorAll('#lines-body tr:not(.jv-orig-line):not(.jv-orig-hdr)'));
     return editRows.map(tr => ({
       // §3. account input now holds "CODE — Name" combined; parse the code
       code: tr.querySelector('.acct-input') && (tr.querySelector('.acct-input').dataset.code
-        || tr.querySelector('.acct-input').value.trim().split(' \u2014 ')[0]),
+        || tr.querySelector('.acct-input').value.trim().split(' — ')[0]),
       dr: tr.querySelector('.debit-input') && tr.querySelector('.debit-input').value,
       cr: tr.querySelector('.credit-input') && tr.querySelector('.credit-input').value,
     }));
@@ -182,16 +196,11 @@ async function run(chromium) {
   ok('A1: editable rows are the SWAPPED reversal (1010 → credit 42)', !!(r1010 && parseFloat(r1010.cr) === 42 && !parseFloat(r1010.dr)), JSON.stringify(a1b));
   ok('A1: editable rows are the SWAPPED reversal (1020 → debit 42)', !!(r1020 && parseFloat(r1020.dr) === 42 && !parseFloat(r1020.cr)), JSON.stringify(a1b));
 
-  // A2: cursor lands on the header DATE cell (zone 1), NORMAL, search not focused.
-  const a2 = await page.evaluate(() => ({
-    cur: window.__jn.cur(),
-    mode: window.__jn.mode(),
-    searchFocused: document.activeElement === document.getElementById('reversal-search'),
-    resultsHidden: document.getElementById('reversal-results').style.display === 'none',
-  }));
-  ok('A2: cursor on header zone (z=1) after pick', a2.cur && a2.cur.z === 1, JSON.stringify(a2.cur));
+  // A2: cursor lands on the header DATE cell (zone 1), NORMAL.
+  const a2 = await page.evaluate(() => ({ cur: window.__jn.cur(), mode: window.__jn.mode() }));
+  ok('A2: cursor on header zone (z=1) after entering reversal', a2.cur && a2.cur.z === 1, JSON.stringify(a2.cur));
   ok('A2: date cell is first cell (c=0)', a2.cur && a2.cur.c === 0, JSON.stringify(a2.cur));
-  ok('A2: mode NORMAL + search blurred + results collapsed', a2.mode === 'NORMAL' && !a2.searchFocused && a2.resultsHidden, JSON.stringify(a2));
+  ok('A2: mode NORMAL', a2.mode === 'NORMAL', JSON.stringify(a2));
 
   // A2b: j from the date cell walks down (into the line grid), not stuck.
   await page.keyboard.press('j');
@@ -199,34 +208,15 @@ async function run(chromium) {
   const a2b = await page.evaluate(() => window.__jn.cur());
   ok('A2: j from date moves cursor down (not stranded)', !!(a2b && (a2b.z > 1 || a2b.r > 0)), JSON.stringify(a2b));
 
-  // ── A3: Esc contract — re-enter reversal to test INSERT-then-NORMAL Esc ──────
-  // Currently NOT reversing (a pick already consumed it? reversal stays active).
-  // Reset to a clean reversal: cancel via NORMAL Esc first if still active.
-  const stillRev = await page.evaluate(() => window.__jn.reversal());
-  if (stillRev) { await page.keyboard.press('Escape'); await page.waitForTimeout(120); }
-  const revOff = await page.evaluate(() => window.__jn.reversal());
-  ok('A3 setup: reversal cancelled before Esc test', revOff === false, `rev=${revOff}`);
-
-  // Enter reversal again, focus search, type, go INSERT.
-  await pressR();
-  await page.waitForFunction(() => window.__jn && window.__jn.reversal() === true, { timeout: 3000 }).catch(() => {});
-  await page.waitForFunction(() => document.activeElement === document.getElementById('reversal-search'), { timeout: 3000 }).catch(() => {});
-  await page.keyboard.type('3f9a', { delay: 10 });
-  await page.waitForTimeout(400);
-  const insMode = await page.evaluate(() => ({ mode: window.__jn.mode(), rev: window.__jn.reversal(), focused: document.activeElement === document.getElementById('reversal-search') }));
-  ok('A3: search INSERT + reversing before INSERT-Esc', insMode.mode === 'INSERT' && insMode.rev === true && insMode.focused, JSON.stringify(insMode));
-
-  // INSERT-Esc: must ONLY exit to NORMAL — reversal stays ACTIVE.
+  // ── A3: NORMAL Escape cancels reversal, back to the read-only posted view ────
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(120);
-  const afterInsEsc = await page.evaluate(() => ({ mode: window.__jn.mode(), rev: window.__jn.reversal(), panelVisible: document.getElementById('reversal-panel').style.display !== 'none' }));
-  ok('A3: INSERT-Esc → NORMAL but reversal STAYS active', afterInsEsc.mode === 'NORMAL' && afterInsEsc.rev === true && afterInsEsc.panelVisible, JSON.stringify(afterInsEsc));
-
-  // NORMAL-Esc: NOW cancels the reversal.
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(120);
-  const afterNormEsc = await page.evaluate(() => ({ rev: window.__jn.reversal(), panelVisible: document.getElementById('reversal-panel').style.display !== 'none' }));
-  ok('A3: NORMAL-Esc cancels the reversal', afterNormEsc.rev === false && !afterNormEsc.panelVisible, JSON.stringify(afterNormEsc));
+  await page.waitForTimeout(150);
+  const afterEsc = await page.evaluate(() => ({
+    rev: window.__jn.reversal(),
+    dateDisabled: document.getElementById('entry-date').disabled,
+  }));
+  ok('A3: Escape cancels the reversal', afterEsc.rev === false, JSON.stringify(afterEsc));
+  ok('A3: back to read-only posted view (date field disabled again)', afterEsc.dateDisabled === true, JSON.stringify(afterEsc));
 
   ok('no JS errors accumulated during flow', jsErrors.length === 0, jsErrors.join(' | ').slice(0, 200));
 

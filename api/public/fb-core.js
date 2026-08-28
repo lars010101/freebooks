@@ -370,14 +370,7 @@
   }
 
   function _keyLabel(b) {
-    var base = KEY_LABELS[b.key] || b.key;
-    if (b.when && (b.key === 'Enter' || b.key === ' ')) {
-      try {
-        if (b.when({ key: b.key, ctrlKey: true })) return 'Ctrl+' + base;
-        if (b.when({ key: b.key, metaKey: true })) return 'Cmd+' + base;
-      } catch (e) { /* probing a when() must never break hint rendering */ }
-    }
-    return base;
+    return KEY_LABELS[b.key] || b.key;
   }
 
   // ── `?` help overlay (roadmap P1-6) ───────────────────────────────────────

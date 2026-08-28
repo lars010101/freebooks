@@ -14,6 +14,9 @@
   --sb-active-bg: rgba(255,255,255,.11);
   --sb-active-text: #ffffff;
   --sb-hover-bg: rgba(255,255,255,.06);
+  --navy-text:        rgba(220,228,242,.82);
+  --navy-text-strong:  #ffffff;
+  --navy-hover:        #223650;
   --tb-bg:       #f9fafc;
   --tb-border:   #e4e8ee;
   --tb-text:     #18243a;
@@ -38,6 +41,9 @@
   --sb-active-bg: rgba(255,255,255,.10);
   --sb-active-text: #ffffff;
   --sb-hover-bg: rgba(255,255,255,.05);
+  --navy-text:        rgba(220,228,242,.72);
+  --navy-text-strong:  #ffffff;
+  --navy-hover:        #16243a;
   --tb-bg:       #18243a;
   --tb-border:   #253348;
   --tb-text:     #dce4f2;
@@ -61,27 +67,27 @@ body {
   overflow: hidden;
 }
 
-/* ---- Bottom status line (replaces the sidebar) ---- */
-#fb-status-line {
-  height: 28px;
-  background: var(--tb-bg);
-  border-top: 1px solid var(--tb-border);
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 8px;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  flex-shrink: 0;
-  z-index: 90;
+/* ---- Company switcher (topbar, restyled for navy bg) ---- */
+.fb-sl-company { font-weight: 600; color: var(--navy-text); cursor: pointer; }
+.fb-sl-company:hover { text-decoration: underline; color: var(--navy-text-strong); }
+
+/* ---- Status banner (topbar-chrome-spec §3) — pushes page content, not overlay ---- */
+.fb-status-banner {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
-.fb-sl-company { font-weight: 600; color: var(--text); cursor: pointer; }
-.fb-sl-company:hover { text-decoration: underline; }
-.fb-sl-sep { color: var(--border); }
-.fb-sl-inbox { color: var(--text-muted); }
-.fb-sl-spacer { flex: 1; }
-#fb-vim-mode { font-family: 'SF Mono', 'Fira Mono', monospace; font-size: 0.6875rem; font-weight: 600; letter-spacing: .05em; color: var(--text-muted); }
-#fb-vim-mode.insert { color: #4ade80; }
+.fb-status-banner.fb-banner-visible {
+  grid-template-rows: 1fr;
+}
+.fb-banner-inner {
+  overflow: hidden;
+  min-height: 0;
+  padding: 8px 24px;
+  font-size: 0.8125rem;
+}
 
 /* ---- `?` keyboard-shortcut overlay (P1-6) ---- */
 /* Which-key-style exhaustive view of the active FB.keys binding set.        */
@@ -204,8 +210,8 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
 
 #top-bar {
   height: 52px;
-  background: var(--tb-bg);
-  border-bottom: 1px solid var(--tb-border);
+  background: var(--sb-bg);
+  border-bottom: 1px solid rgba(255,255,255,.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -261,32 +267,31 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
 .tb-divider {
   width: 1px;
   height: 20px;
-  background: var(--border);
+  background: rgba(255,255,255,.12);
   margin: 0 12px;
   flex-shrink: 0;
 }
 
-/* Top bar search */
+/* Top bar search — relocated from footer to topbar (topbar-chrome-spec §1) */
 .tb-search {
   padding: 6px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255,255,255,.15);
   border-radius: 5px;
-  background: var(--bg);
-  color: var(--text-muted);
+  background: rgba(0,0,0,.2);
+  color: var(--navy-text);
   font-size: 0.875rem;
   width: 220px;
   outline: none;
-  cursor: not-allowed;
+  cursor: text;
 }
+.tb-search::placeholder { color: rgba(220,228,242,.5); }
+.tb-search:focus { border-color: rgba(255,255,255,.3); background: rgba(0,0,0,.3); }
 
-/* Global search + command palette */
-.tb-global-controls { display:flex; align-items:center; gap:8px; flex:1; max-width:480px; }
-.tb-search-wrap { flex:1; }
-.tb-search { width:100%; padding:6px 12px; border:1px solid var(--border); border-radius:6px; font-size:0.875rem; background:var(--surface-alt,#f5f5f5); color:var(--text); outline:none; cursor:text; }
-.tb-search:focus { border-color:var(--accent,#1a1a1a); background:var(--surface,#fff); }
+/* Search wrap — positioning context for FB.palette dropdown (P1-10) */
+.tb-search-wrap { position: relative; }
 .tb-cmd-btn { padding:6px 12px; border:1px solid var(--border); border-radius:6px; font-size:0.875rem; background:var(--surface-alt,#f5f5f5); color:var(--text); cursor:pointer; white-space:nowrap; }
 .tb-cmd-btn:hover { background:var(--border); }
-.tb-status-msg { padding:6px 12px; font-size:0.8125rem; color:#888; min-width:160px; white-space:nowrap; display:inline-block; }
+.tb-status-msg { font-size:0.8125rem; color:var(--text-muted); white-space:nowrap; }
 .tb-status-msg.ok { color: #2a8a2a; }
 .tb-status-msg.err { color: #cc2222; font-weight: 500; }
 .tb-status-msg.warn { color: #b8860b; font-weight: 500; }
@@ -320,11 +325,11 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
   cursor: pointer;
   white-space: nowrap;
   text-decoration: none;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
+  border: 1px solid rgba(255,255,255,.15);
+  background: transparent;
+  color: var(--navy-text);
 }
-.tb-btn:hover { background: var(--bg); }
+.tb-btn:hover { background: var(--navy-hover); color: var(--navy-text-strong); }
 .tb-btn.tb-btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .tb-btn.tb-btn-primary:hover { opacity: .88; }
 /* Quiet variant: permanent/secondary topbar actions (+ Journal Entry, dynamic slots) */
@@ -358,17 +363,18 @@ tr.fb-draft-dirty td { background: #fffbf0; }
 body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 .tb-icon-btn {
   width: 32px; height: 32px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255,255,255,.15);
   border-radius: 5px;
-  background: var(--surface);
+  background: transparent;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 1.083rem;
-  color: var(--text-muted);
+  color: var(--navy-text);
 }
-.tb-icon-btn:hover { background: var(--bg); color: var(--text); }
+.tb-icon-btn:hover { background: var(--navy-hover); color: var(--navy-text-strong); }
+.tb-icon-btn:disabled { opacity: .4; cursor: default; }
 
 /* ---- Notifications bell badge + dropdown (fx-automation-spec §7) ---- */
 .tb-notif-badge {
@@ -417,17 +423,52 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 .tb-notif-item .notif-time { font-size: 8.5pt; color: var(--text-faint); margin-top: 2px; }
 .tb-notif-empty { padding: 20px 14px; text-align: center; color: var(--text-faint); }
 
+/* Inbox section inside the notification dropdown (topbar-chrome-spec §4) */
+.tb-notif-inbox {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+.tb-notif-inbox:hover { background: var(--bg); }
+
+/* `+` New menu dropdown (topbar-chrome-spec §5) — reuses newTargets() data */
+.tb-new-dropdown {
+  position: fixed;
+  top: 52px; right: 130px;
+  min-width: 220px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  z-index: 1000;
+  font-size: 10pt;
+}
+.tb-new-item {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text);
+}
+.tb-new-item:hover { background: var(--bg); }
+.tb-new-item:last-child { border-bottom: none; }
+.tb-new-empty { padding: 20px 14px; text-align: center; color: var(--text-faint); }
+
 /* ── Global Period Selector (global-period-selector-chrome-spec §3) ──────── */
 .tb-period-trigger {
   font-size: 0.8125rem;
-  color: var(--text);
+  color: var(--navy-text);
   cursor: pointer;
   white-space: nowrap;
   padding: 0 6px;
   border-radius: 4px;
   transition: background 0.15s;
 }
-.tb-period-trigger:hover { background: var(--bg); }
+.tb-period-trigger:hover { background: var(--navy-hover); color: var(--navy-text-strong); }
 /* Dimmed (dateRelevance='none'): reduced opacity, NOT pointer-events:none,
    NOT disabled — control stays fully operable (§3.6, §0 item 3). */
 .tb-period-trigger.tb-period-dimmed { opacity: 0.45; }

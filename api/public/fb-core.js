@@ -1619,7 +1619,8 @@
       wire: wire,
       enterCommand: enterCommand,
       isCommand: function () { return _command; },
-      isOpen: function () { return !!_el; }
+      isOpen: function () { return !!_el; },
+      newTargets: newTargets
     };
   })();
 
@@ -2519,17 +2520,33 @@
   // replaces it. Per-screen msg spans are retired. Distinct from the 🔔
   // (persistent alerts, fx-automation-spec §7): transient feedback vs
   // persistent notifications are two channels, two lifetimes.
+  // topbar-chrome-spec §3: auto-dismiss ~5s + instant dismiss on navigation.
+  // Reverses the 2026-07-23 never-dismiss rule — a message stays 5s then
+  // collapses the banner; a new message replaces + restarts the timer.
+  var _statusTimer = null;
   var status = {
     // sev: true | 'err' → red; 'warn' → amber; falsy → green confirmation /
-    // neutral text. Never auto-dismisses.
+    // neutral text. Auto-dismisses after 5s (topbar-chrome-spec §3).
     show: function (text, sev) {
       var el = document.getElementById('tb-status-msg');
       if (!el) return;
+      var banner = document.getElementById('fb-status-banner');
+      if (_statusTimer) { clearTimeout(_statusTimer); _statusTimer = null; }
       el.textContent = text || '';
       el.className = 'tb-status-msg'
         + ((sev === true || sev === 'err') ? ' err' : (sev === 'warn' ? ' warn' : (text ? ' ok' : '')));
+      if (text && banner) {
+        banner.classList.add('fb-banner-visible');
+        _statusTimer = setTimeout(function () { status.show(''); }, 5000);
+      } else if (banner) {
+        banner.classList.remove('fb-banner-visible');
+      }
     },
-    clear: function () { status.show(''); }
+    clear: function () { status.show(''); },
+    dismiss: function () {
+      if (_statusTimer) { clearTimeout(_statusTimer); _statusTimer = null; }
+      status.show('');
+    }
   };
 
   // ── K3d: iframe key-forwarding util ─────────────────────────────────────
@@ -2992,7 +3009,7 @@
   });
 
   window.FB = {
-    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today, forwardIframeKeys: forwardIframeKeys },
+    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today, forwardIframeKeys: forwardIframeKeys, newTargets: (palette && palette.newTargets) ? palette.newTargets : function() { return []; } },
     mode: mode,
     keys: keys,
     coverage: coverage,
@@ -3017,9 +3034,18 @@
   // approve/reject). R6: the badge is read-only state; all eligibility
   // decisions stay server-side. (Moved from the Journal sidebar item per
   // spec §10, 2026-08-03 — the Journal list is the pure posted register.)
-  function _refreshInboxBadge() {
-    var badge = document.getElementById('sb-inbox-badge');
+  // topbar-chrome-spec §4: retargeted from #sb-inbox-badge (dead sidebar element)
+  // to the bell. Combines inbox count + notif count on one visible badge number.
+  var _inboxCount = 0;
+  var _notifCount = 0;
+  function _updateBellBadge() {
+    var badge = document.getElementById('tb-notif-badge');
     if (!badge) return;
+    var total = _inboxCount + _notifCount;
+    badge.textContent = total > 99 ? '99+' : String(total);
+    badge.hidden = total === 0;
+  }
+  function _refreshInboxBadge() {
     var shell = document.getElementById('app-shell');
     var company = shell && shell.dataset ? shell.dataset.company : null;
     if (!company) return;
@@ -3027,11 +3053,10 @@
       body: JSON.stringify({ action: 'inbox.list', companyId: company, status: 'proposed', limit: 100 }) })
       .then(function (r) { return r.json(); })
       .then(function (res) {
-        var n = (res && res.ok && res.data && Array.isArray(res.data.items)) ? res.data.items.length : 0;
-        badge.textContent = n > 99 ? '99+' : String(n);
-        badge.hidden = n === 0;
+        _inboxCount = (res && res.ok && res.data && Array.isArray(res.data.items)) ? res.data.items.length : 0;
+        _updateBellBadge();
       })
-      .catch(function () { badge.hidden = true; });
+      .catch(function () { _inboxCount = 0; _updateBellBadge(); });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _refreshInboxBadge);
   else _refreshInboxBadge();
@@ -3050,11 +3075,10 @@
       body: JSON.stringify({ action: 'notifications.list', companyId: company }) })
       .then(function (r) { return r.json(); })
       .then(function (res) {
-        var n = (res && res.ok && res.data && typeof res.data.unread_count === 'number') ? res.data.unread_count : 0;
-        badge.textContent = n > 99 ? '99+' : String(n);
-        badge.hidden = n === 0;
+        _notifCount = (res && res.ok && res.data && typeof res.data.unread_count === 'number') ? res.data.unread_count : 0;
+        _updateBellBadge();
       })
-      .catch(function () { badge.hidden = true; });
+      .catch(function () { _notifCount = 0; _updateBellBadge(); });
   }
 
   function _toggleNotifDropdown() {
@@ -3070,36 +3094,45 @@
       .then(function (r) { return r.json(); })
       .then(function (res) {
         var items = (res && res.ok && res.data && res.data.notifications) || [];
-        if (items.length === 0) {
-          dd.innerHTML = '<div class="tb-notif-empty">No unread notifications.</div>';
-          return;
+        // topbar-chrome-spec §4: "Inbox — N pending" section above notifications
+        var html = '';
+        if (_inboxCount > 0) {
+          html += '<div class="tb-notif-inbox" id="tb-notif-inbox-link">Inbox — ' + _inboxCount + ' pending</div>';
         }
-        var html = '<h4>Notifications <a id="tb-notif-markall">Mark all read</a></h4>';
-        items.forEach(function (n) {
-          var ts = n.created_at ? String(n.created_at).slice(0, 16).replace('T', ' ') : '';
-          html += '<div class="tb-notif-item" data-id="' + esc(n.id) + '">'
-            + '<div class="notif-kind">' + esc(n.kind || '') + '</div>'
-            + '<div class="notif-msg">' + esc(n.message || '') + '</div>'
-            + '<div class="notif-time">' + esc(ts) + '</div>'
-            + '</div>';
-        });
-        dd.innerHTML = html;
-        // Wire mark-all-read
-        var markAll = document.getElementById('tb-notif-markall');
-        if (markAll) markAll.onclick = function () {
-          fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'notifications.mark_read', companyId: company, all: true }) })
-            .then(function () { _refreshNotifBadge(); _toggleNotifDropdown(); });
-        };
-        // Wire per-item click → mark read
-        dd.querySelectorAll('.tb-notif-item').forEach(function (item) {
-          item.onclick = function () {
-            var id = item.dataset.id;
+        if (items.length === 0) {
+          html += '<div class="tb-notif-empty">No unread notifications.</div>';
+          dd.innerHTML = html;
+        } else {
+          html += '<h4>Notifications <a id="tb-notif-markall">Mark all read</a></h4>';
+          items.forEach(function (n) {
+            var ts = n.created_at ? String(n.created_at).slice(0, 16).replace('T', ' ') : '';
+            html += '<div class="tb-notif-item" data-id="' + esc(n.id) + '">'
+              + '<div class="notif-kind">' + esc(n.kind || '') + '</div>'
+              + '<div class="notif-msg">' + esc(n.message || '') + '</div>'
+              + '<div class="notif-time">' + esc(ts) + '</div>'
+              + '</div>';
+          });
+          dd.innerHTML = html;
+          // Wire mark-all-read
+          var markAll = document.getElementById('tb-notif-markall');
+          if (markAll) markAll.onclick = function () {
             fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'notifications.mark_read', companyId: company, ids: [id] }) })
-              .then(function () { _refreshNotifBadge(); item.style.opacity = '0.4'; });
+              body: JSON.stringify({ action: 'notifications.mark_read', companyId: company, all: true }) })
+              .then(function () { _refreshNotifBadge(); _toggleNotifDropdown(); });
           };
-        });
+          // Wire per-item click → mark read
+          dd.querySelectorAll('.tb-notif-item').forEach(function (item) {
+            item.onclick = function () {
+              var id = item.dataset.id;
+              fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'notifications.mark_read', companyId: company, ids: [id] }) })
+                .then(function () { _refreshNotifBadge(); item.style.opacity = '0.4'; });
+            };
+          });
+        }
+        // Wire inbox link (§4) — present in both empty and non-empty cases
+        var _il = document.getElementById('tb-notif-inbox-link');
+        if (_il) _il.onclick = function () { dd.hidden = true; window.fbNavigate('/' + company + '/inbox'); };
       })
       .catch(function () { dd.innerHTML = '<div class="tb-notif-empty">Failed to load.</div>'; });
   }
@@ -3115,6 +3148,53 @@
       dd.hidden = true;
     }
   });
+
+  // ── topbar-chrome-spec §5: `+` New menu — reuses newTargets() ─────
+  // Wired on DOMContentLoaded since fb-core.js loads in <head> (before body).
+  function _populateNewMenu() {
+    var dd = document.getElementById('tb-new-dropdown');
+    if (!dd) return;
+    var getNT = (window.FB && FB.util && FB.util.newTargets) ? FB.util.newTargets : function () { return []; };
+    var items = getNT();
+    if (!items.length) { dd.innerHTML = '<div class="tb-new-empty">No create actions.</div>'; return; }
+    var html = '';
+    items.forEach(function (item) {
+      var route = item.route || '';
+      var label = item.label || item.id || '';
+      html += '<div class="tb-new-item" data-route="' + esc(route) + '">' + esc(label) + '</div>';
+    });
+    dd.innerHTML = html;
+    dd.querySelectorAll('.tb-new-item').forEach(function (el) {
+      el.onclick = function () {
+        var match = items.filter(function (i) { return i.route === el.dataset.route; });
+        if (match.length && match[0].exec) match[0].exec();
+        dd.hidden = true;
+      };
+    });
+  }
+  function _wireNewMenu() {
+    var newBtn = document.getElementById('tb-new-btn');
+    if (!newBtn) return;
+    newBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var dd = document.getElementById('tb-new-dropdown');
+      if (!dd) return;
+      if (!dd.hidden) { dd.hidden = true; return; }
+      _populateNewMenu();
+      dd.hidden = false;
+    });
+    // Close `+` menu on outside click
+    document.addEventListener('click', function (e) {
+      var dd = document.getElementById('tb-new-dropdown');
+      if (!dd || dd.hidden) return;
+      if (!dd.contains(e.target) && e.target.id !== 'tb-new-btn' && !e.target.closest('#tb-new-btn')) {
+        dd.hidden = true;
+      }
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _wireNewMenu);
+  else _wireNewMenu();
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _refreshNotifBadge);
   else _refreshNotifBadge();

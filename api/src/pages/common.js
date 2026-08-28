@@ -144,6 +144,9 @@ function navBar(company, activeKey) {
     <header id="top-bar">
       <div class="tb-left">
         <span class="fb-sl-company" onclick="fbToggleCompany(event)" title="Switch company (g c)"></span>
+        <span class="tb-company-caret" onclick="fbToggleCompany(event)" title="Switch company (g c)">▾</span>
+      </div>
+      <div class="tb-center">
         <span id="tb-period-trigger" class="tb-period-trigger" onclick="FB.period.togglePopover(event)" title="Period selector">Period</span>
       </div>
       <div class="tb-right">

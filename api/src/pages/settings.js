@@ -210,7 +210,7 @@ var companyAttrs = FB.list.create({
   tbody: 'company-attrs-body',
   companyId: function() { return COMPANY; },
   canAdd: false,
-  hint: 'Fixed rows — one per company attribute. Only the Value cell edits (i); w writes one attribute, u reverts, Esc cancels. Validation happens on the server at write time. FX API Key: a blank edit keeps the stored key.',
+  hint: 'Fixed rows — one per company attribute. Only the Value cell edits (i); w writes one attribute, u undoes, Esc cancels. Validation happens on the server at write time. FX API Key: a blank edit keeps the stored key.',
   columns: [
     { field: 'label', type: 'text', width: 190, ro: 'always', label: 'Attribute',
       display: function(v) { return '<span style="font-weight:600">' + esc(v) + '</span>'; } },
@@ -361,7 +361,7 @@ var postRulesAttrs = FB.list.create({
   tbody: 'ext-postrules-body',
   companyId: function() { return COMPANY; },
   canAdd: false,
-  hint: 'Fixed rows — posting rules that govern FX conversion and VAT tolerance during posting. Only the Value cell edits (i); w writes one attribute, u reverts, Esc cancels. Validation happens on the server at write time. FX API Key: a blank edit keeps the stored key.',
+  hint: 'Fixed rows — posting rules that govern FX conversion and VAT tolerance during posting. Only the Value cell edits (i); w writes one attribute, u undoes, Esc cancels. Validation happens on the server at write time. FX API Key: a blank edit keeps the stored key.',
   columns: [
     { field: 'label', type: 'text', width: 190, ro: 'always', label: 'Attribute',
       display: function(v) { return '<span style="font-weight:600">' + esc(v) + '</span>'; } },

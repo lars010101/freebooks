@@ -1527,7 +1527,7 @@
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: editFocused },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: openFocused },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) writeAt(i); } },
-      { key: 'u', mode: 'NORMAL', hint: 'revert', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
+      { key: 'u', mode: 'NORMAL', hint: 'undo', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
       // G/gg: cursor to bottom/top AND page to absolute bottom/top (Bills parity —
       // scrollIntoView 'nearest' alone under-scrolls long lists in #page-main).
       // G stays here (cursor to last row + scroll #page-main to bottom). The
@@ -1766,8 +1766,8 @@
 
   // ── Shared leave-guard (spec §4): one modal for every FB.list on the page ──
   // K2: rendered through FB.modal (keyboard contract §7 — Esc = Stay, never
-  // saves; w = write & leave; u = revert & leave — the w/u keys mirror the
-  // list's own write/revert doctrine, button keys show in the buttons).
+  // saves; w = write & leave; u = undo & leave — the w/u keys mirror the
+  // list's own write/undo doctrine, button keys show in the buttons).
   var leaveWired = false;
   function dirtyInstances() {
     return instances.filter(function (i) { return i.mounted() && i.anyDirty(); });
@@ -1788,7 +1788,7 @@
               else api.error('Some rows could not be saved — fix them or Discard.');
             });
           } },
-        { label: 'Discard', danger: true, key: 'u', hint: 'revert & leave', onClick: function (api) {
+        { label: 'Discard', danger: true, key: 'u', hint: 'undo & leave', onClick: function (api) {
             dirtyInstances().forEach(function (i) { i.discardAll(); });
             api.close();
             proceed();

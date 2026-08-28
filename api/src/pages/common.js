@@ -147,7 +147,6 @@ function navBar(company, activeKey) {
         <span id="tb-period-trigger" class="tb-period-trigger" onclick="FB.period.togglePopover(event)" title="Period selector">Period</span>
       </div>
       <div class="tb-right">
-        <span id="tb-dyn-slots"></span>
         <div class="tb-search-wrap">
           <input type="text" id="tb-global-search" class="tb-search" placeholder="Search (/) or Command (:) — leading / filters this list …" autocomplete="off" tabindex="-1">
         </div>

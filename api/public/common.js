@@ -186,9 +186,8 @@
         // Close any open dropdowns on navigation.
         var _nd = document.getElementById('tb-notif-dropdown'); if (_nd) _nd.hidden = true;
         var _nmd = document.getElementById('tb-new-dropdown'); if (_nmd) _nmd.hidden = true;
-        // Re-render dynamic slots + track the arrival as a visit
+        // Track the arrival as a visit
         if (window.FB && FB.track && typeof fbSectionOfPath === 'function') FB.track.visit(fbSectionOfPath(url));
-        if (typeof window.fbRenderTopSlots === 'function') window.fbRenderTopSlots(url);
 
         // Call page-specific init if registered
         if (typeof window.fbPageInit === 'function') window.fbPageInit();
@@ -232,46 +231,9 @@
       _all: read
     };
 
-    // Create route per section (plus-icon target) — only sections with a create object
-    var CREATE_ROUTES = {
-      'payables':   { label: 'Bill',      path: '/bill/edit' },
-      'settings':   { label: 'Account',   path: '/settings?tab=coa&new=1' }
-    };
-    var SECTION_LABELS = {
-      'dashboard': 'Dashboard', 'payables': 'Payables',
-      'reports': 'Reports', 'settings': 'Settings',
-      'journal-voucher': 'Journal Entry'
-    };
-
-    function company() { return (document.getElementById('app-shell') || {}).dataset ? document.getElementById('app-shell').dataset.company : ''; }
-
-    window.fbRenderTopSlots = function (pathOverride) {
-      var host = document.getElementById('tb-dyn-slots');
-      if (!host) return;
-      var d = read(), cur = sectionOf(pathOverride || location.pathname), co = company();
-      var ranked = Object.keys(SECTION_LABELS)
-        .map(function (s) { return { s: s, n: d['visit:' + s] || 0 }; })
-        .filter(function (x) { return x.n > 0 && x.s !== cur && x.s !== 'journal-voucher'; })
-        .sort(function (a, b) { return b.n - a.n; });
-      // Cold start: no visits yet → seed with payables + reports
-      if (!Object.keys(d).some(function (k) { return k.indexOf('visit:') === 0; })) {
-        ranked = [{ s: 'payables' }, { s: 'reports' }];
-      }
-      var html = '';
-      ranked.slice(0, 2).forEach(function (x) {
-        var href = '/' + co + (x.s === 'dashboard' ? '' : '/' + x.s);
-        var cr = CREATE_ROUTES[x.s];
-        if (cr) html += '<a class="tb-btn tb-btn-quiet tb-dyn-plus" title="New ' + cr.label + '" href="/' + co + cr.path + '">+</a>';
-        html += '<a class="tb-btn tb-btn-quiet tb-dyn-chip" href="' + href + '">' + SECTION_LABELS[x.s] + '</a>';
-      });
-      host.innerHTML = html;
-    };
-
-    // Track initial load + render slots
-    FB.track.visit(sectionOf(location.pathname));
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', window.fbRenderTopSlots);
-    else window.fbRenderTopSlots();
-  })();
+        // Track initial load
+        FB.track.visit(sectionOf(location.pathname));
+      })();
 
 })();
 

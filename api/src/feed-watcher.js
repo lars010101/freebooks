@@ -149,6 +149,21 @@ async function processFile(companyId, subfolder, filePath, filename, config) {
     log(`uploaded ${companyId}/${subfolder}/${filename} (${config.entityType})`);
   } catch (e) {
     warn(`upload failed for ${companyId}/${subfolder}/${filename}: ${e.message}`);
+    return; // leave the file in place — a failed upload should be retried on the next scan
+  }
+
+  // The upload above already copied the bytes into the durable attachments
+  // store (ATTACHMENTS_ROOT) — the inbox-folder copy is now redundant, not
+  // archival. Remove it so it can't be re-swept and re-processed by a future
+  // boot (nothing here ever moved/deleted it before, so every restart kept
+  // re-examining every file ever dropped — harmless only when the sha256
+  // dedup check catches it, and silently NOT harmless whenever the same
+  // logical file's bytes differ slightly between drops, e.g. a re-exported
+  // bank statement with the same name).
+  try {
+    fs.unlinkSync(filePath);
+  } catch (e) {
+    warn(`could not remove ${filePath} after upload: ${e.message}`);
   }
 }
 
@@ -209,6 +224,11 @@ async function scanOnce(uploadFn) {
  */
 function watchCompanySubfolder(companyId, subfolder, dir, config) {
   let watcher;
+  // Keyed per filename, not one shared timer per watcher — a single shared
+  // timer meant a second file dropped within DEBOUNCE_MS of a first would
+  // clearTimeout() the first file's pending run and silently drop it, never
+  // processed at all (found while fixing the file-not-removed issue above).
+  const debounceTimers = new Map();
   try {
     watcher = fs.watch(dir, { persistent: false }, (eventType, filename) => {
       if (!filename || _shuttingDown) return;
@@ -219,18 +239,19 @@ function watchCompanySubfolder(companyId, subfolder, dir, config) {
 
       // Debounce: fs.watch can fire multiple events for one logical
       // operation (rename + change, or multiple writes during copy).
-      // Wait DEBOUNCE_MS then process the file once.
-      if (watcher._debounceTimer) clearTimeout(watcher._debounceTimer);
-      watcher._debounceTimer = setTimeout(() => {
-        watcher._debounceTimer = null;
+      // Wait DEBOUNCE_MS then process this file once.
+      if (debounceTimers.has(filename)) clearTimeout(debounceTimers.get(filename));
+      debounceTimers.set(filename, setTimeout(() => {
+        debounceTimers.delete(filename);
         if (_shuttingDown) return;
         // Verify file still exists (rename events fire for both src and dst)
         if (!fs.existsSync(filePath)) return;
         processFile(companyId, subfolder, filePath, filename, config).catch((e) => {
           warn(`error processing ${filePath}: ${e.message}`);
         });
-      }, DEBOUNCE_MS);
+      }, DEBOUNCE_MS));
     });
+    watcher._debounceTimers = debounceTimers;
   } catch (e) {
     warn(`fs.watch failed on ${dir}: ${e.message} — will use polling fallback`);
     return null;
@@ -332,7 +353,7 @@ async function getFallbackInterval() {
 function stopFeedWatcher() {
   _shuttingDown = true;
   for (const w of _watchers) {
-    if (w._debounceTimer) clearTimeout(w._debounceTimer);
+    if (w._debounceTimers) for (const t of w._debounceTimers.values()) clearTimeout(t);
     w.close();
   }
   _watchers = [];

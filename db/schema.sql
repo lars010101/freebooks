@@ -641,6 +641,12 @@ CREATE TABLE IF NOT EXISTS reminders (
 );
 CREATE INDEX IF NOT EXISTS idx_reminders_company ON reminders(company_id);
 
+-- calendar-reminders-documents-spec.md §5.3: Documents page columns for
+-- standalone uploads (system-linked rows derive Type/Period from their
+-- entity instead). Same idempotent-migration style as sha256 above.
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS doc_type VARCHAR;
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS period_id VARCHAR;
+
 -- =============================================================================
 -- idempotency_keys (P0-1: safe retries for posting actions)
 -- One row per client-supplied Idempotency-Key; stores the first response so

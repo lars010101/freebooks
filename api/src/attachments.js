@@ -10,7 +10,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 const multer = require('multer');
-const { query, exec, bulkInsert } = require('./db');
+const { query, exec, bulkInsert, queryPositional } = require('./db');
 const { emitEvent } = require('./events');
 const { resolveActor, checkPermission } = require('./auth');
 const { auditCall } = require('./audit');
@@ -50,19 +50,90 @@ async function listAttachments(ctx) {
   const { companyId, body } = ctx;
   const { entityType, entityId } = body;
 
-  if (!entityType || !entityId) {
-    throw Object.assign(new Error('entityType and entityId required'), { code: 'INVALID_INPUT' });
+  if (entityType || entityId) {
+    if (!entityType || !entityId) {
+      throw Object.assign(new Error('entityType and entityId required together'), { code: 'INVALID_INPUT' });
+    }
+    const rows = await query(
+      `SELECT attachment_id, filename, content_type, file_size, uploaded_by, uploaded_at
+       FROM attachments
+       WHERE company_id = @companyId AND entity_type = @entityType AND entity_id = @entityId
+       ORDER BY uploaded_at DESC`,
+      { companyId, entityType, entityId }
+    );
+    return rows;
   }
 
-  const rows = await query(
-    `SELECT attachment_id, filename, content_type, file_size, uploaded_by, uploaded_at
-     FROM attachments
-     WHERE company_id = @companyId AND entity_type = @entityType AND entity_id = @entityId
-     ORDER BY uploaded_at DESC`,
-    { companyId, entityType, entityId }
-  );
+  // calendar-reminders-documents-spec.md §5.3: Documents page — company-wide
+  // listing, both entityType and entityId omitted. entity_type/entity_id are
+  // exposed (unlike the per-entity branch above) so the client can render
+  // Type and resolve "go to source"; Period is derived here, not stored,
+  // per §5.2's "auto-derived from the underlying transaction" rule.
+  return listAllAttachmentsWithPeriod(companyId);
+}
 
-  return rows;
+// Per-entity-type date lookup for period derivation — the entity types that
+// actually produce attachments today (grep-verified against pages/*.js).
+// 'document' (standalone uploads) already carries its own period_id column,
+// set at upload time; 'filing' is a historical entity_type with no live
+// source page left to resolve a date from (calendar-reminders-documents-spec
+// dropped filing-tagged attachments going forward) — its rows just show no
+// derived period, same as any entity_type not listed here.
+const PERIOD_SOURCE_QUERIES = {
+  bill: { idCol: 'bill_id', table: 'bills' },
+  journal: { idCol: 'batch_id', table: 'journal_entries' },
+  journal_proposal: { idCol: 'proposal_id', table: 'journal_proposals' },
+};
+
+async function listAllAttachmentsWithPeriod(companyId) {
+  const rows = await query(
+    `SELECT attachment_id, entity_type, entity_id, filename, content_type, file_size,
+            uploaded_by, uploaded_at, doc_type, period_id, missing_since
+     FROM attachments WHERE company_id = @companyId
+     ORDER BY uploaded_at DESC`,
+    { companyId }
+  );
+  if (!rows.length) return rows;
+
+  // Group ids needing a date lookup by entity_type.
+  const idsByType = {};
+  for (const r of rows) {
+    if (PERIOD_SOURCE_QUERIES[r.entity_type] && !idsByType[r.entity_type]) idsByType[r.entity_type] = new Set();
+    if (PERIOD_SOURCE_QUERIES[r.entity_type]) idsByType[r.entity_type].add(r.entity_id);
+  }
+  const dateById = {}; // `${entity_type}:${entity_id}` -> 'YYYY-MM-DD'
+  for (const [entityType, ids] of Object.entries(idsByType)) {
+    const { idCol, table } = PERIOD_SOURCE_QUERIES[entityType];
+    const idList = Array.from(ids);
+    const placeholders = idList.map(() => '?').join(',');
+    const dateRows = await queryPositional(
+      `SELECT ${idCol} AS id, MIN(date) AS date FROM ${table}
+       WHERE company_id = ? AND ${idCol} IN (${placeholders}) GROUP BY ${idCol}`,
+      [companyId, ...idList]
+    );
+    for (const dr of dateRows) dateById[`${entityType}:${dr.id}`] = String(dr.date).slice(0, 10);
+  }
+
+  // Periods for this company (latest revision per period_name) — resolve
+  // each derived date into the period whose range contains it.
+  const periodRows = await query(
+    `SELECT period_name, start_date, end_date FROM (
+       SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
+       FROM periods WHERE company_id = @companyId
+     ) WHERE rn = 1`,
+    { companyId }
+  );
+  function periodFor(date) {
+    if (!date) return null;
+    const p = periodRows.find((pr) => String(pr.start_date).slice(0, 10) <= date && date <= String(pr.end_date).slice(0, 10));
+    return p ? p.period_name : null;
+  }
+
+  return rows.map((r) => {
+    if (r.entity_type === 'document') return r; // already carries its own period_id
+    const date = dateById[`${r.entity_type}:${r.entity_id}`];
+    return Object.assign({}, r, { period_id: periodFor(date) });
+  });
 }
 
 async function deleteAttachment(ctx) {
@@ -104,7 +175,7 @@ async function deleteAttachment(ctx) {
 // insert, emit attachment.uploaded). Both the multipart route (handleUpload)
 // and the new `attachment.upload` action funnel through here so they share the
 // same enforcement and event shape. Returns { attachment_id, filename, sha256 }.
-async function storeAttachment({ companyId, entityType, entityId, filename, contentType, buffer, uploadedBy, actor, requestId }) {
+async function storeAttachment({ companyId, entityType, entityId, filename, contentType, buffer, uploadedBy, actor, requestId, docType, periodId }) {
   // A4 (§4.7) Disk controls — scoped to journal_proposal uploads only. All
   // other entity types keep the status quo (32MB action cap, no whitelist).
   if (entityType === 'journal_proposal') {
@@ -175,6 +246,8 @@ async function storeAttachment({ companyId, entityType, entityId, filename, cont
     sha256,
     uploaded_by: uploadedBy || null,
     uploaded_at: now,
+    doc_type: docType || null,
+    period_id: periodId || null,
   }]);
 
   // A2 (§3.2): emit attachment.uploaded — the feed-extraction trigger (an
@@ -198,7 +271,7 @@ async function storeAttachment({ companyId, entityType, entityId, filename, cont
 // keeps its own multer 50MB cap, independent of this 32MB action limit).
 async function uploadAttachment(ctx) {
   const { companyId, body, userEmail, actor, requestId } = ctx;
-  const { entityType, entityId, filename, contentBase64, contentType } = body;
+  const { entityType, entityId, filename, contentBase64, contentType, docType, periodId } = body;
   // Defensive double-check (dispatch already validated required strings).
   if (!entityType || !entityId || !filename) {
     throw Object.assign(new Error('entityType, entityId, filename required'), { code: 'INVALID_INPUT' });
@@ -218,6 +291,10 @@ async function uploadAttachment(ctx) {
     uploadedBy: userEmail,
     actor,
     requestId,
+    // calendar-reminders-documents-spec.md §5.3: standalone Documents uploads
+    // (entityType:'document') carry these; every other entity type ignores
+    // them (undefined → stored as null).
+    docType, periodId,
   });
 }
 

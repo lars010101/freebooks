@@ -752,8 +752,8 @@ const ACTIONS = {
   },
   'attachment.list': {
     role: 'viewer', mutating: false,
-    description: 'List attachments for an entity.',
-    params: { entityType: { type: 'string', required: true }, entityId: { type: 'string', required: true } },
+    description: 'List attachments for an entity, or (when both params are omitted) every attachment for the company — the Documents page (calendar-reminders-documents-spec.md §5.3), with entity_type/entity_id exposed and Period derived from the owning transaction\'s date.',
+    params: { entityType: { type: 'string' }, entityId: { type: 'string' } },
   },
   'attachment.upload': {
     // Role 'agent' (1.5) admits agents/data_entry/owner and excludes viewers —
@@ -761,13 +761,15 @@ const ACTIONS = {
     // the §2.3 whitelist guard). Carries agentWritable:true so dispatch's
     // AGENT_ALLOWED set (derived from this flag) admits it; agents may upload.
     role: 'agent', mutating: true, idempotent: true, agentWritable: true,
-    description: 'Upload an attachment (base64 content). The browser multipart route POST /api/upload shares the same storage core and enforcement.',
+    description: 'Upload an attachment (base64 content). The browser multipart route POST /api/upload shares the same storage core and enforcement. entityType:"document" (a standalone Documents-page upload, calendar-reminders-documents-spec.md §5.3) carries docType/periodId, which every other entity type ignores.',
     params: {
       entityType: { type: 'string', required: true },
       entityId: { type: 'string', required: true },
       filename: { type: 'string', required: true },
       contentBase64: { type: 'string', required: true },
       contentType: { type: 'string' },
+      docType: { type: 'string' },
+      periodId: { type: 'string' },
     },
   },
   'attachment.delete': {

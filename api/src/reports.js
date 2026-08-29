@@ -32,6 +32,7 @@ const { handleAdminQuery } = require('./pages/admin');
 const { makeQuery } = require('./pages/common');
 const { handleStatementsHubPage, handleBooksHubPage } = require('./pages/reports-hub');
 const { handleCalendarPage } = require('./pages/calendar');
+const { handleDocumentsPage } = require('./pages/documents');
 const { handleSruInk2, handleSruInfo } = require('./filings');
 const { handleSearch } = require('./search');
 
@@ -289,6 +290,7 @@ function mountReportRoutes(app) {
   app.get('/:company/statements', handleStatementsHubPage);
   app.get('/:company/books', handleBooksHubPage);
   app.get('/:company/calendar', handleCalendarPage);
+  app.get('/:company/documents', handleDocumentsPage);
   app.get('/:company/accounting', handleAccountingPage);
   app.get('/:company/exchange-rates', handleExchangeRatesPage);
   // 2026-08-27 IA restructure 2: old routes deleted (no redirects, §2.3):

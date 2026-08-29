@@ -128,7 +128,9 @@
   //   g            arm the 500 ms window (only when no active set claims `g`)
   //   g g          scroll #page-main to top + fire onGG hooks (list first-row)
   //   g <letter>   navigate to the registry route carrying that gKey
-  //   g c          toggle the company switcher (own key scope while open)
+  //   g w          toggle the company switcher (own key scope while open;
+  //                moved off `c` — calendar-reminders-documents-spec.md §2
+  //                gives Calendar that key as a higher-frequency jump)
   //   g <other>    cancel — the key proceeds through normal dispatch untouched
   var _gPending = false, _gTimer = null;
   var _onGG = [];
@@ -137,7 +139,7 @@
 
   function _gResolve(key) {
     if (key === 'g') return { type: 'gg' };
-    if (key === 'c') return { type: 'switcher' };
+    if (key === 'w') return { type: 'switcher' };
     var R = window.FB_ROUTES || [];
     for (var i = 0; i < R.length; i++) {
       if (R[i].gKey === key) return { type: 'route', route: R[i].route, absolute: !!R[i].absolute };
@@ -183,10 +185,10 @@
     return false;
   }
 
-  // Company switcher (g c). Reuses fbToggleCompany's data path (common.js) —
+  // Company switcher (g w). Reuses fbToggleCompany's data path (common.js) —
   // no duplicated fetch/render. While open it owns every key (help-overlay
   // precedent): j/k highlight (sticky ends), Enter follows the anchor exactly
-  // like the mouse, Esc closes, g c toggles closed.
+  // like the mouse, Esc closes, g w toggles closed.
   var switcher = (function () {
     var _idx = -1;
     var _sgPending = false, _sgTimer = null;
@@ -224,13 +226,13 @@
         if (o) o.click(); // plain anchor — exactly the mouse path
         return;
       }
-      // g c toggles closed (mirror of the open sequence)
+      // g w toggles closed (mirror of the open sequence)
       if (k === 'g') {
         _sgPending = true; clearTimeout(_sgTimer);
         _sgTimer = setTimeout(function () { _sgPending = false; }, 500);
         return;
       }
-      if (k === 'c' && _sgPending) { _sgPending = false; clearTimeout(_sgTimer); _close(); }
+      if (k === 'w' && _sgPending) { _sgPending = false; clearTimeout(_sgTimer); _close(); }
     }
     return { toggle: toggle, isOpen: isOpen, key: key };
   })();
@@ -1133,7 +1135,8 @@
       if (route.indexOf('/payables') === 0) return 'Payables';
       if (route.indexOf('/statements') === 0) return 'Statements';
       if (route.indexOf('/books') === 0) return 'Books';
-      if (route.indexOf('/fiscal') === 0) return 'Fiscal';
+      if (route.indexOf('/calendar') === 0) return 'Calendar';
+      if (route.indexOf('/documents') === 0) return 'Documents';
       if (route.indexOf('/journal') === 0) return 'Journal';
       if (route.indexOf('/bill') === 0) return 'Payables';
       return '';

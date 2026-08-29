@@ -335,7 +335,7 @@ async function handleApiRequest(req, res) {
       case 'period':
       case 'posting_rules':
       case 'ai':          result = await handleSettings(ctx, action); break;
-      case 'filing':      result = await handlePeriodsService(ctx, action); break;
+      case 'reminder':    result = await handlePeriodsService(ctx, action); break;
       case 'permissions': result = await handlePermissions(ctx, action); break;
       case 'setup':       result = await handleSetup(ctx, action); break;
       case 'diag':        result = await handleDiag(ctx, action); break;
@@ -1986,6 +1986,12 @@ ensureDb().then(async () => {
   const { startFxScanner } = require('./fx-scanner');
   startFxScanner();
 
+  // ── calendar-reminders-documents-spec.md §4.4: a second notification
+  // producer into the same table/bell the FX scanner already feeds — no
+  // consumer-side changes needed. Timer is unref'd.
+  const { startReminderScanner } = require('./reminder-scanner');
+  startReminderScanner();
+
   // ── B9: in-process agent pipeline boot ─────────────────────────────────
   // Build a dispatchAction function that replicates the HTTP dispatch logic
   // but calls handlers directly in-process (no HTTP, no tokens). The agent
@@ -2039,7 +2045,7 @@ ensureDb().then(async () => {
       period: () => require('./index').handleSettings(ctx, action),
       posting_rules: () => require('./index').handleSettings(ctx, action),
       ai: () => require('./index').handleSettings(ctx, action),
-      filing: () => require('./index').handlePeriodsService(ctx, action),
+      reminder: () => require('./index').handlePeriodsService(ctx, action),
       permissions: () => require('./index').handlePermissions(ctx, action),
       setup: () => { throw Object.assign(new Error('Agents may not run setup actions'), { code: 'FORBIDDEN' }); },
       diag: () => require('./index').handleDiag(ctx, action),

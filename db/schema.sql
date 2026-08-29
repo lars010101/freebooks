@@ -616,6 +616,32 @@ ALTER TABLE attachments ADD COLUMN IF NOT EXISTS sha256 VARCHAR;
 CREATE INDEX IF NOT EXISTS idx_attachments_company_sha256 ON attachments(company_id, sha256);
 
 -- =============================================================================
+-- reminders (calendar-reminders-documents-spec.md §4.3)
+-- =============================================================================
+-- One table for both row sources: system-imported (source='system', reminder_id
+-- = the collision-free filingKey, seeded once from the jurisdiction pack on
+-- first discovery — see periods-page-service.js listReminders) and user-added
+-- (source='user', reminder_id = a generated uuid, no computed default).
+-- due_date is nullable: not every jurisdiction-pack descriptor has a
+-- computable due date (e.g. db/jurisdictions/SG/filings/annual-report.json
+-- has no "due" rule at all) — computeDueDate already returned null for
+-- these before this table existed, this just stops persisting that as a
+-- constraint violation. The UI and reminder-scanner.js both already treat
+-- a null due date as "no deadline to show/alert on," not an error.
+CREATE TABLE IF NOT EXISTS reminders (
+  reminder_id  VARCHAR    NOT NULL,
+  company_id   VARCHAR    NOT NULL,
+  source       VARCHAR    NOT NULL,
+  label        VARCHAR    NOT NULL,
+  authority    VARCHAR,
+  due_date     DATE,
+  period_id    VARCHAR,
+  done         BOOLEAN    NOT NULL DEFAULT false,
+  created_at   TIMESTAMP  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_company ON reminders(company_id);
+
+-- =============================================================================
 -- idempotency_keys (P0-1: safe retries for posting actions)
 -- One row per client-supplied Idempotency-Key; stores the first response so
 -- retries replay it instead of re-executing the posting action.

@@ -115,7 +115,8 @@ function topBarContext(company, activeKey) {
     payables:    { nav: `` },
     statements:  { nav: `` },
     books:       { nav: `` },
-    fiscal:      { nav: `` },
+    calendar:    { nav: `` },
+    documents:   { nav: `` },
     settings:    { nav: `` },
     accounting:  { nav: `` },
     'exchange-rates': { nav: `` },
@@ -136,15 +137,15 @@ function navBar(company, activeKey) {
 
   // Company switcher dropdown — detached from the (deleted) sidebar; lives in
   // the app-shell so fbToggleCompany(event) can still open it from the status
-  // line or the g c keyboard shortcut.
+  // line or the g w keyboard shortcut.
   return `<script>window.FB_ROUTES = ${routesJson};</script>
 <div id="app-shell" data-company="${company}">
   <div class="tb-company-dropdown" id="tb-company-dropdown" style="display:none"></div>
   <div id="main-area">
     <header id="top-bar">
       <div class="tb-left">
-        <span class="fb-sl-company" onclick="fbToggleCompany(event)" title="Switch company (g c)"></span>
-        <span class="tb-company-caret" onclick="fbToggleCompany(event)" title="Switch company (g c)">▾</span>
+        <span class="fb-sl-company" onclick="fbToggleCompany(event)" title="Switch company (g w)"></span>
+        <span class="tb-company-caret" onclick="fbToggleCompany(event)" title="Switch company (g w)">▾</span>
       </div>
       <div class="tb-center">
         <span id="tb-period-trigger" class="tb-period-trigger" onclick="FB.period.togglePopover(event)" title="Period selector">Period</span>

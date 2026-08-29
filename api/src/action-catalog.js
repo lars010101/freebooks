@@ -344,54 +344,47 @@ const ACTIONS = {
     params: { periodFrom: { type: 'date', required: true }, periodTo: { type: 'date', required: true } },
   },
 
-  // ── Filings (IA-spec step 4, §5.10) ──────────────────────────────────────
-  // Filing instances = jurisdiction-pack descriptor × reporting interval, with
-  // due dates (descriptor rules + deadline_overrides), filed state
-  // (periods.tax_attrs.filings), and artifact endpoint links. Read-only
-  // viewer; filed-state writes flow through period.upsert tax_attrs.
-  'filing.list': {
+  // ── Reminders (calendar-reminders-documents-spec.md §4) ─────────────────────
+  // Reminder rows = jurisdiction-pack descriptor × reporting interval,
+  // seeded once into the `reminders` table on first discovery, plus
+  // free-standing user-added rows in the same table. Replaces the filing.*
+  // submission-tracking surface (fiscal-filings-lifecycle-spec.md) — no
+  // frozen-snapshot machinery, no method branching, just a due date and a
+  // done/not-done status. R2 doctrine carried over: agents never finalize a
+  // reminder — every mutating action here is owner-only, not agentWritable.
+  'reminder.list': {
     role: 'viewer', mutating: false,
-    description: 'List filing instances per period (descriptor × interval) with due dates, draft/filed state, and artifact links.',
-    params: { periodId: { type: 'string' } },
+    description: 'List reminders (system-imported from the jurisdiction pack + user-added) with due dates, done/not-done status, and read-only artifact links (SRU/SIE downloads).',
   },
-  // ── Filings write surface (Fiscal/Filings Lifecycle spec, §4) ───────────────
-  // R2 doctrine: agents never lock or finalize a filing — every one of these
-  // is owner-only, mutating, and intentionally NOT agentWritable. The §5
-  // submission path snapshots the exact bytes (SRU text / uploaded PDF) into
-  // attachments so a later ledger edit can't silently drift "what we filed".
-  'filing.mark_submitted': {
+  'reminder.create': {
     role: 'owner', mutating: true,
-    description: 'Mark a filing instance submitted. method:"sru" (INK2 only) snapshots blanketter.sru + INFO.SRU server-side; method:"pdf" records an already-uploaded attachment (entityType:"filing", entityId:key); method:null (vat-return) records filed_at only. For ink2@… keys, also carries the closing loss forward into next year\'s period.',
+    description: 'Add a free-standing user reminder (label, due date, optional period).',
     params: {
-      periodId: { type: 'string', required: true },
-      key: { type: 'string', required: true },
-      method: { type: 'string' },
-      attachmentId: { type: 'string' },
+      label: { type: 'string', required: true },
+      dueDate: { type: 'date', required: true },
+      periodId: { type: 'string' },
     },
   },
-  'filing.unmark_submitted': {
+  'reminder.set_done': {
     role: 'owner', mutating: true,
-    description: 'Clear a filing instance\'s submitted state (deletes taxAttrs.filings[key]). Attachments are never deleted — the audit trail stays intact. Use to correct a mistaken submit.',
+    description: 'Toggle a reminder\'s done/not-done status (any source).',
     params: {
-      periodId: { type: 'string', required: true },
-      key: { type: 'string', required: true },
+      reminderId: { type: 'string', required: true },
+      done: { type: 'boolean', required: true },
     },
   },
-  'filing.set_due_override': {
+  'reminder.set_due': {
     role: 'owner', mutating: true,
-    description: 'Override (or clear, when dueDate is null) one filing instance\'s due date. Keyed on the collision-free filing key (§2), so an override on one year\'s INK2 does not leak into another year\'s.',
+    description: 'Edit a reminder\'s due date (any source) — a plain field edit, no separate override layer.',
     params: {
-      key: { type: 'string', required: true },
-      dueDate: { type: 'date' },
+      reminderId: { type: 'string', required: true },
+      dueDate: { type: 'date', required: true },
     },
   },
-  'filing.save_period_attrs': {
+  'reminder.delete': {
     role: 'owner', mutating: true,
-    description: 'Write year-over-year tax continuity attrs on a period: loss_cf (scalar replace), periodiseringsfond (full array replace — caller resubmits the whole list), ar_facts (shallow key-by-key merge so a partial edit doesn\'t clobber the rest).',
-    params: {
-      periodId: { type: 'string', required: true },
-      patch: { type: 'object', required: true },
-    },
+    description: 'Delete a user-added reminder. System-imported reminders cannot be deleted (they would just reseed from the pack) — mark done instead.',
+    params: { reminderId: { type: 'string', required: true } },
   },
 
   // ── Chart of accounts ────────────────────────────────────────────────────
@@ -823,9 +816,9 @@ const PALETTE = {
   'journals.view':          { palette: 'navigate', route: '/accounting?tab=journals', label: 'Journals' },
   'partner.save':            { palette: 'navigate', route: '/payables?tab=vendors&new=1', label: 'New partner', create: true },
   'partner.upsert':          { palette: 'navigate', route: '/payables?tab=vendors', label: 'Vendors' },
-  'period.save':            { palette: 'navigate', route: '/fiscal?tab=periods&new=1', label: 'New period', create: true },
-  'period.upsert':          { palette: 'navigate', route: '/fiscal?tab=periods', label: 'Fiscal' },
-  'period.close':           { palette: 'navigate', route: '/fiscal?tab=periods', label: 'Close period' },
+  'period.save':            { palette: 'navigate', route: '/calendar?tab=periods&new=1', label: 'New period', create: true },
+  'period.upsert':          { palette: 'navigate', route: '/calendar?tab=periods', label: 'Calendar' },
+  'period.close':           { palette: 'navigate', route: '/calendar?tab=periods', label: 'Close period' },
   'journals.save':          { palette: 'navigate', route: '/accounting?tab=journals&new=1', label: 'New journal (book)', create: true },
   // mapping.save/mapping.upsert palette entries removed 2026-08-09 (issue #137):
   // Bank page (which hosted the Mappings tab) deleted. Actions remain available
@@ -842,7 +835,7 @@ const PALETTE = {
   'permissions.list':        { palette: 'navigate', route: '/settings?tab=access', label: 'Access' },
   'posting_rules.attr.list': { palette: 'navigate', route: '/settings?tab=extensions', label: 'Extensions' },
   'ai.view':                { palette: 'navigate', route: '/settings?tab=extensions', label: 'Extensions' },
-  'report.refresh_vat_return': { palette: 'navigate', route: '/fiscal?tab=filings', label: 'Refresh VAT return' },
+  'report.refresh_vat_return': { palette: 'navigate', route: '/calendar?tab=reminders', label: 'Refresh VAT return' },
   'setup.add_company':      { palette: 'navigate', route: '/setup/new-company', absolute: true, label: 'Add company' },
   // Top-level section navigate entries (no backing action — pure navigation)
   'company.list':           { palette: 'navigate', route: '/settings?tab=company', label: 'Settings' },

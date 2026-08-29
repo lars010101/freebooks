@@ -1,40 +1,41 @@
 'use strict';
 /**
- * freeBooks — Periods section service (IA-spec step 4, §5.10, ratified 2026-08-04)
+ * freeBooks — Periods section service (calendar-reminders-documents-spec §4)
  *
- * Read-only actions behind the Periods page (/:company/periods):
- *   filing.list        — filing instances = pack descriptor × reporting interval,
- *                        with computed due dates (descriptor rules + settings
- *                        overrides), filed state (periods.tax_attrs.filings), and
- *                        artifact endpoint links. Params: { periodId? }.
+ * Actions behind the Calendar page's Reminders tab and the Close Checklist:
+ *   reminder.list      — reminder rows = jurisdiction-pack descriptor × reporting
+ *                        interval (system-imported, seeded once into `reminders`
+ *                        on first discovery) unioned with user-added rows from
+ *                        the same table. Params: none.
+ *   reminder.create    — add a free-standing user reminder.
+ *   reminder.set_done  — toggle a reminder's done/not-done status.
+ *   reminder.set_due   — edit a reminder's due date.
+ *   reminder.delete    — remove a user-added reminder (system-imported rows
+ *                        cannot be deleted, only marked done).
  *   period.close_check — live close checklist for one period: engine items
  *                        (every company) + pack items (jurisdiction.json
  *                        closeChecklist[], closed op vocabulary). Params: { periodId }.
  *
- * Writes never live here: filed-state toggles and manual checklist attestations
- * flow through period.upsert tax_attrs (§5.10 — no new write surface).
+ * Supersedes the filing.* write surface from fiscal-filings-lifecycle-spec.md
+ * (submission-tracking, due-date overrides, tax-attribute carryforward) — see
+ * calendar-reminders-documents-spec.md §4.2 for what was dropped and why.
  */
 
+const { v4: uuid } = require('uuid');
 const path = require('path');
 const fs = require('fs');
-const { query, exec, bulkInsert, queryPositional } = require('./db');
+const { query, exec, bulkInsert } = require('./db');
 const { getJurisdictionPack } = require('./jurisdiction-packs');
-const { emitEvent } = require('./events');
-const {
-  computeFiling, validateSruContact, loadDescriptor, loadEmitter,
-  loadContact, isPeriodLocked,
-} = require('./filings');
-const { storeAttachment } = require('./attachments');
 
 const PACKS_DIR = path.resolve(__dirname, '../../db/jurisdictions');
 
 async function handlePeriodsService(ctx, action) {
   switch (action) {
-    case 'filing.list': return listFilings(ctx);
-    case 'filing.mark_submitted': return markSubmitted(ctx);
-    case 'filing.unmark_submitted': return unmarkSubmitted(ctx);
-    case 'filing.set_due_override': return setDueOverride(ctx);
-    case 'filing.save_period_attrs': return savePeriodAttrs(ctx);
+    case 'reminder.list': return listReminders(ctx);
+    case 'reminder.create': return createReminder(ctx);
+    case 'reminder.set_done': return setReminderDone(ctx);
+    case 'reminder.set_due': return setReminderDue(ctx);
+    case 'reminder.delete': return deleteReminder(ctx);
     case 'period.close_check': return closeCheck(ctx);
     default:
       throw Object.assign(new Error(`Unknown periods action: ${action}`), { code: 'UNKNOWN_ACTION' });
@@ -42,10 +43,8 @@ async function handlePeriodsService(ctx, action) {
 }
 
 // ── Pack filings loader ───────────────────────────────────────────────────────
-// Every filings/*.json in the company's jurisdiction pack is a filing source.
-// Descriptors with an emitter/route (ink2) render file artifacts; the rest
-// (annual-report, vat-return) link to report views. period_kind declares the
-// interval: fiscal_year (default) | vat_period | month (v1: FY + vat_period).
+// Every filings/*.json in the company's jurisdiction pack is a reminder source.
+// period_kind declares the interval: fiscal_year (default) | vat_period.
 function loadFilingDescriptors(jurisdiction) {
   const dir = path.join(PACKS_DIR, jurisdiction || 'SE', 'filings');
   let files = [];
@@ -64,7 +63,7 @@ function loadFilingDescriptors(jurisdiction) {
 // ── VAT intervals ─────────────────────────────────────────────────────────────
 // v1: annual — one VAT interval per fiscal year (mdu_ab is annual). monthly /
 // quarterly slot in here when a company needs them; the interval shape is the
-// extension seam (spec §5.10: period_kind: vat_period).
+// extension seam (period_kind: vat_period).
 function vatIntervalsFor(period, vatFrequency) {
   const freq = vatFrequency || 'annual';
   const s = String(period.start_date).slice(0, 10);
@@ -103,8 +102,9 @@ function addDays(ymd, n) {
 }
 
 // ── Due-date computation ──────────────────────────────────────────────────────
-// Rules live in pack descriptors (data, per jurisdiction); manual overrides
-// live in the settings key deadline_overrides (JSON: { "<instanceKey>": "YYYY-MM-DD" }).
+// Rules live in pack descriptors (data, per jurisdiction). Only used to seed a
+// system reminder's INITIAL due date (§4.3) — after that it's a plain editable
+// field on the row, no separate override layer.
 // v1 rules: fy_end_plus_months (period end + N months) · nth_day_after_period_end
 // (interval end + N days; month-end counting is a v2 refinement).
 function computeDueDate(descriptor, period, interval) {
@@ -116,9 +116,17 @@ function computeDueDate(descriptor, period, interval) {
   return null;
 }
 
-// ── filing.list ───────────────────────────────────────────────────────────────
-async function listFilings(ctx) {
-  const { companyId, body } = ctx;
+// ── reminder.list ─────────────────────────────────────────────────────────────
+// Computes the jurisdiction pack's due instances fresh every call (cheap: JSON
+// files + period rows), then seeds any instance not yet present in `reminders`
+// (idempotent insert-if-not-exists, keyed on the collision-free reminder_id —
+// same shape as the superseded spec's filingKey: `${descriptor.id}@${interval.start}`
+// for VAT, `${descriptor.id}@${period.period_name}` for fiscal-year kinds).
+// Once seeded, a row's due_date/done are plain persisted state — the pack is
+// never consulted again for that row, so editing or marking it done never
+// gets silently recomputed away.
+async function listReminders(ctx) {
+  const { companyId } = ctx;
   const coRows = await query(
     `SELECT company_id, jurisdiction, vat_registered FROM companies
      WHERE company_id = @companyId ORDER BY created_at DESC LIMIT 1`, { companyId });
@@ -130,94 +138,151 @@ async function listFilings(ctx) {
   const settingsRows = await query(`SELECT key, value FROM settings WHERE company_id = @companyId`, { companyId });
   const settings = {};
   for (const r of settingsRows) settings[r.key] = r.value;
-  let overrides = {};
-  try { overrides = JSON.parse(settings.deadline_overrides || '{}'); } catch (e) { overrides = {}; }
   const vatFrequency = settings.vat_frequency || 'annual';
 
-  let periodRows = await query(
-    `SELECT period_name, start_date, end_date, locked, tax_attrs FROM (
+  const periodRows = await query(
+    `SELECT period_name, start_date, end_date FROM (
        SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
        FROM periods WHERE company_id = @companyId
      ) WHERE rn = 1 ORDER BY start_date DESC`, { companyId });
-  if (body.periodId) periodRows = periodRows.filter((p) => p.period_name === body.periodId);
 
-  const filings = [];
+  // Computed instances from the pack — the seed source, and the source of
+  // artifact links (SRU/SIE downloads), which stay read-only convenience
+  // actions unrelated to done/not-done status.
+  const instances = [];
   for (const period of periodRows) {
-    let taxAttrs = {};
-    try { if (period.tax_attrs) taxAttrs = JSON.parse(period.tax_attrs); } catch (e) { taxAttrs = {}; }
-    const filedStates = (taxAttrs && taxAttrs.filings) || {};
     const fyStart = String(period.start_date).slice(0, 10);
     const fyEnd = String(period.end_date).slice(0, 10);
-    const year = fyStart.slice(0, 4);
-
     for (const d of descriptors) {
       if (d.period_kind === 'vat_period') {
-        // Relevance-flag parity with Settings/Tax Codes: no VAT registration,
-        // no VAT filing instances.
         if (!(company.vat_registered === true || String(company.vat_registered || '').toUpperCase() === 'TRUE')) continue;
         for (const iv of vatIntervalsFor(period, vatFrequency)) {
-          const key = `${d.id}@${iv.start}`;
-          filings.push({
-            filing_id: d.id, name: d.name, authority: d.authority || '',
-            key,
-            methods: d.methods || null,
-            period_id: period.period_name, period_kind: 'vat_period',
-            interval_start: iv.start, interval_end: iv.end,
-            due_date: overrides[key] || computeDueDate(d, period, iv),
-            due_overridden: !!overrides[key],
-            state: filedStates[key] && filedStates[key].filed_at ? 'filed' : 'draft',
-            filed_at: filedStates[key] ? filedStates[key].filed_at || null : null,
-            artifacts: [
-              { kind: 'view', label: 'View VAT return',
-                href: `/api/${companyId}/report?type=vat-return&start=${iv.start}&end=${iv.end}` },
-            ],
-            submitted_attachments: [],
+          instances.push({
+            reminder_id: `${d.id}@${iv.start}`, filing_id: d.id, label: d.name, authority: d.authority || '',
+            due_date: computeDueDate(d, period, iv), period_id: period.period_name,
+            interval_start: iv.start, interval_end: iv.end, period_kind: 'vat_period',
           });
         }
       } else {
-        const key = `${d.id}@${period.period_name}`;
-        const artifacts = [];
-        if (d.route) {
-          artifacts.push({ kind: 'download', label: 'blanketter.sru', href: `/api/${companyId}/sru/ink2?year=${year}` });
-          artifacts.push({ kind: 'download', label: 'INFO.SRU', href: `/api/${companyId}/sru/info?year=${year}` });
-        } else if (d.id === 'annual-report') {
-          // SIE 4 export — the Gredor handoff artifact (2026-07-30 descope).
-          // §8: the in-app AR view link is removed (Gredor produces the filed
-          // PDF; freeBooks uploads + tracks submission status only).
-          const sieInteg = getJurisdictionPack(jurisdiction);
-          if (sieInteg && sieInteg.integrations && sieInteg.integrations.sie && sieInteg.integrations.sie.export) {
-            artifacts.push({ kind: 'download', label: 'SIE 4 export',
-              href: `/api/${companyId}/report?type=sie&start=${fyStart}&end=${fyEnd}` });
-          }
-        }
-        const fState = filedStates[key];
-        let submittedAttachments = [];
-        if (fState && fState.attachment_ids && fState.attachment_ids.length) {
-          const posRows = await queryPositional(
-            `SELECT attachment_id, filename FROM attachments
-             WHERE company_id = ? AND attachment_id IN (${fState.attachment_ids.map(() => '?').join(',')})
-             ORDER BY uploaded_at DESC`,
-            [companyId, ...fState.attachment_ids]
-          ).catch(() => []);
-          submittedAttachments = (posRows || []).map(r => ({ attachment_id: r.attachment_id, filename: r.filename }));
-        }
-        filings.push({
-          filing_id: d.id, name: d.name, authority: d.authority || '',
-          key,
-          methods: d.methods || null,
-          period_id: period.period_name, period_kind: 'fiscal_year',
-          interval_start: fyStart, interval_end: fyEnd,
-          due_date: overrides[key] || computeDueDate(d, period, null),
-          due_overridden: !!overrides[key],
-          state: fState && fState.filed_at ? 'filed' : 'draft',
-          filed_at: fState ? fState.filed_at || null : null,
-          artifacts,
-          submitted_attachments: submittedAttachments || [],
+        instances.push({
+          reminder_id: `${d.id}@${period.period_name}`, filing_id: d.id, label: d.name, authority: d.authority || '',
+          due_date: computeDueDate(d, period, null), period_id: period.period_name,
+          interval_start: fyStart, interval_end: fyEnd, period_kind: 'fiscal_year',
         });
       }
     }
   }
-  return { filings };
+  const instanceById = {};
+  for (const inst of instances) instanceById[inst.reminder_id] = inst;
+
+  const existingRows = await query(
+    `SELECT reminder_id, source, label, authority, due_date, period_id, done
+     FROM reminders WHERE company_id = @companyId`, { companyId });
+  const existingById = {};
+  for (const r of existingRows) existingById[r.reminder_id] = r;
+
+  const now = new Date().toISOString();
+  const toSeed = instances
+    .filter((inst) => !existingById[inst.reminder_id])
+    .map((inst) => ({
+      reminder_id: inst.reminder_id, company_id: companyId, source: 'system',
+      label: inst.label, authority: inst.authority, due_date: inst.due_date,
+      period_id: inst.period_id, done: false, created_at: now,
+    }));
+  if (toSeed.length) {
+    await bulkInsert('reminders', toSeed);
+    for (const row of toSeed) existingById[row.reminder_id] = row;
+  }
+
+  const reminders = [];
+  for (const row of Object.values(existingById)) {
+    if (row.source !== 'system') {
+      reminders.push({
+        reminder_id: row.reminder_id, source: 'user', label: row.label, authority: null,
+        due_date: row.due_date, period_id: row.period_id, done: !!row.done, artifacts: [],
+      });
+      continue;
+    }
+    const inst = instanceById[row.reminder_id];
+    if (!inst) continue; // stale system row (descriptor removed from the pack since seeding) — kept, not shown
+    const artifacts = [];
+    const d = descriptors.find((x) => x.id === inst.filing_id);
+    if (d && d.route) {
+      const year = inst.period_id.replace(/^FY/, '');
+      artifacts.push({ kind: 'download', label: 'blanketter.sru', href: `/api/${companyId}/sru/ink2?year=${year}` });
+      artifacts.push({ kind: 'download', label: 'INFO.SRU', href: `/api/${companyId}/sru/info?year=${year}` });
+    } else if (d && d.id === 'annual-report') {
+      const pack = getJurisdictionPack(jurisdiction);
+      if (pack && pack.integrations && pack.integrations.sie && pack.integrations.sie.export) {
+        artifacts.push({ kind: 'download', label: 'SIE 4 export',
+          href: `/api/${companyId}/report?type=sie&start=${inst.interval_start}&end=${inst.interval_end}` });
+      }
+    } else if (d && d.period_kind === 'vat_period') {
+      artifacts.push({ kind: 'view', label: 'View VAT return',
+        href: `/api/${companyId}/report?type=vat-return&start=${inst.interval_start}&end=${inst.interval_end}` });
+    }
+    reminders.push({
+      reminder_id: row.reminder_id, source: 'system', label: row.label, authority: row.authority,
+      due_date: row.due_date, period_id: row.period_id, done: !!row.done, artifacts,
+    });
+  }
+  reminders.sort((a, b) => String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')));
+  return { reminders };
+}
+
+// ── reminder.create ───────────────────────────────────────────────────────────
+async function createReminder(ctx) {
+  const { companyId, body } = ctx;
+  const { label, dueDate, periodId } = body;
+  if (!label || !dueDate) throw Object.assign(new Error('label and dueDate required'), { code: 'INVALID_INPUT' });
+  const reminderId = uuid();
+  await bulkInsert('reminders', [{
+    reminder_id: reminderId, company_id: companyId, source: 'user',
+    label, authority: null, due_date: String(dueDate).slice(0, 10),
+    period_id: periodId || null, done: false, created_at: new Date().toISOString(),
+  }]);
+  return { reminder_id: reminderId };
+}
+
+// ── reminder.set_done ─────────────────────────────────────────────────────────
+async function setReminderDone(ctx) {
+  const { companyId, body } = ctx;
+  const { reminderId, done } = body;
+  if (!reminderId) throw Object.assign(new Error('reminderId required'), { code: 'INVALID_INPUT' });
+  await exec(`UPDATE reminders SET done = @done WHERE company_id = @companyId AND reminder_id = @reminderId`,
+    { companyId, reminderId, done: !!done });
+  return { reminder_id: reminderId, done: !!done };
+}
+
+// ── reminder.set_due ──────────────────────────────────────────────────────────
+async function setReminderDue(ctx) {
+  const { companyId, body } = ctx;
+  const { reminderId, dueDate } = body;
+  if (!reminderId || !dueDate) throw Object.assign(new Error('reminderId and dueDate required'), { code: 'INVALID_INPUT' });
+  const due = String(dueDate).slice(0, 10);
+  await exec(`UPDATE reminders SET due_date = @dueDate WHERE company_id = @companyId AND reminder_id = @reminderId`,
+    { companyId, reminderId, dueDate: due });
+  return { reminder_id: reminderId, due_date: due };
+}
+
+// ── reminder.delete ───────────────────────────────────────────────────────────
+// System-imported reminders can't be deleted outright (§9 open question,
+// resolved conservatively for the build: they'd just reseed on the next
+// list load anyway, since the descriptor is still in the pack) — only marked
+// done. User-added rows can be removed freely.
+async function deleteReminder(ctx) {
+  const { companyId, body } = ctx;
+  const { reminderId } = body;
+  if (!reminderId) throw Object.assign(new Error('reminderId required'), { code: 'INVALID_INPUT' });
+  const rows = await query(
+    `SELECT source FROM reminders WHERE company_id = @companyId AND reminder_id = @reminderId LIMIT 1`,
+    { companyId, reminderId });
+  if (!rows.length) throw Object.assign(new Error('Reminder not found'), { code: 'NOT_FOUND' });
+  if (rows[0].source !== 'user') {
+    throw Object.assign(new Error('System-imported reminders cannot be deleted — mark done instead.'), { code: 'FORBIDDEN' });
+  }
+  await exec(`DELETE FROM reminders WHERE company_id = @companyId AND reminder_id = @reminderId`, { companyId, reminderId });
+  return { deleted: true, reminder_id: reminderId };
 }
 
 // ── period.close_check ────────────────────────────────────────────────────────
@@ -303,218 +368,4 @@ async function closeCheck(ctx) {
   return { period_id: body.periodId, items };
 }
 
-// ── Shared atomic write helpers (§3 — Fiscal/Filings Lifecycle spec) ──────────
-// Both helpers do a fresh SELECT → JSON.parse → patchFn(mutate in place) →
-// UPDATE/INSERT back. This avoids the whole-column-clobber hazard of the
-// client-side round-trip pattern (§1.7): each write touches only the sub-key
-// being patched, not the entire tax_attrs / deadline_overrides blob.
-
-async function patchPeriodTaxAttrs(companyId, periodId, patchFn) {
-  const rows = await query(
-    `SELECT tax_attrs FROM (
-       SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
-       FROM periods WHERE company_id = @companyId AND period_name = @pid
-     ) WHERE rn = 1`,
-    { companyId, pid: periodId }
-  );
-  let taxAttrs = {};
-  try { if (rows.length && rows[0].tax_attrs) taxAttrs = JSON.parse(rows[0].tax_attrs); } catch (e) { taxAttrs = {}; }
-  patchFn(taxAttrs);
-  const now = new Date().toISOString();
-  await exec(
-    `UPDATE periods SET tax_attrs = @json, updated_at = @now
-     WHERE company_id = @companyId AND period_name = @pid
-       AND created_at = (SELECT MAX(created_at) FROM periods WHERE company_id = @companyId AND period_name = @pid)`,
-    { json: JSON.stringify(taxAttrs), now, companyId, pid: periodId }
-  );
-  return taxAttrs;
-}
-
-async function patchDeadlineOverrides(companyId, patchFn) {
-  const rows = await query(
-    `SELECT value FROM settings WHERE company_id = @companyId AND key = 'deadline_overrides' LIMIT 1`,
-    { companyId }
-  );
-  let overrides = {};
-  try { if (rows.length && rows[0].value) overrides = JSON.parse(rows[0].value); } catch (e) { overrides = {}; }
-  patchFn(overrides);
-  const now = new Date().toISOString();
-  const json = JSON.stringify(overrides);
-  if (rows.length) {
-    await exec(
-      `UPDATE settings SET value = @json, updated_at = @now WHERE company_id = @companyId AND key = 'deadline_overrides'`,
-      { json, now, companyId }
-    );
-  } else {
-    await bulkInsert('settings', [{ company_id: companyId, key: 'deadline_overrides', value: json, updated_at: now }]);
-  }
-  return overrides;
-}
-
-// ── filing.mark_submitted (§5/§6/§7) ──────────────────────────────────────────
-async function markSubmitted(ctx) {
-  const { companyId, body, userEmail, actor, requestId } = ctx;
-  const { periodId, key, method, attachmentId } = body;
-  if (!periodId || !key) throw Object.assign(new Error('periodId and key required'), { code: 'INVALID_INPUT' });
-
-  // Load the period row to check lock status and determine period_kind.
-  const periodRows = await query(
-    `SELECT period_name, locked FROM (
-       SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
-       FROM periods WHERE company_id = @companyId AND period_name = @pid
-     ) WHERE rn = 1`,
-    { companyId, pid: periodId }
-  );
-  if (!periodRows.length) throw Object.assign(new Error(`Period '${periodId}' not found`), { code: 'NOT_FOUND' });
-
-  // Determine period_kind from the key format: vat_period keys contain a
-  // date after @ (YYYY-MM-DD), fiscal_year keys contain FY+year.
-  const isVatPeriod = key.includes('@') && /^\d{4}-\d{2}-\d{2}$/.test(key.split('@')[1]);
-
-  // §6: fiscal_year-kind filings require a locked period; vat_period does not.
-  if (!isVatPeriod && !periodRows[0].locked) {
-    throw Object.assign(
-      new Error('Period must be locked before submitting this filing. Lock the period in Settings → Periods.'),
-      { code: 'PERIOD_NOT_LOCKED' }
-    );
-  }
-
-  let attachmentIds = [];
-  let computedResult = null;
-
-  if (method === 'sru') {
-    // §5: SRU snapshot — call computeFiling directly (no HTTP round-trip).
-    // Produces byte-identical output to handleSruInk2/handleSruInfo.
-    const year = parseInt(periodId.replace(/^FY/, ''), 10);
-    if (!Number.isFinite(year)) throw Object.assign(new Error('Cannot derive year from periodId: ' + periodId), { code: 'INVALID_INPUT' });
-
-    // Load company for contact validation (same as handleSruInk2).
-    const coRows = await queryPositional(
-      `SELECT company_id, company_name, tax_id, jurisdiction FROM companies
-       WHERE company_id = ? ORDER BY created_at DESC LIMIT 1`,
-      [companyId]
-    );
-    if (!coRows.length) throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
-    const co = coRows[0];
-    const contact = await loadContact(queryPositional, companyId);
-    const problems = validateSruContact(co, contact);
-    if (problems.length) throw Object.assign(new Error(problems.join(' | ') + ' — set them under Settings → Company'), { code: 'INVALID_INPUT' });
-
-    computedResult = await computeFiling(queryPositional, companyId, year, {});
-    const sruText = computedResult.emitter.emitSru(computedResult, computedResult.descriptor, year);
-    const infoText = computedResult.emitter.emitInfo(co, {}, contact);
-
-    // Store both SRU files as attachments (entityType:'filing', entityId:key).
-    const sruAtt = await storeAttachment({
-      companyId, entityType: 'filing', entityId: key,
-      filename: 'blanketter.sru', contentType: 'text/plain; charset=utf-8',
-      buffer: Buffer.from(sruText, 'utf8'),
-      uploadedBy: userEmail, actor, requestId,
-    });
-    const infoAtt = await storeAttachment({
-      companyId, entityType: 'filing', entityId: key,
-      filename: 'INFO.SRU', contentType: 'text/plain; charset=utf-8',
-      buffer: Buffer.from(infoText, 'utf8'),
-      uploadedBy: userEmail, actor, requestId,
-    });
-    attachmentIds = [sruAtt.attachment_id, infoAtt.attachment_id];
-
-    // §7: Loss carryforward — only for ink2@... keys.
-    if (key.startsWith('ink2@')) {
-      const descFields = computedResult.descriptor.fields || {};
-      let closingLoss = 0;
-      for (const [code, spec] of Object.entries(descFields)) {
-        if (spec.op !== 'loss_closing') continue;
-        const b = spec.blankett;
-        closingLoss = computedResult.fields[b][code] || 0;
-        break;
-      }
-      // Carry forward into next year's period if it exists (never auto-create).
-      const nextYear = year + 1;
-      const nextPeriodName = 'FY' + nextYear;
-      const nextRows = await query(
-        `SELECT period_name FROM periods WHERE company_id = @companyId AND period_name = @pn LIMIT 1`,
-        { companyId, pn: nextPeriodName }
-      );
-      if (nextRows.length) {
-        await patchPeriodTaxAttrs(companyId, nextPeriodName, function(ta) {
-          ta.loss_cf = closingLoss;
-        });
-      }
-    }
-  } else if (method === 'pdf') {
-    // §5: PDF — verify the attachment exists and belongs to this company + entity.
-    if (!attachmentId) throw Object.assign(new Error('attachmentId required for method "pdf"'), { code: 'INVALID_INPUT' });
-    const aRows = await queryPositional(
-      `SELECT attachment_id FROM attachments WHERE company_id = ? AND attachment_id = ? AND entity_type = 'filing' AND entity_id = ? LIMIT 1`,
-      [companyId, attachmentId, key]
-    );
-    if (!aRows.length) throw Object.assign(new Error('Attachment not found or not owned by this filing entity'), { code: 'NOT_FOUND' });
-    attachmentIds = [attachmentId];
-  } else if (method === null || method === undefined) {
-    // vat-return: no file artifact, just record filed_at.
-  } else {
-    throw Object.assign(new Error('method must be "sru", "pdf", or null'), { code: 'INVALID_INPUT' });
-  }
-
-  const filedAt = new Date().toISOString();
-  await patchPeriodTaxAttrs(companyId, periodId, function(ta) {
-    ta.filings = ta.filings || {};
-    ta.filings[key] = { filed_at: filedAt, method: method || null, attachment_ids: attachmentIds };
-  });
-
-  await emitEvent(ctx, 'filing.submitted', 'filing', key, { periodId, method: method || null, attachmentIds });
-  return { filed: true, key, filed_at: filedAt, method: method || null, attachment_ids: attachmentIds };
-}
-
-// ── filing.unmark_submitted (§4) ─────────────────────────────────────────────
-async function unmarkSubmitted(ctx) {
-  const { companyId, body } = ctx;
-  const { periodId, key } = body;
-  if (!periodId || !key) throw Object.assign(new Error('periodId and key required'), { code: 'INVALID_INPUT' });
-
-  await patchPeriodTaxAttrs(companyId, periodId, function(ta) {
-    ta.filings = ta.filings || {};
-    delete ta.filings[key];
-  });
-
-  await emitEvent(ctx, 'filing.unsubmitted', 'filing', key, { periodId });
-  return { unfiled: true, key };
-}
-
-// ── filing.set_due_override (§4) ─────────────────────────────────────────────
-async function setDueOverride(ctx) {
-  const { companyId, body } = ctx;
-  const { key, dueDate } = body;
-  if (!key) throw Object.assign(new Error('key required'), { code: 'INVALID_INPUT' });
-
-  await patchDeadlineOverrides(companyId, function(overrides) {
-    if (dueDate === null || dueDate === undefined || dueDate === '') {
-      delete overrides[key];
-    } else {
-      overrides[key] = String(dueDate).slice(0, 10);
-    }
-  });
-
-  return { key, due_date: dueDate || null };
-}
-
-// ── filing.save_period_attrs (§4) ────────────────────────────────────────────
-async function savePeriodAttrs(ctx) {
-  const { companyId, body } = ctx;
-  const { periodId, patch } = body;
-  if (!periodId || !patch) throw Object.assign(new Error('periodId and patch required'), { code: 'INVALID_INPUT' });
-
-  const taxAttrs = await patchPeriodTaxAttrs(companyId, periodId, function(ta) {
-    if (patch.loss_cf !== undefined) ta.loss_cf = patch.loss_cf;
-    if (patch.periodiseringsfond !== undefined) ta.periodiseringsfond = patch.periodiseringsfond;
-    if (patch.ar_facts !== undefined && typeof patch.ar_facts === 'object') {
-      ta.ar_facts = ta.ar_facts || {};
-      for (const [k, v] of Object.entries(patch.ar_facts)) ta.ar_facts[k] = v;
-    }
-  });
-
-  return { saved: true, periodId };
-}
-
-module.exports = { handlePeriodsService, loadFilingDescriptors, computeDueDate, vatIntervalsFor, patchPeriodTaxAttrs, patchDeadlineOverrides };
+module.exports = { handlePeriodsService, listReminders };

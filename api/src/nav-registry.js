@@ -23,7 +23,7 @@
 //     icon:         string|null — sidebar glyph (null for non-sidebar routes)
 //     sidebar:      bool     — render in the sidebar nav?
 //     gKey:         string|null — go-to-map letter (e.g. 'b' for bank) or null.
-//                              'c' is RESERVED for the company switcher (not a
+//                              'w' is RESERVED for the company switcher (not a
 //                              route). Non-sidebar routes get null.
 //     palette:      bool     — surface as a 'Go to …' palette row?
 //     absolute:     bool     — company-less route (e.g. /setup/new-company)
@@ -41,18 +41,20 @@
 //      (g-key destinations). Non-sidebar routes without a gKey are
 //      sidebar/palette-reachable only; they do not appear in ? NAV. The :
 //      palette no longer lists routes (#149).
-//   4. Assign a gKey letter only for ratified go-to destinations; 'c' is
+//   4. Assign a gKey letter only for ratified go-to destinations; 'w' is
 //      reserved for the company switcher.
 //
-// g-key slate (ratified 2026-08-27 IA restructure 2):
+// g-key slate (ratified calendar-reminders-documents-spec.md §2, 2026-08-29):
 //   g i = Inbox              · g b = Books (was Reports, trimmed)
-//   g p = Payables (was Bills)   · g f = Fiscal (was Periods/Filings)
+//   g p = Payables (was Bills)   · g c = Calendar (was Fiscal/Periods+Filings)
 //   g t = Statements (new)   · g s = Settings
 //   g a = Accounting (new — reuses Admin's freed key)
 //   g x = Exchange Rates (new)
-//   g c = Company switcher (reserved, not a route — unchanged)
+//   g d = Documents (new)
+//   g w = Company switcher (reserved, not a route — moved off `c`, which
+//        Calendar now owns: judged a more frequent, higher-value jump)
 //   g r = reserved for future Receivables (freed from Reports moving to `b`)
-//   g m = FREE (Master Data dissolved) · g v = FREE · g d / g j = still free
+//   g m = FREE (Master Data dissolved) · g v = FREE · g f / g j = still free
 // 2026-08-27 IA restructure 2: Bills → Payables (gKey `p`); Reports split into
 //   Statements (gKey `t`) + Books (gKey `b`); Periods → Fiscal (gKey `f`);
 //   Settings slimmed (Company · Access · Extensions); Accounting new (gKey `a`,
@@ -84,9 +86,17 @@ const ROUTES = [
   //   by Payables moving off it). Ledger/audit tooling: Transaction Register ·
   //   Trial Balance · General Ledger · Journal Line Listing · Integrity Check.
   { key: 'books',          route: '/:company/books',       label: 'Books',           icon: '📈', sidebar: true,  gKey: 'b',  palette: true,  absolute: false, dateRelevance: 'none' },
-  // 2026-08-27 IA restructure 2: Periods renamed Fiscal (gKey `f`). Fully flattened
-  //   — Periods · Filings · Close Checklist, no tree expansion.
-  { key: 'fiscal',         route: '/:company/fiscal',      label: 'Fiscal',          icon: '📅', sidebar: true,  gKey: 'f',  palette: true,  absolute: false, dateRelevance: 'none' },
+  // calendar-reminders-documents-spec.md §2: Fiscal renamed Calendar, gKey
+  //   moved from `f` to `c` (freed by the company switcher moving to `w`) —
+  //   judged a more frequent, higher-value jump. Tabs: Periods · Reminders ·
+  //   Close Checklist (the last one's permanent home is still undecided —
+  //   left in place here, not redesigned).
+  { key: 'calendar',       route: '/:company/calendar',    label: 'Calendar',        icon: '📅', sidebar: true,  gKey: 'c',  palette: true,  absolute: false, dateRelevance: 'none' },
+  // calendar-reminders-documents-spec.md §5: new page — a DB-driven registry
+  //   of every attachment (system-linked + standalone uploads), never built
+  //   from the filesystem. No link to/from Calendar (explicitly rejected —
+  //   the two surfaces only share a Period column for filtering).
+  { key: 'documents',      route: '/:company/documents',   label: 'Documents',       icon: '📄', sidebar: true,  gKey: 'd',  palette: true,  absolute: false, dateRelevance: 'none' },
   // 2026-08-27 IA restructure 2: Settings slimmed — Company · Access · Extensions.
   { key: 'settings',       route: '/:company/settings',    label: 'Settings',        icon: '⚙',  sidebar: true,  gKey: 's',  palette: true,  absolute: false, dateRelevance: 'none' },
   // 2026-08-27 IA restructure 2: Accounting (gKey `a`, reuses Admin's freed key) —

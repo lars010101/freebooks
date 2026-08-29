@@ -68,7 +68,7 @@
   // onReady(opened) is optional — invoked after the open path completes
   // (sync when already loaded, async after the company.list fetch resolves).
   // `opened` is true when the dropdown is now open, false when it was closed.
-  // Used by the g c keyboard switcher (fb-core.js) to set the initial
+  // Used by the g w keyboard switcher (fb-core.js) to set the initial
   // highlight once the option rows exist.
   window.fbToggleCompany = function(e, onReady) {
     if (e) e.stopPropagation();

@@ -89,6 +89,15 @@ ${commonStyle()}
     color:#555; margin:0 0 4px; }
   .jrnl-att .fb-attach-row { padding:3px 0; }
   .jrnl-att .fb-att-empty { color:#aaa; font-size:9pt; font-style:italic; }
+  /* calendar-reminders-documents-spec.md §6 — Inbox upload: a front door
+     into the same attachment.uploaded-event pipeline the agent-inbox
+     folder-drop already feeds (agent-loop.js processEvent), so a human can
+     hand the agent a bank statement / bill / receipt without touching the
+     filesystem. */
+  #inbox-upload-panel { display:none; margin:0 0 14px; padding:12px; border:1px solid #ddd; border-radius:4px; background:#fafafa; }
+  #inbox-upload-panel.open { display:block; }
+  #inbox-upload-panel select, #inbox-upload-panel input { padding:4px 8px; border:1px solid #ddd; border-radius:3px; font-size:10pt; margin-right:8px; }
+  .header { display:flex; justify-content:space-between; align-items:flex-start; }
 </style>
 </head>
 <body>${navBar(company, 'inbox')}
@@ -98,6 +107,18 @@ ${commonStyle()}
       <h1>Inbox</h1>
       <p class="sub">${company} · review queue</p>
     </div>
+    <a class="chip" data-act="inbox-upload-toggle">+ Upload document</a>
+  </div>
+
+  <div id="inbox-upload-panel">
+    <select id="inbox-upload-type">
+      <option value="bank_statement">Bank Statement</option>
+      <option value="bill">Bill</option>
+      <option value="journal_proposal">Receipt</option>
+    </select>
+    <input type="file" id="inbox-upload-file">
+    <a class="chip" data-act="inbox-upload-save">Save</a>
+    <a class="chip" data-act="inbox-upload-cancel">Cancel</a>
   </div>
 
   <p id="queue-note"></p>
@@ -152,6 +173,47 @@ function postAction(action, body, idemKey) {
     body: JSON.stringify(Object.assign({ action: action, companyId: COMPANY }, body))
   }).then(function (r) { return r.json(); });
 }
+
+// ── Upload (calendar-reminders-documents-spec.md §6) ─────────────────────────
+// A front door into the same attachment.uploaded event that a folder-drop
+// (feed-watcher.js) already produces — agent-loop.js's processEvent dispatches
+// on entityType regardless of how the attachment arrived, so this needs no
+// new backend action, just the existing attachment.upload with a fresh id.
+document.addEventListener('click', function (e) {
+  if (e.target.closest('[data-act="inbox-upload-toggle"]')) {
+    document.getElementById('inbox-upload-panel').classList.toggle('open');
+  }
+  if (e.target.closest('[data-act="inbox-upload-cancel"]')) {
+    document.getElementById('inbox-upload-panel').classList.remove('open');
+    document.getElementById('inbox-upload-file').value = '';
+  }
+});
+
+document.addEventListener('click', function (e) {
+  if (!e.target.closest('[data-act="inbox-upload-save"]')) return;
+  var fileInput = document.getElementById('inbox-upload-file');
+  var file = fileInput.files[0];
+  var entityType = document.getElementById('inbox-upload-type').value;
+  if (!file) { FB.status.show('Choose a file first.', true); return; }
+  var reader = new FileReader();
+  reader.onload = function () {
+    var b64 = reader.result.split(',')[1];
+    var entityId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));
+    postAction('attachment.upload', {
+      entityType: entityType, entityId: entityId,
+      filename: file.name, contentBase64: b64, contentType: file.type || 'application/octet-stream',
+    }).then(function (res) {
+      if (!res || res.ok === false || res.error) {
+        FB.status.show('Upload failed: ' + ((res && res.error && res.error.message) || 'unknown error'), true);
+        return;
+      }
+      FB.status.show('Uploaded ' + file.name + ' — the agent will pick it up shortly.');
+      document.getElementById('inbox-upload-panel').classList.remove('open');
+      fileInput.value = '';
+    }).catch(function (err) { FB.status.show('Upload failed: ' + (err && err.message || err), true); });
+  };
+  reader.readAsDataURL(file);
+});
 
 function fmtAmt(v) {
   var n = Number(v || 0);

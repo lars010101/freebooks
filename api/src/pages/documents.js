@@ -177,7 +177,12 @@ function renderDocuments() {
       // root, the same safe default the view already uses when from is unset.
       idMain = '<a href="/' + COMPANY + '/journal/voucher?batch=' + esc(d.docnr_batch_id) + '">' + esc(d.docnr) + '</a>';
     } else {
-      idMain = esc(d.entity_id); // not yet posted (draft bill / journal_proposal) — no doc number yet
+      // Not yet posted — no doc number exists yet, and a raw id (a UUID) is
+      // meaningless to a human. Say what state it's actually in instead.
+      var pendingLabel = d.entity_type === 'bill' ? 'Pending Bill'
+        : d.entity_type === 'journal_proposal' ? 'Pending Inbox'
+        : 'Pending';
+      idMain = '<span class="pe-ro">' + esc(pendingLabel) + '</span>';
     }
     var idCell = namedByFilename
       ? '<div class="doc-id-main">' + idMain + '</div>'

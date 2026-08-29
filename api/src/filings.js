@@ -422,9 +422,37 @@ async function handleSruInfo(req, res) {
   }
 }
 
+// ── Period-locked gate (§6 — extracted from handleSruInk2/handleSruInfo) ──────
+// Shared lock check: returns true when the latest revision of the named
+// period exists AND is locked. Returns false when the period doesn't exist
+// (the existing routes treat "no row" as "not locked" → 409 only when a row
+// exists and is unlocked; the new filing.mark_submitted action instead
+// 404s on a missing period, but reuses this helper for the locked check on
+// the row it already loaded). Accepts either the named-param `query` runner
+// or the positional `queryPositional` runner — the existing routes pass
+// queryPositional; the new action passes the periods-page-service `query`.
+async function isPeriodLocked(queryRunner, companyId, periodName) {
+  const rows = await queryRunner(
+    `SELECT locked FROM (
+       SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
+       FROM periods WHERE company_id = ? AND period_name = ?
+     ) WHERE rn = 1`,
+    [companyId, periodName]
+  );
+  if (!rows || rows.length === 0) return false;
+  return !!rows[0].locked;
+}
+
 module.exports = {
   computeFiling,
   validateSruContact,
   handleSruInk2,
   handleSruInfo,
+  // §5/§6: exported for direct reuse by filing.mark_submitted in
+  // periods-page-service.js (no HTTP round-trip — byte-identical output to
+  // the download routes, reusing the same descriptor/emitter/contact loaders).
+  loadDescriptor,
+  loadEmitter,
+  loadContact,
+  isPeriodLocked,
 };

@@ -3,6 +3,7 @@
   "id": "ink2",
   "name": "Inkomstdeklaration 2 (SRU)",
   "authority": "Skatteverket",
+  "methods": ["sru", "pdf"],
   "emitter": "sruLines",
   "route": "/api/:company/sru/ink2",
   "due": { "rule": "fy_end_plus_months", "months": 6 },

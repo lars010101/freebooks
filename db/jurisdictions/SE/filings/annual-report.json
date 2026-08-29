@@ -3,6 +3,7 @@
   "id": "annual-report",
   "name": "Årsredovisning",
   "authority": "Bolagsverket",
+  "methods": ["pdf"],
   "due": { "rule": "fy_end_plus_months", "months": 7 },
   "comparatives": 1,
   "variants": {

@@ -354,6 +354,45 @@ const ACTIONS = {
     description: 'List filing instances per period (descriptor × interval) with due dates, draft/filed state, and artifact links.',
     params: { periodId: { type: 'string' } },
   },
+  // ── Filings write surface (Fiscal/Filings Lifecycle spec, §4) ───────────────
+  // R2 doctrine: agents never lock or finalize a filing — every one of these
+  // is owner-only, mutating, and intentionally NOT agentWritable. The §5
+  // submission path snapshots the exact bytes (SRU text / uploaded PDF) into
+  // attachments so a later ledger edit can't silently drift "what we filed".
+  'filing.mark_submitted': {
+    role: 'owner', mutating: true,
+    description: 'Mark a filing instance submitted. method:"sru" (INK2 only) snapshots blanketter.sru + INFO.SRU server-side; method:"pdf" records an already-uploaded attachment (entityType:"filing", entityId:key); method:null (vat-return) records filed_at only. For ink2@… keys, also carries the closing loss forward into next year\'s period.',
+    params: {
+      periodId: { type: 'string', required: true },
+      key: { type: 'string', required: true },
+      method: { type: 'string' },
+      attachmentId: { type: 'string' },
+    },
+  },
+  'filing.unmark_submitted': {
+    role: 'owner', mutating: true,
+    description: 'Clear a filing instance\'s submitted state (deletes taxAttrs.filings[key]). Attachments are never deleted — the audit trail stays intact. Use to correct a mistaken submit.',
+    params: {
+      periodId: { type: 'string', required: true },
+      key: { type: 'string', required: true },
+    },
+  },
+  'filing.set_due_override': {
+    role: 'owner', mutating: true,
+    description: 'Override (or clear, when dueDate is null) one filing instance\'s due date. Keyed on the collision-free filing key (§2), so an override on one year\'s INK2 does not leak into another year\'s.',
+    params: {
+      key: { type: 'string', required: true },
+      dueDate: { type: 'date' },
+    },
+  },
+  'filing.save_period_attrs': {
+    role: 'owner', mutating: true,
+    description: 'Write year-over-year tax continuity attrs on a period: loss_cf (scalar replace), periodiseringsfond (full array replace — caller resubmits the whole list), ar_facts (shallow key-by-key merge so a partial edit doesn\'t clobber the rest).',
+    params: {
+      periodId: { type: 'string', required: true },
+      patch: { type: 'object', required: true },
+    },
+  },
 
   // ── Chart of accounts ────────────────────────────────────────────────────
   'coa.list': { role: 'viewer', mutating: false, description: 'List accounts (latest revision per code).' },

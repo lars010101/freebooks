@@ -343,7 +343,7 @@ async function handleApiRequest(req, res) {
       case 'event':       result = await handleEvents(ctx, action); break;
       case 'auth':        result = await handleTokens(ctx, action); break;
       case 'sie':         result = await handleSie(ctx, action); break;
-      case 'notification': result = await handleNotifications(ctx, action); break;
+      case 'notifications': result = await handleNotifications(ctx, action); break;
       case 'agent':       result = await handleAgent(ctx, action); break;
       default:
         return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
@@ -2047,7 +2047,7 @@ ensureDb().then(async () => {
       event: () => handleEvents(ctx, action),
       auth: () => require('./tokens').handleTokens(ctx, action),
       sie: () => require('./sie-import').handleSie(ctx, action),
-      notification: () => require('./notifications').handleNotifications(ctx, action),
+      notifications: () => require('./notifications').handleNotifications(ctx, action),
       agent: () => require('./index').handleAgent(ctx, action),
     };
 

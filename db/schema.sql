@@ -641,6 +641,18 @@ CREATE TABLE IF NOT EXISTS reminders (
 );
 CREATE INDEX IF NOT EXISTS idx_reminders_company ON reminders(company_id);
 
+-- MIGRATION: an environment that already boot-applied this schema before
+-- due_date was corrected to nullable (below) has a `reminders` table stuck
+-- with the old constraint — CREATE TABLE IF NOT EXISTS never retroactively
+-- loosens it. DuckDB refuses ALTER COLUMN while an index depends on the
+-- table (verified directly), so the index has to come off first and back on
+-- after; each statement here is independently idempotent (a second full
+-- run is a harmless no-op, verified), so this converges any such database
+-- on the next boot without needing to know which state it started from.
+DROP INDEX IF EXISTS idx_reminders_company;
+ALTER TABLE reminders ALTER COLUMN due_date DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reminders_company ON reminders(company_id);
+
 -- calendar-reminders-documents-spec.md §5.3: Documents page columns for
 -- standalone uploads (system-linked rows derive Type/Period from their
 -- entity instead). Same idempotent-migration style as sha256 above.

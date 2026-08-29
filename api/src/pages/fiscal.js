@@ -159,7 +159,7 @@ ${periodsGridClientJS({
   onChromeBody: ''
 })}
 
-// ── Filings tab (read-only v1; override editing via ~ = v2) ─────────────────
+// ── Filings tab (§9 — submission status, due-date overrides, expand-rows) ───
 function loadFilings(force) {
   var tb = document.getElementById('filings-body');
   if (!tb || (tb.dataset.loaded && !force)) return;
@@ -172,21 +172,349 @@ function loadFilings(force) {
       var past = f.due_date && f.state !== 'filed' && f.due_date < today;
       var badge = f.state === 'filed'
         ? '<span class="st-badge st-filed">Filed</span>' : '<span class="st-badge st-draft">Draft</span>';
+      var fkey = esc(f.key || '');
+      var periodId = esc(f.period_id || '');
+      var kind = f.period_kind || 'fiscal_year';
+      var filingId = f.filing_id || '';
+      var methods = f.methods || null;
+      var submittedAttachments = f.submitted_attachments || [];
+      var isFiled = f.state === 'filed';
+
+      // Artifact links (draft rows: SRU downloads for ink2; SIE for AR)
       var artifacts = ((f.artifacts || []).map(function (a) {
         return '<a href="' + esc(a.href) + '" target="_blank" rel="noopener" class="chip">' + esc(a.label) + '</a>';
-      }).join(' ')) || '<span class="pe-ro">—</span>';
-      return '<tr><td>' + esc(f.name) + (f.period_kind === 'vat_period'
-          ? ' <span class="pe-ro">' + esc(f.interval_start) + ' → ' + esc(f.interval_end) + '</span>' : '') + '</td>'
-        + '<td>' + esc(f.period_id) + '</td>'
+      }).join(' '));
+
+      // Submitted attachment links (filed rows: frozen copies)
+      var frozenLinks = submittedAttachments.map(function (sa) {
+        return '<a href="/api/attachment/' + esc(sa.attachment_id) + '" target="_blank" rel="noopener" class="chip">' + esc(sa.filename || 'file') + '</a>';
+      }).join(' ');
+
+      // Actions cell
+      var actions = '';
+      if (isFiled) {
+        actions = frozenLinks + ' <a class="chip" data-act="filing-unsubmit" data-key="' + fkey + '" data-period="' + periodId + '">Unsubmit</a>';
+      } else {
+        if (filingId === 'ink2') {
+          actions = artifacts + ' <label class="chip" style="cursor:pointer">Upload PDF<input type="file" style="display:none" data-act="filing-upload" data-key="' + fkey + '" data-period="' + periodId + '" accept=".pdf"></label>'
+            + ' <a class="chip" data-act="filing-submit" data-key="' + fkey + '" data-period="' + periodId + '" data-filing-id="' + esc(filingId) + '" data-methods="' + esc((methods || []).join(',')) + '">Mark Submitted</a>';
+        } else if (filingId === 'annual-report') {
+          actions = '<label class="chip" style="cursor:pointer">Upload PDF<input type="file" style="display:none" data-act="filing-upload" data-key="' + fkey + '" data-period="' + periodId + '" accept=".pdf"></label>'
+            + ' <a class="chip" data-act="filing-submit" data-key="' + fkey + '" data-period="' + periodId + '" data-filing-id="' + esc(filingId) + '" data-methods="pdf">Mark Submitted</a>';
+        } else if (filingId === 'vat-return') {
+          actions = '<a class="chip" data-act="filing-submit" data-key="' + fkey + '" data-period="' + periodId + '" data-filing-id="' + esc(filingId) + '">Mark Submitted</a>';
+        } else {
+          actions = artifacts || '<span class="pe-ro">—</span>';
+        }
+      }
+
+      // Due date cell (click-to-edit inline)
+      var dueCell = '<td' + (past ? ' class="due-past"' : '') + '>'
+        + '<span class="due-val" data-act="due-edit" data-key="' + fkey + '">' + due + '</span>'
+        + (f.due_overridden ? ' <span class="due-override" title="manual override">*</span>' : '')
+        + '</td>';
+
+      // Expand-row toggle chips
+      var expandChips = '';
+      if (filingId === 'annual-report') {
+        expandChips += ' <a class="chip" data-act="expand-facts" data-key="' + fkey + '" data-period="' + periodId + '">Facts ▸</a>';
+      }
+      if (filingId === 'ink2') {
+        expandChips += ' <a class="chip" data-act="expand-pf" data-key="' + fkey + '" data-period="' + periodId + '">Periodiseringsfond ▸</a>';
+      }
+
+      var row = '<tr data-fkey="' + fkey + '">'
+        + '<td>' + esc(f.name) + (kind === 'vat_period'
+            ? ' <span class="pe-ro">' + esc(f.interval_start) + ' → ' + esc(f.interval_end) + '</span>' : '') + '</td>'
+        + '<td>' + periodId + '</td>'
         + '<td>' + esc(f.authority || '') + '</td>'
-        + '<td' + (past ? ' class="due-past"' : '') + '>' + due + (f.due_overridden ? ' <span class="due-override" title="manual override">*</span>' : '') + '</td>'
-        + '<td>' + badge + '</td><td class="row-actions">' + artifacts + '</td></tr>';
+        + dueCell
+        + '<td>' + badge + '</td>'
+        + '<td class="row-actions">' + actions + expandChips + '</td>'
+        + '</tr>';
+
+      // Expand-rows (hidden by default, toggled by chip)
+      if (filingId === 'annual-report') {
+        row += '<tr class="expand-row" data-expand="facts" data-key="' + fkey + '" style="display:none">'
+          + '<td colspan="6" id="facts-panel-' + fkey.replace(/[^a-z0-9]/gi, '') + '"></td></tr>';
+      }
+      if (filingId === 'ink2') {
+        row += '<tr class="expand-row" data-expand="pf" data-key="' + fkey + '" style="display:none">'
+          + '<td colspan="6" id="pf-panel-' + fkey.replace(/[^a-z0-9]/gi, '') + '"></td></tr>';
+      }
+
+      return row;
     }).join('') || '<tr><td colspan="6" class="pe-ro">No filings for this company.</td></tr>';
     tb.dataset.loaded = '1';
   }).catch(function (e) {
     FB.status.show('Failed to load filings: ' + (e && e.message || e), true);
   });
 }
+
+// Inline due-date edit (click → <input type=date> → save on blur/enter)
+document.addEventListener('click', function (e) {
+  var span = e.target.closest('[data-act="due-edit"]');
+  if (!span) return;
+  var key = span.dataset.key;
+  var current = span.textContent.trim();
+  var input = document.createElement('input');
+  input.type = 'date';
+  input.value = current !== '—' ? current : '';
+  input.style.cssText = 'width:120px;padding:2px 4px;border:1px solid #ddd;border-radius:3px;font-size:10pt';
+  span.replaceWith(input);
+  input.focus();
+  function saveDue() {
+    var val = input.value || null;
+    postAction('filing.set_due_override', { key: key, dueDate: val }).then(function () {
+      FB.status.show('Due date ' + (val ? 'saved' : 'cleared') + '.');
+      loadFilings(true);
+    }).catch(function (err) { FB.status.show('Save failed: ' + (err && err.message || err), true); });
+  }
+  input.addEventListener('blur', saveDue);
+  input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') saveDue(); ev.stopPropagation(); });
+});
+
+// Mark Submitted handler
+document.addEventListener('click', function (e) {
+  var chip = e.target.closest('[data-act="filing-submit"]');
+  if (!chip) return;
+  e.preventDefault(); e.stopPropagation();
+  var key = chip.dataset.key;
+  var periodId = chip.dataset.period;
+  var filingId = chip.dataset.filingId;
+  var methodsStr = chip.dataset.methods || '';
+  var uploadedFiles = window._filingUploads && window._filingUploads[key];
+  var method = null;
+  if (filingId === 'vat-return') {
+    method = null;
+  } else if (uploadedFiles && uploadedFiles.length) {
+    method = 'pdf';
+  } else if (methodsStr.indexOf('sru') >= 0) {
+    method = 'sru';
+  } else if (methodsStr.indexOf('pdf') >= 0) {
+    FB.status.show('Upload a PDF first, then Mark Submitted.', true);
+    return;
+  }
+  postAction('filing.mark_submitted', { periodId: periodId, key: key, method: method, attachmentId: uploadedFiles && uploadedFiles[0] }).then(function (r) {
+    FB.status.show('Filed.');
+    if (window._filingUploads) delete window._filingUploads[key];
+    loadFilings(true);
+  }).catch(function (err) {
+    FB.status.show('Submit failed: ' + ((err && err.error && err.error.message) || err && err.message || err), true);
+  });
+});
+
+// Unsubmit handler
+document.addEventListener('click', function (e) {
+  var chip = e.target.closest('[data-act="filing-unsubmit"]');
+  if (!chip) return;
+  e.preventDefault(); e.stopPropagation();
+  var key = chip.dataset.key;
+  var periodId = chip.dataset.period;
+  if (!confirm('Clear submitted status? (Attachments are preserved.)')) return;
+  postAction('filing.unmark_submitted', { periodId: periodId, key: key }).then(function () {
+    FB.status.show('Unsubmitted.');
+    loadFilings(true);
+  }).catch(function (err) { FB.status.show('Unsubmit failed: ' + (err && err.message || err), true); });
+});
+
+// Upload PDF handler (file input change)
+document.addEventListener('change', function (e) {
+  var input = e.target.closest('[data-act="filing-upload"]');
+  if (!input) return;
+  e.stopPropagation();
+  var key = input.dataset.key;
+  var periodId = input.dataset.period;
+  var file = input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function () {
+    var b64 = reader.result.split(',')[1];
+    postAction('attachment.upload', {
+      entityType: 'filing', entityId: key,
+      filename: file.name, contentBase64: b64, contentType: file.type || 'application/pdf',
+    }).then(function (r) {
+      var attId = (r && r.data && r.data.attachment_id) || (r && r.attachment_id);
+      window._filingUploads = window._filingUploads || {};
+      window._filingUploads[key] = [attId];
+      FB.status.show('Uploaded ' + file.name + '. Click Mark Submitted.');
+    }).catch(function (err) { FB.status.show('Upload failed: ' + (err && err.message || err), true); });
+  };
+  reader.readAsDataURL(file);
+});
+
+// Expand-row toggles: Facts ▸ and Periodiseringsfond ▸
+document.addEventListener('click', function (e) {
+  var chip = e.target.closest('[data-act="expand-facts"]');
+  if (!chip) return;
+  e.preventDefault(); e.stopPropagation();
+  var key = chip.dataset.key;
+  var periodId = chip.dataset.period;
+  var safeKey = key.replace(/[^a-z0-9]/gi, '');
+  var panel = document.getElementById('facts-panel-' + safeKey);
+  var expandRow = panel ? panel.parentElement : null;
+  if (!expandRow) return;
+  if (expandRow.style.display === 'none') {
+    expandRow.style.display = '';
+    renderFactsPanel(panel, key, periodId);
+  } else {
+    expandRow.style.display = 'none';
+  }
+});
+
+document.addEventListener('click', function (e) {
+  var chip = e.target.closest('[data-act="expand-pf"]');
+  if (!chip) return;
+  e.preventDefault(); e.stopPropagation();
+  var key = chip.dataset.key;
+  var periodId = chip.dataset.period;
+  var safeKey = key.replace(/[^a-z0-9]/gi, '');
+  var panel = document.getElementById('pf-panel-' + safeKey);
+  var expandRow = panel ? panel.parentElement : null;
+  if (!expandRow) return;
+  if (expandRow.style.display === 'none') {
+    expandRow.style.display = '';
+    renderPfPanel(panel, key, periodId);
+  } else {
+    expandRow.style.display = 'none';
+  }
+});
+
+function renderFactsPanel(panel, key, periodId) {
+  postAction('period.list', {}).then(function (res) {
+    var rows = (res && res.data) || res || [];
+    var p = null;
+    for (var i = 0; i < rows.length; i++) if (rows[i].period_id === periodId) { p = rows[i]; break; }
+    var ta = (p && p.tax_attrs) || {};
+    if (typeof ta === 'string') { try { ta = JSON.parse(ta); } catch (x) { ta = {}; } }
+    var facts = ta.ar_facts || {};
+    panel.innerHTML = '<div style="padding:12px">'
+      + '<h3 style="font-size:11pt;margin:0 0 12px">Annual Report Facts</h3>'
+      + '<table class="edit-table" style="max-width:700px">'
+      + '<tr><td>Board members (one per line)</td><td><textarea id="facts-board" rows="3" style="width:300px">' + esc((facts.board_members || []).map(function(m){return m.name + (m.role ? ' (' + m.role + ')':'');}).join('\\n')) + '</textarea></td></tr>'
+      + '<tr><td>Shares total</td><td><input type="number" id="facts-shares" value="' + (facts.shares_total || 0) + '" style="width:120px"></td></tr>'
+      + '<tr><td>Quota value</td><td><input type="number" id="facts-quota" value="' + (facts.quota_value || 1) + '" style="width:120px"></td></tr>'
+      + '<tr><td>Proposed dividend</td><td><input type="number" id="facts-dividend" value="' + (facts.proposed_dividend || 0) + '" style="width:120px"></td></tr>'
+      + '<tr><td>Employees (avg)</td><td><input type="number" id="facts-emp-avg" value="' + (facts.employees_avg || 0) + '" style="width:120px"></td></tr>'
+      + '<tr><td>Employees (men)</td><td><input type="number" id="facts-emp-men" value="' + (facts.employees_men || 0) + '" style="width:120px"></td></tr>'
+      + '<tr><td>Employees (women)</td><td><input type="number" id="facts-emp-women" value="' + (facts.employees_women || 0) + '" style="width:120px"></td></tr>'
+      + '<tr><td>Salaries total</td><td><input type="number" id="facts-sal" value="' + (facts.salaries_total || 0) + '" style="width:120px"></td></tr>'
+      + '<tr><td>Board salaries</td><td><input type="number" id="facts-sal-board" value="' + (facts.salaries_board || 0) + '" style="width:120px"></td></tr>'
+      + '<tr><td>Social total</td><td><input type="number" id="facts-social" value="' + (facts.social_total || 0) + '" style="width:120px"></td></tr>'
+      + '<tr><td>Pension total</td><td><input type="number" id="facts-pension" value="' + (facts.pension_total || 0) + '" style="width:120px"></td></tr>'
+      + '<tr><td>Verksamhet</td><td><textarea id="facts-verksamhet" rows="2" style="width:400px">' + esc(facts.verksamhet || '') + '</textarea></td></tr>'
+      + '<tr><td>Handelser (events)</td><td><textarea id="facts-handelser" rows="2" style="width:400px">' + esc(facts.handelser_ar || '') + '</textarea></td></tr>'
+      + '<tr><td>Pledged assets</td><td><textarea id="facts-pledged" rows="2" style="width:400px">' + esc(facts.pledged || '') + '</textarea></td></tr>'
+      + '<tr><td>Subsequent events</td><td><textarea id="facts-subsequent" rows="2" style="width:400px">' + esc(facts.subsequent || '') + '</textarea></td></tr>'
+      + '</table>'
+      + '<div style="margin-top:12px"><a class="chip" data-act="facts-save" data-key="' + esc(key) + '" data-period="' + esc(periodId) + '">Save</a></div>'
+      + '</div>';
+  }).catch(function (err) { panel.innerHTML = '<div style="padding:12px;color:#b91c1c">Failed: ' + esc(err && err.message || err) + '</div>'; });
+}
+
+document.addEventListener('click', function (e) {
+  var chip = e.target.closest('[data-act="facts-save"]');
+  if (!chip) return;
+  e.preventDefault(); e.stopPropagation();
+  var key = chip.dataset.key;
+  var periodId = chip.dataset.period;
+  var boardText = (document.getElementById('facts-board') || {}).value || '';
+  var boardMembers = boardText.split('\\n').map(function (l) { var m = l.trim().match(/^(.+?)\\s*\\((.+?)\\)\\s*$/); return m ? { name: m[1], role: m[2] } : { name: l.trim(), role: '' }; }).filter(function (m) { return m.name; });
+  var patch = {
+    ar_facts: {
+      board_members: boardMembers,
+      shares_total: Number((document.getElementById('facts-shares') || {}).value || 0),
+      quota_value: Number((document.getElementById('facts-quota') || {}).value || 1),
+      proposed_dividend: Number((document.getElementById('facts-dividend') || {}).value || 0),
+      employees_avg: Number((document.getElementById('facts-emp-avg') || {}).value || 0),
+      employees_men: Number((document.getElementById('facts-emp-men') || {}).value || 0),
+      employees_women: Number((document.getElementById('facts-emp-women') || {}).value || 0),
+      salaries_total: Number((document.getElementById('facts-sal') || {}).value || 0),
+      salaries_board: Number((document.getElementById('facts-sal-board') || {}).value || 0),
+      social_total: Number((document.getElementById('facts-social') || {}).value || 0),
+      pension_total: Number((document.getElementById('facts-pension') || {}).value || 0),
+      verksamhet: (document.getElementById('facts-verksamhet') || {}).value || '',
+      handelser_ar: (document.getElementById('facts-handelser') || {}).value || '',
+      pledged: (document.getElementById('facts-pledged') || {}).value || '',
+      subsequent: (document.getElementById('facts-subsequent') || {}).value || '',
+    },
+  };
+  postAction('filing.save_period_attrs', { periodId: periodId, patch: patch }).then(function () {
+    FB.status.show('Facts saved.');
+  }).catch(function (err) { FB.status.show('Save failed: ' + (err && err.message || err), true); });
+});
+
+function renderPfPanel(panel, key, periodId) {
+  postAction('period.list', {}).then(function (res) {
+    var rows = (res && res.data) || res || [];
+    var p = null;
+    for (var i = 0; i < rows.length; i++) if (rows[i].period_id === periodId) { p = rows[i]; break; }
+    var ta = (p && p.tax_attrs) || {};
+    if (typeof ta === 'string') { try { ta = JSON.parse(ta); } catch (x) { ta = {}; } }
+    var tranches = ta.periodiseringsfond || [];
+    var lossCf = ta.loss_cf != null ? ta.loss_cf : '';
+    var currentYear = new Date().getUTCFullYear();
+    var html = '<div style="padding:12px">'
+      + '<h3 style="font-size:11pt;margin:0 0 12px">Periodiseringsfond</h3>'
+      + '<table class="edit-table" style="max-width:600px" id="pf-tranches-table">'
+      + '<thead><tr><th>Year</th><th>Amount</th><th>Reversed</th><th></th></tr></thead><tbody>';
+    tranches.forEach(function (t, idx) {
+      var dueWarn = (t.year + 6) <= currentYear && !t.reversed;
+      html += '<tr data-pf-idx="' + idx + '">'
+        + '<td><input type="number" class="pf-year" value="' + (t.year || '') + '" style="width:80px"></td>'
+        + '<td><input type="number" class="pf-amount" value="' + (t.amount || 0) + '" style="width:120px"></td>'
+        + '<td><input type="checkbox" class="pf-reversed"' + (t.reversed ? ' checked' : '') + '></td>'
+        + '<td>' + (dueWarn ? '<span class="due-past">Due to reverse</span>' : '') + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table>'
+      + '<div style="margin-top:8px"><a class="chip" data-act="pf-add">Add tranche</a></div>'
+      + '<h3 style="font-size:11pt;margin:16px 0 8px">Loss carryforward override</h3>'
+      + '<input type="number" id="pf-losscf" value="' + esc(String(lossCf)) + '" style="width:120px" placeholder="manual override">'
+      + '<div style="margin-top:12px"><a class="chip" data-act="pf-save" data-key="' + esc(key) + '" data-period="' + esc(periodId) + '">Save</a></div>'
+      + '</div>';
+    panel.innerHTML = html;
+  }).catch(function (err) { panel.innerHTML = '<div style="padding:12px;color:#b91c1c">Failed: ' + esc(err && err.message || err) + '</div>'; });
+}
+
+document.addEventListener('click', function (e) {
+  var chip = e.target.closest('[data-act="pf-add"]');
+  if (!chip) return;
+  e.preventDefault(); e.stopPropagation();
+  var table = document.getElementById('pf-tranches-table');
+  if (!table) return;
+  var tb2 = table.querySelector('tbody');
+  var idx = tb2.children.length;
+  var tr = document.createElement('tr');
+  tr.setAttribute('data-pf-idx', idx);
+  tr.innerHTML = '<td><input type="number" class="pf-year" style="width:80px"></td>'
+    + '<td><input type="number" class="pf-amount" style="width:120px" value="0"></td>'
+    + '<td><input type="checkbox" class="pf-reversed"></td><td></td>';
+  tb2.appendChild(tr);
+});
+
+document.addEventListener('click', function (e) {
+  var chip = e.target.closest('[data-act="pf-save"]');
+  if (!chip) return;
+  e.preventDefault(); e.stopPropagation();
+  var key = chip.dataset.key;
+  var periodId = chip.dataset.period;
+  var table = document.getElementById('pf-tranches-table');
+  if (!table) return;
+  var tranches = [];
+  table.querySelectorAll('tbody tr').forEach(function (tr) {
+    var year = Number(tr.querySelector('.pf-year').value || 0);
+    var amount = Number(tr.querySelector('.pf-amount').value || 0);
+    var reversed = tr.querySelector('.pf-reversed').checked;
+    if (year) tranches.push({ year: year, amount: amount, reversed: reversed });
+  });
+  var lossCf = document.getElementById('pf-losscf');
+  var patch = { periodiseringsfond: tranches };
+  if (lossCf && lossCf.value !== '') patch.loss_cf = Number(lossCf.value);
+  postAction('filing.save_period_attrs', { periodId: periodId, patch: patch }).then(function () {
+    FB.status.show('Saved.');
+  }).catch(function (err) { FB.status.show('Save failed: ' + (err && err.message || err), true); });
+});
 
 // ── Close Checklist tab — flat table across all periods ────────────────────
 // Fetch period.list, then period.close_check for each period, assemble flat

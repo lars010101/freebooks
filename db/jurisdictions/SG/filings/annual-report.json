@@ -3,6 +3,7 @@
   "id": "annual-report",
   "name": "Annual Report",
   "authority": "ACRA",
+  "methods": ["pdf"],
   "comparatives": 1,
   "variants": {
     "SFRS": {

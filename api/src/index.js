@@ -1710,7 +1710,18 @@ async function handleSettings(ctx, action) {
        ORDER BY start_date DESC`,
       { companyId }
     );
-    return rows.map((r) => ({ company_id: companyId, period_id: r.period_name || '', start_date: r.start_date || '', end_date: r.end_date || '', locked: !!r.locked }));
+    return rows.map((r) => ({
+      company_id: companyId,
+      period_id: r.period_name || '',
+      start_date: r.start_date || '',
+      end_date: r.end_date || '',
+      locked: !!r.locked,
+      // §3 (Fiscal/Filings Lifecycle spec): expose tax_attrs so the Close
+      // Checklist's ~-attest toggle can patch a single sub-key instead of
+      // replacing the whole column (the latent data-loss bug in §1.7).
+      // JSON.parse here — the column is a VARCHAR holding JSON text.
+      tax_attrs: r.tax_attrs ? JSON.parse(r.tax_attrs) : {},
+    }));
   }
 
   if (action === 'period.save') {

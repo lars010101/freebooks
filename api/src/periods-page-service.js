@@ -17,14 +17,24 @@
 
 const path = require('path');
 const fs = require('fs');
-const { query } = require('./db');
+const { query, exec, bulkInsert, queryPositional } = require('./db');
 const { getJurisdictionPack } = require('./jurisdiction-packs');
+const { emitEvent } = require('./events');
+const {
+  computeFiling, validateSruContact, loadDescriptor, loadEmitter,
+  loadContact, isPeriodLocked,
+} = require('./filings');
+const { storeAttachment } = require('./attachments');
 
 const PACKS_DIR = path.resolve(__dirname, '../../db/jurisdictions');
 
 async function handlePeriodsService(ctx, action) {
   switch (action) {
     case 'filing.list': return listFilings(ctx);
+    case 'filing.mark_submitted': return markSubmitted(ctx);
+    case 'filing.unmark_submitted': return unmarkSubmitted(ctx);
+    case 'filing.set_due_override': return setDueOverride(ctx);
+    case 'filing.save_period_attrs': return savePeriodAttrs(ctx);
     case 'period.close_check': return closeCheck(ctx);
     default:
       throw Object.assign(new Error(`Unknown periods action: ${action}`), { code: 'UNKNOWN_ACTION' });
@@ -149,6 +159,8 @@ async function listFilings(ctx) {
           const key = `${d.id}@${iv.start}`;
           filings.push({
             filing_id: d.id, name: d.name, authority: d.authority || '',
+            key,
+            methods: d.methods || null,
             period_id: period.period_name, period_kind: 'vat_period',
             interval_start: iv.start, interval_end: iv.end,
             due_date: overrides[key] || computeDueDate(d, period, iv),
@@ -159,33 +171,48 @@ async function listFilings(ctx) {
               { kind: 'view', label: 'View VAT return',
                 href: `/api/${companyId}/report?type=vat-return&start=${iv.start}&end=${iv.end}` },
             ],
+            submitted_attachments: [],
           });
         }
       } else {
-        const key = d.id;
+        const key = `${d.id}@${period.period_name}`;
         const artifacts = [];
         if (d.route) {
           artifacts.push({ kind: 'download', label: 'blanketter.sru', href: `/api/${companyId}/sru/ink2?year=${year}` });
           artifacts.push({ kind: 'download', label: 'INFO.SRU', href: `/api/${companyId}/sru/info?year=${year}` });
         } else if (d.id === 'annual-report') {
-          artifacts.push({ kind: 'view', label: 'View annual report',
-            href: `/api/${companyId}/report?type=ar&start=${fyStart}&end=${fyEnd}` });
           // SIE 4 export — the Gredor handoff artifact (2026-07-30 descope).
+          // §8: the in-app AR view link is removed (Gredor produces the filed
+          // PDF; freeBooks uploads + tracks submission status only).
           const sieInteg = getJurisdictionPack(jurisdiction);
           if (sieInteg && sieInteg.integrations && sieInteg.integrations.sie && sieInteg.integrations.sie.export) {
             artifacts.push({ kind: 'download', label: 'SIE 4 export',
               href: `/api/${companyId}/report?type=sie&start=${fyStart}&end=${fyEnd}` });
           }
         }
+        const fState = filedStates[key];
+        let submittedAttachments = [];
+        if (fState && fState.attachment_ids && fState.attachment_ids.length) {
+          const posRows = await queryPositional(
+            `SELECT attachment_id, filename FROM attachments
+             WHERE company_id = ? AND attachment_id IN (${fState.attachment_ids.map(() => '?').join(',')})
+             ORDER BY uploaded_at DESC`,
+            [companyId, ...fState.attachment_ids]
+          ).catch(() => []);
+          submittedAttachments = (posRows || []).map(r => ({ attachment_id: r.attachment_id, filename: r.filename }));
+        }
         filings.push({
           filing_id: d.id, name: d.name, authority: d.authority || '',
+          key,
+          methods: d.methods || null,
           period_id: period.period_name, period_kind: 'fiscal_year',
           interval_start: fyStart, interval_end: fyEnd,
           due_date: overrides[key] || computeDueDate(d, period, null),
           due_overridden: !!overrides[key],
-          state: filedStates[key] && filedStates[key].filed_at ? 'filed' : 'draft',
-          filed_at: filedStates[key] ? filedStates[key].filed_at || null : null,
+          state: fState && fState.filed_at ? 'filed' : 'draft',
+          filed_at: fState ? fState.filed_at || null : null,
           artifacts,
+          submitted_attachments: submittedAttachments || [],
         });
       }
     }
@@ -276,4 +303,218 @@ async function closeCheck(ctx) {
   return { period_id: body.periodId, items };
 }
 
-module.exports = { handlePeriodsService, loadFilingDescriptors, computeDueDate, vatIntervalsFor };
+// ── Shared atomic write helpers (§3 — Fiscal/Filings Lifecycle spec) ──────────
+// Both helpers do a fresh SELECT → JSON.parse → patchFn(mutate in place) →
+// UPDATE/INSERT back. This avoids the whole-column-clobber hazard of the
+// client-side round-trip pattern (§1.7): each write touches only the sub-key
+// being patched, not the entire tax_attrs / deadline_overrides blob.
+
+async function patchPeriodTaxAttrs(companyId, periodId, patchFn) {
+  const rows = await query(
+    `SELECT tax_attrs FROM (
+       SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
+       FROM periods WHERE company_id = @companyId AND period_name = @pid
+     ) WHERE rn = 1`,
+    { companyId, pid: periodId }
+  );
+  let taxAttrs = {};
+  try { if (rows.length && rows[0].tax_attrs) taxAttrs = JSON.parse(rows[0].tax_attrs); } catch (e) { taxAttrs = {}; }
+  patchFn(taxAttrs);
+  const now = new Date().toISOString();
+  await exec(
+    `UPDATE periods SET tax_attrs = @json, updated_at = @now
+     WHERE company_id = @companyId AND period_name = @pid
+       AND created_at = (SELECT MAX(created_at) FROM periods WHERE company_id = @companyId AND period_name = @pid)`,
+    { json: JSON.stringify(taxAttrs), now, companyId, pid: periodId }
+  );
+  return taxAttrs;
+}
+
+async function patchDeadlineOverrides(companyId, patchFn) {
+  const rows = await query(
+    `SELECT value FROM settings WHERE company_id = @companyId AND key = 'deadline_overrides' LIMIT 1`,
+    { companyId }
+  );
+  let overrides = {};
+  try { if (rows.length && rows[0].value) overrides = JSON.parse(rows[0].value); } catch (e) { overrides = {}; }
+  patchFn(overrides);
+  const now = new Date().toISOString();
+  const json = JSON.stringify(overrides);
+  if (rows.length) {
+    await exec(
+      `UPDATE settings SET value = @json, updated_at = @now WHERE company_id = @companyId AND key = 'deadline_overrides'`,
+      { json, now, companyId }
+    );
+  } else {
+    await bulkInsert('settings', [{ company_id: companyId, key: 'deadline_overrides', value: json, updated_at: now }]);
+  }
+  return overrides;
+}
+
+// ── filing.mark_submitted (§5/§6/§7) ──────────────────────────────────────────
+async function markSubmitted(ctx) {
+  const { companyId, body, userEmail, actor, requestId } = ctx;
+  const { periodId, key, method, attachmentId } = body;
+  if (!periodId || !key) throw Object.assign(new Error('periodId and key required'), { code: 'INVALID_INPUT' });
+
+  // Load the period row to check lock status and determine period_kind.
+  const periodRows = await query(
+    `SELECT period_name, locked FROM (
+       SELECT *, ROW_NUMBER() OVER(PARTITION BY period_name ORDER BY created_at DESC) AS rn
+       FROM periods WHERE company_id = @companyId AND period_name = @pid
+     ) WHERE rn = 1`,
+    { companyId, pid: periodId }
+  );
+  if (!periodRows.length) throw Object.assign(new Error(`Period '${periodId}' not found`), { code: 'NOT_FOUND' });
+
+  // Determine period_kind from the key format: vat_period keys contain a
+  // date after @ (YYYY-MM-DD), fiscal_year keys contain FY+year.
+  const isVatPeriod = key.includes('@') && /^\d{4}-\d{2}-\d{2}$/.test(key.split('@')[1]);
+
+  // §6: fiscal_year-kind filings require a locked period; vat_period does not.
+  if (!isVatPeriod && !periodRows[0].locked) {
+    throw Object.assign(
+      new Error('Period must be locked before submitting this filing. Lock the period in Settings → Periods.'),
+      { code: 'PERIOD_NOT_LOCKED' }
+    );
+  }
+
+  let attachmentIds = [];
+  let computedResult = null;
+
+  if (method === 'sru') {
+    // §5: SRU snapshot — call computeFiling directly (no HTTP round-trip).
+    // Produces byte-identical output to handleSruInk2/handleSruInfo.
+    const year = parseInt(periodId.replace(/^FY/, ''), 10);
+    if (!Number.isFinite(year)) throw Object.assign(new Error('Cannot derive year from periodId: ' + periodId), { code: 'INVALID_INPUT' });
+
+    // Load company for contact validation (same as handleSruInk2).
+    const coRows = await queryPositional(
+      `SELECT company_id, company_name, tax_id, jurisdiction FROM companies
+       WHERE company_id = ? ORDER BY created_at DESC LIMIT 1`,
+      [companyId]
+    );
+    if (!coRows.length) throw Object.assign(new Error('Company not found'), { code: 'NOT_FOUND' });
+    const co = coRows[0];
+    const contact = await loadContact(queryPositional, companyId);
+    const problems = validateSruContact(co, contact);
+    if (problems.length) throw Object.assign(new Error(problems.join(' | ') + ' — set them under Settings → Company'), { code: 'INVALID_INPUT' });
+
+    computedResult = await computeFiling(queryPositional, companyId, year, {});
+    const sruText = computedResult.emitter.emitSru(computedResult, computedResult.descriptor, year);
+    const infoText = computedResult.emitter.emitInfo(co, {}, contact);
+
+    // Store both SRU files as attachments (entityType:'filing', entityId:key).
+    const sruAtt = await storeAttachment({
+      companyId, entityType: 'filing', entityId: key,
+      filename: 'blanketter.sru', contentType: 'text/plain; charset=utf-8',
+      buffer: Buffer.from(sruText, 'utf8'),
+      uploadedBy: userEmail, actor, requestId,
+    });
+    const infoAtt = await storeAttachment({
+      companyId, entityType: 'filing', entityId: key,
+      filename: 'INFO.SRU', contentType: 'text/plain; charset=utf-8',
+      buffer: Buffer.from(infoText, 'utf8'),
+      uploadedBy: userEmail, actor, requestId,
+    });
+    attachmentIds = [sruAtt.attachment_id, infoAtt.attachment_id];
+
+    // §7: Loss carryforward — only for ink2@... keys.
+    if (key.startsWith('ink2@')) {
+      const descFields = computedResult.descriptor.fields || {};
+      let closingLoss = 0;
+      for (const [code, spec] of Object.entries(descFields)) {
+        if (spec.op !== 'loss_closing') continue;
+        const b = spec.blankett;
+        closingLoss = computedResult.fields[b][code] || 0;
+        break;
+      }
+      // Carry forward into next year's period if it exists (never auto-create).
+      const nextYear = year + 1;
+      const nextPeriodName = 'FY' + nextYear;
+      const nextRows = await query(
+        `SELECT period_name FROM periods WHERE company_id = @companyId AND period_name = @pn LIMIT 1`,
+        { companyId, pn: nextPeriodName }
+      );
+      if (nextRows.length) {
+        await patchPeriodTaxAttrs(companyId, nextPeriodName, function(ta) {
+          ta.loss_cf = closingLoss;
+        });
+      }
+    }
+  } else if (method === 'pdf') {
+    // §5: PDF — verify the attachment exists and belongs to this company + entity.
+    if (!attachmentId) throw Object.assign(new Error('attachmentId required for method "pdf"'), { code: 'INVALID_INPUT' });
+    const aRows = await queryPositional(
+      `SELECT attachment_id FROM attachments WHERE company_id = ? AND attachment_id = ? AND entity_type = 'filing' AND entity_id = ? LIMIT 1`,
+      [companyId, attachmentId, key]
+    );
+    if (!aRows.length) throw Object.assign(new Error('Attachment not found or not owned by this filing entity'), { code: 'NOT_FOUND' });
+    attachmentIds = [attachmentId];
+  } else if (method === null || method === undefined) {
+    // vat-return: no file artifact, just record filed_at.
+  } else {
+    throw Object.assign(new Error('method must be "sru", "pdf", or null'), { code: 'INVALID_INPUT' });
+  }
+
+  const filedAt = new Date().toISOString();
+  await patchPeriodTaxAttrs(companyId, periodId, function(ta) {
+    ta.filings = ta.filings || {};
+    ta.filings[key] = { filed_at: filedAt, method: method || null, attachment_ids: attachmentIds };
+  });
+
+  await emitEvent(ctx, 'filing.submitted', 'filing', key, { periodId, method: method || null, attachmentIds });
+  return { filed: true, key, filed_at: filedAt, method: method || null, attachment_ids: attachmentIds };
+}
+
+// ── filing.unmark_submitted (§4) ─────────────────────────────────────────────
+async function unmarkSubmitted(ctx) {
+  const { companyId, body } = ctx;
+  const { periodId, key } = body;
+  if (!periodId || !key) throw Object.assign(new Error('periodId and key required'), { code: 'INVALID_INPUT' });
+
+  await patchPeriodTaxAttrs(companyId, periodId, function(ta) {
+    ta.filings = ta.filings || {};
+    delete ta.filings[key];
+  });
+
+  await emitEvent(ctx, 'filing.unsubmitted', 'filing', key, { periodId });
+  return { unfiled: true, key };
+}
+
+// ── filing.set_due_override (§4) ─────────────────────────────────────────────
+async function setDueOverride(ctx) {
+  const { companyId, body } = ctx;
+  const { key, dueDate } = body;
+  if (!key) throw Object.assign(new Error('key required'), { code: 'INVALID_INPUT' });
+
+  await patchDeadlineOverrides(companyId, function(overrides) {
+    if (dueDate === null || dueDate === undefined || dueDate === '') {
+      delete overrides[key];
+    } else {
+      overrides[key] = String(dueDate).slice(0, 10);
+    }
+  });
+
+  return { key, due_date: dueDate || null };
+}
+
+// ── filing.save_period_attrs (§4) ────────────────────────────────────────────
+async function savePeriodAttrs(ctx) {
+  const { companyId, body } = ctx;
+  const { periodId, patch } = body;
+  if (!periodId || !patch) throw Object.assign(new Error('periodId and patch required'), { code: 'INVALID_INPUT' });
+
+  const taxAttrs = await patchPeriodTaxAttrs(companyId, periodId, function(ta) {
+    if (patch.loss_cf !== undefined) ta.loss_cf = patch.loss_cf;
+    if (patch.periodiseringsfond !== undefined) ta.periodiseringsfond = patch.periodiseringsfond;
+    if (patch.ar_facts !== undefined && typeof patch.ar_facts === 'object') {
+      ta.ar_facts = ta.ar_facts || {};
+      for (const [k, v] of Object.entries(patch.ar_facts)) ta.ar_facts[k] = v;
+    }
+  });
+
+  return { saved: true, periodId };
+}
+
+module.exports = { handlePeriodsService, loadFilingDescriptors, computeDueDate, vatIntervalsFor, patchPeriodTaxAttrs, patchDeadlineOverrides };

@@ -370,6 +370,13 @@ function loadPeriods() {
   .then(function(res){
     var rows = res.data || res || [];
     allPeriods = Array.isArray(rows) ? rows : [];
+    // Zero periods: FB.period never resolves a range (fb-core.js _init only
+    // calls period.set()/fires onChange when periods.length > 0), so
+    // billsList.load() — normally triggered by FB.period.onChange — never
+    // runs and the table is stuck on its server-rendered "Loading…" row
+    // forever. Render the setup state directly instead of waiting for a
+    // period-change event that will never come.
+    if (allPeriods.length === 0) renderBillsSetupState();
   }).catch(function(){});
 }
 

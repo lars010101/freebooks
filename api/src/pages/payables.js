@@ -166,6 +166,8 @@ ${commonStyle()}
   .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
   .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:#555; border-bottom:3px solid transparent; margin-bottom:-2px; }
   .tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
 
   .edit-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
   .edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px; }
@@ -309,7 +311,7 @@ ${commonStyle()}
   .data-table tbody td.vcell-selected .badge { opacity:0.85; }
   .data-table tbody td.vcell-editing { background:#fff !important; color:#222 !important; box-shadow:inset 0 0 0 2px #1a3a6b; padding:3px 8px !important; }
   .data-table tbody td.vcell-editing input { border:none; outline:none; background:transparent; font-size:inherit; font-family:'Helvetica Neue',Arial,sans-serif !important; color:#222 !important; padding:0; box-sizing:border-box; }
-  #partners-body input { font-family:'Helvetica Neue',Arial,sans-serif !important; font-size:inherit !important; }
+  #vendors-body input { font-family:'Helvetica Neue',Arial,sans-serif !important; font-size:inherit !important; }
   .fb-dd { font-family:'Helvetica Neue',Arial,sans-serif; }
 
   /* Report iframe (Aging/Control tabs — IA restructure 2) */

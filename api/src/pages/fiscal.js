@@ -63,6 +63,8 @@ ${commonStyle()}
   .row-actions { white-space:nowrap; text-align:right; }
   .chip { cursor:pointer; padding:2px 8px; border:1px solid #ccc; border-radius:3px; font-size:10pt; user-select:none; }
   .chip:hover { background:#f0f0f0; }
+  a.chip { display:inline-block; color:#1a1a1a; text-decoration:none; margin-left:6px; }
+  a.chip:first-child { margin-left:0; }
   .pe-ro { color:#888; }
   .st-badge { display:inline-block; padding:1px 8px; border-radius:9px; font-size:8.5pt; font-weight:600; text-transform:uppercase; letter-spacing:.02em; }
   .st-draft { background:#fef3c7; color:#92400e; }
@@ -170,12 +172,15 @@ function loadFilings(force) {
       var past = f.due_date && f.state !== 'filed' && f.due_date < today;
       var badge = f.state === 'filed'
         ? '<span class="st-badge st-filed">Filed</span>' : '<span class="st-badge st-draft">Draft</span>';
+      var artifacts = ((f.artifacts || []).map(function (a) {
+        return '<a href="' + esc(a.href) + '" target="_blank" rel="noopener" class="chip">' + esc(a.label) + '</a>';
+      }).join(' ')) || '<span class="pe-ro">—</span>';
       return '<tr><td>' + esc(f.name) + (f.period_kind === 'vat_period'
           ? ' <span class="pe-ro">' + esc(f.interval_start) + ' → ' + esc(f.interval_end) + '</span>' : '') + '</td>'
         + '<td>' + esc(f.period_id) + '</td>'
         + '<td>' + esc(f.authority || '') + '</td>'
         + '<td' + (past ? ' class="due-past"' : '') + '>' + due + (f.due_overridden ? ' <span class="due-override" title="manual override">*</span>' : '') + '</td>'
-        + '<td>' + badge + '</td><td></td></tr>';
+        + '<td>' + badge + '</td><td class="row-actions">' + artifacts + '</td></tr>';
     }).join('') || '<tr><td colspan="6" class="pe-ro">No filings for this company.</td></tr>';
     tb.dataset.loaded = '1';
   }).catch(function (e) {

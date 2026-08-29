@@ -81,10 +81,10 @@ function partnerActiveBadge(v) {
 var partnersList = FB.list.create({
   keysId: 'partners',
   active: function() {
-    var panel = document.getElementById('pay-panel-partners');
-    return !!panel && panel.style.display !== 'none';
+    var panel = document.getElementById('tab-vendors');
+    return !!(panel && panel.classList.contains('active'));
   },
-  tbody: 'partners-body',
+  tbody: 'vendors-body',
   companyId: function() { return COMPANY; },
   focusClass: 'bill-row-focus',
   onFocus: function(tr) {
@@ -160,22 +160,22 @@ var partnersList = FB.list.create({
   }
 });
 
-// ── Compat shims for payables-bills.js init/showPayTab ──────────────────────
+// ── Compat shims for payables-bills.js init ──────────────────────────────────
 function loadPartners() { partnersList.load(); loadPartnerCurrencies(); }
 function loadPartnerTable() { partnersList.load(); }
 function registerPartnerKeyActions() { /* keys registered by FB.list at creation */ }
 
 // Hover suppression while a row is being edited (matches bills tbody).
 FB.mode.onChange(function(m) {
-  var tb = document.getElementById('partners-body');
+  var tb = document.getElementById('vendors-body');
   if (tb) tb.classList.toggle('insert-mode', m === 'INSERT');
 });
 
-// Deep-link: ?tab=partners opens the Partners tab directly (palette navigate
+// Deep-link: ?tab=partners opens the Vendors tab directly (palette navigate
 // entries target it — magnus K1 review 2026-07-28). Runs at the end of the
-// combined script block: showPayTab (billsTabJS) + vendorsList both exist.
+// combined script block: showTab (billsTabJS) + partnersList both exist.
 if ((new URLSearchParams(window.location.search)).get('tab') === 'partners') {
-  showPayTab('partners');
+  showTab('vendors');
 }
 `;
 }

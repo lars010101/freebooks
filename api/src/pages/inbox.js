@@ -26,6 +26,9 @@
  * Row verbs (FB.list rowVerbs — fb-list-ux-spec §13):
  *   y = approve (confirm modal: date, line count, total debit, optional note)
  *   x = reject  (required note — the proposer reads it via event.list)
+ *   o = open bill (Class B bill-due items — navigates to Payables)
+ *   v/p/m = view/purge/move (Class B orphan_file items, calendar-reminders-
+ *           documents-spec.md §5.5 — orphaned_files is the source of truth)
  * Enter unfolds lines read-only (framework openFocused); Esc never writes.
  */
 
@@ -127,14 +130,16 @@ var groupFold = {};
 // as their modules land (§10.7). Unknown types fall back to the raw type.
 var GROUP_LABELS = {
   journal_proposal: 'Journal proposals',
-  bill_due: 'Bills due for payment'
+  bill_due: 'Bills due for payment',
+  orphan_file: 'Orphaned files'
 };
 
 // Per-row type glyph (§10.4). Muted emoji prefix in the Date column so a
 // row retains its type context when the group header scrolls away.
 var TYPE_GLYPHS = {
   journal_proposal: '\\uD83D\\uDCD2', // 📒
-  bill_due: '\\uD83D\\uDCBC'          // 📋
+  bill_due: '\\uD83D\\uDCBC',         // 📋
+  orphan_file: '\\uD83D\\uDCC1'       // 📁
 };
 
 function postAction(action, body, idemKey) {
@@ -161,6 +166,8 @@ function statusBadge(row) {
   // Class B bill-due (§10.7 item 4): overdue = red, due = amber.
   if (s === 'overdue') return '<span class="st-badge st-overdue">Overdue</span>';
   if (s === 'due') return '<span class="st-badge st-due">Due</span>';
+  // Class B orphaned files (§5.5): reuse the overdue red — needs attention.
+  if (s === 'orphaned') return '<span class="st-badge st-overdue">Orphaned</span>';
   return ''; // inbox is the review queue — no posted badge here
 }
 
@@ -295,6 +302,21 @@ function groupHeader(type, count, folded) {
 }
 
 function mapItem(it) {
+  // Class B orphaned files (calendar-reminders-documents-spec.md §5.5): no
+  // lines, no enrichment — the orphaned_files row carries everything.
+  if (it.type === 'orphan_file') {
+    return {
+      _key: 'orphan:' + it.payload_ref, _kind: 'orphan',
+      orphan_id: it.payload_ref,
+      type: it.type,
+      date: it.date, reference: it.reference || '',
+      description: it.description || '',
+      amount: null, currency: '', source: 'system',
+      counterparty: '',
+      status: it.status, // 'orphaned'
+      created_by: '', request_id: '',
+    };
+  }
   // Class B bill-due (§10.7 item 4): no lines, no proposal get enrichment.
   // The item carries all data inline from inbox.list's queryBillsDue.
   if (it.type === 'bill_due') {
@@ -404,10 +426,11 @@ function review(row, verdict) {
 }
 
 function cycleStatusFilter() {
-  // Three-state cycle (§10.4): proposed → rejected → bills → proposed.
-  // Class B ('bills') is a filter section, not the default (§10.2).
+  // Four-state cycle: proposed → rejected → bills → orphans → proposed.
+  // Class B ('bills', 'orphans') are filter sections, not the default (§10.2).
   statusState = statusState === 'proposed' ? 'rejected'
     : statusState === 'rejected' ? 'bills'
+    : statusState === 'bills' ? 'orphans'
     : 'proposed';
   _cache = null;             // status changed → re-fetch
   FB.status.show('Queue filter: ' + statusState, false);
@@ -527,10 +550,35 @@ var list = FB.list.create({
       run: function (api, row) {
         // Navigate to the Payables page where the bill lives.
         window.location.href = '/' + COMPANY + '/payables';
+      } },
+    // Class B orphaned files (calendar-reminders-documents-spec.md §5.5):
+    // v = view/download, p = purge (delete off disk), m = move to quarantine.
+    { key: 'v', label: 'view',
+      when: function (row) { return row._kind === 'orphan'; },
+      affordance: function () { return '<a class="chip" title="view (v)" data-act="verb:v">&#128065;</a>'; },
+      run: function (api, row) { window.open('/api/orphaned-file/' + row.orphan_id, '_blank'); } },
+    { key: 'p', label: 'purge',
+      when: function (row) { return row._kind === 'orphan'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="purge (p)" data-act="verb:p">&#10005;</a>'; },
+      run: function (api, row) {
+        if (!confirm('Permanently delete this file from disk?\\n' + row.reference)) return;
+        postAction('orphan.purge', { orphanId: row.orphan_id }).then(function () {
+          FB.status.show('Purged.');
+          _cache = null; list.load();
+        }).catch(function (e) { FB.status.show('Purge failed: ' + (e && e.message || e), true); });
+      } },
+    { key: 'm', label: 'move to quarantine',
+      when: function (row) { return row._kind === 'orphan'; },
+      affordance: function () { return '<a class="chip" title="move to quarantine (m)" data-act="verb:m">&#8618;</a>'; },
+      run: function (api, row) {
+        postAction('orphan.move', { orphanId: row.orphan_id }).then(function () {
+          FB.status.show('Moved to quarantine.');
+          _cache = null; list.load();
+        }).catch(function (e) { FB.status.show('Move failed: ' + (e && e.message || e), true); });
       } }
   ],
   actions: [
-    { key: 'f', label: 'filter: proposed↔rejected↔bills', handler: function () { cycleStatusFilter(); } }
+    { key: 'f', label: 'filter: proposed↔rejected↔bills↔orphans', handler: function () { cycleStatusFilter(); } }
   ],
   onLoaded: function (saved) {
     var note = document.getElementById('queue-note');
@@ -541,16 +589,21 @@ var list = FB.list.create({
         : items.length + ' proposed batch' + (items.length === 1 ? '' : 'es') + ' awaiting review (y approve · x reject · Enter unfold)';
     } else if (statusState === 'rejected') {
       note.textContent = 'Rejected proposals (' + items.length + ') — f returns to the queue';
-    } else {
+    } else if (statusState === 'bills') {
       // Class B bills view
       var bills = items.filter(function (r) { return r._kind === 'bill'; });
       var overdue = bills.filter(function (r) { return r.status === 'overdue'; }).length;
       note.textContent = bills.length + ' bill' + (bills.length === 1 ? '' : 's') + ' due for payment'
         + (overdue ? ' (' + overdue + ' overdue)' : '')
-        + ' — o opens in Payables · Enter unfolds · f returns to the queue';
+        + ' — o opens in Payables · Enter unfolds · f cycles filters';
+    } else {
+      // Class B orphaned files view
+      var orphans = items.filter(function (r) { return r._kind === 'orphan'; });
+      note.textContent = orphans.length + ' orphaned file' + (orphans.length === 1 ? '' : 's')
+        + ' — v view · p purge · m move to quarantine · f returns to the queue';
     }
   },
-  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, o open bill, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → bills.'
+  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, o open bill, v/p/m view/purge/move an orphaned file, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → bills → orphans.'
 });
 
 list.load();

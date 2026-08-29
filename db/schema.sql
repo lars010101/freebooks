@@ -647,6 +647,27 @@ CREATE INDEX IF NOT EXISTS idx_reminders_company ON reminders(company_id);
 ALTER TABLE attachments ADD COLUMN IF NOT EXISTS doc_type VARCHAR;
 ALTER TABLE attachments ADD COLUMN IF NOT EXISTS period_id VARCHAR;
 
+-- calendar-reminders-documents-spec.md §5.5: the attachment-integrity
+-- scanner's missing-file flag. Same idempotent-migration style as above.
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS missing_since TIMESTAMP;
+
+-- =============================================================================
+-- orphaned_files (calendar-reminders-documents-spec.md §5.5)
+-- =============================================================================
+-- Files found under ATTACHMENTS_ROOT with no matching attachments.storage_path
+-- row, raised by the attachment-integrity scanner. company_id is parsed from
+-- the path's leading segment (attachments.js storeAttachment always writes
+-- `${companyId}/${entityType}/${entityId}/...`); nullable only for a file
+-- placed under the root by hand, outside that convention.
+CREATE TABLE IF NOT EXISTS orphaned_files (
+  orphan_id     VARCHAR    NOT NULL,
+  company_id    VARCHAR,
+  path          VARCHAR    NOT NULL,
+  discovered_at TIMESTAMP  NOT NULL DEFAULT NOW(),
+  resolved_at   TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_orphaned_files_company ON orphaned_files(company_id);
+
 -- =============================================================================
 -- idempotency_keys (P0-1: safe retries for posting actions)
 -- One row per client-supplied Idempotency-Key; stores the first response so

@@ -340,6 +340,7 @@ async function handleApiRequest(req, res) {
       case 'setup':       result = await handleSetup(ctx, action); break;
       case 'diag':        result = await handleDiag(ctx, action); break;
       case 'attachment':  result = await handleAttachments(ctx, action); break;
+      case 'orphan':      result = await require('./orphaned-files').handleOrphanedFiles(ctx, action); break;
       case 'event':       result = await handleEvents(ctx, action); break;
       case 'auth':        result = await handleTokens(ctx, action); break;
       case 'sie':         result = await handleSie(ctx, action); break;
@@ -387,6 +388,10 @@ app.post('/api/action', handleApiRequest);
 const { uploadMiddleware, handleUpload, serveAttachment, runAttachmentGC, handleAdminGC } = require('./attachments');
 app.post('/api/upload', uploadMiddleware, handleUpload);
 app.get('/api/attachments/:attachmentId', serveAttachment);
+// calendar-reminders-documents-spec.md §5.5: "View" resolution for an
+// Inbox orphan_file item — same no-extra-scoping posture as serveAttachment.
+const { serveOrphanFile } = require('./orphaned-files');
+app.get('/api/orphaned-file/:orphanId', serveOrphanFile);
 // A4 (§4.7): token-gated admin trigger for the attachment GC (mirrors
 // /api/admin/query). GC also runs at boot + on a 24h setInterval below.
 app.post('/api/admin/gc-attachments', handleAdminGC);
@@ -1986,11 +1991,13 @@ ensureDb().then(async () => {
   const { startFxScanner } = require('./fx-scanner');
   startFxScanner();
 
-  // ── calendar-reminders-documents-spec.md §4.4: a second notification
-  // producer into the same table/bell the FX scanner already feeds — no
-  // consumer-side changes needed. Timer is unref'd.
+  // ── calendar-reminders-documents-spec.md §4.4/§5.5: second and third
+  // notification producers into the same table/bell the FX scanner already
+  // feeds — no consumer-side changes needed. Both timers are unref'd.
   const { startReminderScanner } = require('./reminder-scanner');
   startReminderScanner();
+  const { startAttachmentIntegrityScanner } = require('./attachment-integrity-scanner');
+  startAttachmentIntegrityScanner();
 
   // ── B9: in-process agent pipeline boot ─────────────────────────────────
   // Build a dispatchAction function that replicates the HTTP dispatch logic
@@ -2050,6 +2057,7 @@ ensureDb().then(async () => {
       setup: () => { throw Object.assign(new Error('Agents may not run setup actions'), { code: 'FORBIDDEN' }); },
       diag: () => require('./index').handleDiag(ctx, action),
       attachment: () => require('./attachments').handleAttachments(ctx, action),
+      orphan: () => require('./orphaned-files').handleOrphanedFiles(ctx, action),
       event: () => handleEvents(ctx, action),
       auth: () => require('./tokens').handleTokens(ctx, action),
       sie: () => require('./sie-import').handleSie(ctx, action),

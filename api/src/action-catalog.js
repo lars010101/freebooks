@@ -778,6 +778,22 @@ const ACTIONS = {
     params: { attachmentId: { type: 'string', required: true } },
   },
 
+  // ── Orphaned files (calendar-reminders-documents-spec.md §5.5) ──────────────
+  // Resolution actions for the Inbox's orphan_file item kind (a file under
+  // ATTACHMENTS_ROOT with no matching attachments row). Owner-only, not
+  // agentWritable — a human decides whether an unreferenced file is safe to
+  // discard.
+  'orphan.purge': {
+    role: 'owner', mutating: true,
+    description: 'Delete an orphaned file directly off disk (no attachments row exists to delete) and mark it resolved.',
+    params: { orphanId: { type: 'string', required: true } },
+  },
+  'orphan.move': {
+    role: 'owner', mutating: true,
+    description: 'Relocate an orphaned file into a quarantine subfolder the integrity scanner skips, so it stops re-triggering without deciding delete-or-keep.',
+    params: { orphanId: { type: 'string', required: true } },
+  },
+
   // ── Events (A2 §3.3) ─────────────────────────────────────────────────────
   // event.list is the agent's input channel: an append-only stream of business
   // facts (journal posted, bill posted, payment recorded/voided, attachment

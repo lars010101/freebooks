@@ -84,6 +84,15 @@ async function listInbox(ctx) {
     return { items: await queryPeriodUnclosed(companyId, limit) };
   }
 
+  // Class B — orphaned files (calendar-reminders-documents-spec.md §5.5):
+  // files found under ATTACHMENTS_ROOT with no matching attachments row,
+  // raised by attachment-integrity-scanner.js. The orphaned_files table IS
+  // the source of truth (R8); verbs are orphan.purge/orphan.move called
+  // against payload_ref (= orphan_id), plus a plain view/download link.
+  if (status === 'orphans') {
+    return { items: await queryOrphanedFiles(companyId, limit) };
+  }
+
   // Class B — partner_proposals proposed by the agent (partner-proposal-spec §5).
   // status='partners' is a filter view of proposed partner proposals awaiting
   // human approve/reject. The partner_proposals table IS the source of truth (R8);
@@ -140,6 +149,42 @@ async function listInbox(ctx) {
   }
 
   return { items: items };
+}
+
+/**
+ * queryOrphanedFiles — Class B orphaned-file items (calendar-reminders-
+ * documents-spec.md §5.5). Files found under ATTACHMENTS_ROOT with no
+ * matching attachments row, oldest-discovered first. The orphaned_files
+ * table IS the source of truth (R8) — no staging.
+ *
+ * Item shape: { type:'orphan_file', source:'system', amount:null,
+ * date:discovered_at, summary:path, verbs:['view','purge','move'],
+ * payload_ref:orphan_id, status:'orphaned', reference:path, description }.
+ */
+async function queryOrphanedFiles(companyId, limit) {
+  const rows = await query(
+    `SELECT orphan_id, path, discovered_at FROM orphaned_files
+     WHERE company_id = @companyId AND resolved_at IS NULL
+     ORDER BY discovered_at ASC LIMIT @lim`,
+    { companyId, lim: limit }
+  );
+  return rows.map(function (row) {
+    return {
+      type: 'orphan_file',
+      source: 'system',
+      counterparty: '',
+      amount: null,
+      date: row.discovered_at,
+      proposed_at: row.discovered_at,
+      summary: row.path,
+      verbs: ['view', 'purge', 'move'],
+      payload_ref: row.orphan_id,
+      status: 'orphaned',
+      reference: row.path,
+      description: 'File found on disk with no matching document record',
+      created_by: '',
+    };
+  });
 }
 
 /**

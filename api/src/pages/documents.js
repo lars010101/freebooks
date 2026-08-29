@@ -161,8 +161,12 @@ function renderDocuments() {
   });
   tb.innerHTML = rows.map(function (d) {
     var isUpload = d.entity_type === 'document';
+    // Bank statements (feed-watcher.js) have no owning ledger record to name
+    // them by — one file fans out into many separate journal proposals, so
+    // there's no docnr or single meaningful id, only the filename itself.
+    var namedByFilename = isUpload || d.entity_type === 'bank_statement';
     var idMain;
-    if (isUpload) {
+    if (namedByFilename) {
       idMain = esc(d.filename);
     } else if (d.docnr) {
       // The same sequential GL doc number shown clickably in the GL/Journal
@@ -175,7 +179,7 @@ function renderDocuments() {
     } else {
       idMain = esc(d.entity_id); // not yet posted (draft bill / journal_proposal) — no doc number yet
     }
-    var idCell = isUpload
+    var idCell = namedByFilename
       ? '<div class="doc-id-main">' + idMain + '</div>'
       : '<div class="doc-id-main">' + idMain + '</div><div class="doc-id-sub">' + esc(d.filename) + '</div>';
     var typeLabel = isUpload ? (d.doc_type || 'Other') : d.entity_type;

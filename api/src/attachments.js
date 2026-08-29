@@ -97,7 +97,7 @@ const DOCNR_SOURCE_COLUMN = { bill: 'bill_id', journal: 'batch_id' };
 async function listAllAttachmentsWithPeriod(companyId) {
   const rows = await query(
     `SELECT attachment_id, entity_type, entity_id, filename, content_type, file_size,
-            uploaded_by, uploaded_at, doc_type, period_id, missing_since
+            uploaded_by, uploaded_at, doc_type, period_id, missing_since, storage_path
      FROM attachments WHERE company_id = @companyId
      ORDER BY uploaded_at DESC`,
     { companyId }
@@ -157,11 +157,51 @@ async function listAllAttachmentsWithPeriod(companyId) {
     return p ? p.period_name : null;
   }
 
+  // Bank statements (feed-watcher.js entityType: bank_statement) have no
+  // single owning ledger record — one CSV fans out into many separate
+  // journal proposals (agent-loop.js processBankStatement), so there's
+  // nothing to join for a date the way bill/journal do. Instead, parse the
+  // statement's own transaction dates directly: if every dated line falls in
+  // one period, show it; if the statement spans more than one, there's no
+  // single honest answer, so it stays unset (renders as "—"). PDF statements
+  // aren't parsed here (no text-extraction pipeline available at this call
+  // site) and always fall back to unset.
+  const bankPeriodByAttachmentId = {};
+  const bankStatementRows = rows.filter((r) => r.entity_type === 'bank_statement' && /\.csv$/i.test(r.filename || ''));
+  if (bankStatementRows.length) {
+    const { parseBankStatementCsv } = require('./agent-loop');
+    const settingsRows = await query(
+      `SELECT value FROM settings WHERE company_id = @companyId AND key = 'csv_columns' LIMIT 1`,
+      { companyId }
+    );
+    const csvColumnsCfg = settingsRows.length ? settingsRows[0].value : '';
+    for (const r of bankStatementRows) {
+      const fullPath = path.join(ATTACHMENTS_ROOT, r.storage_path);
+      let dates = [];
+      try {
+        const text = fs.readFileSync(fullPath, 'utf8');
+        const lines = parseBankStatementCsv(text, csvColumnsCfg);
+        dates = lines
+          .map((l) => l.date)
+          .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d || ''));
+      } catch (e) {
+        continue; // unreadable/unparseable — leave unset, not an error for the whole list
+      }
+      if (!dates.length) continue;
+      const periods = new Set(dates.map(periodFor).filter(Boolean));
+      if (periods.size === 1) bankPeriodByAttachmentId[r.attachment_id] = [...periods][0];
+    }
+  }
+
   return rows.map((r) => {
-    if (r.entity_type === 'document') return r; // already carries its own period_id
+    const { storage_path, ...pub } = r; // internal-only — not part of the client-facing row
+    if (r.entity_type === 'document') return pub; // already carries its own period_id
+    if (r.entity_type === 'bank_statement') {
+      return Object.assign(pub, { period_id: bankPeriodByAttachmentId[r.attachment_id] || null });
+    }
     const date = dateById[`${r.entity_type}:${r.entity_id}`];
     const doc = docnrById[`${r.entity_type}:${r.entity_id}`] || null;
-    return Object.assign({}, r, {
+    return Object.assign(pub, {
       period_id: periodFor(date),
       docnr: doc ? doc.docnr : null,
       docnr_batch_id: doc ? doc.batch_id : null,

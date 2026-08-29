@@ -74,25 +74,27 @@ Deleted entirely, both server and client:
 
 ### 4.3 Data model (proposed — for the implementation pass to confirm)
 
-Two different shapes are needed for the two row sources:
+**Revised from this spec's first draft.** The original proposal split storage by row source — system-imported state in a settings-row JSON blob (`reminder_state`, mirroring `deadline_overrides`), user-added rows in their own table. A review pass correctly called that split architecturally inconsistent for no real gain: both row kinds carry the same fields (label, due date, done, optional period), so one table with a `source` column is simpler and avoids inventing a second clobber-prone JSON blob on top of the one (`deadline_overrides`) the superseded spec already had to fix.
 
-- **System-imported rows**: identified by the same collision-free `filingKey` the superseded spec introduced (superseded spec §2.1: `${descriptor.id}@${interval.start}` for VAT, `${descriptor.id}@${period.period_name}` for fiscal-year kinds) — that fix is worth keeping regardless of what else changes. Per-key state (`done: boolean`, `due_override: date|null`) persisted in a new settings-row JSON blob, `reminder_state`, using the same atomic read-modify-write helper pattern the superseded spec already designed for `deadline_overrides` (`patchDeadlineOverrides`, superseded spec §3) — same clobber hazard, same fix, reused wholesale.
-- **User-added rows**: need real identity (an id, since they don't come from a computed descriptor) and no computed default to fall back to. A new small table is cleaner than another JSON blob here, given the item is fully user-owned and has no server-computed half:
-  ```sql
-  CREATE TABLE IF NOT EXISTS reminders (
-    reminder_id  VARCHAR    NOT NULL,
-    company_id   VARCHAR    NOT NULL,
-    label        VARCHAR    NOT NULL,
-    due_date     DATE       NOT NULL,
-    period_id    VARCHAR,             -- nullable; free-standing reminders allowed
-    done         BOOLEAN    NOT NULL DEFAULT false,
-    created_at   TIMESTAMP  NOT NULL DEFAULT NOW()
-  );
-  ```
+```sql
+CREATE TABLE IF NOT EXISTS reminders (
+  reminder_id  VARCHAR    NOT NULL,   -- the filingKey for system rows; a generated id for user rows
+  company_id   VARCHAR    NOT NULL,
+  source       VARCHAR    NOT NULL,   -- 'system' | 'user'
+  label        VARCHAR    NOT NULL,
+  authority    VARCHAR,               -- system rows only; null for user rows
+  due_date     DATE,       -- nullable: not every pack descriptor has a due rule (e.g. SG's annual-report.json)
+  period_id    VARCHAR,               -- nullable; free-standing user reminders allowed
+  done         BOOLEAN    NOT NULL DEFAULT false,
+  created_at   TIMESTAMP  NOT NULL DEFAULT NOW()
+);
+```
+
+System-imported rows keep the same collision-free identity the superseded spec introduced (superseded spec §2.1: `${descriptor.id}@${interval.start}` for VAT, `${descriptor.id}@${period.period_name}` for fiscal-year kinds) — that fix is worth keeping regardless of what else changes — but instead of being recomputed fresh from the jurisdiction pack on every page load, a system row is **seeded once**: `filing.list`'s existing descriptor+interval computation runs an idempotent insert-if-`reminder_id`-not-exists on each load, supplying the pack's computed label/authority/due-date only at creation time. After that it's an ordinary row — editing its due date or marking it done is a plain `UPDATE`, no separate override layer, and a jurisdiction pack update (a new due date for an existing descriptor) only reaches rows created *after* the change, same as any seed-once pattern. This trades a small amount of insert-on-read plumbing for one storage shape instead of two, which is the right side of that trade here.
 
 ### 4.4 Notification integration
 
-New `api/src/reminder-scanner.js`, same shape as `fx-scanner.js`: runs on boot + on an interval (daily is enough — due dates don't move hour to hour), scans both row sources for `!done` items due within a lead window, calls `raiseNotification(companyId, 'reminder-due', message, `reminder-due:${companyId}:${reminderKey}`)` — same dedupe-on-read behavior FX gaps already get, no changes needed to `notifications.js` or the bell UI at all. Lead-time window (days-before-due to start alerting) is an open parameter — see §9.
+New `api/src/reminder-scanner.js`, same shape as `fx-scanner.js`: runs on boot + on an interval — a named, env-tunable constant, `FREEBOOKS_REMINDER_SCAN_MS`, consistent with `fx-scanner.js`'s `FREEBOOKS_FX_SCAN_MS` (`fx-scanner.js:22`), defaulting to once daily (due dates don't move hour to hour) — scans `reminders` (§4.3) for `!done` items due within a lead window, calls `raiseNotification(companyId, 'reminder-due', message, `reminder-due:${companyId}:${reminderKey}`)` — same dedupe-on-read behavior FX gaps already get, no changes needed to `notifications.js` or the bell UI at all. Lead-time window (days-before-due to start alerting) is an open parameter — see §9.
 
 ### 4.5 UI
 
@@ -120,14 +122,19 @@ A single list of every attachment that exists anywhere in the system — bill, i
 `attachment.list` today (`attachments.js:48-64`) is scoped to one `entityType`+`entityId` pair and doesn't even select `entity_type`/`entity_id` in its return columns — it's built for "show me this one record's attachments," not "show me everything." Documents needs:
 - A company-wide list mode (entityType/entityId omitted → all rows for the company), with `entity_type`/`entity_id` added to the `SELECT`.
 - A period-resolution step: joining/deriving each system-linked row's owning transaction date against the periods table's date ranges, since attachments carry no period today.
-- Two new nullable columns on `attachments` for the standalone-upload case, which has no existing entity to derive Type/Period from: `doc_type VARCHAR` and `period_id VARCHAR`. A standalone upload also needs a stable `entity_type` value to file itself under (e.g. `'document'`) with a synthetic `entity_id`, since every existing attachment is entity-keyed and standalone uploads currently have no entity to key off.
+- Two new nullable columns on `attachments` for the standalone-upload case, which has no existing entity to derive Type/Period from — added the same idempotent way `sha256` was (`db/schema.sql:615`, `ALTER TABLE attachments ADD COLUMN IF NOT EXISTS ...`), not a fresh `CREATE TABLE`:
+  ```sql
+  ALTER TABLE attachments ADD COLUMN IF NOT EXISTS doc_type VARCHAR;
+  ALTER TABLE attachments ADD COLUMN IF NOT EXISTS period_id VARCHAR;
+  ```
+  A standalone upload also needs a stable `entity_type` value to file itself under (e.g. `'document'`) with a synthetic `entity_id`, since every existing attachment is entity-keyed and standalone uploads currently have no entity to key off.
 
 None of this is large, but it's real schema and query work, not just a new page reusing `attachment.list` as-is.
 
 ### 5.4 Row actions
 
 - **Open file** — reuse the existing download-link pattern (`fb-attachments.js` `rowHtml`, target=`_blank`), unchanged.
-- **Go to source** (system-linked rows only) — new. The only precedent in the app for "click a reference, land on the owning record" is `payables-bills.js:1333`'s `ref-link` anchor (vendor ref → bill detail). Documents needs the general case: a small `entity_type → route template` resolver (bill → `/company/bill/:id`, journal → `/company/journal?batch=:id`, etc.) that doesn't exist yet anywhere as a shared map.
+- **Go to source** (system-linked rows only) — new. The only precedent in the app for "click a reference, land on the owning record" is `payables-bills.js:1333`'s `ref-link` anchor (vendor ref → bill detail). Documents needs the general case: a small `entity_type → route template` resolver (bill → `/company/bill/:id`, journal → `/company/journal?batch=:id`, etc.). `nav-registry.js`'s `ROUTES` array is the obvious place to *extend* this into, given it already bills itself as "the single source of truth for app navigation" consumed by four subsystems (sidebar, `{`/`}` cycling, the g-prefix map, the `?` help overlay) — but it's a genuine extension, not a slot that already exists: every current `ROUTES` entry is a fixed, id-less page template (`/:company/payables`, never `/:company/bill/:id`), so entity-detail routes with a dynamic id are new structure there, not data that's merely unused today.
 - **Delete + re-upload** (user uploads only) — no new action; this is exactly `attachment.delete` (`action-catalog.js`, handler at `attachments.js:68-100`) followed by a fresh `attachment.upload` call, deliberately not a single "replace" action, since there's no in-place edit concept here at all (§0.4).
 - **System-linked rows are read-only in Documents** — no delete, no edit. Deletion of a system attachment stays owned by its originating page (`bill-detail.js`, `journal-voucher.js`), exactly as today; Documents doesn't duplicate that authority.
 
@@ -135,8 +142,22 @@ None of this is large, but it's real schema and query work, not just a new page 
 
 Documents is strictly DB-driven (§5.3) — it is never built by scanning `ATTACHMENTS_ROOT`. But the DB and the filesystem can still drift apart (a row's blob deleted/moved outside the app; a blob written without its row ever committing), and nothing today detects that — the existing `runAttachmentGC` (`attachments.js:336-358`) is unrelated: it only purges rows tied to expired/rejected `journal_proposal` drafts, not a folder-vs-table reconciliation. New `api/src/attachment-integrity-scanner.js`, same family as `fx-scanner.js`/`reminder-scanner.js` (boot + interval, `raiseNotification` on findings), runs both directions:
 
-- **DB row, no file** (`storage_path` doesn't resolve on disk) — set a new nullable `attachments.missing_since TIMESTAMP` column (cleared if the file reappears), and raise a notification. Documents renders a "missing" indicator on that row from the column directly — no live per-row disk check on page load.
-- **File, no DB row** (nothing in `attachments.storage_path` matches a path found under `ATTACHMENTS_ROOT`) — can't be a Documents row at all (no DB row means no Type/Period/ID to display, per the same DB-only rule). Instead it becomes a row in a new `orphaned_files` table (path, discovered_at) and a notification.
+- **DB row, no file** (`storage_path` doesn't resolve on disk) — same idempotent-migration style as `doc_type`/`period_id` above and `sha256` before them:
+  ```sql
+  ALTER TABLE attachments ADD COLUMN IF NOT EXISTS missing_since TIMESTAMP;
+  ```
+  Set on first miss, cleared if the file reappears, and a notification raised on the transition. Documents renders a "missing" indicator on that row from the column directly — no live per-row disk check on page load.
+- **File, no DB row** (nothing in `attachments.storage_path` matches a path found under `ATTACHMENTS_ROOT`) — can't be a Documents row at all (no DB row means no Type/Period/ID to display, per the same DB-only rule). Instead it becomes a row in a new table, scoped per-company like the FX/reminder scanners:
+  ```sql
+  CREATE TABLE IF NOT EXISTS orphaned_files (
+    orphan_id     VARCHAR    NOT NULL,
+    company_id    VARCHAR,             -- nullable: see below
+    path          VARCHAR    NOT NULL, -- relative to ATTACHMENTS_ROOT
+    discovered_at TIMESTAMP  NOT NULL DEFAULT NOW(),
+    resolved_at   TIMESTAMP
+  );
+  ```
+  `ATTACHMENTS_ROOT` itself (`os.homedir()/.freebooks/attachments`) is global, but every real attachment's `storage_path` is written as `${companyId}/${entityType}/${entityId}/${uuid}-${filename}` (`attachments.js:154`) — company_id is always the path's first segment, so the scanner parses it out and `orphaned_files.company_id` is populated the normal way for anything that looks like a real (if orphaned) upload. It stays nullable only for the edge case of a file placed under `ATTACHMENTS_ROOT` by hand, outside that convention entirely — that one has no company to attribute to and needs to surface somewhere company-scoped Inbox review can't reach it; flagged, not resolved, in §9.
 
 **Resolution happens in Inbox, not the notification dropdown.** The bell stays purely a ping (as it is today — `fb-core.js:3088-3157` has no per-item actions beyond mark-read). An orphaned file needing a human verdict is the same shape of task Inbox already exists for ("the human's review queue" — `inbox.js`'s `_kind: 'bill'|'proposal'` rows with an accept/reject review modal, `inbox.js:354-402`). This spec proposes a new `_kind: 'orphan_file'` Inbox row, sourced from the `orphaned_files` table, with three resolutions instead of accept/reject:
   - **Purge** — delete the blob directly off disk (there's no `attachment.delete` to call; no row exists to delete).
@@ -181,9 +202,9 @@ Agreed at the concept level during ideation; not designed to schema/action fidel
 
 1. **Can a user remove a system-imported reminder outright**, or only ever mark it done? The ideation wording ("user can add/remove key dates") didn't distinguish system-imported from user-added when it comes to removal.
 2. **Reminder due-soon lead time** — how many days before the due date should the notification fire? Not discussed; `fx-scanner.js`'s cadence isn't quite analogous since it's about data-gap detection, not deadline proximity.
-3. **Reminders storage shape** (§4.3) is this spec's own proposal, not something discussed at the ideation level — flagging that the settings-blob-vs-table split deserves a second look at implementation time, not just my modeling call here.
+3. ~~**Reminders storage shape**~~ — resolved: a review pass flagged the settings-blob/table split as architecturally inconsistent; §4.3 now proposes a single `reminders` table with a `source` column instead.
 4. **Corporate Records' home in the IA** (§8) — own top-level page, consistent with how Documents was added, or a tab under an existing section? Not discussed.
-5. **Orphaned-file Inbox item schema and semantics** (§5.5) — e.g. whether "Move" permanently suppresses future scanner notifications for that path, and the exact `orphaned_files` row shape — sketched, not settled.
+5. **Orphaned-file Inbox item schema and semantics** (§5.5) — the `orphaned_files` row shape is now sketched, but whether "Move" permanently suppresses future scanner notifications for that path is still open, as is how a hand-placed file outside the `${companyId}/${entityType}/${entityId}/...` convention (§5.5) — one with no company to attribute to at all — should surface, given Inbox review is inherently company-scoped.
 
 ---
 
@@ -193,3 +214,4 @@ Agreed at the concept level during ideation; not designed to schema/action fidel
 |------|--------|
 | 2026-08-29 | Drafted from a live UX-ideation session, same day the spec it partially supersedes (`fiscal-filings-lifecycle-spec.md`) was ratified and shipped (`d5e60bf`). Status: PROPOSED. |
 | 2026-08-29 | Ideation continued: (1) §5.5 added — Documents stays strictly DB-driven per explicit correction; a new attachment-integrity scanner detects missing files (DB row, no blob) and orphaned files (blob, no DB row), routing resolution (Purge/View/Move) through Inbox rather than the notification dropdown, consistent with Inbox's existing "human review queue" role. (2) §8 added — Corporate Records concept sketch, including the resolution that every record gets a derived Period like Documents rows do, with an additional explicit origin-period FK only for the two tax-continuity entry types where the period is load-bearing, not incidental. (3) gKey question resolved: Calendar takes `g c` (judged higher-frequency than the company switcher), switcher moves to `g w`. |
+| 2026-08-29 | Review pass applied: (1) §5.3/§5.5 — `doc_type`, `period_id`, and `missing_since` now spelled out as idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migrations, matching the existing `sha256` precedent (`db/schema.sql:615`), not left as unstated additions. (2) §5.5 — `orphaned_files` columns named explicitly, and confirmed (`attachments.js:154`) that `storage_path`'s leading segment is always the owning `company_id`, so the scanner can attribute orphans per-company like the FX/reminder scanners; the one unresolved edge is a hand-placed file outside that path convention, moved to §9. (3) §4.3 — reworked from a settings-blob/table split into a single `reminders` table with a `source` column, per review feedback that the split added a second clobber-prone JSON blob for no real benefit; system rows are now seeded once (idempotent insert-if-not-exists from the jurisdiction pack) rather than recomputed every load. (4) §4.4 — named the scan-interval constant `FREEBOOKS_REMINDER_SCAN_MS`, consistent with `FREEBOOKS_FX_SCAN_MS`. (5) §5.4 — clarified that `nav-registry.js` is a place to *extend* the go-to-source route map into, not one that already holds entity-detail routes with dynamic ids — its current `ROUTES` entries are all fixed, id-less page templates. |

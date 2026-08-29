@@ -85,6 +85,15 @@ const PERIOD_SOURCE_QUERIES = {
   journal_proposal: { idCol: 'proposal_id', table: 'journal_proposals' },
 };
 
+// Doc number lookup — the sequential GL reference (journal.js getNextReference,
+// stamped on journal_entries.reference at posting time), the same "Doc No" /
+// "Doc Nr" shown clickably in the GL/Journal Line Listing/Voucher Register
+// reports (reports/render.js), linking to journal/voucher?batch=<batch_id>.
+// 'bill': journal_entries.bill_id joins a posted bill to its posting batch —
+// absent for a still-draft bill (nothing posted yet). 'journal': the
+// attachment's own entity_id already IS the batch_id.
+const DOCNR_SOURCE_COLUMN = { bill: 'bill_id', journal: 'batch_id' };
+
 async function listAllAttachmentsWithPeriod(companyId) {
   const rows = await query(
     `SELECT attachment_id, entity_type, entity_id, filename, content_type, file_size,
@@ -114,6 +123,25 @@ async function listAllAttachmentsWithPeriod(companyId) {
     for (const dr of dateRows) dateById[`${entityType}:${dr.id}`] = String(dr.date).slice(0, 10);
   }
 
+  // Doc number + its posting batch (for the click target), grouped the same
+  // way as the date lookup above but always sourced from journal_entries.
+  const docnrById = {}; // `${entity_type}:${entity_id}` -> { docnr, batch_id }
+  for (const entityType of Object.keys(DOCNR_SOURCE_COLUMN)) {
+    const idCol = DOCNR_SOURCE_COLUMN[entityType];
+    const ids = idsByType[entityType];
+    if (!ids) continue;
+    const idList = Array.from(ids);
+    const placeholders = idList.map(() => '?').join(',');
+    const docRows = await queryPositional(
+      `SELECT ${idCol} AS id, MIN(reference) AS reference, MIN(batch_id) AS batch_id FROM journal_entries
+       WHERE company_id = ? AND ${idCol} IN (${placeholders}) GROUP BY ${idCol}`,
+      [companyId, ...idList]
+    );
+    for (const dr of docRows) {
+      if (dr.reference) docnrById[`${entityType}:${dr.id}`] = { docnr: dr.reference, batch_id: dr.batch_id };
+    }
+  }
+
   // Periods for this company (latest revision per period_name) — resolve
   // each derived date into the period whose range contains it.
   const periodRows = await query(
@@ -132,7 +160,12 @@ async function listAllAttachmentsWithPeriod(companyId) {
   return rows.map((r) => {
     if (r.entity_type === 'document') return r; // already carries its own period_id
     const date = dateById[`${r.entity_type}:${r.entity_id}`];
-    return Object.assign({}, r, { period_id: periodFor(date) });
+    const doc = docnrById[`${r.entity_type}:${r.entity_id}`] || null;
+    return Object.assign({}, r, {
+      period_id: periodFor(date),
+      docnr: doc ? doc.docnr : null,
+      docnr_batch_id: doc ? doc.batch_id : null,
+    });
   });
 }
 

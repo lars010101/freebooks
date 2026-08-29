@@ -52,6 +52,8 @@ ${commonStyle()}
   .pe-ro { color:#888; }
   .doc-id-main { color:#1a1a1a; }
   .doc-id-sub { color:#888; font-size:8.5pt; }
+  .doc-id-main a { color:#1a73d8; text-decoration:none; }
+  .doc-id-main a:hover { text-decoration:underline; }
   .doc-type-badge { display:inline-block; padding:1px 8px; border-radius:9px; font-size:8.5pt; font-weight:600; text-transform:uppercase; letter-spacing:.02em; background:#f1f5f9; color:#334155; }
   .doc-missing { color:#b91c1c; font-weight:600; }
   .filter-row { display:flex; gap:12px; margin-bottom:16px; align-items:center; }
@@ -98,11 +100,13 @@ function postAction(action, body, idemKey) {
 }
 
 // entity_type → route resolver (see file header — a local stand-in for the
-// shared nav-registry.js extension the spec names, not built yet).
+// shared nav-registry.js extension the spec names, not built yet). The
+// clickable doc number (below) already covers 'journal' rows exactly the
+// way the GL/Journal Line Listing/Voucher Register reports do — this is
+// only for destinations the doc number link doesn't reach.
 function sourceHref(row) {
   if (row.entity_type === 'bill') return '/' + COMPANY + '/bill/' + row.entity_id;
-  if (row.entity_type === 'journal') return '/' + COMPANY + '/books?t=voucher-register';
-  return null; // journal_proposal (not yet posted, no detail page), document, filing (legacy)
+  return null; // journal (covered by the doc number link), journal_proposal (not yet posted, no detail page), document, filing (legacy)
 }
 
 var allDocs = [];
@@ -157,9 +161,23 @@ function renderDocuments() {
   });
   tb.innerHTML = rows.map(function (d) {
     var isUpload = d.entity_type === 'document';
+    var idMain;
+    if (isUpload) {
+      idMain = esc(d.filename);
+    } else if (d.docnr) {
+      // The same sequential GL doc number shown clickably in the GL/Journal
+      // Line Listing/Voucher Register reports — same click target too.
+      // No &from= here deliberately: the voucher view's Quit button builds
+      // its return URL as /books?t=<from>, a Books-report-tab id namespace
+      // Documents isn't part of — omitting it falls back to the company
+      // root, the same safe default the view already uses when from is unset.
+      idMain = '<a href="/' + COMPANY + '/journal/voucher?batch=' + esc(d.docnr_batch_id) + '">' + esc(d.docnr) + '</a>';
+    } else {
+      idMain = esc(d.entity_id); // not yet posted (draft bill / journal_proposal) — no doc number yet
+    }
     var idCell = isUpload
-      ? '<div class="doc-id-main">' + esc(d.filename) + '</div>'
-      : '<div class="doc-id-main">' + esc(d.entity_id) + '</div><div class="doc-id-sub">' + esc(d.filename) + '</div>';
+      ? '<div class="doc-id-main">' + idMain + '</div>'
+      : '<div class="doc-id-main">' + idMain + '</div><div class="doc-id-sub">' + esc(d.filename) + '</div>';
     var typeLabel = isUpload ? (d.doc_type || 'Other') : d.entity_type;
     var missing = d.missing_since ? ' <span class="doc-missing" title="File missing from storage since ' + esc(String(d.missing_since).slice(0, 10)) + '">missing</span>' : '';
     var href = sourceHref(d);

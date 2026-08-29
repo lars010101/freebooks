@@ -79,13 +79,14 @@ for (const company of companies) {
 ### file processing logic
 
 1. `fs.watch()` fires on file creation/rename into the watched directory
-2. Debounce 300ms — coalesces rapid rename+change bursts from one logical write
+2. Debounce 300ms, keyed per filename — coalesces rapid rename+change bursts from one logical write without dropping a second, different file dropped in the same window (§12.1: an early version keyed the debounce timer per watcher instead, so a second file within 300ms of a first silently cancelled the first's pending run)
 3. Verify extension matches the subfolder's accepted types
 4. Content-hash dedup (sha256 vs `attachments` table)
 5. Read file, base64-encode
 6. Call `attachment.upload` handler directly (in-process function call)
 7. Pass `Idempotency-Key: feed-<sha256>` for dedup
-8. Log result
+8. **Remove the file from the watched folder** on a successful upload (§12.1) — the attachments-store copy is now the durable one, leaving the source behind only causes it to be re-swept and re-examined on every future boot. Left in place on a failed upload so the next scan retries it.
+9. Log result
 
 ### Startup scan
 
@@ -98,6 +99,8 @@ If `fs.watch()` fails on a folder (NFS, unsupported filesystem, or environments 
 ### Dedup strategy
 
 Content hash (sha256) checked against `attachments.sha256` for the company. A re-dropped file is a no-op — the existing attachment is reused. Same as the B5 script's `Idempotency-Key: feed-<sha256>` approach, but via direct DB check instead of idempotency-key retry.
+
+This is the *only* safety net against reprocessing, which is exactly why leaving the source file in the watched folder forever (fixed §12.1) was a real gap rather than a cosmetic one: dedup only catches a re-drop whose bytes are byte-identical to something already uploaded. A file that looks the same to a person — same name, same logical statement — but differs by even one byte (a re-export, a re-save with different embedded metadata) sails past it and creates a new attachment row every time a boot re-sweeps the folder.
 
 ## 3. In-process agent loop (`api/src/agent-loop.js`)
 
@@ -347,3 +350,20 @@ No dependencies on other PRs. Can merge independently of PR #87/#88 (Phase B spe
 1. **Agent account per company** — keep current flow. Operator creates the agent account manually via admin SQL (agent-setup-guide §2). The Settings/AI tab shows a warning if `agent_enabled = 'true'` but no agent-role account exists for the company. No auto-provisioning.
 
 2. **Concurrency** — sequential. One company at a time per poll tick. No parallelism cap, no worker pool. Correct for the volume (small ABs, tens of lines/month). Complexity not justified.
+
+## 12. Update 2026-08-29 — ingestion lifecycle fixes + Inbox upload
+
+### 12.1 Two bugs found investigating a duplicate-attachment report
+
+A user saw the same bank-statement filename appear three times under three different attachment ids. Investigation (`api/src/feed-watcher.js`) found two independent, compounding bugs, both now fixed:
+
+- **`processFile()` never removed a file from the watched folder after successfully uploading it.** Every server boot re-runs a full startup sweep of every watched folder ("`fs.watch` only sees events after it starts" — §2's own note on why the sweep exists), so a file that's already been ingested keeps being re-examined forever, relying entirely on sha256 dedup (§2, "Dedup strategy") to stay a no-op. Any drop whose bytes differ even slightly between occurrences — a bank export re-run, a re-save — bypasses that dedup silently and produces a new attachment row each time. Fixed: the source file is deleted after a successful upload (the attachments-store copy is the durable one) and left in place on a failed upload, so the next scan retries it.
+- **The debounce timer in `watchCompanySubfolder()` was stored once per watcher (per company + subfolder), not per filename.** Dropping a second, different file within the 300ms debounce window of a first cleared the first file's pending timer and replaced it with the second's — the first file was silently never processed at all, not merely delayed. Fixed: debounce timers are now keyed per filename (`Map<filename, timer>`).
+
+Both verified directly against an isolated throwaway folder + DB, not just read from the diff.
+
+### 12.2 New: upload feature in Inbox
+
+Until now the only way to feed the agent's extraction/matching pipeline was the filesystem folder-drop this section describes — no in-app equivalent existed. Investigating it surfaced that the pipeline was already upload-source-agnostic and didn't need one built: `agent-loop.js`'s main loop polls `event.list` for `attachment.uploaded` events (§3) and dispatches on the event payload's `entityType`, and that event fires from exactly one place — `storeAttachment()` in `attachments.js` — for every caller alike, whether that's `processFile()`'s `_uploadFn`, the bill-detail "Upload PDF" button, or the generic `attachment.upload` action. Nothing about that dispatch path is feed-watcher-specific.
+
+So the Inbox page (`api/src/pages/inbox.js`) now has a "+ Upload document" control — a type picker (Bank Statement / Bill / Receipt, matching §1's `bank`/`bills`/`receipts`+`journal` subfolder → entityType mapping) plus a file input, calling the existing `attachment.upload` action with a client-generated id. No new backend action, no filesystem write, no change to §2 or §3 — this is a second front door into the identical pipeline the folder-drop already feeds, not a second pipeline. The uploaded file doesn't itself become a reviewable Inbox row; that happens once the agent has turned it into a proposal, draft, or rejection, exactly as it does for a folder-dropped file today.

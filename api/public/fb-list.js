@@ -807,6 +807,16 @@
       tb.innerHTML = '<tr class="fb-toomany-row"><td colspan="' + (cfg.columns.length + 1) + '">'
         + esc(msg) + '</td></tr>' + (canAdd ? addRowHtml() : '');
     }
+    // A rejected load() must not leave the server-rendered "Loading…" row (or
+    // stale prior rows) sitting there forever with only a toast as evidence —
+    // the toast is easy to miss and nothing else tells the viewer the table
+    // never resolved. Same <tr><td colspan> pattern as renderTooMany.
+    function renderLoadError(message) {
+      var tb = tbody();
+      if (!tb) return;
+      tb.innerHTML = '<tr class="fb-toomany-row"><td colspan="' + (cfg.columns.length + 1) + '">'
+        + esc(message) + '</td></tr>';
+    }
     function addRowHtml() {
       return '<tr class="fb-add-row"><td class="fb-add-cell" colspan="' + (cfg.columns.length + 1) + '">'
         + esc(cfg.label || '+ Add entry') + '</td></tr>';
@@ -1364,7 +1374,12 @@
         // empty register (Magnus 2026-07-27 — "COA shows no accounts" was a
         // dead API server, not missing data). One status channel, like saves.
         console.error('FB.list load:', e);
-        msg('Load failed: ' + (e && e.message ? e.message : 'server unreachable'), true);
+        var text = 'Load failed: ' + (e && e.message ? e.message : 'server unreachable');
+        msg(text, true);
+        // The toast alone can be missed — and without this, a rejected fetch
+        // leaves the server-rendered "Loading…" row (or stale prior rows)
+        // sitting there forever, indistinguishable from a slow request.
+        renderLoadError(text);
       });
     }
 

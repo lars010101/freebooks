@@ -394,9 +394,13 @@
     // "first token = type, rest = period" has no edge cases.
     var period = tokens.length > 1 ? tokens.slice(1).join(' ') : null;
     // 2026-08-27 IA restructure 2: Reports split into Statements + Books.
-    // Route to the correct page based on the report type.
+    // 2026-08-30 IA restructure 3: Books renamed Journal; Integrity relocated
+    // to Accounting (a tab there, not a report-hub ?t= id) — routed via
+    // ?tab= instead, and takes no period (Accounting has no report-hub
+    // date-relevance chrome; the tab reads the global period itself).
+    if (typeId === 'integrity') return { route: '/accounting?tab=integrity', commitMode: 'form' };
     var statementsIds = ['pl','bs','cf','sce'];
-    var page = statementsIds.indexOf(typeId) >= 0 ? 'statements' : 'books';
+    var page = statementsIds.indexOf(typeId) >= 0 ? 'statements' : 'journal';
     var route = '/' + page + '?t=' + encodeURIComponent(typeId);
     if (period) route += '&period=' + encodeURIComponent(period);
     return { route: route, commitMode: 'form' };

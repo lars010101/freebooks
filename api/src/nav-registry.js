@@ -44,17 +44,19 @@
 //   4. Assign a gKey letter only for ratified go-to destinations; 'w' is
 //      reserved for the company switcher.
 //
-// g-key slate (ratified calendar-reminders-documents-spec.md §2, 2026-08-29):
-//   g i = Inbox              · g b = Books (was Reports, trimmed)
+// g-key slate (ratified calendar-reminders-documents-spec.md §2, 2026-08-29;
+// updated ia-restructure-3-spec.md, 2026-08-30):
+//   g i = Inbox              · g j = Journal (was Books, trimmed)
 //   g p = Payables (was Bills)   · g c = Calendar (was Fiscal/Periods+Filings)
 //   g t = Statements (new)   · g s = Settings
-//   g a = Accounting (new — reuses Admin's freed key)
+//   g a = Accounting (new — reuses Admin's freed key; gains Integrity tab)
 //   g x = Exchange Rates (new)
 //   g d = Documents (new)
 //   g w = Company switcher (reserved, not a route — moved off `c`, which
 //        Calendar now owns: judged a more frequent, higher-value jump)
 //   g r = reserved for future Receivables (freed from Reports moving to `b`)
-//   g m = FREE (Master Data dissolved) · g v = FREE · g f / g j = still free
+//   g m = FREE (Master Data dissolved) · g v = FREE · g b = FREE (freed by
+//        Books→Journal rename, unclaimed) · g f = still free
 // 2026-08-27 IA restructure 2: Bills → Payables (gKey `p`); Reports split into
 //   Statements (gKey `t`) + Books (gKey `b`); Periods → Fiscal (gKey `f`);
 //   Settings slimmed (Company · Access · Extensions); Accounting new (gKey `a`,
@@ -62,6 +64,12 @@
 //   Exchange Rates promoted standalone (gKey `x`); Master Data dissolved;
 //   Admin dissolved (Companies → switcher, Access → Settings, Operations dropped).
 //   No compatibility redirects — single-user install, clean cutover.
+// 2026-08-30 IA restructure 3: Books renamed Journal (gKey `b`→`j`), tabs
+//   relabeled (Transactions · Line items · Trial Balance · General Ledger),
+//   Integrity Check tab removed (→ Accounting) and SIE export moved here.
+//   Statements' and Journal's report pickers become tab strips (fetch-based,
+//   iframe removed). Accounting gains a 5th "Integrity" tab. Clean cutover,
+//   no redirect — see docs/ia-restructure-3-spec.md.
 // Receivables dropped 2026-08-05: sidebar entry + gKey 'v' removed; route + page handler deleted.
 // Bank page dropped 2026-08-09 (issue #137): sidebar entry + gKey 'b' removed; page modules
 //   (pages/bank.js, pages/bank-import.js) deleted. api/src/bank.js server handlers kept
@@ -82,10 +90,11 @@ const ROUTES = [
   //   a page-level flag — 'none' here is a placeholder, the chrome spec reads the
   //   registry directly.
   { key: 'statements',     route: '/:company/statements',  label: 'Statements',      icon: '📊', sidebar: true,  gKey: 't',  palette: true,  absolute: false, dateRelevance: 'none' },
-  // 2026-08-27 IA restructure 2: Reports trimmed and renamed Books (gKey `b`, freed
-  //   by Payables moving off it). Ledger/audit tooling: Transaction Register ·
-  //   Trial Balance · General Ledger · Journal Line Listing · Integrity Check.
-  { key: 'books',          route: '/:company/books',       label: 'Books',           icon: '📈', sidebar: true,  gKey: 'b',  palette: true,  absolute: false, dateRelevance: 'none' },
+  // IA restructure 3 (2026-08-30): Books renamed Journal (gKey `b`→`j`, `g b`
+  //   freed, unclaimed). Ledger/transactional tooling: Transactions · Line
+  //   items · Trial Balance · General Ledger. Integrity moved to Accounting;
+  //   SIE export moved here (docs/ia-restructure-3-spec.md §3.2).
+  { key: 'journal',        route: '/:company/journal',     label: 'Journal',         icon: '📈', sidebar: true,  gKey: 'j',  palette: true,  absolute: false, dateRelevance: 'none' },
   // calendar-reminders-documents-spec.md §2: Fiscal renamed Calendar, gKey
   //   moved from `f` to `c` (freed by the company switcher moving to `w`) —
   //   judged a more frequent, higher-value jump. Tabs: Periods · Reminders ·

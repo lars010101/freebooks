@@ -101,7 +101,7 @@ ${commonStyle()}
 </style>
 </head>
 <body>${navBar(company, 'inbox')}
-<div class="page">
+<div class="page page-wide">
   <div class="header">
     <div>
       <h1>Inbox</h1>
@@ -126,7 +126,7 @@ ${commonStyle()}
   <table class="jrnl-table">
     <thead>
       <tr>
-        <th>Date</th><th>Reference</th><th>Description</th>
+        <th>Date</th><th>Doc No</th><th>Description</th>
         <th style="text-align:right">Amount</th><th>Source</th><th>Created by</th><th>Status</th><th></th>
       </tr>
     </thead>
@@ -517,7 +517,7 @@ var list = FB.list.create({
         var glyph = TYPE_GLYPHS[r.type] || '';
         return '<span style="white-space:nowrap">' + (glyph ? '<span class="inbx-type-glyph">' + glyph + '</span>' : '') + fmtDate(v) + '</span>';
       } },
-    { field: 'reference', filterType: 'text', label: 'Reference',
+    { field: 'reference', filterType: 'text', label: 'Doc No',
       display: function (v, r) { return r._kind === 'group' ? '' : (v != null && v !== '' ? esc(String(v)) : '<span class="pe-ro">—</span>'); } },
     { field: 'description', filterType: 'text', label: 'Description',
       display: function (v, r) {

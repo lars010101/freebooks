@@ -15,22 +15,18 @@ const { renderReport, renderComparative, generatePeriods, generateYoYPeriods, ge
 
 // Page modules
 const { handleIndex } = require('./pages/index-page');
-const { handleCompanyPage } = require('./pages/company');
 const { handleSettingsPage } = require('./pages/settings');
 const { handleJournalVoucherPage } = require('./pages/journal-voucher');
-const { handleJournalPage } = require('./pages/journal');
 const { handleInboxPage } = require('./pages/inbox');
 const { handleBillEditPage } = require('./pages/bill-edit');
 const { handleBillDetailPage } = require('./pages/bill-detail');
-const { handleBankReconcilePage } = require('./pages/bank-reconcile');
 const { handlePayablesPage, handleBillsPage } = require('./pages/payables');
-const { handleApAgingPage } = require('./pages/ap-aging');
 const { handleAccountingPage } = require('./pages/accounting');
 const { handleExchangeRatesPage } = require('./pages/exchange-rates');
 const { handleNewCompanyPage } = require('./pages/new-company');
 const { handleAdminQuery } = require('./pages/admin');
 const { makeQuery } = require('./pages/common');
-const { handleStatementsHubPage, handleBooksHubPage } = require('./pages/reports-hub');
+const { handleStatementsHubPage, handleJournalHubPage, isSieExportEnabled } = require('./pages/reports-hub');
 const { handleCalendarPage } = require('./pages/calendar');
 const { handleDocumentsPage } = require('./pages/documents');
 const { handleSruInk2, handleSruInfo } = require('./filings');
@@ -254,15 +250,23 @@ function mountReportRoutes(app) {
   app.get('/api/:company/sru/info', handleSruInfo);
   // Global search — command-bar `/` mode (command-bar-ux-spec.md §4).
   app.get('/api/:company/search', handleSearch);
+  // Unified topbar download icon (ia-restructure-3-spec.md §6.3) needs to
+  // know, on every page (not just Journal/Statements), whether SIE export is
+  // available for this company's jurisdiction — reuses the same check the
+  // Journal hub already made server-side, exposed as a tiny endpoint since
+  // the topbar itself is built synchronously (navBar()) on every page and
+  // isn't worth making async everywhere just for this one flag.
+  app.get('/api/:company/sie-status', async function (req, res) {
+    try {
+      res.json({ enabled: await isSieExportEnabled(req.params.company) });
+    } catch (err) {
+      res.json({ enabled: false });
+    }
+  });
   // 2026-08-03: Dashboard dropped; Inbox is now the root route (/:company).
   // Old /:company/inbox bookmarks 302-redirect to the root.
   app.get('/:company/inbox', function(req, res) { res.redirect(302, '/' + req.params.company); });
-  // ── 2026-08-27 IA restructure 2: clean cutover, no compatibility redirects ──
-  app.get('/:company/journal', function(req, res) {
-    // Journal page dissolved into the Books hub as the "Transaction Register"
-    // report. The reverse verb is surfaced on each voucher row.
-    res.redirect(302, '/' + req.params.company + '/books?t=voucher-register');
-  });
+  // ── 2026-08-27 IA restructure 2 / 2026-08-30 IA restructure 3: clean cutover, no compatibility redirects ──
   app.get('/:company/journal/voucher', handleJournalVoucherPage);
   app.get('/:company/bill/edit', handleBillEditPage);
   app.get('/:company/bill/:id', handleBillDetailPage);
@@ -271,12 +275,12 @@ function mountReportRoutes(app) {
   // /bank/reconcile + /bank/import routes REMOVED 2026-07-31 (agent-first UI
   // doctrine, roadmap §0q): both were 301 stubs; import is the Bank ?tab=import tab.
   // 2026-08-09 (issue #137): Bank page dissolved — pages/bank.js + pages/bank-import.js
-  // deleted. Old /:company/bank URL 302-redirects to Books (bank reconciliation
-  // is being moved to a report). api/src/bank.js server handlers kept for the
-  // agent feed-watcher + reconcile actions.
-  app.get('/:company/bank', function(req, res) {
-    res.redirect(302, '/' + req.params.company + '/books');
-  });
+  // deleted. api/src/bank.js server handlers kept for the agent feed-watcher +
+  // reconcile actions. The old /:company/bank redirect stub (→ /books, itself
+  // never built into a report) and its only live referrer — the unrouted dead
+  // Dashboard page (pages/company.js, orphaned since Dashboard was dropped
+  // 2026-08-03) — are deleted outright, not repointed: no reachable code links
+  // to /bank today. (docs/ia-restructure-3-spec.md §2.2)
   // Opening Balances feature removed 2026-08-18 (magnus): users post opening
   // balances via a simple journal voucher instead. Old URL redirects.
   app.get('/:company/opening-balances', function(req, res) {
@@ -286,16 +290,20 @@ function mountReportRoutes(app) {
   // Old redirect handlers for ?tab=periods and ?tab={coa,vat,journals,fxrates} deleted
   // (those routes no longer exist — clean cutover, §2.3).
   app.get('/:company/settings', handleSettingsPage);
-  // 2026-08-27 IA restructure 2: new routes
+  // 2026-08-27 IA restructure 2 routes; Books renamed Journal 2026-08-30 (IA
+  // restructure 3, §2.1 — this replaces the old /:company/journal redirect
+  // stub that pointed at /books?t=voucher-register; that stub is deleted, not
+  // left alongside this handler).
   app.get('/:company/statements', handleStatementsHubPage);
-  app.get('/:company/books', handleBooksHubPage);
+  app.get('/:company/journal', handleJournalHubPage);
   app.get('/:company/calendar', handleCalendarPage);
   app.get('/:company/documents', handleDocumentsPage);
   app.get('/:company/accounting', handleAccountingPage);
   app.get('/:company/exchange-rates', handleExchangeRatesPage);
-  // 2026-08-27 IA restructure 2: old routes deleted (no redirects, §2.3):
-  //   /:company/bills, /:company/master-data, /:company/admin,
-  //   /:company/periods, /:company/reports
+  // 2026-08-27 IA restructure 2 / 2026-08-30 IA restructure 3: old routes
+  // deleted (no redirects, §2.3): /:company/bills, /:company/master-data,
+  // /:company/admin, /:company/periods, /:company/reports, /:company/books,
+  // /:company/bank
   app.get('/:company', handleInboxPage);
   app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);
 }

@@ -1134,7 +1134,6 @@
       if (route.indexOf('/exchange-rates') === 0) return 'Exchange Rates';
       if (route.indexOf('/payables') === 0) return 'Payables';
       if (route.indexOf('/statements') === 0) return 'Statements';
-      if (route.indexOf('/books') === 0) return 'Books';
       if (route.indexOf('/calendar') === 0) return 'Calendar';
       if (route.indexOf('/documents') === 0) return 'Documents';
       if (route.indexOf('/journal') === 0) return 'Journal';
@@ -1150,7 +1149,7 @@
           var meta = _catalog[name] || {};
           if (meta.palette !== 'navigate' || !meta.route) return;
           if (meta.create) return;                      // exclude create-shortcuts
-          if (meta.route.indexOf('/books') === 0) return; // exclude books
+          if (meta.route.indexOf('/journal') === 0) return; // exclude journal
           if (meta.route.indexOf('/statements') === 0) return; // exclude statements
           if (meta.absolute) return;                     // exclude setup/add company
           if (meta.route.indexOf('/setup') === 0) return; // exclude setup
@@ -3171,6 +3170,95 @@
       dd.hidden = true;
     }
   });
+
+  // ── ia-restructure-3-spec.md §6.3: unified topbar download icon ─────────
+  // One icon, present on every page (defined here, not per-page). SIE is
+  // company+period scoped — always offered when the company's jurisdiction
+  // permits it, independent of which page/tab is active (checked once per
+  // page load via a tiny dedicated endpoint, since navBar() is built
+  // synchronously and isn't worth making async everywhere for this one
+  // flag). CSV/PDF are per-page/tab scoped — a page sets/clears
+  // window.__fbDownloadCsv / window.__fbDownloadPdfUrl whenever its active
+  // tab changes; both are functions (not static values) so they always
+  // reflect current state (period, filters) at click time, not load time.
+  //   window.__fbDownloadCsv = function() → {filename, csv} | null
+  //   window.__fbDownloadPdfUrl = function() → url string | null
+  // A tab/page with neither set simply omits those two menu rows.
+  var _sieEnabled = false;
+  // Wired on DOMContentLoaded since fb-core.js loads in <head> (before body).
+  function _initSieEnabled() {
+    var shell = document.getElementById('app-shell');
+    var company = shell && shell.dataset ? shell.dataset.company : null;
+    if (!company) return;
+    fetch('/api/' + company + '/sie-status')
+      .then(function (r) { return r.json(); })
+      .then(function (res) { _sieEnabled = !!(res && res.enabled); })
+      .catch(function () { _sieEnabled = false; });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _initSieEnabled);
+  else _initSieEnabled();
+
+  function _downloadBlob(filename, text, mime) {
+    var blob = new Blob([text], { type: (mime || 'text/plain') + ';charset=utf-8;' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  }
+
+  function _dlExportSie() {
+    var shell = document.getElementById('app-shell');
+    var company = shell && shell.dataset ? shell.dataset.company : null;
+    var st = (window.FB && FB.period) ? FB.period.get() : {};
+    if (!company || !st.start || !st.end) { if (window.FB && FB.status) FB.status.show('Select a period first.', true); return; }
+    var a = document.createElement('a');
+    a.href = '/api/' + company + '/report?type=sie&start=' + encodeURIComponent(st.start) + '&end=' + encodeURIComponent(st.end);
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+  function _dlExportCsv() {
+    if (typeof window.__fbDownloadCsv !== 'function') return;
+    var r = window.__fbDownloadCsv();
+    if (!r || !r.csv) { if (window.FB && FB.status) FB.status.show('Nothing to export yet.', true); return; }
+    _downloadBlob(r.filename || 'export.csv', r.csv, 'text/csv');
+  }
+  function _dlExportPdf() {
+    if (typeof window.__fbDownloadPdfUrl !== 'function') return;
+    var url = window.__fbDownloadPdfUrl();
+    if (!url) { if (window.FB && FB.status) FB.status.show('Nothing to print yet.', true); return; }
+    window.open(url, '_blank');
+  }
+
+  function _toggleDlDropdown() {
+    var dd = document.getElementById('tb-dl-dropdown');
+    var btn = document.getElementById('tb-dl-btn');
+    if (!dd) return;
+    if (!dd.hidden) { dd.hidden = true; return; }
+    var hasCsv = typeof window.__fbDownloadCsv === 'function';
+    var hasPdf = typeof window.__fbDownloadPdfUrl === 'function';
+    var rows = [];
+    if (hasPdf) rows.push('<button class="tb-dl-item" id="tb-dl-pdf">🖨 Print / PDF</button>');
+    if (hasCsv) rows.push('<button class="tb-dl-item" id="tb-dl-csv">⬇ CSV</button>');
+    if (_sieEnabled) rows.push('<button class="tb-dl-item" id="tb-dl-sie" title="SIE 4 ledger export (Gredor/Bolagsverket)">⬇ SIE</button>');
+    if (!rows.length) { if (btn) btn.title = 'Nothing to download here'; return; }
+    dd.innerHTML = rows.join('');
+    dd.hidden = false;
+    var pdfBtn = document.getElementById('tb-dl-pdf'); if (pdfBtn) pdfBtn.onclick = function () { dd.hidden = true; _dlExportPdf(); };
+    var csvBtn = document.getElementById('tb-dl-csv'); if (csvBtn) csvBtn.onclick = function () { dd.hidden = true; _dlExportCsv(); };
+    var sieBtn = document.getElementById('tb-dl-sie'); if (sieBtn) sieBtn.onclick = function () { dd.hidden = true; _dlExportSie(); };
+  }
+  // Wired on DOMContentLoaded since fb-core.js loads in <head> (before body).
+  function _wireDlButton() {
+    var dlBtn = document.getElementById('tb-dl-btn');
+    if (dlBtn) dlBtn.addEventListener('click', function (e) { e.preventDefault(); _toggleDlDropdown(); });
+    document.addEventListener('click', function (e) {
+      var dd = document.getElementById('tb-dl-dropdown');
+      if (!dd || dd.hidden) return;
+      if (!dd.contains(e.target) && e.target.id !== 'tb-dl-btn' && !e.target.closest('#tb-dl-btn')) dd.hidden = true;
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _wireDlButton);
+  else _wireDlButton();
 
   // ── topbar-chrome-spec §5: `+` New menu — reuses newTargets() ─────
   // Wired on DOMContentLoaded since fb-core.js loads in <head> (before body).

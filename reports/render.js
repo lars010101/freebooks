@@ -9,6 +9,23 @@
  * The `query` parameter is an async function: (sql, posParams[]) => rows[]
  */
 
+// ── Asset versioning ─────────────────────────────────────────────────────────
+// Mirrors api/src/pages/common.js's assetV(): ?v= tracks the file's own mtime,
+// so the buster changes exactly when the file does, letting the browser's
+// normal HTTP cache (maxAge:0+etag on /public, see api/src/index.js) actually
+// work between loads instead of a Date.now() buster forcing a full re-fetch
+// and re-parse of common.css/fb-core.js/fb-list.js on every single iframe
+// report load (root cause of Journal's "Transactions/Line items/GL render
+// slowly" report — confirmed live, see ia-restructure-3-spec.md §6 changelog).
+// Duplicated rather than imported: this module is also used standalone by
+// generate.js (CLI), so it can't depend on api/src/pages/common.js.
+const _fs = require('fs');
+const _path = require('path');
+function _assetV(file) {
+  try { return _fs.statSync(_path.join(__dirname, '..', 'api', 'public', file)).mtimeMs; }
+  catch (e) { return Date.now(); }
+}
+
 // ── Number formatting ─────────────────────────────────────────────────────────
 function fmt(n) {
   if (n === null || n === undefined) return '';
@@ -16,6 +33,16 @@ function fmt(n) {
   if (isNaN(num)) return '';
   const abs = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return num < 0 ? `(${abs})` : abs;
+}
+
+// Debit/Credit cells specifically (Trial Balance, General Ledger): a zero
+// value renders blank, not "0.00" — unlike fmt(), used everywhere else
+// (PL/BS/CF/Net/Balance columns included) where a genuine zero is still
+// shown as a number.
+function fmtDC(n) {
+  const num = parseFloat(n);
+  if (isNaN(num) || num === 0) return '';
+  return fmt(n);
 }
 
 // ── HTML page wrapper ─────────────────────────────────────────────────────────
@@ -103,7 +130,7 @@ async function buildPL(query, company, start, end) {
     const code = r.account_code || '';
     const name = r.row_type === 'total' ? `<strong>${r.account_name}</strong>` : r.account_name;
     const codeCell = code
-      ? `<a href="/${company}/books?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      ? `<a href="/${company}/journal?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
       : code;
     tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
   }
@@ -183,7 +210,7 @@ async function buildBS(query, company, start, end) {
     const code = r.account_code || '';
     const name = r.row_type === 'subtotal' ? `<em>${r.account_name}</em>` : r.account_name;
     const codeCell = code
-      ? `<a href="/${company}/books?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      ? `<a href="/${company}/journal?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
       : code;
     tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.balance)}</td></tr>`;
   }
@@ -205,25 +232,46 @@ async function buildBS(query, company, start, end) {
 async function buildTB(query, company, start, end) {
   const rows = await query(`SELECT * FROM tb(?, ?, ?)`, [company, start, end]);
   let tableRows = rows.map(r => `<tr class="account">
-      <td><a href="/${company}/books?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a></td><td>${r.account_name}</td><td>${r.account_type}</td>
-    <td class="num">${fmt(r.total_debit)}</td>
-    <td class="num">${fmt(r.total_credit)}</td>
+      <td>${r.account_type}</td><td><a href="/${company}/journal?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a></td><td>${r.account_name}</td>
+    <td class="num">${fmtDC(r.total_debit)}</td>
+    <td class="num">${fmtDC(r.total_credit)}</td>
     <td class="num">${fmt(r.net_balance)}</td>
   </tr>`).join('');
   const totDr  = rows.reduce((s, r) => s + parseFloat(r.total_debit  || 0), 0);
   const totCr  = rows.reduce((s, r) => s + parseFloat(r.total_credit || 0), 0);
   const totNet = rows.reduce((s, r) => s + parseFloat(r.net_balance  || 0), 0);
-  tableRows += `<tr class="total"><td></td><td><strong>TOTAL</strong></td><td></td>
-    <td class="num">${fmt(totDr)}</td><td class="num">${fmt(totCr)}</td><td class="num">${fmt(totNet)}</td>
+  tableRows += `<tr class="total"><td></td><td></td><td><strong>TOTAL</strong></td>
+    <td class="num">${fmtDC(totDr)}</td><td class="num">${fmtDC(totCr)}</td><td class="num">${fmt(totNet)}</td>
   </tr>`;
   const tableHtml = `<table>
-    <thead><tr><th>Code</th><th>Account</th><th>Type</th>
+    <thead><tr><th>Type</th><th>Code</th><th>Account</th>
       <th class="num">Debit</th><th class="num">Credit</th><th class="num">Net</th></tr></thead>
     <tbody>${tableRows}</tbody>
   </table>`;
   return { tableHtml, rows };
 }
 
+// ── General Ledger ────────────────────────────────────────────────────────────
+// FB.list, groupKey: 'account_code' — same mechanism as Journal Line Listing
+// (2026-08-30 follow-up: magnus wanted the bespoke Account-code search bar
+// replaced by a native column-header filter, plus persistent/sticky column
+// headers). Each account's rows — Opening Balance, transactions, Closing
+// Balance — form one group; filtering the Account column keeps the whole
+// group together (Opening through Closing), matching what the old bespoke
+// filter already did (show one account's full ledger), just via fb-list's
+// native ≡ dropdown instead of a separate search box. Running balance stays
+// entirely server-computed, sequential by date within each account, exactly
+// as before — filtering only hides/shows groups client-side, it never
+// recomputes balances. Date/Debit/Credit/Balance are deliberately NOT
+// sortable: this report's balance column is only meaningful in date order,
+// and fb-list's groupKey sort would reorder rows within nothing (it sorts
+// which group comes first, not rows inside a group) — but making these
+// columns look sortable would still invite a click that does nothing useful.
+// The account section-header row folds into the Opening Balance row's own
+// Description cell ("1680 — Fordringar hos kreditinstitut") — fb-list has no
+// separate "group header" row type, so a standalone full-width header row
+// isn't representable as one more data row the way the old hand-built table
+// let it be.
 async function buildGL(query, company, start, end, account) {
   let companyName = company;
   try {
@@ -232,43 +280,48 @@ async function buildGL(query, company, start, end, account) {
   } catch (_) {}
 
   let rows = await query(`SELECT * FROM gl(?, ?, ?)`, [company, start, end]);
+  // Drill-through pre-filter (TB/P&L/BS/CF account-code links carry ?account=)
+  // stays server-side, unchanged from before this rewrite.
   if (account) rows = rows.filter(r => r.account_code === account);
-  const accountAttr = String(account || '')
-    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+  const rowsData = [];
   let lastAcct = null;
   let runBal = 0;
-  let tableRows = '';
+  let seq = 0;
   for (const r of rows) {
     if (r.account_code !== lastAcct) {
       if (lastAcct !== null) {
-        tableRows += `<tr class="subtotal" data-account="${lastAcct}"><td></td><td></td><td>Closing Balance</td><td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td></tr>
-        <tr data-account="${lastAcct}"><td colspan="6" style="padding:4px 0"></td></tr>`;
+        rowsData.push({ _key: 'gl-' + (seq++), account_code: lastAcct, _kind: 'closing',
+          date: '', reference: '', description: 'Closing Balance', debit: 0, credit: 0, balance: runBal });
       }
       runBal = 0;
-      tableRows += `<tr class="section-header" data-account="${r.account_code}"><td colspan="6">${r.account_code} — ${r.account_name || ''}</td></tr>`;
       lastAcct = r.account_code;
     }
     if (r.batch_id === 'Opening Balance') {
       const obAmt = parseFloat(r.debit_home || r.debit || 0) - parseFloat(r.credit_home || r.credit || 0);
       runBal = obAmt;
-      tableRows += `<tr class="subtotal" data-account="${r.account_code}">
-        <td></td><td colspan="2" style="font-style:italic">Opening Balance</td>
-        <td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td>
-      </tr>`;
+      rowsData.push({ _key: 'gl-' + (seq++), account_code: r.account_code, _kind: 'opening',
+        account_label: r.account_code + ' — ' + (r.account_name || ''),
+        date: '', reference: '', description: 'Opening Balance', debit: 0, credit: 0, balance: runBal });
     } else {
       runBal += parseFloat(r.debit_home || r.debit || 0) - parseFloat(r.credit_home || r.credit || 0);
-      const dateStr = new Date(r.date).toISOString().slice(0, 10);
-      tableRows += `<tr class="account" data-account="${r.account_code}">
-        <td>${dateStr}</td><td><a href="/${company}/journal/voucher?batch=${encodeURIComponent(r.batch_id)}&from=gl" target="_parent">${r.reference || r.batch_id}</a></td><td>${r.description || ''}</td>
-        <td class="num">${fmt(r.debit_home || r.debit)}</td><td class="num">${fmt(r.credit_home || r.credit)}</td>
-        <td class="num">${fmt(runBal)}</td>
-      </tr>`;
+      rowsData.push({
+        _key: r.entry_id || ('gl-' + (seq++)),
+        account_code: r.account_code,
+        _kind: 'txn',
+        batch_id: r.batch_id,
+        date: new Date(r.date).toISOString().slice(0, 10),
+        reference: r.reference || r.batch_id,
+        description: r.description || '',
+        debit: Number(r.debit_home || r.debit || 0),
+        credit: Number(r.credit_home || r.credit || 0),
+        balance: runBal,
+      });
     }
   }
   if (lastAcct !== null) {
-    tableRows += `<tr class="subtotal" data-account="${lastAcct}"><td></td><td></td><td>Closing Balance</td><td class="num"></td><td class="num"></td><td class="num">${fmt(runBal)}</td></tr>`;
+    rowsData.push({ _key: 'gl-' + (seq++), account_code: lastAcct, _kind: 'closing',
+      date: '', reference: '', description: 'Closing Balance', debit: 0, credit: 0, balance: runBal });
   }
 
   const tableHtml = `<!DOCTYPE html>
@@ -277,31 +330,73 @@ async function buildGL(query, company, start, end, account) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>General Ledger — freeBooks</title>
+<link rel="stylesheet" href="/public/common.css?v=${_assetV('common.css')}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
   body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: 1200px; margin: 0; padding: 24px 32px; }
-  .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
+  /* Flex column filling the iframe's fixed height exactly — .table-wrap is
+     the ONLY element that scrolls. A magic-number max-height (calc(100vh -
+     Npx), guessing how tall the header/footer are) left the body itself
+     free to overflow the iframe's own height whenever that guess was off,
+     giving a SECOND scrollbar (the iframe's own html/body, which scrolls by
+     default when its content overflows) on top of table-wrap's — this
+     flex layout makes that structurally impossible: header/footer take
+     their natural size, table-wrap gets exactly what's left. */
+  .page { height: 100%; display: flex; flex-direction: column; max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; }
+  .header { flex-shrink: 0; border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 18px; }
+  /* On-screen this repeats page/tab chrome the app already shows (company,
+     period) — hidden here, restored for print/PDF, since PDF export opens
+     this exact standalone document raw (ia-restructure-3-spec.md §6.2). */
+  .header { display: none; }
+  @media print { .header { display: block; } }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
   .period { font-size: 10pt; color: #666; margin-top: 2px; }
-  .filter-bar { background: #f8f8f8; border: 1px solid #eee; border-radius: 4px; padding: 14px 16px; margin-bottom: 18px; }
-  .filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-  .filter-row label { font-size: 9pt; color: #555; font-weight: 600; }
-  .filter-row input { padding: 6px 10px; border: 1px solid #ccc; border-radius: 3px; font-size: 10pt; }
-  .filter-row button { padding: 6px 18px; background: #1a1a1a; color: #fff; border: none; border-radius: 3px; font-size: 10pt; font-weight: 600; cursor: pointer; }
-  .filter-row button.clear { background: #888; }
-  .filter-row button:hover { opacity: .85; }
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: .05em; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; }
+  .table-wrap { flex: 1; min-height: 0; overflow-x: auto; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  /* Persistent/sticky column headers (magnus 2026-08-30) — the table-wrap
+     above is the scroll container the header stays pinned against. */
+  th { position: sticky; top: 0; z-index: 2; text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; background: #fff; border-bottom: 1px solid #ccc; padding: 6px 8px; }
   th.num { text-align: right; }
-  td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  tr.section-header td { font-weight: 700; font-size: 10pt; text-transform: uppercase; background: #f4f4f4; letter-spacing: .03em; padding: 8px; }
-  tr.subtotal td { font-weight: 600; background: #fafafa; }
-  tr.account:hover td { background: #fafafa; }
-  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+  tr.gl-opening td, tr.gl-closing td { font-weight: 600; background: #fafafa; }
+  tr.gl-opening td.account-label { font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr.gl-txn:hover td { background: #fafafa; }
+  .no-results { text-align: center; color: #888; padding: 20px; }
+  .footer { flex-shrink: 0; margin-top: 12px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+  .doc-link { color: #18293f; text-decoration: underline; }
+  .pe-ro { color: #bbb; }
+  /* FB.list keyboard-focus in the iframe */
+  tr.nav-row-focus:not(.row-editing) > td {
+    background: #18293f !important; color: #fff !important; outline: none;
+  }
+  tr.nav-row-focus:not(.row-editing) > td a { color: #fff !important; }
+  /* FB.list column filter/sort UI. common.css (linked above) declares its own
+     th.fb-th-filterable { position: relative } globally, at the SAME
+     specificity as this selector — cascade order (this block comes later in
+     the document) is what makes position:sticky win here instead, not
+     specificity. Re-declaring sticky explicitly rather than just dropping
+     position: relative, since dropping it only beat the (already-removed)
+     local duplicate of this rule, not common.css's copy. */
+  th.fb-th-filterable { position: sticky; top: 0; padding-right: 24px; }
+  th .fb-filter-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    cursor: pointer; opacity: 0.4; font-size: 14px; line-height: 1; }
+  th:hover .fb-filter-btn { opacity: 1; color: #555; }
+  th .fb-filter-btn.fb-filter-active { opacity: 1; color: #18293f; font-weight: 700; }
+  th.fb-th-sortable { cursor: pointer; user-select: none; }
+  .th-sort { font-size: 0.6875rem; color: #18293a; width: 12px; text-align: center; flex-shrink: 0; margin-left: 2px; }
+  .th-sort:empty { display: none; }
+  .fb-col-filter-dd { position: fixed; background: #fff; border: 1px solid #ccc; border-radius: 4px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.15); z-index: 9999; padding: 8px; min-width: 180px; }
+  .fb-col-filter-dd .fb-cf-input, .fb-col-filter-dd .fb-cf-op {
+    padding: 4px 6px; border: 1px solid #ddd; border-radius: 3px; font-size: 10pt; margin-bottom: 6px; }
+  .fb-cf-list { max-height: 240px; overflow-y: auto; }
+  .fb-cf-item { padding: 4px 8px; cursor: pointer; border-radius: 3px; font-size: 10pt; }
+  .fb-cf-item:hover { background: #f2f4f7; }
+  .fb-cf-clear { color: #6b7a95; font-style: italic; }
+  td[data-field="date"], td[data-field="reference"] { white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -311,257 +406,345 @@ async function buildGL(query, company, start, end, account) {
     <div class="report-title">General Ledger</div>
     <div class="period">${start} to ${end}</div>
   </div>
-  <div class="filter-bar">
-    <div class="filter-row">
-      <label>Account Code:</label>
-      <input type="text" id="gl-account" placeholder="e.g. 101414" maxlength="20" style="width:130px" value="${accountAttr}">
-      <button onclick="applyGLFilter()">Search</button>
-      <button class="clear" onclick="clearGLFilter()">Clear</button>
-    </div>
-  </div>
+
   <div class="table-wrap">
-    <table>
-      <thead><tr>
-        <th>Date</th><th>Doc Nr</th><th>Description</th>
-        <th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th>
-      </tr></thead>
-      <tbody id="gl-body">${tableRows}</tbody>
+    <table class="edit-table">
+      <thead>
+        <tr>
+          <th data-field="account_code">Account</th>
+          <th data-field="date">Date</th>
+          <th data-field="reference">Doc No</th>
+          <th data-field="description">Description</th>
+          <th data-field="debit" class="num">Debit</th>
+          <th data-field="credit" class="num">Credit</th>
+          <th data-field="balance" class="num">Balance</th>
+        </tr>
+      </thead>
+      <tbody id="gl-body"></tbody>
     </table>
   </div>
-  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks</div>
+
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks · General Ledger</div>
 </div>
+
+<script src="/public/fb-core.js?v=${_assetV('fb-core.js')}"></script>
+<script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
 <script>
-  function applyGLFilter() {
-    var code = document.getElementById('gl-account').value.trim().toUpperCase();
-    document.querySelectorAll('#gl-body tr').forEach(function(tr) {
-      if (!code) { tr.style.display = ''; return; }
-      var acct = (tr.getAttribute('data-account') || '').toUpperCase();
-      tr.style.display = (acct === code) ? '' : 'none';
-    });
+  var COMPANY = ${JSON.stringify(company)};
+  var GL_ROWS = ${JSON.stringify(rowsData)};
+  var REPORT_START = ${JSON.stringify(start || '')};
+  var REPORT_END = ${JSON.stringify(end || '')};
+
+  function drillHref(batchId) {
+    var extra = '';
+    if (REPORT_START) extra += '&rpt_start=' + encodeURIComponent(REPORT_START);
+    if (REPORT_END) extra += '&rpt_end=' + encodeURIComponent(REPORT_END);
+    return '/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(batchId) + '&from=gl' + extra;
   }
-  function clearGLFilter() {
-    document.getElementById('gl-account').value = '';
-    document.querySelectorAll('#gl-body tr').forEach(function(tr) { tr.style.display = ''; });
+
+  function amtDisplay(v) {
+    var n = Number(v || 0);
+    if (!n) return '';
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-  document.getElementById('gl-account').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') applyGLFilter();
+  function balDisplay(v) {
+    var n = Number(v || 0);
+    var abs = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return n < 0 ? '(' + abs + ')' : abs;
+  }
+
+  var glList = FB.list.create({
+    keysId: 'gl',
+    active: function () { return true; },
+    tbody: 'gl-body',
+    companyId: function () { return COMPANY; },
+    canAdd: false,
+    editable: function () { return false; },
+    same: function () { return true; },
+    validate: function () { return null; },
+    groupKey: 'account_code',
+    columns: [
+      // Account only carries a value on the Opening Balance row (the account's
+      // first row) — same "first row of the atomic unit only" convention as
+      // Journal Line Listing's Doc No/Journal/Date.
+      { field: 'account_code', label: 'Account', type: 'text', filterType: 'text', sortable: true,
+        display: function (v, r) {
+          if (r._kind !== 'opening') return '';
+          return '<span class="account-label">' + esc(r.account_label || v) + '</span>';
+        } },
+      { field: 'date', label: 'Date', type: 'text', filterType: 'date',
+        display: function (v) { return v ? esc(v) : ''; } },
+      { field: 'reference', label: 'Doc No', type: 'text', filterType: 'text',
+        display: function (v, r) {
+          if (!v || r._kind !== 'txn') return v ? esc(v) : '';
+          return '<a class="doc-link" href="' + drillHref(r.batch_id) + '" target="_parent" onclick="event.stopPropagation()">' + esc(v) + '</a>';
+        } },
+      { field: 'description', label: 'Description', type: 'text', filterType: 'text', sortable: true,
+        display: function (v, r) { return v ? esc(v) : (r._kind === 'txn' ? '<span class="pe-ro">—</span>' : ''); } },
+      { field: 'debit', label: 'Debit', type: 'number', filterType: 'amount', align: 'right',
+        display: amtDisplay },
+      { field: 'credit', label: 'Credit', type: 'number', filterType: 'amount', align: 'right',
+        display: amtDisplay },
+      { field: 'balance', label: 'Balance', type: 'number', filterType: null, align: 'right',
+        display: balDisplay },
+    ],
+    list: {
+      fetch: function () { return Promise.resolve(GL_ROWS); },
+      map: function (r) { return Object.assign({}, r, { _key: r._key }); }
+    },
+    // fb-list.js has no per-row class hook — apply the opening/closing/txn
+    // style class ourselves after every render (onChrome fires post-render
+    // unconditionally, per fb-list.js's syncChrome() — not just on initial
+    // load, so this stays correct across filtering/sorting too, unlike a
+    // one-shot post-load.then() would). data-key holds _key on every <tr>.
+    onChrome: function () {
+      var body = document.getElementById('gl-body');
+      if (!body) return;
+      body.querySelectorAll('tr[data-key]').forEach(function (tr) {
+        var r = GL_ROWS_BY_KEY[tr.getAttribute('data-key')];
+        if (!r) return;
+        tr.classList.remove('gl-opening', 'gl-closing', 'gl-txn');
+        tr.classList.add(r._kind === 'opening' ? 'gl-opening' : r._kind === 'closing' ? 'gl-closing' : 'gl-txn');
+      });
+    }
   });
+
+  var GL_ROWS_BY_KEY = {};
+  GL_ROWS.forEach(function (r) { GL_ROWS_BY_KEY[r._key] = r; });
+  glList.load();
 </script>
 </body>
 </html>`;
   return { tableHtml, rows };
 }
 
+// ── Journal Line Listing ──────────────────────────────────────────────────────
+// Line-level detail (one row per journal_entries line), FB.list tree:true —
+// the same native mechanism Bills/Inbox use to keep a group's rows together
+// under any column filter/sort ("children follow their parent" — fb-list.js's
+// own tree-filter/tree-sort doctrine). One batch's lines are the tree: the
+// first line (by account_code) is the parent and carries Doc No; the rest are
+// children with Doc No blank, so a batch reads as one atomic unit no matter
+// how the list is filtered or sorted, and Doc No never repeats within it.
+// Rewritten 2026-08-30 (docs/ia-restructure-3-spec.md follow-up) — was a
+// bespoke fetch/sort/filter implementation with an explicit Search/Clear bar;
+// now server-renders every line once (like buildVoucherRegister) and lets
+// FB.list's native column-header filter/sort replace that bar entirely.
 async function buildJournal(query, company, start, end) {
   let companyName = company;
   try {
     const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
     if (co) companyName = co.company_name;
   } catch (_) {}
+
+  const lines = await query(
+    `SELECT je.entry_id, je.batch_id, je.date, je.reference, je.description,
+            je.account_code, a.account_name, je.debit, je.credit, j.code AS journal_code
+     FROM journal_entries je
+     LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+     LEFT JOIN journals j ON j.journal_id = je.journal_id
+     WHERE je.company_id = ? AND je.date >= ? AND je.date <= ?
+     ORDER BY je.date DESC, je.batch_id, je.account_code, je.entry_id`,
+    [company, start, end]
+  );
+
+  // Journal/Date/Doc No carry their FULL value on every row here — never
+  // blanked in the underlying data, only on screen (see the jlBlankRepeats
+  // render hook below). CSV/PDF export reads this array directly, and per
+  // ia-restructure-3-spec.md §6.4 must always show the complete data.
+  const rowsData = lines.map((l) => ({
+    _key: l.entry_id,
+    batch_id: l.batch_id,
+    journal: l.journal_code || '',
+    date: String(l.date || '').slice(0, 10),
+    reference: l.reference || '',
+    account_code: l.account_code || '',
+    account_name: l.account_name || '',
+    description: l.description || '',
+    debit: Number(l.debit || 0),
+    credit: Number(l.credit || 0),
+  }));
+
   const tableHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Journal Report — freeBooks</title>
+<title>Journal Line Listing — freeBooks</title>
+<link rel="stylesheet" href="/public/common.css?v=${_assetV('common.css')}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: 1200px; margin: 0; padding: 24px 32px; }
-  .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
+  .page { max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; }
+  .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 18px; }
+  /* On-screen this repeats page/tab chrome the app already shows (company,
+     period) — hidden here, restored for print/PDF, since PDF export opens
+     this exact standalone document raw (ia-restructure-3-spec.md §6.2). */
+  .header { display: none; }
+  @media print { .header { display: block; } }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
   .period { font-size: 10pt; color: #666; margin-top: 2px; }
-  .filter-bar { background: #f8f8f8; border: 1px solid #eee; border-radius: 4px; padding: 14px 16px; margin-bottom: 18px; }
-  .filter-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
-  .filter-row:last-child { margin-bottom: 0; }
-  .filter-row label { font-size: 9pt; color: #555; font-weight: 600; min-width: 80px; }
-  .filter-row input, .filter-row select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 3px; font-size: 10pt; }
-  .filter-row button { padding: 6px 18px; background: #1a1a1a; color: #fff; border: none; border-radius: 3px; font-size: 10pt; font-weight: 600; cursor: pointer; }
-  .filter-row button:hover { background: #333; }
   .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; cursor: pointer; user-select: none; }
-  th:hover { background: #f5f5f5; }
-  th.sortable::after { content: ' ↕'; color: #aaa; font-size: 8pt; }
-  th.sort-asc::after { content: ' ↑'; color: #1a1a1a; font-size: 8pt; font-weight: 700; }
-  th.sort-desc::after { content: ' ↓'; color: #1a1a1a; font-size: 8pt; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; }
   th.num { text-align: right; }
-  td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   tr:hover td { background: #fafafa; }
   .no-results { text-align: center; color: #888; padding: 20px; }
-  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+  .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+  .doc-link { color: #18293f; text-decoration: underline; }
+  .pe-ro { color: #bbb; }
+  /* FB.list keyboard-focus in the iframe */
+  tr.nav-row-focus:not(.row-editing) > td {
+    background: #18293f !important; color: #fff !important; outline: none;
+  }
+  tr.nav-row-focus:not(.row-editing) > td a { color: #fff !important; }
+  /* FB.list column filter/sort UI */
+  th.fb-th-filterable { position: relative; padding-right: 24px; }
+  th .fb-filter-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    cursor: pointer; opacity: 0.4; font-size: 14px; line-height: 1; }
+  th:hover .fb-filter-btn { opacity: 1; color: #555; }
+  th .fb-filter-btn.fb-filter-active { opacity: 1; color: #18293f; font-weight: 700; }
+  th.fb-th-sortable { cursor: pointer; user-select: none; }
+  .th-sort { font-size: 0.6875rem; color: #18293a; width: 12px; text-align: center; flex-shrink: 0; margin-left: 2px; }
+  .th-sort:empty { display: none; }
+  .fb-col-filter-dd { position: fixed; background: #fff; border: 1px solid #ccc; border-radius: 4px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.15); z-index: 9999; padding: 8px; min-width: 180px; }
+  .fb-col-filter-dd .fb-cf-input, .fb-col-filter-dd .fb-cf-op {
+    padding: 4px 6px; border: 1px solid #ddd; border-radius: 3px; font-size: 10pt; margin-bottom: 6px; }
+  .fb-cf-list { max-height: 240px; overflow-y: auto; }
+  .fb-cf-item { padding: 4px 8px; cursor: pointer; border-radius: 3px; font-size: 10pt; }
+  .fb-cf-item:hover { background: #f2f4f7; }
+  .fb-cf-clear { color: #6b7a95; font-style: italic; }
+  td[data-field="date"], td[data-field="reference"] { white-space: nowrap; }
 </style>
 </head>
 <body>
 <div class="page">
   <div class="header">
     <div class="company">${companyName}</div>
-    <div class="report-title">Journal Report</div>
+    <div class="report-title">Journal Line Listing</div>
     <div class="period">${start || ''} to ${end || ''}</div>
   </div>
 
-  <div class="filter-bar">
-    <div class="filter-row">
-      <label>Journal:</label>
-      <select id="f-journal" style="width: 160px;"><option value="">— all —</option></select>
-      <label style="margin-left: 20px;">Account Code:</label>
-      <input type="text" id="f-account" placeholder="e.g. 401000" maxlength="20" style="width: 120px;">
-      <button onclick="doSearch()" style="margin-left: 20px;">Search</button>
-      <button onclick="clearFilters()" style="background: #888;">Clear</button>
-    </div>
-  </div>
-
   <div class="table-wrap">
-    <table>
+    <table class="edit-table">
       <thead>
         <tr>
-          <th class="sortable" onclick="setSort('date')">Date</th>
-          <th class="sortable" onclick="setSort('reference')">Reference</th>
-          <th class="sortable" onclick="setSort('account_code')">Account</th>
-          <th style="width: 200px;">Account Name</th>
-          <th style="width: 250px;">Description</th>
-          <th class="num sortable" onclick="setSort('debit')">Debit</th>
-          <th class="num sortable" onclick="setSort('credit')">Credit</th>
+          <th data-field="date">Date</th>
+          <th data-field="journal">Journal</th>
+          <th data-field="reference">Doc No</th>
+          <th data-field="account_code">Account</th>
+          <th data-field="account_name">Account Name</th>
+          <th data-field="debit" class="num">Debit</th>
+          <th data-field="credit" class="num">Credit</th>
+          <th data-field="description">Description</th>
         </tr>
       </thead>
-      <tbody id="table-body">
-        <tr><td colspan="7" class="no-results">Loading…</td></tr>
-      </tbody>
+      <tbody id="jl-body"></tbody>
     </table>
   </div>
 
-  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks</div>
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks · Journal Line Listing</div>
 </div>
 
+<script src="/public/fb-core.js?v=${_assetV('fb-core.js')}"></script>
+<script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
 <script>
-  var currentSort = { sortBy: 'date', sortDir: 'DESC' };
-  var currentFilters = { dateFrom: '${start}', dateTo: '${end}' };
-  var accountsMap = {};
-  
-  // Pre-fetch journals for the filter dropdown
-  fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'journals.list', companyId: '${company}' }) })
-    .then(function(r) { return r.json(); })
-    .then(function(res) {
-      var sel = document.getElementById('f-journal');
-      (res.data || res || []).forEach(function (j) {
-        var opt = document.createElement('option');
-        opt.value = j.journal_id;
-        opt.textContent = j.code + ' — ' + j.name;
-        sel.appendChild(opt);
-      });
-    })
-    .catch(function() {});
-  
-  // Pre-fetch accounts, then load journal (ensures account names are ready)
-  fetch('/api/${company}/accounts')
-    .then(function(r) { return r.json(); })
-    .then(function(rows) {
-      if (Array.isArray(rows)) {
-        rows.forEach(function(a) {
-          if (a.account_code && a.account_name) {
-            accountsMap[a.account_code] = a.account_name;
-          }
+  var COMPANY = ${JSON.stringify(company)};
+  var JL_ROWS = ${JSON.stringify(rowsData)};
+  var REPORT_START = ${JSON.stringify(start || '')};
+  var REPORT_END = ${JSON.stringify(end || '')};
+
+  function drillHref(batchId) {
+    var extra = '';
+    if (REPORT_START) extra += '&rpt_start=' + encodeURIComponent(REPORT_START);
+    if (REPORT_END) extra += '&rpt_end=' + encodeURIComponent(REPORT_END);
+    return '/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(batchId) + '&from=journal' + extra;
+  }
+
+  function amtDisplay(v) {
+    var n = Number(v || 0);
+    if (!n) return '';
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  var jlList = FB.list.create({
+    keysId: 'journal-lines',
+    active: function () { return true; },
+    tbody: 'jl-body',
+    companyId: function () { return COMPANY; },
+    canAdd: false,
+    editable: function () { return false; },
+    same: function () { return true; },
+    validate: function () { return null; },
+    // Flat list, never foldable — Line Items exists to browse individual
+    // lines, so tree mode's parent/child fold affordance (even forced open)
+    // is the wrong interaction model here. groupKey: 'batch_id' is fb-list.js's
+    // flat-list group-atomicity feature (2026-08-30): a filter or column
+    // sort can never split one batch's lines apart, or hide any of them —
+    // the group is kept/moved as a whole if ANY of its rows matches, without
+    // requiring a designated parent row. See fb-list.js's groupKey comment
+    // for the mechanism.
+    groupKey: 'batch_id',
+    columns: [
+      // Journal/Date/Doc No carry their real value on every row (see the
+      // row-shaping comment above) — jlBlankRepeats() below blanks them on
+      // screen, past a batch's first rendered row, without touching the
+      // underlying data CSV/PDF export reads.
+      { field: 'date', label: 'Date', type: 'text', filterType: 'date', sortable: true,
+        display: function (v) { return v ? esc(v) : ''; } },
+      { field: 'journal', label: 'Journal', type: 'text', filterType: 'text', sortable: true,
+        display: function (v) { return v ? esc(v) : ''; } },
+      { field: 'reference', label: 'Doc No', type: 'text', filterType: 'text', sortable: true,
+        display: function (v, r) {
+          if (!v) return '';
+          return '<a class="doc-link" href="' + drillHref(r.batch_id) + '" target="_parent" onclick="event.stopPropagation()">' + esc(v) + '</a>';
+        } },
+      { field: 'account_code', label: 'Account', type: 'text', filterType: 'text', sortable: true },
+      { field: 'account_name', label: 'Account Name', type: 'text', filterType: 'text', sortable: true,
+        display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+      { field: 'debit', label: 'Debit', type: 'number', filterType: 'amount', sortable: true, align: 'right',
+        display: amtDisplay },
+      { field: 'credit', label: 'Credit', type: 'number', filterType: 'amount', sortable: true, align: 'right',
+        display: amtDisplay },
+      { field: 'description', label: 'Description', type: 'text', filterType: 'text', sortable: true,
+        display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    ],
+    list: {
+      fetch: function () { return Promise.resolve(JL_ROWS); },
+      map: function (r) { return Object.assign({}, r, { _key: r._key }); }
+    },
+    // Screen-only: blanks Journal/Date/Doc No past a batch's first row in
+    // CURRENT render order (works under any sort/filter, since groupKey
+    // keeps a batch's rows contiguous but doesn't fix which one renders
+    // first). Fires after every render — onChrome is fb-list.js's
+    // per-render hook (see its own comment) — so it's re-applied on sort
+    // and filter changes too, not just initial load.
+    onChrome: function () { jlBlankRepeats(); }
+  });
+
+  var _jlBatchByKey = {};
+  JL_ROWS.forEach(function (r) { _jlBatchByKey[String(r._key)] = r.batch_id; });
+
+  function jlBlankRepeats() {
+    var lastBatch = null;
+    document.querySelectorAll('#jl-body tr[data-key]').forEach(function (tr) {
+      var batch = _jlBatchByKey[tr.dataset.key];
+      var repeat = batch !== undefined && batch === lastBatch;
+      lastBatch = batch;
+      if (repeat) {
+        ['date', 'journal', 'reference'].forEach(function (f) {
+          var td = tr.querySelector('td[data-field="' + f + '"]');
+          if (td) td.innerHTML = '';
         });
       }
-      loadJournal();
-    })
-    .catch(function() { loadJournal(); });
-  
-  function doSearch() {
-    currentFilters = {
-      dateFrom: '${start}',
-      dateTo:   '${end}',
-      accountCode:  document.getElementById('f-account').value.trim(),
-      journalId:    document.getElementById('f-journal').value
-    };
-    loadJournal();
-  }
-  
-  function clearFilters() {
-    document.getElementById('f-journal').value = '';
-    document.getElementById('f-account').value = '';
-    currentFilters = { dateFrom: '${start}', dateTo: '${end}' };
-    currentSort = { sortBy: 'date', sortDir: 'DESC' };
-    loadJournal();
-  }
-  
-  function setSort(column) {
-    if (currentSort.sortBy === column) {
-      currentSort.sortDir = currentSort.sortDir === 'ASC' ? 'DESC' : 'ASC';
-    } else {
-      currentSort.sortBy = column;
-      currentSort.sortDir = 'DESC';
-    }
-    updateSortIndicators();
-    loadJournal();
-  }
-  
-  function updateSortIndicators() {
-    document.querySelectorAll('th.sortable').forEach(function(th) {
-      th.classList.remove('sort-asc', 'sort-desc');
-    });
-    var activeHeader = Array.from(document.querySelectorAll('th.sortable')).find(function(th) {
-      var col = th.textContent.toLowerCase().trim();
-      if (currentSort.sortBy === 'date' && col.includes('date')) return true;
-      if (currentSort.sortBy === 'reference' && col.includes('reference')) return true;
-      if (currentSort.sortBy === 'account_code' && col.includes('account')) return true;
-      if (currentSort.sortBy === 'debit' && col.includes('debit')) return true;
-      if (currentSort.sortBy === 'credit' && col.includes('credit')) return true;
-      return false;
-    });
-    if (activeHeader) {
-      activeHeader.classList.add(currentSort.sortDir === 'ASC' ? 'sort-asc' : 'sort-desc');
-    }
-  }
-  
-  function loadJournal() {
-    var body = document.getElementById('table-body');
-    body.innerHTML = '<tr><td colspan="7" class="no-results">Loading…</td></tr>';
-    
-    var payload = Object.assign({}, currentFilters, currentSort, { companyId: '${company}', action: 'journal.list', limit: 500 });
-    
-    fetch('/api/action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(res) {
-      var rows = res.data || res || [];
-      if (!Array.isArray(rows) || rows.length === 0) {
-        body.innerHTML = '<tr><td colspan="7" class="no-results">No entries found.</td></tr>';
-        return;
-      }
-      
-      var html = '';
-      rows.forEach(function(r) {
-        var dateStr = r.date ? new Date(r.date).toISOString().slice(0, 10) : '';
-        var debit = parseFloat(r.debit || 0).toFixed(2);
-        var credit = parseFloat(r.credit || 0).toFixed(2);
-        var desc = (r.description || '').substring(0, 80);
-        html += '<tr>' +
-          '<td>' + dateStr + '</td>' +
-          '<td><a href="/${company}/journal/voucher?batch=' + encodeURIComponent(r.batch_id || '') + '&from=journal" target="_parent">' + (r.reference || r.batch_id || '') + '</a></td>' +
-          '<td>' + (r.account_code || '') + '</td>' +
-          '<td>' + (accountsMap[r.account_code] || '') + '</td>' +
-          '<td>' + desc + '</td>' +
-          '<td class="num">' + (debit !== '0.00' ? debit : '') + '</td>' +
-          '<td class="num">' + (credit !== '0.00' ? credit : '') + '</td>' +
-          '</tr>';
-      });
-      body.innerHTML = html;
-    })
-    .catch(function(e) {
-      body.innerHTML = '<tr><td colspan="7" class="no-results">Error loading journal entries.</td></tr>';
-      console.error(e);
     });
   }
-  
-  updateSortIndicators();
-  // loadJournal() is triggered after accounts fetch completes (above)
+
+  jlList.load();
 </script>
 </body>
 </html>`;
@@ -632,12 +815,17 @@ async function buildVoucherRegister(query, company, start, end) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Transaction Register — freeBooks</title>
-<link rel="stylesheet" href="/public/common.css?v=${Date.now()}">
+<link rel="stylesheet" href="/public/common.css?v=${_assetV('common.css')}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: 1200px; margin: 0; padding: 24px 32px; }
+  .page { max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; }
   .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 18px; }
+  /* On-screen this repeats page/tab chrome the app already shows (company,
+     period) — hidden here, restored for print/PDF, since PDF export opens
+     this exact standalone document raw (ia-restructure-3-spec.md §6.2). */
+  .header { display: none; }
+  @media print { .header { display: block; } }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
   .period { font-size: 10pt; color: #666; margin-top: 2px; }
@@ -715,8 +903,8 @@ async function buildVoucherRegister(query, company, start, end) {
   <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks · Transaction Register</div>
 </div>
 
-<script src="/public/fb-core.js?v=${Date.now()}"></script>
-<script src="/public/fb-list.js?v=${Date.now()}"></script>
+<script src="/public/fb-core.js?v=${_assetV('fb-core.js')}"></script>
+<script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
 <script>
   var COMPANY = ${JSON.stringify(company)};
   var VR_ROWS = ${JSON.stringify(rowsData)};
@@ -827,7 +1015,7 @@ async function buildCF(query, company, start, end) {
     const code = r.account_code || '';
     const name = r.row_type === 'total' ? `<strong>${r.account_name}</strong>` : r.account_name;
     const codeCell = code
-      ? `<a href="/${company}/books?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      ? `<a href="/${company}/journal?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
       : code;
     tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
   }
@@ -841,7 +1029,7 @@ async function buildCF(query, company, start, end) {
 async function buildSCE(query, company, start, end) {
   const rows = await query(`SELECT * FROM sce(?, ?, ?)`, [company, start, end]);
   let tableRows = rows.map(r => `<tr class="account">
-    <td>${r.account_code ? `<a href="/${company}/books?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a>` : ''}</td><td>${r.account_name}</td>
+    <td>${r.account_code ? `<a href="/${company}/journal?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a>` : ''}</td><td>${r.account_name}</td>
     <td class="num">${fmt(r.opening_balance)}</td>
     <td class="num">${fmt(r.movements)}</td>
     <td class="num">${fmt(r.closing_balance)}</td>
@@ -995,12 +1183,17 @@ async function buildAPAging(query, company, _start, end) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AP Aging — freeBooks</title>
-<link rel="stylesheet" href="/public/common.css?v=${Date.now()}">
+<link rel="stylesheet" href="/public/common.css?v=${_assetV('common.css')}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: 1100px; margin: 0; padding: 24px 32px; }
+  .page { max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; }
   .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
+  /* On-screen this repeats page/tab chrome the app already shows (company,
+     period) — hidden here, restored for print/PDF, since PDF export opens
+     this exact standalone document raw (ia-restructure-3-spec.md §6.2). */
+  .header { display: none; }
+  @media print { .header { display: block; } }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
   .period { font-size: 10pt; color: #666; margin-top: 2px; }
@@ -1054,8 +1247,8 @@ async function buildAPAging(query, company, _start, end) {
   </div>
   <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} \u00b7 freeBooks</div>
 </div>
-<script src="/public/fb-core.js?v=${Date.now()}"></script>
-<script src="/public/fb-list.js?v=${Date.now()}"></script>
+<script src="/public/fb-core.js?v=${_assetV('fb-core.js')}"></script>
+<script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
 <script>
   var COMPANY = ${JSON.stringify(company)};
   var AS_OF   = ${JSON.stringify(asOf)};
@@ -1304,7 +1497,7 @@ async function buildApControl(query, company, _start, end) {
     <tbody>${tableRows}</tbody>
   </table>`;
 
-  const html = htmlPage('AP Control Reconciliation', companyName, `As of ${end}`, tableHtml);
+  const html = htmlPage('AP Control Reconciliation', companyName, `As of ${end}`, tableHtml, { wide: true });
   return { tableHtml: html, rows };
 }
 
@@ -1369,7 +1562,14 @@ async function renderReport(query, company, reportType, startDate, endDate, opts
   } catch (_) {}
 
   const period = reportType === 'bs' ? `As at ${endDate}` : `${startDate} to ${endDate}`;
-  const htmlOut = htmlPage(title, companyName, period, tableHtml, { wide: reportType === 'integrity' });
+  // PL/BS/CF/SCE stay reading-width — a handful of narrow amount columns,
+  // same convention as printed financial statements in other accounting
+  // software (QBO/Xero keep these narrower even where their own transaction
+  // lists/registers go full-width). TB, wider (6 columns incl. a long
+  // Account-name one), also shares a tab strip with GL/Journal/Voucher
+  // Register on the Journal hub page — all of which go wide below — so it
+  // goes wide too, for a consistent width across that one tab group.
+  const htmlOut = htmlPage(title, companyName, period, tableHtml, { wide: reportType === 'integrity' || reportType === 'tb' });
   const csvOut  = toCSV(rows);
   const filename = `${reportType}_${startDate}_${endDate}`;
 

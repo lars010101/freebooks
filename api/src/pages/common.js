@@ -114,7 +114,7 @@ function topBarContext(company, activeKey) {
     inbox:       { nav: `` },
     payables:    { nav: `` },
     statements:  { nav: `` },
-    books:       { nav: `` },
+    journal:     { nav: `` },
     calendar:    { nav: `` },
     documents:   { nav: `` },
     settings:    { nav: `` },
@@ -158,6 +158,7 @@ function navBar(company, activeKey) {
         <button class="tb-icon-btn" id="tb-new-btn" title="New">+</button>
         <div id="tb-new-dropdown" class="tb-new-dropdown" hidden></div>
         <button class="tb-icon-btn" id="tb-notif-btn" title="Notifications">🔔<span id="tb-notif-badge" class="tb-notif-badge" hidden></span></button>
+        <button class="tb-icon-btn" id="tb-dl-btn" title="Download (SIE / CSV / PDF)">⬇</button>
         <button class="tb-icon-btn" id="fb-theme-btn" title="Switch theme" onclick="fbToggleTheme()"><span id="fb-theme-icon">☀</span></button>
         <button class="tb-icon-btn" id="tb-help-btn" title="Keyboard shortcuts (?)">?</button>
       </div>
@@ -168,6 +169,7 @@ function navBar(company, activeKey) {
       </div>
     </div>
     <div id="tb-notif-dropdown" class="tb-notif-dropdown" hidden></div>
+    <div id="tb-dl-dropdown" class="tb-dl-dropdown" hidden></div>
     <div id="tb-period-popover" class="tb-period-popover" hidden></div>
     <main id="page-main">`;
 }

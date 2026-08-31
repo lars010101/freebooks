@@ -151,6 +151,29 @@
     // children; fold state is keyed by row._key; childRowHtml renders children.
     // Flat lists (tree falsy) are untouched — the default.
     cfg.tree = !!cfg.tree;
+
+    // ── groupKey opt-in (2026-08-30, Journal Line Listing) — flat-list-only ──
+    // A flat list (cfg.tree falsy) where cfg.groupKey identifies which rows
+    // belong to the same logical group (e.g. all lines of one journal batch)
+    // gets two changes to filter/sort, applied only when groupKey is set:
+    //   - Filtering (free-text + column ≡ dropdowns): if ANY row in a group
+    //     matches, the WHOLE group is kept — a filter can never split a
+    //     group's rows apart, even though fb-list's normal per-row filter
+    //     machinery (colMatches/cfg.filter) only ever tests a row's OWN
+    //     field values. This is the flat-list equivalent of tree mode's
+    //     "children follow their parent," generalized to groups with no
+    //     parent/child DOM distinction and no fold state — for reports that
+    //     want every row permanently visible (tree mode's default collapsed
+    //     folding is wrong for them) while still keeping filter-atomicity.
+    //   - Sorting: rows sort as contiguous blocks by group (a block's
+    //     position is decided by its FIRST row's value for the sort column,
+    //     same rule as applyViewSortTree's parent-decides-block-order), so a
+    //     group's rows stay adjacent under any column sort, not just filter.
+    // Accepts either a field name string or a function(row) → key.
+    if (cfg.groupKey && typeof cfg.groupKey === 'string') {
+      var _gkField = cfg.groupKey;
+      cfg.groupKey = function (r) { return r[_gkField]; };
+    }
     // canAdd: false → fixed-row register (Company attributes): no add row, no
     // create verb — every row is critical and rows are never added/removed.
     var canAdd = cfg.canAdd !== false;
@@ -300,6 +323,31 @@
             return pass;
           });
         }
+      } else if (cfg.groupKey && (filterQ || hasColFilters())) {
+        // ── groupKey filter expansion (2026-08-30) ── Evaluate the normal
+        // per-row predicate first (same rules as the plain flat branch
+        // below), then expand: a group is entirely kept if ANY of its rows
+        // individually passed. Order is preserved (rows already sit in
+        // group-contiguous order — the report seeds them that way).
+        function rowPasses(r) {
+          if (keepRow(r)) return true;
+          var pass = true;
+          if (filterQ && cfg.filter) pass = !!cfg.filter(r, filterQ);
+          else if (filterQ) {
+            var terms = filterQ.toLowerCase().split(/\s+/).filter(Boolean);
+            pass = terms.every(function (t) {
+              return cfg.columns.some(function (c) {
+                var v = r[c.field];
+                return v !== null && v !== undefined && String(v).toLowerCase().indexOf(t) >= 0;
+              });
+            });
+          }
+          if (pass && hasColFilters()) pass = applyColFilters(r);
+          return pass;
+        }
+        var groupOk = {};
+        out.forEach(function (r) { if (rowPasses(r)) groupOk[cfg.groupKey(r)] = true; });
+        out = out.filter(function (r) { return keepRow(r) || !!groupOk[cfg.groupKey(r)]; });
       } else {
         if (filterQ && cfg.filter) out = out.filter(function (r) { return keepRow(r) || cfg.filter(r, filterQ); });
         else if (filterQ) {
@@ -324,7 +372,7 @@
       // dirty data is never reordered out from under the user). Single-key
       // (one column at a time). Tree: parents sorted, children follow.
       if (sortState.field && sortState.dir && !anyDirty()) {
-        out = cfg.tree ? applyViewSortTree(out) : applyViewSort(out);
+        out = cfg.tree ? applyViewSortTree(out) : (cfg.groupKey ? applyViewSortGrouped(out) : applyViewSort(out));
       }
       return out;
     }
@@ -635,6 +683,31 @@
       });
       var out = [];
       ib.forEach(function (p) { out.push(p[0].parent); p[0].kids.forEach(function (k) { out.push(k); }); });
+      return out;
+    }
+
+    // groupKey sort (2026-08-30): the flat-list analog of applyViewSortTree —
+    // rows sort as contiguous blocks by group, a block's position decided by
+    // its FIRST row's value for the sort column (mirrors "parent decides
+    // block order"), intra-block order unchanged. Requires the incoming
+    // array to already be group-contiguous (the report seeds it that way).
+    function applyViewSortGrouped(arr) {
+      var col = colByName(sortState.field);
+      if (!col) return arr;
+      var dir = sortState.dir === 'desc' ? -1 : 1;
+      var blocks = [], curKey, cur = null;
+      for (var i = 0; i < arr.length; i++) {
+        var r = arr[i], k = cfg.groupKey(r);
+        if (cur === null || k !== curKey) { cur = { first: r, rows: [] }; blocks.push(cur); curKey = k; }
+        cur.rows.push(r);
+      }
+      var ib = blocks.map(function (b, i) { return [b, i]; });
+      ib.sort(function (a, b) {
+        var c = sortCmp(col, dir, a[0].first, b[0].first);
+        return c !== 0 ? c : (a[1] - b[1]);
+      });
+      var out = [];
+      ib.forEach(function (p) { p[0].rows.forEach(function (r) { out.push(r); }); });
       return out;
     }
 

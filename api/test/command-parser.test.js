@@ -195,7 +195,7 @@ test('parse: :report pl q2', () => {
 test('parse: :report voucher-register', () => {
   const r = cmd.parse(':report voucher-register');
   assert.strictEqual(r.type, 'alias');
-  assert.strictEqual(r.parsed.route, '/books?t=voucher-register');
+  assert.strictEqual(r.parsed.route, '/journal?t=voucher-register');
 });
 
 test('parse: :report with no args → error', () => {

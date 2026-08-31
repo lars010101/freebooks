@@ -12,7 +12,15 @@
   var _fbOrigFetch = window.fetch.bind(window);
   window.fetch = function(url, opts) {
     var isApi = typeof url === 'string' && (url.indexOf('/api/') === 0 || url === '/api');
-    if (!isApi) return _fbOrigFetch(url, opts);
+    // /api/:company/report?type=... returns HTML (or, for type=sie, a binary
+    // attachment) — never the {ok,error} JSON envelope this wrapper exists to
+    // normalize. Forcing r.json() on it (below) silently turns the real body
+    // into the literal string "null" (JSON.stringify of the failed-parse
+    // fallback). ia-restructure-3-spec.md §1's fetch-and-cache report loader
+    // (reports-hub.js, accounting.js's Integrity tab, payables.js's Aging/
+    // Control tabs) hit exactly this — passthrough it unwrapped.
+    var isReportFetch = isApi && url.indexOf('/report?') !== -1;
+    if (!isApi || isReportFetch) return _fbOrigFetch(url, opts);
     return _fbOrigFetch(url, opts).then(function(r) {
       return r.json().catch(function() { return null; }).then(function(body) {
         if (body && body.ok === false && body.error && typeof body.error === 'object') {
@@ -163,6 +171,13 @@
         // DOM) and BEFORE re-executing scripts (the arriving page registers
         // fresh sets).
         if (window.FB && FB.keys && FB.keys.resetPage) FB.keys.resetPage();
+        // Unified download icon (ia-restructure-3-spec.md §6.3): clear the
+        // departing page's CSV/PDF hooks so a soft-nav to a page/tab with
+        // nothing to export doesn't keep showing stale menu rows from the
+        // page you just left. SIE isn't cleared — it's company/period
+        // scoped, not page scoped.
+        window.__fbDownloadCsv = null;
+        window.__fbDownloadPdfUrl = null;
 
         // Re-execute inline scripts inside #page-main
         oldMain.querySelectorAll('script').forEach(function(s) {

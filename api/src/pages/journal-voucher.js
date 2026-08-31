@@ -1034,7 +1034,7 @@ ${commonStyle()}
         postEntry();
       } },
       quit: { key: 'q', hint: 'quit', paletteEligible: false, run: function () {
-        var url = FROM_REPORT ? '/' + COMPANY + '/books?t=' + FROM_REPORT : '/' + COMPANY;
+        var url = FROM_REPORT ? '/' + COMPANY + '/journal?t=' + FROM_REPORT : '/' + COMPANY;
         if (FROM_REPORT && RPT_START && RPT_END) {
           url += '&start=' + encodeURIComponent(RPT_START) + '&end=' + encodeURIComponent(RPT_END);
         }

@@ -314,12 +314,22 @@ ${commonStyle()}
   #vendors-body input { font-family:'Helvetica Neue',Arial,sans-serif !important; font-size:inherit !important; }
   .fb-dd { font-family:'Helvetica Neue',Arial,sans-serif; }
 
-  /* Report iframe (Aging/Control tabs — IA restructure 2) */
-  .rpt-iframe { border:none; width:100%; height:calc(100vh - 220px); min-height:500px; display:block; background:#fff; border-radius:8px; }
+  /* Aging/Control tabs — fetched report fragment, not an iframe (no nested
+     document navigation, no duplicate <head>/CSS parse). Mirrors
+     reports/render.js htmlPage()'s embedded styling, theme-aware.
+     docs/ia-restructure-3-spec.md §1. */
+  .rpt-embed { border:none; width:100%; min-height:500px; display:block; background:var(--surface,#fff); border-radius:8px; padding:16px 20px; }
+  .rpt-embed .page { padding:0; max-width:none; }
+  .rpt-embed .header { display:none; } /* period/company header — redundant with this page's own H1 */
+  .rpt-embed table { width:100%; border-collapse:collapse; margin-top:8px; }
+  .rpt-embed th { text-align:left; font-size:9pt; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted,#555); border-bottom:1px solid var(--border,#ccc); padding:6px 8px; }
+  .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border,#f0f0f0); vertical-align:top; color:var(--text); }
+  .rpt-embed .footer { margin-top:24px; padding-top:12px; border-top:1px solid var(--border,#ddd); font-size:9pt; color:var(--text-muted,#888); }
+  .rpt-embed-msg { padding:1rem 0; color:var(--text-muted,#888); }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
-<div class="page">
+<div class="page page-wide">
 
   <!-- Page header -->
   <div class="header">
@@ -412,14 +422,14 @@ ${commonStyle()}
     </table>
   </div>
 
-  <!-- AGING TAB — iframe embed of report?type=ap-aging -->
+  <!-- AGING TAB — fetched fragment of report?type=ap-aging -->
   <div id="tab-aging" class="tab-panel">
-    <iframe id="aging-frame" src="about:blank" class="rpt-iframe"></iframe>
+    <div id="aging-body" class="rpt-embed"><p class="rpt-embed-msg">Loading…</p></div>
   </div>
 
-  <!-- CONTROL TAB — iframe embed of report?type=ap-control -->
+  <!-- CONTROL TAB — fetched fragment of report?type=ap-control -->
   <div id="tab-control" class="tab-panel">
-    <iframe id="control-frame" src="about:blank" class="rpt-iframe"></iframe>
+    <div id="control-body" class="rpt-embed"><p class="rpt-embed-msg">Loading…</p></div>
   </div>
 
 </div>
@@ -453,8 +463,9 @@ function showTab(t) {
     window._vendorsLoaded = true;
     if (typeof loadPartners === 'function') loadPartners();
   }
-  if (t === 'aging') loadReportFrame('aging-frame', 'ap-aging');
-  if (t === 'control') loadReportFrame('control-frame', 'ap-control');
+  if (t === 'aging') loadReportEmbed('aging-body', 'ap-aging');
+  if (t === 'control') loadReportEmbed('control-body', 'ap-control');
+  updateDownloadHooks(t);
   // Persist last-active tab (session-scoped, §2.4).
   // Per-tab relevance override (global-period-selector-chrome-spec §4.2):
   // bills→range, vendors→none, aging→asOf, control→asOf.
@@ -463,18 +474,146 @@ function showTab(t) {
   try { sessionStorage.setItem('fb.tab.payables', t); } catch(e) {}
 }
 
-// Load (or reload) a report iframe for the Aging/Control tabs. Reads the
+// Load (or reload) a report fragment for the Aging/Control tabs — fetches the
+// standalone report page and extracts its .page element client-side
+// (DOMParser), same technique as reports-hub.js and accounting.js's Integrity
+// tab (docs/ia-restructure-3-spec.md §1). No nested-document navigation, no
+// duplicate <head>/CSS parse, cached per URL for the session. Reads the
 // as-of date from FB.period.get().end — the server requires ?end= for all
-// report types including as-of reports (ap-aging, ap-control). If no
-// period is resolved yet (fresh company, no transactions), the iframe is
-// left at about:blank rather than firing a 400.
-function loadReportFrame(frameId, reportType) {
-  var f = document.getElementById(frameId);
-  if (!f) return;
+// report types including as-of reports (ap-aging, ap-control). If no period
+// is resolved yet (fresh company, no transactions), the container shows a
+// prompt rather than firing a 400.
+//
+// ap-aging is excluded from this path — its <tbody> is empty, populated
+// entirely by an embedded FB.list.create().load() script written for an
+// isolated iframe's own independent FB instance (confirmed: executing it in
+// this host page's shared scope broke FB.period app-wide). It keeps the old
+// iframe mechanism, auto-resized to content height so the report just prints
+// downward instead of scrolling inside a height-clamped box. ap-control's
+// rows ARE server-rendered — safe on the fragment path.
+var IFRAME_REPORTS = ['ap-aging'];
+function loadReportIframe(containerId, url) {
+  var body = document.getElementById(containerId);
+  if (!body) return;
+  body.innerHTML = '<iframe id="rpt-iframe-' + containerId + '" src="' + url.replace(/"/g, '&quot;')
+    + '" style="border:none;width:100%;height:200px;display:block;background:#fff"></iframe>';
+  var frame = document.getElementById('rpt-iframe-' + containerId);
+  // ResizeObserver, not a one-shot resize-on-load measurement: this report
+  // populates its table via its own async script (a bill.aging/journal.list-
+  // style call) that resolves after the load event fires — a single
+  // measurement would capture the still-empty shell's height. Matches
+  // reports-hub.js's fix.
+  frame.onload = function() {
+    try {
+      var doc = frame.contentWindow.document;
+      function resize() {
+        var h = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);
+        frame.style.height = h + 'px';
+      }
+      resize();
+      var ro = new ResizeObserver(resize);
+      ro.observe(doc.body);
+    } catch (e) {}
+  };
+}
+
+var _rptEmbedCache = {};
+function loadReportEmbed(containerId, reportType) {
+  var body = document.getElementById(containerId);
+  if (!body) return;
   var st = window.FB && FB.period ? FB.period.get() : { end: '' };
   var end = st.end || '';
-  if (!end) { f.src = 'about:blank'; return; }
-  f.src = '/api/' + COMPANY + '/report?type=' + reportType + '&end=' + encodeURIComponent(end);
+  if (!end) { body.innerHTML = '<p class="rpt-embed-msg">Select a period first.</p>'; return; }
+  var url = '/api/' + COMPANY + '/report?type=' + reportType + '&end=' + encodeURIComponent(end);
+  if (IFRAME_REPORTS.indexOf(reportType) >= 0) { loadReportIframe(containerId, url); return; }
+  if (_rptEmbedCache[url]) { body.innerHTML = _rptEmbedCache[url]; return; }
+  body.innerHTML = '<p class="rpt-embed-msg">Loading…</p>';
+  fetch(url).then(function(r) {
+    var ct = r.headers.get('content-type') || '';
+    return r.text().then(function(text) { return { ok: r.ok, ct: ct, text: text }; });
+  }).then(function(r) {
+    if (!r.ok || r.ct.indexOf('application/json') === 0) {
+      var msg = 'Load failed';
+      try { msg = JSON.parse(r.text).error || msg; } catch(e) {}
+      body.innerHTML = '<p class="rpt-embed-msg" style="color:#c0392b">' + esc(msg) + '</p>';
+      return;
+    }
+    var doc = new DOMParser().parseFromString(r.text, 'text/html');
+    var pageEl = doc.querySelector('.page');
+    if (!pageEl) { body.innerHTML = '<p class="rpt-embed-msg">Report returned no content.</p>'; return; }
+    // Deliberately NOT re-executing pageEl's embedded <script> (some reports,
+    // e.g. AP Aging, ship one): it calls FB.list.create()/FB.keys, written
+    // for an isolated iframe with its own independent FB instance — running
+    // it in this host page's shared scope collided with the host's live
+    // FB.period state (confirmed while building this). The report's DATA is
+    // fully server-rendered regardless; only its filter/sort interactivity
+    // goes inert, same as before this fetch mechanism existed.
+    _rptEmbedCache[url] = pageEl.outerHTML;
+    body.innerHTML = pageEl.outerHTML;
+  }).catch(function(err) {
+    body.innerHTML = '<p class="rpt-embed-msg" style="color:#c0392b">Load failed: ' + esc(err && err.message ? err.message : 'network error') + '</p>';
+  });
+}
+
+// Feed the unified topbar download icon (ia-restructure-3-spec.md §6.3) —
+// Aging/Control had NO download affordance at all before this; Bills/Vendors
+// are editable registers, not reports, and stay without one. AP Aging's raw
+// fetched data never reaches window scope as a flat array the way GL/Line
+// items/Transactions do — its iframe script groups straight into a nested
+// vendorRows global (vendor summary rows, each carrying a _bills array) —
+// the generic row→CSV converter below already drops any key starting with
+// "_", so exporting vendorRows directly yields the vendor-level summary
+// (Current/1-30/31-60/61-90/90+/Total), which is the report's own content.
+function _rowsToCsvPayables(rows) {
+  if (!rows || !rows.length) return null;
+  var keys = Object.keys(rows[0]).filter(function (k) { return k.charAt(0) !== '_'; });
+  var header = keys.map(function (k) { return '"' + k.replace(/_/g, ' ').replace(/\\b\\w/g, function (c) { return c.toUpperCase(); }) + '"'; }).join(',');
+  var lines = [header];
+  rows.forEach(function (r) {
+    lines.push(keys.map(function (k) { return '"' + String(r[k] == null ? '' : r[k]).replace(/"/g, '""') + '"'; }).join(','));
+  });
+  return lines.join('\\n');
+}
+function _fragmentCsvPayables(containerId) {
+  var body = document.getElementById(containerId);
+  var tables = body ? body.querySelectorAll('table') : [];
+  if (!tables.length) return null;
+  var lines = [];
+  tables.forEach(function (tbl) {
+    tbl.querySelectorAll('tr').forEach(function (tr) {
+      var cells = Array.from(tr.querySelectorAll('th,td'));
+      if (cells.length) lines.push(cells.map(function (c) { return '"' + c.textContent.trim().replace(/"/g, '""') + '"'; }).join(','));
+    });
+    lines.push('');
+  });
+  return lines.join('\\n');
+}
+function updateDownloadHooks(t) {
+  var st = window.FB && FB.period ? FB.period.get() : {};
+  if (t === 'aging' || t === 'control') {
+    var reportType = t === 'aging' ? 'ap-aging' : 'ap-control';
+    var suffix = reportType + (st.end ? '_' + st.end : '');
+    window.__fbDownloadPdfUrl = function () {
+      var s = window.FB && FB.period ? FB.period.get() : {};
+      if (!s.end) return null;
+      return '/api/' + COMPANY + '/report?type=' + reportType + '&end=' + encodeURIComponent(s.end);
+    };
+    if (t === 'aging') {
+      window.__fbDownloadCsv = function () {
+        var frame = document.getElementById('rpt-iframe-aging-body');
+        var csv = frame && frame.contentWindow ? _rowsToCsvPayables(frame.contentWindow.vendorRows) : null;
+        return csv ? { filename: suffix + '.csv', csv: csv } : null;
+      };
+    } else {
+      window.__fbDownloadCsv = function () {
+        var csv = _fragmentCsvPayables('control-body');
+        return csv ? { filename: suffix + '.csv', csv: csv } : null;
+      };
+    }
+  } else {
+    window.__fbDownloadPdfUrl = null;
+    window.__fbDownloadCsv = null;
+  }
 }
 
 // Reload the visible report tab when the global period changes.
@@ -482,8 +621,8 @@ if (window.FB && FB.period) {
   FB.period.onChange(function () {
     var active = document.querySelector('.tab-panel.active');
     if (!active) return;
-    if (active.id === 'tab-aging') loadReportFrame('aging-frame', 'ap-aging');
-    if (active.id === 'tab-control') loadReportFrame('control-frame', 'ap-control');
+    if (active.id === 'tab-aging') loadReportEmbed('aging-body', 'ap-aging');
+    if (active.id === 'tab-control') loadReportEmbed('control-body', 'ap-control');
   });
 }
 

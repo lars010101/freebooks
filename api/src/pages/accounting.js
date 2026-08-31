@@ -41,10 +41,20 @@ ${commonStyle()}
   .type-badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:9pt; font-weight:600; }
   .subhead { font-size:11pt; font-weight:700; color:#1a1a1a; margin:18px 0 6px; }
   .subhead:first-child { margin-top:0; }
+  /* Integrity tab — fetched report fragment, not FB.list (nothing to edit).
+     Mirrors reports/render.js htmlPage()'s embedded styling, theme-aware.
+     docs/ia-restructure-3-spec.md §3.3. */
+  .rpt-embed .page { padding:0; max-width:none; }
+  .rpt-embed .header { display:none; } /* period/company header — redundant with this page's own H1 */
+  .rpt-embed table { width:100%; border-collapse:collapse; margin-top:8px; }
+  .rpt-embed th { text-align:left; font-size:9pt; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted,#555); border-bottom:1px solid var(--border,#ccc); padding:6px 8px; }
+  .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border,#f0f0f0); vertical-align:top; color:var(--text); }
+  .rpt-embed .footer { margin-top:24px; padding-top:12px; border-top:1px solid var(--border,#ddd); font-size:9pt; color:var(--text-muted,#888); }
+  .rpt-embed-msg { padding:1rem 0; color:var(--text-muted,#888); }
 </style>
 </head>
 <body>${navBar(company, 'accounting')}
-<div class="page">
+<div class="page page-wide">
   <div class="header">
     <h1>📊 Accounting</h1>
   </div>
@@ -54,6 +64,7 @@ ${commonStyle()}
     <div class="tab" id="tab-taxcodes-label" onclick="showTab('taxcodes')">Tax Codes<span id="tab-dot-taxcodes" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:#d97706"> ●</span></div>
     <div class="tab" onclick="showTab('centers')">Cost/Profit Centers<span id="tab-dot-centers" style="display:none;color:#d97706"> ●</span></div>
+    <div class="tab" onclick="showTab('integrity')">Integrity<span id="tab-dot-integrity" style="display:none;color:#cc2222"> ●</span></div>
   </div>
 
   <!-- COA TAB -->
@@ -86,6 +97,12 @@ ${commonStyle()}
       <thead><tr><th>Center ID</th><th>Name</th><th>Type</th><th>Profit Center</th><th style="text-align:center">Active</th><th></th></tr></thead>
       <tbody id="centers-body"></tbody>
     </table>
+  </div>
+
+  <!-- INTEGRITY TAB — fetched report fragment (report?type=integrity), not
+       FB.list: nothing here to edit/add/delete. docs/ia-restructure-3-spec.md §3.3 -->
+  <div id="tab-integrity" class="tab-panel">
+    <div id="integrity-body" class="rpt-embed"><p class="rpt-embed-msg">Loading…</p></div>
   </div>
 
 </div>
@@ -122,7 +139,7 @@ function showTab(t) {
       resetDirty(curTab);
     }
   }
-  var tabs = ['coa','taxcodes','journals','centers'];
+  var tabs = ['coa','taxcodes','journals','centers','integrity'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
   document.getElementById('tab-'+t).classList.add('active');
@@ -143,6 +160,93 @@ function showTab(t) {
     if (t === 'journals') loadJournals();
     if (t === 'centers') loadCenters();
   }
+  // Integrity re-fetches on every visit (not just the first) — cheap, and the
+  // globally-selected period may have changed since the tab was last shown.
+  if (t === 'integrity') loadIntegrity();
+  updateDownloadHooks(t);
+}
+
+// Feed the unified topbar download icon (ia-restructure-3-spec.md §6.3) —
+// only Integrity is a "report" here (Chart of Accounts/Tax Codes/Journals/
+// Centers are editable registers, not reports, and stay without one).
+function updateDownloadHooks(t) {
+  if (t === 'integrity') {
+    window.__fbDownloadPdfUrl = function () {
+      var s = window.FB && FB.period ? FB.period.get() : {};
+      if (!s.start || !s.end) return null;
+      return '/api/' + COMPANY + '/report?type=integrity&start=' + encodeURIComponent(s.start) + '&end=' + encodeURIComponent(s.end);
+    };
+    window.__fbDownloadCsv = function () {
+      var body = document.getElementById('integrity-body');
+      var tables = body ? body.querySelectorAll('table') : [];
+      if (!tables.length) return null;
+      var lines = [];
+      tables.forEach(function (tbl) {
+        tbl.querySelectorAll('tr').forEach(function (tr) {
+          var cells = Array.from(tr.querySelectorAll('th,td'));
+          if (cells.length) lines.push(cells.map(function (c) { return '"' + c.textContent.trim().replace(/"/g, '""') + '"'; }).join(','));
+        });
+        lines.push('');
+      });
+      var s = window.FB && FB.period ? FB.period.get() : {};
+      return { filename: 'integrity_' + (s.start || '') + '_' + (s.end || '') + '.csv', csv: lines.join('\\n') };
+    };
+  } else {
+    window.__fbDownloadPdfUrl = null;
+    window.__fbDownloadCsv = null;
+  }
+}
+
+// ========== INTEGRITY — fetched report fragment, not FB.list ==========
+// Same fetch-and-extract technique as reports-hub.js (docs/ia-restructure-3-spec.md
+// §1/§3.3): fetch the standalone report page, pull out its .page element via
+// DOMParser, inject the markup — no iframe. Uses the globally-selected period
+// (FB.period) even though this page's dateRelevance is 'none' for its other
+// tabs; the integrity() / integrity_extended() checks are period-range checks
+// and need a start/end regardless.
+function loadIntegrity() {
+  var body = document.getElementById('integrity-body');
+  if (!body) return;
+  var st = (window.FB && FB.period) ? FB.period.get() : {};
+  var start = st.start, end = st.end;
+  var dot = document.getElementById('tab-dot-integrity');
+  if (!start || !end) {
+    body.innerHTML = '<p class="rpt-embed-msg">Select a period first.</p>';
+    return;
+  }
+  body.innerHTML = '<p class="rpt-embed-msg">Loading…</p>';
+  fetch('/api/' + COMPANY + '/report?type=integrity&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end))
+    .then(function(r) {
+      var ct = r.headers.get('content-type') || '';
+      return r.text().then(function(text) { return { ok: r.ok, ct: ct, text: text }; });
+    })
+    .then(function(r) {
+      if (!r.ok || r.ct.indexOf('application/json') === 0) {
+        var msg = 'Load failed';
+        try { msg = JSON.parse(r.text).error || msg; } catch(e) {}
+        body.innerHTML = '<p class="rpt-embed-msg" style="color:#c0392b">' + esc(msg) + '</p>';
+        return;
+      }
+      var doc = new DOMParser().parseFromString(r.text, 'text/html');
+      var pageEl = doc.querySelector('.page');
+      if (!pageEl) { body.innerHTML = '<p class="rpt-embed-msg">Report returned no content.</p>'; return; }
+      body.innerHTML = pageEl.outerHTML;
+      // Dot indicator — a failing check, not "unsaved edits" (the dot's usual
+      // meaning on this page's other four tabs). Reused mechanism, distinct
+      // color (red vs. the amber dirty-dot) to reduce that ambiguity a little;
+      // fully resolving it is an open question (spec §5 item 2).
+      var anyFail = Array.from(body.querySelectorAll('td')).some(function(td) { return td.textContent.trim() === 'FAIL'; });
+      if (dot) dot.style.display = anyFail ? '' : 'none';
+    })
+    .catch(function(err) {
+      body.innerHTML = '<p class="rpt-embed-msg" style="color:#c0392b">Load failed: ' + esc(err && err.message ? err.message : 'network error') + '</p>';
+    });
+}
+if (window.FB && FB.period) {
+  FB.period.onChange(function () {
+    var active = document.querySelector('.tab-panel.active');
+    if (active && active.id === 'tab-integrity') loadIntegrity();
+  });
 }
 
 function showMsg(id, msg, isErr) {
@@ -497,7 +601,7 @@ function loadCompanyJurisdiction() {
   var stored = '';
   try { stored = sessionStorage.getItem('accounting-last-tab') || ''; } catch(e) {}
   var initial = tab || stored || 'coa';
-  var valid = ['coa','taxcodes','journals','centers'];
+  var valid = ['coa','taxcodes','journals','centers','integrity'];
   if (valid.indexOf(initial) < 0) initial = 'coa';
   loadCompanyJurisdiction();
   showTab(initial);

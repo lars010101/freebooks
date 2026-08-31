@@ -239,7 +239,7 @@ ${commonStyle()}
       <thead>
         <tr>
           <th style="white-space:nowrap;width:100px">Date</th>
-          <th style="min-width:120px">Reference</th>
+          <th style="min-width:120px">Doc No</th>
           <th style="min-width:80px">Account</th>
           <th>Account Name</th>
           <th style="text-align:right;min-width:90px">DR</th>

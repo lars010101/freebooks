@@ -64,7 +64,7 @@ ${commonStyle()}
 </style>
 </head>
 <body>${navBar(company, 'documents')}
-<div class="page">
+<div class="page page-wide">
   <div class="header"><h1>📄 Documents</h1></div>
 
   <div class="filter-row">
@@ -172,7 +172,7 @@ function renderDocuments() {
       // The same sequential GL doc number shown clickably in the GL/Journal
       // Line Listing/Voucher Register reports — same click target too.
       // No &from= here deliberately: the voucher view's Quit button builds
-      // its return URL as /books?t=<from>, a Books-report-tab id namespace
+      // its return URL as /journal?t=<from>, a Journal-tab id namespace
       // Documents isn't part of — omitting it falls back to the company
       // root, the same safe default the view already uses when from is unset.
       idMain = '<a href="/' + COMPANY + '/journal/voucher?batch=' + esc(d.docnr_batch_id) + '">' + esc(d.docnr) + '</a>';

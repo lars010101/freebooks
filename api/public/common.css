@@ -422,6 +422,25 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 .tb-notif-item .notif-kind { font-size: 8.5pt; text-transform: uppercase; color: var(--text-muted); letter-spacing: .03em; }
 .tb-notif-item .notif-msg { margin-top: 2px; }
 .tb-notif-item .notif-time { font-size: 8.5pt; color: var(--text-faint); margin-top: 2px; }
+
+/* ---- Unified topbar download dropdown (ia-restructure-3-spec.md §6.3) ---- */
+.tb-dl-dropdown {
+  position: fixed;
+  top: 52px; right: 16px;
+  min-width: 160px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  z-index: 1000;
+  padding: 4px 0;
+}
+.tb-dl-item {
+  display: block; width: 100%; padding: 9px 16px;
+  background: none; border: none; text-align: left; cursor: pointer;
+  font-size: 0.875rem; color: var(--text);
+}
+.tb-dl-item:hover { background: var(--bg); }
 .tb-notif-empty { padding: 20px 14px; text-align: center; color: var(--text-faint); }
 
 /* Inbox section inside the notification dropdown (topbar-chrome-spec §4) */

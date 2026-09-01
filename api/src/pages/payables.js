@@ -461,7 +461,13 @@ function showTab(t) {
   // Load tab content on first visit.
   if (t === 'vendors' && !window._vendorsLoaded) {
     window._vendorsLoaded = true;
-    if (typeof loadPartners === 'function') loadPartners();
+    if (typeof loadPartners === 'function') {
+      var vendorsLoaded = loadPartners();
+      // Deep-linked from search — pre-filter to the matched partner once
+      // data is in (same applyFilterExpr() qualifier grammar as Accounting's).
+      var vendorFilter = new URLSearchParams(window.location.search).get('filter');
+      if (vendorFilter && vendorsLoaded && vendorsLoaded.then) vendorsLoaded.then(function () { partnersList.applyFilterExpr('name:' + vendorFilter); });
+    }
   }
   if (t === 'aging') loadReportEmbed('aging-body', 'ap-aging');
   if (t === 'control') loadReportEmbed('control-body', 'ap-control');

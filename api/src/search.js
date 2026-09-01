@@ -45,7 +45,7 @@ async function _searchPartners(company, q) {
       type: 'partner',
       id: r.partner_id,
       label: r.name,
-      route: '/payables?tab=vendors'
+      route: '/payables?tab=vendors&filter=' + encodeURIComponent(r.name)
     };
   });
 }
@@ -78,29 +78,53 @@ async function _searchAccounts(company, q) {
       type: 'account',
       id: r.account_code,
       label: r.account_code + ' ' + r.account_name,
-      route: '/accounting?tab=coa'
+      route: '/accounting?tab=coa&filter=' + encodeURIComponent(r.account_code)
     };
   });
 }
 
-async function _searchJournals(company, q) {
+async function _searchJournals(company, q, start, end) {
   const like = '%' + _likeEscape(q) + '%';
-  // Multiple entries share a batch_id; DISTINCT collapses to one row per
-  // (batch_id, reference). reference is the plain NNNNN form post-#195.
-  const rows = await query(
-    `SELECT DISTINCT batch_id, reference
-       FROM journal_entries
-      WHERE company_id = @company
-        AND reference ILIKE @like ESCAPE '\\'
-      ORDER BY reference
-      LIMIT ${PER_SCOPE_CAP}`,
-    { company, like }
-  );
+  // Multiple entries share a batch_id; GROUP BY collapses to one row per
+  // (batch_id, reference), with date/description/journal-code/amount rolled
+  // up so the result label carries more than a bare doc number (a bare
+  // "0010" is meaningless — reference is only unique within one journal per
+  // year, so the same number recurs across years/journals).
+  const periodFilter = (start && end) ? ` AND je.date BETWEEN @start AND @end` : '';
+  const baseParams = { company, like };
+  const withPeriodParams = periodFilter ? Object.assign({}, baseParams, { start, end }) : baseParams;
+
+  const sql = (withPeriod) => `
+    SELECT je.batch_id, je.reference,
+           MIN(je.date) AS date,
+           MAX(je.description) AS description,
+           MAX(j.code) AS journal_code,
+           SUM(je.debit_home) AS amount
+      FROM journal_entries je
+      LEFT JOIN journals j ON j.journal_id = je.journal_id AND j.company_id = je.company_id
+     WHERE je.company_id = @company
+       AND je.reference ILIKE @like ESCAPE '\\'
+       ${withPeriod ? periodFilter : ''}
+     GROUP BY je.batch_id, je.reference
+     ORDER BY je.reference
+     LIMIT ${PER_SCOPE_CAP}`;
+
+  let rows = await query(sql(!!periodFilter), withPeriodParams);
+  // A real reference should never dead-end just because it falls outside
+  // the currently selected period — widen to all periods if the in-period
+  // search found nothing.
+  if (!rows.length && periodFilter) rows = await query(sql(false), baseParams);
+
   return rows.map(function (r) {
+    const bits = [r.reference || r.batch_id];
+    if (r.date) bits.push(String(r.date).slice(0, 10));
+    if (r.journal_code) bits.push(r.journal_code);
+    if (r.description) bits.push(r.description);
+    if (r.amount != null) bits.push(Number(r.amount).toFixed(2));
     return {
       type: 'journal',
       id: r.batch_id,
-      label: r.reference || r.batch_id,
+      label: bits.join('  '),
       route: '/journal/voucher?batch=' + encodeURIComponent(r.batch_id)
     };
   });
@@ -142,6 +166,8 @@ async function handleSearch(req, res) {
     const company = req.params.company;
     const q = (req.query.q || '').trim();
     let scope = (req.query.scope || 'all').trim().toLowerCase();
+    const start = (req.query.start || '').trim();
+    const end = (req.query.end || '').trim();
 
     if (!q) return res.json({ ok: true, results: [] });
     if (!VALID_SCOPES.has(scope)) scope = 'all';
@@ -159,7 +185,7 @@ async function handleSearch(req, res) {
 
     if (wantAll || scope === 'partner') results = results.concat(await _safe('partner', () => _searchPartners(company, q)));
     if (wantAll || scope === 'account')  results = results.concat(await _safe('account',  () => _searchAccounts(company, q)));
-    if (wantAll || scope === 'journal')  results = results.concat(await _safe('journal',  () => _searchJournals(company, q)));
+    if (wantAll || scope === 'journal')  results = results.concat(await _safe('journal',  () => _searchJournals(company, q, start, end)));
     if (wantAll || scope === 'bill')     results = results.concat(await _safe('bill',     () => _searchBills(company, q, scope)));
 
     // Total cap (each scope already capped at PER_SCOPE_CAP).

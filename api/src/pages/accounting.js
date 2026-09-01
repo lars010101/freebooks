@@ -155,7 +155,14 @@ function showTab(t) {
   }
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
-    if (t === 'coa') loadCoa();
+    if (t === 'coa') {
+      var coaLoaded = loadCoa();
+      // Deep-linked from search (global-search-spec.md's account→list follow-up)
+      // — pre-filter to the matched row once data is in, reusing the same
+      // applyFilterExpr() qualifier grammar the ≡ column filters already use.
+      var coaFilter = new URLSearchParams(window.location.search).get('filter');
+      if (coaFilter && coaLoaded && coaLoaded.then) coaLoaded.then(function () { coaList.applyFilterExpr('account_code:' + coaFilter); });
+    }
     if (t === 'taxcodes') loadTaxCodes();
     if (t === 'journals') loadJournals();
     if (t === 'centers') loadCenters();
@@ -308,7 +315,7 @@ var coaList = FB.list.create({
   }
 });
 
-function loadCoa(focusKey) { coaList.load(focusKey); }
+function loadCoa(focusKey) { return coaList.load(focusKey); }
 function renderCoaHints() {
   var el = document.getElementById('sb-hints');
   if (el) coaList.renderHints(el);

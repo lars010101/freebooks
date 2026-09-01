@@ -1,7 +1,7 @@
 # API Tokens in Settings → Access — Spec
 
 **Status:** PROPOSED
-**Scope:** Give `auth.token.create` / `auth.token.list` / `auth.token.revoke` a UI surface on the existing Settings → Access tab. Closes the one hard gap found while retiring the `:` command bar (`:token create`/`:token revoke` currently have no other path — confirmed by grep across every page file and `nav-registry.js`).
+**Scope:** Give `auth.token.create` / `auth.token.list` / `auth.token.revoke` a UI surface on the existing Settings → Access tab. Closes the one hard gap found while retiring the `:` command bar (`:token create`/`:token revoke` had no other path at the time — confirmed by grep across every page file and `nav-registry.js`).
 **Companion:** `global-search-spec.md` §0.
 **Depends on:** `tokens.js` (actions unchanged), `auth.js` (unchanged), `settings.js` (`accessList` FB.list config, existing — extended by adding a second, sibling register on the same tab).
 
@@ -9,7 +9,7 @@
 
 ## 0. Why this exists, and why it's UI-only
 
-`auth.token.create`/`list`/`revoke` are real, working, `owner`-gated actions (`action-catalog.js`, confirmed) backing per-actor Bearer credentials used for remote/agent API access (`agent-readiness spec §2.6`). Nobody has ever built a page for them — the only way to mint or revoke a token today is the `:token` command-bar alias. Since that's going away (`global-search-spec.md`), this is a pure frontend addition: no backend action changes.
+`auth.token.create`/`list`/`revoke` are real, working, `owner`-gated actions (`action-catalog.js`, confirmed) backing per-actor Bearer credentials used for remote/agent API access (`agent-readiness spec §2.6`). Nobody had built a page for them — the only way to mint or revoke a token was the `:token` command-bar alias, itself broken (see `global-search-spec.md` §0). Since the whole `:` command bar was going away, this was a pure frontend addition: no backend action changes. (Built and shipped — Settings → Access now has this register.)
 
 ---
 

@@ -671,8 +671,8 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
    Lives inside .tb-search-wrap (position:relative'd by FB.palette). */
 .fb-palette {
   position: absolute;
-  bottom: calc(100% + 4px);
-  top: auto;
+  top: calc(100% + 4px);
+  bottom: auto;
   left: 0;
   min-width: 100%;
   width: max-content;
@@ -703,19 +703,22 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
   color: var(--text-muted);
   flex-shrink: 0;
 }
-/* v7: Group headers for :show — page name above its tabs */
+/* Section divider — plain line between empty-state groups (recently-viewed /
+   period), no label text (§ dropdown revision). */
 .fb-palette-group {
-  padding: 5px 12px 3px;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  color: var(--text-muted);
+  height: 0;
+  margin: 5px 10px;
+  border-top: 1px solid var(--border);
   cursor: default;
-  font-weight: 600;
 }
 /* v7: Indented rows under group headers */
 .fb-palette-row.fb-palette-indented {
   padding-left: 24px;
+}
+/* Second-level nesting — sub-category rows/leaves under a top category
+   (e.g. Journal → Transactions / General Ledger → individual hits). */
+.fb-palette-row.fb-palette-indented2 {
+  padding-left: 40px;
 }
 .fb-palette-row kbd {
   font-size: 0.72rem;
@@ -777,8 +780,8 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
 /* Grammar hint — shown under the bar when a typed command is recognized */
 .fb-grammar-hint {
   position: absolute;
-  bottom: calc(100% + 4px);
-  top: auto;
+  top: calc(100% + 4px);
+  bottom: auto;
   left: 0;
   min-width: 100%;
   background: var(--surface);

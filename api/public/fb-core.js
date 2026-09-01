@@ -437,7 +437,6 @@
       // Static rows are NOT derived from any binding table.
       var navStatic = [
         { keys: '/', hint: 'Search' },
-        { keys: ':', hint: 'Command' },
         { keys: 'h/l', hint: 'Move left / right' },
         { keys: 'j/k', hint: 'Move up / down' },
         { keys: 'gg/G', hint: 'Move to first / last row' }
@@ -493,640 +492,20 @@
     };
   })();
 
-  // ── FB.palette — `:` written commands (roadmap P1-10) ────────────────────
-  // The topbar input hosts two modes: `/` search (per-page filtering,
-  // unchanged) and `:` command. Mode is set by HOW you got there (keyboard
-  // `:` → command; click → search — magnus decision 2), not by content.
-  // Commands derive from two sources, no hand-written registry:
-  //   page verbs — NORMAL-mode hinted bindings of the active FB.keys set,
-  //                filtered: movement/chrome bindings opt out via
-  //                paletteEligible: false; business verbs covered by an
-  //                explicit `:` alias (scoped pageVerb+scope in ALIASES)
-  //                are deduped — the alias is the sole : citizen.
-  //   api        — catalog entries carrying a palette disposition (execute
-  //                via POST /api/action + Idempotency-Key; navigate → form).
-  // #149: NAV rows (registry routes, "Go to X") were dropped from : and
-  // relocated to the ? help overlay's NAV section. ? is the keyboard
-  // teacher now; : is for typed commands and API actions only.
-  // Ranking = localStorage recency, then fuzzy exactness.
+  // ── FB.palette — `+` New menu catalog (global-search-spec.md §0) ─────────
+  // `:` command mode is retired entirely. Its last two commands,
+  // vat-tolerance/gst-tolerance, are gone — VAT/GST tolerance is edited
+  // through Settings → Extensions instead. `/` (FB.search, below) owns
+  // search, navigation, and every fast path `:` used to provide.
+  //
+  // What's left, newTargets()/_fetchCatalog(), was always UNRELATED to `:` —
+  // they back the topbar `+` New menu (topbar-chrome-spec §5).
   var palette = (function () {
-    var _input = null;
-    var _command = false;      // mode: false = search, true = command
-    var _el = null;            // dropdown element
-    var _items = [];           // current matches
-    var _activeIdx = -1;
-    var _catalog = null;       // /api/actions manifest (fetched once)
-    var _reports = null;      // /api/:company/reports/registry (fetched once)
-    var _wired = false;
-
-    // v7: grammar mode — prefix-based engagement, ghost text in input.
-    // The moment the typed prefix unambiguously matches one alias, engage
-    // that alias's grammar + itemSource. No space-gate.
-    var _currentHint = null;     // current grammar hint text, or null
-    var _engagedAlias = null;    // currently engaged alias name, or null
-    var _billSlot = 0;           // :bill advance-on-selection slot index
-    var _partners = null;        // partner list cache for :bill itemSource
-    var _ghostEl = null;         // ghost text overlay element
-
-    // Prefix-based grammar detection: if the first token (everything before
-    // the first space, or the whole query if no space) is a unique prefix of
-    // exactly one alias, engage that alias. If it matches multiple aliases,
-    // don't engage — show the matching commands instead.
-    function _detectGrammar(q) {
-      var firstSpace = q.indexOf(' ');
-      var firstTok = (firstSpace < 0 ? q : q.slice(0, firstSpace)).trim().toLowerCase();
-      if (!firstTok) return null;
-      if (firstTok === 'post!' || firstTok === 'pay!') firstTok = firstTok.slice(0, -1);
-      if (window.FB && FB.command && FB.command.ALIASES && FB.command.ALIASES[firstTok]) {
-        return { alias: firstTok, grammar: FB.command.grammarFor(firstTok), exact: true };
-      }
-      // Prefix match: how many aliases start with this token?
-      var matches = [];
-      if (window.FB && FB.command && FB.command.ALIASES) {
-        Object.keys(FB.command.ALIASES).forEach(function (name) {
-          if (FB.command.ALIASES[name].palette === false) return;
-          if (name.indexOf(firstTok) === 0) matches.push(name);
-        });
-      }
-      if (matches.length === 1) {
-        var alias = matches[0];
-        return { alias: alias, grammar: FB.command.grammarFor(alias), exact: false, typedLen: firstTok.length };
-      }
-      return null; // 0 or 2+ matches → no engagement, show command list
-    }
-
-    // v7: hint renders as ghost text in the input, not as a dropdown header.
-    function _renderHint(grammar) {
-      _currentHint = grammar;
-      _updateGhost();
-    }
-
-    // Ghost text overlay: show the remaining hint after what's typed.
-    // Creates a transparent overlay positioned over the input showing the
-    // typed text as invisible spacing + the remaining hint in grey.
-    function _ensureGhost() {
-      if (_ghostEl) return;
-      _ghostEl = document.createElement('div');
-      _ghostEl.className = 'fb-ghost-hint';
-      // Position relative to the input, not the wrapper — we need to match
-      // the input's exact position so the ghost text starts at the cursor.
-      var inputStyle = window.getComputedStyle(_input);
-      _ghostEl.style.font = inputStyle.font;
-      _ghostEl.style.padding = inputStyle.padding;
-      _ghostEl.style.border = inputStyle.border;
-      _ghostEl.style.letterSpacing = inputStyle.letterSpacing;
-      // Position the ghost at the input's exact location
-      var rect = _input.getBoundingClientRect();
-      var wrap = _input.closest('.tb-search-wrap') || _input.parentElement;
-      if (wrap) {
-        var wrapRect = wrap.getBoundingClientRect();
-        _ghostEl.style.top = (rect.top - wrapRect.top) + 'px';
-        _ghostEl.style.left = (rect.left - wrapRect.left) + 'px';
-        _ghostEl.style.width = rect.width + 'px';
-        _ghostEl.style.height = rect.height + 'px';
-      }
-      if (wrap) wrap.appendChild(_ghostEl);
-    }
-    function _removeGhost() {
-      if (_ghostEl) { _ghostEl.remove(); _ghostEl = null; }
-    }
-    // ── Grammar-segment parser (for dynamic ghost text progression) ───────────
-    // Parses a grammar hint string (e.g. '<amount> <account> [from <account>]
-    // [due <date>] [!]') into ordered segment objects that can be consumed
-    // against the user's typed tokens.  Segment types:
-    //   placeholder  — <amount>, consumes 1 user token (any value)
-    //   keyword      — bare word (from/due/on/...), consumed only on exact match
-    //   optional     — [from <account>], sub-segments entered on keyword match
-    //   alternatives — [vat <amt>|net <amt>|rc] or top-level a | b
-    //   bang         — [!], consumed if user typed '!'
-
-    // Split a grammar string by top-level '|' (depth-0, outside [] and <>).
-    function _splitTopLevelAlts(s) {
-      var result = [], depth = 0, start = 0;
-      for (var k = 0; k < s.length; k++) {
-        if (s[k] === '[' || s[k] === '<') depth++;
-        else if (s[k] === ']' || s[k] === '>') depth--;
-        else if (s[k] === '|' && depth === 0) {
-          result.push(s.slice(start, k).trim());
-          start = k + 1;
-        }
-      }
-      result.push(s.slice(start).trim());
-      return result;
-    }
-
-    function _parseGrammarSegments(grammar) {
-      var s = grammar.trim();
-      // Top-level alternatives (e.g. :token 'create <name> | revoke <name>')
-      var alts = _splitTopLevelAlts(s);
-      if (alts.length > 1) {
-        return [{
-          type: 'alternatives',
-          options: alts.map(function (a) {
-            return { subSegments: _parseGrammarSegments(a), raw: a };
-          }),
-          raw: s
-        }];
-      }
-      var segments = [];
-      var i = 0;
-      while (i < s.length) {
-        while (i < s.length && s[i] === ' ') i++;
-        if (i >= s.length) break;
-        if (s[i] === '<') {
-          var end = s.indexOf('>', i);
-          if (end === -1) end = s.length - 1;
-          segments.push({ type: 'placeholder', raw: s.slice(i, end + 1) });
-          i = end + 1;
-        } else if (s[i] === '[') {
-          var endB = s.indexOf(']', i);
-          if (endB === -1) endB = s.length - 1;
-          var inner = s.slice(i + 1, endB).trim();
-          var rawG = s.slice(i, endB + 1);
-          var innerAlts = inner.split('|');
-          if (innerAlts.length > 1) {
-            segments.push({
-              type: 'alternatives',
-              options: innerAlts.map(function (a) {
-                return { subSegments: _parseGrammarSegments(a.trim()), raw: a.trim() };
-              }),
-              raw: rawG
-            });
-          } else if (inner === '!') {
-            segments.push({ type: 'bang', raw: rawG });
-          } else {
-            segments.push({ type: 'optional', subSegments: _parseGrammarSegments(inner), raw: rawG });
-          }
-          i = endB + 1;
-        } else {
-          // Bare keyword — read until whitespace, '<', or '['
-          var j = i;
-          while (j < s.length && s[j] !== ' ' && s[j] !== '<' && s[j] !== '[') j++;
-          segments.push({ type: 'keyword', raw: s.slice(i, j) });
-          i = j;
-        }
-      }
-      return segments;
-    }
-
-    // Tokenize the argument portion (after the alias), respecting double-quotes.
-    function _tokenizeArgs(str) {
-      var tokens = [];
-      var i = 0, s = str.trim();
-      while (i < s.length) {
-        while (i < s.length && s[i] === ' ') i++;
-        if (i >= s.length) break;
-        if (s[i] === '"') {
-          var end = s.indexOf('"', i + 1);
-          if (end === -1) { tokens.push(s.slice(i + 1)); i = s.length; }
-          else { tokens.push(s.slice(i + 1, end)); i = end + 1; }
-        } else {
-          var sp = s.indexOf(' ', i);
-          if (sp === -1) { tokens.push(s.slice(i)); i = s.length; }
-          else { tokens.push(s.slice(i, sp)); i = sp; }
-        }
-      }
-      return tokens;
-    }
-
-    // Consume user tokens against grammar segments.  Returns the remaining
-    // (unconsumed) segments.  cursor = { idx, trailingSpace } is mutable.
-    // The last token is "in-progress" when the input has no trailing space;
-    // an in-progress token that fails to match a keyword/optional group stops
-    // matching (shows remaining) instead of skipping the group.
-    function _consumeSegments(segments, tokens, cursor) {
-      for (var si = 0; si < segments.length; si++) {
-        var seg = segments[si];
-        if (cursor.idx >= tokens.length) return segments.slice(si);
-        var inProgress = (cursor.idx === tokens.length - 1) && !cursor.trailingSpace;
-        var tok = tokens[cursor.idx];
-
-        if (seg.type === 'placeholder') {
-          cursor.idx++;
-        } else if (seg.type === 'keyword') {
-          if (tok === seg.raw) cursor.idx++;
-          else return segments.slice(si); // required keyword — always stop
-        } else if (seg.type === 'optional') {
-          var firstSub = seg.subSegments[0];
-          if (firstSub && firstSub.type === 'keyword' && tok === firstSub.raw) {
-            var subRem = _consumeSegments(seg.subSegments, tokens, cursor);
-            if (subRem.length > 0) return subRem.concat(segments.slice(si + 1));
-          } else if (inProgress && firstSub && firstSub.type === 'keyword' &&
-                     firstSub.raw.indexOf(tok) === 0) {
-            // In-progress token is a prefix of this group's keyword → stop
-            return segments.slice(si);
-          }
-          // else skip (completed token, or in-progress not matching this group)
-        } else if (seg.type === 'bang') {
-          if (tok === '!') cursor.idx++;
-          else if (inProgress && '!'.indexOf(tok) === 0) return segments.slice(si);
-          // else skip
-        } else if (seg.type === 'alternatives') {
-          var matched = false, isPrefix = false;
-          for (var oi = 0; oi < seg.options.length; oi++) {
-            var opt = seg.options[oi];
-            var fo = opt.subSegments[0];
-            if (fo && fo.type === 'keyword') {
-              if (tok === fo.raw) {
-                var optRem = _consumeSegments(opt.subSegments, tokens, cursor);
-                if (optRem.length > 0) return optRem.concat(segments.slice(si + 1));
-                matched = true;
-                break;
-              }
-              if (inProgress && fo.raw.indexOf(tok) === 0) isPrefix = true;
-            }
-          }
-          if (matched) continue;
-          if (inProgress && isPrefix) return segments.slice(si);
-          // else skip (optional)
-        }
-      }
-      return [];
-    }
-
-    // Join remaining segments back into a grammar hint string.
-    function _segmentsToHint(segments) {
-      var parts = [];
-      for (var i = 0; i < segments.length; i++) parts.push(segments[i].raw);
-      return parts.join(' ');
-    }
-
-    function _updateGhost() {
-      if (!_currentHint || !_engagedAlias) { _removeGhost(); return; }
-      _ensureGhost();
-      var typed = _input ? _input.value : '';
-
-      // Extract the alias portion (before first space, after ':').
-      var afterColon = typed.charAt(0) === ':' ? typed.slice(1) : typed;
-      var firstSpace = afterColon.indexOf(' ');
-      var typedAlias = firstSpace < 0 ? afterColon : afterColon.slice(0, firstSpace);
-
-      var ghost;
-      if (typedAlias !== _engagedAlias) {
-        // Alias-name completion mode (typed prefix like :po for :post):
-        // show the rest of the alias name + full grammar via literal matching.
-        var fullText = ':' + _engagedAlias + ' ' + _currentHint;
-        var typedLower = typed.toLowerCase();
-        var fullLower = fullText.toLowerCase();
-        if (fullLower.indexOf(typedLower) === 0) ghost = fullText.slice(typed.length);
-        else ghost = _currentHint;
-      } else {
-        // Grammar progression mode: consume typed tokens against segments.
-        var argsStr = firstSpace < 0 ? '' : afterColon.slice(firstSpace + 1);
-        var endsWithSpace = typed.length > 0 && typed.charAt(typed.length - 1) === ' ';
-        var tokens = _tokenizeArgs(argsStr);
-        var segments = _parseGrammarSegments(_currentHint);
-        var cursor = { idx: 0, trailingSpace: endsWithSpace };
-        var remaining = _consumeSegments(segments, tokens, cursor);
-        var remStr = _segmentsToHint(remaining);
-        ghost = (remStr && !endsWithSpace) ? ' ' + remStr : remStr;
-      }
-
-      // Build the ghost: invisible text matching the input content (same width)
-      // followed by the grey ghost text. Both use the same font metrics as
-      // the input (set in _ensureGhost) so alignment is exact.
-      _ghostEl.innerHTML =
-        '<span style="visibility:hidden">' + esc(typed) + '</span>' +
-        '<span style="color:var(--text-muted);opacity:0.45">' + esc(ghost) + '</span>';
-    }
-
-    function _renderItems(items) {
-      _items = items;
-      _activeIdx = items.length ? 0 : -1;
-      _render();
-    }
-
-    // Engage grammar mode — show ghost text + populate dropdown from itemSource.
-    function _engageGrammar(g) {
-      _engagedAlias = g.alias;
-      _currentHint = g.grammar;
-      _updateGhost();
-      if (!_el && _command) _open();
-      var alias = (window.FB && FB.command && FB.command.ALIASES) ? FB.command.ALIASES[g.alias] : null;
-      var slotIndex = _slotIndex(g.alias);
-      var itemSource = (alias && alias.itemSource) ? alias.itemSource[slotIndex] : null;
-      if (itemSource) {
-        var partial = _slotPartial(g.alias, slotIndex);
-        var items = itemSource(partial);
-        _renderItems(items);
-      } else {
-        _renderItems([]);
-      }
-    }
-
-    function _disengageGrammar() {
-      _engagedAlias = null;
-      _currentHint = null;
-      _removeGhost();
-    }
-
-    // v7: slot detection — scoped by alias shape, not one general solution.
-    // :report — token count only (first space = type/period boundary, §5.1).
-    // :show — always slot 0 (single slot).
-    // :bill — advance-on-selection via _billSlot variable, starts at 0.
-    // IMPORTANT: the user may have typed only a PREFIX of the alias (e.g. ":sh"
-    // for "show"). We strip the typed prefix, not the full alias name.
-    function _slotIndex(alias) {
-      if (alias === 'bill') return _billSlot;
-      var q = _rawQuery();
-      // Strip the first token (whatever the user actually typed as the alias prefix)
-      var firstSpace = q.indexOf(' ');
-      var typedAlias = (firstSpace < 0 ? q : q.slice(0, firstSpace));
-      var afterAlias = q.slice(typedAlias.length).replace(/^\s*/, '');
-      if (afterAlias.trim() === '') return 0;
-      if (alias === 'report') {
-        var fs = afterAlias.indexOf(' ');
-        return fs < 0 ? 0 : 1;
-      }
-      return 0; // :show and others — single slot
-    }
-
-    // Get the text the user has typed for the current slot.
-    // Strips the typed alias prefix (not the full alias name) from the query.
-    function _slotPartial(alias, slotIndex) {
-      var q = _rawQuery();
-      var firstSpace = q.indexOf(' ');
-      var typedAlias = (firstSpace < 0 ? q : q.slice(0, firstSpace));
-      var afterAlias = q.slice(typedAlias.length).replace(/^\s*/, '');
-      if (alias === 'report') {
-        if (slotIndex === 0) {
-          // text after alias up to first space (or end)
-          var sp = afterAlias.indexOf(' ');
-          return sp < 0 ? afterAlias : afterAlias.slice(0, sp);
-        }
-        // slot 1: everything after the first space
-        var sp1 = afterAlias.indexOf(' ');
-        return sp1 < 0 ? '' : afterAlias.slice(sp1 + 1);
-      }
-      // :show, :new, :bill slot 0 — everything after the typed alias prefix
-      return afterAlias;
-    }
-
-    function _executeGrammar() {
-      var q = _rawQuery();
-      var result = FB.command.parse(':' + q);
-      _exitCommand();
-      if (result.type === 'unknown') {
-        var el = document.getElementById('tb-status-msg');
-        if (el) { el.textContent = result.error; el.className = 'tb-status-msg err'; }
-        return;
-      }
-      if (result.type === 'empty') return;
-      if (result.type === 'alias' || result.type === 'raw') _executeParsed(result);
-    }
-
-    function _executeParsed(result) {
-      var parsed = result.parsed || {};
-      var co = _company();
-      if (parsed.warnings && parsed.warnings.length) {
-        var el = document.getElementById('tb-status-msg');
-        if (el) { el.textContent = parsed.warnings.join('; '); el.className = 'tb-status-msg warn'; }
-      }
-      if (parsed.pageVerb) {
-        if (window.fbKeyActions && typeof window.fbKeyActions[parsed.pageVerb] === 'function') {
-          window.fbKeyActions[parsed.pageVerb]();
-        }
-        return;
-      }
-      if (parsed.route) {
-        var url = parsed.absolute ? parsed.route : '/' + co + parsed.route;
-        // v7: if it's a report route without a period, inject the default period
-        if (url.indexOf('/reports?t=') !== -1 && url.indexOf('&period=') === -1 && _defaultPeriod) {
-          url += '&period=' + encodeURIComponent(_defaultPeriod);
-        }
-        if (parsed.prefill) {
-          try { sessionStorage.setItem('fb-cmd-prefill', JSON.stringify(parsed.prefill)); } catch (e) {}
-        }
-        if (parsed.absolute || !window.fbNavigate) window.location.href = url;
-        else window.fbNavigate(url);
-        return;
-      }
-      if (parsed.commitMode === 'client' && parsed.clientFn) {
-        var fn = window[parsed.clientFn];
-        if (typeof fn === 'function') {
-          fn.apply(null, parsed.clientArgs || []);
-          localStorage.setItem('fb-theme', parsed.clientArgs[0]);
-          var stc = document.getElementById('tb-status-msg');
-          if (stc) { stc.textContent = 'theme: ' + parsed.clientArgs[0]; stc.className = 'tb-status-msg ok'; }
-        }
-        return;
-      }
-      if (parsed.commitMode === 'direct' && parsed.action) {
-        var idk = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random();
-        var body = { action: parsed.action, companyId: co };
-        if (parsed.params) Object.assign(body, parsed.params);
-        fetch('/api/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idk },
-          body: JSON.stringify(body)
-        }).then(function (r) { return r.json(); }).then(function (res) {
-          var st = document.getElementById('tb-status-msg');
-          if (!st) return;
-          if (res && res.ok === false) { st.textContent = ((res.error && res.error.message) || 'error'); st.className = 'tb-status-msg err'; }
-          else { st.textContent = (result.alias || result.action) + ' — done'; st.className = 'tb-status-msg ok'; }
-        }).catch(function () {
-          var st2 = document.getElementById('tb-status-msg');
-          if (st2) { st2.textContent = 'request failed'; st2.className = 'tb-status-msg err'; }
-        });
-        return;
-      }
-      if (parsed.commitMode === 'confirm' && parsed.action) {
-        var idk2 = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random();
-        var body2 = { action: parsed.action, companyId: co };
-        if (parsed.params) Object.assign(body2, parsed.params);
-        fetch('/api/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idk2 },
-          body: JSON.stringify(body2)
-        }).then(function (r) { return r.json(); }).then(function (res) {
-          var st = document.getElementById('tb-status-msg');
-          if (!st) return;
-          if (res && res.ok === false) { st.textContent = ((res.error && res.error.message) || 'error'); st.className = 'tb-status-msg err'; }
-          else { st.textContent = (result.alias || result.action) + ' — done'; st.className = 'tb-status-msg ok'; }
-        }).catch(function () {
-          var st3 = document.getElementById('tb-status-msg');
-          if (st3) { st3.textContent = 'request failed'; st3.className = 'tb-status-msg err'; }
-        });
-        return;
-      }
-      if (parsed.action) {
-        window.fbNavigate('/' + co + '/journal/voucher');
-      }
-    }
-
-    var RECENT_KEY = 'fb.palette.recent';
-    var CAP = 18;
-    var SECTION_CAP = 20;  // v7: raised — flat list, no per-section grouping
+    var _catalog = null;       // /api/actions manifest — used by newTargets() only
 
     function _company() { return location.pathname.split('/')[1] || ''; }
 
-    // ── sources ─────────────────────────────────────────────────────────────
-    function _pageVerbs() {
-      var cur = _activeSet();
-      if (!cur) return [];
-      var seen = {}, out = [];
-      cur.set.bindings.forEach(function (b) {
-        if ((b.mode || 'NORMAL') !== 'NORMAL') return;
-        if (!b.hint || seen[b.hint]) return;
-        // #149: movement/chrome bindings opt out via paletteEligible: false.
-        // Business-action verbs also opt out when an explicit `:` alias
-        // already covers them (scoped by binding-set name) — the alias is
-        // the sole : citizen, the raw key stays taught via ?.
-        if (b.paletteEligible === false) return;
-        if (_aliasCovers(cur.name, b.key)) return;
-        seen[b.hint] = true;
-        out.push({
-          id: 'page:' + cur.name + ':' + b.hint,
-          label: b.hint, key: _keyLabel(b), scope: 'page',
-          exec: function () { b.run({ key: b.key }); }
-        });
-      });
-      return out;
-    }
-
-    // #149: check whether a scoped `:` alias already covers this binding.
-    // ALIASES entries may carry { pageVerb: 'y', scope: 'inbox' }; the binding
-    // is suppressed only when BOTH the key AND the binding-set name match —
-    // vim-convention key reuse across pages must not cause false suppression.
-    function _aliasCovers(setName, key) {
-      var A = (window.FB && FB.command && FB.command.ALIASES) || {};
-      for (var name in A) {
-        var a = A[name];
-        if (a && a.pageVerb && a.pageVerb === key && a.scope === setName) return true;
-      }
-      return false;
-    }
-
-    // #148: build palette items from FB.command.ALIASES — these are the
-    // `:`-prefixed typed commands (bill, post, pay, …) that need argument
-    // entry. They are the primary citizens of the `:` dropdown; page verbs
-    // with direct key bindings (Bug #4) are now excluded.
-    // v7: bare : shows only high-volume inline commands, ordered by frequency.
-    // Low-volume functions (lock, unlock, partner, rate, token, void) are
-    // managed through their proper screens, not the command bar.
-    var INLINE_ALIASES = ['bill', 'pay', 'post', 'report', 'show', 'new'];
-    var ALIAS_AREA = {
-      bill:   'Payables',
-      pay:    'Bank',
-      post:   'Journal',
-      report: 'Reports'
-      // show and new: no area label
-    };
-
-    function _aliasCommands() {
-      var A = (window.FB && FB.command && FB.command.ALIASES) || {};
-      var out = [];
-      INLINE_ALIASES.forEach(function (name) {
-        if (!A[name]) return;
-        if (A[name].palette === false) return;
-        out.push({
-          id: 'alias:' + name,
-          label: name,
-          pageLabel: ALIAS_AREA[name] || '',
-          key: '',
-          scope: 'alias',
-          keepOpen: true,
-          exec: function () {
-            _input.value = ':' + name + ' ';
-            _input.focus();
-            _input.setSelectionRange(_input.value.length, _input.value.length);
-            var g = _detectGrammar(name + ' ');
-            if (g) _engageGrammar(g);
-            else _query_default(name + ' ');
-          }
-        });
-      });
-      return out;
-    }
-
-    function _apiCommands() {
-      if (!_catalog) return [];
-      var out = [];
-      // navigate entries: dedupe by exact route string — all actions sharing a
-      // route surface as one palette row (same label, same nav behavior).
-      var seenRoute = {};
-      Object.keys(_catalog).forEach(function (name) {
-        var meta = _catalog[name] || {};
-        if (meta.palette === 'execute') {
-          out.push({
-            id: 'api:' + name, label: meta.label || meta.description || name, key: '', scope: 'api',
-            isNavigate: false,
-            exec: function () { _runApi(name); }
-          });
-        } else if (meta.palette === 'navigate' && meta.route) {
-          if (seenRoute[meta.route]) return;  // first action for this route wins
-          seenRoute[meta.route] = true;
-          out.push({
-            id: 'api:' + name, label: meta.label || meta.description || name, key: '', scope: 'api',
-            isNavigate: true, create: !!meta.create,
-            exec: function () {
-              if (meta.absolute) window.location.href = meta.route; // company-less (e.g. /setup)
-              else window.fbNavigate('/' + _company() + meta.route);
-            }
-          });
-        }
-      });
-      return out.sort(function (a, b) {
-        return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
-      });
-    }
-
-    // K1: registry routes (window.FB_ROUTES) — 'Go to …' rows. Dedupe is
-    // carried by the registry itself: routes already covered by an
-    // action-catalog navigate entry (journal/voucher, new-company)
-    // keep palette:false there, so no runtime dedupe is needed here.
-    function _routeCommands() {
-      var R = window.FB_ROUTES || [];
-      var out = [];
-      R.forEach(function (r) {
-        if (!r.palette) return;
-        out.push({
-          id: 'nav:' + r.key,
-          label: 'Go to ' + r.label,
-          key: r.gKey ? 'g ' + r.gKey : '',
-          scope: 'nav',
-          exec: function () {
-            var href = r.absolute ? r.route : r.route.replace(':company', _company());
-            if (r.absolute || !window.fbNavigate) window.location.href = href;
-            else window.fbNavigate(href);
-          }
-        });
-      });
-      return out;
-    }
-
-    function _fetchCatalog() {
-      if (_catalog) return;
-      fetch('/api/actions').then(function (r) { return r.json(); }).then(function (res) {
-        if (res && res.actions) { _catalog = res.actions; if (_el) _query_default(_rawQuery()); }
-      }).catch(function () { /* palette works page-verbs-only without it */ });
-    }
-
-    // Lazy fetch — called on demand by reportTypes() itemSource, not on every command entry.
-    var _reportsFetching = false;
-    function _fetchReportsOnce() {
-      if (_reports || _reportsFetching) return;
-      var co = _company();
-      if (!co) return;
-      _reportsFetching = true;
-      fetch('/api/' + co + '/reports/registry').then(function (r) { return r.json(); }).then(function (res) {
-        _reportsFetching = false;
-        if (Array.isArray(res)) { _reports = res; if (_el && _currentHint) _engageGrammar(_detectGrammar(_rawQuery()) || { alias: 'report', grammar: _currentHint }); }
-      }).catch(function () { _reportsFetching = false; });
-    }
-
-    // v7: bare : shows all aliases + execute actions — flat list, no headers,
-    // no "New…" collapse. :new is its own alias with its own itemSource.
-    function _isNavigate(c) { return c.scope === 'api' && c.isNavigate === true; }
-
-    function _defaultItems() {
-      // v7: bare : shows only the 6 inline aliases — no execute actions,
-      // no create-shortcuts, no navigate entries.
-      return _aliasCommands();
-    }
-
-    // Derive a human-readable page name from a route for display in the dropdown.
-    // /settings?tab=vat → "Settings", /payables?tab=partners → "Payables", etc.
+    // ── `+` New menu support (unrelated to `:` — do not remove) ────────────
     function _pageLabelFor(route) {
       if (!route) return '';
       if (route.indexOf('/settings') === 0) return 'Settings';
@@ -1140,70 +519,23 @@
       if (route.indexOf('/bill') === 0) return 'Payables';
       return '';
     }
-
-    // ── §4: showTargets() — navigate-only, non-create, non-reports ──────────
-    function showTargets(partial) {
-      var out = [];
-      if (_catalog) {
-        Object.keys(_catalog).forEach(function (name) {
-          var meta = _catalog[name] || {};
-          if (meta.palette !== 'navigate' || !meta.route) return;
-          if (meta.create) return;                      // exclude create-shortcuts
-          if (meta.route.indexOf('/journal') === 0) return; // exclude journal
-          if (meta.route.indexOf('/statements') === 0) return; // exclude statements
-          if (meta.absolute) return;                     // exclude setup/add company
-          if (meta.route.indexOf('/setup') === 0) return; // exclude setup
-          if (meta.label && /^close /i.test(meta.label)) return; // exclude "Close period"
-          var lbl = meta.label || name;
-          var page = _pageLabelFor(meta.route);
-          out.push({
-            id: 'nav:' + name,
-            label: lbl,
-            group: page || 'Other',
-            route: meta.route,
-            scope: 'nav',
-            exec: function () {
-              window.fbNavigate('/' + _company() + meta.route);
-            }
-          });
-        });
-      }
-      // Dedupe by route
-      var seen = {};
-      out = out.filter(function (c) {
-        if (seen[c.route]) return false;
-        seen[c.route] = true;
-        return true;
-      });
-      // Sort by group, then by label
-      out.sort(function (a, b) {
-        if (a.group !== b.group) return a.group < b.group ? -1 : 1;
-        return a.label < b.label ? -1 : 1;
-      });
-      if (partial) {
-        out = out.filter(function (c) {
-          return c.label.toLowerCase().indexOf(partial.toLowerCase()) !== -1 ||
-                 (c.group && c.group.toLowerCase().indexOf(partial.toLowerCase()) !== -1);
-        });
-      }
-      return out;
+    function _fetchCatalog() {
+      if (_catalog) return;
+      fetch('/api/actions').then(function (r) { return r.json(); }).then(function (res) {
+        if (res && res.actions) _catalog = res.actions;
+      }).catch(function () { /* + menu just stays empty without it */ });
     }
-
-    // v7: newTargets() — create-shortcuts from the catalog. Navigates to forms.
     function newTargets(partial) {
       var out = [];
       if (_catalog) {
         Object.keys(_catalog).forEach(function (name) {
           var meta = _catalog[name] || {};
           if (meta.palette !== 'navigate' || !meta.route) return;
-          if (!meta.create) return;  // only create-shortcuts
+          if (!meta.create) return;
           out.push({
-            id: 'nav:' + name,
-            label: meta.label || name,
-            pageLabel: _pageLabelFor(meta.route),
-            route: meta.route,
-            absolute: !!meta.absolute,
-            scope: 'nav',
+            id: 'nav:' + name, label: meta.label || name,
+            pageLabel: _pageLabelFor(meta.route), route: meta.route,
+            absolute: !!meta.absolute, scope: 'nav',
             exec: function () {
               if (meta.absolute) window.location.href = meta.route;
               else window.fbNavigate('/' + _company() + meta.route);
@@ -1211,13 +543,8 @@
           });
         });
       }
-      // Dedupe by route (bill.create and bill.draft.save share /bill/edit, etc.)
       var seen = {};
-      out = out.filter(function (c) {
-        if (seen[c.route]) return false;
-        seen[c.route] = true;
-        return true;
-      });
+      out = out.filter(function (c) { if (seen[c.route]) return false; seen[c.route] = true; return true; });
       if (partial) {
         out = out.filter(function (c) {
           return c.label.toLowerCase().indexOf(partial.toLowerCase()) !== -1 ||
@@ -1227,445 +554,206 @@
       return out;
     }
 
-    // ── §5: reportTypes() — source from /api/:company/reports/registry ─────
-    var _defaultPeriod = null;
-    var _defaultPeriodFetching = false;
-    function _fetchDefaultPeriod() {
-      if (_defaultPeriod !== null || _defaultPeriodFetching) return;
-      var co = _company();
-      if (!co) return;
-      _defaultPeriodFetching = true;
-      fetch('/api/' + co + '/reports/default-period').then(function (r) { return r.json(); }).then(function (res) {
-        _defaultPeriodFetching = false;
-        if (res && res.period_id) _defaultPeriod = res.period_id;
-      }).catch(function () { _defaultPeriodFetching = false; });
-    }
-
-    function reportTypes(partial) {
-      if (!_reports) {
-        _fetchReportsOnce();
-        return [];
-      }
-      _fetchDefaultPeriod(); // lazy fetch, cached
-      var items = _reports.map(function (r) {
-        return {
-          id: 'report:' + r.id,
-          label: r.label,
-          reportId: r.id,
-          scope: 'api',
-          exec: function () {
-            // If no period typed, use the default period (latest posted txn).
-            // parseReport handles the URL construction via FB.command.parse().
-            var q = _rawQuery();
-            var afterReport = q.slice(q.indexOf(' ') + 1);
-            var hasPeriod = afterReport && afterReport.trim() && afterReport.indexOf(' ') >= 0;
-            var url = '/' + _company() + '/reports?t=' + r.id;
-            if (hasPeriod) {
-              // period was typed — use it
-              var periodTok = afterReport.slice(afterReport.indexOf(' ') + 1);
-              url += '&period=' + encodeURIComponent(periodTok);
-            } else if (_defaultPeriod) {
-              // no period — use the default (latest posted transaction period)
-              url += '&period=' + encodeURIComponent(_defaultPeriod);
-            }
-            window.fbNavigate(url);
-          }
-        };
-      });
-      if (partial) {
-        items = items.filter(function (c) {
-          return c.label.toLowerCase().indexOf(partial.toLowerCase()) !== -1 ||
-                 c.reportId.toLowerCase().indexOf(partial.toLowerCase()) !== -1;
-        });
-      }
-      return items;
-    }
-
-    // ── §6: partnerMatches() — reuse partner data for :bill slot 0 ──────────
-    function partnerMatches(partial) {
-      var partners = window.fbPartnerData;
-      if (!partners && _partners) partners = _partners;
-      if (!partners) {
-        // Fetch via action RPC (partner.list) — no direct GET endpoint exists.
-        _fetchPartners();
-        return [];
-      }
-      var list = partners;
-      if (partial) {
-        list = partners.filter(function (p) {
-          var nm = (p.name || '').toLowerCase();
-          return nm.indexOf(partial.toLowerCase()) !== -1;
-        });
-      }
-      return list.map(function (p) {
-        return {
-          id: 'partner:' + (p.partner_id || p.id || p.name),
-          label: p.name,
-          scope: 'partner',
-          keepOpen: true,
-          exec: function () {
-            // §7: advance-on-selection — commit partner label into input, advance to slot 1.
-            _input.value = ':bill ' + p.name + ' ';
-            _input.focus();
-            _input.setSelectionRange(_input.value.length, _input.value.length);
-            _billSlot = 1;
-            _currentHint = FB.command.grammarFor('bill');
-            _renderItems([]);  // no items for amount slot (free text)
-          }
-        };
-      });
-    }
-
-    function _fetchPartners() {
-      if (_partners) return;
-      var co = _company();
-      if (!co) return;
-      fetch('/api/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'partner.list', companyId: co })
-      }).then(function (r) { return r.json(); }).then(function (res) {
-        if (res && !res.ok === false && Array.isArray(res.result)) { _partners = res.result; if (_el && _currentHint) _engageGrammar(_detectGrammar(_rawQuery()) || { alias: 'bill', grammar: _currentHint }); }
-        else if (Array.isArray(res)) { _partners = res; if (_el && _currentHint) _engageGrammar(_detectGrammar(_rawQuery()) || { alias: 'bill', grammar: _currentHint }); }
-      }).catch(function () {});
-    }
-
-    // Wire itemSource functions to ALIASES (§3.3) — called at wire() and enterCommand()
-    function _wireItemSources() {
-      var A = (window.FB && FB.command && FB.command.ALIASES) || {};
-      if (A.show) A.show.itemSource = [showTargets];
-      if (A.new) A.new.itemSource = [newTargets];
-      if (A.report) A.report.itemSource = [reportTypes, null];
-      if (A.bill) A.bill.itemSource = [partnerMatches, null, null, null];
-    }
-
-    // ── fuzzy matching + ranking ────────────────────────────────────────────
-    function _fuzzy(q, text) {
-      q = q.toLowerCase(); text = String(text || '').toLowerCase();
-      if (!q) return 0;
-      var ti = 0, score = 0, last = -2;
-      for (var qi = 0; qi < q.length; qi++) {
-        var at = text.indexOf(q[qi], ti);
-        if (at === -1) return null;
-        score += (at - ti);
-        if (at === last + 1) score -= 1;      // consecutive bonus
-        last = at; ti = at + 1;
-      }
-      if (text.indexOf(q) === 0) score -= 10; // prefix bonus
-      return score;
-    }
-
-    function _recent() {
-      try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch (e) { return []; }
-    }
-    function _pushRecent(id) {
-      var r = _recent().filter(function (x) { return x !== id; });
-      r.unshift(id);
-      try { localStorage.setItem(RECENT_KEY, JSON.stringify(r.slice(0, 20))); } catch (e) {}
-    }
-
-    function _match(q, candidates) {
-      var recent = _recent();
-      // #148: Score and cap each scope independently, then concatenate in
-      // ALIAS → API order. Page verbs (Bug #4) and nav rows are no longer in
-      // the `:` dropdown — page verbs have direct key bindings (`w`, `p`, …)
-      // and are taught via the `?` overlay; aliases need typed arguments and
-      // API actions have no keyboard shortcut.
-      //
-      // v6 (§2): callers pass a pre-filtered candidate list (_verbCandidates)
-      // so navigate-non-create entries are excluded from bare : in every state.
-      var groups;
-      if (candidates) {
-        // Group the provided candidates by scope for independent scoring/capping
-        var byScope = {};
-        candidates.forEach(function (c) {
-          var s = c.scope || 'api';
-          if (!byScope[s]) byScope[s] = [];
-          byScope[s].push(c);
-        });
-        groups = [
-          { items: byScope['alias'] || [], scope: 'alias' },
-          { items: byScope['api'] || [], scope: 'api' }
-        ];
-        // Include any other scopes that might be present (e.g. 'group')
-        Object.keys(byScope).forEach(function (s) {
-          if (s !== 'alias' && s !== 'api') groups.push({ items: byScope[s], scope: s });
-        });
-      } else {
-        groups = [
-          { items: _aliasCommands(), scope: 'alias' },
-          { items: _apiCommands(), scope: 'api' }
-        ];
-      }
-      var result = [];
-      groups.forEach(function (g) {
-        var scored = [];
-        g.items.forEach(function (c) {
-          var s = _fuzzy(q, c.label);
-          var sk = c.key ? _fuzzy(q, c.key) : null;
-          if (s === null) s = sk;
-          else if (sk !== null) s = Math.min(s, sk);
-          if (s === null) return;
-          var ri = recent.indexOf(c.id);
-          // Recent items get a flat -1000 bonus (not -100-ri) so they sort
-          // first as a group, but alphabetical tiebreak still applies within
-          // the group. Without this, each recent item got a unique score
-          // (-100, -101, …) that defeated the alphabetical tiebreak.
-          var recBonus = ri >= 0 ? -1000 : 0;
-          scored.push({ c: c, score: recBonus + s, rec: ri >= 0 });
-        });
-        scored.sort(function (a, b) {
-          if (a.score === b.score) return a.c.label.localeCompare(b.c.label, undefined, { sensitivity: 'base' });
-          return a.score - b.score;
-        });
-        result = result.concat(scored.slice(0, SECTION_CAP).map(function (x) { return x.c; }));
-      });
-      return result;
-    }
-
-    // ── dropdown UI ─────────────────────────────────────────────────────────
-    function _open() {
-      if (_el || !_input) return;
-      _el = document.createElement('div');
-      _el.className = 'fb-palette';
-      var wrap = _input.closest('.tb-search-wrap') || _input.parentElement;
-      if (wrap) wrap.style.position = wrap.style.position || 'relative';
-      (wrap || document.body).appendChild(_el);
-    }
-    function _close() { if (_el) { _el.remove(); _el = null; } _activeIdx = -1; _items = []; }
-
-    function _render() {
-      if (!_el) return;
-      if (!_items.length) {
-        _el.innerHTML = '<div class="fb-palette-empty">no matching commands</div>';
-        return;
-      }
-      // v7: If items have a `group` property, render grouped with headers.
-      // Otherwise flat list.
-      var hasGroups = _items.some(function (c) { return c.group; });
-      var html = '';
-      if (hasGroups) {
-        var lastGroup = null;
-        _items.forEach(function (c, i) {
-          if (c.group !== lastGroup) {
-            html += '<div class="fb-palette-group">' + esc(c.group) + '</div>';
-            lastGroup = c.group;
-          }
-          html += '<div class="fb-palette-row fb-palette-indented' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
-            '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
-            (c.key ? '<kbd>' + esc(c.key) + '</kbd>' : '') +
-          '</div>';
-        });
-      } else {
-        _items.forEach(function (c, i) {
-          html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
-            '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
-            (c.pageLabel ? '<span class="fb-palette-page">' + esc(c.pageLabel) + '</span>' : '') +
-            (c.key ? '<kbd>' + esc(c.key) + '</kbd>' : '') +
-          '</div>';
-        });
-      }
-      _el.innerHTML = html;
-      Array.prototype.forEach.call(_el.querySelectorAll('.fb-palette-row'), function (row) {
-        row.onmousedown = function (e) { e.preventDefault(); };
-        row.onclick = function () { _execute(_items[Number(row.dataset.i)]); };
-        row.onmouseover = function () { _activeIdx = Number(row.dataset.i); _render(); };
-      });
-      var act = _el.querySelector('.fb-palette-active');
-      if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
-    }
-
-    function _move(d) {
-      if (!_items.length) return;
-      var i = _activeIdx + d;
-      if (i < 0) i = 0;
-      if (i > _items.length - 1) i = _items.length - 1; // sticky, vim doctrine
-      _activeIdx = i;
-      _render();
-    }
-
-    function _rawQuery() {
-      var v = _input ? _input.value : '';
-      return v.charAt(0) === ':' ? v.slice(1) : v;
-    }
-    function _query_default(q) {
-      // v7: unified query path — flat list, no collapse/expand.
-      if (!_el && _command) _open();
-      if (q !== '') {
-        _items = _match(q.trim(), _defaultItems());
-      } else {
-        _items = _defaultItems();
-      }
-      _activeIdx = _items.length ? 0 : -1;
-      _render();
-    }
-
-    function _execute(item) {
-      if (!item) return;
-      _pushRecent(item.id);
-      // #148: alias items set keepOpen:true so selecting them does NOT exit
-      // command mode — the input is filled with `:name ` and grammar mode
-      // engages so the user continues typing arguments.
-      if (!item.keepOpen) _exitCommand();
-      item.exec();
-    }
-
-    function _runApi(name) {
-      var idk = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random();
-      fetch('/api/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idk },
-        body: JSON.stringify({ action: name, companyId: _company() })
-      }).then(function (r) { return r.json(); }).then(function (res) {
-        var el = document.getElementById('tb-status-msg');
-        if (!el) return;
-        if (res && res.ok === false) el.textContent = name + ': ' + ((res.error && res.error.message) || 'error');
-        else el.textContent = name + ' — done';
-      }).catch(function () {});
-    }
-
-    // ── mode transitions ────────────────────────────────────────────────────
-    function enterCommand() {
-      if (!_input) return;
-      _command = true;
-      _wireItemSources();
-      _fetchCatalog();
-      _input.value = ':';
-      _input.focus();
-      _input.setSelectionRange(1, 1);
-      _open();
-      _query_default('');
-    }
-    function _exitCommand() {
-      _command = false;
-      _disengageGrammar();
-      _billSlot = 0;
-      _close();
-      if (_input) { _input.value = ''; _input.blur(); }
-    }
-
-    // ── wiring (called once from common.js with the persistent topbar input) ─
-    function wire(input) {
-      if (_wired || !input) return;
-      _wired = true;
-      _input = input;
-      _wireItemSources();
-      // Capture phase: command-mode keys must beat the input's other bubble
-      // listeners (Enter-blurs / Esc-clears) — those stay for search mode.
-      input.addEventListener('keydown', function (e) {
-        if (!_command) return;
-        if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) { e.preventDefault(); e.stopImmediatePropagation(); _move(1); }
-        else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) { e.preventDefault(); e.stopImmediatePropagation(); _move(-1); }
-        else if (e.key === 'Enter') {
-          e.preventDefault(); e.stopImmediatePropagation();
-          // Grammar mode: select highlighted item, or parse the full input
-          if (_engagedAlias) {
-            if (_items.length && _activeIdx >= 0) _execute(_items[_activeIdx]);
-            else _executeGrammar();
-          } else {
-            // If the typed prefix matches one alias, selecting it engages grammar
-            var g = _detectGrammar(_rawQuery());
-            if (g && !g.exact) {
-              // Prefix match — complete the alias name and engage
-              _input.value = ':' + g.alias + ' ';
-              _input.focus();
-              _input.setSelectionRange(_input.value.length, _input.value.length);
-              _engageGrammar(g);
-            } else if (g && g.exact) {
-              _engageGrammar(g);
-            } else {
-              _execute(_items[_activeIdx >= 0 ? _activeIdx : 0]);
-            }
-          }
-        }
-        else if (e.key === 'Escape') {
-          e.preventDefault(); e.stopImmediatePropagation();
-          _exitCommand();
-        }
-        else if (e.key === 'Tab') {
-          // v7: Tab completes the alias prefix if there's a unique match
-          if (!_engagedAlias) {
-            var g2 = _detectGrammar(_rawQuery());
-            if (g2 && !g2.exact) {
-              e.preventDefault();
-              _input.value = ':' + g2.alias + ' ';
-              _input.focus();
-              _input.setSelectionRange(_input.value.length, _input.value.length);
-              _engageGrammar(g2);
-            }
-          }
-        }
-      }, true);
-      input.addEventListener('input', function () {
-        if (!_command) {
-          if (_input.value.charAt(0) === ':') {
-            _command = true;
-            _wireItemSources();
-            _fetchCatalog();
-            _open();
-            var q0 = _rawQuery();
-            var g0 = _detectGrammar(q0);
-            if (g0) _engageGrammar(g0);
-            else { _disengageGrammar(); _query_default(q0); }
-          }
-          return;
-        }
-        if (_input.value.charAt(0) !== ':') {
-          _command = false; _close(); _disengageGrammar(); _billSlot = 0; return;
-        }
-        var q = _rawQuery();
-        var g = _detectGrammar(q);
-        if (g) {
-          _engageGrammar(g);
-        } else {
-          _disengageGrammar();
-          _billSlot = 0;
-          _query_default(q);
-        }
-      });
-      input.addEventListener('blur', function () {
-        if (!_command) return;
-        // Small delay so a row click (mousedown-prevented, so blur shouldn't
-        // fire — belt and braces) can still execute first.
-        setTimeout(function () { if (_command) _exitCommand(); }, 150);
-      });
-      input.addEventListener('focus', function () {
-        // Mouse/keyboard entry that isn't enterCommand is always search mode
-        // (magnus decision 2) — no ':'-prefix detection on typed content.
-        if (!_command) _close();
-      });
-    }
-
     return {
-      wire: wire,
-      enterCommand: enterCommand,
-      isCommand: function () { return _command; },
-      isOpen: function () { return !!_el; },
       newTargets: newTargets,
       preloadCatalog: _fetchCatalog
     };
   })();
 
-  // ── FB.search — `/` global search (command-bar-ux-spec.md §4) ──────────────
-  // The topbar input hosts two `/` modes: `/` global search (always, with
-  // an optional "Filter current page" row when a FB.list is visible) and `:`
-  // command mode (owned by FB.palette). This module owns the global-search
-  // dropdown: fetches from GET /api/:company/search, renders the synthetic
-  // "Filter current page" row first when a FB.list is visible, and groups
-  // the rest of the results by entity type with headers showing hit counts
-  // (using the same fb-palette-* CSS as the command palette).
+  // ── FB.search — `/` global search (global-search-spec.md) ──────────────────
+  // `/` is the only summon key now. Pressing it prepopulates the bar with
+  // literal, editable text "search: " (§1) rather than a bare slash. Empty
+  // state offers an explicit scope list + recently-viewed + period
+  // quick-picks (§2). Typed state groups fuzzy results by category (§3),
+  // with Journal merging entries and ledger-view reports (GL/TB/voucher-
+  // register/line-items) into one group, including a synthesized General
+  // Ledger link whenever the query also matches an account (§4), and
+  // Statements matching a small static list with zero network round-trip
+  // (§5). `Enter` drills one level at a time (§6). `//` and the legacy
+  // `/p:`/`/a:`/`/j:`/`/b:` letter-prefixes still work for anyone who types
+  // them directly (§7).
   var search = (function () {
     var _input = null;
     var _el = null;
-    var _items = [];
+    var _items = [];        // flat, navigable rows — mixed kinds, see below
     var _activeIdx = -1;
     var _wired = false;
-    var _active = false;       // true while a search dropdown is open
+    var _active = false;
     var _debounce = null;
     var _lastReq = 0;
+    var _bareEmpty = false; // true while showing the empty-state (scope/recent/period) list
+    var _committedScope = null; // null = still showing the 3-row scope picker; set once a row is chosen
+    var _expanded = {};     // catKey → true, reset every fresh query
+    var _lastCategories = {}; // last computed category set, reused when expanding
 
     function _company() { return location.pathname.split('/')[1] || ''; }
 
+    // ── static report registry — zero network, zero debounce (§5) ──────────
+    var STATEMENT_REPORTS = [
+      { id: 'pl', label: 'Profit & Loss', route: '/statements?t=pl' },
+      { id: 'bs', label: 'Balance Sheet', route: '/statements?t=bs' },
+      { id: 'cf', label: 'Cash Flow', route: '/statements?t=cf' },
+      { id: 'sce', label: 'Statement of Equity', route: '/statements?t=sce' }
+    ];
+    var JOURNAL_REPORTS = [
+      { id: 'voucher-register', label: 'Transactions', route: '/journal?t=voucher-register' },
+      { id: 'journal', label: 'Line items', route: '/journal?t=journal' },
+      { id: 'tb', label: 'Trial Balance', route: '/journal?t=tb' },
+      { id: 'gl', label: 'General Ledger', route: '/journal?t=gl' },
+      { id: 'integrity', label: 'Integrity', route: '/accounting?tab=integrity' }
+    ];
+    function _staticMatch(list, q) {
+      var lower = q.toLowerCase();
+      return list.filter(function (r) { return r.label.toLowerCase().indexOf(lower) !== -1; })
+        .map(function (r) { return { type: 'result', id: r.id, label: r.label, route: r.route }; });
+    }
+
+    // ── recently-viewed — localStorage, per company, cap 3 (§2.1) ──────────
+    function _recentKey() { return 'fb-recent-' + _company(); }
+    function _recentList() {
+      try {
+        var arr = JSON.parse(localStorage.getItem(_recentKey()) || '[]');
+        return Array.isArray(arr) ? arr : [];
+      } catch (e) { return []; }
+    }
+    // Public write API — called by detail-view pages on open (bill-detail.js,
+    // journal-voucher.js view-existing-batch path, …).
+    function pushRecent(entry) {
+      if (!entry || !entry.id || !entry.route || !entry.label) return;
+      try {
+        var list = _recentList().filter(function (r) { return !(r.id === entry.id && r.type === entry.type); });
+        list.unshift({ type: entry.type, id: entry.id, label: entry.label, route: entry.route });
+        localStorage.setItem(_recentKey(), JSON.stringify(list.slice(0, 3)));
+      } catch (e) { /* private mode / quota — recently-viewed just stays empty */ }
+    }
+
+    // ── period quick-picks (§2.2) — reuses FB.period's own state/periods ───
+    var _defaultPeriodRow = null;
+    var _defaultPeriodFetching = false;
+    function _fetchDefaultPeriodRow(cb) {
+      if (_defaultPeriodRow || _defaultPeriodFetching) { cb(); return; }
+      var co = _company();
+      if (!co) { cb(); return; }
+      _defaultPeriodFetching = true;
+      fetch('/api/' + co + '/reports/default-period').then(function (r) { return r.json(); }).then(function (res) {
+        _defaultPeriodFetching = false;
+        if (res && res.period_id && typeof _pPeriods !== 'undefined') {
+          for (var i = 0; i < _pPeriods.length; i++) {
+            if (_pPeriods[i].period_id === res.period_id) { _defaultPeriodRow = _pPeriods[i]; break; }
+          }
+        }
+        cb();
+      }).catch(function () { _defaultPeriodFetching = false; cb(); });
+    }
+    function _priorPeriodRow() {
+      if (!_defaultPeriodRow || typeof _pPeriods === 'undefined') return null;
+      for (var i = 0; i < _pPeriods.length; i++) {
+        if (_pPeriods[i].period_id === _defaultPeriodRow.period_id) return _pPeriods[i + 1] || null;
+      }
+      return null;
+    }
+    function _applyPeriodRow(p) {
+      if (!p || typeof period === 'undefined') return;
+      period.set({
+        mode: 'period', periodId: p.period_id,
+        start: String(p.start_date).slice(0, 10), end: String(p.end_date).slice(0, 10)
+      });
+    }
+
+    // ── bar parsing (§1, §2, §7) ─────────────────────────────────────────────
+    var BASE_PREFIX = 'search: ';
+    var SCOPE_PREFIXES = [
+      { key: 'page-filter', text: 'filter current page: ' },
+      { key: 'journal',     text: 'journal search: ' },
+      { key: 'account',     text: 'accounts search: ' },
+      { key: 'partner',     text: 'partners search: ' },
+      { key: 'bill',        text: 'bills search: ' },
+      { key: 'statements',  text: 'statements search: ' }
+    ];
+
+    // Returns { scope, query } for anything this module owns, or null.
+    // Legacy '/'-typed input (§7) still works even though `enter()` no
+    // longer inserts a literal slash — a user who types it directly gets
+    // the old scoped-prefix grammar via FB.command.parseSearchScope.
+    function _parseBar(value) {
+      if (!value) return null;
+      if (value.charAt(0) === '/') {
+        if (value.charAt(1) === '/') return { scope: 'page-filter', query: value.slice(2) };
+        var parsed = (window.FB && FB.command && FB.command.parseSearchScope)
+          ? FB.command.parseSearchScope(value) : { scope: null, query: value.slice(1) };
+        return { scope: parsed.scope || 'all', query: parsed.query };
+      }
+      var lower = value.toLowerCase();
+      for (var i = 0; i < SCOPE_PREFIXES.length; i++) {
+        if (lower.indexOf(SCOPE_PREFIXES[i].text) === 0) {
+          return { scope: SCOPE_PREFIXES[i].key, query: value.slice(SCOPE_PREFIXES[i].text.length) };
+        }
+      }
+      if (lower.indexOf(BASE_PREFIX) === 0) return { scope: 'all', query: value.slice(BASE_PREFIX.length) };
+      return null;
+    }
+
+    function _listVisible() { return !!(window.FB && FB.list && FB.list.visible && FB.list.visible()); }
+
+    // Current page/tab → up to 3 live-updating scope options, GitHub-style
+    // (tab, page, global — narrowest first, each optional except global).
+    var PAGE_SCOPE_MAP = { payables: 'bill', journal: 'journal', accounting: 'account', statements: 'statements' };
+    // (pageKey, tab-panel id minus "tab-" prefix) → { scopeKey, tabLabel }.
+    // Every tab that maps to a search entity is listed — de-duplication
+    // against the page's own default scope happens in _buildScopeOptions,
+    // not here (a tab whose scope happens to equal the page default still
+    // gets its own row; only the redundant plain page-row is dropped).
+    // Aging is the same bills data, just bucketed by due date (same relationship
+    // GL has to journal entries) — same 'bill' scope as the Bills tab itself.
+    // Control (ap-control) is a one-number GL-vs-subledger reconciliation, not
+    // a list of records — nothing to search for there, same category as
+    // Integrity — deliberately not mapped.
+    var TAB_SCOPE_MAP = {
+      'payables:bills':   { scopeKey: 'bill',    tabLabel: 'Bills' },
+      'payables:vendors': { scopeKey: 'partner', tabLabel: 'Vendors' },
+      'payables:aging':   { scopeKey: 'bill',    tabLabel: 'Aging' },
+      'accounting:coa':   { scopeKey: 'account', tabLabel: 'Chart of Accounts' }
+    };
+    function _activeRoute() {
+      var path = window.location.pathname;
+      var routes = window.FB_ROUTES || [];
+      for (var i = 0; i < routes.length; i++) {
+        var r = routes[i];
+        if (!r.route) continue;
+        var pattern = r.route.replace('/:company', '/[^/]+');
+        if (r.absolute) { if (path === r.route) return r; }
+        else if (new RegExp('^' + pattern + '/?$').test(path)) return r;
+      }
+      return null;
+    }
+    function _activeTabInfo(pageKey) {
+      var panel = document.querySelector('.tab-panel.active');
+      var tabId = panel && panel.id ? panel.id.replace(/^tab-/, '') : null;
+      return (tabId && TAB_SCOPE_MAP[pageKey + ':' + tabId]) || null;
+    }
+    // Up to 3 rows, narrowest-first (index 0 is always the default): tab (if
+    // it names a genuinely distinct scope), page (if relevant), global
+    // (always). `query` is echoed live into every row's label.
+    function _buildScopeOptions(query) {
+      var route = _activeRoute();
+      var pageKey = route && route.key;
+      var pageScopeKey = pageKey && PAGE_SCOPE_MAP[pageKey];
+      var tab = pageKey && _activeTabInfo(pageKey);
+      var rows = [];
+      if (tab) {
+        rows.push({ kind: 'scope-live', scopeKey: tab.scopeKey,
+          label: route.label + '/' + tab.tabLabel + ' search: ' + query });
+      }
+      // Page row only when it names a scope the tab row above didn't already
+      // cover — same scopeKey would just render as a literal duplicate.
+      if (pageScopeKey && (!tab || tab.scopeKey !== pageScopeKey)) {
+        rows.push({ kind: 'scope-live', scopeKey: pageScopeKey, label: route.label + ' search: ' + query });
+      }
+      rows.push({ kind: 'scope-live', scopeKey: 'all', label: 'Global search: ' + query });
+      return rows;
+    }
+
+    // ── DOM shell (fb-palette CSS reused, unchanged from before) ───────────
     function _open() {
       if (_el) return;
       _el = document.createElement('div');
@@ -1676,87 +764,251 @@
     }
     function _close() {
       if (_el) { _el.remove(); _el = null; }
-      _items = [];
-      _activeIdx = -1;
-      _active = false;
+      _items = []; _activeIdx = -1; _active = false; _bareEmpty = false; _committedScope = null;
     }
 
-    var TYPE_LABELS = {
-      partner: 'Partner', account: 'Account', journal: 'Journal', bill: 'Bill'
-    };
-    // Plural labels used for group headers (e.g. "Partners (3)").
-    var TYPE_LABELS_PLURAL = {
-      partner: 'Partners', account: 'Accounts', journal: 'Journals', bill: 'Bills'
-    };
-    // Sort order for grouping: page-filter always first, then by entity type.
-    var TYPE_ORDER = { 'page-filter': 0, partner: 1, account: 2, journal: 3, bill: 4 };
-
-    // Build the synthetic "Filter current page" row. `query` is the text after
-    // the `/` (and any scope prefix) — what we hand to inst.applyFilterExpr().
-    function _pageFilterItem(query) {
-      return {
-        type: 'page-filter', id: 'page-filter',
-        label: 'Filter current page', route: null, typeLabel: '',
-        query: query
-      };
+    // The 3-row live picker (§2 revision) — shown whenever bare "search: "
+    // has text after it but no scope has been chosen yet. Every keystroke
+    // re-renders these same 3 rows with the query echoed live; nothing is
+    // fetched until one is activated.
+    function _renderPicker(query) {
+      _bareEmpty = false;
+      _items = _buildScopeOptions(query);
+      _activeIdx = _items.length ? 0 : -1; // narrowest-first — tab > page > global
+      _open(); _render();
     }
 
-    // Derive the page-filter query from the current input value (always
-    // reflects what the user has typed right now, not the possibly-stale
-    // query captured when a fetch was kicked off).
-    function _currentFilterQuery() {
-      var v = _input ? _input.value : '';
-      if (v.charAt(0) !== '/') return '';
-      var parsed = (FB.command && FB.command.parseSearchScope)
-        ? FB.command.parseSearchScope(v)
-        : { scope: null, query: v.slice(1) };
-      return parsed.query || '';
-    }
-
-    function _listVisible() {
-      return !!(window.FB && FB.list && FB.list.visible && FB.list.visible());
-    }
-
-    // Compose the final _items array: optional page-filter row first, then
-    // fetched results sorted by TYPE_ORDER so grouping in _render works.
-    function _composeItems(fetched) {
-      var sorted = fetched.slice().sort(function (a, b) {
-        var oa = TYPE_ORDER[a.type] != null ? TYPE_ORDER[a.type] : 99;
-        var ob = TYPE_ORDER[b.type] != null ? TYPE_ORDER[b.type] : 99;
-        return oa - ob;
+    // ── empty-state rows (§2) ────────────────────────────────────────────────
+    function _buildEmptyItems() {
+      var rows = _buildScopeOptions('');
+      var recent = _recentList();
+      recent.forEach(function (r, i) {
+        rows.push({ kind: 'recent', label: r.label, route: r.route, sectionLabel: i === 0 ? 'Recently viewed' : null });
       });
-      if (_listVisible()) return [_pageFilterItem(_currentFilterQuery())].concat(sorted);
-      return sorted;
+      if (typeof period !== 'undefined') {
+        if (_defaultPeriodRow) {
+          rows.push({ kind: 'period', label: 'Set Period: ' + (_defaultPeriodRow.period_name || String(_defaultPeriodRow.start_date).slice(0, 10)),
+            period: _defaultPeriodRow, sectionLabel: 'Period' });
+          var prior = _priorPeriodRow();
+          if (prior) rows.push({ kind: 'period', label: 'Set Period: ' + (prior.period_name || String(prior.start_date).slice(0, 10)), period: prior });
+        }
+        rows.push({ kind: 'period-custom', label: 'Set Period: Custom…' });
+      }
+      return rows;
     }
 
+    function _renderEmpty() {
+      _bareEmpty = true;
+      _items = _buildEmptyItems();
+      _activeIdx = _items.length ? 0 : -1;
+      _open();
+      _render();
+      // Default period is fetched lazily and re-renders when it lands — the
+      // scope list above doesn't wait on it.
+      _fetchDefaultPeriodRow(function () { if (_bareEmpty) { _items = _buildEmptyItems(); _render(); } });
+    }
+
+    // ── typed-state categories (§3, §4, §5) ─────────────────────────────────
+    var TYPE_LABELS_PLURAL = { statements: 'Statements', journal: 'Journal', account: 'Accounts', partner: 'Partners', bill: 'Bills' };
+    var CATEGORY_ORDER = ['statements', 'journal', 'account', 'partner', 'bill'];
+
+    // `items` is grouped when its entries are { key, label, items: [...] }
+    // sub-groups (currently only Journal — real entries vs. GL vs. other
+    // report matches are different *kinds* of thing, not one flat list).
+    function _isGroupedItems(items) {
+      return items.length > 0 && !!items[0] && Array.isArray(items[0].items);
+    }
+
+    // One category's raw item list → the flat, possibly-expanded rows §6
+    // describes: a single item collapses into itself (no header, no expand
+    // step); 2+ items render as a header (expands on activation) plus, once
+    // expanded, one indented row per item. Grouped categories (§ this
+    // revision) get one extra nesting level: the top header expands into
+    // sub-category headers (own counts, own expand step), which expand into
+    // the actual leaf rows, indented one level further.
+    function _flattenCategory(key, items) {
+      var out = [];
+      if (!items.length) return out;
+
+      if (_isGroupedItems(items)) {
+        // No single-item collapse here, unlike the flat case below — the
+        // sub-group label (Transactions vs. General Ledger, …) carries real
+        // information about *what kind* of match this is, which a bare leaf
+        // row doesn't convey on its own. Grouped categories always show the
+        // full chain: top header → sub-group header → leaf, even for one hit.
+        var total = items.reduce(function (n, g) { return n + g.items.length; }, 0);
+        var topExpanded = !!_expanded[key];
+        out.push({ kind: 'category', catKey: key, label: TYPE_LABELS_PLURAL[key] + ': ' + total + ' items', items: items, expanded: topExpanded });
+        if (topExpanded) {
+          items.forEach(function (g) {
+            var subKey = key + '>' + g.key;
+            var subExpanded = !!_expanded[subKey];
+            out.push({ kind: 'subcategory', catKey: subKey, label: g.label + ': ' + g.items.length + ' items', items: g.items, expanded: subExpanded, indented: true });
+            if (subExpanded) {
+              g.items.forEach(function (it) { out.push(Object.assign({ kind: 'leaf', catKey: subKey, indent2: true }, it)); });
+            }
+          });
+        }
+        return out;
+      }
+
+      if (items.length === 1) {
+        out.push(Object.assign({ kind: 'leaf', catKey: key }, items[0]));
+        return out;
+      }
+      var expanded = !!_expanded[key];
+      out.push({ kind: 'category', catKey: key, label: TYPE_LABELS_PLURAL[key] + ': ' + items.length + ' items', items: items, expanded: expanded });
+      if (expanded) items.forEach(function (it) { out.push(Object.assign({ kind: 'leaf', catKey: key, indented: true }, it)); });
+      return out;
+    }
+
+    function _flattenAll(categories) {
+      var out = [];
+      CATEGORY_ORDER.forEach(function (key) {
+        if (!categories[key]) return;
+        out = out.concat(_flattenCategory(key, categories[key]));
+      });
+      return out;
+    }
+
+    // Build Journal's sub-groups (§ this revision — "let there always be a
+    // tree structure"): real entry hits and the report-name matches they
+    // could be confused with are different *kinds* of result, not one flat
+    // list. entryHits/staticHits are already {label, route[, id]} shaped;
+    // accountHits are raw search.js account rows, synthesized into GL links
+    // here — no "General Ledger — " prefix on the leaf anymore, since the
+    // sub-group header already says "General Ledger" (§4.1's old prefix is
+    // now redundant once there's a real second level).
+    function _buildJournalGroups(entryHits, staticHits, accountHits) {
+      var staticById = {};
+      staticHits.forEach(function (s) { staticById[s.id] = s; });
+      var groups = [];
+
+      var txItems = entryHits.slice();
+      if (staticById['voucher-register']) txItems.push({ type: 'result', label: staticById['voucher-register'].label, route: staticById['voucher-register'].route });
+      if (txItems.length) groups.push({ key: 'transactions', label: 'Transactions', items: txItems });
+
+      var glItems = accountHits.map(function (a) { return { type: 'result', label: a.label, route: '/journal?t=gl&account=' + encodeURIComponent(a.id) }; });
+      if (staticById['gl']) glItems.push({ type: 'result', label: staticById['gl'].label, route: staticById['gl'].route });
+      if (glItems.length) groups.push({ key: 'gl', label: 'General Ledger', items: glItems });
+
+      ['tb', 'journal', 'integrity'].forEach(function (rid) {
+        if (staticById[rid]) groups.push({ key: rid, label: staticById[rid].label, items: [{ type: 'result', label: staticById[rid].label, route: staticById[rid].route }] });
+      });
+      return groups;
+    }
+
+    function _renderTyped(scope, query) {
+      _expanded = {}; // fresh query — start collapsed
+      var categories = {};
+
+      if (scope === 'statements') {
+        categories.statements = _staticMatch(STATEMENT_REPORTS, query);
+        _lastCategories = categories;
+        _items = _flattenAll(categories);
+        _activeIdx = _items.length ? 0 : -1;
+        _open(); _render();
+        return; // no network — §5
+      }
+
+      if (scope === 'page-filter') {
+        _items = [{ kind: 'page-filter', label: 'Filter current page', query: query }];
+        _activeIdx = 0;
+        _open(); _render();
+        return;
+      }
+
+      // journal / account / partner / bill / all — everything else needs the backend.
+      // (Instant pre-fetch pass — static report-label matches only; real
+      // entry/account hits land once _fetchAndMerge's network call resolves.)
+      if (scope === 'all') categories.statements = _staticMatch(STATEMENT_REPORTS, query);
+      if (scope === 'all' || scope === 'journal') categories.journal = _buildJournalGroups([], _staticMatch(JOURNAL_REPORTS, query), []);
+
+      _lastCategories = categories;
+      _items = _flattenAll(categories);
+      _activeIdx = _items.length ? 0 : -1;
+      _open(); _render();
+
+      if (_debounce) { clearTimeout(_debounce); _debounce = null; }
+      _debounce = setTimeout(function () { _fetchAndMerge(scope, query, false); }, 150);
+    }
+
+    function _fetchOne(backendScope, q) {
+      var url = '/api/' + encodeURIComponent(_company()) + '/search?q=' + encodeURIComponent(q) + '&scope=' + encodeURIComponent(backendScope);
+      // Journal entries are period-relevant (unlike accounts/partners, which
+      // are master data) — scope the search to the currently selected period
+      // by default. The server falls back to all periods if nothing matches
+      // in-period, so a real reference never dead-ends.
+      if ((backendScope === 'journal' || backendScope === 'all') && typeof period !== 'undefined') {
+        var p = period.get();
+        if (p && p.start && p.end) url += '&start=' + encodeURIComponent(p.start) + '&end=' + encodeURIComponent(p.end);
+      }
+      return fetch(url).then(function (r) { return r.json(); }).then(function (res) {
+        return (!res || !res.ok || !Array.isArray(res.results)) ? [] : res.results;
+      }).catch(function () { return []; });
+    }
+
+    // §4.1: scope='all' already returns accounts (unioned by the backend),
+    // so no extra call is needed there. scope='journal' does NOT return
+    // accounts — a parallel scope='account' fetch is needed purely to
+    // synthesize the GL link; Accounts is never shown as its own category
+    // in a journal-scoped view.
+    function _fetchAndMerge(scope, query, autoSelect) {
+      var req = ++_lastReq;
+      var calls = [_fetchOne(scope === 'all' ? 'all' : scope, query)];
+      if (scope === 'journal') calls.push(_fetchOne('account', query));
+
+      Promise.all(calls).then(function (results) {
+        if (req !== _lastReq) return; // stale
+        var primary = results[0];
+        var accountHits = scope === 'all' ? primary.filter(function (r) { return r.type === 'account'; }) : (results[1] || []);
+        var toResult = function (r) { return { type: 'result', label: r.label, route: r.route }; };
+
+        var categories = {};
+        if (scope === 'all') {
+          categories.statements = _staticMatch(STATEMENT_REPORTS, query);
+          categories.journal = _buildJournalGroups(
+            primary.filter(function (r) { return r.type === 'journal'; }).map(toResult),
+            _staticMatch(JOURNAL_REPORTS, query),
+            accountHits
+          );
+          categories.account = primary.filter(function (r) { return r.type === 'account'; }).map(toResult);
+          categories.partner = primary.filter(function (r) { return r.type === 'partner'; }).map(toResult);
+          categories.bill = primary.filter(function (r) { return r.type === 'bill'; }).map(toResult);
+        } else if (scope === 'journal') {
+          categories.journal = _buildJournalGroups(primary.map(toResult), _staticMatch(JOURNAL_REPORTS, query), accountHits);
+        } else {
+          // account / partner / bill — single-category scoped view.
+          categories[scope] = primary.map(toResult);
+        }
+
+        _lastCategories = categories;
+        _items = _flattenAll(categories);
+        _activeIdx = _items.length ? 0 : -1;
+        _render();
+        if (autoSelect && _items.length) _activate(_activeIdx);
+      });
+    }
+
+    // ── rendering ────────────────────────────────────────────────────────────
     function _render() {
       if (!_el) return;
       if (!_items.length) {
-        _el.innerHTML = '<div class="fb-palette-empty">no results</div>';
+        _el.innerHTML = '<div class="fb-palette-empty">' + (_bareEmpty ? 'type to search' : 'no results') + '</div>';
         return;
       }
-      // Group items by type with headers showing hit counts. The page-filter
-      // row (type 'page-filter') is rendered first with NO group header.
-      var counts = {};
-      _items.forEach(function (c) { counts[c.type] = (counts[c.type] || 0) + 1; });
       var html = '';
-      var lastType = null;
+      var lastSection;
       _items.forEach(function (c, i) {
-        if (c.type !== 'page-filter' && c.type !== lastType) {
-          var plural = TYPE_LABELS_PLURAL[c.type] || c.type;
-          var cnt = counts[c.type] || 0;
-          html += '<div class="fb-palette-group">' + esc(plural) + ' (' + cnt + ')</div>';
-          lastType = c.type;
-        }
-        html += '<div class="fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + '" data-i="' + i + '">' +
-          '<span class="fb-palette-label">' + esc(c.label) + '</span>' +
-          '<span class="fb-palette-page">' + esc(c.typeLabel) + '</span>' +
-        '</div>';
+        if (c.sectionLabel && c.sectionLabel !== lastSection) html += '<div class="fb-palette-group"></div>';
+        if ('sectionLabel' in c) lastSection = c.sectionLabel;
+        var cls = 'fb-palette-row' + (i === _activeIdx ? ' fb-palette-active' : '') + (c.indent2 ? ' fb-palette-indented2' : (c.indented ? ' fb-palette-indented' : ''));
+        html += '<div class="' + cls + '" data-i="' + i + '"><span class="fb-palette-label">' + esc(c.label) + '</span></div>';
       });
       _el.innerHTML = html;
       Array.prototype.forEach.call(_el.querySelectorAll('.fb-palette-row'), function (row) {
         row.onmousedown = function (e) { e.preventDefault(); };
-        row.onclick = function () { _select(Number(row.dataset.i)); };
+        row.onclick = function () { _activate(Number(row.dataset.i)); };
         row.onmouseover = function () { _activeIdx = Number(row.dataset.i); _render(); };
       });
       var act = _el.querySelector('.fb-palette-active');
@@ -1772,112 +1024,103 @@
       _render();
     }
 
-    function _select(idx) {
+    // ── selection / commit (§2, §6) ─────────────────────────────────────────
+    function _setBarScope(scopeKey) {
+      var def = SCOPE_PREFIXES.filter(function (s) { return s.key === scopeKey; })[0];
+      var text = def ? def.text : BASE_PREFIX;
+      _input.value = text;
+      _input.focus();
+      _input.setSelectionRange(text.length, text.length);
+      onInput(text);
+    }
+
+    // One entry point for both click and Enter — dispatches on row kind.
+    // §6: a collapsed multi-item category expands (one level, highlight
+    // moves to its first child); everything else commits and closes.
+    function _activate(idx) {
       var item = _items[idx];
       if (!item) return;
-      // "Filter current page" — apply the page-level list filter instead of
-      // navigating. The query carried on the item is the text after `/`.
-      if (item.type === 'page-filter') {
-        _close();
-        if (_input) { _input.value = ''; _input.blur(); }
-        var inst = _listVisible() ? (window.FB.list.visible()) : null;
+      if (item.kind === 'scope') { _setBarScope(item.scopeKey); return; }
+      if (item.kind === 'scope-live') {
+        _committedScope = item.scopeKey;
+        var q = _parseBar(_input ? _input.value : '');
+        _renderTyped(item.scopeKey, q ? q.query : '');
+        return;
+      }
+      if (item.kind === 'recent' || item.kind === 'leaf') {
+        _close(); if (_input) { _input.value = ''; _input.blur(); }
+        var url = '/' + _company() + item.route;
+        if (window.fbNavigate) window.fbNavigate(url); else window.location.href = url;
+        return;
+      }
+      if (item.kind === 'period') { _applyPeriodRow(item.period); _close(); if (_input) { _input.value = ''; _input.blur(); } return; }
+      if (item.kind === 'period-custom') {
+        _close(); if (_input) { _input.value = ''; _input.blur(); }
+        if (typeof period !== 'undefined' && period.togglePopover) period.togglePopover();
+        return;
+      }
+      if (item.kind === 'page-filter') {
+        _close(); if (_input) { _input.value = ''; _input.blur(); }
+        var inst = _listVisible() ? window.FB.list.visible() : null;
         if (inst) inst.applyFilterExpr(item.query);
         return;
       }
-      _close();
-      if (_input) { _input.value = ''; _input.blur(); }
-      var url = '/' + _company() + item.route;
-      if (window.fbNavigate) window.fbNavigate(url);
-      else window.location.href = url;
+      // Grouped categories/sub-categories never pre-collapse (see
+      // _flattenCategory), so any row of this kind always has something to
+      // expand into — no length guard needed here anymore. Activating an
+      // already-expanded header toggles it back closed.
+      if (item.kind === 'category' || item.kind === 'subcategory') {
+        var willExpand = !_expanded[item.catKey];
+        _expanded[item.catKey] = willExpand;
+        _items = _flattenAll(_lastCategories);
+        var headerIdx = -1;
+        for (var hi = 0; hi < _items.length; hi++) {
+          if ((_items[hi].kind === 'category' || _items[hi].kind === 'subcategory') && _items[hi].catKey === item.catKey) { headerIdx = hi; break; }
+        }
+        _activeIdx = headerIdx >= 0 ? (willExpand ? headerIdx + 1 : headerIdx) : 0;
+        _render();
+      }
     }
 
     // Decide whether the current input value should trigger search mode.
-    // `/` ALWAYS does global search now — returns {scope, query} when the
-    // value starts with `/`, or null otherwise (so common.js can ignore
-    // non-`/` input). Never returns null for a `/`-prefixed value.
-    function _resolveMode(value) {
-      if (value.charAt(0) !== '/') return null;
-      var parsed = (FB.command && FB.command.parseSearchScope)
-        ? FB.command.parseSearchScope(value)
-        : { scope: null, query: value.slice(1) };
-      // Explicit scope prefix (/p:, /a:, /j:, /b:) → that scope.
-      // No prefix → global "all" search (regardless of FB.list visibility).
-      return { scope: parsed.scope || 'all', query: parsed.query };
-    }
-
-    // Core fetch + render. autoSelect=true (used by submit()) navigates to
-    // the first result on completion; false just renders the dropdown.
-    function _doFetch(scope, q, autoSelect) {
-      if (_debounce) { clearTimeout(_debounce); _debounce = null; }
-      var req = ++_lastReq;
-      var url = '/api/' + encodeURIComponent(_company()) + '/search?q=' +
-        encodeURIComponent(q) + '&scope=' + encodeURIComponent(scope);
-      fetch(url).then(function (r) { return r.json(); }).then(function (res) {
-        if (req !== _lastReq) return; // stale response
-        var fetched = (!res || !res.ok || !Array.isArray(res.results)) ? [] : res.results.map(function (r2) {
-          return {
-            type: r2.type,
-            id: r2.id,
-            label: r2.label,
-            route: r2.route,
-            typeLabel: TYPE_LABELS[r2.type] || r2.type
-          };
-        });
-        _items = _composeItems(fetched);
-        _activeIdx = _items.length ? 0 : -1;
-        _render();
-        if (autoSelect && _items.length) _select(_activeIdx >= 0 ? _activeIdx : 0);
-      }).catch(function () {
-        if (req !== _lastReq) return;
-        _items = _composeItems([]); _activeIdx = _items.length ? 0 : -1; _render();
-      });
-    }
-
-    // Debounced fetch used by onInput() during live typing.
-    function _fetch(scope, q) {
-      if (_debounce) { clearTimeout(_debounce); _debounce = null; }
-      _debounce = setTimeout(function () { _doFetch(scope, q, false); }, 150);
-    }
-
-    // Called by common.js on every input event. Returns true if search mode
-    // consumed the event (so common.js should skip its page-filter path).
-    // `/` ALWAYS does global search now; when a FB.list is visible the
-    // "Filter current page" row is shown immediately (no debounce — it's a
-    // local action) and global results are appended when the fetch returns.
+    // `/` (via enter()) or the literal "search: " prefix, always. Returns
+    // true if search mode consumed the event (so common.js should skip its
+    // fallback path).
     function onInput(value) {
-      var mode = _resolveMode(value);
-      if (!mode) {
-        if (_active) _close();
-        return false;
+      var parsed = _parseBar(value);
+      if (!parsed) { if (_active) _close(); return false; }
+      if (!_active) _active = true;
+      // Bare "search: " (no explicit /-prefix or letter-scope typed directly,
+      // §7's fast paths still bypass all of this via parsed.scope !== 'all').
+      if (parsed.scope === 'all' && BASE_PREFIX && value.toLowerCase().indexOf(BASE_PREFIX) === 0) {
+        if (!parsed.query) { _committedScope = null; _renderEmpty(); return true; }
+        if (_committedScope) { _renderTyped(_committedScope, parsed.query); return true; }
+        _renderPicker(parsed.query); // not yet committed — show the 3-row picker, live text
+        return true;
       }
-      // Activate search mode.
-      if (!_active) { _active = true; _open(); }
-      // Show the page-filter row (if a FB.list is visible) immediately —
-      // it does not need the backend. With an empty query this is the only
-      // row; selecting it clears the list filter.
-      _items = _composeItems([]);
-      _activeIdx = _items.length ? 0 : -1;
-      _render();
-      if (mode.query.length < 1) return true;
-      _fetch(mode.scope, mode.query);
+      if (!parsed.query) { _bareEmpty = false; _items = []; _activeIdx = -1; _open(); _render(); return true; }
+      _bareEmpty = false;
+      _renderTyped(parsed.scope, parsed.query);
       return true;
     }
 
-    // Called by common.js on keydown when value starts with `/`. Returns
-    // true if search mode handled the key.
+    // Called by common.js on keydown. Returns true if handled.
     function onKeydown(e) {
-      if (!_active) return false;
-      if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) {
-        e.preventDefault(); e.stopImmediatePropagation(); _move(1); return true;
+      // Allow ArrowDown to open the empty-state dropdown even before any
+      // typing (§2) — the bar already reads "search: " from enter().
+      if (!_active) {
+        var parsed0 = _parseBar(_input ? _input.value : '');
+        if (!parsed0 || e.key !== 'ArrowDown') return false;
+        e.preventDefault(); e.stopImmediatePropagation();
+        _active = true;
+        _renderEmpty();
+        return true;
       }
-      if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) {
-        e.preventDefault(); e.stopImmediatePropagation(); _move(-1); return true;
-      }
+      if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) { e.preventDefault(); e.stopImmediatePropagation(); _move(1); return true; }
+      if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) { e.preventDefault(); e.stopImmediatePropagation(); _move(-1); return true; }
       if (e.key === 'Enter') {
         e.preventDefault(); e.stopImmediatePropagation();
-        if (_items.length) _select(_activeIdx >= 0 ? _activeIdx : 0);
-        // Fetch pending (debounce not yet fired): bypass it and auto-select
-        // the first result on completion.
+        if (_items.length) _activate(_activeIdx >= 0 ? _activeIdx : 0);
         else submit();
         return true;
       }
@@ -1889,37 +1132,34 @@
       return false;
     }
 
-    // Called by common.js when the `/` key is pressed (analogous to
-    // palette.enterCommand for `:`). Sets the value to '/', focuses, and
-    // positions the cursor after the slash. Does NOT open the dropdown —
-    // there is nothing to search yet.
+    // Called by common.js when `/` is pressed (§1) — literal "search: " text,
+    // dropdown open immediately (empty-state list — scope/recent/period).
     function enter() {
       if (!_input) return;
-      _input.value = '/';
+      _input.value = BASE_PREFIX;
       _input.focus();
-      _input.setSelectionRange(1, 1);
+      _input.setSelectionRange(BASE_PREFIX.length, BASE_PREFIX.length);
+      _active = true;
+      _committedScope = null;
+      _renderEmpty();
     }
 
-    // Called by common.js when Enter is pressed and the value starts with '/'.
-    // Forces an immediate fetch (bypassing debounce) and auto-selects the
-    // first result on completion. Also called from onKeydown() when search
-    // IS active but the fetch is still pending (items empty) — same debounce
-    // race fix. With the new always-global design, the first result is the
-    // page-filter row when a FB.list is visible (so Enter filters the page),
-    // otherwise the first global result.
+    // Force an immediate fetch (bypassing debounce), auto-selecting the
+    // first result on completion — used by common.js's Enter-before-active
+    // race fallback.
     function submit() {
       var value = _input ? _input.value : '';
-      if (!value || value.charAt(0) !== '/') return;
-      var parsed = (FB.command && FB.command.parseSearchScope)
-        ? FB.command.parseSearchScope(value)
-        : { scope: null, query: value.slice(1) };
-      var scope = parsed.scope || 'all';
-      var query = parsed.query;
-      if (!query) return; // nothing to search yet
-      // Activate search mode (force, even if a FB.list is visible).
-      if (!_active) { _active = true; _open(); }
-      _doFetch(scope, query, true);
+      var parsed = _parseBar(value);
+      if (!parsed || !parsed.query) return;
+      if (!_active) _active = true;
+      if (parsed.scope === 'statements' || parsed.scope === 'page-filter') { _renderTyped(parsed.scope, parsed.query); return; }
+      _fetchAndMerge(parsed.scope, parsed.query, true);
     }
+
+    // True if `value` is text this module owns. Used by common.js's Enter
+    // safety net (replaces the old `value.charAt(0) === '/'` check, which
+    // no longer covers the primary "search: " flow).
+    function looksLikeSearch(value) { return !!_parseBar(value); }
 
     function wire(input) {
       if (_wired || !input) return;
@@ -1933,6 +1173,8 @@
       onKeydown: onKeydown,
       enter: enter,
       submit: submit,
+      looksLikeSearch: looksLikeSearch,
+      pushRecent: pushRecent,
       isActive: function () { return _active; },
       close: _close
     };
@@ -2627,6 +1869,7 @@
   var _pListeners = [];
   var _pPeriods = [];               // fetched defined periods (desc by start_date)
   var _pPopoverOpen = false;
+  var _pStateBeforeOpen = null;      // snapshot for Escape-to-abort
 
   function _pTrigger() { return document.getElementById('tb-period-trigger'); }
   function _pPopover() { return document.getElementById('tb-period-popover'); }
@@ -2781,6 +2024,7 @@
       var pop = _pPopover();
       if (!pop) return;
       if (_pPopoverOpen) { _pClosePopover(); return; }
+      _pStateBeforeOpen = { mode: _pState.mode, periodId: _pState.periodId, start: _pState.start, end: _pState.end };
       _pBuildPopover();
       pop.hidden = false;
       pop.style.display = '';
@@ -3004,6 +2248,24 @@
     if (trg && trg.contains(e.target)) return;
     _pClosePopover();
   });
+
+  // Enter commits (OK) / Escape aborts (revert to pre-open state) — capture
+  // phase so this wins over the global command-key dispatcher while the
+  // popover is open.
+  document.addEventListener('keydown', function (e) {
+    if (!_pPopoverOpen) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (_pState.mode === 'custom') period._onCustomDate();
+      _pClosePopover();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (_pStateBeforeOpen) period.set(_pStateBeforeOpen);
+      _pClosePopover();
+    }
+  }, true);
 
   // Auto-init on DOMContentLoaded: resolve company + active route from the
   // app-shell and the current URL path.

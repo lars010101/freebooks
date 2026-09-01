@@ -1,6 +1,8 @@
 # Global Search (`/`) — Spec
 
-**Status:** PROPOSED
+**Status:** Built. `:` command mode is fully retired, including its last two
+holdouts (`:vat-tolerance`/`:gst-tolerance`) — the §0 cutover gate below is
+resolved (2026-09-01).
 **Scope:** Retires the `:` command palette entirely. `/` becomes the single summonable input — search, navigation, and (where a page-level verb already exists) the fast path to everything `:` used to reach.
 **Supersedes:** `command-bar-ux-spec.md` §2 (trigger keys), §4–§7 (typed `:` grammar, alias table, commit model, parser tiers, bang semantics) — all retired, not refined. Also supersedes `command-bar-ux-spec.md` §4's `/p:`/`/a:`/`/j:`/`/b:` scoped-prefix design and `fb-list-ux-spec.md` §8's "keyboard path" section — this spec is now the canonical description of `/`.
 **Depends on:** `fb-core.js` (`FB.search`, `FB.palette` — palette's command-mode machinery is deleted), `fb-command.js` (`ALIASES` table mostly deleted; `tokenize`/`parseDate`/`parseAmount` retained only if still used elsewhere after the alias table is gone — verify at build time), `fb-list.js` (`applyFilterExpr`, unchanged), `search.js` (backend `partner|account|journal|bill` scopes, unchanged), `report-registry.js` (unchanged), `reports-hub.js` (one small addition, §4.2), `access-tab-api-tokens-spec.md` (companion spec — where `:token` migrates).
@@ -27,7 +29,7 @@ Killing `:` was evaluated alias-by-alias against the actual page code (not again
 | `:show` | Retired outright — no replacement needed (owner's call) |
 | `:report <type> [period]` | Retired — replaced by the Statements/Journal search categories, §5 |
 | `:token create/revoke` | **Migrated**, not retired — no UI existed anywhere for this; see `access-tab-api-tokens-spec.md`. Worth noting: the existing alias is currently **broken**, not merely unused — `fb-command.js`'s `parseToken` sends `{ name }`, but `tokens.js`'s `auth.token.create` requires `email` and `label` (both, or it throws `INVALID_INPUT`). It has likely never successfully dispatched. The Access-tab register (companion spec) uses the real `label`/`email` contract from the start. |
-| `:vat-tolerance` / `:gst-tolerance` | **Unresolved — cutover gate.** `settings.js` explicitly filters these two keys out of the visible Extensions register with the comment *"they have no UI surface (§7, command-bar only)."* This spec does not decide their replacement surface. **This cutover must not ship while these two commands are the only access path and `:` is being removed** — either a UI surface must land first, or these two commands must be kept alive on some minimal, separate entry point until one does. |
+| `:vat-tolerance` / `:gst-tolerance` | **Resolved (2026-09-01) — cutover gate cleared.** The `settings.js` filter that hid these two keys from Extensions (comment: *"they have no UI surface (§7, command-bar only)"*) turned out to be dead code — `fb-list.js` never reads `cfg.list.filter`, so both keys were already rendering and editable in Settings → Extensions the whole time, just undocumented as such. With that confirmed as a real, working UI surface, both commands and the dead filter were removed in the same change: `fbEchoTolerance`, the two `ALIASES` entries, and their parse functions are gone from `fb-command.js`; the `:`/Ctrl+K command-mode trigger is gone from `common.js`; the command-mode machinery in `FB.palette` is gone from `fb-core.js`. Settings → Extensions is now the sole, correctly-documented UI surface for both settings. |
 
 ---
 
@@ -156,6 +158,12 @@ Likewise, the existing single-letter prefixes (`/p:acme`, `/a:cash`, `/j:1023`, 
 
 ## 8. Explicitly open
 
-- **VAT/GST tolerance UI surface** — blocks this spec's cutover (§0). Do not remove `:vat-tolerance`/`:gst-tolerance` until resolved.
+- ~~**VAT/GST tolerance UI surface** — blocks this spec's cutover (§0).~~ **Resolved 2026-09-01** — see §0's updated row. `:vat-tolerance`/`:gst-tolerance` are removed.
 - **Recently-viewed write points** — exact list of detail-view pages to instrument (§2.1) is a build-time task.
-- **`fb-command.js` cleanup scope, resolved to this extent:** `parseSearchScope`, `SEARCH_SCOPES`, and `fbEchoTolerance` (the last pending the VAT/GST item above) must survive — `fb-core.js`'s `FB.search` already calls `FB.command.parseSearchScope` directly, and §7 above extends that same reuse. Once `ALIASES` and its per-alias parsers (`parsePost`, `parseBill`, `parsePay`, etc.) are deleted, `tokenize`/`parseDate`/`parseAmount`/`extractSlots` lose every caller and become dead code — delete them in the same pass rather than leaving them orphaned. `fb-command.js` itself survives as a smaller utility file; it does not go away entirely.
+- **`fb-command.js` cleanup scope, resolved to this extent:** `parseSearchScope` and `SEARCH_SCOPES` survive — `fb-core.js`'s `FB.search` already calls `FB.command.parseSearchScope` directly, and §7 above extends that same reuse. `fbEchoTolerance` did NOT survive — it was deleted 2026-09-01 alongside the two aliases it existed to serve. `ALIASES` is now `{}`; `tokenize`/`parse`/`grammarFor` are kept as general infrastructure (the Tier-0 raw-catalog-action escape hatch, unknown-command handling) even though nothing currently populates `ALIASES`. `fb-command.js` survives as a smaller utility file, as anticipated.
+
+## 9. Changelog
+
+| Date | Change |
+|------|--------|
+| 2026-09-01 | Cutover gate (§0, §8) resolved: `:vat-tolerance`/`:gst-tolerance` removed along with the dead `settings.js` filter that had been silently failing to hide them from Extensions. `fbEchoTolerance` deleted. `:`/Ctrl+K command-mode trigger removed from `common.js`; command-mode machinery removed from `FB.palette` in `fb-core.js`, keeping only `newTargets()`/`preloadCatalog()` (the `+` New menu, unrelated to `:`). Status updated PROPOSED → Built. |

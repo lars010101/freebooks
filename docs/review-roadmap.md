@@ -1,6 +1,12 @@
 # freebooks — Architecture & UX Review + Roadmap
 
 **Date:** 2026-07-20 · **Basis:** full three-agent code review at HEAD `601d0d1` · **Status:** agreed direction; P0 in execution
+**Epilogue, 2026-09-01:** this log's P1-10/P1-6 entries chronicle the `:`
+command palette from its 2026-07-22 build through the 2026-08-09–11
+command-bar rework — the whole system was ultimately retired entirely
+(`global-search-spec.md`), including its last two holdouts,
+`:vat-tolerance`/`:gst-tolerance`, on this date. Entries below are left
+as-written; none of the `:`-command content they describe is still live.
 
 ---
 

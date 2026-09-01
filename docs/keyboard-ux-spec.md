@@ -36,8 +36,17 @@ the table so navigation can never drift:
 2. **`{`/`}` cycling** — `common.js` reads the rendered `.sb-nav` anchors.
 3. **g-prefix go-to map** — `fb-core.js` reads `window.FB_ROUTES` (injected
    by `navBar` into every page) and maps `gKey` letters → routes.
-4. **Command palette** — entries with `palette: true` surface as
-   `Go to {label}` rows (scope `nav`).
+4. ~~**Command palette** — entries with `palette: true` surface as
+   `Go to {label}` rows (scope `nav`).~~ **Dead since `:` retired
+   (2026-09-01).** `nav-registry.js`'s own header comment already noted this
+   drift before `:` was even fully gone ("the `:` palette no longer lists
+   routes (#149)"). The `palette` field on each route entry has no live
+   reader anywhere in the current code — confirmed by grep, `fb-core.js`
+   never checks a route's `.palette` for navigation purposes. `?`'s NAV
+   column (`help-overlay-chrome-spec.md`) renders "Go to X" rows from
+   `gKey`, not `palette`; `/` search (`global-search-spec.md`) doesn't
+   consume this field either. The field is inert metadata pending a
+   registry cleanup, not a real consumer. §4 below is retired accordingly.
 
 Entry shape: `{ key, route, label, icon, sidebar, gKey, palette, absolute }`.
 `route` uses the `:company` placeholder; `absolute: true` for company-less
@@ -47,18 +56,28 @@ file's header comment.
 
 ## 2. g-prefix go-to map
 
-Ratified slate (d/v added 2026-07-28; v freed 2026-08-05 Receivables dropped, magnus):
+**2026-09-01: table refreshed against `nav-registry.js` (the actual source
+of truth — `help-overlay-chrome-spec.md` made the same call for its own
+diagram, for the same reason: a hardcoded copy here only drifts again).**
+The slate below reflects three IA restructures' worth of `gKey` reassignment
+since this table was first ratified: Bank was dropped entirely (issue #137,
+freeing `b`); Reports split into Statements/Journal; Dashboard was never
+built as a route; Fiscal was renamed Calendar and took the freed `c`; the
+company switcher — originally on `c` — moved to `w`; Accounting and
+Exchange Rates were promoted to standalone routes with new keys.
 
 | Sequence | Action |
 |---|---|
-| `g d` | Dashboard |
-| `g r` | Reports |
-| `g b` | Bank |
+| `g i` | Inbox |
 | `g p` | Payables |
-| `g s` | Settings |
+| `g t` | Statements |
 | `g j` | Journal |
-| `g i` | Inbox (reassigned 2026-08-03 per spec §10; bank-import reachable via `g b` + palette) |
-| `g c` | Company switcher (reserved — not a route) |
+| `g c` | Calendar |
+| `g d` | Documents |
+| `g s` | Settings |
+| `g a` | Accounting |
+| `g x` | Exchange Rates |
+| `g w` | Company switcher (reserved — not a route) |
 | `g g` | List cursor to first row, then **absolute page top** (both scroll containers, next frame) |
 | `g <other>` | Cancel — the key proceeds through normal dispatch untouched |
 
@@ -91,7 +110,11 @@ list is now the pure posted register.
 
 ## 3. Company switcher keyboard contract
 
-`g c` toggles `#tb-company-dropdown`. It reuses `fbToggleCompany`'s data path
+**2026-09-01: key corrected `g c` → `g w`** — Calendar (`calendar-reminders-
+documents-spec.md` §2) took the `c` key when Fiscal was renamed Calendar;
+the switcher moved to `w` and this section was never updated at the time.
+
+`g w` toggles `#tb-company-dropdown`. It reuses `fbToggleCompany`'s data path
 (`common.js`, extended with an `onReady(opened)` callback) — no duplicated
 fetch/render. While open, the switcher owns EVERY key (help-overlay
 precedent — page bindings and `common.js` stay inert):
@@ -102,12 +125,19 @@ precedent — page bindings and `common.js` stay inert):
 | `k` / `↑` | Highlight previous option (sticky at top) |
 | `Enter` | Follow the highlighted anchor — plain `.click()`, exactly the mouse path |
 | `Esc` | Close |
-| `g c` | Toggle closed (mirror of the open sequence) |
+| `g w` | Toggle closed (mirror of the open sequence) |
 
 Keyboard highlight uses `.tb-company-focus` (mirrors `:hover` styling).
 Mouse behavior (click header to open, outside-click to close) is unchanged.
 
-## 4. Palette navigation source
+## 4. Palette navigation source (retired 2026-09-01 — kept as historical record)
+
+**This entire section describes the typed `:` command palette, which no
+longer exists.** `bank.process`/`/bank/import` also predate the Bank page's
+deletion (issue #137). Nothing below is current; kept for history only, not
+as a description of anything reachable today. Current navigation search is
+`/` (`global-search-spec.md`); the `?` overlay's static NAV column
+(`help-overlay-chrome-spec.md`) is the only other "Go to X" surface.
 
 Third palette source alongside page verbs and the API catalog: registry
 routes with `palette: true` render as `Go to {label}` rows showing the `g`
@@ -199,8 +229,9 @@ following the standard showTab / lazy-load / `?tab=` deep-link pattern.
 The old standalone route `/:company/opening-balances` 302-redirects to the
 tab (bookmarks/links keep working); the nav-registry entry and the
 new-company `Enter Opening Balances` link point at the tab. It is NOT the
-sidebar; palette-reachable via §4. It carries no `g`
-letter (run-once screen — letters are for high-frequency routes).
+sidebar; reachable via the Settings tab strip, not a dedicated keyboard
+route. It carries no `g` letter (run-once screen — letters are for
+high-frequency routes).
 
 View filters (K1 review 2026-07-28; toggle model ratified same day):
 **Balance Sheet · P&L · Non-Zero Only** — independent on/off buttons,
@@ -247,9 +278,12 @@ typing into a modal input works while page verbs stay dead.
   focus is restored on close. One modal app-wide; `FB.modal.isOpen()`.
 
 **Guard chokepoint (2026-07-28):** the leave-veto lives INSIDE `fbNavigate`
-itself — sidebar clicks, `{`/`}`, the g-map, and palette navigate rows all
-funnel through it, so the g-map/palette bypass (owner finding #4) is closed
-by construction. Guard-confirmed continuations pass `{ force: true }`.
+itself — sidebar clicks, `{`/`}`, the g-map, and (at the time) palette
+navigate rows all funneled through it, so the g-map/palette bypass (owner
+finding #4) was closed by construction. The palette navigate-rows path is
+gone along with the rest of `:` (§4), but the chokepoint principle stands
+unchanged for every surviving caller of `fbNavigate`. Guard-confirmed
+continuations pass `{ force: true }`.
 Related soft-nav fix the same day: `history.pushState` now runs BEFORE
 page-script re-execution — arriving pages read `location.search` at script
 time, and the old ordering silently no-op'd every `?tab=` deep-link on
@@ -259,8 +293,9 @@ soft-nav (settings/payables/bank).
 
 Model B (ratified): the **bill-edit modal model** — NORMAL rest state,
 Tab/Shift+Tab inside edits — formalized as `api/public/fb-form.js`. NOT QBO
-always-insert: a NORMAL state must exist or page verbs, the g-prefix, the
-palette and `?` all die. A form = ordered **zones** (header fields, a line
+always-insert: a NORMAL state must exist or page verbs, the g-prefix, and
+`?` all die (the palette was a fourth example at the time; it no longer
+exists). A form = ordered **zones** (header fields, a line
 grid, …); each zone exposes `rows()`, each row `cells()`. Pages declare
 config + verbs only — no per-page key handlers (FB.list doctrine).
 
@@ -489,13 +524,14 @@ property on the iframe document.
   the keyboard once open). receivables is a ratified stub exemption (AR ships FB.list
   day one). Coverage behavior is verified ONCE here, framework-level —
   not per tab.
-- `?` overlay GLOBAL section (chrome keys: g-map, `{`/`}`, `h`/`l`, `/`,
-  `:`) — ~~the overlay currently documents the active page set only.~~
+- `?` overlay GLOBAL section (chrome keys: g-map, `{`/`}`, `h`/`l`, `/`) —
+  ~~the overlay currently documents the active page set only.~~
   **RESOLVED** (PRs #283–#286): built as NAVIGATION + ACTIONS two-column
   layout per `docs/help-overlay-chrome-spec.md` (v3). NAVIGATION renders
-  static chrome (`/ : h/l j/k gg/G` + g-map entries with "Go to " prefix)
+  static chrome (`/ h/l j/k gg/G` + g-map entries with "Go to " prefix)
   independently of the active page's bindings; ACTIONS shows the page's
   NORMAL-mode bindings under a page-name heading. No INSERT column; Esc,
-  `?`, and standalone `g` are omitted (obvious from context).
+  `?`, and standalone `g` are omitted (obvious from context). (The `:` row
+  originally listed here was removed 2026-09-01 along with `:` itself.)
 - Vimium-style `f` hint overlay as a universal mouse-parity fallback —
   likely unnecessary once K1–K4 land; revisit after K5 measurement.

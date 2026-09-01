@@ -161,7 +161,7 @@ var partnersList = FB.list.create({
 });
 
 // ── Compat shims for payables-bills.js init ──────────────────────────────────
-function loadPartners() { partnersList.load(); loadPartnerCurrencies(); }
+function loadPartners() { var p = partnersList.load(); loadPartnerCurrencies(); return p; }
 function loadPartnerTable() { partnersList.load(); }
 function registerPartnerKeyActions() { /* keys registered by FB.list at creation */ }
 

@@ -446,6 +446,12 @@ function loadBill() {
     }
     billData = bill;
     renderBill(bill);
+    // global-search-spec.md §2.1 — recently-viewed objects for the empty-state dropdown.
+    if (window.FB && FB.search && FB.search.pushRecent) {
+      FB.search.pushRecent({ type: 'bill', id: BILL_ID,
+        label: (bill.partner_name || '') + (bill.vendor_ref ? ' ' + bill.vendor_ref : ''),
+        route: '/bill/' + encodeURIComponent(BILL_ID) });
+    }
     loadLines();
     loadJournals();
     loadAttachments();

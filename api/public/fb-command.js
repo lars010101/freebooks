@@ -1,148 +1,25 @@
-/* fb-command.js — typed-command grammar extension to FB.palette (command-bar-ux-spec.md)
+/* fb-command.js — `:` alias parsing (now empty), plus `/` search-scope
+ * parsing (global-search-spec.md)
  *
- * Extends the existing `:` command palette (FB.palette in fb-core.js) with
- * a typed-argument grammar for high-frequency commands. The palette's
- * derive-only model (page verbs, API actions, route commands) is retained
- * unchanged — this layer adds alias parsing on top, never replacing the
- * raw catalog escape hatch (Tier 0).
+ * `:` is retired entirely. Its last two commands, vat-tolerance/gst-tolerance,
+ * are gone — VAT/GST tolerance is edited through Settings → Extensions
+ * (posting_rules.attr.save), which was already its real UI surface, making
+ * the command-bar path redundant. ALIASES is now empty; parse()/tokenize()/
+ * grammarFor() remain as general-purpose infrastructure (Tier-0 raw
+ * catalog-action parsing, unknown-command handling).
+ *
+ * parseSearchScope()/SEARCH_SCOPES are NOT part of any of this — fb-core.js's
+ * FB.search calls parseSearchScope directly for the `/p:`/`/a:`/`/j:`/`/b:`
+ * power-user fast paths (global-search-spec.md §7).
  *
  * Load order: after fb-core.js, before fb-list.js (see commonStyle()).
  */
 (function () {
   'use strict';
 
-  // ── Alias table (spec §4) ──────────────────────────────────────────────────
-  // Each alias is sugar over a real <module>.<verb> action from the catalog.
-  // Fields:
-  //   action:   the catalog action name to resolve to (null = page verb or route)
-  //   grammar:  hint string shown under the bar while typing
-  //   bang:     true if ! is supported (spec §7)
-  //   parse:    function(tokens, bang) → { action?, params?, route?, prefill?,
-  //                                        commitMode, warnings?, pageVerb?, error? }
-  var ALIASES = {
-    'post': {
-      action: 'journal.post',
-      grammar: '<amount> <account> [from <account>] [on <date>] [!]',
-      bang: true,
-      parse: parsePost
-    },
-    'bill': {
-      action: 'bill.draft.save',
-      grammar: '<partner> <amount> [due <date>] [vat <amt>|net <amt>|rc]',
-      bang: false, // deferred per spec §10
-      parse: parseBill
-    },
-    'pay': {
-      action: 'bill.payment.record',
-      grammar: '<partner> <amount> from <account> [!]',
-      bang: true,
-      parse: parsePay
-    },
-    'void': {
-      action: 'bill.void',
-      grammar: '<bill-ref>',
-      bang: false,
-      parse: parseVoid
-    },
-    'match': {
-      action: 'bank.match',
-      grammar: '(focused line — no args)',
-      bang: false,
-      palette: false,  // page-context: needs focused bank line
-      parse: function () { return { action: 'bank.match', commitMode: 'form' }; }
-    },
-    'approve': {
-      action: null,
-      pageVerb: 'y', scope: 'inbox',
-      grammar: '(approves focused inbox item)',
-      bang: false,
-      palette: false,  // page-context: needs focused inbox item
-      parse: function () { return { pageVerb: 'y', commitMode: 'direct' }; }
-    },
-    'reject': {
-      action: null,
-      pageVerb: 'x', scope: 'inbox',
-      grammar: '(rejects focused inbox item)',
-      bang: false,
-      palette: false,  // page-context: needs focused inbox item
-      parse: function () { return { pageVerb: 'x', commitMode: 'direct' }; }
-    },
-    'show': {
-      action: null,
-      grammar: '<target>',
-      bang: false
-      // No parse function — :show is a browse command; use the dropdown.
-      // itemSource is wired by the palette module (fb-core.js) at runtime.
-    },
-    'new': {
-      action: null,
-      grammar: '<target>',
-      bang: false
-      // No parse function — :new is a browse command; use the dropdown.
-      // itemSource is wired by the palette module (fb-core.js) at runtime.
-    },
-    'report': {
-      action: null,
-      grammar: '<type> [period]',
-      bang: false,
-      parse: parseReport
-      // itemSource is wired by the palette module (fb-core.js) at runtime.
-    },
-    'rate': {
-      action: 'fx.rates.save',
-      grammar: '<currency> <rate> [on <date>]',
-      bang: false,
-      parse: parseRate
-    },
-    'lock': {
-      action: 'period.save',
-      grammar: '<month>',
-      bang: false,
-      parse: parseLock
-    },
-    'unlock': {
-      action: 'period.save',
-      grammar: '<month>',
-      bang: false,
-      parse: parseUnlock
-    },
-    'partner': {
-      action: 'partner.upsert',
-      grammar: 'add <name> [net<days>]',
-      bang: false,
-      parse: parsePartner
-    },
-    'token': {
-      action: null,
-      grammar: 'create <name> | revoke <name>',
-      bang: false,
-      parse: parseToken
-    },
-    'light': {
-      action: null,
-      grammar: '(switch to light theme)',
-      bang: false,
-      parse: function () { return { clientFn: 'fbApplyTheme', clientArgs: ['light'], commitMode: 'client' }; }
-    },
-    'dark': {
-      action: null,
-      grammar: '(switch to dark theme)',
-      bang: false,
-      parse: function () { return { clientFn: 'fbApplyTheme', clientArgs: ['dark'], commitMode: 'client' }; }
-    },
-    'vat-tolerance': {
-      action: 'posting_rules.attr.save',
-      grammar: '[<value>]',
-      bang: false,
-      parse: parseVatTolerance
-    },
-    'gst-tolerance': {
-      action: 'posting_rules.attr.save',
-      grammar: '[<value%>]',
-      bang: false,
-      parse: parseGstTolerance
-    }
-  };
+  // ── Alias table — empty. vat-tolerance/gst-tolerance retired; both are
+  // now edited via Settings → Extensions instead of a `:` command. ─────────
+  var ALIASES = {};
 
   // ── Tokenizer ──────────────────────────────────────────────────────────────
   // Whitespace-tokenized; double-quotes for multi-word entities.
@@ -169,241 +46,6 @@
       tokens.pop();
     }
     return { tokens: tokens, bang: bang };
-  }
-
-  // ── Date parser ─────────────────────────────────────────────────────────────
-  function parseDate(s) {
-    if (!s) return null;
-    s = s.toLowerCase().trim();
-    if (s === 'today') return new Date().toISOString().slice(0, 10);
-    var rel = s.match(/^\+(\d+)d$/);
-    if (rel) {
-      var d = new Date();
-      d.setDate(d.getDate() + parseInt(rel[1], 10));
-      return d.toISOString().slice(0, 10);
-    }
-    var shortDate = s.match(/^([a-z]{3})(\d{1,2})$/);
-    if (shortDate) {
-      var months = { jan:'01', feb:'02', mar:'03', apr:'04', may:'05', jun:'06',
-                     jul:'07', aug:'08', sep:'09', oct:'10', nov:'11', dec:'12' };
-      var mo = months[shortDate[1]];
-      if (!mo) return null;
-      var day = shortDate[2].length < 2 ? '0' + shortDate[2] : shortDate[2];
-      return new Date().getFullYear() + '-' + mo + '-' + day;
-    }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-    return null;
-  }
-
-  function parseAmount(s) {
-    if (!s) return null;
-    var n = parseFloat(s);
-    if (isNaN(n)) return null;
-    return n;
-  }
-
-  // ── Keyword-slot extractor ──────────────────────────────────────────────────
-  var KEYWORDS = ['from', 'to', 'due', 'on', 'vat', 'net', 'rc'];
-
-  function extractSlots(tokens) {
-    var positional = [];
-    var slots = {};
-    var i = 0;
-    while (i < tokens.length) {
-      var kw = tokens[i].toLowerCase();
-      if (KEYWORDS.indexOf(kw) !== -1) {
-        if (kw === 'rc') {
-          slots.rc = true;
-          i++;
-        } else if (i + 1 < tokens.length) {
-          slots[kw] = tokens[i + 1];
-          i += 2;
-        } else {
-          return { positional: positional, slots: slots, error: 'keyword "' + kw + '" needs a value' };
-        }
-      } else {
-        positional.push(tokens[i]);
-        i++;
-      }
-    }
-    return { positional: positional, slots: slots };
-  }
-
-  // ── Per-alias parsers ───────────────────────────────────────────────────────
-
-  function parsePost(tokens, bang) {
-    var ex = extractSlots(tokens);
-    if (ex.error) return { error: ex.error };
-    var pos = ex.positional;
-    if (pos.length < 2) return { error: 'usage: :post <amount> <account> [from <account>]' };
-    var amount = parseAmount(pos[0]);
-    if (amount === null) return { error: 'invalid amount: ' + pos[0] };
-    var warnings = [];
-    if (bang) {
-      return {
-        action: 'journal.post',
-        params: { amount: amount, account: pos[1], fromAccount: ex.slots.from || null, date: ex.slots.on ? parseDate(ex.slots.on) : null },
-        commitMode: 'direct',
-        warnings: warnings
-      };
-    }
-    return {
-      route: '/journal/voucher',
-      prefill: { amount: amount, account: pos[1], fromAccount: ex.slots.from || null, date: ex.slots.on ? parseDate(ex.slots.on) : null },
-      commitMode: 'form',
-      warnings: warnings
-    };
-  }
-
-  function parseBill(tokens, bang) {
-    var ex = extractSlots(tokens);
-    if (ex.error) return { error: ex.error };
-    var pos = ex.positional;
-    if (pos.length < 2) return { error: 'usage: :bill <partner> <amount> [due <date>] [vat <amt>|net <amt>|rc]' };
-    var partner = pos[0];
-    var amount = parseAmount(pos[1]);
-    if (amount === null) return { error: 'invalid amount: ' + pos[1] };
-    var warnings = [];
-    // Per spec §4: bare number = net (saveDraftBill stores as net, vat_amount: 0)
-    var params = { partner: partner, amount: amount, date: ex.slots.due ? parseDate(ex.slots.due) : null };
-    if (ex.slots.vat) {
-      var vatAmt = parseAmount(ex.slots.vat);
-      if (vatAmt === null) return { error: 'invalid vat amount: ' + ex.slots.vat };
-      params.lines = [{ amount: amount, vat_code: null, vat_amount: vatAmt }];
-    } else if (ex.slots.net) {
-      var netAmt = parseAmount(ex.slots.net);
-      if (netAmt === null) return { error: 'invalid net amount: ' + ex.slots.net };
-      params.lines = [{ amount: netAmt, vat_code: null, vat_amount: amount - netAmt }];
-    } else if (ex.slots.rc) {
-      params.lines = [{ amount: amount, vat_code: 'RC', vat_amount: 0 }];
-      warnings.push('reverse charge — VAT not captured locally');
-    }
-    // :bill always creates a draft (bill.draft.save) — bang deferred (spec §10)
-    return {
-      action: 'bill.draft.save',
-      params: params,
-      commitMode: 'direct',
-      warnings: warnings
-    };
-  }
-
-  function parsePay(tokens, bang) {
-    var ex = extractSlots(tokens);
-    if (ex.error) return { error: ex.error };
-    var pos = ex.positional;
-    if (pos.length < 2) return { error: 'usage: :pay <partner> <amount> from <account>' };
-    if (!ex.slots.from) return { error: 'usage: :pay <partner> <amount> from <account>' };
-    var partner = pos[0];
-    var amount = parseAmount(pos[1]);
-    if (amount === null) return { error: 'invalid amount: ' + pos[1] };
-    var warnings = [];
-    if (bang) {
-      return {
-        action: 'bill.payment.record',
-        params: { partner: partner, amount: amount, fromAccount: ex.slots.from },
-        commitMode: 'direct',
-        warnings: warnings
-      };
-    }
-    return {
-      route: '/payables',
-      prefill: { partner: partner, amount: amount, fromAccount: ex.slots.from },
-      commitMode: 'form',
-      warnings: warnings
-    };
-  }
-
-  function parseVoid(tokens) {
-    if (!tokens.length) return { error: 'usage: :void <bill-ref>' };
-    return { action: 'bill.void', params: { billRef: tokens[0] }, commitMode: 'confirm' };
-  }
-
-  function parseRate(tokens) {
-    if (tokens.length < 2) return { error: 'usage: :rate <currency> <rate> [on <date>]' };
-    var rate = parseFloat(tokens[1]);
-    if (isNaN(rate)) return { error: 'invalid rate: ' + tokens[1] };
-    var date = null;
-    if (tokens.length >= 4 && tokens[2].toLowerCase() === 'on') {
-      date = parseDate(tokens[3]);
-      if (!date) return { error: 'invalid date: ' + tokens[3] + ' (use YYYY-MM-DD, today, +Nd, or monDD)' };
-    }
-    return { action: 'fx.rates.save', params: { currency: tokens[0].toUpperCase(), rate: rate, date: date }, commitMode: 'form' };
-  }
-
-  function parseLock(tokens) {
-    if (!tokens.length) return { error: 'usage: :lock <month>' };
-    return { action: 'period.save', params: { period: tokens[0].toLowerCase(), locked: true }, commitMode: 'confirm' };
-  }
-
-  function parseUnlock(tokens) {
-    if (!tokens.length) return { error: 'usage: :unlock <month>' };
-    return { action: 'period.save', params: { period: tokens[0].toLowerCase(), locked: false }, commitMode: 'confirm' };
-  }
-
-  function parsePartner(tokens) {
-    if (tokens.length < 2) return { error: 'usage: :partner add <name> [net<days>]' };
-    if (tokens[0].toLowerCase() !== 'add') return { error: 'usage: :partner add <name> [net<days>]' };
-    var name = tokens[1];
-    var netDays = 30;
-    if (tokens[2]) {
-      var m = tokens[2].match(/^net(\d+)$/);
-      if (m) netDays = parseInt(m[1], 10);
-    }
-    return { action: 'partner.upsert', params: { name: name, paymentTermsDays: netDays }, commitMode: 'form' };
-  }
-
-  function parseToken(tokens) {
-    if (tokens.length < 2) return { error: 'usage: :token create <name> | revoke <name>' };
-    var sub = tokens[0].toLowerCase();
-    var name = tokens[1];
-    if (sub === 'create') return { action: 'auth.token.create', params: { name: name }, commitMode: 'confirm' };
-    if (sub === 'revoke') return { action: 'auth.token.revoke', params: { name: name }, commitMode: 'confirm' };
-    return { error: 'usage: :token create <name> | revoke <name>' };
-  }
-
-  // ── :vat-tolerance / :gst-tolerance — set or echo VAT/GST tolerance (§7) ───
-  // Bare (no arg) → echo current value via a read action.
-  // With arg → write via posting_rules.attr.save.
-  function parseVatTolerance(tokens) {
-    if (!tokens.length) {
-      // Echo mode — read and display current value.
-      return { action: 'posting_rules.attr.list', params: {}, commitMode: 'client',
-        clientFn: 'fbEchoTolerance', clientArgs: ['vat_tolerance'] };
-    }
-    var val = parseFloat(tokens[0]);
-    if (isNaN(val)) return { error: 'invalid value: ' + tokens[0] + ' (expected a number)' };
-    return { action: 'posting_rules.attr.save', params: { key: 'vat_tolerance', value: String(val) }, commitMode: 'direct' };
-  }
-
-  function parseGstTolerance(tokens) {
-    if (!tokens.length) {
-      return { action: 'posting_rules.attr.list', params: {}, commitMode: 'client',
-        clientFn: 'fbEchoTolerance', clientArgs: ['vat_tolerance_pct'] };
-    }
-    var val = parseFloat(tokens[0]);
-    if (isNaN(val)) return { error: 'invalid value: ' + tokens[0] + ' (expected a percentage number)' };
-    return { action: 'posting_rules.attr.save', params: { key: 'vat_tolerance_pct', value: String(val) }, commitMode: 'direct' };
-  }
-
-  // ── :report — pass type + period through to reports hub (show-command-spec §5) ─
-  function parseReport(tokens, bang) {
-    if (!tokens.length) return { error: 'usage: :report <type> [period]' };
-    var typeId = tokens[0].toLowerCase();
-    // Period = everything after the first whitespace-delimited token (§5.1).
-    // Report ids are single tokens (hyphenated, no internal whitespace), so
-    // "first token = type, rest = period" has no edge cases.
-    var period = tokens.length > 1 ? tokens.slice(1).join(' ') : null;
-    // 2026-08-27 IA restructure 2: Reports split into Statements + Books.
-    // 2026-08-30 IA restructure 3: Books renamed Journal; Integrity relocated
-    // to Accounting (a tab there, not a report-hub ?t= id) — routed via
-    // ?tab= instead, and takes no period (Accounting has no report-hub
-    // date-relevance chrome; the tab reads the global period itself).
-    if (typeId === 'integrity') return { route: '/accounting?tab=integrity', commitMode: 'form' };
-    var statementsIds = ['pl','bs','cf','sce'];
-    var page = statementsIds.indexOf(typeId) >= 0 ? 'statements' : 'journal';
-    var route = '/' + page + '?t=' + encodeURIComponent(typeId);
-    if (period) route += '&period=' + encodeURIComponent(period);
-    return { route: route, commitMode: 'form' };
   }
 
   // ── Main parse entry ────────────────────────────────────────────────────────
@@ -448,30 +90,10 @@
     return { scope: null, query: q };
   }
 
-  // ── fbEchoTolerance — displays current VAT/GST tolerance value (§7) ──────
-  // Called when :vat-tolerance or :gst-tolerance is invoked bare (no arg).
-  // The action result from posting_rules.attr.list is passed in; this function
-  // extracts the relevant key and displays it via FB.status.
-  window.fbEchoTolerance = function(key, result) {
-    var rows = (result && result.data && result.data.rows) || (result && result.rows) || [];
-    var row = null;
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i].key === key) { row = rows[i]; break; }
-    }
-    if (!row) { if (window.FB && FB.status) FB.status.show(key + ' is not set', false); return; }
-    var label = key === 'vat_tolerance_pct' ? 'GST tolerance' : 'VAT tolerance';
-    var val = row.value;
-    if (key === 'vat_tolerance_pct') val = Number(val).toFixed(2) + '%';
-    else val = String(Number(val));
-    if (window.FB && FB.status) FB.status.show(label + ': ' + val, false);
-  };
-
   // ── Public API ──────────────────────────────────────────────────────────────
   window.FB = window.FB || {};
   FB.command = {
     parse: parse,
-    parseDate: parseDate,
-    parseAmount: parseAmount,
     tokenize: tokenize,
     ALIASES: ALIASES,
     parseSearchScope: parseSearchScope,

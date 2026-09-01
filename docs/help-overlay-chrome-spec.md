@@ -24,6 +24,10 @@ binding table.
 **Deferred, tracked separately:** `docs/topbar-chrome-spec.md` §7 also
 deferred this same overlay restructure and `:show`'s fate together — this
 document resolves only the overlay; `:show` remains undecided.
+**2026-09-01 update:** the `:` Command row is removed from the NAVIGATION
+column (§2) — `:` command mode was fully retired (its last two commands,
+`:vat-tolerance`/`:gst-tolerance`, moved to Settings → Extensions) and the
+key now does nothing, so documenting it here was actively misleading.
 **Reference:** a live capture of GitHub's actual "Keyboard shortcuts" dialog
 (pasted by magnus during design) is what "copy GitHub's structure" resolves
 to below — see §1 for what was actually taken from it versus deliberately
@@ -92,8 +96,7 @@ Two columns side by side under a single title row:
 ├──────────────────────────┬──────────────────────────────┤
 │ NAVIGATION               │ <page name>                   │
 │   /  Search               │   (page bindings,             │
-│   :  Command              │    grouped by hint)           │
-│   h/l  Move left / right   │                              │
+│   h/l  Move left / right   │    grouped by hint)           │
 │   j/k  Move up / down      │                              │
 │   gg/G  Move to first /    │                              │
 │          last row          │                              │
@@ -148,7 +151,6 @@ derived from any binding table — true chrome, not page verbs), in order:
 | Keys | Hint |
 |---|---|
 | `/` | Search |
-| `:` | Command |
 | `h/l` | Move left / right |
 | `j/k` | Move up / down |
 | `gg/G` | Move to first / last row |

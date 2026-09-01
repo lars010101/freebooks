@@ -224,6 +224,15 @@ Admin dissolves entirely; its three tabs land in three different places, not one
 
 ## 7. VAT/GST Tolerance — command-bar only, no UI surface
 
+**2026-09-01: superseded.** Both command-bar aliases described in this
+section are retired (`global-search-spec.md` §0) and both settings now edit
+through Settings → Extensions's `posting_rules.attr.list`/`.save` grid — the
+"no UI surface at all" design rationale below did not hold up: a client-side
+filter meant to keep these two keys out of that grid turned out to be dead
+code, so they'd been rendering there, editable, the whole time regardless of
+this section's intent. Left below as the historical record of the original
+design decision.
+
 `vat_tolerance` (flat) and `vat_tolerance_pct` are deliberately given **no settings-page surface at all** — not a tab, not an inline panel. Design rationale (explicitly re-litigated and settled in discussion): the warning this threshold gates is low-priority, so it doesn't warrant dedicated UI weight.
 
 **New command-bar aliases** (`api/public/fb-command.js`, alongside the existing `:bill`/`:pay`/etc. alias table):

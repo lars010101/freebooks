@@ -1,17 +1,26 @@
 # Topbar Chrome Spec — GitHub-style header, retiring the bottom status line
 
 **Status:** Draft — design agreed in principle (magnus, 2026-08-28), not yet built.
+**2026-09-01 update:** every `:` command-bar reference in this document
+(`FB.palette` command mode, `:new`, `:show`, `:light`/`:dark`, `:bill`,
+`:post`, `:pay`, etc.) describes a system that has since been **fully
+retired** (`global-search-spec.md`) — `/` search is the sole summon key,
+Ctrl+K has no binding, and `fb-command.js`'s `ALIASES` table is empty. Where
+this doc's reasoning depended on one of those aliases still existing, see
+the inline notes added at each spot rather than treating the original text
+as current.
 **Supersedes:** the bottom status line (`#fb-status-line`, built by `layoutEnd()` in
 `api/src/pages/common.js`) and the per-page `+ Journal Entry` topbar button.
-**Retains unchanged:** `/` search and `:` command-bar behavior (`fb-core.js`
-`FB.search`/`FB.palette`, `fb-command.js`), the period control's resolved-label
-rule (`docs/global-period-selector-chrome-spec.md`), the notification bell's
-existing data source (`docs/fx-automation-spec.md` §7), the company switcher
-(`fbToggleCompany`, `common.js`).
-**Explicitly deferred, not decided here:** killing the `:show` alias, and
-restructuring the `?` help overlay (NAV section reorder + a new Global
-section). Both were discussed in the design conversation that produced this
-spec; neither is resolved. See §7.
+**Retains unchanged:** `/` search (`fb-core.js` `FB.search`); `:` command-bar
+behavior does NOT survive — see the 2026-09-01 update above — the period
+control's resolved-label rule (`docs/global-period-selector-chrome-spec.md`),
+the notification bell's existing data source (`docs/fx-automation-spec.md`
+§7), the company switcher (`fbToggleCompany`, `common.js`).
+**Explicitly deferred, not decided here:** killing the `:show` alias — since
+resolved elsewhere: `global-search-spec.md` §0 retired `:show` outright, no
+replacement built. Restructuring the `?` help overlay (NAV section reorder +
+a new Global section) was later resolved by `help-overlay-chrome-spec.md`
+(which also had to remove its own now-dead `: Command` row on 2026-09-01).
 **Reference mockup:** interactive prototype built during design —
 `https://claude.ai/code/artifact/12f4d5d7-2118-41c8-99d0-7931b5040db7`
 (company/period cluster, `+` menu, notification bell, status banner
@@ -28,8 +37,9 @@ command-status feedback, inbox count, mode indicator — visually disconnected
 from the company/period identity, which lives in the *top* bar. This spec
 consolidates all of it into one topbar, styled after GitHub's header (company
 switcher, search, quick actions, notifications), and retires the bottom line
-entirely. It does not touch page-level navigation (`g`-map, `?`, `:`
-commands) — those are unchanged; this is chrome-only.
+entirely. It does not touch page-level navigation (`g`-map, `?`) — those are
+unchanged; this is chrome-only. (`:` commands, mentioned here as unchanged at
+draft time, were fully retired afterward — see the 2026-09-01 header note.)
 
 ---
 
@@ -149,12 +159,19 @@ a UI co-location fix, not a data-model change.
 
 ## 5. `+` New menu
 
-Reuses `newTargets()` (`fb-core.js`, built as `:new`'s `itemSource` off the
-action catalog's `create: true` entries) as its item list, verbatim — no
-new registry, no new server surface. Clicking a row does exactly what
-selecting it from `:new`'s dropdown does today. This is the mouse-parity
-affordance for `:new`; it does not change what `:new` itself does or
-require touching `fb-command.js`.
+Reuses `newTargets()` (`fb-core.js`, originally built as `:new`'s
+`itemSource` off the action catalog's `create: true` entries) as its item
+list, verbatim — no new registry, no new server surface. At draft time,
+clicking a row did exactly what selecting it from `:new`'s dropdown did, and
+this button was conceived as `:new`'s mouse-parity affordance.
+
+**2026-09-01: that premise is gone.** `:new` (and all of `:` command mode)
+was retired before the `+` button's implementation shipped — confirmed via
+`git log` that `:new` was already deleted from `fb-command.js`'s `ALIASES`
+prior to this doc's own build. The `+` button is now the *only* surface for
+`newTargets()`; there is no keyboard equivalent (raised in conversation as a
+possible `p`-key or similar addition — not yet built, would need its own
+ratification per `keyboard-ux-spec.md` §0's frozen verb surface).
 
 `newTargets()` already dedupes by destination route (e.g. `bill.create` and
 `bill.draft.save` both land on `/bill/edit` and collapse to one row) — the
@@ -166,22 +183,25 @@ or needs to replicate.
 
 ## 6. Theme toggle
 
-`common.js` already fully implements this — `fbApplyTheme(t)`,
-`window.fbToggleTheme()`, and the `:light`/`:dark` command aliases
-(`fb-command.js`) all exist and work today. What's missing is markup:
-`fbApplyTheme` looks for `#fb-theme-icon`/`#fb-theme-btn` to update their
-icon/title, but no page currently renders those elements — the toggle has
-been keyboard/command-only (`:light`, `:dark`) with no visible button. This
-spec's only change is adding that button to the topbar, wired to the
+`common.js` already fully implements this — `fbApplyTheme(t)` and
+`window.fbToggleTheme()` exist and work today. At draft time the toggle was
+also reachable via `:light`/`:dark` command aliases; those were already
+retired by `global-search-spec.md` §0 in favor of this very button, so by
+the time this spec ships there is no command-line path left, only whatever
+markup this spec adds. What's missing is that markup: `fbApplyTheme` looks
+for `#fb-theme-icon`/`#fb-theme-btn` to update their icon/title, but no page
+currently renders those elements — the toggle has no visible button yet.
+This spec's only change is adding that button to the topbar, wired to the
 existing `fbToggleTheme()` — no new client logic.
 
 ---
 
 ## 7. Explicitly deferred (raised during design, not decided)
 
-- **`:show` alias's fate.** Flagged as a possible duplicate of `?` + `g`-map
-  navigation ("might kill it") — not decided. Out of scope here regardless
-  of outcome; `:bill`, `:post`, `:pay`, `:new`, etc. are untouched either way.
+- ~~**`:show` alias's fate.**~~ **Resolved.** `global-search-spec.md` §0
+  retired `:show` outright (no replacement), and every other alias named
+  here — `:bill`, `:post`, `:pay`, `:new` — was retired alongside it. None
+  of `:` command mode survived.
 - **`?` help-overlay restructure.** Agreed in discussion: the NAV (`g`-map)
   section should render first/top-left instead of last, and a new "Global"
   section should document `/`, `:`, and `g` itself (currently undocumented

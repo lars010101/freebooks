@@ -1,6 +1,11 @@
 # `:show` / `:report` Command Spec
 
-**Status:** Draft v6 — review comments resolved, ready to build modulo the two items in §10.
+**Status:** Superseded, never built. `global-search-spec.md` §0 retired
+`:show` and `:report` outright instead (no replacement UI for `:show`;
+`:report` replaced by the Statements/Journal search categories) — the
+design this document proposes was overtaken by that decision. `:` command
+mode itself no longer exists in any form. Kept as historical record only.
+**Status (original):** Draft v6 — review comments resolved, ready to build modulo the two items in §10.
 **Scope:** the command-bar interaction model — bare `:`, `:show`, `:report`, and by extension `:bill`.
 **Supersedes:** v4 (see §1).
 **Depends on:** `action-catalog.js`, `report-registry.js`, `fb-core.js`'s palette component (`_catalog`, `_match`, `_render`, `_detectGrammar`, `_showGrammarHint`), `common.css` (`.fb-palette`, `.fb-grammar-hint`).

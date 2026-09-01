@@ -741,6 +741,21 @@ ${commonStyle()}
         viewBatchDesc = lines[0].description || viewBatchRef || '';
         viewBatchReversed = !!lines[0].reversed_by;
         renderViewMode();
+        // global-search-spec.md §2.1 — recently-viewed objects for the empty-state
+        // dropdown. A bare doc number is meaningless out of context (same gap
+        // fixed for search results, search.js's _searchJournals) — echo date/
+        // description/amount too so the row is identifiable at a glance.
+        if (window.FB && FB.search && FB.search.pushRecent) {
+          var recentAmount = 0;
+          viewBatchLines.forEach(function (l) { recentAmount += parseFloat(l.debit || 0); });
+          var recentBits = ['DOC ' + (viewBatchRef || VIEW_BATCH)];
+          if (viewBatchDate) recentBits.push(viewBatchDate);
+          if (viewBatchDesc && viewBatchDesc !== viewBatchRef) recentBits.push(viewBatchDesc);
+          if (recentAmount) recentBits.push(recentAmount.toFixed(2));
+          FB.search.pushRecent({ type: 'journal', id: VIEW_BATCH,
+            label: recentBits.join('  '),
+            route: '/journal/voucher?batch=' + encodeURIComponent(VIEW_BATCH) });
+        }
       })
       .catch(function (e) { showStatus(e.message, true); });
   }

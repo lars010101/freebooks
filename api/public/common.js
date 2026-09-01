@@ -44,7 +44,7 @@
     if (icon) icon.textContent = t === 'dark' ? '🌙' : '☀';
     if (btn)  btn.title = t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   }
-  window.fbApplyTheme = fbApplyTheme;  // exposed for :light/:dark command-bar aliases
+  window.fbApplyTheme = fbApplyTheme;  // exposed for fbToggleTheme() (the topbar theme button)
   window.fbToggleTheme = function() {
     var cur = document.documentElement.getAttribute('data-theme') || 'light';
     var next = cur === 'dark' ? 'light' : 'dark';
@@ -264,7 +264,6 @@
   // d             → page-registered "delete" action on focused row
   // e             → page-registered "edit" action
   // /             → focus global search
-  // : or Ctrl+K   → command palette
   // gg            → scroll to top
   // G             → scroll to bottom
   //
@@ -354,13 +353,6 @@
       e.preventDefault();
       if (window.FB && FB.search) FB.search.enter();
       else { var s = document.getElementById('tb-global-search'); if (s) s.focus(); }
-      return;
-    }
-
-    // ── : or Ctrl+K → command mode on the topbar input (P1-10) ──
-    if ((!inInput && e.key === ':') || (e.ctrlKey && e.key === 'k')) {
-      e.preventDefault();
-      if (window.FB && FB.palette) FB.palette.enterCommand();
       return;
     }
 
@@ -513,15 +505,13 @@
     if (e.key === 'e') { return; }
   });
 
-  // tb-global-search: Enter blurs, Escape clears+blurs in SEARCH mode; in
-  // COMMAND mode FB.palette's capture-phase handler owns Enter/Esc/arrows
-  // (P1-10). Filtering itself is each page's oninput handler.
+  // tb-global-search: Enter blurs, Escape clears+blurs in SEARCH mode.
+  // Filtering itself is each page's oninput handler.
   document.addEventListener('DOMContentLoaded', function() {
     var gs = document.getElementById('tb-global-search');
     if (gs) {
-      if (window.FB && FB.palette) FB.palette.wire(gs);
       if (window.FB && FB.search) FB.search.wire(gs);
-      // `/` global search (command-bar-ux-spec §4): FB.search always claims
+      // `/` global search (global-search-spec.md): FB.search always claims
       // a `/`-prefixed value — it owns the dropdown (global results grouped
       // by entity type, with a synthetic "Filter current page" row first when
       // a FB.list is visible). Non-`/` input is ignored here (no-op).
@@ -541,11 +531,13 @@
           }
         }
         if (e.key === 'Enter') {
-          // Safety net: if search mode isn't active yet but the value starts
-          // with '/', force a global search via submit() (bypasses debounce,
-          // auto-selects first result). Normally onKeydown already handled
-          // Enter — this covers the brief window before activation.
-          if (window.FB && FB.search && gs.value.charAt(0) === '/') {
+          // Safety net: if search mode isn't active yet but the value looks
+          // like ours (the "search: " prefix, a scope prefix, or a legacy
+          // '/'-typed shortcut — global-search-spec.md §7), force a global
+          // search via submit() (bypasses debounce, auto-selects first
+          // result). Normally onKeydown already handled Enter — this covers
+          // the brief window before activation.
+          if (window.FB && FB.search && FB.search.looksLikeSearch(gs.value)) {
             e.preventDefault();
             FB.search.submit();
           } else {

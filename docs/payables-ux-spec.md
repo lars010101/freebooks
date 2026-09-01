@@ -293,7 +293,7 @@ In INSERT mode, pressing Enter on the CCY input when a non-base currency is ente
 - Framework child cache: once fetched, children are cached by the parent `_key`. Subsequent unfolds render from cache instantly. The cache invalidates on save/post.
 
 ### Expand All / Collapse All
-`_expandAll` / `_collapseAll` have been **removed**. There is no bulk expand/collapse. If needed, it may be reintroduced via a future command palette. Out of scope for this spec.
+`_expandAll` / `_collapseAll` have been **removed**. There is no bulk expand/collapse. Out of scope for this spec.
 
 ### Visual Affordances
 
@@ -579,6 +579,11 @@ Payment today has exactly one path: bank-import auto-match. That leaves four gap
 
 ## P1-6 — Discoverability: `?` overlay + dead-palette removal (SHIPPED 2026-07-22)
 
+**2026-09-01: the `:` palette this section discusses (both the original dead
+stub removed here, and its eventual P1-10 replacement below) was fully
+retired — see `global-search-spec.md`. The `?` overlay itself survives and
+is current; only its `:`-palette context here is historical.**
+
 ### Purpose
 
 Keyboard-first UX fails if bindings are undiscoverable. The review found the `?` button handler-less and the `:` command palette dispatching to an undefined `fbCmdDispatch` — discoverability was dead. P1-3 had already made the sidebar hint panel generated from the FB.keys binding tables; P1-6 completes the pattern with an on-demand exhaustive reference.
@@ -606,6 +611,13 @@ Keyboard-first UX fails if bindings are undiscoverable. The review found the `?`
 - Verified live (throwaway DB): overlay opens on Bills + bill-edit, columns/labels match sidebar superset, Esc/`?`/backdrop close, typing `?` in an inline field stays text, journal page no-op. Contract suite 28/28.
 
 ## P1-10 — Command palette: `:` written commands (DONE 2026-07-23 — spec below as designed; built commit `d1c2110`)
+
+**Superseded and fully retired, 2026-09-01.** Everything below (through end
+of file) describes the `:` written-command palette exactly as it was
+designed and built in 2026-07-23. `global-search-spec.md` later retired the
+entire system, alias by alias, ending with `:vat-tolerance`/`:gst-tolerance`
+on this date. `/` search is its replacement. Kept below as historical
+design record only.
 
 *(Raised by magnus 2026-07-22 after P1-6 removed the dead `:` stub: "the idea with `:` is to allow written commands by the user, such as `:new bill"." Agreed: the concept is vim-native and fits the keyboard-first philosophy; what was deleted was a non-functional stub. Spec now, build later — after the P1-3 remainder.)*
 

@@ -33,7 +33,7 @@ A single declarative registry drives all report surfaces:
 { id, label, category, parameters, multiperiod: mom/yoy/none, exportFormats: [pdf, csv, …] }
 ```
 
-- Consumed by: hub dropdown, command palette, Dashboard drill-through links.
+- Consumed by: hub dropdown, Dashboard drill-through links. (The `:` command palette named here at design time no longer exists — see `global-search-spec.md`.)
 - New statutory formats become **registry entries, not new pages**.
 
 ## 5. Annual financial reports

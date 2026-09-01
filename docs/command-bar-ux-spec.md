@@ -1,6 +1,9 @@
 # Command-Bar UX Spec
 
-**Status:** Draft — design agreed in principle, not yet implemented.
+**Status:** Superseded — `global-search-spec.md` supersedes this document's
+§2, §4–§7 and retires `:` command mode entirely (2026-09-01: fully removed
+from code, no remaining trace). Kept as historical record only.
+**Status (original):** Draft — design agreed in principle, not yet implemented.
 **Supersedes:** the persistent sidebar as primary navigation. `g`-prefix motions and the existing `FB.keys` / `FB.list` / `FB.form` framework are retained unchanged.
 **Context:** single-user (self-hosted, one operator) — this spec deliberately skips multi-user discoverability scaffolding (onboarding flows, progressive disclosure for strangers). Optimize for round-trip speed and fast re-learning after time away, not first-contact friendliness.
 

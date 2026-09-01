@@ -62,7 +62,9 @@ ${commonStyle()}
   </div>
 
   <!-- 2026-08-27 IA restructure 2: Settings slimmed to Company · Access · Extensions.
-       Posting Rules tab deleted (VAT tolerance → command-bar only, §7).
+       Posting Rules tab deleted (VAT tolerance rows moved into this Extensions
+       grid — the :vat-tolerance/:gst-tolerance command-bar aliases that once
+       stood in for a UI surface are retired, 2026-09-01).
        AI tab renamed Extensions (absorbs FX Provider, FX API Key, Bill Extraction
        Tolerance from dissolved Posting Rules). Access moved from dissolved Admin. -->
 
@@ -100,6 +102,15 @@ ${commonStyle()}
     <table class="edit-table" id="access-table">
       <thead><tr><th>Email</th><th>Role</th><th>Scope</th><th></th></tr></thead>
       <tbody id="access-body"></tbody>
+    </table>
+
+    <!-- API TOKENS — access-tab-api-tokens-spec.md. Separate register: a token
+         is a different one-to-many relationship off an email than a permission
+         grant (zero, one, or several tokens per email, independent of role). -->
+    <h3 style="margin:28px 0 10px;font-size:10pt;text-transform:uppercase;letter-spacing:.04em;color:#555">API Tokens</h3>
+    <table class="edit-table" id="access-tokens-table">
+      <thead><tr><th>Label</th><th>Email</th><th>Created</th><th>Status</th><th></th></tr></thead>
+      <tbody id="access-tokens-body"></tbody>
     </table>
   </div>
 
@@ -173,7 +184,7 @@ function showTab(t) {
   if (!tabLoaded[t]) {
     tabLoaded[t] = true;
     if (t === 'company')  { loadCompanyAttrs(); }
-    if (t === 'access')   { loadAccess(); }
+    if (t === 'access')   { loadAccess(); loadTokens(); }
     if (t === 'extensions') { loadExtPostRules(); loadAiSettings(); }
   }
 }
@@ -353,8 +364,9 @@ window.onbeforeunload = function(e) {
 // ========== EXTENSIONS — POSTING RULES ROWS (FB.list) =========
 // 2026-08-27 IA restructure 2: Posting Rules tab dissolved; non-VAT fields moved
 // to Extensions. Same FB.list pattern, new tbody. VAT tolerance fields
-// (vat_tolerance, vat_tolerance_pct) are filtered out client-side — they have
-// no UI surface (§7, command-bar only).
+// (vat_tolerance, vat_tolerance_pct) render here like every other posting-rule
+// attribute — this grid is their only UI surface now that the :vat-tolerance/
+// :gst-tolerance commands are retired.
 var postRulesAttrs = FB.list.create({
   keysId: 'settings-extensions-postrules',
   active: function() { var p = document.getElementById('tab-extensions'); return !!(p && p.classList.contains('active')); },
@@ -393,9 +405,7 @@ var postRulesAttrs = FB.list.create({
   firstField: function() { return 'value'; },
   track: 'postrules-attr',
   list: { action: 'posting_rules.attr.list',
-    map: function(r) { return { label: r.label, value: r.value, display: r.display, type_label: r.type, editor: r.editor, readonly: !!r.readonly, _key: r.key }; },
-    // Filter out VAT tolerance fields — they have no UI surface (§7, command-bar only).
-    filter: function(r) { return r.key !== 'vat_tolerance' && r.key !== 'vat_tolerance_pct'; } },
+    map: function(r) { return { label: r.label, value: r.value, display: r.display, type_label: r.type, editor: r.editor, readonly: !!r.readonly, _key: r.key }; } },
   save: { action: 'posting_rules.attr.save',
     body: function(d) { return { key: d._key, value: d.value }; },
     focusKey: function(d) { return d._key; },
@@ -590,9 +600,102 @@ var accessList = FB.list.create({
 });
 
 function loadAccess() { accessList.load(); }
+
+// ========== API TOKENS — access-tab-api-tokens-spec.md =========
+// The token value (tokens.js: auth.token.create) is shown ONCE at creation —
+// only its sha256 hash is ever stored. FB.modal already gives us a
+// never-auto-dismiss, explicit-button-close surface (K2, keyboard-ux-spec §7),
+// so the reveal panel is built on that rather than a bespoke overlay.
+function fbRevealToken(token) {
+  if (!(window.FB && FB.modal)) return;
+  FB.modal.open({
+    title: 'API token created',
+    body: '<div style="font-size:10pt;color:#555;margin-bottom:8px">'
+        + 'Copy this token now — it will not be shown again. Only its hash is stored on the server.</div>'
+        + '<input type="text" id="fb-token-reveal-val" readonly onclick="this.select()" value="' + esc(token || '') + '" '
+        + 'style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:4px;'
+        + 'font-family:monospace;font-size:10pt;box-sizing:border-box;background:#f7f7f7">',
+    buttons: [
+      { label: 'Copy', onClick: function () {
+          var el = document.getElementById('fb-token-reveal-val');
+          if (!el) return;
+          el.select();
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(el.value).catch(function () {});
+          }
+        } },
+      { label: 'I’ve saved this', primary: true, onClick: function (api) { api.close(); } }
+    ]
+  });
+}
+
+// Create-or-revoke only — tokens.js has no update action, so there is no
+// in-place edit (editable: false). Revoking is permanent; an already-revoked
+// row isn't offered for delete again (deletable gated on !revoked_at).
+var tokensList = FB.list.create({
+  keysId: 'settings-access-tokens',
+  active: function() { var p = document.getElementById('tab-access'); return !!(p && p.classList.contains('active')); },
+  tbody: 'access-tokens-body',
+  companyId: function() { return COMPANY; },
+  hint: 'Tokens authenticate remote/agent API callers. The token value is shown once, at creation — copy it immediately. Revoking is permanent; a revoked token cannot be un-revoked, only replaced with a new one.',
+  columns: [
+    { field: 'label', type: 'text', width: 180, ro: 'saved', label: 'Label' },
+    { field: 'email', type: 'text', width: 220, ro: 'saved', label: 'Email' },
+    { field: 'created_at', type: 'text', width: 140, ro: 'always', label: 'Created', filterType: 'date',
+      display: function(v) { return v ? esc(new Date(v).toLocaleDateString()) : ''; } },
+    { field: 'status', type: 'text', width: 100, ro: 'always', filterType: 'list', label: 'Status',
+      display: function(v, d) { return d.revoked_at
+        ? '<span class="pe-ro">Revoked ' + esc(new Date(d.revoked_at).toLocaleDateString()) + '</span>'
+        : '<span style="color:#2a8a2a">Active</span>'; } }
+  ],
+  blank: function() { return { label: '', email: '' }; },
+  isBlank: function(b) { return !b.label && !b.email; },
+  same: function() { return true; },
+  validate: function(d) {
+    if (!d.label) return 'Label required.';
+    if (!d.email) return 'Email required.';
+    d.email = d.email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) return 'Not a valid email address.';
+    return null;
+  },
+  editable: function() { return false; },
+  deletable: function(d) { return !d.revoked_at; },
+  firstField: function() { return 'label'; },
+  track: 'api-token',
+  list: { action: 'auth.token.list',
+    map: function(r) {
+      return { label: r.label, email: r.email, created_at: r.created_at, revoked_at: r.revoked_at, _key: r.token_id };
+    } },
+  save: { action: 'auth.token.create',
+    body: function(d) { return { label: d.label, email: d.email }; },
+    focusKey: function(d, res) { return res.tokenId; },
+    // The create response carries the raw token, shown once (fbRevealToken).
+    onSaved: function(d, res) {
+      if (res && res.token) fbRevealToken(res.token);
+      return 'Token created — copy it now, it won’t be shown again.';
+    } },
+  del: { action: 'auth.token.revoke',
+    body: function(d) { return { tokenId: d._key }; },
+    confirm: function(d) { return 'Revoke token "' + d.label + '" (' + d.email + ')? This cannot be undone.'; } },
+  onChrome: function(dirty) {
+    var dot = document.getElementById('tab-dot-access');
+    if (dirty) markDirty('access'); else resetDirty('access');
+  }
+});
+
+function loadTokens() { tokensList.load(); }
+
 function renderAccessHints() {
   var el = document.getElementById('sb-hints');
-  if (el) accessList.renderHints(el);
+  if (!el) return;
+  // Two registers share this one tab's hint slot; renderHints(el) sets
+  // innerHTML, so render each into a scratch element and concatenate rather
+  // than calling it twice into the same live element (the second call would
+  // clobber the first).
+  var a = document.createElement('div'), b = document.createElement('div');
+  accessList.renderHints(a);
+  tokensList.renderHints(b);
+  el.innerHTML = a.innerHTML + b.innerHTML;
 }
 
 // ========== HANDLE ?tab= URL PARAM ==========

@@ -143,11 +143,12 @@ For non-table surfaces (dashboard cards, report links). `FB.nav.create({ grid })
 | `j` / `k` | Table row prev/next (with visual focus) | Global, NORMAL only |
 | `Enter` | Activate focused row (follow link or click) | Global, NORMAL only |
 | `/` | Focus topbar global search | Global, NORMAL only |
-| `:` or `Ctrl+K` | Command palette | Global, NORMAL only |
 | `?` | Which-key overlay (active binding set) | Global, NORMAL only |
 | `Esc` | Peel one layer (see §2) | Global |
 | `A` | Attach (page-registered) | Global, NORMAL only |
 | `~` | **Universal toggle verb** — toggles the state of the ACTIVE CELL / focused control | Global, NORMAL only |
+
+**2026-09-01 update:** the `:`/Ctrl+K "Command palette" row above is removed — `:` command mode was fully retired (`global-search-spec.md`), leaving `/` as the sole summon key. Ctrl+K has no binding.
 
 **`g`-prefix dispatch semantics (fb-core `_dispatch`, capture phase):**
 - One pending-`g` state (500 ms window). Arming: bare `g` in NORMAL mode, never in editable targets, never with Ctrl/Alt/Meta, and only when no active page set claims `g`.

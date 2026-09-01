@@ -19,7 +19,7 @@ So this spec adds **Access** as a third Admin tab: `Companies · Operations · A
 
 - `permissions.list` / `permissions.save` exist and work (`api/src/index.js` `handlePermissions`), owner-role gated.
 - No screen calls either. `admin-page.js` today has only `Companies` (browse/switch) and `Operations` (a card grid, currently just a disabled "Test LLM Connection" placeholder).
-- The `permissions.save` palette entry is a stale placeholder — it currently routes `:`/Ctrl+K to `/settings?tab=company`, which has nothing to do with permissions. This gets fixed as part of this work (§6).
+- The `permissions.save` palette entry is a stale placeholder — at the time of writing it routed the (since-retired) `:`/Ctrl+K command palette to `/settings?tab=company`, which has nothing to do with permissions. This gets fixed as part of this work (§6).
 - `permissions.save` is a **bulk delete-all-and-reinsert** — the same shape Cost/Profit Centers had before its FB.list tab was built. `ia-restructure-spec.md` §5.2 already retired that pattern for Centers in favor of per-row `upsert`/`delete`, "the same 'replace everything' pattern already retired for VAT codes and FX rates in favor of the one-save-path-per-row (`w`) doctrine." Access should get the same treatment, not become the one list in the app still wired to a bulk endpoint — see §2 for why this isn't just style consistency, it's also a correctness fix.
 - No test in `api/test/*.test.js` calls `permissions.save` at all today. Test setup uses raw `INSERT INTO user_permissions` SQL exclusively. New coverage is needed either way (§8).
 

@@ -1,5 +1,14 @@
 # freebooks — IA Restructure Spec: Master Data / Settings / Admin
 
+**Superseded** by `ia-restructure-2-spec.md` (per that doc's own header) and,
+for routes it further touched, `ia-restructure-3-spec.md`. The route table
+below (`bills`, `reports`, `periods`, `master-data`, `admin`) does not match
+current `nav-registry.js` — those sections were renamed/reorganized again in
+later restructures. This document's `:`/Ctrl+K command-palette reachability
+references also describe a system fully retired 2026-09-01
+(`global-search-spec.md`) — kept below as historical record only, not as a
+description of anything currently reachable.
+
 **Date:** 2026-08-11 · **Status:** RATIFIED
 **Scope:** Route registry, Payables, Settings, and a new Admin section. Client-side page/route reorganization; one server-side addition required (Cost/Profit Centers per-row actions — §5.2).
 **Companions:** `ia-spec.md` (§1 Route Registry, §9 Verb Conventions — this spec extends both), `settings-ux-spec.md` (§7 tab-migration precedent this follows)

@@ -1481,6 +1481,8 @@ async function handleSettings(ctx, action) {
     const pctFraction = parseFloat(s.vat_tolerance_pct);
     const pctDisplay = isNaN(pctFraction) ? 1 : Math.round(pctFraction * 100 * 100) / 100;
     const flatNum = parseFloat(s.vat_tolerance);
+    const fxBandFraction = parseFloat(s.fx_match_band_pct);
+    const fxBandDisplay = isNaN(fxBandFraction) ? 15 : Math.round(fxBandFraction * 100 * 100) / 100;
     const dash = '—';
     const attrs = [
       { key: 'multi_currency', label: 'Multi-Currency', type: 'Boolean', value: s.fx_tracking === 'true', display: s.fx_tracking === 'true' ? 'Yes' : 'No', editor: { type: 'checkbox' } },
@@ -1491,6 +1493,8 @@ async function handleSettings(ctx, action) {
       { key: 'vat_tolerance', label: 'VAT Tolerance (flat)', type: 'Number', value: isNaN(flatNum) ? 0.5 : flatNum, display: (isNaN(flatNum) ? 0.5 : flatNum).toFixed(2), editor: { type: 'number', step: '0.01' } },
       { key: 'vat_tolerance_pct', label: 'VAT Tolerance (%)', type: 'Number', value: pctDisplay, display: pctDisplay.toFixed(2) + '%', editor: { type: 'number', step: '0.1' } },
       { key: 'bill_extraction_tolerance', label: 'Bill Extraction Tolerance', type: 'Number', value: isNaN(parseFloat(s.bill_extraction_tolerance)) ? 0.5 : parseFloat(s.bill_extraction_tolerance), display: (isNaN(parseFloat(s.bill_extraction_tolerance)) ? 0.5 : parseFloat(s.bill_extraction_tolerance)).toFixed(2), editor: { type: 'number', step: '0.01' } },
+      { key: 'fx_match_band_pct', label: 'FX Match Band (%)', type: 'Number', value: fxBandDisplay, display: fxBandDisplay.toFixed(2) + '%', editor: { type: 'number', step: '1' },
+        note: 'How far a bank statement amount may drift from a foreign bill’s booked rate before bank-match still considers it (bank-matching-spec.md §4.4)' },
     ];
     return attrs;
   }
@@ -1581,6 +1585,12 @@ async function handleSettings(ctx, action) {
         const n = Number(value);
         if (!isFinite(n) || n < 0) throw invalid('Bill extraction tolerance must be a non-negative number');
         await putSetting(companyId, 'bill_extraction_tolerance', String(n));
+        break;
+      }
+      case 'fx_match_band_pct': {
+        const n = Number(value);
+        if (!isFinite(n) || n < 0) throw invalid('FX match band % must be a non-negative number');
+        await putSetting(companyId, 'fx_match_band_pct', String(n / 100));
         break;
       }
       default:

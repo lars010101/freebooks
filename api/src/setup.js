@@ -194,6 +194,10 @@ async function addCompany(ctx) {
     // Bill extraction tolerance: max |stated - computed| total before flagging
     // total_mismatch. Default 0.50 mirrors VAT tolerance shape (spec §7).
     { company_id: company.company_id, key: 'bill_extraction_tolerance', value: '0.50', updated_at: now },
+    // FX bank-match band (bank-matching-spec.md §4.4): how far a bank
+    // amount may drift from a foreign bill's booked rate before Tier 2
+    // still considers it. Default 15%.
+    { company_id: company.company_id, key: 'fx_match_band_pct', value: '0.15', updated_at: now },
     // Center derivation rollout gate (spec §2/§7). Seeded false — owner flips
     // to 'true' via settings.save when ready (after backfilling profit_center_id).
     { company_id: company.company_id, key: 'center_derivation_enabled', value: 'false', updated_at: now },

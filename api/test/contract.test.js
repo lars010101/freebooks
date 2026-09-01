@@ -733,7 +733,7 @@ test('bank.match Tier 2: home-currency shortfall classifies as partial_payment, 
   assert.equal(Number(apLine.debit), 808.47);
 });
 
-test('bank.match Tier 2: foreign-currency bill matches but is not bill_id-tagged (§2.3 FX allocation not built yet)', async () => {
+test('bank.match Tier 2: foreign-currency bill never exact-matches, matches fx_rounding instead, bill_id-tagged (§4.4 / §2.3)', async () => {
   await api(baseUrl, 'fx.rates.save', {
     companyId: CO, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }],
   });
@@ -744,15 +744,20 @@ test('bank.match Tier 2: foreign-currency bill matches but is not bill_id-tagged
     `SELECT amount_home FROM bills WHERE company_id='CT' AND bill_id='${billId}'`);
   const outstanding = Number(billRow[0].amount_home);
 
+  // Bank amount equal to the booking-rate home-currency value — under the
+  // old code this hit the exact-match loop; §4.4 excludes foreign bills
+  // from that loop entirely and routes it through the bounded band instead
+  // (still matches, since 0% drift is trivially within any positive band).
   const m = await api(baseUrl, 'bank.match', {
     companyId: CO, bankAccount: '1020',
     line: { date: TD.day21, amount: -outstanding, description: 'Acme Pte Ltd payment' },
   });
   assert.equal(m.status, 200, JSON.stringify(m.body));
-  assert.equal(m.body.data.matched, true, 'exact amount match still fires for a foreign bill');
-  assert.equal(m.body.data.evidence[0].discrepancy_type, 'open_item_exact');
-  assert.ok(!m.body.data.lines.some((l) => l.bill_id),
-    'no line tagged with bill_id — foreign bills are not auto-settled until §2.3 ships FX allocation for Tier 2');
+  assert.equal(m.body.data.matched, true, 'the bounded-band path still catches a zero-drift case');
+  assert.equal(m.body.data.evidence[0].discrepancy_type, 'fx_rounding', 'never open_item_exact for a foreign bill (§4.4)');
+  const apLine = m.body.data.lines.find((l) => l.bill_id === billId);
+  assert.ok(apLine, 'AP-side line now tagged with bill_id — §2.3 FX allocation ships this pass');
+  assert.equal(m.body.data.lines.length, 2, 'zero drift from the booking rate → no FX gain/loss line needed');
 });
 
 test('bank-match-bill-settlement: approving a Tier-2-matched proposal settles the bill, no double-post', async () => {
@@ -809,6 +814,362 @@ test('bank-match-bill-settlement: approving a Tier-2-matched proposal settles th
   const settlementLines = await sql(baseUrl, srv.adminToken,
     `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND batch_id='${batchId}' AND bill_id='${billId}'`);
   assert.equal(Number(settlementLines[0].c), 1, 'exactly one line in the settlement batch is tagged to this bill (the AP line, not the bank line)');
+});
+
+// ── bank-matching-spec.md §4.3 / §4.4 ───────────────────────────────────────
+// Dedicated fresh company per test, not CT: matchOpenItem's partial_payment
+// fallback has no real amount floor beyond "less than outstanding" and
+// returns the FIRST qualifying bill in due_date order — against CT's
+// hundreds of accumulated bills from every other test in this file, a
+// loosely-banded amount can be greedily claimed by an unrelated bill before
+// ever reaching the one this test created. Same isolation idiom this file
+// already uses for A5/A3j-adjacent tests (CO5, CO_P, etc.).
+
+function bmBill(ap, exp, overrides = {}) {
+  return {
+    partner_name: 'Acme Pte Ltd', vendor_ref: 'INV-1', date: TD.day20, due_date: TD.day25,
+    currency: 'SGD', ap_account: ap, amount: 100,
+    lines: [{ description: 'Consulting', expense_account: exp, amount: 100, vat_code: '' }],
+    ...overrides,
+  };
+}
+
+test('bank.match §4.3: bidirectional name corroboration — bank description shorter than the registered vendor name', async () => {
+  const CO_BM = 'CBM1';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO_BM,
+    bill: bmBill(seeded.AP, seeded.EXP, { vendor_ref: 'NS-1', partner_name: 'NorthStar Pte Ltd', amount: 733.19, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 733.19, vat_code: '' }] }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  const billId = c.body.data.billId;
+
+  // delta 20 (within the 5-50 bank_fee_netted band); description is just
+  // "NORTHSTAR" — shorter than "NorthStar Pte Ltd", so the OLD unidirectional
+  // check (desc.includes(partner)) could never corroborate this. No ref in
+  // the description either, so only the name-corroboration fix is exercised.
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO_BM, bankAccount: '1020',
+    line: { date: TD.day21, amount: -713.19, description: 'NORTHSTAR' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.matched, true);
+  assert.equal(m.body.data.evidence[0].discrepancy_type, 'bank_fee_netted');
+  assert.equal(m.body.data.evidence[0].bill_id, billId);
+  // 0.70 base + 0.10 corroboration bump — under the pre-fix unidirectional
+  // check this would stay at 0.70 (uncorroborated).
+  assert.ok(Math.abs(m.body.data.confidence.account.confidence - 0.80) < 0.001, 'name corroboration via the bidirectional check bumped confidence');
+});
+
+test('bank.match §4.4 + §2.3: foreign bill within the FX band, ref-corroborated → fx_rounding, bill_id-tagged, settles on approve', async () => {
+  const CO_BM = 'CBM2';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+  await api(baseUrl, 'fx.rates.save', { companyId: CO_BM, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
+  // FX Gain/Loss account — required for the proper 3-line booking-rate
+  // entry; without one, bank.js deliberately falls back to the untagged
+  // path (an unbalanced 2-line entry isn't an option — see bank.js comment).
+  const fxAcctRow = await api(baseUrl, 'coa.upsert', {
+    companyId: CO_BM,
+    account: { account_code: seeded.EXP + '9', account_name: 'FX Gain/Loss', account_type: 'Expense', is_active: true, default_role: 'FX Gain/Loss', effective_from: TD.startDate },
+  });
+  assert.equal(fxAcctRow.status, 200, JSON.stringify(fxAcctRow.body));
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO_BM,
+    bill: bmBill(seeded.AP, seeded.EXP, { vendor_ref: 'FX-2', currency: 'USD', amount: 456.78, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 456.78, vat_code: '' }] }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  const billId = c.body.data.billId;
+
+  // expected home ≈ 456.78 × 1.35 = 616.65; 647.49 is ~5% above that — well
+  // within the default 15% band, above the 50%-of-expected floor (so this
+  // is fx_rounding, not partial_payment) — and far enough to require a real
+  // FX gain/loss line (30.84), not a negligible-diff freebie.
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO_BM, bankAccount: '1020',
+    line: { date: TD.day25, amount: -647.49, description: 'WIRE PAYMENT REF FX-2' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.matched, true);
+  assert.equal(m.body.data.tier, 2);
+  assert.equal(m.body.data.evidence[0].discrepancy_type, 'fx_rounding');
+  assert.equal(m.body.data.evidence[0].bill_id, billId);
+  assert.ok(m.body.data.confidence.account.confidence >= 0.75, 'ref-corroborated fx_rounding baseline (0.75) or higher with due-date proximity');
+  assert.equal(m.body.data.lines.length, 3, 'AP (booking rate) + FX gain/loss + bank — proper booking-rate entry, not a naive 2-line one');
+  assert.ok(m.body.data.lines.every((l) => l.bill_id === billId || l.account_code === '1020'), 'AP and FX lines both tagged, bank line is not');
+  const sumDebit = m.body.data.lines.reduce((s, l) => s + Number(l.debit || 0), 0);
+  const sumCredit = m.body.data.lines.reduce((s, l) => s + Number(l.credit || 0), 0);
+  assert.ok(Math.abs(sumDebit - sumCredit) < 0.01, 'balanced entry');
+  assert.ok(Math.abs(sumCredit - 647.49) < 0.01, 'total equals the actual bank amount');
+
+  // Propose + approve — the actual gap this closes: does approval settle
+  // the bill, not just post a correct-but-inert journal entry?
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO_BM, userEmail: 'agent@ct', requestId: 'req-fx-settle-' + Date.now(),
+    lines: m.body.data.lines,
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const approve = await api(baseUrl, 'journal.approve', { companyId: CO_BM, userEmail: 'owner@ct', proposalId: propose.body.data.proposalId });
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+  const batchId = approve.body.data.batchId;
+
+  const bill = await sql(baseUrl, srv.adminToken, `SELECT status, amount_paid FROM bills WHERE company_id='${CO_BM}' AND bill_id='${billId}'`);
+  assert.equal(String(bill[0].status), 'paid', 'full remaining foreign balance settled → paid');
+  assert.ok(Math.abs(Number(bill[0].amount_paid) - 456.78) < 0.01, 'amount_paid tracked in the bill\'s OWN (foreign) currency, not the bank amount');
+
+  const bp = await sql(baseUrl, srv.adminToken, `SELECT method, amount, amount_foreign, batch_id FROM bill_payments WHERE company_id='${CO_BM}' AND bill_id='${billId}'`);
+  assert.equal(bp.length, 1);
+  assert.equal(String(bp[0].method), 'bank_match');
+  assert.ok(Math.abs(Number(bp[0].amount) - 647.49) < 0.01, 'bill_payments.amount is the bank-currency total (AP + FX lines)');
+  assert.ok(Math.abs(Number(bp[0].amount_foreign) - 456.78) < 0.01);
+  assert.equal(String(bp[0].batch_id), batchId, 'no second/duplicate journal batch');
+});
+
+test('bank.match §4.4 + §2.3: foreign bill genuine partial payment → 2-line entry (booking rate, no FX line), bill stays partial', async () => {
+  const CO_BM = 'CBM2b';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+  await api(baseUrl, 'fx.rates.save', { companyId: CO_BM, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO_BM,
+    bill: bmBill(seeded.AP, seeded.EXP, { vendor_ref: 'FX-7', currency: 'USD', amount: 600, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 600, vat_code: '' }] }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  const billId = c.body.data.billId;
+
+  // expected home = 600 × 1.35 = 810; 324 is 40% of that — below the 50%
+  // floor, so partial_payment (not fx_rounding). partial_payment assumes
+  // the booking rate applies (no independent way to separate "how much"
+  // from "what rate" off one number), so this should be a clean 2-line
+  // entry, not 3.
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO_BM, bankAccount: '1020',
+    line: { date: TD.day21, amount: -324, description: 'WIRE PAYMENT REF FX-7' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.evidence[0].discrepancy_type, 'partial_payment');
+  assert.equal(m.body.data.lines.length, 2, 'no FX line — booking rate assumed, zero implied diff');
+  assert.ok(m.body.data.lines.some((l) => l.bill_id === billId));
+
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO_BM, userEmail: 'agent@ct', requestId: 'req-fx-partial-' + Date.now(),
+    lines: m.body.data.lines,
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const approve = await api(baseUrl, 'journal.approve', { companyId: CO_BM, userEmail: 'owner@ct', proposalId: propose.body.data.proposalId });
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+
+  const bill = await sql(baseUrl, srv.adminToken, `SELECT status, amount_paid FROM bills WHERE company_id='${CO_BM}' AND bill_id='${billId}'`);
+  assert.equal(String(bill[0].status), 'partial', 'well short of the full 600 owed');
+  // 324 home ÷ 1.35 booking rate = 240 foreign
+  assert.ok(Math.abs(Number(bill[0].amount_paid) - 240) < 0.01, 'amount_paid tracked in foreign currency, derived via the booking rate');
+});
+
+test('Thread D: settlement.blocked when no FX Gain/Loss account — journal.approve refuses (banner-worthy VALIDATION), no posting, bill untouched', async () => {
+  const CO_BM = 'CBM10';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+  await api(baseUrl, 'fx.rates.save', { companyId: CO_BM, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
+  // Deliberately NO FX Gain/Loss account — this is the missing-setup case.
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO_BM,
+    bill: bmBill(seeded.AP, seeded.EXP, { vendor_ref: 'FX-10', currency: 'USD', amount: 456.78, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 456.78, vat_code: '' }] }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  const billId = c.body.data.billId;
+
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO_BM, bankAccount: '1020',
+    line: { date: TD.day25, amount: -647.49, description: 'WIRE PAYMENT REF FX-10' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.evidence[0].discrepancy_type, 'fx_rounding');
+  assert.ok(m.body.data.settlement && m.body.data.settlement.blocked, 'no FX Gain/Loss account configured → blocked');
+  assert.equal(m.body.data.settlement.billId, billId);
+  assert.ok(/FX Gain\/Loss/.test(m.body.data.settlement.blockedReason || ''), 'reason names the missing setup');
+  assert.ok(!m.body.data.lines.some((l) => l.bill_id === billId), 'blocked → falls back to the untagged path, no bill_id tag');
+
+  // Mirrors how agent-loop.js threads match.settlement into _match_meta —
+  // these tests call journal.propose directly, not via agent-loop.
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO_BM, userEmail: 'agent@ct', requestId: 'req-fx-blocked-' + Date.now(),
+    lines: m.body.data.lines, _match_meta: { settlement: m.body.data.settlement },
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+
+  const approve = await api(baseUrl, 'journal.approve', { companyId: CO_BM, userEmail: 'owner@ct', proposalId: propose.body.data.proposalId });
+  assert.notEqual(approve.status, 200, 'blocked settlement must refuse approval');
+  assert.ok(/FX Gain\/Loss/.test((approve.body.error && approve.body.error.message) || ''), 'error message carries the blockedReason for the banner');
+
+  const bill = await sql(baseUrl, srv.adminToken, `SELECT status, amount_paid FROM bills WHERE company_id='${CO_BM}' AND bill_id='${billId}'`);
+  assert.equal(String(bill[0].status), 'posted', 'refused approval must not touch the bill (still unpaid, not open/partial/paid)');
+  assert.equal(Number(bill[0].amount_paid), 0);
+  const proposalRow = await sql(baseUrl, srv.adminToken, `SELECT status FROM journal_proposals WHERE company_id='${CO_BM}' AND proposal_id='${propose.body.data.proposalId}'`);
+  assert.equal(String(proposalRow[0].status), 'proposed', 'the atomic claim must not have transitioned — no partial post left behind');
+});
+
+test('Thread D: bank.match.toggleSettlement flips full→partial (and back), rebuilding AP/FX lines against the same bank amount', async () => {
+  const CO_BM = 'CBM11';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+  await api(baseUrl, 'fx.rates.save', { companyId: CO_BM, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
+  const fxAcctRow = await api(baseUrl, 'coa.upsert', {
+    companyId: CO_BM,
+    account: { account_code: seeded.EXP + '9', account_name: 'FX Gain/Loss', account_type: 'Expense', is_active: true, default_role: 'FX Gain/Loss', effective_from: TD.startDate },
+  });
+  assert.equal(fxAcctRow.status, 200, JSON.stringify(fxAcctRow.body));
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO_BM,
+    bill: bmBill(seeded.AP, seeded.EXP, { vendor_ref: 'FX-9', currency: 'USD', amount: 600, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 600, vat_code: '' }] }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  const billId = c.body.data.billId;
+
+  // expected home = 600 × 1.35 = 810; 750 is ~92.6% of that (in-band, above
+  // the 50% fx_rounding/partial_payment floor) → default mode 'full'.
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO_BM, bankAccount: '1020',
+    line: { date: TD.day25, amount: -750, description: 'WIRE PAYMENT REF FX-9' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.evidence[0].discrepancy_type, 'fx_rounding');
+  assert.equal(m.body.data.settlement.blocked, false);
+  assert.equal(m.body.data.settlement.mode, 'full', 'fx_rounding defaults to full settlement');
+
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO_BM, userEmail: 'agent@ct', requestId: 'req-fx-toggle-' + Date.now(),
+    lines: m.body.data.lines, _match_meta: { settlement: m.body.data.settlement },
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+
+  const toggle1 = await api(baseUrl, 'bank.match.toggleSettlement', { companyId: CO_BM, userEmail: 'owner@ct', proposalId, billId });
+  assert.equal(toggle1.status, 200, JSON.stringify(toggle1.body));
+  assert.equal(toggle1.body.data.mode, 'partial');
+
+  const afterToggle1 = await sql(baseUrl, srv.adminToken, `SELECT lines, match_meta FROM journal_proposals WHERE company_id='${CO_BM}' AND proposal_id='${proposalId}'`);
+  const linesAfter1 = JSON.parse(afterToggle1[0].lines);
+  const metaAfter1 = JSON.parse(afterToggle1[0].match_meta);
+  assert.equal(metaAfter1.settlement.mode, 'partial');
+  // 750 booked at the booking rate (1.35, no independent FX diff assumed in
+  // partial mode) → clean 2-line entry, same bank total as before.
+  assert.equal(linesAfter1.length, 2, 'partial mode: booking-rate assumed, no FX line');
+  const sumDebit1 = linesAfter1.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+  const sumCredit1 = linesAfter1.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+  assert.ok(Math.abs(sumDebit1 - sumCredit1) < 0.01, 'toggled entry still balances');
+  assert.ok(Math.abs(sumCredit1 - 750) < 0.01, 'bank-side total unchanged by the toggle (bankShare invariant)');
+
+  // Toggle back to full — should reconstruct the original 3-line entry.
+  const toggle2 = await api(baseUrl, 'bank.match.toggleSettlement', { companyId: CO_BM, userEmail: 'owner@ct', proposalId, billId });
+  assert.equal(toggle2.status, 200, JSON.stringify(toggle2.body));
+  assert.equal(toggle2.body.data.mode, 'full');
+
+  const approve = await api(baseUrl, 'journal.approve', { companyId: CO_BM, userEmail: 'owner@ct', proposalId });
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+  const bill = await sql(baseUrl, srv.adminToken, `SELECT status, amount_paid FROM bills WHERE company_id='${CO_BM}' AND bill_id='${billId}'`);
+  assert.equal(String(bill[0].status), 'paid', 'toggled back to full before approval → full remaining balance settled');
+  assert.ok(Math.abs(Number(bill[0].amount_paid) - 600) < 0.01);
+});
+
+test('bank.match §4.4: foreign bill in-band but uncorroborated → no match (gate, not a confidence bonus)', async () => {
+  const CO_BM = 'CBM3';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+  await api(baseUrl, 'fx.rates.save', { companyId: CO_BM, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO_BM,
+    bill: bmBill(seeded.AP, seeded.EXP, { vendor_ref: 'FX-3', currency: 'USD', amount: 567.89, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 567.89, vat_code: '' }] }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+
+  // expected home ≈ 567.89 × 1.35 = 766.65; 800 is within the 15% band, but
+  // the description names neither the vendor nor the invoice ref.
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO_BM, bankAccount: '1020',
+    line: { date: TD.day21, amount: -800, description: 'MISC OUTGOING WIRE' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.matched, false, 'amount alone is not enough evidence at a 15% band — corroboration gates it');
+});
+
+test('bank.match §4.4: foreign bill outside the band even with corroboration → no match', async () => {
+  const CO_BM = 'CBM4';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+  await api(baseUrl, 'fx.rates.save', { companyId: CO_BM, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO_BM,
+    bill: bmBill(seeded.AP, seeded.EXP, { vendor_ref: 'FX-4', currency: 'USD', amount: 678.90, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 678.90, vat_code: '' }] }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+
+  // expected home ≈ 678.90 × 1.35 = 916.52; expected max at 15% ≈ 1053.99.
+  // 1200 is well beyond that even though the ref is right there in the
+  // description — the band gate is checked before corroboration runs at all.
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO_BM, bankAccount: '1020',
+    line: { date: TD.day21, amount: -1200, description: 'WIRE PAYMENT REF FX-4' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.matched, false, 'outside the band, corroboration or not');
+});
+
+test('bank.match §4.4: two equally-plausible foreign bills → ambiguous, no match (candidate cardinality)', async () => {
+  const CO_BM = 'CBM5';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+  await api(baseUrl, 'fx.rates.save', { companyId: CO_BM, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
+  const billBody = () => bmBill(seeded.AP, seeded.EXP, { partner_name: 'Ambiguous Vendor Ltd', currency: 'USD', amount: 789.01, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 789.01, vat_code: '' }] });
+  const c1 = await api(baseUrl, 'bill.create', { companyId: CO_BM, bill: { ...billBody(), vendor_ref: 'FX-6A' } });
+  const c2 = await api(baseUrl, 'bill.create', { companyId: CO_BM, bill: { ...billBody(), vendor_ref: 'FX-6B' } });
+  assert.equal(c1.status, 200, JSON.stringify(c1.body));
+  assert.equal(c2.status, 200, JSON.stringify(c2.body));
+
+  // Same vendor, same amount, same currency — both bills' bands cover this
+  // line, and the description corroborates both via the shared vendor name
+  // (it names neither ref specifically). Genuinely ambiguous which bill
+  // this payment is for.
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO_BM, bankAccount: '1020',
+    line: { date: TD.day21, amount: -1065.16, description: 'PAYMENT TO AMBIGUOUS VENDOR LTD' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.matched, false, 'two bills both fit and both corroborate — falls through rather than guessing');
+});
+
+test('fx_match_band_pct is a Settings → Extensions attribute and actually changes match behavior', async () => {
+  const CO_BM = 'CBM6';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+
+  const list = await api(baseUrl, 'posting_rules.attr.list', { companyId: CO_BM });
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  const row = list.body.data.find((r) => r.key === 'fx_match_band_pct');
+  assert.ok(row, 'fx_match_band_pct row present in Settings → Extensions');
+  assert.equal(row.display, '15.00%', 'defaults to 15%');
+
+  await api(baseUrl, 'fx.rates.save', { companyId: CO_BM, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO_BM,
+    bill: bmBill(seeded.AP, seeded.EXP, { vendor_ref: 'FX-5', currency: 'USD', amount: 890.12, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 890.12, vat_code: '' }] }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+
+  // expected home ≈ 890.12 × 1.35 = 1201.66; 1321.83 is ~10% above that —
+  // inside the default 15% band, outside a tightened 5% band.
+  const line = { date: TD.day21, amount: -1321.83, description: 'WIRE PAYMENT REF FX-5' };
+  const before = await api(baseUrl, 'bank.match', { companyId: CO_BM, bankAccount: '1020', line });
+  assert.equal(before.status, 200, JSON.stringify(before.body));
+  assert.equal(before.body.data.matched, true, 'a 10% drift matches at the default 15% band');
+
+  const save = await api(baseUrl, 'posting_rules.attr.save', { companyId: CO_BM, key: 'fx_match_band_pct', value: 5 });
+  assert.equal(save.status, 200, JSON.stringify(save.body));
+
+  const after = await api(baseUrl, 'bank.match', { companyId: CO_BM, bankAccount: '1020', line });
+  assert.equal(after.status, 200, JSON.stringify(after.body));
+  assert.equal(after.body.data.matched, false, 'the same 10% drift no longer matches once the band is tightened to 5%');
 });
 
 // ── A1: agent actor model (§2) ──────────────────────────────────────────────

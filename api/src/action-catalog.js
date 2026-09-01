@@ -178,6 +178,15 @@ const ACTIONS = {
     },
   },
 
+  'bank.match.toggleSettlement': {
+    role: 'data_entry', mutating: true, idempotent: false,
+    description: "Flip a proposed bank-match journal entry's foreign-currency settlement mode between 'full' and 'partial' for the tagged bill, rebuilding the AP/FX-gain-loss lines accordingly. Human-reviewer-only override of the band-classification default (bank-matching-spec §4.4).",
+    params: {
+      proposalId: { type: 'string', required: true },
+      billId: { type: 'string', required: true },
+    },
+  },
+
   // ── Bills (AP) ───────────────────────────────────────────────────────────
   'bill.create': {
     // Catalog role: agent (1.5) — same dispatch-ordering fix as journal.propose

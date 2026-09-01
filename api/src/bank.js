@@ -6,6 +6,7 @@
 
 const { query, exec } = require('./db');
 const { amountSignMatches, normalizeDescription } = require('./mapping-utils');
+const { buildAllocationLines } = require('./settlement');
 
 async function handleBank(ctx, action) {
   switch (action) {
@@ -13,6 +14,7 @@ async function handleBank(ctx, action) {
     case 'bank.reconcile.clear': return clearReconcile(ctx);
     case 'bank.uncleared.list':  return listAllUncleared(ctx);
     case 'bank.match':           return matchLine(ctx);
+    case 'bank.match.toggleSettlement': return toggleSettlement(ctx);
     default:
       throw Object.assign(new Error(`Unknown bank action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -74,35 +76,193 @@ function matchMapping(mappings, description, amount) {
  * lower-confidence tolerance matches to 'high'.
  * Returns null if no open bill is a plausible amount match.
  */
-function matchOpenItem(openBills, amount, description, homeCurrency) {
+// bank-matching-spec.md §4.3: corroborate via vendor_ref (word-boundary
+// regex, strong signal) or vendor name (bidirectional substring). Real bank
+// descriptions are usually truncated/abbreviated versions of a vendor's
+// registered name ("NORTHSTAR" vs "NorthStar Pte Ltd") — checking only
+// "description contains vendor name" misses that common case, so both
+// directions are checked. Returns 'ref' | 'name' | null; ref is the
+// stronger of the two and is returned in preference to name when both hit.
+function corroborate(desc, partner, ref) {
+  if (ref) {
+    const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
+    if (token.test(desc)) return 'ref';
+  }
+  if (partner && (desc.includes(partner) || partner.includes(desc))) return 'name';
+  if (ref && desc.includes(ref)) return 'ref';
+  return null;
+}
+
+/**
+ * buildFxSettlementLines — the proper booking-rate/FX-gain-loss entry for
+ * settling a foreign-currency bill via bank-match, for an EXPLICIT mode
+ * ('full' | 'partial'). Shared by matchLine's initial (default) proposal
+ * and the bank.match.toggleSettlement action (human override). Returns
+ * {blocked:true, blockedReason} when the entry can't be safely built —
+ * never falls back to an imprecise/unbalanced entry (bank-match-bill-
+ * settlement-spec.md: approval must be refused, not silently degraded).
+ *
+ * @param {string} companyId
+ * @param {object} bill        - needs ap_account, fx_rate, currency, amount, amount_paid
+ * @param {number} bankAmount  - the observed bank-side amount (home currency, positive)
+ * @param {'full'|'partial'} mode
+ * @param {string} homeCurrency
+ * @returns {Promise<{blocked:boolean, blockedReason?:string, apLine?, fxLine?, bankShare?, settledForeign?}>}
+ */
+async function buildFxSettlementLines(companyId, bill, bankAmount, mode, homeCurrency) {
+  const bookingRate = Number(bill.fx_rate) || 0;
+  if (!(bookingRate > 0)) {
+    return { blocked: true, blockedReason: `Bill ${bill.bill_id} has no valid booking FX rate — cannot settle via bank-match. Check the bill's stored FX rate.` };
+  }
+  const outstandingForeign = Number(bill.amount) - Number(bill.amount_paid);
+  let settledForeign, bankRate;
+  if (mode === 'full') {
+    // Closing payment — settle the FULL remaining foreign balance. The
+    // booking-rate method clears AP at the ORIGINAL booking rate regardless
+    // of what actually happened; back out the implied actual rate from what
+    // the bank paid so the FX gain/loss line absorbs exactly the difference.
+    settledForeign = outstandingForeign;
+    bankRate = settledForeign > 0 ? (bankAmount / settledForeign) : bookingRate;
+  } else {
+    // partial: one bank-side number can't independently separate "how much
+    // was paid" from "what rate applied" — assume the booking rate (no FX
+    // difference on a still-open bill), producing a clean 2-line entry.
+    settledForeign = bankAmount / bookingRate;
+    bankRate = bookingRate;
+  }
+  const fxRows = await query(
+    `SELECT account_code FROM accounts WHERE company_id = @companyId AND default_role = 'FX Gain/Loss' AND is_active = true LIMIT 1`,
+    { companyId }
+  );
+  const fxAccount = fxRows[0]?.account_code || null;
+  const alloc = buildAllocationLines({ bill, allocAmount: settledForeign, bankRate, fxAccount, homeCurrency });
+  if (!alloc.fxLine && Math.abs(alloc.fxDiff) > 0.005) {
+    // Real drift, no FX Gain/Loss account to absorb it. Posting AP at the
+    // booking rate against the bank line at the bank rate would be an
+    // UNBALANCED entry; posting AP at the bank rate instead (settleBillPayment's
+    // own manual-payment fallback) would break approve-time settlement's
+    // assumption that the AP line's debit IS the booking-rate amount.
+    // Refuse rather than guess.
+    return { blocked: true, blockedReason: 'FX Gain/Loss account not configured — add one in Settings → Company (mark an account’s Default Role as ‘FX Gain/Loss’) before approving this foreign-currency settlement.' };
+  }
+  return { blocked: false, apLine: alloc.apLine, fxLine: alloc.fxLine, bankShare: alloc.bankShare, settledForeign };
+}
+
+function round4(n) {
+  return Math.round(n * 10000) / 10000;
+}
+
+// Human-reviewer override of the §4.4 band-classification default. Flips a
+// still-proposed proposal's tagged AP/FX lines between 'full' and 'partial'
+// settlement of the foreign bill. The bank-side line is never touched: for
+// both modes in buildFxSettlementLines, bankShare is algebraically identical
+// to the bank amount actually observed on the statement line, so the
+// currently-tagged lines are always enough to recover it exactly.
+//
+// This bypasses journal.propose's upsert path deliberately — that path is
+// actor-restricted to the original proposer (created_by = @proposer), so a
+// human reviewer toggling settlement (a different actor) could not use it.
+async function toggleSettlement(ctx) {
+  const { companyId, body } = ctx;
+  const { proposalId, billId } = body;
+  if (!proposalId || !billId) throw Object.assign(new Error('proposalId and billId required'), { code: 'INVALID_INPUT' });
+
+  const rows = await query(
+    `SELECT lines, match_meta, status FROM journal_proposals WHERE company_id=@companyId AND proposal_id=@proposalId LIMIT 1`,
+    { companyId, proposalId }
+  );
+  if (!rows.length) throw Object.assign(new Error('Proposal not found'), { code: 'NOT_FOUND' });
+  if (rows[0].status !== 'proposed') throw Object.assign(new Error(`Cannot change settlement on a proposal in status '${rows[0].status}'`), { code: 'INVALID_STATUS' });
+
+  let lines;
+  try { lines = JSON.parse(rows[0].lines || '[]'); } catch (e) { throw Object.assign(new Error('Proposal lines are not valid JSON'), { code: 'CONFLICT' }); }
+  let matchMeta = {};
+  try { matchMeta = rows[0].match_meta ? JSON.parse(rows[0].match_meta) : {}; } catch (e) { matchMeta = {}; }
+
+  const taggedLines = lines.filter((l) => l.bill_id === billId);
+  if (!taggedLines.length) throw Object.assign(new Error('No lines in this proposal are tagged to that bill'), { code: 'INVALID_INPUT' });
+  const otherLines = lines.filter((l) => l.bill_id !== billId);
+  const bankAmount = round4(taggedLines.reduce((s, l) => s + (Number(l.debit) || 0) - (Number(l.credit) || 0), 0));
+  const sampleLine = taggedLines[0];
+
+  const billRows = await query(
+    `SELECT bill_id, ap_account, fx_rate, currency, amount, amount_paid FROM bills WHERE company_id=@companyId AND bill_id=@billId LIMIT 1`,
+    { companyId, billId }
+  );
+  if (!billRows.length) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
+  const bill = billRows[0];
+
+  const companyRows = await query(`SELECT currency FROM companies WHERE company_id=@companyId LIMIT 1`, { companyId });
+  const homeCurrency = companyRows[0]?.currency || 'USD';
+
+  const currentMode = (matchMeta.settlement && matchMeta.settlement.mode) || 'full';
+  const newMode = currentMode === 'full' ? 'partial' : 'full';
+
+  const fx = await buildFxSettlementLines(companyId, bill, bankAmount, newMode, homeCurrency);
+  if (fx.blocked) {
+    throw Object.assign(new Error(fx.blockedReason), { code: 'VALIDATION' });
+  }
+  // §2.1's tagged AP/FX lines are stored fully ENRICHED (currency, fx_rate,
+  // debit_home/credit_home, vat_* — postJournalBatch reads these straight off
+  // the stored proposal at approve time, it does not re-derive them). Handing
+  // buildAllocationLines' bare {account_code, debit, credit} straight to the
+  // stored lines array would leave those columns NULL and fail postJournalBatch's
+  // NOT NULL constraints. Re-run the same enrichAndValidate pipeline
+  // proposeEntry uses so the toggled lines end up enriched identically —
+  // otherLines pass through unchanged (already enriched; recomputing off their
+  // own currency/vat_code is idempotent).
+  const { enrichAndValidate } = require('./journal');
+  const rawApLine = { account_code: fx.apLine.account_code, date: sampleLine.date, description: sampleLine.description, debit: fx.apLine.debit, credit: fx.apLine.credit, bill_id: billId };
+  const rawLines = otherLines.concat([rawApLine]);
+  if (fx.fxLine) rawLines.push({ account_code: fx.fxLine.account_code, date: sampleLine.date, description: fx.fxLine.description || sampleLine.description, debit: fx.fxLine.debit, credit: fx.fxLine.credit, bill_id: billId });
+
+  const { enrichedLines, validation } = await enrichAndValidate(companyId, rawLines);
+  if (!validation.valid) {
+    throw Object.assign(new Error((validation.errors || []).join('; ')), { code: 'VALIDATION', details: { errors: validation.errors, warnings: validation.warnings } });
+  }
+
+  matchMeta.settlement = { billId, mode: newMode, blocked: false };
+
+  await exec(
+    `UPDATE journal_proposals SET lines=@lines, match_meta=@matchMeta, updated_at=@now WHERE company_id=@companyId AND proposal_id=@proposalId AND status='proposed'`,
+    { lines: JSON.stringify(enrichedLines), matchMeta: JSON.stringify(matchMeta), now: new Date().toISOString(), companyId, proposalId }
+  );
+
+  return { proposalId, billId, mode: newMode };
+}
+
+function matchOpenItem(openBills, amount, description, homeCurrency, lineDate, fxBandPct) {
   if (!Array.isArray(openBills) || openBills.length === 0) return null;
   const desc = (description || '').toUpperCase();
   const absAmount = Math.abs(amount);
+  const isForeign = (b) => !!(b.currency && b.currency !== homeCurrency);
 
   // 1) Exact amount match (within 0.01) — prefer partner/ref corroboration.
+  // Foreign bills never reach this (§4.4): amount_home is booked at the
+  // invoice-date rate, settlement happens later at a different rate, so a
+  // bit-exact match against a genuinely foreign bill essentially never
+  // occurs — treating it as an exact-match candidate at all is misleading.
   for (const bill of openBills) {
+    if (isForeign(bill)) continue;
     const outstanding = Number(bill.outstanding);
     if (Math.abs(outstanding - absAmount) < 0.01) {
       const partner = (bill.partner_name || '').toUpperCase();
       const ref = (bill.vendor_ref || '').toUpperCase();
-      let corroborated = false;
-      if (ref) {
-        const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
-        if (token.test(desc)) corroborated = true;
-      }
-      if (!corroborated && partner && desc.includes(partner)) corroborated = true;
-      if (!corroborated && ref && desc.includes(ref)) corroborated = true;
+      const corrType = corroborate(desc, partner, ref);
       return {
         bill,
         discrepancy_type: 'open_item_exact',
         delta: 0,
-        confidence: corroborated ? 1.0 : 0.95,
+        confidence: corrType ? 1.0 : 0.95,
       };
     }
   }
 
-  // 2) Tolerance matches — classify the discrepancy (§4.1).
+  // 2) Tolerance matches — classify the discrepancy (§4.1). Home-currency
+  // bills only — foreign bills are handled separately in step 2b (§4.4),
+  // which needs a currency-consistent band, not this generic tolerance math.
   for (const bill of openBills) {
+    if (isForeign(bill)) continue;
     const outstanding = Number(bill.outstanding);
     if (!outstanding || outstanding <= 0) continue;
     const delta = outstanding - absAmount; // positive ⇒ bank paid less than invoice
@@ -121,9 +281,6 @@ function matchOpenItem(openBills, amount, description, homeCurrency) {
     } else if (absDelta >= 5 && absDelta <= 50) {
       discrepancy_type = 'bank_fee_netted';
       confidence = 0.70;
-    } else if (bill.currency && bill.currency !== homeCurrency) {
-      discrepancy_type = 'fx_rounding';
-      confidence = 0.65;
     } else if (absAmount < outstanding) {
       discrepancy_type = 'partial_payment';
       confidence = 0.50;
@@ -133,22 +290,68 @@ function matchOpenItem(openBills, amount, description, homeCurrency) {
     // Partner/ref corroboration promotes the match (same logic as exact path).
     const partner = (bill.partner_name || '').toUpperCase();
     const ref = (bill.vendor_ref || '').toUpperCase();
-    let corroborated = false;
-    if (ref) {
-      const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
-      if (token.test(desc)) corroborated = true;
-    }
-    if (!corroborated && partner && desc.includes(partner)) corroborated = true;
-    if (!corroborated && ref && desc.includes(ref)) corroborated = true;
-    if (corroborated) confidence = Math.min(1.0, confidence + 0.10);
+    const corrType = corroborate(desc, partner, ref);
+    if (corrType) confidence = Math.min(1.0, confidence + 0.10);
 
     return { bill, discrepancy_type, delta, confidence };
   }
 
+  // 2b) Foreign-currency bills — bounded band anchored on the bill's own
+  // booking rate (bank-matching-spec §4.4), not the generic tolerance math
+  // above and not matchLine's amount_home-based `outstanding` column (that
+  // mixes a home-currency amount_home with a foreign-currency amount_paid
+  // for any previously-partially-paid foreign bill — bank-match-bill-
+  // settlement-spec.md §8). Corroboration GATES a candidate here rather
+  // than just boosting confidence — the band is wide enough that amount
+  // alone isn't sufficient evidence a same-amount coincidence is this bill.
+  if (fxBandPct != null) {
+    const candidates = [];
+    for (const bill of openBills) {
+      if (!isForeign(bill)) continue;
+      const outstandingForeign = Number(bill.amount) - Number(bill.amount_paid);
+      const rate = Number(bill.fx_rate);
+      if (!(outstandingForeign > 0) || !(rate > 0)) continue;
+      const expectedHome = outstandingForeign * rate;
+      const expectedMax = expectedHome * (1 + fxBandPct);
+      if (absAmount > expectedMax) continue; // outside the band even with the FX allowance
+      const partner = (bill.partner_name || '').toUpperCase();
+      const ref = (bill.vendor_ref || '').toUpperCase();
+      const corrType = corroborate(desc, partner, ref);
+      if (!corrType) continue; // gate: no corroboration → not a candidate at all
+      // Below half the expected amount even with the FX allowance looks
+      // more like a deliberate partial payment than rate drift.
+      const discrepancy_type = absAmount >= expectedHome * 0.5 ? 'fx_rounding' : 'partial_payment';
+      candidates.push({ bill, discrepancy_type, corrType, expectedHome });
+    }
+    if (candidates.length === 1) {
+      const { bill, discrepancy_type, corrType, expectedHome } = candidates[0];
+      let confidence = discrepancy_type === 'fx_rounding'
+        ? (corrType === 'ref' ? 0.75 : 0.65)
+        : (corrType === 'ref' ? 0.55 : 0.45);
+      // Due-date proximity (§4.4) — a confidence modifier, not a gate: real
+      // payments cluster near their due date; one far off either side is
+      // weaker evidence even with amount + corroboration already in hand.
+      if (lineDate && bill.due_date) {
+        const days = Math.round((new Date(lineDate) - new Date(bill.due_date)) / 86400000);
+        if (Math.abs(days) <= 7) confidence = Math.min(1.0, confidence + 0.05);
+        else if (days > 60) confidence = Math.max(0, confidence - 0.10);
+      }
+      return { bill, discrepancy_type, delta: expectedHome - absAmount, confidence };
+    }
+    // 0 candidates (nothing both in-band and corroborated) or >1 (more than
+    // one foreign bill both fits the band and corroborates — genuinely
+    // ambiguous which one this is) — fall through to tier 4 rather than
+    // guess. This is the same candidate-cardinality discipline §4.2 already
+    // applies to N:M, just reachable here from a single bank line too.
+  }
+
   // 3) 1:N — one transaction settles 2-8 open bills from the same partner
-  // (bank-matching-spec §4.1). Brute-force with cap N ≤ 8.
+  // (bank-matching-spec §4.1). Brute-force with cap N ≤ 8. Home-currency
+  // only — a foreign bill's `outstanding` here is the same currency-mixing
+  // column step 2b avoids; summing it into a combo would inherit the bug.
   const byVendor = new Map();
   for (const bill of openBills) {
+    if (isForeign(bill)) continue;
     const v = (bill.partner_name || '').toUpperCase();
     if (!v) continue;
     if (!byVendor.has(v)) byVendor.set(v, []);
@@ -304,17 +507,26 @@ async function matchLine(ctx) {
   );
   const accountingMethod = companies[0]?.accounting_method;
   const homeCurrency = companies[0]?.currency || 'USD';
+  // bank-matching-spec.md §4.4: fx_match_band_pct (Settings → Extensions,
+  // same convention as vat_tolerance_pct — stored as a fraction, e.g. 0.15
+  // for 15%). Falls back to 0.15 for companies that predate the setting.
+  const fxBandRows = await query(
+    `SELECT value FROM settings WHERE company_id = @companyId AND key = 'fx_match_band_pct'`,
+    { companyId }
+  );
+  const fxBandParsed = fxBandRows.length ? parseFloat(fxBandRows[0].value) : NaN;
+  const fxBandPct = isNaN(fxBandParsed) ? 0.15 : fxBandParsed;
 
   if (accountingMethod !== 'cash') {
     const openBills = await query(
-      `SELECT bill_id, partner_name, vendor_ref, amount_home, amount_paid, ap_account,
-              currency, (amount_home - amount_paid) AS outstanding, due_date
+      `SELECT bill_id, partner_name, vendor_ref, amount, amount_home, amount_paid,
+              fx_rate, ap_account, currency, (amount_home - amount_paid) AS outstanding, due_date
        FROM bills
        WHERE company_id = @companyId AND status IN ('posted', 'partial')
        ORDER BY due_date`,
       { companyId }
     );
-    const m = matchOpenItem(openBills, line.amount, line.description, homeCurrency);
+    const m = matchOpenItem(openBills, line.amount, line.description, homeCurrency, line.date, fxBandPct);
     if (m) {
       const isInflow = Number(line.amount) > 0;
       const amount = Math.abs(Number(line.amount));
@@ -334,28 +546,51 @@ async function matchLine(ctx) {
       };
       if (m.bills) ev.bills = m.bills.map((b) => b.bill_id);
 
-      // bank-match-bill-settlement-spec.md §2.1: tag the AP-side line with
-      // bill_id so approval can settle the bill. Scoped to the single-bill,
-      // home-currency case for now — multi-bill (m.bills) needs the §2.2
-      // N-lines restructuring (today's code only ever posts against
-      // combo[0], silently dropping the other matched bills from the
-      // journal), and a foreign-currency bill needs the §2.3 FX allocation
-      // this pass does not add. Neither is safe to auto-settle yet: tagging
-      // bill_id here without those would let a home-currency-amount journal
-      // line silently corrupt a foreign-currency-tracked amount_paid, or
-      // settle only one of several matched bills while showing them all as
-      // paid. Both cases post exactly as before — untagged, human-reviewed,
-      // not auto-settled.
+      // bank-match-bill-settlement-spec.md §2.1/§2.3: tag the AP-side line
+      // with bill_id so approval can settle the bill. A foreign bill gets
+      // the proper booking-rate/FX-gain-loss entry (buildFxSettlementLines)
+      // rather than a naive 2-line entry at the raw bank amount. The
+      // DEFAULT mode mirrors the matcher's own classification (full for
+      // fx_rounding, partial for partial_payment, per user direction) — the
+      // human can override via bank.match.toggleSettlement (~ in Inbox)
+      // before approving; journal.approve refuses to post at all if the
+      // settlement is `blocked` (missing FX rate/account), regardless of
+      // which mode. Multi-bill (m.bills) still needs the §2.2 N-lines
+      // restructuring and an inflow against a bill (isInflow — a
+      // credit/refund, not a normal payment) isn't modeled by the
+      // settlement machinery — both still post untagged, human-reviewed.
       const apLineIsDebit = debitAccount === apAccount;
-      const singleBillHomeCurrency = !m.bills && (!bill.currency || bill.currency === homeCurrency);
-      const apLine = { account_code: apAccount, date: line.date, description: line.description };
-      if (apLineIsDebit) { apLine.debit = amount; apLine.credit = 0; }
-      else { apLine.debit = 0; apLine.credit = amount; }
-      if (singleBillHomeCurrency) apLine.bill_id = bill.bill_id;
-      const bankLine = {
-        account_code: bankAccount, date: line.date, description: line.description,
-        debit: apLineIsDebit ? 0 : amount, credit: apLineIsDebit ? amount : 0,
-      };
+      const isForeignBill = !!(bill.currency && bill.currency !== homeCurrency);
+      const singleBillPayDown = !m.bills && !isInflow && apLineIsDebit;
+      const isFxSettleable = singleBillPayDown && isForeignBill
+        && (m.discrepancy_type === 'fx_rounding' || m.discrepancy_type === 'partial_payment');
+
+      let apLine, bankLine, fxLine = null;
+      let fxSettled = false;
+      let settlementInfo = null;
+      if (isFxSettleable) {
+        const settlementMode = m.discrepancy_type === 'fx_rounding' ? 'full' : 'partial';
+        const fx = await buildFxSettlementLines(companyId, bill, amount, settlementMode, homeCurrency);
+        if (fx.blocked) {
+          settlementInfo = { billId: bill.bill_id, mode: settlementMode, blocked: true, blockedReason: fx.blockedReason };
+        } else {
+          apLine = { ...fx.apLine, date: line.date, description: line.description, bill_id: bill.bill_id };
+          if (fx.fxLine) fxLine = { ...fx.fxLine, date: line.date, description: line.description, bill_id: bill.bill_id };
+          bankLine = { account_code: bankAccount, date: line.date, description: line.description, debit: 0, credit: fx.bankShare };
+          fxSettled = true;
+          settlementInfo = { billId: bill.bill_id, mode: settlementMode, blocked: false };
+        }
+      }
+      if (!fxSettled) {
+        apLine = { account_code: apAccount, date: line.date, description: line.description };
+        if (apLineIsDebit) { apLine.debit = amount; apLine.credit = 0; }
+        else { apLine.debit = 0; apLine.credit = amount; }
+        if (singleBillPayDown && !isForeignBill) apLine.bill_id = bill.bill_id;
+        bankLine = {
+          account_code: bankAccount, date: line.date, description: line.description,
+          debit: apLineIsDebit ? 0 : amount, credit: apLineIsDebit ? amount : 0,
+        };
+      }
 
       return {
         matched: true,
@@ -374,7 +609,10 @@ async function matchLine(ctx) {
           cost_center: null,
           profit_center: null,
         },
-        lines: apLineIsDebit ? [apLine, bankLine] : [bankLine, apLine],
+        lines: fxLine
+          ? [apLine, fxLine, bankLine]
+          : (apLineIsDebit ? [apLine, bankLine] : [bankLine, apLine]),
+        settlement: settlementInfo,
       };
     }
   }

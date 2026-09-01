@@ -415,6 +415,12 @@ function mapItem(it) {
     attachment_count: Number(it.attachment_count || 0),
     // Persisted warnings array (from journal_proposals.warnings JSON column).
     warnings: Array.isArray(it.warnings) ? it.warnings : [],
+    // bank-match-bill-settlement-spec §4.4: present only for bank-match
+    // proposals tagging a foreign-currency bill. {billId, mode, blocked,
+    // blockedReason?} — mode ('full'|'partial') is human-toggleable via the
+    // ~ verb; blocked means required FX setup is missing and approval must
+    // be refused.
+    settlement: it.settlement || null,
     _lines: lines
   };
 }
@@ -437,6 +443,13 @@ function toggleGroupFold(row) {
 // ── Approve / reject (row verbs — the queue idiom, spec §4.4–4.5) ──────────
 function review(row, verdict) {
   var approve = verdict === 'approve';
+  // Thread D (bank-match-bill-settlement-spec §4.4): a bank-match proposal
+  // missing required FX setup must not even reach the approve modal — refuse
+  // via the banner, same surface as any other action error.
+  if (approve && row.settlement && row.settlement.blocked) {
+    FB.status.show(row.settlement.blockedReason || 'Missing FX setup — cannot approve this proposal.', true);
+    return;
+  }
   // Phase A hardening: one Idempotency-Key per modal open = a retried confirm
   // replays the stored response instead of double-posting. The inFlight flag
   // guards the button between the click and the first response so a double-tap
@@ -604,6 +617,32 @@ var list = FB.list.create({
       when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
       affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { review(row, 'reject'); } },
+    // Thread D / bank-match-bill-settlement-spec §4.4: the human-controlled
+    // Full/Partial settlement toggle for bank-match proposals tagging a
+    // foreign-currency bill. ~ is the app's universal toggle verb
+    // (keyboard-ux-spec §5) — immediate persist, no staged/dirty-write step,
+    // matching payables-partners.js's active-toggle pattern. No other click
+    // buttons control this decision; approve/reject stay untouched by it.
+    { key: '~', label: 'toggle full/partial settlement',
+      when: function (row) { return row._kind === 'proposal' && row.status === 'proposed' && !!row.settlement; },
+      affordance: function (row) {
+        var mode = row.settlement && row.settlement.mode === 'partial' ? 'Partial' : 'Full';
+        var cls = row.settlement && row.settlement.blocked ? 'chip chip-cancel' : 'chip';
+        return '<a class="' + cls + '" title="toggle full/partial settlement (~)" data-act="verb:~">' + mode + '</a>';
+      },
+      run: function (api, row) {
+        postAction('bank.match.toggleSettlement', { proposalId: row.proposal_id, billId: row.settlement.billId })
+          .then(function (res) {
+            if (!res || res.ok === false || res.error) {
+              FB.status.show((res && res.error && res.error.message) || 'Toggle failed', true);
+              return;
+            }
+            FB.status.show('Settlement set to ' + (res.data && res.data.mode === 'partial' ? 'partial' : 'full') + '.', false);
+            _cache = null;   // lines/amount changed server-side — re-fetch
+            list.load();
+          })
+          .catch(function (e) { FB.status.show('Toggle failed: ' + (e && e.message || e), true); });
+      } },
     // Class B bill-due (§10.7 item 4): 'o' opens the bill's native surface
     // (Payables). The inbox is read-only; the bill is worked in its own page.
     { key: 'o', label: 'open bill',

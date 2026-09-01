@@ -508,7 +508,8 @@ async function processBankStatement(ev, companyId, agentEmail, companySettings) 
           description: line.description, source_transaction_id: sourceTxId,
           _match_meta: { tier: match.tier, source_type: match.source_type,
             confidence: match.confidence, evidence: match.evidence,
-            suggested_dimensions: match.suggested_dimensions },
+            suggested_dimensions: match.suggested_dimensions,
+            settlement: match.settlement || null },
         }, companyId, agentEmail);
         matchedProposals.push(proposal);
       } catch (e) {

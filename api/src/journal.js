@@ -1143,6 +1143,17 @@ async function approveProposal(ctx) {
   const revalidation = await validateJournalBatch(companyId, enrichedLines);
   if (!revalidation.valid) throwValidation(revalidation);
 
+  // bank-match-bill-settlement-spec.md §4.4/Thread D: a bank-match proposal
+  // that tags a foreign-currency bill but is missing required FX setup (no
+  // FX Gain/Loss account, or the bill has no valid booking fx_rate) must be
+  // refused at approve time rather than posted incomplete or guessed at —
+  // checked before any state mutation, same as the revalidation above.
+  let matchMeta = null;
+  try { matchMeta = proposal.match_meta ? JSON.parse(proposal.match_meta) : null; } catch (e) { matchMeta = null; }
+  if (matchMeta && matchMeta.settlement && matchMeta.settlement.blocked) {
+    throw Object.assign(new Error(matchMeta.settlement.blockedReason || 'Bank-match settlement is missing required FX setup — cannot approve.'), { code: 'VALIDATION' });
+  }
+
   // D3: same 'anonymous' fallback doctrine as proposeEntry (created_by NOT NULL
   // there; here it keeps attribution consistent under install-level trust).
   const reviewer = userEmail || 'anonymous';
@@ -1189,48 +1200,70 @@ async function approveProposal(ctx) {
       { batchId: postResult.batchId, companyId, proposalId }
     );
 
-    // bank-match-bill-settlement-spec.md §3: settle any bill(s) this batch's
-    // lines are tagged against (bill_id set by bank.match's Tier 2, §2.1).
-    // This is NOT a call to settleBillPayment/settleMultiBillPayment — the
-    // journal entry was already posted above by postJournalBatch, and
-    // calling either of those would post a second, duplicate entry. Only
-    // applies amount_paid/status + writes bill_payments, via the same
-    // non-journal-posting helper those functions use for that half of their
-    // work. Runs inside this same try block so a failure here rolls back
-    // the just-posted batch too, via the existing catch below.
-    // NOTE: today bank.match (§2.1) tags at most one bill_id per proposal —
-    // this loop is written for the general case, but a partial failure
-    // across MULTIPLE bills in one batch would leave earlier bills in this
-    // loop settled while the catch below deletes the whole journal batch,
-    // an inconsistency this compensating-rollback pattern (not a real DB
-    // transaction) can't undo. Not reachable today; revisit before §2.2
-    // (1:N) ships multi-bill-tagged proposals.
-    const settledBillIds = Array.from(new Set(
-      enrichedLines.filter((l) => l.bill_id && Number(l.debit) > 0).map((l) => l.bill_id)
-    ));
+    // bank-match-bill-settlement-spec.md §3/§2.3: settle any bill(s) this
+    // batch's lines are tagged against (bill_id set by bank.match's Tier 2,
+    // §2.1/§4.4). This is NOT a call to settleBillPayment/
+    // settleMultiBillPayment — the journal entry was already posted above
+    // by postJournalBatch, and calling either would post a second,
+    // duplicate entry. Only applies amount_paid/status + writes
+    // bill_payments, via the same non-journal-posting helper those
+    // functions use for that half of their work. Runs inside this same try
+    // block so a failure here rolls back the just-posted batch too, via
+    // the existing catch below.
+    // NOTE: today bank.match tags at most one bill_id per proposal (§2.2's
+    // 1:N restructuring isn't built) — this loop is written for the
+    // general case, but a partial failure across MULTIPLE bills in one
+    // batch would leave earlier bills in this loop settled while the catch
+    // below deletes the whole journal batch, an inconsistency this
+    // compensating-rollback pattern (not a real DB transaction) can't undo.
+    const settledBillIds = Array.from(new Set(enrichedLines.filter((l) => l.bill_id).map((l) => l.bill_id)));
     if (settledBillIds.length) {
       const { applyBillSettlement } = require('./settlement');
+      const round4 = (n) => Math.round(n * 10000) / 10000;
+      const companyRows = await query(`SELECT currency FROM companies WHERE company_id=@companyId LIMIT 1`, { companyId });
+      const homeCurrency = companyRows[0]?.currency || 'USD';
       for (const settledBillId of settledBillIds) {
-        const line = enrichedLines.find((l) => l.bill_id === settledBillId && Number(l.debit) > 0);
+        const linesForBill = enrichedLines.filter((l) => l.bill_id === settledBillId);
         const billRows = await query(
-          `SELECT amount_paid, amount_home FROM bills WHERE company_id=@companyId AND bill_id=@settledBillId LIMIT 1`,
+          `SELECT amount, amount_home, amount_paid, currency, fx_rate, ap_account FROM bills WHERE company_id=@companyId AND bill_id=@settledBillId LIMIT 1`,
           { companyId, settledBillId }
         );
         if (!billRows.length) continue; // bill gone — best effort, matches voidBillPayment's own precedent
         const bill = billRows[0];
-        const settledAmount = Number(line.debit);
-        const newAmountPaid = Number(bill.amount_paid) + settledAmount;
-        // Home-currency threshold only — bank.match only tags bill_id for
-        // home-currency bills today (§2.3's FX allocation isn't built yet).
-        const newStatus = newAmountPaid >= Number(bill.amount_home) - 0.005 ? 'paid' : 'partial';
+        // The AP-side line carries the amount at booking rate (home
+        // currency) — settledBooked in buildAllocationLines terms. Any
+        // sibling FX gain/loss line shares the same bill_id (mirrors
+        // settleMultiBillPayment's tagging) but is not the settled amount.
+        const apLineForBill = linesForBill.find((l) => l.account_code === bill.ap_account) || linesForBill[0];
+        const settledBooked = round4(Number(apLineForBill.debit) - Number(apLineForBill.credit));
+        if (!(settledBooked > 0)) continue; // credit-side/inflow against a bill — not modeled, leave untouched
+        // bill_payments.amount is the total bank-currency movement for this
+        // bill: AP line plus any FX line's own debit/credit (their sum is
+        // the actual bank share once an FX difference is booked).
+        const bankAmount = round4(linesForBill.reduce((s, l) => s + (Number(l.debit) || 0) - (Number(l.credit) || 0), 0));
+
+        const isForeign = !!(bill.currency && bill.currency !== homeCurrency);
+        let newAmountPaid, newStatus, amountForeign;
+        if (isForeign) {
+          const bookingRate = Number(bill.fx_rate) || 1;
+          const settledForeign = round4(settledBooked / bookingRate);
+          newAmountPaid = round4(Number(bill.amount_paid) + settledForeign);
+          newStatus = newAmountPaid >= Number(bill.amount) ? 'paid' : 'partial';
+          amountForeign = settledForeign;
+        } else {
+          newAmountPaid = round4(Number(bill.amount_paid) + settledBooked);
+          newStatus = newAmountPaid >= Number(bill.amount_home) - 0.005 ? 'paid' : 'partial';
+          amountForeign = null;
+        }
+
         await applyBillSettlement({
           companyId, billId: settledBillId, newAmountPaid, newStatus,
-          bankAmount: settledAmount, amountForeign: null,
-          batchId: postResult.batchId, date: line.date, method: 'bank_match', paymentReference: null,
+          bankAmount, amountForeign,
+          batchId: postResult.batchId, date: apLineForBill.date, method: 'bank_match', paymentReference: null,
         });
         await emitEvent(ctx, 'bill.payment.recorded', 'payment', settledBillId, {
-          billId: settledBillId, amount: settledAmount, method: 'bank_match',
-          date: line.date, status: newStatus,
+          billId: settledBillId, amount: isForeign ? amountForeign : bankAmount, currency: bill.currency,
+          method: 'bank_match', date: apLineForBill.date, status: newStatus,
         });
       }
     }
@@ -1391,7 +1424,7 @@ async function queryProposals(companyId, { status, limit, includeLines = false }
             jp.updated_at,
             jp.warnings,
             COALESCE(a.cnt, 0) AS attachment_count`;
-  const cols = includeLines ? baseCols + ', jp.lines' : baseCols;
+  const cols = includeLines ? baseCols + ', jp.lines, jp.match_meta' : baseCols;
   return query(
     `SELECT ${cols}
      FROM journal_proposals jp

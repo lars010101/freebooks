@@ -118,6 +118,17 @@ async function listInbox(ctx) {
       }
     } catch (e) { /* malformed lines → amount stays 0 */ }
 
+    // settlement (bank-match-bill-settlement-spec §4.4): present only on
+    // journal_proposals that tag a foreign-currency bill for bank-match
+    // settlement. `blocked` means required FX setup is missing and approval
+    // must be refused; `mode` ('full'|'partial') is the human-toggleable
+    // decision (bank.match.toggleSettlement) of how much of the bill to mark paid.
+    var settlement = null;
+    try {
+      var meta = row.match_meta ? JSON.parse(row.match_meta) : null;
+      if (meta && meta.settlement) settlement = meta.settlement;
+    } catch (e) { /* malformed match_meta → no settlement info */ }
+
     return {
       type: 'journal_proposal',
       source: row.source,
@@ -135,6 +146,7 @@ async function listInbox(ctx) {
       request_id: row.request_id,
       review_note: row.review_note,
       attachment_count: row.attachment_count,
+      settlement: settlement,
       warnings: (function () {
         try { var w = JSON.parse(row.warnings || '[]'); return Array.isArray(w) ? w : []; } catch (e) { return []; }
       })(),

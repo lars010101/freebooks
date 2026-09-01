@@ -700,6 +700,117 @@ test('bill.payment.void: reverses journal, restores bill, refuses double-void', 
   assert.match(again.body.error.message, /already voided/);
 });
 
+// ── bank-match-bill-settlement-spec.md ──────────────────────────────────────
+
+test('bank.match Tier 2: home-currency shortfall classifies as partial_payment, not fx_rounding (matchOpenItem hardcoded-USD regression)', async () => {
+  // Distinctive, non-round amount — CT accumulates many other tests' open
+  // bills (round amounts like 40/60/80/100) across this shared-fixture file,
+  // and Tier 2 searches across ALL open bills company-wide; a round amount
+  // here risks an exact/tolerance match against a DIFFERENT test's bill.
+  const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MATCH-1', amount: 811.47, lines: [{ description: 'Office supplies', expense_account: EXP, amount: 811.47, vat_code: '' }] }) });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  const billId = c.body.data.billId;
+
+  // outstanding 811.47, bank amount 808.47 → delta 3 (pct 0.37%, outside the
+  // 1-2% early_payment_discount band; absDelta 3, outside the 5-50
+  // bank_fee_netted band) — the only bands left are fx_rounding (currency
+  // check) or partial_payment. CT's home currency is SGD (test-utils/
+  // helpers.js seedCompany default), so a hardcoded 'USD' home-currency
+  // comparison would misclassify this SGD bill as foreign.
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO, bankAccount: '1020',
+    line: { date: TD.day21, amount: -808.47, description: 'Acme Pte Ltd payment' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.matched, true);
+  assert.equal(m.body.data.tier, 2);
+  assert.equal(m.body.data.evidence[0].discrepancy_type, 'partial_payment', 'home-currency shortfall — not fx_rounding');
+  assert.equal(m.body.data.evidence[0].bill_id, billId);
+
+  const apLine = m.body.data.lines.find((l) => l.bill_id);
+  assert.ok(apLine, 'AP-side line tagged with bill_id (bank-match-bill-settlement-spec §2.1)');
+  assert.equal(apLine.bill_id, billId);
+  assert.equal(Number(apLine.debit), 808.47);
+});
+
+test('bank.match Tier 2: foreign-currency bill matches but is not bill_id-tagged (§2.3 FX allocation not built yet)', async () => {
+  await api(baseUrl, 'fx.rates.save', {
+    companyId: CO, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }],
+  });
+  const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MATCH-FX-1', currency: 'USD', amount: 923.61, lines: [{ description: 'Office supplies', expense_account: EXP, amount: 923.61, vat_code: '' }] }) });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  const billId = c.body.data.billId;
+  const billRow = await sql(baseUrl, srv.adminToken,
+    `SELECT amount_home FROM bills WHERE company_id='CT' AND bill_id='${billId}'`);
+  const outstanding = Number(billRow[0].amount_home);
+
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO, bankAccount: '1020',
+    line: { date: TD.day21, amount: -outstanding, description: 'Acme Pte Ltd payment' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.matched, true, 'exact amount match still fires for a foreign bill');
+  assert.equal(m.body.data.evidence[0].discrepancy_type, 'open_item_exact');
+  assert.ok(!m.body.data.lines.some((l) => l.bill_id),
+    'no line tagged with bill_id — foreign bills are not auto-settled until §2.3 ships FX allocation for Tier 2');
+});
+
+test('bank-match-bill-settlement: approving a Tier-2-matched proposal settles the bill, no double-post', async () => {
+  const c = await api(baseUrl, 'bill.create', {
+    companyId: CO,
+    bill: validBill({ vendor_ref: 'SETTLE-1', amount: 654.32, lines: [{ description: 'Office supplies', expense_account: EXP, amount: 654.32, vat_code: '' }] }),
+  });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  const billId = c.body.data.billId;
+
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO, bankAccount: '1020',
+    line: { date: TD.day21, amount: -654.32, description: 'Acme Pte Ltd payment' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.matched, true);
+  assert.ok(m.body.data.lines.some((l) => l.bill_id === billId), 'matched line tagged with bill_id');
+
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO, userEmail: 'agent@ct', requestId: 'req-bankmatch-settle-' + Date.now(),
+    lines: m.body.data.lines,
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const proposalId = propose.body.data.proposalId;
+
+  const approve = await api(baseUrl, 'journal.approve', { companyId: CO, userEmail: 'owner@ct', proposalId });
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+  const batchId = approve.body.data.batchId;
+
+  const bill = await sql(baseUrl, srv.adminToken,
+    `SELECT status, amount_paid FROM bills WHERE company_id='CT' AND bill_id='${billId}'`);
+  assert.equal(String(bill[0].status), 'paid', 'bill settled to paid on approve — the gap this spec closes');
+  assert.equal(Number(bill[0].amount_paid), 654.32);
+
+  const bp = await sql(baseUrl, srv.adminToken,
+    `SELECT method, batch_id, amount FROM bill_payments WHERE company_id='CT' AND bill_id='${billId}'`);
+  assert.equal(bp.length, 1, 'one bill_payments row written');
+  assert.equal(String(bp[0].method), 'bank_match');
+  assert.equal(String(bp[0].batch_id), batchId, 'bill_payments row links to the batch postJournalBatch already posted — not a second batch');
+  assert.equal(Number(bp[0].amount), 654.32);
+
+  // No double-post: the batch postJournalBatch posted has exactly its 2 lines
+  // (not 4, which a stray settleBillPayment call would produce). Note this
+  // bill_id also appears on a SECOND, earlier batch — the bill's own
+  // creation posting (source 'manual', from bill.create) — that's expected:
+  // every journal_entries row touching a bill's AP account carries that
+  // bill's bill_id for traceability, not just settlement rows. The
+  // authoritative "settled exactly once" signal is the single bill_payments
+  // row already asserted above, not a bare count of batches referencing
+  // bill_id.
+  const je = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND batch_id='${batchId}'`);
+  assert.equal(Number(je[0].c), 2, 'exactly the 2 lines postJournalBatch posted once');
+  const settlementLines = await sql(baseUrl, srv.adminToken,
+    `SELECT COUNT(*) c FROM journal_entries WHERE company_id='CT' AND batch_id='${batchId}' AND bill_id='${billId}'`);
+  assert.equal(Number(settlementLines[0].c), 1, 'exactly one line in the settlement batch is tagged to this bill (the AP line, not the bank line)');
+});
+
 // ── A1: agent actor model (§2) ──────────────────────────────────────────────
 
 test('A1 guard matrix: agent FORBIDDEN on every mutating catalog action', async () => {

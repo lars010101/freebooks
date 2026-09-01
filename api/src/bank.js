@@ -74,7 +74,7 @@ function matchMapping(mappings, description, amount) {
  * lower-confidence tolerance matches to 'high'.
  * Returns null if no open bill is a plausible amount match.
  */
-function matchOpenItem(openBills, amount, description) {
+function matchOpenItem(openBills, amount, description, homeCurrency) {
   if (!Array.isArray(openBills) || openBills.length === 0) return null;
   const desc = (description || '').toUpperCase();
   const absAmount = Math.abs(amount);
@@ -121,7 +121,7 @@ function matchOpenItem(openBills, amount, description) {
     } else if (absDelta >= 5 && absDelta <= 50) {
       discrepancy_type = 'bank_fee_netted';
       confidence = 0.70;
-    } else if (bill.currency && bill.currency !== 'USD' /* home */) {
+    } else if (bill.currency && bill.currency !== homeCurrency) {
       discrepancy_type = 'fx_rounding';
       confidence = 0.65;
     } else if (absAmount < outstanding) {
@@ -299,10 +299,11 @@ async function matchLine(ctx) {
 
   // ── Tier 2 — open items (§4, source_type 'open_item') ─────────────────────
   const companies = await query(
-    `SELECT accounting_method FROM companies WHERE company_id = @companyId LIMIT 1`,
+    `SELECT accounting_method, currency FROM companies WHERE company_id = @companyId LIMIT 1`,
     { companyId }
   );
   const accountingMethod = companies[0]?.accounting_method;
+  const homeCurrency = companies[0]?.currency || 'USD';
 
   if (accountingMethod !== 'cash') {
     const openBills = await query(
@@ -313,7 +314,7 @@ async function matchLine(ctx) {
        ORDER BY due_date`,
       { companyId }
     );
-    const m = matchOpenItem(openBills, line.amount, line.description);
+    const m = matchOpenItem(openBills, line.amount, line.description, homeCurrency);
     if (m) {
       const isInflow = Number(line.amount) > 0;
       const amount = Math.abs(Number(line.amount));
@@ -333,6 +334,29 @@ async function matchLine(ctx) {
       };
       if (m.bills) ev.bills = m.bills.map((b) => b.bill_id);
 
+      // bank-match-bill-settlement-spec.md §2.1: tag the AP-side line with
+      // bill_id so approval can settle the bill. Scoped to the single-bill,
+      // home-currency case for now — multi-bill (m.bills) needs the §2.2
+      // N-lines restructuring (today's code only ever posts against
+      // combo[0], silently dropping the other matched bills from the
+      // journal), and a foreign-currency bill needs the §2.3 FX allocation
+      // this pass does not add. Neither is safe to auto-settle yet: tagging
+      // bill_id here without those would let a home-currency-amount journal
+      // line silently corrupt a foreign-currency-tracked amount_paid, or
+      // settle only one of several matched bills while showing them all as
+      // paid. Both cases post exactly as before — untagged, human-reviewed,
+      // not auto-settled.
+      const apLineIsDebit = debitAccount === apAccount;
+      const singleBillHomeCurrency = !m.bills && (!bill.currency || bill.currency === homeCurrency);
+      const apLine = { account_code: apAccount, date: line.date, description: line.description };
+      if (apLineIsDebit) { apLine.debit = amount; apLine.credit = 0; }
+      else { apLine.debit = 0; apLine.credit = amount; }
+      if (singleBillHomeCurrency) apLine.bill_id = bill.bill_id;
+      const bankLine = {
+        account_code: bankAccount, date: line.date, description: line.description,
+        debit: apLineIsDebit ? 0 : amount, credit: apLineIsDebit ? amount : 0,
+      };
+
       return {
         matched: true,
         tier: 2,
@@ -350,10 +374,7 @@ async function matchLine(ctx) {
           cost_center: null,
           profit_center: null,
         },
-        lines: [
-          { account_code: debitAccount,  debit: amount, credit: 0,      date: line.date, description: line.description },
-          { account_code: creditAccount, debit: 0,      credit: amount,  date: line.date, description: line.description },
-        ],
+        lines: apLineIsDebit ? [apLine, bankLine] : [bankLine, apLine],
       };
     }
   }

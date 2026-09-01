@@ -5,6 +5,7 @@
 **Amended 2026-08-05 (mappings stay human-only — R2 resolution):** Rule crystallization (§10.4) no longer writes to `mappings` via an agent-attributed call — that would violate agent-readiness-spec R2 (agents may never mutate master data, `mappings` named explicitly). Decision: keep `mappings` human-only; the agent proposes, a human approves, via a new lightweight `mapping_suggestions` flow (§10.1, §10.2) that mirrors the existing journal-proposal pattern. Rule retirement (§10.5) is resolved differently — no new approval surface, since it can piggyback on human-attributed actions that already exist (§10.5).
 **Depends on:** agent-readiness spec (R1, R7, R8, §4 single-gateway rule, §10 inbox taxonomy), payables-ux spec (settlement.js, bill_payments), keyboard-ux spec (K1–K5).
 **Amended 2026-08-05 (bills routing — Option C ratified):** `bill.create` (agent, draft) added to the §8.2 action table and to `AGENT_ALLOWED` notes — the agent creates a bill draft, a human posts it via the inbox (`bill.post`), and the posted bill becomes an open payable that tier 2 (§4) matches against. The bill draft enters the inbox as a Class A item (`bill_draft`, agent-readiness-spec §10.2); see §10.4 for the inbox-type note. `bill.create` uses catalog role `agent` (1.5), not `data_entry` (2), for the same dispatch-ordering reason as `bank.match` and `journal.propose`. `bill.post` stays `data_entry` and is not agent-whitelisted — the human's approval is the post (agent-readiness-spec §4.1).
+**Amended 2026-09-01 (§4 corrected — FX-bounded matching, corroboration-direction bug, candidate cardinality):** `fx_rounding` as originally written (§4.1) had no bound on discrepancy magnitude and only handled one direction of rate movement — found broken by direct code inspection, not a hypothetical. §4.1, §4.3, and a new §4.4 rewrite the foreign-currency path: no exact-match attempt for foreign bills (booking-vs-settlement rate drift makes bit-exact matches essentially impossible), a bounded expected-amount band anchored on the bill's own booking rate, a fixed direction bug in counterparty-name corroboration (checked the wrong substring direction — see §4.3), and a new candidate-cardinality confidence rule (a "match" against one of several plausible open bills is weaker evidence than a match against the only one). All still fully deterministic — no tier-4 involvement.
 
 ---
 
@@ -159,17 +160,27 @@ The `source_type` field drives the display format; the numeric confidence is sec
 
 ## 4. Tier 2 — Open-item matching
 
+**2026-09-01: see `bank-match-bill-settlement-spec.md` (PROPOSED).** This
+section specifies matching only — it never addressed what happens to the
+matched bill's own `status`/`amount_paid` when the resulting proposal is
+approved. Verified in code: today, nothing does — the bill stays
+`posted`/`partial` indefinitely even after a matching payment posts. That
+companion spec proposes tagging Tier 2's lines with `bill_id` (below) and
+settling the bill at `journal.approve` time, reusing `settlement.js`'s
+existing allocation/FX logic rather than adding a second implementation.
+
 ### 4.1 Amount tolerance — discrepancy types, not boolean
 
-Exact amount matches are rarer than they look. Early-payment discounts, bank fees netted out, FX rounding on cross-currency invoices, and partial payments all produce bank amounts that differ from invoice amounts. The matcher uses a tolerance window with the **discrepancy type** in the evidence, not a boolean equals check.
+Exact amount matches are rarer than they look. Early-payment discounts, bank fees netted out, and partial payments all produce bank amounts that differ from invoice amounts. The matcher uses a tolerance window with the **discrepancy type** in the evidence, not a boolean equals check.
 
 | Discrepancy type | Tolerance | Confidence on amount | Evidence text |
 |-----------------|-----------|---------------------|---------------|
 | `exact` | 0 | 1.0 | "Amount matches exactly" |
 | `early_payment_discount` | 1–2% below invoice | ~0.90 | "Delta of 1.5% consistent with standard discount terms" |
 | `bank_fee_netted` | Small fixed delta (5–50 SEK) | ~0.85 | "Delta of 35 SEK consistent with domestic transfer fee" |
-| `fx_rounding` | Cross-currency, within rounding band | ~0.80 | "Cross-currency delta within rounding band (rate: 0.0893)" |
 | `partial_payment` | Amount < invoice, no clear explanation | ~0.50 | "Partial payment — no matching discount or fee pattern" |
+
+**2026-09-01: `fx_rounding` removed from this table — moved to §4.4 and redefined.** As originally specified here ("cross-currency, within rounding band," no numeric bound), the code that shipped it had no actual bound: any foreign-currency bill whose delta missed the two tighter bands above got labeled `fx_rounding` regardless of size, and only one direction of rate movement was even considered (`delta < 0` — the bank settling for *more* than booked always fell through to tier 4, with no stated reason). Both were found by direct code inspection, not designed that way on purpose. §4.4 replaces it with a bounded mechanism anchored on the bill's own booking rate, not an unconditional currency check.
 
 A near-match on amount is a **different evidence type** than an exact match and is weighted accordingly. It never silently normalizes to "amount matches."
 
@@ -192,6 +203,34 @@ A wrong N:M match is still the highest-risk failure mode in the cascade (multipl
 | `counterparty_name_fuzzy` | Extracted name from description fuzzy-matches a vendor/customer name | Weak — "similar-looking name", not "same entity" | No |
 
 Collapsing both into one "counterparty match: yes/no" field loses the distinction that matters most for fraud control. They are separate evidence entries with different epistemic weight.
+
+**2026-09-01: name-corroboration direction bug, found by inspection.** The shipped substring check is `description.includes(vendorName)` — does the *bank description* contain the *full vendor name*. Real bank descriptions are almost always shorter/abbreviated versions of a vendor's registered name ("NORTHSTAR" on a statement vs. "NorthStar Pte Ltd" in master data), so a short string can never contain the longer one — this check fails on the common case, not just the edge case. Two fixes, not one:
+1. **Immediate:** check both directions — `vendorName.includes(description) || description.includes(vendorName)` — catches the common truncation case.
+2. **Correct:** stop growing a second, weaker string-matcher inside `bank.js` at all. §13 item 2 already specs a proper normalizer for exactly this problem (strip legal suffixes — AB, Inc, **Pte Ltd**, GmbH; strip bank-feed noise; trigram similarity; a curated alias table) for tier-3 master-data matching. Tier 2's corroboration should call that same normalizer rather than maintain its own ad hoc substring logic that drifts from it. `vendor_ref` (invoice/bill id) corroboration is unaffected by this bug — it already uses a word-boundary regex, not naive substring, and remains the stronger of the two signals.
+
+### 4.4 Foreign-currency bills — bounded matching, not exact (added 2026-09-01)
+
+**Never attempt an exact match on a foreign-currency bill.** `bills.amount_home` is booked at the rate on the bill's *invoice* date (`bills.js`: `getRate(currency, homeCurrency, bill.date)`), frozen at creation. Settlement happens later — days to months out, per `due_date` — by which point the market rate has almost always moved. Comparing a booking-rate-derived `outstanding` against the bank's actual settlement-rate amount to within `matchOpenItem`'s 1-cent exact-match tolerance will essentially never succeed for a genuinely foreign bill; treating it as a candidate for the exact-match pass (§4.1's `exact` row) at all is a false promise. Foreign bills skip that pass entirely and go straight to the bounded band below.
+
+**The expected-amount band is anchored on the bill's own booking rate, not a freshly-fetched rate.** `getRate` does not interpolate — `recordBillPayment` (`bills.js`) already throws `"No FX rate for X on Y — add it in Settings → Exchange Rates"` when the exact date isn't in the table, and a bank statement typically arrives before anyone has entered that specific day's rate. The one rate guaranteed to already exist is `bill.fx_rate`, stored at creation. Compute:
+
+```
+expected_max = (bill.amount − bill.amount_paid) × bill.fx_rate × (1 + FX_BAND_PCT)
+```
+
+`bill.amount` and `bill.amount_paid` are both bill-currency values (`amount_paid` is tracked in the bill's own currency for foreign bills, per `settlement.js`'s existing convention) — this is currency-consistent by construction and does **not** reuse `matchLine`'s existing `openBills.outstanding` column (`amount_home − amount_paid`), which is exactly the pre-existing currency-mixing bug `bank-match-bill-settlement-spec.md` §8 already found and deferred for the same reason. This formula is the fix for that query, scoped to what §4.4 needs.
+
+where `FX_BAND_PCT` is a single configurable percentage (default candidate: 15%) — a flat band, in the same spirit as `early_payment_discount`'s flat 1–2% and `bank_fee_netted`'s flat 5–50, not a rate-history-derived or per-currency-pair value. A bank amount at or below `expected_max` (and, per §4.1's existing "amount ≤ invoice" conservatism, not below some sanity floor — an amount far too small to plausibly be this bill, e.g. under half of it, is a `partial_payment` candidate instead, not an FX-drift candidate) is eligible for the `fx_rounding` classification; anything larger falls through to tier 4, same as any other unmatched line.
+
+**Corroboration is a gate here, not a confidence bonus.** Every other discrepancy type in §4.1 has a tolerance band tight enough (1–2%, or a flat 5–50) that a bare amount match is already strong evidence on its own — corroboration only sharpens it. A 15% band is wide enough that amount alone is not sufficient; without an independent signal tying the bank line to *this* bill specifically, a same-amount coincidence against the wrong open bill is a real risk. Require at least one of: `vendor_ref` word-boundary match (§4.3, unaffected by the direction bug), or the corrected bidirectional/normalized vendor-name match (§4.3). No corroboration → falls through to tier 4 regardless of how well the amount fits the band.
+
+**Due-date proximity — new signal, folded into confidence, not gating.** `matchOpenItem` does not currently look at `bill.due_date` at all. Add it as a confidence modifier for the `fx_rounding` (and, while touching this, every other §4.1 discrepancy type): a bank line dated at or shortly after `due_date` supports the match; one dated long before or long after it should pull confidence down, on the reasoning that real payments cluster near their due dates. This is a modifier on top of the gating corroboration check above, not a substitute for it — proximity alone (no vendor_ref or name match) should not promote a bare amount-in-band hit to a proposal.
+
+**Candidate cardinality — generalizes beyond N:M.** §4.2 already treats N:M as high-risk specifically because multiple invoices could silently mislink. The same risk exists in miniature for what looks like an ordinary single match: today, `matchOpenItem` returns the *first* bill in `due_date` order that satisfies its band, without checking whether *other* open bills also qualify. Before returning a match (foreign-currency or not, though the wide FX band makes this bite hardest there), gather every open bill that satisfies the same amount band: if exactly one qualifies, confidence stands; if more than one does, either pick the best on the corroboration/due-date signals above with confidence reduced accordingly, or treat the ambiguity itself as a tier-4 escalation reason — not silently return whichever bill happened to sort first.
+
+**Suggested-full, toggle-to-partial stays a human decision, not a matcher decision.** Whether an FX-band shortfall represents "this bill is fully settled, the gap is rate drift" or "this is a genuine partial payment" is not something the matcher can resolve from the statement line alone — both produce the identical number. The proposal defaults to the full-settlement interpretation (the more common case for an FX-explained gap) but the reviewer can edit the proposed settled amount down before approving, via the existing propose-upsert-same-`proposalId` path (`journal.js` `proposeEntry`) — no new mechanism needed for the toggle itself.
+
+**Still fully deterministic.** Every step above — rate lookup, band arithmetic, regex/substring corroboration, date-delta confidence, candidate enumeration — is ordinary code, no model call. Tier 4 remains the fallback for what's left: no corroboration, outside the band even with the FX allowance, or genuine multi-candidate ambiguity the signals above can't resolve.
 
 ---
 

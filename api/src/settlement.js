@@ -21,6 +21,59 @@ const { getRate } = require('./fx');
 const round4 = (n) => Math.round(n * 10000) / 10000;
 
 /**
+ * applyBillSettlement — the non-journal-posting tail shared by every
+ * settlement path (bank-match-bill-settlement-spec.md §3): apply an
+ * already-computed amount_paid/status to `bills`, and insert the matching
+ * `bill_payments` subledger row. Never touches `journal_entries` and never
+ * emits events — callers own their own journal-posting and event-emission
+ * exactly as before (see the deadlock note on `settleMultiBillPayment`:
+ * emitEvent must not run inside a withTransaction connection).
+ *
+ * Deliberately takes `newAmountPaid`/`newStatus` as inputs rather than
+ * deriving them: the three existing call sites this replaces use three
+ * subtly different threshold formulas (bill.amount vs bill.amount_home,
+ * with/without a 0.005 epsilon) — pre-existing, not something this
+ * extraction should silently unify. Each caller keeps computing its own
+ * threshold exactly as before; this helper only applies the result.
+ *
+ * @param {object} opts
+ * @param {string} opts.companyId
+ * @param {string} opts.billId
+ * @param {number} opts.newAmountPaid
+ * @param {string} opts.newStatus        - 'paid' | 'partial'
+ * @param {number} opts.bankAmount       - bill_payments.amount (home/bank currency)
+ * @param {number|null} [opts.amountForeign] - bill_payments.amount_foreign (null for home-currency bills)
+ * @param {string} opts.batchId
+ * @param {string} opts.date
+ * @param {string} opts.method           - 'manual' | 'bank_match'
+ * @param {string|null} [opts.paymentReference]
+ * @param {string} [opts.paymentId]      - reuse a pre-generated id (single-bill path); generated if omitted
+ * @param {{exec:Function, bulkInsert:Function}} [opts.db] - defaults to the ambient module-level exec/bulkInsert; pass {exec: tx.exec, bulkInsert: tx.bulkInsert} to run inside settleMultiBillPayment's transaction
+ * @returns {{paymentId, newStatus, amountPaid}}
+ */
+async function applyBillSettlement(opts) {
+  const {
+    companyId, billId, newAmountPaid, newStatus, bankAmount,
+    amountForeign = null, batchId, date, method, paymentReference = null,
+  } = opts;
+  const db = opts.db || { exec, bulkInsert };
+  const paymentId = opts.paymentId || uuid();
+  const now = new Date().toISOString();
+
+  await db.exec(
+    `UPDATE bills SET amount_paid = @newAmountPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
+    { companyId, billId, newAmountPaid, newStatus }
+  );
+  await db.bulkInsert('bill_payments', [{
+    company_id: companyId, payment_id: paymentId, bill_id: billId,
+    batch_id: batchId, amount: bankAmount, amount_foreign: amountForeign,
+    date, method, reference: paymentReference, created_at: now,
+  }]);
+
+  return { paymentId, newStatus, amountPaid: newAmountPaid };
+}
+
+/**
  * buildAllocationLines — shared per-bill FX line builder for the single-bill
  * (settleBillPayment) and multi-bill (settleMultiBillPayment) settlement
  * paths. Computes the AP debit line (at the bill's booking rate), the
@@ -183,16 +236,10 @@ async function settleBillPayment(opts) {
 
     const newAmountPaid = Number(bill.amount_paid) + settledForeign;
     const newStatus = newAmountPaid >= Number(bill.amount) ? 'paid' : 'partial';
-    await exec(
-      `UPDATE bills SET amount_paid = @newAmountPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
-      { companyId, billId, newAmountPaid, newStatus }
-    );
-
-    await bulkInsert('bill_payments', [{
-      company_id: companyId, payment_id: paymentId, bill_id: billId,
-      batch_id: batchId, amount: bankAmount, amount_foreign: settledForeign,
-      date, method, reference: paymentReference, created_at: now,
-    }]);
+    await applyBillSettlement({
+      companyId, billId, newAmountPaid, newStatus, bankAmount,
+      amountForeign: settledForeign, batchId, date, method, paymentReference, paymentId,
+    });
 
     result.newStatus = newStatus;
     result.fxDiff = fxDiff;
@@ -216,16 +263,10 @@ async function settleBillPayment(opts) {
 
   const newAmountPaid = Number(bill.amount_paid) + bankAmount;
   const newStatus = newAmountPaid >= Number(bill.amount_home) - 0.005 ? 'paid' : 'partial';
-  await exec(
-    `UPDATE bills SET amount_paid = @newAmountPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
-    { companyId, billId, newAmountPaid, newStatus }
-  );
-
-  await bulkInsert('bill_payments', [{
-    company_id: companyId, payment_id: paymentId, bill_id: billId,
-    batch_id: batchId, amount: bankAmount, amount_foreign: null,
-    date, method, reference: paymentReference, created_at: now,
-  }]);
+  await applyBillSettlement({
+    companyId, billId, newAmountPaid, newStatus, bankAmount,
+    amountForeign: null, batchId, date, method, paymentReference, paymentId,
+  });
 
   result.newStatus = newStatus;
   // A2 (§3.2): emit bill.payment.recorded. Home-currency settlement path
@@ -385,7 +426,6 @@ async function settleMultiBillPayment(opts) {
     });
 
     const journalLines = [];
-    const paymentRows = [];
     const results = [];
     const paymentIds = [];
     let totalBankShare = 0;
@@ -418,29 +458,17 @@ async function settleMultiBillPayment(opts) {
         }));
       }
 
-      // Update bill amount_paid + status (scoped exec)
+      // Update bill amount_paid + status, insert bill_payments (scoped to
+      // the transaction's own connection via tx.exec/tx.bulkInsert).
       const newAmountPaid = round4(Number(bill.amount_paid) + allocResult.settledForeign);
       const newStatus = newAmountPaid >= Number(bill.amount) - 0.005 ? 'paid' : 'partial';
-      await tx.exec(
-        `UPDATE bills SET amount_paid = @newAmountPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
-        { companyId, billId: bill.bill_id, newAmountPaid, newStatus }
-      );
-
-      // bill_payments row
-      const paymentId = uuid();
-      paymentIds.push(paymentId);
-      paymentRows.push({
-        company_id: companyId,
-        payment_id: paymentId,
-        bill_id: bill.bill_id,
-        batch_id: batchId,
-        amount: allocResult.bankShare,
-        amount_foreign: isForeign ? allocResult.settledForeign : null,
-        date: payDate,
-        method: 'manual',
-        reference: paymentReference,
-        created_at: now,
+      const settled = await applyBillSettlement({
+        companyId, billId: bill.bill_id, newAmountPaid, newStatus,
+        bankAmount: allocResult.bankShare, amountForeign: isForeign ? allocResult.settledForeign : null,
+        batchId, date: payDate, method: 'manual', paymentReference,
+        db: { exec: tx.exec, bulkInsert: tx.bulkInsert },
       });
+      paymentIds.push(settled.paymentId);
 
       results.push({
         billId: bill.bill_id,
@@ -462,9 +490,9 @@ async function settleMultiBillPayment(opts) {
       credit_home: totalBankShare,
     }));
 
-    // Insert journal entries + bill_payments (scoped)
+    // Insert journal entries (bill_payments rows were already inserted
+    // per-bill above, via applyBillSettlement).
     await tx.bulkInsert('journal_entries', journalLines);
-    await tx.bulkInsert('bill_payments', paymentRows);
 
     return { results, paymentIds, validatedBills: validated.map((v) => v.bill) };
   });
@@ -487,4 +515,4 @@ async function settleMultiBillPayment(opts) {
   return { batchId, paymentIds, results };
 }
 
-module.exports = { settleBillPayment, settleMultiBillPayment, buildAllocationLines };
+module.exports = { settleBillPayment, settleMultiBillPayment, buildAllocationLines, applyBillSettlement };

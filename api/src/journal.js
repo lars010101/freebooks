@@ -1188,6 +1188,52 @@ async function approveProposal(ctx) {
        WHERE company_id=@companyId AND entity_type='journal_proposal' AND entity_id=@proposalId`,
       { batchId: postResult.batchId, companyId, proposalId }
     );
+
+    // bank-match-bill-settlement-spec.md §3: settle any bill(s) this batch's
+    // lines are tagged against (bill_id set by bank.match's Tier 2, §2.1).
+    // This is NOT a call to settleBillPayment/settleMultiBillPayment — the
+    // journal entry was already posted above by postJournalBatch, and
+    // calling either of those would post a second, duplicate entry. Only
+    // applies amount_paid/status + writes bill_payments, via the same
+    // non-journal-posting helper those functions use for that half of their
+    // work. Runs inside this same try block so a failure here rolls back
+    // the just-posted batch too, via the existing catch below.
+    // NOTE: today bank.match (§2.1) tags at most one bill_id per proposal —
+    // this loop is written for the general case, but a partial failure
+    // across MULTIPLE bills in one batch would leave earlier bills in this
+    // loop settled while the catch below deletes the whole journal batch,
+    // an inconsistency this compensating-rollback pattern (not a real DB
+    // transaction) can't undo. Not reachable today; revisit before §2.2
+    // (1:N) ships multi-bill-tagged proposals.
+    const settledBillIds = Array.from(new Set(
+      enrichedLines.filter((l) => l.bill_id && Number(l.debit) > 0).map((l) => l.bill_id)
+    ));
+    if (settledBillIds.length) {
+      const { applyBillSettlement } = require('./settlement');
+      for (const settledBillId of settledBillIds) {
+        const line = enrichedLines.find((l) => l.bill_id === settledBillId && Number(l.debit) > 0);
+        const billRows = await query(
+          `SELECT amount_paid, amount_home FROM bills WHERE company_id=@companyId AND bill_id=@settledBillId LIMIT 1`,
+          { companyId, settledBillId }
+        );
+        if (!billRows.length) continue; // bill gone — best effort, matches voidBillPayment's own precedent
+        const bill = billRows[0];
+        const settledAmount = Number(line.debit);
+        const newAmountPaid = Number(bill.amount_paid) + settledAmount;
+        // Home-currency threshold only — bank.match only tags bill_id for
+        // home-currency bills today (§2.3's FX allocation isn't built yet).
+        const newStatus = newAmountPaid >= Number(bill.amount_home) - 0.005 ? 'paid' : 'partial';
+        await applyBillSettlement({
+          companyId, billId: settledBillId, newAmountPaid, newStatus,
+          bankAmount: settledAmount, amountForeign: null,
+          batchId: postResult.batchId, date: line.date, method: 'bank_match', paymentReference: null,
+        });
+        await emitEvent(ctx, 'bill.payment.recorded', 'payment', settledBillId, {
+          billId: settledBillId, amount: settledAmount, method: 'bank_match',
+          date: line.date, status: newStatus,
+        });
+      }
+    }
   } catch (postErr) {
     // Compensating rollback. If postJournalBatch succeeded (postResult set)
     // but the A4 re-point failed, delete the just-posted ledger rows so no

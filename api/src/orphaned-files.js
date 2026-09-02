@@ -4,16 +4,14 @@
  *
  * Write actions for the Inbox's orphan_file item kind (inbox.js's
  * queryOrphanedFiles is the read side; orphaned_files IS the source of
- * truth, R8 — no staging). Three resolutions, matching the ideation
- * conversation exactly:
- *   - View  → GET /api/orphaned-file/:orphanId (this file's serveOrphanFile,
- *             mirroring attachments.js's serveAttachment: no company scoping
- *             beyond the row lookup itself — same posture as every other
- *             download route in this single-user-install app).
- *   - Purge → delete the file directly off disk (no attachments row exists
- *             to delete).
- *   - Move  → relocate into a quarantine subfolder the integrity scanner
- *             skips, so it stops re-triggering — without deciding its fate.
+ * truth, R8 — no staging). Two resolutions:
+ *   - View   → GET /api/orphaned-file/:orphanId (this file's serveOrphanFile,
+ *              mirroring attachments.js's serveAttachment: no company scoping
+ *              beyond the row lookup itself — same posture as every other
+ *              download route in this single-user-install app).
+ *   - Delete → delete the file directly off disk (no attachments row exists
+ *              to delete). The operator downloads a copy via View first if
+ *              one is wanted — no app-managed quarantine/restore path.
  */
 
 const fs = require('fs');
@@ -21,12 +19,9 @@ const path = require('path');
 const { query, exec } = require('./db');
 const { ATTACHMENTS_ROOT } = require('./attachments');
 
-const QUARANTINE_DIR = '_quarantine';
-
 async function handleOrphanedFiles(ctx, action) {
   switch (action) {
-    case 'orphan.purge': return purgeOrphan(ctx);
-    case 'orphan.move': return moveOrphan(ctx);
+    case 'orphan.delete': return deleteOrphan(ctx);
     default:
       throw Object.assign(new Error(`Unknown orphan action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -41,7 +36,7 @@ async function loadOrphan(companyId, orphanId) {
   return rows[0];
 }
 
-async function purgeOrphan(ctx) {
+async function deleteOrphan(ctx) {
   const { companyId, body } = ctx;
   const { orphanId } = body;
   if (!orphanId) throw Object.assign(new Error('orphanId required'), { code: 'INVALID_INPUT' });
@@ -50,24 +45,7 @@ async function purgeOrphan(ctx) {
   try { fs.unlinkSync(fullPath); } catch (e) { /* already gone — fine, still mark resolved */ }
   await exec(`UPDATE orphaned_files SET resolved_at = @now WHERE orphan_id = @id`,
     { now: new Date().toISOString(), id: orphanId });
-  return { purged: true, orphan_id: orphanId };
-}
-
-async function moveOrphan(ctx) {
-  const { companyId, body } = ctx;
-  const { orphanId } = body;
-  if (!orphanId) throw Object.assign(new Error('orphanId required'), { code: 'INVALID_INPUT' });
-  const row = await loadOrphan(companyId, orphanId);
-  const fromPath = path.join(ATTACHMENTS_ROOT, row.path);
-  const quarantineDir = path.join(ATTACHMENTS_ROOT, QUARANTINE_DIR);
-  if (!fs.existsSync(quarantineDir)) fs.mkdirSync(quarantineDir, { recursive: true });
-  const toPath = path.join(quarantineDir, `${orphanId}-${path.basename(row.path)}`);
-  try { fs.renameSync(fromPath, toPath); } catch (e) {
-    throw Object.assign(new Error(`Move failed: ${e.message}`), { code: 'INTERNAL' });
-  }
-  await exec(`UPDATE orphaned_files SET resolved_at = @now WHERE orphan_id = @id`,
-    { now: new Date().toISOString(), id: orphanId });
-  return { moved: true, orphan_id: orphanId };
+  return { deleted: true, orphan_id: orphanId };
 }
 
 async function serveOrphanFile(req, res) {
@@ -85,4 +63,4 @@ async function serveOrphanFile(req, res) {
   }
 }
 
-module.exports = { handleOrphanedFiles, serveOrphanFile, QUARANTINE_DIR };
+module.exports = { handleOrphanedFiles, serveOrphanFile };

@@ -951,10 +951,14 @@
           else if (a.dataset.act.indexOf('verb:') === 0) {
             // rowVerbs affordance click (A3j §4.4): resolve the verb by key,
             // re-check its predicate against the clicked row, then run it.
+            // Two rowVerbs entries may share a key (row-kind-gated, e.g.
+            // Inbox's proposal 'x' vs orphan 'x') — pick the one whose
+            // predicate actually matches the clicked row, not just the first
+            // entry with that key.
             var vkey = a.dataset.act.slice(5);
-            var verb = (cfg.rowVerbs || []).filter(function (v) { return v.key === vkey; })[0];
             var row = merged()[i];
-            if (verb && row && verb.when(row)) { if (editIdx >= 0) exitEdit(); verb.run(api, row); }
+            var verb = (cfg.rowVerbs || []).filter(function (v) { return v.key === vkey && row && v.when(row); })[0];
+            if (verb) { if (editIdx >= 0) exitEdit(); verb.run(api, row); }
           }
         });
       });

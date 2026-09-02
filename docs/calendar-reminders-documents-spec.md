@@ -159,10 +159,9 @@ Documents is strictly DB-driven (§5.3) — it is never built by scanning `ATTAC
   ```
   `ATTACHMENTS_ROOT` itself (`os.homedir()/.freebooks/attachments`) is global, but every real attachment's `storage_path` is written as `${companyId}/${entityType}/${entityId}/${uuid}-${filename}` (`attachments.js:154`) — company_id is always the path's first segment, so the scanner parses it out and `orphaned_files.company_id` is populated the normal way for anything that looks like a real (if orphaned) upload. It stays nullable only for the edge case of a file placed under `ATTACHMENTS_ROOT` by hand, outside that convention entirely — that one has no company to attribute to and needs to surface somewhere company-scoped Inbox review can't reach it; flagged, not resolved, in §9.
 
-**Resolution happens in Inbox, not the notification dropdown.** The bell stays purely a ping (as it is today — `fb-core.js:3088-3157` has no per-item actions beyond mark-read). An orphaned file needing a human verdict is the same shape of task Inbox already exists for ("the human's review queue" — `inbox.js`'s `_kind: 'bill'|'proposal'` rows with an accept/reject review modal, `inbox.js:354-402`). This spec proposes a new `_kind: 'orphan_file'` Inbox row, sourced from the `orphaned_files` table, with three resolutions instead of accept/reject:
-  - **Purge** — delete the blob directly off disk (there's no `attachment.delete` to call; no row exists to delete).
-  - **View** — open/preview the file before deciding; needs a temporary direct-file-serving route, since there's no `attachment_id` to serve it by.
-  - **Move** — relocate it into a quarantine subfolder outside the scanned root, so it stops re-triggering the scanner every cycle without committing to delete-or-keep yet.
+**Resolution happens in Inbox, not the notification dropdown.** The bell stays purely a ping (as it is today — `fb-core.js:3088-3157` has no per-item actions beyond mark-read). An orphaned file needing a human verdict is the same shape of task Inbox already exists for ("the human's review queue" — `inbox.js`'s `_kind: 'bill'|'proposal'` rows with an accept/reject review modal, `inbox.js:354-402`). This spec proposes a new `_kind: 'orphan_file'` Inbox row, sourced from the `orphaned_files` table, with two resolutions instead of accept/reject:
+  - **View** — open/preview or download the file before deciding; needs a temporary direct-file-serving route, since there's no `attachment_id` to serve it by.
+  - **Delete** — delete the blob directly off disk (there's no `attachment.delete` to call; no row exists to delete). No app-managed quarantine — the operator downloads a copy via View first if one is wanted.
 
 ---
 

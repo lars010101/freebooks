@@ -25,10 +25,12 @@
  *
  * Row verbs (FB.list rowVerbs — fb-list-ux-spec §13):
  *   y = approve (confirm modal: date, line count, total debit, optional note)
- *   x = reject  (required note — the proposer reads it via event.list)
+ *   x = reject on proposal rows (required note — the proposer reads it via
+ *       event.list); deletes off disk on orphan rows — the app's regular
+ *       delete verb, native confirm, no modal
  *   o = open bill (Class B bill-due items — navigates to Payables)
- *   v/p/m = view/purge/move (Class B orphan_file items, calendar-reminders-
- *           documents-spec.md §5.5 — orphaned_files is the source of truth)
+ *   v = view/download (Class B orphan_file items, calendar-reminders-
+ *       documents-spec.md §5.5 — orphaned_files is the source of truth)
  * Enter unfolds lines read-only (framework openFocused); Esc never writes.
  */
 
@@ -500,6 +502,23 @@ function review(row, verdict) {
   });
 }
 
+// ── Delete orphaned file (row verb — Class B, calendar-reminders-documents-
+// spec.md §5.5) ────────────────────────────────────────────────────────
+// x is the app's regular delete verb (matches bill-detail.js/payables-
+// bills.js's void, fb-list.js's default row delete): one action, native
+// confirm, no modal. The operator downloads first via v if they want a
+// copy — no app-managed quarantine/restore path.
+function deleteOrphan(row) {
+  if (!confirm('Permanently delete this file from disk?\n' + row.reference)) return;
+  postAction('orphan.delete', { orphanId: row.orphan_id }).then(function (res) {
+    if (!res || res.ok === false || res.error) {
+      FB.status.show((res && res.error && res.error.message) || 'Delete failed', true); return;
+    }
+    FB.status.show('Deleted.', false);
+    _cache = null; list.load();
+  }).catch(function (e) { FB.status.show('Delete failed: ' + (e && e.message || e), true); });
+}
+
 function cycleStatusFilter() {
   // Four-state cycle: proposed → rejected → bills → orphans → proposed.
   // Class B ('bills', 'orphans') are filter sections, not the default (§10.2).
@@ -653,30 +672,16 @@ var list = FB.list.create({
         window.location.href = '/' + COMPANY + '/payables';
       } },
     // Class B orphaned files (calendar-reminders-documents-spec.md §5.5):
-    // v = view/download, p = purge (delete off disk), m = move to quarantine.
+    // v = view/download, x = delete (off disk). No app-managed quarantine —
+    // download via v first if a copy is wanted, then delete.
     { key: 'v', label: 'view',
       when: function (row) { return row._kind === 'orphan'; },
       affordance: function () { return '<a class="chip" title="view (v)" data-act="verb:v">&#128065;</a>'; },
       run: function (api, row) { window.open('/api/orphaned-file/' + row.orphan_id, '_blank'); } },
-    { key: 'p', label: 'purge',
+    { key: 'x', label: 'delete',
       when: function (row) { return row._kind === 'orphan'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="purge (p)" data-act="verb:p">&#10005;</a>'; },
-      run: function (api, row) {
-        if (!confirm('Permanently delete this file from disk?\\n' + row.reference)) return;
-        postAction('orphan.purge', { orphanId: row.orphan_id }).then(function () {
-          FB.status.show('Purged.');
-          _cache = null; list.load();
-        }).catch(function (e) { FB.status.show('Purge failed: ' + (e && e.message || e), true); });
-      } },
-    { key: 'm', label: 'move to quarantine',
-      when: function (row) { return row._kind === 'orphan'; },
-      affordance: function () { return '<a class="chip" title="move to quarantine (m)" data-act="verb:m">&#8618;</a>'; },
-      run: function (api, row) {
-        postAction('orphan.move', { orphanId: row.orphan_id }).then(function () {
-          FB.status.show('Moved to quarantine.');
-          _cache = null; list.load();
-        }).catch(function (e) { FB.status.show('Move failed: ' + (e && e.message || e), true); });
-      } }
+      affordance: function () { return '<a class="chip chip-cancel" title="delete (x)" data-act="verb:x">&#10005;</a>'; },
+      run: function (api, row) { deleteOrphan(row); } }
   ],
   actions: [
     { key: 'f', label: 'filter: proposed↔rejected↔bills↔orphans', handler: function () { cycleStatusFilter(); } }
@@ -701,10 +706,10 @@ var list = FB.list.create({
       // Class B orphaned files view
       var orphans = items.filter(function (r) { return r._kind === 'orphan'; });
       note.textContent = orphans.length + ' orphaned file' + (orphans.length === 1 ? '' : 's')
-        + ' — v view · p purge · m move to quarantine · f returns to the queue';
+        + ' — v view · x delete · f returns to the queue';
     }
   },
-  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, o open bill, v/p/m view/purge/move an orphaned file, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → bills → orphans.'
+  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, o open bill, v/x view/delete an orphaned file, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → bills → orphans.'
 });
 
 list.load();

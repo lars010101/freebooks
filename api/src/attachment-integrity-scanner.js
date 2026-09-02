@@ -10,8 +10,8 @@
  *   - DB row, no file  → attachments.missing_since set/cleared, notified on
  *                        the transition into "missing".
  *   - File, no DB row  → a row in orphaned_files, notified once; resolved_at
- *                        is set automatically once the file is gone (Purge/
- *                        Move in Inbox act on the filesystem directly, so the
+ *                        is set automatically once the file is gone (Delete
+ *                        in Inbox acts on the filesystem directly, so the
  *                        next scan just notices the path no longer exists).
  *
  * Runs once daily like the reminder scanner — file drift doesn't happen fast.
@@ -23,7 +23,6 @@ const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
 const { ATTACHMENTS_ROOT } = require('./attachments');
 const { raiseNotification } = require('./notifications');
-const { QUARANTINE_DIR } = require('./orphaned-files');
 
 const SCAN_MS = parseInt(process.env.FREEBOOKS_ATTACHMENT_INTEGRITY_SCAN_MS || (24 * 60 * 60 * 1000), 10);
 
@@ -64,9 +63,7 @@ async function scanMissingFiles() {
 // ── File, no DB row ───────────────────────────────────────────────────────────
 async function scanOrphanedFiles() {
   const known = new Set((await query(`SELECT storage_path FROM attachments`)).map((r) => r.storage_path));
-  // Files already moved to quarantine (orphan.move, §5.5) are deliberately
-  // triaged, not re-flagged — same reason a resolved DB row is skipped below.
-  const onDisk = walkFiles(ATTACHMENTS_ROOT).filter((p) => p.split(path.sep)[0] !== QUARANTINE_DIR);
+  const onDisk = walkFiles(ATTACHMENTS_ROOT);
   const orphanPaths = onDisk.filter((p) => !known.has(p));
 
   const existingRows = await query(`SELECT orphan_id, path, resolved_at FROM orphaned_files`);
@@ -94,7 +91,7 @@ async function scanOrphanedFiles() {
     if (raised) notified++;
   }
 
-  // Auto-resolve rows whose file is gone (purged/moved via Inbox, or by hand).
+  // Auto-resolve rows whose file is gone (deleted via Inbox, or by hand).
   for (const r of existingRows) {
     if (!r.resolved_at && !orphanSet.has(r.path)) {
       await exec(`UPDATE orphaned_files SET resolved_at = @now WHERE orphan_id = @id`,

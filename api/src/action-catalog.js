@@ -792,14 +792,9 @@ const ACTIONS = {
   // ATTACHMENTS_ROOT with no matching attachments row). Owner-only, not
   // agentWritable — a human decides whether an unreferenced file is safe to
   // discard.
-  'orphan.purge': {
+  'orphan.delete': {
     role: 'owner', mutating: true,
     description: 'Delete an orphaned file directly off disk (no attachments row exists to delete) and mark it resolved.',
-    params: { orphanId: { type: 'string', required: true } },
-  },
-  'orphan.move': {
-    role: 'owner', mutating: true,
-    description: 'Relocate an orphaned file into a quarantine subfolder the integrity scanner skips, so it stops re-triggering without deciding delete-or-keep.',
     params: { orphanId: { type: 'string', required: true } },
   },
 

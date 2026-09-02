@@ -87,8 +87,8 @@ async function listInbox(ctx) {
   // Class B — orphaned files (calendar-reminders-documents-spec.md §5.5):
   // files found under ATTACHMENTS_ROOT with no matching attachments row,
   // raised by attachment-integrity-scanner.js. The orphaned_files table IS
-  // the source of truth (R8); verbs are orphan.purge/orphan.move called
-  // against payload_ref (= orphan_id), plus a plain view/download link.
+  // the source of truth (R8); verbs are orphan.delete called against
+  // payload_ref (= orphan_id), plus a plain view/download link.
   if (status === 'orphans') {
     return { items: await queryOrphanedFiles(companyId, limit) };
   }
@@ -170,7 +170,7 @@ async function listInbox(ctx) {
  * table IS the source of truth (R8) — no staging.
  *
  * Item shape: { type:'orphan_file', source:'system', amount:null,
- * date:discovered_at, summary:path, verbs:['view','purge','move'],
+ * date:discovered_at, summary:path, verbs:['view','delete'],
  * payload_ref:orphan_id, status:'orphaned', reference:path, description }.
  */
 async function queryOrphanedFiles(companyId, limit) {
@@ -189,7 +189,7 @@ async function queryOrphanedFiles(companyId, limit) {
       date: row.discovered_at,
       proposed_at: row.discovered_at,
       summary: row.path,
-      verbs: ['view', 'purge', 'move'],
+      verbs: ['view', 'delete'],
       payload_ref: row.orphan_id,
       status: 'orphaned',
       reference: row.path,

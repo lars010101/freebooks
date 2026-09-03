@@ -9,9 +9,14 @@
  * post, supplier-stated per-line GST with tolerance warnings.
  *
  * Deviations flagged for magnus (see commit message):
- * - Post = `p` (NORMAL verb) or Ctrl+Enter — also a Post button.
  * - Line delete is keyboard-accessible: `x` (NORMAL verb) or Enter/Space on
  *   the delete button cell (FB.form button-cell activation).
+ *
+ * bill-post-payment-consolidation-spec.md: `p` is retired. `w` is the one
+ * commit key — it posts by default, or saves as a draft when the Draft
+ * toggle (header, `~` flips it, default off) is on. Agent/`:bill`-authored
+ * drafts still land via bill.create/bill.draft.save server-side regardless
+ * of this UI toggle (server-side guard, untouched by this page).
  */
 const { makeQuery, commonStyle, navBar, layoutEnd, getRelevanceFlags } = require('./common');
 
@@ -104,6 +109,9 @@ ${commonStyle()}
   .be-attach-row .staged { color:#856404; font-size:8.5pt; }
   .btn-plain { padding:7px 12px; background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:10pt; }
   input.req { border-color:#cc2222 !important; }
+  .be-draft-row { margin:-4px 0 12px; }
+  .fb-toggle-btn { padding:5px 12px; border:1px solid #ccc; border-radius:4px; background:#fff; font-size:9.5pt; cursor:pointer; }
+  .fb-toggle-btn[aria-pressed="true"] { background:var(--toggle-on, #f0b429); border-color:var(--toggle-on, #f0b429); color:#000; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
@@ -120,6 +128,9 @@ ${commonStyle()}
     <label class="be-gh-row2">Due date <input id="be-due" type="date"></label>
     <label class="be-gh-row2">Bill no <input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></label>
     <label class="be-gh-memo">Memo <input id="be-memo" autocomplete="off" placeholder="internal note (optional)"></label>
+  </div>
+  <div class="be-draft-row">
+    <button type="button" id="be-draft-toggle" class="fb-toggle-btn" aria-pressed="false" title="Draft — save without posting (~)">Draft</button>
   </div>
   ${fxOn
     ? '<div class="header-fields"><label>CCY <input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase"></label></div>'
@@ -142,7 +153,7 @@ ${commonStyle()}
   </div>
 
   <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-    <button class="btn-primary" id="be-post" type="button">Post bill (p)</button>
+    <button class="btn-primary" id="be-post" type="button">Save (w)</button>
     <button class="btn-sm" id="be-save" type="button">Back (q)</button>
     <span class="be-msg" id="be-msg"></span>
   </div>
@@ -179,6 +190,7 @@ const S = {
   stagedFiles: [],       // File objects staged pre-first-save
   saving: false,
   savedSnapshot: null,   // JSON of last-saved (or initial) form state
+  draft: false,          // Draft toggle (~) — false = w posts, true = w saves a draft
 };
 
 // ── Line-item column config — single source of truth ──────────────────────
@@ -546,6 +558,10 @@ function validateClient(bill, forPost) {
     bill.lines.forEach((l, i) => { if (!l.expense_account) missing.push('line ' + (i + 1) + ' expense account'); });
     if (!bill.lines.length) missing.push('at least one line');
     if (!bill.lines.some(l => l.amount > 0)) missing.push('a positive line amount');
+    // bill-post-payment-consolidation-spec.md §5: aligned with payables-bills.js's
+    // billValidateBuf, which already requires both of these for a save.
+    if (!bill.due_date) { missing.push('due date'); mark('be-due'); }
+    else if (bill.due_date < bill.date) { missing.push('due date must be on or after bill date'); mark('be-due'); }
   }
   return missing;
 }
@@ -652,9 +668,25 @@ async function loadAttachments() {
   } catch (e) { /* non-fatal */ }
 }
 
+// ── Draft toggle (~) — bill-post-payment-consolidation-spec.md §1 ──────────
+// Reversible flip of a single focused form cell (keyboard-ux-spec.md §5's
+// toggle-verb doctrine) — not a mode change. Default off: w posts. On: w
+// saves a draft instead, same as today's loose draft-save.
+function setDraftUI(on) {
+  S.draft = !!on;
+  var btn = document.getElementById('be-draft-toggle');
+  btn.setAttribute('aria-pressed', S.draft ? 'true' : 'false');
+  btn.textContent = S.draft ? 'Draft: ON' : 'Draft';
+}
+document.getElementById('be-draft-toggle').addEventListener('click', function () { setDraftUI(!S.draft); });
+
+// w commits — post by default, save-as-draft when the Draft toggle is on.
+// The Save button mirrors it exactly (same function, not a second path).
+function commitBill() { return S.draft ? saveDraft(false) : postBill(); }
+
 // ── Buttons + keys ──────────────────────────────────────────────────────────
 document.getElementById('be-save').onclick = () => quitEditor();
-document.getElementById('be-post').onclick = () => postBill();
+document.getElementById('be-post').onclick = () => commitBill();
 
 // ── FB.form (K3, keyboard-ux-spec §8) — the one form machine; this page ──
 // declares config + verbs only. Zones: header grid → lines table → attachments.
@@ -663,6 +695,8 @@ var beForm = FB.form.create({
   formId: 'bill-edit',
   zones: [
     { id: 'header', rows: function () { return [document.querySelector('.be-grid-header')]; } },
+    { id: 'draft',  rows: function () { return [document.querySelector('.be-draft-row')]; },
+      cells: function () { return [document.getElementById('be-draft-toggle')]; } },
     { id: 'lines',  rows: function () {
         return Array.from(document.querySelectorAll('#be-lines-body .bl-row'));
       },
@@ -677,21 +711,28 @@ var beForm = FB.form.create({
     add: { key: 'a', hint: 'add line', run: function (api) {
       var row = addLine({});
       updateTotals();
-      api.moveTo(1, api.zoneRows(1).length - 1, 0, true);
+      api.moveTo(2, api.zoneRows(2).length - 1, 0, true);
     } },
     delete: { key: 'x', hint: 'delete',
-      when: function (api) { return api.cur().z === 1 && api.cur().r > 0; },
+      when: function (api) { return api.cur().z === 2 && api.cur().r > 0; },
       run: function (api) {
-        var row = api.zoneRows(1)[api.cur().r];
+        var row = api.zoneRows(2)[api.cur().r];
         if (!row) return;
         row.remove(); updateTotals(); refreshAddRow(); api.refresh();
       } },
-    write: { key: 'w', hint: 'write draft', run: function () { saveDraft(false); } },
+    // w commits (post by default, draft-save when the Draft toggle is on —
+    // bill-post-payment-consolidation-spec.md §1). p is retired.
+    write: { key: 'w', hint: 'save', run: function () { commitBill(); } },
     quit: { key: 'q', hint: 'quit', paletteEligible: false, run: function () { quitEditor(); } }
   },
   extraBindings: function (api) {
     return [
-      { key: 'p', mode: 'NORMAL', hint: 'post bill', hintBar: true, swallow: true, run: function () { postBill(); } },
+      // ~ flips the focused button cell — currently only the Draft toggle.
+      // keyboard-ux-spec.md §5 pattern (reports-hub.js's MoM/YoY toggle).
+      { key: '~', mode: 'NORMAL', hint: 'draft', hintBar: true, run: function () {
+          var el = api.cellEl();
+          if (el && el.id === 'be-draft-toggle') el.click();
+        } },
       { key: 'A', mode: 'NORMAL', hint: 'attach file', hintBar: true, swallow: true,
         run: function () { document.getElementById('be-file').click(); } },
     ];

@@ -19,6 +19,7 @@ const { handleSettingsPage } = require('./pages/settings');
 const { handleJournalVoucherPage } = require('./pages/journal-voucher');
 const { handleInboxPage } = require('./pages/inbox');
 const { handleBillEditPage } = require('./pages/bill-edit');
+const { handlePaymentNewPage } = require('./pages/payment-new');
 const { handleBillDetailPage } = require('./pages/bill-detail');
 const { handlePayablesPage, handleBillsPage } = require('./pages/payables');
 const { handleAccountingPage } = require('./pages/accounting');
@@ -269,6 +270,7 @@ function mountReportRoutes(app) {
   // ── 2026-08-27 IA restructure 2 / 2026-08-30 IA restructure 3: clean cutover, no compatibility redirects ──
   app.get('/:company/journal/voucher', handleJournalVoucherPage);
   app.get('/:company/bill/edit', handleBillEditPage);
+  app.get('/:company/payment/new', handlePaymentNewPage);
   app.get('/:company/bill/:id', handleBillDetailPage);
   // Payables (was Bills) — re-expanded to Bills · Vendors · Aging · Control
   app.get('/:company/payables', handlePayablesPage);

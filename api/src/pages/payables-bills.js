@@ -115,125 +115,13 @@ function _attachAcctDropdown(input) {
   });
 }
 
-// ========== P1-9: INLINE PAYMENT ROW (pay-on-bill) ==========
-// Cash/bank accounts only (cf_category='Cash' is the app-wide marker).
-function _cashSource(q) {
-  q = (q || '').trim().toLowerCase();
-  return billAccountsList.filter(function(a) {
-    if (a.cf_category !== 'Cash' || a.is_active === false) return false;
-    if (!q) return true;
-    return (a.account_code || '').toLowerCase().indexOf(q) >= 0 ||
-           (a.account_name || '').toLowerCase().indexOf(q) >= 0;
-  }).map(function(a) {
-    return { primary: a.account_code, secondary: a.account_name || '', data: { code: a.account_code } };
-  });
-}
-function _attachCashDropdown(input) {
-  if (!input) return;
-  FB.dropdown.attach(input, {
-    source: _cashSource,
-    onPick: function(item, inp) {
-      inp.value = item.data.code;
-      inp.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  });
-}
-function payRowOpen() { return !!document.querySelector('tr[data-pay-row="true"]'); }
-
-// Data-driven form (Task 6f): anchor row + bill data object.
-function openPayRowData(anchorTr, d) {
-  if (!anchorTr || !d) return;
-  if (payRowOpen()) return; // one payment row at a time
-  var billId = d.bill_id;
-  if (!billId) return;
-  var status = d.status || '';
-  if (status !== 'posted' && status !== 'partial') return;
-  if (!billAccountsList.length) { loadBillAccounts().then(function() { openPayRowData(anchorTr, d); }); return; }
-
-  var ccy = d.currency || BASE_CURRENCY;
-  var outstanding = Math.max(0, Math.round(((parseFloat(d.amount) || 0) - (parseFloat(d.amount_paid) || 0)) * 100) / 100);
-  var today = new Date().toISOString().slice(0, 10);
-  var foreign = ccy.toUpperCase() !== BASE_CURRENCY.toUpperCase();
-
-  var tr = document.createElement('tr');
-  tr.dataset.rowType = 'child';
-  tr.dataset.parentId = billId;
-  tr.dataset.payRow = 'true';
-  tr.className = 'child-row pay-row';
-  tr._idem = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('pay-' + Date.now() + '-' + Math.random());
-  tr.innerHTML = '<td colspan="7" class="pay-cell">'
-    + '<span class="pay-lbl">Pay</span>'
-    + '<input type="date" class="draft-input pay-date" value="' + today + '" title="Payment date">'
-    + '<input class="draft-input pay-acct" placeholder="e.g. 1020" title="Bank/cash account">'
-    + '<input class="draft-input pay-amount" type="number" step="0.01" min="0" value="' + outstanding.toFixed(2) + '" title="Amount in ' + esc(ccy) + '">'
-    + '<span class="pay-ccy">' + esc(ccy) + '</span>'
-    + '<input class="draft-input pay-ref" placeholder="e.g. bank ref" title="Payment reference (optional)">'
-    + (foreign ? '<input class="draft-input pay-fx" type="number" step="0.0001" min="0" placeholder="e.g. 1.35" title="FX rate ' + esc(ccy) + ' → ' + esc(BASE_CURRENCY) + ' at payment date">' : '')
-    + '<span class="pay-hint"><a class="pay-ok" title="Record payment">Enter ✓</a> · <a class="pay-cancel" title="Cancel">Esc ✕</a></span>'
-    + '</td>';
-  anchorTr.insertAdjacentElement('afterend', tr);
-
-  var acctIn = tr.querySelector('.pay-acct');
-  acctIn.value = localStorage.getItem('fb.payAccount.' + COMPANY) || '';
-  _attachCashDropdown(acctIn);
-  tr.querySelector('.pay-ok').addEventListener('click', function(e) { e.stopPropagation(); submitPayRow(); });
-  tr.querySelector('.pay-cancel').addEventListener('click', function(e) { e.stopPropagation(); closePayRow(); });
-  if (foreign) {
-    _getFxRate(ccy, today).then(function(rate) {
-      var fxIn = tr.querySelector('.pay-fx');
-      if (fxIn && rate != null && !fxIn.value) fxIn.value = rate;
-    });
-  }
-  FB.mode.set('INSERT');
-  var amtIn = tr.querySelector('.pay-amount');
-  amtIn.focus();
-  amtIn.select();
-}
-
-// Legacy dataset-reading wrapper deleted in Task 7 (framework rows carry no
-// dataset.billId/status attrs). payAffordHtml routes the Pay affordance via
-// _payAffordClick, which resolves the bill row through billsList.rowByKey and
-// calls openPayRowData directly.
-
-function closePayRow() {
-  var tr = document.querySelector('tr[data-pay-row="true"]');
-  if (tr) tr.remove();
-  FB.mode.set('NORMAL');
-}
-
-function submitPayRow() {
-  var tr = document.querySelector('tr[data-pay-row="true"]');
-  if (!tr || tr._submitting) return;
-  var billId = tr.dataset.parentId;
-  var date = tr.querySelector('.pay-date').value;
-  var acct = tr.querySelector('.pay-acct').value.trim();
-  var amt = parseFloat(tr.querySelector('.pay-amount').value);
-  var ref = tr.querySelector('.pay-ref').value.trim();
-  var fxIn = tr.querySelector('.pay-fx');
-  var fxRate = (fxIn && fxIn.value !== '') ? parseFloat(fxIn.value) : null;
-  if (!date) { billEditMsg('Payment date required', 'err'); return; }
-  if (!acct) { billEditMsg('Bank account required', 'err'); tr.querySelector('.pay-acct').focus(); return; }
-  if (!(amt > 0)) { billEditMsg('Amount must be greater than zero', 'err'); return; }
-  tr._submitting = true;
-  billEditMsg('Recording payment…', '');
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': tr._idem },
-    body: JSON.stringify({ action: 'bill.payment.record', companyId: COMPANY, billId: billId, date: date,
-      bankAccount: acct, amount: amt, reference: ref || undefined, fxRate: fxRate != null ? fxRate : undefined }) })
-  .then(function(r) { return r.json(); })
-  .then(function(res) {
-    tr._submitting = false;
-    var d = res.data || res;
-    if (res.error || (d && d.error)) {
-      billEditMsg('Payment failed: ' + (res.error || d.error), 'err');
-      return;
-    }
-    localStorage.setItem('fb.payAccount.' + COMPANY, acct);
-    closePayRow();
-    billEditMsg('Payment recorded — bill ' + (d.status || 'updated'), 'ok');
-    billChildCache = {}; // lines/payments stale after payment (Task 6f)
-    billsList.load();
-  })
-  .catch(function(e) { tr._submitting = false; billEditMsg('Payment failed: ' + e.message, 'err'); });
+// bill-post-payment-consolidation-spec.md §3: the inline single-bill pay-row
+// and multi-pay panel (both retained here through P1-9/P1-9b) are retired in
+// favor of the New Payment page (payment-new.js) — reachable from the '+' New
+// menu (unscoped) or 'y' on a posted/partial row (scoped to that bill, §2 of
+// the spec below). goToNewPayment is the one navigation helper both call.
+function goToNewPayment(billId) {
+  fbNavigate('/' + COMPANY + '/payment/new' + (billId ? ('?billId=' + encodeURIComponent(billId)) : ''));
 }
 // VAT codes: '— None —' plus every code in taxCodeMap (contains-match).
 function _vatSource(q) {
@@ -348,20 +236,6 @@ function fbPageInitPayables() {
 }
 window.addEventListener('DOMContentLoaded', fbPageInitPayables);
 window.fbPageInit = fbPageInitPayables;
-// Lookup FX rate for a draft bill (background, no UI). Returns a Promise.
-function _getFxRate(ccy, billDate) {
-  if (!ccy || !billDate || ccy.toUpperCase() === BASE_CURRENCY.toUpperCase()) {
-    return Promise.resolve(null);
-  }
-  return fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'fx.rates.get', companyId: COMPANY, fromCurrency: ccy, toCurrency: BASE_CURRENCY, date: billDate }) })
-  .then(function(r){ return r.json(); })
-  .then(function(res){
-    var d = res.data || res;
-    return (d && d.rate != null) ? d.rate : null;
-  })
-  .catch(function(){ return null; });
-}
 // ========== DATA LOADING ==========
 function loadPeriods() {
   fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -541,11 +415,11 @@ function statusBadge(status, dueDate) {
 // machinery was deleted in Task 7 — this cfg IS the Bills tab now.
 //
 // payAffordHtml(r) — the hover "Pay" affordance on posted/partial bills
-// (extracted from the old renderPage cell). The inline onclick routes through
-// _payAffordClick, which resolves the bill via billsList.rowByKey (framework
-// parent rows carry data-key) and opens the inline pay row (P1-9, retained).
+// (extracted from the old renderPage cell). Opens New Payment scoped to this
+// bill (bill-post-payment-consolidation-spec.md §3) — same destination 'y'
+// reaches (§2); this is the mouse-only path onto it.
 function payAffordHtml(r) {
-  return '<button class="pay-afford" title="Record payment (p)" onclick="event.stopPropagation();_payAffordClick(this)">Pay</button>';
+  return '<button class="pay-afford" title="Record payment (y)" onclick="event.stopPropagation();_payAffordClick(this)">Pay</button>';
 }
 function _payAffordClick(btn) {
   var tr = btn.closest('tr');
@@ -554,7 +428,7 @@ function _payAffordClick(btn) {
   var key = tr.dataset && tr.dataset.key;
   if (key == null) return;
   var bill = billsList.rowByKey(String(key));
-  if (bill) openPayRowData(tr, bill);
+  if (bill) goToNewPayment(bill.bill_id);
 }
 
 // billAttachPartner(input, tr) — column 'attach' hook for the partner field in
@@ -865,17 +739,20 @@ function billCodeFooterRows(lines, stated) {
   return rows;
 }
 
-// The edit-mode footer row carries ONLY the stated-VAT cell (the sole VAT
-// override surface): pre-filled computed, amber when stated, cleared = back
-// to computed. Net/Gross are not duplicated here — gross lives on the parent
-// row's AMOUNT cell.
+// The edit-mode footer row carries the stated-VAT cell (the sole VAT
+// override surface) plus the Draft toggle (bill-post-payment-consolidation-
+// spec.md §1) — pre-filled computed, amber when stated, cleared = back to
+// computed. Net/Gross are not duplicated here — gross lives on the parent
+// row's AMOUNT cell. The Draft toggle is the one FB.list precedent for a
+// button-cell '~' target (billAttachFooter wires it; ~ is bound below).
+var DRAFT_TOGGLE_CELL = '<td><button type="button" class="bill-draft-toggle fb-toggle-btn" aria-pressed="false" title="Draft — save without posting (~)">Draft</button></td>';
 function billFooterHtml(parent) {
-  if (!VAT_ON) return '<td colspan="8"></td>'; // vatRegistered=false: no stated-VAT surface
+  if (!VAT_ON) return '<td colspan="7"></td>' + DRAFT_TOGGLE_CELL; // vatRegistered=false: no stated-VAT surface
   return '<td colspan="3" style="color:#666;font-size:0.85em">VAT (supplier-stated total — pre-filled computed; edit to match the invoice; clear to return to computed)</td>'
     + '<td></td>'
     + '<td class="amt"><input class="draft-input bill-vat-stated" type="number" step="0.01" title="Supplier-stated VAT total" style="text-align:right" /></td>'
     + '<td class="child-spacer"></td>'
-    + '<td></td>'
+    + DRAFT_TOGGLE_CELL
     + '<td></td>';
 }
 
@@ -918,6 +795,18 @@ function billAttachFooter(ftr, parent) {
       var kid = anyChildTr();
       if (kid) billRefreshParentTotal(kid);
     });
+  }
+  // Draft toggle (~) — bill-post-payment-consolidation-spec.md §1. Mutates
+  // 'parent' directly (same live-object pattern as vat_amount_stated above);
+  // harvestExtra reads parent._draft back into the save buffer on write.
+  var draftBtn = ftr.querySelector('.bill-draft-toggle');
+  if (draftBtn) {
+    var syncDraftBtn = function () {
+      draftBtn.setAttribute('aria-pressed', parent._draft ? 'true' : 'false');
+      draftBtn.textContent = parent._draft ? 'Draft: ON' : 'Draft';
+    };
+    syncDraftBtn();
+    draftBtn.addEventListener('click', function () { parent._draft = !parent._draft; syncDraftBtn(); });
   }
   // Tab from the stated-VAT cell → new child row (same hasData rule as the
   // child chain); Shift+Tab → back to the last child's VAT code input.
@@ -972,13 +861,18 @@ function billValidateBuf(b) {
   if (b.due_date < b.date) return 'Due date must be ≥ bill date';
   var lines = (b.lines || []).filter(billLineNonEmpty);
   if (!lines.length) return 'At least one line item is required';
+  var sawPositive = false;
   for (var i = 0; i < lines.length; i++) {
     var l = lines[i];
     if (!(l.expense_account || '').trim()) return 'Each line needs an expense account';
     if (isNaN(parseFloat(l.amount))) return 'Line amounts must be numeric';
+    if (parseFloat(l.amount) > 0) sawPositive = true;
     var vc = (l.vat_code || '').trim();
     if (vc && !taxCodeMap[vc]) return 'Invalid VAT code "' + vc + '" — pick from the dropdown';
   }
+  // bill-post-payment-consolidation-spec.md §5: aligned with bill-edit.js's
+  // validateClient(bill, true), which already requires this.
+  if (!sawPositive) return 'A positive line amount is required';
   return null;
 }
 function billSaveBody(b) {
@@ -995,304 +889,10 @@ function billSaveBody(b) {
   } };
 }
 
-// ========== MULTI-BILL SETTLEMENT (Issue #131) ==========
-// One bank payment split across N bills from the same vendor + same currency.
-// Mirrors openPayRowData/closePayRow/submitPayRow patterns. The panel is a
-// child TR with data-multi-pay-row="true" inserted after the focused parent.
-
-function multiPayRowOpen() { return !!document.querySelector('tr[data-multi-pay-row="true"]'); }
-
-function openMultiPayPanel(anchorTr, focusedBill) {
-  if (!anchorTr || !focusedBill) return;
-  if (multiPayRowOpen() || payRowOpen()) return; // one panel at a time
-  if (!billAccountsList.length) { loadBillAccounts().then(function() { openMultiPayPanel(anchorTr, focusedBill); }); return; }
-
-  var partner = (focusedBill.partner_name || '').toLowerCase();
-  var ccy = focusedBill.currency || BASE_CURRENCY;
-
-  // Collect qualifying bills: same partner (case-insensitive), same currency,
-  // status 'posted' or 'partial'. Walk the DOM parent rows and resolve data
-  // via billsList.rowByKey (the framework keeps saved rows private).
-  var tb = document.getElementById('bills-tbody');
-  var qualifying = [];
-  if (tb) {
-    var parentTrs = tb.querySelectorAll('tr[data-key]');
-    Array.prototype.forEach.call(parentTrs, function(tr) {
-      var b = billsList.rowByKey(tr.dataset.key);
-      if (!b || !b.bill_id) return;
-      if ((b.partner_name || '').toLowerCase() !== partner) return;
-      if ((b.currency || BASE_CURRENCY) !== ccy) return;
-      if (b.status !== 'posted' && b.status !== 'partial') return;
-      var out = Math.max(0, Math.round(((parseFloat(b.amount) || 0) - (parseFloat(b.amount_paid) || 0)) * 100) / 100);
-      if (out <= 0) return;
-      qualifying.push({ bill: b, outstanding: out, tr: tr });
-    });
-  }
-
-  if (qualifying.length < 2) { billEditMsg('Only 1 bill for this vendor', 'err'); return; }
-
-  var today = new Date().toISOString().slice(0, 10);
-  var foreign = ccy.toUpperCase() !== BASE_CURRENCY.toUpperCase();
-  var totalOutstanding = 0;
-  qualifying.forEach(function(q) { totalOutstanding += q.outstanding; });
-  totalOutstanding = Math.round(totalOutstanding * 100) / 100;
-
-  var tr = document.createElement('tr');
-  tr.dataset.multiPayRow = 'true';
-  tr.dataset.parentId = focusedBill.bill_id;
-  tr.className = 'child-row multi-pay-row';
-  tr._idem = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('mpay-' + Date.now() + '-' + Math.random());
-
-  // Shared fields row + bill selection list + total + balance + hints.
-  var html = '<td colspan="7" class="multi-pay-cell">'
-    + '<div class="mp-shared">'
-    + '<span class="mp-lbl">Multi-Pay</span>'
-    + '<input type="date" class="draft-input mp-date" value="' + today + '" title="Payment date">'
-    + '<input class="draft-input mp-acct" placeholder="e.g. 1020" title="Bank/cash account">'
-    + '<input class="draft-input mp-ref" placeholder="e.g. bank ref" title="Payment reference (optional)">'
-    + (foreign ? '<input class="draft-input mp-fx" type="number" step="0.0001" min="0" placeholder="e.g. 1.35" title="FX rate ' + esc(ccy) + ' \u2192 ' + esc(BASE_CURRENCY) + '">' : '')
-    + '<span class="mp-ccy">' + esc(ccy) + '</span>'
-    + '</div>'
-    + '<div class="mp-list">';
-  qualifying.forEach(function(q, i) {
-    var b = q.bill;
-    html += '<div class="mp-item" data-bill-id="' + esc(b.bill_id) + '" data-outstanding="' + q.outstanding + '">'
-      + '<span class="mp-check" tabindex="0" title="Space to toggle">\u2713</span>'
-      + '<span class="mp-desc">' + esc(b.vendor_ref || '') + ' \u00b7 ' + esc(String(b.date || '').slice(0, 10)) + ' <span class="mp-amt">out ' + q.outstanding.toFixed(2) + '</span></span>'
-      + '<input class="draft-input mp-alloc" type="number" step="0.01" min="0" value="' + q.outstanding.toFixed(2) + '" title="Allocation in ' + esc(ccy) + '">'
-      + '</div>';
-  });
-  html += '</div>'
-    + '<div class="mp-shared">'
-    + '<span class="mp-lbl">Total</span>'
-    + '<input class="draft-input mp-total" type="number" step="0.01" min="0" value="' + totalOutstanding.toFixed(2) + '" title="Total payment amount in ' + esc(ccy) + '">'
-    + '<span class="mp-ccy">' + esc(ccy) + '</span>'
-    + '<span class="mp-balance ok">Allocated: ' + totalOutstanding.toFixed(2) + ' / ' + totalOutstanding.toFixed(2) + ' \u2713</span>'
-    + '<span class="mp-hint"><a class="mp-ok" title="Record payment">Enter \u2713</a> \u00b7 <a class="mp-cancel" title="Cancel">Esc \u2715</a></span>'
-    + '</div>'
-    + '</td>';
-  tr.innerHTML = html;
-  anchorTr.insertAdjacentElement('afterend', tr);
-
-  // Wire the bank account dropdown + FX rate (same as openPayRowData).
-  var acctIn = tr.querySelector('.mp-acct');
-  acctIn.value = localStorage.getItem('fb.payAccount.' + COMPANY) || '';
-  _attachCashDropdown(acctIn);
-  if (foreign) {
-    _getFxRate(ccy, today).then(function(rate) {
-      var fxIn = tr.querySelector('.mp-fx');
-      if (fxIn && rate != null && !fxIn.value) fxIn.value = rate;
-    });
-  }
-
-  // Click handlers.
-  tr.querySelector('.mp-ok').addEventListener('click', function(e) { e.stopPropagation(); submitMultiPayPanel(); });
-  tr.querySelector('.mp-cancel').addEventListener('click', function(e) { e.stopPropagation(); closeMultiPayPanel(); });
-
-  // Toggle a bill on check-click or alloc focus.
-  tr.querySelectorAll('.mp-item').forEach(function(item, idx) {
-    item._selected = true; // all selected by default
-    item.querySelector('.mp-check').addEventListener('click', function(e) {
-      e.stopPropagation();
-      _multiPayToggleItem(item);
-    });
-    var alloc = item.querySelector('.mp-alloc');
-    alloc.addEventListener('input', function() { _multiPayUpdateBalance(); });
-    alloc.addEventListener('focus', function() {
-      _multiPayFocusItem(item);
-      alloc.select();
-    });
-  });
-
-  // Total input → auto-distribute across selected bills.
-  tr.querySelector('.mp-total').addEventListener('input', function() {
-    var total = parseFloat(tr.querySelector('.mp-total').value) || 0;
-    _multiPayAutoDistribute(total);
-    _multiPayUpdateBalance();
-  });
-
-  // Panel-level keyboard navigation (Arrow Up/Down, Space, Enter, Esc).
-  tr._mpFocusIdx = 0;
-  _multiPayFocusItem(tr.querySelectorAll('.mp-item')[0]);
-  tr.addEventListener('keydown', _multiPayKeydown);
-
-  FB.mode.set('INSERT');
-  tr.querySelector('.mp-total').focus();
-  tr.querySelector('.mp-total').select();
-}
-
-function _multiPayToggleItem(item) {
-  item._selected = !item._selected;
-  item.classList.toggle('mp-off', !item._selected);
-  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
-  if (tr) {
-    var total = parseFloat(tr.querySelector('.mp-total').value) || 0;
-    _multiPayAutoDistribute(total);
-    _multiPayUpdateBalance();
-  }
-}
-
-function _multiPayFocusItem(item) {
-  if (!item) return;
-  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
-  if (!tr) return;
-  tr.querySelectorAll('.mp-item').forEach(function(it) { it.classList.remove('mp-focused'); });
-  item.classList.add('mp-focused');
-  tr._mpFocusIdx = Array.prototype.indexOf.call(tr.querySelectorAll('.mp-item'), item);
-}
-
-function _multiPayKeydown(e) {
-  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
-  if (!tr) return;
-  var items = tr.querySelectorAll('.mp-item');
-  if (!items.length) return;
-  // Only handle when focus is within the panel.
-  var inPanel = tr.contains(e.target);
-  if (!inPanel) return;
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    var ni = Math.min(tr._mpFocusIdx + 1, items.length - 1);
-    _multiPayFocusItem(items[ni]);
-    var alloc = items[ni].querySelector('.mp-alloc');
-    if (alloc) alloc.focus();
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    var pi = Math.max(tr._mpFocusIdx - 1, 0);
-    _multiPayFocusItem(items[pi]);
-    var alloc2 = items[pi].querySelector('.mp-alloc');
-    if (alloc2) alloc2.focus();
-  } else if (e.key === ' ') {
-    // Space toggles selection when the focused item's check or alloc is active.
-    if (e.target.classList.contains('mp-check') || e.target.classList.contains('mp-alloc')) {
-      e.preventDefault();
-      _multiPayToggleItem(items[tr._mpFocusIdx]);
-    }
-  }
-  // Enter / Esc are handled by the extraBindings key table (NORMAL mode).
-}
-
-function _multiPaySelectedBills() {
-  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
-  if (!tr) return [];
-  var out = [];
-  tr.querySelectorAll('.mp-item').forEach(function(item) {
-    if (item._selected) {
-      var billId = item.getAttribute('data-bill-id');
-      var outstanding = parseFloat(item.getAttribute('data-outstanding')) || 0;
-      var amt = parseFloat(item.querySelector('.mp-alloc').value) || 0;
-      out.push({ billId: billId, outstanding: outstanding, amount: amt });
-    }
-  });
-  return out;
-}
-
-function _multiPayAutoDistribute(totalAmount) {
-  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
-  if (!tr) return;
-  var selected = _multiPaySelectedBills();
-  if (!selected.length) return;
-  totalAmount = Math.round((parseFloat(totalAmount) || 0) * 100) / 100;
-  var sumOut = 0;
-  selected.forEach(function(s) { sumOut += s.outstanding; });
-  if (sumOut <= 0) return;
-  // Proportional by outstanding, 2dp. Remainder → largest bill.
-  var distributed = 0;
-  var largestIdx = 0;
-  selected.forEach(function(s, i) {
-    if (s.outstanding > selected[largestIdx].outstanding) largestIdx = i;
-  });
-  selected.forEach(function(s, i) {
-    if (i === largestIdx) return;
-    s.alloc = Math.round(totalAmount * (s.outstanding / sumOut) * 100) / 100;
-    distributed += s.alloc;
-  });
-  selected[largestIdx].alloc = Math.round((totalAmount - distributed) * 100) / 100;
-  // Write back to DOM.
-  tr.querySelectorAll('.mp-item').forEach(function(item) {
-    if (!item._selected) return;
-    var billId = item.getAttribute('data-bill-id');
-    var match = selected.filter(function(s) { return s.billId === billId; })[0];
-    if (match) item.querySelector('.mp-alloc').value = match.alloc.toFixed(2);
-  });
-}
-
-function _multiPayUpdateBalance() {
-  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
-  if (!tr) return;
-  var total = Math.round((parseFloat(tr.querySelector('.mp-total').value) || 0) * 100) / 100;
-  var allocated = 0;
-  tr.querySelectorAll('.mp-item').forEach(function(item) {
-    if (item._selected) allocated += parseFloat(item.querySelector('.mp-alloc').value) || 0;
-  });
-  allocated = Math.round(allocated * 100) / 100;
-  var bal = tr.querySelector('.mp-balance');
-  if (!bal) return;
-  if (allocated === total) {
-    bal.textContent = 'Allocated: ' + allocated.toFixed(2) + ' / ' + total.toFixed(2) + ' \u2713';
-    bal.className = 'mp-balance ok';
-  } else {
-    var diff = Math.round((total - allocated) * 100) / 100;
-    bal.textContent = 'Allocated: ' + allocated.toFixed(2) + ' / ' + total.toFixed(2) + ' \u26a0 ' + Math.abs(diff).toFixed(2) + (diff > 0 ? ' unallocated' : ' over');
-    bal.className = 'mp-balance warn';
-  }
-}
-
-function closeMultiPayPanel() {
-  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
-  if (tr) tr.remove();
-  FB.mode.set('NORMAL');
-}
-
-function submitMultiPayPanel() {
-  var tr = document.querySelector('tr[data-multi-pay-row="true"]');
-  if (!tr || tr._submitting) return;
-  var date = tr.querySelector('.mp-date').value;
-  var acct = tr.querySelector('.mp-acct').value.trim();
-  var ref = tr.querySelector('.mp-ref').value.trim();
-  var total = Math.round((parseFloat(tr.querySelector('.mp-total').value) || 0) * 100) / 100;
-  var fxIn = tr.querySelector('.mp-fx');
-  var fxRate = (fxIn && fxIn.value !== '') ? parseFloat(fxIn.value) : null;
-  var selected = _multiPaySelectedBills();
-
-  if (!date) { billEditMsg('Payment date required', 'err'); return; }
-  if (!acct) { billEditMsg('Bank account required', 'err'); tr.querySelector('.mp-acct').focus(); return; }
-  if (selected.length < 2) { billEditMsg('Select at least 2 bills for multi-bill settlement', 'err'); return; }
-  var allocSum = 0, badAmt = false;
-  var allocations = selected.map(function(s) {
-    var a = Math.round((parseFloat(s.amount) || 0) * 100) / 100;
-    if (!(a > 0)) badAmt = true;
-    allocSum += a;
-    return { billId: s.billId, amount: a };
-  });
-  allocSum = Math.round(allocSum * 100) / 100;
-  if (badAmt) { billEditMsg('Each allocation must be greater than zero', 'err'); return; }
-  if (allocSum !== total) { billEditMsg('Allocations (' + allocSum.toFixed(2) + ') must equal total (' + total.toFixed(2) + ')', 'err'); return; }
-
-  tr._submitting = true;
-  billEditMsg('Recording multi-bill payment\u2026', '');
-  var body = { action: 'bill.payment.record', companyId: COMPANY, date: date, bankAccount: acct,
-    allocations: allocations };
-  if (ref) body.reference = ref;
-  if (fxRate != null) body.fxRate = fxRate;
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': tr._idem },
-    body: JSON.stringify(body) })
-  .then(function(r) { return r.json(); })
-  .then(function(res) {
-    tr._submitting = false;
-    var d = res.data || res;
-    if (res.error || (d && d.error)) {
-      billEditMsg('Payment failed: ' + (res.error || d.error), 'err');
-      return;
-    }
-    localStorage.setItem('fb.payAccount.' + COMPANY, acct);
-    var n = (d.paymentIds && d.paymentIds.length) || (d.results && d.results.length) || allocations.length;
-    closeMultiPayPanel();
-    billEditMsg('Multi-bill payment recorded \u2014 ' + n + ' bill' + (n !== 1 ? 's' : '') + ' settled', 'ok');
-    billChildCache = {};
-    billsList.load();
-  })
-  .catch(function(e) { tr._submitting = false; billEditMsg('Payment failed: ' + e.message, 'err'); });
-}
+// Multi-bill settlement (P1-9b, issue #131) moved into the New Payment page
+// (payment-new.js) — bill-post-payment-consolidation-spec.md §3. It was the
+// only entry point for a multi-bill payment; New Payment (reachable from the
+// '+' New menu) now is.
 
 var billsList = FB.list.create({
   keysId: 'bills',
@@ -1379,7 +979,11 @@ var billsList = FB.list.create({
         due_date: b.due_date || '', vendor_ref: b.vendor_ref || '', amount: b.amount || 0,
         amount_paid: b.amount_paid || 0, currency: b.currency || BASE_CURRENCY, status: b.status || '',
         ap_account: b.ap_account || '', expense_account: b.expense_account || '',
-        partner_id: b.partner_id || '', _isBill: true
+        partner_id: b.partner_id || '', _isBill: true,
+        // Draft toggle default when re-opening a saved draft for editing: on
+        // (matches its current status) — editing a typo shouldn't silently
+        // force-post it. A brand-new row (cfg.blank) defaults it off instead.
+        _draft: b.status === 'draft'
       };
     } },
   // Pre-resolved lazy children: the framework calls children(row)
@@ -1409,7 +1013,7 @@ var billsList = FB.list.create({
     return { _isBill: true, isNew: true, partner_name: '', date: '', due_date: '',
       vendor_ref: '', amount: 0, currency: BASE_CURRENCY,
       ap_account: companyDefaultAp, expense_account: companyDefaultExpense,
-      status: 'draft',
+      status: 'draft', _draft: false, // a new bill's Draft toggle defaults off — w posts it
       lines: [ { description: '', expense_account: companyDefaultExpense,
         amount: 0, vat_code: '', vat_amount_override: null,
         currency: BASE_CURRENCY } ] };
@@ -1531,6 +1135,7 @@ var billsList = FB.list.create({
     buf.ap_account = ds.apAccount || row.ap_account || '';
     buf.expense_account = ds.expenseAccount || row.expense_account || '';
     if (ds.partnerCurrency && FX_ON) buf.currency = ds.partnerCurrency;
+    buf._draft = !!row._draft; // Draft toggle (§1) — mutated live on 'row' by billAttachFooter
   },
   // a-verb / Tab-spawn: the framework appends this shape to the bill buffer.
   addChild: function (parent) {
@@ -1572,13 +1177,6 @@ var billsList = FB.list.create({
   extraBindings: function (api) {
     function parentOf(d) { return d && d._childOf ? api.rowByKey(d._childOf) : d; }
     function reloadBills() { billChildCache = {}; billsList.load(); }
-    // Anchor for the pay row: the focused parent <tr> in the framework table.
-    function focusedParentTr() {
-      var tb = document.getElementById('bills-tbody');
-      var tr = tb && tb.querySelector('tr.bill-row-focus');
-      while (tr && tr.dataset && tr.dataset.childOf) tr = tr.previousElementSibling;
-      return tr || null;
-    }
     function voidBill(p) {
       if (p.status === 'void') { FB.status.show('Bill is already void — cannot be modified.', true); return; }
       if (p.status === 'paid') { FB.status.show('Bill is fully paid — reversal must be done via a credit note or payment reversal.', true); return; }
@@ -1655,35 +1253,39 @@ var billsList = FB.list.create({
       else sendPost();
     }
     return [
-      // Pay-row sub-mode (NORMAL mode; the pay row is DOM-injected, not a bill edit).
-      { key: 'Enter', mode: 'NORMAL', paletteEligible: false, when: payRowOpen, run: submitPayRow },
-      { key: 'Escape', mode: 'NORMAL', paletteEligible: false, when: payRowOpen, run: closePayRow },
       { key: 'I', mode: 'NORMAL', hint: 'edit in full editor', paletteEligible: false,
         when: function () { var p = parentOf(api.focusedRow()); return !!(p && p.status === 'draft'); },
         run: function () {
           var p = parentOf(api.focusedRow());
           fbNavigate('/' + COMPANY + '/bill/edit?id=' + encodeURIComponent(p.bill_id));
         } },
-      { key: 'p', mode: 'NORMAL', hint: 'post/pay', hintBar: true,
-        when: function () { return !payRowOpen() && !multiPayRowOpen() && !!parentOf(api.focusedRow()); },
+      // ~ flips the Draft toggle on the currently-open bill's footer (§1) —
+      // reversible per-row flip, keyboard-ux-spec.md §5's toggle-verb
+      // doctrine (same shape as Vendors' ~ toggle-active). Only live while a
+      // bill is being edited (the footer only renders then).
+      { key: '~', mode: 'NORMAL', hint: 'draft', hintBar: true,
+        when: function () { return !!document.querySelector('.bill-draft-toggle'); },
+        run: function () { document.querySelector('.bill-draft-toggle').click(); } },
+      // w commits (bill-post-payment-consolidation-spec.md §1): post by
+      // default, or bill.draft.save (the framework's default 'w') when the
+      // row's Draft toggle (~, footer button — billAttachFooter) is on. p is
+      // retired.
+      { key: 'w', mode: 'NORMAL', hint: 'save', hintBar: true,
+        when: function () { var p = parentOf(api.focusedRow()); return !!(p && p._dirty); },
         run: function () {
           var p = parentOf(api.focusedRow()); if (!p) return;
-          if (p.status === 'posted' || p.status === 'partial') {
-            var tr = focusedParentTr(); if (tr) openPayRowData(tr, p);
-            return;
-          }
-          if (p.status === 'draft') postDraft(p);
+          if (p._draft) { api.writeFocused(); return; }
+          postDraft(p);
         } },
-      { key: 'P', mode: 'NORMAL', hint: 'multi-pay', hintBar: true,
-        when: function () { return !multiPayRowOpen() && !payRowOpen() && !!parentOf(api.focusedRow()); },
+      // y advances a saved bill (§2): draft → post; posted/partial → New
+      // Payment scoped to this bill. p/P are both retired.
+      { key: 'y', mode: 'NORMAL', hint: 'post/pay', hintBar: true,
+        when: function () { var p = parentOf(api.focusedRow()); return !!(p && (p.status === 'draft' || p.status === 'posted' || p.status === 'partial')); },
         run: function () {
           var p = parentOf(api.focusedRow()); if (!p) return;
-          if (p.status !== 'posted' && p.status !== 'partial') { FB.status.show('Multi-bill settlement requires a posted or partial bill', true); return; }
-          var tr = focusedParentTr(); if (tr) openMultiPayPanel(tr, p);
+          if (p.status === 'draft') { postDraft(p); return; }
+          goToNewPayment(p.bill_id);
         } },
-      // Multi-pay panel submit/cancel (NORMAL mode; the panel is DOM-injected).
-      { key: 'Enter', mode: 'NORMAL', paletteEligible: false, when: multiPayRowOpen, run: submitMultiPayPanel },
-      { key: 'Escape', mode: 'NORMAL', paletteEligible: false, when: multiPayRowOpen, run: closeMultiPayPanel },
       { key: 'x', mode: 'NORMAL', hint: 'void', hintBar: true,
         when: function () {
           var d = api.focusedRow(); if (!d) return false;

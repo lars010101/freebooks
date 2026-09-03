@@ -817,7 +817,7 @@ const ACTIONS = {
 //   'navigate' — needs input; palette routes to the owning form (+ route).
 //   (absent)   — excluded: reads (data viewers) and actions needing context
 //                the palette cannot supply (ids, lines, amounts) — those are
-//                covered by page verbs in context (x on a row, p on a bill).
+//                covered by page verbs in context (x on a row, y on a bill).
 // New actions default to nothing shown until given an explicit disposition —
 // adding a route here is what makes the palette grow with the API.
 //   create: true — entry is a "create new X" shortcut; bare : palette
@@ -830,6 +830,9 @@ const PALETTE = {
   'journal.import':         { palette: 'navigate', route: '/journal/voucher', label: 'New journal entry', create: true },
   'bill.create':            { palette: 'navigate', route: '/bill/edit', label: 'New bill', create: true },
   'bill.draft.save':        { palette: 'navigate', route: '/bill/edit', label: 'New bill', create: true },
+  // bill-post-payment-consolidation-spec.md §3 — unscoped entry point; the
+  // scoped one is 'y' on a posted/partial Bills row, not the palette.
+  'bill.payment.record':    { palette: 'navigate', route: '/payment/new', label: 'New payment', create: true },
   'coa.save':               { palette: 'navigate', route: '/accounting?tab=coa&new=1', label: 'New account', create: true },
   'coa.update':             { palette: 'navigate', route: '/accounting?tab=coa', label: 'Chart of accounts' },
   'coa.upsert':             { palette: 'navigate', route: '/accounting?tab=coa', label: 'Chart of accounts' },

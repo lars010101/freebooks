@@ -7,7 +7,7 @@
 1. Two modes only: NORMAL (browsing) and INSERT (editing). No ambiguous middle state.
 2. Every keyboard action has a mouse equivalent and vice versa. No interaction requires both. No interaction is available through only one input method.
 3. NORMAL mode is row-oriented (vim line semantics). INSERT mode is bill-oriented — the entire draft bill (parent + all child lines) opens for editing simultaneously.
-4. Save timing is unambiguous: `Esc` never saves — it exits INSERT only. `w` is the only save path (one `bill.draft.save` carrying header + all lines). `u` undoes. No blur-chasing, no timers, no deferred checks. (FB.list §3 doctrine, adopted 2026-07-24.)
+4. Save timing is unambiguous: `Esc` never saves — it exits INSERT only. `w` is the only commit path — one write carrying header + all lines, posting by default or saving a draft when the row's Draft toggle is on (bill-post-payment-consolidation-spec.md, 2026-09-02 — supersedes the version of this rule where `w` always meant `bill.draft.save`). `u` undoes. No blur-chasing, no timers, no deferred checks. (FB.list §3 doctrine, adopted 2026-07-24.)
 5. Per-line accounts: each child line carries its own expense account; the parent row carries the AP (creditor) account. Both use COA datalist autocomplete.
 6. Tax-exclusive entry: the user types the net amount per line; VAT is computed on top from the line's VAT code — lines carry no VAT amount state. The only override surface is the bill-level stated VAT (editable footer cell, agreed 2026-07-26).
 
@@ -29,7 +29,9 @@
 | I | — | Open the focused draft bill in the full-page editor (`bill-edit.js`); no-op on posted bills |
 | a | — | Append new child line to the focused draft bill |
 | x | Click delete icon (on hover) | Delete draft bill / delete current child line / void posted bill (confirm) / void payment (on a payment-history child) |
-| p | Click "Post"/"Pay" affordance | Post draft bill directly (no preview step); on posted/partial bills open the inline pay row |
+| ~ | Click the Draft toggle | Flip the focused bill's Draft flag (default off) — footer button, `keyboard-ux-spec.md` §5's toggle-verb doctrine |
+| w | Click "Save" | Commit the focused bill — posts (`bill.create`/`bill.draft.post`) when Draft is off, saves a draft (`bill.draft.save`) when it's on |
+| y | Click "Pay" affordance | Advance a saved bill — draft → post; posted/partial → New Payment (`/payment/new`), scoped to this bill |
 | G | Scroll to bottom | Jump to last row (= add row) |
 | gg | Scroll to top | Scroll to top |
 | Esc | — | No-op (already in NORMAL) |
@@ -531,6 +533,17 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 ## P1-9 — Payment matching UX (DONE 2026-07-22 — backend + Bills UI + import confirm-flow landed)
 
 *(Approved by magnus as "go ahead with p1-5" 2026-07-22 — the chat label was wrong; P1-5 was already the shipped VAT-warnings item. Roadmap records this as P1-9.)*
+
+**2026-09-02: the Bills-tab UI half of this section (`p` opening an inline
+payment row) is superseded — `bill-post-payment-consolidation-spec.md`
+retires `p`/`P` on Bills entirely and moves payment recording into a
+dedicated New Payment page (`/payment/new`), reached via `y` on a
+posted/partial row (scoped) or the top-bar `+` New menu (unscoped — the only
+multi-bill entry point, taking over from P1-9b's multi-pay panel below). The
+backend this section describes — `bill.payment.record`, the shared
+settlement core, `bill.payment.void` — is unchanged; only the entry surface
+moved. Kept below as historical record of the backend design and the import
+hardening (still current).
 
 ### Purpose
 

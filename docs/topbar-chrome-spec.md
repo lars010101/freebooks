@@ -173,6 +173,16 @@ prior to this doc's own build. The `+` button is now the *only* surface for
 possible `p`-key or similar addition — not yet built, would need its own
 ratification per `keyboard-ux-spec.md` §0's frozen verb surface).
 
+**2026-09-02:** `bill-post-payment-consolidation-spec.md` adds `bill.payment.record`
+to the `create: true` catalog entries, routed to the new `/payment/new` page
+(unscoped New Payment — the only entry point for a multi-bill payment,
+superseding the retired `Shift+P` panel). No change to this section's
+mechanism — it lands in the `+` menu automatically, same as every other
+`create: true` entry. The "possible `p`-key ... addition" idea two
+paragraphs up is unrelated and still undecided — that was about a keyboard
+equivalent for opening the `+` menu itself, not Bills' own `p`, which that
+spec retires separately.
+
 `newTargets()` already dedupes by destination route (e.g. `bill.create` and
 `bill.draft.save` both land on `/bill/edit` and collapse to one row) — the
 `+` menu will show fewer rows than the raw count of `create: true` catalog

@@ -2,6 +2,14 @@
 
 *(Deferred from P1-9 on 2026-07-22 as "needs an allocation UI; defer to its own phase." Built and merged 2026-08-12. This section back-fills the spec that was never written before the code landed.)*
 
+**2026-09-02: item 4's UI (the `Shift+P` inline multi-select panel) is
+superseded** — `bill-post-payment-consolidation-spec.md` retires `p`/`P` on
+Bills entirely and moves multi-bill payment entry into the New Payment page
+(`/payment/new`), reached unscoped from the top-bar `+` New menu (the only
+multi-bill entry point now). Items 1–3 and 5–6 (the action shape, settlement
+core, validation, void-as-one-unit, and idempotency) are backend and
+unchanged by that move.
+
 ### Purpose
 
 The single-bill payment path shipped in P1-9 covers the common case, but not the monthly-statement case: a vendor sends one statement covering several bills, paid with a single lump-sum bank transfer. Recording that as N separate `bill.payment.record` calls loses the fact that they were one payment, and forces the operator to manually split an amount they were only ever given as a total.

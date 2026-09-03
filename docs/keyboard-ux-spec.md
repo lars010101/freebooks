@@ -390,6 +390,17 @@ declaring config only:
 - **new-company** — one zone row per field (vertical stack) → periods
   grid. `a` add period, `x` delete period, `w` create. (No sidebar chrome
   on this page — hint rendering no-ops.)
+- **bills / bill-edit** (bill-post-payment-consolidation-spec.md, 2026-09-02
+  — `p`/`P` retired): a Draft toggle (default off) gates `w` — off posts
+  (`bill.create`/`bill.draft.post`), on saves a draft (`bill.draft.save`).
+  `~` flips the toggle — a focused-cell flip on `bill-edit`'s header form
+  (§5, its own zone), a per-row footer button on the `bills` tree (§5's
+  Vendors-toggle-active precedent). `y` on a `bills` row advances a saved
+  bill: draft → post; posted/partial → New Payment (`/payment/new`),
+  pre-scoped to that bill. New Payment is also reachable unscoped from the
+  `+` New menu (topbar-chrome-spec.md §5) — the only entry to a multi-bill
+  payment. Supersedes the P1-9 inline pay-row and P1-9b multi-pay panel
+  (both deleted, not kept as fallback).
 
 **Soft-nav key lifecycle (K3c, ratified 2026-07-28):** `fbNavigate` swaps
 `#page-main` and re-executes page scripts, but nothing previously tore down

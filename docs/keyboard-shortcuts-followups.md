@@ -10,9 +10,17 @@ Whether `I` (full-page editor shortcut on Bills) is still needed now that
 `i`/`Enter` have been consolidated. Explicitly deferred mid-session — no
 investigation redone since, still an open question, not just an idea.
 
-## 2. Mouse "write" chip still bypasses the Bills draft-save kill
+## 2. Mouse "write" chip still bypasses the Bills draft-save kill — CLOSED, moot
 
-PR #293 killed the human "save as draft, don't post" path on Bills across
+**2026-09-02:** `bill-post-payment-consolidation-spec.md` superseded PR #293's
+approach outright (that branch was never merged) — instead of killing
+draft-save, it made draft-vs-post an explicit Draft toggle (`~`, default
+off) that `w` reads. The mouse "write" chip calling `writeAt`/
+`bill.draft.save` is no longer a loophole: saving a draft is a deliberate,
+visible choice now, not a silently-preserved default. No further action
+needed here.
+
+*(Original note, kept for context:)* PR #293 killed the human "save as draft, don't post" path on Bills across
 three surfaces (grid `w` key, `bill-edit.js` `w` verb, the shared
 leave-guard modal's Save button via `cfg.draftSaveOnLeave`). One surface
 was **not** closed: the generic per-row ✓ "write" mouse chip

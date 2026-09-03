@@ -42,6 +42,8 @@ New row-level verb on Bills, taking over `p`'s second job (open the pay row) and
 - Focused row **status = posted or partial** → `y` opens New Payment (§3), pre-scoped to that one bill.
 - `p` and `P` are both fully retired from Bills — no key posts or pays directly anymore except through `w`/`y`.
 
+**Acknowledged tension with §0.** `y` doing two different things gated on row status is the identical *shape* of overload §0 names as the problem with today's `p` ("two unrelated actions, one key, disambiguated only by row status"). This isn't resolved by this spec — it's a conscious tradeoff, not an oversight: the draft branch has a direct precedent (Inbox already binds `y` to this exact `bill.draft.post` action), but the posted/partial → New Payment branch is a new association with no such precedent, and is exactly as overloaded as what `p` used to do. The justification for accepting it here is narrower than "keys can be reused" — both branches read as the same verb, "proceed with this bill," applied to whichever action its current status makes proceeding mean, rather than two unrelated jobs sharing a key by coincidence (which was the actual complaint about `p`, compounded by `P` being a third, fully separate meaning on top). Worth revisiting if that framing doesn't hold up once this is actually used.
+
 ## 3. New Payment form
 
 A new, dedicated screen (an `FB.form`, not `FB.list`) that becomes the *only* way for a human to record a bill payment — single, partial, or multi-bill alike. Replaces the inline pay-row and multi-pay panel outright (not kept as a fallback).
@@ -65,7 +67,12 @@ Fields — the union of today's two forms, unchanged in meaning: payment date (d
 
 `bill-edit.js` already has two distinct client validators (`validateClient(bill, false/true)`) — §1 reuses them as-is.
 
-`payables-bills.js`'s current validator, `billValidateBuf`, is already the *strict* one — it's used identically for today's `w` (draft-save) and `postDraft`, with no looser "skeleton draft" tier on this surface today. Under this spec, Draft ON keeps using `billValidateBuf` unchanged; Draft OFF needs one small addition — requiring a positive amount on at least one line (`billValidateBuf` currently only checks the amount is numeric, not `> 0`) — to match `bill-edit.js`'s stricter post-time bar. This is the only validation-logic change this spec requires; everything else is which existing validator runs, chosen by the flag.
+`payables-bills.js`'s current validator, `billValidateBuf`, is already the *strict* one — it's used identically for today's `w` (draft-save) and `postDraft`, with no looser "skeleton draft" tier on this surface today. It is **not**, however, a drop-in match for `bill-edit.js`'s strict validator (`validateClient(bill, true)`) — the two diverge on two points, not one:
+
+- **Positive amount:** `billValidateBuf` only checks a line's amount is numeric (`isNaN(parseFloat(l.amount))`); `validateClient(bill, true)` requires at least one line with `amount > 0`.
+- **`due_date`:** `billValidateBuf` requires `due_date` present and `due_date >= date` (L971-972); `validateClient` — in *either* mode, `forPost` true or false — never checks `due_date` at all, even though `bill-edit.js` collects it (`gatherBill()`'s `due_date` field) and the server accepts it as optional (`due_date: bill.due_date || bill.date || null`, `bills.js:1173`).
+
+So "Draft OFF" on the two surfaces would currently enforce different bars for what counts as postable — the list would block a bill missing `due_date` that the full editor would happily post. This spec doesn't pick a resolution; it flags that one is needed before build: either add the `due_date` check to `validateClient(bill, true)` so both strict paths agree, or confirm `due_date` is genuinely optional at post time and relax `billValidateBuf` to match. Whichever is chosen, the fix is a one-line addition to whichever validator is missing the check — not new validation machinery.
 
 ## 6. Prior art / cleanup
 

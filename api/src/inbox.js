@@ -84,6 +84,15 @@ async function listInbox(ctx) {
     return { items: await queryPeriodUnclosed(companyId, limit) };
   }
 
+  // Class B — reconciliation alerts (#138): cash accounts with entries
+  // uncleared for more than 30 days. status='reconciliation' is a filter
+  // view, same shape as 'bills'/'orphans' (§10.2: Class B is a filter, not
+  // the default). journal_entries/reconciliations ARE the source of truth
+  // (R8) — nothing persisted for the alert itself, recomputed live.
+  if (status === 'reconciliation') {
+    return { items: await queryReconciliationAlerts(companyId, limit) };
+  }
+
   // Class B — orphaned files (calendar-reminders-documents-spec.md §5.5):
   // files found under ATTACHMENTS_ROOT with no matching attachments row,
   // raised by attachment-integrity-scanner.js. The orphaned_files table IS
@@ -195,6 +204,59 @@ async function queryOrphanedFiles(companyId, limit) {
       reference: row.path,
       description: 'File found on disk with no matching document record',
       created_by: '',
+    };
+  });
+}
+
+/**
+ * queryReconciliationAlerts — Class B reconciliation-alert items (#138).
+ * One item per Cash-category account holding uncleared batches whose date
+ * is more than 30 days old — reuses bank.js's listAllUncleared join shape
+ * (journal_entries LEFT JOIN reconciliations, Cash accounts, no cleared_at)
+ * with an age filter, grouped by account: the alert is "go reconcile this
+ * account," not one row per stale line. Sorted oldest-first.
+ *
+ * Item shape: { type:'reconciliation_alert', source:'system', amount:null,
+ * date:oldest uncleared date, summary:'N uncleared entries in <code> — <name>
+ * older than 30 days', verbs:['open'], payload_ref:account_code,
+ * status:'stale', reference:account_code, description, created_by:'system' }.
+ */
+async function queryReconciliationAlerts(companyId, limit) {
+  const rows = await query(
+    `SELECT a.account_code, a.account_name,
+            COUNT(DISTINCT je.batch_id) AS stale_count,
+            MIN(je.date) AS oldest_date
+     FROM journal_entries je
+     JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
+     LEFT JOIN reconciliations r
+       ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
+     WHERE je.company_id = @companyId AND a.cf_category = 'Cash' AND r.batch_id IS NULL
+       AND CAST(je.date AS DATE) < CAST(CURRENT_DATE AS DATE) - INTERVAL '30 days'
+     GROUP BY a.account_code, a.account_name
+     ORDER BY oldest_date ASC
+     LIMIT @lim`,
+    { companyId, lim: limit }
+  );
+
+  const today = new Date().toISOString().slice(0, 10);
+  return rows.map(function (row) {
+    const oldestStr = String(row.oldest_date).slice(0, 10);
+    const daysPast = Math.floor((new Date(today) - new Date(oldestStr)) / (1000 * 60 * 60 * 24));
+    const count = Number(row.stale_count);
+    return {
+      type: 'reconciliation_alert',
+      source: 'system',
+      counterparty: null,
+      amount: null,
+      date: row.oldest_date,
+      proposed_at: null,
+      summary: count + ' uncleared entr' + (count === 1 ? 'y' : 'ies') + ' in ' + row.account_code + ' — ' + (row.account_name || '') + ' older than 30 days',
+      verbs: ['open'],
+      payload_ref: row.account_code,
+      status: 'stale',
+      reference: row.account_code,
+      description: 'Oldest uncleared: ' + oldestStr + ' (' + daysPast + ' days)',
+      created_by: 'system',
     };
   });
 }

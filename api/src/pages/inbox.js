@@ -154,7 +154,8 @@ var groupFold = {};
 var GROUP_LABELS = {
   journal_proposal: 'Journal proposals',
   bill_due: 'Bills due for payment',
-  orphan_file: 'Orphaned files'
+  orphan_file: 'Orphaned files',
+  reconciliation_alert: 'Reconciliation alerts'
 };
 
 // Per-row type glyph (§10.4). Muted emoji prefix in the Date column so a
@@ -162,7 +163,8 @@ var GROUP_LABELS = {
 var TYPE_GLYPHS = {
   journal_proposal: '\\uD83D\\uDCD2', // 📒
   bill_due: '\\uD83D\\uDCBC',         // 📋
-  orphan_file: '\\uD83D\\uDCC1'       // 📁
+  orphan_file: '\\uD83D\\uDCC1',      // 📁
+  reconciliation_alert: '\\uD83C\\uDFE6' // 🏦
 };
 
 function postAction(action, body, idemKey) {
@@ -232,6 +234,8 @@ function statusBadge(row) {
   if (s === 'due') return '<span class="st-badge st-due">Due</span>';
   // Class B orphaned files (§5.5): reuse the overdue red — needs attention.
   if (s === 'orphaned') return '<span class="st-badge st-overdue">Orphaned</span>';
+  // Class B reconciliation alerts (#138): reuse the amber "due" styling.
+  if (s === 'stale') return '<span class="st-badge st-due">Stale</span>';
   return ''; // inbox is the review queue — no posted badge here
 }
 
@@ -381,6 +385,21 @@ function mapItem(it) {
       created_by: '', request_id: '',
     };
   }
+  // Class B reconciliation alerts (#138): no lines, no enrichment — the
+  // item carries everything inline from inbox.js's queryReconciliationAlerts.
+  if (it.type === 'reconciliation_alert') {
+    return {
+      _key: 'recon:' + it.payload_ref, _kind: 'reconciliation',
+      account_code: it.payload_ref,
+      type: it.type,
+      date: it.date, reference: it.reference || '',
+      description: it.description || it.summary || '',
+      amount: null, currency: '', source: 'system',
+      counterparty: '',
+      status: it.status, // 'stale'
+      created_by: it.created_by || '', request_id: '',
+    };
+  }
   // Class B bill-due (§10.7 item 4): no lines, no proposal get enrichment.
   // The item carries all data inline from inbox.list's queryBillsDue.
   if (it.type === 'bill_due') {
@@ -520,11 +539,13 @@ function deleteOrphan(row) {
 }
 
 function cycleStatusFilter() {
-  // Four-state cycle: proposed → rejected → bills → orphans → proposed.
-  // Class B ('bills', 'orphans') are filter sections, not the default (§10.2).
+  // Five-state cycle: proposed → rejected → bills → orphans → reconciliation
+  // → proposed. Class B ('bills', 'orphans', 'reconciliation') are filter
+  // sections, not the default (§10.2).
   statusState = statusState === 'proposed' ? 'rejected'
     : statusState === 'rejected' ? 'bills'
     : statusState === 'bills' ? 'orphans'
+    : statusState === 'orphans' ? 'reconciliation'
     : 'proposed';
   _cache = null;             // status changed → re-fetch
   FB.status.show('Queue filter: ' + statusState, false);
@@ -613,6 +634,12 @@ var list = FB.list.create({
         + (row.created_by ? ' · created by ' + esc(row.created_by) : '');
       kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: billMeta });
     }
+    if (row._kind === 'reconciliation') {
+      // Class B reconciliation alert (#138): a single meta child row with
+      // the age detail. No underlag, no journal lines — the account's own
+      // uncleared entries are the source of truth.
+      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: row.description || '' });
+    }
     (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
     return kids;
   },
@@ -671,6 +698,17 @@ var list = FB.list.create({
         // Navigate to the Payables page where the bill lives.
         window.location.href = '/' + COMPANY + '/payables';
       } },
+    // Class B reconciliation alerts (#138): 'o' opens the Bank page's
+    // Reconciliation tab, preselecting the stale account via the same
+    // localStorage key the account selector itself reads/writes
+    // (bank-reconciliation.js's fb.reconAccount.<company>).
+    { key: 'o', label: 'open reconciliation',
+      when: function (row) { return row._kind === 'reconciliation'; },
+      affordance: function () { return '<a class="chip" title="open in Reconciliation (o)" data-act="verb:o">&#8599;</a>'; },
+      run: function (api, row) {
+        try { localStorage.setItem('fb.reconAccount.' + COMPANY, row.account_code); } catch (e) {}
+        window.location.href = '/' + COMPANY + '/bank?tab=reconciliation';
+      } },
     // Class B orphaned files (calendar-reminders-documents-spec.md §5.5):
     // v = view/download, x = delete (off disk). No app-managed quarantine —
     // download via v first if a copy is wanted, then delete.
@@ -684,32 +722,40 @@ var list = FB.list.create({
       run: function (api, row) { deleteOrphan(row); } }
   ],
   actions: [
-    { key: 'f', label: 'filter: proposed↔rejected↔bills↔orphans', handler: function () { cycleStatusFilter(); } }
+    { key: 'f', label: 'filter: proposed↔rejected↔bills↔orphans↔reconciliation', handler: function () { cycleStatusFilter(); } }
   ],
   onLoaded: function (saved) {
     var note = document.getElementById('queue-note');
-    var items = saved.filter(function (r) { return r._kind === 'proposal' || r._kind === 'bill'; });
     if (statusState === 'proposed') {
-      note.textContent = items.length === 0
+      var proposals = saved.filter(function (r) { return r._kind === 'proposal'; });
+      note.textContent = proposals.length === 0
         ? 'Nothing to review — agent-proposed journal batches will appear here'
-        : items.length + ' proposed batch' + (items.length === 1 ? '' : 'es') + ' awaiting review (y approve · x reject · Enter unfold)';
+        : proposals.length + ' proposed batch' + (proposals.length === 1 ? '' : 'es') + ' awaiting review (y approve · x reject · Enter unfold)';
     } else if (statusState === 'rejected') {
-      note.textContent = 'Rejected proposals (' + items.length + ') — f returns to the queue';
+      var rejected = saved.filter(function (r) { return r._kind === 'proposal'; });
+      note.textContent = 'Rejected proposals (' + rejected.length + ') — f returns to the queue';
     } else if (statusState === 'bills') {
       // Class B bills view
-      var bills = items.filter(function (r) { return r._kind === 'bill'; });
+      var bills = saved.filter(function (r) { return r._kind === 'bill'; });
       var overdue = bills.filter(function (r) { return r.status === 'overdue'; }).length;
       note.textContent = bills.length + ' bill' + (bills.length === 1 ? '' : 's') + ' due for payment'
         + (overdue ? ' (' + overdue + ' overdue)' : '')
         + ' — o opens in Payables · Enter unfolds · f cycles filters';
-    } else {
+    } else if (statusState === 'orphans') {
       // Class B orphaned files view
-      var orphans = items.filter(function (r) { return r._kind === 'orphan'; });
+      var orphans = saved.filter(function (r) { return r._kind === 'orphan'; });
       note.textContent = orphans.length + ' orphaned file' + (orphans.length === 1 ? '' : 's')
-        + ' — v view · x delete · f returns to the queue';
+        + ' — v view · x delete · f cycles filters';
+    } else {
+      // Class B reconciliation-alerts view (#138)
+      var recons = saved.filter(function (r) { return r._kind === 'reconciliation'; });
+      note.textContent = recons.length === 0
+        ? 'No stale reconciliation — f returns to the queue'
+        : recons.length + ' cash account' + (recons.length === 1 ? '' : 's') + ' with entries uncleared over 30 days'
+          + ' — o opens Reconciliation · f returns to the queue';
     }
   },
-  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, o open bill, v/x view/delete an orphaned file, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → bills → orphans.'
+  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, o open bill/reconciliation, v/x view/delete an orphaned file, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → bills → orphans → reconciliation.'
 });
 
 list.load();

@@ -6,7 +6,7 @@
  * and manual pay-on-bill (method 'manual'). Posts the settlement journal
  * (2-line DR AP / CR bank, or 3-line with FX gain/loss split under the
  * booking-rate method — IAS 21), updates bills.amount_paid + status, and
- * writes the bill_payments subledger row.
+ * writes the payments subledger row.
  *
  * Extracted from approveBankEntries (bank.js) — import outcomes are mirrored
  * branch-for-branch; do not diverge the two paths.
@@ -24,7 +24,7 @@ const round4 = (n) => Math.round(n * 10000) / 10000;
  * applyBillSettlement — the non-journal-posting tail shared by every
  * settlement path (bank-match-bill-settlement-spec.md §3): apply an
  * already-computed amount_paid/status to `bills`, and insert the matching
- * `bill_payments` subledger row. Never touches `journal_entries` and never
+ * `payments` subledger row. Never touches `journal_entries` and never
  * emits events — callers own their own journal-posting and event-emission
  * exactly as before (see the deadlock note on `settleMultiBillPayment`:
  * emitEvent must not run inside a withTransaction connection).
@@ -41,8 +41,8 @@ const round4 = (n) => Math.round(n * 10000) / 10000;
  * @param {string} opts.billId
  * @param {number} opts.newAmountPaid
  * @param {string} opts.newStatus        - 'paid' | 'partial'
- * @param {number} opts.bankAmount       - bill_payments.amount (home/bank currency)
- * @param {number|null} [opts.amountForeign] - bill_payments.amount_foreign (null for home-currency bills)
+ * @param {number} opts.bankAmount       - payments.amount (home/bank currency)
+ * @param {number|null} [opts.amountForeign] - payments.amount_foreign (null for home-currency bills)
  * @param {string} opts.batchId
  * @param {string} opts.date
  * @param {string} opts.method           - 'manual' | 'bank_match'
@@ -64,7 +64,7 @@ async function applyBillSettlement(opts) {
     `UPDATE bills SET amount_paid = @newAmountPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
     { companyId, billId, newAmountPaid, newStatus }
   );
-  await db.bulkInsert('bill_payments', [{
+  await db.bulkInsert('payments', [{
     company_id: companyId, payment_id: paymentId, bill_id: billId,
     batch_id: batchId, amount: bankAmount, amount_foreign: amountForeign,
     date, method, reference: paymentReference, created_at: now,
@@ -131,7 +131,7 @@ function buildAllocationLines({ bill, allocAmount, bankRate, fxAccount, homeCurr
  * @param {string} opts.method             - 'bank_match' | 'manual'
  * @param {string} opts.source             - journal source tag: 'bank_import' | 'manual_payment'
  * @param {string|null} [opts.journalId]   - BANK journal id (used to allocate a reference when reference is null)
- * @param {string|null} [opts.paymentReference] - user-supplied payment reference (bill_payments.reference)
+ * @param {string|null} [opts.paymentReference] - user-supplied payment reference (payments.reference)
  * @param {string} [opts.currency]         - journal currency for the plain 2-line path (mirrors import's entry.currency; default home)
  * @param {number} [opts.fxRate]           - journal fx_rate for the plain 2-line path (mirrors import's entry.fxRate; default 1.0)
  * @returns {Promise<{batchId, paymentId, newStatus, fxDiff?, settledForeign?, settledBooked?, warning?}>}
@@ -245,10 +245,10 @@ async function settleBillPayment(opts) {
     result.fxDiff = fxDiff;
     result.settledForeign = settledForeign;
     result.settledBooked = settledBooked;
-    // A2 (§3.2): emit bill.payment.recorded. Covers the foreign-currency
+    // A2 (§3.2): emit payment.recorded. Covers the foreign-currency
     // settlement path (manual pay-on-bill + bank import approve share this
     // core — P1-9 dual path, do not diverge).
-    await emitEvent(ctx, 'bill.payment.recorded', 'payment', paymentId, {
+    await emitEvent(ctx, 'payment.recorded', 'payment', paymentId, {
       billId, amount: settledForeign, currency: bill.currency,
       method, date, status: newStatus, fxRate: opts.billPayRate ? Number(opts.billPayRate) : (Number(bill.fx_rate) || 1),
     });
@@ -269,9 +269,9 @@ async function settleBillPayment(opts) {
   });
 
   result.newStatus = newStatus;
-  // A2 (§3.2): emit bill.payment.recorded. Home-currency settlement path
+  // A2 (§3.2): emit payment.recorded. Home-currency settlement path
   // (manual pay-on-bill + bank import approve share this core).
-  await emitEvent(ctx, 'bill.payment.recorded', 'payment', paymentId, {
+  await emitEvent(ctx, 'payment.recorded', 'payment', paymentId, {
     billId, amount: bankAmount, currency: bill.currency,
     method, date, status: newStatus,
   });
@@ -282,14 +282,14 @@ async function settleBillPayment(opts) {
  * settleMultiBillPayment — settle one bank payment across N bills from the
  * same vendor in the same currency, atomically (issue #131). Runs inside a
  * withTransaction wrapper so a validation failure on any bill rolls back all
- * bill updates, journal entries, and bill_payments rows.
+ * bill updates, journal entries, and payments rows.
  *
  * Same-currency + same-vendor only (Phase 1, server-validated). Each bill's
  * FX gain/loss is computed independently via buildAllocationLines (each bill
  * has its own booking rate from bill.fx_rate). One journal batch, N
- * bill_payments rows sharing a batch_id, one CR Bank line for the total.
+ * payments rows sharing a batch_id, one CR Bank line for the total.
  *
- * Events (bill.payment.recorded) are emitted AFTER the transaction commits —
+ * Events (payment.recorded) are emitted AFTER the transaction commits —
  * emitEvent uses the ambient shared connection and must not run inside the
  * dedicated transaction connection (DuckDB single-writer would deadlock).
  */
@@ -458,7 +458,7 @@ async function settleMultiBillPayment(opts) {
         }));
       }
 
-      // Update bill amount_paid + status, insert bill_payments (scoped to
+      // Update bill amount_paid + status, insert payments (scoped to
       // the transaction's own connection via tx.exec/tx.bulkInsert).
       const newAmountPaid = round4(Number(bill.amount_paid) + allocResult.settledForeign);
       const newStatus = newAmountPaid >= Number(bill.amount) - 0.005 ? 'paid' : 'partial';
@@ -490,7 +490,7 @@ async function settleMultiBillPayment(opts) {
       credit_home: totalBankShare,
     }));
 
-    // Insert journal entries (bill_payments rows were already inserted
+    // Insert journal entries (payments rows were already inserted
     // per-bill above, via applyBillSettlement).
     await tx.bulkInsert('journal_entries', journalLines);
 
@@ -502,7 +502,7 @@ async function settleMultiBillPayment(opts) {
   // the dedicated transaction connection (DuckDB single-writer would deadlock).
   const { results, paymentIds, validatedBills } = txResult;
   for (let i = 0; i < results.length; i++) {
-    await emitEvent(ctx, 'bill.payment.recorded', 'payment', paymentIds[i], {
+    await emitEvent(ctx, 'payment.recorded', 'payment', paymentIds[i], {
       billId: results[i].billId,
       amount: Number(allocations[i].amount),
       currency: validatedBills[i].currency,

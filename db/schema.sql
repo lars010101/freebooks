@@ -226,13 +226,24 @@ CREATE TABLE IF NOT EXISTS bills (
   created_at      TIMESTAMP      NOT NULL DEFAULT NOW()
 );
 
+-- MIGRATION: bill_payments → payments rename, in prep for two-way (AP+AR)
+-- payments (two-way-payments-prep). Errors harmlessly on a fresh DB (table
+-- doesn't exist yet) or an already-migrated DB (already renamed) —
+-- boot-apply's per-statement try/catch (db.js) handles both.
+ALTER TABLE bill_payments RENAME TO payments;
+
 -- =============================================================================
--- bill_payments
+-- payments — unified AP+AR subledger (was bill_payments; renamed in prep for
+-- two-way payments). Only direction = 'out' is populated until AR/invoicing
+-- ships — bill_id/invoice_id are mutually exclusive by direction, not by a DB
+-- constraint (no invoices table exists yet to FK against).
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS bill_payments (
+CREATE TABLE IF NOT EXISTS payments (
   company_id VARCHAR        NOT NULL,
   payment_id VARCHAR        NOT NULL,
-  bill_id    VARCHAR        NOT NULL,
+  direction  VARCHAR        NOT NULL DEFAULT 'out', -- 'out' (pay a bill, AP) | 'in' (receive against an invoice, AR — not yet built)
+  bill_id    VARCHAR,                                -- set when direction = 'out'
+  invoice_id VARCHAR,                                -- set when direction = 'in' (AR, not yet built — no FK until then)
   batch_id   VARCHAR        NOT NULL,
   amount     DECIMAL(18,4)  NOT NULL,
   amount_foreign DECIMAL(18,4),
@@ -243,6 +254,11 @@ CREATE TABLE IF NOT EXISTS bill_payments (
   voided_by  VARCHAR,
   created_at TIMESTAMP      NOT NULL DEFAULT NOW()
 );
+
+-- MIGRATION: bill_id was NOT NULL under the old bill-only schema — relax it
+-- so a future direction = 'in' row (no bill_id) is legal. Errors harmlessly
+-- if already relaxed.
+ALTER TABLE payments ALTER COLUMN bill_id DROP NOT NULL;
 
 -- =============================================================================
 -- fx_rates
@@ -458,10 +474,10 @@ CREATE TABLE IF NOT EXISTS reconciliations (
 );
 
 -- =============================================================================
--- partners (unified master list for AP/AR — renamed from vendors)
--- The rename + column additions run in init.js applyPartnersMigration() (guarded,
--- idempotent). schema.sql only creates the table for FRESH databases. Existing
--- databases get the rename migration on boot. See partner-proposal-spec §7.1.
+-- partners (unified master list for AP/AR — was vendors, migrated 2026-08).
+-- See partner-proposal-spec §7.1. The one-time vendors→partners rename
+-- migration (db/init.js applyPartnersMigration()) has been removed — every
+-- database has completed it, and a fresh database gets this table directly.
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS partners (
   partner_id             VARCHAR PRIMARY KEY DEFAULT (uuid()),
@@ -536,20 +552,6 @@ WHERE default_role IS NULL
       AND s.value <> ''
   );
 
--- MIGRATION: bills.vendor → bills.partner_name (Issue #128). This rename
--- lived only in db/init.js, so a server that pulled new code without
--- re-running init served a Binder Error on search (partner_name not found).
--- Moving it here makes the boot-apply in db.js handle it idempotently.
---
--- DuckDB 1.5+ blocks RENAME COLUMN when an explicit index depends on the
--- table. init.js creates ux_bills_bill_id (CREATE UNIQUE INDEX fallback for
--- the bill_id UNIQUE constraint). We must drop it, rename, then recreate.
--- On fresh/already-migrated DBs the RENAME errors (column doesn't exist) —
--- caught by the per-statement try/catch in _applySchemaOnBoot.
-DROP INDEX IF EXISTS ux_bills_bill_id;
-ALTER TABLE bills RENAME COLUMN vendor TO partner_name;
-CREATE UNIQUE INDEX IF NOT EXISTS ux_bills_bill_id ON bills(bill_id);
-
 -- MIGRATION: partner default expense and AP accounts (was vendor columns)
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;
@@ -558,10 +560,20 @@ ALTER TABLE bills ADD COLUMN IF NOT EXISTS draft_lines TEXT DEFAULT NULL;
 -- MIGRATION (P1-9): payment subledger extensions — manual payments carry an
 -- optional reference; foreign-currency settlements record the foreign amount
 -- for exact unwind; voids mark the row instead of deleting (append-only).
-ALTER TABLE bill_payments ADD COLUMN IF NOT EXISTS amount_foreign DECIMAL(18,4);
-ALTER TABLE bill_payments ADD COLUMN IF NOT EXISTS reference VARCHAR;
-ALTER TABLE bill_payments ADD COLUMN IF NOT EXISTS voided_at TIMESTAMP;
-ALTER TABLE bill_payments ADD COLUMN IF NOT EXISTS voided_by VARCHAR;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS amount_foreign DECIMAL(18,4);
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS reference VARCHAR;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS voided_at TIMESTAMP;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS voided_by VARCHAR;
+
+-- MIGRATION: two-way-payments-prep — direction + invoice_id on an
+-- already-existing (pre-rename) table. No-ops on a fresh DB, where the
+-- CREATE TABLE above already includes both. DuckDB rejects a NOT NULL
+-- constraint combined with ADD COLUMN ("Adding columns with constraints
+-- not yet supported") — add it plain (DEFAULT alone still backfills
+-- existing rows to 'out'), NOT NULL enforcement stays app-level here,
+-- same as this table's other unconstrained status-ish columns (method).
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS direction VARCHAR DEFAULT 'out';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS invoice_id VARCHAR;
 
 -- MIGRATION: VAT tolerance settings
 -- Seeded at company creation in api/src/setup.js. Backfill here for companies

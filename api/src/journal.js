@@ -1206,7 +1206,7 @@ async function approveProposal(ctx) {
     // settleMultiBillPayment — the journal entry was already posted above
     // by postJournalBatch, and calling either would post a second,
     // duplicate entry. Only applies amount_paid/status + writes
-    // bill_payments, via the same non-journal-posting helper those
+    // payments, via the same non-journal-posting helper those
     // functions use for that half of their work. Runs inside this same try
     // block so a failure here rolls back the just-posted batch too, via
     // the existing catch below.
@@ -1237,7 +1237,7 @@ async function approveProposal(ctx) {
         const apLineForBill = linesForBill.find((l) => l.account_code === bill.ap_account) || linesForBill[0];
         const settledBooked = round4(Number(apLineForBill.debit) - Number(apLineForBill.credit));
         if (!(settledBooked > 0)) continue; // credit-side/inflow against a bill — not modeled, leave untouched
-        // bill_payments.amount is the total bank-currency movement for this
+        // payments.amount is the total bank-currency movement for this
         // bill: AP line plus any FX line's own debit/credit (their sum is
         // the actual bank share once an FX difference is booked).
         const bankAmount = round4(linesForBill.reduce((s, l) => s + (Number(l.debit) || 0) - (Number(l.credit) || 0), 0));
@@ -1261,7 +1261,7 @@ async function approveProposal(ctx) {
           bankAmount, amountForeign,
           batchId: postResult.batchId, date: apLineForBill.date, method: 'bank_match', paymentReference: null,
         });
-        await emitEvent(ctx, 'bill.payment.recorded', 'payment', settledBillId, {
+        await emitEvent(ctx, 'payment.recorded', 'payment', settledBillId, {
           billId: settledBillId, amount: isForeign ? amountForeign : bankAmount, currency: bill.currency,
           method: 'bank_match', date: apLineForBill.date, status: newStatus,
         });

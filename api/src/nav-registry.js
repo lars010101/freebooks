@@ -55,8 +55,9 @@
 //   g w = Company switcher (reserved, not a route — moved off `c`, which
 //        Calendar now owns: judged a more frequent, higher-value jump)
 //   g r = reserved for future Receivables (freed from Reports moving to `b`)
-//   g m = FREE (Master Data dissolved) · g v = FREE · g b = FREE (freed by
-//        Books→Journal rename, unclaimed) · g f = still free
+//   g b = Bank (revived — Payments + Reconciliation, two-way-payments-prep;
+//        was freed by Books→Journal renaming off it, unclaimed until now)
+//   g m = FREE (Master Data dissolved) · g v = FREE · g f = still free
 // 2026-08-27 IA restructure 2: Bills → Payables (gKey `p`); Reports split into
 //   Statements (gKey `t`) + Books (gKey `b`); Periods → Fiscal (gKey `f`);
 //   Settings slimmed (Company · Access · Extensions); Accounting new (gKey `a`,
@@ -74,6 +75,11 @@
 // Bank page dropped 2026-08-09 (issue #137): sidebar entry + gKey 'b' removed; page modules
 //   (pages/bank.js, pages/bank-import.js) deleted. api/src/bank.js server handlers kept
 //   (bank.match, bank.reconcile.*).
+// Bank page revived (two-way-payments-prep): new pages/bank.js (Payments +
+//   Reconciliation tabs — distinct scope from the old, deleted one, which
+//   also had an import wizard; imports stay agent/Inbox-only). Reclaims gKey
+//   `b`. Wires up bank.reconcile.list/.clear (zero callers since dissolution)
+//   and payment.list's new billId-optional company-wide mode.
 
 const ROUTES = [
   // ── Sidebar entries (display order = array order) ──
@@ -84,6 +90,12 @@ const ROUTES = [
   // 2026-08-27 IA restructure 2: Bills renamed Payables (gKey `p`, freed by Fiscal
   //   moving off it). Re-expanded to four tabs: Bills · Vendors · Aging · Control.
   { key: 'payables',       route: '/:company/payables',    label: 'Payables',        icon: '📋', sidebar: true,  gKey: 'p',  palette: true,  absolute: false, dateRelevance: 'range' },
+  // Bank revived (two-way-payments-prep): Payments (unified AP/AR subledger
+  // browsing, no longer bill-scoped only) + Reconciliation (wires up
+  // api/src/bank.js's bank.reconcile.* actions, orphaned since the old Bank
+  // page was dissolved 2026-08-09, issue #137 — see below). `b` was freed
+  // when Books renamed to Journal (`j`) and has sat unclaimed since.
+  { key: 'bank',           route: '/:company/bank',        label: 'Bank',            icon: '🏦', sidebar: true,  gKey: 'b',  palette: true,  absolute: false, dateRelevance: 'range' },
   // 2026-08-27 IA restructure 2: Reports split into Statements + Books. Statements
   //   (gKey `t`) — P&L · Balance Sheet · Cash Flow · Statement of Equity.
   //   dateRelevance is per-report (REPORT_REGISTRY's multiperiod/needsStart), not

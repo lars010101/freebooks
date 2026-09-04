@@ -454,7 +454,7 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 }
 .tb-notif-inbox:hover { background: var(--bg); }
 
-/* `+` New menu dropdown (topbar-chrome-spec §5) — reuses newTargets() data */
+/* `+` New menu dropdown (topbar-chrome-spec §5) — fixed 4-item operational list */
 .tb-new-dropdown {
   position: fixed;
   top: 52px; right: 130px;
@@ -476,7 +476,8 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 }
 .tb-new-item:hover { background: var(--bg); }
 .tb-new-item:last-child { border-bottom: none; }
-.tb-new-empty { padding: 20px 14px; text-align: center; color: var(--text-faint); }
+.tb-new-item-disabled { cursor: default; color: var(--text-faint); }
+.tb-new-item-disabled:hover { background: none; }
 
 /* ── Global Period Selector (global-period-selector-chrome-spec §3) ──────── */
 .tb-period-trigger {
@@ -488,6 +489,14 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   border-radius: 4px;
   transition: background 0.15s;
   line-height: 32px;
+  /* display:inline-block + min-width/min-height keep this clickable even
+     with empty textContent (no periods configured, 2026-09-03) -- a bare
+     empty <span> collapses to 0 height and disappears from the topbar
+     entirely, which breaks the dimmed-never-hidden doctrine every other
+     state of this control follows. */
+  display: inline-block;
+  min-width: 12px;
+  min-height: 32px;
 }
 .tb-period-trigger:hover { background: var(--navy-hover); }
 /* Dimmed (dateRelevance='none'): reduced opacity, NOT pointer-events:none,
@@ -507,15 +516,22 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   padding: 12px 14px;
   font-size: 0.8125rem;
 }
-.tb-period-popover .tb-select {
-  width: 100%;
-  padding: 6px 8px;
+/* Row list (replaces the native <select>, 2026-09-03) — keyboard/mouse
+   parity mirrors .tb-company-opt/.tb-company-focus (keyboard-ux-spec.md §8). */
+.tb-period-list {
+  max-height: 220px;
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 4px;
+}
+.tb-period-row {
+  padding: 6px 8px;
+  cursor: pointer;
   font-size: 0.8125rem;
-  background: var(--surface);
   color: var(--text);
 }
+.tb-period-row:hover { background: var(--bg); }
+.tb-period-row.tb-period-row-active { background: var(--bg); outline: 2px solid var(--border); outline-offset: -2px; }
 .tb-period-custom {
   display: flex;
   align-items: center;

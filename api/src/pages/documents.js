@@ -192,7 +192,12 @@ function renderDocuments() {
     var href = sourceHref(d);
     var actions = '<a class="chip" href="/api/attachments/' + esc(d.attachment_id) + '" target="_blank" rel="noopener">Open</a>';
     if (href) actions += ' <a class="chip" href="' + esc(href) + '">Go to source</a>';
-    if (isUpload) actions += ' <a class="chip" data-act="doc-delete" data-id="' + esc(d.attachment_id) + '" data-name="' + esc(d.filename) + '">Delete</a>';
+    // Standalone uploads can always be deleted; system-linked rows (bill/
+    // invoice/JV/filing attachments) only once their file is gone — that's
+    // the sole way to clear a permanently-missing attachment, since there's
+    // no replace/reupload path and the row would otherwise re-raise the
+    // attachment-missing notification forever (attachment-integrity-scanner.js).
+    if (isUpload || d.missing_since) actions += ' <a class="chip" data-act="doc-delete" data-id="' + esc(d.attachment_id) + '" data-name="' + esc(d.filename) + '" data-missing="' + (d.missing_since ? '1' : '') + '">Delete</a>';
     return '<tr>'
       + '<td>' + idCell + '</td>'
       + '<td><span class="doc-type-badge">' + esc(typeLabel) + '</span>' + missing + '</td>'
@@ -206,12 +211,17 @@ function renderDocuments() {
 document.getElementById('doc-type-filter').addEventListener('change', renderDocuments);
 document.getElementById('doc-period-filter').addEventListener('change', renderDocuments);
 
-// Delete (standalone uploads only — system-linked rows have no delete here).
+// Delete — standalone uploads any time, system-linked rows (bill/invoice/JV/
+// filing attachments) only once their file is already missing from storage,
+// since that's the only way to clear a permanently-missing attachment.
 document.addEventListener('click', function (e) {
   var chip = e.target.closest('[data-act="doc-delete"]');
   if (!chip) return;
   e.preventDefault(); e.stopPropagation();
-  if (!confirm('Delete "' + chip.dataset.name + '"?')) return;
+  var msg = chip.dataset.missing
+    ? 'This file is already missing from storage. Remove its record from "' + chip.dataset.name + '"?'
+    : 'Delete "' + chip.dataset.name + '"?';
+  if (!confirm(msg)) return;
   postAction('attachment.delete', { attachmentId: chip.dataset.id }).then(function () {
     FB.status.show('Deleted.');
     loadDocuments();

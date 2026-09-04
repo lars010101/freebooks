@@ -90,9 +90,9 @@ async function handleBills(ctx, action) {
     case 'bill.draft.save': return saveDraftBill(ctx);
     case 'bill.draft.post': return postDraftBill(ctx);
     case 'bill.draft.delete': return deleteDraftBill(ctx);
-    case 'bill.payment.record': return ctx.body.allocations ? recordMultiBillPayment(ctx) : recordBillPayment(ctx);
-    case 'bill.payment.void':   return voidBillPayment(ctx);
-    case 'bill.payments':       return listBillPayments(ctx);
+    case 'payment.record': return ctx.body.allocations ? recordMultiBillPayment(ctx) : recordBillPayment(ctx);
+    case 'payment.void':   return voidBillPayment(ctx);
+    case 'payment.list':   return listBillPayments(ctx);
     default:
       throw Object.assign(new Error(`Unknown bill action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -306,7 +306,7 @@ async function createBill(ctx) {
     } else {
       await bulkInsert('bills', [{ ...billRow, status: 'paid', amount_paid: totalAmount, wht_code: null, wht_amount: 0 }]);
     }
-    await bulkInsert('bill_payments', [{
+    await bulkInsert('payments', [{
       company_id: companyId,
       payment_id: uuid(),
       bill_id: billId,
@@ -316,10 +316,10 @@ async function createBill(ctx) {
       method: 'bank_match',
       created_at: now,
     }]);
-    // A2 (§3.2): a bill_payments row is inserted here (settlement path) →
-    // emit bill.payment.recorded. The journal for this payment is owned by
+    // A2 (§3.2): a payments row is inserted here (settlement path) →
+    // emit payment.recorded. The journal for this payment is owned by
     // the settlement core (settlement.js), not posted here.
-    await emitEvent(ctx, 'bill.payment.recorded', 'payment', billId, {
+    await emitEvent(ctx, 'payment.recorded', 'payment', billId, {
       billId,
       amount: totalAmount,
       currency,
@@ -526,7 +526,7 @@ async function createBill(ctx) {
 
   // A2 (§3.2): emit bill.posted on the draft→posted transition. The
   // payment_batch_id branch above creates the bill as 'paid' via an external
-  // bank batch (no journal posted here) and emits bill.payment.recorded
+  // bank batch (no journal posted here) and emits payment.recorded
   // instead; this branch posts the bill's own AP journal → bill.posted.
   await emitEvent(ctx, 'bill.posted', 'bill', billId, {
     partner_name: bill.partner_name,
@@ -637,7 +637,7 @@ async function validateBillForPayment(companyId, billId, allocAmount, queryFn, h
 }
 
 /**
- * bill.payment.record — manual pay-on-bill (P1-9 dual path).
+ * payment.record — manual pay-on-bill (P1-9 dual path).
  * Settles through the SAME core as bank-import approve (FX split included).
  * amount is in the BILL's currency; for foreign bills the home-currency bank
  * amount is derived from fxRate (param) or the day's master-data rate.
@@ -733,7 +733,7 @@ async function recordBillPayment(ctx) {
 }
 
 /**
- * bill.payment.record (multi-bill branch) — settle one bank payment across
+ * payment.record (multi-bill branch) — settle one bank payment across
  * N bills from the same vendor in the same currency (issue #131). Dispatched
  * from handleBills when body.allocations is present. Delegates the atomic
  * settlement to settleMultiBillPayment (settlement.js) which runs inside a
@@ -780,22 +780,27 @@ async function recordMultiBillPayment(ctx) {
   return result;
 }
 
-/** bill.payments (viewer) — payment history for a bill. */
+/**
+ * payment.list (viewer) — payment history. billId present: one bill's
+ * history (unchanged). billId absent: company-wide list (Bank page's
+ * Payments tab, two-way-payments-prep) — see listCompanyPayments below.
+ */
 async function listBillPayments(ctx) {
   const { companyId, body } = ctx;
   const { billId } = body;
+  if (!billId) return listCompanyPayments(ctx);
   const rows = await query(
     `SELECT payment_id, bill_id, batch_id, amount, amount_foreign, date, method, reference, voided_at
-     FROM bill_payments WHERE company_id = @companyId AND bill_id = @billId
+     FROM payments WHERE company_id = @companyId AND bill_id = @billId
      ORDER BY date, created_at`,
     { companyId, billId }
   );
-  // Tag multi-bill payments: a batch_id shared by >1 non-voided bill_payments row.
+  // Tag multi-bill payments: a batch_id shared by >1 non-voided payments row.
   const batchCounts = {};
   for (const r of rows) {
     if (r.batch_id && !r.voided_at) {
       const cnt = await query(
-        `SELECT COUNT(*) AS n FROM bill_payments
+        `SELECT COUNT(*) AS n FROM payments
          WHERE company_id = @companyId AND batch_id = @batchId AND voided_at IS NULL`,
         { companyId, batchId: r.batch_id }
       );
@@ -811,25 +816,69 @@ async function listBillPayments(ctx) {
 }
 
 /**
- * bill.payment.void — unwind a payment (P1-9 safety valve).
+ * payment.list (company-wide, viewer) — Bank page's Payments tab. Same
+ * cheap-COUNT-then-fetch threshold pattern as listBills() above: no server
+ * pagination, the date range + threshold are the bounds. Excludes voided
+ * rows by default (voided:true to include them), matching Bills' default
+ * posted/partial/paid framing.
+ *
+ * direction='out' rows join to bills for the counterparty name/reference —
+ * a bare payments row has no display name on its own. direction='in' (AR,
+ * not yet built) will join to invoices the same way once that table
+ * exists; the LEFT JOIN already tolerates either side being unmatched.
+ */
+async function listCompanyPayments(ctx) {
+  const { companyId, body } = ctx;
+  const { direction, method, dateFrom, dateTo, voided, threshold } = body;
+  if (threshold == null) {
+    throw Object.assign(new Error('threshold required'), { code: 'INVALID_INPUT' });
+  }
+
+  let where = ` WHERE p.company_id = @companyId`;
+  const params = { companyId };
+  if (direction) { where += ` AND p.direction = @direction`; params.direction = direction; }
+  if (method)    { where += ` AND p.method = @method`; params.method = method; }
+  if (dateFrom)  { where += ` AND p.date >= @dateFrom`; params.dateFrom = dateFrom; }
+  if (dateTo)    { where += ` AND p.date <= @dateTo`; params.dateTo = dateTo; }
+  if (!voided)   { where += ` AND p.voided_at IS NULL`; }
+
+  const countRow = await query(`SELECT COUNT(*) AS _total FROM payments p` + where, params);
+  const total = countRow[0]._total;
+  if (total > threshold) return { data: [], total, tooMany: true };
+
+  const rows = await query(
+    `SELECT p.payment_id, p.bill_id, p.invoice_id, p.direction, p.batch_id,
+            p.amount, p.amount_foreign, p.date, p.method, p.reference, p.voided_at,
+            b.partner_name, b.vendor_ref
+       FROM payments p
+       LEFT JOIN bills b ON b.company_id = p.company_id AND b.bill_id = p.bill_id
+       ${where}
+      ORDER BY p.date DESC, p.created_at DESC`,
+    params
+  );
+  return { data: rows, total };
+}
+
+/**
+ * payment.void — unwind a payment (P1-9 safety valve).
  * Reverses the settlement journal batch, decrements amount_paid, restores
- * bill status, and marks the bill_payments row voided (append-only subledger).
+ * bill status, and marks the payments row voided (append-only subledger).
  */
 async function voidBillPayment(ctx) {
   const { companyId, userEmail, body } = ctx;
   const { paymentId } = body;
 
   const rows = await query(
-    `SELECT * FROM bill_payments WHERE company_id = @companyId AND payment_id = @paymentId LIMIT 1`,
+    `SELECT * FROM payments WHERE company_id = @companyId AND payment_id = @paymentId LIMIT 1`,
     { companyId, paymentId }
   );
   if (rows.length === 0) throw Object.assign(new Error('Payment not found'), { code: 'NOT_FOUND' });
   const payment = rows[0];
   if (payment.voided_at) throw Object.assign(new Error('Payment already voided'), { code: 'INVALID_STATUS' });
 
-  // Detect multi-bill payment: a batch_id shared by >1 non-voided bill_payments rows.
+  // Detect multi-bill payment: a batch_id shared by >1 non-voided payments rows.
   const siblings = await query(
-    `SELECT payment_id, bill_id, amount, amount_foreign FROM bill_payments
+    `SELECT payment_id, bill_id, amount, amount_foreign FROM payments
      WHERE company_id = @companyId AND batch_id = @batchId AND voided_at IS NULL`,
     { companyId, batchId: payment.batch_id }
   );
@@ -859,11 +908,11 @@ async function voidBillPayment(ctx) {
         { companyId, billId: sib.bill_id, newPaid, newStatus }
       );
       await exec(
-        `UPDATE bill_payments SET voided_at = NOW(), voided_by = @voidedBy WHERE company_id = @companyId AND payment_id = @paymentId`,
+        `UPDATE payments SET voided_at = NOW(), voided_by = @voidedBy WHERE company_id = @companyId AND payment_id = @paymentId`,
         { companyId, paymentId: sib.payment_id, voidedBy: userEmail || 'user' }
       );
 
-      await emitEvent(ctx, 'bill.payment.voided', 'payment', sib.payment_id, {
+      await emitEvent(ctx, 'payment.voided', 'payment', sib.payment_id, {
         billId: sib.bill_id,
         amount: Number(sib.amount_foreign != null ? sib.amount_foreign : sib.amount),
         newStatus,
@@ -892,13 +941,13 @@ async function voidBillPayment(ctx) {
     { companyId, billId: payment.bill_id, newPaid, newStatus }
   );
   await exec(
-    `UPDATE bill_payments SET voided_at = NOW(), voided_by = @voidedBy WHERE company_id = @companyId AND payment_id = @paymentId`,
+    `UPDATE payments SET voided_at = NOW(), voided_by = @voidedBy WHERE company_id = @companyId AND payment_id = @paymentId`,
     { companyId, paymentId, voidedBy: userEmail || 'user' }
   );
 
-  // A2 (§3.2): emit bill.payment.voided. Reverses the settlement journal,
+  // A2 (§3.2): emit payment.voided. Reverses the settlement journal,
   // decrements amount_paid, restores bill status (all done above).
-  await emitEvent(ctx, 'bill.payment.voided', 'payment', paymentId, {
+  await emitEvent(ctx, 'payment.voided', 'payment', paymentId, {
     billId: payment.bill_id,
     amount: Number(payment.amount_foreign != null ? payment.amount_foreign : payment.amount),
     newStatus,

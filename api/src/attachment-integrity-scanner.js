@@ -7,12 +7,21 @@
  * checks both directions, same family as fx-scanner.js/reminder-scanner.js
  * (boot + interval, raiseNotification on findings):
  *
- *   - DB row, no file  → attachments.missing_since set/cleared, notified on
- *                        the transition into "missing".
- *   - File, no DB row  → a row in orphaned_files, notified once; resolved_at
- *                        is set automatically once the file is gone (Delete
- *                        in Inbox acts on the filesystem directly, so the
- *                        next scan just notices the path no longer exists).
+ *   - DB row, no file  → attachments.missing_since set/cleared, notified
+ *                        every scan while still missing.
+ *   - File, no DB row  → a row in orphaned_files, notified every scan while
+ *                        still unresolved; resolved_at is set automatically
+ *                        once the file is gone (Delete in Inbox acts on the
+ *                        filesystem directly, so the next scan just notices
+ *                        the path no longer exists).
+ *
+ * Notified "every scan while still X" means: the scanner raises on every
+ * cycle regardless of prior notifications, and relies on raiseNotification's
+ * own unread-issue_key dedupe (notifications.js) to avoid spamming — the
+ * same self-healing model fx-scanner.js and reminder-scanner.js use. This is
+ * deliberate: marking a bell notification read is an acknowledgment, not a
+ * fix, so it must not be able to permanently silence a still-broken
+ * attachment or still-unresolved orphan.
  *
  * Runs once daily like the reminder scanner — file drift doesn't happen fast.
  */
@@ -46,14 +55,21 @@ async function scanMissingFiles() {
   for (const r of rows) {
     const fullPath = path.join(ATTACHMENTS_ROOT, r.storage_path);
     const exists = fs.existsSync(fullPath);
-    if (!exists && !r.missing_since) {
-      const now = new Date().toISOString();
-      await exec(`UPDATE attachments SET missing_since = @now WHERE attachment_id = @id`, { now, id: r.attachment_id });
+    if (!exists) {
+      if (!r.missing_since) {
+        await exec(`UPDATE attachments SET missing_since = @now WHERE attachment_id = @id`,
+          { now: new Date().toISOString(), id: r.attachment_id });
+      }
+      // Re-raise every scan while the file stays missing — raiseNotification's
+      // own unread-issue_key dedupe is what stops this from spamming, the
+      // same self-healing model as fx-scanner.js/reminder-scanner.js. Marking
+      // the bell notification read must not be able to permanently silence a
+      // still-broken attachment.
       const issueKey = `attachment-missing:${r.company_id}:${r.attachment_id}`;
       const msg = `Document file missing from storage: ${r.storage_path}`;
       const raised = await raiseNotification(r.company_id, 'attachment-missing', msg, issueKey);
       if (raised) notified++;
-    } else if (exists && r.missing_since) {
+    } else if (r.missing_since) {
       await exec(`UPDATE attachments SET missing_since = NULL WHERE attachment_id = @id`, { id: r.attachment_id });
     }
   }
@@ -74,18 +90,22 @@ async function scanOrphanedFiles() {
   const orphanSet = new Set(orphanPaths);
   for (const p of orphanPaths) {
     const row = existingByPath[p];
-    if (row && !row.resolved_at) continue; // already flagged and still unresolved
-    if (row && row.resolved_at) {
-      // Reappeared after being marked resolved (e.g. restored by hand) — re-raise.
-      await exec(`UPDATE orphaned_files SET resolved_at = NULL, discovered_at = @now WHERE orphan_id = @id`,
-        { now: new Date().toISOString(), id: row.orphan_id });
-    } else {
+    if (!row) {
       const companyId = inferCompanyId(p);
       await bulkInsert('orphaned_files', [{
         orphan_id: uuid(), company_id: companyId, path: p,
         discovered_at: new Date().toISOString(), resolved_at: null,
       }]);
+    } else if (row.resolved_at) {
+      // Reappeared after being marked resolved (e.g. restored by hand) — re-raise.
+      await exec(`UPDATE orphaned_files SET resolved_at = NULL, discovered_at = @now WHERE orphan_id = @id`,
+        { now: new Date().toISOString(), id: row.orphan_id });
     }
+    // Re-raise every scan while the Inbox item stays unresolved (View/Delete
+    // not yet actioned) — same self-healing model as fx-scanner.js/
+    // reminder-scanner.js. raiseNotification's own unread-issue_key dedupe
+    // stops this from spamming; marking the bell notification read must not
+    // be able to permanently silence a still-unresolved orphan.
     const issueKey = `orphaned-file:${p}`;
     const raised = await raiseNotification(inferCompanyId(p), 'orphaned-file', `Orphaned file found: ${p}`, issueKey);
     if (raised) notified++;

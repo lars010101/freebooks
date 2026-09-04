@@ -118,7 +118,7 @@ function validBill(overrides = {}) {
   };
 }
 
-// Wall-clock determinism for void reversals: bill.void / bill.payment.void
+// Wall-clock determinism for void reversals: bill.void / payment.void
 // reverse via journal.reverse with NO reversalDate → server defaults to
 // "today". Seed a wide window (last month → next month, UTC) so the reversal
 // date is covered regardless of run date. Scoped locally, not in before().
@@ -550,7 +550,7 @@ test('per-line centers: line override beats header through draft save + post', a
 // ── P1-9: manual bill payments (dual path: pay-on-bill + bank import) ──────
 // All COUNT/assertions scoped to entities created by each test (order-fragile pitfall).
 
-test('bill.payment.record: full home payment settles, idempotent replay does not duplicate', async () => {
+test('payment.record: full home payment settles, idempotent replay does not duplicate', async () => {
   // SG template ships bank accounts cf_category='Excluded' — mark 1020 as Cash (app-wide bank marker)
   await sql(baseUrl, srv.adminToken,
     `UPDATE accounts SET cf_category='Cash' WHERE company_id='CT' AND account_code='1020'`);
@@ -560,12 +560,12 @@ test('bill.payment.record: full home payment settles, idempotent replay does not
   const billId = c.body.data.billId;
 
   const payload = { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 100, reference: 'TT-123' };
-  const pay = await api(baseUrl, 'bill.payment.record', payload, { 'Idempotency-Key': 'pay-1' });
+  const pay = await api(baseUrl, 'payment.record', payload, { 'Idempotency-Key': 'pay-1' });
   assert.equal(pay.status, 200, JSON.stringify(pay.body));
   assert.equal(pay.body.data.status, 'paid');
   assert.equal(pay.body.data.outstanding, 0);
 
-  const replay = await api(baseUrl, 'bill.payment.record', payload, { 'Idempotency-Key': 'pay-1' });
+  const replay = await api(baseUrl, 'payment.record', payload, { 'Idempotency-Key': 'pay-1' });
   assert.equal(replay.status, 200);
   assert.equal(replay.headers.get('idempotent-replay'), 'true');
   assert.equal(replay.body.data.paymentId, pay.body.data.paymentId, 'replay returns same paymentId');
@@ -578,7 +578,7 @@ test('bill.payment.record: full home payment settles, idempotent replay does not
 
   const bp = await sql(baseUrl, srv.adminToken,
     `SELECT COUNT(*) c, MAX(bp.method) m, MAX(bp.reference) r, MAX(je.source) s
-     FROM bill_payments bp JOIN journal_entries je ON je.batch_id = bp.batch_id AND je.company_id = bp.company_id
+     FROM payments bp JOIN journal_entries je ON je.batch_id = bp.batch_id AND je.company_id = bp.company_id
      WHERE bp.company_id='CT' AND bp.bill_id='${billId}'`);
   assert.equal(Number(bp[0].c), 2, 'one payment row joined to its 2 journal lines — no duplicate on replay');
   assert.equal(String(bp[0].m), 'manual');
@@ -586,24 +586,24 @@ test('bill.payment.record: full home payment settles, idempotent replay does not
   assert.equal(String(bp[0].s), 'manual_payment');
 });
 
-test('bill.payment.record: partial payments, overpayment refused, bill.payments history', async () => {
+test('payment.record: partial payments, overpayment refused, payment.list history', async () => {
   const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'PAY-2' }) });
   const billId = c.body.data.billId;
 
-  const p1 = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 40 });
+  const p1 = await api(baseUrl, 'payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 40 });
   assert.equal(p1.status, 200, JSON.stringify(p1.body));
   assert.equal(p1.body.data.status, 'partial');
   assert.equal(p1.body.data.outstanding, 60);
 
-  const over = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 61 });
+  const over = await api(baseUrl, 'payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 61 });
   assert.equal(over.status, 400);
   assert.match(over.body.error.message, /exceeds outstanding/);
 
-  const p2 = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: TD.day22, bankAccount: '1020', amount: 60 });
+  const p2 = await api(baseUrl, 'payment.record', { companyId: CO, billId, date: TD.day22, bankAccount: '1020', amount: 60 });
   assert.equal(p2.status, 200);
   assert.equal(p2.body.data.status, 'paid');
 
-  const hist = await api(baseUrl, 'bill.payments', { companyId: CO, billId });
+  const hist = await api(baseUrl, 'payment.list', { companyId: CO, billId });
   assert.equal(hist.status, 200, JSON.stringify(hist.body));
   assert.equal(hist.body.data.length, 2, 'two payments in history');
   assert.equal(Number(hist.body.data[0].amount), 40, 'ordered by date');
@@ -611,7 +611,7 @@ test('bill.payment.record: partial payments, overpayment refused, bill.payments 
   assert.ok(hist.body.data.every((p) => p.method === 'manual' && !p.voided_at));
 });
 
-test('bill.payment.record: foreign-currency bill posts FX gain/loss split', async () => {
+test('payment.record: foreign-currency bill posts FX gain/loss split', async () => {
   await api(baseUrl, 'coa.upsert', {
     companyId: CO,
     account: { account_code: EXP, account_name: 'FX Expense', account_type: 'Expense', is_active: true, default_role: 'FX Gain/Loss', effective_from: TD.day1 }
@@ -626,7 +626,7 @@ test('bill.payment.record: foreign-currency bill posts FX gain/loss split', asyn
   const billId = c.body.data.billId;
 
   // Pay 100 USD at 1.30 (bankAmount 130 SGD; booked at 1.35 = 135) → 5 SGD gain
-  const pay = await api(baseUrl, 'bill.payment.record', {
+  const pay = await api(baseUrl, 'payment.record', {
     companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 100, fxRate: 1.30,
   });
   assert.equal(pay.status, 200, JSON.stringify(pay.body));
@@ -649,8 +649,8 @@ test('bill.payment.record: foreign-currency bill posts FX gain/loss split', asyn
   assert.equal(Number(bill[0].amount_paid), 100, 'amount_paid tracked in foreign currency');
 });
 
-test('bill.payment.record: validation errors named', async () => {
-  const missing = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: 'nope', date: TD.day21, bankAccount: '1020', amount: 1 });
+test('payment.record: validation errors named', async () => {
+  const missing = await api(baseUrl, 'payment.record', { companyId: CO, billId: 'nope', date: TD.day21, bankAccount: '1020', amount: 1 });
   assert.equal(missing.status, 404);
   assert.equal(missing.body.error.code, 'NOT_FOUND');
 
@@ -658,25 +658,25 @@ test('bill.payment.record: validation errors named', async () => {
     companyId: CO,
     bill: { partner_name: 'Acme Pte Ltd', vendor_ref: 'PAY-DRAFT-1', date: TD.day21, currency: 'SGD', ap_account: AP, status: 'draft', lines: [{ description: 'x', expense_account: EXP, amount: 10, vat_code: '' }] },
   });
-  const onDraft = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: d.body.data.billId, date: TD.day21, bankAccount: '1020', amount: 10 });
+  const onDraft = await api(baseUrl, 'payment.record', { companyId: CO, billId: d.body.data.billId, date: TD.day21, bankAccount: '1020', amount: 10 });
   assert.equal(onDraft.status, 409);
   assert.match(onDraft.body.error.message, /draft/);
 
   const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'PAY-3' }) });
-  const nonCash = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: c.body.data.billId, date: TD.day21, bankAccount: AP, amount: 10 });
+  const nonCash = await api(baseUrl, 'payment.record', { companyId: CO, billId: c.body.data.billId, date: TD.day21, bankAccount: AP, amount: 10 });
   assert.equal(nonCash.status, 400);
   assert.match(nonCash.body.error.message, /cf_category/);
 });
 
-test('bill.payment.void: reverses journal, restores bill, refuses double-void', async () => {
+test('payment.void: reverses journal, restores bill, refuses double-void', async () => {
   const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'PAY-4' }) });
   const billId = c.body.data.billId;
-  const pay = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 100 });
+  const pay = await api(baseUrl, 'payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 100 });
   assert.equal(pay.status, 200, JSON.stringify(pay.body));
   const { paymentId, batchId } = pay.body.data;
 
   await seedVoidCoverPeriod();
-  const v = await api(baseUrl, 'bill.payment.void', { companyId: CO, paymentId });
+  const v = await api(baseUrl, 'payment.void', { companyId: CO, paymentId });
   assert.equal(v.status, 200, JSON.stringify(v.body));
   assert.equal(v.body.data.voided, true);
   assert.equal(v.body.data.newStatus, 'posted');
@@ -687,7 +687,7 @@ test('bill.payment.void: reverses journal, restores bill, refuses double-void', 
   assert.ok(Number(rev[0].c) >= 2, 'reversal journal lines exist');
 
   const bp = await sql(baseUrl, srv.adminToken,
-    `SELECT voided_at FROM bill_payments WHERE company_id='CT' AND payment_id='${paymentId}'`);
+    `SELECT voided_at FROM payments WHERE company_id='CT' AND payment_id='${paymentId}'`);
   assert.ok(bp[0].voided_at, 'payment marked voided (append-only subledger)');
 
   const bill = await sql(baseUrl, srv.adminToken,
@@ -695,7 +695,7 @@ test('bill.payment.void: reverses journal, restores bill, refuses double-void', 
   assert.equal(String(bill[0].status), 'posted');
   assert.equal(Number(bill[0].amount_paid), 0);
 
-  const again = await api(baseUrl, 'bill.payment.void', { companyId: CO, paymentId });
+  const again = await api(baseUrl, 'payment.void', { companyId: CO, paymentId });
   assert.equal(again.status, 409);
   assert.match(again.body.error.message, /already voided/);
 });
@@ -793,10 +793,10 @@ test('bank-match-bill-settlement: approving a Tier-2-matched proposal settles th
   assert.equal(Number(bill[0].amount_paid), 654.32);
 
   const bp = await sql(baseUrl, srv.adminToken,
-    `SELECT method, batch_id, amount FROM bill_payments WHERE company_id='CT' AND bill_id='${billId}'`);
-  assert.equal(bp.length, 1, 'one bill_payments row written');
+    `SELECT method, batch_id, amount FROM payments WHERE company_id='CT' AND bill_id='${billId}'`);
+  assert.equal(bp.length, 1, 'one payments row written');
   assert.equal(String(bp[0].method), 'bank_match');
-  assert.equal(String(bp[0].batch_id), batchId, 'bill_payments row links to the batch postJournalBatch already posted — not a second batch');
+  assert.equal(String(bp[0].batch_id), batchId, 'payments row links to the batch postJournalBatch already posted — not a second batch');
   assert.equal(Number(bp[0].amount), 654.32);
 
   // No double-post: the batch postJournalBatch posted has exactly its 2 lines
@@ -805,7 +805,7 @@ test('bank-match-bill-settlement: approving a Tier-2-matched proposal settles th
   // creation posting (source 'manual', from bill.create) — that's expected:
   // every journal_entries row touching a bill's AP account carries that
   // bill's bill_id for traceability, not just settlement rows. The
-  // authoritative "settled exactly once" signal is the single bill_payments
+  // authoritative "settled exactly once" signal is the single payments
   // row already asserted above, not a bare count of batches referencing
   // bill_id.
   const je = await sql(baseUrl, srv.adminToken,
@@ -919,10 +919,10 @@ test('bank.match §4.4 + §2.3: foreign bill within the FX band, ref-corroborate
   assert.equal(String(bill[0].status), 'paid', 'full remaining foreign balance settled → paid');
   assert.ok(Math.abs(Number(bill[0].amount_paid) - 456.78) < 0.01, 'amount_paid tracked in the bill\'s OWN (foreign) currency, not the bank amount');
 
-  const bp = await sql(baseUrl, srv.adminToken, `SELECT method, amount, amount_foreign, batch_id FROM bill_payments WHERE company_id='${CO_BM}' AND bill_id='${billId}'`);
+  const bp = await sql(baseUrl, srv.adminToken, `SELECT method, amount, amount_foreign, batch_id FROM payments WHERE company_id='${CO_BM}' AND bill_id='${billId}'`);
   assert.equal(bp.length, 1);
   assert.equal(String(bp[0].method), 'bank_match');
-  assert.ok(Math.abs(Number(bp[0].amount) - 647.49) < 0.01, 'bill_payments.amount is the bank-currency total (AP + FX lines)');
+  assert.ok(Math.abs(Number(bp[0].amount) - 647.49) < 0.01, 'payments.amount is the bank-currency total (AP + FX lines)');
   assert.ok(Math.abs(Number(bp[0].amount_foreign) - 456.78) < 0.01);
   assert.equal(String(bp[0].batch_id), batchId, 'no second/duplicate journal batch');
 });
@@ -2620,7 +2620,7 @@ test('ai.test_connection with no endpoint configured returns ok:false', async ()
 // One bank payment split across N bills from the same vendor in the same
 // currency. All N bills settle atomically inside a withTransaction wrapper.
 
-test('bill.payment.record: multi-bill settlement splits one payment across N bills', async () => {
+test('payment.record: multi-bill settlement splits one payment across N bills', async () => {
   // SG template ships bank accounts cf_category='Excluded' — mark 1020 as Cash
   await sql(baseUrl, srv.adminToken,
     `UPDATE accounts SET cf_category='Cash' WHERE company_id='CT' AND account_code='1020'`);
@@ -2635,7 +2635,7 @@ test('bill.payment.record: multi-bill settlement splits one payment across N bil
     billIds.push(c.body.data.billId);
   }
 
-  const pay = await api(baseUrl, 'bill.payment.record', {
+  const pay = await api(baseUrl, 'payment.record', {
     companyId: CO, date: TD.day21, bankAccount: '1020',
     allocations: [
       { billId: billIds[0], amount: 100 },
@@ -2657,10 +2657,10 @@ test('bill.payment.record: multi-bill settlement splits one payment across N bil
     assert.equal(r.outstanding, 0, `bill ${i} outstanding 0`);
   }
 
-  // Verify one batch_id, N bill_payments rows
+  // Verify one batch_id, N payments rows
   const bp = await sql(baseUrl, srv.adminToken,
-    `SELECT COUNT(*) c, COUNT(DISTINCT batch_id) b FROM bill_payments WHERE company_id='CT' AND bill_id IN ('${billIds.join("','")}')`);
-  assert.equal(Number(bp[0].c), 3, '3 bill_payments rows');
+    `SELECT COUNT(*) c, COUNT(DISTINCT batch_id) b FROM payments WHERE company_id='CT' AND bill_id IN ('${billIds.join("','")}')`);
+  assert.equal(Number(bp[0].c), 3, '3 payments rows');
   assert.equal(Number(bp[0].b), 1, 'all share one batch_id');
 
   // Verify journal is balanced
@@ -2670,13 +2670,13 @@ test('bill.payment.record: multi-bill settlement splits one payment across N bil
   assert.equal(Number(je[0].dr), 600, 'total debit = 600');
 });
 
-test('bill.payment.record: multi-bill rejects cross-vendor', async () => {
+test('payment.record: multi-bill rejects cross-vendor', async () => {
   const c1 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-XV-1', partner_name: 'Acme Pte Ltd' }) });
   const c2 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-XV-2', partner_name: 'Beta Pte Ltd' }) });
   assert.equal(c1.status, 200);
   assert.equal(c2.status, 200);
 
-  const pay = await api(baseUrl, 'bill.payment.record', {
+  const pay = await api(baseUrl, 'payment.record', {
     companyId: CO, date: TD.day21, bankAccount: '1020',
     allocations: [{ billId: c1.body.data.billId, amount: 50 }, { billId: c2.body.data.billId, amount: 50 }],
   });
@@ -2685,7 +2685,7 @@ test('bill.payment.record: multi-bill rejects cross-vendor', async () => {
   assert.match(pay.body.error.message, /same vendor/i);
 });
 
-test('bill.payment.record: multi-bill rejects mixed currency', async () => {
+test('payment.record: multi-bill rejects mixed currency', async () => {
   // Need an FX rate for USD bills to be created
   await api(baseUrl, 'fx.rates.save', { companyId: CO, rates: [{ date: TD.day20, from_currency: 'USD', to_currency: 'SGD', rate: 1.35 }] });
 
@@ -2694,7 +2694,7 @@ test('bill.payment.record: multi-bill rejects mixed currency', async () => {
   assert.equal(c1.status, 200, JSON.stringify(c1.body));
   assert.equal(c2.status, 200, JSON.stringify(c2.body));
 
-  const pay = await api(baseUrl, 'bill.payment.record', {
+  const pay = await api(baseUrl, 'payment.record', {
     companyId: CO, date: TD.day21, bankAccount: '1020', fxRate: 1.35,
     allocations: [{ billId: c1.body.data.billId, amount: 50 }, { billId: c2.body.data.billId, amount: 50 }],
   });
@@ -2703,11 +2703,11 @@ test('bill.payment.record: multi-bill rejects mixed currency', async () => {
   assert.match(pay.body.error.message, /same currency/i);
 });
 
-test('bill.payment.record: multi-bill rejects over-allocation', async () => {
+test('payment.record: multi-bill rejects over-allocation', async () => {
   const c = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-OV-1', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
   assert.equal(c.status, 200);
 
-  const pay = await api(baseUrl, 'bill.payment.record', {
+  const pay = await api(baseUrl, 'payment.record', {
     companyId: CO, date: TD.day21, bankAccount: '1020',
     allocations: [{ billId: c.body.data.billId, amount: 999 }],
   });
@@ -2716,8 +2716,8 @@ test('bill.payment.record: multi-bill rejects over-allocation', async () => {
   assert.match(pay.body.error.message, /exceeds outstanding/i);
 });
 
-test('bill.payment.record: multi-bill rejects empty allocations', async () => {
-  const pay = await api(baseUrl, 'bill.payment.record', {
+test('payment.record: multi-bill rejects empty allocations', async () => {
+  const pay = await api(baseUrl, 'payment.record', {
     companyId: CO, date: TD.day21, bankAccount: '1020',
     allocations: [],
   });
@@ -2725,7 +2725,7 @@ test('bill.payment.record: multi-bill rejects empty allocations', async () => {
   assert.equal(pay.body.error.code, 'VALIDATION');
 });
 
-test('bill.payment.record: multi-bill with foreign currency posts per-allocation FX lines', async () => {
+test('payment.record: multi-bill with foreign currency posts per-allocation FX lines', async () => {
   // Ensure EXP is the FX Gain/Loss account (existing test may have set this)
   await api(baseUrl, 'coa.upsert', {
     companyId: CO,
@@ -2742,7 +2742,7 @@ test('bill.payment.record: multi-bill with foreign currency posts per-allocation
   assert.equal(c2.status, 200, JSON.stringify(c2.body));
 
   // Pay both at 1.30 (bankRate) — bill 1 booked at 1.35 (gain), bill 2 booked at 1.40 (gain)
-  const pay = await api(baseUrl, 'bill.payment.record', {
+  const pay = await api(baseUrl, 'payment.record', {
     companyId: CO, date: TD.day21, bankAccount: '1020', fxRate: 1.30,
     allocations: [
       { billId: c1.body.data.billId, amount: 100 },
@@ -2774,13 +2774,13 @@ test('bill.payment.record: multi-bill with foreign currency posts per-allocation
   assert.equal(Number(je[0].dr), Number(je[0].cr), 'multi-bill FX journal balanced');
 });
 
-test('bill.payment.void: voiding multi-bill payment reverses entire batch', async () => {
+test('payment.void: voiding multi-bill payment reverses entire batch', async () => {
   const c1 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-VOID-1', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
   const c2 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-VOID-2', amount: 200, lines: [{ description: 'x', expense_account: EXP, amount: 200, vat_code: '' }] }) });
   assert.equal(c1.status, 200);
   assert.equal(c2.status, 200);
 
-  const pay = await api(baseUrl, 'bill.payment.record', {
+  const pay = await api(baseUrl, 'payment.record', {
     companyId: CO, date: TD.day21, bankAccount: '1020',
     allocations: [
       { billId: c1.body.data.billId, amount: 100 },
@@ -2791,13 +2791,13 @@ test('bill.payment.void: voiding multi-bill payment reverses entire batch', asyn
   const firstPaymentId = pay.body.data.paymentIds[0];
 
   await seedVoidCoverPeriod();
-  const v = await api(baseUrl, 'bill.payment.void', { companyId: CO, paymentId: firstPaymentId });
+  const v = await api(baseUrl, 'payment.void', { companyId: CO, paymentId: firstPaymentId });
   assert.equal(v.status, 200, JSON.stringify(v.body));
   assert.ok(v.body.data.voided, 'voided true');
 
   // Both payments should be voided
   const voidedCount = await sql(baseUrl, srv.adminToken,
-    `SELECT COUNT(*) c FROM bill_payments WHERE company_id='CT' AND batch_id='${pay.body.data.batchId}' AND voided_at IS NOT NULL`);
+    `SELECT COUNT(*) c FROM payments WHERE company_id='CT' AND batch_id='${pay.body.data.batchId}' AND voided_at IS NOT NULL`);
   assert.equal(Number(voidedCount[0].c), 2, 'both payments voided');
 
   // Both bills restored to posted, amount_paid 0
@@ -2809,18 +2809,18 @@ test('bill.payment.void: voiding multi-bill payment reverses entire batch', asyn
   }
 });
 
-test('bill.payment.record: multi-bill is atomic — validation failure on bill 2 rolls back bill 1', async () => {
+test('payment.record: multi-bill is atomic — validation failure on bill 2 rolls back bill 1', async () => {
   const c1 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-ATOM-1', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
   const c2 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-ATOM-2', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
   assert.equal(c1.status, 200);
   assert.equal(c2.status, 200);
 
   // Pay bill 2 fully via single-bill path (makes it 'paid')
-  const pay2 = await api(baseUrl, 'bill.payment.record', { companyId: CO, billId: c2.body.data.billId, date: TD.day21, bankAccount: '1020', amount: 100 });
+  const pay2 = await api(baseUrl, 'payment.record', { companyId: CO, billId: c2.body.data.billId, date: TD.day21, bankAccount: '1020', amount: 100 });
   assert.equal(pay2.status, 200, JSON.stringify(pay2.body));
 
   // Now try multi-bill settlement on both — bill 2 is already paid → should fail and roll back bill 1
-  const multiPay = await api(baseUrl, 'bill.payment.record', {
+  const multiPay = await api(baseUrl, 'payment.record', {
     companyId: CO, date: TD.day22, bankAccount: '1020',
     allocations: [
       { billId: c1.body.data.billId, amount: 100 },
@@ -2837,7 +2837,7 @@ test('bill.payment.record: multi-bill is atomic — validation failure on bill 2
   assert.equal(Number(bill1[0].amount_paid), 0, 'bill 1 amount_paid still 0');
 });
 
-test('bill.payment.record: multi-bill is idempotent', async () => {
+test('payment.record: multi-bill is idempotent', async () => {
   const c1 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-IDEM-1', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
   const c2 = await api(baseUrl, 'bill.create', { companyId: CO, bill: validBill({ vendor_ref: 'MB-IDEM-2', amount: 100, lines: [{ description: 'x', expense_account: EXP, amount: 100, vat_code: '' }] }) });
   assert.equal(c1.status, 200);
@@ -2851,18 +2851,18 @@ test('bill.payment.record: multi-bill is idempotent', async () => {
     ],
   };
 
-  const first = await api(baseUrl, 'bill.payment.record', payload, { 'Idempotency-Key': 'mb-idem-1' });
+  const first = await api(baseUrl, 'payment.record', payload, { 'Idempotency-Key': 'mb-idem-1' });
   assert.equal(first.status, 200, JSON.stringify(first.body));
 
-  const replay = await api(baseUrl, 'bill.payment.record', payload, { 'Idempotency-Key': 'mb-idem-1' });
+  const replay = await api(baseUrl, 'payment.record', payload, { 'Idempotency-Key': 'mb-idem-1' });
   assert.equal(replay.status, 200);
   assert.equal(replay.headers.get('idempotent-replay'), 'true');
   assert.equal(replay.body.data.batchId, first.body.data.batchId, 'replay returns same batchId');
 
-  // No duplicate bill_payments
+  // No duplicate payments
   const bp = await sql(baseUrl, srv.adminToken,
-    `SELECT COUNT(*) c FROM bill_payments WHERE company_id='CT' AND batch_id='${first.body.data.batchId}'`);
-  assert.equal(Number(bp[0].c), 2, 'exactly 2 bill_payments rows — no duplicate on replay');
+    `SELECT COUNT(*) c FROM payments WHERE company_id='CT' AND batch_id='${first.body.data.batchId}'`);
+  assert.equal(Number(bp[0].c), 2, 'exactly 2 payments rows — no duplicate on replay');
 });
 
 // ── bills.partner_id (bills-partner-fk-spec §7) ─────────────────────────────

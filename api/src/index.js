@@ -317,6 +317,7 @@ async function handleApiRequest(req, res) {
       case 'inbox':       result = await handleInbox(ctx, action); break;
       case 'bank':        result = await handleBank(ctx, action); break; // bank.match, bank.reconcile.*
       case 'bill':        result = await handleBills(ctx, action); break;
+      case 'payment':     result = await handleBills(ctx, action); break; // payment.record — two-way-payments-prep, still lives in bills.js
       case 'partner':    result = await handlePartners(ctx, action); break;
       case 'view':        result = await handleViews(ctx, action); break; // P1-8 read models
       case 'report':      result = await handleReports(ctx, action); break;
@@ -1706,7 +1707,7 @@ async function handleSettings(ctx, action) {
     }
     // Cascade the setup-only residue (children before the companies row).
     // fx_rates is intentionally untouched — the rate table is installation-global.
-    const TABLES = ['bill_payments', 'bills', 'attachments', 'reconciliations', 'bank_mappings',
+    const TABLES = ['payments', 'bills', 'attachments', 'reconciliations', 'bank_mappings',
       'centers', 'vat_codes', 'periods', 'journal_sequences', 'journals', 'accounts',
       'settings', 'user_permissions', 'idempotency_keys', 'partners', 'audit_log', 'companies'];
     for (const t of TABLES) {
@@ -2044,6 +2045,7 @@ ensureDb().then(async () => {
       inbox: () => require('./inbox').handleInbox(ctx, action),
       bank: () => require('./bank').handleBank(ctx, action),
       bill: () => require('./bills').handleBills(ctx, action),
+      payment: () => require('./bills').handleBills(ctx, action), // payment.record — two-way-payments-prep, still lives in bills.js
       partner: () => require('./partners').handlePartners(ctx, action),
       view: () => require('./views').handleViews(ctx, action),
       report: () => require('./reports').handleReports(ctx, action),

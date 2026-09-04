@@ -22,6 +22,7 @@ const { handleBillEditPage } = require('./pages/bill-edit');
 const { handlePaymentNewPage } = require('./pages/payment-new');
 const { handleBillDetailPage } = require('./pages/bill-detail');
 const { handlePayablesPage, handleBillsPage } = require('./pages/payables');
+const { handleBankPage } = require('./pages/bank');
 const { handleAccountingPage } = require('./pages/accounting');
 const { handleExchangeRatesPage } = require('./pages/exchange-rates');
 const { handleNewCompanyPage } = require('./pages/new-company');
@@ -283,6 +284,11 @@ function mountReportRoutes(app) {
   // Dashboard page (pages/company.js, orphaned since Dashboard was dropped
   // 2026-08-03) — are deleted outright, not repointed: no reachable code links
   // to /bank today. (docs/ia-restructure-3-spec.md §2.2)
+  // Bank revived (two-way-payments-prep): Payments + Reconciliation tabs — a
+  // different scope than the old page (no import wizard; imports stay
+  // agent/Inbox-only, per the note above). New pages/bank.js, no relation to
+  // the deleted pages/bank.js this comment describes.
+  app.get('/:company/bank', handleBankPage);
   // Opening Balances feature removed 2026-08-18 (magnus): users post opening
   // balances via a simple journal voucher instead. Old URL redirects.
   app.get('/:company/opening-balances', function(req, res) {
@@ -304,8 +310,8 @@ function mountReportRoutes(app) {
   app.get('/:company/exchange-rates', handleExchangeRatesPage);
   // 2026-08-27 IA restructure 2 / 2026-08-30 IA restructure 3: old routes
   // deleted (no redirects, §2.3): /:company/bills, /:company/master-data,
-  // /:company/admin, /:company/periods, /:company/reports, /:company/books,
-  // /:company/bank
+  // /:company/admin, /:company/periods, /:company/reports, /:company/books.
+  // /:company/bank was in this list too — revived above (two-way-payments-prep).
   app.get('/:company', handleInboxPage);
   app.post('/api/admin/query', (req, res, next) => { req.body = req.body || {}; next(); }, handleAdminQuery);
 }

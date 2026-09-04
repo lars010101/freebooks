@@ -560,7 +560,7 @@ function billsFetchChildren(row) {
     var needsPayments = row.status === 'posted' || row.status === 'partial' || row.status === 'paid';
     if (!needsPayments) { entry.fetched = true; entry.fetching = false; billsList.render(); return; }
     fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'bill.payments', companyId: COMPANY, billId: row.bill_id }) })
+      body: JSON.stringify({ action: 'payment.list', companyId: COMPANY, billId: row.bill_id }) })
     .then(function (pr) { return pr.json(); })
     .then(function (pres) {
       var payments = (pres && pres.data) ? pres.data : (pres || []);
@@ -1202,7 +1202,7 @@ var billsList = FB.list.create({
       if (child._isMultiBill) msg = 'This was part of a multi-bill payment. Voiding will reverse the entire payment (all bills). Continue?';
       if (!confirm(msg)) return;
       fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'bill.payment.void', companyId: COMPANY, paymentId: child.payment_id }) })
+        body: JSON.stringify({ action: 'payment.void', companyId: COMPANY, paymentId: child.payment_id }) })
         .then(function (r) { return r.json(); })
         .then(function (res) {
           var d = res.data || res;

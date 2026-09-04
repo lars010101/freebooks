@@ -246,7 +246,11 @@ const ACTIONS = {
     description: 'Hard-delete a draft bill (drafts only, never posted).',
     params: { billId: { type: 'string', required: true } },
   },
-  'bill.payment.record': {
+  // Renamed from 'bill.payment.record' (two-way-payments-prep) — the
+  // dispatch prefix is now 'payment', not 'bill' (see index.js's two
+  // dispatch tables), ahead of an eventual invoiceId/direction branch once
+  // AR ships. Still bill-only today: only billId/allocations are accepted.
+  'payment.record': {
     role: 'data_entry', mutating: true, idempotent: true,
     description: 'Record a payment against one or more posted/partial bills. Single bill: pass billId + amount. Multi-bill: pass allocations array of {billId, amount}. amount is in bill currency.',
     params: {
@@ -259,14 +263,28 @@ const ACTIONS = {
       allocations: { type: 'array', items: { billId: { type: 'string', required: true }, amount: { type: 'number', required: true } } },
     },
   },
-  'bill.payments': {
+  // Renamed from 'bill.payments' (two-way-payments-prep, matches
+  // 'payment.record' above). billId is now optional (Bank page's Payments
+  // tab): present → today's per-bill history; absent → company-wide list
+  // (bills.js's listBillPayments branches on this, same threshold/tooMany
+  // pattern as bill.list).
+  'payment.list': {
     role: 'viewer', mutating: false,
-    description: 'Payment history for a bill (amounts, method, reference, voided state).',
-    params: { billId: { type: 'string', required: true } },
+    description: 'Payment history. With billId: history for that bill (amounts, method, reference, voided state). Without: company-wide payments list, filterable by direction/method/date/voided, capped by threshold like bill.list.',
+    params: {
+      billId: { type: 'string' },
+      direction: { type: 'string' },
+      method: { type: 'string' },
+      dateFrom: { type: 'date' },
+      dateTo: { type: 'date' },
+      voided: { type: 'boolean' },
+      threshold: { type: 'number' },
+    },
   },
-  'bill.payment.void': {
+  // Renamed from 'bill.payment.void' (two-way-payments-prep).
+  'payment.void': {
     role: 'data_entry', mutating: true, idempotent: true,
-    description: 'Void a bill payment — reverses the settlement journal, decrements amount_paid, restores bill status.',
+    description: 'Void a payment — reverses the settlement journal, decrements amount_paid, restores bill/invoice status.',
     params: { paymentId: { type: 'string', required: true } },
   },
 

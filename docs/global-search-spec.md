@@ -2,10 +2,12 @@
 
 **Status:** Built. `:` command mode is fully retired, including its last two
 holdouts (`:vat-tolerance`/`:gst-tolerance`) — the §0 cutover gate below is
-resolved (2026-09-01).
+resolved (2026-09-01). The scope-picker UI described in earlier revisions of
+this spec was subsequently removed (2026-09-03, §2/§6) — search is now
+always global by default, ranked rather than user-scoped.
 **Scope:** Retires the `:` command palette entirely. `/` becomes the single summonable input — search, navigation, and (where a page-level verb already exists) the fast path to everything `:` used to reach.
 **Supersedes:** `command-bar-ux-spec.md` §2 (trigger keys), §4–§7 (typed `:` grammar, alias table, commit model, parser tiers, bang semantics) — all retired, not refined. Also supersedes `command-bar-ux-spec.md` §4's `/p:`/`/a:`/`/j:`/`/b:` scoped-prefix design and `fb-list-ux-spec.md` §8's "keyboard path" section — this spec is now the canonical description of `/`.
-**Depends on:** `fb-core.js` (`FB.search`, `FB.palette` — palette's command-mode machinery is deleted), `fb-command.js` (`ALIASES` table mostly deleted; `tokenize`/`parseDate`/`parseAmount` retained only if still used elsewhere after the alias table is gone — verify at build time), `fb-list.js` (`applyFilterExpr`, unchanged), `search.js` (backend `partner|account|journal|bill` scopes, unchanged), `report-registry.js` (unchanged), `reports-hub.js` (one small addition, §4.2), `access-tab-api-tokens-spec.md` (companion spec — where `:token` migrates).
+**Depends on:** `fb-core.js` (`FB.search`; `FB.palette` — the command-mode module — was deleted entirely 2026-09-03, not just its command-mode half. Its one surviving job, the `+` New menu, is no longer catalog/`newTargets()`-driven — see `topbar-chrome-spec.md` §5, now stale on this point), `fb-command.js` (`ALIASES` table mostly deleted; `tokenize`/`parseDate`/`parseAmount` retained only if still used elsewhere after the alias table is gone — verify at build time), `fb-list.js` (`applyFilterExpr`, unchanged), `search.js` (backend `partner|account|journal|bill` scopes, unchanged), `report-registry.js` (unchanged), `reports-hub.js` (one small addition, §4.2), `access-tab-api-tokens-spec.md` (companion spec — where `:token` migrates).
 **Companion:** `access-tab-api-tokens-spec.md`.
 
 ---
@@ -37,50 +39,29 @@ Killing `:` was evaluated alias-by-alias against the actual page code (not again
 
 `/` is the only summon key going forward. `:` and its entire command-mode code path in `FB.palette` (`_command`, `enterCommand`, the `ALIASES`-driven parse/commit flow in `fb-command.js`) are deleted, not deprecated.
 
-Pressing `/`: the topbar input expands and is **prepopulated with the literal, editable text `search: `**, cursor placed immediately after it. This differs from today's behavior (`/` activates search mode on an otherwise-empty input) — the scope is now always visible as real text the user can see, edit, or backspace into, never a hidden mode flag.
+Pressing `/` focuses the topbar input, **leaving it blank** — no prepopulated text, no dropdown. (An earlier revision of this spec had `/` prepopulate the literal text `search: `; that was built, then reverted 2026-09-03 in favor of a genuinely empty box.) Nothing appears until either the user types a character (§3) or explicitly presses `ArrowDown` to request the recently-viewed list (§2) — a blank, unclosed dropdown sitting under an empty bar on every `/` press was judged as more visual noise than affordance.
 
 ---
 
-## 2. Empty state — the scope list
+## 2. Empty state — no scope list, recently-viewed on demand
 
-While the bar reads exactly `search: ` (nothing typed after it), arrowing down opens a dropdown of explicit, selectable scopes — one row per searchable domain:
+**Revised 2026-09-03 — the scope-list picker described in earlier revisions of this spec was removed.** Requiring a user to choose Journal/Accounts/Partners/Bills/Global up front, every time, before a query even ran, added a decision step that rarely paid for itself: on any tabbed page the "page" and "tab" rows almost always named the *same* underlying scope (e.g. Payables' Bills tab and the Payables page both resolve to `bill`), so the promised 3-row picker was in practice 1–2 rows plus Global — real menu weight for a choice that was usually obvious from context anyway. See §3 for what replaced it.
 
-```
-Filter current page: ⁠           ← only when FB.list.visible() is truthy
-Journal search: ⁠                ← entries + ledger views, §4
-Accounts search: ⁠
-Partners search: ⁠
-Bills search: ⁠
-Statements search: ⁠            ← §5
-```
+With nothing typed, the bar shows no dropdown at all (§1). The **3 most recently opened objects** — actual records (a specific bill, journal entry, partner, account), never pages, tabs, or reports — are still available, but now only on request: pressing `ArrowDown` on an empty, focused bar opens them.
 
-Selecting a row (click, or `Enter` on the highlighted row) **rewrites the bar's text** to that scope's prefix — e.g. selecting "Journal search: " changes the bar's literal contents to `journal search: `, cursor at the end. The prefix is ordinary text, not a hidden state variable: backspacing into it un-scopes the search exactly like editing any other text, no special key required.
+This is lightweight, client-only state — no server endpoint. `localStorage`, keyed per company, an array of `{type, id, label, route}` capped at 3, most-recent-first, unshifted on every detail-view open. Write points: `bill-detail.js`, `journal-voucher.js` (view-existing-batch path), and any partner/account detail view — exact list per §8.
 
-`Filter current page: ` is the explicit-selection equivalent of typing `//` today (kept as a power-user shortcut, §7) — same underlying call (`FB.list.visible().applyFilterExpr(...)`), just reachable without memorizing the double-slash.
-
-### 2.1 Recently viewed
-
-Below the scope list, while still unscoped and untyped: the **3 most recently opened objects** — actual records (a specific bill, journal entry, partner, account), never pages, tabs, or reports.
-
-This is new, lightweight, client-only state — no server endpoint. Proposal: `localStorage`, keyed per company, an array of `{type, id, label, route}` capped at 3, most-recent-first, unshifted on every detail-view open. Candidate write points: `bill-detail.js`, `journal-voucher.js` (view-existing-batch path), and any partner/account detail view. Exact write-point list is a build-time task, not a design decision (§8).
-
-### 2.2 Period quick-picks
-
-Also below the scope list:
-
-```
-Period: <current default period label>
-Period: <period immediately prior>
-Period: Custom…
-```
-
-Wires to `FB.period`'s existing state (`FB.period.get()`, confirmed in `fb-core.js`) and its existing custom-period picker (`#tb-period-select` + the custom start/end date inputs already built for the topbar period control). No new period-selection widget — this is a keyboard-reachable shortcut into the one that already exists.
+`Filter current page: ` — the equivalent of typing `//` (§7), scoped to `FB.list.visible().applyFilterExpr(...)` — is no longer offered as a picker row either. It survives only as the typed shortcut in §7; there is no discoverable menu entry point to it anymore.
 
 ---
 
-## 3. Typed state — fuzzy, categorized results
+## 3. Typed state — fuzzy, categorized results, ranked by context
 
-Once text follows a scope prefix (or follows bare `search: ` unscoped, searching everything), the dropdown becomes live results grouped by category, in a fixed order: **Statements → Journal → Accounts → Partners → Bills**.
+Once a character is typed (§1), the dropdown opens with live results grouped by category, global by default — every entity type in one query, no scope chosen first.
+
+**Category order is a ranking, not a fixed sequence.** The default order is Statements → Journal → Accounts → Partners → Bills, but whichever category matches the current page/tab's own domain is sorted to the front — e.g. on Payables' Bills tab, a global search puts **Bills** first; on Accounting's Chart of Accounts tab, **Accounts** goes first. This is what replaced the scope-list picker (§2): instead of asking the user to pick a scope before searching, the app guesses the likely scope from where they already are and biases the results, while still searching (and showing) everything else too. The mapping — page/tab → priority category — lives in `PAGE_SCOPE_MAP`/`TAB_SCOPE_MAP` (`fb-core.js`), consumed only internally by `_categoryOrder()`; there is no user-facing menu built from these maps anymore.
+
+A specific category can still be forced by typing its prefix directly — `journal search: `, `accounts search: `, `partners search: `, `bills search: `, `statements search: `, or `filter current page: ` — see §7. This is the escape hatch for the (presumably rare) case where the ranking guesses wrong.
 
 Each category header renders one of two ways:
 
@@ -140,7 +121,7 @@ Only `pl`, `bs`, `cf`, `sce` belong here — the four entries `report-registry.j
 
 `Enter` drills one level at a time, open-ended (not capped at two presses):
 
-1. Highlighted scope row (empty state, §2) → `Enter` commits that scope's prefix into the bar as real text.
+1. Highlighted recently-viewed row (empty state, §2, reached via `ArrowDown`) → `Enter` navigates directly, same as any other leaf row — nothing to expand.
 2. Highlighted multi-item category header (typed state, §3) → `Enter` expands it in place; the highlight auto-advances to the category's first child row. A second `Enter` (same key) commits whatever is currently highlighted and navigates, closing the dropdown. Arrow keys between the two `Enter` presses can move the highlight to a different child before committing.
 3. A single-item category row has nothing to expand — `Enter` on it commits and navigates immediately, same as step 2's second press, just without a step in between.
 
@@ -148,18 +129,25 @@ This is not a new interaction pattern: it's the same escalating-behavior-on-one-
 
 ---
 
-## 7. `//` and letter-prefixes retained as fast paths
+## 7. Typed prefixes — the only way left to force a scope
 
-Typing `//` directly (skipping the scope-list detour) remains a synonym for selecting "Filter current page" — same `FB.list.visible().applyFilterExpr()` call, same qualifier grammar (`field:value`, operators) already shipped per `fb-list-ux-spec.md` §8. Nothing about that mechanism changes; this spec only adds a discoverable, arrow-key-reachable route to the same behavior for anyone who hasn't memorized the double-slash.
+With the picker gone (§2), every prefix below is reachable only by typing it — none is offered as a menu row anymore. All still work exactly as before; nothing about the underlying grammar changed, only its discoverability.
 
-Likewise, the existing single-letter prefixes (`/p:acme`, `/a:cash`, `/j:1023`, `/b:`) survive unchanged as power-user shortcuts that land directly in the equivalent scoped state, skipping the dropdown-selection step — `parseSearchScope`/`SEARCH_SCOPES` (`fb-command.js`) are reused as-is, not reimplemented. `SEARCH_SCOPES.j` now resolves into the merged Journal category (§4) rather than "entries only," matching what selecting "Journal search: " from the dropdown produces.
+**Plain-English prefixes**, typed directly into the bar (e.g. `journal search: 1023`): `journal search: `, `accounts search: `, `partners search: `, `bills search: `, `statements search: `, `filter current page: `. These are `SCOPE_PREFIXES` in `fb-core.js` — previously what a picker-row *click* inserted into the bar for you; now the only way to reach them is typing the phrase yourself. `filter current page: ` is the explicit-typed equivalent of `//` below — same `FB.list.visible().applyFilterExpr()` call.
+
+Typing `//` directly remains a synonym for the same filter-current-page call, same qualifier grammar (`field:value`, operators) already shipped per `fb-list-ux-spec.md` §8.
+
+Likewise, the existing single-letter prefixes (`/p:acme`, `/a:cash`, `/j:1023`, `/b:`) survive unchanged as power-user shortcuts that land directly in the equivalent scoped state — `parseSearchScope`/`SEARCH_SCOPES` (`fb-command.js`) are reused as-is, not reimplemented. `SEARCH_SCOPES.j` resolves into the merged Journal category (§4) rather than "entries only."
+
+Any of the above, typed as the very first characters into an unfocused-by-`/` bar (i.e. without pressing `/` first), also bootstraps search mode on its own — search mode isn't gated behind the `/` key, only behind recognizing one of these prefixes (or the ranked-global path, §1/§3, once `/` has been pressed).
 
 ---
 
 ## 8. Explicitly open
 
 - ~~**VAT/GST tolerance UI surface** — blocks this spec's cutover (§0).~~ **Resolved 2026-09-01** — see §0's updated row. `:vat-tolerance`/`:gst-tolerance` are removed.
-- **Recently-viewed write points** — exact list of detail-view pages to instrument (§2.1) is a build-time task.
+- **Recently-viewed write points** — exact list of detail-view pages to instrument (§2) is a build-time task.
+- **Recently-viewed reachability via `ArrowDown`** — an implementation call, not a requested design: rather than let the feature go fully unreachable once the empty-state list stopped auto-opening on `/` (§2), `ArrowDown` on a blank, active bar surfaces it on demand. Worth revisiting if usage data ever shows nobody finds it this way.
 - **`fb-command.js` cleanup scope, resolved to this extent:** `parseSearchScope` and `SEARCH_SCOPES` survive — `fb-core.js`'s `FB.search` already calls `FB.command.parseSearchScope` directly, and §7 above extends that same reuse. `fbEchoTolerance` did NOT survive — it was deleted 2026-09-01 alongside the two aliases it existed to serve. `ALIASES` is now `{}`; `tokenize`/`parse`/`grammarFor` are kept as general infrastructure (the Tier-0 raw-catalog-action escape hatch, unknown-command handling) even though nothing currently populates `ALIASES`. `fb-command.js` survives as a smaller utility file, as anticipated.
 
 ## 9. Changelog
@@ -167,3 +155,4 @@ Likewise, the existing single-letter prefixes (`/p:acme`, `/a:cash`, `/j:1023`, 
 | Date | Change |
 |------|--------|
 | 2026-09-01 | Cutover gate (§0, §8) resolved: `:vat-tolerance`/`:gst-tolerance` removed along with the dead `settings.js` filter that had been silently failing to hide them from Extensions. `fbEchoTolerance` deleted. `:`/Ctrl+K command-mode trigger removed from `common.js`; command-mode machinery removed from `FB.palette` in `fb-core.js`, keeping only `newTargets()`/`preloadCatalog()` (the `+` New menu, unrelated to `:`). Status updated PROPOSED → Built. |
+| 2026-09-03 | Scope-list picker (§2) removed: in practice the tab/page rows almost always collapsed to the same underlying scope, so the 3-row menu rarely offered a real choice. Search is now global by default; the category matching the current page/tab is ranked first instead of asked for up front (§3, `_categoryOrder()`/`PAGE_SCOPE_MAP`/`TAB_SCOPE_MAP`). Period quick-picks (former §2.2) removed outright — superseded by the `p` Period Selector shortcut (keyboard-ux-spec.md §8). `/` no longer prepopulates `search: ` — the bar opens blank and focused, and the dropdown itself no longer opens automatically: it now shows only once a query is typed, or the recently-viewed list is explicitly requested via `ArrowDown` (§1, §2). `SCOPE_PREFIXES` (the plain-English `journal search: ` etc. prefixes) survive as typed-only fast paths (§7) now that no picker row inserts them. Later the same day, `+` New menu was decoupled from `FB.palette`/`newTargets()` entirely (now a fixed 4-item list — see `topbar-chrome-spec.md` §5), and the whole `FB.palette` module was deleted from `fb-core.js` as a result — the "Depends on" line above and `topbar-chrome-spec.md` §5 are stale on this point until that spec is updated separately. |

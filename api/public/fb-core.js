@@ -287,6 +287,25 @@
       switcher.key(e.key);
       return;
     }
+    // Global Period Selector (global-period-selector-chrome-spec.md §8): the
+    // popover owns every key while open — same "owns every key" doctrine as
+    // the switcher above. Only ArrowUp/ArrowDown defer to native behavior
+    // when focus is actually inside the Start/End date inputs (they step a
+    // date segment there); j/k/p/n/Enter/Escape are never meaningful
+    // characters inside a date input, so they fire regardless of focus —
+    // a fast custom-date-then-quickset (type dates, press `n`, focus still
+    // in the End field) must not silently no-op.
+    if (period.isOpen()) {
+      var pk = e.key;
+      var isPeriodKey = pk === 'Enter' || pk === 'Escape' || pk === 'j' || pk === 'k'
+        || pk === 'p' || pk === 'n' || pk === 'ArrowUp' || pk === 'ArrowDown';
+      if (isPeriodKey && !((pk === 'ArrowUp' || pk === 'ArrowDown') && _isEditableTarget(e))) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        period.key(pk);
+        return;
+      }
+    }
     // K1: g-prefix go-to map. The second key of an armed sequence resolves
     // here; a non-matching key cancels the prefix and falls through to
     // normal dispatch untouched.
@@ -313,6 +332,21 @@
         _gTimer = setTimeout(function () { _gPending = false; }, 500);
         e.stopImmediatePropagation();
         e.preventDefault();
+        return;
+      }
+    }
+    // Bare `p` opens the Global Period Selector (§8) — unless an active page
+    // set claims `p` itself (context-override doctrine, mirrors `g` above).
+    // `P`/`p` were fully retired from Bills/bank-import 2026-09-01/02
+    // (bill-post-payment-consolidation-spec.md), freeing `p` app-wide.
+    if (e.key === 'p' && !e.ctrlKey && !e.altKey && !e.metaKey
+        && !_isEditableTarget(e) && !_setClaims('p')) {
+      var pcur = _activeSet();
+      var pmode = pcur && pcur.set.getMode ? pcur.set.getMode() : 'NORMAL';
+      if (pmode === 'NORMAL') {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        period.open();
         return;
       }
     }
@@ -492,86 +526,20 @@
     };
   })();
 
-  // ── FB.palette — `+` New menu catalog (global-search-spec.md §0) ─────────
-  // `:` command mode is retired entirely. Its last two commands,
-  // vat-tolerance/gst-tolerance, are gone — VAT/GST tolerance is edited
-  // through Settings → Extensions instead. `/` (FB.search, below) owns
-  // search, navigation, and every fast path `:` used to provide.
-  //
-  // What's left, newTargets()/_fetchCatalog(), was always UNRELATED to `:` —
-  // they back the topbar `+` New menu (topbar-chrome-spec §5).
-  var palette = (function () {
-    var _catalog = null;       // /api/actions manifest — used by newTargets() only
-
-    function _company() { return location.pathname.split('/')[1] || ''; }
-
-    // ── `+` New menu support (unrelated to `:` — do not remove) ────────────
-    function _pageLabelFor(route) {
-      if (!route) return '';
-      if (route.indexOf('/settings') === 0) return 'Settings';
-      if (route.indexOf('/accounting') === 0) return 'Accounting';
-      if (route.indexOf('/exchange-rates') === 0) return 'Exchange Rates';
-      if (route.indexOf('/payables') === 0) return 'Payables';
-      if (route.indexOf('/statements') === 0) return 'Statements';
-      if (route.indexOf('/calendar') === 0) return 'Calendar';
-      if (route.indexOf('/documents') === 0) return 'Documents';
-      if (route.indexOf('/journal') === 0) return 'Journal';
-      if (route.indexOf('/bill') === 0) return 'Payables';
-      return '';
-    }
-    function _fetchCatalog() {
-      if (_catalog) return;
-      fetch('/api/actions').then(function (r) { return r.json(); }).then(function (res) {
-        if (res && res.actions) _catalog = res.actions;
-      }).catch(function () { /* + menu just stays empty without it */ });
-    }
-    function newTargets(partial) {
-      var out = [];
-      if (_catalog) {
-        Object.keys(_catalog).forEach(function (name) {
-          var meta = _catalog[name] || {};
-          if (meta.palette !== 'navigate' || !meta.route) return;
-          if (!meta.create) return;
-          out.push({
-            id: 'nav:' + name, label: meta.label || name,
-            pageLabel: _pageLabelFor(meta.route), route: meta.route,
-            absolute: !!meta.absolute, scope: 'nav',
-            exec: function () {
-              if (meta.absolute) window.location.href = meta.route;
-              else window.fbNavigate('/' + _company() + meta.route);
-            }
-          });
-        });
-      }
-      var seen = {};
-      out = out.filter(function (c) { if (seen[c.route]) return false; seen[c.route] = true; return true; });
-      if (partial) {
-        out = out.filter(function (c) {
-          return c.label.toLowerCase().indexOf(partial.toLowerCase()) !== -1 ||
-                 (c.pageLabel && c.pageLabel.toLowerCase().indexOf(partial.toLowerCase()) !== -1);
-        });
-      }
-      return out;
-    }
-
-    return {
-      newTargets: newTargets,
-      preloadCatalog: _fetchCatalog
-    };
-  })();
-
   // ── FB.search — `/` global search (global-search-spec.md) ──────────────────
-  // `/` is the only summon key now. Pressing it prepopulates the bar with
-  // literal, editable text "search: " (§1) rather than a bare slash. Empty
-  // state offers an explicit scope list + recently-viewed + period
-  // quick-picks (§2). Typed state groups fuzzy results by category (§3),
-  // with Journal merging entries and ledger-view reports (GL/TB/voucher-
-  // register/line-items) into one group, including a synthesized General
-  // Ledger link whenever the query also matches an account (§4), and
-  // Statements matching a small static list with zero network round-trip
-  // (§5). `Enter` drills one level at a time (§6). `//` and the legacy
-  // `/p:`/`/a:`/`/j:`/`/b:` letter-prefixes still work for anyone who types
-  // them directly (§7).
+  // `/` is the only summon key now. Pressing it leaves the bar blank and
+  // opens the dropdown straight into recently-viewed (§2) — there is no
+  // scope-choice step. Typing immediately runs a global search across every
+  // entity type, grouped by category (§3), with the category matching the
+  // current page/tab (PAGE_SCOPE_MAP/TAB_SCOPE_MAP below) sorted first —
+  // scoping is a ranking hint, not something the user picks. Journal merges
+  // entries and ledger-view reports (GL/TB/voucher-register/line-items) into
+  // one group, including a synthesized General Ledger link whenever the
+  // query also matches an account (§4), and Statements matches a small
+  // static list with zero network round-trip (§5). `Enter` drills one level
+  // at a time (§6). Power users can still force a specific entity type by
+  // typing its prefix directly ("journal search: …", etc.), and `//` and the
+  // legacy `/p:`/`/a:`/`/j:`/`/b:` letter-prefixes still work too (§7).
   var search = (function () {
     var _input = null;
     var _el = null;
@@ -581,8 +549,7 @@
     var _active = false;
     var _debounce = null;
     var _lastReq = 0;
-    var _bareEmpty = false; // true while showing the empty-state (scope/recent/period) list
-    var _committedScope = null; // null = still showing the 3-row scope picker; set once a row is chosen
+    var _bareEmpty = false; // true while showing the empty-state (recently-viewed) list
     var _expanded = {};     // catKey → true, reset every fresh query
     var _lastCategories = {}; // last computed category set, reused when expanding
 
@@ -627,41 +594,7 @@
       } catch (e) { /* private mode / quota — recently-viewed just stays empty */ }
     }
 
-    // ── period quick-picks (§2.2) — reuses FB.period's own state/periods ───
-    var _defaultPeriodRow = null;
-    var _defaultPeriodFetching = false;
-    function _fetchDefaultPeriodRow(cb) {
-      if (_defaultPeriodRow || _defaultPeriodFetching) { cb(); return; }
-      var co = _company();
-      if (!co) { cb(); return; }
-      _defaultPeriodFetching = true;
-      fetch('/api/' + co + '/reports/default-period').then(function (r) { return r.json(); }).then(function (res) {
-        _defaultPeriodFetching = false;
-        if (res && res.period_id && typeof _pPeriods !== 'undefined') {
-          for (var i = 0; i < _pPeriods.length; i++) {
-            if (_pPeriods[i].period_id === res.period_id) { _defaultPeriodRow = _pPeriods[i]; break; }
-          }
-        }
-        cb();
-      }).catch(function () { _defaultPeriodFetching = false; cb(); });
-    }
-    function _priorPeriodRow() {
-      if (!_defaultPeriodRow || typeof _pPeriods === 'undefined') return null;
-      for (var i = 0; i < _pPeriods.length; i++) {
-        if (_pPeriods[i].period_id === _defaultPeriodRow.period_id) return _pPeriods[i + 1] || null;
-      }
-      return null;
-    }
-    function _applyPeriodRow(p) {
-      if (!p || typeof period === 'undefined') return;
-      period.set({
-        mode: 'period', periodId: p.period_id,
-        start: String(p.start_date).slice(0, 10), end: String(p.end_date).slice(0, 10)
-      });
-    }
-
     // ── bar parsing (§1, §2, §7) ─────────────────────────────────────────────
-    var BASE_PREFIX = 'search: ';
     var SCOPE_PREFIXES = [
       { key: 'page-filter', text: 'filter current page: ' },
       { key: 'journal',     text: 'journal search: ' },
@@ -672,47 +605,48 @@
     ];
 
     // Returns { scope, query } for anything this module owns, or null.
-    // Legacy '/'-typed input (§7) still works even though `enter()` no
-    // longer inserts a literal slash — a user who types it directly gets
-    // the old scoped-prefix grammar via FB.command.parseSearchScope.
+    // An explicit prefix (typed directly, without pressing `/` first) always
+    // wins and forces that entity type — legacy `/`-grammar and the
+    // SCOPE_PREFIXES shortcuts both still work as power-user overrides (§7).
+    // Otherwise, once search mode is active (via `/`, which leaves the bar
+    // blank), the whole box is just the query, scoped 'all' — there's no
+    // scope-choice step to parse for.
     function _parseBar(value) {
-      if (!value) return null;
-      if (value.charAt(0) === '/') {
-        if (value.charAt(1) === '/') return { scope: 'page-filter', query: value.slice(2) };
-        var parsed = (window.FB && FB.command && FB.command.parseSearchScope)
-          ? FB.command.parseSearchScope(value) : { scope: null, query: value.slice(1) };
-        return { scope: parsed.scope || 'all', query: parsed.query };
-      }
-      var lower = value.toLowerCase();
-      for (var i = 0; i < SCOPE_PREFIXES.length; i++) {
-        if (lower.indexOf(SCOPE_PREFIXES[i].text) === 0) {
-          return { scope: SCOPE_PREFIXES[i].key, query: value.slice(SCOPE_PREFIXES[i].text.length) };
+      if (value) {
+        if (value.charAt(0) === '/') {
+          if (value.charAt(1) === '/') return { scope: 'page-filter', query: value.slice(2) };
+          var parsed = (window.FB && FB.command && FB.command.parseSearchScope)
+            ? FB.command.parseSearchScope(value) : { scope: null, query: value.slice(1) };
+          return { scope: parsed.scope || 'all', query: parsed.query };
+        }
+        var lower = value.toLowerCase();
+        for (var i = 0; i < SCOPE_PREFIXES.length; i++) {
+          if (lower.indexOf(SCOPE_PREFIXES[i].text) === 0) {
+            return { scope: SCOPE_PREFIXES[i].key, query: value.slice(SCOPE_PREFIXES[i].text.length) };
+          }
         }
       }
-      if (lower.indexOf(BASE_PREFIX) === 0) return { scope: 'all', query: value.slice(BASE_PREFIX.length) };
+      if (_active) return { scope: 'all', query: value || '' };
       return null;
     }
 
     function _listVisible() { return !!(window.FB && FB.list && FB.list.visible && FB.list.visible()); }
 
-    // Current page/tab → up to 3 live-updating scope options, GitHub-style
-    // (tab, page, global — narrowest first, each optional except global).
+    // Current page/tab → a single ranking hint (not a user-facing choice):
+    // which entity type's category should be sorted first in a global
+    // result set. Narrowest wins — tab beats page.
     var PAGE_SCOPE_MAP = { payables: 'bill', journal: 'journal', accounting: 'account', statements: 'statements' };
-    // (pageKey, tab-panel id minus "tab-" prefix) → { scopeKey, tabLabel }.
-    // Every tab that maps to a search entity is listed — de-duplication
-    // against the page's own default scope happens in _buildScopeOptions,
-    // not here (a tab whose scope happens to equal the page default still
-    // gets its own row; only the redundant plain page-row is dropped).
+    // (pageKey, tab-panel id minus "tab-" prefix) → scopeKey.
     // Aging is the same bills data, just bucketed by due date (same relationship
     // GL has to journal entries) — same 'bill' scope as the Bills tab itself.
     // Control (ap-control) is a one-number GL-vs-subledger reconciliation, not
     // a list of records — nothing to search for there, same category as
     // Integrity — deliberately not mapped.
     var TAB_SCOPE_MAP = {
-      'payables:bills':   { scopeKey: 'bill',    tabLabel: 'Bills' },
-      'payables:vendors': { scopeKey: 'partner', tabLabel: 'Vendors' },
-      'payables:aging':   { scopeKey: 'bill',    tabLabel: 'Aging' },
-      'accounting:coa':   { scopeKey: 'account', tabLabel: 'Chart of Accounts' }
+      'payables:bills':   'bill',
+      'payables:vendors': 'partner',
+      'payables:aging':   'bill',
+      'accounting:coa':   'account'
     };
     function _activeRoute() {
       var path = window.location.pathname;
@@ -726,31 +660,16 @@
       }
       return null;
     }
-    function _activeTabInfo(pageKey) {
-      var panel = document.querySelector('.tab-panel.active');
-      var tabId = panel && panel.id ? panel.id.replace(/^tab-/, '') : null;
-      return (tabId && TAB_SCOPE_MAP[pageKey + ':' + tabId]) || null;
-    }
-    // Up to 3 rows, narrowest-first (index 0 is always the default): tab (if
-    // it names a genuinely distinct scope), page (if relevant), global
-    // (always). `query` is echoed live into every row's label.
-    function _buildScopeOptions(query) {
+    // Narrowest-first: the active tab's scope if it names one, else the
+    // page's own default scope, else null (no ranking hint — e.g. Dashboard).
+    function _priorityScope() {
       var route = _activeRoute();
       var pageKey = route && route.key;
-      var pageScopeKey = pageKey && PAGE_SCOPE_MAP[pageKey];
-      var tab = pageKey && _activeTabInfo(pageKey);
-      var rows = [];
-      if (tab) {
-        rows.push({ kind: 'scope-live', scopeKey: tab.scopeKey,
-          label: route.label + '/' + tab.tabLabel + ' search: ' + query });
-      }
-      // Page row only when it names a scope the tab row above didn't already
-      // cover — same scopeKey would just render as a literal duplicate.
-      if (pageScopeKey && (!tab || tab.scopeKey !== pageScopeKey)) {
-        rows.push({ kind: 'scope-live', scopeKey: pageScopeKey, label: route.label + ' search: ' + query });
-      }
-      rows.push({ kind: 'scope-live', scopeKey: 'all', label: 'Global search: ' + query });
-      return rows;
+      if (!pageKey) return null;
+      var panel = document.querySelector('.tab-panel.active');
+      var tabId = panel && panel.id ? panel.id.replace(/^tab-/, '') : null;
+      var tabScope = tabId && TAB_SCOPE_MAP[pageKey + ':' + tabId];
+      return tabScope || PAGE_SCOPE_MAP[pageKey] || null;
     }
 
     // ── DOM shell (fb-palette CSS reused, unchanged from before) ───────────
@@ -764,36 +683,23 @@
     }
     function _close() {
       if (_el) { _el.remove(); _el = null; }
-      _items = []; _activeIdx = -1; _active = false; _bareEmpty = false; _committedScope = null;
+      _items = []; _activeIdx = -1; _active = false; _bareEmpty = false;
+    }
+    // Hides the dropdown without leaving search mode — used whenever the
+    // query goes back to empty (typed-then-deleted) but `/` is still "held":
+    // subsequent keystrokes should still be treated as a query.
+    function _hide() {
+      if (_el) { _el.remove(); _el = null; }
+      _items = []; _activeIdx = -1; _bareEmpty = false;
     }
 
-    // The 3-row live picker (§2 revision) — shown whenever bare "search: "
-    // has text after it but no scope has been chosen yet. Every keystroke
-    // re-renders these same 3 rows with the query echoed live; nothing is
-    // fetched until one is activated.
-    function _renderPicker(query) {
-      _bareEmpty = false;
-      _items = _buildScopeOptions(query);
-      _activeIdx = _items.length ? 0 : -1; // narrowest-first — tab > page > global
-      _open(); _render();
-    }
-
-    // ── empty-state rows (§2) ────────────────────────────────────────────────
+    // ── empty-state rows (§2) — recently-viewed only; no scope choice ───────
     function _buildEmptyItems() {
-      var rows = _buildScopeOptions('');
+      var rows = [];
       var recent = _recentList();
       recent.forEach(function (r, i) {
         rows.push({ kind: 'recent', label: r.label, route: r.route, sectionLabel: i === 0 ? 'Recently viewed' : null });
       });
-      if (typeof period !== 'undefined') {
-        if (_defaultPeriodRow) {
-          rows.push({ kind: 'period', label: 'Set Period: ' + (_defaultPeriodRow.period_name || String(_defaultPeriodRow.start_date).slice(0, 10)),
-            period: _defaultPeriodRow, sectionLabel: 'Period' });
-          var prior = _priorPeriodRow();
-          if (prior) rows.push({ kind: 'period', label: 'Set Period: ' + (prior.period_name || String(prior.start_date).slice(0, 10)), period: prior });
-        }
-        rows.push({ kind: 'period-custom', label: 'Set Period: Custom…' });
-      }
       return rows;
     }
 
@@ -803,14 +709,19 @@
       _activeIdx = _items.length ? 0 : -1;
       _open();
       _render();
-      // Default period is fetched lazily and re-renders when it lands — the
-      // scope list above doesn't wait on it.
-      _fetchDefaultPeriodRow(function () { if (_bareEmpty) { _items = _buildEmptyItems(); _render(); } });
     }
 
     // ── typed-state categories (§3, §4, §5) ─────────────────────────────────
     var TYPE_LABELS_PLURAL = { statements: 'Statements', journal: 'Journal', account: 'Accounts', partner: 'Partners', bill: 'Bills' };
-    var CATEGORY_ORDER = ['statements', 'journal', 'account', 'partner', 'bill'];
+    var DEFAULT_CATEGORY_ORDER = ['statements', 'journal', 'account', 'partner', 'bill'];
+    // A global ('all') result set sorts the category matching the current
+    // page/tab first — the ranking hint that replaced the old scope picker.
+    // Scoped fetches (a single category) are unaffected — order is moot.
+    function _categoryOrder() {
+      var p = _priorityScope();
+      if (!p) return DEFAULT_CATEGORY_ORDER;
+      return [p].concat(DEFAULT_CATEGORY_ORDER.filter(function (k) { return k !== p; }));
+    }
 
     // `items` is grouped when its entries are { key, label, items: [...] }
     // sub-groups (currently only Journal — real entries vs. GL vs. other
@@ -864,7 +775,7 @@
 
     function _flattenAll(categories) {
       var out = [];
-      CATEGORY_ORDER.forEach(function (key) {
+      _categoryOrder().forEach(function (key) {
         if (!categories[key]) return;
         out = out.concat(_flattenCategory(key, categories[key]));
       });
@@ -1025,38 +936,16 @@
     }
 
     // ── selection / commit (§2, §6) ─────────────────────────────────────────
-    function _setBarScope(scopeKey) {
-      var def = SCOPE_PREFIXES.filter(function (s) { return s.key === scopeKey; })[0];
-      var text = def ? def.text : BASE_PREFIX;
-      _input.value = text;
-      _input.focus();
-      _input.setSelectionRange(text.length, text.length);
-      onInput(text);
-    }
-
     // One entry point for both click and Enter — dispatches on row kind.
     // §6: a collapsed multi-item category expands (one level, highlight
     // moves to its first child); everything else commits and closes.
     function _activate(idx) {
       var item = _items[idx];
       if (!item) return;
-      if (item.kind === 'scope') { _setBarScope(item.scopeKey); return; }
-      if (item.kind === 'scope-live') {
-        _committedScope = item.scopeKey;
-        var q = _parseBar(_input ? _input.value : '');
-        _renderTyped(item.scopeKey, q ? q.query : '');
-        return;
-      }
       if (item.kind === 'recent' || item.kind === 'leaf') {
         _close(); if (_input) { _input.value = ''; _input.blur(); }
         var url = '/' + _company() + item.route;
         if (window.fbNavigate) window.fbNavigate(url); else window.location.href = url;
-        return;
-      }
-      if (item.kind === 'period') { _applyPeriodRow(item.period); _close(); if (_input) { _input.value = ''; _input.blur(); } return; }
-      if (item.kind === 'period-custom') {
-        _close(); if (_input) { _input.value = ''; _input.blur(); }
-        if (typeof period !== 'undefined' && period.togglePopover) period.togglePopover();
         return;
       }
       if (item.kind === 'page-filter') {
@@ -1083,22 +972,16 @@
     }
 
     // Decide whether the current input value should trigger search mode.
-    // `/` (via enter()) or the literal "search: " prefix, always. Returns
+    // Active (via `/`) or an explicit prefix typed directly, always. Returns
     // true if search mode consumed the event (so common.js should skip its
-    // fallback path).
+    // fallback path). The dropdown itself only ever shows once there's a
+    // query to show results for — an empty box just hides it (§2 revision:
+    // `/` no longer pops the empty-state list open by itself).
     function onInput(value) {
       var parsed = _parseBar(value);
       if (!parsed) { if (_active) _close(); return false; }
       if (!_active) _active = true;
-      // Bare "search: " (no explicit /-prefix or letter-scope typed directly,
-      // §7's fast paths still bypass all of this via parsed.scope !== 'all').
-      if (parsed.scope === 'all' && BASE_PREFIX && value.toLowerCase().indexOf(BASE_PREFIX) === 0) {
-        if (!parsed.query) { _committedScope = null; _renderEmpty(); return true; }
-        if (_committedScope) { _renderTyped(_committedScope, parsed.query); return true; }
-        _renderPicker(parsed.query); // not yet committed — show the 3-row picker, live text
-        return true;
-      }
-      if (!parsed.query) { _bareEmpty = false; _items = []; _activeIdx = -1; _open(); _render(); return true; }
+      if (!parsed.query) { _hide(); return true; }
       _bareEmpty = false;
       _renderTyped(parsed.scope, parsed.query);
       return true;
@@ -1106,8 +989,9 @@
 
     // Called by common.js on keydown. Returns true if handled.
     function onKeydown(e) {
-      // Allow ArrowDown to open the empty-state dropdown even before any
-      // typing (§2) — the bar already reads "search: " from enter().
+      // Bootstrap: search mode isn't active yet (no `/` pressed) — only an
+      // explicit legacy-prefix value typed directly, plus ArrowDown, opens
+      // it early. Every other key is someone else's to handle.
       if (!_active) {
         var parsed0 = _parseBar(_input ? _input.value : '');
         if (!parsed0 || e.key !== 'ArrowDown') return false;
@@ -1116,7 +1000,15 @@
         _renderEmpty();
         return true;
       }
-      if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) { e.preventDefault(); e.stopImmediatePropagation(); _move(1); return true; }
+      // Active: the dropdown may currently be hidden (blank bar right after
+      // `/` — §2 revision shows nothing until a query is typed). ArrowDown
+      // surfaces the recently-viewed list on demand in that case; otherwise
+      // it moves the selection as usual.
+      if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (!_el) _renderEmpty(); else _move(1);
+        return true;
+      }
       if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) { e.preventDefault(); e.stopImmediatePropagation(); _move(-1); return true; }
       if (e.key === 'Enter') {
         e.preventDefault(); e.stopImmediatePropagation();
@@ -1132,16 +1024,14 @@
       return false;
     }
 
-    // Called by common.js when `/` is pressed (§1) — literal "search: " text,
-    // dropdown open immediately (empty-state list — scope/recent/period).
+    // Called by common.js when `/` is pressed (§1) — bar stays blank and
+    // focused, no dropdown. Nothing shows until a query is typed (onInput)
+    // or the recently-viewed list is explicitly requested (ArrowDown).
     function enter() {
       if (!_input) return;
-      _input.value = BASE_PREFIX;
+      _input.value = '';
       _input.focus();
-      _input.setSelectionRange(BASE_PREFIX.length, BASE_PREFIX.length);
       _active = true;
-      _committedScope = null;
-      _renderEmpty();
     }
 
     // Force an immediate fetch (bypassing debounce), auto-selecting the
@@ -1157,8 +1047,8 @@
     }
 
     // True if `value` is text this module owns. Used by common.js's Enter
-    // safety net (replaces the old `value.charAt(0) === '/'` check, which
-    // no longer covers the primary "search: " flow).
+    // safety net for the brief window before search mode is active — an
+    // explicit prefix typed directly (SCOPE_PREFIXES or legacy `/`-grammar).
     function looksLikeSearch(value) { return !!_parseBar(value); }
 
     function wire(input) {
@@ -1867,15 +1757,32 @@
   var _pState = { mode: 'period', periodId: null, start: '', end: '' };
   var _pRelevance = 'range';        // 'range' | 'asOf' | 'none'
   var _pListeners = [];
+  // True once period.set() has resolved a real value at least once (via
+  // period._init() on a full page load). Soft-nav (fbNavigate) re-runs the
+  // arriving page's script — which re-registers an onChange listener — but
+  // never re-runs period._init() (that's gated to DOMContentLoaded), so the
+  // one period.set() that would have fired it already happened before the
+  // listener existed. onChange uses this flag to replay the current state
+  // to late subscribers instead of leaving them waiting for an event that
+  // will never come (bills tab stuck on "Loading…" after a company-switch
+  // round trip or any other soft-nav arrival — Magnus 2026-09-03).
+  var _pInitialized = false;
   var _pPeriods = [];               // fetched defined periods (desc by start_date)
   var _pPopoverOpen = false;
   var _pStateBeforeOpen = null;      // snapshot for Escape-to-abort
+  var _pHighlightIdx = -1;           // keyboard/mouse row highlight — index into
+                                      // _pPeriods, or _pPeriods.length for "Custom"
 
   function _pTrigger() { return document.getElementById('tb-period-trigger'); }
   function _pPopover() { return document.getElementById('tb-period-popover'); }
 
+  // No placeholder text ("Period") when there's nothing resolved yet \u2014 most
+  // visibly, no periods configured at all leaves _pState permanently blank
+  // (period._init's fetch chain has nothing to resolve to), and a trigger
+  // reading "Period" forever reads as a stuck/broken control rather than an
+  // empty one (Magnus, 2026-09-03). Blank instead.
   function _pLabel() {
-    if (!_pState.start && !_pState.end) return 'Period';
+    if (!_pState.start && !_pState.end) return '';
     if (_pState.mode === 'period') {
       for (var i = 0; i < _pPeriods.length; i++) {
         if (_pPeriods[i].period_id === _pState.periodId) {
@@ -1885,7 +1792,7 @@
     }
     if (_pState.start && _pState.end) return _pState.start + ' \u2013 ' + _pState.end;
     if (_pState.end) return 'as of ' + _pState.end;
-    return 'Period';
+    return '';
   }
 
   function _pRenderTrigger() {
@@ -1940,19 +1847,33 @@
     if (el) el.classList.toggle('tb-period-dimmed', _pRelevance === 'none');
   }
 
+  // Rows: defined periods (desc by start_date, per §3.4) first, "Custom" last
+  // (§3.2's own diagram always specified Custom last -- the prior <select>-
+  // based rendering put it first; this build corrects that drift).
   function _pBuildPopover() {
     var pop = _pPopover();
     if (!pop) return;
-    var opts = '<option value="custom">Custom</option>';
+    var rows = '';
     for (var i = 0; i < _pPeriods.length; i++) {
       var p = _pPeriods[i];
-      var s = String(p.start_date).slice(0, 10), e = String(p.end_date).slice(0, 10);
-      var val = s + '|' + e;
-      var pid = p.period_id || val;
-      opts += '<option value="' + esc(val) + '" data-pid="' + esc(String(pid)) + '">' + esc(p.period_name || s) + '</option>';
+      var s = String(p.start_date).slice(0, 10);
+      rows += '<div class="tb-period-row" onmouseover="FB.period._rowHover(' + i + ')" onclick="FB.period._rowPick(' + i + ',event)">'
+        + esc(p.period_name || s) + '</div>';
     }
-    var html = '<select id="tb-period-select" class="tb-select" onchange="FB.period._onPick()">' + opts + '</select>';
-    // Custom dates: range → Start + End; asOf → End only (Start never rendered)
+    rows += '<div class="tb-period-row" onmouseover="FB.period._rowHover(' + _pPeriods.length + ')" onclick="FB.period._rowPick(' + _pPeriods.length + ',event)">Custom</div>';
+    var html = '<div class="tb-period-list">' + rows + '</div>';
+    // Start/End (or As-of) only render once Custom is the ACTIVE mode -- not
+    // unconditionally under the list -- so picking a defined period never
+    // shows date fields, and Custom's own row is reachable by keyboard/mouse
+    // without the date inputs sitting in between it and the rest of the list
+    // (2026-09-03: the always-visible dates blocked reaching rows below them
+    // and broke the "Custom is a second step" model this control should have).
+    if (_pState.mode !== 'custom') {
+      pop.innerHTML = html;
+      _pInitHighlight();
+      _pSyncPopover();
+      return;
+    }
     if (_pRelevance !== 'asOf') {
       html += '<div class="tb-period-custom">'
         + '<label>Start</label> <input type="date" id="tb-period-start" onchange="FB.period._onCustomDate()">'
@@ -1965,23 +1886,139 @@
         + '</div>';
     }
     pop.innerHTML = html;
+    _pInitHighlight();
     _pSyncPopover();
   }
 
-  function _pSyncPopover() {
-    var sel = document.getElementById('tb-period-select');
-    if (!sel) return;
-    if (_pState.mode === 'custom') {
-      sel.value = 'custom';
-    } else {
-      var val = _pState.start + '|' + _pState.end;
-      sel.value = val;
-      if (sel.value !== val) sel.value = 'custom';
+  function _pRows() {
+    var pop = _pPopover();
+    return pop ? Array.prototype.slice.call(pop.querySelectorAll('.tb-period-row')) : [];
+  }
+
+  // Highlight starts on the row matching the currently active state (the
+  // "Custom" row when mode is custom) -- not always row 0 -- so keyboard nav
+  // and p/n quickset (which acts on the ACTIVE period, never the highlight)
+  // start from a highlight that agrees with what's actually applied.
+  function _pInitHighlight() {
+    var idx = _pPeriods.length;
+    if (_pState.mode === 'period') {
+      for (var i = 0; i < _pPeriods.length; i++) {
+        if (_pPeriods[i].period_id === _pState.periodId) { idx = i; break; }
+      }
     }
+    _pHighlightIdx = idx;
+  }
+
+  function _pSetHighlight(i) {
+    var rows = _pRows();
+    if (!rows.length) { _pHighlightIdx = -1; return; }
+    if (i < 0) i = 0;
+    if (i > rows.length - 1) i = rows.length - 1; // sticky at both ends
+    for (var k = 0; k < rows.length; k++) rows[k].classList.toggle('tb-period-row-active', k === i);
+    _pHighlightIdx = i;
+    if (rows[i].scrollIntoView) rows[i].scrollIntoView({ block: 'nearest' });
+  }
+
+  function _pMoveHighlight(dir) { _pSetHighlight(_pHighlightIdx + dir); }
+
+  // Row pick (mouse click AND keyboard Enter route through this). Picking a
+  // defined period applies + closes immediately (§3.2 "close on select").
+  // Picking Custom switches mode and keeps the popover open for date entry --
+  // it has never auto-closed, even when reached by keyboard (§3.2).
+  function _pRowPick(i) {
+    var rows = _pRows();
+    if (i < 0 || i >= rows.length) return;
+    if (i === _pPeriods.length) {
+      _pState.mode = 'custom';
+      _pState.periodId = null;
+      _pPersist();
+      _pRenderTrigger();
+      _pFire();
+      _pBuildPopover(); // reveal the Start/End inputs now that mode is custom
+      var se = document.getElementById('tb-period-start');
+      if (se) se.focus();
+      return;
+    }
+    var p = _pPeriods[i];
+    _pState = { mode: 'period', periodId: p.period_id, start: String(p.start_date).slice(0, 10), end: String(p.end_date).slice(0, 10) };
+    _pPersist();
+    _pRenderTrigger();
+    _pFire();
+    _pClosePopover();
+  }
+
+  // Calendar-unit detection for Custom-range quickset (p/n while mode is
+  // 'custom'): only an EXACT year/month/week(Mon-Sun)/day range shifts by
+  // that unit. An arbitrary range (deliberate scope cut, 2026-09-03) is a
+  // no-op rather than falling back to a same-length day-shift -- a silent,
+  // unexplained shift on a range the user typed by hand would be more
+  // surprising than nothing happening.
+  function _customUnit(s, e) {
+    if (!s || !e) return null;
+    var sd = new Date(s + 'T00:00:00Z'), ed = new Date(e + 'T00:00:00Z');
+    if (isNaN(sd.getTime()) || isNaN(ed.getTime())) return null;
+    if (s === e) return 'day';
+    if (sd.getUTCMonth() === 0 && sd.getUTCDate() === 1
+        && ed.getUTCMonth() === 11 && ed.getUTCDate() === 31
+        && sd.getUTCFullYear() === ed.getUTCFullYear()) return 'year';
+    var lastDay = new Date(Date.UTC(sd.getUTCFullYear(), sd.getUTCMonth() + 1, 0)).getUTCDate();
+    if (sd.getUTCDate() === 1 && ed.getUTCDate() === lastDay
+        && sd.getUTCFullYear() === ed.getUTCFullYear() && sd.getUTCMonth() === ed.getUTCMonth()) return 'month';
+    var diffDays = Math.round((ed.getTime() - sd.getTime()) / 86400000);
+    if (diffDays === 6 && sd.getUTCDay() === 1) return 'week'; // Monday-start
+    return null;
+  }
+
+  // dir: -1 = previous (p), +1 = next (n).
+  function _shiftCustom(dir) {
+    var unit = _customUnit(_pState.start, _pState.end);
+    if (!unit) return; // arbitrary range -- no-op, popover stays open
+    var sd = new Date(_pState.start + 'T00:00:00Z');
+    var ns, ne;
+    var fmt = function (d) { return d.toISOString().slice(0, 10); };
+    if (unit === 'year') {
+      ns = new Date(Date.UTC(sd.getUTCFullYear() + dir, 0, 1));
+      ne = new Date(Date.UTC(sd.getUTCFullYear() + dir, 11, 31));
+    } else if (unit === 'month') {
+      ns = new Date(Date.UTC(sd.getUTCFullYear(), sd.getUTCMonth() + dir, 1));
+      ne = new Date(Date.UTC(ns.getUTCFullYear(), ns.getUTCMonth() + 1, 0));
+    } else if (unit === 'week') {
+      ns = new Date(sd.getTime() + dir * 7 * 86400000);
+      ne = new Date(ns.getTime() + 6 * 86400000);
+    } else { // day
+      ns = new Date(sd.getTime() + dir * 86400000);
+      ne = ns;
+    }
+    _pState = { mode: 'custom', periodId: null, start: fmt(ns), end: fmt(ne) };
+    _pPersist();
+    _pRenderTrigger();
+    _pFire();
+    _pClosePopover();
+  }
+
+  // p/n quickset: acts on whichever period/range is currently ACTIVE, never
+  // the popover highlight. dir: -1 = previous (p), +1 = next (n).
+  function _pQuickset(dir) {
+    if (_pState.mode === 'period') {
+      var idx = -1;
+      for (var i = 0; i < _pPeriods.length; i++) {
+        if (_pPeriods[i].period_id === _pState.periodId) { idx = i; break; }
+      }
+      if (idx === -1) return;
+      var newIdx = idx - dir; // _pPeriods is sorted DESC -- lower index = more recent
+      if (newIdx < 0 || newIdx > _pPeriods.length - 1) return; // no earlier/later period -- no-op
+      _pRowPick(newIdx);
+    } else if (_pState.mode === 'custom') {
+      _shiftCustom(dir);
+    }
+  }
+
+  function _pSyncPopover() {
     var se = document.getElementById('tb-period-start');
     var ee = document.getElementById('tb-period-end');
     if (se) se.value = _pState.start || '';
     if (ee) ee.value = _pState.end || '';
+    _pSetHighlight(_pHighlightIdx);
   }
 
   function _pClosePopover() {
@@ -2006,6 +2043,7 @@
         end: state.end || ''
       };
       _pRenderTrigger();
+      _pInitialized = true;
       _pFire();
     },
     // 'range' | 'asOf' | 'none' — per-tab/per-report override (§4.2).
@@ -2017,43 +2055,73 @@
     },
     getRelevance: function () { return _pRelevance; },
     // Subscribe to period changes. Also fires as 'fb:period-change' on document.
-    onChange: function (cb) { _pListeners.push(cb); },
-    // Open/close the period selector popover (trigger onclick).
-    togglePopover: function (event) {
-      if (event) event.stopPropagation();
+    // A late subscriber (page arriving via soft-nav, after the one real
+    // period.set() already fired) gets the current state replayed immediately
+    // instead of waiting forever for a set() that won't happen again.
+    onChange: function (cb) {
+      _pListeners.push(cb);
+      if (_pInitialized) {
+        try { cb(_pState); } catch (e) { /* listener must not break */ }
+      }
+    },
+    // Open unconditionally (bare `p` in NORMAL mode, §8) — never toggles
+    // closed; only Escape/Enter/a row pick/outside-click close it.
+    open: function () {
+      if (_pPopoverOpen) return;
       var pop = _pPopover();
       if (!pop) return;
-      if (_pPopoverOpen) { _pClosePopover(); return; }
       _pStateBeforeOpen = { mode: _pState.mode, periodId: _pState.periodId, start: _pState.start, end: _pState.end };
       _pBuildPopover();
       pop.hidden = false;
       pop.style.display = '';
       _pPopoverOpen = true;
     },
-    // Period-dropdown pick — closes popover immediately, fires change (§3.2).
-    _onPick: function () {
-      var sel = document.getElementById('tb-period-select');
-      if (!sel) return;
-      var val = sel.value;
-      if (val === 'custom') {
-        // Switch to custom mode — keep existing dates, popover stays open.
-        _pState.mode = 'custom';
-        _pState.periodId = null;
-        _pPersist();
-        _pRenderTrigger();
-        _pFire();
+    isOpen: function () { return _pPopoverOpen; },
+    // Open/close the period selector popover (trigger onclick — click toggles;
+    // the `p` key always opens, see open() above).
+    togglePopover: function (event) {
+      if (event) event.stopPropagation();
+      if (_pPopoverOpen) { _pClosePopover(); return; }
+      period.open();
+    },
+    // Mouse hover over a row — keyboard highlight mirrors :hover (§8).
+    _rowHover: function (i) { _pSetHighlight(i); },
+    // Mouse click on a row — same pick path as keyboard Enter (§8).
+    // stopPropagation is required, not cosmetic: picking Custom rebuilds the
+    // popover's innerHTML (to reveal the date inputs) while this click is
+    // still bubbling — that detaches the clicked row from the DOM, and the
+    // document-level outside-click listener (which checks `pop.contains
+    // (e.target)`) would otherwise see a detached target, conclude the click
+    // was outside, and close the popover it was just told to keep open.
+    _rowPick: function (i, event) { if (event) event.stopPropagation(); _pRowPick(i); },
+    // Keyboard dispatch while the popover is open (_dispatch in fb-core.js,
+    // mirrors the company switcher's `key()` contract, §8). Unrecognized
+    // keys are a no-op — the popover swallows them regardless (see call site).
+    key: function (k) {
+      if (k === 'Escape') {
+        if (_pStateBeforeOpen) period.set(_pStateBeforeOpen);
+        _pClosePopover();
         return;
       }
-      var pts = val.split('|');
-      var s = pts[0], e = pts[1];
-      var pid = null;
-      var opt = sel.options[sel.selectedIndex];
-      if (opt) pid = opt.getAttribute('data-pid') || null;
-      _pState = { mode: 'period', periodId: pid, start: s, end: e };
-      _pPersist();
-      _pRenderTrigger();
-      _pFire();
-      _pClosePopover();
+      if (k === 'Enter') {
+        if (_pHighlightIdx === _pPeriods.length && _pState.mode === 'custom') {
+          // Already in custom mode with the Custom row highlighted (dates
+          // may have just been edited) — commit and close, same as clicking
+          // outside. _pRowPick's Custom branch is for the FIRST switch into
+          // custom (reveals the inputs, stays open) — not this case.
+          period._onCustomDate();
+          _pClosePopover();
+        } else if (_pHighlightIdx >= 0 && _pHighlightIdx <= _pPeriods.length) {
+          _pRowPick(_pHighlightIdx);
+        } else {
+          _pClosePopover();
+        }
+        return;
+      }
+      if (k === 'j' || k === 'ArrowDown') { _pMoveHighlight(1); return; }
+      if (k === 'k' || k === 'ArrowUp') { _pMoveHighlight(-1); return; }
+      if (k === 'p') { _pQuickset(-1); return; }
+      if (k === 'n') { _pQuickset(1); return; }
     },
     // Custom Start/End commit on change (blur or Enter). Popover stays open (§3.2).
     _onCustomDate: function () {
@@ -2249,23 +2317,12 @@
     _pClosePopover();
   });
 
-  // Enter commits (OK) / Escape aborts (revert to pre-open state) — capture
-  // phase so this wins over the global command-key dispatcher while the
-  // popover is open.
-  document.addEventListener('keydown', function (e) {
-    if (!_pPopoverOpen) return;
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      if (_pState.mode === 'custom') period._onCustomDate();
-      _pClosePopover();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      if (_pStateBeforeOpen) period.set(_pStateBeforeOpen);
-      _pClosePopover();
-    }
-  }, true);
+  // Full keyboard contract while the popover is open (j/k/arrows navigate,
+  // Enter picks, Escape aborts, p/n quickset) is wired through _dispatch —
+  // see the `period.isOpen()` block near the top of this file, alongside the
+  // company switcher's equivalent. Kept here previously as a standalone
+  // Enter/Escape-only listener; folded in 2026-09-03 so one mechanism owns
+  // the popover's keys instead of two.
 
   // Auto-init on DOMContentLoaded: resolve company + active route from the
   // app-shell and the current URL path.
@@ -2293,13 +2350,12 @@
   });
 
   window.FB = {
-    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today, forwardIframeKeys: forwardIframeKeys, newTargets: (palette && palette.newTargets) ? palette.newTargets : function() { return []; } },
+    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today, forwardIframeKeys: forwardIframeKeys },
     mode: mode,
     keys: keys,
     coverage: coverage,
     nav: nav,
     dropdown: dropdown,
-    palette: palette,
     search: search,
     modal: modal,
     status: status,
@@ -2421,9 +2477,14 @@
       .catch(function () { dd.innerHTML = '<div class="tb-notif-empty">Failed to load.</div>'; });
   }
 
-  // Wire the bell button
-  var notifBtn = document.getElementById('tb-notif-btn');
-  if (notifBtn) notifBtn.addEventListener('click', function (e) { e.preventDefault(); _toggleNotifDropdown(); });
+  // Wire the bell button (deferred: fb-core.js loads in <head>, before the
+  // topbar button exists in the DOM — see _wireDlButton/_wireNewMenu below).
+  function _wireNotifButton() {
+    var notifBtn = document.getElementById('tb-notif-btn');
+    if (notifBtn) notifBtn.addEventListener('click', function (e) { e.preventDefault(); _toggleNotifDropdown(); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _wireNotifButton);
+  else _wireNotifButton();
   // Close dropdown on outside click
   document.addEventListener('click', function (e) {
     var dd = document.getElementById('tb-notif-dropdown');
@@ -2522,31 +2583,34 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _wireDlButton);
   else _wireDlButton();
 
-  // ── topbar-chrome-spec §5: `+` New menu — reuses newTargets() ─────
+  // ── topbar-chrome-spec §5: `+` New menu — fixed operational-only list ────
+  // Deliberately not catalog-driven: this is the short list of things
+  // someone reaches for constantly (record a transaction), not every
+  // create-capable route in the app — master-data/setup actions (new
+  // account, new partner, etc.) live on their own pages, not here.
   // Wired on DOMContentLoaded since fb-core.js loads in <head> (before body).
+  var NEW_MENU_ITEMS = [
+    { label: 'Journal Entry', route: '/journal/voucher' },
+    { label: 'Bill from Supplier', route: '/bill/edit' },
+    { label: 'Invoice to Customer', disabled: true }, // AR not built yet
+    { label: 'Payment', route: '/payment/new' }
+  ];
   function _populateNewMenu() {
     var dd = document.getElementById('tb-new-dropdown');
     if (!dd) return;
-    var getNT = (window.FB && FB.util && FB.util.newTargets) ? FB.util.newTargets : function () { return []; };
-    var items = getNT();
-    if (!items.length) {
-      // Catalog not loaded yet — trigger fetch and retry shortly
-      dd.innerHTML = '<div class="tb-new-empty">Loading…</div>';
-      if (window.FB && FB.palette && FB.palette.preloadCatalog) FB.palette.preloadCatalog();
-      setTimeout(_populateNewMenu, 300);
-      return;
-    }
     var html = '';
-    items.forEach(function (item) {
-      var route = item.route || '';
-      var label = item.label || item.id || '';
-      html += '<div class="tb-new-item" data-route="' + esc(route) + '">' + esc(label) + '</div>';
+    NEW_MENU_ITEMS.forEach(function (item, i) {
+      if (item.disabled) {
+        html += '<div class="tb-new-item tb-new-item-disabled" title="Coming soon">' + esc(item.label) + '</div>';
+      } else {
+        html += '<div class="tb-new-item" data-i="' + i + '">' + esc(item.label) + '</div>';
+      }
     });
     dd.innerHTML = html;
-    dd.querySelectorAll('.tb-new-item').forEach(function (el) {
+    dd.querySelectorAll('.tb-new-item[data-i]').forEach(function (el) {
       el.onclick = function () {
-        var match = items.filter(function (i) { return i.route === el.dataset.route; });
-        if (match.length && match[0].exec) match[0].exec();
+        var item = NEW_MENU_ITEMS[Number(el.dataset.i)];
+        if (item && item.route && window.fbNavigate) window.fbNavigate('/' + _company() + item.route);
         dd.hidden = true;
       };
     });
@@ -2554,8 +2618,6 @@
   function _wireNewMenu() {
     var newBtn = document.getElementById('tb-new-btn');
     if (!newBtn) return;
-    // Preload the action catalog so newTargets() returns items on first click
-    if (window.FB && FB.palette && FB.palette.preloadCatalog) FB.palette.preloadCatalog();
     newBtn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();

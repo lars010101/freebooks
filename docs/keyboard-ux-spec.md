@@ -546,3 +546,26 @@ property on the iframe document.
   originally listed here was removed 2026-09-01 along with `:` itself.)
 - Vimium-style `f` hint overlay as a universal mouse-parity fallback —
   likely unnecessary once K1–K4 land; revisit after K5 measurement.
+
+## 10. Global Period Selector keyboard contract (added 2026-09-03)
+
+`p`/`P`, retired from Bills/bill-edit and bank-import (§9's K4 entry and
+`bill-post-payment-consolidation-spec.md`), were confirmed fully unbound
+app-wide before this addition. `p` now opens the Global Period Selector
+popover (`global-period-selector-chrome-spec.md` §3); full detail — the
+p/n quickset semantics, the calendar-unit rules for a Custom range, and why
+an "all-time" quickset was rejected — lives there in that spec's §8, not
+duplicated here. Summary table, mirroring §3's company-switcher contract:
+
+| Key | Action |
+|---|---|
+| `p` (popover closed) | Open the popover |
+| `j` / `↓` | Highlight next row (sticky at bottom) |
+| `k` / `↑` | Highlight previous row (sticky at top) |
+| `Enter` | Apply the highlighted row and close (Custom: commit typed dates and close) |
+| `p` (popover open) | Quickset previous period/range, apply, close |
+| `n` (popover open) | Quickset next period/range, apply, close |
+| `Esc` | Close, reverting to the pre-open snapshot |
+
+`n` is not a global binding — it does nothing while the popover is closed.
+`P` (capital) is deliberately left unbound by this addition.

@@ -106,7 +106,13 @@ async function getPublicationDays(provider, baseCurrency, startDate, endDate, ap
 async function getPublicationDaysWithRows(provider, baseCurrency, startDate, endDate, apiKey) {
   // Prefer fetchRange (spec §2)
   if (typeof provider.fetchRange === 'function') {
-    const rows = await provider.fetchRange(baseCurrency, startDate, endDate, apiKey);
+    const allRows = await provider.fetchRange(baseCurrency, startDate, endDate, apiKey);
+    // Some providers (e.g. frankfurter.app/ECB) snap a range's start bound
+    // back to the prior trading day when startDate itself isn't one, and
+    // include that earlier date's row in the response. That date belongs to
+    // the previous period, not this one — keep only rows inside the
+    // requested range so it isn't misattributed as this period's missing day.
+    const rows = allRows.filter(r => r.date >= startDate && r.date <= endDate);
     // The dates the provider actually returned ARE the publication days
     const days = [...new Set(rows.map(r => r.date))].sort();
     return { days, rows };

@@ -10,7 +10,7 @@
  * the option to add more of the same vendor+currency's open bills before
  * submitting).
  *
- * No new backend surface: bill.payment.record already branches on whether
+ * No new backend surface: payment.record already branches on whether
  * `allocations` is present (bills.js handleBills) — this page is a pure UI
  * consolidation onto that existing, unmodified contract.
  */
@@ -41,15 +41,18 @@ ${commonStyle()}
   .pn-header label { display:flex; flex-direction:column; gap:3px; font-weight:600; font-size:9pt; text-transform:uppercase; color:#555; }
   .pn-header input { padding:4px 6px; border:1px solid #ccc; border-radius:4px; font-size:10pt; height:32px; box-sizing:border-box; }
   .pn-bills { border:1px solid #e8e8e8; border-radius:4px; margin-bottom:12px; }
-  .pn-bill-row { display:grid; grid-template-columns: 28px 1fr 90px 110px; gap:8px; align-items:center; padding:6px 10px; border-bottom:1px solid #f0f0f0; }
+  .pn-bill-row, .pn-bill-head { display:grid; grid-template-columns: 28px 90px 1fr 90px 60px 110px; gap:8px; align-items:center; padding:6px 10px; border-bottom:1px solid #f0f0f0; }
+  .pn-bill-head { font-weight:600; font-size:8pt; text-transform:uppercase; color:#888; letter-spacing:.03em; background:#fafafa; border-radius:4px 4px 0 0; }
   .pn-bill-row:last-child { border-bottom:none; }
   .pn-bill-row.pn-off { opacity:0.45; }
+  .pn-bill-row.pn-currency-locked { opacity:0.3; }
   .pn-bill-row input[type="checkbox"] { width:16px; height:16px; }
   .pn-bill-row input[type="number"] { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; text-align:right; box-sizing:border-box; }
   .pn-outstanding { color:#888; font-variant-numeric:tabular-nums; text-align:right; }
+  .pn-bill-ccy { display:inline-block; padding:1px 7px; border-radius:10px; background:#f0f0f0; color:#666; font-size:8pt; font-weight:600; }
   .pn-total-row { display:flex; gap:12px; align-items:center; margin-bottom:16px; }
   .pn-total-row input { width:110px; padding:4px 6px; border:1px solid #ccc; border-radius:4px; text-align:right; }
-  .pn-balance.ok { color:#2a8a2a; } .pn-balance.warn { color:#b26a00; }
+  .pn-total-row input[readonly] { background:#f5f5f5; color:#444; border-color:#e0e0e0; }
   .pn-msg { min-height:1em; font-size:10pt; }
   .pn-msg.err { color:#cc2222; } .pn-msg.ok { color:#2a8a2a; }
   input.req { border-color:#cc2222 !important; }
@@ -65,16 +68,33 @@ ${commonStyle()}
     <label>Bank/cash account <input id="pn-acct" autocomplete="off" placeholder="e.g. 1020"></label>
     <label>Reference <input id="pn-ref" autocomplete="off" placeholder="optional"></label>
   </div>
-  <div class="pn-header" id="pn-fx-row" style="display:none">
-    <label>FX rate <input id="pn-fx" type="number" step="0.0001" min="0" placeholder="e.g. 1.35"></label>
-  </div>
 
+  <!-- All of a partner's open bills, any currency — each row prints its own
+       currency (multi-currency companies only). No currency to pick up
+       front: the selection itself decides it (checking a bill of a given
+       currency locks the rest to that currency, mirroring the existing
+       backend guard against a mixed-currency multi-bill payment).
+       Columns: Due date · Reference · Amount owed · Currency · Pay (the one
+       editable cell — everything else here is the bill's own data, not
+       something to enter). Total below is a pure computed sum of Pay, never
+       a second place to type an amount. -->
+  <div class="pn-bill-head">
+    <span></span><span>Due</span><span>Reference</span><span style="text-align:right">Amount</span><span>Ccy</span><span style="text-align:right">Pay</span>
+  </div>
   <div class="pn-bills" id="pn-bills"><div style="padding:12px;color:#888">Pick a partner to see open bills.</div></div>
 
   <div class="pn-total-row">
-    <span>Total <input id="pn-total" type="number" step="0.01" min="0"></span>
-    <span id="pn-ccy" style="color:#666"></span>
-    <span class="pn-balance" id="pn-balance"></span>
+    <span>Total <input id="pn-total" type="number" step="0.01" readonly tabindex="-1"></span>
+    <span id="pn-total-ccy" style="color:#666"></span>
+  </div>
+
+  <!-- FX rate is the LAST input step, after the total is known — not a
+       currency-selection artifact. Appears only once the selected bills'
+       currency differs from home, and shows the translated home-currency
+       equivalent live as either the total or the rate changes. -->
+  <div class="pn-header" id="pn-fx-row" style="display:none">
+    <label>FX rate <input id="pn-fx" type="number" step="0.0001" min="0" placeholder="e.g. 1.35"></label>
+    <span id="pn-home-equiv" style="color:#666;align-self:center"></span>
   </div>
 
   <div style="display:flex;gap:12px;align-items:center">
@@ -91,7 +111,7 @@ const FX_ON = ${fxOn ? 'true' : 'false'};
 const BASE_CCY = ${JSON.stringify(baseCcy)};
 const presetBillId = ${JSON.stringify(billId)};
 
-const S = { partners: [], qualifying: [], currency: BASE_CCY, saving: false };
+const S = { partners: [], openForPartner: [], currency: BASE_CCY, saving: false, loadedPartner: null, lastFxCurrency: null };
 
 function msg(text, cls) {
   const el = document.getElementById('pn-msg');
@@ -128,54 +148,106 @@ const savedAcct = localStorage.getItem('fb.payAccount.' + COMPANY);
 if (savedAcct) document.getElementById('pn-acct').value = savedAcct;
 
 // ── Partner picker (skipped straight past when a billId pre-scopes the page) ──
+// Bills fully support a free-text partner_name with no partners-table row at
+// all (partner_id null — tested, deliberate: "allows bill.create with
+// partner_id=null"). So a vendor that was only ever typed on a bill, never
+// set up as a real Partner record, has open bills but no dropdown suggestion
+// unless we also source suggestions from bills themselves — hence fetching
+// the full bill list up front (once, like accounts/partners already are)
+// instead of lazily inside loadQualifying(): it now doubles as both the
+// free-text autocomplete source and loadQualifying's own data, with no
+// per-pick round-trip.
 apiAction('partner.list', { partner_type: 'vendor' }).then(d => { S.partners = d || []; });
+let allBills = [];
+apiAction('bill.list', { threshold: 100000 }).then(result => {
+  // bill.list's own handler shape ({data, total}, or {data:[], total,
+  // tooMany:true} over threshold) — apiAction only unwraps the outer
+  // {ok, data} envelope, not this inner one too.
+  allBills = (result && result.data) || [];
+});
 FB.dropdown.attach(document.getElementById('pn-partner'), {
   minWidth: 260,
   source: q => {
     q = (q || '').toLowerCase();
-    return S.partners.filter(v => (v.name || '').toLowerCase().includes(q))
-      .map(v => ({ primary: v.name, secondary: v.default_currency || '', data: v }));
+    const seen = {};
+    const out = [];
+    S.partners.forEach(v => {
+      const key = (v.name || '').toLowerCase();
+      if (q && !key.includes(q)) return;
+      seen[key] = true;
+      out.push({ primary: v.name, secondary: v.default_currency || '', data: v });
+    });
+    // Free-text names (bills with no matching partners row) — deduped
+    // against real partners above, and against each other (one suggestion
+    // per distinct name, however many bills carry it).
+    allBills.forEach(b => {
+      const name = b.partner_name;
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (seen[key]) return;
+      if (q && !key.includes(q)) return;
+      seen[key] = true;
+      out.push({ primary: name, secondary: 'free-text', data: null });
+    });
+    return out;
   },
-  onPick: (it, inp) => { inp.value = it.primary; loadQualifying(it.primary, it.data.default_currency || BASE_CCY); },
+  onPick: (it, inp) => { inp.value = it.primary; loadQualifying(it.primary); },
+});
+document.getElementById('pn-partner').addEventListener('blur', () => {
+  // 220ms: FB.dropdown's own blur-close runs a 150ms setTimeout first — if
+  // this blur was actually a click on a suggestion, onPick (and its
+  // loadQualifying call, which sets S.loadedPartner) has already run by then.
+  setTimeout(() => {
+    const typed = document.getElementById('pn-partner').value.trim();
+    if (!typed || typed === S.loadedPartner) return;
+    loadQualifying(typed);
+  }, 220);
 });
 
-// ── Load this partner's open (posted/partial, outstanding>0) bills, same
-// currency — mirrors payables-bills.js's retired openMultiPayPanel query,
-// now a server round-trip instead of a DOM scan (this page has no bill list
-// of its own to scan). preselectId (if given) starts checked; the rest
-// start unchecked — the operator opts more bills into the same payment. ──
-function loadQualifying(partnerName, currency, preselectId) {
+// ── Load this partner's open (posted/partial, outstanding>0) bills —
+// mirrors payables-bills.js's retired openMultiPayPanel query, now a filter
+// over the up-front bill fetch instead of a DOM scan or a per-pick round
+// trip. preselectId (if given) starts checked; the rest start unchecked —
+// the operator opts more bills into the same payment.
+//
+// All open bills show at once, any currency — nothing to pick up front.
+// One payment is still one bank transaction in one currency (a real
+// constraint — matches the existing backend guard rejecting a mixed-
+// currency multi-bill payment), but that only matters once the operator
+// actually starts checking boxes; see onSelectionChanged() below, which
+// locks further selection to whichever currency was checked first instead
+// of asking the question before there's anything to answer. ──
+function loadQualifying(partnerName, preselectId) {
   document.getElementById('pn-partner').value = partnerName;
-  S.currency = currency || BASE_CCY;
-  document.getElementById('pn-ccy').textContent = S.currency;
-  document.getElementById('pn-fx-row').style.display = (FX_ON && S.currency !== BASE_CCY) ? '' : 'none';
-  if (FX_ON && S.currency !== BASE_CCY) {
-    apiAction('fx.rates.get', { fromCurrency: S.currency, toCurrency: BASE_CCY, date: document.getElementById('pn-date').value })
-      .then(d => { const el = document.getElementById('pn-fx'); if (d && d.rate != null && !el.value) el.value = d.rate; })
-      .catch(() => {});
-  }
-  apiAction('bill.list', { threshold: 100000 }).then(rows => {
-    const pn = (partnerName || '').toLowerCase();
-    S.qualifying = (rows || []).filter(b =>
-      (b.partner_name || '').toLowerCase() === pn &&
-      (b.currency || BASE_CCY) === S.currency &&
-      (b.status === 'posted' || b.status === 'partial') &&
-      (Number(b.amount) || 0) - (Number(b.amount_paid) || 0) > 0
-    );
-    renderBills(preselectId);
-  }).catch(e => msg('Could not load bills: ' + e.message, 'err'));
+  S.loadedPartner = partnerName;
+  const pn = (partnerName || '').toLowerCase();
+  S.openForPartner = allBills.filter(b =>
+    (b.partner_name || '').toLowerCase() === pn &&
+    (b.status === 'posted' || b.status === 'partial') &&
+    (Number(b.amount) || 0) - (Number(b.amount_paid) || 0) > 0
+  );
+  S.lastFxCurrency = null; // forces a fresh fx.rates.get once a foreign bill is checked
+  renderBills(preselectId);
 }
 
+// Columns, in order: checkbox · Due date · Reference · Amount owed ·
+// Currency · Pay (the only editable cell — everything else is the bill's
+// own data, read-only). Pay defaults to the full outstanding amount and is
+// editable down for a partial payment.
 function renderBills(preselectId) {
   const host = document.getElementById('pn-bills');
-  if (!S.qualifying.length) { host.innerHTML = '<div style="padding:12px;color:#888">No open bills for this partner/currency.</div>'; updateBalance(); return; }
-  host.innerHTML = S.qualifying.map(b => {
+  if (!S.openForPartner.length) { host.innerHTML = '<div style="padding:12px;color:#888">No open bills for this partner.</div>'; onSelectionChanged(); return; }
+  host.innerHTML = S.openForPartner.map(b => {
     const out = Math.max(0, Math.round(((Number(b.amount) || 0) - (Number(b.amount_paid) || 0)) * 100) / 100);
     const checked = preselectId ? (b.bill_id === preselectId) : false;
-    return '<div class="pn-bill-row' + (checked ? '' : ' pn-off') + '" data-bill-id="' + b.bill_id + '" data-outstanding="' + out + '">'
+    const ccy = b.currency || BASE_CCY;
+    const due = b.due_date ? String(b.due_date).slice(0, 10) : '—';
+    return '<div class="pn-bill-row' + (checked ? '' : ' pn-off') + '" data-bill-id="' + b.bill_id + '" data-currency="' + FB.util.escAttr(ccy) + '" data-outstanding="' + out + '">'
       + '<input type="checkbox" class="pn-check"' + (checked ? ' checked' : '') + '>'
-      + '<span>' + FB.util.esc((b.vendor_ref || '') + ' · ' + String(b.date || '').slice(0, 10)) + '</span>'
+      + '<span>' + FB.util.esc(due) + '</span>'
+      + '<span>' + FB.util.esc(b.vendor_ref || '—') + '</span>'
       + '<span class="pn-outstanding">' + out.toFixed(2) + '</span>'
+      + (FX_ON ? '<span class="pn-bill-ccy">' + FB.util.esc(ccy) + '</span>' : '<span></span>')
       + '<input type="number" class="pn-alloc" step="0.01" min="0" value="' + (checked ? out.toFixed(2) : '') + '"' + (checked ? '' : ' disabled') + '>'
       + '</div>';
   }).join('');
@@ -186,46 +258,69 @@ function renderBills(preselectId) {
       row.classList.toggle('pn-off', !cb.checked);
       alloc.disabled = !cb.checked;
       if (cb.checked && !alloc.value) alloc.value = row.dataset.outstanding;
-      distributeFromTotal();
-      updateBalance();
+      onSelectionChanged();
     });
-    alloc.addEventListener('input', updateBalance);
+    alloc.addEventListener('input', () => { updateTotal(); updateHomeEquiv(); });
   });
-  const sum = S.qualifying.reduce((s, b) => {
-    const row = host.querySelector('[data-bill-id="' + b.bill_id + '"]');
-    return s + (row && row.querySelector('.pn-check').checked ? Number(row.dataset.outstanding) : 0);
-  }, 0);
-  document.getElementById('pn-total').value = sum.toFixed(2);
-  updateBalance();
+  onSelectionChanged();
+}
+
+// Selected bills decide the payment's currency — not an upfront picker.
+// Locks other-currency checkboxes once any box is checked (client-side
+// mirror of the backend's own mixed-currency guard, before a doomed submit
+// rather than after), shows the FX row only once that currency differs
+// from home, and keeps the total's currency tag + home-equivalent readout
+// current. Runs on every check/uncheck.
+function onSelectionChanged() {
+  const rows = selectedRows();
+  const ccy = rows.length ? rows[0].dataset.currency : null;
+  S.currency = ccy || BASE_CCY;
+
+  document.querySelectorAll('.pn-bill-row').forEach(row => {
+    const isOther = !!ccy && row.dataset.currency !== ccy;
+    const cb = row.querySelector('.pn-check');
+    if (!cb.checked) cb.disabled = isOther;
+    row.classList.toggle('pn-currency-locked', isOther && !cb.checked);
+  });
+
+  document.getElementById('pn-total-ccy').textContent = (FX_ON && ccy) ? ccy : '';
+
+  const showFx = FX_ON && !!ccy && ccy !== BASE_CCY;
+  document.getElementById('pn-fx-row').style.display = showFx ? '' : 'none';
+  if (showFx && ccy !== S.lastFxCurrency) {
+    S.lastFxCurrency = ccy;
+    apiAction('fx.rates.get', { fromCurrency: ccy, toCurrency: BASE_CCY, date: document.getElementById('pn-date').value })
+      .then(d => { const el = document.getElementById('pn-fx'); if (d && d.rate != null) el.value = d.rate; updateHomeEquiv(); })
+      .catch(() => {});
+  }
+  updateTotal();
+  updateHomeEquiv();
+}
+
+// Total × FX rate = the translated home-currency amount — the whole reason
+// a rate is asked for, shown as its direct consequence instead of left for
+// the operator to work out by hand.
+function updateHomeEquiv() {
+  const el = document.getElementById('pn-home-equiv');
+  if (document.getElementById('pn-fx-row').style.display === 'none') { el.textContent = ''; return; }
+  const total = parseFloat(document.getElementById('pn-total').value) || 0;
+  const rate = parseFloat(document.getElementById('pn-fx').value) || 0;
+  el.textContent = rate > 0 ? ('≈ ' + (total * rate).toFixed(2) + ' ' + BASE_CCY) : '';
 }
 
 function selectedRows() {
   return Array.from(document.querySelectorAll('.pn-bill-row')).filter(r => r.querySelector('.pn-check').checked);
 }
-function distributeFromTotal() {
-  const rows = selectedRows();
-  if (!rows.length) return;
-  const total = Math.round((parseFloat(document.getElementById('pn-total').value) || 0) * 100) / 100;
-  const sumOut = rows.reduce((s, r) => s + Number(r.dataset.outstanding), 0);
-  if (sumOut <= 0) return;
-  let distributed = 0, largest = rows[0];
-  rows.forEach(r => { if (Number(r.dataset.outstanding) > Number(largest.dataset.outstanding)) largest = r; });
-  rows.forEach(r => {
-    if (r === largest) return;
-    const a = Math.round(total * (Number(r.dataset.outstanding) / sumOut) * 100) / 100;
-    distributed += a;
-    r.querySelector('.pn-alloc').value = a.toFixed(2);
-  });
-  largest.querySelector('.pn-alloc').value = Math.round((total - distributed) * 100) / 100;
+// Total is a pure computed sum of the per-line Pay amounts — never a second
+// place to type a number. There is no reverse flow (edit Total, watch it
+// redistribute into lines): the operator enters amounts on each line, Total
+// just reflects that. readonly on the input (not disabled) keeps .value
+// readable for updateHomeEquiv()/submit() without making it typable.
+function updateTotal() {
+  const total = selectedRows().reduce((s, r) => s + (parseFloat(r.querySelector('.pn-alloc').value) || 0), 0);
+  document.getElementById('pn-total').value = total.toFixed(2);
 }
-function updateBalance() {
-  const total = Math.round((parseFloat(document.getElementById('pn-total').value) || 0) * 100) / 100;
-  const allocated = selectedRows().reduce((s, r) => s + (parseFloat(r.querySelector('.pn-alloc').value) || 0), 0);
-  const bal = document.getElementById('pn-balance');
-  if (Math.round(allocated * 100) / 100 === total) { bal.textContent = 'Allocated: ' + allocated.toFixed(2) + ' / ' + total.toFixed(2) + ' \\u2713'; bal.className = 'pn-balance ok'; }
-  else { bal.textContent = 'Allocated: ' + allocated.toFixed(2) + ' / ' + total.toFixed(2); bal.className = 'pn-balance warn'; }
-}
-document.getElementById('pn-total').addEventListener('input', () => { distributeFromTotal(); updateBalance(); });
+document.getElementById('pn-fx').addEventListener('input', updateHomeEquiv);
 
 // ── Submit ──────────────────────────────────────────────────────────────────
 function submit() {
@@ -242,15 +337,12 @@ function submit() {
   if (!rows.length) { msg('Select at least one bill', 'err'); return; }
   const allocations = rows.map(r => ({ billId: r.dataset.billId, amount: Math.round((parseFloat(r.querySelector('.pn-alloc').value) || 0) * 100) / 100 }));
   if (allocations.some(a => !(a.amount > 0))) { msg('Each allocation must be greater than zero', 'err'); return; }
-  const total = Math.round((parseFloat(document.getElementById('pn-total').value) || 0) * 100) / 100;
-  const sum = Math.round(allocations.reduce((s, a) => s + a.amount, 0) * 100) / 100;
-  if (sum !== total) { msg('Allocations (' + sum.toFixed(2) + ') must equal total (' + total.toFixed(2) + ')', 'err'); return; }
 
   S.saving = true;
   msg('Recording payment…', '');
   const body = allocations.length === 1
-    ? { action: 'bill.payment.record', companyId: COMPANY, billId: allocations[0].billId, date, bankAccount: acct, amount: allocations[0].amount, reference: ref || undefined, fxRate: fxRate != null ? fxRate : undefined }
-    : { action: 'bill.payment.record', companyId: COMPANY, date, bankAccount: acct, allocations, reference: ref || undefined, fxRate: fxRate != null ? fxRate : undefined };
+    ? { action: 'payment.record', companyId: COMPANY, billId: allocations[0].billId, date, bankAccount: acct, amount: allocations[0].amount, reference: ref || undefined, fxRate: fxRate != null ? fxRate : undefined }
+    : { action: 'payment.record', companyId: COMPANY, date, bankAccount: acct, allocations, reference: ref || undefined, fxRate: fxRate != null ? fxRate : undefined };
   apiAction(body.action, body).then(() => {
     localStorage.setItem('fb.payAccount.' + COMPANY, acct);
     msg('Payment recorded', 'ok');
@@ -266,7 +358,7 @@ document.addEventListener('keydown', function (e) {
 // ── Pre-scope from a bill row's y (§2) ──────────────────────────────────────
 if (presetBillId) {
   apiAction('bill.get', { billId: presetBillId }).then(bill => {
-    loadQualifying(bill.partner_name, bill.currency, presetBillId);
+    loadQualifying(bill.partner_name, presetBillId);
   }).catch(e => msg('Could not load bill: ' + e.message, 'err'));
 }
 })();

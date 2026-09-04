@@ -509,7 +509,7 @@ function review(row, verdict) {
 // confirm, no modal. The operator downloads first via v if they want a
 // copy — no app-managed quarantine/restore path.
 function deleteOrphan(row) {
-  if (!confirm('Permanently delete this file from disk?\n' + row.reference)) return;
+  if (!confirm('Permanently delete this file from disk?\\n' + row.reference)) return;
   postAction('orphan.delete', { orphanId: row.orphan_id }).then(function (res) {
     if (!res || res.ok === false || res.error) {
       FB.status.show((res && res.error && res.error.message) || 'Delete failed', true); return;

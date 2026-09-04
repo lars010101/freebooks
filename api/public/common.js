@@ -532,11 +532,11 @@
         }
         if (e.key === 'Enter') {
           // Safety net: if search mode isn't active yet but the value looks
-          // like ours (the "search: " prefix, a scope prefix, or a legacy
-          // '/'-typed shortcut — global-search-spec.md §7), force a global
-          // search via submit() (bypasses debounce, auto-selects first
-          // result). Normally onKeydown already handled Enter — this covers
-          // the brief window before activation.
+          // like ours (an explicit scope prefix, or a legacy '/'-typed
+          // shortcut — global-search-spec.md §7), force a global search via
+          // submit() (bypasses debounce, auto-selects first result).
+          // Normally onKeydown already handled Enter — this covers the
+          // brief window before activation.
           if (window.FB && FB.search && FB.search.looksLikeSearch(gs.value)) {
             e.preventDefault();
             FB.search.submit();

@@ -31,6 +31,8 @@
  *   o = open bill (Class B bill-due items — navigates to Payables)
  *   v = view/download (Class B orphan_file items, calendar-reminders-
  *       documents-spec.md §5.5 — orphaned_files is the source of truth)
+ *   y/x = approve/reject (Class B partner_proposal items, partner-proposal-
+ *       spec §5 — no note field; partner_proposals has no review_note column)
  * Enter unfolds lines read-only (framework openFocused); Esc never writes.
  */
 
@@ -158,7 +160,8 @@ var GROUP_LABELS = {
   journal_proposal: 'Journal proposals',
   bill_due: 'Bills due for payment',
   orphan_file: 'Orphaned files',
-  reconciliation_alert: 'Reconciliation alerts'
+  reconciliation_alert: 'Reconciliation alerts',
+  partner_proposal: 'Partner proposals'
 };
 
 // Per-row type glyph (§10.4). Muted emoji prefix in the Date column so a
@@ -167,7 +170,8 @@ var TYPE_GLYPHS = {
   journal_proposal: '\\uD83D\\uDCD2', // 📒
   bill_due: '\\uD83D\\uDCBC',         // 📋
   orphan_file: '\\uD83D\\uDCC1',      // 📁
-  reconciliation_alert: '\\uD83C\\uDFE6' // 🏦
+  reconciliation_alert: '\\uD83C\\uDFE6', // 🏦
+  partner_proposal: '\\uD83E\\uDD1D' // 🤝
 };
 
 function postAction(action, body, idemKey) {
@@ -438,6 +442,22 @@ function mapItem(it) {
       created_by: it.created_by || '', request_id: it.request_id || '',
     };
   }
+  // Class B — partner proposals (partner-proposal-spec §5): agent-proposed
+  // vendors/customers awaiting approve/reject. No lines, no enrichment — the
+  // item carries everything inline from inbox.list's queryPartnerProposals.
+  if (it.type === 'partner_proposal') {
+    return {
+      _key: 'partner:' + it.payload_ref, _kind: 'partner',
+      proposal_id: it.payload_ref,
+      type: it.type,
+      date: it.date, reference: it.reference || '',
+      description: it.summary || it.description || '',
+      amount: null, currency: '', source: it.source || 'agent',
+      counterparty: it.counterparty || '',
+      status: it.status, // 'proposed'
+      created_by: it.created_by || '', request_id: '',
+    };
+  }
   // Class A — journal_proposal (enriched with lines).
   var lines = Array.isArray(it.lines) ? it.lines : [];
   var dr = 0, cr = 0;
@@ -544,6 +564,46 @@ function review(row, verdict) {
   });
 }
 
+// ── Approve / reject a partner proposal (row verbs — partner-proposal-spec
+// §5). Simpler than the journal-batch modal: partner_proposals has no
+// review_note column (§3.2 schema — only reviewed_by/reviewed_at), so there
+// is no note field here, unlike the journal review() modal above. ─────────
+function reviewPartner(row, verdict) {
+  var approve = verdict === 'approve';
+  var idemKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('rev-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+  var inFlight = false;
+  FB.modal.open({
+    title: (approve ? 'Approve' : 'Reject') + ' partner proposal',
+    body: '<div style="font-size:10pt;color:#333;line-height:1.7">'
+      + '<div><b>' + esc(row.counterparty || row.reference || '') + '</b></div>'
+      + (row.description ? '<div>' + esc(row.description) + '</div>' : '')
+      + '<div style="margin-top:6px;color:#777;font-size:9pt">Proposed by ' + esc(row.created_by || '?') + '</div>'
+      + '</div>',
+    buttons: [
+      { label: approve ? 'Approve' : 'Reject', primary: approve, danger: !approve,
+        requiresConfirm: true, key: 'Enter', hint: approve ? 'approve' : 'reject',
+        onClick: function (mapi) {
+          if (inFlight) return; inFlight = true;
+          postAction('partner.proposal.' + verdict, { proposalId: row.proposal_id }, idemKey)
+            .then(function (res) {
+              if (!res || res.ok === false || res.error) {
+                inFlight = false;
+                mapi.error((res && res.error && res.error.message) || 'Request failed'); return;
+              }
+              mapi.close();
+              FB.status.show(approve ? 'Approved — added to partners' : 'Proposal rejected', false);
+              window.dispatchEvent(new Event('fb:queue-changed'));
+              _cache = null;          // invalidate → re-fetch on next load
+              list.load();
+            })
+            .catch(function (e) { inFlight = false; mapi.error(e.message); });
+        } },
+      { label: 'Cancel', onClick: function (mapi) { mapi.close(); } }
+    ],
+    onCancel: function () {} // Esc/backdrop — never writes
+  });
+}
+
 // ── Delete orphaned file (row verb — Class B, calendar-reminders-documents-
 // spec.md §5.5) ────────────────────────────────────────────────────────
 // x is the app's regular delete verb (matches bill-detail.js/payables-
@@ -562,13 +622,14 @@ function deleteOrphan(row) {
 }
 
 function cycleStatusFilter() {
-  // Five-state cycle: proposed → rejected → bills → orphans → reconciliation
-  // → proposed. Class B ('bills', 'orphans', 'reconciliation') are filter
-  // sections, not the default (§10.2).
+  // Six-state cycle: proposed → rejected → bills → orphans → reconciliation
+  // → partners → proposed. Class B ('bills', 'orphans', 'reconciliation',
+  // 'partners') are filter sections, not the default (§10.2).
   statusState = statusState === 'proposed' ? 'rejected'
     : statusState === 'rejected' ? 'bills'
     : statusState === 'bills' ? 'orphans'
     : statusState === 'orphans' ? 'reconciliation'
+    : statusState === 'reconciliation' ? 'partners'
     : 'proposed';
   _cache = null;             // status changed → re-fetch
   FB.status.show('Queue filter: ' + statusState, false);
@@ -663,6 +724,11 @@ var list = FB.list.create({
       // uncleared entries are the source of truth.
       kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: row.description || '' });
     }
+    if (row._kind === 'partner') {
+      // Class B partner proposal: a single meta child row — proposer only.
+      // No lines, no underlag — the partner_proposals row is the source of truth.
+      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: 'Proposed by ' + (row.created_by || '?') });
+    }
     (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
     return kids;
   },
@@ -742,10 +808,21 @@ var list = FB.list.create({
     { key: 'x', label: 'delete',
       when: function (row) { return row._kind === 'orphan'; },
       affordance: function () { return '<a class="chip chip-cancel" title="delete (x)" data-act="verb:x">&#10005;</a>'; },
-      run: function (api, row) { deleteOrphan(row); } }
+      run: function (api, row) { deleteOrphan(row); } },
+    // Class B partner proposals (partner-proposal-spec §5): y/x mirror the
+    // journal-batch review verbs but call partner.proposal.approve/reject
+    // via reviewPartner()'s own (note-free) modal.
+    { key: 'y', label: 'approve',
+      when: function (row) { return row._kind === 'partner' && row.status === 'proposed'; },
+      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" data-act="verb:y">&#10003;</a>'; },
+      run: function (api, row) { reviewPartner(row, 'approve'); } },
+    { key: 'x', label: 'reject',
+      when: function (row) { return row._kind === 'partner' && row.status === 'proposed'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">&#10005;</a>'; },
+      run: function (api, row) { reviewPartner(row, 'reject'); } }
   ],
   actions: [
-    { key: 'f', label: 'filter: proposed↔rejected↔bills↔orphans↔reconciliation', handler: function () { cycleStatusFilter(); } }
+    { key: 'f', label: 'filter: proposed↔rejected↔bills↔orphans↔reconciliation↔partners', handler: function () { cycleStatusFilter(); } }
   ],
   onLoaded: function (saved) {
     var note = document.getElementById('queue-note');
@@ -769,16 +846,23 @@ var list = FB.list.create({
       var orphans = saved.filter(function (r) { return r._kind === 'orphan'; });
       note.textContent = orphans.length + ' orphaned file' + (orphans.length === 1 ? '' : 's')
         + ' — v view · x delete · f cycles filters';
-    } else {
+    } else if (statusState === 'reconciliation') {
       // Class B reconciliation-alerts view (#138)
       var recons = saved.filter(function (r) { return r._kind === 'reconciliation'; });
       note.textContent = recons.length === 0
-        ? 'No stale reconciliation — f returns to the queue'
+        ? 'No stale reconciliation — f cycles filters'
         : recons.length + ' cash account' + (recons.length === 1 ? '' : 's') + ' with entries uncleared over 30 days'
-          + ' — o opens Reconciliation · f returns to the queue';
+          + ' — o opens Reconciliation · f cycles filters';
+    } else {
+      // Class B partner proposals view (partner-proposal-spec §5)
+      var partners = saved.filter(function (r) { return r._kind === 'partner'; });
+      note.textContent = partners.length === 0
+        ? 'No partner proposals awaiting review — f returns to the queue'
+        : partners.length + ' partner proposal' + (partners.length === 1 ? '' : 's') + ' awaiting review'
+          + ' — y approve · x reject · f returns to the queue';
     }
   },
-  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, o open bill/reconciliation, v/x view/delete an orphaned file, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → bills → orphans → reconciliation.'
+  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, o open bill/reconciliation, v/x view/delete an orphaned file, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → bills → orphans → reconciliation → partners.'
 });
 
 list.load();

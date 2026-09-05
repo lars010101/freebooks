@@ -434,13 +434,18 @@ async function approvePartnerProposal(ctx) {
     is_active: true,
   }]);
 
-  // Update proposal status
+  // Update proposal status. Same 'anonymous' fallback doctrine as journal.js's
+  // journal.approve (D3) — the browser's review UI never sends userEmail
+  // (install-level trust, no login), and binding a raw JS `undefined` to
+  // @duckdb/node-api throws "Cannot create values of type ANY" (unlike
+  // bulkInsert, exec's bindParams does not coalesce undefined to null).
+  const reviewer = userEmail || 'anonymous';
   const now = new Date().toISOString();
   await exec(
     `UPDATE partner_proposals
         SET status = 'approved', reviewed_by = @reviewed_by, reviewed_at = @reviewed_at
       WHERE company_id = @companyId AND proposal_id = @proposalId`,
-    { reviewed_by: userEmail, reviewed_at: now, companyId, proposalId }
+    { reviewed_by: reviewer, reviewed_at: now, companyId, proposalId }
   );
 
   await emitEvent(ctx, 'partner.proposal.approved', 'partner_proposal', proposalId,
@@ -536,12 +541,16 @@ async function rejectPartnerProposal(ctx) {
     throw Object.assign(new Error(`Cannot reject a proposal in status '${prop.status}' (only 'proposed' can be rejected)`), { code: 'INVALID_STATUS' });
   }
 
+  // Same 'anonymous' fallback as approvePartnerProposal above — userEmail is
+  // routinely undefined from the browser's review UI, and exec's bindParams
+  // does not coalesce undefined to null the way bulkInsert does.
+  const reviewer = userEmail || 'anonymous';
   const now = new Date().toISOString();
   await exec(
     `UPDATE partner_proposals
         SET status = 'rejected', reviewed_by = @reviewed_by, reviewed_at = @reviewed_at
       WHERE company_id = @companyId AND proposal_id = @proposalId`,
-    { reviewed_by: userEmail, reviewed_at: now, companyId, proposalId }
+    { reviewed_by: reviewer, reviewed_at: now, companyId, proposalId }
   );
 
   await emitEvent(ctx, 'partner.proposal.rejected', 'partner_proposal', proposalId, {});

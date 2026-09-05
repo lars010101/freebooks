@@ -59,15 +59,6 @@ async function listInbox(ctx) {
     return { items: await queryMappingSuggestions(companyId, limit) };
   }
 
-  // Class A — bill drafts (§10.2). status='drafts' is a filter view of
-  // agent-created bill drafts (B1's bill.create agent→draft delegation),
-  // awaiting human post/discard. The bills table IS the source of truth
-  // (R8); verbs are bill.draft.post (y) and bill.draft.delete (x) called
-  // against payload_ref (= bill_id).
-  if (status === 'drafts') {
-    return { items: await queryBillDrafts(companyId, limit) };
-  }
-
   // Class B — input rejections (bank-matching-spec §11.2). status='rejections'
   // is a filter view of statement lines with missing critical data flagged by
   // the agent. The input_rejections table IS the source of truth (R8); verbs
@@ -151,11 +142,16 @@ async function listInbox(ctx) {
     };
   });
 
-  // P2-1: append period_unclosed items to the default (proposed) view (Class B).
-  // Not appended to 'rejected' or other filter views.
+  // P2-1 + Option C (agent-readiness-spec.md §10.2): append period_unclosed
+  // and bill_draft items to the default (proposed) view. bill_draft is Class
+  // A — its journal entries post via bill.post, not journal.approve, but it
+  // converges on the same y/x/Enter-unfold queue idiom as journal_proposal,
+  // so it belongs in the default view, not a separate filter state. Not
+  // appended to 'rejected' or other filter views.
   if (status === 'proposed') {
     const unclosedItems = await queryPeriodUnclosed(companyId, limit);
-    return { items: items.concat(unclosedItems) };
+    const draftItems = await queryBillDrafts(companyId, limit);
+    return { items: items.concat(unclosedItems, draftItems) };
   }
 
   return { items: items };

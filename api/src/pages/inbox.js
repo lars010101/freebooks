@@ -25,14 +25,29 @@
  *
  * Row verbs (FB.list rowVerbs — fb-list-ux-spec §13):
  *   y = approve (confirm modal: date, line count, total debit, optional note)
+ *       on proposal rows; post (confirm modal, no note) on bill_draft rows
+ *       (Option C amendment — "approve is the post", different action
+ *       underneath: bill.draft.post, not journal.approve)
  *   x = reject on proposal rows (required note — the proposer reads it via
  *       event.list); deletes off disk on orphan rows — the app's regular
- *       delete verb, native confirm, no modal
+ *       delete verb, native confirm, no modal; discards on bill_draft rows
+ *       (bill.draft.delete, confirm modal, no note)
  *   v = view/download (Class B orphan_file items, calendar-reminders-
  *       documents-spec.md §5.5 — orphaned_files is the source of truth)
- *   y/x = approve/reject (Class B partner_proposal items, partner-proposal-
- *       spec §5 — no note field; partner_proposals has no review_note column)
+ *   y/x = approve/reject (Class B partner_proposal and mapping_suggestion
+ *       items — no note field; neither table has a review_note column)
+ *   d = discard (Class B input_rejection items, bank-matching-spec §11.2).
+ *       r (retry: correct the data + re-run the cascade) is spec'd but has
+ *       no backing action or edit UI yet — shown disabled, not omitted.
  * Enter unfolds lines read-only (framework openFocused); Esc never writes.
+ *
+ * bill_draft (Class A, Option C amendment) merges into the default
+ * 'proposed' view server-side (inbox.js), same as period_unclosed — it
+ * converges on the same y/x/Enter-unfold idiom as journal_proposal, so it
+ * gets no filter state of its own. mapping_suggestion and input_rejection
+ * are genuine Class B filter states (bank-matching-spec §10.4/§11.2) — both
+ * had complete server implementations (and, for mapping_suggestion, test
+ * coverage) that were never wired into this page's f-cycle until now.
  *
  * bill-due and reconciliation-alert items (formerly here as Class B 'bills'/
  * 'reconciliation' filter views) moved to the notifications bell
@@ -74,6 +89,9 @@ ${commonStyle()}
   .inbx-type-glyph { font-size:10pt; margin-right:4px; opacity:.6; }
   #queue-note { margin:0 0 10px; font-size:9.5pt; color:#777; }
   .chip { cursor:pointer; text-decoration:none; }
+  /* input_rejection 'r' (retry) — reserved verb slot, no backing action yet
+     (§11.2). Shown muted/not-allowed rather than omitted. */
+  .chip-disabled { opacity:.4; cursor:not-allowed; }
   /* A5 §10.4 — collapsible group header row. One per item.type (v1: only
      journal_proposal). Muted, like .jrnl-meta; the fold caret lives in the
      actions cell (mouse parity for the Enter key verb). */
@@ -162,16 +180,22 @@ var groupFold = {};
 // as their modules land (§10.7). Unknown types fall back to the raw type.
 var GROUP_LABELS = {
   journal_proposal: 'Journal proposals',
+  bill_draft: 'Bill drafts',
   orphan_file: 'Orphaned files',
-  partner_proposal: 'Partner proposals'
+  partner_proposal: 'Partner proposals',
+  mapping_suggestion: 'Mapping rule suggestions',
+  input_rejection: 'Input rejections'
 };
 
 // Per-row type glyph (§10.4). Muted emoji prefix in the Date column so a
 // row retains its type context when the group header scrolls away.
 var TYPE_GLYPHS = {
-  journal_proposal: '\\uD83D\\uDCD2', // 📒
-  orphan_file: '\\uD83D\\uDCC1',      // 📁
-  partner_proposal: '\\uD83E\\uDD1D' // 🤝
+  journal_proposal: '\\uD83D\\uDCD2',    // 📒
+  bill_draft: '\\uD83D\\uDCCB',          // 📋
+  orphan_file: '\\uD83D\\uDCC1',         // 📁
+  partner_proposal: '\\uD83E\\uDD1D',    // 🤝
+  mapping_suggestion: '\\uD83D\\uDD00',  // 🔀
+  input_rejection: '\\uD83D\\uDEAB'      // 🚫
 };
 
 function postAction(action, body, idemKey) {
@@ -256,8 +280,12 @@ function statusBadge(row) {
   var s = row.status || '';
   if (s === 'proposed') return '<span class="st-badge st-proposed">Proposed</span>';
   if (s === 'rejected') return '<span class="st-badge st-rejected" title="' + esc(row.review_note || '') + '\">Rejected</span>';
-  // Class B orphaned files (§5.5): needs attention.
+  // Class A bill drafts (Option C amendment): reuse the proposed styling —
+  // it's an awaiting-decision state, same family as journal proposals.
+  if (s === 'draft') return '<span class="st-badge st-proposed">Draft</span>';
+  // Class B orphaned files (§5.5) / open input rejections: needs attention.
   if (s === 'orphaned') return '<span class="st-badge st-overdue">Orphaned</span>';
+  if (s === 'open') return '<span class="st-badge st-overdue">Open</span>';
   return ''; // inbox is the review queue — no posted badge here
 }
 
@@ -359,9 +387,10 @@ function fetchRows() {
   return postAction('inbox.list', { status: statusState, limit: 100 })
     .then(function (res) {
       var items = (res && res.data && Array.isArray(res.data.items)) ? res.data.items : [];
-      // Enrich Class A items with parsed lines (children + modal summary).
-      // Class B items (orphans, partner proposals) skip enrichment — they
-      // carry all data inline.
+      // Enrich journal_proposal items with parsed lines (children + modal
+      // summary). Every other type — bill_draft, orphan_file,
+      // partner_proposal, mapping_suggestion, input_rejection — skips
+      // enrichment; they carry all data inline.
       return Promise.all(items.map(function (it) {
         if (it.type !== 'journal_proposal') return it;
         return postAction('journal.proposal.get', { proposalId: it.payload_ref })
@@ -439,6 +468,57 @@ function mapItem(it) {
       // issue #226: a non-blocking fuzzy-duplicate hint {name,similarity,kind}
       // found at propose time. null when no fuzzy candidate was found.
       duplicate_warning: it.duplicate_warning || null,
+    };
+  }
+  // Class A — bill drafts (Option C amendment): agent-created bill drafts
+  // awaiting human post/discard. No lines, no enrichment — the item carries
+  // everything inline from inbox.list's queryBillDrafts.
+  if (it.type === 'bill_draft') {
+    return {
+      _key: 'draft:' + it.payload_ref, _kind: 'draft',
+      bill_id: it.payload_ref,
+      type: it.type,
+      date: it.date, reference: it.reference || '',
+      description: it.description || '',
+      amount: it.amount, currency: it.currency || '',
+      counterparty: it.counterparty || '', source: it.source || 'agent',
+      status: it.status, // 'draft'
+      created_by: it.created_by || '', request_id: '',
+    };
+  }
+  // Class B — mapping-rule suggestions (bank-matching-spec §10.2): agent-
+  // proposed bank_mappings rules awaiting approve/reject. No lines, no
+  // enrichment — the item carries everything inline from
+  // inbox.list's queryMappingSuggestions.
+  if (it.type === 'mapping_suggestion') {
+    return {
+      _key: 'sugg:' + it.payload_ref, _kind: 'suggestion',
+      suggestion_id: it.payload_ref,
+      type: it.type,
+      date: it.date, reference: it.reference || '',
+      description: it.summary || it.description || '',
+      amount: null, currency: '', source: it.source || 'agent',
+      counterparty: '',
+      status: it.status, // 'proposed'
+      created_by: it.created_by || '', request_id: '',
+    };
+  }
+  // Class B — input rejections (bank-matching-spec §11.2): statement lines
+  // with missing critical data. No lines, no enrichment — the item carries
+  // everything inline from inbox.list's queryInputRejections. 'r' (retry —
+  // correct the data + re-run the cascade) has no backing action yet; only
+  // 'd' (discard) is wired (see the row-verb definitions below).
+  if (it.type === 'input_rejection') {
+    return {
+      _key: 'rej:' + it.payload_ref, _kind: 'rejection',
+      rejection_id: it.payload_ref,
+      type: it.type,
+      date: it.date, reference: it.reference || '',
+      description: it.summary || it.description || '',
+      amount: null, currency: '', source: it.source || 'agent',
+      counterparty: '',
+      status: it.status, // 'open'
+      created_by: it.created_by || '', request_id: '',
     };
   }
   // Class A — journal_proposal (enriched with lines).
@@ -604,14 +684,113 @@ function deleteOrphan(row) {
   }).catch(function (e) { FB.status.show('Delete failed: ' + (e && e.message || e), true); });
 }
 
+// ── Post / discard a bill draft (row verb — Option C amendment) ─────────
+// Class A: a bill draft's journal entries post via bill.draft.post, not
+// journal.approve — "approve is the post" doctrine, same as journal
+// proposals, just a different action underneath. No note field (mirrors
+// reviewPartner — partner_proposals/bill drafts have no review_note column).
+function reviewDraft(row, verb) {
+  var post = verb === 'post';
+  var idemKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('rev-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+  var inFlight = false;
+  FB.modal.open({
+    title: (post ? 'Post' : 'Discard') + ' bill draft',
+    body: '<div style="font-size:10pt;color:#333;line-height:1.7">'
+      + '<div><b>' + esc(row.counterparty || row.reference || '') + '</b></div>'
+      + (row.description ? '<div>' + esc(row.description) + '</div>' : '')
+      + (row.amount ? '<div>' + Number(row.amount).toFixed(2) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>' : '')
+      + '<div style="margin-top:6px;color:#777;font-size:9pt">Created by ' + esc(row.created_by || '?') + '</div>'
+      + '</div>',
+    buttons: [
+      { label: post ? 'Post' : 'Discard', primary: post, danger: !post,
+        requiresConfirm: true, key: 'Enter', hint: post ? 'post' : 'discard',
+        onClick: function (mapi) {
+          if (inFlight) return; inFlight = true;
+          postAction(post ? 'bill.draft.post' : 'bill.draft.delete', { billId: row.bill_id }, idemKey)
+            .then(function (res) {
+              if (!res || res.ok === false || res.error) {
+                inFlight = false;
+                mapi.error((res && res.error && res.error.message) || 'Request failed'); return;
+              }
+              mapi.close();
+              FB.status.show(post ? 'Posted.' : 'Draft discarded.', false);
+              window.dispatchEvent(new Event('fb:queue-changed'));
+              _cache = null; list.load();
+            })
+            .catch(function (e) { inFlight = false; mapi.error(e.message); });
+        } },
+      { label: 'Cancel', onClick: function (mapi) { mapi.close(); } }
+    ],
+    onCancel: function () {} // Esc/backdrop — never writes
+  });
+}
+
+// ── Approve / reject a mapping-rule suggestion (row verb — bank-matching-
+// spec §10.4) ─────────────────────────────────────────────────────────────
+// Lighter-weight than journal-batch review — no note field, mirrors
+// reviewPartner exactly (mapping_suggestions has no review_note column).
+function reviewSuggestion(row, verdict) {
+  var approve = verdict === 'approve';
+  var idemKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('rev-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+  var inFlight = false;
+  FB.modal.open({
+    title: (approve ? 'Approve' : 'Reject') + ' mapping suggestion',
+    body: '<div style="font-size:10pt;color:#333;line-height:1.7">'
+      + '<div>' + esc(row.description || row.reference || '') + '</div>'
+      + '<div style="margin-top:6px;color:#777;font-size:9pt">Suggested by ' + esc(row.created_by || '?') + '</div>'
+      + '</div>',
+    buttons: [
+      { label: approve ? 'Approve' : 'Reject', primary: approve, danger: !approve,
+        requiresConfirm: true, key: 'Enter', hint: approve ? 'approve' : 'reject',
+        onClick: function (mapi) {
+          if (inFlight) return; inFlight = true;
+          postAction('mapping.suggestion.' + verdict, { suggestionId: row.suggestion_id }, idemKey)
+            .then(function (res) {
+              if (!res || res.ok === false || res.error) {
+                inFlight = false;
+                mapi.error((res && res.error && res.error.message) || 'Request failed'); return;
+              }
+              mapi.close();
+              FB.status.show(approve ? 'Rule approved.' : 'Suggestion rejected.', false);
+              window.dispatchEvent(new Event('fb:queue-changed'));
+              _cache = null; list.load();
+            })
+            .catch(function (e) { inFlight = false; mapi.error(e.message); });
+        } },
+      { label: 'Cancel', onClick: function (mapi) { mapi.close(); } }
+    ],
+    onCancel: function () {}
+  });
+}
+
+// ── Discard an input rejection (row verb — bank-matching-spec §11.2) ────
+// 'd' only — 'r' (retry: correct the data + re-run the cascade) has no
+// backing action yet (no edit UI, no input_rejection.retry action). Native
+// confirm, no modal, matching deleteOrphan's pattern for a one-shot delete.
+function discardRejection(row) {
+  if (!confirm('Discard this rejection? The statement line will not be proposed.\\n' + row.description)) return;
+  postAction('input_rejection.discard', { rejectionId: row.rejection_id }).then(function (res) {
+    if (!res || res.ok === false || res.error) {
+      FB.status.show((res && res.error && res.error.message) || 'Discard failed', true); return;
+    }
+    FB.status.show('Discarded.', false);
+    _cache = null; list.load();
+  }).catch(function (e) { FB.status.show('Discard failed: ' + (e && e.message || e), true); });
+}
+
 function cycleStatusFilter() {
-  // Four-state cycle: proposed → rejected → orphans → partners → proposed.
-  // Class B ('orphans', 'partners') are filter sections, not the default
-  // (§10.2). 'bills'/'reconciliation' moved to the notifications bell —
-  // neither carried an in-place decision, only an "open elsewhere" verb.
+  // Six-state cycle: proposed → rejected → orphans → partners → suggestions
+  // → rejections → proposed. Class B ('orphans', 'partners', 'suggestions',
+  // 'rejections') are filter sections, not the default (§10.2). bill_draft
+  // is Class A and merged into the default 'proposed' view server-side, so
+  // it needs no filter state of its own. 'bills'/'reconciliation' moved to
+  // the notifications bell — neither carried an in-place decision, only an
+  // "open elsewhere" verb.
   statusState = statusState === 'proposed' ? 'rejected'
     : statusState === 'rejected' ? 'orphans'
     : statusState === 'orphans' ? 'partners'
+    : statusState === 'partners' ? 'suggestions'
+    : statusState === 'suggestions' ? 'rejections'
     : 'proposed';
   _cache = null;             // status changed → re-fetch
   FB.status.show('Queue filter: ' + statusState, false);
@@ -691,6 +870,25 @@ var list = FB.list.create({
       }
       kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: partnerMeta });
     }
+    if (row._kind === 'draft') {
+      // Class A bill draft: a single meta child row with partner + bill info.
+      // No underlag, no journal lines — the bill's own row is the source of truth.
+      var draftMeta = esc(row.counterparty || '')
+        + (row.reference ? ' · ref ' + esc(row.reference) : '')
+        + (row.currency ? ' · ' + esc(row.currency) : '')
+        + (row.created_by ? ' · created by ' + esc(row.created_by) : '');
+      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: draftMeta });
+    }
+    if (row._kind === 'suggestion') {
+      // Class B mapping-rule suggestion: a single meta child row — proposer.
+      // No lines, no underlag — mapping_suggestions is the source of truth.
+      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: 'Suggested by ' + (row.created_by || '?') });
+    }
+    if (row._kind === 'rejection') {
+      // Class B input rejection: a single meta child row — flagged by.
+      // No lines, no underlag — input_rejections is the source of truth.
+      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: 'Flagged by ' + (row.created_by || '?') });
+    }
     (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
     return kids;
   },
@@ -761,18 +959,55 @@ var list = FB.list.create({
     { key: 'x', label: 'reject',
       when: function (row) { return row._kind === 'partner' && row.status === 'proposed'; },
       affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">&#10005;</a>'; },
-      run: function (api, row) { reviewPartner(row, 'reject'); } }
+      run: function (api, row) { reviewPartner(row, 'reject'); } },
+    // Class A bill drafts (Option C amendment): y posts, x discards — same
+    // "approve is the post" doctrine as journal proposals, different action.
+    { key: 'y', label: 'post',
+      when: function (row) { return row._kind === 'draft'; },
+      affordance: function () { return '<a class="chip chip-ok" title="post (y)" data-act="verb:y">&#10003;</a>'; },
+      run: function (api, row) { reviewDraft(row, 'post'); } },
+    { key: 'x', label: 'discard',
+      when: function (row) { return row._kind === 'draft'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="discard (x)" data-act="verb:x">&#10005;</a>'; },
+      run: function (api, row) { reviewDraft(row, 'delete'); } },
+    // Class B mapping-rule suggestions (bank-matching-spec §10.4): y/x mirror
+    // the partner-proposal review verbs but call mapping.suggestion.approve/
+    // reject via reviewSuggestion()'s own (note-free) modal.
+    { key: 'y', label: 'approve',
+      when: function (row) { return row._kind === 'suggestion' && row.status === 'proposed'; },
+      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" data-act="verb:y">&#10003;</a>'; },
+      run: function (api, row) { reviewSuggestion(row, 'approve'); } },
+    { key: 'x', label: 'reject',
+      when: function (row) { return row._kind === 'suggestion' && row.status === 'proposed'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">&#10005;</a>'; },
+      run: function (api, row) { reviewSuggestion(row, 'reject'); } },
+    // Class B input rejections (bank-matching-spec §11.2): d = discard, wired
+    // to input_rejection.discard. r = retry is spec'd (correct the data,
+    // re-run the cascade) but has no backing action or edit UI yet — shown
+    // disabled rather than omitted, so the reserved slot is visible instead
+    // of silently missing.
+    { key: 'd', label: 'discard',
+      when: function (row) { return row._kind === 'rejection'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="discard (d)" data-act="verb:d">&#10005;</a>'; },
+      run: function (api, row) { discardRejection(row); } },
+    { key: 'r', label: 'retry (not yet built)',
+      when: function (row) { return row._kind === 'rejection'; },
+      affordance: function () { return '<span class="chip chip-disabled" title="retry: correct the data + re-run — not yet built">&#8635;</span>'; },
+      run: function () { FB.status.show('Retry is not built yet — discard (d) and re-submit corrected data instead.', true); } }
   ],
   actions: [
-    { key: 'f', label: 'filter: proposed↔rejected↔orphans↔partners', handler: function () { cycleStatusFilter(); } }
+    { key: 'f', label: 'filter: proposed↔rejected↔orphans↔partners↔suggestions↔rejections', handler: function () { cycleStatusFilter(); } }
   ],
   onLoaded: function (saved) {
     var note = document.getElementById('queue-note');
     if (statusState === 'proposed') {
       var proposals = saved.filter(function (r) { return r._kind === 'proposal'; });
-      note.textContent = proposals.length === 0
-        ? 'Nothing to review — agent-proposed journal batches will appear here'
-        : proposals.length + ' proposed batch' + (proposals.length === 1 ? '' : 'es') + ' awaiting review (y approve · x reject · Enter unfold)';
+      var drafts = saved.filter(function (r) { return r._kind === 'draft'; });
+      note.textContent = (proposals.length === 0 && drafts.length === 0)
+        ? 'Nothing to review — agent-proposed journal batches and bill drafts will appear here'
+        : proposals.length + ' proposed batch' + (proposals.length === 1 ? '' : 'es')
+          + (drafts.length ? ' · ' + drafts.length + ' bill draft' + (drafts.length === 1 ? '' : 's') : '')
+          + ' awaiting review (y approve/post · x reject/discard · Enter unfold)';
     } else if (statusState === 'rejected') {
       var rejected = saved.filter(function (r) { return r._kind === 'proposal'; });
       note.textContent = 'Rejected proposals (' + rejected.length + ') — f returns to the queue';
@@ -781,16 +1016,30 @@ var list = FB.list.create({
       var orphans = saved.filter(function (r) { return r._kind === 'orphan'; });
       note.textContent = orphans.length + ' orphaned file' + (orphans.length === 1 ? '' : 's')
         + ' — v view · x delete · f cycles filters';
-    } else {
+    } else if (statusState === 'partners') {
       // Class B partner proposals view (partner-proposal-spec §5)
       var partners = saved.filter(function (r) { return r._kind === 'partner'; });
       note.textContent = partners.length === 0
-        ? 'No partner proposals awaiting review — f returns to the queue'
+        ? 'No partner proposals awaiting review — f cycles filters'
         : partners.length + ' partner proposal' + (partners.length === 1 ? '' : 's') + ' awaiting review'
-          + ' — y approve · x reject · f returns to the queue';
+          + ' — y approve · x reject · f cycles filters';
+    } else if (statusState === 'suggestions') {
+      // Class B mapping-rule suggestions view (bank-matching-spec §10.4)
+      var suggestions = saved.filter(function (r) { return r._kind === 'suggestion'; });
+      note.textContent = suggestions.length === 0
+        ? 'No mapping suggestions awaiting review — f cycles filters'
+        : suggestions.length + ' mapping suggestion' + (suggestions.length === 1 ? '' : 's') + ' awaiting review'
+          + ' — y approve · x reject · f cycles filters';
+    } else {
+      // Class B input rejections view (bank-matching-spec §11.2)
+      var rejections = saved.filter(function (r) { return r._kind === 'rejection'; });
+      note.textContent = rejections.length === 0
+        ? 'No input rejections — f returns to the queue'
+        : rejections.length + ' input rejection' + (rejections.length === 1 ? '' : 's')
+          + ' — d discard (r retry not yet built) · f returns to the queue';
     }
   },
-  hint: 'Inbox: action items awaiting review, grouped by type (y approve, x reject, v/x view/delete an orphaned file, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → orphans → partners.'
+  hint: 'Inbox: action items awaiting review, grouped by type (y approve/post, x reject/discard, v/x view/delete an orphaned file, d discard an input rejection, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → orphans → partners → suggestions → rejections.'
 });
 
 list.load();

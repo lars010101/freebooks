@@ -1,5 +1,5 @@
 'use strict';/**
- * Fuzzy duplicate detection for partner proposals — issue #130.
+ * Fuzzy duplicate detection for partner proposals — issue #130, tuned #226.
  *
  * Covers:
  *   1. trigramSimilarity() unit tests (mapping-utils.js)
@@ -8,19 +8,25 @@
  *   3. partner.propose fuzzy duplicate detection against a PENDING proposal
  *
  * Two-phase detection (issue #130): a fast SQL exact case-insensitive match
- * (phase 1) is followed by a trigram Jaccard fuzzy match (phase 2, threshold
- * 0.65) over the in-scope rows. The fuzzy phase catches near-duplicates that
- * differ by punctuation/formatting and would slip past the exact match.
+ * (phase 1, still a hard block — unambiguous) is followed by a trigram
+ * fuzzy match (phase 2) over the in-scope rows, catching near-duplicates
+ * that differ by punctuation, abbreviation, or formatting.
  *
- * NOTE on test pair selection: the trigram metric is Jaccard over character
- * trigrams (|A∩B| / |A∪B|), so similarity drops sharply when the candidate is
- * much longer than the query. Some intuitively "similar" pairs score below the
- * 0.65 threshold — e.g. "Acme Corp" vs "Acme Corporation" = 0.50, "Netflix Inc"
- * vs "Netflix International BV" = 0.35. The API tests below use pairs whose
- * Jaccard similarity actually exceeds 0.65 (computed and noted inline) so the
- * conflict path is genuinely exercised. The threshold (0.65) is the value
- * mandated by the issue; it can be tuned later if duplicate proposals become
- * noisy at scale.
+ * issue #226: two changes from the original #130 implementation.
+ *   (a) The similarity metric is Sørensen–Dice (2·|A∩B| / (|A|+|B|)), not
+ *       Jaccard (|A∩B| / |A∪B|). Jaccard's union denominator gets diluted by
+ *       an abbreviation/expansion pair's longer name, driving scores below
+ *       any reasonable threshold — e.g. "Netflix Inc" vs "Netflix
+ *       International BV" scored 0.35 Jaccard, comfortably hiding a real
+ *       duplicate. The same pair scores 0.52 Dice.
+ *   (b) The fuzzy phase no longer blocks proposal creation (CONFLICT). An
+ *       agent proposing a partner has no one to answer a blocking
+ *       confirmation, so a false positive used to silently kill a
+ *       legitimate proposal with no human ever seeing it. The fuzzy match
+ *       is now carried on the proposal as `duplicate_warning` for the human
+ *       reviewer (Inbox partner_proposal item) to see and decide — approve
+ *       or reject. The exact-match phase keeps blocking (still unambiguous,
+ *       and no reviewer benefits from seeing an identical name flagged).
  *
  * Run: node --test tests/fuzzy-duplicate-detection.test.mjs
  */
@@ -42,12 +48,18 @@ test('trigramSimilarity: identical strings score 1.0', () => {
   assert.equal(trigramSimilarity('Netflix Inc', 'Netflix Inc'), 1.0);
 });
 
-test('trigramSimilarity: near-duplicate shares many trigrams (> 0.3)', () => {
-  // "Netflix Inc" vs "Netflix International BV" → Jaccard 0.3478. The longer
-  // name dilutes the union, but the shared "netflix i..." prefix still yields a
-  // meaningful score far above unrelated names.
+test('trigramSimilarity: abbreviation/expansion pair clears the fuzzy-match threshold (issue #226)', () => {
+  // "Netflix Inc" vs "Netflix International BV" → Dice 0.516 (was Jaccard
+  // 0.35, which sat below the old 0.65 threshold and hid this exact
+  // motivating case from issue #226).
   const s = trigramSimilarity('Netflix Inc', 'Netflix International BV');
-  assert.ok(s > 0.3, `expected > 0.3, got ${s}`);
+  assert.ok(s > 0.5, `expected > 0.5, got ${s}`);
+});
+
+test('trigramSimilarity: "Acme Corp" vs "Acme Corporation" clears the fuzzy-match threshold (issue #226)', () => {
+  // Dice 0.667 (was Jaccard 0.50, also below the old 0.65 threshold).
+  const s = trigramSimilarity('Acme Corp', 'Acme Corporation');
+  assert.ok(s > 0.6, `expected > 0.6, got ${s}`);
 });
 
 test('trigramSimilarity: unrelated names score near zero (< 0.2)', () => {
@@ -129,7 +141,7 @@ async function proposeRaw(baseUrl, body) {
   return { ok: false, error: json.error };
 }
 
-test('partner.propose: fuzzy duplicate against an existing partner is rejected', async (t) => {
+test('partner.propose: fuzzy duplicate against an existing partner succeeds with a warning (issue #226)', async (t) => {
   const srv = await startServer();
   t.after(async () => { await srv.cleanup(); });
   await seedCompany(srv.baseUrl);
@@ -140,27 +152,31 @@ test('partner.propose: fuzzy duplicate against an existing partner is rejected',
   }, 'fz-upsert-acme');
 
   // Proposing "Acme Corp." (trailing period) — not an exact case-insensitive
-  // match, but Jaccard 0.875 > 0.65 → must be rejected as a fuzzy duplicate.
+  // match, but Dice 0.933 clears the fuzzy threshold. issue #226: this no
+  // longer blocks the proposal — it succeeds, carrying a non-blocking
+  // duplicate_warning for the human reviewer.
   const dup = await proposeRaw(srv.baseUrl, {
     name: 'Acme Corp.',
-    evidence: { type: 'test', description: 'should be a fuzzy duplicate' },
+    evidence: { type: 'test', description: 'should be flagged, not blocked' },
   });
-  assert.equal(dup.ok, false, 'fuzzy duplicate proposal should be rejected');
-  assert.equal(dup.error.code, 'CONFLICT');
-  assert.match(dup.error.message, /similar name already exists/);
-  assert.match(dup.error.message, /Acme Corp/);
-  assert.match(dup.error.message, /similarity: \d+\.\d{2}/);
+  assert.ok(dup.ok, `fuzzy duplicate proposal should still succeed; got ${JSON.stringify(dup)}`);
+  assert.equal(dup.data.status, 'proposed');
+  assert.ok(dup.data.duplicate_warning, 'expected a duplicate_warning on the response');
+  assert.equal(dup.data.duplicate_warning.name, 'Acme Corp');
+  assert.equal(dup.data.duplicate_warning.kind, 'partner');
+  assert.ok(dup.data.duplicate_warning.similarity > 0.5);
 
-  // A genuinely different name must succeed.
+  // A genuinely different name must succeed with no warning.
   const fresh = await proposeRaw(srv.baseUrl, {
     name: 'Totally Different Inc',
     evidence: { type: 'test', description: 'should succeed' },
   });
   assert.ok(fresh.ok, `unrelated proposal should succeed; got ${JSON.stringify(fresh)}`);
   assert.equal(fresh.data.status, 'proposed');
+  assert.equal(fresh.data.duplicate_warning, null);
 });
 
-test('partner.propose: fuzzy duplicate against a pending proposal is rejected', async (t) => {
+test('partner.propose: fuzzy duplicate against a pending proposal succeeds with a warning (issue #226)', async (t) => {
   const srv = await startServer();
   t.after(async () => { await srv.cleanup(); });
   await seedCompany(srv.baseUrl);
@@ -172,17 +188,18 @@ test('partner.propose: fuzzy duplicate against a pending proposal is rejected', 
   });
   assert.ok(first.ok, `first proposal should succeed; got ${JSON.stringify(first)}`);
 
-  // Second proposal "Beta Industries Limited" — Jaccard 0.6522 > 0.65 → must be
-  // rejected as a fuzzy duplicate of the pending proposal.
+  // Second proposal "Beta Industries Limited" clears the fuzzy threshold
+  // against the pending proposal. issue #226: succeeds with a warning
+  // instead of being rejected.
   const dup = await proposeRaw(srv.baseUrl, {
     name: 'Beta Industries Limited',
-    evidence: { type: 'test', description: 'should be a fuzzy duplicate' },
+    evidence: { type: 'test', description: 'should be flagged, not blocked' },
   });
-  assert.equal(dup.ok, false, 'fuzzy duplicate of a pending proposal should be rejected');
-  assert.equal(dup.error.code, 'CONFLICT');
-  assert.match(dup.error.message, /similar name already exists/);
-  assert.match(dup.error.message, /Beta Industries Ltd/);
-  assert.match(dup.error.message, /similarity: \d+\.\d{2}/);
+  assert.ok(dup.ok, `fuzzy duplicate of a pending proposal should still succeed; got ${JSON.stringify(dup)}`);
+  assert.equal(dup.data.status, 'proposed');
+  assert.ok(dup.data.duplicate_warning, 'expected a duplicate_warning on the response');
+  assert.equal(dup.data.duplicate_warning.name, 'Beta Industries Ltd');
+  assert.equal(dup.data.duplicate_warning.kind, 'proposal');
 });
 
 test('partner.propose: exact case-insensitive duplicate still rejected (phase 1 fast path)', async (t) => {

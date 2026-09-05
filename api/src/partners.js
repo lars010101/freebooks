@@ -191,8 +191,11 @@ async function upsertPartner(ctx) {
 
 /**
  * partner.propose — agent proposes a new partner. Writes to partner_proposals,
- * never to partners. Runs duplicate detection (existing partner, pending proposal).
- * Idempotent upsert via proposalId (same-caller only). Emits partner.proposed.
+ * never to partners. Runs duplicate detection (existing partner, pending
+ * proposal): an exact case-insensitive name match still blocks (CONFLICT); a
+ * fuzzy trigram match (issue #226) does not — it is carried as
+ * duplicate_warning for the human reviewer instead. Idempotent upsert via
+ * proposalId (same-caller only). Emits partner.proposed.
  */
 async function proposePartner(ctx) {
   const { companyId, body, userEmail } = ctx;
@@ -211,9 +214,19 @@ async function proposePartner(ctx) {
   }
 
   // ── §2.4: Duplicate detection (server-side, same as mapping.suggest) ──────
-  // Two-phase: (1) fast SQL exact case-insensitive match, then (2) trigram
-  // fuzzy match against all in-scope rows (issue #130) to catch near-duplicates
-  // like "Netflix Inc" vs "Netflix Inc." that differ only by formatting.
+  // Two-phase: (1) fast SQL exact case-insensitive match — still a hard
+  // block, unambiguous — then (2) trigram fuzzy match against all in-scope
+  // rows (issue #130) to catch near-duplicates like "Netflix Inc" vs
+  // "Netflix International BV" that differ by more than formatting.
+  //
+  // issue #226: the fuzzy match no longer blocks proposal creation. An agent
+  // proposing a partner has no one to answer a blocking confirmation, so a
+  // false positive here used to silently kill a legitimate proposal with no
+  // human ever seeing it (agent-loop.js caught the CONFLICT and moved on).
+  // Warn-not-block (R7): the best fuzzy candidate is carried on the proposal
+  // as `duplicate_warning` for the human reviewer to see in the Inbox
+  // (partner_proposal item) and decide — approve or reject — same as the
+  // existing no-underlag warning pattern.
 
   // 1. Check for existing partner by name (case-insensitive, exact fast path)
   const existingPartner = await query(
@@ -229,19 +242,13 @@ async function proposePartner(ctx) {
       { code: 'CONFLICT' }
     );
   }
-  // 1b. Fuzzy match against existing vendor partners (issue #130, threshold 0.65)
+  // 1b. Fuzzy match against existing vendor partners (issue #130, tuned #226)
   const allVendorPartners = await query(
     `SELECT name FROM partners
      WHERE company_id = @companyId AND is_vendor = TRUE`,
     { companyId }
   );
-  const fuzzyPartner = findFuzzyMatch(name, allVendorPartners, 0.65);
-  if (fuzzyPartner) {
-    throw Object.assign(
-      new Error(`A partner with a similar name already exists: '${fuzzyPartner.candidate.name}' (similarity: ${fuzzyPartner.similarity.toFixed(2)})`),
-      { code: 'CONFLICT' }
-    );
-  }
+  const fuzzyPartner = findFuzzyMatch(name, allVendorPartners);
 
   // 2. Check for pending proposal by name (case-insensitive, exact fast path)
   const existingProposal = await query(
@@ -257,19 +264,25 @@ async function proposePartner(ctx) {
       { code: 'CONFLICT' }
     );
   }
-  // 2b. Fuzzy match against pending proposals (issue #130, threshold 0.65)
+  // 2b. Fuzzy match against pending proposals (issue #130, tuned #226)
   const allPendingProposals = await query(
     `SELECT name FROM partner_proposals
      WHERE company_id = @companyId AND status = 'proposed'`,
     { companyId }
   );
-  const fuzzyProposal = findFuzzyMatch(name, allPendingProposals, 0.65);
-  if (fuzzyProposal) {
-    throw Object.assign(
-      new Error(`A pending partner proposal with a similar name already exists: '${fuzzyProposal.candidate.name}' (similarity: ${fuzzyProposal.similarity.toFixed(2)})`),
-      { code: 'CONFLICT' }
-    );
+  const fuzzyProposal = findFuzzyMatch(name, allPendingProposals);
+
+  // Carry the stronger of the two fuzzy hits (if any) as a non-blocking
+  // warning on the proposal row.
+  let duplicateWarning = null;
+  if (fuzzyPartner || fuzzyProposal) {
+    const best = (fuzzyPartner && fuzzyProposal)
+      ? (fuzzyPartner.similarity >= fuzzyProposal.similarity ? fuzzyPartner : fuzzyProposal)
+      : (fuzzyPartner || fuzzyProposal);
+    const kind = best === fuzzyPartner ? 'partner' : 'proposal';
+    duplicateWarning = { name: best.candidate.name, similarity: Math.round(best.similarity * 100) / 100, kind };
   }
+  const duplicateWarningJson = duplicateWarning ? JSON.stringify(duplicateWarning) : null;
 
   const now = new Date().toISOString();
   const evidenceJson = evidence != null ? JSON.stringify(evidence) : null;
@@ -323,7 +336,8 @@ async function proposePartner(ctx) {
                evidence = @evidence,
                source_proposal_id = @source_proposal_id,
                source_bill_id = @source_bill_id,
-               source_description = @source_description
+               source_description = @source_description,
+               duplicate_warning = @duplicate_warning
          WHERE company_id = @companyId AND proposal_id = @proposalId`,
         { companyId, proposalId, name, tax_id: tax_id || null,
           default_currency: default_currency || null,
@@ -336,11 +350,12 @@ async function proposePartner(ctx) {
           evidence: evidenceJson,
           source_proposal_id: source_proposal_id || null,
           source_bill_id: source_bill_id || null,
-          source_description: source_description || null }
+          source_description: source_description || null,
+          duplicate_warning: duplicateWarningJson }
       );
       await emitEvent(ctx, 'partner.proposed', 'partner_proposal', proposalId,
         { name, source_proposal_id: source_proposal_id || null });
-      return { proposal_id: proposalId, status: 'proposed' };
+      return { proposal_id: proposalId, status: 'proposed', duplicate_warning: duplicateWarning };
     }
     // proposalId supplied but no existing row → first creation with caller-chosen id
   }
@@ -362,6 +377,7 @@ async function proposePartner(ctx) {
     source_proposal_id: source_proposal_id || null,
     source_bill_id: source_bill_id || null,
     source_description: source_description || null,
+    duplicate_warning: duplicateWarningJson,
     status: 'proposed',
     created_by: userEmail,
     reviewed_by: null,
@@ -370,7 +386,7 @@ async function proposePartner(ctx) {
   }]);
   await emitEvent(ctx, 'partner.proposed', 'partner_proposal', newId,
     { name, source_proposal_id: source_proposal_id || null });
-  return { proposal_id: newId, status: 'proposed' };
+  return { proposal_id: newId, status: 'proposed', duplicate_warning: duplicateWarning };
 }
 
 /**

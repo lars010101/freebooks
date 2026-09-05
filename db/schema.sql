@@ -921,6 +921,15 @@ CREATE INDEX IF NOT EXISTS idx_partner_proposals_name
   ON partner_proposals(company_id, name);
 
 -- =============================================================================
+-- partner_proposals.duplicate_warning (issue #226) — a fuzzy name match found
+-- at propose time no longer blocks creation (warn-not-block, R7 doctrine); it
+-- is instead carried on the proposal as {name, similarity, kind} JSON so the
+-- Inbox review UI can flag it, leaving the approve/reject decision to the
+-- human reviewer. NULL when no fuzzy candidate was found.
+-- =============================================================================
+ALTER TABLE partner_proposals ADD COLUMN IF NOT EXISTS duplicate_warning JSON;
+
+-- =============================================================================
 -- bills.partner_id — link to partners(partner_id) (bills-partner-fk-spec §1)
 -- Nullable, indexed, no enforced FK constraint (DuckDB limitation — see init.js
 -- applyUniqueConstraints comment). Referential integrity is app-level (§5 guard).

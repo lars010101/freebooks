@@ -298,6 +298,18 @@ function underlagBadge(row) {
   return html;
 }
 
+// issue #226 — folded-row fuzzy-duplicate indicator for partner_proposal
+// items. Non-blocking (warn-not-block, same doctrine as underlagBadge above):
+// the reviewer sees the candidate name + similarity but approve/reject stay
+// both available either way.
+function duplicateBadge(row) {
+  if (row._kind !== 'partner' || !row.duplicate_warning) return '';
+  var d = row.duplicate_warning;
+  var pct = Math.round((Number(d.similarity) || 0) * 100);
+  var kindLabel = d.kind === 'proposal' ? 'another pending proposal' : 'an existing partner';
+  return '<span class="ul-warn" title="Possibly a duplicate of ' + esc(d.name) + ' (' + kindLabel + ', ' + pct + '% similar) — review before approving">\\u26A0 possible duplicate</span>';
+}
+
 // A4 §4.7 — unfold preview. The underlag panel is a child row of each
 // PROPOSED item. attachment.list is fetched LAZILY on first unfold (the queue
 // is a review surface, not every item needs its underlag on load) and cached
@@ -456,6 +468,9 @@ function mapItem(it) {
       counterparty: it.counterparty || '',
       status: it.status, // 'proposed'
       created_by: it.created_by || '', request_id: '',
+      // issue #226: a non-blocking fuzzy-duplicate hint {name,similarity,kind}
+      // found at propose time. null when no fuzzy candidate was found.
+      duplicate_warning: it.duplicate_warning || null,
     };
   }
   // Class A — journal_proposal (enriched with lines).
@@ -686,7 +701,7 @@ var list = FB.list.create({
         if (r._kind === 'group') return '';
         // Bill rows: badge only (no underlag badge — Class B).
         if (r._kind === 'bill') return statusBadge(r);
-        return statusBadge(r) + underlagBadge(r);
+        return statusBadge(r) + underlagBadge(r) + duplicateBadge(r);
       } }
   ],
   list: { fetch: fetchRows, map: function (row) { return row; } },
@@ -725,9 +740,16 @@ var list = FB.list.create({
       kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: row.description || '' });
     }
     if (row._kind === 'partner') {
-      // Class B partner proposal: a single meta child row — proposer only.
+      // Class B partner proposal: a single meta child row — proposer, plus
+      // the fuzzy-duplicate hint (issue #226) when present.
       // No lines, no underlag — the partner_proposals row is the source of truth.
-      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: 'Proposed by ' + (row.created_by || '?') });
+      var partnerMeta = 'Proposed by ' + (row.created_by || '?');
+      if (row.duplicate_warning) {
+        var dw = row.duplicate_warning;
+        var dwPct = Math.round((Number(dw.similarity) || 0) * 100);
+        partnerMeta += ' — possible duplicate of "' + dw.name + '" (' + dwPct + '% similar)';
+      }
+      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: partnerMeta });
     }
     (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
     return kids;

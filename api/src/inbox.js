@@ -515,11 +515,16 @@ function partnerProposalSummary(row) {
  * Item shape: { type:'partner_proposal', source:'agent', counterparty:name,
  * amount:null, date:created_at, proposed_at:created_at, summary,
  * verbs:['approve','reject','open'], payload_ref:proposal_id,
- * status, reference:name, description:name, created_by }.
+ * status, reference:name, description:name, created_by,
+ * duplicate_warning:{name,similarity,kind}|null }.
+ *
+ * duplicate_warning (issue #226): a fuzzy trigram match found at propose
+ * time, non-blocking (warn-not-block) — the reviewer sees it here and
+ * decides whether to approve or reject.
  */
 async function queryPartnerProposals(companyId, limit) {
   var rows = await query(
-    `SELECT proposal_id, name, is_vendor, is_customer, status, created_by, created_at
+    `SELECT proposal_id, name, is_vendor, is_customer, status, created_by, created_at, duplicate_warning
      FROM partner_proposals
      WHERE company_id = @companyId
        AND status = 'proposed'
@@ -529,6 +534,8 @@ async function queryPartnerProposals(companyId, limit) {
   );
 
   return rows.map(function (row) {
+    var duplicateWarning = null;
+    try { duplicateWarning = row.duplicate_warning ? JSON.parse(row.duplicate_warning) : null; } catch (e) { /* malformed → no warning */ }
     return {
       type: 'partner_proposal',
       source: 'agent',
@@ -543,6 +550,7 @@ async function queryPartnerProposals(companyId, limit) {
       reference: row.name,
       description: row.name,
       created_by: row.created_by,
+      duplicate_warning: duplicateWarning,
     };
   });
 }

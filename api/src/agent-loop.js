@@ -629,6 +629,40 @@ const VENDOR_MATCH_AMBIGUOUS = 0.70;
 // scanned and fall through to the image path.
 const PDF_TEXT_PAGE_THRESHOLD = 40;
 
+// Rasterization scale for scanned PDFs (§2.1 image path, issue #139) — passed
+// to pdf-parse's getScreenshot(); ~150dpi-equivalent, legible to vision models
+// without inflating payload size unnecessarily.
+const PDF_RASTER_SCALE = 2.0;
+
+/**
+ * Read a PDF's per-page text via pdf-parse's `PDFParse` class (the v2 API —
+ * the package has no callable default export, only this named class).
+ * Returns `{ pages: [{ text }], parser }`; the caller owns `parser` and must
+ * call `parser.destroy()` once done with it (including after any
+ * `_rasterizePdfPages()` call against the same instance).
+ */
+async function _readPdfPages(buffer) {
+  const { PDFParse } = require('pdf-parse');
+  const parser = new PDFParse({ data: buffer });
+  const textResult = await parser.getText();
+  const pages = (textResult.pages || []).map((p) => ({ text: (p.text || '').trim() }));
+  return { pages, parser };
+}
+
+/**
+ * Rasterize every page of an already-open PDFParse instance to PNG buffers
+ * (§2.1 scanned-PDF path, issue #139) — real images, not the original PDF
+ * bytes relabeled with an image mime type, since vision endpoints that only
+ * accept JPEG/PNG reject the latter.
+ */
+async function _rasterizePdfPages(parser) {
+  const shot = await parser.getScreenshot({ scale: PDF_RASTER_SCALE });
+  // p.data is a plain Uint8Array, not a Node Buffer — Buffer.from() is required
+  // here because Uint8Array#toString('base64') silently ignores the encoding
+  // argument and joins bytes as decimal text instead of encoding them.
+  return (shot.pages || []).map((p) => Buffer.from(p.data));
+}
+
 /**
  * Build the company financial context for bill extraction (spec §2.2).
  * Loads vendor master (partners where is_vendor=true), expense-type accounts,
@@ -1034,25 +1068,21 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
   // ── Document read: determine text vs image path (§2.1) ──
   let useImage = isImage; // images always go image path
   let extractedText = '';
+  let pdfParser = null; // kept open across the text check so a scanned PDF can be rasterized below
 
   if (isPdf) {
     try {
-      const pdfParse = require('pdf-parse');
-      const parsedPdf = await pdfParse(att.buffer);
+      const { pages, parser } = await _readPdfPages(att.buffer);
+      pdfParser = parser;
       // Per-page check (spec §2.1): if any page is below threshold, treat
       // the entire document as image-based.
-      const numPages = parsedPdf.numpages || 1;
-      // pdf-parse returns all text as a single string; approximate per-page
-      // by splitting on form-feed characters (\f). If the total text is below
-      // the threshold scaled by page count, treat as scanned.
-      const fullText = (parsedPdf.text || '').trim();
-      const perPageAvg = fullText.length / Math.max(1, numPages);
-      if (perPageAvg < PDF_TEXT_PAGE_THRESHOLD) {
-        useImage = true;
-        warn(`bill ${filename}: PDF text per-page avg ${perPageAvg.toFixed(0)} < ${PDF_TEXT_PAGE_THRESHOLD} — treating as scanned`);
-      } else {
-        extractedText = fullText;
+      const allPagesTextNative = pages.length > 0 && pages.every((p) => p.text.length >= PDF_TEXT_PAGE_THRESHOLD);
+      if (allPagesTextNative) {
+        extractedText = pages.map((p) => p.text).join('\n\n');
         useImage = false;
+      } else {
+        useImage = true;
+        warn(`bill ${filename}: PDF has a page below ${PDF_TEXT_PAGE_THRESHOLD} chars — treating as scanned`);
       }
     } catch (e) {
       warn(`bill ${filename}: pdf-parse failed: ${e.message} — trying image path`);
@@ -1077,11 +1107,28 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
 
   let response;
   try {
-    if (useImage && att.buffer) {
-      // Image path: base64-encode and send as image_url content block
-      const b64 = att.buffer.toString('base64');
-      const mimeType = att.contentType || 'application/octet-stream';
-      const dataUrl = `data:${mimeType};base64,${b64}`;
+    if (useImage) {
+      // Image path: a scanned PDF is rasterized to real PNG pages first (§2.1,
+      // issue #139) — vision endpoints that only accept JPEG/PNG reject a PDF
+      // relabeled with an image mime type. A genuine image attachment is sent
+      // as-is.
+      let imageBuffers = [];
+      let mimeType = att.contentType || 'application/octet-stream';
+      if (isPdf && pdfParser) {
+        imageBuffers = await _rasterizePdfPages(pdfParser);
+        mimeType = 'image/png';
+      } else if (att.buffer) {
+        imageBuffers = [att.buffer];
+      }
+      if (imageBuffers.length === 0) {
+        warn(`bill ${filename}: no extractable content (not text, not image with buffer)`);
+        return { ok: false, reason: 'extraction_failed', detail: 'No extractable content',
+                 raw_model_output: null, prompt_snapshot: promptSnapshot };
+      }
+      const imageBlocks = imageBuffers.map((buf) => ({
+        type: 'image_url',
+        image_url: { url: `data:${mimeType};base64,${buf.toString('base64')}` },
+      }));
       response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
         method: 'POST',
         headers: {
@@ -1094,7 +1141,7 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
             { role: 'system', content: systemPrompt },
             { role: 'user', content: [
               { type: 'text', text: 'Extract the bill data from this document.' },
-              { type: 'image_url', image_url: { url: dataUrl } },
+              ...imageBlocks,
             ] },
           ],
           temperature,
@@ -1130,6 +1177,10 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
     warn(`bill ${filename}: LLM call failed: ${e.message}`);
     return { ok: false, reason: 'extraction_failed', detail: e.message,
              raw_model_output: null, prompt_snapshot: promptSnapshot };
+  } finally {
+    if (pdfParser) {
+      try { await pdfParser.destroy(); } catch (_) { /* best-effort cleanup */ }
+    }
   }
 
   // ── Parse LLM response ──
@@ -1688,20 +1739,19 @@ async function extractJournalDocumentData(att, payload, companySettings, company
   // ── Document read: determine text vs image path (§2.1) ──
   let useImage = isImage;
   let extractedText = '';
+  let pdfParser = null; // kept open across the text check so a scanned PDF can be rasterized below
 
   if (isPdf) {
     try {
-      const pdfParse = require('pdf-parse');
-      const parsedPdf = await pdfParse(att.buffer);
-      const numPages = parsedPdf.numpages || 1;
-      const fullText = (parsedPdf.text || '').trim();
-      const perPageAvg = fullText.length / Math.max(1, numPages);
-      if (perPageAvg < PDF_TEXT_PAGE_THRESHOLD) {
-        useImage = true;
-        warn(`journal ${filename}: PDF text per-page avg ${perPageAvg.toFixed(0)} < ${PDF_TEXT_PAGE_THRESHOLD} — treating as scanned`);
-      } else {
-        extractedText = fullText;
+      const { pages, parser } = await _readPdfPages(att.buffer);
+      pdfParser = parser;
+      const allPagesTextNative = pages.length > 0 && pages.every((p) => p.text.length >= PDF_TEXT_PAGE_THRESHOLD);
+      if (allPagesTextNative) {
+        extractedText = pages.map((p) => p.text).join('\n\n');
         useImage = false;
+      } else {
+        useImage = true;
+        warn(`journal ${filename}: PDF has a page below ${PDF_TEXT_PAGE_THRESHOLD} chars — treating as scanned`);
       }
     } catch (e) {
       warn(`journal ${filename}: pdf-parse failed: ${e.message} — trying image path`);
@@ -1726,10 +1776,28 @@ async function extractJournalDocumentData(att, payload, companySettings, company
 
   let response;
   try {
-    if (useImage && att.buffer) {
-      const b64 = att.buffer.toString('base64');
-      const mimeType = att.contentType || 'application/octet-stream';
-      const dataUrl = `data:${mimeType};base64,${b64}`;
+    if (useImage) {
+      // Image path: a scanned PDF is rasterized to real PNG pages first (§2.1,
+      // issue #139) — vision endpoints that only accept JPEG/PNG reject a PDF
+      // relabeled with an image mime type. A genuine image attachment is sent
+      // as-is.
+      let imageBuffers = [];
+      let mimeType = att.contentType || 'application/octet-stream';
+      if (isPdf && pdfParser) {
+        imageBuffers = await _rasterizePdfPages(pdfParser);
+        mimeType = 'image/png';
+      } else if (att.buffer) {
+        imageBuffers = [att.buffer];
+      }
+      if (imageBuffers.length === 0) {
+        warn(`journal ${filename}: no extractable content (not text, not image with buffer)`);
+        return { ok: false, reason: 'extraction_failed', detail: 'No extractable content',
+                 raw_model_output: null, prompt_snapshot: promptSnapshot };
+      }
+      const imageBlocks = imageBuffers.map((buf) => ({
+        type: 'image_url',
+        image_url: { url: `data:${mimeType};base64,${buf.toString('base64')}` },
+      }));
       response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
         method: 'POST',
         headers: {
@@ -1742,7 +1810,7 @@ async function extractJournalDocumentData(att, payload, companySettings, company
             { role: 'system', content: systemPrompt },
             { role: 'user', content: [
               { type: 'text', text: 'Extract the journal-entry data from this document.' },
-              { type: 'image_url', image_url: { url: dataUrl } },
+              ...imageBlocks,
             ] },
           ],
           temperature,
@@ -1775,6 +1843,10 @@ async function extractJournalDocumentData(att, payload, companySettings, company
     warn(`journal ${filename}: LLM call failed: ${e.message}`);
     return { ok: false, reason: 'extraction_failed', detail: e.message,
              raw_model_output: null, prompt_snapshot: promptSnapshot };
+  } finally {
+    if (pdfParser) {
+      try { await pdfParser.destroy(); } catch (_) { /* best-effort cleanup */ }
+    }
   }
 
   // ── Parse LLM response ──

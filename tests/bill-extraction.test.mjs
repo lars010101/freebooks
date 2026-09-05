@@ -159,14 +159,30 @@ function failResponse(status, body) {
 }
 
 // Stub pdf-parse in the require cache so extractBillData's lazy require gets
-// our mock. `text` is the embedded text the fake PDF yields.
+// our mock. `text` is the per-page embedded text the fake PDF yields (same
+// text repeated on every one of `numpages` pages). Mirrors pdf-parse@2's real
+// shape — a named `PDFParse` class, not a callable default export — so the
+// stub actually exercises the same require/construct/getText/getScreenshot/
+// destroy call pattern the real dependency requires.
 let _pdfOriginal;
 function stubPdfParse(text, numpages = 1) {
   const modPath = require.resolve('pdf-parse');
   _pdfOriginal = require.cache[modPath];
+  class FakePDFParse {
+    constructor(opts) { this._data = opts && opts.data; }
+    async getText() {
+      const pages = Array.from({ length: numpages }, () => ({ text }));
+      return { pages, text, total: numpages };
+    }
+    async getScreenshot() {
+      const pages = Array.from({ length: numpages }, (_, i) => ({ data: this._data, pageNumber: i + 1 }));
+      return { pages, total: numpages };
+    }
+    async destroy() {}
+  }
   require.cache[modPath] = {
     id: modPath, filename: modPath, loaded: true,
-    exports: async () => ({ text, numpages }),
+    exports: { PDFParse: FakePDFParse },
   };
 }
 function restorePdfParse() {

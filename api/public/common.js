@@ -229,9 +229,11 @@
     function write(d) { try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) {} }
 
     // section of a path: /co/bill/edit → payables; /co/journal/voucher → journal-voucher
+    // A bare /:company (no further segment) is the Inbox root route (Dashboard
+    // was dropped 2026-08-03) — was stale as 'dashboard' until this fix.
     window.fbSectionOfPath = function (path) {
       var m = String(path || '').match(/^\/[^/]+\/([^/?]+)/);
-      if (!m) return 'dashboard';
+      if (!m) return 'inbox';
       var seg = m[1];
       if (seg === 'bill') return 'payables';
       if (seg === 'journal') return 'journal-voucher';

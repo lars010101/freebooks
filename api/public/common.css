@@ -848,21 +848,6 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
   gap: 10px;
   margin: 4px 0 8px;
 }
-.fb-list-toolbar:not(.fb-filters-active) .fb-cmd-box { opacity: .55; }
-.fb-list-toolbar:not(.fb-filters-active) .fb-cmd-input { cursor: pointer; }
-.fb-cmd-box { flex: 1; min-width: 0; }
-.fb-cmd-input {
-  width: 100%;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 0.8125rem;
-  outline: none;
-  box-sizing: border-box;
-}
-.fb-cmd-input:focus { border-color: var(--accent); }
 .fb-list-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .fb-list-action-btn {
   padding: 5px 11px;

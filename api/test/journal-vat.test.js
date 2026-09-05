@@ -4,8 +4,17 @@
  *
  * Verifies that journal entries are TAX-EXCLUSIVE: the entered debit/credit IS
  * the net, VAT is computed on top (amount × rate) and posted as separate
- * per-code GL lines (mirroring bills.js:396-414). Bank import stays
- * tax-INCLUSIVE (computeVatSplitGross) — covered separately, not here.
+ * per-code GL lines (mirroring bills.js:396-414).
+ *
+ * "Bank import stays tax-inclusive" (README) referred to vat.js's
+ * computeVatSplitGross/expandVatLines, which had zero callers anywhere and
+ * were deleted 2026-09-05 as dead code (superseded by this tax-exclusive
+ * path per the comment above computeVatSplitGross's old definition). bank.js
+ * attaches a vat_code straight onto the raw statement amount (see
+ * bank.js:511) with no separate net/gross conversion of its own, so a bank-
+ * matched line with a vat_code now goes through this same tax-exclusive
+ * expansion — unverified whether that's still correct for a genuinely gross
+ * bank amount. Not covered by any test currently found.
  *
  * Cases:
  *   1. Standard tax-exclusive posting: 1000 net + 25% → expense DR 1000,

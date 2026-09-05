@@ -12,8 +12,10 @@
 //   - Statements (id group: pl, bs, cf, sce) — financial statement output
 //   - Books (id group: voucher-register, tb, gl, journal, integrity) — ledger/audit
 //   Removed: ap-aging, ap-control (→ Payables tabs), ar (→ Fiscal Filings only).
-// REPORT_CATEGORIES is retained for backward compat but no longer drives optgroups
-// — the page (Statements vs Books) is the category now.
+//   The page (Statements vs Books) is the category now — REPORT_CATEGORIES
+//   and reportsByCategory() were deleted 2026-09-05 (dead: the one endpoint
+//   that plausibly used them, /api/:company/reports/registry, actually reads
+//   REPORT_REGISTRY directly).
 // 2026-08-30 IA restructure 3: Books renamed Journal — page value 'books' →
 //   'journal' for voucher-register/tb/gl/journal; labels relabeled (Transaction
 //   Register → Transactions, Journal Line Listing → Line items). integrity's
@@ -21,12 +23,6 @@
 //   report-hub page — see docs/ia-restructure-3-spec.md §3.3) and its label
 //   shortens to "Integrity". SIE export gate follows the page-key rename in
 //   reports-hub.js (pageKey === 'journal').
-
-const REPORT_CATEGORIES = {
-  financial: 'Financial statements',
-  audit:     'Audit',
-  filings:   'Tax & filings',
-};
 
 // multiperiod — MoM/YoY comparison supported (hub enables the step buttons)
 // needsStart  — report requires a start date (false = end-date/as-of only)
@@ -54,16 +50,4 @@ function reportsByPage(page) {
   return REPORT_REGISTRY.filter(r => r.page === page);
 }
 
-// Ordered, non-empty groups: [{ category, label, reports: [...] }]
-// Retained for backward compat (e.g. API endpoint /api/:company/reports/registry).
-function reportsByCategory() {
-  return Object.entries(REPORT_CATEGORIES)
-    .map(([key, label]) => ({
-      category: key,
-      label,
-      reports: REPORT_REGISTRY.filter(r => r.category === key),
-    }))
-    .filter(g => g.reports.length > 0);
-}
-
-module.exports = { REPORT_CATEGORIES, REPORT_REGISTRY, reportsByCategory, reportsByPage };
+module.exports = { REPORT_REGISTRY, reportsByPage };

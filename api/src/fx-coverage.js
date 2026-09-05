@@ -84,22 +84,14 @@ async function recomputeCoverage(companyId, baseCurrency, startDate, endDate, pu
 }
 
 /**
- * Get the provider's actual publication days for a date range.
+ * Returns the provider's actual publication days for a date range, plus the
+ * fetched rate rows so callers that need the data (e.g. the scanner inserting
+ * missing rates) don't have to download the same range a second time.
  *
  * If the provider has fetchRange, use it directly — the dates in the response
- * are the ground truth publication calendar.
- *
- * If not, fall back to calling fetchRates for each day (inefficient, used only
- * by providers without a range endpoint).
- */
-async function getPublicationDays(provider, baseCurrency, startDate, endDate, apiKey) {
-  return (await getPublicationDaysWithRows(provider, baseCurrency, startDate, endDate, apiKey)).days;
-}
-
-/**
- * Like getPublicationDays, but also returns the fetched rate rows so callers
- * that need the data (e.g. the scanner inserting missing rates) don't have to
- * download the same range a second time.
+ * are the ground truth publication calendar. If not, fall back to calling
+ * fetchRates for each day (inefficient, used only by providers without a
+ * range endpoint).
  *
  * @returns { days: [YYYY-MM-DD], rows: [rateRow, ...] }
  */
@@ -174,4 +166,4 @@ async function fetchRange(provider, baseCurrency, startDate, endDate, apiKey) {
   return allRows;
 }
 
-module.exports = { computeCoverage, recomputeCoverage, getPublicationDays, getPublicationDaysWithRows, fetchRange };
+module.exports = { computeCoverage, recomputeCoverage, getPublicationDaysWithRows, fetchRange };

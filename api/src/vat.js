@@ -17,61 +17,6 @@ async function handleVat(ctx, action) {
   }
 }
 
-/**
- * Tax-INCLUSIVE VAT split: takes a GROSS (tax-inclusive) amount and back-calculates the net.
- * Used ONLY by expandVatLines for bank import — bank statement amounts are settled cash (gross).
- * Journal entries now compute tax-exclusive (vatAmount = net × rate) directly in enrichAndValidate.
- */
-async function computeVatSplitGross(companyId, vatCode, grossAmount) {
-  const rows = await query(
-    `SELECT rate, vat_account_input, vat_account_output, is_reverse_charge
-     FROM vat_codes
-     WHERE company_id = @companyId AND vat_code = @vatCode AND is_active = TRUE
-     LIMIT 1`,
-    { companyId, vatCode }
-  );
-
-  if (rows.length === 0) {
-    return { netAmount: grossAmount, vatAmount: 0, rate: 0, isReverseCharge: false, inputAccount: null, outputAccount: null };
-  }
-
-  const vc = rows[0];
-  const rate = Number(vc.rate);
-
-  if (vc.is_reverse_charge) {
-    const vatAmount = roundCurrency(grossAmount * rate);
-    return { netAmount: grossAmount, vatAmount, rate, isReverseCharge: true, inputAccount: vc.vat_account_input, outputAccount: vc.vat_account_output };
-  }
-
-  const netAmount = roundCurrency(grossAmount / (1 + rate));
-  const vatAmount = roundCurrency(grossAmount - netAmount);
-  return { netAmount, vatAmount, rate, isReverseCharge: false, inputAccount: vc.vat_account_input, outputAccount: vc.vat_account_output };
-}
-
-async function expandVatLines(companyId, entry) {
-  if (!entry.vat_code) return [entry];
-
-  const amount = entry.debit || entry.credit;
-  const isDebit = entry.debit > 0;
-  const split = await computeVatSplitGross(companyId, entry.vat_code, amount);
-
-  if (split.vatAmount === 0) return [entry];
-
-  const lines = [];
-
-  if (split.isReverseCharge) {
-    lines.push({ ...entry });
-    lines.push({ account_code: split.inputAccount, debit: isDebit ? split.vatAmount : 0, credit: isDebit ? 0 : split.vatAmount, date: entry.date, description: `${entry.description || ''} (input VAT RC)`.trim(), vat_code: entry.vat_code, vat_amount: split.vatAmount, net_amount: 0 });
-    lines.push({ account_code: split.outputAccount, debit: isDebit ? 0 : split.vatAmount, credit: isDebit ? split.vatAmount : 0, date: entry.date, description: `${entry.description || ''} (output VAT RC)`.trim(), vat_code: entry.vat_code, vat_amount: split.vatAmount, net_amount: 0 });
-  } else {
-    lines.push({ ...entry, debit: isDebit ? split.netAmount : 0, credit: isDebit ? 0 : split.netAmount, net_amount: split.netAmount, vat_amount: 0 });
-    const vatAccount = isDebit ? split.inputAccount : split.outputAccount;
-    lines.push({ account_code: vatAccount, debit: isDebit ? split.vatAmount : 0, credit: isDebit ? 0 : split.vatAmount, date: entry.date, description: `${entry.description || ''} (VAT ${(split.rate * 100).toFixed(0)}%)`.trim(), vat_code: entry.vat_code, vat_amount: split.vatAmount, net_amount: 0 });
-  }
-
-  return lines;
-}
-
 async function generateVatReturn(ctx) {
   const { companyId, body } = ctx;
   const { periodFrom, periodTo } = body;
@@ -141,8 +86,4 @@ async function deleteVatCode(ctx) {
   return { deleted: true };
 }
 
-function roundCurrency(amount) {
-  return Math.round(amount * 100) / 100;
-}
-
-module.exports = { handleVat, computeVatSplitGross, expandVatLines, generateVatReturn };
+module.exports = { handleVat, generateVatReturn };

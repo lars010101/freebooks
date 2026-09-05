@@ -77,9 +77,6 @@ async function handleFx(ctx, action) {
     case 'fx.rates.delete':         return deleteRate(ctx);
     case 'fx.rates.get':            return getEffectiveRate(ctx);
     case 'fx.coverage':             return coverageAction(ctx);
-    case 'fx.providers.list':       return listProviders(ctx);
-    case 'fx.provider.get':         return getProvider(ctx);
-    case 'fx.provider.save':        return saveProvider(ctx);
     default:
       throw Object.assign(new Error(`Unknown FX action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -559,102 +556,6 @@ async function backfillPeriod(companyId, periodStart, periodEnd) {
     // Fire-and-forget: never throw to the caller
     console.error(`FX period backfill failed for ${companyId}:`, e.message);
   }
-}
-
-async function listProviders(ctx) {
-  // 'manual' is a first-class provider choice (fx-automation-spec rev. 3):
-  // no automatic download — rates are entered by hand (source='manual').
-  const providers = [{
-    id: MANUAL_PROVIDER,
-    name: 'Manual (no auto-download)',
-    description: 'Rates are entered manually on the Exchange Rates tab; nothing is downloaded automatically.',
-    requiresApiKey: false
-  }];
-  const files = fs.readdirSync(PROVIDERS_DIR);
-  for (const file of files) {
-    if (file.endsWith('.js')) {
-      const id = file.slice(0, -3);
-      const provider = require(path.join(PROVIDERS_DIR, file));
-      providers.push({
-        id,
-        name: provider.name,
-        description: provider.description,
-        requiresApiKey: provider.requiresApiKey,
-        apiKeyLabel: provider.apiKeyLabel
-      });
-    }
-  }
-  return providers;
-}
-
-async function getProvider(ctx) {
-  const { companyId } = ctx;
-  // Per-company (fx-automation-spec rev. 3): no install-level fallback beyond
-  // the one-time adoption inside loadProviderConfig.
-  const { providerName, apiKey, source } = await loadProviderConfig(companyId);
-  const maskedKey = apiKey ? apiKey.slice(-4).padStart(apiKey.length, '*') : null;
-  return { provider: providerName, apiKey: maskedKey, source };
-}
-
-async function saveProvider(ctx) {
-  const { companyId, body } = ctx;
-  const { provider, apiKey } = body;
-  if (!provider) throw Object.assign(new Error('provider required'), { code: 'INVALID_INPUT' });
-
-  // 'manual' is always valid; anything else must be a real provider file.
-  if (provider !== MANUAL_PROVIDER && !providerExists(provider)) {
-    throw Object.assign(new Error(`FX provider not found: ${provider}`), { code: 'NOT_FOUND' });
-  }
-
-  // Per-company config (fx-automation-spec rev. 3): delete + insert the
-  // company's own settings rows — never an install-scoped row.
-  const now = new Date().toISOString();
-  await exec(
-    `DELETE FROM settings WHERE company_id = @companyId AND key = 'fx_provider'`,
-    { companyId }
-  );
-  await bulkInsert('settings', [{
-    company_id: companyId,
-    key: 'fx_provider',
-    value: provider,
-    updated_at: now
-  }]);
-
-  // Save API key if provided. An empty string keeps the stored key (the grid's
-  // masked display means a blank edit is never a clear-intent).
-  if (apiKey !== undefined && apiKey !== null && apiKey !== '') {
-    await exec(
-      `DELETE FROM settings WHERE company_id = @companyId AND key = 'fx_provider_api_key'`,
-      { companyId }
-    );
-    await bulkInsert('settings', [{
-      company_id: companyId,
-      key: 'fx_provider_api_key',
-      value: apiKey,
-      updated_at: now
-    }]);
-  }
-
-  // fx-automation-spec §4b: when a real provider is set, fire-and-forget an
-  // immediate scan for this company — same trigger as posting_rules.attr.save.
-  if (provider !== MANUAL_PROVIDER) {
-    try {
-      const coRows = await query(
-        `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,
-        { companyId }
-      );
-      if (coRows.length > 0 && coRows[0].currency) {
-        const { scanCompany } = require('./fx-scanner');
-        scanCompany(String(companyId), String(coRows[0].currency)).catch((e) => {
-          console.error('Triggered FX scan failed (fx.provider.save):', e.message);
-        });
-      }
-    } catch (e) {
-      console.error('FX scan trigger setup failed (fx.provider.save):', e.message);
-    }
-  }
-
-  return { saved: true, provider };
 }
 
 module.exports = { handleFx, getRate, listRates, saveRates, deleteRate, getEffectiveRate, loadProviderConfig, providerExists, listProviderIds, MANUAL_PROVIDER, backfillPeriod, getExposedCurrencies };

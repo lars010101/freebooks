@@ -400,7 +400,7 @@ test('mutating actions audited; reads are not', async () => {
   const afterRead = await sql(baseUrl, srv.adminToken, `SELECT COUNT(*) c FROM audit_log WHERE company_id='CT'`);
   assert.equal(Number(afterRead[0].c), Number(before[0].c), 'read adds no audit rows');
 
-  await api(baseUrl, 'settings.save', { companyId: CO, userEmail: 'owner@ct', settings: { vat_tolerance: 0.99 } });
+  await api(baseUrl, 'posting_rules.attr.save', { companyId: CO, userEmail: 'owner@ct', key: 'vat_tolerance', value: 0.99 });
   const afterWrite = await sql(baseUrl, srv.adminToken, `SELECT COUNT(*) c FROM audit_log WHERE company_id='CT'`);
   assert.equal(Number(afterWrite[0].c), Number(before[0].c) + 1, 'mutation adds one audit row');
 });
@@ -495,14 +495,13 @@ test('view.bank returns cash accounts + journals; reconciliation when accountCod
 });
 
 test('per-line centers: line override beats header through draft save + post', async () => {
-  const cs = await api(baseUrl, 'center.save', {
-    companyId: CO,
-    centers: [
-      { center_id: 'CC-OPS', center_type: 'Cost', name: 'Operations' },
-      { center_id: 'CC-RND', center_type: 'Cost', name: 'R&D' },
-    ],
-  });
-  assert.equal(cs.status, 200, JSON.stringify(cs.body));
+  for (const center of [
+    { center_id: 'CC-OPS', center_type: 'Cost', name: 'Operations' },
+    { center_id: 'CC-RND', center_type: 'Cost', name: 'R&D' },
+  ]) {
+    const cs = await api(baseUrl, 'center.upsert', { companyId: CO, center });
+    assert.equal(cs.status, 200, JSON.stringify(cs.body));
+  }
 
   // Header center CC-OPS; line 2 overrides to CC-RND
   const d = await api(baseUrl, 'bill.draft.save', {
@@ -1299,15 +1298,15 @@ test('A1: setup.* rejected for agent even though setup skips the role check', as
 test('A1 audit attribution: actor_type + request_id stamped on audit rows', async () => {
   // Owner mutating call with requestId → dispatch audit (auditCall) row
   // carries actor_type='human' + request_id (§2.4 stamping, end-to-end).
-  const r = await api(baseUrl, 'settings.save', {
+  const r = await api(baseUrl, 'posting_rules.attr.save', {
     companyId: CO, userEmail: 'owner@ct', requestId: 'req-owner-a1',
-    settings: { vat_tolerance: 1.01 },
+    key: 'vat_tolerance', value: 1.01,
   });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   const rows = await sql(baseUrl, srv.adminToken,
     `SELECT actor_type, request_id, changed_by FROM audit_log
      WHERE company_id='CT' AND request_id='req-owner-a1'
-       AND table_name='api' AND record_id='settings.save'`);
+       AND table_name='api' AND record_id='posting_rules.attr.save'`);
   assert.ok(rows.length >= 1, 'dispatch audit row written for owner call');
   assert.equal(rows[0].actor_type, 'human', 'owner call → actor_type human');
   assert.equal(rows[0].request_id, 'req-owner-a1');
@@ -1321,9 +1320,9 @@ test('A1 audit attribution: actor_type + request_id stamped on audit rows', asyn
   // identical to the human path verified above, just with actorType='agent'
   // from resolveActor. Here we assert the guard is the choke point: a
   // forbidden agent call writes no audit row at all.
-  const fr = await api(baseUrl, 'settings.save', {
+  const fr = await api(baseUrl, 'posting_rules.attr.save', {
     companyId: CO, userEmail: 'agent@ct', requestId: 'req-agent-a1',
-    settings: { vat_tolerance: 2.0 },
+    key: 'vat_tolerance', value: 2.0,
   });
   assert.equal(fr.status, 403);
   assert.equal(fr.body.error.code, 'FORBIDDEN');

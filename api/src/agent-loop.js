@@ -20,7 +20,6 @@
  */
 
 const { query, exec } = require('./db');
-const { v4: uuid } = require('uuid'); // eslint-disable-line no-unused-vars
 const path = require('path');
 const fs = require('fs');
 const { normalizeDescription, detectMappingConflicts, findFuzzyMatch, trigramSimilarity } = require('./mapping-utils');

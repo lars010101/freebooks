@@ -409,16 +409,6 @@ const ACTIONS = {
 
   // ── Chart of accounts ────────────────────────────────────────────────────
   'coa.list': { role: 'viewer', mutating: false, description: 'List accounts (latest revision per code).' },
-  'coa.save': {
-    role: 'owner', mutating: true,
-    description: 'Replace the full COA (accounts in use cannot be removed).',
-    params: { accounts: { type: 'array', required: true } },
-  },
-  'coa.update': {
-    role: 'owner', mutating: true,
-    description: 'Update name/subtype/cf_category/active on existing accounts.',
-    params: { accounts: { type: 'array', required: true } },
-  },
   'coa.upsert': {
     role: 'owner', mutating: true,
     description: 'Insert or update one account. account.default_role (optional, null|\'AP\'|\'Expense\'|\'FX Gain/Loss\') sets the company default AP/Expense/FX Gain/Loss account; single-holder enforced server-side in the same write (setting a new holder clears the previous one).',
@@ -492,13 +482,6 @@ const ACTIONS = {
     role: 'viewer', mutating: false,
     description: 'Resolve the exact-date rate for a currency pair.',
     params: { fromCurrency: { type: 'string', required: true }, toCurrency: { type: 'string', required: true }, date: { type: 'date', required: true } },
-  },
-  'fx.providers.list': { role: 'viewer', mutating: false, description: 'List FX providers.' },
-  'fx.provider.get': { role: 'viewer', mutating: false, description: 'Get provider config.' },
-  'fx.provider.save': {
-    role: 'owner', mutating: true,
-    description: 'Configure an FX provider (incl. API key).',
-    params: { provider: { type: 'string', required: true }, apiKey: { type: 'string' } },
   },
   'fx.coverage': {
     role: 'viewer', mutating: false,
@@ -582,11 +565,6 @@ const ACTIONS = {
     params: { suggestionId: { type: 'string', required: true } },
   },
   'center.list': { role: 'viewer', mutating: false, description: 'List cost/profit centers.' },
-  'center.save': {
-    role: 'owner', mutating: true,
-    description: 'Replace cost/profit centers (bulk).',
-    params: { centers: { type: 'array', required: true } },
-  },
   'center.upsert': { role: 'owner', mutating: true, description: 'Insert or update a cost/profit center.', params: { center: { type: 'object', required: true } } },
   'center.delete': { role: 'owner', mutating: true, description: 'Delete a cost/profit center.', params: { centerId: { type: 'string', required: true } } },
   'journals.list': { role: 'viewer', mutating: false, description: 'List journals (reference sequences).' },
@@ -649,11 +627,6 @@ const ACTIONS = {
 
   // ── Settings / company / periods / permissions ───────────────────────────
   'settings.get': { role: 'viewer', mutating: false, description: 'Get company settings.' },
-  'settings.save': {
-    role: 'owner', mutating: true,
-    description: 'Save company settings (incl. vat_tolerance, vat_tolerance_pct, AI/agent config).',
-    params: { settings: { type: 'object', required: true } },
-  },
   'settings.ai.test': {
     role: 'data_entry', mutating: false,
     description: 'Test LLM endpoint connectivity. Sends a minimal prompt to the configured endpoint.',
@@ -706,11 +679,6 @@ const ACTIONS = {
     params: { limit: { type: 'number' } },
   },
   'company.list': { role: 'viewer', mutating: false, description: 'List companies.' },
-  'company.save': {
-    role: 'owner', mutating: true,
-    description: 'Update company master data (bulk).',
-    params: { companies: { type: 'array', required: true } },
-  },
   'company.delete': {
     role: 'owner', mutating: true,
     description: 'Delete the current company (danger zone). Refused when it is the last remaining company or has posted journal entries; cascades setup-only residue otherwise.',
@@ -730,7 +698,7 @@ const ACTIONS = {
   },
   'posting_rules.attr.save': {
     role: 'owner', mutating: true,
-    description: 'Write ONE posting-rules attribute (server-authoritative validation). key ∈ multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct|bill_extraction_tolerance.',
+    description: 'Write ONE posting-rules attribute (server-authoritative validation). key ∈ multi_currency|fx_provider|fx_provider_api_key|vat_tolerance|vat_tolerance_pct|bill_extraction_tolerance|center_derivation_enabled.',
     params: { key: { type: 'string', required: true }, value: { required: true } },
   },
   'ai.attr.list': {
@@ -768,11 +736,6 @@ const ACTIONS = {
     params: { periodId: { type: 'string', required: true } },
   },
   'permissions.list': { role: 'owner', mutating: false, description: 'List user permissions.' },
-  'permissions.save': {
-    role: 'owner', mutating: true,
-    description: 'Replace user permissions (bulk).',
-    params: { permissions: { type: 'array', required: true } },
-  },
   'permissions.upsert': {
     role: 'owner', mutating: true,
     description: 'Insert or update one user_permissions row (email, role) for the current company.',

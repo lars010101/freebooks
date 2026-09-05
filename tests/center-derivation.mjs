@@ -1,7 +1,7 @@
 // tests/center-derivation.mjs — Cost/Profit Center derivation (spec rev 4 §8).
 //
 // Tests the derivation feature end-to-end via the in-process API server.
-// Covers: deriveProfitCenter unit, center.save validation, journal.post
+// Covers: deriveProfitCenter unit, center.upsert validation, journal.post
 // derivation (flag off + on), bill.create derivation, validateCenterConsistency,
 // cutover sequencing, and correction path (allowInactive).
 //
@@ -45,12 +45,16 @@ async function seedCompany() {
   });
 
   // Seed centers: one Profit, one Cost linked to it, one Cost without assignment.
-  await act('center.save', { centers: [
+  // Order matters — PC-NORTH must exist before rows that reference it via
+  // profit_center_id (center.upsert validates the reference at insert time).
+  for (const center of [
     { center_id: 'PC-NORTH', center_type: 'Profit', name: 'North Region', is_active: true },
     { center_id: 'CC-SALES', center_type: 'Cost', name: 'Sales Team', is_active: true, profit_center_id: 'PC-NORTH' },
     { center_id: 'CC-NOSIGN', center_type: 'Cost', name: 'No Assignment', is_active: true },
     { center_id: 'CC-INACTIVE', center_type: 'Cost', name: 'Inactive CC', is_active: false, profit_center_id: 'PC-NORTH' },
-  ]});
+  ]) {
+    await act('center.upsert', { center });
+  }
 
   // SE jurisdiction seeds BAS COA (3010 Revenue, 4010 Expense, 2440 AP)
   // Open period
@@ -58,7 +62,7 @@ async function seedCompany() {
 }
 
 async function setFlag(value) {
-  await act('settings.save', { settings: { center_derivation_enabled: String(value) } });
+  await act('posting_rules.attr.save', { key: 'center_derivation_enabled', value: String(value) });
 }
 
 async function testCenterList() {

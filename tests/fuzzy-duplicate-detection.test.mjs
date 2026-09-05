@@ -119,11 +119,21 @@ async function seedCompany(baseUrl) {
   } catch (e) {
     if (!/already exists|DUPLICATE/.test(String(e.message))) throw e;
   }
+  // Seed an owner first: setup.add_company only auto-grants ownership when a
+  // userEmail is passed on that call (it wasn't, above), so fztest starts
+  // with zero owner rows. permissions.upsert's assertNotLastOwner guard
+  // (access-tab-spec.md §2.3) refuses any non-owner grant while that's true,
+  // regardless of the granted email's own prior state — a real owner has to
+  // exist first, same as it would for any real company.
+  await apiPost(baseUrl, 'permissions.upsert', CO, {
+    email: 'owner@' + CO, role: 'owner',
+  }, 'fz-owner');
   // Grant an agent role so partner.propose (role 'agent') can run with a
-  // populated created_by. permissions.save requires role 'owner', but the
-  // permission gate is skipped when no userEmail is asserted on the request.
-  await apiPost(baseUrl, 'permissions.save', CO, {
-    permissions: [{ email: AGENT, role: 'agent' }],
+  // populated created_by. The permission gate itself is still skipped when
+  // no userEmail is asserted on the request — this grant just needs to not
+  // trip the last-owner guard above.
+  await apiPost(baseUrl, 'permissions.upsert', CO, {
+    email: AGENT, role: 'agent',
   }, 'fz-perms');
 }
 

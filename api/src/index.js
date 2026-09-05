@@ -416,77 +416,6 @@ async function handleCoa(ctx, action) {
   // (reports.js handleAccounts), which is the payload the settings.js FB.list
   // grid actually consumes.
 
-  if (action === 'coa.save') {
-    let { accounts } = body;
-    if (!accounts || !Array.isArray(accounts)) throw Object.assign(new Error('accounts array required'), { code: 'INVALID_INPUT' });
-
-    accounts = accounts.filter((a) => a.account_code && String(a.account_code).trim() !== '');
-    if (accounts.length === 0) throw Object.assign(new Error('No valid accounts found'), { code: 'INVALID_INPUT' });
-
-    const codes = accounts.map((a) => String(a.account_code).trim());
-    const dupes = codes.filter((c, i) => codes.indexOf(c) !== i);
-    if (dupes.length > 0) throw Object.assign(new Error(`Duplicate account codes: ${dupes.join(', ')}`), { code: 'DUPLICATE_CODE' });
-
-    // Check accounts in use can't be removed
-    const usedAccounts = await query(
-      `SELECT DISTINCT account_code FROM journal_entries WHERE company_id = @companyId`,
-      { companyId }
-    );
-    const incomingCodes = new Set(codes);
-    const blocked = usedAccounts.filter((a) => !incomingCodes.has(a.account_code)).map((a) => a.account_code);
-    if (blocked.length > 0) throw Object.assign(new Error(`Cannot remove accounts with transactions: ${blocked.join(', ')}`), { code: 'REFERENTIAL_INTEGRITY' });
-
-    const now = new Date().toISOString();
-
-    // DuckDB: delete removed accounts, then upsert
-    const inCodes = codes.map((c) => `'${c.replace(/'/g, "''")}'`).join(',');
-    await exec(`DELETE FROM accounts WHERE company_id = @companyId AND account_code NOT IN (${inCodes})`, { companyId });
-
-    for (const a of accounts) {
-      const existing = await query(
-        `SELECT account_code FROM accounts WHERE company_id = @companyId AND account_code = @code LIMIT 1`,
-        { companyId, code: a.account_code }
-      );
-      if (existing.length > 0) {
-        await exec(
-          `UPDATE accounts SET account_name = @name, account_type = @type, account_subtype = @subtype,
-           cf_category = @cf, is_active = @active,
-           effective_from = @from, effective_to = @to, created_at = @now
-           WHERE company_id = @companyId AND account_code = @code`,
-          { companyId, code: a.account_code, name: a.account_name, type: a.account_type, subtype: a.account_subtype || null, cf: a.cf_category || null, active: a.is_active !== false, from: a.effective_from, to: a.effective_to || null, now }
-        );
-      } else {
-        await bulkInsert('accounts', [{
-          company_id: companyId,
-          account_code: a.account_code,
-          account_name: a.account_name,
-          account_type: a.account_type,
-          account_subtype: a.account_subtype || null,
-          cf_category: a.cf_category || null,
-          is_active: a.is_active !== false,
-          effective_from: a.effective_from,
-          effective_to: a.effective_to || null,
-          created_at: now,
-        }]);
-      }
-    }
-
-    return { saved: accounts.length };
-  }
-
-  if (action === 'coa.update') {
-    const { accounts } = body;
-    if (!accounts || !Array.isArray(accounts)) throw Object.assign(new Error('accounts array required'), { code: 'INVALID_INPUT' });
-    for (const a of accounts) {
-      if (!a.account_code) continue;
-      await exec(
-        `UPDATE accounts SET account_name = @name, account_subtype = @subtype, cf_category = @cf, is_active = @active WHERE company_id = @companyId AND account_code = @code`,
-        { companyId, code: a.account_code, name: a.account_name, subtype: a.account_subtype || null, cf: a.cf_category || null, active: a.is_active !== false }
-      );
-    }
-    return { saved: accounts.length };
-  }
-
   if (action === 'coa.upsert') {
     const { account } = body;
     if (!account || !account.account_code || !account.account_name || !account.account_type) throw Object.assign(new Error('account_code, account_name, account_type required'), { code: 'INVALID_INPUT' });
@@ -1150,55 +1079,6 @@ async function handleCenter(ctx, action) {
     );
   }
 
-  if (action === 'center.save') {
-    const { centers } = body;
-    if (!centers || !Array.isArray(centers)) throw Object.assign(new Error('centers array required'), { code: 'INVALID_INPUT' });
-
-    // Validate each center before the DELETE+INSERT so an invalid row
-    // doesn't wipe the table and leave nothing.
-    const derivationEnabled = await isDerivationEnabled(companyId);
-    // Build a set of Profit center_ids from the incoming batch so a Cost
-    // center can reference a Profit center being saved in the same batch.
-    const batchProfitIds = new Set(
-      centers.filter(c => c.center_type === 'Profit').map(c => c.center_id)
-    );
-    for (const c of centers) {
-      if (!['Cost', 'Profit'].includes(c.center_type)) {
-        throw Object.assign(new Error(`center_type must be 'Cost' or 'Profit' (got '${c.center_type}' for ${c.center_id})`), { code: 'INVALID_INPUT' });
-      }
-      if (c.center_type === 'Cost') {
-        if (c.profit_center_id) {
-          // Check the incoming batch first, then the DB.
-          if (!batchProfitIds.has(c.profit_center_id)) {
-            const [target] = await query(
-              `SELECT center_type FROM centers WHERE company_id = @companyId AND center_id = @profitCenterId`,
-              { companyId, profitCenterId: c.profit_center_id }
-            );
-            if (!target || target.center_type !== 'Profit') {
-              throw Object.assign(new Error(`${c.profit_center_id} is not a valid profit center`), { code: 'INVALID_INPUT' });
-            }
-          }
-        } else if (derivationEnabled) {
-          throw Object.assign(new Error(`Cost center ${c.center_id} requires a profit_center_id`), { code: 'INVALID_INPUT' });
-        }
-      } else if (c.profit_center_id) {
-        throw Object.assign(new Error(`Profit centers must not set profit_center_id`), { code: 'INVALID_INPUT' });
-      }
-    }
-
-    await exec(`DELETE FROM centers WHERE company_id = @companyId`, { companyId });
-    const rows = centers.map((c) => ({
-      company_id: companyId,
-      center_id: c.center_id,
-      center_type: c.center_type,
-      name: c.name,
-      profit_center_id: c.profit_center_id || null,
-      is_active: c.is_active !== false
-    }));
-    if (rows.length > 0) await bulkInsert('centers', rows);
-    return { saved: rows.length };
-  }
-
   if (action === 'center.upsert') {
     const { center } = body;
     if (!center || !center.center_id) throw Object.assign(new Error('center_id required'), { code: 'INVALID_INPUT' });
@@ -1307,27 +1187,6 @@ async function handleSettings(ctx, action) {
        WHERE rn = 1 ORDER BY company_id`
     );
     return rows.map((r) => ({ ...r, base_currency: r.currency, vat_registered: !!r.vat_registered, tax_id: r.tax_id || '' }));
-  }
-
-  if (action === 'company.save') {
-    const { companies } = body;
-    if (!companies || !Array.isArray(companies) || companies.length === 0) throw Object.assign(new Error('companies array required'), { code: 'INVALID_INPUT' });
-    const now = new Date().toISOString();
-    const rows = companies.filter((c) => c.company_id && c.company_name).map((c) => ({
-      company_id: String(c.company_id).trim(),
-      company_name: String(c.company_name).trim(),
-      jurisdiction: String(c.jurisdiction || 'SG').trim(),
-      currency: String(c.base_currency || c.currency || 'SGD').trim(),
-      reporting_standard: String(c.reporting_standard || 'IFRS').trim(),
-      accounting_method: String(c.accounting_method || 'accrual').trim(),
-      vat_registered: c.vat_registered === true || String(c.vat_registered || '').toUpperCase() === 'TRUE',
-      tax_id: String(c.tax_id || '').trim() || null,
-      fy_start: c.fy_start || '2025-01-01',
-      fy_end: c.fy_end || '2025-12-31',
-      created_at: now,
-    }));
-    if (rows.length > 0) await bulkInsert('companies', rows);
-    return { saved: rows.length };
   }
 
   // ── Company attribute grid (settings-ux-spec §7 item 1 rev. 3) ──────────
@@ -1563,6 +1422,12 @@ async function handleSettings(ctx, action) {
       case 'multi_currency':
         await putSetting(companyId, 'fx_tracking', (value === true || value === 'true') ? 'true' : 'false');
         triggerFxScan = (value === true || value === 'true');
+        break;
+      case 'center_derivation_enabled':
+        // Cost/Profit Center rollout gate (cost-profit-center-spec.md §2/§7)
+        // — no UI toggle yet (no company has any centers configured today),
+        // but a real owner-only action path, not settings.save-only.
+        await putSetting(companyId, 'center_derivation_enabled', (value === true || value === 'true') ? 'true' : 'false');
         break;
       case 'fx_provider': {
         if (value !== MANUAL_PROVIDER && !providerExists(value)) throw invalid(`Unknown FX provider: ${value}`);
@@ -1835,21 +1700,6 @@ async function handleSettings(ctx, action) {
     return settings;
   }
 
-  if (action === 'settings.save') {
-    const { settings } = body;
-    if (!settings || typeof settings !== 'object') throw Object.assign(new Error('settings object required'), { code: 'INVALID_INPUT' });
-    const now = new Date().toISOString();
-    for (const [key, value] of Object.entries(settings)) {
-      const existing = await query(`SELECT key FROM settings WHERE company_id = @companyId AND key = @key LIMIT 1`, { companyId, key });
-      if (existing.length > 0) {
-        await exec(`UPDATE settings SET value = @value, updated_at = @now WHERE company_id = @companyId AND key = @key`, { companyId, key, value: String(value), now });
-      } else {
-        await bulkInsert('settings', [{ company_id: companyId, key, value: String(value), updated_at: now }]);
-      }
-    }
-    return { saved: Object.keys(settings).length };
-  }
-
   if (action === 'settings.ai.test') {
     const { endpoint_url, api_key, model } = body;
     if (!endpoint_url) throw Object.assign(new Error('endpoint_url required'), { code: 'INVALID_INPUT' });
@@ -1898,16 +1748,6 @@ async function handlePermissions(ctx, action) {
 
   if (action === 'permissions.list') {
     return query(`SELECT * FROM user_permissions WHERE company_id = @companyId OR company_id = '*' ORDER BY email`, { companyId });
-  }
-
-  if (action === 'permissions.save') {
-    const { permissions } = body;
-    if (!permissions || !Array.isArray(permissions)) throw Object.assign(new Error('permissions array required'), { code: 'INVALID_INPUT' });
-    await exec(`DELETE FROM user_permissions WHERE company_id = @companyId`, { companyId });
-    const now = new Date().toISOString();
-    const rows = permissions.map((p) => ({ email: p.email, company_id: companyId, role: p.role, granted_at: now, granted_by: userEmail }));
-    if (rows.length > 0) await bulkInsert('user_permissions', rows);
-    return { saved: rows.length };
   }
 
   if (action === 'permissions.upsert') {

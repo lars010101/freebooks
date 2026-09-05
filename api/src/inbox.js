@@ -10,11 +10,16 @@
  * channel).
  *
  * v1 fans out to journal_proposals (Class A — pre-ledger approvals; §10.2).
- * v2 adds Class B bill-due items: posted/partial bills with outstanding
- * balance, due or overdue for payment (§10.2, §10.7 item 4). Each module
- * stays the source of truth; the verbs are the existing actions
+ * Each module stays the source of truth; the verbs are the existing actions
  * (journal.approve, journal.reject, …) called against `payload_ref`.
  * No new write surface — R2/R6 enforcement is unchanged.
+ *
+ * bill-due and reconciliation-alert items (formerly Class B statuses
+ * 'bills'/'reconciliation' here) moved OUT to bills-due-scanner.js /
+ * reconciliation-scanner.js → the notifications bell. Neither carried an
+ * in-place decision — their only verb navigated away — so they belong with
+ * the bell's other "go look at this" alerts (fx-gap, reminders), not in a
+ * decide-here approval queue.
  */
 
 const { queryProposals } = require('./journal');
@@ -44,13 +49,6 @@ async function listInbox(ctx) {
   const status = body.status && String(body.status).trim() !== '' ? String(body.status).trim() : 'proposed';
   const rawLimit = Number(body.limit);
   const limit = (Number.isFinite(rawLimit) && rawLimit > 0) ? Math.min(Math.floor(rawLimit), 1000) : 100;
-
-  // Class B — bills due/overdue (§10.7 item 4). status='bills' is a filter
-  // view, not the default (§10.2: "Class B is a filter/section, not the
-  // default — payment and matching work must not drown approvals").
-  if (status === 'bills') {
-    return { items: await queryBillsDue(companyId, limit) };
-  }
 
   // Class B — mapping_suggestions proposed by the agent (bank-matching-spec
   // §10.2). status='suggestions' is a filter view of proposed mapping rules
@@ -82,15 +80,6 @@ async function listInbox(ctx) {
   // that have not yet been closed. Returns ONLY unclosed period items.
   if (status === 'unclosed') {
     return { items: await queryPeriodUnclosed(companyId, limit) };
-  }
-
-  // Class B — reconciliation alerts (#138): cash accounts with entries
-  // uncleared for more than 30 days. status='reconciliation' is a filter
-  // view, same shape as 'bills'/'orphans' (§10.2: Class B is a filter, not
-  // the default). journal_entries/reconciliations ARE the source of truth
-  // (R8) — nothing persisted for the alert itself, recomputed live.
-  if (status === 'reconciliation') {
-    return { items: await queryReconciliationAlerts(companyId, limit) };
   }
 
   // Class B — orphaned files (calendar-reminders-documents-spec.md §5.5):
@@ -204,109 +193,6 @@ async function queryOrphanedFiles(companyId, limit) {
       reference: row.path,
       description: 'File found on disk with no matching document record',
       created_by: '',
-    };
-  });
-}
-
-/**
- * queryReconciliationAlerts — Class B reconciliation-alert items (#138).
- * One item per Cash-category account holding uncleared batches whose date
- * is more than 30 days old — reuses bank.js's listAllUncleared join shape
- * (journal_entries LEFT JOIN reconciliations, Cash accounts, no cleared_at)
- * with an age filter, grouped by account: the alert is "go reconcile this
- * account," not one row per stale line. Sorted oldest-first.
- *
- * Item shape: { type:'reconciliation_alert', source:'system', amount:null,
- * date:oldest uncleared date, summary:'N uncleared entries in <code> — <name>
- * older than 30 days', verbs:['open'], payload_ref:account_code,
- * status:'stale', reference:account_code, description, created_by:'system' }.
- */
-async function queryReconciliationAlerts(companyId, limit) {
-  const rows = await query(
-    `SELECT a.account_code, a.account_name,
-            COUNT(DISTINCT je.batch_id) AS stale_count,
-            MIN(je.date) AS oldest_date
-     FROM journal_entries je
-     JOIN accounts a ON a.account_code = je.account_code AND a.company_id = je.company_id
-     LEFT JOIN reconciliations r
-       ON r.company_id = je.company_id AND r.batch_id = je.batch_id AND r.account_code = je.account_code
-     WHERE je.company_id = @companyId AND a.cf_category = 'Cash' AND r.batch_id IS NULL
-       AND CAST(je.date AS DATE) < CAST(CURRENT_DATE AS DATE) - INTERVAL '30 days'
-     GROUP BY a.account_code, a.account_name
-     ORDER BY oldest_date ASC
-     LIMIT @lim`,
-    { companyId, lim: limit }
-  );
-
-  const today = new Date().toISOString().slice(0, 10);
-  return rows.map(function (row) {
-    const oldestStr = String(row.oldest_date).slice(0, 10);
-    const daysPast = Math.floor((new Date(today) - new Date(oldestStr)) / (1000 * 60 * 60 * 24));
-    const count = Number(row.stale_count);
-    return {
-      type: 'reconciliation_alert',
-      source: 'system',
-      counterparty: null,
-      amount: null,
-      date: row.oldest_date,
-      proposed_at: null,
-      summary: count + ' uncleared entr' + (count === 1 ? 'y' : 'ies') + ' in ' + row.account_code + ' — ' + (row.account_name || '') + ' older than 30 days',
-      verbs: ['open'],
-      payload_ref: row.account_code,
-      status: 'stale',
-      reference: row.account_code,
-      description: 'Oldest uncleared: ' + oldestStr + ' (' + daysPast + ' days)',
-      created_by: 'system',
-    };
-  });
-}
-
-/**
- * queryBillsDue — Class B bill-due items (§10.7 item 4). Posted/partial
- * bills with outstanding balance (amount_paid < amount), sorted by
- * due_date ASC (oldest/most-overdue first). Normalized to the inbox item
- * shape. The bill's own row IS the source of truth (R8); no staging.
- *
- * Item shape: { type:'bill_due', source:'system', counterparty:partner_name,
- * amount:outstanding, date:due_date, proposed_at:created_at, summary,
- * verbs:['open'], payload_ref:bill_id, status:'overdue'|'due',
- * reference:vendor_ref, description, created_by, currency }.
- *
- * `status` is 'overdue' when due_date < today, 'due' otherwise.
- */
-async function queryBillsDue(companyId, limit) {
-  var rows = await query(
-    `SELECT bill_id, partner_name, vendor_ref, date, due_date, amount,
-            amount_paid, currency, status, description, created_by, created_at
-     FROM bills
-     WHERE company_id = @companyId
-       AND status IN ('posted', 'partial')
-       AND amount_paid < amount
-     ORDER BY due_date ASC, created_at ASC
-     LIMIT @lim`,
-    { companyId: companyId, lim: limit }
-  );
-
-  var today = new Date().toISOString().substring(0, 10);
-
-  return rows.map(function (row) {
-    var outstanding = Number(row.amount) - Number(row.amount_paid || 0);
-    var overdue = String(row.due_date).substring(0, 10) < today;
-    return {
-      type: 'bill_due',
-      source: 'system',
-      counterparty: row.partner_name,
-      amount: outstanding,
-      date: row.due_date,
-      proposed_at: row.created_at,
-      summary: row.partner_name + (row.vendor_ref ? ' ' + row.vendor_ref : ''),
-      verbs: ['open'],
-      payload_ref: row.bill_id,
-      status: overdue ? 'overdue' : 'due',
-      reference: row.vendor_ref || '',
-      description: row.description || '',
-      created_by: row.created_by || '',
-      currency: row.currency || '',
     };
   });
 }

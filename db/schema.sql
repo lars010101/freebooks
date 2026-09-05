@@ -857,6 +857,11 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_company_unread
   ON notifications(company_id, read_at);
+-- link_url (inbox Class B reframe): optional click-through target for
+-- "go look at this" alerts (bill-due -> the bill's read-only detail page,
+-- reconciliation-alert -> the Bank Reconciliation tab). NULL for alerts
+-- with no natural destination (e.g. fx-gap).
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link_url VARCHAR;
 
 -- =============================================================================
 -- MIGRATION (P2-3): backfill bill_lines for existing posted/partial/paid/void

@@ -2446,7 +2446,8 @@
           html += '<h4>Notifications <a id="tb-notif-markall">Mark all read</a></h4>';
           items.forEach(function (n) {
             var ts = n.created_at ? String(n.created_at).slice(0, 16).replace('T', ' ') : '';
-            html += '<div class="tb-notif-item" data-id="' + esc(n.id) + '">'
+            html += '<div class="tb-notif-item" data-id="' + esc(n.id) + '"'
+              + (n.link_url ? ' data-link="' + esc(n.link_url) + '"' : '') + '>'
               + '<div class="notif-kind">' + esc(n.kind || '') + '</div>'
               + '<div class="notif-msg">' + esc(n.message || '') + '</div>'
               + '<div class="notif-time">' + esc(ts) + '</div>'
@@ -2460,13 +2461,19 @@
               body: JSON.stringify({ action: 'notifications.mark_read', companyId: company, all: true }) })
               .then(function () { _refreshNotifBadge(); _toggleNotifDropdown(); });
           };
-          // Wire per-item click → mark read
+          // Wire per-item click → mark read, then navigate if the item carries
+          // a link_url ("go look at this" alerts — bill-due, reconciliation).
           dd.querySelectorAll('.tb-notif-item').forEach(function (item) {
             item.onclick = function () {
               var id = item.dataset.id;
+              var link = item.dataset.link;
               fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'notifications.mark_read', companyId: company, ids: [id] }) })
-                .then(function () { _refreshNotifBadge(); item.style.opacity = '0.4'; });
+                .then(function () {
+                  _refreshNotifBadge();
+                  if (link) { dd.hidden = true; window.fbNavigate(link); }
+                  else { item.style.opacity = '0.4'; }
+                });
             };
           });
         }

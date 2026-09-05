@@ -2033,6 +2033,15 @@ ensureDb().then(async () => {
   const { startAttachmentIntegrityScanner } = require('./attachment-integrity-scanner');
   startAttachmentIntegrityScanner();
 
+  // ── Inbox Class B reframe: bills-due and reconciliation alerts move from
+  // the Inbox's filter cycle into the notifications bell — neither carries
+  // an in-place decision, only a "go look" verb, which is what the bell is
+  // for. Fourth and fifth producers into the same table. Timers unref'd.
+  const { startBillsDueScanner } = require('./bills-due-scanner');
+  startBillsDueScanner();
+  const { startReconciliationScanner } = require('./reconciliation-scanner');
+  startReconciliationScanner();
+
   // ── B9: in-process agent pipeline boot ─────────────────────────────────
   // Build a dispatchAction function that replicates the HTTP dispatch logic
   // but calls handlers directly in-process (no HTTP, no tokens). The agent

@@ -30,7 +30,7 @@ async function handleNotifications(ctx, action) {
 async function listNotifications(ctx) {
   const { companyId, body } = ctx;
   const all = body && body.all === true;
-  let sql = `SELECT id, company_id, created_at, kind, message, issue_key, read_at
+  let sql = `SELECT id, company_id, created_at, kind, message, issue_key, link_url, read_at
              FROM notifications WHERE company_id = @companyId`;
   const params = { companyId };
   if (!all) {
@@ -44,6 +44,7 @@ async function listNotifications(ctx) {
       kind: r.kind,
       message: r.message,
       issue_key: r.issue_key,
+      link_url: r.link_url,
       created_at: r.created_at,
       read_at: r.read_at,
     })),
@@ -83,8 +84,10 @@ async function markRead(ctx) {
 /**
  * Raise a notification (internal — called by the scanner).
  * Dedupe: if an unread notification with the same issue_key exists, skip.
+ * linkUrl (optional) is a click-through destination for "go look at this"
+ * alerts (e.g. a bill's detail page); NULL for alerts with no natural target.
  */
-async function raiseNotification(companyId, kind, message, issueKey) {
+async function raiseNotification(companyId, kind, message, issueKey, linkUrl) {
   if (issueKey) {
     const existing = await query(
       `SELECT id FROM notifications WHERE company_id = @companyId AND issue_key = @issueKey AND read_at IS NULL LIMIT 1`,
@@ -99,6 +102,7 @@ async function raiseNotification(companyId, kind, message, issueKey) {
     kind,
     message,
     issue_key: issueKey || null,
+    link_url: linkUrl || null,
     read_at: null,
   }]);
   return true;

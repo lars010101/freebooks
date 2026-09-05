@@ -226,12 +226,6 @@ CREATE TABLE IF NOT EXISTS bills (
   created_at      TIMESTAMP      NOT NULL DEFAULT NOW()
 );
 
--- MIGRATION: bill_payments → payments rename, in prep for two-way (AP+AR)
--- payments (two-way-payments-prep). Errors harmlessly on a fresh DB (table
--- doesn't exist yet) or an already-migrated DB (already renamed) —
--- boot-apply's per-statement try/catch (db.js) handles both.
-ALTER TABLE bill_payments RENAME TO payments;
-
 -- =============================================================================
 -- payments — unified AP+AR subledger (was bill_payments; renamed in prep for
 -- two-way payments). Only direction = 'out' is populated until AR/invoicing

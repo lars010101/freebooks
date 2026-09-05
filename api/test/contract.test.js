@@ -1172,6 +1172,63 @@ test('fx_match_band_pct is a Settings → Extensions attribute and actually chan
   assert.equal(after.body.data.matched, false, 'the same 10% drift no longer matches once the band is tightened to 5%');
 });
 
+test('bank.match §4.1: two equally-plausible home-currency bills → ambiguous, no match (candidate cardinality, issue #133)', async () => {
+  const CO_BM = 'CBM7';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+
+  // Same amount, different vendors, neither corroborated by the bank
+  // description — both bills' early_payment_discount band (1.5% below
+  // 900.00) covers this line equally. Genuinely ambiguous which bill this
+  // payment is for; corroboration only boosts confidence on this path, it
+  // doesn't gate, so the ambiguity must be caught before either bill is
+  // returned.
+  const c1 = await api(baseUrl, 'bill.create', { companyId: CO_BM, bill: bmBill(seeded.AP, seeded.EXP, { partner_name: 'Vendor Alpha Pte Ltd', vendor_ref: 'HA-1', amount: 900, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 900, vat_code: '' }] }) });
+  const c2 = await api(baseUrl, 'bill.create', { companyId: CO_BM, bill: bmBill(seeded.AP, seeded.EXP, { partner_name: 'Vendor Beta Pte Ltd', vendor_ref: 'HB-1', amount: 900, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 900, vat_code: '' }] }) });
+  assert.equal(c1.status, 200, JSON.stringify(c1.body));
+  assert.equal(c2.status, 200, JSON.stringify(c2.body));
+
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO_BM, bankAccount: '1020',
+    line: { date: TD.day21, amount: -886.50, description: 'MISC PAYMENT' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.matched, false, 'two bills both fit the same tolerance band — falls through rather than guessing');
+});
+
+test('bill_match_tolerance_pct is a Settings → Extensions attribute and actually changes match classification (issue #133)', async () => {
+  const CO_BM = 'CBM8';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+
+  const list = await api(baseUrl, 'posting_rules.attr.list', { companyId: CO_BM });
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  const row = list.body.data.find((r) => r.key === 'bill_match_tolerance_pct');
+  assert.ok(row, 'bill_match_tolerance_pct row present in Settings → Extensions');
+  assert.equal(row.display, '2.00%', 'defaults to 2%');
+
+  const c = await api(baseUrl, 'bill.create', { companyId: CO_BM, bill: bmBill(seeded.AP, seeded.EXP, { vendor_ref: 'TOL-1', amount: 2000, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: 2000, vat_code: '' }] }) });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+
+  // delta 60 on outstanding 2000 → pct 3%: outside the default 2% early-
+  // payment-discount band and outside the flat 5-50 bank_fee_netted band
+  // (60 > 50) → falls to partial_payment (0.50). Uncorroborated description.
+  const line = { date: TD.day21, amount: -1940.00, description: 'MISC WIRE TRANSFER' };
+  const before = await api(baseUrl, 'bank.match', { companyId: CO_BM, bankAccount: '1020', line });
+  assert.equal(before.status, 200, JSON.stringify(before.body));
+  assert.equal(before.body.data.matched, true);
+  assert.equal(before.body.data.evidence[0].discrepancy_type, 'partial_payment', 'a 3% shortfall is outside the default 2% tolerance');
+  assert.ok(Math.abs(before.body.data.confidence.account.confidence - 0.50) < 0.001);
+
+  const save = await api(baseUrl, 'posting_rules.attr.save', { companyId: CO_BM, key: 'bill_match_tolerance_pct', value: 5 });
+  assert.equal(save.status, 200, JSON.stringify(save.body));
+
+  const after = await api(baseUrl, 'bank.match', { companyId: CO_BM, bankAccount: '1020', line });
+  assert.equal(after.status, 200, JSON.stringify(after.body));
+  assert.equal(after.body.data.evidence[0].discrepancy_type, 'early_payment_discount', 'the same 3% shortfall now fits once the tolerance is widened to 5%');
+  assert.ok(Math.abs(after.body.data.confidence.account.confidence - 0.85) < 0.001);
+});
+
 // ── A1: agent actor model (§2) ──────────────────────────────────────────────
 
 test('A1 guard matrix: agent FORBIDDEN on every mutating catalog action', async () => {

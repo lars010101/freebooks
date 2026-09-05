@@ -231,7 +231,8 @@ async function toggleSettlement(ctx) {
   return { proposalId, billId, mode: newMode };
 }
 
-function matchOpenItem(openBills, amount, description, homeCurrency, lineDate, fxBandPct) {
+function matchOpenItem(openBills, amount, description, homeCurrency, lineDate, fxBandPct, billMatchTolerancePct) {
+  const tolerancePct = billMatchTolerancePct != null && !isNaN(billMatchTolerancePct) ? billMatchTolerancePct : 0.02;
   if (!Array.isArray(openBills) || openBills.length === 0) return null;
   const desc = (description || '').toUpperCase();
   const absAmount = Math.abs(amount);
@@ -261,6 +262,13 @@ function matchOpenItem(openBills, amount, description, homeCurrency, lineDate, f
   // 2) Tolerance matches — classify the discrepancy (§4.1). Home-currency
   // bills only — foreign bills are handled separately in step 2b (§4.4),
   // which needs a currency-consistent band, not this generic tolerance math.
+  // Candidate cardinality (§4's 2026-09-01 amendment, generalized to this
+  // path by issue #133): gather every bill that satisfies some tolerance
+  // band rather than returning the first hit in due_date order — a
+  // same-amount coincidence against the wrong bill is a real risk once more
+  // than one bill qualifies, so an ambiguous case falls through (to 1:N,
+  // then tier 4) instead of silently picking whichever sorted first.
+  const toleranceMatches = [];
   for (const bill of openBills) {
     if (isForeign(bill)) continue;
     const outstanding = Number(bill.outstanding);
@@ -275,7 +283,10 @@ function matchOpenItem(openBills, amount, description, homeCurrency, lineDate, f
     const pct = delta / outstanding;
     let discrepancy_type = null;
     let confidence = 0.70;
-    if (pct >= 0.01 && pct <= 0.02) {
+    // Upper bound is the configurable bill_match_tolerance_pct (Settings →
+    // Extensions, issue #133); lower bound stays a fixed 1% — the
+    // commercial-terms anchor for "early payment discount" (e.g. 2/10 net 30).
+    if (pct >= 0.01 && pct <= tolerancePct) {
       discrepancy_type = 'early_payment_discount';
       confidence = 0.85;
     } else if (absDelta >= 5 && absDelta <= 50) {
@@ -293,8 +304,12 @@ function matchOpenItem(openBills, amount, description, homeCurrency, lineDate, f
     const corrType = corroborate(desc, partner, ref);
     if (corrType) confidence = Math.min(1.0, confidence + 0.10);
 
-    return { bill, discrepancy_type, delta, confidence };
+    toleranceMatches.push({ bill, discrepancy_type, delta, confidence });
   }
+  if (toleranceMatches.length === 1) return toleranceMatches[0];
+  // 0 candidates (nothing in band) or >1 (more than one open bill fits some
+  // tolerance band — genuinely ambiguous which one this is) — fall through
+  // rather than guess, same discipline as the FX path below.
 
   // 2b) Foreign-currency bills — bounded band anchored on the bill's own
   // booking rate (bank-matching-spec §4.4), not the generic tolerance math
@@ -516,6 +531,15 @@ async function matchLine(ctx) {
   );
   const fxBandParsed = fxBandRows.length ? parseFloat(fxBandRows[0].value) : NaN;
   const fxBandPct = isNaN(fxBandParsed) ? 0.15 : fxBandParsed;
+  // bank-matching-spec.md §4.1 (issue #133): bill_match_tolerance_pct, same
+  // Settings → Extensions convention. Falls back to 0.02 (2%) for companies
+  // that predate the setting.
+  const billToleranceRows = await query(
+    `SELECT value FROM settings WHERE company_id = @companyId AND key = 'bill_match_tolerance_pct'`,
+    { companyId }
+  );
+  const billToleranceParsed = billToleranceRows.length ? parseFloat(billToleranceRows[0].value) : NaN;
+  const billMatchTolerancePct = isNaN(billToleranceParsed) ? 0.02 : billToleranceParsed;
 
   if (accountingMethod !== 'cash') {
     const openBills = await query(
@@ -526,7 +550,7 @@ async function matchLine(ctx) {
        ORDER BY due_date`,
       { companyId }
     );
-    const m = matchOpenItem(openBills, line.amount, line.description, homeCurrency, line.date, fxBandPct);
+    const m = matchOpenItem(openBills, line.amount, line.description, homeCurrency, line.date, fxBandPct, billMatchTolerancePct);
     if (m) {
       const isInflow = Number(line.amount) > 0;
       const amount = Math.abs(Number(line.amount));

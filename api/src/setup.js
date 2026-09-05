@@ -198,6 +198,10 @@ async function addCompany(ctx) {
     // amount may drift from a foreign bill's booked rate before Tier 2
     // still considers it. Default 15%.
     { company_id: company.company_id, key: 'fx_match_band_pct', value: '0.15', updated_at: now },
+    // Home-currency bank-match tolerance (bank-matching-spec.md §4.1, issue
+    // #133): upper bound of the early_payment_discount band (lower bound
+    // stays a fixed 1%, the commercial-terms anchor). Default 2%.
+    { company_id: company.company_id, key: 'bill_match_tolerance_pct', value: '0.02', updated_at: now },
     // Center derivation rollout gate (spec §2/§7). Seeded false — owner flips
     // to 'true' via settings.save when ready (after backfilling profit_center_id).
     { company_id: company.company_id, key: 'center_derivation_enabled', value: 'false', updated_at: now },

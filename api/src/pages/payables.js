@@ -511,6 +511,9 @@ function loadReportIframe(containerId, url) {
   // reports-hub.js's fix.
   frame.onload = function() {
     try {
+      // Isolated iframe, own independent FB instance (see the comment above)
+      // — without this, every FB binding inside it appears dead to the human.
+      if (window.FB && FB.util && FB.util.forwardIframeKeys) FB.util.forwardIframeKeys(frame);
       var doc = frame.contentWindow.document;
       function resize() {
         var h = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);

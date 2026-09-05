@@ -273,7 +273,17 @@ ${layoutEnd()}
     container.innerHTML = '<iframe id="rpt-iframe" src="' + url.replace(/"/g, '&quot;')
       + '" style="border:none;width:100%;' + fixedHeightCss
       + 'display:block;background:#fff"></iframe>';
-    if (fixed) return; // fixed height + the report's own internal scroll — no resize logic needed
+    var frame = document.getElementById('rpt-iframe');
+    if (fixed) {
+      // Fixed height + the report's own internal scroll — no resize logic
+      // needed, but it's still an isolated iframe with its own independent
+      // FB instance (see the module comment above): without this, every FB
+      // binding inside it appears dead to the human.
+      frame.onload = function () {
+        if (window.FB && FB.util && FB.util.forwardIframeKeys) FB.util.forwardIframeKeys(frame);
+      };
+      return;
+    }
     // Auto-grow to content height so the report just prints downward inside
     // the host page's own scroll — no second, nested scrollbar inside a
     // height-clamped iframe cutting content off. A ResizeObserver (not a
@@ -282,9 +292,9 @@ ${layoutEnd()}
     // that resolves well after the load event fires — a single load-time
     // measurement captures the still-empty shell's height, which is exactly
     // what produced the "still cut off" report despite the earlier fix.
-    var frame = document.getElementById('rpt-iframe');
     frame.onload = function() {
       try {
+        if (window.FB && FB.util && FB.util.forwardIframeKeys) FB.util.forwardIframeKeys(frame);
         var doc = frame.contentWindow.document;
         function resize() {
           var h = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);

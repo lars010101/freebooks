@@ -219,4 +219,4 @@ async function seedCompany(baseUrl, companyId, { jurisdiction = 'SG', currency =
   return { AP: ap && ap.account_code, EXP: exp && exp.account_code, accounts };
 }
 
-module.exports = { startTestServer, api, sql, seedCompany, testDates };
+module.exports = { startTestServer, api, sql, seedCompany, testDates, runInit };

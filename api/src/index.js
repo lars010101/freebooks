@@ -347,6 +347,7 @@ async function handleApiRequest(req, res) {
       case 'sie':         result = await handleSie(ctx, action); break;
       case 'notifications': result = await handleNotifications(ctx, action); break;
       case 'agent':       result = await handleAgent(ctx, action); break;
+      case 'chat':        result = await require('./chat').handleChat(ctx, action); break;
       default:
         return fail(res, 'INVALID_INPUT', `Unknown module: ${module}`);
     }
@@ -1995,6 +1996,18 @@ ensureDb().then(async () => {
     runAttachmentGC().catch((e) => console.error('Scheduled attachment GC failed:', e.message));
   }, 24 * 60 * 60 * 1000);
   gcTimer.unref();
+
+  // chat-with-ai-spec.md §2b/§7.4: sweep abandoned chat_pending_turns rows
+  // (a turn parked on an unresolved permission decision that the user never
+  // came back to). Metadata-only rows, short 2h TTL — same boot+interval
+  // shape as the attachment GC above, just a much shorter clock since
+  // nothing ledger-relevant is at stake.
+  const { gcPendingTurns } = require('./chat');
+  try { await gcPendingTurns(); } catch (e) { console.error('Boot chat-turn GC failed:', e.message); }
+  const chatGcTimer = setInterval(() => {
+    gcPendingTurns().catch((e) => console.error('Scheduled chat-turn GC failed:', e.message));
+  }, 60 * 60 * 1000);
+  chatGcTimer.unref();
 
   // ── fx-automation-spec §6: FX gap scanner ──────────────────────────────
   // On startup + every 6h (FREEBOOKS_FX_SCAN_MS). Short-circuits if no company

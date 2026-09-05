@@ -131,6 +131,10 @@ const ROUTES = [
   // registry decision, spec §4).
   { key: 'journal-voucher', route: '/:company/journal/voucher',   label: 'Journal Entry',   icon: null, sidebar: false, gKey: null, palette: false, absolute: false, dateRelevance: 'none' },
   { key: 'new-company',     route: '/setup/new-company',          label: 'New Company',     icon: null, sidebar: false, gKey: null, palette: false, absolute: true,  dateRelevance: 'none' },
+  // chat-with-ai-spec.md §1: utility surface reached via the topbar 💬 icon
+  // + search, not the sidebar — no sidebar slot free anyway (every letter
+  // g-key is claimed above).
+  { key: 'chat',            route: '/:company/chat',              label: 'Chat with AI',    icon: '💬', sidebar: false, gKey: null, palette: true,  absolute: false, dateRelevance: 'none' },
 ];
 
 module.exports = { ROUTES };

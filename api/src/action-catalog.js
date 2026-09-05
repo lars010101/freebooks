@@ -674,6 +674,44 @@ const ACTIONS = {
     role: 'viewer', mutating: false,
     description: 'Get agent pipeline status (running/stopped, feed watcher state).',
   },
+
+  // ── Chat with AI (docs/chat-with-ai-spec.md) ────────────────────────────
+  // None of these are agentWritable — this is a human-facing surface; the
+  // automated agent loop has its own separate tier-4 path and does not use
+  // chat. Role floor data_entry: read Q&A doesn't strictly need write
+  // access, but the propose side-effect does, and chat.send's role is what
+  // journal.propose/bill.draft.save rely on being satisfied when chat calls
+  // them in-process (spec §2 step 7) — do not lower this without also
+  // re-guarding executePropose in chat.js.
+  'chat.send': {
+    role: 'data_entry', mutating: true,
+    description: 'Send a chat message. May pause on chat_data_permissions (returns status:"pending_permission") before completing.',
+    params: { message: { type: 'string', required: true }, turnId: { type: 'string', required: true } },
+  },
+  'chat.permission.decide': {
+    role: 'data_entry', mutating: true,
+    description: 'Resolve one pending data-category permission for a chat turn; allow_always/deny_never persist for future turns.',
+    params: {
+      turnId: { type: 'string', required: true },
+      category: { type: 'string', required: true },
+      decision: { type: 'string', required: true },
+      aliased: { type: 'boolean' },
+    },
+  },
+  'chat.permissions.list': {
+    role: 'data_entry', mutating: false,
+    description: 'List current chat data-category permission decisions (the revoke/audit surface).',
+  },
+  'chat.permissions.revoke': {
+    role: 'data_entry', mutating: true,
+    description: 'Delete a standing chat data-category permission decision — the category prompts again next time it is needed.',
+    params: { category: { type: 'string', required: true } },
+  },
+  'chat.history.list': {
+    role: 'data_entry', mutating: false,
+    description: 'List chat conversation history for the company.',
+    params: { limit: { type: 'number' } },
+  },
   'company.list': { role: 'viewer', mutating: false, description: 'List companies.' },
   'company.save': {
     role: 'owner', mutating: true,

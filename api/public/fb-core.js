@@ -2485,6 +2485,42 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _wireNotifButton);
   else _wireNotifButton();
+
+  // ── chat-with-ai-spec.md §4: topbar chat icon + status dot ──────────────
+  // Click navigates to the chat page. The dot is computed once per app-shell
+  // load and re-checked every 5 minutes while the tab stays open — this is
+  // a genuinely new polling pattern in the shell (nothing else here runs on
+  // an interval; the spec flags this explicitly rather than implying it
+  // hooks into something that already existed).
+  function _refreshChatDot() {
+    var dot = document.getElementById('tb-chat-dot');
+    var company = document.getElementById('app-shell') && document.getElementById('app-shell').dataset.company;
+    if (!dot || !company) return;
+    Promise.all([
+      fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'agent.status', companyId: company }) }).then(function (r) { return r.json(); }).catch(function () { return null; }),
+      fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ai.test_connection', companyId: company }) }).then(function (r) { return r.json(); }).catch(function () { return null; })
+    ]).then(function (results) {
+      var agentRunning = !!(results[0] && results[0].data && results[0].data.running);
+      var llmOk = !!(results[1] && results[1].data && results[1].data.ok);
+      dot.hidden = false;
+      dot.className = 'tb-chat-dot ' + (!agentRunning ? 'off' : (llmOk ? 'ok' : 'warn'));
+    });
+  }
+  function _wireChatButton() {
+    var chatBtn = document.getElementById('tb-chat-btn');
+    if (chatBtn) chatBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      var company = document.getElementById('app-shell') && document.getElementById('app-shell').dataset.company;
+      if (company && window.fbNavigate) window.fbNavigate('/' + company + '/chat');
+    });
+    _refreshChatDot();
+    var chatDotTimer = setInterval(_refreshChatDot, 5 * 60 * 1000);
+    if (chatDotTimer.unref) chatDotTimer.unref();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _wireChatButton);
+  else _wireChatButton();
   // Close dropdown on outside click
   document.addEventListener('click', function (e) {
     var dd = document.getElementById('tb-notif-dropdown');

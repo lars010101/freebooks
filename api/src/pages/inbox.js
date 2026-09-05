@@ -100,6 +100,7 @@ ${commonStyle()}
   #inbox-upload-panel.open { display:block; }
   #inbox-upload-panel select, #inbox-upload-panel input { padding:4px 8px; border:1px solid #ddd; border-radius:3px; font-size:10pt; margin-right:8px; }
   .header { display:flex; justify-content:space-between; align-items:flex-start; }
+  #inbox-agent-status { font-size:0.8rem; color:#666; cursor:pointer; user-select:none; margin:2px 0 10px; }
 </style>
 </head>
 <body>${navBar(company, 'inbox')}
@@ -111,6 +112,8 @@ ${commonStyle()}
     </div>
     <a class="chip" data-act="inbox-upload-toggle">+ Upload document</a>
   </div>
+
+  <div id="inbox-agent-status" onclick="loadAgentStatus()">Checking agent status…</div>
 
   <div id="inbox-upload-panel">
     <select id="inbox-upload-type">
@@ -218,6 +221,26 @@ document.addEventListener('click', function (e) {
   };
   reader.readAsDataURL(file);
 });
+
+// Agent-loop / feed-watcher pipeline status (moved here from Chat with AI —
+// this is the queue those two processes feed, not a chat concern). Reads
+// agent.status's actual response shape ({running, feedWatcher:{running}}) —
+// mirrors fb-core.js's topbar chat-dot check, not the mismatched field names
+// chat.js's own status strip used to read.
+function fmtAgentStatus(d) {
+  if (!d) return 'Agent status unavailable';
+  var parts = ['Agent: ' + (d.running ? 'Running' : 'Stopped')];
+  if (d.feedWatcher) parts.push('Feed watcher: ' + (d.feedWatcher.running ? 'Running' : 'Stopped'));
+  return parts.join(' \\u00b7 ');
+}
+function loadAgentStatus() {
+  var el = document.getElementById('inbox-agent-status');
+  el.textContent = 'Checking agent status…';
+  postAction('agent.status', {}).then(function (res) {
+    el.textContent = fmtAgentStatus((res && res.data) || null);
+  }).catch(function () { el.textContent = 'Agent status unavailable'; });
+}
+loadAgentStatus();
 
 function fmtAmt(v) {
   var n = Number(v || 0);

@@ -23,6 +23,7 @@ const { handlePaymentNewPage } = require('./pages/payment-new');
 const { handleBillDetailPage } = require('./pages/bill-detail');
 const { handlePayablesPage, handleBillsPage } = require('./pages/payables');
 const { handleBankPage } = require('./pages/bank');
+const { handleChatPage } = require('./pages/chat');
 const { handleAccountingPage } = require('./pages/accounting');
 const { handleExchangeRatesPage } = require('./pages/exchange-rates');
 const { handleNewCompanyPage } = require('./pages/new-company');
@@ -289,6 +290,7 @@ function mountReportRoutes(app) {
   // agent/Inbox-only, per the note above). New pages/bank.js, no relation to
   // the deleted pages/bank.js this comment describes.
   app.get('/:company/bank', handleBankPage);
+  app.get('/:company/chat', handleChatPage);
   // Opening Balances feature removed 2026-08-18 (magnus): users post opening
   // balances via a simple journal voucher instead. Old URL redirects.
   app.get('/:company/opening-balances', function(req, res) {

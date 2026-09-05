@@ -154,7 +154,7 @@ function navBar(company, activeKey) {
         <div class="tb-search-wrap">
           <input type="text" id="tb-global-search" class="tb-search" placeholder="Type / to search" autocomplete="off" tabindex="-1">
         </div>
-        <button class="tb-icon-btn tb-chat-btn" id="tb-chat-btn" title="Chat with AI (coming soon)" disabled>💬</button>
+        <button class="tb-icon-btn tb-chat-btn" id="tb-chat-btn" title="Chat with AI">💬<span id="tb-chat-dot" class="tb-chat-dot" hidden></span></button>
         <button class="tb-icon-btn" id="tb-new-btn" title="New">+</button>
         <div id="tb-new-dropdown" class="tb-new-dropdown" hidden></div>
         <button class="tb-icon-btn" id="tb-notif-btn" title="Notifications">🔔<span id="tb-notif-badge" class="tb-notif-badge" hidden></span></button>

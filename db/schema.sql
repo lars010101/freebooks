@@ -991,3 +991,62 @@ CREATE INDEX IF NOT EXISTS idx_bill_extraction_meta_company
   ON bill_extraction_meta(company_id);
 CREATE INDEX IF NOT EXISTS idx_bill_extraction_meta_bill
   ON bill_extraction_meta(bill_id);
+
+-- =============================================================================
+-- Chat with AI (docs/chat-with-ai-spec.md)
+-- =============================================================================
+
+-- Conversation history. Company-scoped, not per-user (single-operator
+-- assumption, matches the Inbox's own company-wide framing — spec §5).
+CREATE TABLE IF NOT EXISTS chat_messages (
+  company_id    VARCHAR   NOT NULL,
+  message_id    VARCHAR   NOT NULL UNIQUE,
+  role          VARCHAR   NOT NULL,       -- 'user' | 'assistant'
+  content       VARCHAR   NOT NULL,
+  proposal_ref  VARCHAR,                  -- proposal_id or bill_id, when this message drafted one
+  created_by    VARCHAR,
+  created_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_company ON chat_messages(company_id, created_at);
+
+-- Working state for a turn paused on a pending permission decision (spec
+-- §2b). Metadata only, deliberately — no fetched data is ever persisted
+-- here (spec §7 review fix), so an abandoned turn stays cheap regardless of
+-- how large a category's preview was. Swept on a short TTL (chat.js
+-- gcPendingTurns) since nothing ledger-relevant is at stake.
+CREATE TABLE IF NOT EXISTS chat_pending_turns (
+  company_id           VARCHAR   NOT NULL,
+  turn_id              VARCHAR   NOT NULL UNIQUE,
+  user_message         VARCHAR   NOT NULL,
+  pending_categories    VARCHAR   NOT NULL,             -- JSON array of category names
+  resolved_categories   VARCHAR   NOT NULL DEFAULT '{}', -- JSON: category -> {decision, aliased}
+  created_at           TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_pending_turns_company ON chat_pending_turns(company_id, created_at);
+
+-- Durable per-category consent decisions (spec §2b). Re-deciding a category
+-- overwrites the row (DELETE + INSERT, matching this codebase's putSetting
+-- convention) — not a one-way ratchet.
+CREATE TABLE IF NOT EXISTS chat_data_permissions (
+  company_id   VARCHAR   NOT NULL,
+  category     VARCHAR   NOT NULL,
+  decision     VARCHAR   NOT NULL,             -- 'allow_always' | 'deny_always'
+  aliased      BOOLEAN   NOT NULL DEFAULT FALSE, -- only meaningful when decision='allow_always'
+  decided_by   VARCHAR,
+  decided_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (company_id, category)
+);
+
+-- Real-value <-> alias map for structured identifiers (spec §3.1). Aliases
+-- are assigned lazily and stay stable for the life of the company. Free-text
+-- fields (descriptions, references) are never aliased — permanent non-goal,
+-- spec §0/§3.4.
+CREATE TABLE IF NOT EXISTS chat_aliases (
+  company_id   VARCHAR   NOT NULL,
+  real_value   VARCHAR   NOT NULL,
+  alias        VARCHAR   NOT NULL,
+  entity_type  VARCHAR   NOT NULL,             -- 'company' | 'partner'
+  created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (company_id, entity_type, real_value)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_aliases_alias ON chat_aliases(company_id, alias);

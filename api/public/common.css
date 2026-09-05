@@ -392,6 +392,20 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   padding: 0 4px;
 }
 #tb-notif-btn { position: relative; }
+
+/* ---- Chat status dot (chat-with-ai-spec.md §4) ---- */
+.tb-chat-btn { position: relative; }
+.tb-chat-dot {
+  position: absolute;
+  top: 2px; right: 2px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #999; /* grey default — agent stopped, until the first check lands */
+  border: 1px solid var(--bg, #fff);
+}
+.tb-chat-dot.ok { background: #16a34a; }     /* agent running AND LLM reachable */
+.tb-chat-dot.warn { background: #d97706; }   /* agent running, LLM unreachable */
+.tb-chat-dot.off { background: #999; }       /* agent stopped */
 .tb-notif-dropdown {
   position: fixed;
   top: 52px; right: 16px;

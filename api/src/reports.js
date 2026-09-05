@@ -192,18 +192,16 @@ async function handleWhtCodes(req, res) {
 }
 
 // ── Action handler for report.* actions ──────────────────────────────────────
+// No report.* actions exist today — report.refresh_vat_return was removed
+// (issue #272): it called a vat.js switch case that was never implemented
+// (permanent crash), was unreachable from any UI once the `:` command
+// palette was deleted (2026-09-03), and its "recompute + store" premise is
+// out of scope per the Documents-page snapshot principle (the app provides
+// live data; the user owns filing/snapshotting outside the app). The VAT
+// return report itself is unaffected — it's served live by the GET
+// /api/:company/report?type=vat-return route below, unchanged.
 function handleReports(ctx, action) {
-  switch (action) {
-    case 'report.refresh_vat_return': return generateVatReturn(ctx);
-    default:
-      throw Object.assign(new Error(`Unknown report action: ${action}`), { code: 'UNKNOWN_ACTION' });
-  }
-}
-
-async function generateVatReturn(ctx) {
-  // Delegate to vat module
-  const { handleVat } = require('./vat');
-  return handleVat(ctx, 'vat.return');
+  throw Object.assign(new Error(`Unknown report action: ${action}`), { code: 'UNKNOWN_ACTION' });
 }
 
 // ── Mount on Express app ──────────────────────────────────────────────────────

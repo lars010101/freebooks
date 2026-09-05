@@ -1204,22 +1204,27 @@ test('A1: agent can read (non-mutating action passes the guard)', async () => {
 });
 
 test('A1: fail-closed — whitelist guard denies a viewer-level mutating action (role check passes)', async () => {
-  // Spec §8.1 fail-closed proof. report.refresh_vat_return is the one
-  // catalog action that is mutating:true at role viewer — so the agent
-  // (level 1.5 ≥ 1) PASSES the numeric role check, isolating the §2.3
-  // whitelist guard as the only thing that can deny it. This exercises the
-  // exact path any FUTURE new mutating action will hit: not in
-  // AGENT_ALLOWED → FORBIDDEN, by default, until explicitly whitelisted.
-  const { status, body } = await api(baseUrl, 'report.refresh_vat_return', { companyId: CO, userEmail: 'agent@ct' });
+  // Spec §8.1 fail-closed proof, using the test.fail_closed_fixture catalog
+  // entry (action-catalog.js — no handler, exists solely for this test) —
+  // mutating:true at role viewer, so the agent (level 1.5 ≥ 1) PASSES the
+  // numeric role check, isolating the §2.3 whitelist guard as the only thing
+  // that can deny it. This exercises the exact path any FUTURE new mutating
+  // action will hit: not in AGENT_ALLOWED → FORBIDDEN, by default, until
+  // explicitly whitelisted. This file is a black-box HTTP test against a
+  // spawned server process (see header comment), so this fixture can't be
+  // injected here at test time — it has to be a real catalog entry the
+  // spawned process itself loads.
+  const { status, body } = await api(baseUrl, 'test.fail_closed_fixture', { companyId: CO, userEmail: 'agent@ct' });
   assert.equal(status, 403, 'mutating action outside the whitelist must be denied to agents');
   assert.equal(body?.error?.code, 'FORBIDDEN');
   assert.match(body?.error?.message, /finalize or mutate master data/,
     'denial must come from the whitelist guard, not the role check (agent passes the role check at viewer level)');
 
-  // Sanity: a human data_entry user reaches past the guard (handler may
-  // fail on missing state — anything except the guard's FORBIDDEN proves
-  // the guard is actor-class-specific, R6 eligibility is server-side).
-  const hr = await api(baseUrl, 'report.refresh_vat_return', { companyId: CO, userEmail: 'owner@ct' });
+  // Sanity: a human data_entry user reaches past the guard (there's no real
+  // handler behind this fixture — module 'test' hits dispatch's default case,
+  // 'Unknown module' — anything except the guard's FORBIDDEN proves the
+  // guard is actor-class-specific, R6 eligibility is server-side).
+  const hr = await api(baseUrl, 'test.fail_closed_fixture', { companyId: CO, userEmail: 'owner@ct' });
   assert.notEqual(hr.body?.error?.message, 'Agents may not finalize or mutate master data',
     'human call is not stopped by the agent whitelist guard');
 });

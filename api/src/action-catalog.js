@@ -364,13 +364,6 @@ const ACTIONS = {
     params: { accountCode: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' } },
   },
 
-  // ── Reports / VAT ────────────────────────────────────────────────────────
-  'report.refresh_vat_return': {
-    role: 'viewer', mutating: true,
-    description: 'Recompute + store the VAT return for a period range.',
-    params: { periodFrom: { type: 'date', required: true }, periodTo: { type: 'date', required: true } },
-  },
-
   // ── Reminders (calendar-reminders-documents-spec.md §4) ─────────────────────
   // Reminder rows = jurisdiction-pack descriptor × reporting interval,
   // seeded once into the `reminders` table on first discovery, plus
@@ -864,65 +857,32 @@ const ACTIONS = {
     description: 'List events (append-only stream) ordered by event_seq ASC.',
     params: { after_seq: { type: 'number' }, type: { type: 'string' }, limit: { type: 'number' } },
   },
+
+  // Test-only — no handler is wired for this (module 'test' isn't in
+  // index.js's dispatch switch; a human call 404s with "Unknown module").
+  // Exists solely so contract.test.js's A1 §8.1 fail-closed proof has a real
+  // catalog action shaped {role:'viewer', mutating:true} — the one
+  // combination that lets an agent pass the numeric role check and isolates
+  // the §2.3 whitelist guard as the only thing that can still deny it. No
+  // production action happens to have that shape; report.refresh_vat_return
+  // did, until its removal (issue #272) — it was a permanently-broken,
+  // UI-unreachable action, and keeping a broken feature alive purely to hold
+  // this test's shape was worse than naming the scaffold honestly. The test
+  // is a black-box HTTP test against a spawned server process, so this can't
+  // be injected at test time — it must live here, in the real catalog the
+  // spawned process loads. Never call this in production; it does nothing.
+  'test.fail_closed_fixture': {
+    role: 'viewer', mutating: true,
+    description: 'Test-only — A1 §8.1 fail-closed proof (contract.test.js). No handler.',
+  },
 };
 
 // ── P1-10 command-palette dispositions ─────────────────────────────────────
-// Small, explicit, next to the catalog (spec: payables-ux-spec.md §P1-10):
-//   'execute'  — parameterless beyond companyId; palette executes via
-//                POST /api/action with Idempotency-Key (standing rule 3).
-//   'navigate' — needs input; palette routes to the owning form (+ route).
-//   (absent)   — excluded: reads (data viewers) and actions needing context
-//                the palette cannot supply (ids, lines, amounts) — those are
-//                covered by page verbs in context (x on a row, y on a bill).
-// New actions default to nothing shown until given an explicit disposition —
-// adding a route here is what makes the palette grow with the API.
-//   create: true — entry is a "create new X" shortcut; bare : palette
-//                  collapses these into one "New…" row (show-command-spec §2.1)
-const PALETTE = {
-  // Execute directly
-  'fx.fetch_rates':         { palette: 'execute', label: 'Fetch exchange rates' },
-  // Navigate to form — create actions use &new=1 to auto-activate add-entry
-  'journal.post':           { palette: 'navigate', route: '/journal/voucher', label: 'New journal entry', create: true },
-  'journal.import':         { palette: 'navigate', route: '/journal/voucher', label: 'New journal entry', create: true },
-  'bill.create':            { palette: 'navigate', route: '/bill/edit', label: 'New bill', create: true },
-  'bill.draft.save':        { palette: 'navigate', route: '/bill/edit', label: 'New bill', create: true },
-  // bill-post-payment-consolidation-spec.md §3 — unscoped entry point; the
-  // scoped one is 'y' on a posted/partial Bills row, not the palette.
-  'bill.payment.record':    { palette: 'navigate', route: '/payment/new', label: 'New payment', create: true },
-  'coa.save':               { palette: 'navigate', route: '/accounting?tab=coa&new=1', label: 'New account', create: true },
-  'coa.update':             { palette: 'navigate', route: '/accounting?tab=coa', label: 'Chart of accounts' },
-  'coa.upsert':             { palette: 'navigate', route: '/accounting?tab=coa', label: 'Chart of accounts' },
-  'vat.codes.upsert':       { palette: 'navigate', route: '/accounting?tab=tax-codes&new=1', label: 'New tax code', create: true },
-  'vat.codes.view':         { palette: 'navigate', route: '/accounting?tab=tax-codes', label: 'Tax Codes' },
-  'journals.view':          { palette: 'navigate', route: '/accounting?tab=journals', label: 'Journals' },
-  'partner.save':            { palette: 'navigate', route: '/payables?tab=vendors&new=1', label: 'New partner', create: true },
-  'partner.upsert':          { palette: 'navigate', route: '/payables?tab=vendors', label: 'Vendors' },
-  'period.save':            { palette: 'navigate', route: '/calendar?tab=periods&new=1', label: 'New period', create: true },
-  'period.upsert':          { palette: 'navigate', route: '/calendar?tab=periods', label: 'Calendar' },
-  'period.close':           { palette: 'navigate', route: '/calendar?tab=periods', label: 'Close period' },
-  'journals.save':          { palette: 'navigate', route: '/accounting?tab=journals&new=1', label: 'New journal (book)', create: true },
-  // mapping.save/mapping.upsert palette entries removed 2026-08-09 (issue #137):
-  // Bank page (which hosted the Mappings tab) deleted. Actions remain available
-  // via action RPC; no UI surface for mappings management until rehomed.
-  'center.upsert':          { palette: 'navigate', route: '/accounting?tab=centers&new=1', label: 'New cost center', create: true },
-  'center.save':            { palette: 'navigate', route: '/accounting?tab=centers', label: 'Cost/Profit Centers' },
-  'fx.rates.save':          { palette: 'navigate', route: '/exchange-rates?new=1', label: 'New exchange rate', create: true },
-  'fx.provider.save':       { palette: 'navigate', route: '/exchange-rates', label: 'Exchange rates' },
-  'fx.revaluation_post':    { palette: 'navigate', route: '/exchange-rates', label: 'Exchange rates' },
-  'settings.save':          { palette: 'navigate', route: '/settings?tab=company', label: 'Company' },
-  'company.save':           { palette: 'navigate', route: '/settings?tab=company', label: 'Company' },
-  'permissions.save':       { palette: 'navigate', route: '/settings?tab=company', label: 'Company' },
-  'permissions.upsert':      { palette: 'navigate', route: '/settings?tab=access&new=1', label: 'Grant access', create: true },
-  'permissions.list':        { palette: 'navigate', route: '/settings?tab=access', label: 'Access' },
-  'posting_rules.attr.list': { palette: 'navigate', route: '/settings?tab=extensions', label: 'Extensions' },
-  'ai.view':                { palette: 'navigate', route: '/settings?tab=extensions', label: 'Extensions' },
-  'report.refresh_vat_return': { palette: 'navigate', route: '/calendar?tab=reminders', label: 'Refresh VAT return' },
-  'setup.add_company':      { palette: 'navigate', route: '/setup/new-company', absolute: true, label: 'Add company' },
-  // Top-level section navigate entries (no backing action — pure navigation)
-  'company.list':           { palette: 'navigate', route: '/settings?tab=company', label: 'Settings' },
-};
-for (const [n, p] of Object.entries(PALETTE)) {
-  if (ACTIONS[n]) Object.assign(ACTIONS[n], p);
-}
+// A PALETTE table used to live here, feeding the `:`-triggered command
+// palette (FB.palette). That UI was deleted entirely from fb-core.js on
+// 2026-09-03 (global-search-spec.md) when it was replaced by `/` global
+// search (api/src/search.js) — which is pure record/report search and never
+// reads this file. The table was dead from that point on (nothing read
+// ACTIONS[n].palette anywhere) and was removed 2026-09-05 (issue #272 review).
 
 module.exports = { ACTIONS };

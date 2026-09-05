@@ -1,6 +1,19 @@
 # freebooks — Architecture & UX Review + Roadmap
 
 **Date:** 2026-07-20 · **Basis:** full three-agent code review at HEAD `601d0d1` · **Status:** agreed direction; P0 in execution
+**Staleness caveat, 2026-09-05:** this log's last dated status entry is §0ii
+(2026-08-11). It is not maintained as a complete history past that point —
+notable undocumented work since includes the `:` command bar's full
+retirement in favor of `/` global search (2026-09-01, see the epilogue
+immediately below), partner fuzzy-duplicate tuning (#226), partner
+proposals surfaced in the Inbox, bank-match tolerance/candidate-cardinality
+fixes (#133), scanned-PDF rasterization (#139), removal of the broken
+`report.refresh_vat_return` action (#272), and moving bill-due/
+reconciliation-alert Inbox items to the notifications bell
+(agent-readiness-spec.md §10 amendment). The §4 "Open backlog" line under
+§0ii also predates several of those closes. Treat entries here as a
+point-in-time record to verify against current code/specs, not as current
+status.
 **Epilogue, 2026-09-01:** this log's P1-10/P1-6 entries chronicle the `:`
 command palette from its 2026-07-22 build through the 2026-08-09–11
 command-bar rework — the whole system was ultimately retired entirely

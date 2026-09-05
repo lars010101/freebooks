@@ -17,6 +17,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 - **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post) with jurisdiction-pack-driven monetary account types and gain/loss account (P2-2)
 - **VAT / GST engine** — tax-exclusive entry across bills and journal entries (entered amount IS the net; VAT computed on top and posted as separate per-code GL lines), reverse-charge support, supplier-stated VAT override with configurable tolerance (bills only), and VAT return generation grouped by report box. Bank import remains tax-inclusive (settled cash = gross)
 - **Accounts Payable** — partner master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, multi-bill settlement (one payment allocated across several open bills from the same vendor/currency, atomic, whole-batch void — issue #131), and AP Aging report
+- **Withholding tax (WHT)** — a plain company setting (`wht_tracking`, not jurisdiction-gated, mirroring `fx_tracking`), not a Singapore-only feature though motivated by IRAS S45. Booked at posting: the withheld amount reduces the AP credit and books to a WHT payable GL account instead; `bills.amount`/`amount_paid` become net-of-WHT so payment matching reconciles against what actually reaches the vendor. Remittance to the tax authority is a plain manual journal entry against that liability account — no dedicated subledger or filing tracker. Spec: `docs/bill-withholding-tax-spec.md`.
 - **Partner proposal & unification** — partners unified into a `partners` table; agent can propose new vendor/partner entries via the same propose/approve pattern as journal entries (inbox Class A item, `y`/`x` review). Spec: `docs/partner-proposal-spec.md`.
 - **Accounts Receivable** — invoicing and AR aging are **dropped/deferred** from the current cycle; nav and page scaffolding remain in place but inactive.
 - **Bank statement processing** — statements drop into the agent pipeline (§ below), which runs a **four-tier matching cascade** (spec: `docs/bank-matching-spec.md`) and proposes journal entries for human review in the Inbox; cleared/uncleared reconciliation against the bank's statement balance is a dedicated report (`type=reconciliation`). The old manual CSV-upload wizard (`bank.process`/`bank.approve`) has been removed (issue #260) — agent ingestion is the only import path:
@@ -29,7 +30,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 - **Mapping-suggestions learning loop (PR #90)** — approved/rejected proposals record outcomes in `matching_history`; tier 3.5 consults prior outcomes; unedited tier-4 approvals crystallize into `mapping_suggestions`; a throttled retrospective sweep finds recurring unruled patterns and suggests rules; `detectMappingConflicts` checks duplicate/contradiction/shadowing at suggest and approve time. Spec: `docs/bank-mapping-suggestions-spec.md`.
 - **Agent-first operating model (Phase A)** — agents prepare, humans approve (spec: `docs/agent-readiness-spec.md`):
   - **Journal proposals** — agent calls `journal.propose` → human reviews/approves/rejects in the unified Inbox queue (`y`/`x`); approve posts the journal; reject rolls back.
-  - **Inbox review queue** — dedicated `g i` Inbox page aggregates all action items (Class A pre-ledger approvals on `journal_proposals`, Class B operational items: bills due, unmatched bank lines, mapping suggestions, input rejections).
+  - **Inbox review queue** — dedicated `g i` Inbox page aggregates action items that need an in-place decision (Class A pre-ledger approvals on `journal_proposals`, Class B decide-here items: orphaned files, mapping suggestions, input rejections, agent-proposed partners). Items that only need a "go look at this" nudge — bills due/overdue, stale reconciliation, FX-rate gaps, reminders due — surface in the notifications bell instead (🔔, top bar), each linking straight to the relevant page.
   - **Append-only event stream** — `events` table + monotonic `event_seq`; `event.list` is the agent input channel; idempotent replay never double-emits.
   - **A4 underlag/attachment binding** — source documents bind to proposals via the client-minted `proposalId`: `attachment.upload` with `entityType='journal_proposal'` first, then `journal.propose` with the same id. Missing underlag warns, never blocks (BFL 5 kap permits egen verifikation).
 - **MCP server** — a stdio Model Context Protocol process exposing the whitelisted agent surface (`event_list`, `journal_propose`, `attachment_upload`, `freebooks_read`, `matching_history_record`, `mapping_suggest`, `bill_create`) over the action catalog. See the MCP server section below.
@@ -42,7 +43,9 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 - **File attachments** — attach PDFs, images, and documents to bills, journals, and proposals; stored on the local filesystem (sha256 dedupe, pdf/jpg/png whitelist, 15 MB cap for proposal underlag)
 - **Multi-company** — isolated books per company, each with its own chart of accounts, tax codes, periods, and settings
 - **Pluggable FX providers** — ECB and OpenExchangeRates shipped; add a provider by dropping a file into `api/src/fxProviders/`
-- **FX rate automation** — provider `fetchRange` batch-fetches historical rates; period-create backfill hook auto-fills gaps; coverage tracking compares period days vs provider publication days; a 6h gap scanner + notifications subsystem (🔔 badge/dropdown) surface missing rates. Spec: `docs/fx-automation-spec.md`.
+- **FX rate automation** — provider `fetchRange` batch-fetches historical rates; period-create backfill hook auto-fills gaps; coverage tracking compares period days vs provider publication days; a 6h gap scanner surfaces missing rates via the notifications bell. Spec: `docs/fx-automation-spec.md`.
+- **Notifications bell** — a general "go look at this" alert channel (🔔, top bar; `notifications` table, dedupe by `issue_key`, re-raises once read if the condition persists), not FX-specific: FX-rate gaps, reminders due/overdue (Calendar), missing/orphaned attachment files, and bills due/overdue and stale bank reconciliation (both linking straight to the relevant bill or account) all raise through the same mechanism. Each alert is a daily/periodic scanner started at boot (`api/src/index.js`) — `fx-scanner.js`, `reminder-scanner.js`, `attachment-integrity-scanner.js`, `bills-due-scanner.js`, `reconciliation-scanner.js`.
+- **Navigation** — no persistent sidebar. `/` opens global search (ranked, always-global; navigates to pages/reports or deep-links to a specific journal/bill/partner/account) and `+` opens a fixed New-item menu (Journal Entry, Bill, Payment); `g`-prefix go-to motions and per-page `FB.keys`/`FB.list`/`FB.form` vim-modal bindings remain the primary keyboard path. The earlier `:` command-bar system was fully retired 2026-09-01. Spec: `docs/global-search-spec.md`.
 - **Two-server deployment** — `FREEBOOKS_BIND` selects the listen interface (default `127.0.0.1` loopback-only); set to a LAN/Tailscale IP, always paired with `FREEBOOKS_AUTH_MODE=token-remote`.
 
 ---
@@ -59,7 +62,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 | Auth | Email + role-based permissions (`user_permissions` table); per-actor Bearer tokens (`api_tokens`, `FREEBOOKS_AUTH_MODE=token-remote`, `auth.token.create`/`revoke`); `agent` role at level 1.5 with a default-deny whitelist |
 | Container | Dockerfile (Wolfi/distrobox base) |
 
-All dependencies live in [`api/package.json`](api/package.json): `express`, `@duckdb/node-api`, `cors`, `dotenv`, `multer`, `uuid`.
+Server dependencies live in [`api/package.json`](api/package.json): `express`, `@duckdb/node-api`, `cors`, `dotenv`, `multer`, `uuid`. The root [`package.json`](package.json) additionally carries `pdf-parse` (scanned-PDF rasterization for bill/journal document extraction, used by `api/src/agent-loop.js`) and `playwright-core` (dev-only, UI regression tests).
 
 ---
 
@@ -71,6 +74,7 @@ All dependencies live in [`api/package.json`](api/package.json): `express`, `@du
 git clone https://github.com/lars010101/freebooks ~/freebooks
 cd ~/freebooks
 npm install --prefix api          # install API dependencies
+npm install                       # root deps — pdf-parse (scanned-PDF bill/journal extraction), only needed to use that feature
 node db/init.js                   # create ~/.freebooks/freebooks.duckdb + load macros; seeds journals
 node db/import.js <data-dir>      # optional: import historical CSV data (COA, journal, mappings)
 node api/src/index.js             # start server on http://localhost:3000
@@ -176,7 +180,7 @@ freebooks/
 │       ├── boot-state.js       # startup state / agent-loop boot check
 │       ├── settlement.js       # settlement helpers
 │       ├── periods-page-service.js  # periods grid page service
-│       └── pages/              # one module per UI page (dashboard, bank, payables, settings, inbox, …)
+│       └── pages/              # one module per UI page (bank, payables, bill-detail, bill-edit, settings, inbox, documents, calendar, chat, reports-hub, …)
 ├── mcp/
 │   ├── package.json
 │   └── server.js               # stdio MCP server over the action catalog
@@ -196,27 +200,34 @@ freebooks/
 │   ├── render.js               # shared report HTML rendering (P&L, BS, CF, SCE, TB, GL, …)
 │   ├── generate.js             # CLI report generator
 │   └── sources/                # report source data
-├── docs/                       # specs + guides (see below)
+├── docs/                       # specs + guides — 50+ files; a representative subset:
 │   ├── agent-readiness-spec.md
 │   ├── agent-setup-guide.md
 │   ├── agent-data-feeding-guide.md
 │   ├── bank-matching-spec.md
 │   ├── bank-mapping-suggestions-spec.md
+│   ├── bank-match-bill-settlement-spec.md
 │   ├── bill-extraction-spec.md
+│   ├── bill-withholding-tax-spec.md
 │   ├── b9-self-contained-agent-spec.md
+│   ├── calendar-reminders-documents-spec.md
+│   ├── global-search-spec.md    # current `/` navigation model (supersedes the retired `:` command bar)
 │   ├── keyboard-ux-spec.md
 │   ├── fb-list-ux-spec.md
 │   ├── reports-dashboard-spec.md
 │   ├── jurisdiction-pack.md
 │   ├── fx-automation-spec.md
-│   ├── ia-spec.md
+│   ├── ia-spec.md               # + ia-restructure-spec.md / -2 / -3 (incremental amendments)
+│   ├── topbar-chrome-spec.md
+│   ├── access-tab-spec.md
+│   ├── cost-profit-center-spec.md
 │   ├── settings-ux-spec.md
 │   ├── payables-ux-spec.md
 │   ├── p2-1-year-end-close-spec.md
 │   ├── p2-3-bill-lines-subledger-spec.md
 │   ├── p2-4a-vat-unify-spec.md
 │   ├── partner-proposal-spec.md
-│   ├── review-roadmap.md
+│   ├── review-roadmap.md        # running architecture/decision log — see its own staleness caveat at the top
 │   └── UI.md
 ├── .github/workflows/build.yml # CI
 └── Dockerfile                  # container image (Wolfi/distrobox)
@@ -268,12 +279,12 @@ freeBooks uses a single **action-based API**. All mutations and reads go through
 ```
 POST /api/action        (also POST /api)
 Body: { "action": "<module>.<verb>", "companyId": "...", "userEmail": "...", ... }
-Response: { "ok": true, "data": ... }   (or { "error": "..." })
+Response: { "ok": true, "data": ... }   (or { "ok": false, "error": { "code": "...", "message": "...", "details": {} } })
 ```
 
-The `action` string is split on `.` to dispatch to a module handler (`journal.*`, `bill.*`, `bank.*`, `vat.*`, `fx.*`, `coa.*`, `partner.*`, `mapping.*`, `period.*`, `settings.*`, `company.*`, `journals.*`, `center.*`, `permissions.*`, `attachment.*`, `setup.*`, `diag.*`, `report.*`, `sie.*`, `auth.*`, `event.*`, `inbox.*`, `matching_history.*`, `calibration.*`).
+The `action` string is split on `.` to dispatch to a module handler (`journal.*`, `bill.*`, `bank.*`, `vat.*`, `wht.*`, `fx.*`, `coa.*`, `partner.*`, `mapping.*`, `period.*`, `posting_rules.*`, `settings.*`, `company.*`, `journals.*`, `center.*`, `permissions.*`, `attachment.*`, `orphan.*`, `reminder.*`, `notifications.*`, `payment.*`, `setup.*`, `diag.*`, `sie.*`, `auth.*`, `event.*`, `inbox.*`, `matching_history.*`, `calibration.*`, `agent.*`, `ai.*`, `chat.*`, `input_rejection.*`). Reports are served via `GET` routes, not this endpoint (see Reports below).
 
-The full action catalog (action → module → min role) is introspectable at `GET /api/actions`. Mutating actions accept an `Idempotency-Key` (per-company scoped) for safe agent retries. Errors use a single envelope `{ "error": "..." }`.
+The full action catalog (action → module → min role) is introspectable at `GET /api/actions`. Mutating actions accept an `Idempotency-Key` (per-company scoped) for safe agent retries. Errors use a single envelope: mapped HTTP status (400 invalid input, 403 forbidden, 404 not found, 409 conflict/period-locked, 500 otherwise) plus `{ "ok": false, "error": { "code", "message", "details?" } }`.
 
 ### Permission levels
 

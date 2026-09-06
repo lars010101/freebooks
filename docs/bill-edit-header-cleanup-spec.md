@@ -43,6 +43,8 @@ The DEV NOTE above that function is explicit about this being deliberate: *"ap_a
 
 No backend change is required for §2. The only gap is client-side: `bill-edit.js`'s `gatherBill()` never reads a description value and `prefillFromDraft()` never writes one back into the DOM — there is no `<input>`/`<textarea>` for it anywhere in the file. (`api/src/pages/bill-detail.js`, the posted-bill view, is in the same position: it calls `bill.update` twice but only ever echoes `billData.description || ''` back unchanged to avoid clobbering it — it never lets the user edit it either. See §5.)
 
+**Stale as of 2026-09-06:** both halves of this observation are superseded. `bill-edit.js` now has a `be-memo` field wired through `gatherBill()`/`prefillFromExisting()` (renamed from `prefillFromDraft`), and `bill-detail.js` no longer exists — it's merged into `bill-edit.js` (Stage 2 of that merge), whose header fields lock once a bill is posted, `description`/memo included; the "echo it back unchanged" pattern doesn't apply either, since the merged `saveMetaField()` sends only the one field that actually changed (`bill.update` does a real partial update).
+
 ---
 
 ## 1. Change 1 — Remove the visible "CR: AP account" field
@@ -289,7 +291,7 @@ No new UI/browser tests exist in this repo for `bill-edit.js` today (confirmed: 
 ## 5. Out of scope
 
 - **`payables-bills.js`**: already correct (§0.2) — not touched.
-- **`bill-detail.js`** (posted-bill view): currently has no way to edit `description` either — it only echoes the existing value back on unrelated `bill.update` calls to avoid clobbering it (§0.3). Exposing an editable memo there is a natural, cheap follow-up given `bill.update` already accepts `description` end-to-end, but it's a separate page and a separate change; not required for this spec.
+- **`bill-detail.js`** (posted-bill view) — merged into `bill-edit.js` 2026-09-06; no longer a separate page. The posted-bill (locked) mode there disables the memo field along with the rest of the header, same effective behavior this bullet describes, just one file now instead of two.
 - Any character-limit / max-length enforcement on the memo — `bills.description` is an unbounded `VARCHAR` in DuckDB; no limit exists today for `vendor_ref` either, so none is being introduced here for consistency.
 - Detecting "no AP account configured anywhere" *before* post time (e.g. graying out the Post button) — the required setup hint in §1.8 is the extent of this spec's UX handling; a pre-flight check would need a new read (company defaults + vendor default) on every keystroke/partner-pick, which is more machinery than this cleanup warrants.
 - **Conditionally showing the AP-account field** when no default resolves. The AP-account field is permanently removed from the bill editor under all circumstances. The user's only remedy for a missing AP account is to configure it in Settings → Chart of Accounts (company default) or on the vendor/partner record (partner default). This is an explicit design decision, not a deferred item.

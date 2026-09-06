@@ -1253,11 +1253,15 @@ var billsList = FB.list.create({
       else sendPost();
     }
     return [
-      { key: 'I', mode: 'NORMAL', hint: 'edit in full editor', paletteEligible: false,
-        when: function () { var p = parentOf(api.focusedRow()); return !!(p && p.status === 'draft'); },
+      // bill-edit/bill-detail merge (2026-09-06): /bill/:id now serves any
+      // bill regardless of status — editable if draft, locked with a
+      // journal trail + void if not — so I no longer needs a draft-only
+      // guard or the old /bill/edit?id= shape.
+      { key: 'I', mode: 'NORMAL', hint: 'open in full editor', paletteEligible: false,
+        when: function () { return !!parentOf(api.focusedRow()); },
         run: function () {
           var p = parentOf(api.focusedRow());
-          fbNavigate('/' + COMPANY + '/bill/edit?id=' + encodeURIComponent(p.bill_id));
+          fbNavigate('/' + COMPANY + '/bill/' + encodeURIComponent(p.bill_id));
         } },
       // ~ flips the Draft toggle on the currently-open bill's footer (§1) —
       // reversible per-row flip, keyboard-ux-spec.md §5's toggle-verb

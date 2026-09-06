@@ -28,11 +28,11 @@ function makeQuery() {
 //     for this company; gates the Cost Center/Profit Center JV columns, per
 //     journal-voucher-field-fixes-spec §2.1 — detected, not toggled).
 async function getRelevanceFlags(companyId) {
-  if (!companyId) return { vatRegistered: true, fxTracking: 'false', whtTracking: 'false', baseCurrency: '', centersConfigured: false };
+  if (!companyId) return { vatRegistered: true, fxTracking: 'false', whtTracking: 'false', baseCurrency: '', centersConfigured: false, jurisdiction: '' };
   try {
     const { query } = require('../db');
     const [co] = await query(
-      `SELECT vat_registered, currency AS base_currency
+      `SELECT vat_registered, currency AS base_currency, jurisdiction
        FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies) t
        WHERE company_id = @cid AND rn = 1`,
       { cid: String(companyId) }
@@ -56,10 +56,11 @@ async function getRelevanceFlags(companyId) {
       fxTracking: settings.fx_tracking === 'true' ? 'true' : 'false',
       whtTracking: settings.wht_tracking === 'true' ? 'true' : 'false',
       baseCurrency: (co && co.base_currency) || '',
+      jurisdiction: (co && co.jurisdiction) || '',
       centersConfigured: !!centerRow
     };
   } catch (e) {
-    return { vatRegistered: true, fxTracking: 'false', whtTracking: 'false', baseCurrency: '', centersConfigured: false };
+    return { vatRegistered: true, fxTracking: 'false', whtTracking: 'false', baseCurrency: '', centersConfigured: false, jurisdiction: '' };
   }
 }
 

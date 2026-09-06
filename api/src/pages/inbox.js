@@ -669,7 +669,7 @@ function reviewPartner(row, verdict) {
 
 // ── Delete orphaned file (row verb — Class B, calendar-reminders-documents-
 // spec.md §5.5) ────────────────────────────────────────────────────────
-// x is the app's regular delete verb (matches bill-detail.js/payables-
+// x is the app's regular delete verb (matches bill-edit.js/payables-
 // bills.js's void, fb-list.js's default row delete): one action, native
 // confirm, no modal. The operator downloads first via v if they want a
 // copy — no app-managed quarantine/restore path.

@@ -567,8 +567,8 @@
         return Array.isArray(arr) ? arr : [];
       } catch (e) { return []; }
     }
-    // Public write API — called by detail-view pages on open (bill-detail.js,
-    // journal-voucher.js view-existing-batch path, …).
+    // Public write API — called by detail-view pages on open (bill-edit.js's
+    // view-existing-bill path, journal-voucher.js's view-existing-batch path, …).
     function pushRecent(entry) {
       if (!entry || !entry.id || !entry.route || !entry.label) return;
       try {
@@ -2618,7 +2618,7 @@
   // Wired on DOMContentLoaded since fb-core.js loads in <head> (before body).
   var NEW_MENU_ITEMS = [
     { label: 'Journal Entry', route: '/journal/voucher' },
-    { label: 'Bill from Supplier', route: '/bill/edit' },
+    { label: 'Bill from Supplier', route: '/bill/new' },
     { label: 'Invoice to Customer', disabled: true }, // AR not built yet
     { label: 'Payment', route: '/payment/new' }
   ];

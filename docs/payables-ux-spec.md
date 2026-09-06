@@ -1,6 +1,8 @@
 # Payables UX Specification
 
 > **2026-07-24 rev. 4 — Bills migrated onto `FB.list` (`tree: true`).** The bespoke Bills interaction machinery (render/draft/filter/nav/fold) is deleted; the Bills tab is now a declarative `FB.list.create(cfg)` call. This spec's Bills-specific sections now describe the framework-native behavior (see `fb-list-ux-spec.md`). The bill editor screen (`bill-edit.js`) and the bill-detail page remain separate. The pre-interim "Esc always saves / no cancel path" doctrine is **superseded** — `Esc` never saves; `w` is the only save path (FB.list §3 doctrine).
+>
+> **2026-09-06 — no longer separate.** `bill-detail.js` is merged into `bill-edit.js`: one file, one route (`/bill/:id`), mode driven by the loaded bill's status (draft = editable; anything else = locked, with a journal trail and void). See "Relationship to existing pages" below, updated accordingly.
 
 ## Design Principles
 
@@ -485,7 +487,7 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 ### Relationship to existing pages
 
 - **`bill-new.js` is deleted** when this ships (its capabilities migrate or are deliberately dropped — see Elimination inventory below).
-- **`bill-detail.js` remains** the read/management surface for posted documents (void, payments, attachment view). The editor handles drafts + create; posted bills are never editable (append-only doctrine — corrections via void/rebill).
+- **`bill-detail.js` is merged into `bill-edit.js` (2026-09-06)** — one file now serves both roles: editable for drafts/create, and (its former job) the read/management surface for posted documents (void, journal trail, attachment view) once a bill's status isn't `draft`. Posted bills are still never editable (append-only doctrine — corrections via void/rebill); only the file boundary changed, not the doctrine.
 - One shared editor component used for **create-complex** and **edit-draft** (`i` on a saved draft may open the editor instead of inline edit when line count > N — threshold decided below).
 
 ### Layout (three zones + status bar)

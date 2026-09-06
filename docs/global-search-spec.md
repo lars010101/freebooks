@@ -21,7 +21,7 @@ Killing `:` was evaluated alias-by-alias against the actual page code (not again
 | `:post` | Retired — Journal Voucher page (`journal-voucher.js`) is the full form |
 | `:bill` | Retired — "New Bill" button → `bill-edit.js` form |
 | `:pay` | Retired — "Pay" button / `p` verb on a bill row (`payables-bills.js`) |
-| `:void` | Retired — `btn-void` button + `x` verb (`bill-detail.js`) |
+| `:void` | Retired — `btn-void` button + `x` verb (`bill-detail.js`; merged into `bill-edit.js` 2026-09-06, same button/verb) |
 | `:match` | Retired outright, confirmed safe — `bank.match` is `role: 'agent'` in `action-catalog.js` (unmodified vs. HEAD), called only from `agent-loop.js`. It was never human-reachable through any surviving UI: `bank.js`/`bank-import.js` are deleted, and `bank-reconcile.js` (what remains) has zero references to `bank.match` or to the alias's `palette: false` focused-line context. Nothing to migrate. |
 | `:approve` / `:reject` | Retired — identical to `y`/`x` in Inbox |
 | `:rate` | Retired — Exchange Rates tab, FB.list add-row |
@@ -49,7 +49,7 @@ Pressing `/` focuses the topbar input, **leaving it blank** — no prepopulated 
 
 With nothing typed, the bar shows no dropdown at all (§1). The **3 most recently opened objects** — actual records (a specific bill, journal entry, partner, account), never pages, tabs, or reports — are still available, but now only on request: pressing `ArrowDown` on an empty, focused bar opens them.
 
-This is lightweight, client-only state — no server endpoint. `localStorage`, keyed per company, an array of `{type, id, label, route}` capped at 3, most-recent-first, unshifted on every detail-view open. Write points: `bill-detail.js`, `journal-voucher.js` (view-existing-batch path), and any partner/account detail view — exact list per §8.
+This is lightweight, client-only state — no server endpoint. `localStorage`, keyed per company, an array of `{type, id, label, route}` capped at 3, most-recent-first, unshifted on every detail-view open. Write points: `bill-edit.js`'s view-existing-bill path (formerly `bill-detail.js`, merged 2026-09-06 — and previously a gap even there, since `bill-edit.js` never called this for drafts either), `journal-voucher.js` (view-existing-batch path), and any partner/account detail view — exact list per §8.
 
 `Filter current page: ` — the equivalent of typing `//` (§7), scoped to `FB.list.visible().applyFilterExpr(...)` — is no longer offered as a picker row either. It survives only as the typed shortcut in §7; there is no discoverable menu entry point to it anymore.
 

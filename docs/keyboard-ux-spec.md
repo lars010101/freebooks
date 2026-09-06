@@ -398,7 +398,12 @@ quit-Esc above while `reversalMode` is true, and is the *only* way to exit
 reversal (entering via `x` is one-directional, not a toggle). `h`/`l` = cell
 movement here (page has no tabs — context override). Reversal search matches
 on a single character
-(min-length 1; the old min-2 gate failed silently on "a"/"2").
+(min-length 1; the old min-2 gate failed silently on "a"/"2"). **`A` retired
+(2026-09-06):** the pending-attachment queue's zone gained a pinned
+"+ Add attachment" row (fb-list add-row parity — its button is the zone's
+one real cell via `cells()`, everything else in the zone stays cell-less);
+`i`/Enter or a click opens the file picker. Real attachment rows are
+unaffected: still cell-less, still deleted directly by `x`.
 
 **K3b adoption (shipped 2026-07-28):** four pages onto FB.form, each
 declaring config only:
@@ -433,6 +438,32 @@ declaring config only:
   `+` New menu (topbar-chrome-spec.md §5) — the only entry to a multi-bill
   payment. Supersedes the P1-9 inline pay-row and P1-9b multi-pay panel
   (both deleted, not kept as fallback).
+  **bill-detail.js merged in (2026-09-06):** one file, one route
+  (`/bill/:id`; `/bill/edit` retired) — `bill-edit.js` now decides
+  editable-vs-locked from the loaded bill's `status`, rather than being a
+  second page. Locked (`status !== 'draft'`): header/line inputs disabled
+  (the FB.form default `cells()` already filters `!el.disabled`, so this
+  alone removes them from `i`/Tab/j-k navigation too — no zone-level code
+  needed beyond that), `a` and line-`x` become no-ops, `w`/Save and the
+  Draft toggle's row are hidden and pulled out of their zone entirely (a
+  hidden-but-cursor-stoppable row would be a dead j/k stop). `vendor_ref`
+  and `due_date` stay genuinely editable and auto-save on change
+  (`bill.update`, a real partial update — no explicit save step once
+  locked). New: `x` on the **header zone** (`z===0`) voids a posted bill —
+  same "x means something bigger here, scoped by cursor zone" pattern as
+  journal-voucher's reversal entry above, and provably non-colliding since
+  the line/attachment delete verb's `x` never matches `z===0`. Unlike
+  reversal, there is no un-void key at all — voiding is terminal by design
+  (server-enforced: a void bill can't be edited or re-voided), not merely
+  a missing toggle. New read-only **journals zone**
+  (`#be-journals-tbody`, appended last so it doesn't renumber
+  lines=2/attachments=3): one row per posted GL line, `j`/`k` only, no
+  cells, doc-no is a plain `<a>` drilling through to
+  `journal/voucher?batch=`. Attachments: `A` is retired here too, same
+  "+ Add attachment" row pattern as journal-voucher (above) — already-
+  uploaded attachments gained a real delete affordance they never had
+  (`attachment.delete`, reachable via `x` or a click) as a side effect of
+  the merge.
 
 **Soft-nav key lifecycle (K3c, ratified 2026-07-28):** `fbNavigate` swaps
 `#page-main` and re-executes page scripts, but nothing previously tore down

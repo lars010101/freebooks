@@ -180,7 +180,7 @@ The menu is a **hardcoded list of four rows**, `NEW_MENU_ITEMS` in `fb-core.js`,
 
 ```
 Journal Entry        → /journal/voucher
-Bill from Supplier    → /bill/edit
+Bill from Supplier    → /bill/new (2026-09-06 — was /bill/edit; that route stays registered for now, reached only via ?id= from Payables' I verb, until the bill-edit/bill-detail merge retires it entirely)
 Invoice to Customer   → disabled (AR not built yet — greyed out, title="Coming soon")
 Payment                → /payment/new
 ```

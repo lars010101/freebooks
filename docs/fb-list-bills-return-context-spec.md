@@ -1,6 +1,8 @@
 # FB.list Bills Return-Context Spec
 
-Status: **DRAFT — proposal, not yet ratified.** Companion: `fb-list-default-period-spec.md` (item 2 — this spec closes the seam explicitly left open at its §7/§9), `ap-aging-drilldown-spec.md` (the proven precedent this reuses — same mechanism, already implemented and confirmed live in `bill-detail.js`).
+Status: **DRAFT — proposal, not yet ratified.** Companion: `fb-list-default-period-spec.md` (item 2 — this spec closes the seam explicitly left open at its §7/§9), `ap-aging-drilldown-spec.md` (the proven precedent this reuses — same mechanism, already implemented and confirmed live, originally in `bill-detail.js`).
+
+**Note (2026-09-06):** `bill-detail.js` has since been merged into `bill-edit.js` (its old `fbKeyActions.escape` handler is now `bill-edit.js`'s `quitEditor()`/`returnUrl()`, a plain function rather than a legacy-dispatcher entry). This spec's proposal is otherwise unaffected — the `ap-aging` branch it reuses as precedent moved with it intact, and the `bills` branch this spec proposes would now be added to `returnUrl()` instead. Code snippets below still show the pre-merge `fbKeyActions.escape` shape; the underlying `if (from === 'ap-aging') {...} else {...}` branching logic they describe carried over unchanged into `returnUrl()`, just no longer wrapped in that object.
 
 ---
 

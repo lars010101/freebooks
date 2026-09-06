@@ -18,9 +18,8 @@ const { handleIndex } = require('./pages/index-page');
 const { handleSettingsPage } = require('./pages/settings');
 const { handleJournalVoucherPage } = require('./pages/journal-voucher');
 const { handleInboxPage } = require('./pages/inbox');
-const { handleBillEditPage } = require('./pages/bill-edit');
+const { handleBillPage } = require('./pages/bill-edit');
 const { handlePaymentNewPage } = require('./pages/payment-new');
-const { handleBillDetailPage } = require('./pages/bill-detail');
 const { handlePayablesPage, handleBillsPage } = require('./pages/payables');
 const { handleBankPage } = require('./pages/bank');
 const { handleChatPage } = require('./pages/chat');
@@ -269,9 +268,15 @@ function mountReportRoutes(app) {
   app.get('/:company/inbox', function(req, res) { res.redirect(302, '/' + req.params.company); });
   // ── 2026-08-27 IA restructure 2 / 2026-08-30 IA restructure 3: clean cutover, no compatibility redirects ──
   app.get('/:company/journal/voucher', handleJournalVoucherPage);
-  app.get('/:company/bill/edit', handleBillEditPage);
+  // bill-edit/bill-detail merge (2026-09-06, Stages 0-4): /bill/edit is
+  // retired — /bill/new creates, /bill/:id both edits (draft) and views
+  // (posted/partial/paid/void, read-only + journal trail + void), decided
+  // by handleBillPage itself from the loaded bill's status. bill-detail.js
+  // is deleted; its old nav model (flat moveBillNav) is fully superseded by
+  // FB.form's zone system, which bill-edit.js already ran on.
+  app.get('/:company/bill/new', handleBillPage);
   app.get('/:company/payment/new', handlePaymentNewPage);
-  app.get('/:company/bill/:id', handleBillDetailPage);
+  app.get('/:company/bill/:id', handleBillPage);
   // Payables (was Bills) — re-expanded to Bills · Vendors · Aging · Control
   app.get('/:company/payables', handlePayablesPage);
   // /bank/reconcile + /bank/import routes REMOVED 2026-07-31 (agent-first UI

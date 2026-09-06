@@ -82,8 +82,12 @@ const routes = ROUTES.map(r => ({
   path: r.absolute ? r.route : r.route.replace(':company', CO),
   palette: r.palette, label: r.label,
 }));
-routes.push({ key: 'bill-edit', path: `/${CO}/bill/edit`, palette: false, label: 'Bill Edit' });
-if (BILL_ID) routes.push({ key: 'bill-detail', path: `/${CO}/bill/${BILL_ID}`, palette: false, label: 'Bill Detail' });
+// bill-edit/bill-detail merge (2026-09-06): both routes now serve the same
+// handleBillPage, just in different modes — 'bill-new' exercises the blank/
+// editable path, 'bill-existing' the locked/journal-trail/void path (only
+// reachable with a real bill id, hence the guard).
+routes.push({ key: 'bill-new', path: `/${CO}/bill/new`, palette: false, label: 'Bill (new)' });
+if (BILL_ID) routes.push({ key: 'bill-existing', path: `/${CO}/bill/${BILL_ID}`, palette: false, label: 'Bill (existing)' });
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();

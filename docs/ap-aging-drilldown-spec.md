@@ -87,7 +87,7 @@ Note the shape difference from Voucher Register's `rpt_start`/`rpt_end`: AP Agin
 
 ## 6. Return path
 
-**`bill-detail.js`** — extend the existing `escape` handler (`fbKeyActions.escape`, currently a hardcoded `fbNavigate('/' + COMPANY + '/payables')`):
+**`bill-detail.js`** (2026-09-06 — merged into `bill-edit.js`; this section now lives there as `quitEditor()`/`returnUrl()`, no longer `fbKeyActions.escape` — that whole convention is dead, see the K4/K5 dispatcher removed alongside the merge) — extend the existing `escape` handler (`fbKeyActions.escape`, currently a hardcoded `fbNavigate('/' + COMPANY + '/payables')`):
 
 ```js
 'escape': function () {

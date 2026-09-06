@@ -119,7 +119,7 @@ One small shared piece (page-level JS, not inside `fb-list.js`), used identicall
 
 **Resolution order on load, Bills:**
 
-1. **Return-context URL param, if present** — `?dateFrom=&dateTo=`, the same names as the `bill.list`/`fx.rates.list` body params this ultimately feeds (§5), not a separate name to keep in sync. Wins unconditionally. Nothing produces this today for Bills' own list — that's item 4, a separate spec (`fb-list-bills-return-context-spec.md`) — but the AP-Aging → bill-detail.js round trip already built (`ap-aging-drilldown-spec.md`) established exactly this precedence pattern for its own path. Checking for it here now costs nothing and means item 4 only has to make `bill-detail.js` *send* the param — this page's load logic doesn't change.
+1. **Return-context URL param, if present** — `?dateFrom=&dateTo=`, the same names as the `bill.list`/`fx.rates.list` body params this ultimately feeds (§5), not a separate name to keep in sync. Wins unconditionally. Nothing produces this today for Bills' own list — that's item 4, a separate spec (`fb-list-bills-return-context-spec.md`) — but the AP-Aging → bill page round trip already built (`ap-aging-drilldown-spec.md`) established exactly this precedence pattern for its own path (originally in `bill-detail.js`, now `bill-edit.js`'s `returnUrl()` after the 2026-09-06 merge). Checking for it here now costs nothing and means item 4 only has to make the bill page *send* the param — this page's load logic doesn't change.
 2. **Else, fetch `/api/:company/reports/default-period`.**
 3. **If that call returns usable dates, seed the control with them and load, as before.**
 4. **If it doesn't — no dates back (fresh company, no periods configured yet) or the call errors — do not call `bill.list` at all.** Caught in review: the spec previously only described the happy path. Falling through to an unscoped `bill.list` call on a degenerate response would be exactly the silent-unscoped-load item 1 exists to prevent, just reached by a different door. Render a setup/empty state instead — same structural pattern as item 1's `renderTooMany` (one spanning message row), different trigger and message: *"No accounting periods configured yet."* The add row still renders, same reasoning as the blocked state in item 1 §4 — creating the first record shouldn't require periods to already exist.
@@ -140,7 +140,7 @@ The two coexist, and that's fine — they operate at different layers. This spec
 
 ## 9. Non-goals
 
-- **Bills-list ↔ `bill-detail.js` return-context.** Still not built — `bill-detail.js`'s `Escape` still hardcodes `/payables` regardless of origin. This spec leaves the seam open (§7, resolution order) but doesn't build the producing side. See `fb-list-bills-return-context-spec.md`.
+- **Bills-list ↔ bill page return-context.** Still not built — `bill-edit.js`'s `quitEditor()`/`returnUrl()` (formerly `bill-detail.js`'s `Escape` handler, merged 2026-09-06) gained an `ap-aging` return branch but still falls through to a hardcoded `/payables` for everything else, Bills included. This spec leaves the seam open (§7, resolution order) but doesn't build the producing side. See `fb-list-bills-return-context-spec.md`.
 - **Anything from the general filter engine** (`fb-list-server-filter-spec.md`) — explicitly not needed. Simplified item 1 doesn't require it, and neither does this.
 - **`fx_rates` gaining a `company_id` column.** Flagged in §5b as worth escalating, not proposed here.
 

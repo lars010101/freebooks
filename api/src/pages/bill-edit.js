@@ -13,10 +13,10 @@
  *   the delete button cell (FB.form button-cell activation).
  *
  * bill-post-payment-consolidation-spec.md: `p` is retired. `w` is the one
- * commit key — it posts by default, or saves as a draft when the Draft
- * toggle (header, `~` flips it, default off) is on. Agent/`:bill`-authored
- * drafts still land via bill.create/bill.draft.save server-side regardless
- * of this UI toggle (server-side guard, untouched by this page).
+ * commit key — it always posts (the Draft toggle was removed 2026-09-06,
+ * per magnus: users never save drafts manually anymore). Agent/`:bill`-
+ * authored drafts still land via bill.create/bill.draft.save server-side,
+ * untouched by this page.
  */
 const { makeQuery, commonStyle, navBar, layoutEnd, getRelevanceFlags } = require('./common');
 
@@ -98,7 +98,7 @@ ${commonStyle()}
   .bl-row:hover .be-line-x { visibility:visible; }
   .be-line-x.fb-form-cursor-btn { visibility: visible; }
   .bl-row.bl-auto { background:#fafafa; }
-  .bl-auto-label { font-style:italic; color:#666; font-size:9.5pt; }
+  .bl-auto-label { color:#666; font-size:9.5pt; }
   .bl-cell input:disabled { background:transparent; border-color:transparent; color:#888; }
   @media (max-width: 1100px) {
     .bl-header { display: none; }
@@ -125,10 +125,7 @@ ${commonStyle()}
   /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity */
   .be-attach-add-btn { border:none; background:none; cursor:pointer; color:#888; font-size:9.5pt; padding:2px 0; text-align:left; width:100%; }
   .be-attach-row.fb-form-row-focus .be-attach-add-btn { color:#fff; }
-  /* Journal trail (2026-09-06, ported from bill-detail.js) */
-  #be-journals-tbody td { padding:4px 6px; border-bottom:1px solid #f5f5f5; }
-  #be-journals-tbody tr.fb-form-row-focus { background:#1a1a1a !important; color:#fff; }
-  #be-journals-tbody tr.fb-form-row-focus td { color:#fff; }
+  /* JE ref link (2026-09-06) — see loadJournalRef() */
   .be-journal-ref-link { color:#2255cc; font-weight:500; text-decoration:none; }
   .be-journal-ref-link:hover { text-decoration:underline; }
   /* Status badge + amount cards (2026-09-06, ported from bill-detail.js) */
@@ -136,9 +133,6 @@ ${commonStyle()}
   .be-amount-cards { display:flex; gap:16px; font-size:10pt; margin-top:10px; }
   .btn-plain { padding:7px 12px; background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:10pt; }
   input.req { border-color:#cc2222 !important; }
-  .be-draft-row { margin:-4px 0 12px; }
-  .fb-toggle-btn { padding:5px 12px; border:1px solid #ccc; border-radius:4px; background:#fff; font-size:9.5pt; cursor:pointer; }
-  .fb-toggle-btn[aria-pressed="true"] { background:var(--toggle-on, #f0b429); border-color:var(--toggle-on, #f0b429); color:#000; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
@@ -147,6 +141,10 @@ ${commonStyle()}
     <div>
       <h1 id="be-title" style="display:inline">New Bill</h1>
       <span id="be-status-badge"></span>
+      <!-- JE ref (2026-09-06, replaces the old Journal Entries trail table —
+           per magnus: the line items already show the same Account/Debit/
+           Credit info; the doc-no link was the only thing missing). -->
+      <span id="be-je-ref" style="margin-left:10px;font-size:9.5pt"></span>
     </div>
     <!-- Void (2026-09-06, ported from bill-detail.js): shown only for a
          posted, unpaid bill — matches the server's own refusal to void a
@@ -163,12 +161,15 @@ ${commonStyle()}
     <label class="be-gh-row2">Bill no <input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></label>
     <label class="be-gh-memo">Memo <input id="be-memo" autocomplete="off" placeholder="internal note (optional)"></label>
   </div>
-  <div class="be-draft-row">
-    <button type="button" id="be-draft-toggle" class="fb-toggle-btn" aria-pressed="false" title="Draft — save without posting (~)">Draft</button>
-  </div>
   ${fxOn
     ? '<div class="header-fields"><label>CCY <input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase"></label></div>'
     : '<input id="be-ccy" type="hidden" value="' + baseCcy + '">'}
+
+  <div style="margin-top:6px;padding:12px;border:1px solid #e8e8e8;border-radius:4px;background:#fafafa">
+    <div style="font-size:10pt;font-weight:600;margin-bottom:6px">📎 Attachments</div>
+    <input type="file" id="be-file" style="display:none" multiple>
+    <div id="be-attach-list" style="font-size:9.5pt"></div>
+  </div>
 
   <div class="be-lines-wrap" id="be-lines-wrap">
     <div class="bl-header" id="be-lines-header"></div>
@@ -178,16 +179,12 @@ ${commonStyle()}
     <button class="btn-sm" id="be-add-row-btn" type="button">+ Add Line</button>
   </div>
 
-  <div class="totals">
-    <span>Net <b id="be-tot-net">0.00</b></span>
-    <span>Gross <b id="be-tot-gross">0.00</b></span>
-    ${whtOn ? '<span title="Withheld and remitted to the tax authority separately — not paid to the vendor">WHT <b id="be-tot-wht" style="color:#b26a00">0.00</b></span><span>Payable to vendor <b id="be-tot-payable">0.00</b></span>' : ''}
-  </div>
+  ${whtOn ? '<div class="totals"><span title="Withheld and remitted to the tax authority separately — not paid to the vendor">WHT <b id="be-tot-wht" style="color:#b26a00">0.00</b></span><span>Payable to vendor <b id="be-tot-payable">0.00</b></span></div>' : ''}
 
   <!-- Amount Paid/Due (2026-09-06, ported from bill-detail.js) — payment
-       progress, distinct from the Net/Gross totals above (those are the
-       bill's face amount from its lines; these track what's actually been
-       paid against it). Only meaningful once posted. -->
+       progress, distinct from the bill's face amount (the line items' own
+       Total row, computed by computeAutoLines()); these track what's
+       actually been paid against it. Only meaningful once posted. -->
   <div id="be-amount-cards" class="be-amount-cards" style="display:none">
     <div>Amount Paid <b id="be-amount-paid">0.00</b></div>
     <div>Amount Due <b id="be-amount-due">0.00</b></div>
@@ -199,30 +196,6 @@ ${commonStyle()}
     <span class="be-msg" id="be-msg"></span>
   </div>
 
-  <div style="margin-top:14px;padding:12px;border:1px solid #e8e8e8;border-radius:4px;background:#fafafa">
-    <div style="font-size:10pt;font-weight:600;margin-bottom:6px">📎 Attachments</div>
-    <input type="file" id="be-file" style="display:none" multiple>
-    <div id="be-attach-list" style="font-size:9.5pt"></div>
-  </div>
-
-  <!-- Journal trail (2026-09-06, ported from bill-detail.js) — read-only;
-       only ever populated once locked (a draft has no journal entries yet). -->
-  <div id="be-journals-section" style="display:none;margin-top:14px">
-    <div style="font-size:10pt;font-weight:600;margin-bottom:6px">📒 Journal Entries</div>
-    <table style="width:100%;border-collapse:collapse;font-size:9.5pt">
-      <thead>
-        <tr style="text-align:left;border-bottom:1px solid #ccc">
-          <th style="width:90px;padding:4px 6px">Date</th>
-          <th style="width:120px;padding:4px 6px">Doc No</th>
-          <th style="width:90px;padding:4px 6px">Account</th>
-          <th style="padding:4px 6px">Description</th>
-          <th style="text-align:right;width:90px;padding:4px 6px">DR</th>
-          <th style="text-align:right;width:90px;padding:4px 6px">CR</th>
-        </tr>
-      </thead>
-      <tbody id="be-journals-tbody"></tbody>
-    </table>
-  </div>
 </div>
 <script>
 // IIFE-wrapped: fbNavigate re-executes inline scripts on SPA navigation —
@@ -246,7 +219,6 @@ const S = {
   stagedFiles: [],       // File objects staged pre-first-save
   saving: false,
   savedSnapshot: null,   // JSON of last-saved (or initial) form state
-  draft: false,          // Draft toggle (~) — false = w posts, true = w saves a draft
   status: null,          // bill.status once loaded — 'draft' | 'posted' | 'partial' | 'paid' | 'void'
   locked: false,         // Stage 2 (2026-09-06, bill-edit/bill-detail merge): true once status !== 'draft'
   vatAmountsStated: null, // per-VAT-code override map restored from bill.get, seeds the first renderAutoLines() pass
@@ -261,21 +233,25 @@ const S = {
 // §3.4's Tier-B rendering groups cells by tier and relies on each group's
 // internal order matching this array's order — see §2.3.
 // Account/Debit/Credit replaces the old single Amount + "DR: Expense
-// account" pair (bill-line-item-grid-spec.md) — mirrors journal-voucher.js's
-// column order (Account, Debit, Credit). Every user line is a debit (an
-// expense line never carries a Credit value); the auto-generated VAT/WHT/
-// total rows built by renderAutoLines() reuse this same column set so
+// account" pair (bill-line-item-grid-spec.md). Every user line is a debit
+// (an expense line never carries a Credit value); the auto-generated VAT/
+// WHT/total rows built by renderAutoLines() reuse this same column set so
 // everything lines up under one shared --bl-cols grid.
+// Column order (2026-09-06, per magnus): Description, Debit, Credit, Tax
+// code, [WHT code], Account, Cost center — Account moved to tier 2 so it
+// renders after the tax codes, not mirroring journal-voucher.js's order
+// (Account first) any more; that was never a hard requirement, just how
+// this shipped originally.
 const LINE_COLUMNS = [
   { id: 'desc',   label: 'Description',  cls: 'bl-desc',   tier: 1 },
   // Reserved for the #3 spec (qty × unit price) — do not build ahead of it:
   // { id: 'qty',  label: 'Qty',          cls: 'bl-qty',    tier: 1 },
   // { id: 'rate', label: 'Rate',         cls: 'bl-rate',   tier: 1 },
-  { id: 'acct',   label: 'Account',      cls: 'bl-acct',   tier: 1 },
   { id: 'debit',  label: 'Debit',        cls: 'bl-debit',  tier: 1 },
   { id: 'credit', label: 'Credit',       cls: 'bl-credit', tier: 1 },
   { id: 'vat',    label: TAX_LABEL + ' code', cls: 'bl-vat', tier: 2, conditionalOn: () => VAT_ON },
   { id: 'wht',    label: 'WHT code',     cls: 'bl-wht',    tier: 2, conditionalOn: () => WHT_ON },
+  { id: 'acct',   label: 'Account',      cls: 'bl-acct',   tier: 2 },
   { id: 'cc',     label: 'Cost center',  cls: 'bl-cc',     tier: 2 },
   { id: 'del',    label: '',             cls: 'be-line-x', tier: 2 },
 ];
@@ -409,8 +385,6 @@ function applyLockedMode() {
   });
   var addRowBtn = document.getElementById('be-add-row-btn');
   if (addRowBtn) addRowBtn.style.display = 'none';
-  var draftRow = document.querySelector('.be-draft-row');
-  if (draftRow) draftRow.style.display = 'none';
   var postBtn = document.getElementById('be-post');
   if (postBtn) postBtn.style.display = 'none';
   var refEl = document.getElementById('be-ref');
@@ -430,10 +404,8 @@ function applyLockedMode() {
     var voidBtn = document.getElementById('be-void');
     if (voidBtn) { voidBtn.style.display = ''; voidBtn.onclick = doVoid; }
   }
-  // Journal trail (Stage 3, 2026-09-06) — only ever populated once locked.
-  var jSection = document.getElementById('be-journals-section');
-  if (jSection) jSection.style.display = '';
-  loadJournals();
+  // JE ref (2026-09-06) — only ever populated once locked.
+  loadJournalRef();
   // Status badge + Amount Paid/Due (Stage 4, 2026-09-06, ported from
   // bill-detail.js) — payment progress, distinct from the Net/Gross totals
   // computed from the lines above.
@@ -468,55 +440,26 @@ function doVoid() {
     .catch(function (e) { btn.disabled = false; msg(e.message, 'err'); });
 }
 
-// Read-only journal trail — one row per posted GL line, grouped by batch
-// (date/doc-no shown once per batch, on its first line). Deliberately no
-// inline-editable description: bill-detail.js had an input wired to
-// journal.entry.update there, but that action explicitly refuses any entry
-// with a bill_id set ("void the bill instead of editing its journal lines",
-// journal.js:509-514) — so every edit silently failed server-side with only
-// a console.warn, never surfaced to the user. Not porting a feature that
-// never actually worked. The doc-no now genuinely drills through to the
-// journal-voucher view (bill-detail.js's version LOOKED like a link —
-// .ref-blue — but had no href/onclick at all).
-function loadJournals() {
+// JE ref link (2026-09-06, replaces the old full journal-trail table —
+// per magnus: the line items already show the same Account/Debit/Credit
+// info the trail table repeated; the doc-no link was the only thing it had
+// that the line items don't. One or more batches (e.g. the original post
+// plus a void-reversal) each get their own link, deduped by batch_id.
+function loadJournalRef() {
   apiAction('journal.list', { billId: S.billId, sortBy: 'date', sortDir: 'ASC' }).then(function (entries) {
-    var tbody = document.getElementById('be-journals-tbody');
-    if (!Array.isArray(entries) || !entries.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;padding:20px 6px">No journal entries.</td></tr>';
-      return;
-    }
-    var acctMap = {};
-    S.accounts.forEach(function (a) { acctMap[a.account_code] = a.account_name || ''; });
-    var batches = {}, batchOrder = [];
-    entries.forEach(function (e) {
+    var el = document.getElementById('be-je-ref');
+    if (!el) return;
+    var seen = {}, refs = [];
+    (entries || []).forEach(function (e) {
       var bId = e.batch_id || 'default';
-      if (!batches[bId]) { batches[bId] = { date: e.date, reference: e.reference, lines: [] }; batchOrder.push(bId); }
-      batches[bId].lines.push(e);
+      if (seen[bId]) return;
+      seen[bId] = true;
+      refs.push('<a class="be-journal-ref-link" href="/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(bId) + '">' + FB.util.esc(e.reference || bId) + '</a>');
     });
-    var html = '';
-    batchOrder.forEach(function (bId) {
-      var batch = batches[bId];
-      var dateStr = batch.date ? String(batch.date).slice(0, 10) : '';
-      batch.lines.forEach(function (line, idx) {
-        var dr = parseFloat(line.debit_home || line.debit || 0).toFixed(2);
-        var cr = parseFloat(line.credit_home || line.credit || 0).toFixed(2);
-        var acctName = line.account_name || acctMap[line.account_code] || '';
-        var refCell = idx === 0
-          ? '<a class="be-journal-ref-link" href="/' + COMPANY + '/journal/voucher?batch=' + encodeURIComponent(bId) + '">' + FB.util.esc(batch.reference || bId) + '</a>'
-          : '';
-        html += '<tr data-entry-id="' + FB.util.esc(line.entry_id || '') + '">'
-          + '<td style="color:#555">' + (idx === 0 ? dateStr : '') + '</td>'
-          + '<td>' + refCell + '</td>'
-          + '<td style="color:#555">' + FB.util.esc(line.account_code || '') + '</td>'
-          + '<td>' + FB.util.esc(acctName) + '</td>'
-          + '<td style="text-align:right">' + (dr !== '0.00' ? dr : '—') + '</td>'
-          + '<td style="text-align:right">' + (cr !== '0.00' ? cr : '—') + '</td>'
-          + '</tr>';
-      });
-    });
-    tbody.innerHTML = html;
+    el.innerHTML = refs.length ? 'JE: ' + refs.join(', ') : '';
   }).catch(function () {
-    document.getElementById('be-journals-tbody').innerHTML = '<tr><td colspan="6" style="color:#cc2222">Error loading journals.</td></tr>';
+    var el = document.getElementById('be-je-ref');
+    if (el) el.textContent = '';
   });
 }
 
@@ -851,12 +794,10 @@ function collectVatAmountsStated() {
 function updateTotals() {
   const auto = computeAutoLines();
   renderAutoLines(auto.rows);
-  document.getElementById('be-tot-net').textContent = auto.net.toFixed(2);
   var whtEl = document.getElementById('be-tot-wht');
   var payEl = document.getElementById('be-tot-payable');
   if (whtEl) whtEl.textContent = auto.whtTotal.toFixed(2);
   if (payEl) payEl.textContent = (auto.gross - auto.whtTotal).toFixed(2);
-  document.getElementById('be-tot-gross').textContent = auto.gross.toFixed(2);
 }
 
 // ── Gather + validate ───────────────────────────────────────────────────────
@@ -1049,40 +990,35 @@ function deleteExistingAttachment(attachmentId) {
   apiAction('attachment.delete', { attachmentId }).then(loadAttachments).catch(e => msg(e.message, 'err'));
 }
 
-// ── Draft toggle (~) — bill-post-payment-consolidation-spec.md §1 ──────────
-// Reversible flip of a single focused form cell (keyboard-ux-spec.md §5's
-// toggle-verb doctrine) — not a mode change. Default off: w posts. On: w
-// saves a draft instead, same as today's loose draft-save.
-function setDraftUI(on) {
-  S.draft = !!on;
-  var btn = document.getElementById('be-draft-toggle');
-  btn.setAttribute('aria-pressed', S.draft ? 'true' : 'false');
-  btn.textContent = S.draft ? 'Draft: ON' : 'Draft';
-}
-document.getElementById('be-draft-toggle').addEventListener('click', function () { setDraftUI(!S.draft); });
-
-// w commits — post by default, save-as-draft when the Draft toggle is on.
-// The Save button mirrors it exactly (same function, not a second path).
+// w commits — always posts (the Draft toggle was removed 2026-09-06, per
+// magnus: users never save drafts manually anymore). The Save button
+// mirrors it exactly (same function, not a second path).
 // Locked (2026-09-06): nothing left to commit — vendor_ref/due_date already
 // auto-save, lines are frozen, and the Save button itself is hidden.
-function commitBill() { if (S.locked) return; return S.draft ? saveDraft(false) : postBill(); }
+function commitBill() { if (S.locked) return; return postBill(); }
 
 // ── Buttons + keys ──────────────────────────────────────────────────────────
 document.getElementById('be-save').onclick = () => quitEditor();
 document.getElementById('be-post').onclick = () => commitBill();
 
 // ── FB.form (K3, keyboard-ux-spec §8) — the one form machine; this page ──
-// declares config + verbs only. Zones: header grid → lines table → attachments.
+// declares config + verbs only. Zones: header grid → attachments → lines table.
 // The page starts in NORMAL; user presses i/Enter to edit a cell.
 var beForm = FB.form.create({
   formId: 'bill-edit',
   zones: [
     { id: 'header', rows: function () { return [document.querySelector('.be-grid-header')]; } },
-    // Locked (2026-09-06): hidden and pulled out of the zone entirely, not
-    // just visually — a hidden-but-still-cursor-stoppable row would be a
-    // dead-feeling j/k stop for no visible reason.
-    { id: 'draft',  rows: function () { return S.locked ? [] : [document.querySelector('.be-draft-row')]; },
-      cells: function () { return [document.getElementById('be-draft-toggle')]; } },
+    // A retired (2026-09-06): cells() now exposes the "+ Add attachment"
+    // row's button as the zone's one real cell (i/Enter or a click opens
+    // the file picker); real attachment rows stay cell-less, deleted
+    // directly by 'x' (see the delete verb's z===1 branch below).
+    // Attachments moved into the header area (2026-09-06, per magnus) — this
+    // zone now sits right after 'header' to match the new visual order.
+    { id: 'attachments', rows: function () { return Array.from(document.querySelectorAll('#be-attach-list .be-attach-row')); },
+      cells: function (rowEl) {
+        var btn = rowEl.querySelector('.be-attach-add-btn');
+        return btn ? [btn] : [];
+      } },
     { id: 'lines',  rows: function () {
         return Array.from(document.querySelectorAll('#be-lines-body .bl-row'));
       },
@@ -1090,19 +1026,6 @@ var beForm = FB.form.create({
         return Array.prototype.slice.call(rowEl.querySelectorAll('input,select,button'))
           .filter(function (el) { return !el.disabled && el.type !== 'hidden'; });
       } },
-    // A retired (2026-09-06): cells() now exposes the "+ Add attachment"
-    // row's button as the zone's one real cell (i/Enter or a click opens
-    // the file picker); real attachment rows stay cell-less, deleted
-    // directly by 'x' (see the delete verb's z===3 branch below).
-    { id: 'attachments', rows: function () { return Array.from(document.querySelectorAll('#be-attach-list .be-attach-row')); },
-      cells: function (rowEl) {
-        var btn = rowEl.querySelector('.be-attach-add-btn');
-        return btn ? [btn] : [];
-      } },
-    // Journal trail (Stage 3, 2026-09-06) — read-only, no cells (j/k only);
-    // appended last so it doesn't renumber the zone indices used above
-    // (lines=2, attachments=3). Only ever has rows once locked.
-    { id: 'journals', rows: function () { return S.locked ? Array.from(document.querySelectorAll('#be-journals-tbody tr')) : []; } },
   ],
   verbs: {
     add: { key: 'a', hint: 'add line', run: function (api) {
@@ -1126,15 +1049,15 @@ var beForm = FB.form.create({
           var row = api.zoneRows(2)[api.cur().r];
           return api.cur().r > 0 && row && !row.classList.contains('bl-auto');
         }
-        return z === 3;
+        return z === 1;
       },
       run: function (api) {
         if (api.cur().z === 2 && S.locked) return;   // 2026-09-06: lines are frozen once posted
-        if (api.cur().z === 3) {
+        if (api.cur().z === 1) {
           // attachments zone — staged files have a data-i delete button,
           // already-uploaded ones a data-attachment-id one (Stage 4,
           // 2026-09-06); the add row has neither, so this safely no-ops on it.
-          var arow = api.zoneRows(3)[api.cur().r];
+          var arow = api.zoneRows(1)[api.cur().r];
           var abtn = arow && arow.querySelector('button[data-i], button[data-attachment-id]');
           if (abtn) abtn.onclick();
           return;
@@ -1143,8 +1066,7 @@ var beForm = FB.form.create({
         if (!row) return;
         row.remove(); updateTotals(); refreshAddRow(); api.refresh();
       } },
-    // w commits (post by default, draft-save when the Draft toggle is on —
-    // bill-post-payment-consolidation-spec.md §1). p is retired.
+    // w always posts (Draft toggle removed 2026-09-06). p is retired.
     write: { key: 'w', hint: 'save', run: function () { commitBill(); } },
     // No dedicated key any more — Esc in NORMAL invokes this directly
     // (fb-form.js unifies the Esc doctrine: INSERT Esc exits a field edit,
@@ -1153,19 +1075,13 @@ var beForm = FB.form.create({
   },
   extraBindings: function (api) {
     return [
-      // ~ flips the focused button cell — currently only the Draft toggle.
-      // keyboard-ux-spec.md §5 pattern (reports-hub.js's MoM/YoY toggle).
-      { key: '~', mode: 'NORMAL', hint: 'draft', hintBar: true, run: function () {
-          var el = api.cellEl();
-          if (el && el.id === 'be-draft-toggle') el.click();
-        } },
       // A retired (2026-09-06) — the attachments zone's own
       // "+ Add attachment" row does this job now (see the zone's cells()).
       // x on the header zone voids a posted bill (Stage 3, 2026-09-06) —
       // same "x means something bigger on the header" pattern as
       // journal-voucher's reversal entry. Never collides with the generic
-      // delete verb's x, which only ever matches z===2||3 (lines/
-      // attachments), never z===0 (header).
+      // delete verb's x, which only ever matches z===1||2 (attachments/
+      // lines), never z===0 (header).
       { key: 'x', mode: 'NORMAL', hint: 'void', hintBar: true,
         when: function () { return S.status === 'posted' && api.cur().z === 0; },
         run: doVoid },

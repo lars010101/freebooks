@@ -97,6 +97,25 @@ ${commonStyle()}
     <label class="fx-rate-field" style="display:none">FX Rate <input type="number" id="entry-fx-rate" step="0.000001" style="width:90px"></label>
   </div>
 
+  <div id="jv-pre-attach-section" style="margin-top:6px;padding:12px;border:1px solid #e8e8e8;border-radius:4px;background:#fafafa">
+    <div style="font-size:10pt;font-weight:600;margin-bottom:6px">📎 Attachments</div>
+    <input type="file" id="jv-pre-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addJvAttachment(this)" multiple>
+    <div id="jv-pending-list" style="font-size:9.5pt"></div>
+  </div>
+
+  <div id="jv-attachment-panel" style="display:none;margin-top:6px;padding:12px;border:1px solid #e0e0e0;border-radius:4px;background:#fafafa">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:10pt;font-weight:600">📎 Attachments for this entry</span>
+      <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#fff;font-size:9.5pt">
+        + Attach
+        <input type="file" id="jv-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="uploadJvAttachment(this)">
+      </label>
+    </div>
+    <div id="jv-attachments-list" style="font-size:9.5pt">
+      <span style="color:#aaa;font-size:9pt">No attachments yet</span>
+    </div>
+  </div>
+
   <table class="jv-table">
     <thead>
       <tr>
@@ -118,25 +137,6 @@ ${commonStyle()}
     <button class="btn-sm" onclick="addLine()">+ Add Line</button>
     <button class="btn-primary" id="btn-post" onclick="postEntry()">Post Entry</button>
     <span id="status-msg" style="font-size:10pt"></span>
-  </div>
-
-  <div id="jv-pre-attach-section" style="margin-top:14px;padding:12px;border:1px solid #e8e8e8;border-radius:4px;background:#fafafa">
-    <div style="font-size:10pt;font-weight:600;margin-bottom:6px">📎 Attachments</div>
-    <input type="file" id="jv-pre-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addJvAttachment(this)" multiple>
-    <div id="jv-pending-list" style="font-size:9.5pt"></div>
-  </div>
-
-  <div id="jv-attachment-panel" style="display:none;margin-top:14px;padding:12px;border:1px solid #e0e0e0;border-radius:4px;background:#fafafa">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-size:10pt;font-weight:600">📎 Attachments for this entry</span>
-      <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#fff;font-size:9.5pt">
-        + Attach
-        <input type="file" id="jv-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="uploadJvAttachment(this)">
-      </label>
-    </div>
-    <div id="jv-attachments-list" style="font-size:9.5pt">
-      <span style="color:#aaa;font-size:9pt">No attachments yet</span>
-    </div>
   </div>
 </div>
 <script>

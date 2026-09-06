@@ -107,6 +107,9 @@ ${commonStyle()}
   .be-attach-row { display:flex; justify-content:space-between; align-items:center; padding:3px 6px; border-bottom:1px solid #f5f5f5; border-radius:3px; font-size:10pt; }
   .be-attach-row .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .be-attach-row .staged { color:#856404; font-size:8.5pt; }
+  /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity */
+  .be-attach-add-btn { border:none; background:none; cursor:pointer; color:#888; font-size:9.5pt; padding:2px 0; text-align:left; width:100%; }
+  .be-attach-row.fb-form-row-focus .be-attach-add-btn { color:#fff; }
   .btn-plain { padding:7px 12px; background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:10pt; }
   input.req { border-color:#cc2222 !important; }
   .be-draft-row { margin:-4px 0 12px; }
@@ -154,19 +157,14 @@ ${commonStyle()}
 
   <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
     <button class="btn-primary" id="be-post" type="button">Save (w)</button>
-    <button class="btn-sm" id="be-save" type="button">Back (q)</button>
+    <button class="btn-sm" id="be-save" type="button">Back (Esc)</button>
     <span class="be-msg" id="be-msg"></span>
   </div>
 
   <div style="margin-top:14px;padding:12px;border:1px solid #e8e8e8;border-radius:4px;background:#fafafa">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <span style="font-size:10pt;font-weight:600">📎 Attachments</span>
-      <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#fff;font-size:9.5pt">
-        + Attach
-        <input type="file" id="be-file" style="display:none" multiple>
-      </label>
-    </div>
-    <div id="be-attach-list" style="font-size:9.5pt;color:#aaa">No files queued</div>
+    <div style="font-size:10pt;font-weight:600;margin-bottom:6px">📎 Attachments</div>
+    <input type="file" id="be-file" style="display:none" multiple>
+    <div id="be-attach-list" style="font-size:9.5pt"></div>
   </div>
 </div>
 <script>
@@ -640,7 +638,10 @@ function renderAttachments() {
     '<div class="be-attach-row"><span class="name">📄 ' + FB.util.esc(f.name) + '</span>' +
     '<span class="staged">staged — uploads on save</span>' +
     '<button class="be-line-x" style="visibility:visible" data-i="' + i + '" type="button">×</button></div>'
-  ).join('') + (S.billId ? '<div id="be-attach-existing"></div>' : '');
+  ).join('') + (S.billId ? '<div id="be-attach-existing"></div>' : '')
+    // + Add attachment row (2026-09-06, retires A) — fb-list add-row parity.
+    // Pinned last; its button is the attachments zone's one real cell.
+    + '<div class="be-attach-row be-attach-add"><button type="button" class="be-attach-add-btn" onclick="document.getElementById(\'be-file\').click()">+ Add attachment</button></div>';
   el.querySelectorAll('button[data-i]').forEach(b => b.onclick = () => { S.stagedFiles.splice(Number(b.dataset.i), 1); renderAttachments(); });
   if (S.billId) loadAttachments();
 }
@@ -704,8 +705,15 @@ var beForm = FB.form.create({
         return Array.prototype.slice.call(rowEl.querySelectorAll('input,select,button'))
           .filter(function (el) { return !el.disabled && el.type !== 'hidden'; });
       } },
+    // A retired (2026-09-06): cells() now exposes the "+ Add attachment"
+    // row's button as the zone's one real cell (i/Enter or a click opens
+    // the file picker); real attachment rows stay cell-less, deleted
+    // directly by 'x' (see the delete verb's z===3 branch below).
     { id: 'attachments', rows: function () { return Array.from(document.querySelectorAll('#be-attach-list .be-attach-row')); },
-      cells: function () { return []; } },
+      cells: function (rowEl) {
+        var btn = rowEl.querySelector('.be-attach-add-btn');
+        return btn ? [btn] : [];
+      } },
   ],
   verbs: {
     add: { key: 'a', hint: 'add line', run: function (api) {
@@ -714,8 +722,17 @@ var beForm = FB.form.create({
       api.moveTo(2, api.zoneRows(2).length - 1, 0, true);
     } },
     delete: { key: 'x', hint: 'delete',
-      when: function (api) { return api.cur().z === 2 && api.cur().r > 0; },
+      when: function (api) { var z = api.cur().z; return (z === 2 && api.cur().r > 0) || z === 3; },
       run: function (api) {
+        if (api.cur().z === 3) {
+          // attachments zone (2026-09-06) — only staged files have a
+          // delete button (data-i); already-uploaded rows and the add
+          // row itself don't, so this safely no-ops on either.
+          var arow = api.zoneRows(3)[api.cur().r];
+          var abtn = arow && arow.querySelector('button[data-i]');
+          if (abtn) abtn.onclick();
+          return;
+        }
         var row = api.zoneRows(2)[api.cur().r];
         if (!row) return;
         row.remove(); updateTotals(); refreshAddRow(); api.refresh();
@@ -723,7 +740,10 @@ var beForm = FB.form.create({
     // w commits (post by default, draft-save when the Draft toggle is on —
     // bill-post-payment-consolidation-spec.md §1). p is retired.
     write: { key: 'w', hint: 'save', run: function () { commitBill(); } },
-    quit: { key: 'q', hint: 'quit', paletteEligible: false, run: function () { quitEditor(); } }
+    // No dedicated key any more — Esc in NORMAL invokes this directly
+    // (fb-form.js unifies the Esc doctrine: INSERT Esc exits a field edit,
+    // NORMAL Esc exits the whole form). 'q' is retired.
+    quit: { hint: 'quit', run: function () { quitEditor(); } }
   },
   extraBindings: function (api) {
     return [
@@ -733,8 +753,8 @@ var beForm = FB.form.create({
           var el = api.cellEl();
           if (el && el.id === 'be-draft-toggle') el.click();
         } },
-      { key: 'A', mode: 'NORMAL', hint: 'attach file', hintBar: true, swallow: true,
-        run: function () { document.getElementById('be-file').click(); } },
+      // A retired (2026-09-06) — the attachments zone's own
+      // "+ Add attachment" row does this job now (see the zone's cells()).
     ];
   }
 });

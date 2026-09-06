@@ -44,15 +44,17 @@ const GATE_ROUTE = 'journal-voucher';
 // loudly if the verb is removed. Match by `id`, exact `text`, or `sel`.
 const EXEMPTIONS = {
   'journal-voucher': [
-    { id: 'btn-reversal-mode', verb: 'R', reason: 'verb parity — R toggles reversal mode' },
+    { id: 'btn-reversal-mode', verb: 'x', reason: 'verb parity — x on the header row starts a reversal (retired off R, 2026-09-06)' },
     { text: '+ Add Line', verb: 'a', reason: 'verb parity — a adds a line' },
     { id: 'btn-post', verb: 'w', reason: 'verb parity — w posts the entry' },
   ],
-  'bill-edit': [
-    { id: 'be-post', verb: 'p', reason: 'verb parity — p posts the bill' },
-    { id: 'be-save', verb: 'q', reason: 'verb parity — q quits' },
-    { id: 'be-add-row-btn', verb: 'a', reason: 'verb parity — a adds a line' },
-  ],
+  // 'bill-edit' had a leftover exemption table here even though line 155
+  // below skips coverage checks for every route but GATE_ROUTE — it was
+  // never actually evaluated, and had drifted stale (still claimed 'p' posts
+  // and 'q' quits, both retired) without that ever being caught. Removed
+  // 2026-09-06 rather than patched, per this file's own stated intent above
+  // ("all other routes are smoke-checked... former exemption tables are in
+  // git history").
 };
 
 let pass = 0, fail = 0;

@@ -183,14 +183,21 @@ e.g. reports comparison: `~` on active MoM → none).
 - **Bank transaction panel: `c` → `~` migrated 2026-07-28** (clear/unclear).
   `c` is released; on FB.list filter surfaces `c` remains 'clear filters'
   (different semantic, unchanged).
-- Journal-new reversal is NOT a `~` — moved to `R` 2026-07-28 (magnus: `~`
-  reads as toggle-true/false; reversal is a mode — vim's own `R` = replace
-  mode). **Esc contract (ratified 2026-07-28, magnus):** INSERT-Esc from
-  the reversal search ONLY exits edit → NORMAL (reversal stays active);
-  NORMAL-Esc cancels the whole reversal back to normal JV edit. So
-  `R` → (INSERT in search) `Esc` → NORMAL (still reversing) → `Esc` →
-  cancelled. The NORMAL binding is `when: reversalMode`-guarded, so global
-  Esc is untouched outside reversal.
+- Journal-voucher reversal is NOT a `~` — was `R` (2026-07-28: `~` reads as
+  toggle-true/false; reversal is a mode — vim's own `R` = replace mode), then
+  **retired onto `x` (2026-09-06, magnus):** `x` at rest on the header zone
+  (`z===1`) starts a reversal — the same `toggleReversalMode()` this used to
+  run under `R`, just re-scoped by cursor position instead of a dedicated
+  key. It never collides with `x`'s other job (deleting the focused
+  line/attachment, `z===2||3`) since those zones never overlap. Guarded
+  `!reversalMode`, so it is enter-only: once reversing, `x` on the header
+  does nothing more — **Esc is the only way out**, on purpose, not a second
+  press of the entry key. **Esc contract (ratified 2026-07-28, magnus):**
+  INSERT-Esc from the reversal search ONLY exits edit → NORMAL (reversal
+  stays active); NORMAL-Esc cancels the whole reversal back to normal JV
+  edit. So `x`-on-header → (INSERT in search) `Esc` → NORMAL (still
+  reversing) → `Esc` → cancelled. The NORMAL binding is
+  `when: reversalMode`-guarded, so global Esc is untouched outside reversal.
 - **Reversal pick → cursor lands on the date cell** (ratified 2026-07-28):
   after choosing a source entry (Enter on a result row), the form cursor
   moves to the header date cell in NORMAL (search blurred, results
@@ -306,7 +313,7 @@ config + verbs only — no per-page key handlers (FB.list doctrine).
 | `j`/`k` | next/prev row (zones flatten; sticky at form ends; **column preserved** — goal-column, 2026-07-28) | — |
 | `h`/`l` | next/prev cell (sticky) | — |
 | `i`/`Enter` | edit cell → INSERT | advance to next cell (fb-list parity) |
-| `Esc` | — | exit edit → NORMAL (never writes) |
+| `Esc` | quit the whole form via the page's `quit` verb, if one is declared (no dropdown open) — see below | exit edit → NORMAL (never writes) |
 | `Tab`/`Shift+Tab` | move cursor next/prev cell (no INSERT) — **crosses row/zone boundaries** (2026-07-28: was row-clamped; header→grid must flow) | native traversal; cursor follows focus |
 | `G` | last row | — |
 
@@ -339,8 +346,28 @@ binding blurs it too); `edit()` calls `setMode(true)` BEFORE `el.focus()`
 so K3e can't strip the cell being entered. **Pages on FB.form
 must NOT pass `keys: true` to FB.dropdown**. `gg` = first row via the K1
 `FB.nav.onGG` hook. Mouse parity: clicking a cell moves the cursor (focusin
-sync). Verbs (`a` add, `x` delete, `w` write, `q` quit) are per-page config
-with `when` predicates.
+sync). Verbs (`a` add, `x` delete, `w` write) are per-page config with `when`
+predicates, each bound to its own dedicated key.
+
+**Esc doctrine unified (2026-09-06, magnus):** `quit` is no longer one of
+those dedicated-key verbs — it has no key of its own. Instead, `Esc` in
+NORMAL mode (no dropdown open) invokes the page's `quit` verb directly if one
+is declared; pages without a `quit` verb (reports-hub, new-company) see no
+change, since the binding's `when` guard requires `cfg.verbs.quit` to exist.
+This makes `Esc` mean the same thing at every layer of an FB.form page: one
+press always steps back exactly one level — INSERT Esc exits a field edit
+back to NORMAL (never writes), NORMAL Esc exits the whole form (to wherever
+the page's `quit` verb sends it) — rather than "one thing in INSERT, nothing
+in NORMAL, and an unrelated separate key for leaving the page." `q` is
+retired app-wide as a result: nothing rebinds it, so it is now an inert key
+on every FB.form page. Because mode is resolved once per keydown before a
+binding is chosen (`fb-core.js`'s dispatch loop matches and runs at most one
+binding per event, then returns), a single Esc press can never fire both the
+INSERT exit and the NORMAL quit — they are mutually exclusive by mode, not by
+convention. Page-specific Esc overrides (e.g. journal-voucher's
+reversal-mode cancel, below) are declared via `extraBindings`, which are
+prepended ahead of this framework binding and therefore still win whenever
+their own `when` guard matches.
 
 **Cell-type semantics (K3b fix, ratified by magnus 2026-07-28):** a zone may
 override `cells(row)` to declare arbitrary controls as cells in visual order
@@ -362,10 +389,15 @@ forms (reports filter bar: one row, N control cells) therefore navigate
 
 **journal-voucher pilot:** zones = reversal panel (present only in reversal
 mode) → header (date/journal/desc) → JV line grid. `a` add line (cursor +
-edit), `x` delete line, `w` post (disabled-guard), `q` quit, `R` reversal
-mode (focus search; arrows/Enter navigate results, Esc cancels reversal
-outright — 2026-07-28). `h`/`l` = cell movement here (page has no tabs —
-context override). Reversal search matches on a single character
+edit), `x` on a line/attachment row deletes it, `x` on the header row (at
+rest, not already reversing) starts a reversal (focus search; arrows/Enter
+navigate results — retired off `R`, 2026-09-06), `w` post (disabled-guard),
+Esc (NORMAL, at rest) quit, Esc cancels reversal outright — 2026-07-28; this
+reversal-mode Esc is an `extraBindings` override that wins over the plain
+quit-Esc above while `reversalMode` is true, and is the *only* way to exit
+reversal (entering via `x` is one-directional, not a toggle). `h`/`l` = cell
+movement here (page has no tabs — context override). Reversal search matches
+on a single character
 (min-length 1; the old min-2 gate failed silently on "a"/"2").
 
 **K3b adoption (shipped 2026-07-28):** four pages onto FB.form, each

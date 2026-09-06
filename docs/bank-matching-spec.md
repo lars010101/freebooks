@@ -513,7 +513,7 @@ If the rejected match came from tier 4 (not a learned rule), no rule is created 
 | Failure mode | What happened | Where it surfaces | Human action |
 |--------------|--------------|-------------------|-------------|
 | **Intake failure** | Input is structurally broken — malformed CSV, missing headers, unparseable PDF, wrong file type | Immediate rejection to the submission channel (non-zero exit, error response). Logged to `event.list` (agent's channel). **Not in the inbox.** | Fix the submission source, re-submit |
-| **Semantic rejection** | Input parsed, but critical data is missing/ambiguous on specific lines (missing date, blank amount, unparseable description) | **Inbox** — Class B item (§11.2) | `r` retry (correct + re-run) or `d` discard |
+| **Semantic rejection** | Input parsed, but critical data is missing/ambiguous on specific lines (missing date, blank amount, unparseable description) | **Inbox** — Class B item (§11.2) | `r` retry (correct + re-run) or `x` discard |
 
 ### 11.2 Inbox integration — Class B (broadened)
 
@@ -537,9 +537,9 @@ New Class B type:
 ```
 
 - **One item per statement** with rejections, not one per line — "Statement X: 3 lines need attention" with drill-through to individual lines. Keeps the inbox scannable.
-- **Verbs differ from Class A's `y`/`x`:**
+- **Discard uses `x`, same as every other row kind's reject/discard verb on this page** (Class A proposals, partner proposals, mapping suggestions, bill drafts). Only `retry` is a rejection-specific verb:
   - `r` (retry) — the human corrects the missing data (edits the line, or provides the value) and the agent re-runs the cascade on just those lines. If it now resolves, it becomes a normal proposal.
-  - `d` (discard) — the human decides the line is spurious (bank header row, duplicate, test transaction). Marked discarded, logged, never proposed.
+  - `x` (discard) — the human decides the line is spurious (bank header row, duplicate, test transaction). Marked discarded, logged, never proposed.
 
 ### 11.3 What counts as "critical data"
 

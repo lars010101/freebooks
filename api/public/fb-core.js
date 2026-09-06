@@ -988,12 +988,12 @@
       // `/` — §2 revision shows nothing until a query is typed). ArrowDown
       // surfaces the recently-viewed list on demand in that case; otherwise
       // it moves the selection as usual.
-      if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) {
+      if (e.key === 'ArrowDown') {
         e.preventDefault(); e.stopImmediatePropagation();
         if (!_el) _renderEmpty(); else _move(1);
         return true;
       }
-      if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) { e.preventDefault(); e.stopImmediatePropagation(); _move(-1); return true; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); _move(-1); return true; }
       if (e.key === 'Enter') {
         e.preventDefault(); e.stopImmediatePropagation();
         if (_items.length) _activate(_activeIdx >= 0 ? _activeIdx : 0);

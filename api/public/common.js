@@ -464,7 +464,7 @@
       return;
     }
 
-    // ── a / d → partner cell nav owns these when active ──
+    // ── a → partner cell nav owns this when active ──
     var partnerPanelAD = document.getElementById('pay-panel-partners');
     var partnerActive = partnerPanelAD && partnerPanelAD.style.display !== 'none';
 
@@ -487,18 +487,6 @@
       if (window.fbKeyActions && typeof window.fbKeyActions['attach'] === 'function') {
         e.preventDefault();
         window.fbKeyActions['attach']();
-      }
-      return;
-    }
-
-    // ── d → delete focused row (page-registered) ──
-    if (e.key === 'd') {
-      if (partnerActive) return;
-      if (window.fbKeyActions && typeof window.fbKeyActions['delete'] === 'function') {
-        var focusedRowD = document.querySelector('tr.nav-row-focus');
-        if (!focusedRowD) return; // nothing focused — previously crashed on null.dataset
-        e.preventDefault();
-        window.fbKeyActions['delete'](focusedRowD);
       }
       return;
     }

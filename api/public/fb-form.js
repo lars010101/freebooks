@@ -338,6 +338,18 @@
           var ae = document.activeElement;
           if (ae && ae.tagName === 'SELECT' && ae.blur) ae.blur();
         } },
+      // Esc in NORMAL (nothing else claimed it — dropdown-close above and any
+      // page extraBindings, e.g. journal-voucher's reversal-cancel, are
+      // checked first and win) leaves the whole form via the page's 'quit'
+      // verb. Unifies the Esc doctrine: INSERT Esc backs out one field,
+      // NORMAL Esc backs out of the whole form — one key, one "step back"
+      // meaning at every layer. 'q' is retired as a separate key now that
+      // Esc covers both jobs (magnus 2026-09-06).
+      { key: 'Escape', mode: 'NORMAL',
+        when: function () { return !ddOpen() && !!(cfg.verbs && cfg.verbs.quit) && (!cfg.verbs.quit.when || cfg.verbs.quit.when(api)); },
+        hint: (cfg.verbs && cfg.verbs.quit && cfg.verbs.quit.hint) || 'quit',
+        hintBar: true, paletteEligible: false,
+        run: function () { cfg.verbs.quit.run(api); } },
       // K3e: Tab in NORMAL moves the cursor cell next/prev WITHOUT entering
       // INSERT. preventDefault (default for bindings) stops native focus
       // movement, so no focusin→setMode(true) fires. INSERT is entered only
@@ -434,7 +446,10 @@
     ];
 
     if (cfg.verbs) {
-      ['add', 'delete', 'write', 'quit'].forEach(function (name) {
+      // 'quit' is deliberately excluded here — it has no dedicated key of its
+      // own any more. It's invoked only via the NORMAL-mode Esc binding
+      // above, which reads cfg.verbs.quit directly (magnus 2026-09-06).
+      ['add', 'delete', 'write'].forEach(function (name) {
         var v = cfg.verbs[name];
         if (!v) return;
         bindings.push({ key: v.key, mode: 'NORMAL', hint: v.hint, hintBar: true,

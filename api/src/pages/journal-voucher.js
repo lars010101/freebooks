@@ -37,6 +37,9 @@ ${commonStyle()}
   .fb-attach-row.fb-form-row-focus { background:#1a1a1a !important; color:#fff; }
   .fb-attach-row.fb-form-row-focus .fb-att-meta { color:rgba(255,255,255,.6); }
   .fb-attach-row.fb-form-row-focus .fb-att-del { color:#ff8888; }
+  /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity */
+  .fb-att-add-btn { border:none; background:none; cursor:pointer; color:#888; font-size:9.5pt; padding:2px 0; text-align:left; width:100%; }
+  .fb-attach-row.fb-form-row-focus .fb-att-add-btn { color:#fff; }
   /* A1 (magnus 2026-07-28): read-only original-entry rows shown above the
      swapped reversal rows. Plain-text <td>s (no inputs) — grayed + italic. */
   .jv-orig-hdr td, .jv-orig-line td { color:#999; background:#f5f5f5; font-style:italic; }
@@ -118,14 +121,9 @@ ${commonStyle()}
   </div>
 
   <div id="jv-pre-attach-section" style="margin-top:14px;padding:12px;border:1px solid #e8e8e8;border-radius:4px;background:#fafafa">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <span style="font-size:10pt;font-weight:600">📎 Attachments</span>
-      <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#fff;font-size:9.5pt">
-        + Attach
-        <input type="file" id="jv-pre-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addJvAttachment(this)" multiple>
-      </label>
-    </div>
-    <div id="jv-pending-list" style="font-size:9.5pt;color:#aaa">No files queued</div>
+    <div style="font-size:10pt;font-weight:600;margin-bottom:6px">📎 Attachments</div>
+    <input type="file" id="jv-pre-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addJvAttachment(this)" multiple>
+    <div id="jv-pending-list" style="font-size:9.5pt"></div>
   </div>
 
   <div id="jv-attachment-panel" style="display:none;margin-top:14px;padding:12px;border:1px solid #e0e0e0;border-radius:4px;background:#fafafa">
@@ -980,17 +978,21 @@ ${commonStyle()}
   function renderJvPendingList() {
     var el = document.getElementById('jv-pending-list');
     if (!el) return;
-    if (!pendingJvAttachments.length) { el.innerHTML = '<span style="color:#aaa">No files queued</span>'; return; }
-    // K4: shared .fb-attach-row classes (fb-attachments.js) — the queue is a
+    // K4 (updated 2026-09-06): shared .fb-attach-row classes — the queue is a
     // FB.form zone, so j/k paint the cursor row and x deletes (data-att-id =
-    // staged index, read by the delete verb).
+    // staged index, read by the delete verb). The add row is pinned last,
+    // FB.list-style — its button is the zone's only actual cell (see the
+    // 'attachments' zone's cells() below), so i/Enter or a click opens the
+    // file picker; A is retired.
     el.innerHTML = pendingJvAttachments.map(function(f, i) {
       var kb = (f.size / 1024).toFixed(1);
       return '<div class="fb-attach-row" data-att-id="' + i + '">'
         + '<span class="fb-att-name">\ud83d\udcc4 ' + f.name + ' <span class="fb-att-meta">(' + kb + ' KB)</span></span>'
         + '<button class="fb-att-del" onclick="removeJvAttachment(' + i + ')" title="delete (x)">&times;</button>'
         + '</div>';
-    }).join('');
+    }).join('') + '<div class="fb-attach-row fb-attach-add">'
+      + '<button type="button" class="fb-att-add-btn" onclick="document.getElementById(\'jv-pre-attach-input\').click()">+ Add attachment</button>'
+      + '</div>';
   }
 
   async function uploadPendingJvAttachments(batchId) {
@@ -1014,10 +1016,17 @@ ${commonStyle()}
     zones: [
       { id: 'reversal', rows: function () { return reversalMode ? [document.getElementById('reversal-panel')] : []; } },
       { id: 'header',   rows: function () { return [document.querySelector('.header-fields')]; } },
-      // K4: the pending-attachment queue is a form zone (read-only rows, no
-      // cells) — j/k reach it, x removes the cursor row via the delete verb.
+      // K4 (updated 2026-09-06): the pending-attachment queue is a form zone —
+      // j/k reach it, x removes the cursor row via the delete verb. Real
+      // attachment rows are cell-less (x deletes them directly, i/Enter is a
+      // no-op); the pinned "+ Add attachment" row is the one exception — its
+      // button IS the zone's cell, so i/Enter or a click opens the file
+      // picker, retiring A as a separate key.
       { id: 'attachments', rows: function () { return Array.from(document.querySelectorAll('#jv-pending-list .fb-attach-row')); },
-        cells: function () { return []; } },
+        cells: function (rowEl) {
+          var btn = rowEl.querySelector('.fb-att-add-btn');
+          return btn ? [btn] : [];
+        } },
       { id: 'lines',    rows: function () { return Array.from(document.querySelectorAll('#lines-body tr:not(.jv-orig-line):not(.jv-orig-hdr)')); } }
     ],
     verbs: {
@@ -1031,9 +1040,11 @@ ${commonStyle()}
         run: function (api) {
           if (VIEW_BATCH && !reversalMode) return;
           if (api.cur().z === 2) {
-            // attachments zone — remove the staged file (K4)
+            // attachments zone — remove the staged file (K4); the add row
+            // has no data-att-id, so this is also its guard against
+            // deleting itself.
             var row = api.zoneRows(2)[api.cur().r];
-            if (!row) return;
+            if (!row || row.classList.contains('fb-attach-add')) return;
             removeJvAttachment(parseInt(row.dataset.attId, 10));
             api.refresh();
             return;
@@ -1048,7 +1059,12 @@ ${commonStyle()}
         if (btn.disabled) { showStatus('Out of balance — see Diff', true); return; }
         postEntry();
       } },
-      quit: { key: 'q', hint: 'quit', paletteEligible: false, run: function () {
+      // No dedicated key any more — Esc in NORMAL invokes this directly
+      // (fb-form.js unifies the Esc doctrine: INSERT Esc exits a field edit,
+      // NORMAL Esc exits the whole form). 'q' is retired. Reversal mode's own
+      // Esc (extraBindings below, cancel-the-reversal) is prepended and wins
+      // over this while reversalMode is true — this only fires at rest.
+      quit: { hint: 'quit', run: function () {
         var url = FROM_REPORT ? '/' + COMPANY + '/journal?t=' + FROM_REPORT : '/' + COMPANY;
         if (FROM_REPORT && RPT_START && RPT_END) {
           url += '&start=' + encodeURIComponent(RPT_START) + '&end=' + encodeURIComponent(RPT_END);
@@ -1059,16 +1075,19 @@ ${commonStyle()}
     extraBindings: function (api) {
       function searchFocused() { return document.activeElement === document.getElementById('reversal-search'); }
       return [
-        // K4: A = attach everywhere (keyboard-ux-spec §8) — opens the file
-        // picker for the pending-attachment queue
-        { key: 'A', mode: 'NORMAL', hint: 'attach', hintBar: true, run: function () {
-            var inp = document.getElementById('jv-pre-attach-input');
-            if (inp) inp.click();
-          } },
-        // R = reversal MODE (vim's R = replace mode — a mode key for a mode;
-        // magnus 2026-07-28: ~ stays pure toggle-true/false, so reversal
-        // moves off ~). Esc in the search cancels the whole reversal flow.
-        { key: 'R', mode: 'NORMAL', hint: 'reversal', hintBar: true, run: function () {
+        // A retired (2026-09-06) — the pending-attachment queue's own
+        // "+ Add attachment" row (fb-attach-add) now does this job, reached
+        // by j/k like any other row and activated by i/Enter/click.
+        // x on the header zone starts a reversal (2026-09-06, retires R).
+        // Header (z===1) never overlaps the delete verb's own guard
+        // (z===2||3, line/attachment rows only), so this can't collide with
+        // "delete the focused line" no matter where the cursor is. Guarded
+        // on !reversalMode so this is enter-only — once reversing, pressing
+        // x on the header again does nothing; Esc is the only way out
+        // (below), never a second x.
+        { key: 'x', mode: 'NORMAL', hint: 'reversal', hintBar: true,
+          when: function () { return !reversalMode && api.cur().z === 1; },
+          run: function () {
             toggleReversalMode();
             api.refresh();
             if (reversalMode && !VIEW_BATCH) { var s = document.getElementById('reversal-search'); if (s) s.focus(); }
@@ -1077,11 +1096,16 @@ ${commonStyle()}
         { key: 'ArrowUp', mode: 'INSERT', when: searchFocused, run: function () { moveReversal(-1); } },
         // Enter inside the search always stays local (never advances the form)
         { key: 'Enter', mode: 'INSERT', when: searchFocused, run: pickReversal },
-        // A3 (magnus 2026-07-28): Esc contract — INSERT Esc from the search
-        // ONLY exits edit → NORMAL (reversal stays active); NORMAL Esc cancels
-        // reversal. R → (INSERT in search) Esc → NORMAL (still active) →
-        // Esc → cancels reversal. The NORMAL when-guard (reversalMode)
-        // keeps global Esc behavior untouched when reversalMode is false.
+        // A3 (magnus 2026-07-28, updated 2026-09-06): Esc contract — INSERT
+        // Esc from the search ONLY exits edit → NORMAL (reversal stays
+        // active); NORMAL Esc cancels reversal — the only way out, by
+        // design (x on the header only ever enters, never toggles off).
+        // x-on-header → (INSERT in search) Esc → NORMAL (still active) →
+        // Esc → cancels reversal. This extraBinding is prepended ahead of
+        // fb-form's own NORMAL-mode Esc (which quits the page via the
+        // 'quit' verb), so it wins outright while reversalMode is true;
+        // when reversalMode is false its when-guard fails and Esc falls
+        // through to that quit binding instead.
         { key: 'Escape', mode: 'INSERT', when: searchFocused, run: function () {
             api.exitEdit();         // blur + NORMAL — reversal stays active
             api.refresh();

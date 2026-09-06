@@ -507,7 +507,7 @@ function mapItem(it) {
   // with missing critical data. No lines, no enrichment — the item carries
   // everything inline from inbox.list's queryInputRejections. 'r' (retry —
   // correct the data + re-run the cascade) has no backing action yet; only
-  // 'd' (discard) is wired (see the row-verb definitions below).
+  // 'x' (discard) is wired (see the row-verb definitions below).
   if (it.type === 'input_rejection') {
     return {
       _key: 'rej:' + it.payload_ref, _kind: 'rejection',
@@ -764,7 +764,7 @@ function reviewSuggestion(row, verdict) {
 }
 
 // ── Discard an input rejection (row verb — bank-matching-spec §11.2) ────
-// 'd' only — 'r' (retry: correct the data + re-run the cascade) has no
+// 'x' only — 'r' (retry: correct the data + re-run the cascade) has no
 // backing action yet (no edit UI, no input_rejection.retry action). Native
 // confirm, no modal, matching deleteOrphan's pattern for a one-shot delete.
 function discardRejection(row) {
@@ -981,19 +981,20 @@ var list = FB.list.create({
       when: function (row) { return row._kind === 'suggestion' && row.status === 'proposed'; },
       affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { reviewSuggestion(row, 'reject'); } },
-    // Class B input rejections (bank-matching-spec §11.2): d = discard, wired
-    // to input_rejection.discard. r = retry is spec'd (correct the data,
-    // re-run the cascade) but has no backing action or edit UI yet — shown
-    // disabled rather than omitted, so the reserved slot is visible instead
-    // of silently missing.
-    { key: 'd', label: 'discard',
+    // Class B input rejections (bank-matching-spec §11.2): x = discard, wired
+    // to input_rejection.discard — same key as every other row kind's
+    // discard/reject verb on this page. r = retry is spec'd (correct the
+    // data, re-run the cascade) but has no backing action or edit UI yet —
+    // shown disabled rather than omitted, so the reserved slot is visible
+    // instead of silently missing.
+    { key: 'x', label: 'discard',
       when: function (row) { return row._kind === 'rejection'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="discard (d)" data-act="verb:d">&#10005;</a>'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="discard (x)" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { discardRejection(row); } },
     { key: 'r', label: 'retry (not yet built)',
       when: function (row) { return row._kind === 'rejection'; },
       affordance: function () { return '<span class="chip chip-disabled" title="retry: correct the data + re-run — not yet built">&#8635;</span>'; },
-      run: function () { FB.status.show('Retry is not built yet — discard (d) and re-submit corrected data instead.', true); } }
+      run: function () { FB.status.show('Retry is not built yet — discard (x) and re-submit corrected data instead.', true); } }
   ],
   actions: [
     { key: 'f', label: 'filter: proposed↔rejected↔orphans↔partners↔suggestions↔rejections', handler: function () { cycleStatusFilter(); } }

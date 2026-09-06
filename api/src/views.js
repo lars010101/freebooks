@@ -32,7 +32,7 @@ async function handleViews(ctx, action) {
 
 /**
  * Payables Bills tab in one call: partners + bills with embedded lines.
- * Draft lines come from draft_lines JSON (parsed, same shape as bill.lines);
+ * Draft lines come from getBillLines (draft_lines JSON, unwrapped to bill.lines shape);
  * posted lines from journal entries. Lines are fetched per bill server-side
  * (DuckDB-local, no HTTP fan-out) — batch-optimize only if profiling says so.
  */

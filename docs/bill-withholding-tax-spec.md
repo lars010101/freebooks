@@ -572,6 +572,8 @@ ${whtOn ? '<span title="Withheld and remitted to the tax authority separately �
 
 `updateTotals()` gains a WHT pass mirroring the existing VAT-code-rows computation (same `S.whtCodes` lookup shape as `vatRateOf()`), setting `be-tot-wht` to the sum and `be-tot-payable` to `gross - wht`. No stated/override input for WHT (§0.5), so this is display-only — unlike `#be-tot-gst`, there's no matching input element here, just two more `<b>` totals fed by the same client-side preview calculation `updateTotals()` already does for GST.
 
+**Superseded (2026-09-06, bill-line-item-grid-spec.md):** the footer shape above (`#be-tot-gst` input, `#be-code-rows`) no longer exists — both VAT and WHT moved from footer text into real per-code grid rows sharing the line-items table. §0.5's decision is unchanged: WHT still has no stated/override mechanism, so its grid row renders with a genuinely disabled Debit/Credit input (`editable: false` in `computeAutoLines()`), not merely a display-only convention as it was for the old footer `<b>` totals. The `WHT — <code>` row credits the code's `wht_account`, mirroring the `CR WHT Payable` line `bills.js` already posts.
+
 ---
 
 ## 7. Settings UI — mirrors the existing VAT Codes screen almost exactly
@@ -587,7 +589,7 @@ Also needs: a `wht_tracking` on/off toggle in the relevant settings page, mirror
 - **Any remittance/filing tracking** — §0.3. Settling the WHT payable account is a manual journal entry, same as any other liability, forever (unless a future spec decides otherwise).
 - **A stated/override mechanism for WHT** — §0.5.
 - **Gross-basis (vs. net-basis) computation per code** — §0.4. Every code uses the same base as VAT for now.
-- **The posted-bill view doesn't show WHT** — same scoping call as the #3 spec's Qty/Rate: `bill.lines` will carry `wht_code` for free once this lands, but wiring the display is a separate, cheap follow-up. (`bill-detail.js` is merged into `bill-edit.js` as of 2026-09-06 — its locked-mode lines grid reuses the same WHT column as the editable grid, just disabled, so this specific gap may already be closed as a side effect of the merge rather than needing separate follow-up work; worth confirming rather than assuming.)
+- ~~**The posted-bill view doesn't show WHT**~~ — **closed** (2026-09-06, bill-line-item-grid-spec.md): the WHT auto-row is a real grid row present in both editable and locked rendering (locked just disables its inputs, same as every other line), so a posted bill's WHT amount is visible without a separate follow-up.
 - **AP Aging report changes** — it already reads `bills.amount`/`amount_paid`, which are now correctly net-of-WHT by construction (§0.2); no code change needed there, but worth a manual spot-check once implemented rather than assumed. **Known display gap, accepted for v1:** a bill list or aging report showing a bill that was 1,000 gross with 170 WHT will show 830, with nothing on that screen explaining why — the totals footer (§6.5) only surfaces the breakdown on the bill editor itself. Fine to ship without fixing, but worth telling users up front rather than letting them discover it.
 - **Treaty-rate lookups, WHT certificates, or any other jurisdiction-specific compliance mechanics** beyond "pick a code, apply its rate."
 

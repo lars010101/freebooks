@@ -97,6 +97,9 @@ ${commonStyle()}
   .be-line-x { visibility:hidden; cursor:pointer; color:#999; border:none; background:none; font-size:12pt; padding:0 4px; }
   .bl-row:hover .be-line-x { visibility:visible; }
   .be-line-x.fb-form-cursor-btn { visibility: visible; }
+  .bl-row.bl-auto { background:#fafafa; }
+  .bl-auto-label { font-style:italic; color:#666; font-size:9.5pt; }
+  .bl-cell input:disabled { background:transparent; border-color:transparent; color:#888; }
   @media (max-width: 1100px) {
     .bl-header { display: none; }
     .bl-row {
@@ -176,9 +179,7 @@ ${commonStyle()}
   </div>
 
   <div class="totals">
-    <div id="be-code-rows" style="font-size:8.5pt;color:#888;font-style:italic${vatOn ? '' : ';display:none'}"></div>
     <span>Net <b id="be-tot-net">0.00</b></span>
-    ${vatOn ? '<span title="Supplier-stated ' + taxLabel + ' total — pre-filled computed; edit to match the supplier invoice; clear to return to computed">' + taxLabel + ' <input id="be-tot-gst" class="bill-vat-stated" type="number" step="0.01" style="width:90px;text-align:right"></span>' : ''}
     <span>Gross <b id="be-tot-gross">0.00</b></span>
     ${whtOn ? '<span title="Withheld and remitted to the tax authority separately — not paid to the vendor">WHT <b id="be-tot-wht" style="color:#b26a00">0.00</b></span><span>Payable to vendor <b id="be-tot-payable">0.00</b></span>' : ''}
   </div>
@@ -232,6 +233,7 @@ const COMPANY = ${JSON.stringify(company)};
 const VAT_ON = ${vatOn ? 'true' : 'false'};
 const FX_ON = ${fxOn ? 'true' : 'false'};
 const WHT_ON = ${whtOn ? 'true' : 'false'};
+const TAX_LABEL = ${JSON.stringify(taxLabel)};
 // Server-embedded: fbNavigate re-executes this script BEFORE pushState, so
 // window.location.search still holds the OLD page's query at parse time.
 const editId = ${JSON.stringify(editId)};
@@ -247,6 +249,7 @@ const S = {
   draft: false,          // Draft toggle (~) — false = w posts, true = w saves a draft
   status: null,          // bill.status once loaded — 'draft' | 'posted' | 'partial' | 'paid' | 'void'
   locked: false,         // Stage 2 (2026-09-06, bill-edit/bill-detail merge): true once status !== 'draft'
+  vatAmountsStated: null, // per-VAT-code override map restored from bill.get, seeds the first renderAutoLines() pass
 };
 
 // ── Line-item column config — single source of truth ──────────────────────
@@ -257,18 +260,24 @@ const S = {
 // INVARIANT: tier-1 entries must precede tier-2 entries in this array.
 // §3.4's Tier-B rendering groups cells by tier and relies on each group's
 // internal order matching this array's order — see §2.3.
+// Account/Debit/Credit replaces the old single Amount + "DR: Expense
+// account" pair (bill-line-item-grid-spec.md) — mirrors journal-voucher.js's
+// column order (Account, Debit, Credit). Every user line is a debit (an
+// expense line never carries a Credit value); the auto-generated VAT/WHT/
+// total rows built by renderAutoLines() reuse this same column set so
+// everything lines up under one shared --bl-cols grid.
 const LINE_COLUMNS = [
-  { id: 'desc', label: 'Description',        cls: 'bl-desc',   tier: 1 },
+  { id: 'desc',   label: 'Description',  cls: 'bl-desc',   tier: 1 },
   // Reserved for the #3 spec (qty × unit price) — do not build ahead of it:
-  // { id: 'qty',  label: 'Qty',                cls: 'bl-qty',    tier: 1 },
-  // { id: 'rate', label: 'Rate',               cls: 'bl-rate',   tier: 1 },
-  { id: 'amt',  label: 'Amount',              cls: 'bl-amt',    tier: 1 },
-  { id: 'vat',  label: 'VAT code',            cls: 'bl-vat',    tier: 2, conditionalOn: () => VAT_ON },
-  // Reserved for the #4 spec (withholding tax) — do not build ahead of it:
-  { id: 'wht',  label: 'WHT code',           cls: 'bl-wht',    tier: 2, conditionalOn: () => WHT_ON },
-  { id: 'cc',   label: 'Cost center',         cls: 'bl-cc',     tier: 2 },
-  { id: 'acct', label: 'DR: Expense account', cls: 'bl-acct',   tier: 2 },
-  { id: 'del',  label: '',                    cls: 'be-line-x', tier: 2 },
+  // { id: 'qty',  label: 'Qty',          cls: 'bl-qty',    tier: 1 },
+  // { id: 'rate', label: 'Rate',         cls: 'bl-rate',   tier: 1 },
+  { id: 'acct',   label: 'Account',      cls: 'bl-acct',   tier: 1 },
+  { id: 'debit',  label: 'Debit',        cls: 'bl-debit',  tier: 1 },
+  { id: 'credit', label: 'Credit',       cls: 'bl-credit', tier: 1 },
+  { id: 'vat',    label: TAX_LABEL + ' code', cls: 'bl-vat', tier: 2, conditionalOn: () => VAT_ON },
+  { id: 'wht',    label: 'WHT code',     cls: 'bl-wht',    tier: 2, conditionalOn: () => WHT_ON },
+  { id: 'cc',     label: 'Cost center',  cls: 'bl-cc',     tier: 2 },
+  { id: 'del',    label: '',             cls: 'be-line-x', tier: 2 },
 ];
 function activeColumns() { return LINE_COLUMNS.filter(c => !c.conditionalOn || c.conditionalOn()); }
 
@@ -277,9 +286,10 @@ function activeColumns() { return LINE_COLUMNS.filter(c => !c.conditionalOn || c
 // entries above can stay terse; a width only needs to exist once its column
 // is actually wired up in renderCell (§2.3).
 const WIDE_TRACK_WIDTH = {
-  desc: 'minmax(240px,3fr)', qty: 'minmax(70px,0.6fr)', rate: 'minmax(90px,0.7fr)',
-  amt:  'minmax(90px,0.8fr)', vat: 'minmax(90px,0.8fr)', wht:  'minmax(90px,0.8fr)',
-  cc:   'minmax(120px,1fr)',  acct: 'minmax(180px,1.6fr)', del: '32px',
+  desc: 'minmax(200px,2.4fr)', qty: 'minmax(70px,0.6fr)', rate: 'minmax(90px,0.7fr)',
+  acct: 'minmax(160px,1.4fr)', debit: 'minmax(90px,0.8fr)', credit: 'minmax(90px,0.8fr)',
+  vat: 'minmax(90px,0.8fr)', wht: 'minmax(90px,0.8fr)',
+  cc:   'minmax(120px,1fr)', del: '32px',
 };
 function computeWideColumns() { return activeColumns().map(c => WIDE_TRACK_WIDTH[c.id] || '1fr').join(' '); }
 
@@ -358,11 +368,10 @@ async function prefillFromExisting(id) {
   document.getElementById('be-ccy').value = bill.currency || '';
   S.selectedApAccount = bill.ap_account || null;
   document.getElementById('be-memo').value = bill.description || '';
-  if (VAT_ON && Number(bill.vat_amount) > 0) { // drafts: stated VAT total (0 = none); element absent when vat_registered=false
-    const el = document.getElementById('be-tot-gst');
-    el.dataset.stated = '1';
-    el.value = Number(bill.vat_amount).toFixed(2);
-  }
+  // Per-VAT-code override map (bill.get enriches drafts with it from
+  // draft_lines) — seeds computeAutoLines()'s first pass, before any
+  // .bl-auto DOM row exists to read dataset.stated off of.
+  S.vatAmountsStated = (VAT_ON && bill.vat_amounts_stated) ? bill.vat_amounts_stated : null;
   (lines || []).forEach(l => addLine({
     description: l.description || '',
     expense_account: l.account_code || '',
@@ -391,7 +400,7 @@ async function prefillFromExisting(id) {
 // become no-ops. Journal trail and Void are Stage 3, not here yet.
 function applyLockedMode() {
   S.locked = true;
-  ['be-partner-name', 'be-date', 'be-ccy', 'be-memo', 'be-tot-gst'].forEach(function (id) {
+  ['be-partner-name', 'be-date', 'be-ccy', 'be-memo'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) el.disabled = true;
   });
@@ -626,13 +635,16 @@ function applyGridColumns() {
 function renderCell(col, data) {
   var inner;
   switch (col.id) {
-    case 'desc': inner = '<input class="bl-desc" value="' + FB.util.escAttr(data.description || '') + '" placeholder="line description">'; break;
-    case 'amt':  inner = '<input class="bl-amt" type="number" step="0.01" min="0" placeholder="Amount" value="' + (data.amount !== '' && data.amount != null ? data.amount : '') + '">'; break;
-    case 'vat':  inner = '<input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—">'; break;
-    case 'wht':  inner = '<input class="bl-wht" value="' + FB.util.escAttr(data.wht_code || '') + '" autocomplete="off" placeholder="—">'; break;
-    case 'cc':   inner = '<input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off" placeholder="Cost center">'; break;
-    case 'acct': inner = '<input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off" placeholder="Expense acct">'; break;
-    case 'del':  inner = '<button class="be-line-x" type="button" title="delete line">×</button>'; break;
+    case 'desc':   inner = '<input class="bl-desc" value="' + FB.util.escAttr(data.description || '') + '" placeholder="line description">'; break;
+    case 'acct':   inner = '<input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off" placeholder="Account">'; break;
+    case 'debit':  inner = '<input class="bl-debit" type="number" step="0.01" min="0" placeholder="Debit" value="' + (data.amount !== '' && data.amount != null ? data.amount : '') + '">'; break;
+    // A user (expense) line is always a debit — Credit stays blank/disabled,
+    // present only so the column lines up with the auto-generated total row.
+    case 'credit': inner = '<input class="bl-credit" type="number" value="" disabled tabindex="-1">'; break;
+    case 'vat':    inner = '<input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—">'; break;
+    case 'wht':    inner = '<input class="bl-wht" value="' + FB.util.escAttr(data.wht_code || '') + '" autocomplete="off" placeholder="—">'; break;
+    case 'cc':     inner = '<input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off" placeholder="Cost center">'; break;
+    case 'del':    inner = '<button class="be-line-x" type="button" title="delete line">×</button>'; break;
     default:
       throw new Error('renderCell: no case for column "' + col.id + '" — add one before enabling it in LINE_COLUMNS.');
   }
@@ -646,7 +658,10 @@ function addLine(data) {
   const g1 = cols.filter(c => c.tier === 1).map(c => renderCell(c, data)).join('');
   const g2 = cols.filter(c => c.tier === 2).map(c => renderCell(c, data)).join('');
   row.innerHTML = '<div class="bl-group">' + g1 + '</div><div class="bl-group">' + g2 + '</div>';
-  container.appendChild(row);
+  // New rows go before the auto-generated VAT/WHT/total rows, which must
+  // always stay last (renderAutoLines() re-appends them on every edit).
+  const firstAuto = container.querySelector('.bl-auto');
+  if (firstAuto) container.insertBefore(row, firstAuto); else container.appendChild(row);
   attachAcct(row.querySelector('.bl-acct'));
   if (VAT_ON) attachVat(row.querySelector('.bl-vat'));
   if (WHT_ON) attachWht(row.querySelector('.bl-wht'));
@@ -660,11 +675,12 @@ function vatRateOf(code) {
   const v = S.vatCodes.find(x => x.vat_code === code);
   return v ? Number(v.rate != null ? v.rate : (v.rate_percent || 0)) : 0;
 }
+function userLineRows() { return document.querySelectorAll('#be-lines-body .bl-row:not(.bl-auto)'); }
 function lastLineHasData() {
-  const rows = document.querySelectorAll('#be-lines-body .bl-row');
+  const rows = userLineRows();
   if (!rows.length) return false;
   const last = rows[rows.length - 1];
-  return !!(last.querySelector('.bl-desc').value.trim() || last.querySelector('.bl-amt').value);
+  return !!(last.querySelector('.bl-desc').value.trim() || last.querySelector('.bl-debit').value);
 }
 function refreshAddRow() {
   const el = document.getElementById('be-add-row-btn');
@@ -677,79 +693,171 @@ document.getElementById('be-add-row-btn').onclick = () => {
   row.querySelector('.bl-desc').focus();
 };
 
-// ── Totals (display only — server is the authority at save/post) ────────────
+// ── Totals + auto-generated lines (bill-line-item-grid-spec.md) ─────────────
+// User-entered lines only — the auto-generated VAT/WHT/total rows below
+// (.bl-auto) are computed output, never sent back as "lines" to the server.
 function collectLines() {
-  return Array.from(document.querySelectorAll('#be-lines-body .bl-row')).map(row => ({
+  return Array.from(userLineRows()).map(row => ({
     description: row.querySelector('.bl-desc').value.trim(),
     expense_account: row.querySelector('.bl-acct').value.trim(),
-    amount: parseFloat(row.querySelector('.bl-amt').value) || 0,
+    amount: parseFloat(row.querySelector('.bl-debit').value) || 0,
     vat_code: (function(){ var s = row.querySelector('.bl-vat'); return s ? (s.value.trim() || '') : ''; })(),
     wht_code: (function(){ var w = row.querySelector('.bl-wht'); return w ? (w.value.trim() || '') : ''; })(),
     cost_center: row.querySelector('.bl-cc').value.trim() || null,
   })).filter(l => l.description || l.amount || l.expense_account);
 }
-function updateTotals() {
-  // VAT is computed per line from its code (lines carry no VAT amounts —
-  // redesign 2026-07-26). One footer row per VAT code states the code + its
-  // description and amount; a stated total applies its delta to the largest
-  // standard code (mirrors the posting rule) so the rows sum to the stated
-  // total. Reverse-charge is self-assessed and never part of the gross.
+// Reads back a supplier-stated override already sitting in an auto VAT row's
+// Debit input (marked via dataset.stated by wireAutoRow's listener) so
+// rebuilding the row on every keystroke doesn't clobber what the user typed.
+// Before that row exists at all (first render after loading an existing
+// draft), falls back to S.vatAmountsStated — restored from bill.get.
+function statedOverride(key) {
+  const input = document.querySelector('.bl-auto[data-key="' + key + '"] .bl-auto-debit');
+  if (input) return (input.dataset.stated === '1' && input.value !== '') ? (parseFloat(input.value) || 0) : null;
+  if (S.vatAmountsStated && key.indexOf('vat:') === 0) {
+    const v = S.vatAmountsStated[key.slice(4)];
+    return (v !== undefined && v !== null && v !== '' && !isNaN(Number(v))) ? Number(v) : null;
+  }
+  return null;
+}
+function computeAutoLines() {
   const lines = collectLines();
   const net = lines.reduce((s, l) => s + l.amount, 0);
-  // Element renders only when vat_registered (template guard) — null-safe:
-  // non-VAT companies must not die here (K5 crawl caught the page error).
-  const el = document.getElementById('be-tot-gst');
-  const stated = (el && el.dataset.stated === '1' && el.value !== '') ? (parseFloat(el.value) || 0) : null;
-  const std = {}, rc = {}, order = [];
+  const std = {}, rc = {}, wht = {}, stdOrder = [], rcOrder = [], whtOrder = [];
   lines.forEach(l => {
-    const v = S.vatCodes.find(x => x.vat_code === l.vat_code);
-    if (!v) return;
-    const amt = Math.round(l.amount * vatRateOf(l.vat_code) * 100) / 100;
-    const bucket = v.is_reverse_charge ? rc : std;
-    if (!(l.vat_code in bucket)) order.push(l.vat_code);
-    bucket[l.vat_code] = (bucket[l.vat_code] || 0) + amt;
+    if (l.vat_code) {
+      const v = S.vatCodes.find(x => x.vat_code === l.vat_code);
+      if (v) {
+        const amt = Math.round(l.amount * vatRateOf(l.vat_code) * 100) / 100;
+        const bucket = v.is_reverse_charge ? rc : std;
+        const order = v.is_reverse_charge ? rcOrder : stdOrder;
+        if (!(l.vat_code in bucket)) { order.push(l.vat_code); bucket[l.vat_code] = { v, amt: 0 }; }
+        bucket[l.vat_code].amt += amt;
+      }
+    }
+    if (WHT_ON && l.wht_code) {
+      const w = S.whtCodes ? S.whtCodes.find(x => x.wht_code === l.wht_code) : null;
+      if (w) {
+        const amt = Math.round(l.amount * Number(w.rate) * 100) / 100;
+        if (!(l.wht_code in wht)) { whtOrder.push(l.wht_code); wht[l.wht_code] = { w, amt: 0 }; }
+        wht[l.wht_code].amt += amt;
+      }
+    }
   });
-  const stdTotal = Object.keys(std).reduce((s, c) => s + std[c], 0);
-  if (stated !== null && stdTotal > 0) {
-    let largest = null;
-    Object.keys(std).forEach(c => { if (std[c] > 0 && (largest === null || std[c] >= std[largest])) largest = c; });
-    if (largest !== null) std[largest] = Math.round((std[largest] + (stated - stdTotal)) * 100) / 100;
+  const rows = [];
+  let stdTotal = 0;
+  stdOrder.forEach(code => {
+    const entry = std[code];
+    if (!entry.amt) return;
+    const stated = statedOverride('vat:' + code);
+    const debit = stated !== null ? stated : entry.amt;
+    stdTotal += debit;
+    rows.push({ key: 'vat:' + code, account: entry.v.vat_account_input, label: code + ': ' + (entry.v.description || code), debit, credit: 0, editable: !S.locked, stated: stated !== null });
+  });
+  rcOrder.forEach(code => {
+    const entry = rc[code];
+    if (!entry.amt) return;
+    rows.push({ key: 'rc-dr:' + code, account: entry.v.vat_account_input, label: 'Input ' + TAX_LABEL + ' RC — ' + code, debit: entry.amt, credit: 0, editable: false });
+    rows.push({ key: 'rc-cr:' + code, account: entry.v.vat_account_output, label: 'Output ' + TAX_LABEL + ' RC — ' + code, debit: 0, credit: entry.amt, editable: false });
+  });
+  let whtTotal = 0;
+  whtOrder.forEach(code => {
+    const entry = wht[code];
+    if (!entry.amt) return;
+    whtTotal += entry.amt;
+    rows.push({ key: 'wht:' + code, account: entry.w.wht_account, label: 'WHT — ' + code, debit: 0, credit: entry.amt, editable: false });
+  });
+  rows.push({ key: 'total', account: S.selectedApAccount || '', label: 'Total', debit: 0, credit: Math.round((net + stdTotal - whtTotal) * 100) / 100, editable: false });
+  return { rows, net, stdTotal, whtTotal, gross: Math.round((net + stdTotal) * 100) / 100 };
+}
+function autoRowCells(r) {
+  const cols = activeColumns();
+  const cell = c => {
+    var inner;
+    switch (c.id) {
+      case 'desc':   inner = '<span class="bl-auto-label">' + FB.util.esc(r.label) + '</span>'; break;
+      case 'acct':   inner = '<input class="bl-acct" value="' + FB.util.escAttr(r.account || '') + '" disabled tabindex="-1">'; break;
+      case 'debit':  inner = r.editable
+        ? '<input class="bl-debit bl-auto-debit" type="number" step="0.01" min="0" value="' + (r.debit ? r.debit.toFixed(2) : '') + '">'
+        : '<input class="bl-debit" type="number" value="' + (r.debit ? r.debit.toFixed(2) : '') + '" disabled tabindex="-1">';
+        break;
+      case 'credit': inner = '<input class="bl-credit" type="number" value="' + (r.credit ? r.credit.toFixed(2) : '') + '" disabled tabindex="-1">'; break;
+      case 'del':    inner = ''; break;
+      default:       inner = ''; // vat/wht/cc: blank on every auto row (spec §8)
+    }
+    return '<div class="bl-cell">' + inner + '</div>';
+  };
+  const g1 = cols.filter(c => c.tier === 1).map(cell).join('');
+  const g2 = cols.filter(c => c.tier === 2).map(cell).join('');
+  return '<div class="bl-group">' + g1 + '</div><div class="bl-group">' + g2 + '</div>';
+}
+function wireAutoRow(row, r) {
+  if (!r.editable) return;
+  const input = row.querySelector('.bl-auto-debit');
+  input.title = 'Supplier-stated ' + TAX_LABEL + ' for this code — pre-filled computed; edit to match the supplier invoice; clear to return to computed';
+  input.addEventListener('input', function () {
+    input.dataset.stated = input.value !== '' ? '1' : '';
+    updateTotals();
+  });
+}
+function updateAutoRowCells(row, r) {
+  const acctInput = row.querySelector('.bl-acct');
+  if (acctInput) acctInput.value = r.account || '';
+  const debitInput = row.querySelector('.bl-debit');
+  if (debitInput) {
+    debitInput.value = r.debit ? r.debit.toFixed(2) : '';
+    if (r.editable) debitInput.style.color = debitInput.dataset.stated === '1' ? '#b26a00' : '';
   }
-  const rowsEl = document.getElementById('be-code-rows');
-  if (rowsEl) rowsEl.innerHTML = order.map(c => {
-    const v = S.vatCodes.find(x => x.vat_code === c);
-    const amt = v.is_reverse_charge ? rc[c] : std[c];
-    if (!amt) return '';
-    return '<div>' + FB.util.esc(c + ': ' + (v.description || c)) + ' — ' + amt.toFixed(2) + '</div>';
-  }).join('');
-  const gst = stated !== null ? stated : stdTotal;
-  if (el) {
-    if (el.dataset.stated !== '1') el.value = gst.toFixed(2);
-    el.style.color = stated !== null ? '#b26a00' : '';
-  }
-  document.getElementById('be-tot-net').textContent = net.toFixed(2);
-  // WHT totals (display-only — no stated/override per §0.5)
-  var whtTotal = 0;
-  if (typeof WHT_ON !== 'undefined' && WHT_ON) {
-    lines.forEach(l => {
-      var w = S.whtCodes ? S.whtCodes.find(x => x.wht_code === l.wht_code) : null;
-      if (w) whtTotal += Math.round(l.amount * Number(w.rate) * 100) / 100;
-    });
-  }
-  var gross = net + gst;
+  const creditInput = row.querySelector('.bl-credit');
+  if (creditInput) creditInput.value = r.credit ? r.credit.toFixed(2) : '';
+  const label = row.querySelector('.bl-auto-label');
+  if (label) label.textContent = r.label;
+}
+// Reconciles .bl-auto rows against freshly computed data without destroying
+// the DOM node the user is actively typing into — a naive full rebuild on
+// every keystroke would steal focus from an in-progress VAT override edit.
+function renderAutoLines(rows) {
+  const container = document.getElementById('be-lines-body');
+  const existingByKey = {};
+  container.querySelectorAll('.bl-auto').forEach(el => { existingByKey[el.dataset.key] = el; });
+  const seen = {};
+  rows.forEach(r => {
+    seen[r.key] = true;
+    let row = existingByKey[r.key];
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'bl-row bl-auto';
+      row.dataset.key = r.key;
+      row.innerHTML = autoRowCells(r);
+      wireAutoRow(row, r);
+      if (r.stated) { const di = row.querySelector('.bl-auto-debit'); if (di) { di.dataset.stated = '1'; di.style.color = '#b26a00'; } }
+    } else if (!row.contains(document.activeElement)) {
+      updateAutoRowCells(row, r);
+    }
+    container.appendChild(row); // moves (not recreates) — re-establishes order, keeps focus
+  });
+  Object.keys(existingByKey).forEach(key => { if (!seen[key]) existingByKey[key].remove(); });
+}
+function collectVatAmountsStated() {
+  const map = {};
+  document.querySelectorAll('.bl-auto .bl-auto-debit').forEach(input => {
+    if (input.dataset.stated === '1' && input.value !== '') {
+      const code = input.closest('.bl-auto').dataset.key.slice('vat:'.length);
+      map[code] = parseFloat(input.value) || 0;
+    }
+  });
+  return map;
+}
+function updateTotals() {
+  const auto = computeAutoLines();
+  renderAutoLines(auto.rows);
+  document.getElementById('be-tot-net').textContent = auto.net.toFixed(2);
   var whtEl = document.getElementById('be-tot-wht');
   var payEl = document.getElementById('be-tot-payable');
-  if (whtEl) whtEl.textContent = whtTotal.toFixed(2);
-  if (payEl) payEl.textContent = (gross - whtTotal).toFixed(2);
-  document.getElementById('be-tot-gross').textContent = gross.toFixed(2);
+  if (whtEl) whtEl.textContent = auto.whtTotal.toFixed(2);
+  if (payEl) payEl.textContent = (auto.gross - auto.whtTotal).toFixed(2);
+  document.getElementById('be-tot-gross').textContent = auto.gross.toFixed(2);
 }
-// Element absent when vat_registered=false — guard or the whole page script
-// dies here on non-VAT companies (keys, post wiring, attachments all lost).
-const _beTotGst = document.getElementById('be-tot-gst');
-if (_beTotGst) _beTotGst.addEventListener('input', (e) => {
-  e.target.dataset.stated = e.target.value !== '' ? '1' : '';
-  updateTotals();
-});
 
 // ── Gather + validate ───────────────────────────────────────────────────────
 function gatherBill() {
@@ -763,7 +871,7 @@ function gatherBill() {
     currency: document.getElementById('be-ccy').value.trim().toUpperCase() || undefined,
     ap_account: S.selectedApAccount || undefined,
     description: document.getElementById('be-memo').value.trim() || undefined,
-    vat_amount_stated: (function () { const el = document.getElementById('be-tot-gst'); return (el && el.dataset.stated === '1' && el.value !== '') ? (parseFloat(el.value) || 0) : null; })(),
+    vat_amounts_stated: VAT_ON ? collectVatAmountsStated() : undefined,
     lines: collectLines(),
     // NO amount — server computes (P2-4)
   };
@@ -1001,10 +1109,25 @@ var beForm = FB.form.create({
       if (S.locked) return;   // 2026-09-06: lines are frozen once posted
       var row = addLine({});
       updateTotals();
-      api.moveTo(2, api.zoneRows(2).length - 1, 0, true);
+      // bill-line-item-grid-spec.md (2026-09-06): the auto-generated VAT/WHT/
+      // total rows now live in the same zone, pinned last by addLine()'s
+      // insertBefore — "last row" is no longer the just-added line, so find
+      // it by identity instead of assuming it's at zoneRows(2).length - 1.
+      var idx = Array.prototype.indexOf.call(api.zoneRows(2), row);
+      api.moveTo(2, idx >= 0 ? idx : api.zoneRows(2).length - 1, 0, true);
     } },
     delete: { key: 'x', hint: 'delete',
-      when: function (api) { var z = api.cur().z; return (z === 2 && api.cur().r > 0) || z === 3; },
+      // Auto-generated rows (bill-line-item-grid-spec.md) aren't deletable —
+      // they're computed output, not a real line — so x is inert on them
+      // rather than removing-then-immediately-regenerating one.
+      when: function (api) {
+        var z = api.cur().z;
+        if (z === 2) {
+          var row = api.zoneRows(2)[api.cur().r];
+          return api.cur().r > 0 && row && !row.classList.contains('bl-auto');
+        }
+        return z === 3;
+      },
       run: function (api) {
         if (api.cur().z === 2 && S.locked) return;   // 2026-09-06: lines are frozen once posted
         if (api.cur().z === 3) {

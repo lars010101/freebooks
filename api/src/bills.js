@@ -411,24 +411,44 @@ async function createBill(ctx) {
     };
   });
 
-  // Bill-level supplier-stated VAT (redesign 2026-07-26) — the only override
-  // surface. Compared against Σ computed over standard (non-RC) codes; the
-  // delta lands on the largest computed tax line. RC lines never absorb it.
+  // Supplier-stated VAT override. Two surfaces, mutually exclusive per request:
+  // - bill.vat_amounts_stated (map, code -> amount): the bill-edit.js grid,
+  //   one row per VAT code — overrides that code's computed amount directly.
+  // - bill.vat_amount_stated (single number, legacy): the tree-table
+  //   quick-entry (payables-bills.js) and the agent extraction pipeline
+  //   (agent-loop.js), neither of which has per-code UI — the delta still
+  //   lands on the largest computed standard-VAT line. RC lines never
+  //   absorb either surface.
   const computedStdTotal = Math.round(Object.values(stdTaxByCode).reduce((s, b) => s + b.computed, 0) * 100) / 100;
-  const _statedRaw = bill.vat_amount_stated;
-  const statedVat = (_statedRaw !== null && _statedRaw !== undefined && _statedRaw !== '' && !isNaN(Number(_statedRaw))) ? Number(_statedRaw) : null;
-  if (statedVat !== null) {
-    const eligible = Object.keys(stdTaxByCode).filter((c) => stdTaxByCode[c].computed > 0);
-    if (eligible.length === 0) {
-      validation.warnings.push('Stated VAT ignored — no taxable (non-reverse-charge) lines on this bill; check VAT codes');
-    } else {
-      const diff = Math.abs(statedVat - computedStdTotal);
-      const tol = Math.max(vatTolerance.flat, computedStdTotal * vatTolerance.pct);
+  if (bill.vat_amounts_stated && typeof bill.vat_amounts_stated === 'object') {
+    for (const code of Object.keys(bill.vat_amounts_stated)) {
+      const b = stdTaxByCode[code];
+      if (!b) continue; // no computed line for this code on this bill — ignore
+      const stated = Number(bill.vat_amounts_stated[code]);
+      if (isNaN(stated)) continue;
+      const diff = Math.abs(stated - b.computed);
+      const tol = Math.max(vatTolerance.flat, b.computed * vatTolerance.pct);
       if (diff > tol) {
-        validation.warnings.push(`Stated VAT ${statedVat.toFixed(2)} differs from computed ${computedStdTotal.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`);
+        validation.warnings.push(`Stated VAT for ${code} ${stated.toFixed(2)} differs from computed ${b.computed.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`);
       }
-      const largest = eligible.reduce((a, b) => (stdTaxByCode[a].computed >= stdTaxByCode[b].computed ? a : b));
-      stdTaxByCode[largest].computed += Math.round((statedVat - computedStdTotal) * 100) / 100;
+      b.computed = stated;
+    }
+  } else {
+    const _statedRaw = bill.vat_amount_stated;
+    const statedVat = (_statedRaw !== null && _statedRaw !== undefined && _statedRaw !== '' && !isNaN(Number(_statedRaw))) ? Number(_statedRaw) : null;
+    if (statedVat !== null) {
+      const eligible = Object.keys(stdTaxByCode).filter((c) => stdTaxByCode[c].computed > 0);
+      if (eligible.length === 0) {
+        validation.warnings.push('Stated VAT ignored — no taxable (non-reverse-charge) lines on this bill; check VAT codes');
+      } else {
+        const diff = Math.abs(statedVat - computedStdTotal);
+        const tol = Math.max(vatTolerance.flat, computedStdTotal * vatTolerance.pct);
+        if (diff > tol) {
+          validation.warnings.push(`Stated VAT ${statedVat.toFixed(2)} differs from computed ${computedStdTotal.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`);
+        }
+        const largest = eligible.reduce((a, b) => (stdTaxByCode[a].computed >= stdTaxByCode[b].computed ? a : b));
+        stdTaxByCode[largest].computed += Math.round((statedVat - computedStdTotal) * 100) / 100;
+      }
     }
   }
 
@@ -998,7 +1018,10 @@ async function getBillLines(ctx) {
     const raw = billRows[0].draft_lines;
     if (!raw) return [];
     try {
-      const lines = JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      // Back-compat: pre-per-code-VAT drafts stored a bare lines array;
+      // current drafts wrap it as { lines, vatAmountsStated }.
+      const lines = Array.isArray(parsed) ? parsed : (parsed.lines || []);
       return lines.map((l, i) => ({
         entry_id: 'draft_' + i,
         account_code: l.expense_account || '',
@@ -1074,7 +1097,16 @@ async function getBill(ctx) {
     { companyId, billId }
   );
   if (!rows.length) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
-  return rows[0];
+  const bill = rows[0];
+  // Surface the per-code stated-VAT map (bill-edit.js grid) so a reopened
+  // draft restores its override rows; posted bills have no override state.
+  if (bill.status === 'draft' && bill.draft_lines) {
+    try {
+      const parsed = JSON.parse(bill.draft_lines);
+      if (parsed && !Array.isArray(parsed) && parsed.vatAmountsStated) bill.vat_amounts_stated = parsed.vatAmountsStated;
+    } catch (e) { /* malformed draft_lines — ignore, grid falls back to computed */ }
+  }
+  return bill;
 }
 
 async function updateBill(ctx) {
@@ -1172,6 +1204,7 @@ async function saveDraftBill(ctx) {
       for (const r of whtRateRows) whtRateCache[r.wht_code] = Number(r.rate);
     }
     let netTotal = 0, stdComputed = 0, legacyStatedSum = 0, sawLegacyOverride = false, whtTotal = 0;
+    const perCodeComputed = {}; // code -> Σ computed, non-RC only — for the per-code override surface
     for (const l of bill.lines) {
       const amt = Number(l.amount || 0);
       netTotal += amt;
@@ -1184,6 +1217,7 @@ async function saveDraftBill(ctx) {
       const computed = info ? Math.round(amt * info.rate * 100) / 100 : 0;
       if (info && info.rc) continue; // RC: self-assessed, always computed, never stated
       stdComputed += computed;
+      if (code) perCodeComputed[code] = (perCodeComputed[code] || 0) + computed;
       const ov = l.vat_amount_override;
       if (ov !== null && ov !== undefined && ov !== '' && !isNaN(Number(ov))) {
         legacyStatedSum += Number(ov);
@@ -1192,10 +1226,23 @@ async function saveDraftBill(ctx) {
         legacyStatedSum += computed;
       }
     }
-    // Bill-level stated VAT: the explicit field wins; otherwise lift legacy
-    // per-line overrides (pre-2026-07-26 drafts) so they are not silently lost.
+    // Bill-level stated VAT total, three surfaces in order of precedence:
+    // 1. bill.vat_amounts_stated (map, code -> amount) — bill-edit.js grid's
+    //    per-code override rows.
+    // 2. bill.vat_amount_stated (single number) — tree-table quick-entry /
+    //    agent extraction, no per-code UI.
+    // 3. legacy per-line vat_amount_override — pre-2026-07-26 drafts, lifted
+    //    so they are not silently lost.
+    const vatAmountsStated = (bill.vat_amounts_stated && typeof bill.vat_amounts_stated === 'object') ? bill.vat_amounts_stated : null;
     const raw = bill.vat_amount_stated;
-    if (raw !== null && raw !== undefined && raw !== '' && !isNaN(Number(raw))) {
+    if (vatAmountsStated && Object.keys(vatAmountsStated).length) {
+      let effTotal = 0;
+      for (const code of Object.keys(perCodeComputed)) {
+        const ov = vatAmountsStated[code];
+        effTotal += (ov !== undefined && ov !== null && ov !== '' && !isNaN(Number(ov))) ? Number(ov) : perCodeComputed[code];
+      }
+      statedForDraft = Math.round(effTotal * 100) / 100;
+    } else if (raw !== null && raw !== undefined && raw !== '' && !isNaN(Number(raw))) {
       statedForDraft = Number(raw);
     } else if (sawLegacyOverride && Math.round((legacyStatedSum - stdComputed) * 100) / 100 !== 0) {
       statedForDraft = Math.round(legacyStatedSum * 100) / 100;
@@ -1211,6 +1258,13 @@ async function saveDraftBill(ctx) {
   if (bill.cost_center && await isDerivationEnabled(companyId)) {
     bill.profit_center = await deriveProfitCenter(companyId, bill.cost_center);
   }
+
+  // draft_lines carries the per-code stated-VAT map alongside the lines so a
+  // reopened draft restores the grid's override rows exactly as left.
+  const draftLinesJson = bill.lines ? JSON.stringify({
+    lines: bill.lines,
+    vatAmountsStated: (bill.vat_amounts_stated && typeof bill.vat_amounts_stated === 'object') ? bill.vat_amounts_stated : {},
+  }) : null;
 
   const billRow = {
     company_id: companyId,
@@ -1237,7 +1291,7 @@ async function saveDraftBill(ctx) {
     description: bill.description || null,
     status: 'draft',
     amount_paid: 0,
-    draft_lines: bill.lines ? JSON.stringify(bill.lines) : null,
+    draft_lines: draftLinesJson,
     created_at: now,
     created_by: ctx.userEmail || null,
   };
@@ -1246,7 +1300,7 @@ async function saveDraftBill(ctx) {
     // update existing draft
     await query(
       `UPDATE bills SET partner_name=@partner_name, partner_id=@partner_id, vendor_ref=@vendor_ref, date=@date, due_date=@due_date, amount=@amount, currency=@currency, expense_account=@expense_account, ap_account=@ap_account, vat_amount=@vat_amount, cost_center=@cost_center, profit_center=@profit_center, description=@description, draft_lines=@draft_lines WHERE bill_id=@bill_id AND company_id=@company_id AND status='draft'`,
-      { partner_name: billRow.partner_name, partner_id: billRow.partner_id, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, vat_amount: billRow.vat_amount, cost_center: billRow.cost_center, profit_center: billRow.profit_center, description: billRow.description, draft_lines: bill.lines ? JSON.stringify(bill.lines) : null, bill_id: billId, company_id: companyId }
+      { partner_name: billRow.partner_name, partner_id: billRow.partner_id, vendor_ref: billRow.vendor_ref, date: billRow.date, due_date: billRow.due_date, amount: billRow.amount, currency: billRow.currency, expense_account: billRow.expense_account, ap_account: billRow.ap_account, vat_amount: billRow.vat_amount, cost_center: billRow.cost_center, profit_center: billRow.profit_center, description: billRow.description, draft_lines: draftLinesJson, bill_id: billId, company_id: companyId }
     );
   } else {
     await bulkInsert('bills', [billRow]);
@@ -1292,10 +1346,21 @@ async function postDraftBill(ctx) {
   // Apply any overrides from the post review popup (e.g. updated account codes)
   const bill = { ...draft, ...(overrides || {}) };
 
-  // Resolve lines: prefer stored draft_lines JSON, fall back to single-line from bill row
+  // Resolve lines: prefer stored draft_lines JSON, fall back to single-line from bill row.
+  // Back-compat: pre-per-code-VAT drafts stored a bare lines array; current
+  // drafts wrap it as { lines, vatAmountsStated }.
   let draftLines = null;
+  let draftVatAmountsStated = null;
   if (draft.draft_lines) {
-    try { draftLines = JSON.parse(draft.draft_lines); } catch (e) { draftLines = null; }
+    try {
+      const parsed = JSON.parse(draft.draft_lines);
+      if (Array.isArray(parsed)) {
+        draftLines = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        draftLines = Array.isArray(parsed.lines) ? parsed.lines : null;
+        draftVatAmountsStated = (parsed.vatAmountsStated && typeof parsed.vatAmountsStated === 'object') ? parsed.vatAmountsStated : null;
+      }
+    } catch (e) { draftLines = null; }
   }
   const resolvedLines = (Array.isArray(draftLines) && draftLines.length > 0)
     ? draftLines.map(function (l) {
@@ -1318,38 +1383,51 @@ async function postDraftBill(ctx) {
     ? overrides.lines
     : resolvedLines;
 
-  // Bill-level stated VAT (redesign 2026-07-26). Precedence: explicit value
-  // from the post popup → value stored on the draft row at save time
-  // (bills.vat_amount holds the stated total for drafts; 0 = none) → lift
-  // legacy per-line overrides from pre-redesign draft JSON so the
-  // supplier-stated total is not silently lost.
+  // Per-code stated VAT (bill-edit.js grid). Precedence: explicit map from
+  // the post popup → map stored on the draft row at save time. When present,
+  // this wins outright over the legacy single-number surface below.
+  let vatAmountsStatedForPost = null;
+  if (overrides && overrides.vat_amounts_stated && typeof overrides.vat_amounts_stated === 'object') {
+    vatAmountsStatedForPost = overrides.vat_amounts_stated;
+  } else if (draftVatAmountsStated && Object.keys(draftVatAmountsStated).length) {
+    vatAmountsStatedForPost = draftVatAmountsStated;
+  }
+
+  // Bill-level stated VAT (redesign 2026-07-26) — legacy single-number
+  // surface, still used by tree-table quick-entry and the agent pipeline.
+  // Precedence: explicit value from the post popup → value stored on the
+  // draft row at save time (bills.vat_amount holds the stated total for
+  // drafts; 0 = none) → lift legacy per-line overrides from pre-redesign
+  // draft JSON so the supplier-stated total is not silently lost.
   let statedForPost = null;
-  const _rawStated = overrides && overrides.vat_amount_stated;
-  if (_rawStated !== null && _rawStated !== undefined && _rawStated !== '' && !isNaN(Number(_rawStated))) {
-    statedForPost = Number(_rawStated);
-  } else if (Number(draft.vat_amount) > 0) {
-    statedForPost = Number(draft.vat_amount);
-  } else if (Array.isArray(draftLines) && draftLines.some(l => l && l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override)))) {
-    const _codes = Array.from(new Set(draftLines.map(l => (l && l.vat_code ? String(l.vat_code).trim() : '')).filter(Boolean)));
-    const _info = {};
-    if (_codes.length) {
-      const _ph = _codes.map((_, i) => `@c${i}`).join(',');
-      const _params = { companyId };
-      _codes.forEach((c, i) => { _params[`c${i}`] = c; });
-      const _rows = await query(`SELECT vat_code, rate, is_reverse_charge FROM vat_codes WHERE company_id = @companyId AND vat_code IN (${_ph}) AND is_active = true`, _params);
-      for (const r of _rows) _info[r.vat_code] = { rate: Number(r.rate), rc: !!r.is_reverse_charge };
+  if (!vatAmountsStatedForPost) {
+    const _rawStated = overrides && overrides.vat_amount_stated;
+    if (_rawStated !== null && _rawStated !== undefined && _rawStated !== '' && !isNaN(Number(_rawStated))) {
+      statedForPost = Number(_rawStated);
+    } else if (Number(draft.vat_amount) > 0) {
+      statedForPost = Number(draft.vat_amount);
+    } else if (Array.isArray(draftLines) && draftLines.some(l => l && l.vat_amount_override !== null && l.vat_amount_override !== undefined && !isNaN(Number(l.vat_amount_override)))) {
+      const _codes = Array.from(new Set(draftLines.map(l => (l && l.vat_code ? String(l.vat_code).trim() : '')).filter(Boolean)));
+      const _info = {};
+      if (_codes.length) {
+        const _ph = _codes.map((_, i) => `@c${i}`).join(',');
+        const _params = { companyId };
+        _codes.forEach((c, i) => { _params[`c${i}`] = c; });
+        const _rows = await query(`SELECT vat_code, rate, is_reverse_charge FROM vat_codes WHERE company_id = @companyId AND vat_code IN (${_ph}) AND is_active = true`, _params);
+        for (const r of _rows) _info[r.vat_code] = { rate: Number(r.rate), rc: !!r.is_reverse_charge };
+      }
+      let _lifted = 0, _computedStd = 0;
+      for (const l of draftLines) {
+        const _amt = Number(l.amount || 0);
+        const _ci = l.vat_code ? _info[String(l.vat_code).trim()] : undefined;
+        if (_ci && _ci.rc) continue; // RC overrides were always ignored (read-only)
+        const _computed = _ci ? Math.round(_amt * _ci.rate * 100) / 100 : 0;
+        _computedStd += _computed;
+        const _ov = l.vat_amount_override;
+        _lifted += (_ov !== null && _ov !== undefined && !isNaN(Number(_ov))) ? Number(_ov) : _computed;
+      }
+      if (Math.round((_lifted - _computedStd) * 100) / 100 !== 0) statedForPost = Math.round(_lifted * 100) / 100;
     }
-    let _lifted = 0, _computedStd = 0;
-    for (const l of draftLines) {
-      const _amt = Number(l.amount || 0);
-      const _ci = l.vat_code ? _info[String(l.vat_code).trim()] : undefined;
-      if (_ci && _ci.rc) continue; // RC overrides were always ignored (read-only)
-      const _computed = _ci ? Math.round(_amt * _ci.rate * 100) / 100 : 0;
-      _computedStd += _computed;
-      const _ov = l.vat_amount_override;
-      _lifted += (_ov !== null && _ov !== undefined && !isNaN(Number(_ov))) ? Number(_ov) : _computed;
-    }
-    if (Math.round((_lifted - _computedStd) * 100) / 100 !== 0) statedForPost = Math.round(_lifted * 100) / 100;
   }
 
   // Reuse createBill logic by delegating
@@ -1373,6 +1451,7 @@ async function postDraftBill(ctx) {
         description: bill.description,
         fx_rate: bill.fx_rate,
         lines: finalLines,
+        vat_amounts_stated: vatAmountsStatedForPost || undefined,
         vat_amount_stated: statedForPost,
       },
       _replaceDraftId: billId, // signal to createBill to UPDATE the draft row in-place

@@ -464,6 +464,23 @@ declaring config only:
   uploaded attachments gained a real delete affordance they never had
   (`attachment.delete`, reachable via `x` or a click) as a side effect of
   the merge.
+  **Line-item grid restructured (2026-09-06, bill-line-item-grid-spec.md):**
+  Account/Debit/Credit columns replace Amount + "DR: Expense account";
+  auto-generated VAT/WHT/total rows share the `lines` zone with user-entered
+  lines (same `.bl-row` class, tagged `.bl-auto`) rather than living in a
+  separate footer. Two keyboard-specific consequences: the VAT auto-row's
+  Debit cell is a real, `i`/Tab-reachable editable cell (the per-code
+  supplier-stated override) — WHT, reverse-charge, and the total row have no
+  enabled cells at all, so `j`/`k` give them row-only focus (no cell cursor),
+  same degraded-but-non-crashing behavior the read-only journals zone above
+  already established. `x` (delete) now explicitly excludes `.bl-auto` rows
+  (`when` checks `!row.classList.contains('bl-auto')`) — without the guard,
+  `x` on a computed row would remove it only to have `updateTotals()`
+  instantly regenerate it, a harmless but confusing flash. `a` (add line)
+  targets the newly created row by DOM identity (`indexOf` in `zoneRows(2)`)
+  rather than assuming it's the zone's last row — `addLine()` now inserts
+  before any existing `.bl-auto` rows to keep them pinned last, so "last
+  row" stopped meaning "the row just added."
 
 **Soft-nav key lifecycle (K3c, ratified 2026-07-28):** `fbNavigate` swaps
 `#page-main` and re-executes page scripts, but nothing previously tore down

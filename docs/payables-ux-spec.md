@@ -28,7 +28,7 @@
 | Enter | Double-click row | **Edit** — whole-bill INSERT on drafts (no-op on posted bills); create on the `+ Add bill` row |
 | Space | Click ▸/▾ fold icon on parent | **Expand/Collapse** — toggle the fold of the bill under the cursor (parent folds itself; a child folds its parent); inert on the add row (vim fold semantics). `~` is a silent alias for Space when no page-level `~` binding is active (PR #288) |
 | i | Double-click editable row | Enter INSERT mode (opens entire draft bill for editing) |
-| I | — | Open the focused draft bill in the full-page editor (`bill-edit.js`); no-op on posted bills |
+| I | — | Open the focused bill in the full-page editor (`bill-edit.js`) — draft (editable) or posted/void (locked, read-only with journal trail) alike, since the `bill-detail.js` merge (2026-09-06) removed the draft-only guard |
 | a | — | Append new child line to the focused draft bill |
 | x | Click delete icon (on hover) | Delete draft bill / delete current child line / void posted bill (confirm) / void payment (on a payment-history child) |
 | ~ | Click the Draft toggle | Flip the focused bill's Draft flag (default off) — footer button, `keyboard-ux-spec.md` §5's toggle-verb doctrine |

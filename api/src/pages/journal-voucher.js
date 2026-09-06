@@ -991,7 +991,7 @@ ${commonStyle()}
         + '<button class="fb-att-del" onclick="removeJvAttachment(' + i + ')" title="delete (x)">&times;</button>'
         + '</div>';
     }).join('') + '<div class="fb-attach-row fb-attach-add">'
-      + '<button type="button" class="fb-att-add-btn" onclick="document.getElementById(\'jv-pre-attach-input\').click()">+ Add attachment</button>'
+      + '<button type="button" class="fb-att-add-btn" onclick="document.getElementById(\\'jv-pre-attach-input\\').click()">+ Add attachment</button>'
       + '</div>';
   }
 

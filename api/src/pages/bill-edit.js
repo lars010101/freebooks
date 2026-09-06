@@ -896,7 +896,7 @@ function renderAttachments() {
   ).join('') + (S.billId ? '<div id="be-attach-existing"></div>' : '')
     // + Add attachment row (2026-09-06, retires A) — fb-list add-row parity.
     // Pinned last; its button is the attachments zone's one real cell.
-    + '<div class="be-attach-row be-attach-add"><button type="button" class="be-attach-add-btn" onclick="document.getElementById(\'be-file\').click()">+ Add attachment</button></div>';
+    + '<div class="be-attach-row be-attach-add"><button type="button" class="be-attach-add-btn" onclick="document.getElementById(\\'be-file\\').click()">+ Add attachment</button></div>';
   el.querySelectorAll('button[data-i]').forEach(b => b.onclick = () => { S.stagedFiles.splice(Number(b.dataset.i), 1); renderAttachments(); });
   if (S.billId) loadAttachments();
 }

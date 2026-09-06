@@ -306,6 +306,24 @@
         return;
       }
     }
+    // Topbar icon dropdowns (bell, download, +): Escape closes whichever is
+    // open, same "owns the key while open" doctrine as the switcher/period
+    // popover above — without this it fell through to whatever the active
+    // page bound Escape to (e.g. a form's quit-on-Escape verb), so opening
+    // one of these over an open form closed the form instead of the
+    // dropdown, and on a plain page with no Escape binding it did nothing.
+    if (e.key === 'Escape') {
+      var _iconDropdownIds = ['tb-notif-dropdown', 'tb-dl-dropdown', 'tb-new-dropdown'];
+      for (var _di = 0; _di < _iconDropdownIds.length; _di++) {
+        var _iconDd = document.getElementById(_iconDropdownIds[_di]);
+        if (_iconDd && !_iconDd.hidden) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+          _iconDd.hidden = true;
+          return;
+        }
+      }
+    }
     // K1: g-prefix go-to map. The second key of an armed sequence resolves
     // here; a non-matching key cancels the prefix and falls through to
     // normal dispatch untouched.
@@ -2647,7 +2665,12 @@
     if (!newBtn) return;
     newBtn.addEventListener('click', function (e) {
       e.preventDefault();
-      e.stopPropagation();
+      // No stopPropagation here (unlike the old company-switcher pattern this
+      // was copied from): the click must bubble to document so the bell and
+      // download dropdowns' own outside-click listeners see it and close —
+      // same as clicking the bell or download buttons already closes this
+      // menu. Stopping it here silently left this dropdown paintable on top
+      // (or underneath) an already-open one instead of replacing it.
       var dd = document.getElementById('tb-new-dropdown');
       if (!dd) return;
       if (!dd.hidden) { dd.hidden = true; return; }

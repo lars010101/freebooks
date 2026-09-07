@@ -1,5 +1,5 @@
 'use strict';
-const { commonStyle, navBar, layoutEnd, getRelevanceFlags } = require('./common');
+const { commonStyle, navBar, layoutEnd, getRelevanceFlags, flagsBootstrapJson } = require('./common');
 
 async function handleJournalVoucherPage(req, res) {
   const { company } = req.params;
@@ -19,6 +19,7 @@ function buildJournalVoucherPage(company, flags) {
   // ≥1 active center configured (detected server-side by getRelevanceFlags,
   // not a settings toggle). Same baked-in pattern as vatOn/fxOn.
   const centersOn = !!(flags && flags.centersConfigured);
+  const flagsJson = flagsBootstrapJson(flags);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -137,6 +138,7 @@ ${commonStyle()}
   </div>
 </div>
 <script>
+  window.__fbFlags = ${flagsJson};
   var COMPANY = '${company}';
   var VAT_ON = ${vatOn ? 'true' : 'false'};
   var BASE_CCY = '${baseCcy}';
@@ -343,7 +345,7 @@ ${commonStyle()}
       +'<td><input type="number" class="credit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="text" class="desc-input" style="width:160px" placeholder="optional"></td>'
       +(VAT_ON ? '<td><select class="tax-select" style="width:120px" onchange="updateTotals()"><option value="">\u2014 none \u2014</option></select></td>' : '')
-      +(VAT_ON ? '<td class="vat-display" style="width:70px;text-align:right;color:var(--text-muted)">0.00</td>' : '')
+      +(VAT_ON ? '<td class="vat-display amt" style="width:70px;color:var(--text-muted)">0.00</td>' : '')
       +(CENTERS_ON ? '<td><input type="text" class="cc-input" style="width:120px" placeholder="Cost center"></td>' : '')
       +(CENTERS_ON ? '<td><input type="text" class="pc-input" style="width:120px" placeholder="Profit center"></td>' : '')
       +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove(); updateTotals()" aria-label="Remove line">&times;</button></td>';
@@ -409,17 +411,17 @@ ${commonStyle()}
           }
         }
       }
-      if (vatEl) vatEl.textContent = lineVat.toFixed(2);
+      if (vatEl) vatEl.textContent = FB.util.fmtAmt(lineVat);
     });
-    document.getElementById('total-dr').textContent = dr.toFixed(2);
-    document.getElementById('total-cr').textContent = cr.toFixed(2);
+    document.getElementById('total-dr').textContent = FB.util.fmtAmt(dr);
+    document.getElementById('total-cr').textContent = FB.util.fmtAmt(cr);
     var totalVat = Math.round((vatDebit + vatCredit) * 100) / 100;
     var vatTotalEl = document.getElementById('total-vat');
-    if (vatTotalEl) vatTotalEl.textContent = totalVat.toFixed(2);
+    if (vatTotalEl) vatTotalEl.textContent = FB.util.fmtAmt(totalVat);
     // P2-4a §4.2: balance reflects the posted batch — net + VAT = gross.
     var diff = Math.round(((dr + vatDebit) - (cr + vatCredit)) * 100) / 100;
     var diffEl = document.getElementById('total-diff');
-    diffEl.textContent = diff.toFixed(2);
+    diffEl.textContent = FB.util.fmtAmt(diff);
     diffEl.style.color = diff === 0 ? 'var(--success)' : 'var(--danger)';
     document.getElementById('btn-post').disabled = diff !== 0;
   }
@@ -656,24 +658,24 @@ ${commonStyle()}
       var tr = document.createElement('tr');
       tr.className = 'jv-view-line';
       tr.innerHTML = '<td>' + esc(l.account_code || '') + ' \u2014 ' + esc(accountsMap[l.account_code] || '') + '</td>'
-        + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
-        + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
+        + '<td class="num">' + FB.util.fmtAmt(parseFloat(l.debit || 0) || 0) + '</td>'
+        + '<td class="num">' + FB.util.fmtAmt(parseFloat(l.credit || 0) || 0) + '</td>'
         + '<td>' + esc(l.description || '') + '</td>'
         + (VAT_ON ? '<td>' + esc(l.vat_code || '') + '</td>' : '')
-        + (VAT_ON ? '<td class="num">' + (parseFloat(l.vat_amount || 0) || 0).toFixed(2) + '</td>' : '')
+        + (VAT_ON ? '<td class="num">' + FB.util.fmtAmt(parseFloat(l.vat_amount || 0) || 0) + '</td>' : '')
         + (CENTERS_ON ? '<td>' + esc(l.cost_center || '') + '</td>' : '')
         + (CENTERS_ON ? '<td>' + esc(l.profit_center || '') + '</td>' : '')
         + '<td></td>';
       body.appendChild(tr);
     });
-    document.getElementById('total-dr').textContent = dr.toFixed(2);
-    document.getElementById('total-cr').textContent = cr.toFixed(2);
+    document.getElementById('total-dr').textContent = FB.util.fmtAmt(dr);
+    document.getElementById('total-cr').textContent = FB.util.fmtAmt(cr);
     var viewVat = Math.round(viewBatchLines.reduce(function (s, l) { return s + parseFloat(l.vat_amount || 0); }, 0) * 100) / 100;
     var viewVatEl = document.getElementById('total-vat');
-    if (viewVatEl) viewVatEl.textContent = viewVat.toFixed(2);
+    if (viewVatEl) viewVatEl.textContent = FB.util.fmtAmt(viewVat);
     var diff = Math.round((dr - cr) * 100) / 100;
     var diffEl = document.getElementById('total-diff');
-    diffEl.textContent = diff.toFixed(2);
+    diffEl.textContent = FB.util.fmtAmt(diff);
     diffEl.style.color = diff === 0 ? 'var(--success)' : 'var(--danger)';
     setCreateControls(false);
     currentBatchId = VIEW_BATCH;
@@ -712,24 +714,24 @@ ${commonStyle()}
       var tr = document.createElement('tr');
       tr.className = 'jv-view-line';
       tr.innerHTML = '<td>' + esc(l.account_code || '') + ' \u2014 ' + esc(accountsMap[l.account_code] || '') + '</td>'
-        + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
-        + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
+        + '<td class="num">' + FB.util.fmtAmt(parseFloat(l.debit || 0) || 0) + '</td>'
+        + '<td class="num">' + FB.util.fmtAmt(parseFloat(l.credit || 0) || 0) + '</td>'
         + '<td>' + esc(l.description || '') + '</td>'
         + (VAT_ON ? '<td>' + esc(l.vat_code || '') + '</td>' : '')
-        + (VAT_ON ? '<td class="num">' + (parseFloat(l.vat_amount || 0) || 0).toFixed(2) + '</td>' : '')
+        + (VAT_ON ? '<td class="num">' + FB.util.fmtAmt(parseFloat(l.vat_amount || 0) || 0) + '</td>' : '')
         + (CENTERS_ON ? '<td>' + esc(l.cost_center || '') + '</td>' : '')
         + (CENTERS_ON ? '<td>' + esc(l.profit_center || '') + '</td>' : '')
         + '<td></td>';
       body.appendChild(tr);
     });
-    document.getElementById('total-dr').textContent = dr.toFixed(2);
-    document.getElementById('total-cr').textContent = cr.toFixed(2);
+    document.getElementById('total-dr').textContent = FB.util.fmtAmt(dr);
+    document.getElementById('total-cr').textContent = FB.util.fmtAmt(cr);
     var postedVat = Math.round(postedLines.reduce(function (s, l) { return s + parseFloat(l.vat_amount || 0); }, 0) * 100) / 100;
     var vatEl = document.getElementById('total-vat');
-    if (vatEl) vatEl.textContent = postedVat.toFixed(2);
+    if (vatEl) vatEl.textContent = FB.util.fmtAmt(postedVat);
     var diff = Math.round((dr - cr) * 100) / 100;
     var diffEl = document.getElementById('total-diff');
-    diffEl.textContent = diff.toFixed(2);
+    diffEl.textContent = FB.util.fmtAmt(diff);
     diffEl.style.color = diff === 0 ? 'var(--success)' : 'var(--danger)';
     setCreateControls(false);
     document.getElementById('jv-pre-attach-section').style.display = 'none';
@@ -760,7 +762,7 @@ ${commonStyle()}
           var recentBits = ['DOC ' + (viewBatchRef || VIEW_BATCH)];
           if (viewBatchDate) recentBits.push(viewBatchDate);
           if (viewBatchDesc && viewBatchDesc !== viewBatchRef) recentBits.push(viewBatchDesc);
-          if (recentAmount) recentBits.push(recentAmount.toFixed(2));
+          if (recentAmount) recentBits.push(FB.util.fmtAmt(recentAmount));
           FB.search.pushRecent({ type: 'journal', id: VIEW_BATCH,
             label: recentBits.join('  '),
             route: '/journal/voucher?batch=' + encodeURIComponent(VIEW_BATCH) });
@@ -922,8 +924,8 @@ ${commonStyle()}
       var otr = document.createElement('tr');
       otr.className = 'jv-orig-line';
       otr.innerHTML = '<td>' + esc(l.account_code || '') + ' \u2014 ' + esc(accountsMap[l.account_code] || '') + '</td>'
-        + '<td class="num">' + (parseFloat(l.debit || 0) || 0).toFixed(2) + '</td>'
-        + '<td class="num">' + (parseFloat(l.credit || 0) || 0).toFixed(2) + '</td>'
+        + '<td class="num">' + FB.util.fmtAmt(parseFloat(l.debit || 0) || 0) + '</td>'
+        + '<td class="num">' + FB.util.fmtAmt(parseFloat(l.credit || 0) || 0) + '</td>'
         + '<td>' + esc(l.description || '') + '</td>'
         + (VAT_ON ? '<td></td><td></td>' : '')
         + (CENTERS_ON ? '<td>' + esc(l.cost_center || '') + '</td>' : '')

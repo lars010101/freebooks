@@ -83,7 +83,7 @@ function renderPayments(rows) {
     var voided = !!r.voided_at;
     var dirBadge = '<span class="badge ' + (r.direction === 'in' ? 'badge-success' : 'badge-warning') + '">' + (r.direction === 'in' ? 'In' : 'Out') + '</span>';
     var methodBadge = '<span class="badge ' + (r.method === 'bank_match' ? 'badge-info' : 'badge-neutral') + '">' + (r.method === 'bank_match' ? 'Bank Match' : 'Manual') + '</span>';
-    var amt = Number(r.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    var amt = FB.util.fmtAmt(r.amount || 0);
     // Status is always a real status badge — Void is a hover-only action
     // appended after it (mirrors Bills tab's .pay-afford), never the sole
     // content of the "Status" cell (a bare action button there read as if
@@ -98,7 +98,7 @@ function renderPayments(rows) {
       + '<td>' + dirBadge + '</td>'
       + '<td>' + esc(r.partner_name || '\u2014') + '</td>'
       + '<td>' + esc(r.vendor_ref || '\u2014') + '</td>'
-      + '<td style="text-align:right; font-variant-numeric:tabular-nums;' + (voided ? 'color:var(--text-faint);text-decoration:line-through' : '') + '">' + amt + '</td>'
+      + '<td class="amt"' + (voided ? ' style="color:var(--text-faint);text-decoration:line-through"' : '') + '>' + amt + '</td>'
       + '<td>' + methodBadge + '</td>'
       + '<td>' + esc(r.reference || '\u2014') + '</td>'
       + '<td>' + statusCell + '</td>'

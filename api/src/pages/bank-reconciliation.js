@@ -12,6 +12,7 @@ function reconciliationTabJS() {
 var _reconAccountsLoaded = false;
 var _reconRows = [];
 var _reconAccount = '';
+var _reconOpening = 0;
 
 function reconMsg(msg, type) {
   var el = document.getElementById('msg-recon');
@@ -76,7 +77,8 @@ function loadReconciliation() {
       var d = res.data || res;
       if (res.error || (d && d.error)) { tbody.innerHTML = ''; reconMsg('Load failed: ' + (res.error || d.error), 'err'); return; }
       _reconRows = (d && d.rows) || [];
-      document.getElementById('recon-opening').textContent = Number((d && d.openingBalance) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      _reconOpening = Number((d && d.openingBalance) || 0);
+      document.getElementById('recon-opening').textContent = FB.util.fmtAmt(_reconOpening);
       renderReconciliation();
       reconMsg('', '');
     })
@@ -85,10 +87,13 @@ function loadReconciliation() {
 
 function renderReconciliation() {
   var tbody = document.getElementById('recon-tbody');
-  var opening = Number((document.getElementById('recon-opening').textContent || '0').replace(/,/g, '')) || 0;
+  // _reconOpening (a tracked number) — not re-parsed from the opening-balance
+  // element's own formatted text, which broke the moment that text started
+  // using parentheses for negatives instead of a bare minus sign.
+  var opening = _reconOpening;
   if (!_reconRows.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">No activity in range.</td></tr>';
-    document.getElementById('recon-cleared-balance').textContent = opening.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    document.getElementById('recon-cleared-balance').textContent = FB.util.fmtAmt(opening);
     document.getElementById('recon-uncleared-count').textContent = '0';
     return;
   }
@@ -102,13 +107,13 @@ function renderReconciliation() {
       + '<td>' + esc(fmtDateShortRecon(r.date)) + '</td>'
       + '<td>' + esc(r.reference || '—') + '</td>'
       + '<td>' + esc(r.description || '—') + '</td>'
-      + '<td style="text-align:right; font-variant-numeric:tabular-nums;">' + (debit ? debit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '') + '</td>'
-      + '<td style="text-align:right; font-variant-numeric:tabular-nums;">' + (credit ? credit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '') + '</td>'
+      + '<td class="amt">' + (debit ? FB.util.fmtAmt(debit) : '') + '</td>'
+      + '<td class="amt">' + (credit ? FB.util.fmtAmt(credit) : '') + '</td>'
       + '<td class="recon-clear-cell" onclick="toggleClear(\\'' + r.batch_id + '\\',' + (r.cleared ? 'true' : 'false') + ')"><span class="' + boxClass + '"></span></td>'
       + '</tr>';
   }).join('');
   tbody.innerHTML = html;
-  document.getElementById('recon-cleared-balance').textContent = clearedBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  document.getElementById('recon-cleared-balance').textContent = FB.util.fmtAmt(clearedBalance);
   document.getElementById('recon-uncleared-count').textContent = String(unclearedCount);
 }
 

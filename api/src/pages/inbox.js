@@ -56,15 +56,17 @@
  * bell's other go-look-at-this alerts, not this decide-here queue.
  */
 
-const { commonStyle, navBar, layoutEnd } = require('./common');
+const { commonStyle, navBar, layoutEnd, getRelevanceFlags, flagsBootstrapJson } = require('./common');
 
 async function handleInboxPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(buildInboxPage(company));
+  const flags = await getRelevanceFlags(company);
+  res.send(buildInboxPage(company, flags));
 }
 
-function buildInboxPage(company) {
+function buildInboxPage(company, flags) {
+  const flagsJson = flagsBootstrapJson(flags);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -75,7 +77,7 @@ ${commonStyle()}
   table.jrnl-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
   table.jrnl-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; }
   table.jrnl-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; }
-  .amt { text-align:right; font-variant-numeric:tabular-nums; }
+  /* .amt is the shared numeric-cell component (common.css) */
   .jrnl-meta td, td.jrnl-meta { color:var(--text-muted); font-size:0.6875rem; font-style:italic; background:var(--bg); }
   tr[data-child-of] td { background:var(--bg); font-size:0.75rem; color:var(--text-muted); }
   /* Status badges use the shared .badge component (common.css) — see statusBadge() below */
@@ -161,6 +163,7 @@ ${commonStyle()}
 </div>
 
 <script>
+window.__fbFlags = ${flagsJson};
 var COMPANY = ${JSON.stringify(company)};
 
 // Queue status filter: 'proposed' (default — Class A queue) | 'rejected'
@@ -267,9 +270,12 @@ function loadAgentStatus() {
 }
 loadAgentStatus();
 
+// Blank-on-zero + .amt wrapper stay local (a deliberate, different display
+// choice from the shared formatter); the actual number formatting delegates
+// to FB.util.fmtAmt (docs/UI.md — negative numbers, thousands separators).
 function fmtAmt(v) {
   var n = Number(v || 0);
-  return n ? '<span class="amt">' + n.toFixed(2) + '</span>' : '';
+  return n ? '<span class="amt">' + FB.util.fmtAmt(n) + '</span>' : '';
 }
 function fmtDate(v) { return esc(String(v || '').slice(0, 10)); }
 
@@ -584,7 +590,7 @@ function review(row, verdict) {
     title: (approve ? 'Approve' : 'Reject') + ' proposed journal batch',
     body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
       + '<div><b>Date:</b> ' + fmtDate(row.date) + '</div>'
-      + '<div><b>Lines:</b> ' + row.lineCount + ' &nbsp; <b>Total debit:</b> ' + Number(row.totalDebit).toFixed(2) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>'
+      + '<div><b>Lines:</b> ' + row.lineCount + ' &nbsp; <b>Total debit:</b> ' + FB.util.fmtAmt(row.totalDebit) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>'
       + (row.reference ? '<div><b>Reference:</b> ' + esc(row.reference) + '</div>' : '')
       + (row.description ? '<div><b>Description:</b> ' + esc(row.description) + '</div>' : '')
       + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">Proposed by ' + esc(row.created_by || '?')
@@ -705,7 +711,7 @@ function reviewDraft(row, verb) {
     body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
       + '<div><b>' + esc(row.counterparty || row.reference || '') + '</b></div>'
       + (row.description ? '<div>' + esc(row.description) + '</div>' : '')
-      + (row.amount ? '<div>' + Number(row.amount).toFixed(2) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>' : '')
+      + (row.amount ? '<div>' + FB.util.fmtAmt(row.amount) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>' : '')
       + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">Created by ' + esc(row.created_by || '?') + '</div>'
       + '</div>',
     buttons: [

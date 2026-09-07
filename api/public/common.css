@@ -692,6 +692,17 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
 .chip-cancel { color:var(--danger); }
 .chip-disabled { opacity:.4; cursor:not-allowed; }
 
+/* ---- Numeric/money cell (docs/UI.md — tabular-nums consistency) ----
+   Right-aligned, tabular figures so a column of digits actually lines up —
+   in ledger work, scanning a column for an outlier depends on that
+   alignment. .amt and .num are the two names already in use across pages
+   for the same thing; both defined here once rather than per-page, which is
+   exactly how journal-voucher.js's own numeric columns (Debit/Credit/VAT,
+   both header and cell, 8 sites) ended up with NEITHER right-alignment nor
+   tabular figures — .num was used throughout that file but never defined
+   anywhere in the codebase at all, silently, since the file shipped. */
+.amt, .num, th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+
 /* ---- Filter/tag chip ----
    A labelled, bordered, clickable toggle or small action link (calendar.js's
    "+ Add reminder"/"Save"/"Cancel", documents.js's "+ Upload document"/

@@ -41,6 +41,44 @@
 
   function today() { return new Date().toISOString().slice(0, 10); }
 
+  // House-standard money display (docs/UI.md — negative numbers, thousands
+  // separators, decimal places): jurisdiction-aware grouping/decimal
+  // separators and a locale-correct minus sign, 2 decimals always.
+  // Deliberately NOT dependent on the VIEWER's own browser locale (several
+  // call sites had used toLocaleString(undefined, ...), meaning the same
+  // amount could render with a period or a comma as the decimal separator
+  // depending on whose machine was looking at it, regardless of which
+  // company's books were open — a real correctness risk, not just a style
+  // inconsistency). It IS dependent on the COMPANY's own jurisdiction
+  // (window.__fbFlags.jurisdiction, bootstrapped server-side per page from
+  // getRelevanceFlags/flagsBootstrapJson) — a stable business property of
+  // the books being kept, not an accident of the viewing device. This
+  // mirrors report-composite.js's statutory annual-report renderer exactly
+  // (sv-SE for jurisdiction 'SE', en-SG otherwise), so a Swedish company's
+  // bills/payments/journal entries now use the same "1 234,50" convention
+  // as its own filed annual report, instead of contradicting it.
+  // Earlier drafts of this function used a FIXED en-US format with
+  // parentheses for negative, matching reports/render.js (the internal
+  // P&L/BS/TB/GL engine) — parentheses is a distinctly Anglo-American
+  // accounting convention that reads as foreign in several of the locales
+  // this app serves, and a fixed locale meant Swedish users saw
+  // comma-thousands/period-decimal when their own written convention
+  // (and their own statutory report) uses space-thousands/comma-decimal.
+  // sv-SE's minus sign is U+2212 (proper Unicode minus), not the ASCII
+  // hyphen en-SG/en-US use — by design, from Intl.NumberFormat itself; if
+  // you ever need to detect a negative amount, check the NUMBER, never the
+  // formatted string's first character.
+  // Never use this to set an <input type="number">'s value — browsers
+  // reject/mangle comma-formatted numbers there; those stay plain
+  // n.toFixed(2), same as before.
+  function fmtAmt(n) {
+    var num = parseFloat(n);
+    if (isNaN(num)) return '';
+    var jurisdiction = (window.__fbFlags && window.__fbFlags.jurisdiction) || '';
+    var locale = jurisdiction === 'SE' ? 'sv-SE' : 'en-SG';
+    return num.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
   // ── mode store ────────────────────────────────────────────────────────────
   var _mode = 'NORMAL';
   var _modeListeners = [];
@@ -2352,7 +2390,7 @@
   });
 
   window.FB = {
-    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, today: today, forwardIframeKeys: forwardIframeKeys },
+    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, fmtAmt: fmtAmt, today: today, forwardIframeKeys: forwardIframeKeys },
     mode: mode,
     keys: keys,
     coverage: coverage,

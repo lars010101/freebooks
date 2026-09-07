@@ -14,7 +14,7 @@
  * `allocations` is present (bills.js handleBills) — this page is a pure UI
  * consolidation onto that existing, unmodified contract.
  */
-const { makeQuery, commonStyle, navBar, layoutEnd, getRelevanceFlags } = require('./common');
+const { makeQuery, commonStyle, navBar, layoutEnd, getRelevanceFlags, flagsBootstrapJson } = require('./common');
 
 async function handlePaymentNewPage(req, res) {
   const { company } = req.params;
@@ -30,6 +30,7 @@ async function handlePaymentNewPage(req, res) {
 function buildPaymentNewPage(company, billId, flags) {
   const fxOn = !flags || flags.fxTracking !== 'off';
   const baseCcy = (flags && flags.baseCurrency) || '';
+  const flagsJson = flagsBootstrapJson(flags);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -106,6 +107,7 @@ ${commonStyle()}
 <script>
 (function () {
 'use strict';
+window.__fbFlags = ${flagsJson};
 const COMPANY = ${JSON.stringify(company)};
 const FX_ON = ${fxOn ? 'true' : 'false'};
 const BASE_CCY = ${JSON.stringify(baseCcy)};
@@ -246,7 +248,7 @@ function renderBills(preselectId) {
       + '<input type="checkbox" class="pn-check"' + (checked ? ' checked' : '') + '>'
       + '<span>' + FB.util.esc(due) + '</span>'
       + '<span>' + FB.util.esc(b.vendor_ref || '—') + '</span>'
-      + '<span class="pn-outstanding">' + out.toFixed(2) + '</span>'
+      + '<span class="pn-outstanding">' + FB.util.fmtAmt(out) + '</span>'
       + (FX_ON ? '<span class="pn-bill-ccy">' + FB.util.esc(ccy) + '</span>' : '<span></span>')
       + '<input type="number" class="pn-alloc" step="0.01" min="0" value="' + (checked ? out.toFixed(2) : '') + '"' + (checked ? '' : ' disabled') + '>'
       + '</div>';
@@ -305,7 +307,7 @@ function updateHomeEquiv() {
   if (document.getElementById('pn-fx-row').style.display === 'none') { el.textContent = ''; return; }
   const total = parseFloat(document.getElementById('pn-total').value) || 0;
   const rate = parseFloat(document.getElementById('pn-fx').value) || 0;
-  el.textContent = rate > 0 ? ('≈ ' + (total * rate).toFixed(2) + ' ' + BASE_CCY) : '';
+  el.textContent = rate > 0 ? ('≈ ' + FB.util.fmtAmt(total * rate) + ' ' + BASE_CCY) : '';
 }
 
 function selectedRows() {

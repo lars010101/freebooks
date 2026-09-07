@@ -74,7 +74,10 @@ function flagsBootstrapJson(flags) {
     fxTracking: f.fxTracking === 'false' ? 'false' : 'true',
     whtTracking: f.whtTracking === 'true' ? 'true' : 'false',
     baseCurrency: f.baseCurrency || '',
-    centersConfigured: f.centersConfigured === true
+    centersConfigured: f.centersConfigured === true,
+    // Jurisdiction-aware number formatting (docs/UI.md — negative numbers,
+    // decimals, thousands separators): FB.util.fmtAmt reads this.
+    jurisdiction: f.jurisdiction || ''
   });
 }
 

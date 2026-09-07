@@ -18,7 +18,7 @@
  * authored drafts still land via bill.create/bill.draft.save server-side,
  * untouched by this page.
  */
-const { makeQuery, commonStyle, navBar, layoutEnd, getRelevanceFlags } = require('./common');
+const { makeQuery, commonStyle, navBar, layoutEnd, getRelevanceFlags, flagsBootstrapJson } = require('./common');
 
 // Stage 1 (2026-09-06, bill-edit/bill-detail merge): renamed from
 // handleBillEditPage/buildBillEditPage in prep for taking over the /bill/:id
@@ -51,6 +51,7 @@ function buildBillPage(company, editId, flags) {
   // fixes a pre-existing bug where this page always said "GST" regardless
   // of jurisdiction; bill-detail.js already got this right).
   const taxLabel = (flags && flags.jurisdiction === 'SG') ? 'GST' : 'VAT';
+  const flagsJson = flagsBootstrapJson(flags);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -207,6 +208,7 @@ ${commonStyle()}
 // top-level const/let would throw "already declared" on every repeat visit.
 (function () {
 'use strict';
+window.__fbFlags = ${flagsJson};
 const COMPANY = ${JSON.stringify(company)};
 const VAT_ON = ${vatOn ? 'true' : 'false'};
 const FX_ON = ${fxOn ? 'true' : 'false'};
@@ -425,8 +427,8 @@ function applyLockedMode() {
   var cardsEl = document.getElementById('be-amount-cards');
   if (cardsEl) {
     cardsEl.style.display = '';
-    document.getElementById('be-amount-paid').textContent = S.amountPaid.toFixed(2);
-    document.getElementById('be-amount-due').textContent = (S.amount - S.amountPaid).toFixed(2);
+    document.getElementById('be-amount-paid').textContent = FB.util.fmtAmt(S.amountPaid);
+    document.getElementById('be-amount-due').textContent = FB.util.fmtAmt(S.amount - S.amountPaid);
   }
 }
 
@@ -820,8 +822,8 @@ function updateTotals() {
   renderAutoLines(auto.rows);
   var whtEl = document.getElementById('be-tot-wht');
   var payEl = document.getElementById('be-tot-payable');
-  if (whtEl) whtEl.textContent = auto.whtTotal.toFixed(2);
-  if (payEl) payEl.textContent = (auto.gross - auto.whtTotal).toFixed(2);
+  if (whtEl) whtEl.textContent = FB.util.fmtAmt(auto.whtTotal);
+  if (payEl) payEl.textContent = FB.util.fmtAmt(auto.gross - auto.whtTotal);
 }
 
 // ── Gather + validate ───────────────────────────────────────────────────────

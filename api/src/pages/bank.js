@@ -10,7 +10,7 @@
  *   - Reconciliation: wires up api/src/bank.js's bank.reconcile.list/.clear,
  *     orphaned since the old page's deletion (issue #137).
  */
-const { commonStyle, navBar, layoutEnd } = require('./common');
+const { commonStyle, navBar, layoutEnd, flagsBootstrapJson } = require('./common');
 const { query } = require('../db');
 const { paymentsTabJS } = require('./bank-payments');
 const { reconciliationTabJS } = require('./bank-reconciliation');
@@ -18,12 +18,16 @@ const { reconciliationTabJS } = require('./bank-reconciliation');
 async function handleBankPage(req, res) {
   const { company } = req.params;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  const [co] = await query(`SELECT currency AS base_currency FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
+  const [co] = await query(`SELECT currency AS base_currency, jurisdiction FROM companies WHERE company_id = @cid LIMIT 1`, { cid: company }).catch(() => [{}]);
   const baseCurrency = (co && co.base_currency) || 'SGD';
-  res.send(buildBankPage(company, baseCurrency));
+  res.send(buildBankPage(company, baseCurrency, (co && co.jurisdiction) || ''));
 }
 
-function buildBankPage(company, baseCurrency = 'SGD') {
+function buildBankPage(company, baseCurrency = 'SGD', jurisdiction = '') {
+  // Only jurisdiction (for FB.util.fmtAmt's number formatting) and
+  // baseCurrency are relevant here — this page has no VAT/FX/centers UI, so
+  // a full getRelevanceFlags() call would be more than this page needs.
+  const flagsJson = flagsBootstrapJson({ jurisdiction, baseCurrency });
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -205,6 +209,7 @@ ${commonStyle()}
 </div>
 
 <script>
+window.__fbFlags = ${flagsJson};
 var COMPANY = '${company}';
 var BASE_CURRENCY = '${baseCurrency}';
 ${paymentsTabJS()}

@@ -313,16 +313,12 @@ function computeKpis(bills, rateMap) {
     if (isOverdue) { overdueAmt += amt; overdueN++; }
     else if (due && due <= in7days) { upcomingAmt += amt; upcomingN++; }
   });
-  setText('kpi-outstanding', fmtAmt(outstandingAmt));
+  setText('kpi-outstanding', FB.util.fmtAmt(outstandingAmt));
   setText('kpi-outstanding-count', outstandingN + ' bill' + (outstandingN !== 1 ? 's' : ''));
-  setText('kpi-overdue', fmtAmt(overdueAmt));
+  setText('kpi-overdue', FB.util.fmtAmt(overdueAmt));
   setText('kpi-overdue-count', overdueN + ' bill' + (overdueN !== 1 ? 's' : ''));
-  setText('kpi-upcoming', fmtAmt(upcomingAmt));
+  setText('kpi-upcoming', FB.util.fmtAmt(upcomingAmt));
   setText('kpi-upcoming-count', upcomingN + ' bill' + (upcomingN !== 1 ? 's' : ''));
-}
-
-function fmtAmt(n) {
-  return n.toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
 }
 
 function setText(id, text) {
@@ -638,8 +634,8 @@ function billsMergeChildRows(cache, parent) {
 // spacer (col 5, CCY), tax/empty (col 6, Status), empty (col 7, actions).
 function billsChildRowHtml(parent, child, idx) {
   function amtCell(n, extra) {
-    var s = 'text-align:right;font-variant-numeric:tabular-nums' + (extra ? ';' + extra : '');
-    return '<td class="amt" style="' + s + '">' + Number(n || 0).toFixed(2) + '</td>';
+    // text-align/tabular-nums come from the shared .amt component (common.css)
+    return '<td class="amt"' + (extra ? ' style="' + extra + '"' : '') + '>' + FB.util.fmtAmt(n || 0) + '</td>';
   }
   var spacer = '<td class="child-spacer"></td>';
   var empty = '<td></td>';
@@ -700,7 +696,7 @@ function billRefreshParentTotal(childTr) {
   var stated = (statedInp && statedInp.dataset.stated === '1' && statedInp.value !== '') ? (parseFloat(statedInp.value) || 0) : null;
   var gross = net + ((stated !== null) ? stated : stdVat);
   var cell = ptr.querySelector('td[data-field="amount"]');
-  if (cell) cell.innerHTML = '<span class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + gross.toFixed(2) + '</span>';
+  if (cell) cell.innerHTML = '<span class="amt">' + FB.util.fmtAmt(gross) + '</span>';
   if (ftr) billRenderFooter(ftr, key, lines, stated, stdVat);
 }
 
@@ -773,7 +769,7 @@ function billRenderFooter(ftr, key, lines, stated, stdVat) {
     tr.className = 'fb-code-footer child-row';
     tr.dataset.footerOf = key;
     tr.innerHTML = '<td colspan="4" class="child-desc" style="color:var(--text-muted);font-style:italic">' + esc(r.label) + '</td>'
-      + '<td class="amt" style="text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted)">' + r.amount.toFixed(2) + '</td>'
+      + '<td class="amt" style="color:var(--text-muted)">' + FB.util.fmtAmt(r.amount) + '</td>'
       + '<td class="child-spacer"></td><td></td><td></td>';
     ftr.parentNode.insertBefore(tr, ftr);
   });
@@ -946,7 +942,7 @@ var billsList = FB.list.create({
         if (r && r._dirty && Array.isArray(r.lines) && r.lines.length) {
           amt = billSumGross(r.lines);
         }
-        return '<span class="amt" style="text-align:right;font-variant-numeric:tabular-nums">' + Number(amt).toFixed(2) + '</span>';
+        return '<span class="amt">' + FB.util.fmtAmt(amt) + '</span>';
       } },
     { field: 'currency', type: 'text', ro: 'always', sortable: true, filterType: 'list',
       display: function (v, r) {

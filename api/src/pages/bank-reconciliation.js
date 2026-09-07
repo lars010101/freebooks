@@ -14,11 +14,12 @@ var _reconRows = [];
 var _reconAccount = '';
 var _reconOpening = 0;
 
+// Delegates to FB.status (docs/UI.md — Empty/loading/error states: "the ONE
+// transient-feedback channel... per-screen msg spans are retired"). This was
+// still a per-screen msg span writing to its own DOM node until this fix.
 function reconMsg(msg, type) {
-  var el = document.getElementById('msg-recon');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.color = type === 'err' ? 'var(--danger)' : type === 'ok' ? 'var(--success)' : 'var(--text-muted)';
+  if (!msg) { FB.status.clear(); return; }
+  FB.status.show(msg, type === 'err' ? true : undefined);
 }
 
 function fmtDateShortRecon(d) {
@@ -44,7 +45,7 @@ function initReconciliation() {
       if (!sel) return;
       if (!cashAccounts.length) {
         sel.innerHTML = '<option value="">No cash accounts</option>';
-        document.getElementById('recon-tbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">No Cash-category accounts configured (Accounting → Chart of Accounts).</td></tr>';
+        document.getElementById('recon-tbody').innerHTML = '<tr><td colspan="6" class="table-empty">No Cash-category accounts configured (Accounting → Chart of Accounts).</td></tr>';
         return;
       }
       sel.innerHTML = cashAccounts.map(function (a) {
@@ -69,7 +70,7 @@ function loadReconciliation() {
   _reconAccount = accountCode;
   var st = window.FB && FB.period ? FB.period.get() : {};
   var tbody = document.getElementById('recon-tbody');
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">Loading&#8230;</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6" class="table-empty">Loading&#8230;</td></tr>';
   fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'bank.reconcile.list', companyId: COMPANY, accountCode: accountCode, dateFrom: st.start || '', dateTo: st.end || '' }) })
     .then(function (r) { return r.json(); })
@@ -92,7 +93,7 @@ function renderReconciliation() {
   // using parentheses for negatives instead of a bare minus sign.
   var opening = _reconOpening;
   if (!_reconRows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">No activity in range.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="table-empty">No activity in range.</td></tr>';
     document.getElementById('recon-cleared-balance').textContent = FB.util.fmtAmt(opening);
     document.getElementById('recon-uncleared-count').textContent = '0';
     return;

@@ -48,7 +48,6 @@ ${commonStyle()}
   /* .fb-tag base (cursor/padding/border/hover) is the shared component (common.css) */
   a.fb-tag { display:inline-block; color:var(--accent); margin-left:6px; }
   a.fb-tag:first-child { margin-left:0; }
-  .pe-ro { color:var(--text-muted); }
   .doc-id-main { color:var(--text); }
   .doc-id-sub { color:var(--text-muted); font-size:0.6875rem; }
   .doc-id-main a { color:var(--info); text-decoration:none; }

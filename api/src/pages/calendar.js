@@ -63,7 +63,6 @@ ${commonStyle()}
   /* .fb-tag base (cursor/padding/border/hover) is the shared component (common.css) */
   a.fb-tag { display:inline-block; color:var(--accent); margin-left:6px; }
   a.fb-tag:first-child { margin-left:0; }
-  .pe-ro { color:var(--text-muted); }
   .due-past { color:var(--danger); font-weight:600; }
   .rem-done { color:var(--success); }
   .ck-pass { color:var(--success); font-weight:600; }

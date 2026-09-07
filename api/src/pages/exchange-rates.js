@@ -27,7 +27,6 @@ ${commonStyle()}
   table.edit-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
   table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; background:var(--surface); color:var(--text); }
   table.edit-table .ro { background:var(--bg); color:var(--text-muted); padding:4px 6px; border-radius:3px; display:block; }
-  .pe-ro { color:var(--text-muted); }
   tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
   .dirty-val { color:var(--warning); }
   tr.row-editing > td { background:var(--warning-bg); }

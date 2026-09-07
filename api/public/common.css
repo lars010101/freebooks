@@ -704,6 +704,24 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
    anywhere in the codebase at all, silently, since the file shipped. */
 .amt, .num, th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
 
+/* ---- Read-only/empty-state row text (docs/UI.md — Empty/loading/error
+   states) ----
+   Byte-for-byte identical in accounting.js, calendar.js, documents.js,
+   exchange-rates.js, and settings.js — the muted-text treatment for a
+   read-only field, an empty-state row ("No documents.", "No reminders for
+   this company."), or a load-failure row. Defined once instead of five
+   times. */
+.pe-ro { color:var(--text-muted); }
+
+/* Full-width table placeholder row (loading/empty/select-prompt text spanning
+   every column) — the same inline style="text-align:center;color:var(
+   --text-faint);padding:32px" was repeated verbatim across 8 sites in
+   bank.js/bank-payments.js/bank-reconciliation.js/payables.js. Specificity is
+   bumped to (0,1,2) via the extra `table` — bank.js's own `.data-table td`
+   rule is (0,1,1), same as a bare `td.table-empty`, so without this the two
+   fight it out by source order instead of by what should actually win. */
+table td.table-empty { text-align:center; color:var(--text-faint); padding:32px; }
+
 /* ---- Filter/tag chip ----
    A labelled, bordered, clickable toggle or small action link (calendar.js's
    "+ Add reminder"/"Save"/"Cancel", documents.js's "+ Upload document"/

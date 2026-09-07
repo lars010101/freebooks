@@ -17,11 +17,12 @@ function _debouncedLoadPayments() {
   _paymentsDebounce = setTimeout(loadPayments, 250);
 }
 
+// Delegates to FB.status (docs/UI.md — Empty/loading/error states: "the ONE
+// transient-feedback channel... per-screen msg spans are retired"). This was
+// still a per-screen msg span writing to its own DOM node until this fix.
 function paymentsMsg(msg, type) {
-  var el = document.getElementById('msg-payments');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.color = type === 'err' ? 'var(--danger)' : type === 'ok' ? 'var(--success)' : 'var(--text-muted)';
+  if (!msg) { FB.status.clear(); return; }
+  FB.status.show(msg, type === 'err' ? true : undefined);
 }
 
 function fmtDateShortPay(d) {
@@ -55,7 +56,7 @@ function loadPayments() {
       var rows = (d && d.data) || [];
       var total = d && d.total;
       if (d && d.tooMany) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-faint);padding:32px">'
+        tbody.innerHTML = '<tr><td colspan="8" class="table-empty">'
           + (total || 0).toLocaleString() + ' payments \u2014 narrow the date range above (Period Selector) or a filter to see this list.</td></tr>';
         return;
       }
@@ -76,7 +77,7 @@ function loadPayments() {
 function renderPayments(rows) {
   var tbody = document.getElementById('payments-tbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-faint);padding:32px">No payments in range.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="table-empty">No payments in range.</td></tr>';
     return;
   }
   var html = rows.map(function (r) {

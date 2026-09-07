@@ -399,7 +399,7 @@ ${commonStyle()}
         </tr>
       </thead>
       <tbody id="bills-tbody">
-        <tr><td colspan="7" style="text-align:center;color:var(--text-faint);padding:32px">Loading&#8230;</td></tr>
+        <tr><td colspan="7" class="table-empty">Loading&#8230;</td></tr>
       </tbody>
     </table>
     <div class="pagination-row" id="pagination-row" style="display:none">

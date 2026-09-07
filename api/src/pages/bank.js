@@ -72,10 +72,6 @@ ${commonStyle()}
   .tab-panel { display:none; }
   .tab-panel.active { display:block; }
 
-  .msg-bank { margin-top:10px; font-size:0.8125rem; }
-  .msg-bank.ok { color:var(--success); }
-  .msg-bank.err { color:var(--danger); }
-
   /* Reconciliation tab */
   .recon-toolbar { display:flex; gap:14px; align-items:center; margin-bottom:18px; flex-wrap:wrap; }
   .recon-toolbar select { padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:0.8125rem; background:var(--surface); color:var(--text); }
@@ -150,11 +146,10 @@ ${commonStyle()}
           </tr>
         </thead>
         <tbody id="payments-tbody">
-          <tr><td colspan="8" style="text-align:center;color:var(--text-faint);padding:32px">Loading&#8230;</td></tr>
+          <tr><td colspan="8" class="table-empty">Loading&#8230;</td></tr>
         </tbody>
       </table>
     </div>
-    <div class="msg-bank" id="msg-payments"></div>
   </div>
 
   <!-- RECONCILIATION TAB -->
@@ -199,11 +194,10 @@ ${commonStyle()}
           </tr>
         </thead>
         <tbody id="recon-tbody">
-          <tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">Select an account.</td></tr>
+          <tr><td colspan="6" class="table-empty">Select an account.</td></tr>
         </tbody>
       </table>
     </div>
-    <div class="msg-bank" id="msg-recon"></div>
   </div>
 
 </div>

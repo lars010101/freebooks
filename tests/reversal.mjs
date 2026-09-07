@@ -112,11 +112,19 @@ async function run(chromium) {
   const boot = await page.evaluate(() => ({ has: !!window.__jn, mode: window.__jn && window.__jn.mode(), rev: window.__jn && window.__jn.reversal() }));
   ok('__jn handle present, NORMAL, not reversing', boot.has && boot.mode === 'NORMAL' && boot.rev === false, JSON.stringify(boot));
 
-  // ── R enters reversal mode ───────────────────────────────────────────────────
-  // `R` is uppercase (ratified binding) — Playwright needs Shift+R for 'R'.
-  async function pressR() { await page.keyboard.down('Shift'); await page.keyboard.press('R'); await page.keyboard.up('Shift'); }
+  // ── x on the header zone enters reversal mode ───────────────────────────────
+  // Was `R` (ratified keyboard-ux-spec §5 binding) until journal-voucher.js
+  // retired it on 2026-09-06 in favor of `x` on the header zone (z===1) —
+  // see that file's extraBindings comment ("x on the header zone starts a
+  // reversal... retires R"). This test still pressed Shift+R until this fix,
+  // so `reversal()` never became true and every subsequent waitForFunction
+  // ran out its full timeout waiting on a state change that could never
+  // happen, making the whole script take minutes instead of seconds. The
+  // cursor starts on the header zone (z===1) on page load, so no navigation
+  // is needed before pressing x.
+  async function pressR() { await page.keyboard.press('x'); }
   await pressR();
-  // R focuses the search asynchronously — wait for it before asserting.
+  // x focuses the search asynchronously — wait for it before asserting.
   await page.waitForFunction(() => window.__jn && window.__jn.reversal() === true, { timeout: 3000 }).catch(() => {});
   await page.waitForFunction(() => document.activeElement === document.getElementById('reversal-search'), { timeout: 3000 }).catch(() => {});
   const afterR = await page.evaluate(() => ({
@@ -164,7 +172,10 @@ async function run(chromium) {
   ok('A1: original read-only rows render (≥2)', a1.origCount >= 2, JSON.stringify(a1));
   ok('A1: header row present above editable rows', a1.hasHdr && a1.hdrAboveEdits, JSON.stringify(a1));
   ok('A1: original rows carry no inputs (read-only)', a1.origHasInputs === false, JSON.stringify(a1));
-  ok('A1: original row shows ORIGINAL debit (42.00)', a1.firstOrigDebit === '42.00', `got ${a1.firstOrigDebit}`);
+  // '42,00' (comma decimal), not '42.00' — the seed company is jurisdiction
+  // 'SE' (line ~50) and FB.util.fmtAmt is jurisdiction-aware (sv-SE for SE,
+  // docs/UI.md — Negative numbers/decimals/currency placement, 2026-09-06).
+  ok('A1: original row shows ORIGINAL debit (42,00)', a1.firstOrigDebit === '42,00', `got ${a1.firstOrigDebit}`);
 
   // A1b: editable (swapped) rows hold the REVERSAL amounts (1090 now CR, 1930 now DR).
   const a1b = await page.evaluate(() => {
@@ -208,6 +219,16 @@ async function run(chromium) {
   ok('A3 setup: reversal cancelled before Esc test', revOff === false, `rev=${revOff}`);
 
   // Enter reversal again, focus search, type, go INSERT.
+  // x's guard requires mode NORMAL and cursor zone 1 (header) — A2b's 'j'
+  // moved the cursor into the lines zone, so click the header date cell to
+  // resync __jn.cur() there (the app's own click-to-focus behavior, not a
+  // test-only shortcut). Clicking an input focuses it and enters INSERT
+  // though, same as any other cell click in this framework, so Escape is
+  // needed to drop back to NORMAL — without it x's mode guard silently
+  // rejects the keypress and it's typed into the date field instead.
+  await page.click('#entry-date');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(50);
   await pressR();
   await page.waitForFunction(() => window.__jn && window.__jn.reversal() === true, { timeout: 3000 }).catch(() => {});
   await page.waitForFunction(() => document.activeElement === document.getElementById('reversal-search'), { timeout: 3000 }).catch(() => {});

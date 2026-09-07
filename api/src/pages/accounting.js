@@ -570,7 +570,7 @@ function refreshProfitCenterOptions(centers) {
     }
   }
 }
-var _originalLoadCenters = function(focusKey) { centersList.load(focusKey); };
+var _originalLoadCenters = function(focusKey) { return centersList.load(focusKey); };
 function loadCenters(focusKey) {
   _originalLoadCenters(focusKey).then(function() {
     // After the list loads, refresh the profit center options from the raw data.

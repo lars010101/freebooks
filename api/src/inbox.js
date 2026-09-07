@@ -398,15 +398,30 @@ function partnerProposalSummary(row) {
  * amount:null, date:created_at, proposed_at:created_at, summary,
  * verbs:['approve','reject','open'], payload_ref:proposal_id,
  * status, reference:name, description:name, created_by,
- * duplicate_warning:{name,similarity,kind}|null }.
+ * duplicate_warning:{name,similarity,kind}|null, is_vendor, is_customer,
+ * default_expense_account, default_ap_account, suggested_vat_code, tax_id,
+ * default_currency, payment_terms_days, evidence,
+ * source_proposal_id, source_bill_id }.
  *
  * duplicate_warning (issue #226): a fuzzy trigram match found at propose
  * time, non-blocking (warn-not-block) — the reviewer sees it here and
  * decides whether to approve or reject.
+ *
+ * Everything from default_expense_account onward used to be silently
+ * dropped here even though partner_proposals carries all of it — a
+ * reviewer approved a new partner with no visibility into which account/
+ * VAT code the agent picked, whether it was proposed as vendor or
+ * customer (is_vendor/is_customer were fetched by the SQL and then never
+ * put on the returned object), or which bill/journal proposal triggered
+ * it. Now exposed so the Inbox can show and let a reviewer correct these
+ * before approving, instead of approving blind.
  */
 async function queryPartnerProposals(companyId, limit) {
   var rows = await query(
-    `SELECT proposal_id, name, is_vendor, is_customer, status, created_by, created_at, duplicate_warning
+    `SELECT proposal_id, name, is_vendor, is_customer, tax_id, default_currency,
+            payment_terms_days, default_expense_account, default_ap_account,
+            suggested_vat_code, evidence, source_proposal_id, source_bill_id,
+            status, created_by, created_at, duplicate_warning
      FROM partner_proposals
      WHERE company_id = @companyId
        AND status = 'proposed'
@@ -418,6 +433,8 @@ async function queryPartnerProposals(companyId, limit) {
   return rows.map(function (row) {
     var duplicateWarning = null;
     try { duplicateWarning = row.duplicate_warning ? JSON.parse(row.duplicate_warning) : null; } catch (e) { /* malformed → no warning */ }
+    var evidence = null;
+    try { evidence = row.evidence ? JSON.parse(row.evidence) : null; } catch (e) { /* malformed → no evidence */ }
     return {
       type: 'partner_proposal',
       source: 'agent',
@@ -433,6 +450,17 @@ async function queryPartnerProposals(companyId, limit) {
       description: row.name,
       created_by: row.created_by,
       duplicate_warning: duplicateWarning,
+      is_vendor: row.is_vendor !== false,
+      is_customer: row.is_customer === true,
+      tax_id: row.tax_id || '',
+      default_currency: row.default_currency || '',
+      payment_terms_days: row.payment_terms_days,
+      default_expense_account: row.default_expense_account || '',
+      default_ap_account: row.default_ap_account || '',
+      suggested_vat_code: row.suggested_vat_code || '',
+      evidence: evidence,
+      source_proposal_id: row.source_proposal_id || null,
+      source_bill_id: row.source_bill_id || null,
     };
   });
 }

@@ -471,6 +471,17 @@ function mapItem(it) {
       // issue #226: a non-blocking fuzzy-duplicate hint {name,similarity,kind}
       // found at propose time. null when no fuzzy candidate was found.
       duplicate_warning: it.duplicate_warning || null,
+      // Previously dropped between queryPartnerProposals and this item —
+      // the unfold (children(), below) shows these so a reviewer isn't
+      // approving a new partner blind.
+      is_vendor: it.is_vendor !== false,
+      is_customer: it.is_customer === true,
+      default_expense_account: it.default_expense_account || '',
+      default_ap_account: it.default_ap_account || '',
+      suggested_vat_code: it.suggested_vat_code || '',
+      evidence: it.evidence || null,
+      source_proposal_id: it.source_proposal_id || null,
+      source_bill_id: it.source_bill_id || null,
     };
   }
   // Class A — bill drafts (Option C amendment): agent-created bill drafts
@@ -881,10 +892,23 @@ var list = FB.list.create({
       }
     }
     if (row._kind === 'partner') {
-      // Class B partner proposal: a single meta child row — proposer, plus
-      // the fuzzy-duplicate hint (issue #226) when present.
-      // No lines, no underlag — the partner_proposals row is the source of truth.
+      // Class B partner proposal: a single meta child row — proposer, the
+      // fuzzy-duplicate hint (issue #226) when present, and (previously
+      // missing entirely — a reviewer approved blind) which role the agent
+      // proposed, the suggested accounts/VAT code, and what triggered it.
+      // Read-only here, same as every other meta row on this page; making
+      // these fields correctable in place (not just visible) is a further
+      // step, not done here.
       var partnerMeta = 'Proposed by ' + (row.created_by || '?');
+      var roleBits = [];
+      if (row.is_vendor) roleBits.push('vendor');
+      if (row.is_customer) roleBits.push('customer');
+      if (roleBits.length) partnerMeta += ' as ' + roleBits.join(' + ');
+      if (row.default_expense_account) partnerMeta += ' — expense ' + row.default_expense_account;
+      if (row.default_ap_account) partnerMeta += ' · AP ' + row.default_ap_account;
+      if (row.suggested_vat_code) partnerMeta += ' · VAT ' + row.suggested_vat_code;
+      if (row.source_bill_id) partnerMeta += ' · from bill ' + row.source_bill_id;
+      else if (row.source_proposal_id) partnerMeta += ' · from journal proposal ' + row.source_proposal_id;
       if (row.duplicate_warning) {
         var dw = row.duplicate_warning;
         var dwPct = Math.round((Number(dw.similarity) || 0) * 100);

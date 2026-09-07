@@ -228,11 +228,17 @@ async function proposePartner(ctx) {
   // (partner_proposal item) and decide — approve or reject — same as the
   // existing no-underlag warning pattern.
 
-  // 1. Check for existing partner by name (case-insensitive, exact fast path)
+  // 1. Check for existing partner by name (case-insensitive, exact fast path).
+  // Not scoped to is_vendor=TRUE: a real-world counterparty can be proposed
+  // as a vendor when a same-named partner already exists as customer-only
+  // (or vice versa, once an AR/customer-creation flow exists) — that's the
+  // same entity needing an extra role, not grounds for a second, separate
+  // partner row. Catching it here means the reviewer goes and adds the
+  // missing role to the existing partner (partner.save) instead of the
+  // agent silently creating a role-mismatched duplicate.
   const existingPartner = await query(
     `SELECT partner_id FROM partners
      WHERE company_id = @companyId AND LOWER(name) = LOWER(@name)
-       AND is_vendor = TRUE
      LIMIT 1`,
     { companyId, name }
   );
@@ -242,13 +248,16 @@ async function proposePartner(ctx) {
       { code: 'CONFLICT' }
     );
   }
-  // 1b. Fuzzy match against existing vendor partners (issue #130, tuned #226)
-  const allVendorPartners = await query(
+  // 1b. Fuzzy match against ALL existing partners, any role (issue #130,
+  // tuned #226) — same reasoning as 1. above: a fuzzy hit against a
+  // customer-only partner is just as much a duplicate-entity signal as one
+  // against a vendor.
+  const allExistingPartners = await query(
     `SELECT name FROM partners
-     WHERE company_id = @companyId AND is_vendor = TRUE`,
+     WHERE company_id = @companyId`,
     { companyId }
   );
-  const fuzzyPartner = findFuzzyMatch(name, allVendorPartners);
+  const fuzzyPartner = findFuzzyMatch(name, allExistingPartners);
 
   // 2. Check for pending proposal by name (case-insensitive, exact fast path)
   const existingProposal = await query(

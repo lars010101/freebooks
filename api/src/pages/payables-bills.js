@@ -79,7 +79,7 @@ FB.mode.onChange(function(v) {
 
 var billAccountsList = [];
 
-var AVATAR_COLORS = ['#4f6ef7','#e05c5c','#2bac72','#e09d3a','#9b59c4','#17a2b8','#e07840','#5c7ae0'];
+var AVATAR_COLORS = ['var(--avatar-1)','var(--avatar-2)','var(--avatar-3)','var(--avatar-4)','var(--avatar-5)','var(--avatar-6)','var(--avatar-7)','var(--avatar-8)'];
 
 // ========== ACCOUNT AUTOCOMPLETE (bills tab) ==========
 function loadBillAccounts() {
@@ -362,7 +362,7 @@ function _refreshCcyVisibility(saved) {
 }
 // ========== UTILITY FUNCTIONS ==========
 function partnerCell(name) {
-  if (!name) return '<span style="color:#aaa">—</span>';
+  if (!name) return '<span style="color:var(--text-faint)">—</span>';
   var initials = name.trim().split(/\\s+/).map(function(w){ return w[0]; }).slice(0,2).join('').toUpperCase();
   var color = AVATAR_COLORS[Math.abs(hashStr(name)) % AVATAR_COLORS.length];
   return '<div class="partner-cell">'
@@ -398,15 +398,18 @@ function fmtDateShort(d) {
   return fmtDate(s);
 }
 
+// Posted-vs-draft visual language (docs/UI.md Components): every status
+// except 'draft' is locked once posted — the 🔒 is a second, non-color-
+// dependent signal of that, matching bill-edit.js's statusBadge().
 function statusBadge(status, dueDate) {
   var isOverdue = (status === 'posted' || status === 'partial') && dueDate && String(dueDate).slice(0,10) < today;
-  if (isOverdue) return '<span class="badge" style="background:#fff0f0;color:#cc2222">Overdue</span>';
-  if (status === 'draft')   return '<span class="badge" style="background:#e8e4d0;color:#7a6a00;cursor:pointer">Draft</span>';
-  if (status === 'posted')  return '<span class="badge" style="background:#e8eeff;color:#2255cc">Open</span>';
-  if (status === 'partial') return '<span class="badge" style="background:#fff3e0;color:#cc7700">Partial</span>';
-  if (status === 'paid')    return '<span class="badge" style="background:#f0fff4;color:#2a8a2a">Paid</span>';
-  if (status === 'void')    return '<span class="badge" style="background:#f0f0f0;color:#888">Void</span>';
-  return '<span class="badge" style="background:#f0f0f0;color:#888">' + esc(status||'') + '</span>';
+  if (isOverdue) return '<span class="badge badge-danger">🔒 Overdue</span>';
+  if (status === 'draft')   return '<span class="badge badge-neutral" style="cursor:pointer">Draft</span>';
+  if (status === 'posted')  return '<span class="badge badge-info">🔒 Open</span>';
+  if (status === 'partial') return '<span class="badge badge-warning">🔒 Partial</span>';
+  if (status === 'paid')    return '<span class="badge badge-success">🔒 Paid</span>';
+  if (status === 'void')    return '<span class="badge badge-neutral">🔒 Void</span>';
+  return '<span class="badge badge-neutral">' + esc(status||'') + '</span>';
 }
 // esc now comes from fb-core.js (window.esc) — P1-3 shared core
 
@@ -641,7 +644,7 @@ function billsChildRowHtml(parent, child, idx) {
   var spacer = '<td class="child-spacer"></td>';
   var empty = '<td></td>';
   if (child._kind === 'empty') {
-    return '<td colspan="8" class="child-desc" style="color:#aaa;font-style:italic">No line items</td>';
+    return '<td colspan="8" class="child-desc" style="color:var(--text-faint);font-style:italic">No line items</td>';
   }
   if (child._kind === 'draft-line') {
     return '<td colspan="4" class="child-desc">' + esc(child.description || '') + '</td>'
@@ -656,8 +659,8 @@ function billsChildRowHtml(parent, child, idx) {
       + empty;
   }
   if (child._kind === 'gst') {
-    return '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + esc(child.label || '') + '</td>'
-      + amtCell(child.amount, 'color:#888') + spacer + '<td></td>' + empty;
+    return '<td colspan="4" class="child-desc" style="color:var(--text-muted);font-style:italic">' + esc(child.label || '') + '</td>'
+      + amtCell(child.amount, 'color:var(--text-muted)') + spacer + '<td></td>' + empty;
   }
   if (child._kind === 'payment') {
     var v = child.voided;
@@ -665,7 +668,7 @@ function billsChildRowHtml(parent, child, idx) {
     var txt = 'Payment ' + fmtDateShort(child.date) + ' \u00b7 ' + esc(meth)
       + (child.reference ? ' \u00b7 ' + esc(child.reference) : '') + (v ? ' \u00b7 voided' : '');
     return '<td colspan="4" class="child-desc' + (v ? ' pay-voided' : '') + '">' + txt + '</td>'
-      + amtCell(child.amount, v ? 'color:#888' : '') + spacer + '<td></td>' + empty;
+      + amtCell(child.amount, v ? 'color:var(--text-muted)' : '') + spacer + '<td></td>' + empty;
   }
   return '<td colspan="8" class="child-desc"></td>';
 }
@@ -748,7 +751,7 @@ function billCodeFooterRows(lines, stated) {
 var DRAFT_TOGGLE_CELL = '<td><button type="button" class="bill-draft-toggle fb-toggle-btn" aria-pressed="false" title="Draft — save without posting (~)">Draft</button></td>';
 function billFooterHtml(parent) {
   if (!VAT_ON) return '<td colspan="7"></td>' + DRAFT_TOGGLE_CELL; // vatRegistered=false: no stated-VAT surface
-  return '<td colspan="3" style="color:#666;font-size:0.85em">VAT (supplier-stated total — pre-filled computed; edit to match the invoice; clear to return to computed)</td>'
+  return '<td colspan="3" style="color:var(--text-muted);font-size:0.8125rem">VAT (supplier-stated total — pre-filled computed; edit to match the invoice; clear to return to computed)</td>'
     + '<td></td>'
     + '<td class="amt"><input class="draft-input bill-vat-stated" type="number" step="0.01" title="Supplier-stated VAT total" style="text-align:right" /></td>'
     + '<td class="child-spacer"></td>'
@@ -762,15 +765,15 @@ function billRenderFooter(ftr, key, lines, stated, stdVat) {
   var inp = ftr.querySelector('.bill-vat-stated');
   if (inp) {
     if (inp.dataset.stated !== '1') inp.value = stdVat.toFixed(2);
-    inp.style.color = inp.dataset.stated === '1' ? '#b26a00' : '';
+    inp.style.color = inp.dataset.stated === '1' ? 'var(--warning)' : '';
   }
   Array.from(ftr.parentNode.querySelectorAll('tr.fb-code-footer[data-footer-of="' + key + '"]')).forEach(function (tr) { tr.remove(); });
   billCodeFooterRows(lines, stated).forEach(function (r) {
     var tr = document.createElement('tr');
     tr.className = 'fb-code-footer child-row';
     tr.dataset.footerOf = key;
-    tr.innerHTML = '<td colspan="4" class="child-desc" style="color:#888;font-style:italic">' + esc(r.label) + '</td>'
-      + '<td class="amt" style="text-align:right;font-variant-numeric:tabular-nums;color:#888">' + r.amount.toFixed(2) + '</td>'
+    tr.innerHTML = '<td colspan="4" class="child-desc" style="color:var(--text-muted);font-style:italic">' + esc(r.label) + '</td>'
+      + '<td class="amt" style="text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted)">' + r.amount.toFixed(2) + '</td>'
       + '<td class="child-spacer"></td><td></td><td></td>';
     ftr.parentNode.insertBefore(tr, ftr);
   });
@@ -950,7 +953,7 @@ var billsList = FB.list.create({
         var ccy = v || BASE_CURRENCY;
         // data-bill-date/data-bill-ccy carry the FX-tooltip inputs (_getFxRate
         // population is wired when the framework takes over rendering).
-        return '<span class="ccy-cell" style="font-size:0.75rem;color:#666" data-bill-date="' + esc(String(r.date || '').slice(0, 10)) + '" data-bill-ccy="' + esc(ccy) + '">' + esc(ccy) + '</span>';
+        return '<span class="ccy-cell" style="font-size:0.75rem;color:var(--text-muted)" data-bill-date="' + esc(String(r.date || '').slice(0, 10)) + '" data-bill-ccy="' + esc(ccy) + '">' + esc(ccy) + '</span>';
       } },
     { field: 'status', type: 'text', ro: 'always', sortable: true, filterType: 'list',
       display: function (v, r) {
@@ -1180,36 +1183,54 @@ var billsList = FB.list.create({
     function voidBill(p) {
       if (p.status === 'void') { FB.status.show('Bill is already void — cannot be modified.', true); return; }
       if (p.status === 'paid') { FB.status.show('Bill is fully paid — reversal must be done via a credit note or payment reversal.', true); return; }
-      var partner = p.partner_name || p.bill_id;
+      var partner = esc(p.partner_name || p.bill_id);
       var msg = p.status === 'partial'
         ? 'Bill from "' + partner + '" is partially paid. Reversing will void the bill but will not reverse the payment. Continue?'
         : 'Reverse bill from "' + partner + '"? A reversal journal entry will be created. This cannot be undone.';
-      if (!confirm(msg)) return;
-      fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'bill.void', companyId: COMPANY, billId: p.bill_id }) })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-          var d = res.data || res;
-          if (res.error || (d && d.error)) { FB.status.show('Cannot void: ' + (res.error || d.error), true); return; }
-          FB.status.show('Bill voided', false); reloadBills();
-        })
-        .catch(function (e) { FB.status.show('Error: ' + e.message, true); });
+      FB.modal.open({
+        title: 'Void this bill?',
+        body: msg,
+        buttons: [
+          { label: 'Cancel', onClick: function (api) { api.close(); } },
+          { label: 'Void bill', danger: true, onClick: function (api) {
+              api.close();
+              fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'bill.void', companyId: COMPANY, billId: p.bill_id }) })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                  var d = res.data || res;
+                  if (res.error || (d && d.error)) { FB.status.show('Cannot void: ' + (res.error || d.error), true); return; }
+                  FB.status.show('Bill voided', false); reloadBills();
+                })
+                .catch(function (e) { FB.status.show('Error: ' + e.message, true); });
+            } }
+        ]
+      });
     }
     function voidPayment(child) {
       if (child.voided === true || child.voided === 'true' || child.voided_at) { FB.status.show('Payment already voided', true); return; }
       var msg = 'Void this payment? A reversal journal entry will be created.';
       // Multi-bill payment: voiding reverses the entire batch (all bills).
       if (child._isMultiBill) msg = 'This was part of a multi-bill payment. Voiding will reverse the entire payment (all bills). Continue?';
-      if (!confirm(msg)) return;
-      fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'payment.void', companyId: COMPANY, paymentId: child.payment_id }) })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-          var d = res.data || res;
-          if (res.error || (d && d.error)) { FB.status.show('Void failed: ' + (res.error || d.error), true); return; }
-          FB.status.show('Payment voided — bill ' + (d.newStatus || ''), false); reloadBills();
-        })
-        .catch(function (e) { FB.status.show('Void failed: ' + e.message, true); });
+      FB.modal.open({
+        title: 'Void this payment?',
+        body: msg,
+        buttons: [
+          { label: 'Cancel', onClick: function (api) { api.close(); } },
+          { label: 'Void payment', danger: true, onClick: function (api) {
+              api.close();
+              fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'payment.void', companyId: COMPANY, paymentId: child.payment_id }) })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                  var d = res.data || res;
+                  if (res.error || (d && d.error)) { FB.status.show('Void failed: ' + (res.error || d.error), true); return; }
+                  FB.status.show('Payment voided — bill ' + (d.newStatus || ''), false); reloadBills();
+                })
+                .catch(function (e) { FB.status.show('Void failed: ' + e.message, true); });
+            } }
+        ]
+      });
     }
     function postDraft(p) {
       // p on a draft: new bill → bill.create; saved draft → save-if-dirty, then bill.draft.post.

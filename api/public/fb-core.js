@@ -1571,10 +1571,10 @@
         + (opts.body ? '<div class="fb-modal-body">' + opts.body + '</div>' : '');
       if (opts.typeConfirm) {
         html += '<div class="fb-modal-body" style="margin-top:10px">'
-          + '<label for="fb-modal-tc" style="display:block;font-size:9pt;color:#555;margin-bottom:4px">'
+          + '<label for="fb-modal-tc" style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:4px">'
           + esc(opts.typeConfirm.label || ('Type ' + opts.typeConfirm.match + ' to confirm')) + '</label>'
           + '<input type="text" id="fb-modal-tc" autocomplete="off" spellcheck="false" '
-          + 'style="width:100%;padding:6px 9px;border:1px solid #ccc;border-radius:4px;font-size:10pt;font-family:monospace;box-sizing:border-box">'
+          + 'style="width:100%;padding:6px 9px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;font-family:monospace;box-sizing:border-box;background:var(--surface);color:var(--text)">'
           + '</div>';
       }
       // A3j §4.4: free-text note input (approve's optional note; reject's
@@ -1586,11 +1586,11 @@
       if (opts.noteInput) {
         var nLabel = opts.noteInput.label || (opts.noteInput.required ? 'Note (required)' : 'Note (optional)');
         html += '<div class="fb-modal-body" style="margin-top:10px">'
-          + '<label for="fb-modal-tc" style="display:block;font-size:9pt;color:#555;margin-bottom:4px">'
+          + '<label for="fb-modal-tc" style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:4px">'
           + esc(nLabel) + '</label>'
           + '<input type="text" id="fb-modal-tc" autocomplete="off" spellcheck="false" '
           + 'placeholder="' + esc(opts.noteInput.placeholder || '') + '" '
-          + 'style="width:100%;padding:6px 9px;border:1px solid #ccc;border-radius:4px;font-size:10pt;box-sizing:border-box">'
+          + 'style="width:100%;padding:6px 9px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;box-sizing:border-box;background:var(--surface);color:var(--text)">'
           + '</div>';
       }
       html += '<div class="fb-modal-err" style="display:none"></div>'
@@ -1598,7 +1598,7 @@
         + opts.buttons.map(function (b, i) {
             return '<button type="button" class="' + (b.primary ? 'btn-primary' : 'btn-sm') + (b.danger ? ' danger' : '')
               + '" data-i="' + i + '">' + esc(b.label)
-              + (b.key ? ' <kbd style="opacity:.55;font-size:8pt">' + esc(b.key) + '</kbd>' : '')
+              + (b.key ? ' <kbd style="opacity:.55;font-size:0.6875rem">' + esc(b.key) + '</kbd>' : '')
               + '</button>';
           }).join('')
         + '</div></div>';

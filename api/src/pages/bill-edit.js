@@ -67,12 +67,12 @@ ${commonStyle()}
   }
   .be-grid-header label {
     display:flex; flex-direction:column; gap:3px;
-    font-weight:600; font-size:9pt; text-transform:uppercase; color:#555;
+    font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);
     padding:0 4px;
   }
   .be-grid-header input, .be-grid-header select {
-    padding:4px 6px; border:1px solid #ccc; border-radius:4px;
-    font-size:10pt; box-sizing:border-box; height:32px;
+    padding:4px 6px; border:1px solid var(--border); border-radius:4px;
+    font-size:0.8125rem; box-sizing:border-box; height:32px; background:var(--surface); color:var(--text);
   }
   /* Partner spans full width of row 1. Bill date, due date, and bill no
      share row 2 evenly — no longer tied to the line table's column widths
@@ -89,17 +89,20 @@ ${commonStyle()}
   }
   .be-lines-wrap, .bl-header, .bl-row { column-gap: 8px; }
   .bl-header, .bl-row { display: grid; grid-template-columns: var(--bl-cols); }
-  .bl-header { font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px 8px; }
-  .bl-row { border-bottom:1px solid #f0f0f0; padding:3px 0; }
+  .bl-header { font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px 8px; }
+  .bl-row { border-bottom:1px solid var(--border); padding:3px 0; }
   .bl-group { display: contents; }
   .bl-cell { padding:3px 4px; display:flex; align-items:center; min-width:0; }
-  .bl-cell input, .bl-cell select { min-width:0; width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; box-sizing:border-box; height:32px; }
-  .be-line-x { visibility:hidden; cursor:pointer; color:#999; border:none; background:none; font-size:12pt; padding:0 4px; }
+  .bl-cell input, .bl-cell select { min-width:0; width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; box-sizing:border-box; height:32px; background:var(--surface); color:var(--text); }
+  .be-line-x { visibility:hidden; cursor:pointer; color:var(--text-muted); border:none; background:none; font-size:0.875rem; padding:0 4px; }
   .bl-row:hover .be-line-x { visibility:visible; }
   .be-line-x.fb-form-cursor-btn { visibility: visible; }
-  .bl-row.bl-auto { background:#fafafa; }
-  .bl-auto-label { color:#666; font-size:9.5pt; }
-  .bl-cell input:disabled { background:transparent; border-color:transparent; color:#888; }
+  .bl-row.bl-auto { background:var(--bg); }
+  .bl-auto-label { color:var(--text-muted); font-size:0.75rem; }
+  /* Line-item equivalent of the shared .fb-locked-fields header treatment
+     (common.css) — native :disabled here since these inputs are always
+     individually disabled, not toggled via a wrapper class. */
+  .bl-cell input:disabled { background:transparent; border-color:transparent; color:var(--text-muted); }
   @media (max-width: 1100px) {
     .bl-header { display: none; }
     .bl-row {
@@ -115,24 +118,26 @@ ${commonStyle()}
     }
     .bl-group .bl-cell { flex: 1 1 120px; }
   }
-  .be-msg { min-height:1em; font-size:10pt; }
-  .be-msg.err { color:#cc2222; }
-  .be-msg.ok { color:#2a8a2a; }
-  .be-msg.warn { color:#856404; }
-  .be-attach-row { display:flex; justify-content:space-between; align-items:center; padding:3px 6px; border-bottom:1px solid #f5f5f5; border-radius:3px; font-size:10pt; }
+  .be-msg { min-height:1em; font-size:0.8125rem; }
+  .be-msg.err { color:var(--danger); }
+  .be-msg.ok { color:var(--success); }
+  .be-msg.warn { color:var(--warning); }
+  .be-attach-row { display:flex; justify-content:space-between; align-items:center; padding:3px 6px; border-bottom:1px solid var(--border); border-radius:3px; font-size:0.8125rem; }
   .be-attach-row .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .be-attach-row .staged { color:#856404; font-size:8.5pt; }
+  .be-attach-row .staged { color:var(--warning); font-size:0.6875rem; }
   /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity */
-  .be-attach-add-btn { border:none; background:none; cursor:pointer; color:#888; font-size:9.5pt; padding:2px 0; text-align:left; width:100%; }
-  .be-attach-row.fb-form-row-focus .be-attach-add-btn { color:#fff; }
+  .be-attach-add-btn { border:none; background:none; cursor:pointer; color:var(--text-muted); font-size:0.75rem; padding:2px 0; text-align:left; width:100%; }
+  .be-attach-row.fb-form-row-focus .be-attach-add-btn { color:var(--on-accent); }
   /* JE ref link (2026-09-06) — see loadJournalRef() */
-  .be-journal-ref-link { color:#2255cc; font-weight:500; text-decoration:none; }
+  .be-journal-ref-link { color:var(--accent); font-weight:500; text-decoration:none; }
   .be-journal-ref-link:hover { text-decoration:underline; }
-  /* Status badge + amount cards (2026-09-06, ported from bill-detail.js) */
-  .badge { display:inline-block; padding:4px 12px; border-radius:5px; font-size:0.75rem; font-weight:600; margin-left:10px; vertical-align:middle; }
-  .be-amount-cards { display:flex; gap:16px; font-size:10pt; margin-top:10px; }
-  .btn-plain { padding:7px 12px; background:none; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:10pt; }
-  input.req { border-color:#cc2222 !important; }
+  /* Status badge (shared .badge component, common.css) + amount cards
+     (2026-09-06, ported from bill-detail.js). Positioning next to the h1
+     title stays local — not a property of the badge itself. */
+  #be-status-badge { margin-left:10px; vertical-align:middle; }
+  .be-amount-cards { display:flex; gap:16px; font-size:0.8125rem; margin-top:10px; }
+  .btn-plain { padding:7px 12px; background:none; border:1px solid var(--border); border-radius:4px; cursor:pointer; font-size:0.8125rem; }
+  input.req { border-color:var(--danger) !important; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
@@ -144,14 +149,14 @@ ${commonStyle()}
       <!-- JE ref (2026-09-06, replaces the old Journal Entries trail table —
            per magnus: the line items already show the same Account/Debit/
            Credit info; the doc-no link was the only thing missing). -->
-      <span id="be-je-ref" style="margin-left:10px;font-size:9.5pt"></span>
+      <span id="be-je-ref" style="margin-left:10px;font-size:0.75rem"></span>
     </div>
     <!-- Void (2026-09-06, ported from bill-detail.js): shown only for a
          posted, unpaid bill — matches the server's own refusal to void a
          partial/paid/already-void bill. Also reachable via x on the header
          zone, same "x means something bigger here" pattern as
          journal-voucher's reversal entry. -->
-    <button id="be-void" class="btn-sm" type="button" style="display:none;color:#a6402b;border-color:#a6402b">&#8856; Void</button>
+    <button id="be-void" class="btn-sm" type="button" style="display:none;color:var(--danger);border-color:var(--danger)">&#8856; Void</button>
   </div>
 
   <div class="be-grid-header">
@@ -165,10 +170,10 @@ ${commonStyle()}
     ? '<div class="header-fields"><label>CCY <input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase"></label></div>'
     : '<input id="be-ccy" type="hidden" value="' + baseCcy + '">'}
 
-  <div style="margin-top:6px;padding:12px;border:1px solid #e8e8e8;border-radius:4px;background:#fafafa">
-    <div style="font-size:10pt;font-weight:600;margin-bottom:6px">📎 Attachments</div>
+  <div style="margin-top:6px;padding:12px;border:1px solid var(--border);border-radius:4px;background:var(--bg)">
+    <div style="font-size:0.8125rem;font-weight:600;margin-bottom:6px">📎 Attachments</div>
     <input type="file" id="be-file" style="display:none" multiple>
-    <div id="be-attach-list" style="font-size:9.5pt"></div>
+    <div id="be-attach-list" style="font-size:0.75rem"></div>
   </div>
 
   <div class="be-lines-wrap" id="be-lines-wrap">
@@ -179,7 +184,7 @@ ${commonStyle()}
     <button class="btn-sm" id="be-add-row-btn" type="button">+ Add Line</button>
   </div>
 
-  ${whtOn ? '<div class="totals"><span title="Withheld and remitted to the tax authority separately — not paid to the vendor">WHT <b id="be-tot-wht" style="color:#b26a00">0.00</b></span><span>Payable to vendor <b id="be-tot-payable">0.00</b></span></div>' : ''}
+  ${whtOn ? '<div class="totals"><span title="Withheld and remitted to the tax authority separately — not paid to the vendor">WHT <b id="be-tot-wht" style="color:var(--warning)">0.00</b></span><span>Payable to vendor <b id="be-tot-payable">0.00</b></span></div>' : ''}
 
   <!-- Amount Paid/Due (2026-09-06, ported from bill-detail.js) — payment
        progress, distinct from the bill's face amount (the line items' own
@@ -376,6 +381,12 @@ async function prefillFromExisting(id) {
 // become no-ops. Journal trail and Void are Stage 3, not here yet.
 function applyLockedMode() {
   S.locked = true;
+  // Posted-vs-draft visual language (docs/UI.md Components): flatten the
+  // header to plain text via the shared component, same treatment as
+  // journal-voucher.js's locked header — previously this just fell back to
+  // the browser's default greyed-out disabled box.
+  var gridHeader = document.querySelector('.be-grid-header');
+  if (gridHeader) gridHeader.classList.add('fb-locked-fields');
   ['be-partner-name', 'be-date', 'be-ccy', 'be-memo'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) el.disabled = true;
@@ -419,25 +430,38 @@ function applyLockedMode() {
   }
 }
 
-// Ported verbatim from bill-detail.js.
+// Ported verbatim from bill-detail.js. Every status this function can be
+// asked to render corresponds to a locked bill — statusBadge() is only ever
+// called from applyLockedMode(), never for a draft — so every label gets the
+// 🔒 (posted-vs-draft visual language, docs/UI.md Components): a second,
+// non-color-dependent signal that the record can no longer be edited.
 function statusBadge(status, dueDate) {
   var today = new Date().toISOString().slice(0, 10);
   var isOverdue = (status === 'posted' || status === 'partial') && dueDate && String(dueDate).slice(0, 10) < today;
-  if (isOverdue) return '<span class="badge" style="background:#fff0f0;color:#cc2222">Overdue</span>';
-  if (status === 'posted')  return '<span class="badge" style="background:#e8eeff;color:#2255cc">Open</span>';
-  if (status === 'partial') return '<span class="badge" style="background:#fff3e0;color:#cc7700">Partial</span>';
-  if (status === 'paid')    return '<span class="badge" style="background:#f0fff4;color:#2a8a2a">Paid</span>';
-  if (status === 'void')    return '<span class="badge" style="background:#f0f0f0;color:#888">Void</span>';
-  return '<span class="badge" style="background:#f0f0f0;color:#888">' + FB.util.esc(status || '') + '</span>';
+  if (isOverdue) return '<span class="badge badge-danger">🔒 Overdue</span>';
+  if (status === 'posted')  return '<span class="badge badge-info">🔒 Open</span>';
+  if (status === 'partial') return '<span class="badge badge-warning">🔒 Partial</span>';
+  if (status === 'paid')    return '<span class="badge badge-success">🔒 Paid</span>';
+  if (status === 'void')    return '<span class="badge badge-neutral">🔒 Void</span>';
+  return '<span class="badge badge-neutral">🔒 ' + FB.util.esc(status || '') + '</span>';
 }
 
 function doVoid() {
-  if (!confirm('Void this bill? The journal entry will be auto-reversed.')) return;
-  var btn = document.getElementById('be-void');
-  btn.disabled = true;
-  apiAction('bill.void', { billId: S.billId })
-    .then(function () { window.location.href = '/' + COMPANY + '/payables'; })
-    .catch(function (e) { btn.disabled = false; msg(e.message, 'err'); });
+  FB.modal.open({
+    title: 'Void this bill?',
+    body: 'The journal entry will be auto-reversed.',
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: 'Void bill', danger: true, onClick: function (api) {
+          api.close();
+          var btn = document.getElementById('be-void');
+          btn.disabled = true;
+          apiAction('bill.void', { billId: S.billId })
+            .then(function () { window.location.href = '/' + COMPANY + '/payables'; })
+            .catch(function (e) { btn.disabled = false; msg(e.message, 'err'); });
+        } }
+    ]
+  });
 }
 
 // JE ref link (2026-09-06, replaces the old full journal-trail table —
@@ -587,7 +611,7 @@ function renderCell(col, data) {
     case 'vat':    inner = '<input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—">'; break;
     case 'wht':    inner = '<input class="bl-wht" value="' + FB.util.escAttr(data.wht_code || '') + '" autocomplete="off" placeholder="—">'; break;
     case 'cc':     inner = '<input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off" placeholder="Cost center">'; break;
-    case 'del':    inner = '<button class="be-line-x" type="button" title="delete line">×</button>'; break;
+    case 'del':    inner = '<button class="be-line-x" type="button" title="delete line" aria-label="Delete line">×</button>'; break;
     default:
       throw new Error('renderCell: no case for column "' + col.id + '" — add one before enabling it in LINE_COLUMNS.');
   }
@@ -749,7 +773,7 @@ function updateAutoRowCells(row, r) {
   const debitInput = row.querySelector('.bl-debit');
   if (debitInput) {
     debitInput.value = r.debit ? r.debit.toFixed(2) : '';
-    if (r.editable) debitInput.style.color = debitInput.dataset.stated === '1' ? '#b26a00' : '';
+    if (r.editable) debitInput.style.color = debitInput.dataset.stated === '1' ? 'var(--warning)' : '';
   }
   const creditInput = row.querySelector('.bl-credit');
   if (creditInput) creditInput.value = r.credit ? r.credit.toFixed(2) : '';
@@ -773,7 +797,7 @@ function renderAutoLines(rows) {
       row.dataset.key = r.key;
       row.innerHTML = autoRowCells(r);
       wireAutoRow(row, r);
-      if (r.stated) { const di = row.querySelector('.bl-auto-debit'); if (di) { di.dataset.stated = '1'; di.style.color = '#b26a00'; } }
+      if (r.stated) { const di = row.querySelector('.bl-auto-debit'); if (di) { di.dataset.stated = '1'; di.style.color = 'var(--warning)'; } }
     } else if (!row.contains(document.activeElement)) {
       updateAutoRowCells(row, r);
     }
@@ -911,8 +935,14 @@ function quitEditor() {
   if (S.locked) { window.location.href = returnUrl(); return; }
   const bill = gatherBill();
   if (!bill.partner_name && !bill.lines.length) { window.location.href = returnUrl(); return; } // empty → exit silently
-  if (isDirty() && !confirm('Unsaved changes — discard?')) return;
-  window.location.href = returnUrl();
+  if (!isDirty()) { window.location.href = returnUrl(); return; }
+  FB.modal.open({
+    title: 'Discard unsaved changes?',
+    buttons: [
+      { label: 'Keep editing', onClick: function (api) { api.close(); } },
+      { label: 'Discard', danger: true, onClick: function (api) { api.close(); window.location.href = returnUrl(); } }
+    ]
+  });
 }
 
 
@@ -941,7 +971,7 @@ function renderAttachments() {
   el.innerHTML = S.stagedFiles.map((f, i) =>
     '<div class="be-attach-row"><span class="name">📄 ' + FB.util.esc(f.name) + '</span>' +
     '<span class="staged">staged — uploads on save</span>' +
-    '<button class="be-line-x" style="visibility:visible" data-i="' + i + '" type="button">×</button></div>'
+    '<button class="be-line-x" style="visibility:visible" data-i="' + i + '" type="button" aria-label="Remove attachment">×</button></div>'
   ).join('') + (S.billId ? '<div id="be-attach-existing"></div>' : '')
     // + Add attachment row (2026-09-06, retires A) — fb-list add-row parity.
     // Pinned last; its button is the attachments zone's one real cell.
@@ -977,7 +1007,7 @@ async function loadAttachments() {
       return '<div class="be-attach-row" data-attachment-id="' + FB.util.esc(a.attachment_id) + '">'
         + '<span class="name">📄 <a href="/api/attachments/' + a.attachment_id + '" target="_blank">' + FB.util.esc(a.filename || a.file_name || 'file') + '</a>'
         + ' <span class="staged">(' + date + (date ? ' · ' : '') + kb + ' KB)</span></span>'
-        + '<button class="be-line-x" style="visibility:visible" data-attachment-id="' + FB.util.esc(a.attachment_id) + '" type="button" title="delete (x)">×</button></div>';
+        + '<button class="be-line-x" style="visibility:visible" data-attachment-id="' + FB.util.esc(a.attachment_id) + '" type="button" title="delete (x)" aria-label="Delete">×</button></div>';
     }).join('');
     host.querySelectorAll('button[data-attachment-id]').forEach(b => {
       b.onclick = () => deleteExistingAttachment(b.dataset.attachmentId);
@@ -986,8 +1016,16 @@ async function loadAttachments() {
 }
 
 function deleteExistingAttachment(attachmentId) {
-  if (!confirm('Remove this attachment?')) return;
-  apiAction('attachment.delete', { attachmentId }).then(loadAttachments).catch(e => msg(e.message, 'err'));
+  FB.modal.open({
+    title: 'Remove attachment?',
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: 'Remove', danger: true, onClick: function (api) {
+          api.close();
+          apiAction('attachment.delete', { attachmentId }).then(loadAttachments).catch(e => msg(e.message, 'err'));
+        } }
+    ]
+  });
 }
 
 // w commits — always posts (the Draft toggle was removed 2026-09-06, per

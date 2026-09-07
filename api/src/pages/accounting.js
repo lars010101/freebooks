@@ -23,23 +23,23 @@ function buildAccountingPage(company) {
 <title>Accounting - freeBooks</title>
 ${commonStyle()}
 <style>
-  .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
-  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:10pt; color:#555; border-bottom:3px solid transparent; margin-bottom:-2px; }
-  .tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); margin-bottom:24px; }
+  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:var(--text-muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
   .tab-panel { display:none; }
   .tab-panel.active { display:block; }
-  table.edit-table { width:100%; border-collapse:collapse; font-size:10pt; }
-  table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; white-space:nowrap; }
-  table.edit-table td { padding:4px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; white-space:nowrap; }
-  table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  table.edit-table .ro { background:#f5f5f5; color:#888; padding:4px 6px; border-radius:3px; display:block; }
-  .pe-ro { color:#888; }
-  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 #d97706; }
-  .dirty-val { color:#b45309; }
-  tr.row-editing > td { background:#fffbeb; }
+  table.edit-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+  table.edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; white-space:nowrap; }
+  table.edit-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
+  table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; background:var(--surface); color:var(--text); }
+  table.edit-table .ro { background:var(--bg); color:var(--text-muted); padding:4px 6px; border-radius:3px; display:block; }
+  .pe-ro { color:var(--text-muted); }
+  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+  .dirty-val { color:var(--warning); }
+  tr.row-editing > td { background:var(--warning-bg); }
   .row-actions { white-space:nowrap; text-align:right; }
-  .type-badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:9pt; font-weight:600; }
-  .subhead { font-size:11pt; font-weight:700; color:#1a1a1a; margin:18px 0 6px; }
+  .type-badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:0.75rem; font-weight:600; }
+  .subhead { font-size:0.875rem; font-weight:700; color:var(--text); margin:18px 0 6px; }
   .subhead:first-child { margin-top:0; }
   /* Integrity tab — fetched report fragment, not FB.list (nothing to edit).
      Mirrors reports/render.js htmlPage()'s embedded styling, theme-aware.
@@ -47,10 +47,10 @@ ${commonStyle()}
   .rpt-embed .page { padding:0; max-width:none; }
   .rpt-embed .header { display:none; } /* period/company header — redundant with this page's own H1 */
   .rpt-embed table { width:100%; border-collapse:collapse; margin-top:8px; }
-  .rpt-embed th { text-align:left; font-size:9pt; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted,#555); border-bottom:1px solid var(--border,#ccc); padding:6px 8px; }
-  .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border,#f0f0f0); vertical-align:top; color:var(--text); }
-  .rpt-embed .footer { margin-top:24px; padding-top:12px; border-top:1px solid var(--border,#ddd); font-size:9pt; color:var(--text-muted,#888); }
-  .rpt-embed-msg { padding:1rem 0; color:var(--text-muted,#888); }
+  .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 8px; }
+  .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
+  .rpt-embed .footer { margin-top:24px; padding-top:12px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--text-muted); }
+  .rpt-embed-msg { padding:1rem 0; color:var(--text-muted); }
 </style>
 </head>
 <body>${navBar(company, 'accounting')}
@@ -60,11 +60,11 @@ ${commonStyle()}
   </div>
 
   <div class="tabs">
-    <div class="tab active" onclick="showTab('coa')">Chart of Accounts<span id="tab-dot-coa" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" id="tab-taxcodes-label" onclick="showTab('taxcodes')">Tax Codes<span id="tab-dot-taxcodes" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" onclick="showTab('centers')">Cost/Profit Centers<span id="tab-dot-centers" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" onclick="showTab('integrity')">Integrity<span id="tab-dot-integrity" style="display:none;color:#cc2222"> ●</span></div>
+    <div class="tab active" onclick="showTab('coa')">Chart of Accounts<span id="tab-dot-coa" style="display:none;color:var(--warning)"> ●</span></div>
+    <div class="tab" id="tab-taxcodes-label" onclick="showTab('taxcodes')">Tax Codes<span id="tab-dot-taxcodes" style="display:none;color:var(--warning)"> ●</span></div>
+    <div class="tab" onclick="showTab('journals')">Journals<span id="tab-dot-journals" style="display:none;color:var(--warning)"> ●</span></div>
+    <div class="tab" onclick="showTab('centers')">Cost/Profit Centers<span id="tab-dot-centers" style="display:none;color:var(--warning)"> ●</span></div>
+    <div class="tab" onclick="showTab('integrity')">Integrity<span id="tab-dot-integrity" style="display:none;color:var(--danger)"> ●</span></div>
   </div>
 
   <!-- COA TAB -->
@@ -135,10 +135,19 @@ function showTab(t) {
       return;
     }
     if (dirtyTabs.has(curTab)) {
-      if (!confirm('You have unsaved changes. Discard?')) return;
-      resetDirty(curTab);
+      FB.modal.open({
+        title: 'Discard unsaved changes?',
+        buttons: [
+          { label: 'Keep editing', onClick: function (api) { api.close(); } },
+          { label: 'Discard', danger: true, onClick: function (api) { api.close(); resetDirty(curTab); showTabFinish(t); } }
+        ]
+      });
+      return;
     }
   }
+  showTabFinish(t);
+}
+function showTabFinish(t) {
   var tabs = ['coa','taxcodes','journals','centers','integrity'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
@@ -231,7 +240,7 @@ function loadIntegrity() {
       if (!r.ok || r.ct.indexOf('application/json') === 0) {
         var msg = 'Load failed';
         try { msg = JSON.parse(r.text).error || msg; } catch(e) {}
-        body.innerHTML = '<p class="rpt-embed-msg" style="color:#c0392b">' + esc(msg) + '</p>';
+        body.innerHTML = '<p class="rpt-embed-msg" style="color:var(--danger)">' + esc(msg) + '</p>';
         return;
       }
       var doc = new DOMParser().parseFromString(r.text, 'text/html');
@@ -246,7 +255,7 @@ function loadIntegrity() {
       if (dot) dot.style.display = anyFail ? '' : 'none';
     })
     .catch(function(err) {
-      body.innerHTML = '<p class="rpt-embed-msg" style="color:#c0392b">Load failed: ' + esc(err && err.message ? err.message : 'network error') + '</p>';
+      body.innerHTML = '<p class="rpt-embed-msg" style="color:var(--danger)">Load failed: ' + esc(err && err.message ? err.message : 'network error') + '</p>';
     });
 }
 if (window.FB && FB.period) {
@@ -594,7 +603,7 @@ function loadCompanyJurisdiction() {
         _curJurisdiction = byKey.jurisdiction.value;
         var vn = VAT_NAMES[byKey.jurisdiction.value] || 'Tax';
         var lbl = document.getElementById('tab-taxcodes-label');
-        if (lbl) lbl.innerHTML = 'Tax Codes<span id="tab-dot-taxcodes" style="display:none;color:#d97706"> \u25cf</span>';
+        if (lbl) lbl.innerHTML = 'Tax Codes<span id="tab-dot-taxcodes" style="display:none;color:var(--warning)"> \u25cf</span>';
       }
     })
     .catch(function(){});

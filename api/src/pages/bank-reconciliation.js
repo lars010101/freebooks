@@ -17,7 +17,7 @@ function reconMsg(msg, type) {
   var el = document.getElementById('msg-recon');
   if (!el) return;
   el.textContent = msg;
-  el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : '#888';
+  el.style.color = type === 'err' ? 'var(--danger)' : type === 'ok' ? 'var(--success)' : 'var(--text-muted)';
 }
 
 function fmtDateShortRecon(d) {
@@ -43,7 +43,7 @@ function initReconciliation() {
       if (!sel) return;
       if (!cashAccounts.length) {
         sel.innerHTML = '<option value="">No cash accounts</option>';
-        document.getElementById('recon-tbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">No Cash-category accounts configured (Accounting → Chart of Accounts).</td></tr>';
+        document.getElementById('recon-tbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">No Cash-category accounts configured (Accounting → Chart of Accounts).</td></tr>';
         return;
       }
       sel.innerHTML = cashAccounts.map(function (a) {
@@ -68,7 +68,7 @@ function loadReconciliation() {
   _reconAccount = accountCode;
   var st = window.FB && FB.period ? FB.period.get() : {};
   var tbody = document.getElementById('recon-tbody');
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">Loading&#8230;</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">Loading&#8230;</td></tr>';
   fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'bank.reconcile.list', companyId: COMPANY, accountCode: accountCode, dateFrom: st.start || '', dateTo: st.end || '' }) })
     .then(function (r) { return r.json(); })
@@ -87,7 +87,7 @@ function renderReconciliation() {
   var tbody = document.getElementById('recon-tbody');
   var opening = Number((document.getElementById('recon-opening').textContent || '0').replace(/,/g, '')) || 0;
   if (!_reconRows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:32px">No activity in range.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">No activity in range.</td></tr>';
     document.getElementById('recon-cleared-balance').textContent = opening.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     document.getElementById('recon-uncleared-count').textContent = '0';
     return;

@@ -47,7 +47,7 @@
         + '" target="_blank" title="open">' + FB.util.esc(name) + '</a>'
         + meta
         + '<button class="fb-att-del" data-att-id="' + FB.util.esc(String(id))
-        + '" title="delete (x)">\u00d7</button>'
+        + '" title="delete (x)" aria-label="Delete">\u00d7</button>'
         + '</div>';
     },
 

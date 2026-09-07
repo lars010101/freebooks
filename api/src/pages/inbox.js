@@ -72,59 +72,56 @@ function buildInboxPage(company) {
 <title>Inbox — freeBooks</title>
 ${commonStyle()}
 <style>
-  table.jrnl-table { width:100%; border-collapse:collapse; font-size:10pt; }
-  table.jrnl-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
-  table.jrnl-table td { padding:4px 6px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+  table.jrnl-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+  table.jrnl-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; }
+  table.jrnl-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; }
   .amt { text-align:right; font-variant-numeric:tabular-nums; }
-  .jrnl-meta td, td.jrnl-meta { color:#888; font-size:8.5pt; font-style:italic; background:#fafafa; }
-  tr[data-child-of] td { background:#fcfcfc; font-size:9.5pt; color:#333; }
-  .st-badge { display:inline-block; padding:1px 8px; border-radius:9px; font-size:8.5pt; font-weight:600; text-transform:uppercase; letter-spacing:.02em; }
-  .st-proposed { background:#fef3c7; color:#92400e; }
-  .st-rejected { background:#f0f0f0; color:#888; }
-  /* No .st-posted here — the inbox is the review queue, never the register. */
-  /* Shared "needs attention" red, reused by orphaned-file rows. */
-  .st-overdue { background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5; }
+  .jrnl-meta td, td.jrnl-meta { color:var(--text-muted); font-size:0.6875rem; font-style:italic; background:var(--bg); }
+  tr[data-child-of] td { background:var(--bg); font-size:0.75rem; color:var(--text-muted); }
+  /* Status badges use the shared .badge component (common.css) — see statusBadge() below */
   /* Per-row type glyph (§10.4): muted prefix in the Date column so a row
      keeps its type context when the group header scrolls away. */
-  .inbx-type-glyph { font-size:10pt; margin-right:4px; opacity:.6; }
-  #queue-note { margin:0 0 10px; font-size:9.5pt; color:#777; }
-  .chip { cursor:pointer; text-decoration:none; }
+  .inbx-type-glyph { font-size:0.8125rem; margin-right:4px; opacity:.6; }
+  #queue-note { margin:0 0 10px; font-size:0.75rem; color:var(--text-muted); }
+  /* .chip/.chip-ok/.chip-cancel/.chip-disabled are the shared action-icon
+     chip component (common.css) — this page's local copy never actually
+     coloured .chip-ok/.chip-cancel (no rule existed anywhere), so every
+     approve/reject/view/delete/discard icon below rendered uncoloured. */
   /* input_rejection 'r' (retry) — reserved verb slot, no backing action yet
      (§11.2). Shown muted/not-allowed rather than omitted. */
-  .chip-disabled { opacity:.4; cursor:not-allowed; }
   /* A5 §10.4 — collapsible group header row. One per item.type (v1: only
      journal_proposal). Muted, like .jrnl-meta; the fold caret lives in the
      actions cell (mouse parity for the Enter key verb). */
-  tr.inbx-group td { background:#fafafa; font-weight:700; font-size:9.5pt; color:#444; cursor:pointer; }
-  tr.inbx-group td .inbx-grp-count { color:#888; font-weight:600; font-size:8.5pt; margin-left:6px; }
+  tr.inbx-group td { background:var(--bg); font-weight:700; font-size:0.75rem; color:var(--text-muted); cursor:pointer; }
+  tr.inbx-group td .inbx-grp-count { color:var(--text-muted); font-weight:600; font-size:0.6875rem; margin-left:6px; }
   /* A4 §4.7 — source-document count badge + no-source-document warning.
      Folded PROPOSED rows carry the count beside the status badge (the row's
      existing badge idiom — .st-badge sizing). Zero attachments render a
      visible ⚠️ warning icon so the reviewer cannot miss the gap
      (R7 warn-not-block). Rejected/posted rows show no badge. */
   .ul-badge { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:9px;
-    font-size:8.5pt; font-weight:600; background:#eef2ff; color:#3730a3; white-space:nowrap; }
+    font-size:0.6875rem; font-weight:600; background:var(--info-bg); color:var(--info); white-space:nowrap; }
   .ul-warn  { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:9px;
-    font-size:8.5pt; font-weight:700; background:#fee2e2; color:#b91c1c; white-space:nowrap;
-    border:1px solid #fca5a5; }
+    font-size:0.6875rem; font-weight:700; background:var(--danger-bg); color:var(--danger); white-space:nowrap;
+    border:1px solid var(--danger-border); }
   /* Unfold preview (§4.7): the underlag panel renders as a child row holding
      shared fb-attachments rows (FB.attachments.rowHtml), each linking to the
      existing GET /api/attachments/:id route. */
-  tr[data-child-of] td.jrnl-att { background:#fafafa; padding:6px 10px; }
-  .jrnl-att-head { font-size:8.5pt; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
-    color:#555; margin:0 0 4px; }
+  tr[data-child-of] td.jrnl-att { background:var(--bg); padding:6px 10px; }
+  .jrnl-att-head { font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
+    color:var(--text-muted); margin:0 0 4px; }
   .jrnl-att .fb-attach-row { padding:3px 0; }
-  .jrnl-att .fb-att-empty { color:#aaa; font-size:9pt; font-style:italic; }
+  .jrnl-att .fb-att-empty { color:var(--text-faint); font-size:0.75rem; font-style:italic; }
   /* calendar-reminders-documents-spec.md §6 — Inbox upload: a front door
      into the same attachment.uploaded-event pipeline the agent-inbox
      folder-drop already feeds (agent-loop.js processEvent), so a human can
      hand the agent a bank statement / bill / receipt without touching the
      filesystem. */
-  #inbox-upload-panel { display:none; margin:0 0 14px; padding:12px; border:1px solid #ddd; border-radius:4px; background:#fafafa; }
+  #inbox-upload-panel { display:none; margin:0 0 14px; padding:12px; border:1px solid var(--border); border-radius:4px; background:var(--bg); }
   #inbox-upload-panel.open { display:block; }
-  #inbox-upload-panel select, #inbox-upload-panel input { padding:4px 8px; border:1px solid #ddd; border-radius:3px; font-size:10pt; margin-right:8px; }
+  #inbox-upload-panel select, #inbox-upload-panel input { padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; margin-right:8px; }
   .header { display:flex; justify-content:space-between; align-items:flex-start; }
-  #inbox-agent-status { font-size:0.8rem; color:#666; cursor:pointer; user-select:none; margin:2px 0 10px; }
+  #inbox-agent-status { font-size:0.75rem; color:var(--text-muted); cursor:pointer; user-select:none; margin:2px 0 10px; }
 </style>
 </head>
 <body>${navBar(company, 'inbox')}
@@ -134,7 +131,7 @@ ${commonStyle()}
       <h1>Inbox</h1>
       <p class="sub">${company} · review queue</p>
     </div>
-    <a class="chip" data-act="inbox-upload-toggle">+ Upload document</a>
+    <a class="fb-tag" data-act="inbox-upload-toggle">+ Upload document</a>
   </div>
 
   <div id="inbox-agent-status" onclick="loadAgentStatus()">Checking agent status…</div>
@@ -146,8 +143,8 @@ ${commonStyle()}
       <option value="journal_proposal">Receipt</option>
     </select>
     <input type="file" id="inbox-upload-file">
-    <a class="chip" data-act="inbox-upload-save">Save</a>
-    <a class="chip" data-act="inbox-upload-cancel">Cancel</a>
+    <a class="fb-tag" data-act="inbox-upload-save">Save</a>
+    <a class="fb-tag" data-act="inbox-upload-cancel">Cancel</a>
   </div>
 
   <p id="queue-note"></p>
@@ -278,14 +275,14 @@ function fmtDate(v) { return esc(String(v || '').slice(0, 10)); }
 
 function statusBadge(row) {
   var s = row.status || '';
-  if (s === 'proposed') return '<span class="st-badge st-proposed">Proposed</span>';
-  if (s === 'rejected') return '<span class="st-badge st-rejected" title="' + esc(row.review_note || '') + '\">Rejected</span>';
+  if (s === 'proposed') return '<span class="badge badge-warning">Proposed</span>';
+  if (s === 'rejected') return '<span class="badge badge-danger" title="' + esc(row.review_note || '') + '\">Rejected</span>';
   // Class A bill drafts (Option C amendment): reuse the proposed styling —
   // it's an awaiting-decision state, same family as journal proposals.
-  if (s === 'draft') return '<span class="st-badge st-proposed">Draft</span>';
+  if (s === 'draft') return '<span class="badge badge-warning">Draft</span>';
   // Class B orphaned files (§5.5) / open input rejections: needs attention.
-  if (s === 'orphaned') return '<span class="st-badge st-overdue">Orphaned</span>';
-  if (s === 'open') return '<span class="st-badge st-overdue">Open</span>';
+  if (s === 'orphaned') return '<span class="badge badge-danger">Orphaned</span>';
+  if (s === 'open') return '<span class="badge badge-danger">Open</span>';
   return ''; // inbox is the review queue — no posted badge here
 }
 
@@ -585,12 +582,12 @@ function review(row, verdict) {
   var inFlight = false;
   FB.modal.open({
     title: (approve ? 'Approve' : 'Reject') + ' proposed journal batch',
-    body: '<div style="font-size:10pt;color:#333;line-height:1.7">'
+    body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
       + '<div><b>Date:</b> ' + fmtDate(row.date) + '</div>'
       + '<div><b>Lines:</b> ' + row.lineCount + ' &nbsp; <b>Total debit:</b> ' + Number(row.totalDebit).toFixed(2) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>'
       + (row.reference ? '<div><b>Reference:</b> ' + esc(row.reference) + '</div>' : '')
       + (row.description ? '<div><b>Description:</b> ' + esc(row.description) + '</div>' : '')
-      + '<div style="margin-top:6px;color:#777;font-size:9pt">Proposed by ' + esc(row.created_by || '?')
+      + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">Proposed by ' + esc(row.created_by || '?')
       + (row.request_id ? ' · req ' + esc(row.request_id) : '') + '</div>'
       + '</div>',
     noteInput: {
@@ -637,10 +634,10 @@ function reviewPartner(row, verdict) {
   var inFlight = false;
   FB.modal.open({
     title: (approve ? 'Approve' : 'Reject') + ' partner proposal',
-    body: '<div style="font-size:10pt;color:#333;line-height:1.7">'
+    body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
       + '<div><b>' + esc(row.counterparty || row.reference || '') + '</b></div>'
       + (row.description ? '<div>' + esc(row.description) + '</div>' : '')
-      + '<div style="margin-top:6px;color:#777;font-size:9pt">Proposed by ' + esc(row.created_by || '?') + '</div>'
+      + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">Proposed by ' + esc(row.created_by || '?') + '</div>'
       + '</div>',
     buttons: [
       { label: approve ? 'Approve' : 'Reject', primary: approve, danger: !approve,
@@ -670,18 +667,28 @@ function reviewPartner(row, verdict) {
 // ── Delete orphaned file (row verb — Class B, calendar-reminders-documents-
 // spec.md §5.5) ────────────────────────────────────────────────────────
 // x is the app's regular delete verb (matches bill-edit.js/payables-
-// bills.js's void, fb-list.js's default row delete): one action, native
-// confirm, no modal. The operator downloads first via v if they want a
-// copy — no app-managed quarantine/restore path.
+// bills.js's void, fb-list.js's default row delete) — a permanent,
+// irreversible disk delete, so it goes through FB.modal (docs/UI.md
+// Components) rather than a bare confirm(). The operator downloads first
+// via v if they want a copy — no app-managed quarantine/restore path.
 function deleteOrphan(row) {
-  if (!confirm('Permanently delete this file from disk?\\n' + row.reference)) return;
-  postAction('orphan.delete', { orphanId: row.orphan_id }).then(function (res) {
-    if (!res || res.ok === false || res.error) {
-      FB.status.show((res && res.error && res.error.message) || 'Delete failed', true); return;
-    }
-    FB.status.show('Deleted.', false);
-    _cache = null; list.load();
-  }).catch(function (e) { FB.status.show('Delete failed: ' + (e && e.message || e), true); });
+  FB.modal.open({
+    title: 'Permanently delete this file from disk?',
+    body: esc(row.reference),
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: 'Delete', danger: true, onClick: function (api) {
+          api.close();
+          postAction('orphan.delete', { orphanId: row.orphan_id }).then(function (res) {
+            if (!res || res.ok === false || res.error) {
+              FB.status.show((res && res.error && res.error.message) || 'Delete failed', true); return;
+            }
+            FB.status.show('Deleted.', false);
+            _cache = null; list.load();
+          }).catch(function (e) { FB.status.show('Delete failed: ' + (e && e.message || e), true); });
+        } }
+    ]
+  });
 }
 
 // ── Post / discard a bill draft (row verb — Option C amendment) ─────────
@@ -695,11 +702,11 @@ function reviewDraft(row, verb) {
   var inFlight = false;
   FB.modal.open({
     title: (post ? 'Post' : 'Discard') + ' bill draft',
-    body: '<div style="font-size:10pt;color:#333;line-height:1.7">'
+    body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
       + '<div><b>' + esc(row.counterparty || row.reference || '') + '</b></div>'
       + (row.description ? '<div>' + esc(row.description) + '</div>' : '')
       + (row.amount ? '<div>' + Number(row.amount).toFixed(2) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>' : '')
-      + '<div style="margin-top:6px;color:#777;font-size:9pt">Created by ' + esc(row.created_by || '?') + '</div>'
+      + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">Created by ' + esc(row.created_by || '?') + '</div>'
       + '</div>',
     buttons: [
       { label: post ? 'Post' : 'Discard', primary: post, danger: !post,
@@ -735,9 +742,9 @@ function reviewSuggestion(row, verdict) {
   var inFlight = false;
   FB.modal.open({
     title: (approve ? 'Approve' : 'Reject') + ' mapping suggestion',
-    body: '<div style="font-size:10pt;color:#333;line-height:1.7">'
+    body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
       + '<div>' + esc(row.description || row.reference || '') + '</div>'
-      + '<div style="margin-top:6px;color:#777;font-size:9pt">Suggested by ' + esc(row.created_by || '?') + '</div>'
+      + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">Suggested by ' + esc(row.created_by || '?') + '</div>'
       + '</div>',
     buttons: [
       { label: approve ? 'Approve' : 'Reject', primary: approve, danger: !approve,
@@ -765,17 +772,26 @@ function reviewSuggestion(row, verdict) {
 
 // ── Discard an input rejection (row verb — bank-matching-spec §11.2) ────
 // 'x' only — 'r' (retry: correct the data + re-run the cascade) has no
-// backing action yet (no edit UI, no input_rejection.retry action). Native
-// confirm, no modal, matching deleteOrphan's pattern for a one-shot delete.
+// backing action yet (no edit UI, no input_rejection.retry action). Goes
+// through FB.modal, matching deleteOrphan's pattern for a one-shot delete.
 function discardRejection(row) {
-  if (!confirm('Discard this rejection? The statement line will not be proposed.\\n' + row.description)) return;
-  postAction('input_rejection.discard', { rejectionId: row.rejection_id }).then(function (res) {
-    if (!res || res.ok === false || res.error) {
-      FB.status.show((res && res.error && res.error.message) || 'Discard failed', true); return;
-    }
-    FB.status.show('Discarded.', false);
-    _cache = null; list.load();
-  }).catch(function (e) { FB.status.show('Discard failed: ' + (e && e.message || e), true); });
+  FB.modal.open({
+    title: 'Discard this rejection?',
+    body: 'The statement line will not be proposed.<br>' + esc(row.description),
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: 'Discard', danger: true, onClick: function (api) {
+          api.close();
+          postAction('input_rejection.discard', { rejectionId: row.rejection_id }).then(function (res) {
+            if (!res || res.ok === false || res.error) {
+              FB.status.show((res && res.error && res.error.message) || 'Discard failed', true); return;
+            }
+            FB.status.show('Discarded.', false);
+            _cache = null; list.load();
+          }).catch(function (e) { FB.status.show('Discard failed: ' + (e && e.message || e), true); });
+        } }
+    ]
+  });
 }
 
 function cycleStatusFilter() {
@@ -839,7 +855,7 @@ var list = FB.list.create({
       } }
   ],
   list: { fetch: fetchRows, map: function (row) { return row; } },
-  rowStyle: function (r) { return r._kind === 'group' ? 'background:#fafafa' : ''; },
+  rowStyle: function (r) { return r._kind === 'group' ? 'background:var(--bg)' : ''; },
   // Children resolve synchronously: item lines were enriched at load. An item's
   // first child is the muted meta line (proposer + request id / rejection
   // triple); a PROPOSED item also gets the A4 underlag preview child row.
@@ -906,11 +922,11 @@ var list = FB.list.create({
     // binding). Enter falls through to the built-in openFocused (edit/detail).
     { key: 'y', label: 'approve',
       when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" data-act="verb:y">&#10003;</a>'; },
+      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" aria-label="Approve" data-act="verb:y">&#10003;</a>'; },
       run: function (api, row) { review(row, 'approve'); } },
     { key: 'x', label: 'reject',
       when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">&#10005;</a>'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { review(row, 'reject'); } },
     // Thread D / bank-match-bill-settlement-spec §4.4: the human-controlled
     // Full/Partial settlement toggle for bank-match proposals tagging a
@@ -943,43 +959,43 @@ var list = FB.list.create({
     // download via v first if a copy is wanted, then delete.
     { key: 'v', label: 'view',
       when: function (row) { return row._kind === 'orphan'; },
-      affordance: function () { return '<a class="chip" title="view (v)" data-act="verb:v">&#128065;</a>'; },
+      affordance: function () { return '<a class="chip" title="view (v)" aria-label="View" data-act="verb:v">&#128065;</a>'; },
       run: function (api, row) { window.open('/api/orphaned-file/' + row.orphan_id, '_blank'); } },
     { key: 'x', label: 'delete',
       when: function (row) { return row._kind === 'orphan'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="delete (x)" data-act="verb:x">&#10005;</a>'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="delete (x)" aria-label="Delete" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { deleteOrphan(row); } },
     // Class B partner proposals (partner-proposal-spec §5): y/x mirror the
     // journal-batch review verbs but call partner.proposal.approve/reject
     // via reviewPartner()'s own (note-free) modal.
     { key: 'y', label: 'approve',
       when: function (row) { return row._kind === 'partner' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" data-act="verb:y">&#10003;</a>'; },
+      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" aria-label="Approve" data-act="verb:y">&#10003;</a>'; },
       run: function (api, row) { reviewPartner(row, 'approve'); } },
     { key: 'x', label: 'reject',
       when: function (row) { return row._kind === 'partner' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">&#10005;</a>'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { reviewPartner(row, 'reject'); } },
     // Class A bill drafts (Option C amendment): y posts, x discards — same
     // "approve is the post" doctrine as journal proposals, different action.
     { key: 'y', label: 'post',
       when: function (row) { return row._kind === 'draft'; },
-      affordance: function () { return '<a class="chip chip-ok" title="post (y)" data-act="verb:y">&#10003;</a>'; },
+      affordance: function () { return '<a class="chip chip-ok" title="post (y)" aria-label="Post" data-act="verb:y">&#10003;</a>'; },
       run: function (api, row) { reviewDraft(row, 'post'); } },
     { key: 'x', label: 'discard',
       when: function (row) { return row._kind === 'draft'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="discard (x)" data-act="verb:x">&#10005;</a>'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="discard (x)" aria-label="Discard" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { reviewDraft(row, 'delete'); } },
     // Class B mapping-rule suggestions (bank-matching-spec §10.4): y/x mirror
     // the partner-proposal review verbs but call mapping.suggestion.approve/
     // reject via reviewSuggestion()'s own (note-free) modal.
     { key: 'y', label: 'approve',
       when: function (row) { return row._kind === 'suggestion' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" data-act="verb:y">&#10003;</a>'; },
+      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" aria-label="Approve" data-act="verb:y">&#10003;</a>'; },
       run: function (api, row) { reviewSuggestion(row, 'approve'); } },
     { key: 'x', label: 'reject',
       when: function (row) { return row._kind === 'suggestion' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" data-act="verb:x">&#10005;</a>'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { reviewSuggestion(row, 'reject'); } },
     // Class B input rejections (bank-matching-spec §11.2): x = discard, wired
     // to input_rejection.discard — same key as every other row kind's
@@ -989,11 +1005,11 @@ var list = FB.list.create({
     // instead of silently missing.
     { key: 'x', label: 'discard',
       when: function (row) { return row._kind === 'rejection'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="discard (x)" data-act="verb:x">&#10005;</a>'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="discard (x)" aria-label="Discard" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { discardRejection(row); } },
     { key: 'r', label: 'retry (not yet built)',
       when: function (row) { return row._kind === 'rejection'; },
-      affordance: function () { return '<span class="chip chip-disabled" title="retry: correct the data + re-run — not yet built">&#8635;</span>'; },
+      affordance: function () { return '<span class="chip chip-disabled" title="retry: correct the data + re-run — not yet built" aria-label="Retry (not yet built)">&#8635;</span>'; },
       run: function () { FB.status.show('Retry is not built yet — discard (x) and re-submit corrected data instead.', true); } }
   ],
   actions: [

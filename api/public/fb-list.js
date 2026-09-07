@@ -919,12 +919,12 @@
         // Tree: fold caret leads the first cell (▸ folded / ▾ open). Mouse
         // parity for Space; inert on the add row (rendered separately).
         var caret = (cfg.tree && ci === 0)
-          ? '<span class="fb-fold" data-fold="1" title="fold (Space)">' + (cfg.isFolded(d) ? '&#9656;' : '&#9662;') + '</span>'
+          ? '<span class="fb-fold" data-fold="1" title="fold (Space)" aria-label="Toggle fold">' + (cfg.isFolded(d) ? '&#9656;' : '&#9662;') + '</span>'
           : '';
         return '<td data-field="' + c.field + '"' + (c.align ? ' style="text-align:' + c.align + '"' : '') + '>' + caret + v + '</td>';
       }).join('');
       var actions = d._dirty
-        ? '<a class="chip chip-ok" title="write (w)" data-act="write">✓</a> <a class="chip chip-cancel" title="revert (u)" data-act="revert">✕</a>'
+        ? '<a class="chip chip-ok" title="write (w)" aria-label="Save" data-act="write">✓</a> <a class="chip chip-cancel" title="revert (u)" aria-label="Revert" data-act="revert">✕</a>'
         : '';
       // rowVerbs (A3j §4.4): per-row verb affordances — rendered only on rows
       // whose predicate passes (mouse parity for the key bindings registered
@@ -1101,8 +1101,8 @@
       tr.innerHTML = cfg.columns.map(function (c) {
         return '<td data-field="' + c.field + '"' + (c.align ? ' style="text-align:' + c.align + '"' : '') + '>' + editCell(c, parent) + '</td>';
       }).join('')
-        + '<td class="row-actions"><a class="chip chip-ok" title="write (w)" data-act="write">✓</a> '
-        + '<a class="chip chip-cancel" title="exit (Esc)" data-act="exit">✕</a></td>';
+        + '<td class="row-actions"><a class="chip chip-ok" title="write (w)" aria-label="Save" data-act="write">✓</a> '
+        + '<a class="chip chip-cancel" title="exit (Esc)" aria-label="Cancel" data-act="exit">✕</a></td>';
       tr.classList.add('row-editing');
       if (parent._isNew) hideAddRow(tbody()); // add row transforms INTO the edit row
       // Open child rows → edit-mode HTML (cfg.editChildRowHtml). The framework
@@ -1177,8 +1177,8 @@
       tr.innerHTML = cfg.columns.map(function (c) {
         return '<td data-field="' + c.field + '"' + (c.align ? ' style="text-align:' + c.align + '"' : '') + '>' + editCell(c, d) + '</td>';
       }).join('')
-        + '<td class="row-actions"><a class="chip chip-ok" title="write (w)" data-act="write">✓</a> '
-        + '<a class="chip chip-cancel" title="exit (Esc)" data-act="exit">✕</a></td>';
+        + '<td class="row-actions"><a class="chip chip-ok" title="write (w)" aria-label="Save" data-act="write">✓</a> '
+        + '<a class="chip chip-cancel" title="exit (Esc)" aria-label="Cancel" data-act="exit">✕</a></td>';
       wireChips(tbody());
       tr.classList.add('row-editing');
       if (d._isNew) hideAddRow(tbody()); // the add row transforms INTO the edit row
@@ -1358,27 +1358,43 @@
         if (parent._isNew) { delete dirty[parent._key]; render(ADD_ROW); syncChrome(); return; }
         if (!cfg.del) return;
         if (cfg.deletable && !cfg.deletable(parent)) return;
-        if (!confirm(cfg.del.confirm(parent))) return;
-        post(cfg.del.action, cfg.del.body(parent)).then(function (r2) {
-          var dd = r2.data || r2;
-          if ((dd && dd.error) || r2.error) { msg(dd.error || r2.error, true); return; }
-          delete dirty[parent._key];
-          msg(typeof cfg.del.deleted === 'function' ? cfg.del.deleted(parent) : (cfg.del.deleted || 'Deleted'), false);
-          load();
-        }).catch(function (e) { msg(e.message, true); });
+        FB.modal.open({
+          title: cfg.del.confirm(parent),
+          buttons: [
+            { label: 'Cancel', onClick: function (api) { api.close(); } },
+            { label: 'Delete', danger: true, onClick: function (api) {
+                api.close();
+                post(cfg.del.action, cfg.del.body(parent)).then(function (r2) {
+                  var dd = r2.data || r2;
+                  if ((dd && dd.error) || r2.error) { msg(dd.error || r2.error, true); return; }
+                  delete dirty[parent._key];
+                  msg(typeof cfg.del.deleted === 'function' ? cfg.del.deleted(parent) : (cfg.del.deleted || 'Deleted'), false);
+                  load();
+                }).catch(function (e) { msg(e.message, true); });
+              } }
+          ]
+        });
         return;
       }
       if (d._isNew) { delete dirty[d._key]; render(ADD_ROW); syncChrome(); return; }
       if (!cfg.del) return;
       if (cfg.deletable && !cfg.deletable(d)) return; // read-only row (e.g. ECB rate)
-      if (!confirm(cfg.del.confirm(d))) return;
-      post(cfg.del.action, cfg.del.body(d)).then(function (res) {
-        var dd = res.data || res;
-        if ((dd && dd.error) || res.error) { msg(dd.error || res.error, true); return; } // verbatim (INVALID_STATE etc.)
-        delete dirty[d._key];
-        msg(typeof cfg.del.deleted === 'function' ? cfg.del.deleted(d) : (cfg.del.deleted || 'Deleted'), false);
-        load();
-      }).catch(function (e) { msg(e.message, true); });
+      FB.modal.open({
+        title: cfg.del.confirm(d),
+        buttons: [
+          { label: 'Cancel', onClick: function (api) { api.close(); } },
+          { label: 'Delete', danger: true, onClick: function (api) {
+              api.close();
+              post(cfg.del.action, cfg.del.body(d)).then(function (res) {
+                var dd = res.data || res;
+                if ((dd && dd.error) || res.error) { msg(dd.error || res.error, true); return; } // verbatim (INVALID_STATE etc.)
+                delete dirty[d._key];
+                msg(typeof cfg.del.deleted === 'function' ? cfg.del.deleted(d) : (cfg.del.deleted || 'Deleted'), false);
+                load();
+              }).catch(function (e) { msg(e.message, true); });
+            } }
+        ]
+      });
     }
 
     function newRow() {

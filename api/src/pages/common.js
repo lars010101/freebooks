@@ -146,7 +146,7 @@ function navBar(company, activeKey) {
     <header id="top-bar">
       <div class="tb-left">
         <span class="fb-sl-company" onclick="fbToggleCompany(event)" title="Switch company (g w)"></span>
-        <span class="tb-company-caret" onclick="fbToggleCompany(event)" title="Switch company (g w)">▾</span>
+        <span class="tb-company-caret" onclick="fbToggleCompany(event)" title="Switch company (g w)" aria-label="Switch company">▾</span>
       </div>
       <div class="tb-center">
         <span id="tb-period-trigger" class="tb-period-trigger" onclick="FB.period.togglePopover(event)" title="Period selector">Period</span>
@@ -155,13 +155,14 @@ function navBar(company, activeKey) {
         <div class="tb-search-wrap">
           <input type="text" id="tb-global-search" class="tb-search" placeholder="Type / to search" autocomplete="off" tabindex="-1">
         </div>
-        <button class="tb-icon-btn tb-chat-btn" id="tb-chat-btn" title="Chat with AI">💬<span id="tb-chat-dot" class="tb-chat-dot" hidden></span></button>
-        <button class="tb-icon-btn" id="tb-new-btn" title="New">+</button>
+        <button class="tb-icon-btn tb-chat-btn" id="tb-chat-btn" title="Chat with AI" aria-label="Chat with AI">💬<span id="tb-chat-dot" class="tb-chat-dot" hidden></span></button>
+        <button class="tb-icon-btn" id="tb-new-btn" title="New" aria-label="New">+</button>
         <div id="tb-new-dropdown" class="tb-new-dropdown" hidden></div>
-        <button class="tb-icon-btn" id="tb-notif-btn" title="Notifications">🔔<span id="tb-notif-badge" class="tb-notif-badge" hidden></span></button>
-        <button class="tb-icon-btn" id="tb-dl-btn" title="Download (SIE / CSV / PDF)">⬇</button>
-        <button class="tb-icon-btn" id="fb-theme-btn" title="Switch theme" onclick="fbToggleTheme()"><span id="fb-theme-icon">☀</span></button>
-        <button class="tb-icon-btn" id="tb-help-btn" title="Keyboard shortcuts (?)">?</button>
+        <button class="tb-icon-btn" id="tb-notif-btn" title="Notifications" aria-label="Notifications">🔔<span id="tb-notif-badge" class="tb-notif-badge" hidden></span></button>
+        <button class="tb-icon-btn" id="tb-dl-btn" title="Download (SIE / CSV / PDF)" aria-label="Download">⬇</button>
+        <button class="tb-icon-btn" id="fb-density-btn" title="Switch density" aria-label="Switch density" onclick="fbToggleDensity()"><span id="fb-density-icon">▤</span></button>
+        <button class="tb-icon-btn" id="fb-theme-btn" title="Switch theme" aria-label="Switch theme" onclick="fbToggleTheme()"><span id="fb-theme-icon">☀</span></button>
+        <button class="tb-icon-btn" id="tb-help-btn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
       </div>
     </header>
     <div id="fb-status-banner" class="fb-status-banner">

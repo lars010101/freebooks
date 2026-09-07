@@ -21,7 +21,7 @@ function paymentsMsg(msg, type) {
   var el = document.getElementById('msg-payments');
   if (!el) return;
   el.textContent = msg;
-  el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : '#888';
+  el.style.color = type === 'err' ? 'var(--danger)' : type === 'ok' ? 'var(--success)' : 'var(--text-muted)';
 }
 
 function fmtDateShortPay(d) {
@@ -55,7 +55,7 @@ function loadPayments() {
       var rows = (d && d.data) || [];
       var total = d && d.total;
       if (d && d.tooMany) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#aaa;padding:32px">'
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-faint);padding:32px">'
           + (total || 0).toLocaleString() + ' payments \u2014 narrow the date range above (Period Selector) or a filter to see this list.</td></tr>';
         return;
       }
@@ -76,21 +76,21 @@ function loadPayments() {
 function renderPayments(rows) {
   var tbody = document.getElementById('payments-tbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#aaa;padding:32px">No payments in range.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-faint);padding:32px">No payments in range.</td></tr>';
     return;
   }
   var html = rows.map(function (r) {
     var voided = !!r.voided_at;
-    var dirBadge = '<span class="badge badge-' + (r.direction || 'out') + '">' + (r.direction === 'in' ? 'In' : 'Out') + '</span>';
-    var methodBadge = '<span class="badge badge-' + (r.method || 'manual') + '">' + (r.method === 'bank_match' ? 'Bank Match' : 'Manual') + '</span>';
+    var dirBadge = '<span class="badge ' + (r.direction === 'in' ? 'badge-success' : 'badge-warning') + '">' + (r.direction === 'in' ? 'In' : 'Out') + '</span>';
+    var methodBadge = '<span class="badge ' + (r.method === 'bank_match' ? 'badge-info' : 'badge-neutral') + '">' + (r.method === 'bank_match' ? 'Bank Match' : 'Manual') + '</span>';
     var amt = Number(r.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     // Status is always a real status badge — Void is a hover-only action
     // appended after it (mirrors Bills tab's .pay-afford), never the sole
     // content of the "Status" cell (a bare action button there read as if
     // "Void" were itself a status value).
     var statusCell = voided
-      ? '<span class="badge badge-voided">Voided</span>'
-      : '<span class="badge badge-posted">Posted</span>'
+      ? '<span class="badge badge-danger">Voided</span>'
+      : '<span class="badge badge-success">Posted</span>'
         + '<button class="void-afford" onclick="event.stopPropagation();voidPaymentRow(\\'' + r.payment_id + '\\')">Void</button>';
     var url = r.bill_id ? ('/' + COMPANY + '/bill/' + encodeURIComponent(r.bill_id)) : '';
     return '<tr' + (url ? ' data-url="' + url + '" onclick="window.fbNavigate ? window.fbNavigate(\\'' + url + '\\') : (window.location.href=\\'' + url + '\\')"' : '') + '>'
@@ -98,7 +98,7 @@ function renderPayments(rows) {
       + '<td>' + dirBadge + '</td>'
       + '<td>' + esc(r.partner_name || '\u2014') + '</td>'
       + '<td>' + esc(r.vendor_ref || '\u2014') + '</td>'
-      + '<td style="text-align:right; font-variant-numeric:tabular-nums;' + (voided ? 'color:#aaa;text-decoration:line-through' : '') + '">' + amt + '</td>'
+      + '<td style="text-align:right; font-variant-numeric:tabular-nums;' + (voided ? 'color:var(--text-faint);text-decoration:line-through' : '') + '">' + amt + '</td>'
       + '<td>' + methodBadge + '</td>'
       + '<td>' + esc(r.reference || '\u2014') + '</td>'
       + '<td>' + statusCell + '</td>'
@@ -108,17 +108,26 @@ function renderPayments(rows) {
 }
 
 function voidPaymentRow(paymentId) {
-  if (!confirm('Void this payment? A reversal journal entry will be created.')) return;
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'payment.void', companyId: COMPANY, paymentId: paymentId }) })
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      var d = res.data || res;
-      if (res.error || (d && d.error)) { paymentsMsg('Void failed: ' + (res.error || d.error), 'err'); return; }
-      paymentsMsg('Payment voided.', 'ok');
-      loadPayments();
-    })
-    .catch(function (e) { paymentsMsg('Error: ' + e.message, 'err'); });
+  FB.modal.open({
+    title: 'Void this payment?',
+    body: 'A reversal journal entry will be created.',
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: 'Void payment', danger: true, onClick: function (api) {
+          api.close();
+          fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'payment.void', companyId: COMPANY, paymentId: paymentId }) })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+              var d = res.data || res;
+              if (res.error || (d && d.error)) { paymentsMsg('Void failed: ' + (res.error || d.error), 'err'); return; }
+              paymentsMsg('Payment voided.', 'ok');
+              loadPayments();
+            })
+            .catch(function (e) { paymentsMsg('Error: ' + e.message, 'err'); });
+        } }
+    ]
+  });
 }
 `;
 }

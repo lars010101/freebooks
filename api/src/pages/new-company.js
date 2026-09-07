@@ -17,15 +17,15 @@ function buildNewCompanyPage() {
 ${commonStyle()}
 <style>
   .field-row { display:flex; flex-direction:column; gap:4px; margin-bottom:14px; }
-  .field-row label { font-weight:600; font-size:10pt; color:#555; }
-  .field-row input, .field-row select { padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; max-width:320px; }
-  .section-title { font-weight:700; font-size:11pt; margin:20px 0 10px; border-bottom:1px solid #eee; padding-bottom:6px; }
-  table.edit-table { width:100%; border-collapse:collapse; font-size:10pt; margin-bottom:10px; }
-  table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px; }
-  table.edit-table td { padding:4px 6px; border-bottom:1px solid #f0f0f0; }
-  table.edit-table input { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  .msg { margin-top:10px; font-size:10pt; }
-  .msg.err { color:#cc2222; }
+  .field-row label { font-weight:600; font-size:0.8125rem; color:var(--text-muted); }
+  .field-row input, .field-row select { padding:8px 12px; border:1px solid var(--border); border-radius:4px; font-size:0.8125rem; max-width:320px; background:var(--surface); color:var(--text); }
+  .section-title { font-weight:700; font-size:0.875rem; margin:20px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  table.edit-table { width:100%; border-collapse:collapse; font-size:0.8125rem; margin-bottom:10px; }
+  table.edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px; }
+  table.edit-table td { padding:4px 6px; border-bottom:1px solid var(--border); }
+  table.edit-table input { width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; }
+  .msg { margin-top:10px; font-size:0.8125rem; }
+  .msg.err { color:var(--danger); }
 </style>
 </head>
 <body>
@@ -34,7 +34,7 @@ ${commonStyle()}
   <div class="header"><h1>New Company</h1></div>
 
   <div class="section-title">Company Details</div>
-  <div class="field-row"><label>Company ID <small style="color:#999">(lowercase, underscores only)</small></label><input type="text" id="co-id" placeholder="myco_sg" pattern="[a-z0-9_]+"></div>
+  <div class="field-row"><label>Company ID <small style="color:var(--text-muted)">(lowercase, underscores only)</small></label><input type="text" id="co-id" placeholder="myco_sg" pattern="[a-z0-9_]+"></div>
   <div class="field-row"><label>Company Name</label><input type="text" id="co-name"></div>
   <div class="field-row"><label>Currency</label><input type="text" id="co-currency" value="SGD" maxlength="3" style="max-width:80px"></div>
   <div class="field-row"><label>Jurisdiction</label>
@@ -62,8 +62,8 @@ ${commonStyle()}
        inline here instead of the (absent) #sb-hints. -->
   <div class="fb-hint-bar" id="nc-hints" style="margin-top:14px"></div>
   <div id="post-links" style="display:none;margin-top:14px;display:none">
-    <a id="lnk-jv" href="#" style="display:inline-block;padding:9px 20px;background:#1a5276;color:#fff;text-decoration:none;border-radius:4px;font-size:10pt;font-weight:600;margin-right:10px">📝 Enter Journal Entry &rarr;</a>
-    <a id="lnk-settings" href="#" style="display:inline-block;padding:9px 20px;background:#f5f5f5;color:#333;text-decoration:none;border-radius:4px;font-size:10pt;border:1px solid #ccc">⚙ Go to Settings</a>
+    <a id="lnk-jv" href="#" style="display:inline-block;padding:9px 20px;background:var(--accent);color:var(--on-accent);text-decoration:none;border-radius:4px;font-size:0.8125rem;font-weight:600;margin-right:10px">📝 Enter Journal Entry &rarr;</a>
+    <a id="lnk-settings" href="#" style="display:inline-block;padding:9px 20px;background:var(--bg);color:var(--text);text-decoration:none;border-radius:4px;font-size:0.8125rem;border:1px solid var(--border)">⚙ Go to Settings</a>
   </div>
 </div>
 <script>
@@ -73,7 +73,7 @@ function addRow(p) {
   tr.innerHTML = '<td><input type="text" value="'+(p.name||'')+'" placeholder="FY2026"></td>'
     +'<td><input type="date" value="'+(p.start||'')+'" ></td>'
     +'<td><input type="date" value="'+(p.end||'')+'" ></td>'
-    +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()">✕</button></td>';
+    +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove()" aria-label="Remove period">✕</button></td>';
   document.getElementById('periods-body').appendChild(tr);
 }
 addRow();
@@ -107,11 +107,11 @@ function createCompany() {
       company: { ...co, fy_start: ps[0]&&ps[0].start, fy_end: ps[ps.length-1]&&ps[ps.length-1].end } }) })
     .then(r => r.json())
     .then(d => {
-      if (d.error) { msg.textContent = d.error; msg.className = 'msg err'; document.getElementById('btn-create').disabled = false; return; }
+      if (d.error) { msg.textContent = (d.error && d.error.message) || 'Failed to create company.'; msg.className = 'msg err'; document.getElementById('btn-create').disabled = false; return; }
       if (ps.length === 0) {
         msg.textContent = 'Company created.';
         msg.className = 'msg';
-        msg.style.color = '#2a8a2a';
+        msg.style.color = 'var(--success)';
         document.getElementById('btn-create').textContent = 'Created \u2713';
         document.getElementById('post-links').style.display = '';
         document.getElementById('lnk-jv').href = '/'+co.company_id+'/journal/voucher';
@@ -124,7 +124,7 @@ function createCompany() {
         .then(() => {
           msg.textContent = 'Company created.';
           msg.className = 'msg';
-          msg.style.color = '#2a8a2a';
+          msg.style.color = 'var(--success)';
           document.getElementById('btn-create').textContent = 'Created ✓';
           document.getElementById('post-links').style.display = '';
           document.getElementById('lnk-jv').href = '/'+co.company_id+'/journal/voucher';

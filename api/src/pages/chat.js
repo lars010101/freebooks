@@ -24,28 +24,33 @@ function buildChatPage(company) {
 ${commonStyle()}
 <style>
   #chat-wrap { display:flex; flex-direction:column; height:calc(100vh - 96px); max-width:820px; margin:0 auto; }
-  #chat-status { padding:8px 14px; font-size:0.8rem; color:#666; border-bottom:1px solid #eee; cursor:pointer; user-select:none; }
+  #chat-status { padding:8px 14px; font-size:0.8rem; color:var(--text-muted); border-bottom:1px solid var(--border); cursor:pointer; user-select:none; }
   #chat-thread { flex:1; overflow-y:auto; padding:16px 14px; display:flex; flex-direction:column; gap:10px; }
   .chat-msg { max-width:78%; padding:9px 12px; border-radius:10px; font-size:0.9rem; line-height:1.45; white-space:pre-wrap; }
-  .chat-msg.user { align-self:flex-end; background:#2563eb; color:#fff; }
-  .chat-msg.assistant { align-self:flex-start; background:#f2f2f2; color:#222; }
-  .chat-msg.assistant.error { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; }
-  .chat-card { align-self:stretch; border:1px solid #e5b800; background:#fffbea; border-radius:8px; padding:12px 14px; font-size:0.85rem; }
+  .chat-msg.user { align-self:flex-end; background:var(--accent); color:var(--on-accent); }
+  .chat-msg.assistant { align-self:flex-start; background:var(--bg); color:var(--text); }
+  .chat-msg.assistant.error { background:var(--danger-bg); color:var(--danger); border:1px solid var(--danger-border); }
+  .chat-card { align-self:stretch; border:1px solid var(--warning-border); background:var(--warning-bg); border-radius:8px; padding:12px 14px; font-size:0.85rem; }
   .chat-card h4 { margin:0 0 6px; font-size:0.85rem; }
-  .chat-card pre { max-height:180px; overflow:auto; background:#fff; border:1px solid #eee; padding:8px; border-radius:6px; font-size:0.75rem; margin:6px 0; }
+  .chat-card pre { max-height:180px; overflow:auto; background:var(--surface); border:1px solid var(--border); padding:8px; border-radius:6px; font-size:0.75rem; margin:6px 0; }
   .chat-card label { display:flex; align-items:center; gap:6px; font-size:0.8rem; margin:6px 0; }
   .chat-card .btns { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
-  .chat-card button { font-size:0.78rem; padding:4px 10px; border-radius:6px; border:1px solid #ccc; background:#fff; cursor:pointer; }
-  .chat-card button.primary { background:#2563eb; color:#fff; border-color:#2563eb; }
-  .chat-card button.danger { background:#dc2626; color:#fff; border-color:#dc2626; }
-  #chat-input-row { display:flex; gap:8px; padding:12px 14px; border-top:1px solid #eee; }
-  #chat-input { flex:1; padding:8px 10px; border:1px solid #ccc; border-radius:8px; font-size:0.9rem; }
-  #chat-send-btn { padding:8px 16px; border-radius:8px; border:none; background:#2563eb; color:#fff; font-size:0.9rem; cursor:pointer; }
-  #chat-send-btn:disabled { background:#aac; cursor:default; }
-  #chat-disclosure { padding:4px 14px 10px; font-size:0.72rem; color:#888; }
+  .chat-card button { font-size:0.78rem; padding:4px 10px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; }
+  .chat-card button.primary { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
+  /* Outline style, not solid fill: var(--danger) is intentionally lighter in
+     dark mode (for text-on-surface legibility), which makes it fail contrast
+     as a solid fill behind white text. Matches the .btn-sm.danger/.void-afford
+     convention used elsewhere for destructive buttons. */
+  .chat-card button.danger { background:var(--surface); color:var(--danger); border-color:var(--danger); }
+  .chat-card button.danger:hover { background:var(--danger); color:var(--on-accent); }
+  #chat-input-row { display:flex; gap:8px; padding:12px 14px; border-top:1px solid var(--border); }
+  #chat-input { flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:0.9rem; background:var(--surface); color:var(--text); }
+  #chat-send-btn { padding:8px 16px; border-radius:8px; border:none; background:var(--accent); color:var(--on-accent); font-size:0.9rem; cursor:pointer; }
+  #chat-send-btn:disabled { background:var(--text-faint); cursor:default; }
+  #chat-disclosure { padding:4px 14px 10px; font-size:0.72rem; color:var(--text-muted); }
   #chat-perms { padding:6px 14px 10px; font-size:0.75rem; }
   #chat-perms table { width:100%; border-collapse:collapse; }
-  #chat-perms td, #chat-perms th { padding:3px 6px; border-bottom:1px solid #eee; text-align:left; }
+  #chat-perms td, #chat-perms th { padding:3px 6px; border-bottom:1px solid var(--border); text-align:left; }
   #chat-perms button.revoke { font-size:0.7rem; padding:1px 6px; }
 </style>
 </head>

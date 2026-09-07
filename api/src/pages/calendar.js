@@ -46,34 +46,38 @@ function buildCalendarPage(company) {
 <title>Calendar — freeBooks</title>
 ${commonStyle()}
 <style>
-  .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
-  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:10pt; color:#555; border-bottom:3px solid transparent; margin-bottom:-2px; }
-  .tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); margin-bottom:24px; }
+  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:var(--text-muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
   .tab-panel { display:none; }
   .tab-panel.active { display:block; }
-  table.edit-table { width:100%; border-collapse:collapse; font-size:10pt; }
-  table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; white-space:nowrap; }
-  table.edit-table td { padding:4px 6px; border-bottom:1px solid #f0f0f0; vertical-align:middle; white-space:nowrap; }
-  table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  table.edit-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+  table.edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; white-space:nowrap; }
+  table.edit-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
+  table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; background:var(--surface); color:var(--text); }
   #tab-periods tbody td { cursor:text; }
-  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 #d97706; }
-  .dirty-val { color:#b45309; }
-  tr.row-editing > td { background:#fffbeb; }
+  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+  .dirty-val { color:var(--warning); }
+  tr.row-editing > td { background:var(--warning-bg); }
   .row-actions { white-space:nowrap; text-align:right; }
-  .chip { cursor:pointer; padding:2px 8px; border:1px solid #ccc; border-radius:3px; font-size:10pt; user-select:none; }
-  .chip:hover { background:#f0f0f0; }
-  a.chip { display:inline-block; color:#1a1a1a; text-decoration:none; margin-left:6px; }
-  a.chip:first-child { margin-left:0; }
-  .pe-ro { color:#888; }
-  .due-past { color:#b91c1c; font-weight:600; }
-  .rem-done { color:#166534; }
-  .ck-pass { color:#166534; font-weight:600; }
-  .ck-fail { color:#b91c1c; font-weight:600; }
-  .ck-detail { color:#888; font-style:italic; }
-  .ck-row-focused > td { background:#fffbeb; }
-  .ck-kind { color:#888; font-size:8.5pt; text-transform:uppercase; letter-spacing:.03em; margin-right:6px; }
-  .rem-source { color:#888; font-size:8.5pt; text-transform:uppercase; letter-spacing:.03em; }
-  #reminder-add-row input { padding:3px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  /* .fb-tag base (cursor/padding/border/hover) is the shared component (common.css) */
+  a.fb-tag { display:inline-block; color:var(--accent); margin-left:6px; }
+  a.fb-tag:first-child { margin-left:0; }
+  .pe-ro { color:var(--text-muted); }
+  .due-past { color:var(--danger); font-weight:600; }
+  .rem-done { color:var(--success); }
+  .ck-pass { color:var(--success); font-weight:600; }
+  .ck-fail { color:var(--danger); font-weight:600; }
+  .ck-detail { color:var(--text-muted); font-style:italic; }
+  .ck-row-focused > td { background:var(--warning-bg); }
+  .ck-kind { color:var(--text-muted); font-size:0.6875rem; text-transform:uppercase; letter-spacing:.03em; margin-right:6px; }
+  .rem-source { color:var(--text-muted); font-size:0.6875rem; text-transform:uppercase; letter-spacing:.03em; }
+  /* #reminder-add-row's inputs are type=text/type=date inside table.edit-table
+     — the shared table.edit-table input[type=text]/[type=date] rule above
+     already styles them identically (and, unlike this now-removed ID rule,
+     responds to the density toggle). This was dead-weight duplication, not a
+     deliberate override — an ID selector here would out-specificity the
+     comfortable-density override regardless. */
 </style>
 </head>
 <body>${navBar(company, 'calendar')}
@@ -99,7 +103,7 @@ ${commonStyle()}
     <table class="edit-table" id="reminders-table">
       <thead><tr><th>Reminder</th><th>Period</th><th>Authority</th><th>Due Date</th><th>Status</th><th></th></tr></thead>
       <tbody id="reminders-body"></tbody>
-      <tfoot><tr id="reminder-add-row"><td colspan="6"><a class="chip" data-act="reminder-add-show">+ Add reminder</a></td></tr></tfoot>
+      <tfoot><tr id="reminder-add-row"><td colspan="6"><a class="fb-tag" data-act="reminder-add-show">+ Add reminder</a></td></tr></tfoot>
     </table>
   </div>
 
@@ -169,17 +173,17 @@ function loadReminders(force) {
       var due = r.due_date ? esc(String(r.due_date).slice(0, 10)) : '—';
       var past = r.due_date && !r.done && r.due_date < today;
       var artifacts = (r.artifacts || []).map(function (a) {
-        return '<a href="' + esc(a.href) + '" target="_blank" rel="noopener" class="chip">' + esc(a.label) + '</a>';
+        return '<a href="' + esc(a.href) + '" target="_blank" rel="noopener" class="fb-tag">' + esc(a.label) + '</a>';
       }).join(' ');
       var dueCell = '<td' + (past ? ' class="due-past"' : '') + '>'
         + '<span class="due-val" data-act="reminder-due-edit" data-id="' + esc(r.reminder_id) + '">' + due + '</span>'
         + '</td>';
-      var statusCell = '<td><label class="chip" style="cursor:pointer">'
+      var statusCell = '<td><label class="fb-tag" style="cursor:pointer">'
         + '<input type="checkbox" data-act="reminder-done-toggle" data-id="' + esc(r.reminder_id) + '"' + (r.done ? ' checked' : '') + '> '
         + (r.done ? '<span class="rem-done">Done</span>' : 'Not done') + '</label></td>';
       var actions = artifacts;
       if (r.source === 'user') {
-        actions += ' <a class="chip" data-act="reminder-delete" data-id="' + esc(r.reminder_id) + '" data-label="' + esc(r.label) + '">Delete</a>';
+        actions += ' <a class="fb-tag" data-act="reminder-delete" data-id="' + esc(r.reminder_id) + '" data-label="' + esc(r.label) + '">Delete</a>';
       }
       return '<tr data-id="' + esc(r.reminder_id) + '">'
         + '<td><span class="rem-source">' + (r.source === 'user' ? 'Manual' : 'Pack') + '</span> ' + esc(r.label) + '</td>'
@@ -205,7 +209,7 @@ document.addEventListener('click', function (e) {
   var input = document.createElement('input');
   input.type = 'date';
   input.value = current !== '—' ? current : '';
-  input.style.cssText = 'width:120px;padding:2px 4px;border:1px solid #ddd;border-radius:3px;font-size:10pt';
+  input.style.cssText = 'width:120px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;font-size:0.8125rem';
   span.replaceWith(input);
   input.focus();
   function saveDue() {
@@ -233,11 +237,19 @@ document.addEventListener('click', function (e) {
   var chip = e.target.closest('[data-act="reminder-delete"]');
   if (!chip) return;
   e.preventDefault(); e.stopPropagation();
-  if (!confirm('Delete reminder "' + chip.dataset.label + '"?')) return;
-  postAction('reminder.delete', { reminderId: chip.dataset.id }).then(function () {
-    FB.status.show('Deleted.');
-    loadReminders(true);
-  }).catch(function (err) { FB.status.show('Delete failed: ' + ((err && err.error && err.error.message) || err && err.message || err), true); });
+  FB.modal.open({
+    title: 'Delete reminder "' + chip.dataset.label + '"?',
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: 'Delete', danger: true, onClick: function (api) {
+          api.close();
+          postAction('reminder.delete', { reminderId: chip.dataset.id }).then(function () {
+            FB.status.show('Deleted.');
+            loadReminders(true);
+          }).catch(function (err) { FB.status.show('Delete failed: ' + ((err && err.error && err.error.message) || err && err.message || err), true); });
+        } }
+    ]
+  });
 });
 
 // + Add reminder — a small inline form in place of the add-row chip
@@ -248,8 +260,8 @@ document.addEventListener('click', function (e) {
   row.innerHTML = '<td colspan="6">'
     + '<input type="text" id="reminder-new-label" placeholder="Label" style="width:220px">'
     + ' <input type="date" id="reminder-new-due">'
-    + ' <a class="chip" data-act="reminder-add-save">Save</a>'
-    + ' <a class="chip" data-act="reminder-add-cancel">Cancel</a>'
+    + ' <a class="fb-tag" data-act="reminder-add-save">Save</a>'
+    + ' <a class="fb-tag" data-act="reminder-add-cancel">Cancel</a>'
     + '</td>';
   document.getElementById('reminder-new-label').focus();
 });
@@ -257,7 +269,7 @@ document.addEventListener('click', function (e) {
   if (e.target.closest('[data-act="reminder-add-cancel"]')) { loadReminders(true); resetAddRow(); }
 });
 function resetAddRow() {
-  document.getElementById('reminder-add-row').innerHTML = '<td colspan="6"><a class="chip" data-act="reminder-add-show">+ Add reminder</a></td>';
+  document.getElementById('reminder-add-row').innerHTML = '<td colspan="6"><a class="fb-tag" data-act="reminder-add-show">+ Add reminder</a></td>';
 }
 document.addEventListener('click', function (e) {
   if (!e.target.closest('[data-act="reminder-add-save"]')) return;
@@ -320,7 +332,7 @@ function renderChecklist() {
     var kind = c.kind === 'manual' ? 'Manual' : (c.auto ? 'Auto' : (c.kind || ''));
     var action = '';
     if (c.kind === 'manual') {
-      action = ' <a class="chip" title="toggle attestation (~)" data-act="period-check-attest"'
+      action = ' <a class="fb-tag" title="toggle attestation (~)" data-act="period-check-attest"'
         + ' data-item="' + esc(c.id) + '" data-period="' + esc(c.period_id) + '" data-idx="' + i + '">'
         + (c.pass ? 'unattest' : 'attest') + '</a>';
     }

@@ -22,31 +22,31 @@ function buildSettingsPage(company) {
 <title>Settings - freeBooks</title>
 ${commonStyle()}
 <style>
-  .tabs { display:flex; gap:0; border-bottom:2px solid #1a1a1a; margin-bottom:24px; }
-  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:10pt; color:#555; border-bottom:3px solid transparent; margin-bottom:-2px; }
-  .tab.active { color:#1a1a1a; border-bottom-color:#1a1a1a; }
+  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); margin-bottom:24px; }
+  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:var(--text-muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
   .tab-panel { display:none; }
   .tab-panel.active { display:block; }
-  table.edit-table { width:100%; border-collapse:collapse; font-size:10pt; }
-  table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; white-space:nowrap; }
-  table.edit-table td { padding:4px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; white-space:nowrap; }
-  table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  table.edit-table .ro { background:#f5f5f5; color:#888; padding:4px 6px; border-radius:3px; display:block; }
+  table.edit-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+  table.edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; white-space:nowrap; }
+  table.edit-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
+  table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; background:var(--surface); color:var(--text); }
+  table.edit-table .ro { background:var(--bg); color:var(--text-muted); padding:4px 6px; border-radius:3px; display:block; }
   .field-row { display:flex; flex-direction:column; gap:4px; margin-bottom:14px; }
-  .field-row label { font-weight:600; font-size:10pt; color:#555; }
-  .field-row input[type=text], .field-row select { padding:7px 10px; border:1px solid #ccc; border-radius:4px; font-size:10pt; max-width:300px; }
-  .msg { margin-top:10px; font-size:10pt; }
-  .msg.ok { color:#2a8a2a; }
-  .msg.err { color:#cc2222; }
-  .pe-ro { color:#888; }
-  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 #d97706; }
-  .dirty-val { color:#b45309; }
-  tr.row-editing > td { background:#fffbeb; }
+  .field-row label { font-weight:600; font-size:0.8125rem; color:var(--text-muted); }
+  .field-row input[type=text], .field-row select { padding:8px 12px; border:1px solid var(--border); border-radius:4px; font-size:0.8125rem; max-width:300px; background:var(--surface); color:var(--text); }
+  .msg { margin-top:10px; font-size:0.8125rem; }
+  .msg.ok { color:var(--success); }
+  .msg.err { color:var(--danger); }
+  .pe-ro { color:var(--text-muted); }
+  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+  .dirty-val { color:var(--warning); }
+  tr.row-editing > td { background:var(--warning-bg); }
   .row-actions { white-space:nowrap; text-align:right; }
-  .type-badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:9pt; font-weight:600; }
-  table.edit-table .action-btn { padding:4px 12px; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; cursor:pointer; font-size:10pt; }
-  table.edit-table .action-btn:hover { background:#e8e8e8; }
-  table.edit-table .action-btn:disabled { color:#888; cursor:default; }
+  .type-badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:0.75rem; font-weight:600; }
+  table.edit-table .action-btn { padding:4px 12px; border:1px solid var(--border); border-radius:3px; background:var(--bg); cursor:pointer; font-size:0.8125rem; }
+  table.edit-table .action-btn:hover { background:var(--border); }
+  table.edit-table .action-btn:disabled { color:var(--text-muted); cursor:default; }
 </style>
 </head>
 <body>${navBar(company, 'settings')}
@@ -56,9 +56,9 @@ ${commonStyle()}
   </div>
 
   <div class="tabs">
-    <div class="tab active" onclick="showTab('company')">Company<span id="tab-dot-company" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" onclick="showTab('access')">Access<span id="tab-dot-access" style="display:none;color:#d97706"> ●</span></div>
-    <div class="tab" onclick="showTab('extensions')">Extensions<span id="tab-dot-extensions" style="display:none;color:#d97706"> ●</span></div>
+    <div class="tab active" onclick="showTab('company')">Company<span id="tab-dot-company" style="display:none;color:var(--warning)"> ●</span></div>
+    <div class="tab" onclick="showTab('access')">Access<span id="tab-dot-access" style="display:none;color:var(--warning)"> ●</span></div>
+    <div class="tab" onclick="showTab('extensions')">Extensions<span id="tab-dot-extensions" style="display:none;color:var(--warning)"> ●</span></div>
   </div>
 
   <!-- 2026-08-27 IA restructure 2: Settings slimmed to Company · Access · Extensions.
@@ -86,10 +86,10 @@ ${commonStyle()}
          last-company refusal + posted-books (journal entries) refusal. On
          success the client redirects to the first surviving company. -->
     <div id="company-danger-zone" class="company-danger-zone"
-         style="margin-top:28px;padding:14px 18px;border:1px solid #cc2222;border-radius:6px;background:#fff5f5">
-      <div style="font-weight:700;color:#cc2222;font-size:10pt;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Danger Zone</div>
+         style="margin-top:28px;padding:14px 18px;border:1px solid var(--danger-border);border-radius:6px;background:var(--danger-bg)">
+      <div style="font-weight:700;color:var(--danger);font-size:0.8125rem;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Danger Zone</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap">
-        <div style="font-size:10pt;color:#333">Delete this company and all of its books. This is permanent and cannot be undone.</div>
+        <div style="font-size:0.8125rem;color:var(--text)">Delete this company and all of its books. This is permanent and cannot be undone.</div>
         <button type="button" class="btn-sm danger" id="cr-delete-btn" onclick="companyDanger.confirmDelete()">Delete this company</button>
       </div>
     </div>
@@ -107,7 +107,7 @@ ${commonStyle()}
     <!-- API TOKENS — access-tab-api-tokens-spec.md. Separate register: a token
          is a different one-to-many relationship off an email than a permission
          grant (zero, one, or several tokens per email, independent of role). -->
-    <h3 style="margin:28px 0 10px;font-size:10pt;text-transform:uppercase;letter-spacing:.04em;color:#555">API Tokens</h3>
+    <h3 style="margin:28px 0 10px;font-size:0.8125rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)">API Tokens</h3>
     <table class="edit-table" id="access-tokens-table">
       <thead><tr><th>Label</th><th>Email</th><th>Created</th><th>Status</th><th></th></tr></thead>
       <tbody id="access-tokens-body"></tbody>
@@ -166,10 +166,19 @@ function showTab(t) {
       return;
     }
     if (dirtyTabs.has(curTab)) {
-      if (!confirm('You have unsaved changes. Discard?')) return;
-      resetDirty(curTab);
+      FB.modal.open({
+        title: 'Discard unsaved changes?',
+        buttons: [
+          { label: 'Keep editing', onClick: function (api) { api.close(); } },
+          { label: 'Discard', danger: true, onClick: function (api) { api.close(); resetDirty(curTab); showTabFinish(t); } }
+        ]
+      });
+      return;
     }
   }
+  showTabFinish(t);
+}
+function showTabFinish(t) {
   var tabs = ['company','access','extensions'];
   document.querySelectorAll('.tab').forEach(function(el,i){ el.classList.toggle('active', tabs[i]===t); });
   document.querySelectorAll('.tab-panel').forEach(function(el){ el.classList.remove('active'); });
@@ -567,7 +576,7 @@ var accessList = FB.list.create({
         { value: 'viewer', label: 'Viewer' }
       ] },
     { field: 'scope_badge', type: 'text', width: 70, ro: 'always', filterType: null,
-      display: function(v, d) { return d.isGlobal ? '<span class="type-badge" style="background:#eef;color:#446">Global</span>' : ''; } }
+      display: function(v, d) { return d.isGlobal ? '<span class="type-badge" style="background:var(--info-bg);color:var(--info)">Global</span>' : ''; } }
   ],
   blank: function() { return { email: '', role: 'viewer' }; },
   isBlank: function(b) { return !b.email; },
@@ -610,11 +619,11 @@ function fbRevealToken(token) {
   if (!(window.FB && FB.modal)) return;
   FB.modal.open({
     title: 'API token created',
-    body: '<div style="font-size:10pt;color:#555;margin-bottom:8px">'
+    body: '<div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:8px">'
         + 'Copy this token now — it will not be shown again. Only its hash is stored on the server.</div>'
         + '<input type="text" id="fb-token-reveal-val" readonly onclick="this.select()" value="' + esc(token || '') + '" '
-        + 'style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:4px;'
-        + 'font-family:monospace;font-size:10pt;box-sizing:border-box;background:#f7f7f7">',
+        + 'style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;'
+        + 'font-family:monospace;font-size:0.8125rem;box-sizing:border-box;background:var(--bg);color:var(--text)">',
     buttons: [
       { label: 'Copy', onClick: function () {
           var el = document.getElementById('fb-token-reveal-val');
@@ -646,7 +655,7 @@ var tokensList = FB.list.create({
     { field: 'status', type: 'text', width: 100, ro: 'always', filterType: 'list', label: 'Status',
       display: function(v, d) { return d.revoked_at
         ? '<span class="pe-ro">Revoked ' + esc(new Date(d.revoked_at).toLocaleDateString()) + '</span>'
-        : '<span style="color:#2a8a2a">Active</span>'; } }
+        : '<span style="color:var(--success)">Active</span>'; } }
   ],
   blank: function() { return { label: '', email: '' }; },
   isBlank: function(b) { return !b.label && !b.email; },

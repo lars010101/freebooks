@@ -41,26 +41,25 @@ function buildDocumentsPage(company) {
 <title>Documents — freeBooks</title>
 ${commonStyle()}
 <style>
-  table.edit-table { width:100%; border-collapse:collapse; font-size:10pt; }
-  table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; white-space:nowrap; }
-  table.edit-table td { padding:6px 6px; border-bottom:1px solid #f0f0f0; vertical-align:top; }
+  table.edit-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+  table.edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; white-space:nowrap; }
+  table.edit-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:top; }
   .row-actions { white-space:nowrap; text-align:right; }
-  .chip { cursor:pointer; padding:2px 8px; border:1px solid #ccc; border-radius:3px; font-size:10pt; user-select:none; }
-  .chip:hover { background:#f0f0f0; }
-  a.chip { display:inline-block; color:#1a1a1a; text-decoration:none; margin-left:6px; }
-  a.chip:first-child { margin-left:0; }
-  .pe-ro { color:#888; }
-  .doc-id-main { color:#1a1a1a; }
-  .doc-id-sub { color:#888; font-size:8.5pt; }
-  .doc-id-main a { color:#1a73d8; text-decoration:none; }
+  /* .fb-tag base (cursor/padding/border/hover) is the shared component (common.css) */
+  a.fb-tag { display:inline-block; color:var(--accent); margin-left:6px; }
+  a.fb-tag:first-child { margin-left:0; }
+  .pe-ro { color:var(--text-muted); }
+  .doc-id-main { color:var(--text); }
+  .doc-id-sub { color:var(--text-muted); font-size:0.6875rem; }
+  .doc-id-main a { color:var(--info); text-decoration:none; }
   .doc-id-main a:hover { text-decoration:underline; }
-  .doc-type-badge { display:inline-block; padding:1px 8px; border-radius:9px; font-size:8.5pt; font-weight:600; text-transform:uppercase; letter-spacing:.02em; background:#f1f5f9; color:#334155; }
-  .doc-missing { color:#b91c1c; font-weight:600; }
+  .doc-type-badge { display:inline-block; padding:1px 8px; border-radius:9px; font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:.02em; background:var(--chip-bg); color:var(--chip-text); }
+  .doc-missing { color:var(--danger); font-weight:600; }
   .filter-row { display:flex; gap:12px; margin-bottom:16px; align-items:center; }
-  .filter-row select { padding:4px 8px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  #upload-panel { display:none; margin-bottom:20px; padding:12px; border:1px solid #ddd; border-radius:4px; background:#fafafa; }
+  .filter-row select { padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; }
+  #upload-panel { display:none; margin-bottom:20px; padding:12px; border:1px solid var(--border); border-radius:4px; background:var(--bg); }
   #upload-panel.open { display:block; }
-  #upload-panel input, #upload-panel select { padding:4px 8px; border:1px solid #ddd; border-radius:3px; font-size:10pt; margin-right:8px; }
+  #upload-panel input, #upload-panel select { padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; margin-right:8px; }
 </style>
 </head>
 <body>${navBar(company, 'documents')}
@@ -68,7 +67,7 @@ ${commonStyle()}
   <div class="header"><h1>📄 Documents</h1></div>
 
   <div class="filter-row">
-    <a class="chip" data-act="upload-toggle">+ Upload document</a>
+    <a class="fb-tag" data-act="upload-toggle">+ Upload document</a>
     <label>Type <select id="doc-type-filter"><option value="">All</option></select></label>
     <label>Period <select id="doc-period-filter"><option value="">All</option></select></label>
   </div>
@@ -78,8 +77,8 @@ ${commonStyle()}
     <input type="text" id="doc-upload-type" placeholder="Type (e.g. Annual Report)" list="doc-type-options">
     <datalist id="doc-type-options"></datalist>
     <select id="doc-upload-period"><option value="">No period</option></select>
-    <a class="chip" data-act="upload-save">Save</a>
-    <a class="chip" data-act="upload-cancel">Cancel</a>
+    <a class="fb-tag" data-act="upload-save">Save</a>
+    <a class="fb-tag" data-act="upload-cancel">Cancel</a>
   </div>
 
   <table class="edit-table" id="documents-table">
@@ -190,14 +189,14 @@ function renderDocuments() {
     var typeLabel = isUpload ? (d.doc_type || 'Other') : d.entity_type;
     var missing = d.missing_since ? ' <span class="doc-missing" title="File missing from storage since ' + esc(String(d.missing_since).slice(0, 10)) + '">missing</span>' : '';
     var href = sourceHref(d);
-    var actions = '<a class="chip" href="/api/attachments/' + esc(d.attachment_id) + '" target="_blank" rel="noopener">Open</a>';
-    if (href) actions += ' <a class="chip" href="' + esc(href) + '">Go to source</a>';
+    var actions = '<a class="fb-tag" href="/api/attachments/' + esc(d.attachment_id) + '" target="_blank" rel="noopener">Open</a>';
+    if (href) actions += ' <a class="fb-tag" href="' + esc(href) + '">Go to source</a>';
     // Standalone uploads can always be deleted; system-linked rows (bill/
     // invoice/JV/filing attachments) only once their file is gone — that's
     // the sole way to clear a permanently-missing attachment, since there's
     // no replace/reupload path and the row would otherwise re-raise the
     // attachment-missing notification forever (attachment-integrity-scanner.js).
-    if (isUpload || d.missing_since) actions += ' <a class="chip" data-act="doc-delete" data-id="' + esc(d.attachment_id) + '" data-name="' + esc(d.filename) + '" data-missing="' + (d.missing_since ? '1' : '') + '">Delete</a>';
+    if (isUpload || d.missing_since) actions += ' <a class="fb-tag" data-act="doc-delete" data-id="' + esc(d.attachment_id) + '" data-name="' + esc(d.filename) + '" data-missing="' + (d.missing_since ? '1' : '') + '">Delete</a>';
     return '<tr>'
       + '<td>' + idCell + '</td>'
       + '<td><span class="doc-type-badge">' + esc(typeLabel) + '</span>' + missing + '</td>'
@@ -221,11 +220,19 @@ document.addEventListener('click', function (e) {
   var msg = chip.dataset.missing
     ? 'This file is already missing from storage. Remove its record from "' + chip.dataset.name + '"?'
     : 'Delete "' + chip.dataset.name + '"?';
-  if (!confirm(msg)) return;
-  postAction('attachment.delete', { attachmentId: chip.dataset.id }).then(function () {
-    FB.status.show('Deleted.');
-    loadDocuments();
-  }).catch(function (err) { FB.status.show('Delete failed: ' + (err && err.message || err), true); });
+  FB.modal.open({
+    title: msg,
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: chip.dataset.missing ? 'Remove record' : 'Delete', danger: true, onClick: function (api) {
+          api.close();
+          postAction('attachment.delete', { attachmentId: chip.dataset.id }).then(function () {
+            FB.status.show('Deleted.');
+            loadDocuments();
+          }).catch(function (err) { FB.status.show('Delete failed: ' + (err && err.message || err), true); });
+        } }
+    ]
+  });
 });
 
 // Upload panel toggle

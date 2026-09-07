@@ -26,43 +26,40 @@ function buildJournalVoucherPage(company, flags) {
 <title>Journal Voucher — freeBooks</title>
 ${commonStyle()}
 <style>
-  table.jv-table { width:100%; border-collapse:collapse; font-size:10pt; }
-  table.jv-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; }
-  table.jv-table td { padding:3px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
-  table.jv-table input[type=text], table.jv-table input[type=number], table.jv-table select { padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
+  table.jv-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+  table.jv-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; }
+  table.jv-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  table.jv-table input[type=text], table.jv-table input[type=number], table.jv-table select { padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; background:var(--surface); color:var(--text); }
   /* K4: shared attachment-queue rows (fb-attachments.js classes) */
-  .fb-attach-row { display:flex; justify-content:space-between; align-items:center; padding:3px 6px; border-bottom:1px solid #f5f5f5; border-radius:3px; }
-  .fb-attach-row .fb-att-meta { color:#888; font-size:8.5pt; }
-  .fb-attach-row .fb-att-del { border:none; background:none; cursor:pointer; color:#cc4444; font-size:11pt; padding:0 4px; }
-  .fb-attach-row.fb-form-row-focus { background:#1a1a1a !important; color:#fff; }
+  .fb-attach-row { display:flex; justify-content:space-between; align-items:center; padding:3px 6px; border-bottom:1px solid var(--border); border-radius:3px; }
+  .fb-attach-row .fb-att-meta { color:var(--text-muted); font-size:0.6875rem; }
+  .fb-attach-row .fb-att-del { border:none; background:none; cursor:pointer; color:var(--danger); font-size:0.875rem; padding:0 4px; }
+  .fb-attach-row.fb-form-row-focus { background:var(--accent) !important; color:var(--on-accent); }
   .fb-attach-row.fb-form-row-focus .fb-att-meta { color:rgba(255,255,255,.6); }
-  .fb-attach-row.fb-form-row-focus .fb-att-del { color:#ff8888; }
+  .fb-attach-row.fb-form-row-focus .fb-att-del { color:var(--on-accent); }
   /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity */
-  .fb-att-add-btn { border:none; background:none; cursor:pointer; color:#888; font-size:9.5pt; padding:2px 0; text-align:left; width:100%; }
-  .fb-attach-row.fb-form-row-focus .fb-att-add-btn { color:#fff; }
+  .fb-att-add-btn { border:none; background:none; cursor:pointer; color:var(--text-muted); font-size:0.75rem; padding:2px 0; text-align:left; width:100%; }
+  .fb-attach-row.fb-form-row-focus .fb-att-add-btn { color:var(--on-accent); }
   /* A1 (magnus 2026-07-28): read-only original-entry rows shown above the
      swapped reversal rows. Plain-text <td>s (no inputs) — grayed + italic. */
-  .jv-orig-hdr td, .jv-orig-line td { color:#999; background:#f5f5f5; font-style:italic; }
-  /* Status badges (Journal Voucher form) */
-  .st-badge { display:inline-block; padding:1px 8px; border-radius:9px; font-size:8.5pt; font-weight:600; text-transform:uppercase; letter-spacing:.02em; }
-  .st-new { background:#e3f2fd; color:#1565c0; }
-  .st-posted { background:#e8f5e9; color:#2e7d32; }
-  .st-reversed { background:#ffebee; color:#c62828; }
-  /* Normalize disabled/readonly header fields to the same gray background
-     so posted/view-mode fields don't get browser-default mismatched shades. */
+  .jv-orig-hdr td, .jv-orig-line td { color:var(--text-muted); background:var(--bg); font-style:italic; }
+  /* Status badge uses the shared .badge component (common.css) — see updateStatusBadge() below */
+  /* Normalize disabled/readonly header fields to the same gray background —
+     for fields disabled OUTSIDE locked/posted mode (the cost/profit-center
+     mutual-exclusion disable below), not the flatten case, which the next
+     rule overrides back to transparent at higher specificity. */
   .header-fields input:disabled, .header-fields select:disabled,
-  .header-fields input[readonly] { background:#f5f5f5 !important; }
-  /* Posted/view mode: flatten header fields to plain text — no borders,
-     no input backgrounds. Matches the read-only line items below. */
-  .header-fields.jv-flat-readonly input,
-  .header-fields.jv-flat-readonly select { border:none !important; background:transparent !important; box-shadow:none !important; outline:none !important; padding:4px 0 !important; font-size:10pt; -webkit-appearance:none; -moz-appearance:none; appearance:none; }
-  .header-fields.jv-flat-readonly input[type="date"]::-webkit-inner-spin-button,
-  .header-fields.jv-flat-readonly input[type="date"]::-webkit-clear-button,
-  .header-fields.jv-flat-readonly input[type="date"]::-webkit-calendar-picker-indicator { display:none !important; }
-  .header-fields.jv-flat-readonly select::-ms-expand { display:none; }
-  .header-fields.jv-flat-readonly input:disabled,
-  .header-fields.jv-flat-readonly select:disabled,
-  .header-fields.jv-flat-readonly input[readonly] { background:transparent !important; color:#333; -webkit-text-fill-color:#333; opacity:1; padding:4px 0 !important; }
+  .header-fields input[readonly] { background:var(--bg) !important; }
+  /* Posted/view mode: flatten treatment itself is the shared .fb-locked-fields
+     component (common.css); this page adds its own layout tweak (no
+     horizontal padding) and must re-win the :disabled/[readonly] fight
+     against the generic rule above at equal specificity — same selector
+     shape, declared later in this file. */
+  .header-fields.fb-locked-fields input,
+  .header-fields.fb-locked-fields select { padding:4px 0 !important; font-size:0.8125rem; }
+  .header-fields.fb-locked-fields input:disabled,
+  .header-fields.fb-locked-fields select:disabled,
+  .header-fields.fb-locked-fields input[readonly] { background:transparent !important; }
 </style>
 </head>
 <body>${navBar(company, 'newjv')}
@@ -71,25 +68,25 @@ ${commonStyle()}
     <div>
       <h1>Journal Voucher</h1>
       <p class="sub">
-        <span id="jv-status-badge" class="st-badge st-new">New</span>
+        <span id="jv-status-badge" class="badge badge-info">New</span>
       </p>
     </div>
     <button class="btn-sm" id="btn-reversal-mode" onclick="toggleReversalMode()" style="margin-top:8px">⟲ Reversal</button>
   </div>
 
   <!-- Reversal search panel (hidden by default) -->
-  <div id="reversal-panel" style="display:none;margin-bottom:16px;padding:14px;background:#f8f4ff;border:1px solid #c9b8e8;border-radius:6px">
-    <div style="font-weight:600;margin-bottom:8px;color:#5a3ea0">Find entry to reverse</div>
+  <div id="reversal-panel" style="display:none;margin-bottom:16px;padding:14px;background:var(--warning-bg);border:1px solid var(--warning-border);border-radius:6px">
+    <div style="font-weight:600;margin-bottom:8px;color:var(--warning)">Find entry to reverse</div>
     <input type="text" id="reversal-search" placeholder="Search by reference or description…"
       oninput="onReversalSearch(this.value)"
-      style="width:400px;padding:7px 10px;border:1px solid #c9b8e8;border-radius:4px;font-size:10pt">
-    <div id="reversal-results" style="margin-top:6px;max-height:200px;overflow-y:auto;background:#fff;border:1px solid #ddd;border-radius:4px;display:none"></div>
+      style="width:400px;padding:7px 10px;border:1px solid var(--warning-border);border-radius:4px;font-size:0.8125rem">
+    <div id="reversal-results" style="margin-top:6px;max-height:200px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:4px;display:none"></div>
   </div>
 
   <div class="header-fields">
     <label>Date <input type="date" id="entry-date"></label>
     <label>Journal <select id="entry-journal" style="width:180px;height:32px;padding:4px 6px"><option value="">— loading —</option></select></label>
-    <label>Doc Nr <input type="text" id="jv-reference" readonly style="width:80px;border:1px solid #ddd;border-radius:3px;padding:4px 6px;font-size:10pt"></label>
+    <label>Doc Nr <input type="text" id="jv-reference" readonly style="width:80px;border:1px solid var(--border);border-radius:3px;padding:4px 6px;font-size:0.8125rem"></label>
     <label>Description <input type="text" id="entry-desc" placeholder="e.g. Salary payment" style="width:400px"></label>
     ${fxOn
       ? '<label>CCY <input type="text" id="entry-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase;width:60px" value="' + baseCcy + '"></label>'
@@ -97,22 +94,22 @@ ${commonStyle()}
     <label class="fx-rate-field" style="display:none">FX Rate <input type="number" id="entry-fx-rate" step="0.000001" style="width:90px"></label>
   </div>
 
-  <div id="jv-pre-attach-section" style="margin-top:6px;padding:12px;border:1px solid #e8e8e8;border-radius:4px;background:#fafafa">
-    <div style="font-size:10pt;font-weight:600;margin-bottom:6px">📎 Attachments</div>
+  <div id="jv-pre-attach-section" style="margin-top:6px;padding:12px;border:1px solid var(--border);border-radius:4px;background:var(--bg)">
+    <div style="font-size:0.8125rem;font-weight:600;margin-bottom:6px">📎 Attachments</div>
     <input type="file" id="jv-pre-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="addJvAttachment(this)" multiple>
-    <div id="jv-pending-list" style="font-size:9.5pt"></div>
+    <div id="jv-pending-list" style="font-size:0.75rem"></div>
   </div>
 
-  <div id="jv-attachment-panel" style="display:none;margin-top:6px;padding:12px;border:1px solid #e0e0e0;border-radius:4px;background:#fafafa">
+  <div id="jv-attachment-panel" style="display:none;margin-top:6px;padding:12px;border:1px solid var(--border);border-radius:4px;background:var(--bg)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-size:10pt;font-weight:600">📎 Attachments for this entry</span>
-      <label style="cursor:pointer;padding:4px 12px;border:1px solid #ccc;border-radius:3px;background:#fff;font-size:9.5pt">
+      <span style="font-size:0.8125rem;font-weight:600">📎 Attachments for this entry</span>
+      <label style="cursor:pointer;padding:4px 12px;border:1px solid var(--border);border-radius:3px;background:var(--surface);font-size:0.75rem">
         + Attach
         <input type="file" id="jv-attach-input" style="display:none" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" onchange="uploadJvAttachment(this)">
       </label>
     </div>
-    <div id="jv-attachments-list" style="font-size:9.5pt">
-      <span style="color:#aaa;font-size:9pt">No attachments yet</span>
+    <div id="jv-attachments-list" style="font-size:0.75rem">
+      <span style="color:var(--text-faint);font-size:0.75rem">No attachments yet</span>
     </div>
   </div>
 
@@ -130,13 +127,13 @@ ${commonStyle()}
     <div>Debits: <span id="total-dr">0.00</span></div>
     <div>Credits: <span id="total-cr">0.00</span></div>
     <div>VAT: <span id="total-vat">0.00</span></div>
-    <div>Diff: <span id="total-diff" style="color:#cc2222">0.00</span></div>
+    <div>Diff: <span id="total-diff" style="color:var(--danger)">0.00</span></div>
   </div>
 
   <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
     <button class="btn-sm" onclick="addLine()">+ Add Line</button>
     <button class="btn-primary" id="btn-post" onclick="postEntry()">Post Entry</button>
-    <span id="status-msg" style="font-size:10pt"></span>
+    <span id="status-msg" style="font-size:0.8125rem"></span>
   </div>
 </div>
 <script>
@@ -163,11 +160,17 @@ ${commonStyle()}
 
   // ── Status badge + reference field ───────────────────────────────────
   // jvStatus: 'new' | 'posted' | 'reversed' (client-side inferred).
+  // Posted/reversed are locked and immutable (docs/UI.md posted-vs-draft
+  // visual language) — the 🔒 is a second, non-color-dependent signal of
+  // that, not just decoration; 'new' is still an editable draft.
+  var JV_STATUS_BADGE_CLASS = { new: 'badge-info', posted: 'badge-success', reversed: 'badge-danger' };
+  var JV_STATUS_LOCKED = { posted: true, reversed: true };
   function updateStatusBadge(status) {
     var el = document.getElementById('jv-status-badge');
     if (!el) return;
-    el.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-    el.className = 'st-badge st-' + status;
+    var label = status.charAt(0).toUpperCase() + status.slice(1);
+    el.textContent = JV_STATUS_LOCKED[status] ? ('🔒 ' + label) : label;
+    el.className = 'badge ' + (JV_STATUS_BADGE_CLASS[status] || 'badge-neutral');
   }
   function setReference(ref) {
     var el = document.getElementById('jv-reference');
@@ -340,10 +343,10 @@ ${commonStyle()}
       +'<td><input type="number" class="credit-input" min="0" step="0.01" oninput="updateTotals()" style="width:100px"></td>'
       +'<td><input type="text" class="desc-input" style="width:160px" placeholder="optional"></td>'
       +(VAT_ON ? '<td><select class="tax-select" style="width:120px" onchange="updateTotals()"><option value="">\u2014 none \u2014</option></select></td>' : '')
-      +(VAT_ON ? '<td class="vat-display" style="width:70px;text-align:right;color:#555">0.00</td>' : '')
+      +(VAT_ON ? '<td class="vat-display" style="width:70px;text-align:right;color:var(--text-muted)">0.00</td>' : '')
       +(CENTERS_ON ? '<td><input type="text" class="cc-input" style="width:120px" placeholder="Cost center"></td>' : '')
       +(CENTERS_ON ? '<td><input type="text" class="pc-input" style="width:120px" placeholder="Profit center"></td>' : '')
-      +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove(); updateTotals()">&times;</button></td>';
+      +'<td><button class="btn-sm danger" onclick="this.parentElement.parentElement.remove(); updateTotals()" aria-label="Remove line">&times;</button></td>';
     document.getElementById('lines-body').appendChild(tr);
     if (VAT_ON) populateTaxSelect(tr.querySelector('.tax-select'));
     var codeIn = tr.querySelector('.acct-input');
@@ -417,7 +420,7 @@ ${commonStyle()}
     var diff = Math.round(((dr + vatDebit) - (cr + vatCredit)) * 100) / 100;
     var diffEl = document.getElementById('total-diff');
     diffEl.textContent = diff.toFixed(2);
-    diffEl.style.color = diff === 0 ? '#2a8a2a' : '#cc2222';
+    diffEl.style.color = diff === 0 ? 'var(--success)' : 'var(--danger)';
     document.getElementById('btn-post').disabled = diff !== 0;
   }
 
@@ -431,16 +434,16 @@ ${commonStyle()}
       .then(function(res) {
         var items = res.data || res || [];
         if (!Array.isArray(items) || !items.length) {
-          listEl.innerHTML = '<span style="color:#aaa;font-size:9pt">No attachments yet</span>';
+          listEl.innerHTML = '<span style="color:var(--text-faint);font-size:0.75rem">No attachments yet</span>';
           return;
         }
         listEl.innerHTML = items.map(function(a) {
           var kb = (a.file_size / 1024).toFixed(1);
-          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #eee">'
-            + '<a href="/api/attachments/' + a.attachment_id + '" target="_blank" style="color:#1a1a1a;text-decoration:none;font-size:9.5pt">'
-            + '\ud83d\udcc4 ' + a.filename + ' <span style="color:#888;font-size:8.5pt">(' + kb + ' KB)</span></a>'
-            + '<button onclick="deleteJvAttachment(\\'' + a.attachment_id + '\\')" '
-            + 'style="border:none;background:none;cursor:pointer;color:#cc4444;font-size:11pt;padding:0 4px">&times;</button>'
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">'
+            + '<a href="/api/attachments/' + a.attachment_id + '" target="_blank" style="color:var(--text);text-decoration:none;font-size:0.75rem">'
+            + '\ud83d\udcc4 ' + a.filename + ' <span style="color:var(--text-muted);font-size:0.6875rem">(' + kb + ' KB)</span></a>'
+            + '<button onclick="deleteJvAttachment(\\'' + a.attachment_id + '\\')" aria-label="Delete attachment" '
+            + 'style="border:none;background:none;cursor:pointer;color:var(--danger);font-size:0.875rem;padding:0 4px">&times;</button>'
             + '</div>';
         }).join('');
       }).catch(function(){});
@@ -451,7 +454,7 @@ ${commonStyle()}
     var file = input.files[0];
     input.value = '';
     var listEl = document.getElementById('jv-attachments-list');
-    listEl.innerHTML = '<span style="color:#888">Uploading ' + file.name + '\u2026</span>';
+    listEl.innerHTML = '<span style="color:var(--text-muted)">Uploading ' + file.name + '\u2026</span>';
     var fd = new FormData();
     fd.append('companyId', COMPANY);
     fd.append('entityType', 'journal');
@@ -467,12 +470,20 @@ ${commonStyle()}
   }
 
   function deleteJvAttachment(attachmentId) {
-    if (!confirm('Remove attachment?')) return;
-    fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'attachment.delete', companyId: COMPANY, attachmentId: attachmentId }) })
-      .then(function(r) { return r.json(); })
-      .then(function() { loadJvAttachments(); })
-      .catch(function(){});
+    FB.modal.open({
+      title: 'Remove attachment?',
+      buttons: [
+        { label: 'Cancel', onClick: function (api) { api.close(); } },
+        { label: 'Remove', danger: true, onClick: function (api) {
+            api.close();
+            fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'attachment.delete', companyId: COMPANY, attachmentId: attachmentId }) })
+              .then(function(r) { return r.json(); })
+              .then(function() { loadJvAttachments(); })
+              .catch(function(){});
+          } }
+      ]
+    });
   }
 
   function postEntry() {
@@ -528,7 +539,7 @@ ${commonStyle()}
           pendingJvAttachments = [];
           renderJvPendingList();
           document.getElementById('jv-attachment-panel').style.display = '';
-          document.getElementById('jv-attachments-list').innerHTML = '<span style="color:#aaa;font-size:9pt">No attachments yet</span>';
+          document.getElementById('jv-attachments-list').innerHTML = '<span style="color:var(--text-faint);font-size:0.75rem">No attachments yet</span>';
           uploadPendingJvAttachments(d.batchId).then(function() { if (currentBatchId) loadJvAttachments(); });
           // Stay on the posted JV: render it read-only with status + reference
           // instead of resetting to a blank form.
@@ -541,7 +552,7 @@ ${commonStyle()}
   function showStatus(msg, isErr) {
     var el = document.getElementById('status-msg');
     el.textContent = msg;
-    el.style.color = isErr ? '#cc2222' : '#2a8a2a';
+    el.style.color = isErr ? 'var(--danger)' : 'var(--success)';
   }
 
   document.getElementById('entry-date').value = new Date().toISOString().slice(0, 10);
@@ -633,7 +644,7 @@ ${commonStyle()}
       ccyEl.value = (viewBatchLines[0] && viewBatchLines[0].currency) || BASE_CCY;
       ccyEl.readOnly = true;
     }
-    document.querySelector('.header-fields').classList.add('jv-flat-readonly');
+    document.querySelector('.header-fields').classList.add('fb-locked-fields');
     document.title = 'Journal Voucher — freeBooks';
     updateStatusBadge(viewBatchReversed ? 'reversed' : 'posted');
     setReference(viewBatchRef);
@@ -663,7 +674,7 @@ ${commonStyle()}
     var diff = Math.round((dr - cr) * 100) / 100;
     var diffEl = document.getElementById('total-diff');
     diffEl.textContent = diff.toFixed(2);
-    diffEl.style.color = diff === 0 ? '#2a8a2a' : '#cc2222';
+    diffEl.style.color = diff === 0 ? 'var(--success)' : 'var(--danger)';
     setCreateControls(false);
     currentBatchId = VIEW_BATCH;
     document.getElementById('jv-pre-attach-section').style.display = 'none';
@@ -690,7 +701,7 @@ ${commonStyle()}
       ccyEl.value = (postedLines[0] && postedLines[0].currency) || BASE_CCY;
       ccyEl.readOnly = true;
     }
-    document.querySelector('.header-fields').classList.add('jv-flat-readonly');
+    document.querySelector('.header-fields').classList.add('fb-locked-fields');
     updateStatusBadge('posted');
     setReference(postedRef);
     var body = document.getElementById('lines-body');
@@ -719,7 +730,7 @@ ${commonStyle()}
     var diff = Math.round((dr - cr) * 100) / 100;
     var diffEl = document.getElementById('total-diff');
     diffEl.textContent = diff.toFixed(2);
-    diffEl.style.color = diff === 0 ? '#2a8a2a' : '#cc2222';
+    diffEl.style.color = diff === 0 ? 'var(--success)' : 'var(--danger)';
     setCreateControls(false);
     document.getElementById('jv-pre-attach-section').style.display = 'none';
     document.getElementById('jv-attachment-panel').style.display = '';
@@ -764,14 +775,14 @@ ${commonStyle()}
     reversalMode = !reversalMode;
     var btn = document.getElementById('btn-reversal-mode');
     btn.textContent = reversalMode ? '\u2715 Cancel Reversal' : '\u27f2 Reversal';
-    btn.style.background = reversalMode ? '#f0e8ff' : '';
+    btn.style.background = reversalMode ? 'var(--dd-active)' : '';
     document.getElementById('reversal-panel').style.display = 'none';
     if (reversalMode) {
       var dateEl = document.getElementById('entry-date');
       dateEl.disabled = false;
       document.getElementById('entry-journal').disabled = false;
       document.getElementById('entry-desc').readOnly = false;
-      document.querySelector('.header-fields').classList.remove('jv-flat-readonly');
+      document.querySelector('.header-fields').classList.remove('fb-locked-fields');
       setCreateControls(true);
       applyReversalLines(VIEW_BATCH, viewBatchRef, viewBatchLines);
     } else {
@@ -789,7 +800,7 @@ ${commonStyle()}
   var reversalRows = [];
   var revIdx = -1;
   function paintReversal() {
-    reversalRows.forEach(function (d, i) { d.style.background = (i === revIdx) ? '#f0f4ff' : ''; });
+    reversalRows.forEach(function (d, i) { d.style.background = (i === revIdx) ? 'var(--dd-active)' : ''; });
     if (reversalRows[revIdx] && reversalRows[revIdx].scrollIntoView) reversalRows[revIdx].scrollIntoView({ block: 'nearest' });
   }
   function moveReversal(d) {
@@ -808,7 +819,7 @@ ${commonStyle()}
     reversalMode = !reversalMode;
     document.getElementById('reversal-panel').style.display = reversalMode ? '' : 'none';
     document.getElementById('btn-reversal-mode').textContent = reversalMode ? '\u2715 Cancel Reversal' : '\u27f2 Reversal';
-    document.getElementById('btn-reversal-mode').style.background = reversalMode ? '#f0e8ff' : '';
+    document.getElementById('btn-reversal-mode').style.background = reversalMode ? 'var(--dd-active)' : '';
     if (!reversalMode) {
       document.getElementById('reversal-search').value = '';
       document.getElementById('reversal-results').style.display = 'none';
@@ -833,20 +844,20 @@ ${commonStyle()}
           var rows = resp.data || resp;
           res.innerHTML = '';
           if (!Array.isArray(rows) || !rows.length) {
-            res.innerHTML = '<div style="padding:8px 12px;color:#888;font-size:10pt">No matching entries</div>';
+            res.innerHTML = '<div style="padding:8px 12px;color:var(--text-muted);font-size:0.8125rem">No matching entries</div>';
             res.style.display = '';
             reversalRows = []; revIdx = -1;
             return;
           }
           rows.forEach(function(r) {
             var d = document.createElement('div');
-            d.style.cssText = 'padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:10pt';
+            d.style.cssText = 'padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:0.8125rem';
             var ref = r.reference || r.batch_id;
             var date = r.date ? String(r.date).slice(0,10) : '';
             d.innerHTML = '<span style="font-weight:600">' + ref + '</span>'
-              + '<span style="color:#888;margin-left:10px">' + date + '</span>'
-              + (r.description ? '<span style="color:#555;margin-left:10px">' + r.description + '</span>' : '');
-            d.onmouseenter = function() { d.style.background='#f0f4ff'; };
+              + '<span style="color:var(--text-muted);margin-left:10px">' + date + '</span>'
+              + (r.description ? '<span style="color:var(--text-muted);margin-left:10px">' + r.description + '</span>' : '');
+            d.onmouseenter = function() { d.style.background='var(--dd-active)'; };
             d.onmouseleave = function() { d.style.background=''; };
             d.onclick = function() { loadReversalEntry(r.batch_id, ref); };
             res.appendChild(d);
@@ -988,7 +999,7 @@ ${commonStyle()}
       var kb = (f.size / 1024).toFixed(1);
       return '<div class="fb-attach-row" data-att-id="' + i + '">'
         + '<span class="fb-att-name">\ud83d\udcc4 ' + f.name + ' <span class="fb-att-meta">(' + kb + ' KB)</span></span>'
-        + '<button class="fb-att-del" onclick="removeJvAttachment(' + i + ')" title="delete (x)">&times;</button>'
+        + '<button class="fb-att-del" onclick="removeJvAttachment(' + i + ')" title="delete (x)" aria-label="Delete">&times;</button>'
         + '</div>';
     }).join('') + '<div class="fb-attach-row fb-attach-add">'
       + '<button type="button" class="fb-att-add-btn" onclick="document.getElementById(\\'jv-pre-attach-input\\').click()">+ Add attachment</button>'

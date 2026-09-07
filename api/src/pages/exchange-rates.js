@@ -22,20 +22,20 @@ function buildExchangeRatesPage(company) {
 <title>Exchange Rates - freeBooks</title>
 ${commonStyle()}
 <style>
-  table.edit-table { width:100%; border-collapse:collapse; font-size:10pt; }
-  table.edit-table th { text-align:left; font-size:9pt; text-transform:uppercase; color:#555; border-bottom:1px solid #ccc; padding:6px 6px; white-space:nowrap; }
-  table.edit-table td { padding:4px 4px; border-bottom:1px solid #f0f0f0; vertical-align:middle; white-space:nowrap; }
-  table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; font-size:10pt; }
-  table.edit-table .ro { background:#f5f5f5; color:#888; padding:4px 6px; border-radius:3px; display:block; }
-  .pe-ro { color:#888; }
-  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 #d97706; }
-  .dirty-val { color:#b45309; }
-  tr.row-editing > td { background:#fffbeb; }
+  table.edit-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+  table.edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; white-space:nowrap; }
+  table.edit-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
+  table.edit-table input[type=text], table.edit-table input[type=date], table.edit-table select { width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; background:var(--surface); color:var(--text); }
+  table.edit-table .ro { background:var(--bg); color:var(--text-muted); padding:4px 6px; border-radius:3px; display:block; }
+  .pe-ro { color:var(--text-muted); }
+  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+  .dirty-val { color:var(--warning); }
+  tr.row-editing > td { background:var(--warning-bg); }
   .row-actions { white-space:nowrap; text-align:right; }
-  .tb-select { padding:4px 6px; border:1px solid #ccc; border-radius:4px; font-size:10pt; }
-  .tb-date-input { padding:4px 6px; border:1px solid #ccc; border-radius:4px; font-size:10pt; }
-  .fb-toomany-row td { text-align:center; color:#888; padding:24px; }
-  .fb-add-row .fb-add-cell { color:#888; cursor:pointer; padding:6px; text-align:center; }
+  .tb-select { padding:4px 6px; border:1px solid var(--border); border-radius:4px; font-size:0.8125rem; }
+  .tb-date-input { padding:4px 6px; border:1px solid var(--border); border-radius:4px; font-size:0.8125rem; }
+  .fb-toomany-row td { text-align:center; color:var(--text-muted); padding:24px; }
+  .fb-add-row .fb-add-cell { color:var(--text-muted); cursor:pointer; padding:6px; text-align:center; }
 </style>
 </head>
 <body>${navBar(company, 'exchange-rates')}

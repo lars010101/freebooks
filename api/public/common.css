@@ -7,8 +7,8 @@
   --surface:     #ffffff;
   --border:      #e4e8ee;
   --text:        #18243a;
-  --text-muted:  #6b7a95;
-  --text-faint:  #a0aec0;
+  --text-muted:  #5f6e89;
+  --text-faint:  #a0aec0; /* decorative use only — fails AA text contrast, see docs/UI.md */
   --sb-bg:       #18293f;
   --sb-text:     rgba(220,228,242,.72);
   --sb-active-bg: rgba(255,255,255,.11);
@@ -21,6 +21,7 @@
   --tb-border:   #e4e8ee;
   --tb-text:     #18243a;
   --accent:      #18293f;
+  --on-accent:   #ffffff;
   --dd-active:   #e8f0fe;
   /* Toggle-button ON state (magnus 2026-07-28): amber — must NOT collide
      with the cell cursor (--accent navy fill) so active vs focused stays
@@ -28,6 +29,20 @@
   --toggle-on:        #f59e0b;
   --toggle-on-border: #d97706;
   --toggle-on-text:   #1a1a1a;
+
+  /* Decorative, identity-hash-based avatar fills (payables-bills.js) — same
+     values in both themes, like --toggle-on: these distinguish partners by
+     colour, they don't carry semantic meaning that should flip with theme. */
+  --avatar-1: #4f6ef7; --avatar-2: #e05c5c; --avatar-3: #2bac72; --avatar-4: #e09d3a;
+  --avatar-5: #9b59c4; --avatar-6: #17a2b8; --avatar-7: #e07840; --avatar-8: #5c7ae0;
+
+  /* Semantic status tokens (docs/UI.md — Colour & Theming) */
+  --danger:        #b91c1c; --danger-bg:  #fee2e2; --danger-border:  #fca5a5;
+  --success:       #166534; --success-bg: #dcfce7; --success-border: #86efac;
+  --warning:       #b45309; --warning-bg: #fef3c7; --warning-border: #fcd34d;
+  --info:          #2563eb; --info-bg:    #e8f0fe; --info-border:    #bfdbfe;
+  --chip-text:     #556072; --chip-bg:    #eef0f3; --chip-border:    #d7dce3;
+  --focus-ring:    #2563eb;
 }
 [data-theme="dark"] {
   --bg:          #0e1520;
@@ -35,7 +50,7 @@
   --border:      #253348;
   --text:        #dce4f2;
   --text-muted:  #7a8faa;
-  --text-faint:  #4a5e78;
+  --text-faint:  #4a5e78; /* decorative use only — fails AA text contrast, see docs/UI.md */
   --sb-bg:       #0e1520;
   --sb-text:     rgba(220,228,242,.65);
   --sb-active-bg: rgba(255,255,255,.10);
@@ -48,13 +63,21 @@
   --tb-border:   #253348;
   --tb-text:     #dce4f2;
   --accent:      #3d6494;
+  --on-accent:   #ffffff;
   --dd-active:   rgba(110,160,255,.18);
+
+  --danger:        #fca5a5; --danger-bg:  #450a0a; --danger-border:  #7f1d1d;
+  --success:       #86efac; --success-bg: #052e16; --success-border: #166534;
+  --warning:       #fcd34d; --warning-bg: #451a03; --warning-border: #92400e;
+  --info:          #93c5fd; --info-bg:    #0f2447; --info-border:    #1e3a5f;
+  --chip-text:     #9aa7bb; --chip-bg:    #1f2c40; --chip-border:    #2c3b52;
+  --focus-ring:    #93c5fd;
 }
 
 html, body { height:100%; }
 body {
   font-family: 'Helvetica Neue', Arial, sans-serif;
-  font-size: 1rem;
+  font-size: 0.8125rem;
   line-height: 1.6;
   color: var(--text);
   background: var(--bg);
@@ -106,7 +129,7 @@ body {
   padding-top: 12vh;
 }
 .fb-keys-panel {
-  background: #fff;
+  background: var(--surface);
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0,0,0,.25);
   width: 640px;
@@ -118,12 +141,12 @@ body {
 .fb-keys-title {
   font-size: 0.9375rem;
   font-weight: 600;
-  color: #1a2332;
+  color: var(--text);
   margin-bottom: 12px;
 }
 .fb-keys-page {
   font-weight: 400;
-  color: #8a93a6;
+  color: var(--text-muted);
   font-size: 0.8125rem;
   margin-left: 6px;
 }
@@ -132,7 +155,7 @@ body {
   gap: 32px;
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px solid #eceef2;
+  border-top: 1px solid var(--border);
 }
 .fb-keys-nav {
   flex: 0 0 auto;
@@ -145,8 +168,8 @@ body {
   font-size: 0.625rem;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: #8a93a6;
-  border-bottom: 1px solid #eceef2;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
   padding-bottom: 4px;
   margin-bottom: 6px;
 }
@@ -156,15 +179,15 @@ body {
   gap: 8px;
   padding: 2.5px 0;
   font-size: 0.6875rem;
-  color: #4a5468;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 .fb-hint-row kbd {
   font-family: 'SF Mono', 'Fira Mono', monospace;
   font-size: 0.625rem;
-  color: #3a4356;
-  background: #f2f4f8;
-  border: 1px solid #dde1e9;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: 3px;
   padding: 1px 5px;
   min-width: 34px;
@@ -172,11 +195,11 @@ body {
   flex-shrink: 0;
 }
 .fb-keys-panel .fb-hint-row {
-  color: #4a5468;
+  color: var(--text-muted);
   font-size: 0.75rem;
   padding: 3px 0;
 }
-.fb-keys-panel .fb-hint-row.fb-keys-none { color: #b6bcc9; }
+.fb-keys-panel .fb-hint-row.fb-keys-none { color: var(--text-faint); }
 
 
 /* ---- Table row keyboard focus ---- */
@@ -186,17 +209,17 @@ body {
    rules below stripped input borders/backgrounds (2026-07-25). */
 tr.nav-row-focus:not(.row-editing) > td {
   background: var(--accent) !important;
-  color: #fff !important;
+  color: var(--on-accent) !important;
   outline: none;
 }
-tr.nav-row-focus:not(.row-editing) > td a { color: #fff !important; }
-tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; background: transparent !important; border-color: transparent !important; }
+tr.nav-row-focus:not(.row-editing) > td a { color: var(--on-accent) !important; }
+tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !important; background: transparent !important; border-color: transparent !important; }
 
 /* ---- Attachment row keyboard focus ---- */
-.attach-row.nav-attach-focus { background: #1a1a1a !important; }
+.attach-row.nav-attach-focus { background: var(--accent) !important; }
 .attach-row.nav-attach-focus .attach-filename,
-.attach-row.nav-attach-focus .attach-meta { color: #fff !important; }
-.attach-row.nav-attach-focus .pdf-icon { border-color: #888 !important; color: #aaa !important; background: #333 !important; }
+.attach-row.nav-attach-focus .attach-meta { color: var(--on-accent) !important; }
+.attach-row.nav-attach-focus .pdf-icon { border-color: rgba(255,255,255,.35) !important; color: rgba(255,255,255,.75) !important; background: rgba(255,255,255,.15) !important; }
 
 /* ---- Top bar ---- */
 #main-area {
@@ -293,12 +316,12 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
 
 /* Search wrap — positioning context for FB.palette dropdown (P1-10) */
 .tb-search-wrap { position: relative; }
-.tb-cmd-btn { padding:6px 12px; border:1px solid var(--border); border-radius:6px; font-size:0.875rem; background:var(--surface-alt,#f5f5f5); color:var(--text); cursor:pointer; white-space:nowrap; }
+.tb-cmd-btn { padding:6px 12px; border:1px solid var(--border); border-radius:6px; font-size:0.875rem; background:var(--surface); color:var(--text); cursor:pointer; white-space:nowrap; }
 .tb-cmd-btn:hover { background:var(--border); }
 .tb-status-msg { font-size:0.8125rem; color:var(--text-muted); white-space:nowrap; }
-.tb-status-msg.ok { color: #2a8a2a; }
-.tb-status-msg.err { color: #cc2222; font-weight: 500; }
-.tb-status-msg.warn { color: #b8860b; font-weight: 500; }
+.tb-status-msg.ok { color: var(--success); }
+.tb-status-msg.err { color: var(--danger); font-weight: 500; }
+.tb-status-msg.warn { color: var(--warning); font-weight: 500; }
 
 /* Top bar nav links */
 .tb-nav-link {
@@ -334,7 +357,7 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
   color: var(--navy-text);
 }
 .tb-btn:hover { background: var(--navy-hover); color: var(--navy-text-strong); }
-.tb-btn.tb-btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tb-btn.tb-btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .tb-btn.tb-btn-primary:hover { opacity: .88; }
 /* Quiet variant: permanent/secondary topbar actions (+ Journal Entry, dynamic slots) */
 .tb-btn.tb-btn-quiet { opacity: .72; }
@@ -348,20 +371,22 @@ tr.nav-row-focus:not(.row-editing) > td input { color: #fff !important; backgrou
    2026-07-27 when Mappings migrated onto FB.list; the framework add row
    is a different mechanism.) */
 .fb-add-row td {
-  color: #7a828c !important;
+  color: var(--text-muted) !important;
   padding: 8px 12px !important;
   border-top: 1px dashed var(--border) !important;
   cursor: pointer;
   user-select: none;
 }
-.fb-add-row:hover td { background: #eceff2; color: var(--accent) !important; }
+.fb-add-row:hover td { background: var(--bg); color: var(--accent) !important; }
 /* Keyboard cursor landing on the add row must stay visible. */
 tr.fb-add-row.nav-row-focus td,
 tr.fb-add-row.bill-row-focus td { background: var(--accent) !important; color: rgba(255,255,255,.85) !important; }
 
-/* Unsaved inline-draft edits left behind by Esc (write with w) */
-tr.fb-draft-dirty td { background: #fffbf0; }
-body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
+/* Unsaved inline-draft edits left behind by Esc (write with w). Previously
+   gated on `body.fb-dark`, a class the theme toggle never applies (it sets
+   `data-theme` on <html> — see common.js) — the dark-mode override below
+   had never fired. */
+tr.fb-draft-dirty td { background: var(--warning-bg); }
 .tb-icon-btn {
   width: 32px; height: 32px;
   border: 1px solid rgba(255,255,255,.15);
@@ -383,9 +408,9 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   top: -4px; right: -4px;
   min-width: 16px; height: 16px;
   border-radius: 8px;
-  background: #b91c1c;
-  color: #fff;
-  font-size: 9px;
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: 0.625rem;
   font-weight: 700;
   line-height: 16px;
   text-align: center;
@@ -400,12 +425,12 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   top: 2px; right: 2px;
   width: 8px; height: 8px;
   border-radius: 50%;
-  background: #999; /* grey default — agent stopped, until the first check lands */
-  border: 1px solid var(--bg, #fff);
+  background: var(--text-faint); /* grey default — agent stopped, until the first check lands */
+  border: 1px solid var(--bg);
 }
-.tb-chat-dot.ok { background: #16a34a; }     /* agent running AND LLM reachable */
-.tb-chat-dot.warn { background: #d97706; }   /* agent running, LLM unreachable */
-.tb-chat-dot.off { background: #999; }       /* agent stopped */
+.tb-chat-dot.ok { background: var(--success); }     /* agent running AND LLM reachable */
+.tb-chat-dot.warn { background: var(--warning); }   /* agent running, LLM unreachable */
+.tb-chat-dot.off { background: var(--text-faint); } /* agent stopped */
 .tb-notif-dropdown {
   position: fixed;
   top: 52px; right: 16px;
@@ -417,15 +442,15 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0,0,0,.12);
   z-index: 1000;
-  font-size: 10pt;
+  font-size: 0.8125rem;
 }
 .tb-notif-dropdown h4 {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  font-size: 9pt; text-transform: uppercase; color: var(--text-muted);
+  font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted);
   display: flex; justify-content: space-between; align-items: center;
 }
-.tb-notif-dropdown h4 a { font-size: 9pt; cursor: pointer; color: var(--accent); text-decoration: none; }
+.tb-notif-dropdown h4 a { font-size: 0.75rem; cursor: pointer; color: var(--accent); text-decoration: none; }
 .tb-notif-item {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
@@ -433,9 +458,9 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 }
 .tb-notif-item:hover { background: var(--bg); }
 .tb-notif-item:last-child { border-bottom: none; }
-.tb-notif-item .notif-kind { font-size: 8.5pt; text-transform: uppercase; color: var(--text-muted); letter-spacing: .03em; }
+.tb-notif-item .notif-kind { font-size: 0.6875rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: .03em; }
 .tb-notif-item .notif-msg { margin-top: 2px; }
-.tb-notif-item .notif-time { font-size: 8.5pt; color: var(--text-faint); margin-top: 2px; }
+.tb-notif-item .notif-time { font-size: 0.6875rem; color: var(--text-faint); margin-top: 2px; }
 
 /* ---- Unified topbar download dropdown (ia-restructure-3-spec.md §6.3) ---- */
 .tb-dl-dropdown {
@@ -480,7 +505,7 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0,0,0,.12);
   z-index: 1000;
-  font-size: 10pt;
+  font-size: 0.8125rem;
 }
 .tb-new-item {
   padding: 9px 14px;
@@ -597,22 +622,111 @@ body.fb-dark tr.fb-draft-dirty td { background: #2a2410; }
 
 /* Form header fields (flex row of labeled inputs) */
 .header-fields { display:flex; gap:16px; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap; }
-.header-fields label { display:flex; flex-direction:column; gap:3px; font-weight:600; font-size:10pt; color:#555; text-transform:uppercase; }
-.header-fields input, .header-fields select { padding:4px 6px; border:1px solid #ccc; border-radius:4px; font-size:10pt; box-sizing:border-box; height:32px; }
+.header-fields label { display:flex; flex-direction:column; gap:3px; font-weight:600; font-size:0.8125rem; color:var(--text-muted); text-transform:uppercase; }
+.header-fields input, .header-fields select { padding:4px 6px; border:1px solid var(--border); border-radius:4px; font-size:0.8125rem; box-sizing:border-box; height:32px; background:var(--surface); color:var(--text); }
 
 /* Totals bar */
-.totals { display:flex; gap:24px; margin-top:12px; font-size:10pt; align-items:center; }
+.totals { display:flex; gap:24px; margin-top:12px; font-size:0.8125rem; align-items:center; }
 .totals span { font-weight:600; }
 
 /* Primary button */
-button.btn-primary { padding:10px 24px; background:#1a1a1a; color:#fff; border:none; border-radius:4px; font-size:11pt; font-weight:600; cursor:pointer; }
-button.btn-primary:hover:not(:disabled) { background:#333; }
+button.btn-primary { padding:10px 24px; background:var(--accent); color:var(--on-accent); border:none; border-radius:4px; font-size:0.875rem; font-weight:600; cursor:pointer; }
+button.btn-primary:hover:not(:disabled) { opacity:.88; }
 button.btn-primary:disabled { opacity:0.4; cursor:default; }
 
 /* Small button */
-.btn-sm { padding:0 14px; height:32px; font-size:10pt; cursor:pointer; border:1px solid #ccc; border-radius:3px; background:#f5f5f5; }
-.btn-sm:hover { background:#e8e8e8; }
-.btn-sm.danger { border-color:#cc2222; color:#cc2222; }
+.btn-sm { padding:0 14px; height:32px; font-size:0.8125rem; cursor:pointer; border:1px solid var(--border); border-radius:3px; background:var(--bg); color:var(--text); }
+.btn-sm:hover { background:var(--border); }
+.btn-sm.danger { border-color:var(--danger); color:var(--danger); }
+
+/* ---- Status badge (docs/UI.md Components — single vocabulary) ----
+   Replaces the five independent status-badge conventions that had grown up
+   per-page (.st-badge/.st-*, .badge-out/.badge-in/etc., and three separate
+   bare .badge definitions, two of them not even matching each other's
+   geometry). One shape, five semantic modifiers — every page's status
+   mapping (which real-world status counts as "danger" etc.) stays local,
+   but the rendering classes are now identical everywhere. */
+.badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.75rem; font-weight:600; }
+.badge-danger  { background:var(--danger-bg);  color:var(--danger); }
+.badge-success { background:var(--success-bg); color:var(--success); }
+.badge-warning { background:var(--warning-bg); color:var(--warning); }
+.badge-info    { background:var(--info-bg);    color:var(--info); }
+.badge-neutral { background:var(--chip-bg);    color:var(--chip-text); }
+
+/* ---- Locked / posted document fields (docs/UI.md Components —
+   posted-vs-draft visual language) ----
+   Flattens form fields to plain, borderless text once a document is posted
+   and can no longer be edited. Extracted from journal-voucher.js's
+   .jv-flat-readonly (bill-edit.js's own locked fields independently arrived
+   at the same transparent-background/muted-text look via native :disabled,
+   but its header fields had no such override and fell back to the browser's
+   default greyed-out disabled box — a real, user-visible inconsistency
+   between the two forms this rule now closes). Toggle this class on the
+   field container once a record becomes non-draft/locked. */
+.fb-locked-fields input,
+.fb-locked-fields select,
+.fb-locked-fields textarea {
+  border:none !important; background:transparent !important; box-shadow:none !important;
+  outline:none !important; -webkit-appearance:none !important; -moz-appearance:none !important; appearance:none !important;
+  color:var(--text-muted) !important; -webkit-text-fill-color:var(--text-muted) !important;
+  opacity:1 !important; cursor:default !important;
+}
+.fb-locked-fields input[type="date"]::-webkit-inner-spin-button,
+.fb-locked-fields input[type="date"]::-webkit-clear-button,
+.fb-locked-fields input[type="date"]::-webkit-calendar-picker-indicator { display:none !important; }
+.fb-locked-fields select::-ms-expand { display:none; }
+
+/* ---- Action-icon chip (docs/UI.md Components) ----
+   Row-verb affordances: fb-list.js's write (✓) / revert (✕) / exit (✕) on a
+   dirty row, and any page's own approve/reject/view/delete/post/discard/
+   retry icons (inbox.js). This was never defined anywhere in the codebase —
+   .chip-ok/.chip-cancel had no rule at all, so every one of these icons on
+   every FB.list-editable page (8+ pages) rendered with no colour, and
+   inbox.js's own local .chip left the same two modifiers uncoloured too.
+   Distinct from a filter/tag chip (a labelled, bordered toggle — see
+   .fb-tag) — same word, different component, kept apart on purpose since
+   conflating them under one class name is exactly how this went unstyled. */
+.chip { display:inline-block; cursor:pointer; text-decoration:none; padding:1px 4px; border-radius:4px; font-weight:600; }
+.chip:hover { background:var(--bg); }
+.chip-ok { color:var(--success); }
+.chip-cancel { color:var(--danger); }
+.chip-disabled { opacity:.4; cursor:not-allowed; }
+
+/* ---- Filter/tag chip ----
+   A labelled, bordered, clickable toggle or small action link (calendar.js's
+   "+ Add reminder"/"Save"/"Cancel", documents.js's "+ Upload document"/
+   "Open"/"Delete"). Was named .chip in both files, colliding with the
+   action-icon chip above — renamed .fb-tag so the two can't be confused or
+   accidentally merged again. */
+.fb-tag { cursor:pointer; padding:2px 8px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; user-select:none; text-decoration:none; color:var(--text); display:inline-block; }
+.fb-tag:hover { background:var(--bg); }
+
+/* ---- Density (docs/UI.md — compact default, comfortable optional) ----
+   Compact values live in each page's own stylesheet (the dense edit-grid
+   archetype: .edit-table/.jrnl-table/.jv-table, duplicated verbatim across
+   8 files — see Spacing scale). Comfortable is defined once, here, and
+   overrides all eight by selector rather than needing eight separate edits;
+   specificity ([data-density] attribute + type + class beats type + class)
+   wins without !important. Toggled by the topbar density button
+   (fbToggleDensity(), common.js), persisted per browser via localStorage —
+   not per-company, since it's a reading preference, not company data. */
+:root[data-density="comfortable"] table.edit-table td,
+:root[data-density="comfortable"] table.jrnl-table td,
+:root[data-density="comfortable"] table.jv-table td,
+:root[data-density="comfortable"] table.edit-table th,
+:root[data-density="comfortable"] table.jrnl-table th,
+:root[data-density="comfortable"] table.jv-table th {
+  padding: 8px 12px;
+}
+:root[data-density="comfortable"] table.edit-table input,
+:root[data-density="comfortable"] table.edit-table select,
+:root[data-density="comfortable"] table.jrnl-table input,
+:root[data-density="comfortable"] table.jrnl-table select,
+:root[data-density="comfortable"] table.jv-table input,
+:root[data-density="comfortable"] table.jv-table select {
+  padding: 8px 12px;
+}
+
 .company-list { list-style: none; margin-top: 8px; }
 .company-list li { border-bottom: 1px solid var(--border); }
 .company-list a { display: block; padding: 12px 0; color: var(--text); text-decoration: none; font-size: 1rem; }
@@ -642,6 +756,7 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
   appearance: auto;
   -webkit-appearance: auto;
 }
+.tb-select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .tb-date-input {
   padding: 5px 8px;
   border: 1px solid var(--border);
@@ -653,6 +768,7 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
   outline: none;
   height: 32px;
 }
+.tb-date-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .tb-toggle-btn {
   padding: 5px 11px;
   border: 1px solid var(--border);
@@ -666,9 +782,9 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
   white-space: nowrap;
 }
 .tb-toggle-btn.tb-active {
-  background: var(--toggle-on, #f59e0b);
-  color: var(--toggle-on-text, #1a1a1a);
-  border-color: var(--toggle-on-border, #d97706);
+  background: var(--toggle-on);
+  color: var(--toggle-on-text);
+  border-color: var(--toggle-on-border);
 }
 
 /* FB.dropdown — the one validated autocomplete (P2-1). Theme-aware via tokens;
@@ -837,7 +953,7 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
   display: inline-block;
   width: 14px;
   cursor: pointer;
-  color: var(--muted, #888);
+  color: var(--text-muted);
   user-select: none;
   vertical-align: middle;
 }
@@ -954,6 +1070,8 @@ tr.row-editing td select[class^="fb-e-"]:focus {
   margin-bottom: 6px;
   outline: none;
 }
+.fb-col-filter-dd .fb-cf-input:focus-visible,
+.fb-col-filter-dd .fb-cf-op:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .fb-col-filter-dd .fb-cf-op { margin-bottom: 8px; }
 .fb-cf-list { max-height: 240px; overflow-y: auto; }
 .fb-cf-item {
@@ -988,10 +1106,10 @@ tr.row-editing td select[class^="fb-e-"]:focus {
    (class existed only there). z-index 9800: above the help overlay (9500),
    below the FB.dropdown layer (9999) so future modals can host dropdowns. */
 .fb-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; z-index:9800; }
-.fb-modal { background:#fff; border-radius:6px; padding:20px 24px; min-width:340px; max-width:560px; box-shadow:0 8px 30px rgba(0,0,0,0.18); }
+.fb-modal { background:var(--surface); color:var(--text); border-radius:6px; padding:20px 24px; min-width:340px; max-width:560px; box-shadow:0 8px 30px rgba(0,0,0,0.18); }
 .fb-modal-title { font-weight:600; margin-bottom:8px; }
-.fb-modal-body { font-size:10pt; color:#555; margin-bottom:14px; }
-.fb-modal-err { color:#cc2222; font-size:10pt; margin-bottom:8px; }
+.fb-modal-body { font-size:0.8125rem; color:var(--text-muted); margin-bottom:14px; }
+.fb-modal-err { color:var(--danger); font-size:0.8125rem; margin-bottom:8px; }
 .fb-modal-btns { display:flex; gap:10px; justify-content:flex-end; }
 
 /* FB.form cursor (K3) — mirrors the FB.list nav-row-focus highlight so mouse
@@ -1001,14 +1119,14 @@ tr.row-editing td select[class^="fb-e-"]:focus {
 tr.fb-form-row-focus > td, div.fb-form-row-focus { background: var(--bg); }
 .fb-form-cursor {
   background: var(--accent) !important;
-  color: #fff !important;
+  color: var(--on-accent) !important;
   outline: 2px solid var(--border) !important;
   outline-offset: -2px;
 }
 .fb-form-cursor input,
 .fb-form-cursor select,
 .fb-form-cursor textarea {
-  color: #fff !important;
+  color: var(--on-accent) !important;
   background: transparent !important;
   border-color: transparent !important;
 }

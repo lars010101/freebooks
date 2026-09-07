@@ -69,13 +69,13 @@ function partnerMsg(msg, type) {
   var el = document.getElementById('msg-partners');
   if (!el) return;
   el.textContent = msg;
-  el.style.color = type === 'err' ? '#cc2222' : type === 'ok' ? '#2a8a2a' : '#888';
+  el.style.color = type === 'err' ? 'var(--danger)' : type === 'ok' ? 'var(--success)' : 'var(--text-muted)';
 }
 
 function partnerActiveBadge(v) {
   return v !== false
-    ? '<span class="badge" style="background:#f0fff4;color:#2a8a2a">Active</span>'
-    : '<span class="badge" style="background:#f0f0f0;color:#888">Inactive</span>';
+    ? '<span class="badge badge-success">Active</span>'
+    : '<span class="badge badge-neutral">Inactive</span>';
 }
 
 var partnersList = FB.list.create({

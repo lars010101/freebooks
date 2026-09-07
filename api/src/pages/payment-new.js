@@ -38,24 +38,24 @@ function buildPaymentNewPage(company, billId, flags) {
 ${commonStyle()}
 <style>
   .pn-header { display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; align-items:end; margin-bottom:16px; }
-  .pn-header label { display:flex; flex-direction:column; gap:3px; font-weight:600; font-size:9pt; text-transform:uppercase; color:#555; }
-  .pn-header input { padding:4px 6px; border:1px solid #ccc; border-radius:4px; font-size:10pt; height:32px; box-sizing:border-box; }
-  .pn-bills { border:1px solid #e8e8e8; border-radius:4px; margin-bottom:12px; }
-  .pn-bill-row, .pn-bill-head { display:grid; grid-template-columns: 28px 90px 1fr 90px 60px 110px; gap:8px; align-items:center; padding:6px 10px; border-bottom:1px solid #f0f0f0; }
-  .pn-bill-head { font-weight:600; font-size:8pt; text-transform:uppercase; color:#888; letter-spacing:.03em; background:#fafafa; border-radius:4px 4px 0 0; }
+  .pn-header label { display:flex; flex-direction:column; gap:3px; font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); }
+  .pn-header input { padding:4px 6px; border:1px solid var(--border); border-radius:4px; font-size:0.8125rem; height:32px; box-sizing:border-box; background:var(--surface); color:var(--text); }
+  .pn-bills { border:1px solid var(--border); border-radius:4px; margin-bottom:12px; }
+  .pn-bill-row, .pn-bill-head { display:grid; grid-template-columns: 28px 90px 1fr 90px 60px 110px; gap:8px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--border); }
+  .pn-bill-head { font-weight:600; font-size:0.6875rem; text-transform:uppercase; color:var(--text-muted); letter-spacing:.03em; background:var(--bg); border-radius:4px 4px 0 0; }
   .pn-bill-row:last-child { border-bottom:none; }
   .pn-bill-row.pn-off { opacity:0.45; }
   .pn-bill-row.pn-currency-locked { opacity:0.3; }
   .pn-bill-row input[type="checkbox"] { width:16px; height:16px; }
-  .pn-bill-row input[type="number"] { width:100%; padding:4px 6px; border:1px solid #ddd; border-radius:3px; text-align:right; box-sizing:border-box; }
-  .pn-outstanding { color:#888; font-variant-numeric:tabular-nums; text-align:right; }
-  .pn-bill-ccy { display:inline-block; padding:1px 7px; border-radius:10px; background:#f0f0f0; color:#666; font-size:8pt; font-weight:600; }
+  .pn-bill-row input[type="number"] { width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; text-align:right; box-sizing:border-box; }
+  .pn-outstanding { color:var(--text-muted); font-variant-numeric:tabular-nums; text-align:right; }
+  .pn-bill-ccy { display:inline-block; padding:1px 7px; border-radius:10px; background:var(--chip-bg); color:var(--chip-text); font-size:0.6875rem; font-weight:600; }
   .pn-total-row { display:flex; gap:12px; align-items:center; margin-bottom:16px; }
-  .pn-total-row input { width:110px; padding:4px 6px; border:1px solid #ccc; border-radius:4px; text-align:right; }
-  .pn-total-row input[readonly] { background:#f5f5f5; color:#444; border-color:#e0e0e0; }
-  .pn-msg { min-height:1em; font-size:10pt; }
-  .pn-msg.err { color:#cc2222; } .pn-msg.ok { color:#2a8a2a; }
-  input.req { border-color:#cc2222 !important; }
+  .pn-total-row input { width:110px; padding:4px 6px; border:1px solid var(--border); border-radius:4px; text-align:right; }
+  .pn-total-row input[readonly] { background:var(--bg); color:var(--text-muted); border-color:var(--border); }
+  .pn-msg { min-height:1em; font-size:0.8125rem; }
+  .pn-msg.err { color:var(--danger); } .pn-msg.ok { color:var(--success); }
+  input.req { border-color:var(--danger) !important; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
@@ -81,11 +81,11 @@ ${commonStyle()}
   <div class="pn-bill-head">
     <span></span><span>Due</span><span>Reference</span><span style="text-align:right">Amount</span><span>Ccy</span><span style="text-align:right">Pay</span>
   </div>
-  <div class="pn-bills" id="pn-bills"><div style="padding:12px;color:#888">Pick a partner to see open bills.</div></div>
+  <div class="pn-bills" id="pn-bills"><div style="padding:12px;color:var(--text-muted)">Pick a partner to see open bills.</div></div>
 
   <div class="pn-total-row">
     <span>Total <input id="pn-total" type="number" step="0.01" readonly tabindex="-1"></span>
-    <span id="pn-total-ccy" style="color:#666"></span>
+    <span id="pn-total-ccy" style="color:var(--text-muted)"></span>
   </div>
 
   <!-- FX rate is the LAST input step, after the total is known — not a
@@ -94,7 +94,7 @@ ${commonStyle()}
        equivalent live as either the total or the rate changes. -->
   <div class="pn-header" id="pn-fx-row" style="display:none">
     <label>FX rate <input id="pn-fx" type="number" step="0.0001" min="0" placeholder="e.g. 1.35"></label>
-    <span id="pn-home-equiv" style="color:#666;align-self:center"></span>
+    <span id="pn-home-equiv" style="color:var(--text-muted);align-self:center"></span>
   </div>
 
   <div style="display:flex;gap:12px;align-items:center">
@@ -236,7 +236,7 @@ function loadQualifying(partnerName, preselectId) {
 // editable down for a partial payment.
 function renderBills(preselectId) {
   const host = document.getElementById('pn-bills');
-  if (!S.openForPartner.length) { host.innerHTML = '<div style="padding:12px;color:#888">No open bills for this partner.</div>'; onSelectionChanged(); return; }
+  if (!S.openForPartner.length) { host.innerHTML = '<div style="padding:12px;color:var(--text-muted)">No open bills for this partner.</div>'; onSelectionChanged(); return; }
   host.innerHTML = S.openForPartner.map(b => {
     const out = Math.max(0, Math.round(((Number(b.amount) || 0) - (Number(b.amount_paid) || 0)) * 100) / 100);
     const checked = preselectId ? (b.bill_id === preselectId) : false;

@@ -53,6 +53,24 @@
   };
   fbApplyTheme(localStorage.getItem('fb-theme') || 'light');
 
+  // ── Density (docs/UI.md — compact default, comfortable optional) ──
+  function fbApplyDensity(d) {
+    if (d === 'comfortable') document.documentElement.setAttribute('data-density', 'comfortable');
+    else document.documentElement.removeAttribute('data-density');
+    var icon = document.getElementById('fb-density-icon');
+    var btn  = document.getElementById('fb-density-btn');
+    if (icon) icon.textContent = d === 'comfortable' ? '▥' : '▤';
+    if (btn)  btn.title = d === 'comfortable' ? 'Switch to compact density' : 'Switch to comfortable density';
+  }
+  window.fbApplyDensity = fbApplyDensity;  // exposed for fbToggleDensity() (the topbar density button)
+  window.fbToggleDensity = function() {
+    var cur = document.documentElement.getAttribute('data-density') === 'comfortable' ? 'comfortable' : 'compact';
+    var next = cur === 'comfortable' ? 'compact' : 'comfortable';
+    localStorage.setItem('fb-density', next);
+    fbApplyDensity(next);
+  };
+  fbApplyDensity(localStorage.getItem('fb-density') || 'compact');
+
   // ── Load company display name ──
   (function() {
     var coId = (document.getElementById('app-shell') || {}).dataset && document.getElementById('app-shell').dataset.company;
@@ -93,10 +111,10 @@
       .then(function(r){ return r.json(); })
       .then(function(res){
         var cos = res.data || res || [];
-        if (!Array.isArray(cos) || !cos.length) { dd.innerHTML='<div class="tb-company-opt" style="color:#888">No other companies</div>'; }
+        if (!Array.isArray(cos) || !cos.length) { dd.innerHTML='<div class="tb-company-opt" style="color:var(--text-muted)">No other companies</div>'; }
         else {
           dd.innerHTML = cos.map(function(c){
-            return '<a class="tb-company-opt" href="/'+c.company_id+'">'+(c.company_name||c.name||c.company_id)+'<br><small style="color:#aaa;font-size:8pt">'+c.company_id+'</small></a>';
+            return '<a class="tb-company-opt" href="/'+c.company_id+'">'+(c.company_name||c.name||c.company_id)+'<br><small style="color:var(--text-faint);font-size:0.625rem">'+c.company_id+'</small></a>';
           }).join('');
         }
         // settings-ux-spec §7 item 1 rev 2026-07-27: company creation moved off
@@ -105,17 +123,17 @@
         // existing /setup/new-company page.
         var div = document.createElement('div');
         div.className = 'tb-company-divider';
-        div.style.cssText = 'border-top:1px solid #e0e0e0;margin:6px 0';
+        div.style.cssText = 'border-top:1px solid var(--border);margin:6px 0';
         dd.appendChild(div);
         var link = document.createElement('a');
         link.className = 'tb-company-opt';
         link.href = '/setup/new-company';
         link.innerHTML = '+ New company';
-        link.style.cssText = 'color:#1a1a1a;font-weight:600';
+        link.style.cssText = 'color:var(--accent);font-weight:600';
         dd.appendChild(link);
         if (onReady) onReady(true);
       })
-      .catch(function(){ dd.innerHTML='<div class="tb-company-opt" style="color:#cc2222">Error loading</div>'; if (onReady) onReady(true); });
+      .catch(function(){ dd.innerHTML='<div class="tb-company-opt" style="color:var(--danger)">Error loading</div>'; if (onReady) onReady(true); });
     } else {
       if (onReady) onReady(true);
     }

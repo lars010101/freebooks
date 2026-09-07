@@ -59,14 +59,14 @@ async function buildHubPage(req, res, opts) {
 <title>${esc(pageTitle)} — freeBooks</title>
 ${commonStyle()}
 <style>
-  .tabs { display:flex; gap:0; border-bottom:2px solid var(--text,#1a1a1a); flex-shrink:0; padding:0 3rem; }
-  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:var(--text-muted,#555); border-bottom:3px solid transparent; margin-bottom:-2px; }
-  .tab.active { color:var(--text,#1a1a1a); border-bottom-color:var(--text,#1a1a1a); }
+  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); flex-shrink:0; padding:0 3rem; }
+  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:var(--text-muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
   /* Report fragment styling — mirrors reports/render.js htmlPage()'s embedded
      <style> block (that CSS never ships to the client here; only the .page
      element's markup does), made theme-aware via the app's CSS vars. */
-  .rpt-embed { background:var(--surface,#fff); border-radius:8px; }
-  .rpt-embed .page { padding:24px 32px; max-width:none; }
+  .rpt-embed { background:var(--surface); border-radius:8px; }
+  .rpt-embed .page { padding:24px; max-width:none; }
   .rpt-embed .page.wide .table-wrap { overflow-x:auto; }
   .rpt-embed .page.wide th { white-space:nowrap; }
   /* Company/report-title/period repeats page chrome the app already shows —
@@ -74,21 +74,21 @@ ${commonStyle()}
      report's own standalone URL raw, not this fragment, so it keeps its
      header regardless (reports/render.js's own per-report stylesheet). */
   .rpt-embed .header { display:none; }
-  .rpt-embed .company { font-size:16pt; font-weight:700; color:var(--text); }
-  .rpt-embed .report-title { font-size:13pt; color:var(--text-muted,#444); margin-top:4px; }
-  .rpt-embed .period { font-size:10pt; color:var(--text-muted,#666); margin-top:2px; }
+  .rpt-embed .company { font-size:1rem; font-weight:700; color:var(--text); }
+  .rpt-embed .report-title { font-size:0.875rem; color:var(--text-muted); margin-top:4px; }
+  .rpt-embed .period { font-size:0.8125rem; color:var(--text-muted); margin-top:2px; }
   .rpt-embed table { width:100%; border-collapse:collapse; margin-top:8px; }
-  .rpt-embed th { text-align:left; font-size:9pt; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted,#555); border-bottom:1px solid var(--border,#ccc); padding:6px 8px; }
+  .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 8px; }
   .rpt-embed th.num { text-align:right; }
-  .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border,#f0f0f0); vertical-align:top; color:var(--text); }
+  .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
   .rpt-embed td.num { text-align:right; font-variant-numeric:tabular-nums; }
-  .rpt-embed tr.subtotal td { font-weight:600; border-top:1px solid var(--border,#aaa); border-bottom:2px solid var(--border,#aaa); background:var(--bg,#f8f8f8); }
-  .rpt-embed tr.type_total td { font-weight:700; background:var(--bg,#efefef); }
-  .rpt-embed tr.total td { font-weight:700; font-size:11pt; border-top:2px solid var(--text,#1a1a1a); border-bottom:3px double var(--text,#1a1a1a); background:var(--bg,#f0f0f0); }
-  .rpt-embed tr.section-header td { font-weight:700; font-size:10pt; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted,#444); padding-top:16px; border-bottom:none; background:none; }
-  .rpt-embed tr.zero td.num { color:var(--text-faint,#bbb); }
-  .rpt-embed .footer { margin-top:32px; padding-top:12px; border-top:1px solid var(--border,#ddd); font-size:9pt; color:var(--text-muted,#888); }
-  .rpt-embed-msg { padding:2rem; color:var(--text-muted,#888); }
+  .rpt-embed tr.subtotal td { font-weight:600; border-top:1px solid var(--border); border-bottom:2px solid var(--border); background:var(--bg); }
+  .rpt-embed tr.type_total td { font-weight:700; background:var(--bg); }
+  .rpt-embed tr.total td { font-weight:700; font-size:0.875rem; border-top:2px solid var(--text); border-bottom:3px double var(--text); background:var(--bg); }
+  .rpt-embed tr.section-header td { font-weight:700; font-size:0.8125rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); padding-top:16px; border-bottom:none; background:none; }
+  .rpt-embed tr.zero td.num { color:var(--text-faint); }
+  .rpt-embed .footer { margin-top:32px; padding-top:12px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--text-muted); }
+  .rpt-embed-msg { padding:2rem; color:var(--text-muted); }
 </style>
 </head>
 <body>${navBar(company, activeKey)}
@@ -101,12 +101,12 @@ ${commonStyle()}
     ${tabsHtml}
   </div>
 
-  <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:0.75rem 3rem; border-bottom:1px solid var(--border,#e8e8e8); flex-shrink:0;">
+  <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:0.75rem 3rem; border-bottom:1px solid var(--border); flex-shrink:0;">
     ${showComparison ? `<button class="tb-toggle-btn" id="rpt-mom" onclick="fbToggleComparison('mom')" title="Month-over-month">MoM</button>
     <button class="tb-toggle-btn" id="rpt-yoy" onclick="fbToggleComparison('yoy')" title="Year-over-year">YoY</button>` : ''}
   </div>
 
-  <div style="flex:1; overflow:auto; min-height:0; background:var(--bg,#f0f0f0); padding:1rem;">
+  <div style="flex:1; overflow:auto; min-height:0; background:var(--bg); padding:1rem;">
     <div id="report-body" class="rpt-embed"><p class="rpt-embed-msg">Select a report…</p></div>
   </div>
 </div>
@@ -272,7 +272,7 @@ ${layoutEnd()}
     }
     container.innerHTML = '<iframe id="rpt-iframe" src="' + url.replace(/"/g, '&quot;')
       + '" style="border:none;width:100%;' + fixedHeightCss
-      + 'display:block;background:#fff"></iframe>';
+      + 'display:block;background:var(--surface)"></iframe>';
     var frame = document.getElementById('rpt-iframe');
     if (fixed) {
       // Fixed height + the report's own internal scroll — no resize logic
@@ -309,7 +309,7 @@ ${layoutEnd()}
 
   function renderMessage(msg, isErr) {
     var el = document.getElementById('report-body');
-    el.innerHTML = '<p class="rpt-embed-msg"' + (isErr ? ' style="color:#c0392b"' : '') + '>' + msg.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</p>';
+    el.innerHTML = '<p class="rpt-embed-msg"' + (isErr ? ' style="color:var(--danger)"' : '') + '>' + msg.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</p>';
   }
 
   var _rptLoadPending = false;

@@ -128,19 +128,6 @@ ${commonStyle()}
   /* Chrome leaks the collapsed track's cell text (width 0, paint remains) —
      hide the cells too. data-field (not nth-child): column order is cfg-owned. */
   #bills-table.single-ccy td[data-field="currency"] { visibility: hidden; }
-  .col-filter-dd { position:fixed; background:var(--surface); border:1px solid var(--border); border-radius:6px; z-index:9999; min-width:180px; box-shadow:0 4px 12px rgba(0,0,0,.12); overflow:hidden; padding:10px; }
-  .col-filter-dd-item { padding:8px 14px; cursor:pointer; font-size:0.8125rem; white-space:nowrap; border-radius:4px; }
-  .col-filter-dd-item:hover { background:var(--bg); }
-  .col-filter-dd-item.active { font-weight:700; color:var(--accent); }
-  .col-filter-dd-clear { color:var(--text-muted); font-style:italic; font-size:0.8125rem; border-bottom:1px solid var(--border); margin-bottom:4px; padding-bottom:6px; border-radius:0; }
-  .col-filter-dd label { font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; display:block; margin-bottom:5px; }
-  .col-filter-dd input[type=date],
-  .col-filter-dd input[type=text],
-  .col-filter-dd input[type=number] { width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:4px; font-size:0.8125rem; box-sizing:border-box; margin-bottom:6px; background:var(--surface); color:var(--text); }
-  .col-filter-dd select { width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:4px; font-size:0.8125rem; background:var(--surface); color:var(--text); margin-bottom:6px; }
-  .col-filter-dd-apply { width:100%; padding:7px; background:var(--accent); color:var(--on-accent); border:none; border-radius:4px; font-size:0.8125rem; cursor:pointer; }
-  .col-filter-dd-apply:hover { opacity:.88; }
-
   /* Partner avatar */
   .partner-cell { display:inline-flex; align-items:center; gap:10px; }
   .avatar { width:32px; height:32px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:700; color:var(--on-accent); flex-shrink:0; }

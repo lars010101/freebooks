@@ -34,15 +34,13 @@ ${commonStyle()}
   .chat-card h4 { margin:0 0 6px; font-size:0.85rem; }
   .chat-card pre { max-height:180px; overflow:auto; background:var(--surface); border:1px solid var(--border); padding:8px; border-radius:6px; font-size:0.75rem; margin:6px 0; }
   .chat-card label { display:flex; align-items:center; gap:6px; font-size:0.8rem; margin:6px 0; }
+  /* Consent-card choice buttons (docs/UI.md — Buttons) reuse the shared
+     .btn-primary/.btn-sm/.btn-sm.danger ladder FB.modal already established,
+     not a page-local recipe — this card is the same primary/neutral/
+     destructive choice UI as a modal's button row, just rendered inline in
+     the thread instead of in an overlay. */
   .chat-card .btns { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
-  .chat-card button { font-size:0.78rem; padding:4px 10px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; }
-  .chat-card button.primary { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
-  /* Outline style, not solid fill: var(--danger) is intentionally lighter in
-     dark mode (for text-on-surface legibility), which makes it fail contrast
-     as a solid fill behind white text. Matches the .btn-sm.danger/.void-afford
-     convention used elsewhere for destructive buttons. */
-  .chat-card button.danger { background:var(--surface); color:var(--danger); border-color:var(--danger); }
-  .chat-card button.danger:hover { background:var(--danger); color:var(--on-accent); }
+  .chat-card .btns button { font-size:0.78rem; padding:4px 10px; height:auto; }
   #chat-input-row { display:flex; gap:8px; padding:12px 14px; border-top:1px solid var(--border); }
   #chat-input { flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:0.9rem; background:var(--surface); color:var(--text); }
   #chat-send-btn { padding:8px 16px; border-radius:8px; border:none; background:var(--accent); color:var(--on-accent); font-size:0.9rem; cursor:pointer; }
@@ -51,7 +49,11 @@ ${commonStyle()}
   #chat-perms { padding:6px 14px 10px; font-size:0.75rem; }
   #chat-perms table { width:100%; border-collapse:collapse; }
   #chat-perms td, #chat-perms th { padding:3px 6px; border-bottom:1px solid var(--border); text-align:left; }
-  #chat-perms button.revoke { font-size:0.7rem; padding:1px 6px; }
+  /* .revoke had no colour/border rule of its own (only this size override),
+     so it rendered as a bare native button — the compact in-table sibling
+     of the .action-btn/.btn-sm pattern used elsewhere; now built on .btn-sm
+     danger like the rest of the ladder instead of being left unstyled. */
+  #chat-perms button.revoke { font-size:0.7rem; padding:1px 6px; height:auto; }
 </style>
 </head>
 <body>
@@ -121,10 +123,10 @@ function renderCard(turnId, item) {
     + aliasBox
     + '<pre class="chat-preview"></pre>'
     + '<div class="btns">'
-    + '<button class="primary" data-d="approve_once">Approve once</button>'
-    + '<button class="primary" data-d="allow_always">Always allow</button>'
-    + '<button data-d="deny_once">Deny once</button>'
-    + '<button class="danger" data-d="deny_never">Never allow</button>'
+    + '<button type="button" class="btn-primary" data-d="approve_once">Approve once</button>'
+    + '<button type="button" class="btn-primary" data-d="allow_always">Always allow</button>'
+    + '<button type="button" class="btn-sm" data-d="deny_once">Deny once</button>'
+    + '<button type="button" class="btn-sm danger" data-d="deny_never">Never allow</button>'
     + '</div>';
   var pre = card.querySelector('.chat-preview');
   var cb = card.querySelector('.chat-alias-cb');
@@ -201,7 +203,7 @@ function loadChatPerms() {
     if (!perms.length) { el.innerHTML = '<em>No standing permissions yet — you\\'ll be asked the first time a category is needed.</em>'; return; }
     var rows = perms.map(function (p) {
       return '<tr><td>' + esc(p.category) + '</td><td>' + esc(p.decision) + (p.aliased ? ' (aliased)' : '') + '</td>'
-        + '<td><button class="revoke" data-cat="' + esc(p.category) + '">Reset</button></td></tr>';
+        + '<td><button type="button" class="btn-sm danger revoke" data-cat="' + esc(p.category) + '">Reset</button></td></tr>';
     }).join('');
     el.innerHTML = '<table><tr><th>Category</th><th>Decision</th><th></th></tr>' + rows + '</table>';
     el.querySelectorAll('button.revoke').forEach(function (btn) {

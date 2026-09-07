@@ -636,7 +636,8 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
 
 /* Small button */
 .btn-sm { padding:0 14px; height:32px; font-size:0.8125rem; cursor:pointer; border:1px solid var(--border); border-radius:3px; background:var(--bg); color:var(--text); }
-.btn-sm:hover { background:var(--border); }
+.btn-sm:hover:not(:disabled) { background:var(--border); }
+.btn-sm:disabled { color:var(--text-muted); cursor:default; }
 .btn-sm.danger { border-color:var(--danger); color:var(--danger); }
 
 /* ---- Status badge (docs/UI.md Components — single vocabulary) ----
@@ -711,6 +712,14 @@ button.btn-primary:disabled { opacity:0.4; cursor:default; }
    accidentally merged again. */
 .fb-tag { cursor:pointer; padding:2px 8px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; user-select:none; text-decoration:none; color:var(--text); display:inline-block; }
 .fb-tag:hover { background:var(--bg); }
+
+/* ---- "+ Add attachment" row button ----
+   journal-voucher.js's .fb-att-add-btn and bill-edit.js's .be-attach-add-btn
+   were byte-for-byte identical rules, duplicated per-page (docs/UI.md —
+   Buttons). Kept as two class names here — each page's own row-focus
+   compound selector still targets its own name — but the shared recipe now
+   lives once. */
+.fb-att-add-btn, .be-attach-add-btn { border:none; background:none; cursor:pointer; color:var(--text-muted); font-size:0.75rem; padding:2px 0; text-align:left; width:100%; }
 
 /* ---- Density (docs/UI.md — compact default, comfortable optional) ----
    Compact values live in each page's own stylesheet (the dense edit-grid

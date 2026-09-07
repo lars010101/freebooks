@@ -38,8 +38,9 @@ ${commonStyle()}
   .fb-attach-row.fb-form-row-focus { background:var(--accent) !important; color:var(--on-accent); }
   .fb-attach-row.fb-form-row-focus .fb-att-meta { color:rgba(255,255,255,.6); }
   .fb-attach-row.fb-form-row-focus .fb-att-del { color:var(--on-accent); }
-  /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity */
-  .fb-att-add-btn { border:none; background:none; cursor:pointer; color:var(--text-muted); font-size:0.75rem; padding:2px 0; text-align:left; width:100%; }
+  /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity.
+     Base recipe is shared (.fb-att-add-btn in common.css); this file only
+     owns the row-focus colour override, since .fb-attach-row is page-local. */
   .fb-attach-row.fb-form-row-focus .fb-att-add-btn { color:var(--on-accent); }
   /* A1 (magnus 2026-07-28): read-only original-entry rows shown above the
      swapped reversal rows. Plain-text <td>s (no inputs) — grayed + italic. */

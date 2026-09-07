@@ -44,9 +44,10 @@ ${commonStyle()}
   tr.row-editing > td { background:var(--warning-bg); }
   .row-actions { white-space:nowrap; text-align:right; }
   .type-badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:0.75rem; font-weight:600; }
-  table.edit-table .action-btn { padding:4px 12px; border:1px solid var(--border); border-radius:3px; background:var(--bg); cursor:pointer; font-size:0.8125rem; }
-  table.edit-table .action-btn:hover { background:var(--border); }
-  table.edit-table .action-btn:disabled { color:var(--text-muted); cursor:default; }
+  /* .action-btn now only overrides .btn-sm's fixed height/padding for this
+     dense table row — colour, hover, and disabled state come from .btn-sm
+     itself (docs/UI.md — Buttons) instead of repeating that recipe. */
+  table.edit-table .action-btn { height:auto; padding:4px 12px; font-size:0.8125rem; }
 </style>
 </head>
 <body>${navBar(company, 'settings')}
@@ -471,7 +472,7 @@ var aiAttrs = FB.list.create({
         // readonly so editable() returns false — it never enters edit mode;
         // the click is wired separately in onLoaded below.
         if (d.editor && d.editor.type === 'action') {
-          return '<button type="button" class="action-btn" data-action="' + esc(d.editor.action || '') + '" data-key="' + esc(d._key || '') + '">Test connection</button>';
+          return '<button type="button" class="btn-sm action-btn" data-action="' + esc(d.editor.action || '') + '" data-key="' + esc(d._key || '') + '">Test connection</button>';
         }
         if (!d._dirty) return esc(d.display != null ? String(d.display) : '');
         var ed = d.editor || {};

@@ -127,7 +127,8 @@ ${commonStyle()}
   .be-attach-row .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .be-attach-row .staged { color:var(--warning); font-size:0.6875rem; }
   /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity */
-  .be-attach-add-btn { border:none; background:none; cursor:pointer; color:var(--text-muted); font-size:0.75rem; padding:2px 0; text-align:left; width:100%; }
+  /* Base recipe is shared (.be-attach-add-btn in common.css); this file only
+     owns the row-focus colour override, since .be-attach-row is page-local. */
   .be-attach-row.fb-form-row-focus .be-attach-add-btn { color:var(--on-accent); }
   /* JE ref link (2026-09-06) — see loadJournalRef() */
   .be-journal-ref-link { color:var(--accent); font-weight:500; text-decoration:none; }
@@ -157,7 +158,7 @@ ${commonStyle()}
          partial/paid/already-void bill. Also reachable via x on the header
          zone, same "x means something bigger here" pattern as
          journal-voucher's reversal entry. -->
-    <button id="be-void" class="btn-sm" type="button" style="display:none;color:var(--danger);border-color:var(--danger)">&#8856; Void</button>
+    <button id="be-void" class="btn-sm danger" type="button" style="display:none">&#8856; Void</button>
   </div>
 
   <div class="be-grid-header">

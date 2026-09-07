@@ -273,7 +273,16 @@ async function handleApiRequest(req, res) {
         date: (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v),
       };
       const badType = Object.entries(meta.params)
-        .filter(([name, p]) => body[name] !== undefined && body[name] !== null && p.type && TYPE_CHECK[p.type] && !TYPE_CHECK[p.type](body[name]))
+        .filter(([name, p]) => {
+          if (body[name] === undefined || body[name] === null) return false;
+          // An optional date sent as '' means "no filter" — every dateFrom/
+          // dateTo handler already does `if (dateFrom) { ... }` and has since
+          // before this check existed (e.g. bills.js's listBillPayments/
+          // listBills). A required date sent as '' still fails below, same
+          // as any other bad date string.
+          if (p.type === 'date' && body[name] === '' && !p.required) return false;
+          return p.type && TYPE_CHECK[p.type] && !TYPE_CHECK[p.type](body[name]);
+        })
         .map(([name, p]) => `${name} (expected ${p.type}, got ${Array.isArray(body[name]) ? 'array' : typeof body[name]})`);
       if (badType.length > 0) {
         return fail(res, 'INVALID_INPUT', `Parameter type mismatch: ${badType.join(', ')}`, { typeMismatch: badType });

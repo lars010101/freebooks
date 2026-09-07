@@ -442,11 +442,15 @@ ${commonStyle()}
         }
         listEl.innerHTML = items.map(function(a) {
           var kb = (a.file_size / 1024).toFixed(1);
-          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">'
+          // Reuses .fb-attach-row/.fb-att-del (this file's shared attachment-row
+          // classes, above) instead of duplicating their recipe inline \u2014 this is
+          // the read-only "already attached to a posted entry" list, a separate
+          // rendering path from the pending-attachment queue those classes were
+          // named for, but the same visual row.
+          return '<div class="fb-attach-row">'
             + '<a href="/api/attachments/' + a.attachment_id + '" target="_blank" style="color:var(--text);text-decoration:none;font-size:0.75rem">'
             + '\ud83d\udcc4 ' + a.filename + ' <span style="color:var(--text-muted);font-size:0.6875rem">(' + kb + ' KB)</span></a>'
-            + '<button onclick="deleteJvAttachment(\\'' + a.attachment_id + '\\')" aria-label="Delete attachment" '
-            + 'style="border:none;background:none;cursor:pointer;color:var(--danger);font-size:0.875rem;padding:0 4px">&times;</button>'
+            + '<button class="fb-att-del" onclick="deleteJvAttachment(\\'' + a.attachment_id + '\\')" aria-label="Delete attachment">&times;</button>'
             + '</div>';
         }).join('');
       }).catch(function(){});

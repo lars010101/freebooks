@@ -744,7 +744,13 @@ function billCodeFooterRows(lines, stated) {
 // computed. Net/Gross are not duplicated here — gross lives on the parent
 // row's AMOUNT cell. The Draft toggle is the one FB.list precedent for a
 // button-cell '~' target (billAttachFooter wires it; ~ is bound below).
-var DRAFT_TOGGLE_CELL = '<td><button type="button" class="bill-draft-toggle fb-toggle-btn" aria-pressed="false" title="Draft — save without posting (~)">Draft</button></td>';
+// .fb-toggle-btn had no CSS rule anywhere in the codebase — this toggle
+// rendered as a bare native button with no on/off visual state beyond its
+// own text (docs/UI.md — Buttons). Reuses .tb-toggle-btn/.tb-active
+// (common.css) instead, the same base+active pill-toggle recipe reports-hub
+// already uses for its MoM/YoY toggle — same kind of two-state toggle, not
+// topbar-exclusive despite the name.
+var DRAFT_TOGGLE_CELL = '<td><button type="button" class="bill-draft-toggle tb-toggle-btn" aria-pressed="false" title="Draft — save without posting (~)">Draft</button></td>';
 function billFooterHtml(parent) {
   if (!VAT_ON) return '<td colspan="7"></td>' + DRAFT_TOGGLE_CELL; // vatRegistered=false: no stated-VAT surface
   return '<td colspan="3" style="color:var(--text-muted);font-size:0.8125rem">VAT (supplier-stated total — pre-filled computed; edit to match the invoice; clear to return to computed)</td>'
@@ -803,6 +809,7 @@ function billAttachFooter(ftr, parent) {
     var syncDraftBtn = function () {
       draftBtn.setAttribute('aria-pressed', parent._draft ? 'true' : 'false');
       draftBtn.textContent = parent._draft ? 'Draft: ON' : 'Draft';
+      draftBtn.classList.toggle('tb-active', !!parent._draft);
     };
     syncDraftBtn();
     draftBtn.addEventListener('click', function () { parent._draft = !parent._draft; syncDraftBtn(); });

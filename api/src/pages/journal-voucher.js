@@ -85,6 +85,15 @@ ${commonStyle()}
     <div id="reversal-results" style="margin-top:6px;max-height:200px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:4px;display:none"></div>
   </div>
 
+  <!-- Correct & Resubmit banner (?correct=<proposalId>): shown only when
+       loading a rejected proposal's original (wrong) values for a fresh,
+       fully-editable post. -->
+  <div id="correction-banner" style="display:none;margin-bottom:16px;padding:14px;background:var(--warning-bg);border:1px solid var(--warning-border);border-radius:6px">
+    <div style="font-weight:600;color:var(--warning)">Correcting a rejected proposal</div>
+    <div style="font-size:0.8125rem;margin-top:4px">Rejected: <span id="correction-reason"></span></div>
+    <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px">Lines below are pre-filled with the original (rejected) values — edit and post. This does not touch the original proposal; it stays Rejected for the record.</div>
+  </div>
+
   <div class="header-fields">
     <label>Date <input type="date" id="entry-date"></label>
     <label>Journal <select id="entry-journal" style="width:180px;height:32px;padding:4px 6px"><option value="">— loading —</option></select></label>
@@ -155,6 +164,10 @@ ${commonStyle()}
   // (§10.4) reroutes quit back to the originating report instead of the
   // company root.
   var VIEW_BATCH = new URLSearchParams(window.location.search).get('batch');
+  // Correct & Resubmit (?correct=<proposalId>): a rejected proposal's
+  // original (wrong) lines, loaded fully editable — NOT a view/reversal
+  // mode. Mutually exclusive with VIEW_BATCH (a proposal never has a batch).
+  var CORRECT_PROPOSAL = new URLSearchParams(window.location.search).get('correct');
   var FROM_REPORT = new URLSearchParams(window.location.search).get('from');
   var RPT_START = new URLSearchParams(window.location.search).get('rpt_start') || '';
   var RPT_END = new URLSearchParams(window.location.search).get('rpt_end') || '';
@@ -219,6 +232,7 @@ ${commonStyle()}
     .then(rows => {
       rows.forEach(a => { accountsMap[a.account_code] = a.account_name; });
       if (VIEW_BATCH) initViewMode();   // accounts needed for line names
+      else if (CORRECT_PROPOSAL) applyCorrectionLines(CORRECT_PROPOSAL);
       else applyPrefill();
     });
 
@@ -543,6 +557,15 @@ ${commonStyle()}
         } else {
           showStatus('Posted \u2713  ' + (d.reference || d.batchId), false);
           currentBatchId = d.batchId;
+          // Correct & Resubmit: link this batch back to the rejected proposal
+          // it corrects, and feed the correction into crystallization
+          // (\u00a73.1). Best-effort \u2014 the ledger post already succeeded and
+          // must not be blocked or rolled back by this side effect.
+          if (CORRECT_PROPOSAL) {
+            fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ action:'journal.proposal.correct', companyId: COMPANY, proposalId: CORRECT_PROPOSAL, batchId: d.batchId }) })
+              .catch(function () {});
+          }
           pendingJvAttachments = [];
           renderJvPendingList();
           document.getElementById('jv-attachment-panel').style.display = '';
@@ -625,6 +648,69 @@ ${commonStyle()}
     }
 
     updateTotals();
+  }
+
+  // ── Correct & Resubmit (?correct=<proposalId>) ───────────────────────
+  // A rejected proposal is terminal — never edited, never reposted through
+  // itself. This loads its ORIGINAL (wrong) values into an ordinary, fully
+  // editable voucher (unlike view/reversal mode, nothing here is read-only
+  // or swapped) so a human can fix the mistake and post it the normal way.
+  // On successful post, postEntry() calls journal.proposal.correct
+  // best-effort to link the new batch back to the rejected proposal and
+  // feed the correction into crystallization (§3.1).
+  function applyCorrectionLines(proposalId) {
+    var reversalBtn = document.getElementById('btn-reversal-mode');
+    if (reversalBtn) reversalBtn.style.display = 'none';   // nothing posted yet to reverse
+    fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'journal.proposal.get', companyId: COMPANY, proposalId: proposalId }) })
+      .then(function (r) { return r.json(); })
+      .then(function (resp) {
+        var p = resp.data || resp;
+        if (resp.error || !p || !p.proposal_id) { showStatus((resp.error && resp.error.message) || 'Proposal not found', true); return; }
+        if (p.status !== 'rejected') { showStatus('Only a rejected proposal can be corrected (status: ' + p.status + ')', true); return; }
+        var lines = Array.isArray(p.lines) ? p.lines : [];
+
+        document.getElementById('correction-banner').style.display = '';
+        document.getElementById('correction-reason').textContent = p.review_note || '(no reason recorded)';
+
+        // Keep the ORIGINAL date — this is a correction of that entry, not a
+        // new one dated today (contrast with applyReversalLines, which
+        // deliberately dates the reversal today).
+        var dateEl = document.getElementById('entry-date');
+        if (p.date) dateEl.value = String(p.date).slice(0, 10);
+        document.getElementById('entry-desc').value = p.description || '';
+        if (p.journal_id) document.getElementById('entry-journal').value = p.journal_id;
+        var ccy = (lines[0] && lines[0].currency) || BASE_CCY;
+        var rate = (lines[0] && lines[0].fx_rate) || null;
+        if (document.getElementById('entry-ccy')) document.getElementById('entry-ccy').value = ccy;
+        if (ccy !== BASE_CCY && document.getElementById('entry-fx-rate') && rate) {
+          document.getElementById('entry-fx-rate').value = rate;
+          var frf = document.querySelector('.fx-rate-field');
+          if (frf) frf.style.display = '';
+        }
+
+        document.getElementById('lines-body').innerHTML = '';
+        lines.forEach(function (l) {
+          var tr = addLine();
+          var acctInput = tr.querySelector('.acct-input');
+          pickAccount({ code: l.account_code || '', name: accountsMap[l.account_code] || '' }, acctInput);
+          tr.querySelector('.debit-input').value  = parseFloat(l.debit  || 0) || '';
+          tr.querySelector('.credit-input').value = parseFloat(l.credit || 0) || '';
+          tr.querySelector('.desc-input').value = l.description || '';
+          var taxSel = tr.querySelector('.tax-select');
+          if (taxSel && l.vat_code) taxSel.value = l.vat_code;
+          var ccIn = tr.querySelector('.cc-input');
+          if (ccIn && l.cost_center) ccIn.value = l.cost_center;
+          var pcIn = tr.querySelector('.pc-input');
+          if (pcIn && l.profit_center) pcIn.value = l.profit_center;
+        });
+        if (!lines.length) { addLine(); addLine(); }
+        updateTotals();
+        showStatus('Correcting rejected proposal — review and post', false);
+        jvForm.moveTo(1, 0, 0, false);
+        jvForm.refresh();
+      })
+      .catch(function (e) { showStatus(e.message, true); });
   }
 
   // ── View mode (?batch=<id>) ─────────────────────────────────────────

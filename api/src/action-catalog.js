@@ -125,6 +125,17 @@ const ACTIONS = {
     description: 'Get one journal proposal incl. parsed enriched lines, proposer, request_id, and review triple.',
     params: { proposalId: { type: 'string', required: true } },
   },
+  'journal.proposal.correct': {
+    // Correct & Resubmit: a rejected proposal is never revised or reposted
+    // through itself — the human enters a fresh, correct batch directly via
+    // journal.post (journal-voucher.js's `?correct=` mode), and THIS call
+    // runs after that post succeeds purely to stamp the audit link back onto
+    // the rejected proposal and feed the corrected lines into the same
+    // crystallization pipeline journal.approve uses (§3.1).
+    role: 'data_entry', mutating: true, idempotent: true,
+    description: 'Link a posted batch as the correction for a rejected journal proposal, and crystallize a mapping suggestion from the corrected lines the same way an unedited approval would.',
+    params: { proposalId: { type: 'string', required: true }, batchId: { type: 'string', required: true } },
+  },
 
   // ── Period close (P2-1) ────────────────────────────────────────────────────
   'period.close': {

@@ -806,6 +806,13 @@ ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS match_meta VARCHAR;
 ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
 UPDATE journal_proposals SET updated_at = created_at WHERE updated_at IS NULL;
 
+-- Correct & Resubmit: a rejected proposal is terminal (never edited, never
+-- deleted) — the fix is a fresh, human-entered journal_entries batch, posted
+-- the normal way (journal.post), not a revised proposal. This column is the
+-- audit link the other direction: which batch corrected this rejection, set
+-- by journal.proposal.correct once that batch posts. NULL = not yet corrected.
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS corrected_by_batch_id VARCHAR;
+
 -- §5.2: amount direction condition on bank mapping rules.
 -- Values: 'positive' | 'negative' | 'any' (default 'any', backward-compatible).
 ALTER TABLE bank_mappings ADD COLUMN IF NOT EXISTS amount_sign VARCHAR DEFAULT 'any';

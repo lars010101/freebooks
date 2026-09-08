@@ -39,6 +39,7 @@ async function handleJournal(ctx, action) {
     case 'journal.reject':        return rejectProposal(ctx);
     case 'journal.proposal.list': return listProposals(ctx);
     case 'journal.proposal.get':  return getProposal(ctx);
+    case 'journal.proposal.correct': return recordProposalCorrection(ctx);
     default:
       throw Object.assign(new Error(`Unknown journal action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
@@ -1402,6 +1403,77 @@ async function rejectProposal(ctx) {
   }
 
   return { rejected: true, proposalId };
+}
+
+/**
+ * journal.proposal.correct — audit-link a rejected proposal to the batch that
+ * corrected it. Correct & Resubmit does NOT revise or repost through the
+ * proposal — the human enters a fresh, correct journal_entries batch via
+ * journal.post (journal-voucher.js's `?correct=` mode), and this call runs
+ * AFTER that post succeeds, purely to (a) stamp the audit link back onto the
+ * rejected proposal and (b) feed the corrected lines into the same
+ * crystallization pipeline journal.approve uses (§3.1), so a human's fix
+ * teaches the mapping-suggestion learner exactly like an unedited approval
+ * would. Idempotent: a retry with the same batchId is a no-op success; a
+ * second distinct batchId is rejected — a rejected proposal is corrected once.
+ */
+async function recordProposalCorrection(ctx) {
+  const { companyId, body } = ctx;
+  const { proposalId, batchId } = body;
+  if (!proposalId) throw Object.assign(new Error('proposalId required'), { code: 'INVALID_INPUT' });
+  if (!batchId) throw Object.assign(new Error('batchId required'), { code: 'INVALID_INPUT' });
+
+  // Don't trust an arbitrary batchId into the audit trail unchecked — verify
+  // it actually exists (the caller only invokes this right after journal.post
+  // succeeds, but the check costs nothing and closes the gap).
+  const batchRows = await query(
+    `SELECT 1 FROM journal_entries WHERE company_id = @companyId AND batch_id = @batchId LIMIT 1`,
+    { companyId, batchId }
+  );
+  if (batchRows.length === 0) throw Object.assign(new Error('batch not found'), { code: 'NOT_FOUND' });
+
+  // Atomic claim — succeeds on first correction, or a same-batch retry.
+  const claim = await query(
+    `UPDATE journal_proposals SET corrected_by_batch_id = @batchId
+     WHERE company_id = @companyId AND proposal_id = @proposalId AND status = 'rejected'
+       AND (corrected_by_batch_id IS NULL OR corrected_by_batch_id = @batchId)
+     RETURNING proposal_id`,
+    { companyId, proposalId, batchId }
+  );
+  if (claim.length === 0) {
+    const cur = await query(
+      `SELECT status, corrected_by_batch_id FROM journal_proposals WHERE company_id = @companyId AND proposal_id = @proposalId`,
+      { companyId, proposalId }
+    );
+    if (cur.length === 0) throw Object.assign(new Error('Proposal not found'), { code: 'NOT_FOUND' });
+    if (cur[0].status !== 'rejected') {
+      throw Object.assign(new Error(`Cannot correct a proposal in status '${cur[0].status}' (only 'rejected' can be corrected)`), { code: 'INVALID_STATUS' });
+    }
+    throw Object.assign(new Error(`Proposal already corrected by a different batch (${cur[0].corrected_by_batch_id})`), { code: 'INVALID_STATUS' });
+  }
+
+  // ── Crystallization, same pipeline as approve (§3.1) ──────────────────────
+  // Non-fatal — a learning-store write, not a ledger mutation (same doctrine
+  // as the try/catch around this call in approveProposal).
+  try {
+    const proposalRows = await query(
+      `SELECT proposal_id, description, match_meta FROM journal_proposals
+       WHERE company_id = @companyId AND proposal_id = @proposalId`,
+      { companyId, proposalId }
+    );
+    if (proposalRows.length > 0) {
+      const correctedLines = await query(
+        `SELECT account_code, debit, credit, vat_code FROM journal_entries
+         WHERE company_id = @companyId AND batch_id = @batchId`,
+        { companyId, batchId }
+      );
+      await crystallizeMappingSuggestion(ctx, proposalRows[0], correctedLines);
+    }
+  } catch (e) {
+    console.error(`mapping.suggest (crystallization) failed on correct ${proposalId}: ${e.message}`);
+  }
+
+  return { corrected: true, proposalId, batchId };
 }
 
 /**

@@ -9,10 +9,20 @@
  * (explicitly rejected during ideation — the two surfaces only share a
  * Period column for filtering, never a navigation link).
  *
+ * Also lists orphaned files (§5.5 — files found on disk with no matching
+ * attachments row; orphaned_files is a DB-backed table populated by
+ * attachment-integrity-scanner.js, so this stays true to the "never built
+ * by scanning on disk" rule above). Moved here from Inbox (2026-09-08) —
+ * resolving an unlinked file isn't a decide-here approval task, it belongs
+ * with the rest of the file registry. type:'orphan' rows have no
+ * attachment_id/period/source — Open serves the file directly
+ * (GET /api/orphaned-file/:orphanId) and Delete removes it from disk
+ * (orphan.delete, orphaned-files.js).
+ *
  * Columns: ID · Type · Period · Date uploaded (§5.2). System-linked rows are
- * read-only here (view + go-to-source only); standalone uploads can be
- * deleted and re-uploaded, never edited in place (§0.4 — no attribute
- * editing was designed, deliberately).
+ * read-only here (view + go-to-source only); standalone uploads and orphans
+ * can be deleted, never edited in place (§0.4 — no attribute editing was
+ * designed, deliberately).
  *
  * "Go to source" (§5.4) is a small local resolver, not yet the shared
  * nav-registry.js extension the spec names as the natural long-term home —
@@ -114,11 +124,26 @@ function loadDocuments() {
   Promise.all([
     postAction('attachment.list', {}),
     postAction('period.list', {}),
+    postAction('orphan.list', {}),
   ]).then(function (results) {
     var res = results[0];
     var periodsRes = results[1];
-    allDocs = (res && res.data) || res || [];
+    var orphansRes = results[2];
     var periods = (periodsRes && periodsRes.data) || periodsRes || [];
+    var orphans = (orphansRes && orphansRes.data) || orphansRes || [];
+    // Orphaned files (calendar-reminders-documents-spec.md §5.5, moved here
+    // from Inbox 2026-09-08): a file found on disk with no matching
+    // attachments row — no attachment_id, no period, no source to go to.
+    // Normalized into the same row shape as everything else in allDocs so
+    // one table/filter/render path covers both.
+    var orphanRows = orphans.map(function (o) {
+      return {
+        entity_type: 'orphan', orphan_id: o.orphan_id, attachment_id: null,
+        filename: o.filename, uploaded_at: o.discovered_at,
+        period_id: null, docnr: null, missing_since: null,
+      };
+    });
+    allDocs = ((res && res.data) || res || []).concat(orphanRows);
     populateFilters(allDocs, periods);
     populatePeriodSelect(document.getElementById('doc-upload-period'), periods);
     renderDocuments();
@@ -159,10 +184,13 @@ function renderDocuments() {
   });
   tb.innerHTML = rows.map(function (d) {
     var isUpload = d.entity_type === 'document';
-    // Bank statements (feed-watcher.js) have no owning ledger record to name
-    // them by — one file fans out into many separate journal proposals, so
-    // there's no docnr or single meaningful id, only the filename itself.
-    var namedByFilename = isUpload || d.entity_type === 'bank_statement';
+    var isOrphan = d.entity_type === 'orphan';
+    // Bank statements (feed-watcher.js) and orphaned files have no owning
+    // ledger record to name them by — a bank statement fans out into many
+    // separate journal proposals, and an orphan has no DB row at all (that's
+    // the definition of orphaned) — so there's no docnr or single meaningful
+    // id for either, only the filename itself.
+    var namedByFilename = isUpload || isOrphan || d.entity_type === 'bank_statement';
     var idMain;
     if (namedByFilename) {
       idMain = esc(d.filename);
@@ -188,14 +216,24 @@ function renderDocuments() {
     var typeLabel = isUpload ? (d.doc_type || 'Other') : d.entity_type;
     var missing = d.missing_since ? ' <span class="doc-missing" title="File missing from storage since ' + esc(String(d.missing_since).slice(0, 10)) + '">missing</span>' : '';
     var href = sourceHref(d);
-    var actions = '<a class="fb-tag" href="/api/attachments/' + esc(d.attachment_id) + '" target="_blank" rel="noopener">Open</a>';
+    // Orphans have no attachments row to serve — they go through the
+    // dedicated orphaned-file download route instead (orphaned-files.js).
+    var openHref = isOrphan ? '/api/orphaned-file/' + esc(d.orphan_id) : '/api/attachments/' + esc(d.attachment_id);
+    var actions = '<a class="fb-tag" href="' + openHref + '" target="_blank" rel="noopener">Open</a>';
     if (href) actions += ' <a class="fb-tag" href="' + esc(href) + '">Go to source</a>';
-    // Standalone uploads can always be deleted; system-linked rows (bill/
-    // invoice/JV/filing attachments) only once their file is gone — that's
-    // the sole way to clear a permanently-missing attachment, since there's
-    // no replace/reupload path and the row would otherwise re-raise the
-    // attachment-missing notification forever (attachment-integrity-scanner.js).
-    if (isUpload || d.missing_since) actions += ' <a class="fb-tag" data-act="doc-delete" data-id="' + esc(d.attachment_id) + '" data-name="' + esc(d.filename) + '" data-missing="' + (d.missing_since ? '1' : '') + '">Delete</a>';
+    // Standalone uploads and orphans can always be deleted; system-linked
+    // rows (bill/invoice/JV/filing attachments) only once their file is
+    // gone — that's the sole way to clear a permanently-missing attachment,
+    // since there's no replace/reupload path and the row would otherwise
+    // re-raise the attachment-missing notification forever
+    // (attachment-integrity-scanner.js). Orphan deletes go through
+    // orphan.delete (no attachments row exists to delete) — data-kind
+    // routes the click handler to the right action.
+    if (isOrphan) {
+      actions += ' <a class="fb-tag" data-act="doc-delete" data-kind="orphan" data-id="' + esc(d.orphan_id) + '" data-name="' + esc(d.filename) + '">Delete</a>';
+    } else if (isUpload || d.missing_since) {
+      actions += ' <a class="fb-tag" data-act="doc-delete" data-id="' + esc(d.attachment_id) + '" data-name="' + esc(d.filename) + '" data-missing="' + (d.missing_since ? '1' : '') + '">Delete</a>';
+    }
     return '<tr>'
       + '<td>' + idCell + '</td>'
       + '<td><span class="doc-type-badge">' + esc(typeLabel) + '</span>' + missing + '</td>'
@@ -216,16 +254,21 @@ document.addEventListener('click', function (e) {
   var chip = e.target.closest('[data-act="doc-delete"]');
   if (!chip) return;
   e.preventDefault(); e.stopPropagation();
-  var msg = chip.dataset.missing
+  var isOrphan = chip.dataset.kind === 'orphan';
+  var msg = isOrphan
+    ? 'Permanently delete "' + chip.dataset.name + '" from disk? No app-managed quarantine — download it via Open first if a copy is wanted.'
+    : chip.dataset.missing
     ? 'This file is already missing from storage. Remove its record from "' + chip.dataset.name + '"?'
     : 'Delete "' + chip.dataset.name + '"?';
   FB.modal.open({
     title: msg,
     buttons: [
       { label: 'Cancel', onClick: function (api) { api.close(); } },
-      { label: chip.dataset.missing ? 'Remove record' : 'Delete', danger: true, onClick: function (api) {
+      { label: (isOrphan || !chip.dataset.missing) ? 'Delete' : 'Remove record', danger: true, onClick: function (api) {
           api.close();
-          postAction('attachment.delete', { attachmentId: chip.dataset.id }).then(function () {
+          var action = isOrphan ? 'orphan.delete' : 'attachment.delete';
+          var body = isOrphan ? { orphanId: chip.dataset.id } : { attachmentId: chip.dataset.id };
+          postAction(action, body).then(function () {
             FB.status.show('Deleted.');
             loadDocuments();
           }).catch(function (err) { FB.status.show('Delete failed: ' + (err && err.message || err), true); });

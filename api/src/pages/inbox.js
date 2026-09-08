@@ -29,11 +29,10 @@
  *       (Option C amendment — "approve is the post", different action
  *       underneath: bill.draft.post, not journal.approve)
  *   x = reject on proposal rows (required note — the proposer reads it via
- *       event.list); deletes off disk on orphan rows — the app's regular
- *       delete verb, native confirm, no modal; discards on bill_draft rows
- *       (bill.draft.delete, confirm modal, no note)
- *   v = view/download (Class B orphan_file items, calendar-reminders-
- *       documents-spec.md §5.5 — orphaned_files is the source of truth)
+ *       event.list); discards on bill_draft rows (bill.draft.delete,
+ *       confirm modal, no note)
+ *   c = correct & resubmit (rejected proposal rows — opens journal-voucher.js
+ *       in ?correct= mode)
  *   y/x = approve/reject (Class B partner_proposal and mapping_suggestion
  *       items — no note field; neither table has a review_note column)
  *   d = discard (Class B input_rejection items, bank-matching-spec §11.2).
@@ -167,8 +166,11 @@ window.__fbFlags = ${flagsJson};
 var COMPANY = ${JSON.stringify(company)};
 
 // Queue status filter: 'proposed' (default — Class A queue) | 'rejected'
-// (graveyard) | 'orphans' | 'partners' (Class B — §10.2: "a filter/section,
-// not the default"). The list-level f action cycles all four (§10.4).
+// (graveyard) | 'partners' | 'suggestions' | 'rejections' (Class B —
+// §10.2: "a filter/section, not the default"). The list-level f action
+// cycles all of them (§10.4). Orphaned files moved to Documents (2026-09-08)
+// — resolving an unlinked file on disk isn't a decide-here approval, it
+// belongs with the rest of the file registry, not this review queue.
 var statusState = 'proposed';
 
 // Group fold state — client-side per item.type (A5 §10.4). v1 has one type
@@ -181,7 +183,6 @@ var groupFold = {};
 var GROUP_LABELS = {
   journal_proposal: 'Journal proposals',
   bill_draft: 'Bill drafts',
-  orphan_file: 'Orphaned files',
   partner_proposal: 'Partner proposals',
   mapping_suggestion: 'Mapping rule suggestions',
   input_rejection: 'Input rejections'
@@ -192,7 +193,6 @@ var GROUP_LABELS = {
 var TYPE_GLYPHS = {
   journal_proposal: '\\uD83D\\uDCD2',    // 📒
   bill_draft: '\\uD83D\\uDCCB',          // 📋
-  orphan_file: '\\uD83D\\uDCC1',         // 📁
   partner_proposal: '\\uD83E\\uDD1D',    // 🤝
   mapping_suggestion: '\\uD83D\\uDD00',  // 🔀
   input_rejection: '\\uD83D\\uDEAB'      // 🚫
@@ -286,8 +286,7 @@ function statusBadge(row) {
   // Class A bill drafts (Option C amendment): reuse the proposed styling —
   // it's an awaiting-decision state, same family as journal proposals.
   if (s === 'draft') return '<span class="badge badge-warning">Draft</span>';
-  // Class B orphaned files (§5.5) / open input rejections: needs attention.
-  if (s === 'orphaned') return '<span class="badge badge-danger">Orphaned</span>';
+  // Class B open input rejections: needs attention.
   if (s === 'open') return '<span class="badge badge-danger">Open</span>';
   return ''; // inbox is the review queue — no posted badge here
 }
@@ -377,8 +376,8 @@ function underlagPanelHtml(proposalId) {
   return '<div class="jrnl-att-head">Source documents</div>' + body;
 }
 
-// ── Data: inbox.list (Class A — journal_proposals; Class B — orphan_file,
-//    partner_proposal). Class A items are enriched with parsed lines via
+// ── Data: inbox.list (Class A — journal_proposals; Class B —
+//    partner_proposal, …). Class A items are enriched with parsed lines via
 //    journal.proposal.get so unfold and the approve modal are synchronous.
 //    Class B items carry all their data inline (no enrichment needed).
 //    The Object.assign merge keeps the list row's attachment_count (the get
@@ -391,9 +390,9 @@ function fetchRows() {
     .then(function (res) {
       var items = (res && res.data && Array.isArray(res.data.items)) ? res.data.items : [];
       // Enrich journal_proposal items with parsed lines (children + modal
-      // summary). Every other type — bill_draft, orphan_file,
-      // partner_proposal, mapping_suggestion, input_rejection — skips
-      // enrichment; they carry all data inline.
+      // summary). Every other type — bill_draft, partner_proposal,
+      // mapping_suggestion, input_rejection — skips enrichment; they carry
+      // all data inline.
       return Promise.all(items.map(function (it) {
         if (it.type !== 'journal_proposal') return it;
         return postAction('journal.proposal.get', { proposalId: it.payload_ref })
@@ -439,21 +438,7 @@ function groupHeader(type, count, folded) {
 function mapItem(it) {
   // bill_due and reconciliation_alert used to map here; both moved to the
   // notifications bell (bills-due-scanner.js / reconciliation-scanner.js).
-  // Class B orphaned files (calendar-reminders-documents-spec.md §5.5): no
-  // lines, no enrichment — the orphaned_files row carries everything.
-  if (it.type === 'orphan_file') {
-    return {
-      _key: 'orphan:' + it.payload_ref, _kind: 'orphan',
-      orphan_id: it.payload_ref,
-      type: it.type,
-      date: it.date, reference: it.reference || '',
-      description: it.description || '',
-      amount: null, currency: '', source: 'system',
-      counterparty: '',
-      status: it.status, // 'orphaned'
-      created_by: '', request_id: '',
-    };
-  }
+  // orphan_file moved to Documents (2026-09-08) — see orphan.list.
   // Class B — partner proposals (partner-proposal-spec §5): agent-proposed
   // vendors/customers awaiting approve/reject. No lines, no enrichment — the
   // item carries everything inline from inbox.list's queryPartnerProposals.
@@ -681,33 +666,6 @@ function reviewPartner(row, verdict) {
   });
 }
 
-// ── Delete orphaned file (row verb — Class B, calendar-reminders-documents-
-// spec.md §5.5) ────────────────────────────────────────────────────────
-// x is the app's regular delete verb (matches bill-edit.js/payables-
-// bills.js's void, fb-list.js's default row delete) — a permanent,
-// irreversible disk delete, so it goes through FB.modal (docs/UI.md
-// Components) rather than a bare confirm(). The operator downloads first
-// via v if they want a copy — no app-managed quarantine/restore path.
-function deleteOrphan(row) {
-  FB.modal.open({
-    title: 'Permanently delete this file from disk?',
-    body: esc(row.reference),
-    buttons: [
-      { label: 'Cancel', onClick: function (api) { api.close(); } },
-      { label: 'Delete', danger: true, onClick: function (api) {
-          api.close();
-          postAction('orphan.delete', { orphanId: row.orphan_id }).then(function (res) {
-            if (!res || res.ok === false || res.error) {
-              FB.status.show((res && res.error && res.error.message) || 'Delete failed', true); return;
-            }
-            FB.status.show('Deleted.', false);
-            _cache = null; list.load();
-          }).catch(function (e) { FB.status.show('Delete failed: ' + (e && e.message || e), true); });
-        } }
-    ]
-  });
-}
-
 // ── Post / discard a bill draft (row verb — Option C amendment) ─────────
 // Class A: a bill draft's journal entries post via bill.draft.post, not
 // journal.approve — "approve is the post" doctrine, same as journal
@@ -812,16 +770,15 @@ function discardRejection(row) {
 }
 
 function cycleStatusFilter() {
-  // Six-state cycle: proposed → rejected → orphans → partners → suggestions
-  // → rejections → proposed. Class B ('orphans', 'partners', 'suggestions',
-  // 'rejections') are filter sections, not the default (§10.2). bill_draft
-  // is Class A and merged into the default 'proposed' view server-side, so
-  // it needs no filter state of its own. 'bills'/'reconciliation' moved to
-  // the notifications bell — neither carried an in-place decision, only an
-  // "open elsewhere" verb.
+  // Five-state cycle: proposed → rejected → partners → suggestions →
+  // rejections → proposed. Class B ('partners', 'suggestions', 'rejections')
+  // are filter sections, not the default (§10.2). bill_draft is Class A and
+  // merged into the default 'proposed' view server-side, so it needs no
+  // filter state of its own. 'bills'/'reconciliation' moved to the
+  // notifications bell — neither carried an in-place decision, only an
+  // "open elsewhere" verb. 'orphans' moved to Documents (2026-09-08).
   statusState = statusState === 'proposed' ? 'rejected'
-    : statusState === 'rejected' ? 'orphans'
-    : statusState === 'orphans' ? 'partners'
+    : statusState === 'rejected' ? 'partners'
     : statusState === 'partners' ? 'suggestions'
     : statusState === 'suggestions' ? 'rejections'
     : 'proposed';
@@ -994,17 +951,6 @@ var list = FB.list.create({
           })
           .catch(function (e) { FB.status.show('Toggle failed: ' + (e && e.message || e), true); });
       } },
-    // Class B orphaned files (calendar-reminders-documents-spec.md §5.5):
-    // v = view/download, x = delete (off disk). No app-managed quarantine —
-    // download via v first if a copy is wanted, then delete.
-    { key: 'v', label: 'view',
-      when: function (row) { return row._kind === 'orphan'; },
-      affordance: function () { return '<a class="chip" title="view (v)" aria-label="View" data-act="verb:v">&#128065;</a>'; },
-      run: function (api, row) { window.open('/api/orphaned-file/' + row.orphan_id, '_blank'); } },
-    { key: 'x', label: 'delete',
-      when: function (row) { return row._kind === 'orphan'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="delete (x)" aria-label="Delete" data-act="verb:x">&#10005;</a>'; },
-      run: function (api, row) { deleteOrphan(row); } },
     // Class B partner proposals (partner-proposal-spec §5): y/x mirror the
     // journal-batch review verbs but call partner.proposal.approve/reject
     // via reviewPartner()'s own (note-free) modal.
@@ -1053,7 +999,7 @@ var list = FB.list.create({
       run: function () { FB.status.show('Retry is not built yet — discard (x) and re-submit corrected data instead.', true); } }
   ],
   actions: [
-    { key: 'f', label: 'filter: proposed↔rejected↔orphans↔partners↔suggestions↔rejections', handler: function () { cycleStatusFilter(); } }
+    { key: 'f', label: 'filter: proposed↔rejected↔partners↔suggestions↔rejections', handler: function () { cycleStatusFilter(); } }
   ],
   onLoaded: function (saved) {
     var note = document.getElementById('queue-note');
@@ -1068,11 +1014,6 @@ var list = FB.list.create({
     } else if (statusState === 'rejected') {
       var rejected = saved.filter(function (r) { return r._kind === 'proposal'; });
       note.textContent = 'Rejected proposals (' + rejected.length + ') — f returns to the queue';
-    } else if (statusState === 'orphans') {
-      // Class B orphaned files view
-      var orphans = saved.filter(function (r) { return r._kind === 'orphan'; });
-      note.textContent = orphans.length + ' orphaned file' + (orphans.length === 1 ? '' : 's')
-        + ' — v view · x delete · f cycles filters';
     } else if (statusState === 'partners') {
       // Class B partner proposals view (partner-proposal-spec §5)
       var partners = saved.filter(function (r) { return r._kind === 'partner'; });
@@ -1096,7 +1037,7 @@ var list = FB.list.create({
           + ' — d discard (r retry not yet built) · f returns to the queue';
     }
   },
-  hint: 'Inbox: action items awaiting review, grouped by type (y approve/post, x reject/discard, c correct & resubmit a rejected proposal, v/x view/delete an orphaned file, d discard an input rejection, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → orphans → partners → suggestions → rejections.'
+  hint: 'Inbox: action items awaiting review, grouped by type (y approve/post, x reject/discard, c correct & resubmit a rejected proposal, d discard an input rejection, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → partners → suggestions → rejections.'
 });
 
 list.load();

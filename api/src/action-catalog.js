@@ -811,10 +811,16 @@ const ACTIONS = {
   },
 
   // ── Orphaned files (calendar-reminders-documents-spec.md §5.5) ──────────────
-  // Resolution actions for the Inbox's orphan_file item kind (a file under
-  // ATTACHMENTS_ROOT with no matching attachments row). Owner-only, not
+  // Read + resolution actions for the orphan_file item kind (a file under
+  // ATTACHMENTS_ROOT with no matching attachments row), surfaced on the
+  // Documents page (moved from Inbox). Delete is owner-only, not
   // agentWritable — a human decides whether an unreferenced file is safe to
   // discard.
+  'orphan.list': {
+    role: 'viewer', mutating: false,
+    description: 'List unresolved orphaned files (found on disk with no matching attachments row) for the Documents page.',
+    params: { limit: { type: 'number' } },
+  },
   'orphan.delete': {
     role: 'owner', mutating: true,
     description: 'Delete an orphaned file directly off disk (no attachments row exists to delete) and mark it resolved.',

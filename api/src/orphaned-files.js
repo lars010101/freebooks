@@ -2,8 +2,8 @@
 /**
  * freeBooks — Orphaned-file resolution (calendar-reminders-documents-spec.md §5.5)
  *
- * Write actions for the Inbox's orphan_file item kind (inbox.js's
- * queryOrphanedFiles is the read side; orphaned_files IS the source of
+ * Read + write actions for the orphan_file item kind, surfaced on the
+ * Documents page (moved from Inbox — orphaned_files IS the source of
  * truth, R8 — no staging). Two resolutions:
  *   - View   → GET /api/orphaned-file/:orphanId (this file's serveOrphanFile,
  *              mirroring attachments.js's serveAttachment: no company scoping
@@ -21,10 +21,37 @@ const { ATTACHMENTS_ROOT } = require('./attachments');
 
 async function handleOrphanedFiles(ctx, action) {
   switch (action) {
+    case 'orphan.list': return listOrphans(ctx);
     case 'orphan.delete': return deleteOrphan(ctx);
     default:
       throw Object.assign(new Error(`Unknown orphan action: ${action}`), { code: 'UNKNOWN_ACTION' });
   }
+}
+
+/**
+ * orphan.list — unresolved orphaned files for the Documents page. Viewer,
+ * non-mutating. Returns rows shaped for Documents' own table (filename
+ * split out of path for display), oldest-discovered first — the
+ * orphaned_files table IS the source of truth (R8), no staging.
+ */
+async function listOrphans(ctx) {
+  const { companyId, body } = ctx;
+  const rawLimit = Number(body && body.limit);
+  const limit = (Number.isFinite(rawLimit) && rawLimit > 0) ? Math.min(Math.floor(rawLimit), 1000) : 500;
+  const rows = await query(
+    `SELECT orphan_id, path, discovered_at FROM orphaned_files
+     WHERE company_id = @companyId AND resolved_at IS NULL
+     ORDER BY discovered_at ASC LIMIT @lim`,
+    { companyId, lim: limit }
+  );
+  return rows.map(function (row) {
+    return {
+      orphan_id: row.orphan_id,
+      path: row.path,
+      filename: path.basename(row.path),
+      discovered_at: row.discovered_at,
+    };
+  });
 }
 
 async function loadOrphan(companyId, orphanId) {

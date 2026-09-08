@@ -399,8 +399,8 @@ app.post('/api/action', handleApiRequest);
 const { uploadMiddleware, handleUpload, serveAttachment, runAttachmentGC, handleAdminGC } = require('./attachments');
 app.post('/api/upload', uploadMiddleware, handleUpload);
 app.get('/api/attachments/:attachmentId', serveAttachment);
-// calendar-reminders-documents-spec.md §5.5: "View" resolution for an
-// Inbox orphan_file item — same no-extra-scoping posture as serveAttachment.
+// calendar-reminders-documents-spec.md §5.5: "Open" for a Documents
+// orphan_file row — same no-extra-scoping posture as serveAttachment.
 const { serveOrphanFile } = require('./orphaned-files');
 app.get('/api/orphaned-file/:orphanId', serveOrphanFile);
 // A4 (§4.7): token-gated admin trigger for the attachment GC (mirrors

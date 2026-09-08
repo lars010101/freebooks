@@ -55,9 +55,17 @@ async function startTestServer({ withAdminToken = true } = {}) {
   }
   await runInit(dbPath);
 
+  // Isolate file storage too (FREEBOOKS_ATTACHMENTS_ROOT, 2026-09-08) —
+  // without this, any test hitting attachment.upload writes real files
+  // into the developer's actual ~/.freebooks/attachments, same gap the DB
+  // isolation above already closes for the database itself.
+  const attachmentsRoot = `/tmp/fb-contract-${process.pid}-${port}-attachments`;
+  try { fs.rmSync(attachmentsRoot, { recursive: true, force: true }); } catch { /* fresh */ }
+
   const env = {
     ...process.env,
     FREEBOOKS_DB_PATH: dbPath,
+    FREEBOOKS_ATTACHMENTS_ROOT: attachmentsRoot,
     PORT: String(port),
   };
   if (withAdminToken) env.FREEBOOKS_ADMIN_TOKEN = 'contract-test-token';
@@ -77,12 +85,13 @@ async function startTestServer({ withAdminToken = true } = {}) {
     child.kill('SIGTERM');
     await new Promise((r) => setTimeout(r, 500));
     if (!child.killed) child.kill('SIGKILL');
+    try { fs.rmSync(attachmentsRoot, { recursive: true, force: true }); } catch { /* already gone */ }
     for (const suffix of ['', '.wal']) {
       try { fs.unlinkSync(dbPath + suffix); } catch { /* already gone */ }
     }
   }
 
-  return { baseUrl, port, dbPath, child, cleanup, adminToken: withAdminToken ? 'contract-test-token' : null };
+  return { baseUrl, port, dbPath, attachmentsRoot, child, cleanup, adminToken: withAdminToken ? 'contract-test-token' : null };
 }
 
 /** Thin client for the action API. Returns { status, body }. */

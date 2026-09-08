@@ -64,7 +64,14 @@ export async function startServer({ adminToken = true } = {}) {
   }
   await runInit(dbPath);
 
-  const env = { ...process.env, FREEBOOKS_DB_PATH: dbPath, PORT: String(port) };
+  // Isolate file storage too (FREEBOOKS_ATTACHMENTS_ROOT, 2026-09-08) —
+  // without this, any script hitting attachment.upload writes real files
+  // into the developer's actual ~/.freebooks/attachments, same gap the DB
+  // isolation above already closes for the database itself.
+  const attachmentsRoot = `/tmp/fb-script-${process.pid}-${port}-attachments`;
+  try { fs.rmSync(attachmentsRoot, { recursive: true, force: true }); } catch { /* fresh */ }
+
+  const env = { ...process.env, FREEBOOKS_DB_PATH: dbPath, FREEBOOKS_ATTACHMENTS_ROOT: attachmentsRoot, PORT: String(port) };
   if (adminToken) env.FREEBOOKS_ADMIN_TOKEN = 'script-test-token';
   else delete env.FREEBOOKS_ADMIN_TOKEN;
 
@@ -83,12 +90,13 @@ export async function startServer({ adminToken = true } = {}) {
     try { child.kill('SIGTERM'); } catch { /* already gone */ }
     await new Promise((r) => setTimeout(r, 400));
     if (!child.killed) { try { child.kill('SIGKILL'); } catch { /* */ } }
+    try { fs.rmSync(attachmentsRoot, { recursive: true, force: true }); } catch { /* already gone */ }
     for (const suffix of ['', '.wal']) {
       try { fs.unlinkSync(dbPath + suffix); } catch { /* already gone */ }
     }
   }
 
-  return { baseUrl, port, dbPath, child, cleanup, adminToken: adminToken ? 'script-test-token' : null };
+  return { baseUrl, port, dbPath, attachmentsRoot, child, cleanup, adminToken: adminToken ? 'script-test-token' : null };
 }
 
 // ── HTTP helpers (operate against the booted baseUrl) ────────────────────────

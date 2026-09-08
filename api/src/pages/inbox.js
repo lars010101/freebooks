@@ -958,6 +958,16 @@ var list = FB.list.create({
       when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
       affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { review(row, 'reject'); } },
+    // Correct & Resubmit: a rejected proposal is terminal (never edited,
+    // never reposted through itself) — c opens journal-voucher.js in
+    // ?correct= mode, which pre-fills the proposal's original (wrong) values
+    // fully editable, shows the rejection reason, and on post links the new
+    // batch back to this proposal (journal.proposal.correct) and feeds the
+    // fix into crystallization, same as an unedited approve would.
+    { key: 'c', label: 'correct & resubmit',
+      when: function (row) { return row._kind === 'proposal' && row.status === 'rejected'; },
+      affordance: function () { return '<a class="chip" title="correct & resubmit (c)" aria-label="Correct & Resubmit" data-act="verb:c">&#9998;</a>'; },
+      run: function (api, row) { window.location.href = '/' + COMPANY + '/journal/voucher?correct=' + encodeURIComponent(row.proposal_id); } },
     // Thread D / bank-match-bill-settlement-spec §4.4: the human-controlled
     // Full/Partial settlement toggle for bank-match proposals tagging a
     // foreign-currency bill. ~ is the app's universal toggle verb
@@ -1086,7 +1096,7 @@ var list = FB.list.create({
           + ' — d discard (r retry not yet built) · f returns to the queue';
     }
   },
-  hint: 'Inbox: action items awaiting review, grouped by type (y approve/post, x reject/discard, v/x view/delete an orphaned file, d discard an input rejection, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → orphans → partners → suggestions → rejections.'
+  hint: 'Inbox: action items awaiting review, grouped by type (y approve/post, x reject/discard, c correct & resubmit a rejected proposal, v/x view/delete an orphaned file, d discard an input rejection, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → orphans → partners → suggestions → rejections.'
 });
 
 list.load();

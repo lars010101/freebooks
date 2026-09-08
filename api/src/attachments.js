@@ -15,7 +15,11 @@ const { emitEvent } = require('./events');
 const { resolveActor, checkPermission } = require('./auth');
 const { auditCall } = require('./audit');
 
-const ATTACHMENTS_ROOT = path.join(os.homedir(), '.freebooks', 'attachments');
+// FREEBOOKS_ATTACHMENTS_ROOT overrides the default, mirroring db.js's
+// FREEBOOKS_DB_PATH — without it, a scratch FREEBOOKS_DB_PATH run still
+// reads/writes real files under the default root, since the two were never
+// linked (2026-09-08).
+const ATTACHMENTS_ROOT = process.env.FREEBOOKS_ATTACHMENTS_ROOT || path.join(os.homedir(), '.freebooks', 'attachments');
 
 // A4 (§4.7) Disk controls — scoped to journal_proposal uploads only. All other
 // entity types keep the status quo (32MB action cap, no type whitelist). The

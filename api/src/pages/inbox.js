@@ -2,57 +2,38 @@
 /**
  * freeBooks — Inbox (A5 §10: the unified action review queue)
  *
- * One FB.list of action items awaiting a human decision — the human's input
- * channel (the complement of event.list, the agent's). v1 fans out to
- * journal_proposals only (Class A — pre-ledger approvals); Class B types
- * (bills due, bank-import lines, …) slot in per §10.7 as their modules land.
+ * A tab strip over four review queues — Transactions, Partners, New Rule,
+ * Failed Input — the human's input channel (the complement of event.list,
+ * the agent's). Rebuilt 2026-09-09 from a single FB.list with a hidden
+ * `f`-cycling status filter and group-header/fold into a real tab strip
+ * with live counts, one FB.list instance per tab (the established
+ * multi-instance pattern accounting.js/settings.js/payables-bills.js +
+ * payables-partners.js already use for tabs whose columns genuinely
+ * differ — FB.list's columns are fixed per instance, there is no API to
+ * reconfigure them after creation).
  *
- * This page reuses the §4.4 queue idiom VERBATIM (status-filtered list + y/x
- * row verbs + note-on-reject + Enter-unfold + A4 underlag badge/preview +
- * fb:queue-changed window event), moved here from the Journal list per spec
- * §10 (2026-08-03). The Journal list is now the pure posted register.
+ * Transactions unifies journal proposals and bill drafts (Class A) into
+ * one flat table: one verb vocabulary (approve/reject, "approve is the
+ * post" for both — bill.draft.post/bill.draft.reject underneath a bill
+ * row, journal.approve/journal.reject underneath a journal row), one
+ * status vocabulary (Proposed/Rejected — a bill draft's real DB status is
+ * still 'draft'/'rejected', normalized to 'proposed'/'rejected' for
+ * display only). Sortable Date/Counterparty/Amount/Status (FB.list's
+ * native `sortable:true`, no hand-rolled sort needed). Orphaned files
+ * moved to Documents (2026-09-08) — resolving an unlinked file on disk
+ * isn't a decide-here approval, it belongs with the rest of the file
+ * registry, not this review queue.
  *
- * Data: postAction('inbox.list', { status, limit }) → { items: [...] }.
- *   statusState 'proposed' (default — the queue) | 'rejected' (the graveyard;
- *   void doctrine — rejected stays out of the default view). The list-level
- *   `f` action cycles the filter (framework-native toolbar + key), exactly as
- *   the Journal list did.
+ * Partners and New Rule (mapping_suggestion) are ported into their own
+ * tab with their EXISTING columns/verbs/unfold unchanged — Partners'
+ * fully inline-editable row (Vendor/Customer/account/VAT + Duplicate
+ * dropdown) is a separate follow-up, not part of this rebuild.
  *
- * Group rendering: items group by item.type under a collapsible group header
- * row (label 'Journal proposals' for type journal_proposal, plus count). Header
- * Enter/click folds/unfolds its rows; fold state is client-side per type. v1
- * has one type — the structure is generic so Class B types slot in later.
- *
- * Row verbs (FB.list rowVerbs — fb-list-ux-spec §13):
- *   y = approve (confirm modal: date, line count, total debit, optional note)
- *       on proposal rows; post (confirm modal, no note) on bill_draft rows
- *       (Option C amendment — "approve is the post", different action
- *       underneath: bill.draft.post, not journal.approve)
- *   x = reject on proposal rows (required note — the proposer reads it via
- *       event.list); discards on bill_draft rows (bill.draft.delete,
- *       confirm modal, no note)
- *   c = correct & resubmit (rejected proposal rows — opens journal-voucher.js
- *       in ?correct= mode)
- *   y/x = approve/reject (Class B partner_proposal and mapping_suggestion
- *       items — no note field; neither table has a review_note column)
- *   d = discard (Class B input_rejection items, bank-matching-spec §11.2).
- *       r (retry: correct the data + re-run the cascade) is spec'd but has
- *       no backing action or edit UI yet — shown disabled, not omitted.
- * Enter unfolds lines read-only (framework openFocused); Esc never writes.
- *
- * bill_draft (Class A, Option C amendment) merges into the default
- * 'proposed' view server-side (inbox.js), same as period_unclosed — it
- * converges on the same y/x/Enter-unfold idiom as journal_proposal, so it
- * gets no filter state of its own. mapping_suggestion and input_rejection
- * are genuine Class B filter states (bank-matching-spec §10.4/§11.2) — both
- * had complete server implementations (and, for mapping_suggestion, test
- * coverage) that were never wired into this page's f-cycle until now.
- *
- * bill-due and reconciliation-alert items (formerly here as Class B 'bills'/
- * 'reconciliation' filter views) moved to the notifications bell
- * (bills-due-scanner.js / reconciliation-scanner.js) — neither carried an
- * in-place decision, only an "open elsewhere" verb, so they belong with the
- * bell's other go-look-at-this alerts, not this decide-here queue.
+ * Failed Input holds only input_rejection now (rejected journal/bill
+ * proposals stay on Transactions, filtered by the Status column filter —
+ * they always did; this was never a real merge to undo). New here:
+ * unfold shows the actual rejected_lines detail + a working link to the
+ * source statement, not just a "Flagged by" meta line.
  */
 
 const { commonStyle, navBar, layoutEnd, getRelevanceFlags, flagsBootstrapJson } = require('./common');
@@ -80,44 +61,45 @@ ${commonStyle()}
   .jrnl-meta td, td.jrnl-meta { color:var(--text-muted); font-size:0.6875rem; font-style:italic; background:var(--bg); }
   tr[data-child-of] td { background:var(--bg); font-size:0.75rem; color:var(--text-muted); }
   /* Status badges use the shared .badge component (common.css) — see statusBadge() below */
-  /* Per-row type glyph (§10.4): muted prefix in the Date column so a row
-     keeps its type context when the group header scrolls away. */
-  .inbx-type-glyph { font-size:0.8125rem; margin-right:4px; opacity:.6; }
+  /* Per-row type glyph (Transactions only — Partners/New Rule/Failed Input
+     each hold one type, no glyph needed there). */
+  .type-glyph { font-size:0.8125rem; margin-right:4px; opacity:.65; }
+  .t-account {
+    display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
+    border:1px solid var(--text-muted); border-radius:2px; font-weight:700; font-size:0.625rem;
+    font-family:Georgia,serif; opacity:.85; vertical-align:-1px;
+  }
   #queue-note { margin:0 0 10px; font-size:0.75rem; color:var(--text-muted); }
-  /* .chip/.chip-ok/.chip-cancel/.chip-disabled are the shared action-icon
-     chip component (common.css) — this page's local copy never actually
-     coloured .chip-ok/.chip-cancel (no rule existed anywhere), so every
-     approve/reject/view/delete/discard icon below rendered uncoloured. */
-  /* input_rejection 'r' (retry) — reserved verb slot, no backing action yet
-     (§11.2). Shown muted/not-allowed rather than omitted. */
-  /* A5 §10.4 — collapsible group header row. One per item.type (v1: only
-     journal_proposal). Muted, like .jrnl-meta; the fold caret lives in the
-     actions cell (mouse parity for the Enter key verb). */
-  tr.inbx-group td { background:var(--bg); font-weight:700; font-size:0.75rem; color:var(--text-muted); cursor:pointer; }
-  tr.inbx-group td .inbx-grp-count { color:var(--text-muted); font-weight:600; font-size:0.6875rem; margin-left:6px; }
-  /* A4 §4.7 — source-document count badge + no-source-document warning.
-     Folded PROPOSED rows carry the count beside the status badge (the row's
-     existing badge idiom — .st-badge sizing). Zero attachments render a
-     visible ⚠️ warning icon so the reviewer cannot miss the gap
-     (R7 warn-not-block). Rejected/posted rows show no badge. */
+  /* Tab strip (accounting.js/settings.js's recipe — page-local per those
+     precedents, not a shared component). */
+  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); margin-bottom:20px; }
+  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:var(--text-muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+  .tab-count { display:inline-block; min-width:16px; padding:0 5px; border-radius:20px; font-size:0.6875rem; font-weight:700; margin-left:5px; }
+  .tab-count.zero { color:var(--text-faint); }
+  .tab-count.some { background:var(--warning-bg); color:var(--warning); }
+  /* A4 §4.7 — source-document count badge + no-source-document warning. */
   .ul-badge { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:9px;
     font-size:0.6875rem; font-weight:600; background:var(--info-bg); color:var(--info); white-space:nowrap; }
   .ul-warn  { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:9px;
     font-size:0.6875rem; font-weight:700; background:var(--danger-bg); color:var(--danger); white-space:nowrap;
     border:1px solid var(--danger-border); }
   /* Unfold preview (§4.7): the underlag panel renders as a child row holding
-     shared fb-attachments rows (FB.attachments.rowHtml), each linking to the
-     existing GET /api/attachments/:id route. */
+     shared fb-attachments rows (FB.attachments.rowHtml). */
   tr[data-child-of] td.jrnl-att { background:var(--bg); padding:6px 10px; }
   .jrnl-att-head { font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
     color:var(--text-muted); margin:0 0 4px; }
   .jrnl-att .fb-attach-row { padding:3px 0; }
   .jrnl-att .fb-att-empty { color:var(--text-faint); font-size:0.75rem; font-style:italic; }
-  /* calendar-reminders-documents-spec.md §6 — Inbox upload: a front door
-     into the same attachment.uploaded-event pipeline the agent-inbox
-     folder-drop already feeds (agent-loop.js processEvent), so a human can
-     hand the agent a bank statement / bill / receipt without touching the
-     filesystem. */
+  /* Failed Input unfold — rejected_lines detail (2026-09-09). */
+  .discard-detail-doc { margin-bottom:6px; color:var(--text-muted); }
+  .discard-line { padding:4px 0; color:var(--text-muted); }
+  .discard-line code { background:var(--bg); padding:1px 5px; border-radius:3px; color:var(--text); }
+  .source-link { color:var(--info); text-decoration:none; font-weight:600; }
+  .source-link:hover { text-decoration:underline; }
+  /* calendar-reminders-documents-spec.md §6 — Inbox upload. */
   #inbox-upload-panel { display:none; margin:0 0 14px; padding:12px; border:1px solid var(--border); border-radius:4px; background:var(--bg); }
   #inbox-upload-panel.open { display:block; }
   #inbox-upload-panel select, #inbox-upload-panel input { padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; margin-right:8px; }
@@ -148,60 +130,61 @@ ${commonStyle()}
     <a class="fb-tag" data-act="inbox-upload-cancel">Cancel</a>
   </div>
 
+  <div class="tabs">
+    <div class="tab active" onclick="showInboxTab('transactions')">Transactions<span class="tab-count" id="count-transactions"></span></div>
+    <div class="tab" onclick="showInboxTab('partners')">Partners<span class="tab-count" id="count-partners"></span></div>
+    <div class="tab" onclick="showInboxTab('newrule')">New Rule<span class="tab-count" id="count-newrule"></span></div>
+    <div class="tab" onclick="showInboxTab('failedinput')">Failed Input<span class="tab-count" id="count-failedinput"></span></div>
+  </div>
+
   <p id="queue-note"></p>
 
-  <table class="jrnl-table">
-    <thead>
-      <tr>
+  <div id="tab-transactions" class="tab-panel active">
+    <table class="jrnl-table">
+      <thead><tr>
+        <th>Date</th><th>Counterparty</th><th>Description</th>
+        <th style="text-align:right">Amount</th><th>Status</th><th title="Source documents">&#128206;</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="txn-tbody"></tbody>
+    </table>
+  </div>
+
+  <div id="tab-partners" class="tab-panel">
+    <table class="jrnl-table">
+      <thead><tr>
         <th>Date</th><th>Doc No</th><th>Description</th>
-        <th style="text-align:right">Amount</th><th>Source</th><th>Created by</th><th>Status</th><th></th>
-      </tr>
-    </thead>
-    <tbody id="jrnl-tbody"></tbody>
-  </table>
+        <th style="text-align:right">Amount</th><th>Source</th><th>Created by</th><th>Status</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="partners-tbody"></tbody>
+    </table>
+  </div>
+
+  <div id="tab-newrule" class="tab-panel">
+    <table class="jrnl-table">
+      <thead><tr>
+        <th>Date</th><th>Doc No</th><th>Description</th>
+        <th style="text-align:right">Amount</th><th>Source</th><th>Created by</th><th>Status</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="newrule-tbody"></tbody>
+    </table>
+  </div>
+
+  <div id="tab-failedinput" class="tab-panel">
+    <table class="jrnl-table">
+      <thead><tr>
+        <th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th>Reason</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="failedinput-tbody"></tbody>
+    </table>
+  </div>
 </div>
 
 <script>
 window.__fbFlags = ${flagsJson};
 var COMPANY = ${JSON.stringify(company)};
 
-// Queue status filter: 'proposed' (default — Class A queue) | 'rejected'
-// (graveyard) | 'partners' | 'suggestions' | 'rejections' (Class B —
-// §10.2: "a filter/section, not the default"). The list-level f action
-// cycles all of them (§10.4). Orphaned files moved to Documents (2026-09-08)
-// — resolving an unlinked file on disk isn't a decide-here approval, it
-// belongs with the rest of the file registry, not this review queue.
-var statusState = 'proposed';
-
-// Group fold state — client-side per item.type (A5 §10.4). v1 has one type
-// (journal_proposal); the map is generic so Class B types slot in later.
-// Absent key = UNFOLDED (the default — the queue's rows are visible).
-var groupFold = {};
-
-// Human-readable group labels per item.type. Class B types add entries here
-// as their modules land (§10.7). Unknown types fall back to the raw type.
-var GROUP_LABELS = {
-  journal_proposal: 'Journal proposals',
-  bill_draft: 'Bill drafts',
-  partner_proposal: 'Partner proposals',
-  mapping_suggestion: 'Mapping rule suggestions',
-  input_rejection: 'Input rejections'
-};
-
-// Per-row type glyph (§10.4). Muted emoji prefix in the Date column so a
-// row retains its type context when the group header scrolls away.
-var TYPE_GLYPHS = {
-  journal_proposal: '\\uD83D\\uDCD2',    // 📒
-  bill_draft: '\\uD83D\\uDCCB',          // 📋
-  partner_proposal: '\\uD83E\\uDD1D',    // 🤝
-  mapping_suggestion: '\\uD83D\\uDD00',  // 🔀
-  input_rejection: '\\uD83D\\uDEAB'      // 🚫
-};
-
 function postAction(action, body, idemKey) {
   var headers = { 'Content-Type': 'application/json' };
-  // Phase A hardening: optional Idempotency-Key so a retried confirm replays
-  // the stored response instead of double-posting.
   if (idemKey) headers['Idempotency-Key'] = idemKey;
   return fetch('/api/action', {
     method: 'POST', headers: headers,
@@ -210,10 +193,6 @@ function postAction(action, body, idemKey) {
 }
 
 // ── Upload (calendar-reminders-documents-spec.md §6) ─────────────────────────
-// A front door into the same attachment.uploaded event that a folder-drop
-// (feed-watcher.js) already produces — agent-loop.js's processEvent dispatches
-// on entityType regardless of how the attachment arrived, so this needs no
-// new backend action, just the existing attachment.upload with a fresh id.
 document.addEventListener('click', function (e) {
   if (e.target.closest('[data-act="inbox-upload-toggle"]')) {
     document.getElementById('inbox-upload-panel').classList.toggle('open');
@@ -250,11 +229,7 @@ document.addEventListener('click', function (e) {
   reader.readAsDataURL(file);
 });
 
-// Agent-loop / feed-watcher pipeline status (moved here from Chat with AI —
-// this is the queue those two processes feed, not a chat concern). Reads
-// agent.status's actual response shape ({running, feedWatcher:{running}}) —
-// mirrors fb-core.js's topbar chat-dot check, not the mismatched field names
-// chat.js's own status strip used to read.
+// Agent-loop / feed-watcher pipeline status.
 function fmtAgentStatus(d) {
   if (!d) return 'Agent status unavailable';
   var parts = ['Agent: ' + (d.running ? 'Running' : 'Stopped')];
@@ -270,34 +245,28 @@ function loadAgentStatus() {
 }
 loadAgentStatus();
 
-// Blank-on-zero + .amt wrapper stay local (a deliberate, different display
-// choice from the shared formatter); the actual number formatting delegates
-// to FB.util.fmtAmt (docs/UI.md — negative numbers, thousands separators).
 function fmtAmt(v) {
   var n = Number(v || 0);
   return n ? '<span class="amt">' + FB.util.fmtAmt(n) + '</span>' : '';
 }
 function fmtDate(v) { return esc(String(v || '').slice(0, 10)); }
 
+// row.status is always the DISPLAY vocabulary here ('proposed'/'rejected'/
+// 'open') — a bill row's real DB status ('draft') is normalized to
+// 'proposed' at mapTxnItem time, so this needs no per-kind branching.
 function statusBadge(row) {
   var s = row.status || '';
   if (s === 'proposed') return '<span class="badge badge-warning">Proposed</span>';
-  if (s === 'rejected') return '<span class="badge badge-danger" title="' + esc(row.review_note || '') + '\">Rejected</span>';
-  // Class A bill drafts (Option C amendment): reuse the proposed styling —
-  // it's an awaiting-decision state, same family as journal proposals.
-  if (s === 'draft') return '<span class="badge badge-warning">Draft</span>';
-  // Class B open input rejections: needs attention.
+  if (s === 'rejected') return '<span class="badge badge-danger" title="' + esc(row.review_note || '') + '">Rejected</span>';
   if (s === 'open') return '<span class="badge badge-danger">Open</span>';
-  return ''; // inbox is the review queue — no posted badge here
+  return '';
 }
 
 // A4 §4.7 — folded-row source-document indicator. Only PROPOSED items carry
-// it (the review surface); rejected items show nothing. attachment_count > 0
-// → "📎 N" count badge; 0 → a visible ⚠️ warning icon (R7: warn-not-block — the
-// reviewer must not miss the gap, but the proposal is still approvable).
-// Additional inline warning icons for persisted warnings (no_underlag, VAT).
+// it; rejected items show nothing. attachment_count > 0 → "📎 N"; 0 → a
+// visible ⚠️ warning icon (R7: warn-not-block).
 function underlagBadge(row) {
-  if (row._kind !== 'proposal' || row.status !== 'proposed') return '';
+  if (row.status !== 'proposed') return '';
   var n = Number(row.attachment_count || 0);
   var html = '';
   if (n > 0) {
@@ -305,61 +274,44 @@ function underlagBadge(row) {
   } else {
     html += '<span class="ul-warn" title="No source document attached — egen verifikation permitted (BFL 5 kap)">\\u26A0</span>';
   }
-  // Inline per-row warning icons from persisted warnings array.
   var warns = Array.isArray(row.warnings) ? row.warnings : [];
-  // no_underlag is already rendered as the .ul-warn icon above when count=0;
-  // skip duplicating it. Show it only when attachment_count > 0 but the warning
-  // still exists (edge case — should not normally happen).
   if (n > 0 && warns.indexOf('no_underlag') !== -1) {
     html += '<span class="ul-warn" title="No source document attached">\\u26A0</span>';
   }
-  // VAT-related warnings: any string starting with 'vat_' or containing 'vat'.
   var hasVat = warns.some(function (w) {
     return String(w).indexOf('vat_') === 0 || String(w).toLowerCase().indexOf('vat') !== -1;
   });
-  if (hasVat) {
-    html += '<span class="ul-warn" title="VAT tolerance flag">\\u26A0</span>';
-  }
+  if (hasVat) html += '<span class="ul-warn" title="VAT tolerance flag">\\u26A0</span>';
   return html;
 }
 
-// issue #226 — folded-row fuzzy-duplicate indicator for partner_proposal
-// items. Non-blocking (warn-not-block, same doctrine as underlagBadge above):
-// the reviewer sees the candidate name + similarity but approve/reject stay
-// both available either way.
+// issue #226 — folded-row fuzzy-duplicate indicator for partner_proposal.
 function duplicateBadge(row) {
-  if (row._kind !== 'partner' || !row.duplicate_warning) return '';
+  if (!row.duplicate_warning) return '';
   var d = row.duplicate_warning;
   var pct = Math.round((Number(d.similarity) || 0) * 100);
   var kindLabel = d.kind === 'proposal' ? 'another pending proposal' : 'an existing partner';
   return '<span class="ul-warn" title="Possibly a duplicate of ' + esc(d.name) + ' (' + kindLabel + ', ' + pct + '% similar) — review before approving">\\u26A0 possible duplicate</span>';
 }
 
-// A4 §4.7 — unfold preview. The underlag panel is a child row of each
-// PROPOSED item. attachment.list is fetched LAZILY on first unfold (the queue
-// is a review surface, not every item needs its underlag on load) and cached
-// per proposalId; the bare list.render() path re-renders the section when the
-// fetch resolves. No new keys/verbs — Enter unfolds via the existing tree
-// mechanism; this just adds a child row to that unfold. R6: the panel is
-// read-only display; the existing y/x flow is untouched.
-var _attCache = {}; // proposalId → undefined(unfetched) | '__pending' | Array<att>
-function fetchUnderlag(proposalId) {
-  if (_attCache[proposalId] !== undefined) return;     // fetched or in-flight
-  _attCache[proposalId] = '__pending';
-  postAction('attachment.list', { entityType: 'journal_proposal', entityId: proposalId })
+// A4 §4.7 — unfold preview, shared by journal proposals AND bill drafts now
+// (entityType distinguishes the two attachment namespaces). Cache key is
+// "entityType:entityId" so a journal proposal and a bill never collide.
+var _attCache = {};
+function fetchUnderlag(entityType, entityId) {
+  var key = entityType + ':' + entityId;
+  if (_attCache[key] !== undefined) return;
+  _attCache[key] = '__pending';
+  postAction('attachment.list', { entityType: entityType, entityId: entityId })
     .then(function (res) {
-      _attCache[proposalId] = (res && Array.isArray(res.data)) ? res.data : [];
-      list.render();                                   // bare render preserves cursor
+      _attCache[key] = (res && Array.isArray(res.data)) ? res.data : [];
+      txnList.render();
     })
-    .catch(function () { _attCache[proposalId] = []; list.render(); });
+    .catch(function () { _attCache[key] = []; txnList.render(); });
 }
-// Render the underlag panel body for an _attSection child. Reuses the shared
-// FB.attachments.rowHtml (fb-attachments.js) so the markup matches every other
-// attachment surface; each row links to the existing GET /api/attachments/:id
-// route (target _blank). attachment.list returns uploaded_at; rowHtml expects
-// created_at, so map it.
-function underlagPanelHtml(proposalId) {
-  var cached = _attCache[proposalId];
+function underlagPanelHtml(entityType, entityId) {
+  var key = entityType + ':' + entityId;
+  var cached = _attCache[key];
   var body;
   if (cached === '__pending' || cached === undefined) {
     body = '<span class="fb-att-empty">Loading source documents\\u2026</span>';
@@ -376,181 +328,6 @@ function underlagPanelHtml(proposalId) {
   return '<div class="jrnl-att-head">Source documents</div>' + body;
 }
 
-// ── Data: inbox.list (Class A — journal_proposals; Class B —
-//    partner_proposal, …). Class A items are enriched with parsed lines via
-//    journal.proposal.get so unfold and the approve modal are synchronous.
-//    Class B items carry all their data inline (no enrichment needed).
-//    The Object.assign merge keeps the list row's attachment_count (the get
-//    response does not carry it — §4.7). The cache holds the flat item list;
-//    buildRows() interleaves group headers and folds per type. ──────────────
-var _cache = null;      // Array<item> | null (null = stale → re-fetch)
-function fetchRows() {
-  if (_cache) return Promise.resolve(buildRows(_cache));
-  return postAction('inbox.list', { status: statusState, limit: 100 })
-    .then(function (res) {
-      var items = (res && res.data && Array.isArray(res.data.items)) ? res.data.items : [];
-      // Enrich journal_proposal items with parsed lines (children + modal
-      // summary). Every other type — bill_draft, partner_proposal,
-      // mapping_suggestion, input_rejection — skips enrichment; they carry
-      // all data inline.
-      return Promise.all(items.map(function (it) {
-        if (it.type !== 'journal_proposal') return it;
-        return postAction('journal.proposal.get', { proposalId: it.payload_ref })
-          .then(function (g) {
-            var d = (g && g.data) || {};
-            if (!Array.isArray(d.lines)) d.lines = [];
-            // Merge onto the item: getProposal has the lines but NOT the A4
-            // attachment_count — the item carries it (§4.7 badge).
-            return Object.assign(it, d);
-          })
-          .catch(function () { it.lines = []; return it; });
-      }));
-    })
-    .then(function (enriched) { _cache = enriched; return buildRows(enriched); });
-}
-
-// Group items by item.type under a collapsible group header row. v1 has one
-// type (journal_proposal); the loop is generic so Class B types slot in. Fold
-// state is per type (groupFold); a folded group emits its header only.
-function buildRows(items) {
-  var order = [], byType = {};
-  items.forEach(function (it) {
-    var t = it.type || 'unknown';
-    if (!byType[t]) { byType[t] = []; order.push(t); }
-    byType[t].push(mapItem(it));
-  });
-  var out = [];
-  order.forEach(function (t) {
-    var folded = !!groupFold[t];
-    out.push(groupHeader(t, byType[t].length, folded));
-    if (!folded) out = out.concat(byType[t]);
-  });
-  return out;
-}
-
-function groupHeader(type, count, folded) {
-  return {
-    _key: 'group:' + type, _kind: 'group', _groupType: type,
-    _groupLabel: GROUP_LABELS[type] || type, _groupCount: count, _folded: folded
-  };
-}
-
-function mapItem(it) {
-  // bill_due and reconciliation_alert used to map here; both moved to the
-  // notifications bell (bills-due-scanner.js / reconciliation-scanner.js).
-  // orphan_file moved to Documents (2026-09-08) — see orphan.list.
-  // Class B — partner proposals (partner-proposal-spec §5): agent-proposed
-  // vendors/customers awaiting approve/reject. No lines, no enrichment — the
-  // item carries everything inline from inbox.list's queryPartnerProposals.
-  if (it.type === 'partner_proposal') {
-    return {
-      _key: 'partner:' + it.payload_ref, _kind: 'partner',
-      proposal_id: it.payload_ref,
-      type: it.type,
-      date: it.date, reference: it.reference || '',
-      description: it.summary || it.description || '',
-      amount: null, currency: '', source: it.source || 'agent',
-      counterparty: it.counterparty || '',
-      status: it.status, // 'proposed'
-      created_by: it.created_by || '', request_id: '',
-      // issue #226: a non-blocking fuzzy-duplicate hint {name,similarity,kind}
-      // found at propose time. null when no fuzzy candidate was found.
-      duplicate_warning: it.duplicate_warning || null,
-      // Previously dropped between queryPartnerProposals and this item —
-      // the unfold (children(), below) shows these so a reviewer isn't
-      // approving a new partner blind.
-      is_vendor: it.is_vendor !== false,
-      is_customer: it.is_customer === true,
-      default_expense_account: it.default_expense_account || '',
-      default_ap_account: it.default_ap_account || '',
-      suggested_vat_code: it.suggested_vat_code || '',
-      evidence: it.evidence || null,
-      source_proposal_id: it.source_proposal_id || null,
-      source_bill_id: it.source_bill_id || null,
-    };
-  }
-  // Class A — bill drafts (Option C amendment): agent-created bill drafts
-  // awaiting human post/discard. No lines, no enrichment — the item carries
-  // everything inline from inbox.list's queryBillDrafts.
-  if (it.type === 'bill_draft') {
-    return {
-      _key: 'draft:' + it.payload_ref, _kind: 'draft',
-      bill_id: it.payload_ref,
-      type: it.type,
-      date: it.date, reference: it.reference || '',
-      description: it.description || '',
-      amount: it.amount, currency: it.currency || '',
-      counterparty: it.counterparty || '', source: it.source || 'agent',
-      status: it.status, // 'draft'
-      created_by: it.created_by || '', request_id: '',
-    };
-  }
-  // Class B — mapping-rule suggestions (bank-matching-spec §10.2): agent-
-  // proposed bank_mappings rules awaiting approve/reject. No lines, no
-  // enrichment — the item carries everything inline from
-  // inbox.list's queryMappingSuggestions.
-  if (it.type === 'mapping_suggestion') {
-    return {
-      _key: 'sugg:' + it.payload_ref, _kind: 'suggestion',
-      suggestion_id: it.payload_ref,
-      type: it.type,
-      date: it.date, reference: it.reference || '',
-      description: it.summary || it.description || '',
-      amount: null, currency: '', source: it.source || 'agent',
-      counterparty: '',
-      status: it.status, // 'proposed'
-      created_by: it.created_by || '', request_id: '',
-    };
-  }
-  // Class B — input rejections (bank-matching-spec §11.2): statement lines
-  // with missing critical data. No lines, no enrichment — the item carries
-  // everything inline from inbox.list's queryInputRejections. 'r' (retry —
-  // correct the data + re-run the cascade) has no backing action yet; only
-  // 'x' (discard) is wired (see the row-verb definitions below).
-  if (it.type === 'input_rejection') {
-    return {
-      _key: 'rej:' + it.payload_ref, _kind: 'rejection',
-      rejection_id: it.payload_ref,
-      type: it.type,
-      date: it.date, reference: it.reference || '',
-      description: it.summary || it.description || '',
-      amount: null, currency: '', source: it.source || 'agent',
-      counterparty: '',
-      status: it.status, // 'open'
-      created_by: it.created_by || '', request_id: '',
-    };
-  }
-  // Class A — journal_proposal (enriched with lines).
-  var lines = Array.isArray(it.lines) ? it.lines : [];
-  var dr = 0, cr = 0;
-  lines.forEach(function (l) { dr += Number(l.debit || 0); cr += Number(l.credit || 0); });
-  return {
-    _key: 'prop:' + it.payload_ref, _kind: 'proposal',
-    proposal_id: it.payload_ref,
-    type: it.type,
-    date: it.date, reference: it.reference || '',
-    description: it.description || it.summary || '',
-    amount: it.amount,
-    lineCount: lines.length, totalDebit: Math.round(dr * 100) / 100, totalCredit: Math.round(cr * 100) / 100,
-    source: it.source || 'agent', status: it.status,
-    created_by: it.created_by || '', request_id: it.request_id || '',
-    reviewed_by: it.reviewed_by || '', review_note: it.review_note || '',
-    currency: lines.length ? (lines[0].currency || '') : '',
-    // A4 §4.7: per-item attachment_count (inbox.list join) drives the folded
-    // source-document badge / no-source-document warning icon.
-    attachment_count: Number(it.attachment_count || 0),
-    // Persisted warnings array (from journal_proposals.warnings JSON column).
-    warnings: Array.isArray(it.warnings) ? it.warnings : [],
-    // bank-match-bill-settlement-spec §4.4: present only for bank-match
-    // proposals tagging a foreign-currency bill. {billId, mode, blocked,
-    // blockedReason?} — mode ('full'|'partial') is human-toggleable via the
-    // ~ verb; blocked means required FX setup is missing and approval must
-    // be refused.
-    settlement: it.settlement || null,
-    _lines: lines
-  };
-}
-
 function lineChild(row, l, i) {
   return {
     _key: row._key + ':L' + i, _childOf: row._key,
@@ -559,51 +336,138 @@ function lineChild(row, l, i) {
   };
 }
 
-// ── Group fold toggle (header Enter/click — A5 §10.4) ───────────────────────
-function toggleGroupFold(row) {
-  if (!row || row._kind !== 'group') return;
-  groupFold[row._groupType] = !groupFold[row._groupType];
-  list.render();   // cache stays valid — buildRows re-reads groupFold
+// ── Transactions: journal proposals + bill drafts, unified ─────────────────
+// Per-tab glyph — the row's only remaining type signal now that there's no
+// group header to carry it.
+var TXN_GLYPH = {
+  journal: '<span class="type-glyph t-account" title="Journal entry">T</span>',
+  bill: '<span class="type-glyph" title="Bill received">\\uD83D\\uDCE9</span>'
+};
+
+// Synthesizes the same 2-line DR/CR display a journal proposal's real lines
+// give, directly from the bill row's expense_account/ap_account/amount —
+// bill-edit.js's fuller line-item model is out of scope here.
+function billLines(it) {
+  var amt = Number(it.amount) || 0;
+  return [
+    { account_code: it.expense_account || '', description: it.description || '', debit: amt, credit: 0 },
+    { account_code: it.ap_account || '', description: it.counterparty || '', debit: 0, credit: amt }
+  ];
 }
 
-// ── Approve / reject (row verbs — the queue idiom, spec §4.4–4.5) ──────────
-function review(row, verdict) {
+function mapTxnItem(it) {
+  var isBill = it.type === 'bill_draft';
+  var lines = isBill ? billLines(it) : (Array.isArray(it.lines) ? it.lines : []);
+  var dr = 0, cr = 0;
+  lines.forEach(function (l) { dr += Number(l.debit || 0); cr += Number(l.credit || 0); });
+  // Display status is always 'proposed'/'rejected' — a bill's real DB
+  // status ('draft') is normalized here so statusBadge/underlagBadge and
+  // the Status column filter need no per-kind branching.
+  var status = isBill ? (it.status === 'draft' ? 'proposed' : it.status) : it.status;
+  return {
+    _key: (isBill ? 'bill:' : 'jrn:') + it.payload_ref,
+    _kind: 'transaction',
+    kind: isBill ? 'bill' : 'journal',
+    proposal_id: isBill ? null : it.payload_ref,
+    bill_id: isBill ? it.payload_ref : null,
+    date: it.date,
+    counterparty: it.counterparty || '',
+    reference: it.reference || '',
+    description: it.description || it.summary || '',
+    amount: Number(it.amount) || 0,
+    currency: isBill ? (it.currency || '') : (lines.length ? (lines[0].currency || '') : ''),
+    status: status,
+    source: it.source || 'agent',
+    created_by: it.created_by || '',
+    request_id: it.request_id || '',
+    reviewed_by: it.reviewed_by || '',
+    review_note: it.review_note || '',
+    attachment_count: Number(it.attachment_count || 0),
+    warnings: Array.isArray(it.warnings) ? it.warnings : [],
+    settlement: it.settlement || null,
+    lineCount: lines.length, totalDebit: Math.round(dr * 100) / 100, totalCredit: Math.round(cr * 100) / 100,
+    _lines: lines
+  };
+}
+
+// Both statuses (proposed + rejected) are fetched together — the Status
+// column's own filter (already client-side, filterType:'list') is what
+// hides rejected by default (see txnList.applyFilterExpr below), not a
+// separate server round-trip per filter state the way the old f-cycle
+// worked. period_unclosed items are excluded here (they never had real
+// approve/reject wiring in the old code's fallthrough either — this is a
+// deliberate exclusion, not a regression: they don't belong in a unified,
+// typed Transactions row set with no fallback branch to catch them).
+function fetchTxnRows() {
+  return Promise.all([
+    postAction('inbox.list', { status: 'proposed', limit: 100 }),
+    postAction('inbox.list', { status: 'rejected', limit: 100 })
+  ]).then(function (results) {
+    function itemsOf(res) { return (res && res.data && Array.isArray(res.data.items)) ? res.data.items : []; }
+    var proposed = itemsOf(results[0]).filter(function (it) { return it.type === 'journal_proposal' || it.type === 'bill_draft'; });
+    var rejected = itemsOf(results[1]).filter(function (it) { return it.type === 'journal_proposal' || it.type === 'bill_draft'; });
+    updateTabCount('transactions', proposed.length);
+    var items = proposed.concat(rejected);
+    // Enrich journal_proposal items with parsed lines (children + modal
+    // summary); bill_draft items skip enrichment (lines are synthesized
+    // locally by billLines()).
+    return Promise.all(items.map(function (it) {
+      if (it.type !== 'journal_proposal') return it;
+      return postAction('journal.proposal.get', { proposalId: it.payload_ref })
+        .then(function (g) {
+          var d = (g && g.data) || {};
+          if (!Array.isArray(d.lines)) d.lines = [];
+          return Object.assign(it, d);
+        })
+        .catch(function () { it.lines = []; return it; });
+    }));
+  }).then(function (enriched) { return enriched.map(mapTxnItem); });
+}
+
+// ── Approve / reject a transaction row (journal or bill) ────────────────
+// One modal for both kinds now: approve is the post either way; reject is
+// terminal either way (row stays, status flips to rejected, never
+// deleted). action/idField/note-requirement differ underneath by kind —
+// everything else about the flow is identical.
+function reviewTxn(row, verdict) {
   var approve = verdict === 'approve';
-  // Thread D (bank-match-bill-settlement-spec §4.4): a bank-match proposal
-  // missing required FX setup must not even reach the approve modal — refuse
-  // via the banner, same surface as any other action error.
   if (approve && row.settlement && row.settlement.blocked) {
     FB.status.show(row.settlement.blockedReason || 'Missing FX setup — cannot approve this proposal.', true);
     return;
   }
-  // Phase A hardening: one Idempotency-Key per modal open = a retried confirm
-  // replays the stored response instead of double-posting. The inFlight flag
-  // guards the button between the click and the first response so a double-tap
-  // cannot fire two concurrent requests (the second would race the first).
+  var isBill = row.kind === 'bill';
+  var action = isBill ? (approve ? 'bill.draft.post' : 'bill.draft.reject') : (approve ? 'journal.approve' : 'journal.reject');
   var idemKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('rev-' + Date.now() + '-' + Math.random().toString(36).slice(2));
   var inFlight = false;
   FB.modal.open({
-    title: (approve ? 'Approve' : 'Reject') + ' proposed journal batch',
+    title: (approve ? 'Approve' : 'Reject') + ' ' + (isBill ? 'bill' : 'journal batch'),
     body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
       + '<div><b>Date:</b> ' + fmtDate(row.date) + '</div>'
-      + '<div><b>Lines:</b> ' + row.lineCount + ' &nbsp; <b>Total debit:</b> ' + FB.util.fmtAmt(row.totalDebit) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>'
+      + (row.kind === 'journal' && row.lineCount ? '<div><b>Lines:</b> ' + row.lineCount + ' &nbsp; <b>Total debit:</b> ' + FB.util.fmtAmt(row.totalDebit) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>' : '')
+      + (row.counterparty ? '<div><b>Counterparty:</b> ' + esc(row.counterparty) + '</div>' : '')
+      + (row.amount ? '<div><b>Amount:</b> ' + FB.util.fmtAmt(row.amount) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>' : '')
       + (row.reference ? '<div><b>Reference:</b> ' + esc(row.reference) + '</div>' : '')
       + (row.description ? '<div><b>Description:</b> ' + esc(row.description) + '</div>' : '')
       + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">Proposed by ' + esc(row.created_by || '?')
       + (row.request_id ? ' · req ' + esc(row.request_id) : '') + '</div>'
       + '</div>',
-    noteInput: {
+    noteInput: (isBill && approve) ? undefined : {
       required: !approve,
       label: approve ? 'Note (optional)' : 'Note (required — the proposer reads this via event.list)',
-      placeholder: approve ? 'Optional review note' : 'Why is this batch rejected?'
+      placeholder: approve ? 'Optional review note' : 'Why is this rejected?'
     },
     buttons: [
       { label: approve ? 'Approve' : 'Reject', primary: approve, danger: !approve,
         requiresConfirm: true, key: 'Enter', hint: approve ? 'approve' : 'reject',
         onClick: function (mapi) {
           if (inFlight) return; inFlight = true;
-          var note = mapi.confirmValue();
-          postAction('journal.' + verdict, { proposalId: row.proposal_id, note: (note && note.trim()) || undefined }, idemKey)
+          var body = {};
+          body[isBill ? 'billId' : 'proposalId'] = isBill ? row.bill_id : row.proposal_id;
+          if (!(isBill && approve)) {
+            var note = mapi.confirmValue();
+            body.note = (note && note.trim()) || undefined;
+          }
+          postAction(action, body, idemKey)
             .then(function (res) {
               if (!res || res.ok === false || res.error) {
                 inFlight = false;
@@ -612,24 +476,156 @@ function review(row, verdict) {
               var d = res.data || {};
               mapi.close();
               FB.status.show(approve
-                ? 'Approved — posted ' + (d.reference || d.batchId || '')
-                : 'Proposal rejected', false);
+                ? 'Approved — posted ' + (d.reference || d.batchId || d.billId || '')
+                : 'Rejected', false);
               window.dispatchEvent(new Event('fb:queue-changed'));
-              _cache = null;          // invalidate → re-fetch on next load
-              list.load();
+              txnList.load();
             })
             .catch(function (e) { inFlight = false; mapi.error(e.message); });
         } },
       { label: 'Cancel', onClick: function (mapi) { mapi.close(); } }
     ],
-    onCancel: function () {} // Esc/backdrop — never writes
+    onCancel: function () {}
   });
 }
 
-// ── Approve / reject a partner proposal (row verbs — partner-proposal-spec
-// §5). Simpler than the journal-batch modal: partner_proposals has no
-// review_note column (§3.2 schema — only reviewed_by/reviewed_at), so there
-// is no note field here, unlike the journal review() modal above. ─────────
+var txnList = FB.list.create({
+  keysId: 'inbox-transactions',
+  tbody: 'txn-tbody',
+  companyId: function () { return COMPANY; },
+  tree: true,
+  canAdd: false,
+  editable: function () { return false; },
+  active: function () { var p = document.getElementById('tab-transactions'); return !!(p && p.classList.contains('active')); },
+  columns: [
+    { field: 'date', sortable: true, filterType: 'date', label: 'Date',
+      display: function (v, r) { return '<span style="white-space:nowrap">' + TXN_GLYPH[r.kind] + fmtDate(v) + '</span>'; } },
+    { field: 'counterparty', sortable: true, filterType: 'text', label: 'Counterparty',
+      display: function (v, r) {
+        var html = v ? esc(v) : '<span class="pe-ro">—</span>';
+        return r.reference ? '<span title="Ref: ' + esc(r.reference) + '">' + html + '</span>' : html;
+      } },
+    { field: 'description', filterType: 'text', label: 'Description',
+      display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    { field: 'amount', sortable: true, align: 'right', filterType: 'amount', label: 'Amount',
+      // Currency rides on the amount cell, shown only when it differs from
+      // the line's own base — never a separate always-blank column for the
+      // common (base-currency) case. FB.list's columns are fixed per
+      // instance (no per-render conditional column), so "shown only when
+      // needed" happens at the content level here, not the column level.
+      display: function (v, r) { return fmtAmt(r.amount) + (r.currency ? ' <span class="pe-ro">' + esc(r.currency) + '</span>' : ''); } },
+    { field: 'status', sortable: true, filterType: 'list', label: 'Status',
+      display: function (v, r) { return statusBadge(r); } },
+    { field: '_doc', label: '', display: function (v, r) { return underlagBadge(r); } },
+  ],
+  list: { fetch: fetchTxnRows, map: function (row) { return row; } },
+  children: function (row) {
+    var entityType = row.kind === 'bill' ? 'bill' : 'journal_proposal';
+    var entityId = row.kind === 'bill' ? row.bill_id : row.proposal_id;
+    var kids = [];
+    var meta = row.status === 'rejected'
+      ? 'Rejected by ' + (row.reviewed_by || '?') + (row.review_note ? ' — ' + row.review_note : '')
+      : 'Proposed by ' + (row.created_by || '?') + (row.request_id ? ' · req ' + row.request_id : '');
+    kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: meta });
+    if (row.status === 'proposed') {
+      kids.push({ _key: row._key + ':att', _childOf: row._key, _attSection: { entityType: entityType, entityId: entityId } });
+      fetchUnderlag(entityType, entityId);
+    }
+    (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
+    return kids;
+  },
+  childRowHtml: function (parent, child) {
+    if (child._attSection) return '<td colspan="7" class="jrnl-att">' + underlagPanelHtml(child._attSection.entityType, child._attSection.entityId) + '</td>';
+    if (child._meta) return '<td colspan="6" class="jrnl-meta">' + esc(child._meta) + '</td><td></td>';
+    return '<td></td>'
+      + '<td>' + esc(child.account_code) + '</td>'
+      + '<td>' + esc(child.description) + '</td>'
+      + '<td class="amt">' + fmtAmt(child.debit) + '</td>'
+      + '<td colspan="2"></td><td></td>';
+  },
+  rowVerbs: [
+    { key: 'y', label: 'approve',
+      when: function (row) { return row.status === 'proposed'; },
+      affordance: function () { return '<a class="chip chip-ok" title="Approve" aria-label="Approve" data-act="verb:y">&#10003;</a>'; },
+      run: function (api, row) { reviewTxn(row, 'approve'); } },
+    { key: 'x', label: 'reject',
+      when: function (row) { return row.status === 'proposed'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="Reject" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
+      run: function (api, row) { reviewTxn(row, 'reject'); } },
+    // Correct & Resubmit — journal rows only (a rejected bill's fix is just
+    // editing it again via payables-bills.js; there is no bill-voucher
+    // equivalent of journal-voucher.js's ?correct= mode).
+    { key: 'c', label: 'correct & resubmit',
+      when: function (row) { return row.kind === 'journal' && row.status === 'rejected'; },
+      affordance: function () { return '<a class="chip" title="Correct & Resubmit" aria-label="Correct & Resubmit" data-act="verb:c">&#9998;</a>'; },
+      run: function (api, row) { window.location.href = '/' + COMPANY + '/journal/voucher?correct=' + encodeURIComponent(row.proposal_id); } },
+    { key: '~', label: 'toggle full/partial settlement',
+      when: function (row) { return row.status === 'proposed' && !!row.settlement; },
+      affordance: function (row) {
+        var mode = row.settlement && row.settlement.mode === 'partial' ? 'Partial' : 'Full';
+        var cls = row.settlement && row.settlement.blocked ? 'chip chip-cancel' : 'chip';
+        return '<a class="' + cls + '" title="Toggle full/partial settlement" data-act="verb:~">' + mode + '</a>';
+      },
+      run: function (api, row) {
+        postAction('bank.match.toggleSettlement', { proposalId: row.proposal_id, billId: row.settlement.billId })
+          .then(function (res) {
+            if (!res || res.ok === false || res.error) {
+              FB.status.show((res && res.error && res.error.message) || 'Toggle failed', true);
+              return;
+            }
+            FB.status.show('Settlement set to ' + (res.data && res.data.mode === 'partial' ? 'partial' : 'full') + '.', false);
+            txnList.load();
+          })
+          .catch(function (e) { FB.status.show('Toggle failed: ' + (e && e.message || e), true); });
+      } }
+  ],
+  onLoaded: function (saved) {
+    if (!document.getElementById('tab-transactions').classList.contains('active')) return;
+    var note = document.getElementById('queue-note');
+    var proposed = saved.filter(function (r) { return r.status === 'proposed'; });
+    var rejected = saved.filter(function (r) { return r.status === 'rejected'; });
+    note.textContent = proposed.length === 0
+      ? (rejected.length ? 'Nothing to review — ' + rejected.length + ' rejected (Status filter)' : 'Nothing to review — agent-proposed journal entries and bills will appear here')
+      : proposed.length + ' proposed transaction' + (proposed.length === 1 ? '' : 's') + ' awaiting review';
+  },
+  hint: 'Transactions: journal + bill proposals. y approve/post, x reject, c correct & resubmit a rejected journal entry, Enter unfolds lines. The Status column filter (≡) shows rejected rows — hidden by default.'
+});
+// Default view: hide rejected rows (the "graveyard" doctrine journal
+// proposals already had) — same mechanism accounting.js uses to deep-link
+// a pre-filtered column (applyFilterExpr's field:value qualifier grammar).
+txnList.load();
+txnList.applyFilterExpr('status:proposed');
+
+// ── Partners tab (ported as-is; full inline-edit is a separate follow-up) ──
+function mapPartnerItem(it) {
+  return {
+    _key: 'partner:' + it.payload_ref, _kind: 'partner',
+    proposal_id: it.payload_ref,
+    type: it.type,
+    date: it.date, reference: it.reference || '',
+    description: it.summary || it.description || '',
+    amount: null, currency: '', source: it.source || 'agent',
+    counterparty: it.counterparty || '',
+    status: it.status,
+    created_by: it.created_by || '', request_id: '',
+    duplicate_warning: it.duplicate_warning || null,
+    is_vendor: it.is_vendor !== false,
+    is_customer: it.is_customer === true,
+    default_expense_account: it.default_expense_account || '',
+    default_ap_account: it.default_ap_account || '',
+    suggested_vat_code: it.suggested_vat_code || '',
+    evidence: it.evidence || null,
+    source_proposal_id: it.source_proposal_id || null,
+    source_bill_id: it.source_bill_id || null,
+  };
+}
+function fetchPartnerRows() {
+  return postAction('inbox.list', { status: 'partners', limit: 100 }).then(function (res) {
+    var items = (res && res.data && Array.isArray(res.data.items)) ? res.data.items : [];
+    updateTabCount('partners', items.length);
+    return items.map(mapPartnerItem);
+  });
+}
 function reviewPartner(row, verdict) {
   var approve = verdict === 'approve';
   var idemKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('rev-' + Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -655,62 +651,93 @@ function reviewPartner(row, verdict) {
               mapi.close();
               FB.status.show(approve ? 'Approved — added to partners' : 'Proposal rejected', false);
               window.dispatchEvent(new Event('fb:queue-changed'));
-              _cache = null;          // invalidate → re-fetch on next load
-              list.load();
+              partnersList.load();
             })
             .catch(function (e) { inFlight = false; mapi.error(e.message); });
         } },
       { label: 'Cancel', onClick: function (mapi) { mapi.close(); } }
     ],
-    onCancel: function () {} // Esc/backdrop — never writes
+    onCancel: function () {}
   });
 }
+var partnersList = FB.list.create({
+  keysId: 'inbox-partners',
+  tbody: 'partners-tbody',
+  companyId: function () { return COMPANY; },
+  tree: true,
+  canAdd: false,
+  editable: function () { return false; },
+  active: function () { var p = document.getElementById('tab-partners'); return !!(p && p.classList.contains('active')); },
+  columns: [
+    { field: 'date', filterType: 'date', label: 'Date', display: function (v) { return fmtDate(v); } },
+    { field: 'reference', filterType: 'text', label: 'Doc No', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
+    { field: 'description', filterType: 'text', label: 'Description', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    { field: 'amount', align: 'right', filterType: 'amount', label: 'Amount', display: function (v, r) { return fmtAmt(r.amount); } },
+    { field: 'source', filterType: 'list', label: 'Source', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
+    { field: 'created_by', filterType: 'text', label: 'Created by', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
+    { field: 'status', filterType: 'list', label: 'Status', display: function (v, r) { return statusBadge(r) + duplicateBadge(r); } },
+  ],
+  list: { fetch: fetchPartnerRows, map: function (row) { return row; } },
+  children: function (row) {
+    var partnerMeta = 'Proposed by ' + (row.created_by || '?');
+    var roleBits = [];
+    if (row.is_vendor) roleBits.push('vendor');
+    if (row.is_customer) roleBits.push('customer');
+    if (roleBits.length) partnerMeta += ' as ' + roleBits.join(' + ');
+    if (row.default_expense_account) partnerMeta += ' — expense ' + row.default_expense_account;
+    if (row.default_ap_account) partnerMeta += ' · AP ' + row.default_ap_account;
+    if (row.suggested_vat_code) partnerMeta += ' · VAT ' + row.suggested_vat_code;
+    if (row.source_bill_id) partnerMeta += ' · from bill ' + row.source_bill_id;
+    else if (row.source_proposal_id) partnerMeta += ' · from journal proposal ' + row.source_proposal_id;
+    if (row.duplicate_warning) {
+      var dw = row.duplicate_warning;
+      var dwPct = Math.round((Number(dw.similarity) || 0) * 100);
+      partnerMeta += ' — possible duplicate of "' + dw.name + '" (' + dwPct + '% similar)';
+    }
+    return [{ _key: row._key + ':meta', _childOf: row._key, _meta: partnerMeta }];
+  },
+  childRowHtml: function (parent, child) { return '<td colspan="7" class="jrnl-meta">' + esc(child._meta) + '</td><td></td>'; },
+  rowVerbs: [
+    { key: 'y', label: 'approve',
+      when: function (row) { return row.status === 'proposed'; },
+      affordance: function () { return '<a class="chip chip-ok" title="Approve" aria-label="Approve" data-act="verb:y">&#10003;</a>'; },
+      run: function (api, row) { reviewPartner(row, 'approve'); } },
+    { key: 'x', label: 'reject',
+      when: function (row) { return row.status === 'proposed'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="Reject" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
+      run: function (api, row) { reviewPartner(row, 'reject'); } },
+  ],
+  onLoaded: function (saved) {
+    if (document.getElementById('tab-partners').classList.contains('active')) {
+      var note = document.getElementById('queue-note');
+      note.textContent = saved.length === 0
+        ? 'No partner proposals awaiting review'
+        : saved.length + ' partner proposal' + (saved.length === 1 ? '' : 's') + ' awaiting review — y approve · x reject';
+    }
+  },
+  hint: 'Partners: agent-proposed vendors/customers. y approve, x reject, Enter unfolds detail.'
+});
 
-// ── Post / discard a bill draft (row verb — Option C amendment) ─────────
-// Class A: a bill draft's journal entries post via bill.draft.post, not
-// journal.approve — "approve is the post" doctrine, same as journal
-// proposals, just a different action underneath. No note field (mirrors
-// reviewPartner — partner_proposals/bill drafts have no review_note column).
-function reviewDraft(row, verb) {
-  var post = verb === 'post';
-  var idemKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('rev-' + Date.now() + '-' + Math.random().toString(36).slice(2));
-  var inFlight = false;
-  FB.modal.open({
-    title: (post ? 'Post' : 'Discard') + ' bill draft',
-    body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
-      + '<div><b>' + esc(row.counterparty || row.reference || '') + '</b></div>'
-      + (row.description ? '<div>' + esc(row.description) + '</div>' : '')
-      + (row.amount ? '<div>' + FB.util.fmtAmt(row.amount) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>' : '')
-      + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">Created by ' + esc(row.created_by || '?') + '</div>'
-      + '</div>',
-    buttons: [
-      { label: post ? 'Post' : 'Discard', primary: post, danger: !post,
-        requiresConfirm: true, key: 'Enter', hint: post ? 'post' : 'discard',
-        onClick: function (mapi) {
-          if (inFlight) return; inFlight = true;
-          postAction(post ? 'bill.draft.post' : 'bill.draft.delete', { billId: row.bill_id }, idemKey)
-            .then(function (res) {
-              if (!res || res.ok === false || res.error) {
-                inFlight = false;
-                mapi.error((res && res.error && res.error.message) || 'Request failed'); return;
-              }
-              mapi.close();
-              FB.status.show(post ? 'Posted.' : 'Draft discarded.', false);
-              window.dispatchEvent(new Event('fb:queue-changed'));
-              _cache = null; list.load();
-            })
-            .catch(function (e) { inFlight = false; mapi.error(e.message); });
-        } },
-      { label: 'Cancel', onClick: function (mapi) { mapi.close(); } }
-    ],
-    onCancel: function () {} // Esc/backdrop — never writes
+// ── New Rule tab (mapping_suggestion, ported as-is) ─────────────────────
+function mapSuggestionItem(it) {
+  return {
+    _key: 'sugg:' + it.payload_ref, _kind: 'suggestion',
+    suggestion_id: it.payload_ref,
+    type: it.type,
+    date: it.date, reference: it.reference || '',
+    description: it.summary || it.description || '',
+    amount: null, currency: '', source: it.source || 'agent',
+    status: it.status,
+    created_by: it.created_by || '', request_id: '',
+  };
+}
+function fetchSuggestionRows() {
+  return postAction('inbox.list', { status: 'suggestions', limit: 100 }).then(function (res) {
+    var items = (res && res.data && Array.isArray(res.data.items)) ? res.data.items : [];
+    updateTabCount('newrule', items.length);
+    return items.map(mapSuggestionItem);
   });
 }
-
-// ── Approve / reject a mapping-rule suggestion (row verb — bank-matching-
-// spec §10.4) ─────────────────────────────────────────────────────────────
-// Lighter-weight than journal-batch review — no note field, mirrors
-// reviewPartner exactly (mapping_suggestions has no review_note column).
 function reviewSuggestion(row, verdict) {
   var approve = verdict === 'approve';
   var idemKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('rev-' + Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -735,7 +762,7 @@ function reviewSuggestion(row, verdict) {
               mapi.close();
               FB.status.show(approve ? 'Rule approved.' : 'Suggestion rejected.', false);
               window.dispatchEvent(new Event('fb:queue-changed'));
-              _cache = null; list.load();
+              newRuleList.load();
             })
             .catch(function (e) { inFlight = false; mapi.error(e.message); });
         } },
@@ -744,11 +771,70 @@ function reviewSuggestion(row, verdict) {
     onCancel: function () {}
   });
 }
+var newRuleList = FB.list.create({
+  keysId: 'inbox-newrule',
+  tbody: 'newrule-tbody',
+  companyId: function () { return COMPANY; },
+  tree: true,
+  canAdd: false,
+  editable: function () { return false; },
+  active: function () { var p = document.getElementById('tab-newrule'); return !!(p && p.classList.contains('active')); },
+  columns: [
+    { field: 'date', filterType: 'date', label: 'Date', display: function (v) { return fmtDate(v); } },
+    { field: 'reference', filterType: 'text', label: 'Doc No', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
+    { field: 'description', filterType: 'text', label: 'Description', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    { field: 'amount', align: 'right', filterType: 'amount', label: 'Amount', display: function () { return ''; } },
+    { field: 'source', filterType: 'list', label: 'Source', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
+    { field: 'created_by', filterType: 'text', label: 'Created by', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
+    { field: 'status', filterType: 'list', label: 'Status', display: function (v, r) { return statusBadge(r); } },
+  ],
+  list: { fetch: fetchSuggestionRows, map: function (row) { return row; } },
+  children: function (row) {
+    return [{ _key: row._key + ':meta', _childOf: row._key, _meta: 'Suggested by ' + (row.created_by || '?') }];
+  },
+  childRowHtml: function (parent, child) { return '<td colspan="7" class="jrnl-meta">' + esc(child._meta) + '</td><td></td>'; },
+  rowVerbs: [
+    { key: 'y', label: 'approve',
+      when: function (row) { return row.status === 'proposed'; },
+      affordance: function () { return '<a class="chip chip-ok" title="Approve" aria-label="Approve" data-act="verb:y">&#10003;</a>'; },
+      run: function (api, row) { reviewSuggestion(row, 'approve'); } },
+    { key: 'x', label: 'reject',
+      when: function (row) { return row.status === 'proposed'; },
+      affordance: function () { return '<a class="chip chip-cancel" title="Reject" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
+      run: function (api, row) { reviewSuggestion(row, 'reject'); } },
+  ],
+  onLoaded: function (saved) {
+    if (document.getElementById('tab-newrule').classList.contains('active')) {
+      var note = document.getElementById('queue-note');
+      note.textContent = saved.length === 0
+        ? 'No mapping suggestions awaiting review'
+        : saved.length + ' mapping suggestion' + (saved.length === 1 ? '' : 's') + ' awaiting review — y approve · x reject';
+    }
+  },
+  hint: 'New Rule: agent-suggested bank-mapping rules. y approve, x reject.'
+});
 
-// ── Discard an input rejection (row verb — bank-matching-spec §11.2) ────
-// 'x' only — 'r' (retry: correct the data + re-run the cascade) has no
-// backing action yet (no edit UI, no input_rejection.retry action). Goes
-// through FB.modal, matching deleteOrphan's pattern for a one-shot delete.
+// ── Failed Input tab (input_rejection only) ──────────────────────────────
+function mapRejectionItem(it) {
+  return {
+    _key: 'rej:' + it.payload_ref, _kind: 'rejection',
+    rejection_id: it.payload_ref,
+    date: it.date,
+    description: it.summary || it.description || '',
+    amount: null,
+    reason: it.description || it.summary || '',
+    created_by: it.created_by || '',
+    statement_id: it.statement_id || null,
+    rejected_lines: Array.isArray(it.rejected_lines) ? it.rejected_lines : null,
+  };
+}
+function fetchRejectionRows() {
+  return postAction('inbox.list', { status: 'rejections', limit: 100 }).then(function (res) {
+    var items = (res && res.data && Array.isArray(res.data.items)) ? res.data.items : [];
+    updateTabCount('failedinput', items.length);
+    return items.map(mapRejectionItem);
+  });
+}
 function discardRejection(row) {
   FB.modal.open({
     title: 'Discard this rejection?',
@@ -762,285 +848,121 @@ function discardRejection(row) {
               FB.status.show((res && res.error && res.error.message) || 'Discard failed', true); return;
             }
             FB.status.show('Discarded.', false);
-            _cache = null; list.load();
+            failedInputList.load();
           }).catch(function (e) { FB.status.show('Discard failed: ' + (e && e.message || e), true); });
         } }
     ]
   });
 }
-
-function cycleStatusFilter() {
-  // Five-state cycle: proposed → rejected → partners → suggestions →
-  // rejections → proposed. Class B ('partners', 'suggestions', 'rejections')
-  // are filter sections, not the default (§10.2). bill_draft is Class A and
-  // merged into the default 'proposed' view server-side, so it needs no
-  // filter state of its own. 'bills'/'reconciliation' moved to the
-  // notifications bell — neither carried an in-place decision, only an
-  // "open elsewhere" verb. 'orphans' moved to Documents (2026-09-08).
-  statusState = statusState === 'proposed' ? 'rejected'
-    : statusState === 'rejected' ? 'partners'
-    : statusState === 'partners' ? 'suggestions'
-    : statusState === 'suggestions' ? 'rejections'
-    : 'proposed';
-  _cache = null;             // status changed → re-fetch
-  FB.status.show('Queue filter: ' + statusState, false);
-  list.load();
+// Statement-doc link — lazy-fetched on first unfold, same caching idiom as
+// fetchUnderlag (statement_id IS the attachment/entity id, per
+// input_rejections' schema comment).
+var _stmtCache = {};
+function fetchStatementDoc(statementId) {
+  if (!statementId || _stmtCache[statementId] !== undefined) return;
+  _stmtCache[statementId] = '__pending';
+  postAction('attachment.list', { entityType: 'bank_statement', entityId: statementId })
+    .then(function (res) {
+      var atts = (res && Array.isArray(res.data)) ? res.data : [];
+      _stmtCache[statementId] = atts[0] || null;
+      failedInputList.render();
+    })
+    .catch(function () { _stmtCache[statementId] = null; failedInputList.render(); });
 }
-
-// ── The queue (one FB.list; grouped; tree unfold everywhere) ────────────────
-var list = FB.list.create({
-  keysId: 'inbox',
-  tbody: 'jrnl-tbody',
+var failedInputList = FB.list.create({
+  keysId: 'inbox-failedinput',
+  tbody: 'failedinput-tbody',
   companyId: function () { return COMPANY; },
   tree: true,
   canAdd: false,
-  editable: function () { return false; },   // review is accept-or-reject; no in-place edit
+  editable: function () { return false; },
+  active: function () { var p = document.getElementById('tab-failedinput'); return !!(p && p.classList.contains('active')); },
   columns: [
+    // No Type column — this tab holds exactly one row kind now, a per-row
+    // label repeating the tab's own name was pure duplication. The icon
+    // rides the Date column instead, matching Transactions' own convention.
     { field: 'date', filterType: 'date', label: 'Date',
-      display: function (v, r) {
-        if (r._kind === 'group') return '<span>' + esc(r._groupLabel) + '</span>'
-          + '<span class="inbx-grp-count">' + r._groupCount + '</span>';
-        // Per-row type glyph (§10.4): muted prefix so the row carries its
-        // type context even when the group header has scrolled away.
-        var glyph = TYPE_GLYPHS[r.type] || '';
-        return '<span style="white-space:nowrap">' + (glyph ? '<span class="inbx-type-glyph">' + glyph + '</span>' : '') + fmtDate(v) + '</span>';
-      } },
-    { field: 'reference', filterType: 'text', label: 'Doc No',
-      display: function (v, r) { return r._kind === 'group' ? '' : (v != null && v !== '' ? esc(String(v)) : '<span class="pe-ro">—</span>'); } },
-    { field: 'description', filterType: 'text', label: 'Description',
-      display: function (v, r) {
-        if (r._kind === 'group') return '';
-        var text = v != null && v !== '' ? String(v) : '';
-        return text !== '' ? esc(text) : '<span class="pe-ro">—</span>';
-      } },
-    { field: 'amount', align: 'right', filterType: 'amount', label: 'Amount',
-      display: function (v, r) { return r._kind === 'group' ? '' : fmtAmt(r.amount); } },
-    { field: 'source', filterType: 'list', label: 'Source',
-      display: function (v, r) {
-        if (r._kind === 'group') return '';
-        return v != null && v !== '' ? esc(String(v)) : '<span class="pe-ro">—</span>';
-      } },
-    { field: 'created_by', filterType: 'text', label: 'Created by',
-      display: function (v, r) { return r._kind === 'group' ? '' : (v != null && v !== '' ? esc(String(v)) : '<span class="pe-ro">—</span>'); } },
-    { field: 'status', filterType: 'list', label: 'Status',
-      display: function (v, r) {
-        if (r._kind === 'group') return '';
-        return statusBadge(r) + underlagBadge(r) + duplicateBadge(r);
-      } }
+      display: function (v) { return '<span class="type-glyph" title="Failed input">\\uD83D\\uDEAB</span>' + fmtDate(v); } },
+    { field: 'description', filterType: 'text', label: 'Description', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    { field: 'amount', align: 'right', filterType: 'amount', label: 'Amount', display: function () { return ''; } },
+    { field: 'reason', filterType: 'text', label: 'Reason', display: function (v) { return v ? '<span class="pe-ro">' + esc(v) + '</span>' : ''; } },
   ],
-  list: { fetch: fetchRows, map: function (row) { return row; } },
-  rowStyle: function (r) { return r._kind === 'group' ? 'background:var(--bg)' : ''; },
-  // Children resolve synchronously: item lines were enriched at load. An item's
-  // first child is the muted meta line (proposer + request id / rejection
-  // triple); a PROPOSED item also gets the A4 underlag preview child row.
+  list: { fetch: fetchRejectionRows, map: function (row) { return row; } },
   children: function (row) {
-    if (row._kind === 'group') return [];
-    var kids = [];
-    if (row._kind === 'proposal') {
-      var meta = row.status === 'rejected'
-        ? 'Rejected by ' + (row.reviewed_by || '?') + (row.review_note ? ' — ' + row.review_note : '')
-        : 'Proposed by ' + (row.created_by || '?') + (row.request_id ? ' · req ' + row.request_id : '');
-      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: meta });
-      // A4 §4.7: underlag unfold preview — a child row holding the bound
-      // attachments. Lazy-fetched on first unfold (see fetchUnderlag).
-      if (row.status === 'proposed') {
-        kids.push({ _key: row._key + ':att', _childOf: row._key, _attSection: row.proposal_id });
-        fetchUnderlag(row.proposal_id);
-      }
+    if (!row.rejected_lines || !row.rejected_lines.length) {
+      return [{ _key: row._key + ':meta', _childOf: row._key, _meta: 'Flagged by ' + (row.created_by || '?') }];
     }
-    if (row._kind === 'partner') {
-      // Class B partner proposal: a single meta child row — proposer, the
-      // fuzzy-duplicate hint (issue #226) when present, and (previously
-      // missing entirely — a reviewer approved blind) which role the agent
-      // proposed, the suggested accounts/VAT code, and what triggered it.
-      // Read-only here, same as every other meta row on this page; making
-      // these fields correctable in place (not just visible) is a further
-      // step, not done here.
-      var partnerMeta = 'Proposed by ' + (row.created_by || '?');
-      var roleBits = [];
-      if (row.is_vendor) roleBits.push('vendor');
-      if (row.is_customer) roleBits.push('customer');
-      if (roleBits.length) partnerMeta += ' as ' + roleBits.join(' + ');
-      if (row.default_expense_account) partnerMeta += ' — expense ' + row.default_expense_account;
-      if (row.default_ap_account) partnerMeta += ' · AP ' + row.default_ap_account;
-      if (row.suggested_vat_code) partnerMeta += ' · VAT ' + row.suggested_vat_code;
-      if (row.source_bill_id) partnerMeta += ' · from bill ' + row.source_bill_id;
-      else if (row.source_proposal_id) partnerMeta += ' · from journal proposal ' + row.source_proposal_id;
-      if (row.duplicate_warning) {
-        var dw = row.duplicate_warning;
-        var dwPct = Math.round((Number(dw.similarity) || 0) * 100);
-        partnerMeta += ' — possible duplicate of "' + dw.name + '" (' + dwPct + '% similar)';
-      }
-      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: partnerMeta });
-    }
-    if (row._kind === 'draft') {
-      // Class A bill draft: a single meta child row with partner + bill info.
-      // No underlag, no journal lines — the bill's own row is the source of truth.
-      var draftMeta = esc(row.counterparty || '')
-        + (row.reference ? ' · ref ' + esc(row.reference) : '')
-        + (row.currency ? ' · ' + esc(row.currency) : '')
-        + (row.created_by ? ' · created by ' + esc(row.created_by) : '');
-      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: draftMeta });
-    }
-    if (row._kind === 'suggestion') {
-      // Class B mapping-rule suggestion: a single meta child row — proposer.
-      // No lines, no underlag — mapping_suggestions is the source of truth.
-      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: 'Suggested by ' + (row.created_by || '?') });
-    }
-    if (row._kind === 'rejection') {
-      // Class B input rejection: a single meta child row — flagged by.
-      // No lines, no underlag — input_rejections is the source of truth.
-      kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: 'Flagged by ' + (row.created_by || '?') });
-    }
-    (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
-    return kids;
+    if (row.statement_id) fetchStatementDoc(row.statement_id);
+    return [{ _key: row._key + ':detail', _childOf: row._key, _detail: row }];
   },
   childRowHtml: function (parent, child) {
-    if (child._attSection) return '<td colspan="8" class="jrnl-att">' + underlagPanelHtml(child._attSection) + '</td>';
-    if (child._meta) return '<td colspan="7" class="jrnl-meta">' + esc(child._meta) + '</td><td></td>';
-    return '<td></td>'
-      + '<td>' + esc(child.account_code) + '</td>'
-      + '<td>' + esc(child.description) + '</td>'
-      + '<td class="amt">' + fmtAmt(child.debit) + '</td>'
-      + '<td colspan="3"></td><td></td>';
+    if (child._meta) return '<td colspan="4" class="jrnl-meta">' + esc(child._meta) + '</td>';
+    var row = child._detail;
+    var stmt = row.statement_id ? _stmtCache[row.statement_id] : null;
+    var html = '';
+    if (row.statement_id) {
+      html += stmt
+        ? '<div class="discard-detail-doc">Source: <a href="/api/attachments/' + esc(stmt.attachment_id) + '" target="_blank" class="source-link">' + esc(stmt.filename) + ' \\u2197</a></div>'
+        : '<div class="discard-detail-doc pe-ro">Loading source statement\\u2026</div>';
+    }
+    html += row.rejected_lines.map(function (l) {
+      return '<div class="discard-line"><b>Line ' + esc(l.line) + ':</b> <code>' + esc(l.raw) + '</code> — ' + esc(l.reason) + '</div>';
+    }).join('');
+    return '<td colspan="4" class="jrnl-meta">' + html + '</td>';
   },
   rowVerbs: [
-    // A5 §10.4 — group header fold is now Space-only (the built-in tree
-    // binding). Enter falls through to the built-in openFocused (edit/detail).
-    { key: 'y', label: 'approve',
-      when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" aria-label="Approve" data-act="verb:y">&#10003;</a>'; },
-      run: function (api, row) { review(row, 'approve'); } },
-    { key: 'x', label: 'reject',
-      when: function (row) { return row._kind === 'proposal' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
-      run: function (api, row) { review(row, 'reject'); } },
-    // Correct & Resubmit: a rejected proposal is terminal (never edited,
-    // never reposted through itself) — c opens journal-voucher.js in
-    // ?correct= mode, which pre-fills the proposal's original (wrong) values
-    // fully editable, shows the rejection reason, and on post links the new
-    // batch back to this proposal (journal.proposal.correct) and feeds the
-    // fix into crystallization, same as an unedited approve would.
-    { key: 'c', label: 'correct & resubmit',
-      when: function (row) { return row._kind === 'proposal' && row.status === 'rejected'; },
-      affordance: function () { return '<a class="chip" title="correct & resubmit (c)" aria-label="Correct & Resubmit" data-act="verb:c">&#9998;</a>'; },
-      run: function (api, row) { window.location.href = '/' + COMPANY + '/journal/voucher?correct=' + encodeURIComponent(row.proposal_id); } },
-    // Thread D / bank-match-bill-settlement-spec §4.4: the human-controlled
-    // Full/Partial settlement toggle for bank-match proposals tagging a
-    // foreign-currency bill. ~ is the app's universal toggle verb
-    // (keyboard-ux-spec §5) — immediate persist, no staged/dirty-write step,
-    // matching payables-partners.js's active-toggle pattern. No other click
-    // buttons control this decision; approve/reject stay untouched by it.
-    { key: '~', label: 'toggle full/partial settlement',
-      when: function (row) { return row._kind === 'proposal' && row.status === 'proposed' && !!row.settlement; },
-      affordance: function (row) {
-        var mode = row.settlement && row.settlement.mode === 'partial' ? 'Partial' : 'Full';
-        var cls = row.settlement && row.settlement.blocked ? 'chip chip-cancel' : 'chip';
-        return '<a class="' + cls + '" title="toggle full/partial settlement (~)" data-act="verb:~">' + mode + '</a>';
-      },
-      run: function (api, row) {
-        postAction('bank.match.toggleSettlement', { proposalId: row.proposal_id, billId: row.settlement.billId })
-          .then(function (res) {
-            if (!res || res.ok === false || res.error) {
-              FB.status.show((res && res.error && res.error.message) || 'Toggle failed', true);
-              return;
-            }
-            FB.status.show('Settlement set to ' + (res.data && res.data.mode === 'partial' ? 'partial' : 'full') + '.', false);
-            _cache = null;   // lines/amount changed server-side — re-fetch
-            list.load();
-          })
-          .catch(function (e) { FB.status.show('Toggle failed: ' + (e && e.message || e), true); });
-      } },
-    // Class B partner proposals (partner-proposal-spec §5): y/x mirror the
-    // journal-batch review verbs but call partner.proposal.approve/reject
-    // via reviewPartner()'s own (note-free) modal.
-    { key: 'y', label: 'approve',
-      when: function (row) { return row._kind === 'partner' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" aria-label="Approve" data-act="verb:y">&#10003;</a>'; },
-      run: function (api, row) { reviewPartner(row, 'approve'); } },
-    { key: 'x', label: 'reject',
-      when: function (row) { return row._kind === 'partner' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
-      run: function (api, row) { reviewPartner(row, 'reject'); } },
-    // Class A bill drafts (Option C amendment): y posts, x discards — same
-    // "approve is the post" doctrine as journal proposals, different action.
-    { key: 'y', label: 'post',
-      when: function (row) { return row._kind === 'draft'; },
-      affordance: function () { return '<a class="chip chip-ok" title="post (y)" aria-label="Post" data-act="verb:y">&#10003;</a>'; },
-      run: function (api, row) { reviewDraft(row, 'post'); } },
     { key: 'x', label: 'discard',
-      when: function (row) { return row._kind === 'draft'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="discard (x)" aria-label="Discard" data-act="verb:x">&#10005;</a>'; },
-      run: function (api, row) { reviewDraft(row, 'delete'); } },
-    // Class B mapping-rule suggestions (bank-matching-spec §10.4): y/x mirror
-    // the partner-proposal review verbs but call mapping.suggestion.approve/
-    // reject via reviewSuggestion()'s own (note-free) modal.
-    { key: 'y', label: 'approve',
-      when: function (row) { return row._kind === 'suggestion' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-ok" title="approve (y)" aria-label="Approve" data-act="verb:y">&#10003;</a>'; },
-      run: function (api, row) { reviewSuggestion(row, 'approve'); } },
-    { key: 'x', label: 'reject',
-      when: function (row) { return row._kind === 'suggestion' && row.status === 'proposed'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="reject (x)" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
-      run: function (api, row) { reviewSuggestion(row, 'reject'); } },
-    // Class B input rejections (bank-matching-spec §11.2): x = discard, wired
-    // to input_rejection.discard — same key as every other row kind's
-    // discard/reject verb on this page. r = retry is spec'd (correct the
-    // data, re-run the cascade) but has no backing action or edit UI yet —
-    // shown disabled rather than omitted, so the reserved slot is visible
-    // instead of silently missing.
-    { key: 'x', label: 'discard',
-      when: function (row) { return row._kind === 'rejection'; },
-      affordance: function () { return '<a class="chip chip-cancel" title="discard (x)" aria-label="Discard" data-act="verb:x">&#10005;</a>'; },
+      when: function () { return true; },
+      affordance: function () { return '<a class="chip chip-cancel" title="Discard" aria-label="Discard" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { discardRejection(row); } },
     { key: 'r', label: 'retry (not yet built)',
-      when: function (row) { return row._kind === 'rejection'; },
-      affordance: function () { return '<span class="chip chip-disabled" title="retry: correct the data + re-run — not yet built" aria-label="Retry (not yet built)">&#8635;</span>'; },
+      when: function () { return true; },
+      affordance: function () { return '<span class="chip chip-disabled" title="Retry: correct the data + re-run — not yet built" aria-label="Retry (not yet built)">&#8635;</span>'; },
       run: function () { FB.status.show('Retry is not built yet — discard (x) and re-submit corrected data instead.', true); } }
   ],
-  actions: [
-    { key: 'f', label: 'filter: proposed↔rejected↔partners↔suggestions↔rejections', handler: function () { cycleStatusFilter(); } }
-  ],
   onLoaded: function (saved) {
-    var note = document.getElementById('queue-note');
-    if (statusState === 'proposed') {
-      var proposals = saved.filter(function (r) { return r._kind === 'proposal'; });
-      var drafts = saved.filter(function (r) { return r._kind === 'draft'; });
-      note.textContent = (proposals.length === 0 && drafts.length === 0)
-        ? 'Nothing to review — agent-proposed journal batches and bill drafts will appear here'
-        : proposals.length + ' proposed batch' + (proposals.length === 1 ? '' : 'es')
-          + (drafts.length ? ' · ' + drafts.length + ' bill draft' + (drafts.length === 1 ? '' : 's') : '')
-          + ' awaiting review (y approve/post · x reject/discard · Enter unfold)';
-    } else if (statusState === 'rejected') {
-      var rejected = saved.filter(function (r) { return r._kind === 'proposal'; });
-      note.textContent = 'Rejected proposals (' + rejected.length + ') — f returns to the queue';
-    } else if (statusState === 'partners') {
-      // Class B partner proposals view (partner-proposal-spec §5)
-      var partners = saved.filter(function (r) { return r._kind === 'partner'; });
-      note.textContent = partners.length === 0
-        ? 'No partner proposals awaiting review — f cycles filters'
-        : partners.length + ' partner proposal' + (partners.length === 1 ? '' : 's') + ' awaiting review'
-          + ' — y approve · x reject · f cycles filters';
-    } else if (statusState === 'suggestions') {
-      // Class B mapping-rule suggestions view (bank-matching-spec §10.4)
-      var suggestions = saved.filter(function (r) { return r._kind === 'suggestion'; });
-      note.textContent = suggestions.length === 0
-        ? 'No mapping suggestions awaiting review — f cycles filters'
-        : suggestions.length + ' mapping suggestion' + (suggestions.length === 1 ? '' : 's') + ' awaiting review'
-          + ' — y approve · x reject · f cycles filters';
-    } else {
-      // Class B input rejections view (bank-matching-spec §11.2)
-      var rejections = saved.filter(function (r) { return r._kind === 'rejection'; });
-      note.textContent = rejections.length === 0
-        ? 'No input rejections — f returns to the queue'
-        : rejections.length + ' input rejection' + (rejections.length === 1 ? '' : 's')
-          + ' — d discard (r retry not yet built) · f returns to the queue';
+    if (document.getElementById('tab-failedinput').classList.contains('active')) {
+      var note = document.getElementById('queue-note');
+      note.textContent = saved.length === 0
+        ? 'No failed input'
+        : saved.length + ' input rejection' + (saved.length === 1 ? '' : 's') + ' — d discard (r retry not yet built)';
     }
   },
-  hint: 'Inbox: action items awaiting review, grouped by type (y approve/post, x reject/discard, c correct & resubmit a rejected proposal, d discard an input rejection, Enter unfolds lines or folds a group). f cycles filters: proposed → rejected → partners → suggestions → rejections.'
+  hint: 'Failed Input: statement lines that failed to parse. x discard, Enter unfolds the failed line detail + source statement.'
 });
 
-list.load();
+// ── Tab switching + live counts ─────────────────────────────────────────
+var INBOX_TABS = ['transactions', 'partners', 'newrule', 'failedinput'];
+var tabCounts = { transactions: 0, partners: 0, newrule: 0, failedinput: 0 };
+function updateTabCount(tab, n) {
+  tabCounts[tab] = n;
+  var el = document.getElementById('count-' + tab);
+  if (!el) return;
+  el.textContent = n > 0 ? String(n) : '';
+  el.className = 'tab-count ' + (n > 0 ? 'some' : 'zero');
+}
+var INBOX_LISTS = { transactions: txnList, partners: partnersList, newrule: newRuleList, failedinput: failedInputList };
+function showInboxTab(t) {
+  document.querySelectorAll('.tabs .tab').forEach(function (el, i) { el.classList.toggle('active', INBOX_TABS[i] === t); });
+  document.querySelectorAll('.tab-panel').forEach(function (el) { el.classList.remove('active'); });
+  document.getElementById('tab-' + t).classList.add('active');
+  // Reload on every switch (not lazy/cached like accounting.js's tabs) —
+  // this is a review queue; a stale approved/rejected row lingering after
+  // an action elsewhere is worse than one extra fetch. Each list's own
+  // onLoaded repopulates #queue-note once its own tab is confirmed active.
+  INBOX_LISTS[t].load();
+  var hintEl = document.getElementById('sb-hints');
+  if (hintEl) INBOX_LISTS[t].renderHints(hintEl);
+}
+
+// All four tabs fetch on page load (not lazily on first visit) — the tab
+// strip shows every tab's live count up front, so every list needs its
+// data whether or not that tab is currently visible.
+partnersList.load();
+newRuleList.load();
+failedInputList.load();
+var _initialHintEl = document.getElementById('sb-hints');
+if (_initialHintEl) txnList.renderHints(_initialHintEl);
 </script>
 ${layoutEnd()}
 </body>

@@ -823,6 +823,14 @@ ALTER TABLE bank_mappings ADD COLUMN IF NOT EXISTS amount_sign VARCHAR DEFAULT '
 ALTER TABLE mapping_suggestions ADD COLUMN IF NOT EXISTS suggested_amount_sign VARCHAR DEFAULT 'any';
 ALTER TABLE mapping_suggestions ADD COLUMN IF NOT EXISTS suggested_match_type VARCHAR DEFAULT 'contains';
 
+-- Inbox rebuild (2026-09-09): bill.draft.reject needs the same reviewer
+-- triple journal_proposals already has — a rejected bill draft is terminal
+-- (status='rejected') and stays in place for the record, same doctrine as
+-- journal.reject, instead of bill.draft.delete's hard DELETE.
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR;
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS review_note VARCHAR;
+
 -- =============================================================================
 -- bill_lines (P2-3 — Bill Lines Subledger)
 -- Expense line items for posted bills. Written alongside journal_entries in

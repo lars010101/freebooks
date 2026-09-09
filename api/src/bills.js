@@ -90,6 +90,7 @@ async function handleBills(ctx, action) {
     case 'bill.draft.save': return saveDraftBill(ctx);
     case 'bill.draft.post': return postDraftBill(ctx);
     case 'bill.draft.delete': return deleteDraftBill(ctx);
+    case 'bill.draft.reject': return rejectDraftBill(ctx);
     case 'payment.record': return ctx.body.allocations ? recordMultiBillPayment(ctx) : recordBillPayment(ctx);
     case 'payment.void':   return voidBillPayment(ctx);
     case 'payment.list':   return listBillPayments(ctx);
@@ -1332,6 +1333,41 @@ async function deleteDraftBill(ctx) {
   );
 
   return { deleted: true, billId };
+}
+
+/**
+ * bill.draft.reject — draft→rejected (terminal, never deleted). Mirrors
+ * journal.js's rejectProposal exactly: note is REQUIRED (the agent reads
+ * it via event.list and re-proposes corrected), atomic claim UPDATE...
+ * RETURNING is the race-decider, idempotent at dispatch level. Unlike
+ * bill.draft.delete (a hard DELETE, unchanged, still used elsewhere), the
+ * row stays in place with status='rejected' so it shows up on Inbox's
+ * Transactions tab under the rejected filter the same way a rejected
+ * journal proposal does.
+ */
+async function rejectDraftBill(ctx) {
+  const { companyId, userEmail, body } = ctx;
+  const { billId, note } = body;
+  if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
+  if (!note || String(note).trim() === '') {
+    throw Object.assign(new Error('note is required to reject a draft bill (the agent reads the reason and re-proposes corrected)'), { code: 'INVALID_INPUT' });
+  }
+
+  const reviewer = userEmail || 'anonymous';
+  const now = new Date().toISOString();
+  const claim = await query(
+    `UPDATE bills
+     SET status='rejected', reviewed_by=@reviewedBy, reviewed_at=@now, review_note=@note
+     WHERE company_id=@companyId AND bill_id=@billId AND status='draft'
+     RETURNING bill_id`,
+    { reviewedBy: reviewer, now, note: String(note), companyId, billId });
+  if (claim.length === 0) {
+    const cur = await query(`SELECT status FROM bills WHERE company_id=@companyId AND bill_id=@billId`, { companyId, billId });
+    if (cur.length === 0) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
+    throw Object.assign(new Error(`Cannot reject a bill in status '${cur[0].status}' (only 'draft' can be rejected)`), { code: 'INVALID_STATUS' });
+  }
+
+  return { rejected: true, billId };
 }
 
 async function postDraftBill(ctx) {

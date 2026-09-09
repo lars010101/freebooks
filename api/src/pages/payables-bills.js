@@ -401,6 +401,7 @@ function statusBadge(status, dueDate) {
   var isOverdue = (status === 'posted' || status === 'partial') && dueDate && String(dueDate).slice(0,10) < today;
   if (isOverdue) return '<span class="badge badge-danger">🔒 Overdue</span>';
   if (status === 'draft')   return '<span class="badge badge-neutral" style="cursor:pointer">Draft</span>';
+  if (status === 'rejected') return '<span class="badge badge-danger">Rejected</span>';
   if (status === 'posted')  return '<span class="badge badge-info">🔒 Open</span>';
   if (status === 'partial') return '<span class="badge badge-warning">🔒 Partial</span>';
   if (status === 'paid')    return '<span class="badge badge-success">🔒 Paid</span>';
@@ -1319,7 +1320,10 @@ var billsList = FB.list.create({
           var d = api.focusedRow(); if (!d) return false;
           if (d._kind === 'payment') return true; // payment-history child → void payment
           var p = parentOf(d);
-          return !!(p && !p._isNew && p.status && p.status !== 'draft'); // posted/partial/paid/void → void bill
+          // posted/partial/paid/void → void bill. Not draft (delete/reject
+          // it instead) and not rejected (never posted — same reasoning,
+          // nothing to void; the new status Inbox's Transactions tab uses).
+          return !!(p && !p._isNew && p.status && p.status !== 'draft' && p.status !== 'rejected');
         },
         run: function () {
           var d = api.focusedRow(); if (!d) return;

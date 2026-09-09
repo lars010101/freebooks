@@ -257,6 +257,16 @@ const ACTIONS = {
     description: 'Hard-delete a draft bill (drafts only, never posted).',
     params: { billId: { type: 'string', required: true } },
   },
+  // Inbox rebuild (2026-09-09): reject is terminal (status='rejected'),
+  // never a delete — same doctrine as journal.reject (note required, the
+  // agent reads it via event.list and re-proposes corrected), unlike
+  // bill.draft.delete's hard removal above, which stays for its other
+  // callers unchanged.
+  'bill.draft.reject': {
+    role: 'data_entry', mutating: true, idempotent: true,
+    description: 'Reject a draft bill (terminal — stays in place with status=rejected, never deleted). note is required.',
+    params: { billId: { type: 'string', required: true }, note: { type: 'string', required: true } },
+  },
   // Renamed from 'bill.payment.record' (two-way-payments-prep) — the
   // dispatch prefix is now 'payment', not 'bill' (see index.js's two
   // dispatch tables), ahead of an eventual invoiceId/direction branch once

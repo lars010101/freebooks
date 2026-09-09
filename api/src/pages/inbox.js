@@ -72,7 +72,6 @@ ${commonStyle()}
     border:1px solid var(--text-muted); border-radius:2px; font-weight:700; font-size:0.625rem;
     font-family:Georgia,serif; opacity:.85; vertical-align:-1px;
   }
-  #queue-note { margin:0 0 10px; font-size:0.75rem; color:var(--text-muted); }
   /* Tab strip (accounting.js/settings.js's recipe — page-local per those
      precedents, not a shared component). */
   .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); margin-bottom:20px; }
@@ -107,7 +106,11 @@ ${commonStyle()}
   #inbox-upload-panel.open { display:block; }
   #inbox-upload-panel select, #inbox-upload-panel input { padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; margin-right:8px; }
   .header { display:flex; justify-content:space-between; align-items:flex-start; }
-  #inbox-agent-status { font-size:0.75rem; color:var(--text-muted); cursor:pointer; user-select:none; margin:2px 0 10px; }
+  .agent-warn {
+    display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; font-weight:600;
+    color:var(--danger); background:var(--danger-bg); border:1px solid var(--danger-border);
+    padding:5px 10px; border-radius:5px; margin:0 0 14px; cursor:pointer; user-select:none;
+  }
   /* Partners tab — every field editable directly on the row, no unfold: the
      whole approve/reject decision happens on one line (2026-09-09). */
   #partners-tbody input[type="text"] {
@@ -121,14 +124,13 @@ ${commonStyle()}
 <body>${navBar(company, 'inbox')}
 <div class="page page-wide">
   <div class="header">
-    <div>
-      <h1>Inbox</h1>
-      <p class="sub">${company} · review queue</p>
-    </div>
-    <a class="fb-tag" data-act="inbox-upload-toggle">+ Upload document</a>
+    <h1>📥 Inbox: Agent Proposals</h1>
   </div>
 
-  <div id="inbox-agent-status" onclick="loadAgentStatus()">Checking agent status…</div>
+  <div class="agent-warn" id="agent-warn" hidden onclick="loadAgentStatus()">
+    <span>&#9888;</span>
+    <span id="agent-warn-text"></span>
+  </div>
 
   <div id="inbox-upload-panel">
     <select id="inbox-upload-type">
@@ -147,8 +149,6 @@ ${commonStyle()}
     <div class="tab" onclick="showInboxTab('newrule')">New Rule<span class="tab-count" id="count-newrule"></span></div>
     <div class="tab" onclick="showInboxTab('failedinput')">Failed Input<span class="tab-count" id="count-failedinput"></span></div>
   </div>
-
-  <p id="queue-note"></p>
 
   <div id="tab-transactions" class="tab-panel active">
     <table class="jrnl-table">
@@ -205,10 +205,11 @@ function postAction(action, body, idemKey) {
 }
 
 // ── Upload (calendar-reminders-documents-spec.md §6) ─────────────────────────
+// Entry point moved to the topbar's global "+" menu (fb-core.js's
+// NEW_MENU_ITEMS, 2026-09-09) — it navigates here with ?upload=1, which
+// opens the panel directly (see the bottom of this script); this page no
+// longer has its own toggle trigger in the header.
 document.addEventListener('click', function (e) {
-  if (e.target.closest('[data-act="inbox-upload-toggle"]')) {
-    document.getElementById('inbox-upload-panel').classList.toggle('open');
-  }
   if (e.target.closest('[data-act="inbox-upload-cancel"]')) {
     document.getElementById('inbox-upload-panel').classList.remove('open');
     document.getElementById('inbox-upload-file').value = '';
@@ -241,19 +242,28 @@ document.addEventListener('click', function (e) {
   reader.readAsDataURL(file);
 });
 
-// Agent-loop / feed-watcher pipeline status.
-function fmtAgentStatus(d) {
+// Agent-loop / feed-watcher pipeline status — silent unless something is
+// actually broken (mockup: no persistent "Checking..." text line; the
+// warning pill only appears when the agent or feed watcher is stopped).
+function fmtAgentWarning(d) {
   if (!d) return 'Agent status unavailable';
-  var parts = ['Agent: ' + (d.running ? 'Running' : 'Stopped')];
-  if (d.feedWatcher) parts.push('Feed watcher: ' + (d.feedWatcher.running ? 'Running' : 'Stopped'));
-  return parts.join(' \\u00b7 ');
+  var stopped = [];
+  if (!d.running) stopped.push('Agent');
+  if (d.feedWatcher && !d.feedWatcher.running) stopped.push('Feed watcher');
+  if (!stopped.length) return null;
+  return stopped.join(' & ') + ' stopped — uploaded documents won\\'t be processed automatically';
 }
 function loadAgentStatus() {
-  var el = document.getElementById('inbox-agent-status');
-  el.textContent = 'Checking agent status…';
+  var warnEl = document.getElementById('agent-warn');
+  var textEl = document.getElementById('agent-warn-text');
   postAction('agent.status', {}).then(function (res) {
-    el.textContent = fmtAgentStatus((res && res.data) || null);
-  }).catch(function () { el.textContent = 'Agent status unavailable'; });
+    var msg = fmtAgentWarning((res && res.data) || null);
+    textEl.textContent = msg || '';
+    warnEl.hidden = !msg;
+  }).catch(function () {
+    textEl.textContent = 'Agent status unavailable';
+    warnEl.hidden = false;
+  });
 }
 loadAgentStatus();
 
@@ -591,15 +601,6 @@ var txnList = FB.list.create({
           .catch(function (e) { FB.status.show('Toggle failed: ' + (e && e.message || e), true); });
       } }
   ],
-  onLoaded: function (saved) {
-    if (!document.getElementById('tab-transactions').classList.contains('active')) return;
-    var note = document.getElementById('queue-note');
-    var proposed = saved.filter(function (r) { return r.status === 'proposed'; });
-    var rejected = saved.filter(function (r) { return r.status === 'rejected'; });
-    note.textContent = proposed.length === 0
-      ? (rejected.length ? 'Nothing to review — ' + rejected.length + ' rejected (Status filter)' : 'Nothing to review — agent-proposed journal entries and bills will appear here')
-      : proposed.length + ' proposed transaction' + (proposed.length === 1 ? '' : 's') + ' awaiting review';
-  },
   hint: 'Transactions: journal + bill proposals. y approve/post, x reject, c correct & resubmit a rejected journal entry, Enter unfolds lines. The Status column filter (≡) shows rejected rows — hidden by default.'
 });
 // Default view: hide rejected rows (the "graveyard" doctrine journal
@@ -791,14 +792,8 @@ var partnersList = FB.list.create({
       affordance: function () { return '<a class="chip chip-cancel" title="Reject" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { reviewPartner(row, 'reject'); } },
   ],
-  onLoaded: function (saved) {
+  onLoaded: function () {
     wirePartnerInputs();
-    if (document.getElementById('tab-partners').classList.contains('active')) {
-      var note = document.getElementById('queue-note');
-      note.textContent = saved.length === 0
-        ? 'No partner proposals awaiting review'
-        : saved.length + ' partner proposal' + (saved.length === 1 ? '' : 's') + ' awaiting review — y approve · x reject';
-    }
   },
   hint: 'Partners: agent-proposed vendors/customers, edit any field then approve. y approve, x reject.'
 });
@@ -898,14 +893,6 @@ var newRuleList = FB.list.create({
       affordance: function () { return '<a class="chip chip-cancel" title="Reject" aria-label="Reject" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { reviewSuggestion(row, 'reject'); } },
   ],
-  onLoaded: function (saved) {
-    if (document.getElementById('tab-newrule').classList.contains('active')) {
-      var note = document.getElementById('queue-note');
-      note.textContent = saved.length === 0
-        ? 'No mapping suggestions awaiting review'
-        : saved.length + ' mapping suggestion' + (saved.length === 1 ? '' : 's') + ' awaiting review — y approve · x reject';
-    }
-  },
   hint: 'New Rule: agent-suggested bank-mapping rules. y approve, x reject.'
 });
 
@@ -1015,14 +1002,6 @@ var failedInputList = FB.list.create({
       affordance: function () { return '<span class="chip chip-disabled" title="Retry: correct the data + re-run — not yet built" aria-label="Retry (not yet built)">&#8635;</span>'; },
       run: function () { FB.status.show('Retry is not built yet — discard (x) and re-submit corrected data instead.', true); } }
   ],
-  onLoaded: function (saved) {
-    if (document.getElementById('tab-failedinput').classList.contains('active')) {
-      var note = document.getElementById('queue-note');
-      note.textContent = saved.length === 0
-        ? 'No failed input'
-        : saved.length + ' input rejection' + (saved.length === 1 ? '' : 's') + ' — d discard (r retry not yet built)';
-    }
-  },
   hint: 'Failed Input: statement lines that failed to parse. x discard, Enter unfolds the failed line detail + source statement.'
 });
 
@@ -1043,8 +1022,7 @@ function showInboxTab(t) {
   document.getElementById('tab-' + t).classList.add('active');
   // Reload on every switch (not lazy/cached like accounting.js's tabs) —
   // this is a review queue; a stale approved/rejected row lingering after
-  // an action elsewhere is worse than one extra fetch. Each list's own
-  // onLoaded repopulates #queue-note once its own tab is confirmed active.
+  // an action elsewhere is worse than one extra fetch.
   INBOX_LISTS[t].load();
   var hintEl = document.getElementById('sb-hints');
   if (hintEl) INBOX_LISTS[t].renderHints(hintEl);
@@ -1058,6 +1036,13 @@ newRuleList.load();
 failedInputList.load();
 var _initialHintEl = document.getElementById('sb-hints');
 if (_initialHintEl) txnList.renderHints(_initialHintEl);
+
+// Deep-link from the topbar's global "+" menu (?upload=1) — same
+// read-window.location.search-at-script-time convention bank/settings/
+// payables already use for their own ?tab= deep-links (common.js).
+if (new URLSearchParams(window.location.search).get('upload')) {
+  document.getElementById('inbox-upload-panel').classList.add('open');
+}
 </script>
 ${layoutEnd()}
 </body>

@@ -313,13 +313,69 @@ function underlagBadge(row) {
 }
 
 // issue #226 — folded-row fuzzy-duplicate indicator for partner_proposal.
+// A hit against an EXISTING partner (kind:'partner') carries that partner's
+// id (2026-09-09, partner.proposal.alias) and is actionable: the reviewer
+// can resolve the proposal as the same real-world partner instead of
+// approving it into a duplicate row. A hit against another PENDING proposal
+// (kind:'proposal') has no partner_id yet — neither side is a real partner
+// until one of them is resolved — so that case stays an informational badge.
 function duplicateBadge(row) {
   if (!row.duplicate_warning) return '';
   var d = row.duplicate_warning;
   var pct = Math.round((Number(d.similarity) || 0) * 100);
+  if (d.kind === 'partner' && d.partnerId) {
+    // Not data-act: FB.list's own wireChips() intercepts (and
+    // stopPropagation()s) EVERY [data-act] element inside its tbody, known
+    // verb or not — a distinct attribute name is required for this link's
+    // click to ever reach the document-level handler below.
+    return '<a class="fb-tag" title="Treat as the same partner as ' + esc(d.name) + ' (' + pct + '% similar) — no new partner will be created" '
+      + 'data-partner-alias="1" data-proposal="' + esc(row.proposal_id) + '" data-partner="' + esc(d.partnerId) + '" data-partner-name="' + esc(d.name) + '">'
+      + '\\u26A0 alias to ' + esc(d.name) + '</a>';
+  }
   var kindLabel = d.kind === 'proposal' ? 'another pending proposal' : 'an existing partner';
   return '<span class="ul-warn" title="Possibly a duplicate of ' + esc(d.name) + ' (' + kindLabel + ', ' + pct + '% similar) — review before approving">\\u26A0 possible duplicate</span>';
 }
+
+// Alias flow (2026-09-09) — resolves a Partners-tab row as "the same partner
+// as an existing one" via the Duplicate column's actionable link above.
+// Delegated at the document level, same idiom as the upload panel's
+// data-act handlers, since the link is rebuilt on every FB.list re-render.
+document.addEventListener('click', function (e) {
+  var link = e.target.closest('[data-partner-alias]');
+  if (!link) return;
+  var proposalId = link.dataset.proposal;
+  var partnerId = link.dataset.partner;
+  var partnerName = link.dataset.partnerName;
+  var idemKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('alias-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+  var inFlight = false;
+  FB.modal.open({
+    title: 'Alias to existing partner',
+    body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
+      + 'Treat this proposal as the <b>same partner</b> as <b>' + esc(partnerName) + '</b>?'
+      + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">No new partner will be created. If this proposal came from a drafted bill, that bill will be relinked to the existing partner.</div>'
+      + '</div>',
+    buttons: [
+      { label: 'Alias', primary: true, requiresConfirm: true, key: 'Enter', hint: 'alias',
+        onClick: function (mapi) {
+          if (inFlight) return; inFlight = true;
+          postAction('partner.proposal.alias', { proposalId: proposalId, partnerId: partnerId }, idemKey)
+            .then(function (res) {
+              if (!res || res.ok === false || res.error) {
+                inFlight = false;
+                mapi.error((res && res.error && res.error.message) || 'Request failed'); return;
+              }
+              mapi.close();
+              FB.status.show('Resolved as ' + partnerName, false);
+              window.dispatchEvent(new Event('fb:queue-changed'));
+              partnersList.load();
+            })
+            .catch(function (e) { inFlight = false; mapi.error(e.message); });
+        } },
+      { label: 'Cancel', onClick: function (mapi) { mapi.close(); } }
+    ],
+    onCancel: function () {}
+  });
+});
 
 // A4 §4.7 — unfold preview, shared by journal proposals AND bill drafts now
 // (entityType distinguishes the two attachment namespaces). Cache key is
@@ -619,11 +675,10 @@ txnList.applyFilterExpr('status:proposed');
 // accounts/tax code are plain inputs (outside FB.list's own dirty-tracking,
 // same idiom payables-bills.js's FB.dropdown-wired cells use), read live at
 // Approve time — matches the finalized mockup. The Duplicate column is
-// informational only, not a functional alias-merge control: findFuzzyMatch
-// (partners.js) only ever returns a single best-guess candidate, and there
-// is no alias/merge concept anywhere in the backend today — a dropdown that
-// looked actionable without being able to actually do anything different
-// would be worse than the plain warning badge it already had.
+// actionable when the fuzzy hit is against an EXISTING partner
+// (duplicateBadge below, partner.proposal.alias backend action, both added
+// 2026-09-09) — a hit against another pending proposal stays an
+// informational badge, since neither side is a real partner yet to alias to.
 function mapPartnerItem(it) {
   return {
     _key: 'partner:' + it.payload_ref, _kind: 'partner',

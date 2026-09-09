@@ -165,7 +165,8 @@ async function listInbox(ctx) {
  * Item shape: { type:'mapping_suggestion', source:'agent', counterparty:null,
  * amount:null, date:created_at, proposed_at:created_at, summary,
  * verbs:['approve','reject','open'], payload_ref:suggestion_id,
- * status, reference, description, created_by }.
+ * status, reference, description, created_by, suggested_account,
+ * suggested_vat_code, bank_account, source_proposal_id }.
  */
 async function queryMappingSuggestions(companyId, limit) {
   var rows = await query(
@@ -194,6 +195,14 @@ async function queryMappingSuggestions(companyId, limit) {
       reference: row.description_pattern,
       description: row.description_pattern,
       created_by: row.created_by,
+      // Inbox rebuild (2026-09-09): these three were fetched above only to
+      // help build `summary`/`reference` — never actually exposed on the
+      // item, so the New Rule tab had no real columns to render beyond a
+      // generic Date/Doc No/Description set. Now available for real ones.
+      suggested_account: row.suggested_account,
+      suggested_vat_code: row.suggested_vat_code || '',
+      bank_account: row.bank_account || '',
+      source_proposal_id: row.source_proposal_id || null,
     };
   });
 }

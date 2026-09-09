@@ -102,10 +102,16 @@ async function run(chromium) {
   await page.goto(`${BASE}/${CO}`, { waitUntil: 'networkidle' });
   ok('Inbox loads with zero JS errors', jsErrors.length === 0, jsErrors.join(' | ').slice(0, 200));
 
-  await page.keyboard.press('f'); // proposed → rejected
+  // Rejected rows are hidden by default on the Transactions tab (Status
+  // column filter defaults to status:proposed, per the Inbox rebuild
+  // 2026-09-09) — clicking the already-active filter button clears it,
+  // revealing rejected rows too (fb-list.js's "click an active column
+  // filter to clear it" convention).
+  const statusFilterBtn = page.locator('#tab-transactions thead th', { hasText: 'Status' }).locator('.fb-filter-btn');
+  await statusFilterBtn.click();
   await page.waitForTimeout(400);
-  const noteText = await page.locator('#queue-note').textContent();
-  ok('Inbox rejected filter shows the seeded proposal', /Rejected proposals \(\d+\)/.test(noteText || ''), noteText);
+  const bodyText = await page.locator('#tab-transactions').innerText();
+  ok('Inbox shows the seeded rejected proposal once the Status filter is cleared', bodyText.includes('CRTEST'), bodyText.slice(0, 300));
 
   const chip = page.locator('a[data-act="verb:c"]').first();
   const chipCount = await page.locator('a[data-act="verb:c"]').count();

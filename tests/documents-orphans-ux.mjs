@@ -73,14 +73,17 @@ async function run(chromium) {
   await page.goto(`${BASE}/${CO}`, { waitUntil: 'networkidle' });
   ok('Inbox loads with zero JS errors', jsErrors.length === 0, jsErrors.join(' | ').slice(0, 200));
 
-  const seenNotes = [];
-  for (let i = 0; i < 5; i++) {
-    seenNotes.push(await page.locator('#queue-note').textContent());
-    await page.keyboard.press('f');
+  // Inbox rebuild (2026-09-09): the hidden f-cycling filter became a real
+  // tab strip (Transactions/Partners/New Rule/Failed Input) — walk every
+  // tab and confirm none of them ever surfaces an orphans view.
+  const seenTabs = {};
+  for (const label of ['Transactions', 'Partners', 'New Rule', 'Failed Input']) {
+    await page.locator('.tabs .tab', { hasText: label }).click();
     await page.waitForTimeout(250);
+    seenTabs[label] = await page.locator('.tab-panel.active').innerText();
   }
-  ok('Inbox filter cycle (5 states) never surfaces an orphans view',
-    seenNotes.every((n) => !/orphan/i.test(n || '')), JSON.stringify(seenNotes));
+  ok('Inbox tab strip (4 tabs) never surfaces an orphans view',
+    Object.values(seenTabs).every((t) => !/orphan/i.test(t || '')), JSON.stringify(Object.keys(seenTabs)));
 
   // ── Documents: the orphan row renders correctly ──────────────────────────
   jsErrors.length = 0;

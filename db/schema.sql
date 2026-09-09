@@ -943,11 +943,24 @@ CREATE INDEX IF NOT EXISTS idx_partner_proposals_name
 -- =============================================================================
 -- partner_proposals.duplicate_warning (issue #226) — a fuzzy name match found
 -- at propose time no longer blocks creation (warn-not-block, R7 doctrine); it
--- is instead carried on the proposal as {name, similarity, kind} JSON so the
--- Inbox review UI can flag it, leaving the approve/reject decision to the
--- human reviewer. NULL when no fuzzy candidate was found.
+-- is instead carried on the proposal as {name, similarity, kind, partnerId}
+-- JSON so the Inbox review UI can flag it, leaving the approve/reject/alias
+-- decision to the human reviewer. NULL when no fuzzy candidate was found.
+-- partnerId is only present when kind='partner' (an existing partner row) —
+-- kind='proposal' (another pending proposal) has no partner_id to alias to
+-- yet. Added 2026-09-09 alongside aliased_to_partner_id below (older rows
+-- pre-date it and simply have no partnerId in their stored JSON).
 -- =============================================================================
 ALTER TABLE partner_proposals ADD COLUMN IF NOT EXISTS duplicate_warning JSON;
+
+-- =============================================================================
+-- partner_proposals: alias/merge resolution (2026-09-09) — a proposal can now
+-- be resolved as "this is the same partner as an existing one" instead of
+-- only approve (create new) or reject (discard). status='aliased' is a third
+-- terminal state; aliased_to_partner_id records which existing partner it
+-- was resolved to. See partner.proposal.alias (api/src/partners.js).
+-- =============================================================================
+ALTER TABLE partner_proposals ADD COLUMN IF NOT EXISTS aliased_to_partner_id VARCHAR;
 
 -- =============================================================================
 -- bills.partner_id — link to partners(partner_id) (bills-partner-fk-spec §1)

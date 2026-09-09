@@ -643,6 +643,14 @@ const ACTIONS = {
     description: 'Reject a partner proposal (terminal). No note required.',
     params: { proposalId: { type: 'string', required: true } },
   },
+  'partner.proposal.alias': {
+    role: 'data_entry', mutating: true,
+    description: 'Resolve a partner proposal as a duplicate of an existing partner (terminal) — no new partner is created. Relinks the source bill (if any) to the existing partner and auto-learns a mapping suggestion from its account, same as approve.',
+    params: {
+      proposalId: { type: 'string', required: true },
+      partnerId: { type: 'string', required: true },
+    },
+  },
   'partner.proposal.list': {
     role: 'viewer', mutating: false,
     description: 'List partner proposals (filter by status: proposed/approved/rejected).',

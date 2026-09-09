@@ -22,6 +22,7 @@ async function handlePartners(ctx, action) {
     case 'partner.propose':           return proposePartner(ctx);
     case 'partner.proposal.approve':  return approvePartnerProposal(ctx);
     case 'partner.proposal.reject':   return rejectPartnerProposal(ctx);
+    case 'partner.proposal.alias':    return aliasPartnerProposal(ctx);
     case 'partner.proposal.list':     return listPartnerProposals(ctx);
     case 'partner.proposal.get':      return getPartnerProposal(ctx);
     default:
@@ -253,7 +254,7 @@ async function proposePartner(ctx) {
   // customer-only partner is just as much a duplicate-entity signal as one
   // against a vendor.
   const allExistingPartners = await query(
-    `SELECT name FROM partners
+    `SELECT partner_id, name FROM partners
      WHERE company_id = @companyId`,
     { companyId }
   );
@@ -290,6 +291,12 @@ async function proposePartner(ctx) {
       : (fuzzyPartner || fuzzyProposal);
     const kind = best === fuzzyPartner ? 'partner' : 'proposal';
     duplicateWarning = { name: best.candidate.name, similarity: Math.round(best.similarity * 100) / 100, kind };
+    // partnerId lets the reviewer resolve this as "the same partner" via
+    // partner.proposal.alias without a fragile name-based re-lookup later.
+    // Only meaningful for kind='partner' — a fuzzy hit against another
+    // pending proposal has no partner_id yet (neither side is a real
+    // partner until one of them is approved).
+    if (kind === 'partner') duplicateWarning.partnerId = best.candidate.partner_id;
   }
   const duplicateWarningJson = duplicateWarning ? JSON.stringify(duplicateWarning) : null;
 
@@ -593,6 +600,135 @@ async function rejectPartnerProposal(ctx) {
 
   await emitEvent(ctx, 'partner.proposal.rejected', 'partner_proposal', proposalId, {});
   return { rejected: true };
+}
+
+/**
+ * partner.proposal.alias — proposed → aliased (terminal), a third resolution
+ * alongside approve/reject: the reviewer has recognized this proposal as the
+ * SAME real-world partner as an existing one, not a genuinely new partner.
+ * No row is inserted into partners; the proposal is marked resolved and, if
+ * it originated from a drafted bill (source_bill_id), that bill is relinked
+ * to the existing partner — otherwise resolving the duplicate would just
+ * suppress the warning with no lasting effect. Still crystallizes a mapping
+ * suggestion (§2.5, same as approve) when source data exists, using the
+ * EXISTING partner's own known-good account rather than the now-discarded
+ * proposal's guess — the reviewer just confirmed which account is correct.
+ */
+async function aliasPartnerProposal(ctx) {
+  const { companyId, body, userEmail } = ctx;
+  const { proposalId, partnerId } = body;
+  if (!proposalId) throw Object.assign(new Error('proposalId required'), { code: 'INVALID_INPUT' });
+  if (!partnerId) throw Object.assign(new Error('partnerId required'), { code: 'INVALID_INPUT' });
+
+  const rows = await query(
+    `SELECT * FROM partner_proposals
+     WHERE company_id = @companyId AND proposal_id = @proposalId`,
+    { companyId, proposalId }
+  );
+  if (rows.length === 0) throw Object.assign(new Error('Partner proposal not found'), { code: 'NOT_FOUND' });
+  const prop = rows[0];
+  if (String(prop.status) !== 'proposed') {
+    throw Object.assign(new Error(`Cannot alias a proposal in status '${prop.status}' (only 'proposed' can be aliased)`), { code: 'INVALID_STATUS' });
+  }
+
+  const targetRows = await query(
+    `SELECT partner_id, name, default_expense_account FROM partners
+     WHERE company_id = @companyId AND partner_id = @partnerId`,
+    { companyId, partnerId }
+  );
+  if (targetRows.length === 0) {
+    throw Object.assign(new Error(`Partner '${partnerId}' not found`), { code: 'NOT_FOUND' });
+  }
+  const target = targetRows[0];
+
+  // Same 'anonymous' fallback as approve/reject above.
+  const reviewer = userEmail || 'anonymous';
+  const now = new Date().toISOString();
+  await exec(
+    `UPDATE partner_proposals
+        SET status = 'aliased', reviewed_by = @reviewed_by, reviewed_at = @reviewed_at,
+            aliased_to_partner_id = @partnerId
+      WHERE company_id = @companyId AND proposal_id = @proposalId`,
+    { reviewed_by: reviewer, reviewed_at: now, companyId, proposalId, partnerId }
+  );
+
+  if (prop.source_bill_id) {
+    await exec(
+      `UPDATE bills SET partner_id = @partnerId, partner_name = @partnerName
+        WHERE company_id = @companyId AND bill_id = @billId`,
+      { partnerId, partnerName: target.name, companyId, billId: prop.source_bill_id }
+    );
+  }
+
+  await emitEvent(ctx, 'partner.proposal.aliased', 'partner_proposal', proposalId,
+    { partner_id: partnerId, name: prop.name, aliased_to: target.name });
+
+  // ── §2.5-style auto-learning, same shape as approve — see that function's
+  // matching block for the query/insert this mirrors.
+  if (prop.source_proposal_id) {
+    try {
+      const jpRows = await query(
+        `SELECT description FROM journal_proposals
+         WHERE company_id = @companyId AND proposal_id = @proposalId
+         LIMIT 1`,
+        { companyId, proposalId: prop.source_proposal_id }
+      );
+      const rawDesc = (jpRows.length > 0 && jpRows[0].description) || prop.source_description || null;
+      if (rawDesc) {
+        const pattern = normalizeDescription(rawDesc);
+        if (pattern) {
+          const existingRule = await query(
+            `SELECT mapping_id FROM bank_mappings
+             WHERE company_id = @companyId AND is_active = true
+               AND UPPER(pattern) = UPPER(@pattern)`,
+            { companyId, pattern }
+          );
+          const existingSuggestion = await query(
+            `SELECT suggestion_id FROM mapping_suggestions
+             WHERE company_id = @companyId AND status = 'proposed'
+               AND UPPER(description_pattern) = UPPER(@pattern)`,
+            { companyId, pattern }
+          );
+          if (existingRule.length === 0 && existingSuggestion.length === 0) {
+            const suggestionId = uuid();
+            const learningEvidence = [{
+              type: 'partner_alias_auto_learn',
+              description: `Auto-created from partner proposal '${prop.name}' aliased to existing partner '${target.name}'`,
+              partner_proposal_id: proposalId,
+              source_proposal_id: prop.source_proposal_id,
+              aliased_to_partner_id: partnerId,
+            }];
+            await bulkInsert('mapping_suggestions', [{
+              company_id: companyId,
+              suggestion_id: suggestionId,
+              bank_account: null,
+              description_pattern: pattern,
+              suggested_account: target.default_expense_account || null,
+              suggested_vat_code: prop.suggested_vat_code || null,
+              suggested_dimensions: null,
+              suggested_amount_sign: 'any',
+              suggested_match_type: 'contains',
+              evidence: JSON.stringify(learningEvidence),
+              source_proposal_id: prop.source_proposal_id || null,
+              status: 'proposed',
+              created_by: userEmail,
+              reviewed_by: null,
+              reviewed_at: null,
+              created_at: now,
+            }]);
+            await emitEvent(ctx, 'mapping.suggested', 'mapping_suggestion', suggestionId,
+              { description_pattern: pattern, suggested_account: target.default_expense_account || null,
+                source_proposal_id: prop.source_proposal_id || null });
+          }
+        }
+      }
+    } catch (learnErr) {
+      // Auto-learning failure is non-fatal — the alias itself already succeeded.
+      console.warn(`partner.proposal.alias: auto-learning failed: ${learnErr.message}`);
+    }
+  }
+
+  return { aliased: true, partner_id: partnerId, proposal_id: proposalId };
 }
 
 /**

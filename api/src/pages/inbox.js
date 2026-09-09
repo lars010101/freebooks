@@ -47,6 +47,9 @@ async function handleInboxPage(req, res) {
 
 function buildInboxPage(company, flags) {
   const flagsJson = flagsBootstrapJson(flags);
+  // Tax code column (Partners tab) gated on vat_registered, same convention
+  // journal-voucher.js already uses for its own Tax Code column.
+  const vatOn = !flags || flags.vatRegistered !== false;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -105,6 +108,14 @@ ${commonStyle()}
   #inbox-upload-panel select, #inbox-upload-panel input { padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; margin-right:8px; }
   .header { display:flex; justify-content:space-between; align-items:flex-start; }
   #inbox-agent-status { font-size:0.75rem; color:var(--text-muted); cursor:pointer; user-select:none; margin:2px 0 10px; }
+  /* Partners tab — every field editable directly on the row, no unfold: the
+     whole approve/reject decision happens on one line (2026-09-09). */
+  #partners-tbody input[type="text"] {
+    padding:4px 6px; border:1px solid var(--border); border-radius:4px; font-size:0.75rem;
+    background:var(--surface); color:var(--text); width:72px;
+  }
+  .source-link { color:var(--info); text-decoration:none; font-weight:600; white-space:nowrap; }
+  .source-link:hover { text-decoration:underline; }
 </style>
 </head>
 <body>${navBar(company, 'inbox')}
@@ -152,8 +163,8 @@ ${commonStyle()}
   <div id="tab-partners" class="tab-panel">
     <table class="jrnl-table">
       <thead><tr>
-        <th>Date</th><th>Doc No</th><th>Description</th>
-        <th style="text-align:right">Amount</th><th>Source</th><th>Created by</th><th>Status</th><th>Actions</th>
+        <th>Name</th><th>Vendor</th><th>Customer</th>
+        <th>Exp account</th><th>AP account</th>${vatOn ? '<th>Tax code</th>' : ''}<th>Source</th><th>Duplicate</th><th>Actions</th>
       </tr></thead>
       <tbody id="partners-tbody"></tbody>
     </table>
@@ -162,8 +173,8 @@ ${commonStyle()}
   <div id="tab-newrule" class="tab-panel">
     <table class="jrnl-table">
       <thead><tr>
-        <th>Date</th><th>Doc No</th><th>Description</th>
-        <th style="text-align:right">Amount</th><th>Source</th><th>Created by</th><th>Status</th><th>Actions</th>
+        <th>Date</th><th>Pattern</th><th>Suggested account</th>
+        ${vatOn ? '<th>Tax code</th>' : ''}<th>Source</th><th>Actions</th>
       </tr></thead>
       <tbody id="newrule-tbody"></tbody>
     </table>
@@ -182,6 +193,7 @@ ${commonStyle()}
 <script>
 window.__fbFlags = ${flagsJson};
 var COMPANY = ${JSON.stringify(company)};
+var VAT_ON = ${vatOn ? 'true' : 'false'};
 
 function postAction(action, body, idemKey) {
   var headers = { 'Content-Type': 'application/json' };
@@ -596,25 +608,30 @@ var txnList = FB.list.create({
 txnList.load();
 txnList.applyFilterExpr('status:proposed');
 
-// ── Partners tab (ported as-is; full inline-edit is a separate follow-up) ──
+// ── Partners tab — flat, single-row inline decision (2026-09-09 follow-up) ──
+// Every field editable directly on the row, no unfold: Vendor/Customer/
+// accounts/tax code are plain inputs (outside FB.list's own dirty-tracking,
+// same idiom payables-bills.js's FB.dropdown-wired cells use), read live at
+// Approve time — matches the finalized mockup. The Duplicate column is
+// informational only, not a functional alias-merge control: findFuzzyMatch
+// (partners.js) only ever returns a single best-guess candidate, and there
+// is no alias/merge concept anywhere in the backend today — a dropdown that
+// looked actionable without being able to actually do anything different
+// would be worse than the plain warning badge it already had.
 function mapPartnerItem(it) {
   return {
     _key: 'partner:' + it.payload_ref, _kind: 'partner',
     proposal_id: it.payload_ref,
     type: it.type,
-    date: it.date, reference: it.reference || '',
-    description: it.summary || it.description || '',
-    amount: null, currency: '', source: it.source || 'agent',
-    counterparty: it.counterparty || '',
+    name: it.counterparty || it.reference || '',
     status: it.status,
-    created_by: it.created_by || '', request_id: '',
+    created_by: it.created_by || '',
     duplicate_warning: it.duplicate_warning || null,
     is_vendor: it.is_vendor !== false,
     is_customer: it.is_customer === true,
     default_expense_account: it.default_expense_account || '',
     default_ap_account: it.default_ap_account || '',
     suggested_vat_code: it.suggested_vat_code || '',
-    evidence: it.evidence || null,
     source_proposal_id: it.source_proposal_id || null,
     source_bill_id: it.source_bill_id || null,
   };
@@ -626,15 +643,81 @@ function fetchPartnerRows() {
     return items.map(mapPartnerItem);
   });
 }
+
+// Account/tax-code source lists (fetched once) and the FB.dropdown wiring
+// for the Exp/AP/Tax inputs — same endpoints and code-only-value convention
+// payables-bills.js's own FB.dropdown cells already use (its dropdowns
+// leave input.value as the bare code; the name rides as this row's
+// tooltip instead, closing the "which account IS 7010" gap that prompted
+// this rebuild in the first place).
+var partnerAccountsList = [], partnerVatCodes = [];
+function loadPartnerAccounts() {
+  if (partnerAccountsList.length) return Promise.resolve();
+  return fetch('/api/' + COMPANY + '/accounts').then(function (r) { return r.json(); })
+    .then(function (rows) { partnerAccountsList = Array.isArray(rows) ? rows : []; })
+    .catch(function () {});
+}
+function loadPartnerVatCodes() {
+  if (!VAT_ON || partnerVatCodes.length) return Promise.resolve();
+  return fetch('/api/' + COMPANY + '/vat-codes').then(function (r) { return r.json(); })
+    .then(function (rows) { partnerVatCodes = Array.isArray(rows) ? rows.filter(function (v) { return v.is_active !== false; }) : []; })
+    .catch(function () {});
+}
+loadPartnerAccounts();
+loadPartnerVatCodes();
+
+function codeTooltip(code, list, codeKey, nameKey) {
+  if (!code) return '';
+  var m = list.filter(function (a) { return a[codeKey] === code; })[0];
+  return m ? code + ' — ' + (m[nameKey] || '') : code;
+}
+function wireCodeInput(input, list, codeKey, nameKey) {
+  input.title = codeTooltip(input.value.trim(), list, codeKey, nameKey);
+  if (!window.FB || !FB.dropdown) return;
+  FB.dropdown.attach(input, {
+    minWidth: 240,
+    source: function (q) {
+      q = (q || '').trim().toLowerCase();
+      return list.filter(function (a) {
+        if (!q) return true;
+        return (a[codeKey] || '').toLowerCase().indexOf(q) >= 0 || (a[nameKey] || '').toLowerCase().indexOf(q) >= 0;
+      }).map(function (a) { return { primary: a[codeKey], secondary: a[nameKey] || '', data: a }; });
+    },
+    onPick: function (item, inp) {
+      inp.value = item.data[codeKey];
+      inp.title = item.data[codeKey] + ' — ' + (item.data[nameKey] || '');
+    }
+  });
+  input.addEventListener('blur', function () { input.title = codeTooltip(input.value.trim(), list, codeKey, nameKey); });
+}
+function wirePartnerInputs() {
+  document.querySelectorAll('#partners-tbody .pf-exp, #partners-tbody .pf-ap').forEach(function (el) {
+    wireCodeInput(el, partnerAccountsList, 'account_code', 'account_name');
+  });
+  if (VAT_ON) {
+    document.querySelectorAll('#partners-tbody .pf-vat').forEach(function (el) {
+      wireCodeInput(el, partnerVatCodes, 'vat_code', 'description');
+    });
+  }
+}
+
+function partnerSourceHtml(row) {
+  if (row.source_bill_id) return '<a class="source-link" href="/' + COMPANY + '/bill/' + encodeURIComponent(row.source_bill_id) + '">bill ↗</a>';
+  if (row.source_proposal_id) return '<span class="pe-ro" title="Journal proposal ' + esc(row.source_proposal_id) + ' — no detail page yet">journal proposal</span>';
+  return '<span class="pe-ro">—</span>';
+}
+
+// Reads the row's LIVE input values (not the stale ones the row was loaded
+// with) at Approve time — the reviewer may have just corrected them.
 function reviewPartner(row, verdict) {
   var approve = verdict === 'approve';
   var idemKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('rev-' + Date.now() + '-' + Math.random().toString(36).slice(2));
   var inFlight = false;
+  var tr = document.querySelector('#partners-tbody tr[data-key="' + row._key + '"]');
   FB.modal.open({
     title: (approve ? 'Approve' : 'Reject') + ' partner proposal',
     body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
-      + '<div><b>' + esc(row.counterparty || row.reference || '') + '</b></div>'
-      + (row.description ? '<div>' + esc(row.description) + '</div>' : '')
+      + '<div><b>' + esc(row.name) + '</b></div>'
       + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">Proposed by ' + esc(row.created_by || '?') + '</div>'
       + '</div>',
     buttons: [
@@ -642,7 +725,16 @@ function reviewPartner(row, verdict) {
         requiresConfirm: true, key: 'Enter', hint: approve ? 'approve' : 'reject',
         onClick: function (mapi) {
           if (inFlight) return; inFlight = true;
-          postAction('partner.proposal.' + verdict, { proposalId: row.proposal_id }, idemKey)
+          var body = { proposalId: row.proposal_id };
+          if (approve && tr) {
+            body.isVendor = !!tr.querySelector('.pf-vendor').checked;
+            body.isCustomer = !!tr.querySelector('.pf-customer').checked;
+            body.defaultExpenseAccount = tr.querySelector('.pf-exp').value.trim() || null;
+            body.defaultApAccount = tr.querySelector('.pf-ap').value.trim() || null;
+            var vatInput = tr.querySelector('.pf-vat');
+            if (vatInput) body.suggestedVatCode = vatInput.value.trim() || null;
+          }
+          postAction('partner.proposal.' + verdict, body, idemKey)
             .then(function (res) {
               if (!res || res.ok === false || res.error) {
                 inFlight = false;
@@ -664,39 +756,31 @@ var partnersList = FB.list.create({
   keysId: 'inbox-partners',
   tbody: 'partners-tbody',
   companyId: function () { return COMPANY; },
-  tree: true,
+  tree: false,
   canAdd: false,
   editable: function () { return false; },
   active: function () { var p = document.getElementById('tab-partners'); return !!(p && p.classList.contains('active')); },
-  columns: [
-    { field: 'date', filterType: 'date', label: 'Date', display: function (v) { return fmtDate(v); } },
-    { field: 'reference', filterType: 'text', label: 'Doc No', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
-    { field: 'description', filterType: 'text', label: 'Description', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
-    { field: 'amount', align: 'right', filterType: 'amount', label: 'Amount', display: function (v, r) { return fmtAmt(r.amount); } },
-    { field: 'source', filterType: 'list', label: 'Source', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
-    { field: 'created_by', filterType: 'text', label: 'Created by', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
-    { field: 'status', filterType: 'list', label: 'Status', display: function (v, r) { return statusBadge(r) + duplicateBadge(r); } },
-  ],
-  list: { fetch: fetchPartnerRows, map: function (row) { return row; } },
-  children: function (row) {
-    var partnerMeta = 'Proposed by ' + (row.created_by || '?');
-    var roleBits = [];
-    if (row.is_vendor) roleBits.push('vendor');
-    if (row.is_customer) roleBits.push('customer');
-    if (roleBits.length) partnerMeta += ' as ' + roleBits.join(' + ');
-    if (row.default_expense_account) partnerMeta += ' — expense ' + row.default_expense_account;
-    if (row.default_ap_account) partnerMeta += ' · AP ' + row.default_ap_account;
-    if (row.suggested_vat_code) partnerMeta += ' · VAT ' + row.suggested_vat_code;
-    if (row.source_bill_id) partnerMeta += ' · from bill ' + row.source_bill_id;
-    else if (row.source_proposal_id) partnerMeta += ' · from journal proposal ' + row.source_proposal_id;
-    if (row.duplicate_warning) {
-      var dw = row.duplicate_warning;
-      var dwPct = Math.round((Number(dw.similarity) || 0) * 100);
-      partnerMeta += ' — possible duplicate of "' + dw.name + '" (' + dwPct + '% similar)';
+  columns: (function () {
+    var cols = [
+      { field: 'name', filterType: 'text', label: 'Name', display: function (v) { return '🤝 <b>' + esc(v) + '</b>'; } },
+      { field: 'is_vendor', align: 'center', label: 'Vendor',
+        display: function (v, r) { return '<input type="checkbox" class="pf-vendor"' + (r.is_vendor ? ' checked' : '') + '>'; } },
+      { field: 'is_customer', align: 'center', label: 'Customer',
+        display: function (v, r) { return '<input type="checkbox" class="pf-customer"' + (r.is_customer ? ' checked' : '') + '>'; } },
+      { field: 'default_expense_account', label: 'Exp account',
+        display: function (v) { return '<input type="text" class="pf-exp" value="' + esc(v) + '">'; } },
+      { field: 'default_ap_account', label: 'AP account',
+        display: function (v) { return '<input type="text" class="pf-ap" value="' + esc(v) + '">'; } },
+    ];
+    if (VAT_ON) {
+      cols.push({ field: 'suggested_vat_code', label: 'Tax code',
+        display: function (v) { return '<input type="text" class="pf-vat" value="' + esc(v) + '">'; } });
     }
-    return [{ _key: row._key + ':meta', _childOf: row._key, _meta: partnerMeta }];
-  },
-  childRowHtml: function (parent, child) { return '<td colspan="7" class="jrnl-meta">' + esc(child._meta) + '</td><td></td>'; },
+    cols.push({ field: '_source', label: 'Source', display: function (v, r) { return partnerSourceHtml(r); } });
+    cols.push({ field: 'duplicate_warning', label: 'Duplicate', display: function (v, r) { return duplicateBadge(r) || '<span class="pe-ro">—</span>'; } });
+    return cols;
+  })(),
+  list: { fetch: fetchPartnerRows, map: function (row) { return row; } },
   rowVerbs: [
     { key: 'y', label: 'approve',
       when: function (row) { return row.status === 'proposed'; },
@@ -708,6 +792,7 @@ var partnersList = FB.list.create({
       run: function (api, row) { reviewPartner(row, 'reject'); } },
   ],
   onLoaded: function (saved) {
+    wirePartnerInputs();
     if (document.getElementById('tab-partners').classList.contains('active')) {
       var note = document.getElementById('queue-note');
       note.textContent = saved.length === 0
@@ -715,20 +800,28 @@ var partnersList = FB.list.create({
         : saved.length + ' partner proposal' + (saved.length === 1 ? '' : 's') + ' awaiting review — y approve · x reject';
     }
   },
-  hint: 'Partners: agent-proposed vendors/customers. y approve, x reject, Enter unfolds detail.'
+  hint: 'Partners: agent-proposed vendors/customers, edit any field then approve. y approve, x reject.'
 });
 
-// ── New Rule tab (mapping_suggestion, ported as-is) ─────────────────────
+// ── New Rule tab (mapping_suggestion) — real columns (2026-09-09) ────────
+// The mockup never actually designed this tab's columns (it was always the
+// empty-state placeholder there), so there was no mockup to port to — these
+// are the fields mapping_suggestions actually has (description_pattern,
+// suggested_account, suggested_vat_code, source_proposal_id), previously
+// fetched server-side but silently dropped before reaching the item (same
+// class of gap as queryInputRejections' rejected_lines, fixed in inbox.js
+// alongside this).
 function mapSuggestionItem(it) {
   return {
     _key: 'sugg:' + it.payload_ref, _kind: 'suggestion',
     suggestion_id: it.payload_ref,
-    type: it.type,
-    date: it.date, reference: it.reference || '',
-    description: it.summary || it.description || '',
-    amount: null, currency: '', source: it.source || 'agent',
+    date: it.date,
+    pattern: it.description || it.reference || '',
+    suggested_account: it.suggested_account || '',
+    suggested_vat_code: it.suggested_vat_code || '',
+    source_proposal_id: it.source_proposal_id || null,
     status: it.status,
-    created_by: it.created_by || '', request_id: '',
+    created_by: it.created_by || '',
   };
 }
 function fetchSuggestionRows() {
@@ -745,7 +838,7 @@ function reviewSuggestion(row, verdict) {
   FB.modal.open({
     title: (approve ? 'Approve' : 'Reject') + ' mapping suggestion',
     body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
-      + '<div>' + esc(row.description || row.reference || '') + '</div>'
+      + '<div>' + esc(row.pattern) + ' → ' + esc(row.suggested_account) + '</div>'
       + '<div style="margin-top:6px;color:var(--text-muted);font-size:0.75rem">Suggested by ' + esc(row.created_by || '?') + '</div>'
       + '</div>',
     buttons: [
@@ -775,24 +868,26 @@ var newRuleList = FB.list.create({
   keysId: 'inbox-newrule',
   tbody: 'newrule-tbody',
   companyId: function () { return COMPANY; },
-  tree: true,
+  tree: false,
   canAdd: false,
   editable: function () { return false; },
   active: function () { var p = document.getElementById('tab-newrule'); return !!(p && p.classList.contains('active')); },
-  columns: [
-    { field: 'date', filterType: 'date', label: 'Date', display: function (v) { return fmtDate(v); } },
-    { field: 'reference', filterType: 'text', label: 'Doc No', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
-    { field: 'description', filterType: 'text', label: 'Description', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
-    { field: 'amount', align: 'right', filterType: 'amount', label: 'Amount', display: function () { return ''; } },
-    { field: 'source', filterType: 'list', label: 'Source', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
-    { field: 'created_by', filterType: 'text', label: 'Created by', display: function (v) { return v ? esc(String(v)) : '<span class="pe-ro">—</span>'; } },
-    { field: 'status', filterType: 'list', label: 'Status', display: function (v, r) { return statusBadge(r); } },
-  ],
+  columns: (function () {
+    var cols = [
+      { field: 'date', filterType: 'date', label: 'Date', display: function (v) { return fmtDate(v); } },
+      { field: 'pattern', filterType: 'text', label: 'Pattern', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+      { field: 'suggested_account', filterType: 'text', label: 'Suggested account', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    ];
+    if (VAT_ON) {
+      cols.push({ field: 'suggested_vat_code', filterType: 'text', label: 'Tax code', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } });
+    }
+    cols.push({ field: 'created_by', filterType: 'text', label: 'Source', display: function (v, r) {
+      var by = v ? 'Suggested by ' + esc(v) : 'Suggested by agent';
+      return r.source_proposal_id ? by + ' <span class="pe-ro" title="Journal proposal ' + esc(r.source_proposal_id) + '">↖</span>' : by;
+    } });
+    return cols;
+  })(),
   list: { fetch: fetchSuggestionRows, map: function (row) { return row; } },
-  children: function (row) {
-    return [{ _key: row._key + ':meta', _childOf: row._key, _meta: 'Suggested by ' + (row.created_by || '?') }];
-  },
-  childRowHtml: function (parent, child) { return '<td colspan="7" class="jrnl-meta">' + esc(child._meta) + '</td><td></td>'; },
   rowVerbs: [
     { key: 'y', label: 'approve',
       when: function (row) { return row.status === 'proposed'; },

@@ -111,6 +111,11 @@ ${commonStyle()}
     color:var(--danger); background:var(--danger-bg); border:1px solid var(--danger-border);
     padding:5px 10px; border-radius:5px; margin:0 0 14px; cursor:pointer; user-select:none;
   }
+  /* The [hidden] attribute and .agent-warn's own display rule are equal
+     specificity, and this stylesheet loads after the UA one — without this,
+     .agent-warn's display:inline-flex wins the tie and the pill (or at least
+     its icon) renders regardless of the hidden attribute. */
+  .agent-warn[hidden] { display:none; }
   /* Partners tab — every field editable directly on the row, no unfold: the
      whole approve/reject decision happens on one line (2026-09-09). */
   #partners-tbody input[type="text"] {

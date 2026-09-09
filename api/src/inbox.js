@@ -136,13 +136,21 @@ async function listInbox(ctx) {
   // P2-1 + Option C (agent-readiness-spec.md §10.2): append period_unclosed
   // and bill_draft items to the default (proposed) view. bill_draft is Class
   // A — its journal entries post via bill.post, not journal.approve, but it
-  // converges on the same y/x/Enter-unfold queue idiom as journal_proposal,
-  // so it belongs in the default view, not a separate filter state. Not
-  // appended to 'rejected' or other filter views.
+  // converges on the same approve/reject/Enter-unfold queue idiom as
+  // journal_proposal, so it belongs in the default view too.
   if (status === 'proposed') {
     const unclosedItems = await queryPeriodUnclosed(companyId, limit);
-    const draftItems = await queryBillDrafts(companyId, limit);
+    const draftItems = await queryBillDrafts(companyId, limit, 'draft');
     return { items: items.concat(unclosedItems, draftItems) };
+  }
+
+  // Inbox rebuild (2026-09-09): rejected bills (bill.draft.reject, terminal,
+  // status='rejected') surface in the rejected view the same way rejected
+  // journal proposals already do — the Transactions tab shows both kinds
+  // unified, so both need to be in this branch, not just journal_proposals.
+  if (status === 'rejected') {
+    const rejectedBills = await queryBillDrafts(companyId, limit, 'rejected');
+    return { items: items.concat(rejectedBills) };
   }
 
   return { items: items };
@@ -192,24 +200,36 @@ async function queryMappingSuggestions(companyId, limit) {
 
 /**
  * queryBillDrafts — Class A bill-draft items (§10.2). Agent-created bill
- * drafts (B1's bill.create agent→draft delegation) with status='draft',
- * awaiting human post (bill.draft.post) or discard (bill.draft.delete).
- * Sorted by created_at DESC (newest first). Normalized to the inbox item
- * shape. The bills table row IS the source of truth (R8); no staging.
+ * drafts (B1's bill.create agent→draft delegation) with status='draft' by
+ * default, awaiting human post (bill.draft.post) or reject
+ * (bill.draft.reject) — or, when called with status='rejected', the
+ * terminal rejected bills themselves (Inbox rebuild, 2026-09-09; mirrors
+ * queryProposals' status param). Sorted by created_at DESC (newest
+ * first). Normalized to the inbox item shape. The bills table row IS the
+ * source of truth (R8); no staging.
  *
  * Item shape: { type:'bill_draft', source:'agent', counterparty:partner_name,
  * amount, date, proposed_at:created_at, summary,
- * verbs:['y','x'], payload_ref:bill_id, status:'draft',
- * reference:vendor_ref, description, created_by, currency }.
+ * verbs:['y','x'], payload_ref:bill_id, status,
+ * reference:vendor_ref, description, created_by, currency,
+ * attachment_count, review_note, expense_account, ap_account }.
  */
-async function queryBillDrafts(companyId, limit) {
+async function queryBillDrafts(companyId, limit, status) {
   var rows = await query(
-    `SELECT bill_id, partner_name, vendor_ref, date, amount, currency, description, created_by, created_at
-     FROM bills
-     WHERE company_id = @companyId AND status = 'draft'
-     ORDER BY created_at DESC
+    `SELECT b.bill_id, b.partner_name, b.vendor_ref, b.date, b.amount, b.currency, b.description,
+            b.created_by, b.created_at, b.status, b.review_note, b.expense_account, b.ap_account,
+            COALESCE(a.cnt, 0) AS attachment_count
+     FROM bills b
+     LEFT JOIN (
+       SELECT company_id, entity_id, count(*) AS cnt
+       FROM attachments
+       WHERE entity_type = 'bill'
+       GROUP BY company_id, entity_id
+     ) a ON a.company_id = b.company_id AND a.entity_id = b.bill_id
+     WHERE b.company_id = @companyId AND b.status = @status
+     ORDER BY b.created_at DESC
      LIMIT @lim`,
-    { companyId: companyId, lim: limit }
+    { companyId: companyId, status: status || 'draft', lim: limit }
   );
 
   return rows.map(function (row) {
@@ -223,16 +243,31 @@ async function queryBillDrafts(companyId, limit) {
       summary: row.partner_name + (row.vendor_ref ? ' ' + row.vendor_ref : ''),
       verbs: ['y', 'x'],
       payload_ref: row.bill_id,
-      status: 'draft',
+      status: row.status,
       reference: row.vendor_ref || '',
       description: row.description || '',
       created_by: row.created_by || '',
       currency: row.currency || '',
+      attachment_count: row.attachment_count,
+      review_note: row.review_note || '',
+      expense_account: row.expense_account || '',
+      ap_account: row.ap_account || '',
       warning: null, // TODO: factor VAT-tolerance check into shared helper (spec §9)
     };
   });
 }
 
+/**
+ * queryInputRejections — Class B input-rejection items (bank-matching-spec
+ * §11.2). Statement lines the agent could not turn into a proposal because
+ * of missing critical data. The input_rejections table IS the source of
+ * truth (R8); no staging.
+ *
+ * Item shape: { type:'input_rejection', source:'agent', amount:null,
+ * date, proposed_at:created_at, summary, verbs:['r','d'],
+ * payload_ref:rejection_id, status, reference:statement_id, description:'',
+ * created_by, rejected_lines:[{line,raw,reason}], statement_id }.
+ */
 async function queryInputRejections(companyId, limit) {
   var rows = await query(
     `SELECT rejection_id, statement_id, statement_date, rejected_lines, status, created_by, created_at
@@ -259,6 +294,14 @@ async function queryInputRejections(companyId, limit) {
       reference: row.statement_id,
       description: '',
       created_by: row.created_by,
+      // Inbox rebuild (2026-09-09): the parsed detail was computed above
+      // only to build `summary` — never actually exposed on the item, so
+      // the unfold had nothing real to show beyond a "Flagged by" meta
+      // line. statement_id is also exposed separately from `reference`
+      // (same value, but reference is a display fallback — the unfold's
+      // attachment.list lookup wants the raw id, not the display string).
+      rejected_lines: lines,
+      statement_id: row.statement_id,
     };
   });
 }

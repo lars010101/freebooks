@@ -628,8 +628,15 @@ const ACTIONS = {
   },
   'partner.proposal.approve': {
     role: 'data_entry', mutating: true,
-    description: 'Approve a partner proposal — inserts into partners (human-attributed), auto-learns mapping if applicable.',
-    params: { proposalId: { type: 'string', required: true } },
+    description: 'Approve a partner proposal — inserts into partners (human-attributed), auto-learns mapping if applicable. Optional override fields let a reviewer correct the agent-proposed values before approving; any field left out uses what was proposed.',
+    params: {
+      proposalId: { type: 'string', required: true },
+      isVendor: { type: 'boolean' },
+      isCustomer: { type: 'boolean' },
+      defaultExpenseAccount: { type: 'string' },
+      defaultApAccount: { type: 'string' },
+      suggestedVatCode: { type: 'string' },
+    },
   },
   'partner.proposal.reject': {
     role: 'data_entry', mutating: true,

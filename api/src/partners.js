@@ -406,7 +406,7 @@ async function proposePartner(ctx) {
  */
 async function approvePartnerProposal(ctx) {
   const { companyId, body, userEmail } = ctx;
-  const { proposalId } = body;
+  const { proposalId, isVendor, isCustomer, defaultExpenseAccount, defaultApAccount, suggestedVatCode } = body;
   if (!proposalId) throw Object.assign(new Error('proposalId required'), { code: 'INVALID_INPUT' });
 
   const rows = await query(
@@ -420,10 +420,23 @@ async function approvePartnerProposal(ctx) {
     throw Object.assign(new Error(`Cannot approve a proposal in status '${prop.status}' (only 'proposed' can be approved)`), { code: 'INVALID_STATUS' });
   }
 
+  // Reviewer overrides (Inbox Partners tab inline-edit, 2026-09-09) — every
+  // field is optional and `undefined` means "not edited, use what the agent
+  // proposed", so an existing caller that never sends these (any script,
+  // MCP tool, or the API directly) is completely unaffected. Applied
+  // wherever prop.* would otherwise have been used below — both the
+  // partners insert and the auto-learn mapping-suggestion step, so an
+  // edited value teaches the same thing it creates.
+  const finalIsVendor = isVendor !== undefined ? !!isVendor : prop.is_vendor !== false;
+  const finalIsCustomer = isCustomer !== undefined ? !!isCustomer : prop.is_customer === true;
+  const finalExpenseAccount = defaultExpenseAccount !== undefined ? (defaultExpenseAccount || null) : (prop.default_expense_account || null);
+  const finalApAccount = defaultApAccount !== undefined ? (defaultApAccount || null) : (prop.default_ap_account || null);
+  const finalVatCode = suggestedVatCode !== undefined ? (suggestedVatCode || null) : (prop.suggested_vat_code || null);
+
   // Validate account codes exist in COA
   const accountCodes = new Set();
-  if (prop.default_expense_account) accountCodes.add(prop.default_expense_account);
-  if (prop.default_ap_account) accountCodes.add(prop.default_ap_account);
+  if (finalExpenseAccount) accountCodes.add(finalExpenseAccount);
+  if (finalApAccount) accountCodes.add(finalApAccount);
   if (accountCodes.size > 0) {
     const placeholders = Array.from(accountCodes).map((_, i) => `@acct${i}`).join(',');
     const params = { companyId };
@@ -452,10 +465,10 @@ async function approvePartnerProposal(ctx) {
     payment_terms_days: prop.payment_terms_days || 30,
     tax_id: prop.tax_id || null,
     notes: null,
-    default_expense_account: prop.default_expense_account || null,
-    default_ap_account: prop.default_ap_account || null,
-    is_vendor: prop.is_vendor !== false,
-    is_customer: prop.is_customer === true,
+    default_expense_account: finalExpenseAccount,
+    default_ap_account: finalApAccount,
+    is_vendor: finalIsVendor,
+    is_customer: finalIsCustomer,
     is_active: true,
   }]);
 
@@ -518,8 +531,8 @@ async function approvePartnerProposal(ctx) {
               suggestion_id: suggestionId,
               bank_account: null,
               description_pattern: pattern,
-              suggested_account: prop.default_expense_account || null,
-              suggested_vat_code: prop.suggested_vat_code || null,
+              suggested_account: finalExpenseAccount,
+              suggested_vat_code: finalVatCode,
               suggested_dimensions: null,
               suggested_amount_sign: 'any',
               suggested_match_type: 'contains',
@@ -532,7 +545,7 @@ async function approvePartnerProposal(ctx) {
               created_at: now,
             }]);
             await emitEvent(ctx, 'mapping.suggested', 'mapping_suggestion', suggestionId,
-              { description_pattern: pattern, suggested_account: prop.default_expense_account || null,
+              { description_pattern: pattern, suggested_account: finalExpenseAccount,
                 source_proposal_id: prop.source_proposal_id || null });
           }
         }

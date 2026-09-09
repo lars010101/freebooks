@@ -2676,14 +2676,23 @@
     { label: 'Journal Entry', route: '/journal/voucher' },
     { label: 'Bill from Supplier', route: '/bill/new' },
     { label: 'Invoice to Customer', disabled: true }, // AR not built yet
-    { label: 'Payment', route: '/payment/new' }
+    { label: 'Payment', route: '/payment/new' },
+    { divider: true },
+    // Upload Document is a different kind of action (hand a file to the
+    // agent) rather than a fifth transaction shortcut — hence the divider
+    // above it. Inbox is the company-root page (`/:company`), so a route
+    // with no leading path segment lands there with the upload panel
+    // auto-open query param (2026-09-09, Inbox Redesign mockup).
+    { label: 'Upload Document', route: '?upload=1' }
   ];
   function _populateNewMenu() {
     var dd = document.getElementById('tb-new-dropdown');
     if (!dd) return;
     var html = '';
     NEW_MENU_ITEMS.forEach(function (item, i) {
-      if (item.disabled) {
+      if (item.divider) {
+        html += '<div class="tb-new-divider"></div>';
+      } else if (item.disabled) {
         html += '<div class="tb-new-item tb-new-item-disabled" title="Coming soon">' + esc(item.label) + '</div>';
       } else {
         html += '<div class="tb-new-item" data-i="' + i + '">' + esc(item.label) + '</div>';

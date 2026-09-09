@@ -493,7 +493,7 @@ tr.fb-draft-dirty td { background: var(--warning-bg); }
 }
 .tb-notif-inbox:hover { background: var(--bg); }
 
-/* `+` New menu dropdown (topbar-chrome-spec §5) — fixed 4-item operational list */
+/* `+` New menu dropdown (topbar-chrome-spec §5) — fixed operational list */
 .tb-new-dropdown {
   position: fixed;
   top: 52px; right: 130px;
@@ -517,6 +517,7 @@ tr.fb-draft-dirty td { background: var(--warning-bg); }
 .tb-new-item:last-child { border-bottom: none; }
 .tb-new-item-disabled { cursor: default; color: var(--text-faint); }
 .tb-new-item-disabled:hover { background: none; }
+.tb-new-divider { border-bottom: 1px solid var(--border); margin: 2px 0; }
 
 /* ── Global Period Selector (global-period-selector-chrome-spec §3) ──────── */
 .tb-period-trigger {

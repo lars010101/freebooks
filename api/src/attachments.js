@@ -52,7 +52,24 @@ async function handleAttachments(ctx, action) {
 
 async function listAttachments(ctx) {
   const { companyId, body } = ctx;
-  const { entityType, entityId } = body;
+  const { entityType, entityId, attachmentId } = body;
+
+  // Direct lookup by the attachment's own primary key — distinct from
+  // entityType/entityId, which filter by the OWNING entity (a bill, a
+  // journal proposal) and require the caller to already know both. Some
+  // callers only ever learn the bare attachment_id (input_rejections.
+  // statement_id IS the attachment_id, per agent-loop.js's own
+  // input_rejection.create call — never the entity_id of whatever it's
+  // attached to, which a caller-supplied entityId at upload time need not
+  // match at all).
+  if (attachmentId) {
+    return query(
+      `SELECT attachment_id, filename, content_type, file_size, uploaded_by, uploaded_at
+       FROM attachments
+       WHERE company_id = @companyId AND attachment_id = @attachmentId`,
+      { companyId, attachmentId }
+    );
+  }
 
   if (entityType || entityId) {
     if (!entityType || !entityId) {

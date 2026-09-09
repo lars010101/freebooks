@@ -996,14 +996,47 @@ function discardRejection(row) {
     ]
   });
 }
+// input_rejection.retry (2026-09-09) — re-queues the ORIGINAL attachment for
+// agent reprocessing (the backend re-emits the same attachment.uploaded
+// event the agent originally reacted to); there is no line-editor to correct
+// the raw data first, so this is a plain re-run — useful when the failure
+// was transient (an LLM hiccup, a mapping/CSV-column setting since fixed in
+// Settings), not a guarantee. A fresh failure creates a NEW Failed Input row
+// the same way any upload does.
+function retryRejection(row) {
+  FB.modal.open({
+    title: 'Retry this rejection?',
+    body: 'Re-queues the original file for the agent to process again — useful if the failure was transient (e.g. a mapping setting has since been fixed). A fresh failure will show up as a new row.<br>' + esc(row.description),
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: 'Retry', primary: true, onClick: function (api) {
+          api.close();
+          postAction('input_rejection.retry', { rejectionId: row.rejection_id }).then(function (res) {
+            if (!res || res.ok === false || res.error) {
+              FB.status.show((res && res.error && res.error.message) || 'Retry failed', true); return;
+            }
+            FB.status.show('Re-queued for the agent.', false);
+            failedInputList.load();
+          }).catch(function (e) { FB.status.show('Retry failed: ' + (e && e.message || e), true); });
+        } }
+    ]
+  });
+}
 // Statement-doc link — lazy-fetched on first unfold, same caching idiom as
-// fetchUnderlag (statement_id IS the attachment/entity id, per
-// input_rejections' schema comment).
+// fetchUnderlag. statement_id IS the attachment's own attachment_id (per
+// agent-loop.js's input_rejection.create call: statement_id: ev.entity_id,
+// where ev is the attachment.uploaded EVENT — its entity_id is the
+// attachment's primary key), NOT the attachment row's own entity_id column
+// (a caller-chosen grouping id at upload time, e.g. Inbox's own upload
+// panel generates a fresh random one — unrelated to attachment_id). Found
+// while building retry (2026-09-09): this previously queried by
+// entityType/entityId and could never match a real agent-created row,
+// silently showing "Loading source statement…" forever.
 var _stmtCache = {};
 function fetchStatementDoc(statementId) {
   if (!statementId || _stmtCache[statementId] !== undefined) return;
   _stmtCache[statementId] = '__pending';
-  postAction('attachment.list', { entityType: 'bank_statement', entityId: statementId })
+  postAction('attachment.list', { attachmentId: statementId })
     .then(function (res) {
       var atts = (res && Array.isArray(res.data)) ? res.data : [];
       _stmtCache[statementId] = atts[0] || null;
@@ -1057,12 +1090,12 @@ var failedInputList = FB.list.create({
       when: function () { return true; },
       affordance: function () { return '<a class="chip chip-cancel" title="Discard" aria-label="Discard" data-act="verb:x">&#10005;</a>'; },
       run: function (api, row) { discardRejection(row); } },
-    { key: 'r', label: 'retry (not yet built)',
+    { key: 'r', label: 'retry',
       when: function () { return true; },
-      affordance: function () { return '<span class="chip chip-disabled" title="Retry: correct the data + re-run — not yet built" aria-label="Retry (not yet built)">&#8635;</span>'; },
-      run: function () { FB.status.show('Retry is not built yet — discard (x) and re-submit corrected data instead.', true); } }
+      affordance: function () { return '<a class="chip chip-ok" title="Retry" aria-label="Retry" data-act="verb:r">&#8635;</a>'; },
+      run: function (api, row) { retryRejection(row); } }
   ],
-  hint: 'Failed Input: statement lines that failed to parse. x discard, Enter unfolds the failed line detail + source statement.'
+  hint: 'Failed Input: statement lines that failed to parse. x discard, r retry (re-queue for the agent), Enter unfolds the failed line detail + source statement.'
 });
 
 // ── Tab switching + live counts ─────────────────────────────────────────

@@ -372,6 +372,11 @@ const ACTIONS = {
     description: 'Discard an input rejection — the human decides the lines are spurious (bank header, duplicate, test). Terminal.',
     params: { rejectionId: { type: 'string', required: true } },
   },
+  'input_rejection.retry': {
+    role: 'data_entry', mutating: true,
+    description: 'Re-queue the original attachment for agent reprocessing — re-emits the same attachment.uploaded event so it goes through the identical processing path as a first-time upload. Useful when the failure was transient (LLM hiccup, a mapping/CSV setting since fixed) — a fresh failure creates a new input rejection row, same as any upload. Terminal for this row.',
+    params: { rejectionId: { type: 'string', required: true } },
+  },
 
   // ── Read models (P1-8) ───────────────────────────────────────────────────
   'view.bills': {
@@ -809,8 +814,8 @@ const ACTIONS = {
   },
   'attachment.list': {
     role: 'viewer', mutating: false,
-    description: 'List attachments for an entity, or (when both params are omitted) every attachment for the company — the Documents page (calendar-reminders-documents-spec.md §5.3), with entity_type/entity_id exposed and Period derived from the owning transaction\'s date.',
-    params: { entityType: { type: 'string' }, entityId: { type: 'string' } },
+    description: 'List attachments for an entity, look up one attachment by its own attachment_id (attachmentId), or (when all three are omitted) every attachment for the company — the Documents page (calendar-reminders-documents-spec.md §5.3), with entity_type/entity_id exposed and Period derived from the owning transaction\'s date.',
+    params: { entityType: { type: 'string' }, entityId: { type: 'string' }, attachmentId: { type: 'string' } },
   },
   'attachment.upload': {
     // Role 'agent' (1.5) admits agents/data_entry/owner and excludes viewers —

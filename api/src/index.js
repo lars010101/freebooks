@@ -1012,6 +1012,61 @@ async function handleInputRejection(ctx, action) {
     return { discarded: true };
   }
 
+  // input_rejection.retry (data_entry, human-only): re-queue the original
+  // attachment for agent reprocessing. There is no line-editor to correct
+  // the raw data first, so this re-emits the SAME attachment.uploaded event
+  // attachments.js's own upload emits — the next agent poll cycle picks it
+  // up and reprocesses through the identical path (bank statement / bill /
+  // journal document) a first-time upload takes, no separate reprocessing
+  // logic to duplicate here. Safe to re-run even for a bank statement whose
+  // OTHER lines already succeeded: bank.match's own duplicate check (see
+  // processBankStatement, agent-loop.js) skips lines that already have a
+  // proposal. Terminal for this row — a fresh failure creates a NEW
+  // input_rejection row the same way any upload does.
+  if (action === 'input_rejection.retry') {
+    const { rejectionId } = body;
+    if (!rejectionId)
+      throw Object.assign(new Error('rejectionId required'), { code: 'INVALID_INPUT' });
+
+    const rows = await query(
+      `SELECT rejection_id, status, statement_id FROM input_rejections
+       WHERE company_id = @companyId AND rejection_id = @rejectionId`,
+      { companyId, rejectionId }
+    );
+    if (rows.length === 0) {
+      throw Object.assign(new Error('Input rejection not found'), { code: 'NOT_FOUND' });
+    }
+    if (rows[0].status !== 'open') {
+      throw Object.assign(new Error('Input rejection is not open (status=' + rows[0].status + ')'), { code: 'INVALID_STATUS' });
+    }
+    const attachmentId = rows[0].statement_id;
+
+    const attRows = await query(
+      `SELECT attachment_id, entity_type, entity_id, filename, content_type, file_size, sha256
+       FROM attachments WHERE company_id = @companyId AND attachment_id = @attachmentId`,
+      { companyId, attachmentId }
+    );
+    if (attRows.length === 0) {
+      throw Object.assign(new Error('The original attachment no longer exists — it may have been deleted. Discard this rejection instead.'), { code: 'NOT_FOUND' });
+    }
+    const att = attRows[0];
+
+    await exec(
+      `UPDATE input_rejections SET status = 'retried'
+       WHERE company_id = @companyId AND rejection_id = @rejectionId`,
+      { companyId, rejectionId }
+    );
+
+    await emitEvent(ctx, 'attachment.uploaded', 'attachment', attachmentId, {
+      entityType: att.entity_type, entityId: att.entity_id,
+      filename: att.filename, contentType: att.content_type,
+      fileSize: att.file_size, sha256: att.sha256,
+    });
+
+    await emitEvent(ctx, 'input_rejection.retried', 'input_rejection', rejectionId, { statement_id: attachmentId });
+    return { retried: true, rejection_id: rejectionId, attachment_id: attachmentId };
+  }
+
   throw Object.assign(new Error(`Unknown input_rejection action: ${action}`), { code: 'INVALID_INPUT' });
 }
 

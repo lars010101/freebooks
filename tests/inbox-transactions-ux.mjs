@@ -118,13 +118,18 @@ async function run(chromium) {
   });
   ok('seed foreign-currency journal.propose', !!fxProposal.proposalId, JSON.stringify(fxProposal).slice(0, 150));
 
-  const stmtId = 'itt-stmt-' + Date.now();
+  // statement_id on input_rejections IS the attachment's own attachment_id
+  // (agent-loop.js's real input_rejection.create call passes ev.entity_id,
+  // where ev is the attachment.uploaded event — its entity_id is the
+  // attachment's primary key), NOT the attachments row's own entity_id
+  // column (a caller-chosen grouping id at upload time, unrelated here).
+  const attId = 'itt-att-' + Date.now();
   await sql(`INSERT INTO attachments (company_id, attachment_id, entity_type, entity_id, filename, storage_path, content_type, file_size, uploaded_at)
              VALUES (?, ?, 'bank_statement', ?, 'itt_statement.csv', 'itt/fake/path.csv', 'text/csv', 10, now())`,
-    [CO, 'itt-att-1', stmtId]);
+    [CO, attId, 'itt-entity-1']);
   await act('input_rejection.create', {
     userEmail: 'agent@itt',
-    statement_id: stmtId, statement_date: '2026-03-01',
+    statement_id: attId, statement_date: '2026-03-01',
     rejected_lines: [{ line: 5, raw: 'BAD LINE 1', reason: 'No amount' }, { line: 8, raw: 'BAD LINE 2', reason: 'Bad date' }],
   });
   ok('seed input_rejection.create', true);

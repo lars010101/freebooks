@@ -98,18 +98,16 @@ body {
 
 /* ---- Status banner (topbar-chrome-spec §3) — pushes page content, not overlay ---- */
 .fb-status-banner {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.25s ease;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
 }
 .fb-status-banner.fb-banner-visible {
-  grid-template-rows: 1fr;
+  max-height: 200px;
+  border-bottom: 1px solid var(--border);
 }
 .fb-banner-inner {
-  overflow: hidden;
-  min-height: 0;
   padding: 8px 24px;
   font-size: 0.8125rem;
 }
@@ -318,7 +316,7 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
 .tb-search-wrap { position: relative; }
 .tb-cmd-btn { padding:6px 12px; border:1px solid var(--border); border-radius:6px; font-size:0.875rem; background:var(--surface); color:var(--text); cursor:pointer; white-space:nowrap; }
 .tb-cmd-btn:hover { background:var(--border); }
-.tb-status-msg { font-size:0.8125rem; color:var(--text-muted); white-space:nowrap; }
+.tb-status-msg { font-size:0.8125rem; color:var(--text-muted); }
 .tb-status-msg.ok { color: var(--success); }
 .tb-status-msg.err { color: var(--danger); font-weight: 500; }
 .tb-status-msg.warn { color: var(--warning); font-weight: 500; }

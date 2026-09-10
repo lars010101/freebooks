@@ -313,9 +313,15 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
      buttons sitting right next to it on the same line. */
   height: 32px;
   padding: 0 12px 0 28px;
-  border: 1px solid rgba(255,255,255,.15);
-  border-radius: 5px;
-  background: rgba(0,0,0,.2);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 6px;
+  /* A white overlay (lightens against the navy), not black (darkens) — was
+     rgba(0,0,0,.2), the OPPOSITE direction from the mockup's
+     rgba(255,255,255,.08). That inversion made the box nearly blend into
+     the topbar instead of standing out as its own control, which is very
+     likely the real remaining "still looks different" — the search box's
+     own fill, not its text. */
+  background: rgba(255,255,255,.08);
   /* Typed text is full-strength like the mockup's — only the placeholder
      (below) is dimmed. Was --navy-text (the dim variant) on the typed
      value itself, and font-size 0.875rem — both inconsistent with the
@@ -335,7 +341,7 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
   transition: width 0.16s ease;
 }
 .tb-search::placeholder { color: rgba(220,228,242,.5); }
-.tb-search:focus { border-color: rgba(255,255,255,.3); background: rgba(0,0,0,.3); }
+.tb-search:focus { border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.13); }
 /* Expands while focused, or while it holds typed text on blur (matches the
    mockup: stays wide so a query you just typed isn't immediately squeezed
    back down the moment focus leaves it). Toggled by fb-core.js's

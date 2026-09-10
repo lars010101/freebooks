@@ -306,8 +306,12 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
   border: 1px solid rgba(255,255,255,.15);
   border-radius: 5px;
   background: rgba(0,0,0,.2);
-  color: var(--navy-text);
-  font-size: 0.875rem;
+  /* Typed text is full-strength like the mockup's — only the placeholder
+     (below) is dimmed. Was --navy-text (the dim variant) on the typed
+     value itself, and font-size 0.875rem — both inconsistent with the
+     rest of the bar (company/period, fixed 2026-09-10, are 0.8125rem). */
+  color: var(--navy-text-strong);
+  font-size: 0.8125rem;
   width: 220px;
   outline: none;
   cursor: text;

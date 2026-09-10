@@ -66,11 +66,7 @@ ${commonStyle()}
   .data-table tbody tr:hover .void-afford { display:inline-block; }
   .voided-tag { color:var(--text-faint); font-style:italic; font-size:0.75rem; }
 
-  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); margin-bottom:24px; }
-  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:var(--text-muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
-  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
-  .tab-panel { display:none; }
-  .tab-panel.active { display:block; }
+  /* .tabs/.tab/.tab-panel now in common.css (2026-09-09). */
 
   /* Reconciliation tab */
   .recon-toolbar { display:flex; gap:14px; align-items:center; margin-bottom:18px; flex-wrap:wrap; }

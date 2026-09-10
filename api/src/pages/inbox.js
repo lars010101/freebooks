@@ -72,13 +72,9 @@ ${commonStyle()}
     border:1px solid var(--text-muted); border-radius:2px; font-weight:700; font-size:0.625rem;
     font-family:Georgia,serif; opacity:.85; vertical-align:-1px;
   }
-  /* Tab strip (accounting.js/settings.js's recipe — page-local per those
-     precedents, not a shared component). */
-  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); margin-bottom:20px; }
-  .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:var(--text-muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
-  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
-  .tab-panel { display:none; }
-  .tab-panel.active { display:block; }
+  /* .tabs/.tab/.tab-panel now in common.css (2026-09-09) — this page's own
+     tighter spacing is the one deliberate deviation, kept as an override. */
+  .tabs { margin-bottom:20px; }
   .tab-count { display:inline-block; min-width:16px; padding:0 5px; border-radius:20px; font-size:0.6875rem; font-weight:700; margin-left:5px; }
   .tab-count.zero { color:var(--text-faint); }
   .tab-count.some { background:var(--warning-bg); color:var(--warning); }

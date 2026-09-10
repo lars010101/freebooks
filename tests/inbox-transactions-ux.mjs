@@ -182,19 +182,16 @@ async function run(chromium) {
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
   const unfoldText = await page.locator('#tab-transactions').innerText();
-  // Debit and Credit are separate cells (mockup: lineRowsHtml), not one
-  // combined Amount cell with a Dr/Cr label — the 4th <td> is the debit
-  // column, the 5th is credit (reusing the Status column's width slot).
-  // Every child <tr> of an unfolded row shares the same data-child-of
-  // (the PARENT's key) whether it's the meta row or a line row — filter
-  // out the meta row (tagged .jrnl-meta) to isolate just the 2 line rows.
-  const lineRows = page.locator('#txn-tbody tr[data-child-of]').filter({ hasNot: page.locator('.jrnl-meta') });
+  // Mechanical signed convention (2026-09-10): one Amount cell per line,
+  // debit positive / credit negative — not separate Debit/Credit cells.
+  const lineRows = page.locator('#txn-tbody tr[data-child-of]');
   const lineCount = await lineRows.count();
   ok('unfold shows exactly 2 line rows', lineCount === 2, String(lineCount));
-  const debitCellTexts = await lineRows.locator('td:nth-child(4)').allTextContents();
-  const creditCellTexts = await lineRows.locator('td:nth-child(5)').allTextContents();
-  ok('one line\'s Debit cell shows the amount', debitCellTexts.some((t) => /50/.test(t)), JSON.stringify(debitCellTexts));
-  ok('the OTHER line\'s Credit cell shows the amount (not blank)', creditCellTexts.some((t) => /50/.test(t)), JSON.stringify(creditCellTexts));
+  // toLocaleString renders the proper Unicode minus sign (U+2212 "−"), not
+  // a plain ASCII hyphen — normalize before comparing.
+  const amtCellTexts = (await lineRows.locator('td:nth-child(4)').allTextContents()).map((t) => t.trim().replace(/−/g, '-'));
+  ok('one line shows a positive 50 (debit)', amtCellTexts.indexOf('50,00') !== -1, JSON.stringify(amtCellTexts));
+  ok('the OTHER line shows a negative 50 (credit), not blank', amtCellTexts.indexOf('-50,00') !== -1, JSON.stringify(amtCellTexts));
   ok('unfold has no separate "Source documents" child row', !unfoldText.includes('Source documents'));
   const docBadge = jRowForUnfold.locator('a[data-show-docs]');
   ok('parent row carries a clickable doc badge', await docBadge.count() === 1);

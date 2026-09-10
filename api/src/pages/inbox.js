@@ -645,19 +645,20 @@ var txnList = FB.list.create({
     return (row._lines || []).map(function (l, i) { return lineChild(row, l, i); });
   },
   childRowHtml: function (parent, child) {
-    // Debit and Credit are separate cells (mockup: lineRowsHtml), not one
-    // combined Amount cell — the Debit cell sits under the Amount header;
-    // the Credit cell reuses the Status column's width slot, since a line
-    // row has no status of its own. This is why a credit-only line
-    // previously looked blank: the cell reading child.debit was correct
-    // for the debit column, but there was no second cell for credit at all.
-    var d = Number(child.debit || 0), c = Number(child.credit || 0);
+    // Mechanical signed convention (2026-09-10, deliberately deviating from
+    // the mockup's separate Debit/Credit cells, matching the standard for a
+    // multi-account journal-entry line list — same as SAP's own FI amount
+    // sign derived from its S/H debit-credit indicator): debit is positive,
+    // credit is negative, regardless of account type. This only holds
+    // scoped to one full entry's lines together; it would be wrong for a
+    // single account's own running ledger, where "positive" instead means
+    // "moved in that account's normal-balance direction."
+    var signed = Number(child.debit || 0) - Number(child.credit || 0);
     return '<td></td>'
       + '<td>' + esc(child.account_code) + '</td>'
       + '<td>' + esc(child.description) + '</td>'
-      + '<td class="amt">' + fmtAmt(d) + '</td>'
-      + '<td class="amt" style="color:var(--text-muted)">' + fmtAmt(c) + '</td>'
-      + '<td></td><td></td>';
+      + '<td class="amt">' + fmtAmt(signed) + '</td>'
+      + '<td colspan="2"></td><td></td>';
   },
   rowVerbs: [
     { key: 'y', label: 'approve',

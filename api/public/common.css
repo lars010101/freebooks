@@ -91,8 +91,12 @@ body {
 }
 
 /* ---- Company switcher (topbar, restyled for navy bg) ---- */
-.fb-sl-company { font-weight: 600; color: var(--navy-text); cursor: pointer; }
-.fb-sl-company:hover { text-decoration: underline; color: var(--navy-text-strong); }
+/* Full-strength like the mockup's .tb-company — was --navy-text (the dim
+   variant) at rest, only brightening on hover; the company name is the
+   topbar's primary label, not a secondary one, same reasoning as the
+   period/search fixes above. */
+.fb-sl-company { font-weight: 600; color: var(--navy-text-strong); cursor: pointer; }
+.fb-sl-company:hover { text-decoration: underline; }
 .tb-company-caret { font-size: 0.75rem; color: var(--navy-text); cursor: pointer; margin-left: 2px; opacity: .7; }
 .tb-company-caret:hover { color: var(--navy-text-strong); opacity: 1; }
 

@@ -626,17 +626,19 @@ var txnList = FB.list.create({
   },
   childRowHtml: function (parent, child) {
     if (child._meta) return '<td colspan="6" class="jrnl-meta">' + esc(child._meta) + '</td><td></td>';
-    // A line is either a debit OR a credit (freeBooks' simple double-entry
-    // model never sets both) — show whichever is non-zero, labeled, so a
-    // credit line doesn't just look blank next to a debit line that has one.
+    // Debit and Credit are separate cells (mockup: lineRowsHtml), not one
+    // combined Amount cell — the Debit cell sits under the Amount header;
+    // the Credit cell reuses the Status column's width slot, since a line
+    // row has no status of its own. This is why a credit-only line
+    // previously looked blank: the cell reading child.debit was correct
+    // for the debit column, but there was no second cell for credit at all.
     var d = Number(child.debit || 0), c = Number(child.credit || 0);
-    var amtHtml = d ? '<span class="amt">Dr ' + FB.util.fmtAmt(d) + '</span>'
-      : (c ? '<span class="amt">Cr ' + FB.util.fmtAmt(c) + '</span>' : '');
     return '<td></td>'
       + '<td>' + esc(child.account_code) + '</td>'
       + '<td>' + esc(child.description) + '</td>'
-      + '<td class="amt">' + amtHtml + '</td>'
-      + '<td colspan="2"></td><td></td>';
+      + '<td class="amt">' + fmtAmt(d) + '</td>'
+      + '<td class="amt" style="color:var(--text-muted)">' + fmtAmt(c) + '</td>'
+      + '<td></td><td></td>';
   },
   rowVerbs: [
     { key: 'y', label: 'approve',

@@ -19,6 +19,10 @@
 //      meta line (a real gap this rebuild found and fixed in
 //      queryInputRejections, which parsed rejected_lines only to compute
 //      a count and never actually returned it on the item).
+//   6. (2026-09-10) Transactions unfold shows a real amount on BOTH the Dr
+//      and Cr line (childRowHtml always read child.debit — a credit-only
+//      line rendered blank), and source documents live only on the parent
+//      row's clickable doc badge, not ALSO as a separate unfold child row.
 //
 // The server is booted IN-PROCESS (mirrors tests/reversal.mjs, issue #112).
 // Playwright/chromium is imported dynamically; if it is not installed the
@@ -151,6 +155,31 @@ async function run(chromium) {
   ok('Transactions shows the journal proposal', txnText.includes('ITT Journal Proposal'));
   ok('Transactions shows the bill counterparty', txnText.includes('ITT Vendor Co'));
   ok('Transactions shows the foreign-currency amount inline with its currency', /30[.,]00.*USD/.test(txnText) || txnText.includes('USD'));
+
+  // ── Unfold: both Dr/Cr lines show an amount, no separate doc child row ──
+  // (2026-09-10 fix: the amount cell always read child.debit, so a
+  // credit-only line rendered blank; a "Source documents" panel was ALSO
+  // always rendered as its own unfold child, duplicating the parent row's
+  // doc badge and inflating the row count beyond the mockup.)
+  const jRowForUnfold = page.locator('#txn-tbody tr', { hasText: 'ITT Journal Proposal' });
+  await jRowForUnfold.locator('td').first().click();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  const unfoldText = await page.locator('#tab-transactions').innerText();
+  ok('unfold shows the Dr line amount', /Dr\s*50/.test(unfoldText));
+  ok('unfold shows the Cr line amount too (not blank)', /Cr\s*50/.test(unfoldText));
+  ok('unfold has no separate "Source documents" child row', !unfoldText.includes('Source documents'));
+  const docBadge = jRowForUnfold.locator('a[data-show-docs]');
+  ok('parent row carries a clickable doc badge', await docBadge.count() === 1);
+  await docBadge.click();
+  await page.waitForTimeout(300);
+  const modalTitle = await page.locator('.fb-modal-title').first().textContent().catch(() => '');
+  ok('clicking the doc badge opens a Source documents modal', modalTitle === 'Source documents', modalTitle);
+  await page.locator('.fb-modal button', { hasText: 'Close' }).click();
+  await page.waitForTimeout(200);
+  await jRowForUnfold.locator('td').first().click();
+  await page.keyboard.press('Enter'); // re-fold before continuing
+  await page.waitForTimeout(200);
 
   // Sorting doesn't crash
   const amountTh = page.locator('#tab-transactions thead th', { hasText: 'Amount' });

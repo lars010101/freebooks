@@ -78,15 +78,18 @@ ${commonStyle()}
   .tab-count { display:inline-block; min-width:16px; padding:0 5px; border-radius:20px; font-size:0.6875rem; font-weight:700; margin-left:5px; }
   .tab-count.zero { color:var(--text-faint); }
   .tab-count.some { background:var(--warning-bg); color:var(--warning); }
-  /* A4 §4.7 — source-document count badge + no-source-document warning. */
+  /* A4 §4.7 — source-document count badge + no-source-document warning, on
+     the parent row (2026-09-10: previously ALSO duplicated as an
+     always-rendered unfold child row — every proposed row's unfold grew by
+     an extra row beyond the mockup for no added information, since this
+     badge already said the same thing). Clicking the badge opens the doc
+     list in a modal instead — source docs come from the parent row. */
+  .ul-doc-link { cursor:pointer; }
   .ul-badge { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:9px;
     font-size:0.6875rem; font-weight:600; background:var(--info-bg); color:var(--info); white-space:nowrap; }
   .ul-warn  { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:9px;
     font-size:0.6875rem; font-weight:700; background:var(--danger-bg); color:var(--danger); white-space:nowrap;
     border:1px solid var(--danger-border); }
-  /* Unfold preview (§4.7): the underlag panel renders as a child row holding
-     shared fb-attachments rows (FB.attachments.rowHtml). */
-  tr[data-child-of] td.jrnl-att { background:var(--bg); padding:6px 10px; }
   .jrnl-att-head { font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
     color:var(--text-muted); margin:0 0 4px; }
   .jrnl-att .fb-attach-row { padding:3px 0; }
@@ -285,15 +288,19 @@ function statusBadge(row) {
   return '';
 }
 
-// A4 §4.7 — folded-row source-document indicator. Only PROPOSED items carry
+// A4 §4.7 — parent-row source-document indicator. Only PROPOSED items carry
 // it; rejected items show nothing. attachment_count > 0 → "📎 N"; 0 → a
-// visible ⚠️ warning icon (R7: warn-not-block).
+// visible ⚠️ warning icon (R7: warn-not-block). Clickable (2026-09-10): opens
+// the actual doc list in a modal — this is the ONLY place source documents
+// are shown, not also duplicated as an unfold child row.
 function underlagBadge(row) {
   if (row.status !== 'proposed') return '';
+  var entityType = row.kind === 'bill' ? 'bill' : 'journal_proposal';
+  var entityId = row.kind === 'bill' ? row.bill_id : row.proposal_id;
   var n = Number(row.attachment_count || 0);
   var html = '';
   if (n > 0) {
-    html += '<span class="ul-badge" title="' + n + ' source document(s) attached">\\uD83D\\uDCCE ' + n + '</span>';
+    html += '<span class="ul-badge" title="' + n + ' source document(s) attached — click to view">\\uD83D\\uDCCE ' + n + '</span>';
   } else {
     html += '<span class="ul-warn" title="No source document attached — egen verifikation permitted (BFL 5 kap)">\\u26A0</span>';
   }
@@ -305,7 +312,7 @@ function underlagBadge(row) {
     return String(w).indexOf('vat_') === 0 || String(w).toLowerCase().indexOf('vat') !== -1;
   });
   if (hasVat) html += '<span class="ul-warn" title="VAT tolerance flag">\\u26A0</span>';
-  return html;
+  return '<a class="ul-doc-link" data-show-docs="1" data-entity-type="' + esc(entityType) + '" data-entity-id="' + esc(entityId) + '">' + html + '</a>';
 }
 
 // issue #226 — folded-row fuzzy-duplicate indicator for partner_proposal.
@@ -373,39 +380,47 @@ document.addEventListener('click', function (e) {
   });
 });
 
-// A4 §4.7 — unfold preview, shared by journal proposals AND bill drafts now
-// (entityType distinguishes the two attachment namespaces). Cache key is
-// "entityType:entityId" so a journal proposal and a bill never collide.
+// A4 §4.7 — source-document viewer, opened by clicking the parent row's
+// doc badge (2026-09-10, replacing an always-rendered unfold child row that
+// duplicated the same badge and inflated every proposed row's unfold by an
+// extra row for no added information). Shared by journal proposals AND bill
+// drafts (entityType distinguishes the two attachment namespaces). Cache key
+// is "entityType:entityId" so a journal proposal and a bill never collide.
 var _attCache = {};
 function fetchUnderlag(entityType, entityId) {
   var key = entityType + ':' + entityId;
-  if (_attCache[key] !== undefined) return;
-  _attCache[key] = '__pending';
-  postAction('attachment.list', { entityType: entityType, entityId: entityId })
+  if (_attCache[key] !== undefined) return Promise.resolve(_attCache[key]);
+  return postAction('attachment.list', { entityType: entityType, entityId: entityId })
     .then(function (res) {
-      _attCache[key] = (res && Array.isArray(res.data)) ? res.data : [];
-      txnList.render();
+      var docs = (res && Array.isArray(res.data)) ? res.data : [];
+      _attCache[key] = docs;
+      return docs;
     })
-    .catch(function () { _attCache[key] = []; txnList.render(); });
+    .catch(function () { _attCache[key] = []; return []; });
 }
-function underlagPanelHtml(entityType, entityId) {
-  var key = entityType + ':' + entityId;
-  var cached = _attCache[key];
-  var body;
-  if (cached === '__pending' || cached === undefined) {
-    body = '<span class="fb-att-empty">Loading source documents\\u2026</span>';
-  } else if (!cached.length) {
-    body = FB.attachments.emptyHtml('No source documents attached');
-  } else {
-    body = cached.map(function (a) {
-      return FB.attachments.rowHtml({
-        attachment_id: a.attachment_id, filename: a.filename,
-        file_size: a.file_size, created_at: a.uploaded_at
-      });
-    }).join('');
-  }
-  return '<div class="jrnl-att-head">Source documents</div>' + body;
+function underlagPanelHtml(docs) {
+  if (!docs.length) return FB.attachments.emptyHtml('No source documents attached');
+  return docs.map(function (a) {
+    return FB.attachments.rowHtml({
+      attachment_id: a.attachment_id, filename: a.filename,
+      file_size: a.file_size, created_at: a.uploaded_at
+    });
+  }).join('');
 }
+function showSourceDocs(entityType, entityId) {
+  fetchUnderlag(entityType, entityId).then(function (docs) {
+    FB.modal.open({
+      title: 'Source documents',
+      body: '<div class="jrnl-att">' + underlagPanelHtml(docs) + '</div>',
+      buttons: [{ label: 'Close', onClick: function (api) { api.close(); } }]
+    });
+  });
+}
+document.addEventListener('click', function (e) {
+  var link = e.target.closest('[data-show-docs]');
+  if (!link) return;
+  showSourceDocs(link.dataset.entityType, link.dataset.entityId);
+});
 
 function lineChild(row, l, i) {
   return {
@@ -599,27 +614,28 @@ var txnList = FB.list.create({
   ],
   list: { fetch: fetchTxnRows, map: function (row) { return row; } },
   children: function (row) {
-    var entityType = row.kind === 'bill' ? 'bill' : 'journal_proposal';
-    var entityId = row.kind === 'bill' ? row.bill_id : row.proposal_id;
     var kids = [];
     var meta = row.status === 'rejected'
       ? 'Rejected by ' + (row.reviewed_by || '?') + (row.review_note ? ' — ' + row.review_note : '')
       : 'Proposed by ' + (row.created_by || '?') + (row.request_id ? ' · req ' + row.request_id : '');
     kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: meta });
-    if (row.status === 'proposed') {
-      kids.push({ _key: row._key + ':att', _childOf: row._key, _attSection: { entityType: entityType, entityId: entityId } });
-      fetchUnderlag(entityType, entityId);
-    }
+    // Source documents live only on the parent row's doc badge (click to
+    // view) — no longer a separate unfold child row here (2026-09-10).
     (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
     return kids;
   },
   childRowHtml: function (parent, child) {
-    if (child._attSection) return '<td colspan="7" class="jrnl-att">' + underlagPanelHtml(child._attSection.entityType, child._attSection.entityId) + '</td>';
     if (child._meta) return '<td colspan="6" class="jrnl-meta">' + esc(child._meta) + '</td><td></td>';
+    // A line is either a debit OR a credit (freeBooks' simple double-entry
+    // model never sets both) — show whichever is non-zero, labeled, so a
+    // credit line doesn't just look blank next to a debit line that has one.
+    var d = Number(child.debit || 0), c = Number(child.credit || 0);
+    var amtHtml = d ? '<span class="amt">Dr ' + FB.util.fmtAmt(d) + '</span>'
+      : (c ? '<span class="amt">Cr ' + FB.util.fmtAmt(c) + '</span>' : '');
     return '<td></td>'
       + '<td>' + esc(child.account_code) + '</td>'
       + '<td>' + esc(child.description) + '</td>'
-      + '<td class="amt">' + fmtAmt(child.debit) + '</td>'
+      + '<td class="amt">' + amtHtml + '</td>'
       + '<td colspan="2"></td><td></td>';
   },
   rowVerbs: [

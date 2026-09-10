@@ -256,12 +256,6 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
   gap: 0;
   flex-shrink: 0;
 }
-.tb-center {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  justify-content: center;
-}
 .tb-right {
   display: flex;
   align-items: center;
@@ -528,7 +522,12 @@ tr.fb-draft-dirty td { background: var(--warning-bg); }
 
 /* ── Global Period Selector (global-period-selector-chrome-spec §3) ──────── */
 .tb-period-trigger {
-  font-size: 1.083rem;
+  /* Was 1.083rem — the same size .tb-icon-btn uses for its icon glyphs,
+     borrowed by mistake for what is actually a text label. Nearly a third
+     bigger than the company name right next to it (body's 0.8125rem, which
+     .fb-sl-company inherits unchanged), which read as visually incoherent
+     across the bar (2026-09-10). Matched to the same base size instead. */
+  font-size: 0.8125rem;
   color: var(--navy-text-strong);
   cursor: pointer;
   white-space: nowrap;

@@ -1714,13 +1714,17 @@
   // replaces it. Per-screen msg spans are retired. Distinct from the 🔔
   // (persistent alerts, fx-automation-spec §7): transient feedback vs
   // persistent notifications are two channels, two lifetimes.
-  // topbar-chrome-spec §3: auto-dismiss ~5s + instant dismiss on navigation.
-  // Reverses the 2026-07-23 never-dismiss rule — a message stays 5s then
-  // collapses the banner; a new message replaces + restarts the timer.
+  // topbar-chrome-spec §3: auto-dismiss ~10s + instant dismiss on navigation
+  // or on any click anywhere on the page (2026-09-10: was 5s with no
+  // click-dismiss — Magnus found 5s too quick to reliably read). Reverses
+  // the 2026-07-23 never-dismiss rule — a message stays up to 10s (or until
+  // the next click) then collapses the banner; a new message replaces +
+  // restarts the timer.
   var _statusTimer = null;
+  var _statusJustShown = false;
   var status = {
     // sev: true | 'err' → red; 'warn' → amber; falsy → green confirmation /
-    // neutral text. Auto-dismisses after 5s (topbar-chrome-spec §3).
+    // neutral text. Auto-dismisses after 10s, or sooner on any click.
     show: function (text, sev) {
       var el = document.getElementById('tb-status-msg');
       if (!el) return;
@@ -1737,7 +1741,15 @@
       if (banner) banner.className = 'fb-status-banner' + (sevClass ? ' ' + sevClass : '');
       if (text && banner) {
         banner.classList.add('fb-banner-visible');
-        _statusTimer = setTimeout(function () { status.show(''); }, 5000);
+        _statusTimer = setTimeout(function () { status.show(''); }, 10000);
+        // Guards the document click-to-dismiss listener below against
+        // closing a message on the SAME click that just opened it — the
+        // action that calls show() is very often itself a click handler,
+        // and that click still bubbles to document in the same synchronous
+        // dispatch. Reset on the next tick, after this click has finished
+        // bubbling, so only a LATER click dismisses it.
+        _statusJustShown = true;
+        setTimeout(function () { _statusJustShown = false; }, 0);
       } else if (banner) {
         banner.classList.remove('fb-banner-visible');
       }
@@ -1748,6 +1760,13 @@
       status.show('');
     }
   };
+  // Dismiss on any click, anywhere — once the click that opened it (if any)
+  // has finished bubbling; see _statusJustShown above.
+  document.addEventListener('click', function () {
+    if (_statusJustShown) return;
+    var banner = document.getElementById('fb-status-banner');
+    if (banner && banner.classList.contains('fb-banner-visible')) status.dismiss();
+  });
 
   // ── K3d: iframe key-forwarding util ─────────────────────────────────────
   // Pages that render same-origin content in an <iframe> (e.g. reports-hub

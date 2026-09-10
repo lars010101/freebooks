@@ -118,12 +118,16 @@ specced there; this document does not restate or modify it.
 app-wide (`fb-core.js` command execution, `fb-list.js` save confirmations).
 Two things change:
 
-1. **Auto-dismiss, ~5 seconds.** This **reverses** the 2026-07-23 ratification
-   that the message "NEVER auto-dismisses... stays until the next one
-   replaces it." Overridden here (magnus, 2026-08-28): the never-dismiss
-   rule existed to protect a slow reader from a timed-out message, but in
-   practice reads as chrome that won't go away. 5 seconds is long enough to
-   read a short confirmation or error; a new message arriving mid-display
+1. **Auto-dismiss, ~10 seconds, or instantly on any click.** This
+   **reverses** the 2026-07-23 ratification that the message "NEVER
+   auto-dismisses... stays until the next one replaces it." Overridden here
+   (magnus, 2026-08-28): the never-dismiss rule existed to protect a slow
+   reader from a timed-out message, but in practice reads as chrome that
+   won't go away. Originally shipped at 5 seconds; raised to 10 (magnus,
+   2026-09-10) — 5s in practice read as too quick to reliably read before it
+   vanished. Any click anywhere on the page also dismisses it immediately,
+   except the click that opened it (`FB.status.show` is very often called
+   from inside a click handler itself). A new message arriving mid-display
    still immediately replaces the old one and restarts the timer, same as
    before.
 2. **Instant dismiss on navigation, never on tab/visibility change.** A

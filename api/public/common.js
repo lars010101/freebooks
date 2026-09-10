@@ -37,11 +37,18 @@
   };
 
   // ── Theme ──
+  // SVG icons, not emoji/dingbat characters (2026-09-10) — the fallback font
+  // used for some Unicode symbols (found on the density/theme/download
+  // glyphs specifically) rendered 3px lower than the other topbar icons
+  // despite identical button CSS; SVGs are immune to that class of bug
+  // since they're centered as shapes, not text subject to font metrics.
+  var SUN_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.6"/></svg>';
+  var MOON_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   function fbApplyTheme(t) {
     document.documentElement.setAttribute('data-theme', t);
     var icon = document.getElementById('fb-theme-icon');
     var btn  = document.getElementById('fb-theme-btn');
-    if (icon) icon.textContent = t === 'dark' ? '🌙' : '☀';
+    if (icon) icon.innerHTML = t === 'dark' ? MOON_SVG : SUN_SVG;
     if (btn)  btn.title = t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   }
   window.fbApplyTheme = fbApplyTheme;  // exposed for fbToggleTheme() (the topbar theme button)
@@ -54,12 +61,15 @@
   fbApplyTheme(localStorage.getItem('fb-theme') || 'light');
 
   // ── Density (docs/UI.md — compact default, comfortable optional) ──
+  // SVG icons, see the theme block above for why (same font-fallback bug).
+  var DENSITY_COMPACT_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5h16M4 10h16M4 15h16M4 20h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  var DENSITY_COMFORTABLE_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
   function fbApplyDensity(d) {
     if (d === 'comfortable') document.documentElement.setAttribute('data-density', 'comfortable');
     else document.documentElement.removeAttribute('data-density');
     var icon = document.getElementById('fb-density-icon');
     var btn  = document.getElementById('fb-density-btn');
-    if (icon) icon.textContent = d === 'comfortable' ? '▥' : '▤';
+    if (icon) icon.innerHTML = d === 'comfortable' ? DENSITY_COMFORTABLE_SVG : DENSITY_COMPACT_SVG;
     if (btn)  btn.title = d === 'comfortable' ? 'Switch to compact density' : 'Switch to comfortable density';
   }
   window.fbApplyDensity = fbApplyDensity;  // exposed for fbToggleDensity() (the topbar density button)

@@ -419,11 +419,21 @@ tr.fb-draft-dirty td { background: var(--warning-bg); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.083rem;
+  /* Icons are SVGs now (2026-09-10), sized via their own width/height
+     attributes, not text glyphs — font-size no longer styles anything here
+     (it used to size Unicode emoji/dingbat characters, three of which
+     rendered 3px lower than the rest despite identical button CSS, a
+     font-fallback quirk SVGs are immune to). */
   color: var(--navy-text);
 }
 .tb-icon-btn:hover { background: var(--navy-hover); color: var(--navy-text-strong); }
 .tb-icon-btn:disabled { opacity: .4; cursor: default; }
+/* #fb-density-icon/#fb-theme-icon wrap their SVG in a <span> so JS can swap
+   its shape (compact/comfortable, sun/moon) — a bare <span> is display:inline
+   by default, which carries its own line-box metrics and left the SVG
+   inside it a couple px off from the other five icon buttons' direct SVG
+   children, even with identical flex centering on the button. */
+#fb-density-icon, #fb-theme-icon { display: inline-flex; }
 
 /* ---- Notifications bell badge + dropdown (fx-automation-spec §7) ---- */
 .tb-notif-badge {

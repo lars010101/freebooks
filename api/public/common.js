@@ -92,9 +92,15 @@
       var cos = res.data || res || [];
       if (!Array.isArray(cos)) return;
       var co = cos.find(function(c){ return c.company_id === coId; });
-      if (co && (co.company_name || co.name)) {
+      var name = co && (co.company_name || co.name);
+      if (name) {
         var el = document.querySelector('.fb-sl-company');
-        if (el) el.textContent = co.company_name || co.name;
+        if (el) el.textContent = name;
+        // Avatar mark (topbar-chrome-spec.md mockup's .tb-mark) — the
+        // company's own first letter, same source name, same moment it's
+        // known; no separate fetch needed.
+        var mark = document.getElementById('tb-company-mark');
+        if (mark) mark.textContent = name.trim().charAt(0).toUpperCase();
       }
     })
     .catch(function(){});

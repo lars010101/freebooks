@@ -41,6 +41,9 @@
   --success:       #166534; --success-bg: #dcfce7; --success-border: #86efac;
   --warning:       #b45309; --warning-bg: #fef3c7; --warning-border: #fcd34d;
   --info:          #2563eb; --info-bg:    #e8f0fe; --info-border:    #bfdbfe;
+  /* Topbar company-avatar mark only (topbar-chrome-spec.md mockup) — not
+     theme-dependent, same value in light and dark, matching the mockup. */
+  --amber:         #f59e0b; --amber-text: #1a1a1a;
   --chip-text:     #556072; --chip-bg:    #eef0f3; --chip-border:    #d7dce3;
   --focus-ring:    #2563eb;
 }
@@ -91,14 +94,32 @@ body {
 }
 
 /* ---- Company switcher (topbar, restyled for navy bg) ---- */
-/* Full-strength like the mockup's .tb-company — was --navy-text (the dim
-   variant) at rest, only brightening on hover; the company name is the
-   topbar's primary label, not a secondary one, same reasoning as the
-   period/search fixes above. */
-.fb-sl-company { font-weight: 600; color: var(--navy-text-strong); cursor: pointer; }
-.fb-sl-company:hover { text-decoration: underline; }
-.tb-company-caret { font-size: 0.75rem; color: var(--navy-text); cursor: pointer; margin-left: 2px; opacity: .7; }
-.tb-company-caret:hover { color: var(--navy-text-strong); opacity: 1; }
+/* Mockup's .tb-company: one padded, rounded, hoverable button wrapping the
+   avatar mark + name + caret together — was three unwrapped inline
+   elements with no shared hover/padding treatment at all. */
+.tb-company-trigger {
+  display: flex; align-items: center; gap: 6px;
+  background: transparent; border: none; cursor: pointer;
+  padding: 6px 9px; border-radius: 6px;
+  font-family: inherit;
+}
+.tb-company-trigger:hover { background: var(--navy-hover); }
+.tb-company-trigger:hover .tb-company-caret { color: var(--navy-text-strong); opacity: 1; }
+/* Company-initial avatar (mockup's .tb-mark) — real app had no equivalent
+   at all; the amber tokens are decorative-only here (topbar mark), not
+   reused warning/danger semantics. */
+.tb-mark {
+  width: 20px; height: 20px; border-radius: 5px; flex-shrink: 0;
+  background: var(--amber); color: var(--amber-text);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 0.6875rem;
+}
+/* Full-strength like the mockup's — was --navy-text (the dim variant) at
+   rest, only brightening on hover; the company name is the topbar's
+   primary label, not a secondary one, same reasoning as the period/search
+   fixes above. */
+.fb-sl-company { font-weight: 600; color: var(--navy-text-strong); }
+.tb-company-caret { font-size: 0.75rem; color: var(--navy-text); opacity: .7; }
 
 /* ---- Status banner (topbar-chrome-spec §3) — pushes page content, not overlay ---- */
 .fb-status-banner {
@@ -263,7 +284,8 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
 .tb-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* Was 8px — the mockup packs its icon cluster much tighter (0.15rem). */
+  gap: 0.15rem;
   flex-shrink: 0;
 }
 

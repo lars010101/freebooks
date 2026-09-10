@@ -283,7 +283,10 @@ function fmtDate(v) { return esc(String(v || '').slice(0, 10)); }
 function statusBadge(row) {
   var s = row.status || '';
   if (s === 'proposed') return '<span class="badge badge-warning">Proposed</span>';
-  if (s === 'rejected') return '<span class="badge badge-danger" title="' + esc(row.review_note || '') + '">Rejected</span>';
+  if (s === 'rejected') {
+    var reason = 'Rejected by ' + (row.reviewed_by || '?') + (row.review_note ? ' — ' + row.review_note : '');
+    return '<span class="badge badge-danger" title="' + esc(reason) + '">Rejected</span>';
+  }
   if (s === 'open') return '<span class="badge badge-danger">Open</span>';
   return '';
 }
@@ -437,6 +440,18 @@ var TXN_GLYPH = {
   journal: '<span class="type-glyph t-account" title="Journal entry">T</span>',
   bill: '<span class="type-glyph" title="Bill received">\\uD83D\\uDCE9</span>'
 };
+
+// journal_proposals.source / the bill-draft equivalent (queryBillDrafts,
+// inbox.js server) is stamped 'agent'|'human' from the real actor at
+// propose time — 'human' means someone drafted this via the AI chat
+// feature rather than the automated pipeline picking it up from a
+// document unattended. Worth flagging (a chat-drafted item is more
+// directed, less "extracted blind" than a pipeline one) without adding a
+// column that reads "agent" on every other row.
+function sourceGlyph(row) {
+  if (row.source !== 'human') return '';
+  return '<span class="type-glyph" title="Drafted via AI chat by ' + esc(row.created_by || '?') + '">\\uD83D\\uDCAC</span>';
+}
 
 // Synthesizes the same 2-line DR/CR display a journal proposal's real lines
 // give, directly from the bill row's expense_account/ap_account/amount —
@@ -593,7 +608,13 @@ var txnList = FB.list.create({
   active: function () { var p = document.getElementById('tab-transactions'); return !!(p && p.classList.contains('active')); },
   columns: [
     { field: 'date', sortable: true, filterType: 'date', label: 'Date',
-      display: function (v, r) { return '<span style="white-space:nowrap">' + TXN_GLYPH[r.kind] + fmtDate(v) + '</span>'; } },
+      // sourceGlyph is silent for the routine case (agent pipeline) and
+      // only shows an icon for the exception (a human drafted this via AI
+      // chat) — same "quiet unless it's the case worth flagging" idea as
+      // the agent-status pill, rather than a column/row that reads the
+      // same value on every proposal and carries no information most of
+      // the time (docs/UI.md's persistent-status-indicator principle).
+      display: function (v, r) { return '<span style="white-space:nowrap">' + TXN_GLYPH[r.kind] + sourceGlyph(r) + fmtDate(v) + '</span>'; } },
     { field: 'counterparty', sortable: true, filterType: 'text', label: 'Counterparty',
       display: function (v, r) {
         var html = v ? esc(v) : '<span class="pe-ro">—</span>';
@@ -614,18 +635,16 @@ var txnList = FB.list.create({
   ],
   list: { fetch: fetchTxnRows, map: function (row) { return row; } },
   children: function (row) {
-    var kids = [];
-    var meta = row.status === 'rejected'
-      ? 'Rejected by ' + (row.reviewed_by || '?') + (row.review_note ? ' — ' + row.review_note : '')
-      : 'Proposed by ' + (row.created_by || '?') + (row.request_id ? ' · req ' + row.request_id : '');
-    kids.push({ _key: row._key + ':meta', _childOf: row._key, _meta: meta });
-    // Source documents live only on the parent row's doc badge (click to
-    // view) — no longer a separate unfold child row here (2026-09-10).
-    (row._lines || []).forEach(function (l, i) { kids.push(lineChild(row, l, i)); });
-    return kids;
+    // Matches the mockup exactly (lineRowsHtml): unfold is JUST the line
+    // items, no meta row. "Proposed by"/"Rejected by" used to be a separate
+    // child row here — created_by is now the parent row's source glyph
+    // (silent for the routine agent case), and reviewed_by/review_note
+    // are on the Status badge's own tooltip (statusBadge above) — neither
+    // needs its own row, and request_id (an idempotency/debug id, not
+    // reviewer-facing information) is simply dropped, same as the mockup.
+    return (row._lines || []).map(function (l, i) { return lineChild(row, l, i); });
   },
   childRowHtml: function (parent, child) {
-    if (child._meta) return '<td colspan="6" class="jrnl-meta">' + esc(child._meta) + '</td><td></td>';
     // Debit and Credit are separate cells (mockup: lineRowsHtml), not one
     // combined Amount cell — the Debit cell sits under the Amount header;
     // the Credit cell reuses the Status column's width slot, since a line

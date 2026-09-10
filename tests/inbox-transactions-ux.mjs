@@ -103,6 +103,22 @@ async function run(chromium) {
   });
   ok('seed journal.propose returns proposalId', !!journalProposal.proposalId, JSON.stringify(journalProposal).slice(0, 150));
 
+  // Human-sourced (owner calling journal.propose directly, standing in for
+  // the AI chat path) — journal_proposals.source stamps 'human' vs 'agent'
+  // from the real actor, and the Transactions tab flags only the human
+  // case with a small icon (2026-09-10), staying silent for the routine
+  // agent-pipeline case rather than a "Proposed by" row that always read
+  // the same value.
+  const humanProposal = await act('journal.propose', {
+    userEmail: 'owner@itt',
+    lines: [
+      { account_code: '6000', debit: 75, credit: 0, date: '2026-03-01', description: 'ITT Human Drafted Entry' },
+      { account_code: '2100', debit: 0, credit: 75, date: '2026-03-01', description: 'ITT Human Drafted Entry' },
+    ],
+    description: 'ITT Human Drafted Entry',
+  });
+  ok('seed human-sourced journal.propose', !!humanProposal.proposalId, JSON.stringify(humanProposal).slice(0, 150));
+
   const draftBill = await act('bill.create', {
     userEmail: 'agent@itt',
     bill: {
@@ -149,7 +165,7 @@ async function run(chromium) {
   ok('Inbox loads with zero JS errors', jsErrors.length === 0, jsErrors.join(' | ').slice(0, 200));
 
   const txnCount = await page.locator('#count-transactions').textContent();
-  ok('Transactions tab count reflects both journal + bill proposals', txnCount === '3', txnCount);
+  ok('Transactions tab count reflects both journal + bill proposals', txnCount === '4', txnCount);
 
   const txnText = await page.locator('#tab-transactions').innerText();
   ok('Transactions shows the journal proposal', txnText.includes('ITT Journal Proposal'));
@@ -191,6 +207,13 @@ async function run(chromium) {
   await jRowForUnfold.locator('td').first().click();
   await page.keyboard.press('Enter'); // re-fold before continuing
   await page.waitForTimeout(200);
+
+  // ── Source glyph: silent for the routine agent case, flags the human one ──
+  const agentSourcedRow = page.locator('#txn-tbody tr', { hasText: 'ITT Journal Proposal' });
+  const humanSourcedRow = page.locator('#txn-tbody tr', { hasText: 'ITT Human Drafted Entry' });
+  ok('agent-sourced row has no source glyph', await agentSourcedRow.locator('[title*="Drafted via AI chat"]').count() === 0);
+  ok('human-sourced row has the source glyph', await humanSourcedRow.locator('[title*="Drafted via AI chat"]').count() === 1);
+  ok('no "Proposed by" meta row anywhere', !(await page.locator('#tab-transactions').innerText()).includes('Proposed by'));
 
   // Sorting doesn't crash
   const amountTh = page.locator('#tab-transactions thead th', { hasText: 'Amount' });

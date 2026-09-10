@@ -322,6 +322,13 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
      rest of the bar (company/period, fixed 2026-09-10, are 0.8125rem). */
   color: var(--navy-text-strong);
   font-size: 0.8125rem;
+  /* Form controls don't inherit the page font by default in most browsers'
+     UA stylesheets — this <input> was computing plain Arial (Chromium's
+     form-control default) while every surrounding topbar element (plain
+     spans, which DO inherit normally) rendered body's actual
+     "Helvetica Neue", Arial, sans-serif stack. Explicit font-family was
+     simply missing here the whole time. */
+  font-family: inherit;
   width: 220px;
   outline: none;
   cursor: text;

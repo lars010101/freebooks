@@ -1727,8 +1727,14 @@
       var banner = document.getElementById('fb-status-banner');
       if (_statusTimer) { clearTimeout(_statusTimer); _statusTimer = null; }
       el.textContent = text || '';
-      el.className = 'tb-status-msg'
-        + ((sev === true || sev === 'err') ? ' err' : (sev === 'warn' ? ' warn' : (text ? ' ok' : '')));
+      // sevClass also drives the banner's own background/border (2026-09-10)
+      // — the reference mockup (topbar-chrome-spec.md's linked prototype)
+      // always tinted the whole banner per severity, not just the text; the
+      // shipped version only ever colored the text, leaving the background
+      // permanently white regardless of ok/warn/err.
+      var sevClass = (sev === true || sev === 'err') ? 'err' : (sev === 'warn' ? 'warn' : (text ? 'ok' : ''));
+      el.className = 'tb-status-msg' + (sevClass ? ' ' + sevClass : '');
+      if (banner) banner.className = 'fb-status-banner' + (sevClass ? ' ' + sevClass : '');
       if (text && banner) {
         banner.classList.add('fb-banner-visible');
         _statusTimer = setTimeout(function () { status.show(''); }, 5000);

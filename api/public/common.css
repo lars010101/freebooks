@@ -100,13 +100,22 @@ body {
 .fb-status-banner {
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.25s ease;
+  transition: max-height 0.25s ease, background-color 0.15s ease;
   background: var(--surface);
 }
 .fb-status-banner.fb-banner-visible {
   max-height: 200px;
   border-bottom: 1px solid var(--border);
 }
+/* Tinted per severity (2026-09-10) — matches the reference mockup
+   (topbar-chrome-spec.md's linked prototype), which tints the whole banner
+   background/border, not just the message text. Uses the same
+   --success/--warning/--danger-bg/-border tokens every badge/status pill
+   in the app already draws from (docs/UI.md's Status chip vocabulary),
+   rather than the mockup's own hardcoded rgba values. */
+.fb-status-banner.fb-banner-visible.ok   { background: var(--success-bg); border-bottom-color: var(--success-border); }
+.fb-status-banner.fb-banner-visible.warn { background: var(--warning-bg); border-bottom-color: var(--warning-border); }
+.fb-status-banner.fb-banner-visible.err  { background: var(--danger-bg);  border-bottom-color: var(--danger-border); }
 .fb-banner-inner {
   padding: 8px 24px;
   font-size: 0.8125rem;

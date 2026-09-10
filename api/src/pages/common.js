@@ -148,7 +148,7 @@ function navBar(company, activeKey) {
   <div id="main-area">
     <header id="top-bar">
       <div class="tb-left">
-        <button class="tb-company-trigger" onclick="fbToggleCompany(event)" title="Switch company (g w)" aria-label="Switch company">
+        <button class="tb-company-trigger" onclick="fbToggleCompany(event)" title="Switch company" aria-label="Switch company">
           <span class="tb-mark" id="tb-company-mark"></span>
           <span class="fb-sl-company"></span>
           <span class="tb-company-caret">▾</span>
@@ -168,7 +168,7 @@ function navBar(company, activeKey) {
         <button class="tb-icon-btn" id="tb-dl-btn" title="Download (SIE / CSV / PDF)" aria-label="Download"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11m0 0l-4.5-4.5M12 14l4.5-4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 19h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
         <button class="tb-icon-btn" id="fb-density-btn" title="Switch density" aria-label="Switch density" onclick="fbToggleDensity()"><span id="fb-density-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5h16M4 10h16M4 15h16M4 20h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span></button>
         <button class="tb-icon-btn" id="fb-theme-btn" title="Switch theme" aria-label="Switch theme" onclick="fbToggleTheme()"><span id="fb-theme-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.6"/></svg></span></button>
-        <button class="tb-icon-btn" id="tb-help-btn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9.3 9.5a2.7 2.7 0 115.1 1.2c-.6.9-1.7 1.2-1.7 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="16.3" r="0.9" fill="currentColor"/></svg></button>
+        <button class="tb-icon-btn" id="tb-help-btn" title="Keyboard shortcuts" aria-label="Keyboard shortcuts"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9.3 9.5a2.7 2.7 0 115.1 1.2c-.6.9-1.7 1.2-1.7 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="16.3" r="0.9" fill="currentColor"/></svg></button>
       </div>
     </header>
     <div id="fb-status-banner" class="fb-status-banner">

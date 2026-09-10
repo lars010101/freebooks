@@ -302,7 +302,13 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
 
 /* Top bar search — relocated from footer to topbar (topbar-chrome-spec §1) */
 .tb-search {
-  padding: 6px 12px 6px 28px;
+  /* Explicit height, matching .tb-icon-btn's 32px exactly (border-box, set
+     globally, means padding/border count toward it, not add to it) — an
+     <input> with no height property sizes itself from content+padding+
+     border alone, which came out to 29px here: 3px shorter than the icon
+     buttons sitting right next to it on the same line. */
+  height: 32px;
+  padding: 0 12px 0 28px;
   border: 1px solid rgba(255,255,255,.15);
   border-radius: 5px;
   background: rgba(0,0,0,.2);

@@ -331,7 +331,7 @@ function renderChecklist() {
     var kind = c.kind === 'manual' ? 'Manual' : (c.auto ? 'Auto' : (c.kind || ''));
     var action = '';
     if (c.kind === 'manual') {
-      action = ' <a class="fb-tag" title="toggle attestation (~)" data-act="period-check-attest"'
+      action = ' <a class="fb-tag" title="Toggle attestation" data-act="period-check-attest"'
         + ' data-item="' + esc(c.id) + '" data-period="' + esc(c.period_id) + '" data-idx="' + i + '">'
         + (c.pass ? 'unattest' : 'attest') + '</a>';
     }

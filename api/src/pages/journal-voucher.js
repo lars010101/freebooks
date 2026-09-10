@@ -1092,7 +1092,7 @@ ${commonStyle()}
       var kb = (f.size / 1024).toFixed(1);
       return '<div class="fb-attach-row" data-att-id="' + i + '">'
         + '<span class="fb-att-name">\ud83d\udcc4 ' + f.name + ' <span class="fb-att-meta">(' + kb + ' KB)</span></span>'
-        + '<button class="fb-att-del" onclick="removeJvAttachment(' + i + ')" title="delete (x)" aria-label="Delete">&times;</button>'
+        + '<button class="fb-att-del" onclick="removeJvAttachment(' + i + ')" title="Delete" aria-label="Delete">&times;</button>'
         + '</div>';
     }).join('') + '<div class="fb-attach-row fb-attach-add">'
       + '<button type="button" class="fb-att-add-btn" onclick="document.getElementById(\\'jv-pre-attach-input\\').click()">+ Add attachment</button>'

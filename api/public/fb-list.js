@@ -919,12 +919,12 @@
         // Tree: fold caret leads the first cell (▸ folded / ▾ open). Mouse
         // parity for Space; inert on the add row (rendered separately).
         var caret = (cfg.tree && ci === 0)
-          ? '<span class="fb-fold" data-fold="1" title="fold (Space)" aria-label="Toggle fold">' + (cfg.isFolded(d) ? '&#9656;' : '&#9662;') + '</span>'
+          ? '<span class="fb-fold" data-fold="1" title="Toggle fold" aria-label="Toggle fold">' + (cfg.isFolded(d) ? '&#9656;' : '&#9662;') + '</span>'
           : '';
         return '<td data-field="' + c.field + '"' + (c.align ? ' style="text-align:' + c.align + '"' : '') + '>' + caret + v + '</td>';
       }).join('');
       var actions = d._dirty
-        ? '<a class="chip chip-ok" title="write (w)" aria-label="Save" data-act="write">✓</a> <a class="chip chip-cancel" title="revert (u)" aria-label="Revert" data-act="revert">✕</a>'
+        ? '<a class="chip chip-ok" title="Save" aria-label="Save" data-act="write">✓</a> <a class="chip chip-cancel" title="Revert" aria-label="Revert" data-act="revert">✕</a>'
         : '';
       // rowVerbs (A3j §4.4): per-row verb affordances — rendered only on rows
       // whose predicate passes (mouse parity for the key bindings registered
@@ -1101,8 +1101,8 @@
       tr.innerHTML = cfg.columns.map(function (c) {
         return '<td data-field="' + c.field + '"' + (c.align ? ' style="text-align:' + c.align + '"' : '') + '>' + editCell(c, parent) + '</td>';
       }).join('')
-        + '<td class="row-actions"><a class="chip chip-ok" title="write (w)" aria-label="Save" data-act="write">✓</a> '
-        + '<a class="chip chip-cancel" title="exit (Esc)" aria-label="Cancel" data-act="exit">✕</a></td>';
+        + '<td class="row-actions"><a class="chip chip-ok" title="Save" aria-label="Save" data-act="write">✓</a> '
+        + '<a class="chip chip-cancel" title="Cancel" aria-label="Cancel" data-act="exit">✕</a></td>';
       tr.classList.add('row-editing');
       if (parent._isNew) hideAddRow(tbody()); // add row transforms INTO the edit row
       // Open child rows → edit-mode HTML (cfg.editChildRowHtml). The framework
@@ -1177,8 +1177,8 @@
       tr.innerHTML = cfg.columns.map(function (c) {
         return '<td data-field="' + c.field + '"' + (c.align ? ' style="text-align:' + c.align + '"' : '') + '>' + editCell(c, d) + '</td>';
       }).join('')
-        + '<td class="row-actions"><a class="chip chip-ok" title="write (w)" aria-label="Save" data-act="write">✓</a> '
-        + '<a class="chip chip-cancel" title="exit (Esc)" aria-label="Cancel" data-act="exit">✕</a></td>';
+        + '<td class="row-actions"><a class="chip chip-ok" title="Save" aria-label="Save" data-act="write">✓</a> '
+        + '<a class="chip chip-cancel" title="Cancel" aria-label="Cancel" data-act="exit">✕</a></td>';
       wireChips(tbody());
       tr.classList.add('row-editing');
       if (d._isNew) hideAddRow(tbody()); // the add row transforms INTO the edit row

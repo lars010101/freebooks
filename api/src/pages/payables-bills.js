@@ -419,7 +419,7 @@ function statusBadge(status, dueDate) {
 // bill (bill-post-payment-consolidation-spec.md §3) — same destination 'y'
 // reaches (§2); this is the mouse-only path onto it.
 function payAffordHtml(r) {
-  return '<button class="pay-afford" title="Record payment (y)" onclick="event.stopPropagation();_payAffordClick(this)">Pay</button>';
+  return '<button class="pay-afford" title="Record payment" onclick="event.stopPropagation();_payAffordClick(this)">Pay</button>';
 }
 function _payAffordClick(btn) {
   var tr = btn.closest('tr');
@@ -751,7 +751,7 @@ function billCodeFooterRows(lines, stated) {
 // (common.css) instead, the same base+active pill-toggle recipe reports-hub
 // already uses for its MoM/YoY toggle — same kind of two-state toggle, not
 // topbar-exclusive despite the name.
-var DRAFT_TOGGLE_CELL = '<td><button type="button" class="bill-draft-toggle tb-toggle-btn" aria-pressed="false" title="Draft — save without posting (~)">Draft</button></td>';
+var DRAFT_TOGGLE_CELL = '<td><button type="button" class="bill-draft-toggle tb-toggle-btn" aria-pressed="false" title="Draft — save without posting">Draft</button></td>';
 function billFooterHtml(parent) {
   if (!VAT_ON) return '<td colspan="7"></td>' + DRAFT_TOGGLE_CELL; // vatRegistered=false: no stated-VAT surface
   return '<td colspan="3" style="color:var(--text-muted);font-size:0.8125rem">VAT (supplier-stated total — pre-filled computed; edit to match the invoice; clear to return to computed)</td>'

@@ -1010,7 +1010,7 @@ async function loadAttachments() {
       return '<div class="be-attach-row" data-attachment-id="' + FB.util.esc(a.attachment_id) + '">'
         + '<span class="name">📄 <a href="/api/attachments/' + a.attachment_id + '" target="_blank">' + FB.util.esc(a.filename || a.file_name || 'file') + '</a>'
         + ' <span class="staged">(' + date + (date ? ' · ' : '') + kb + ' KB)</span></span>'
-        + '<button class="be-line-x" style="visibility:visible" data-attachment-id="' + FB.util.esc(a.attachment_id) + '" type="button" title="delete (x)" aria-label="Delete">×</button></div>';
+        + '<button class="be-line-x" style="visibility:visible" data-attachment-id="' + FB.util.esc(a.attachment_id) + '" type="button" title="Delete" aria-label="Delete">×</button></div>';
     }).join('');
     host.querySelectorAll('button[data-attachment-id]').forEach(b => {
       b.onclick = () => deleteExistingAttachment(b.dataset.attachmentId);

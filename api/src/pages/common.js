@@ -155,6 +155,7 @@ function navBar(company, activeKey) {
       </div>
       <div class="tb-right">
         <div class="tb-search-wrap">
+          <svg class="tb-search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M11.5 11.5L15 15" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
           <input type="text" id="tb-global-search" class="tb-search" placeholder="Type / to search" autocomplete="off" tabindex="-1">
         </div>
         <button class="tb-icon-btn tb-chat-btn" id="tb-chat-btn" title="Chat with AI" aria-label="Chat with AI">💬<span id="tb-chat-dot" class="tb-chat-dot" hidden></span></button>

@@ -302,7 +302,7 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
 
 /* Top bar search — relocated from footer to topbar (topbar-chrome-spec §1) */
 .tb-search {
-  padding: 6px 12px;
+  padding: 6px 12px 6px 28px;
   border: 1px solid rgba(255,255,255,.15);
   border-radius: 5px;
   background: rgba(0,0,0,.2);
@@ -315,9 +315,27 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
   width: 220px;
   outline: none;
   cursor: text;
+  transition: width 0.16s ease;
 }
 .tb-search::placeholder { color: rgba(220,228,242,.5); }
 .tb-search:focus { border-color: rgba(255,255,255,.3); background: rgba(0,0,0,.3); }
+/* Expands while focused, or while it holds typed text on blur (matches the
+   mockup: stays wide so a query you just typed isn't immediately squeezed
+   back down the moment focus leaves it). Toggled by fb-core.js's
+   _wireSearchExpand, not :focus-within alone, since :focus-within can't
+   express "stay expanded if non-empty" on its own. */
+.tb-search.tb-search-expanded { width: 320px; }
+/* Icon sits inside the input's left padding (28px reserves the room above);
+   pointer-events:none so a click still lands on the input beneath it. */
+.tb-search-icon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--navy-text);
+  opacity: .55;
+  pointer-events: none;
+}
 
 /* Search wrap — positioning context for FB.palette dropdown (P1-10) */
 .tb-search-wrap { position: relative; }

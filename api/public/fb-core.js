@@ -2761,6 +2761,23 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _wireNewMenu);
   else _wireNewMenu();
 
+  // Topbar search — expand-on-focus (topbar-chrome-spec.md's reference
+  // mockup). Wired once here, not per soft-navigation: #tb-global-search is
+  // outside #page-main, so fbNavigate's innerHTML swap never touches it —
+  // the same element (and these listeners) persists across every page.
+  function _wireSearchExpand() {
+    var input = document.getElementById('tb-global-search');
+    if (!input) return;
+    input.addEventListener('focus', function () { input.classList.add('tb-search-expanded'); });
+    // Stays expanded if it holds text — collapsing the box the instant
+    // focus leaves would squeeze a just-typed query back down immediately.
+    input.addEventListener('blur', function () {
+      if (!input.value) input.classList.remove('tb-search-expanded');
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _wireSearchExpand);
+  else _wireSearchExpand();
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _refreshNotifBadge);
   else _refreshNotifBadge();
 })();

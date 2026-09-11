@@ -238,14 +238,21 @@ body {
 /* :not(.row-editing) — a row in edit mode shows the edit band and boxed
    inputs regardless of entry path (keyboard i vs mouse click). Without the
    exclusion, keyboard-entered edit rows kept the dark band and the !important
-   rules below stripped input borders/backgrounds (2026-07-25). */
+   rules below stripped input borders/backgrounds (2026-07-25).
+   2026-09-11: standardized on the translucent tint Payables' bespoke
+   .bill-row-focus used (magnus preferred it over the solid var(--accent)
+   fill this rule used to have — a full-strength navy band forced every
+   badge/link/input in the row to on-accent/white text just to stay legible
+   on top of it). The tint is light enough that normal --text/badge/link
+   colors already read fine underneath it, so those forced-color rules are
+   gone, not just recolored — Payables never had them either. */
 tr.nav-row-focus:not(.row-editing) > td {
-  background: var(--accent) !important;
-  color: var(--on-accent) !important;
+  background: rgba(61, 100, 148, 0.18) !important;
   outline: none;
 }
-tr.nav-row-focus:not(.row-editing) > td a { color: var(--on-accent) !important; }
-tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !important; background: transparent !important; border-color: transparent !important; }
+[data-theme="dark"] tr.nav-row-focus:not(.row-editing) > td {
+  background: rgba(61, 100, 148, 0.35) !important;
+}
 
 /* ---- Attachment row keyboard focus ---- */
 .attach-row.nav-attach-focus { background: var(--accent) !important; }
@@ -447,8 +454,7 @@ tr.nav-row-focus:not(.row-editing) > td input { color: var(--on-accent) !importa
 }
 .fb-add-row:hover td { background: var(--bg); color: var(--accent) !important; }
 /* Keyboard cursor landing on the add row must stay visible. */
-tr.fb-add-row.nav-row-focus td,
-tr.fb-add-row.bill-row-focus td { background: var(--accent) !important; color: rgba(255,255,255,.85) !important; }
+tr.fb-add-row.nav-row-focus td { background: var(--accent) !important; color: rgba(255,255,255,.85) !important; }
 
 /* Unsaved inline-draft edits left behind by Esc (write with w). Previously
    gated on `body.fb-dark`, a class the theme toggle never applies (it sets
@@ -1248,20 +1254,29 @@ tr.row-editing td select[class^="fb-e-"]:focus {
 /* FB.form cursor (K3) — mirrors the FB.list nav-row-focus highlight so mouse
    + keyboard read the same. Row tint = var(--bg); cell = background-based
    highlight using var(--accent) (K3c: was outline-only — too vague per owner
-   report #1). Theme-aware via existing CSS vars. */
+   report #1). Theme-aware via existing CSS vars.
+   2026-09-11: converged onto nav-row-focus's translucent tint (same rgba(61,
+   100,148,…) family), same reasoning as that rule's own 2026-09-11 note — a
+   full-strength navy fill fought with whatever sat inside the cell (forced
+   every input's text to on-accent, and didn't reach ::placeholder at all:
+   an empty focused field's placeholder went near-illegible, dim-gray on
+   navy — found surveying bill-edit/journal-voucher/new-company). CELL_CLS
+   ('fb-form-cursor') lands directly on the input/select/textarea itself
+   (every zone's cells() returns the control element, never a wrapper), so
+   the tint IS the control's own background — no separate descendant rule
+   needed, and no text-color override needed either: normal text/placeholder
+   colors already read fine on a tint this light, same as table rows. Kept
+   as a background (not outline-only, like the row highlight) plus a ring,
+   rather than tint-only — a single cell needs to stay unmistakable during
+   fast keyboard nav in a way a whole highlighted row doesn't. */
 tr.fb-form-row-focus > td, div.fb-form-row-focus { background: var(--bg); }
 .fb-form-cursor {
-  background: var(--accent) !important;
-  color: var(--on-accent) !important;
-  outline: 2px solid var(--border) !important;
+  background: rgba(61, 100, 148, 0.18) !important;
+  outline: 2px solid var(--accent) !important;
   outline-offset: -2px;
 }
-.fb-form-cursor input,
-.fb-form-cursor select,
-.fb-form-cursor textarea {
-  color: var(--on-accent) !important;
-  background: transparent !important;
-  border-color: transparent !important;
+[data-theme="dark"] .fb-form-cursor {
+  background: rgba(61, 100, 148, 0.35) !important;
 }
 /* Button cells get a RING cursor, not the fill (magnus 2026-07-28): a toggle
    button's own ON state is an amber fill (--toggle-on), and the navy cursor

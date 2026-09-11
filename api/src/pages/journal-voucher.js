@@ -35,13 +35,15 @@ ${commonStyle()}
   .fb-attach-row { display:flex; justify-content:space-between; align-items:center; padding:3px 6px; border-bottom:1px solid var(--border); border-radius:3px; }
   .fb-attach-row .fb-att-meta { color:var(--text-muted); font-size:0.6875rem; }
   .fb-attach-row .fb-att-del { border:none; background:none; cursor:pointer; color:var(--danger); font-size:0.875rem; padding:0 4px; }
-  .fb-attach-row.fb-form-row-focus { background:var(--accent) !important; color:var(--on-accent); }
-  .fb-attach-row.fb-form-row-focus .fb-att-meta { color:rgba(255,255,255,.6); }
-  .fb-attach-row.fb-form-row-focus .fb-att-del { color:var(--on-accent); }
-  /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity.
-     Base recipe is shared (.fb-att-add-btn in common.css); this file only
-     owns the row-focus colour override, since .fb-attach-row is page-local. */
-  .fb-attach-row.fb-form-row-focus .fb-att-add-btn { color:var(--on-accent); }
+  /* Row focus (2026-09-11): converged onto the same rgba(61,100,148,…) tint
+     as nav-row-focus/.fb-form-cursor (docs/UI.md) — was a solid var(--accent)
+     fill forcing every child (.fb-att-meta/.fb-att-del/.fb-att-add-btn) to
+     on-accent/white just to stay legible on top of it. A tint this light
+     doesn't need that: .fb-att-meta's text-muted, .fb-att-del's danger red,
+     and .fb-att-add-btn's text-muted (common.css) all read fine underneath
+     unforced, so those three overrides are gone, not just recoloured. */
+  .fb-attach-row.fb-form-row-focus { background:rgba(61, 100, 148, 0.18) !important; }
+  [data-theme="dark"] .fb-attach-row.fb-form-row-focus { background:rgba(61, 100, 148, 0.35) !important; }
   /* A1 (magnus 2026-07-28): read-only original-entry rows shown above the
      swapped reversal rows. Plain-text <td>s (no inputs) — grayed + italic. */
   .jv-orig-hdr td, .jv-orig-line td { color:var(--text-muted); background:var(--bg); font-style:italic; }

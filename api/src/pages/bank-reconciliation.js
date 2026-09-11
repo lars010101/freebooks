@@ -2,37 +2,92 @@
 
 function reconciliationTabJS() {
   return `
-// ========== RECONCILIATION TAB ==========
-// Wires up bank.reconcile.list/.clear (api/src/bank.js) — orphaned since the
-// old Bank page was deleted (issue #137, 2026-08-09), zero callers until now.
-// Not FB.list, not a fetched read-only report fragment (unlike Aging/Control)
-// either — it's a mutating, per-line clear/uncleared workflow, so it gets its
-// own small interactive table (closest precedent: Accounting's Integrity tab,
-// a plain fetched table per ia-restructure-3-spec.md §3.3, plus a click handler).
+// ========== RECONCILIATION TAB — FB.list ==========
+// Migrated off a hand-rolled fetch+innerHTML table (2026-09-11), same as the
+// Payments tab. bank.reconcile.list/.clear (api/src/bank.js) wired up since
+// issue #137; the response shape ({ rows, openingBalance }) doesn't match
+// FB.list's plain { data, total } convention, so this uses a custom
+// list.fetch (Inbox's fetchTxnRows precedent) rather than list.action/body.
 var _reconAccountsLoaded = false;
-var _reconRows = [];
 var _reconAccount = '';
 var _reconOpening = 0;
 
-// Delegates to FB.status (docs/UI.md — Empty/loading/error states: "the ONE
-// transient-feedback channel... per-screen msg spans are retired"). This was
-// still a per-screen msg span writing to its own DOM node until this fix.
-function reconMsg(msg, type) {
-  if (!msg) { FB.status.clear(); return; }
-  FB.status.show(msg, type === 'err' ? true : undefined);
+function fetchReconRows() {
+  var sel = document.getElementById('recon-account');
+  var accountCode = sel ? sel.value : '';
+  if (!accountCode) return Promise.resolve([]);
+  _reconAccount = accountCode;
+  var st = window.FB && FB.period ? FB.period.get() : {};
+  return fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'bank.reconcile.list', companyId: COMPANY, accountCode: accountCode, dateFrom: st.start || '', dateTo: st.end || '' }) })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      var d = res.data || res;
+      if (res.error || (d && d.error)) { FB.status.show('Load failed: ' + (res.error || d.error), true); return []; }
+      _reconOpening = Number((d && d.openingBalance) || 0);
+      var openingEl = document.getElementById('recon-opening');
+      if (openingEl) openingEl.textContent = FB.util.fmtAmt(_reconOpening);
+      return ((d && d.rows) || []).map(function (r) {
+        return {
+          _key: r.batch_id, batch_id: r.batch_id, date: r.date || '',
+          reference: r.reference || '', description: r.description || '',
+          debit: Number(r.debit || 0), credit: Number(r.credit || 0), cleared: !!r.cleared
+        };
+      });
+    })
+    .catch(function (e) { FB.status.show('Error: ' + e.message, true); return []; });
 }
 
-function fmtDateShortRecon(d) {
-  if (!d) return '';
-  var s = String(d).slice(0, 10);
-  var parts = s.split('-');
-  if (parts.length !== 3) return s;
-  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return parseInt(parts[2], 10) + ' ' + MONTHS[parseInt(parts[1], 10) - 1];
+// Running cleared-balance accumulator — computed once here from the FETCH
+// order (chronological, ORDER BY date/batch_id server-side), never from
+// however the table is currently sorted client-side (docs/UI.md — default
+// sort order: a derived summary has to track real order, not display
+// order, once a column becomes sortable).
+function _updateReconSummary(saved) {
+  var clearedBalance = _reconOpening;
+  var unclearedCount = 0;
+  saved.forEach(function (r) {
+    if (r.cleared) clearedBalance += r.debit - r.credit; else unclearedCount++;
+  });
+  document.getElementById('recon-cleared-balance').textContent = FB.util.fmtAmt(clearedBalance);
+  document.getElementById('recon-uncleared-count').textContent = String(unclearedCount);
 }
+
+var reconciliationList = FB.list.create({
+  keysId: 'bank-reconciliation',
+  tbody: 'recon-tbody',
+  companyId: function () { return COMPANY; },
+  tree: false,
+  canAdd: false,
+  editable: function () { return false; },
+  active: function () { var p = document.getElementById('tab-reconciliation'); return !!(p && p.classList.contains('active')); },
+  columns: [
+    { field: 'date', sortable: true, filterType: 'date', label: 'Date',
+      display: function (v) { return '<span title="' + esc(String(v || '').slice(0, 10)) + '">' + FB.util.fmtDateShort(v) + '</span>'; } },
+    { field: 'reference', sortable: true, filterType: 'text', label: 'Reference',
+      display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    { field: 'description', sortable: true, filterType: 'text', label: 'Description',
+      display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    { field: 'debit', sortable: true, align: 'right', filterType: 'amount', label: 'Debit',
+      display: function (v) { return v ? '<span class="amt">' + FB.util.fmtAmt(v) + '</span>' : ''; } },
+    { field: 'credit', sortable: true, align: 'right', filterType: 'amount', label: 'Credit',
+      display: function (v) { return v ? '<span class="amt">' + FB.util.fmtAmt(v) + '</span>' : ''; } },
+    // Direct click-to-toggle, not FB.list's edit-mode machinery — the box
+    // itself is the control (same immediate-mutation shape as Vendors' ~
+    // toggle-active, just mouse-first here since it's the column's whole
+    // reason to exist rather than an incidental verb).
+    { field: 'cleared', sortable: true, align: 'center', filterType: 'list', label: 'Cleared',
+      display: function (v, r) {
+        var boxClass = 'recon-clear-box' + (v ? ' cleared' : '');
+        return '<span class="recon-clear-cell" onclick="event.stopPropagation();toggleClear(\\'' + r.batch_id + '\\',' + (v ? 'true' : 'false') + ')"><span class="' + boxClass + '"></span></span>';
+      } }
+  ],
+  list: { fetch: fetchReconRows, map: function (row) { return row; } },
+  onLoaded: function (saved) { _updateReconSummary(saved); },
+});
 
 function initReconciliation() {
-  if (_reconAccountsLoaded) { loadReconciliation(); return; }
+  if (_reconAccountsLoaded) { if (document.getElementById('recon-account').value) reconciliationList.load(); return; }
   _reconAccountsLoaded = true;
   fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'coa.list', companyId: COMPANY }) })
@@ -45,7 +100,7 @@ function initReconciliation() {
       if (!sel) return;
       if (!cashAccounts.length) {
         sel.innerHTML = '<option value="">No cash accounts</option>';
-        document.getElementById('recon-tbody').innerHTML = '<tr><td colspan="6" class="table-empty">No Cash-category accounts configured (Accounting → Chart of Accounts).</td></tr>';
+        document.getElementById('recon-tbody').innerHTML = '<tr><td colspan="7" class="table-empty">No Cash-category accounts configured (Accounting → Chart of Accounts).</td></tr>';
         return;
       }
       sel.innerHTML = cashAccounts.map(function (a) {
@@ -56,66 +111,11 @@ function initReconciliation() {
       if (saved && cashAccounts.some(function (a) { return a.account_code === saved; })) sel.value = saved;
       sel.onchange = function () {
         try { localStorage.setItem('fb.reconAccount.' + COMPANY, sel.value); } catch (e) {}
-        loadReconciliation();
+        reconciliationList.load();
       };
-      loadReconciliation();
+      if (sel.value) reconciliationList.load();
     })
-    .catch(function (e) { reconMsg('Error loading accounts: ' + e.message, 'err'); });
-}
-
-function loadReconciliation() {
-  var sel = document.getElementById('recon-account');
-  var accountCode = sel ? sel.value : '';
-  if (!accountCode) return;
-  _reconAccount = accountCode;
-  var st = window.FB && FB.period ? FB.period.get() : {};
-  var tbody = document.getElementById('recon-tbody');
-  tbody.innerHTML = '<tr><td colspan="6" class="table-empty">Loading&#8230;</td></tr>';
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'bank.reconcile.list', companyId: COMPANY, accountCode: accountCode, dateFrom: st.start || '', dateTo: st.end || '' }) })
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      var d = res.data || res;
-      if (res.error || (d && d.error)) { tbody.innerHTML = ''; reconMsg('Load failed: ' + (res.error || d.error), 'err'); return; }
-      _reconRows = (d && d.rows) || [];
-      _reconOpening = Number((d && d.openingBalance) || 0);
-      document.getElementById('recon-opening').textContent = FB.util.fmtAmt(_reconOpening);
-      renderReconciliation();
-      reconMsg('', '');
-    })
-    .catch(function (e) { tbody.innerHTML = ''; reconMsg('Error: ' + e.message, 'err'); });
-}
-
-function renderReconciliation() {
-  var tbody = document.getElementById('recon-tbody');
-  // _reconOpening (a tracked number) — not re-parsed from the opening-balance
-  // element's own formatted text, which broke the moment that text started
-  // using parentheses for negatives instead of a bare minus sign.
-  var opening = _reconOpening;
-  if (!_reconRows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="table-empty">No activity in range.</td></tr>';
-    document.getElementById('recon-cleared-balance').textContent = FB.util.fmtAmt(opening);
-    document.getElementById('recon-uncleared-count').textContent = '0';
-    return;
-  }
-  var clearedBalance = opening;
-  var unclearedCount = 0;
-  var html = _reconRows.map(function (r) {
-    var debit = Number(r.debit || 0), credit = Number(r.credit || 0);
-    if (r.cleared) clearedBalance += debit - credit; else unclearedCount++;
-    var boxClass = 'recon-clear-box' + (r.cleared ? ' cleared' : '');
-    return '<tr>'
-      + '<td>' + esc(fmtDateShortRecon(r.date)) + '</td>'
-      + '<td>' + esc(r.reference || '—') + '</td>'
-      + '<td>' + esc(r.description || '—') + '</td>'
-      + '<td class="amt">' + (debit ? FB.util.fmtAmt(debit) : '') + '</td>'
-      + '<td class="amt">' + (credit ? FB.util.fmtAmt(credit) : '') + '</td>'
-      + '<td class="recon-clear-cell" onclick="toggleClear(\\'' + r.batch_id + '\\',' + (r.cleared ? 'true' : 'false') + ')"><span class="' + boxClass + '"></span></td>'
-      + '</tr>';
-  }).join('');
-  tbody.innerHTML = html;
-  document.getElementById('recon-cleared-balance').textContent = FB.util.fmtAmt(clearedBalance);
-  document.getElementById('recon-uncleared-count').textContent = String(unclearedCount);
+    .catch(function (e) { FB.status.show('Error loading accounts: ' + e.message, true); });
 }
 
 function toggleClear(batchId, wasCleared) {
@@ -125,12 +125,10 @@ function toggleClear(batchId, wasCleared) {
     .then(function (r) { return r.json(); })
     .then(function (res) {
       var d = res.data || res;
-      if (res.error || (d && d.error)) { reconMsg('Update failed: ' + (res.error || d.error), 'err'); return; }
-      var row = _reconRows.filter(function (r) { return r.batch_id === batchId; })[0];
-      if (row) row.cleared = nowCleared;
-      renderReconciliation();
+      if (res.error || (d && d.error)) { FB.status.show('Update failed: ' + (res.error || d.error), true); return; }
+      reconciliationList.load();
     })
-    .catch(function (e) { reconMsg('Error: ' + e.message, 'err'); });
+    .catch(function (e) { FB.status.show('Error: ' + e.message, true); });
 }
 `;
 }

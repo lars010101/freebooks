@@ -2,111 +2,91 @@
 
 function paymentsTabJS() {
   return `
-// ========== PAYMENTS TAB — plain fetched table, not FB.list ==========
-// Read-only register (payments are never hand-edited row-by-row — they're
-// created via New Payment or bank-match settlement) plus one row action
-// (void). FB.list's edit/dirty-buffer machinery has nothing to do here, so
-// this mirrors the simpler pattern payables-bills.js already uses for the
-// per-bill payment-history child rows (plain fetch + render + a void
-// button), just company-wide instead of scoped to one bill's tree.
+// ========== PAYMENTS TAB — FB.list ==========
+// Migrated off a hand-rolled fetch+innerHTML table (2026-09-11) — this page
+// was revived after "every list in the app runs on FB.list" was already
+// true everywhere else, and just never got moved onto it. Read-only
+// register (payments are never hand-edited row-by-row — they're created via
+// New Payment or bank-match settlement) plus one row action (void), which
+// is exactly Inbox's Transactions-tab shape: editable:false + rowVerbs.
 var PAYMENTS_THRESHOLD = 1000;
-var _paymentsLoadSeq = 0;
-var _paymentsDebounce = null;
-function _debouncedLoadPayments() {
-  clearTimeout(_paymentsDebounce);
-  _paymentsDebounce = setTimeout(loadPayments, 250);
-}
 
-// Delegates to FB.status (docs/UI.md — Empty/loading/error states: "the ONE
-// transient-feedback channel... per-screen msg spans are retired"). This was
-// still a per-screen msg span writing to its own DOM node until this fix.
-function paymentsMsg(msg, type) {
-  if (!msg) { FB.status.clear(); return; }
-  FB.status.show(msg, type === 'err' ? true : undefined);
-}
-
-function fmtDateShortPay(d) {
-  if (!d) return '';
-  var s = String(d).slice(0, 10);
-  var parts = s.split('-');
-  if (parts.length !== 3) return s;
-  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return parseInt(parts[2], 10) + ' ' + MONTHS[parseInt(parts[1], 10) - 1];
-}
-
-function loadPayments() {
-  var tbody = document.getElementById('payments-tbody');
-  if (!tbody) return;
-  var seq = ++_paymentsLoadSeq;
-  var st = window.FB && FB.period ? FB.period.get() : {};
-  var body = {
-    action: 'payment.list', companyId: COMPANY,
-    threshold: PAYMENTS_THRESHOLD,
-    dateFrom: st.start || '', dateTo: st.end || '',
-    direction: (document.getElementById('pf-direction') || {}).value || '',
-    method: (document.getElementById('pf-method') || {}).value || '',
-    voided: !!(document.getElementById('pf-voided') || {}).checked
-  };
-  fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    .then(function (r) { return r.json(); })
-    .then(function (res) {
-      if (seq !== _paymentsLoadSeq) return; // stale response — a newer request already landed
-      var d = res.data || res;
-      if (res.error || (d && d.error)) { tbody.innerHTML = ''; paymentsMsg('Load failed: ' + (res.error || d.error), 'err'); return; }
-      var rows = (d && d.data) || [];
-      var total = d && d.total;
-      if (d && d.tooMany) {
-        tbody.innerHTML = '<tr><td colspan="8" class="table-empty">'
-          + (total || 0).toLocaleString() + ' payments \u2014 narrow the date range above (Period Selector) or a filter to see this list.</td></tr>';
-        return;
-      }
-      var q = ((document.getElementById('pf-search') || {}).value || '').trim().toLowerCase();
-      if (q) {
-        rows = rows.filter(function (r) {
-          return (r.partner_name || '').toLowerCase().indexOf(q) >= 0
-              || (r.reference || '').toLowerCase().indexOf(q) >= 0
-              || (r.vendor_ref || '').toLowerCase().indexOf(q) >= 0;
-        });
-      }
-      renderPayments(rows);
-      paymentsMsg('', '');
-    })
-    .catch(function (e) { if (seq !== _paymentsLoadSeq) return; tbody.innerHTML = ''; paymentsMsg('Error: ' + e.message, 'err'); });
-}
-
-function renderPayments(rows) {
-  var tbody = document.getElementById('payments-tbody');
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="table-empty">No payments in range.</td></tr>';
-    return;
-  }
-  var html = rows.map(function (r) {
-    var voided = !!r.voided_at;
-    var dirBadge = '<span class="badge ' + (r.direction === 'in' ? 'badge-success' : 'badge-warning') + '">' + (r.direction === 'in' ? 'In' : 'Out') + '</span>';
-    var methodBadge = '<span class="badge ' + (r.method === 'bank_match' ? 'badge-info' : 'badge-neutral') + '">' + (r.method === 'bank_match' ? 'Bank Match' : 'Manual') + '</span>';
-    var amt = FB.util.fmtAmt(r.amount || 0);
-    // Status is always a real status badge — Void is a hover-only action
-    // appended after it (mirrors Bills tab's .pay-afford), never the sole
-    // content of the "Status" cell (a bare action button there read as if
-    // "Void" were itself a status value).
-    var statusCell = voided
-      ? '<span class="badge badge-danger">Voided</span>'
-      : '<span class="badge badge-success">Posted</span>'
-        + '<button class="void-afford" onclick="event.stopPropagation();voidPaymentRow(\\'' + r.payment_id + '\\')">Void</button>';
-    var url = r.bill_id ? ('/' + COMPANY + '/bill/' + encodeURIComponent(r.bill_id)) : '';
-    return '<tr' + (url ? ' data-url="' + url + '" onclick="window.fbNavigate ? window.fbNavigate(\\'' + url + '\\') : (window.location.href=\\'' + url + '\\')"' : '') + '>'
-      + '<td>' + esc(fmtDateShortPay(r.date)) + '</td>'
-      + '<td>' + dirBadge + '</td>'
-      + '<td>' + esc(r.partner_name || '\u2014') + '</td>'
-      + '<td>' + esc(r.vendor_ref || '\u2014') + '</td>'
-      + '<td class="amt"' + (voided ? ' style="color:var(--text-faint);text-decoration:line-through"' : '') + '>' + amt + '</td>'
-      + '<td>' + methodBadge + '</td>'
-      + '<td>' + esc(r.reference || '\u2014') + '</td>'
-      + '<td>' + statusCell + '</td>'
-      + '</tr>';
-  }).join('');
-  tbody.innerHTML = html;
-}
+var paymentsList = FB.list.create({
+  keysId: 'bank-payments',
+  tbody: 'payments-tbody',
+  companyId: function () { return COMPANY; },
+  tree: false,
+  canAdd: false,
+  editable: function () { return false; },
+  active: function () { var p = document.getElementById('tab-payments'); return !!(p && p.classList.contains('active')); },
+  columns: [
+    { field: 'date', sortable: true, filterType: 'date', label: 'Date',
+      display: function (v) { return '<span style="white-space:nowrap" title="' + esc(String(v || '').slice(0, 10)) + '">' + FB.util.fmtDateShort(v) + '</span>'; } },
+    { field: 'direction', sortable: true, filterType: 'list', label: 'Dir',
+      display: function (v) { return '<span class="badge ' + (v === 'in' ? 'badge-success' : 'badge-warning') + '">' + (v === 'in' ? 'In' : 'Out') + '</span>'; } },
+    { field: 'partner_name', sortable: true, filterType: 'text', label: 'Partner',
+      display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    { field: 'vendor_ref', sortable: true, filterType: 'text', label: 'Bill Ref',
+      // Whole-row navigation doesn't map onto FB.list's row click (that's
+      // reserved for edit-mode/fold), so this is a link-in-a-cell instead —
+      // the same pattern Payables' Bills Reference column already uses to
+      // reach a bill's own page.
+      display: function (v, r) {
+        if (!v) return '<span class="pe-ro">—</span>';
+        if (!r.bill_id) return esc(v);
+        return '<a href="/' + esc(COMPANY) + '/bill/' + esc(r.bill_id) + '" class="ref-link" onclick="event.stopPropagation()">' + esc(v) + '</a>';
+      } },
+    { field: 'amount', sortable: true, align: 'right', filterType: 'amount', label: 'Amount',
+      display: function (v, r) { return '<span class="amt"' + (r.voided ? ' style="color:var(--text-faint);text-decoration:line-through"' : '') + '>' + FB.util.fmtAmt(v) + '</span>'; } },
+    { field: 'method', sortable: true, filterType: 'list', label: 'Method',
+      display: function (v) { return '<span class="badge ' + (v === 'bank_match' ? 'badge-info' : 'badge-neutral') + '">' + (v === 'bank_match' ? 'Bank Match' : 'Manual') + '</span>'; } },
+    { field: 'reference', sortable: true, filterType: 'text', label: 'Reference',
+      display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    { field: 'status', sortable: true, filterType: 'list', label: 'Status',
+      display: function (v) { return '<span class="badge ' + (v === 'voided' ? 'badge-danger' : 'badge-success') + '">' + (v === 'voided' ? 'Voided' : 'Posted') + '</span>'; } },
+  ],
+  hint: 'Payments: y verbs void, Enter unfolds nothing (flat list). Direction/Method/Status columns are filterable (≡) — no separate toolbar needed. The Status filter shows Voided rows — hidden by default.',
+  list: {
+    action: 'payment.list',
+    body: function () {
+      var st = window.FB && FB.period ? FB.period.get() : {};
+      // No page-specific Direction/Method/Voided toolbar — those columns are
+      // already sortable/filterable (≡) via FB.list itself, so a bespoke
+      // set of dropdowns duplicating that was redundant. voided:true always
+      // fetches the full set (the server otherwise excludes voided_at rows
+      // entirely); applyFilterExpr('status:posted') below hides them by
+      // default client-side instead — same "hide noise by default, recover
+      // via the column's own filter" doctrine as Inbox's rejected-proposals
+      // default.
+      return {
+        threshold: PAYMENTS_THRESHOLD,
+        dateFrom: st.start || '', dateTo: st.end || '',
+        voided: true
+      };
+    },
+    tooManyMessage: function (total) {
+      return total.toLocaleString() + ' payments — narrow the date range above (Period Selector) or a filter to see this list.';
+    },
+    map: function (r) {
+      return {
+        _key: r.payment_id, payment_id: r.payment_id, bill_id: r.bill_id || '',
+        date: r.date || '', direction: r.direction || '', partner_name: r.partner_name || '',
+        vendor_ref: r.vendor_ref || '', amount: Number(r.amount) || 0,
+        method: r.method || '', reference: r.reference || '',
+        voided: !!r.voided_at, status: r.voided_at ? 'voided' : 'posted'
+      };
+    }
+  },
+  rowVerbs: [
+    { key: 'x', label: 'void',
+      when: function (row) { return !row.voided; },
+      affordance: function () { return '<a class="chip chip-cancel" title="Void" aria-label="Void" data-act="verb:x">&#10005;</a>'; },
+      run: function (api, row) { voidPaymentRow(row.payment_id); } }
+  ]
+});
+// Default view: hide voided rows (same mechanism as Inbox's default
+// status:proposed filter) — the Status column's own ≡ filter reveals them.
+paymentsList.applyFilterExpr('status:posted');
 
 function voidPaymentRow(paymentId) {
   FB.modal.open({
@@ -121,11 +101,11 @@ function voidPaymentRow(paymentId) {
             .then(function (r) { return r.json(); })
             .then(function (res) {
               var d = res.data || res;
-              if (res.error || (d && d.error)) { paymentsMsg('Void failed: ' + (res.error || d.error), 'err'); return; }
-              paymentsMsg('Payment voided.', 'ok');
-              loadPayments();
+              if (res.error || (d && d.error)) { FB.status.show('Void failed: ' + (res.error || d.error), true); return; }
+              FB.status.show('Payment voided.', false);
+              paymentsList.load();
             })
-            .catch(function (e) { paymentsMsg('Error: ' + e.message, 'err'); });
+            .catch(function (e) { FB.status.show('Error: ' + e.message, true); });
         } }
     ]
   });

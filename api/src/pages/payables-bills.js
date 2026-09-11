@@ -373,26 +373,10 @@ function hashStr(s) {
   return h;
 }
 
-function fmtDate(d) {
-  if (!d) return '—';
-  var s = String(d).slice(0,10);
-  var parts = s.split('-');
-  if (parts.length !== 3) return s;
-  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return parts[2] + ' ' + months[parseInt(parts[1],10)-1] + ' ' + parts[0];
-}
-
-// Compact list-row date: elide the year when it is the current calendar year
-// ("21 Jul"); full "21 Jul 2025" otherwise. The full ISO date sits in the
-// cell's title (hover tooltip) — density without losing the unambiguous
-// month-name format. Agreed with magnus 2026-07-21.
-function fmtDateShort(d) {
-  if (!d) return '—';
-  var s = String(d).slice(0, 10);
-  var yr = new Date().toISOString().slice(0, 4);
-  if (s.slice(0, 4) === yr) return fmtDate(s).replace(' ' + yr, '');
-  return fmtDate(s);
-}
+// fmtDate/fmtDateShort now live once in fb-core.js (FB.util) — promoted
+// 2026-09-11, this file's copies were a byte-identical unpromoted duplicate.
+var fmtDate = FB.util.fmtDate;
+var fmtDateShort = FB.util.fmtDateShort;
 
 // Posted-vs-draft visual language (docs/UI.md Components): every status
 // except 'draft' is locked once posted — the 🔒 is a second, non-color-
@@ -909,11 +893,10 @@ var billsList = FB.list.create({
   },
   tbody: 'bills-tbody',
   companyId: function () { return COMPANY; },
-  focusClass: 'bill-row-focus',
   onFocus: function (tr) {},
   tree: true,
   columns: [
-    { field: 'partner_name', type: 'text', attach: billAttachPartner, sortable: true,
+    { field: 'partner_name', type: 'text', attach: billAttachPartner, sortable: true, filterType: 'text',
       display: function (v, r) { return partnerCell(r.partner_name || v || ''); }, label: 'Partner' },
     { field: 'date', type: 'date', sortable: true, filterType: 'date',
       display: function (v) {
@@ -926,7 +909,7 @@ var billsList = FB.list.create({
         var overdue = active && due && due < today;
         return '<span style="white-space:nowrap" title="' + esc(due) + '"><span' + (overdue ? ' class="overdue-date"' : '') + '>' + fmtDateShort(due) + '</span></span>';
       } },
-    { field: 'vendor_ref', type: 'text', filterType: 'text',
+    { field: 'vendor_ref', type: 'text', sortable: true, filterType: 'text',
       display: function (v, r) {
         var id = String(r.bill_id || r._key || '');
         var qs = 'from=bills';

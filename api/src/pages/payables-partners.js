@@ -65,13 +65,6 @@ function partnerAttachAcct(inp) {
   });
 }
 
-function partnerMsg(msg, type) {
-  var el = document.getElementById('msg-partners');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.color = type === 'err' ? 'var(--danger)' : type === 'ok' ? 'var(--success)' : 'var(--text-muted)';
-}
-
 function partnerActiveBadge(v) {
   return v !== false
     ? '<span class="badge badge-success">Active</span>'
@@ -86,20 +79,19 @@ var partnersList = FB.list.create({
   },
   tbody: 'vendors-body',
   companyId: function() { return COMPANY; },
-  focusClass: 'bill-row-focus',
   onFocus: function(tr) {
     // common.js's j/k deferral reads this: >= 0 means partner nav owns j/k.
     window.fbPartnerSelRow = (tr && !tr.classList.contains('fb-add-row')) ? +tr.dataset.idx : -1;
   },
   columns: [
-    { field: 'name', type: 'text', width: 180 },
-    { field: 'default_currency', type: 'text', width: 40, align: 'center', uppercase: true, attach: partnerAttachCcy, filterType: 'list' },
-    { field: 'payment_terms_days', type: 'number', width: 55, align: 'center', filterType: 'amount' },
-    { field: 'default_expense_account', type: 'text', width: 130, attach: partnerAttachAcct },
-    { field: 'default_ap_account', type: 'text', width: 130, attach: partnerAttachAcct },
-    { field: 'is_vendor', type: 'checkbox', align: 'center', width: 50, display: function(v) { return v !== false ? 'V' : '\u2014'; } },
-    { field: 'is_customer', type: 'checkbox', align: 'center', width: 50, display: function(v) { return v === true ? 'C' : '\u2014'; } },
-    { field: 'is_active', type: 'checkbox', align: 'center', ro: 'always', display: partnerActiveBadge }
+    { field: 'name', type: 'text', width: 180, sortable: true, filterType: 'text' },
+    { field: 'default_currency', type: 'text', width: 40, align: 'center', uppercase: true, attach: partnerAttachCcy, sortable: true, filterType: 'list' },
+    { field: 'payment_terms_days', type: 'number', width: 55, align: 'center', sortable: true, filterType: 'amount' },
+    { field: 'default_expense_account', type: 'text', width: 130, attach: partnerAttachAcct, sortable: true, filterType: 'text' },
+    { field: 'default_ap_account', type: 'text', width: 130, attach: partnerAttachAcct, sortable: true, filterType: 'text' },
+    { field: 'is_vendor', type: 'checkbox', align: 'center', width: 50, sortable: true, filterType: 'list', display: function(v) { return v !== false ? 'V' : '\u2014'; } },
+    { field: 'is_customer', type: 'checkbox', align: 'center', width: 50, sortable: true, filterType: 'list', display: function(v) { return v === true ? 'C' : '\u2014'; } },
+    { field: 'is_active', type: 'checkbox', align: 'center', ro: 'always', sortable: true, filterType: 'list', display: partnerActiveBadge }
   ],
   blank: function() { return { name: '', default_currency: '', payment_terms_days: 30, default_expense_account: '', default_ap_account: '', is_vendor: true, is_customer: false, is_active: true }; },
   isBlank: function(b) { return !b.name; },
@@ -149,12 +141,11 @@ var partnersList = FB.list.create({
             .then(function(r){ return r.json(); })
             .then(function(res){
               var dd = res.data || res;
-              if (dd.error || res.error) { partnerMsg((dd.error && dd.error.message) || dd.error || res.error, 'err'); return; }
-              partnerMsg(v.is_active ? 'Marked active.' : 'Marked inactive.', 'ok');
-              setTimeout(function(){ partnerMsg('', ''); }, 1500);
+              if (dd.error || res.error) { FB.status.show((dd.error && dd.error.message) || dd.error || res.error, 'err'); return; }
+              FB.status.show(v.is_active ? 'Marked active.' : 'Marked inactive.', false);
               api.load(d._key);
             })
-            .catch(function(e){ partnerMsg(e.message, 'err'); });
+            .catch(function(e){ FB.status.show(e.message, 'err'); });
         } }
     ];
   }

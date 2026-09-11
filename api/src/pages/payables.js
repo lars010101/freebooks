@@ -30,51 +30,73 @@ ${commonStyle()}
 <style>
   .page { max-width:1100px; }
 
-  /* Page header */
-  .page-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:28px; }
-  .page-header h1 { margin:0 0 4px; font-size:1.667rem; font-weight:700; letter-spacing:-.01em; }
-  .page-header .sub { margin:0; font-size:0.8125rem; color:var(--text-faint); }
-  .btn-create { display:inline-flex; align-items:center; gap:7px; padding:9px 20px; background:var(--accent); color:var(--on-accent); border:none; border-radius:6px; font-size:0.875rem; font-weight:600; text-decoration:none; cursor:pointer; }
-  .btn-create:hover { opacity:.88; }
-
-  /* KPI cards */
-  .kpi-row { display:flex; gap:16px; margin-bottom:28px; }
-  .kpi-card { flex:1; border:1px solid var(--border); border-radius:8px; padding:20px 24px; background:var(--surface); }
-  .kpi-label { font-size:0.75rem; color:var(--text-faint); font-weight:600; text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px; }
-  .kpi-amount { font-size:1.667rem; font-weight:700; color:var(--text); line-height:1; margin-bottom:6px; }
-  .kpi-amount.overdue { color:var(--danger); }
-  .kpi-count { font-size:0.75rem; color:var(--text-faint); }
-
-  /* Filter bar */
-  .filter-bar { display:flex; gap:10px; align-items:center; margin-bottom:20px; flex-wrap:wrap; }
-  .search-wrap { position:relative; flex:1; min-width:180px; }
-  .search-wrap input { width:100%; padding:8px 12px 8px 36px; border:1px solid var(--border); border-radius:6px; font-size:0.8125rem; box-sizing:border-box; background:var(--surface); color:var(--text); }
-  .search-wrap input:focus { outline:none; border-color:var(--accent); }
-  .search-icon { position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--text-faint); font-size:0.9375rem; pointer-events:none; }
-  .filter-bar select { padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:0.8125rem; background:var(--surface); color:var(--text); }
-  .filter-bar select:focus { outline:none; border-color:var(--accent); }
+  /* Page header — h1 + the Bills-tab stat strip share the row (was a plain
+     block, common.css default; needs flex now that it carries a second
+     child). Hoisted out of the KPI cards that used to sit below the tab
+     strip (Bills-only) — same underlying numbers (billsTabJS's
+     computeKpis(), unchanged), just repositioned + only visible while the
+     Bills tab is active, toggled by showTab() below. Nothing about the
+     data fetch changes: bills load eagerly at page init regardless of
+     which tab is showing, so toggling this strip's [hidden] attribute is a
+     pure CSS operation, never a re-fetch. */
+  /* The stat-strip must NEVER participate in .header's own height — an
+     in-flow flex sibling did, twice (first align-items:center nudged the
+     h1 down since the strip was taller; then a flex-start + padding-top
+     "fix" kept the h1's own text aligned but let the now-taller .header
+     box itself grow past Inbox's h1-only height, pushing the tab strip
+     and table down instead — same bug moved one level down, still caught
+     by comparing against Inbox). position:absolute removes it from flow
+     entirely: .header's height is h1's alone, on every page, at every
+     viewport width the h1's own clamp() can produce — not a value tuned
+     to fit at one measured width. */
+  .header { position:relative; }
+  .stat-strip { position:absolute; right:0; top:50%; transform:translateY(-50%); display:flex; align-items:center; gap:22px; }
+  .stat-item { display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .stat-label { font-size:0.6875rem; color:var(--text-faint); font-weight:600; text-transform:uppercase; letter-spacing:.05em; }
+  .stat-value { font-size:1rem; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
+  .stat-value.overdue { color:var(--danger); }
+  .stat-sep { width:1px; height:30px; background:var(--border); }
+  /* [hidden] vs. this element's own display:flex — equal specificity, later
+     stylesheet wins the tie unless paired explicitly (docs/UI.md — the
+     #agent-warn precedent). */
+  .stat-strip[hidden] { display:none; }
 
   /* Table card */
-  .table-card { border:1px solid var(--border); border-radius:8px; overflow:visible; }
-  .data-table { width:100%; border-collapse:collapse; font-size:0.875rem; table-layout:fixed; }
+  /* Borderless, flush on the page — matches Inbox's table (no wrapping
+     card). Per-cell border-bottom row separators were already identical
+     between the two (both 1px solid var(--border)); the only real
+     difference was this outer 1px + 8px-radius card frame, which Inbox's
+     .jrnl-table never had (confirmed via computed-style comparison, not
+     just visual impression — the header/body cell backgrounds were
+     already the same var(--bg) on both, no banding to account for). */
+  .table-card { overflow:visible; }
+  .data-table { width:100%; border-collapse:collapse; font-size:0.8125rem; table-layout:fixed; }
   .data-table thead { position:sticky; top:0; z-index:10; }
-  .data-table th { text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.05em; background:var(--bg); border-bottom:1px solid var(--border); padding:12px 12px; }
-  .data-table td { padding:12px 12px; border-bottom:1px solid var(--border); vertical-align:middle; color:var(--text); }
-  /* INSERT mode: tighter side padding so edit inputs (esp. browser date-picker
-     chrome, ~110px min) keep working width in the tuned colgroup columns. */
-  .data-table tbody.insert-mode td { padding-left:10px; padding-right:10px; }
+  /* Dense by default (docs/UI.md Purpose: scanning volume beats looking
+     nicer with fewer rows visible) — matches the .jrnl-table/.edit-table
+     row height Inbox uses. Comfortable is the escape hatch for the avatar/
+     badge breathing room this table's roomy-by-default padding used to
+     force on everyone; scoped to #bills-table (this file's only .data-table
+     user) rather than folded into common.css's shared comfortable-density
+     rule, which targets the OTHER archetype and already assumes a 4px/6px
+     dense base — this table's own base moved to match. */
+  .data-table th { text-align:left; font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; background:var(--bg); border-bottom:1px solid var(--border); padding:6px 6px; }
+  .data-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; color:var(--text); }
+  :root[data-density="comfortable"] #bills-table th,
+  :root[data-density="comfortable"] #bills-table td { padding:8px 12px; }
   .data-table tbody tr:last-child td { border-bottom:none; }
   .data-table tbody tr:hover td { background:var(--bg); }
   /* Suppress hover when keyboard was last input or in INSERT mode */
   .data-table tbody.kb-active tr:hover td,
   .data-table tbody.insert-mode tr:hover td { background:inherit !important; }
-  /* bill-row-focus persists through hover regardless */
-  .data-table tbody tr.bill-row-focus:hover td { background: rgba(61, 100, 148, 0.18) !important; }
-  .data-table tbody.kb-active tr.bill-row-focus:hover td,
-  .data-table tbody.insert-mode tr.bill-row-focus:hover td { background: rgba(61, 100, 148, 0.18) !important; }
-  .data-table tbody tr.bill-row-focus[data-draft="true"]:hover td,
-  .data-table tbody.kb-active tr.bill-row-focus[data-draft="true"]:hover td,
-  .data-table tbody.insert-mode tr.bill-row-focus[data-draft="true"]:hover td { background: rgba(61, 100, 148, 0.35) !important; }
+  /* nav-row-focus persists through hover regardless (standard cursor tint —
+     common.css; renamed from this page's old bespoke .bill-row-focus). */
+  .data-table tbody tr.nav-row-focus:hover td { background: rgba(61, 100, 148, 0.18) !important; }
+  .data-table tbody.kb-active tr.nav-row-focus:hover td,
+  .data-table tbody.insert-mode tr.nav-row-focus:hover td { background: rgba(61, 100, 148, 0.18) !important; }
+  .data-table tbody tr.nav-row-focus[data-draft="true"]:hover td,
+  .data-table tbody.kb-active tr.nav-row-focus[data-draft="true"]:hover td,
+  .data-table tbody.insert-mode tr.nav-row-focus[data-draft="true"]:hover td { background: rgba(61, 100, 148, 0.35) !important; }
   .data-table tbody tr[data-url] { cursor:pointer; }
 
   /* Sortable/filterable column headers */
@@ -102,16 +124,21 @@ ${commonStyle()}
      2026-07-22 — at 7% the corner-pinned filter icon overlapped the "CCY"
      label at ≤1400px viewports). Partner is information-dense; CCY only needs
      a 3-letter code + header affordances. */
-  #bills-table col.col-partner { width:22%; }
+  #bills-table col.col-partner { width:18%; }
   #bills-table col.col-date   { width:12.5%; }
   #bills-table col.col-due    { width:12.5%; }
   #bills-table col.col-ref    { width:15%; }
   #bills-table col.col-amount { width:14%; }
   #bills-table col.col-ccy    { width:9%; }
   #bills-table col.col-status { width:15%; }
+  /* ACTIONS: the framework's trailing row-actions <td> (fb-list.js rowHtml —
+     every parent row, tree or not) — matches the .data-table th:last-child/
+     td:last-child min-width:110px rule below. Carved out of Partner's share
+     (was 22%; had no track reserved for this column at all before). */
+  #bills-table col.col-actions { width:4%; }
   /* CCY collapsed: redistribute its 9% (partner +6, ref +1, amount +0.5, status +0.5,
-     dates +0.5 each) so widths still sum to 100%. */
-  #bills-table.single-ccy col.col-partner { width:28%; }
+     dates +0.5 each) so widths still sum to 100% (excl. Actions' fixed 4%). */
+  #bills-table.single-ccy col.col-partner { width:24%; }
   #bills-table.single-ccy col.col-date   { width:13%; }
   #bills-table.single-ccy col.col-due    { width:13%; }
   #bills-table.single-ccy col.col-ref    { width:16%; }
@@ -130,13 +157,21 @@ ${commonStyle()}
   #bills-table.single-ccy td[data-field="currency"] { visibility: hidden; }
   /* Partner avatar */
   .partner-cell { display:inline-flex; align-items:center; gap:10px; }
-  .avatar { width:32px; height:32px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:700; color:var(--on-accent); flex-shrink:0; }
+  /* Rounded square, not a circle — matches the topbar's identity-mark shape
+     language (.tb-mark company avatar, .tb-icon-btn icons: both border-
+     radius 5px). A circular avatar was a one-off shape introduced only
+     here; the app doesn't otherwise use circles for identity marks. */
+  /* 24px, not 32px — at the dense row height this table now shares with
+     Inbox, a 32px avatar (+ 8px top/bottom cell padding = 40px) was the
+     single thing forcing every row taller than Inbox's (measured: 41px
+     rows here vs Inbox's ~34px, ~20% fewer rows fitting on screen for the
+     same viewport height). 24px lets the row's badge/text content — the
+     same height on both tables already — set the row height instead. */
+  .avatar { width:24px; height:24px; border-radius:5px; display:inline-flex; align-items:center; justify-content:center; font-size:0.625rem; font-weight:700; color:var(--on-accent); flex-shrink:0; }
 
   /* Link */
   .ref-link { color:var(--accent); text-decoration:none; font-weight:500; }
   .ref-link:hover { text-decoration:underline; }
-  .view-link { color:var(--accent); text-decoration:none; font-size:0.8125rem; font-weight:500; }
-  .view-link:hover { text-decoration:underline; }
 
   .overdue-date { color:var(--danger); font-weight:600; }
 
@@ -147,11 +182,15 @@ ${commonStyle()}
   .page-btn:hover { background:var(--bg); }
   .page-btn.active { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
   .page-btn:disabled { opacity:.4; cursor:default; }
-  /* .tabs/.tab/.tab-panel now in common.css (2026-09-09). */
+  /* .tabs/.tab/.tab-panel now in common.css (2026-09-09) — this page's own
+     tighter spacing matches Inbox's precedent (its one deliberate deviation
+     from the 24px common.css default), so the header/tabs/table starting
+     y-position lines up exactly between the two pages. */
+  .tabs { margin-bottom:20px; }
 
   .edit-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
-  .edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px; }
-  .edit-table td { padding:4px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .edit-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; }
+  .edit-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; }
   .edit-table input[type=text], .edit-table select { width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; }
 
   /* Tree table — child rows */
@@ -208,12 +247,11 @@ ${commonStyle()}
   .data-table th:last-child,
   .data-table td:last-child { min-width: 110px; }
 
-  /* Bills keyboard nav */
-  tr.bill-row-focus td { background: rgba(61, 100, 148, 0.18) !important; }
-  [data-theme="dark"] tr.bill-row-focus td { background: rgba(61, 100, 148, 0.35) !important; }
-  /* Draft rows in INSERT mode: boost highlight visibility against the warning-tinted background */
-  tr.bill-row-focus[data-draft="true"] td { background: rgba(61, 100, 148, 0.35) !important; }
-  [data-theme="dark"] tr.bill-row-focus[data-draft="true"] td { background: rgba(61, 100, 148, 0.50) !important; }
+  /* Bills keyboard nav — the plain (non-draft) cursor tint is now just the
+     common.css nav-row-focus default; only the draft-row boost (needed to
+     stay visible over the warning-tinted background) is page-local. */
+  tr.nav-row-focus[data-draft="true"] td { background: rgba(61, 100, 148, 0.35) !important; }
+  [data-theme="dark"] tr.nav-row-focus[data-draft="true"] td { background: rgba(61, 100, 148, 0.50) !important; }
 
   /* Inline journal preview rows (fold area, replaces popup) */
   .data-table tbody.preview-mode tr:hover td { background:inherit !important; }
@@ -288,7 +326,7 @@ ${commonStyle()}
   .msg-pay.ok { color:var(--success); }
   .msg-pay.err { color:var(--danger); }
 
-  /* Partner cell navigation (editing only; browse mode uses shared .bill-row-focus) */
+  /* Partner cell navigation (editing only; browse mode uses shared .nav-row-focus) */
   .data-table tbody td.vcell-selected { background:var(--accent) !important; color:var(--on-accent) !important; }
   .data-table tbody td.vcell-selected span:not(.avatar):not(.badge) { color:var(--on-accent) !important; }
   .data-table tbody td.vcell-selected .badge { opacity:0.85; }
@@ -317,6 +355,25 @@ ${commonStyle()}
   <!-- Page header -->
   <div class="header">
     <h1>📋 Payables</h1>
+    <!-- Bills-only stat strip (same computeKpis() numbers the old below-tabs
+         KPI cards showed) — hidden/shown per active tab by showTab(), a
+         pure visibility toggle over data already loaded at page init. -->
+    <div class="stat-strip" id="payables-stat-strip">
+      <div class="stat-item">
+        <span class="stat-label">Outstanding</span>
+        <span class="stat-value" id="kpi-outstanding">—</span>
+      </div>
+      <span class="stat-sep"></span>
+      <div class="stat-item">
+        <span class="stat-label">Overdue</span>
+        <span class="stat-value overdue" id="kpi-overdue">—</span>
+      </div>
+      <span class="stat-sep"></span>
+      <div class="stat-item">
+        <span class="stat-label">Next 7 Days</span>
+        <span class="stat-value" id="kpi-upcoming">—</span>
+      </div>
+    </div>
   </div>
 
   <!-- Tab strip (IA restructure 2: 4 tabs — Bills · Vendors · Aging · Control) -->
@@ -331,36 +388,18 @@ ${commonStyle()}
   <div id="tab-bills" class="tab-panel active">
   <div id="pay-panel-bills">
 
-  <!-- KPI cards -->
-  <div class="kpi-row">
-    <div class="kpi-card">
-      <div class="kpi-label">Total Outstanding (${baseCurrency})</div>
-      <div class="kpi-amount" id="kpi-outstanding">—</div>
-      <div class="kpi-count" id="kpi-outstanding-count"></div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Overdue (${baseCurrency})</div>
-      <div class="kpi-amount overdue" id="kpi-overdue">—</div>
-      <div class="kpi-count" id="kpi-overdue-count"></div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Upcoming (Next 7 Days)</div>
-      <div class="kpi-amount" id="kpi-upcoming">—</div>
-      <div class="kpi-count" id="kpi-upcoming-count"></div>
-    </div>
-  </div>
-
-  <!-- Date-range toolbar retired (global-period-selector-chrome-spec §5):
-       bills now read from the global Period Selector (FB.period). -->
-  <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
-  </div>
-
   <!-- Table card -->
   <div class="table-card">
     <table class="data-table" id="bills-table">
       <!-- Column weighting lives in CSS on the col classes (single source of
            truth — the .single-ccy state re-weights when CCY collapses). Fixed
-           layout reads widths from the colgroup. -->
+           layout reads widths from the colgroup.
+           8 tracks, not 7: fb-list.js's rowHtml() always appends a trailing
+           row-actions <td> after cfg.columns (the hover "Pay" affordance
+           lives there) — this colgroup/thead previously declared only the 7
+           cfg.columns, so that 8th cell had no reserved track at all and
+           rendered at ~0px width (docs/UI.md — Table: an actions column
+           still gets a header label). -->
       <colgroup>
         <col class="col-partner">   <!-- PARTNER -->
         <col class="col-date">     <!-- DATE (year-elided "21 Jul" + ISO tooltip) -->
@@ -369,6 +408,7 @@ ${commonStyle()}
         <col class="col-amount">   <!-- AMOUNT (incl. icon-width alignment gutter) -->
         <col class="col-ccy">      <!-- CCY -->
         <col class="col-status">   <!-- STATUS -->
+        <col class="col-actions">  <!-- ACTIONS (framework row-actions cell) -->
       </colgroup>
       <thead>
         <tr>
@@ -379,10 +419,11 @@ ${commonStyle()}
           <th class="sortable" data-col="amount" data-filter-type="amount"><div class="th-inner"><span class="th-label">Amount</span><span class="th-sort"></span></div></th>
           <th class="sortable" data-col="currency" data-filter-type="list"><div class="th-inner"><span class="th-label">CCY</span><span class="th-sort"></span></div></th>
           <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-label">Status</span><span class="th-sort"></span></div></th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody id="bills-tbody">
-        <tr><td colspan="7" class="table-empty">Loading&#8230;</td></tr>
+        <tr><td colspan="8" class="table-empty">Loading&#8230;</td></tr>
       </tbody>
     </table>
     <div class="pagination-row" id="pagination-row" style="display:none">
@@ -400,7 +441,15 @@ ${commonStyle()}
   <!-- VENDORS TAB -->
   <div id="tab-vendors" class="tab-panel">
     <table class="edit-table" id="vendors-table">
-      <thead><tr><th>Name</th><th>AP Account</th><th>Expense Account</th><th>Currency</th><th>Terms (days)</th><th>Active</th></tr></thead>
+      <!-- Header order/count must match partnersList's cfg.columns (+1 for
+           fb-list.js's own trailing row-actions cell, "Actions" per the
+           Inbox Partners tab precedent) exactly — wireHeaders()/rowHtml()
+           both index columns and <th>s positionally (docs/UI.md — Table).
+           This previously had 6 headers in a different order than the 8 cfg
+           columns (Currency/Terms sat under AP/Expense Account's labels,
+           and Vendor/Customer had no header at all, past the end of the
+           header row) and no Actions header at all. -->
+      <thead><tr><th>Name</th><th>Currency</th><th>Terms (days)</th><th>Expense Account</th><th>AP Account</th><th>Vendor</th><th>Customer</th><th>Active</th><th>Actions</th></tr></thead>
       <tbody id="vendors-body"></tbody>
     </table>
   </div>
@@ -441,6 +490,11 @@ function showTab(t) {
     if (el) el.classList.toggle('active', tab === t);
     if (panel) panel.classList.toggle('active', tab === t);
   });
+  // Stat strip is Bills-only — pure visibility toggle, no re-fetch (the
+  // numbers are already computed from the bills load that happens eagerly
+  // at page init regardless of which tab is active).
+  var statStrip = document.getElementById('payables-stat-strip');
+  if (statStrip) statStrip.hidden = (t !== 'bills');
   // Load tab content on first visit.
   if (t === 'vendors' && !window._vendorsLoaded) {
     window._vendorsLoaded = true;

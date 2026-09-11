@@ -237,6 +237,21 @@
       paint();
     }
 
+    // A stray blinking caret with no .fb-form-cursor anywhere to explain it
+    // (found 2026-09-11 — a WHT/reverse-charge auto-row, or any zone row
+    // with zero enabled cells, landed on by advance()/retreat()): the
+    // previously-focused cell is never explicitly blurred there, relying
+    // entirely on el.focus() to transfer focus away from it — which silently
+    // no-ops when the new cell is empty, leaving native DOM focus (and its
+    // caret) stuck on the OLD cell while paint() has already moved the
+    // visual cursor off it (or, here, onto nothing at all). Mirrors paint()'s
+    // own K3e invariant: NORMAL mode holds no stray focus — applied here to
+    // the one path that bypasses K3e by design (mid-edit, editing===true).
+    function blurToNormal() {
+      var ae = document.activeElement;
+      if (ae && ae.blur) ae.blur();
+      setMode(false);
+    }
     // Enter in INSERT: advance to the next cell (fb-list advanceField parity) —
     // right, wrapping to the next row's first cell; sticky at the last cell.
     function advance() {
@@ -249,7 +264,7 @@
       else if (idx < flat.length - 1) { cur.z = flat[idx + 1].z; cur.r = flat[idx + 1].r; cur.c = 0; }
       paint();
       var el = curCellEl();
-      if (el) el.focus();
+      if (el) el.focus(); else blurToNormal();
     }
     // Shift+Tab in INSERT: retreat to the previous cell — left, wrapping to
     // the previous row's last cell; sticky at the first cell.
@@ -264,7 +279,7 @@
       }
       paint();
       var el = curCellEl();
-      if (el) el.focus();
+      if (el) el.focus(); else blurToNormal();
     }
 
     function moveTo(zi, ri, ci, doEdit) {

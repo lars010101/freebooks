@@ -41,6 +41,23 @@
 
   function today() { return new Date().toISOString().slice(0, 10); }
 
+  // Bills-format SHORT date (the Payables standard, now promoted here —
+  // 2026-09-11): year-elided when it's the current calendar year ("21
+  // Jul"), full "21 Jul 2025" otherwise — density without losing the
+  // unambiguous month-name format. Pairs with a full-ISO title/tooltip on
+  // the cell, not folded into the text itself. This existed as an
+  // unpromoted local duplicate in payables-bills.js (byte-identical to
+  // fmtDate above) while Inbox's own Transactions/New Rule/Failed Input
+  // Date columns used a third, plainer raw-ISO formatter — three
+  // implementations of "format a date" where one, shared, was correct.
+  function fmtDateShort(d) {
+    if (!d) return '—';
+    var s = String(d).slice(0, 10);
+    var yr = new Date().toISOString().slice(0, 4);
+    if (s.slice(0, 4) === yr) return fmtDate(s).replace(' ' + yr, '');
+    return fmtDate(s);
+  }
+
   // House-standard money display (docs/UI.md — negative numbers, thousands
   // separators, decimal places): jurisdiction-aware grouping/decimal
   // separators and a locale-correct minus sign, 2 decimals always.
@@ -2415,7 +2432,7 @@
   });
 
   window.FB = {
-    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, fmtAmt: fmtAmt, today: today, forwardIframeKeys: forwardIframeKeys },
+    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, fmtDateShort: fmtDateShort, fmtAmt: fmtAmt, today: today, forwardIframeKeys: forwardIframeKeys },
     mode: mode,
     keys: keys,
     coverage: coverage,

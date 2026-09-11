@@ -44,6 +44,27 @@ async function handleInbox(ctx, action) {
  * proposed_at, summary, verbs[], payload_ref, status, reference,
  * description, created_by, request_id, review_note, attachment_count }.
  */
+// Merges journal_proposal + bill_draft items into ONE date-ordered list.
+// Bug fixed 2026-09-11: journal_proposal rows arrive from SQL pre-sorted
+// `date DESC` (queryProposals), but bill_draft rows arrive sorted
+// `created_at DESC` (queryBillDrafts) — a DIFFERENT field. The two arrays
+// were simply concatenated (proposals block, then drafts block), so the
+// Transactions tab's untouched default view was never actually one
+// date-sorted list, just two differently-sorted blocks stacked — a bill
+// dated last month could sit below a journal proposal dated a year ago.
+// Re-sorting the combined array here, by the same `date` field both item
+// shapes already carry (tiebreak `proposed_at`, i.e. created_at), matches
+// queryProposals'/bill.list's own `date DESC, updated_at/created_at DESC`
+// convention exactly.
+function _mergeByDateDesc(items) {
+  return items.slice().sort(function (a, b) {
+    var ad = a.date || '', bd = b.date || '';
+    if (ad !== bd) return ad < bd ? 1 : -1;
+    var ap = a.proposed_at || '', bp = b.proposed_at || '';
+    return ap < bp ? 1 : (ap > bp ? -1 : 0);
+  });
+}
+
 async function listInbox(ctx) {
   const { companyId, body } = ctx;
   const status = body.status && String(body.status).trim() !== '' ? String(body.status).trim() : 'proposed';
@@ -141,7 +162,11 @@ async function listInbox(ctx) {
   if (status === 'proposed') {
     const unclosedItems = await queryPeriodUnclosed(companyId, limit);
     const draftItems = await queryBillDrafts(companyId, limit, 'draft');
-    return { items: items.concat(unclosedItems, draftItems) };
+    // unclosedItems stays appended last, unsorted, as before — it's a
+    // distinct Class B type the Transactions tab filters out client-side
+    // anyway (only journal_proposal/bill_draft render there); only the two
+    // types that actually share that table's date-sorted view get merged.
+    return { items: _mergeByDateDesc(items.concat(draftItems)).concat(unclosedItems) };
   }
 
   // Inbox rebuild (2026-09-09): rejected bills (bill.draft.reject, terminal,
@@ -150,7 +175,7 @@ async function listInbox(ctx) {
   // unified, so both need to be in this branch, not just journal_proposals.
   if (status === 'rejected') {
     const rejectedBills = await queryBillDrafts(companyId, limit, 'rejected');
-    return { items: items.concat(rejectedBills) };
+    return { items: _mergeByDateDesc(items.concat(rejectedBills)) };
   }
 
   return { items: items };

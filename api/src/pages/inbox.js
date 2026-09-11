@@ -60,6 +60,14 @@ ${commonStyle()}
   table.jrnl-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
   table.jrnl-table th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; }
   table.jrnl-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  /* Conditional Currency column (Transactions tab only — data-field scopes
+     this to the one table that has a currency column, despite .jrnl-table
+     being shared across all four Inbox tabs). Plain display:none is safe
+     here (unlike Payables' visibility:collapse-on-<col> approach) because
+     this table has no colgroup/table-layout:fixed — no column-track
+     mapping to slide out of place by removing a th/td pair. */
+  #tab-transactions table.jrnl-table.single-ccy th[data-field="currency"],
+  #tab-transactions table.jrnl-table.single-ccy td[data-field="currency"] { display:none; }
   /* .amt is the shared numeric-cell component (common.css) */
   .jrnl-meta td, td.jrnl-meta { color:var(--text-muted); font-size:0.6875rem; font-style:italic; background:var(--bg); }
   tr[data-child-of] td { background:var(--bg); font-size:0.75rem; color:var(--text-muted); }
@@ -158,7 +166,7 @@ ${commonStyle()}
     <table class="jrnl-table">
       <thead><tr>
         <th>Date</th><th>Counterparty</th><th>Description</th>
-        <th style="text-align:right">Amount</th><th>Status</th><th title="Source documents">&#128206;</th><th>Actions</th>
+        <th style="text-align:right">Amount</th><th>CCY</th><th>Status</th><th title="Source documents">&#128206;</th><th>Actions</th>
       </tr></thead>
       <tbody id="txn-tbody"></tbody>
     </table>
@@ -198,6 +206,7 @@ ${commonStyle()}
 window.__fbFlags = ${flagsJson};
 var COMPANY = ${JSON.stringify(company)};
 var VAT_ON = ${vatOn ? 'true' : 'false'};
+var BASE_CURRENCY = (window.__fbFlags && window.__fbFlags.baseCurrency) || 'SGD';
 
 function postAction(action, body, idemKey) {
   var headers = { 'Content-Type': 'application/json' };
@@ -275,7 +284,6 @@ function fmtAmt(v) {
   var n = Number(v || 0);
   return n ? '<span class="amt">' + FB.util.fmtAmt(n) + '</span>' : '';
 }
-function fmtDate(v) { return esc(String(v || '').slice(0, 10)); }
 
 // row.status is always the DISPLAY vocabulary here ('proposed'/'rejected'/
 // 'open') — a bill row's real DB status ('draft') is normalized to
@@ -551,7 +559,7 @@ function reviewTxn(row, verdict) {
   FB.modal.open({
     title: (approve ? 'Approve' : 'Reject') + ' ' + (isBill ? 'bill' : 'journal batch'),
     body: '<div style="font-size:0.8125rem;color:var(--text);line-height:1.7">'
-      + '<div><b>Date:</b> ' + fmtDate(row.date) + '</div>'
+      + '<div><b>Date:</b> ' + FB.util.fmtDate(row.date) + '</div>'
       + (row.kind === 'journal' && row.lineCount ? '<div><b>Lines:</b> ' + row.lineCount + ' &nbsp; <b>Total debit:</b> ' + FB.util.fmtAmt(row.totalDebit) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>' : '')
       + (row.counterparty ? '<div><b>Counterparty:</b> ' + esc(row.counterparty) + '</div>' : '')
       + (row.amount ? '<div><b>Amount:</b> ' + FB.util.fmtAmt(row.amount) + (row.currency ? ' ' + esc(row.currency) : '') + '</div>' : '')
@@ -598,6 +606,38 @@ function reviewTxn(row, verdict) {
   });
 }
 
+// Conditional Currency column (docs/UI.md — a conditional column is shown
+// only when at least one visible row actually needs it): collapses via
+// .single-ccy when every currently-loaded transaction shares one currency.
+// Mirrors payables-bills.js's _refreshCcyVisibility/_applyCcyColVisibility
+// exactly (this table has no INSERT/edit mode to guard against, unlike
+// Bills, so that half of Payables' guard is dropped) — same standard,
+// no colgroup/table-layout:fixed needed here since this table uses auto
+// layout: hiding the th/td pair by data-field doesn't slide any other
+// column's track, so plain display:none is enough (see the CSS rule).
+var _txnSingleCcy = false;
+function _applyTxnCcyVisibility() {
+  var tbl = document.querySelector('#tab-transactions table.jrnl-table');
+  if (!tbl) return;
+  // Checks the Currency column's OWN filter state (.fb-col-filtered, set by
+  // fb-list.js's syncHeaderState), not txnList.anyFilterActive() — this
+  // list carries a permanent default status:proposed filter (hides
+  // rejected items), so "any filter active" is always true here and would
+  // permanently defeat the collapse. The guard's actual point — never hide
+  // the only way to see/clear a filter ON THIS COLUMN — only cares about a
+  // currency filter specifically.
+  var ccyTh = tbl.querySelector('th[data-field="currency"]');
+  var ccyFiltering = !!(ccyTh && ccyTh.classList.contains('fb-col-filtered'));
+  tbl.classList.toggle('single-ccy', _txnSingleCcy && !ccyFiltering);
+}
+function _refreshTxnCcyVisibility(saved) {
+  var rows = saved || [];
+  var ccys = {};
+  rows.forEach(function (r) { ccys[(r.currency || BASE_CURRENCY || '').toUpperCase()] = 1; });
+  _txnSingleCcy = rows.length > 0 && Object.keys(ccys).length === 1;
+  _applyTxnCcyVisibility();
+}
+
 var txnList = FB.list.create({
   keysId: 'inbox-transactions',
   tbody: 'txn-tbody',
@@ -614,26 +654,38 @@ var txnList = FB.list.create({
       // the agent-status pill, rather than a column/row that reads the
       // same value on every proposal and carries no information most of
       // the time (docs/UI.md's persistent-status-indicator principle).
-      display: function (v, r) { return '<span style="white-space:nowrap">' + TXN_GLYPH[r.kind] + sourceGlyph(r) + fmtDate(v) + '</span>'; } },
+      display: function (v, r) { return '<span style="white-space:nowrap" title="' + esc(String(v || '').slice(0, 10)) + '">' + TXN_GLYPH[r.kind] + sourceGlyph(r) + FB.util.fmtDateShort(v) + '</span>'; } },
     { field: 'counterparty', sortable: true, filterType: 'text', label: 'Counterparty',
       display: function (v, r) {
         var html = v ? esc(v) : '<span class="pe-ro">—</span>';
         return r.reference ? '<span title="Ref: ' + esc(r.reference) + '">' + html + '</span>' : html;
       } },
-    { field: 'description', filterType: 'text', label: 'Description',
+    { field: 'description', sortable: true, filterType: 'text', label: 'Description',
       display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
     { field: 'amount', sortable: true, align: 'right', filterType: 'amount', label: 'Amount',
-      // Currency rides on the amount cell, shown only when it differs from
-      // the line's own base — never a separate always-blank column for the
-      // common (base-currency) case. FB.list's columns are fixed per
-      // instance (no per-render conditional column), so "shown only when
-      // needed" happens at the content level here, not the column level.
-      display: function (v, r) { return fmtAmt(r.amount) + (r.currency ? ' <span class="pe-ro">' + esc(r.currency) + '</span>' : ''); } },
+      display: function (v, r) { return fmtAmt(r.amount); } },
+    // Dedicated, sortable/filterable Currency column — the Payables
+    // standard (2026-09-11), replacing the inline amount-cell suffix this
+    // used to be. Collapses via .single-ccy when every visible row shares
+    // one currency (_refreshTxnCcyVisibility below), same "conditional
+    // column" principle as before, just implemented as a real column
+    // instead of folding the value into Amount's own text.
+    { field: 'currency', sortable: true, filterType: 'list', label: 'CCY',
+      display: function (v) { return '<span class="pe-ro">' + esc(v || BASE_CURRENCY) + '</span>'; } },
     { field: 'status', sortable: true, filterType: 'list', label: 'Status',
       display: function (v, r) { return statusBadge(r); } },
-    { field: '_doc', label: '', display: function (v, r) { return underlagBadge(r); } },
+    // filterType: null — opts out of fb-list.js's own default (every column
+    // gets a 'text' filter unless it's type:'checkbox' or opts out
+    // explicitly). _doc isn't a real field on the row (underlagBadge
+    // computes it from attachment_count/warnings), so the auto-added
+    // filter button would search a value that's always undefined — a
+    // dead control, not a working one. Same reasoning applies to
+    // Partners' _source column below.
+    { field: '_doc', label: '', filterType: null, display: function (v, r) { return underlagBadge(r); } },
   ],
   list: { fetch: fetchTxnRows, map: function (row) { return row; } },
+  onLoaded: function (saved) { _refreshTxnCcyVisibility(saved); },
+  onChrome: function () { _applyTxnCcyVisibility(); },
   children: function (row) {
     // Matches the mockup exactly (lineRowsHtml): unfold is JUST the line
     // items, no meta row. "Proposed by"/"Rejected by" used to be a separate
@@ -658,7 +710,9 @@ var txnList = FB.list.create({
       + '<td>' + esc(child.account_code) + '</td>'
       + '<td>' + esc(child.description) + '</td>'
       + '<td class="amt">' + fmtAmt(signed) + '</td>'
-      + '<td colspan="2"></td><td></td>';
+      // colspan 3 covers Currency+Status+source-doc (was 2, covering just
+      // Status+source-doc, before the Currency column was added here).
+      + '<td colspan="3"></td><td></td>';
   },
   rowVerbs: [
     { key: 'y', label: 'approve',
@@ -857,22 +911,22 @@ var partnersList = FB.list.create({
   active: function () { var p = document.getElementById('tab-partners'); return !!(p && p.classList.contains('active')); },
   columns: (function () {
     var cols = [
-      { field: 'name', filterType: 'text', label: 'Name', display: function (v) { return '🤝 <b>' + esc(v) + '</b>'; } },
-      { field: 'is_vendor', align: 'center', label: 'Vendor',
+      { field: 'name', sortable: true, filterType: 'text', label: 'Name', display: function (v) { return '🤝 <b>' + esc(v) + '</b>'; } },
+      { field: 'is_vendor', align: 'center', sortable: true, filterType: 'list', label: 'Vendor',
         display: function (v, r) { return '<input type="checkbox" class="pf-vendor"' + (r.is_vendor ? ' checked' : '') + '>'; } },
-      { field: 'is_customer', align: 'center', label: 'Customer',
+      { field: 'is_customer', align: 'center', sortable: true, filterType: 'list', label: 'Customer',
         display: function (v, r) { return '<input type="checkbox" class="pf-customer"' + (r.is_customer ? ' checked' : '') + '>'; } },
-      { field: 'default_expense_account', label: 'Exp account',
+      { field: 'default_expense_account', sortable: true, filterType: 'text', label: 'Exp account',
         display: function (v) { return '<input type="text" class="pf-exp" value="' + esc(v) + '">'; } },
-      { field: 'default_ap_account', label: 'AP account',
+      { field: 'default_ap_account', sortable: true, filterType: 'text', label: 'AP account',
         display: function (v) { return '<input type="text" class="pf-ap" value="' + esc(v) + '">'; } },
     ];
     if (VAT_ON) {
-      cols.push({ field: 'suggested_vat_code', label: 'Tax code',
+      cols.push({ field: 'suggested_vat_code', sortable: true, filterType: 'text', label: 'Tax code',
         display: function (v) { return '<input type="text" class="pf-vat" value="' + esc(v) + '">'; } });
     }
-    cols.push({ field: '_source', label: 'Source', display: function (v, r) { return partnerSourceHtml(r); } });
-    cols.push({ field: 'duplicate_warning', label: 'Duplicate', display: function (v, r) { return duplicateBadge(r) || '<span class="pe-ro">—</span>'; } });
+    cols.push({ field: '_source', label: 'Source', filterType: null, display: function (v, r) { return partnerSourceHtml(r); } });
+    cols.push({ field: 'duplicate_warning', sortable: true, filterType: 'text', label: 'Duplicate', display: function (v, r) { return duplicateBadge(r) || '<span class="pe-ro">—</span>'; } });
     return cols;
   })(),
   list: { fetch: fetchPartnerRows, map: function (row) { return row; } },
@@ -963,14 +1017,14 @@ var newRuleList = FB.list.create({
   active: function () { var p = document.getElementById('tab-newrule'); return !!(p && p.classList.contains('active')); },
   columns: (function () {
     var cols = [
-      { field: 'date', filterType: 'date', label: 'Date', display: function (v) { return fmtDate(v); } },
-      { field: 'pattern', filterType: 'text', label: 'Pattern', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
-      { field: 'suggested_account', filterType: 'text', label: 'Suggested account', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+      { field: 'date', sortable: true, filterType: 'date', label: 'Date', display: function (v) { return '<span title="' + esc(String(v || '').slice(0, 10)) + '">' + FB.util.fmtDateShort(v) + '</span>'; } },
+      { field: 'pattern', sortable: true, filterType: 'text', label: 'Pattern', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+      { field: 'suggested_account', sortable: true, filterType: 'text', label: 'Suggested account', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
     ];
     if (VAT_ON) {
-      cols.push({ field: 'suggested_vat_code', filterType: 'text', label: 'Tax code', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } });
+      cols.push({ field: 'suggested_vat_code', sortable: true, filterType: 'text', label: 'Tax code', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } });
     }
-    cols.push({ field: 'created_by', filterType: 'text', label: 'Source', display: function (v, r) {
+    cols.push({ field: 'created_by', sortable: true, filterType: 'text', label: 'Source', display: function (v, r) {
       var by = v ? 'Suggested by ' + esc(v) : 'Suggested by agent';
       return r.source_proposal_id ? by + ' <span class="pe-ro" title="Journal proposal ' + esc(r.source_proposal_id) + '">↖</span>' : by;
     } });
@@ -1090,11 +1144,11 @@ var failedInputList = FB.list.create({
     // No Type column — this tab holds exactly one row kind now, a per-row
     // label repeating the tab's own name was pure duplication. The icon
     // rides the Date column instead, matching Transactions' own convention.
-    { field: 'date', filterType: 'date', label: 'Date',
-      display: function (v) { return '<span class="type-glyph" title="Failed input">\\uD83D\\uDEAB</span>' + fmtDate(v); } },
-    { field: 'description', filterType: 'text', label: 'Description', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
-    { field: 'amount', align: 'right', filterType: 'amount', label: 'Amount', display: function () { return ''; } },
-    { field: 'reason', filterType: 'text', label: 'Reason', display: function (v) { return v ? '<span class="pe-ro">' + esc(v) + '</span>' : ''; } },
+    { field: 'date', sortable: true, filterType: 'date', label: 'Date',
+      display: function (v) { return '<span class="type-glyph" title="Failed input">\\uD83D\\uDEAB</span><span title="' + esc(String(v || '').slice(0, 10)) + '">' + FB.util.fmtDateShort(v) + '</span>'; } },
+    { field: 'description', sortable: true, filterType: 'text', label: 'Description', display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
+    { field: 'amount', sortable: true, align: 'right', filterType: 'amount', label: 'Amount', display: function () { return ''; } },
+    { field: 'reason', sortable: true, filterType: 'text', label: 'Reason', display: function (v) { return v ? '<span class="pe-ro">' + esc(v) + '</span>' : ''; } },
   ],
   list: { fetch: fetchRejectionRows, map: function (row) { return row; } },
   children: function (row) {

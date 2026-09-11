@@ -59,42 +59,108 @@ function buildBillPage(company, editId, flags) {
 <title>Bill Editor - freeBooks</title>
 ${commonStyle()}
 <style>
-  .be-grid-header {
-    display:grid;
-    grid-template-columns: repeat(3, 1fr);
-    column-gap:0;
-    align-items:end;
-    margin-bottom:12px;
-  }
+  /* Header fields (2026-09-11): each field is sized to what it holds
+     instead of dividing the row into equal fractions — a date input never
+     needed a third of a 1600px page. Sizing/padding/border-radius now lend
+     from the payables/bills .data-table's own dense recipe (docs/UI.md)
+     rather than inventing separate numbers: padding 4px 6px, 3px radius, no
+     forced input height (natural height from padding+font, same as
+     Vendors' .edit-table inputs).
+     Row 1 (2026-09-11, per magnus): Partner/Date/Due/Reference/Amount/CCY/
+     Status — literally the Bills table's own column order and titles
+     (payables.js #bills-table thead), so a bill reads the same way whether
+     you're looking at the list row or the full-page editor. Amount is the
+     line items' computed gross, read-only (the old "Total" auto-row in the
+     lines grid is retired — updateTotals() writes here instead); Status
+     shows "Unposted" pre-post, the same locked badge as before once posted. */
+  .be-grid-header { margin-bottom:12px; }
+  .be-gh-row { display:flex; gap:12px; align-items:end; margin-bottom:10px; }
+  .be-gh-row:last-child { margin-bottom:0; }
   .be-grid-header label {
     display:flex; flex-direction:column; gap:3px;
     font-weight:600; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted);
-    padding:0 4px;
   }
   .be-grid-header input, .be-grid-header select {
-    padding:4px 6px; border:1px solid var(--border); border-radius:4px;
-    font-size:0.8125rem; box-sizing:border-box; height:32px; background:var(--surface); color:var(--text);
+    padding:4px 6px; border:1px solid var(--border); border-radius:3px;
+    font-size:0.8125rem; box-sizing:border-box; background:var(--surface); color:var(--text);
+    /* Browsers don't inherit the page font into form controls by default —
+       without this, every input here (most visibly the date boxes, whose
+       spinner/segments render in the same computed font) silently falls
+       back to Chromium's plain-Arial form-control default while the
+       surrounding labels use body's Helvetica Neue stack. Same bug class
+       already fixed once in the topbar search box (common.css .tb-search). */
+    font-family:inherit;
   }
-  /* Partner spans full width of row 1. Bill date, due date, and bill no
-     share row 2 evenly — no longer tied to the line table's column widths
-     now that CR: AP account (the thing that required the alignment) is gone. */
-  .be-grid-header .be-gh-partner {
-    grid-row: 1;
-    grid-column: 1 / -1;
-    padding-right:8px;
+  /* Caption left-align (2026-09-11, per magnus — same fix as the line-items
+     grid, applied here too): a caption sitting directly in the label starts
+     at x:0, but the input below it starts 7px in (1px border + 6px
+     padding) — the caption needs its own 7px inset to land where the
+     input's TEXT starts, not the input's outer wall. Wrapped in a span
+     (rather than padding the label itself) because padding on the label
+     would shift the input too, not just the caption. */
+  .be-gh-cap { padding-left:7px; }
+  /* Amount is right-aligned (its value is), so its caption mirrors that —
+     right-aligned, padded from the right by the same 7px the input's own
+     right-side inset uses, instead of the left-aligned default. */
+  .be-gh-cap-right { padding-left:0; padding-right:7px; text-align:right; }
+  /* Status has no input at all — its "cell" is the badge span next to the
+     label, whose own inset is .badge's padding (3px 10px, no border), not
+     an input's (1px border + 6px padding) — a different number, so it gets
+     its own rule rather than reusing .be-gh-cap's 7px. */
+  .be-gh-status label { padding-left:10px; }
+  .be-gh-partner { width:320px; }
+  .be-gh-partner input { width:100%; }
+  .be-gh-date, .be-gh-due { width:150px; }
+  .be-gh-ref { width:200px; }
+  .be-gh-amount input { text-align:right; font-variant-numeric:tabular-nums; background:var(--bg); }
+  .be-gh-ccy { width:90px; }
+  .be-gh-amount, .be-gh-status { width:140px; }
+  .be-gh-memo { width:100%; max-width:460px; }
+  .be-gh-memo input { width:100%; }
+  /* Attachments icon (2026-09-11) — borrows Inbox's source-document badge
+     concept (underlagBadge/.ul-badge in inbox.js): a compact 📎 pill with a
+     count, click opens a modal listing/managing them, instead of an
+     always-open bordered box that took a full row even with zero files. */
+  .be-attach-icon-btn {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:5px 10px; border:1px solid var(--border); border-radius:9px;
+    font-size:0.75rem; font-weight:600; background:var(--surface); color:var(--text-muted);
+    cursor:pointer; white-space:nowrap; box-sizing:border-box;
   }
-  .be-grid-header .be-gh-row2 { grid-row: 2; }
-  .be-grid-header .be-gh-memo {
-    grid-row: 3;
-    grid-column: 1 / -1;
-  }
+  .be-attach-icon-btn.has-files { background:var(--info-bg); color:var(--info); border-color:transparent; }
+  #be-attach-count:empty { display:none; }
   .be-lines-wrap, .bl-header, .bl-row { column-gap: 8px; }
   .bl-header, .bl-row { display: grid; grid-template-columns: var(--bl-cols); }
-  .bl-header { font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px 8px; }
-  .bl-row { border-bottom:1px solid var(--border); padding:3px 0; }
+  /* Divider (2026-09-11, per magnus): sits above the line item column
+     headers — separating the header-fields section (Memo/Attachments) from
+     the whole line-items block, headers included — not under the last line
+     before "+ Add Line". #be-lines-body's LAST row (whichever one that
+     currently is — a real line, or the last auto VAT/WHT row once one
+     exists) drops its own border, so there's exactly this one divider, not
+     a second one trailing the rows too. */
+  .bl-header { border-top:1px solid var(--border); }
+  .bl-row { border-bottom:1px solid var(--border); }
+  #be-lines-body .bl-row:last-child { border-bottom:none; }
   .bl-group { display: contents; }
-  .bl-cell { padding:3px 4px; display:flex; align-items:center; min-width:0; }
-  .bl-cell input, .bl-cell select { min-width:0; width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; box-sizing:border-box; height:32px; background:var(--surface); color:var(--text); }
+  /* Cell padding/font-size lent from .data-table th/td (docs/UI.md — no
+     reason for the line-items grid to run a different density than every
+     other table in the app).
+     Header padding-left is 13px, not the cell's own 6px (2026-09-11, per
+     magnus): a body cell's typed text actually starts 13px in from the
+     cell's left edge (6px .bl-cell padding + 1px input border + 6px input
+     padding) — the header needs to match where the TEXT starts, not the
+     input's outer wall, or it reads as left of every column it labels. */
+  .bl-cell { padding:4px 6px; display:flex; align-items:center; min-width:0; }
+  .bl-header .bl-cell { padding:6px 6px 6px 13px; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); }
+  .bl-cell input, .bl-cell select { min-width:0; width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; font-size:0.8125rem; box-sizing:border-box; background:var(--surface); color:var(--text); font-family:inherit; }
+  /* Debit/Credit are the grid's monetary columns — right-aligned values,
+     header right-aligned to match (2026-09-11, per magnus: same standard
+     Bills' own Amount column already uses — th[data-col="amount"] .th-inner
+     { justify-content:flex-end } in payables.js). The header's padding
+     flips (13px moves from left to right) to mirror the input's own
+     right-side inset instead of its left one. */
+  .bl-header .bl-debit, .bl-header .bl-credit { justify-content:flex-end; padding-left:6px; padding-right:13px; }
+  .bl-cell input.bl-debit, .bl-cell input.bl-credit { text-align:right; font-variant-numeric:tabular-nums; }
   .be-line-x { visibility:hidden; cursor:pointer; color:var(--text-muted); border:none; background:none; font-size:0.875rem; padding:0 4px; }
   .bl-row:hover .be-line-x { visibility:visible; }
   .be-line-x.fb-form-cursor-btn { visibility: visible; }
@@ -123,35 +189,49 @@ ${commonStyle()}
   .be-msg.err { color:var(--danger); }
   .be-msg.ok { color:var(--success); }
   .be-msg.warn { color:var(--warning); }
-  .be-attach-row { display:flex; justify-content:space-between; align-items:center; padding:3px 6px; border-bottom:1px solid var(--border); border-radius:3px; font-size:0.8125rem; }
-  .be-attach-row .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .be-attach-row .staged { color:var(--warning); font-size:0.6875rem; }
-  /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity */
-  /* Base recipe is shared (.be-attach-add-btn in common.css); this file only
-     owns the row-focus colour override, since .be-attach-row is page-local. */
-  .be-attach-row.fb-form-row-focus .be-attach-add-btn { color:var(--on-accent); }
+  /* Attachment rows (2026-09-11) — the same .fb-attach-row/.fb-att-* recipe
+     journal-voucher.js and inbox.js each carry their own copy of (docs/UI.md
+     — duplicated per-page, like .fb-att-add-btn/.be-attach-add-btn); the
+     shared FB.attachments.rowHtml() (fb-attachments.js) emits this markup
+     for already-uploaded rows so the modal matches Inbox's source-document
+     panel exactly, not just visually similar. */
+  .fb-attach-row { display:flex; align-items:center; gap:6px; padding:3px 6px; border-bottom:1px solid var(--border); border-radius:3px; font-size:0.8125rem; }
+  .fb-att-link { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); text-decoration:none; }
+  .fb-att-link:hover { text-decoration:underline; }
+  .fb-att-meta { color:var(--text-muted); font-size:0.6875rem; white-space:nowrap; }
+  .fb-att-del { border:none; background:none; cursor:pointer; color:var(--text-muted); font-size:0.875rem; padding:0 4px; }
+  .fb-att-del:hover { color:var(--danger); }
+  .fb-attach-empty { color:var(--text-faint); font-size:0.75rem; font-style:italic; padding:6px; }
+  /* + Add attachment row (2026-09-06, retires A) — fb-list add-row parity.
+     Base recipe is shared (.be-attach-add-btn in common.css). These rows now
+     live inside the attachments modal (2026-09-11), not a keyboard-navigable
+     FB.form zone, so there's no row-focus colour override to carry any more. */
   /* JE ref link (2026-09-06) — see loadJournalRef() */
   .be-journal-ref-link { color:var(--accent); font-weight:500; text-decoration:none; }
   .be-journal-ref-link:hover { text-decoration:underline; }
-  /* Status badge (shared .badge component, common.css) + amount cards
-     (2026-09-06, ported from bill-detail.js). Positioning next to the h1
-     title stays local — not a property of the badge itself. */
-  #be-status-badge { margin-left:10px; vertical-align:middle; }
+  /* Status badge (shared .badge component, common.css) — lives in the
+     header grid's row 1 now (2026-09-11), not next to the h1; see
+     updateStatusBadge(). */
   .be-amount-cards { display:flex; gap:16px; font-size:0.8125rem; margin-top:10px; }
-  .btn-plain { padding:7px 12px; background:none; border:1px solid var(--border); border-radius:4px; cursor:pointer; font-size:0.8125rem; }
   input.req { border-color:var(--danger) !important; }
+  .header { display:flex; justify-content:space-between; align-items:flex-start; }
 </style>
 </head>
 <body>${navBar(company, 'payables')}
 <div class="page page-wide">
-  <div class="header" style="display:flex;justify-content:space-between;align-items:flex-start">
-    <div>
-      <h1 id="be-title" style="display:inline">New Bill</h1>
-      <span id="be-status-badge"></span>
+  <div class="header">
+    <!-- align-items:baseline (not the h1's own display:inline trick this
+         used to use) — keeps the badge/JE-ref visually attached to the h1's
+         text without the h1 losing its normal block-level box, which was
+         quietly shifting the whole header 6px down relative to every other
+         page (docs/UI.md — chrome alignment: .header's height/position must
+         trace to the h1 alone). -->
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <h1 id="be-title">New Bill</h1>
       <!-- JE ref (2026-09-06, replaces the old Journal Entries trail table —
            per magnus: the line items already show the same Account/Debit/
            Credit info; the doc-no link was the only thing missing). -->
-      <span id="be-je-ref" style="margin-left:10px;font-size:0.75rem"></span>
+      <span id="be-je-ref" style="font-size:0.75rem"></span>
     </div>
     <!-- Void (2026-09-06, ported from bill-detail.js): shown only for a
          posted, unpaid bill — matches the server's own refusal to void a
@@ -162,20 +242,28 @@ ${commonStyle()}
   </div>
 
   <div class="be-grid-header">
-    <label class="be-gh-partner">Partner * <input id="be-partner-name" autocomplete="off" placeholder="start typing…"></label>
-    <label class="be-gh-row2">Bill date * <input id="be-date" type="date"></label>
-    <label class="be-gh-row2">Due date <input id="be-due" type="date"></label>
-    <label class="be-gh-row2">Bill no <input id="be-ref" autocomplete="off" placeholder="e.g. INV-123"></label>
-    <label class="be-gh-memo">Memo <input id="be-memo" autocomplete="off" placeholder="internal note (optional)"></label>
-  </div>
-  ${fxOn
-    ? '<div class="header-fields"><label>CCY <input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase"></label></div>'
-    : '<input id="be-ccy" type="hidden" value="' + baseCcy + '">'}
-
-  <div style="margin-top:6px;padding:12px;border:1px solid var(--border);border-radius:4px;background:var(--bg)">
-    <div style="font-size:0.8125rem;font-weight:600;margin-bottom:6px">📎 Attachments</div>
-    <input type="file" id="be-file" style="display:none" multiple>
-    <div id="be-attach-list" style="font-size:0.75rem"></div>
+    <!-- Row 1: Partner/Date/Due/Reference/Amount/CCY/Status — the Bills
+         table's own column order and titles (docs/UI.md — lend, don't
+         diverge). Amount and Status are read-only displays here, not
+         inputs; Amount comes from updateTotals(), Status from
+         updateStatusBadge(). -->
+    <div class="be-gh-row">
+      <label class="be-gh-partner"><span class="be-gh-cap">Partner *</span><input id="be-partner-name" autocomplete="off"></label>
+      <label class="be-gh-date"><span class="be-gh-cap">Date *</span><input id="be-date" type="date"></label>
+      <label class="be-gh-due"><span class="be-gh-cap">Due</span><input id="be-due" type="date"></label>
+      <label class="be-gh-ref"><span class="be-gh-cap">Reference</span><input id="be-ref" autocomplete="off"></label>
+      <label class="be-gh-amount"><span class="be-gh-cap be-gh-cap-right">Amount</span><input id="be-amount" type="text" value="0.00" readonly tabindex="-1"></label>
+      ${fxOn
+        ? '<label class="be-gh-ccy"><span class="be-gh-cap">CCY</span><input id="be-ccy" maxlength="3" autocomplete="off" style="text-transform:uppercase"></label>'
+        : '<input id="be-ccy" type="hidden" value="' + baseCcy + '">'}
+      <div class="be-gh-status"><label style="margin-bottom:0">Status</label><span id="be-status-badge"></span></div>
+    </div>
+    <!-- Row 2: Memo + attachments (icon opens a modal — see openAttachmentsModal()). -->
+    <div class="be-gh-row">
+      <label class="be-gh-memo"><span class="be-gh-cap">Memo</span><input id="be-memo" autocomplete="off"></label>
+      <button type="button" id="be-attach-icon-btn" class="be-attach-icon-btn" title="Attachments">📎 <span id="be-attach-count"></span></button>
+      <input type="file" id="be-file" style="display:none" multiple>
+    </div>
   </div>
 
   <div class="be-lines-wrap" id="be-lines-wrap">
@@ -198,8 +286,8 @@ ${commonStyle()}
   </div>
 
   <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-    <button class="btn-primary" id="be-post" type="button">Save (w)</button>
-    <button class="btn-sm" id="be-save" type="button">Back (Esc)</button>
+    <button class="btn-primary" id="be-post" type="button">Save</button>
+    <button class="btn-sm" id="be-save" type="button">Back</button>
     <span class="be-msg" id="be-msg"></span>
   </div>
 
@@ -225,6 +313,7 @@ const S = {
   selectedPartnerId: null,  // partner_id from dropdown pick (bills-partner-fk-spec §4.2)
   selectedApAccount: null,  // resolved ap_account — no visible field; §1 of bill-edit-header-cleanup-spec.md
   stagedFiles: [],       // File objects staged pre-first-save
+  existingAttachments: [], // attachment.list rows for an already-saved bill (2026-09-11, attachments modal)
   saving: false,
   savedSnapshot: null,   // JSON of last-saved (or initial) form state
   status: null,          // bill.status once loaded — 'draft' | 'posted' | 'partial' | 'paid' | 'void'
@@ -251,7 +340,7 @@ const S = {
 // (Account first) any more; that was never a hard requirement, just how
 // this shipped originally.
 const LINE_COLUMNS = [
-  { id: 'desc',   label: 'Description',  cls: 'bl-desc',   tier: 1 },
+  { id: 'desc',   label: 'Line Item Description', cls: 'bl-desc', tier: 1 },
   // Reserved for the #3 spec (qty × unit price) — do not build ahead of it:
   // { id: 'qty',  label: 'Qty',          cls: 'bl-qty',    tier: 1 },
   // { id: 'rate', label: 'Rate',         cls: 'bl-rate',   tier: 1 },
@@ -305,9 +394,11 @@ Promise.all([
   else {
     document.getElementById('be-date').value = FB.util.today();
     document.getElementById('be-due').value = FB.util.today();
+    S.status = 'draft';
     addLine({});
   }
   wireHeader();
+  wireAttachIcon();
   renderLinesHeader();
   applyGridColumns();
   if (S.billId) {
@@ -315,6 +406,8 @@ Promise.all([
       (S.status && S.status !== 'draft') ? 'Bill — ' + S.status.charAt(0).toUpperCase() + S.status.slice(1) : 'Edit Draft Bill';
     if (S.status && S.status !== 'draft') applyLockedMode();
   }
+  updateStatusBadge();
+  updateAttachIcon();
   updateTotals();
   takeSnapshot(); // baseline for dirty tracking
 }).catch(function (e) {
@@ -364,13 +457,8 @@ async function prefillFromExisting(id) {
     wht_code: l.wht_code || '',
   }));
   if (!(lines || []).length) addLine({});
-  // renderAttachments() (not a bare loadAttachments()) — it's what creates
-  // the #be-attach-existing container loadAttachments() needs, plus the
-  // "+ Add attachment" row. Pre-existing bug fixed in passing (2026-09-06):
-  // without this, an existing bill's already-uploaded attachments never
-  // actually rendered on open — loadAttachments() was silently returning
-  // immediately because its target container didn't exist yet.
-  renderAttachments();
+  await loadExistingAttachments();
+  updateAttachIcon();
 }
 
 // ── Locked mode (2026-09-06, bill-edit/bill-detail merge Stage 2) ──────────
@@ -420,11 +508,11 @@ function applyLockedMode() {
   }
   // JE ref (2026-09-06) — only ever populated once locked.
   loadJournalRef();
-  // Status badge + Amount Paid/Due (Stage 4, 2026-09-06, ported from
-  // bill-detail.js) — payment progress, distinct from the Net/Gross totals
-  // computed from the lines above.
-  var badge = document.getElementById('be-status-badge');
-  if (badge) badge.innerHTML = statusBadge(S.status, S.dueDateRaw);
+  // Amount Paid/Due (Stage 4, 2026-09-06, ported from bill-detail.js) —
+  // payment progress, distinct from the Net/Gross totals computed from the
+  // lines above. Status badge itself is updateStatusBadge()'s job now (row 1
+  // of the header grid, not here) — called from init regardless of locked
+  // state, so no need to duplicate it in this function.
   var cardsEl = document.getElementById('be-amount-cards');
   if (cardsEl) {
     cardsEl.style.display = '';
@@ -433,11 +521,13 @@ function applyLockedMode() {
   }
 }
 
-// Ported verbatim from bill-detail.js. Every status this function can be
-// asked to render corresponds to a locked bill — statusBadge() is only ever
-// called from applyLockedMode(), never for a draft — so every label gets the
-// 🔒 (posted-vs-draft visual language, docs/UI.md Components): a second,
-// non-color-dependent signal that the record can no longer be edited.
+// Ported from bill-detail.js, extended (2026-09-11) to also cover the
+// not-yet-posted case — statusBadge() now runs unconditionally from init
+// (row 1 of the header grid, Status column), not only from applyLockedMode().
+// Every OTHER label still corresponds to a locked bill and keeps the 🔒
+// (posted-vs-draft visual language, docs/UI.md Components): a second,
+// non-color-dependent signal that the record can no longer be edited —
+// "Unposted" carries no lock since the bill is still fully editable.
 function statusBadge(status, dueDate) {
   var today = new Date().toISOString().slice(0, 10);
   var isOverdue = (status === 'posted' || status === 'partial') && dueDate && String(dueDate).slice(0, 10) < today;
@@ -446,7 +536,12 @@ function statusBadge(status, dueDate) {
   if (status === 'partial') return '<span class="badge badge-warning">🔒 Partial</span>';
   if (status === 'paid')    return '<span class="badge badge-success">🔒 Paid</span>';
   if (status === 'void')    return '<span class="badge badge-neutral">🔒 Void</span>';
+  if (!status || status === 'draft') return '<span class="badge badge-neutral">Unposted</span>';
   return '<span class="badge badge-neutral">🔒 ' + FB.util.esc(status || '') + '</span>';
+}
+function updateStatusBadge() {
+  var badge = document.getElementById('be-status-badge');
+  if (badge) badge.innerHTML = statusBadge(S.status, S.dueDateRaw);
 }
 
 function doVoid() {
@@ -596,8 +691,12 @@ function attachCenter(input, type) {
 
 // ── Lines ───────────────────────────────────────────────────────────────────
 function renderLinesHeader() {
+  // c.cls carried onto the header cell too (not just the body input) so
+  // column-specific CSS — the Debit/Credit right-align rule — can target
+  // the header the same way it targets the input. Skipped for 'del' (label
+  // is '' anyway) — its cls (be-line-x) names a button recipe, not a column.
   document.getElementById('be-lines-header').innerHTML =
-    activeColumns().map(c => '<div class="bl-cell">' + FB.util.esc(c.label) + '</div>').join('');
+    activeColumns().map(c => '<div class="bl-cell' + (c.id === 'del' ? '' : ' ' + c.cls) + '">' + FB.util.esc(c.label) + '</div>').join('');
 }
 function applyGridColumns() {
   document.getElementById('be-lines-wrap').style.setProperty('--bl-cols', computeWideColumns());
@@ -605,15 +704,15 @@ function applyGridColumns() {
 function renderCell(col, data) {
   var inner;
   switch (col.id) {
-    case 'desc':   inner = '<input class="bl-desc" value="' + FB.util.escAttr(data.description || '') + '" placeholder="line description">'; break;
-    case 'acct':   inner = '<input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off" placeholder="Account">'; break;
-    case 'debit':  inner = '<input class="bl-debit" type="number" step="0.01" min="0" placeholder="Debit" value="' + (data.amount !== '' && data.amount != null ? data.amount : '') + '">'; break;
+    case 'desc':   inner = '<input class="bl-desc" value="' + FB.util.escAttr(data.description || '') + '">'; break;
+    case 'acct':   inner = '<input class="bl-acct" value="' + FB.util.escAttr(data.expense_account || '') + '" autocomplete="off">'; break;
+    case 'debit':  inner = '<input class="bl-debit" type="number" step="0.01" min="0" value="' + (data.amount !== '' && data.amount != null ? data.amount : '') + '">'; break;
     // A user (expense) line is always a debit — Credit stays blank/disabled,
     // present only so the column lines up with the auto-generated total row.
     case 'credit': inner = '<input class="bl-credit" type="number" value="" disabled tabindex="-1">'; break;
     case 'vat':    inner = '<input class="bl-vat" value="' + FB.util.escAttr(data.vat_code || '') + '" autocomplete="off" placeholder="—">'; break;
     case 'wht':    inner = '<input class="bl-wht" value="' + FB.util.escAttr(data.wht_code || '') + '" autocomplete="off" placeholder="—">'; break;
-    case 'cc':     inner = '<input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off" placeholder="Cost center">'; break;
+    case 'cc':     inner = '<input class="bl-cc" value="' + FB.util.escAttr(data.cost_center || '') + '" autocomplete="off">'; break;
     case 'del':    inner = '<button class="be-line-x" type="button" title="delete line" aria-label="Delete line">×</button>'; break;
     default:
       throw new Error('renderCell: no case for column "' + col.id + '" — add one before enabling it in LINE_COLUMNS.');
@@ -737,7 +836,10 @@ function computeAutoLines() {
     whtTotal += entry.amt;
     rows.push({ key: 'wht:' + code, account: entry.w.wht_account, label: 'WHT — ' + code, debit: 0, credit: entry.amt, editable: false });
   });
-  rows.push({ key: 'total', account: S.selectedApAccount || '', label: 'Total', debit: 0, credit: Math.round((net + stdTotal - whtTotal) * 100) / 100, editable: false });
+  // No "Total" row (2026-09-11, retired per magnus) — the bill's gross
+  // amount now lives in the header grid's row 1 (Amount, read-only), lent
+  // straight from the Bills table's own Amount column instead of repeating
+  // it as one more line in the grid.
   return { rows, net, stdTotal, whtTotal, gross: Math.round((net + stdTotal) * 100) / 100 };
 }
 function autoRowCells(r) {
@@ -821,6 +923,8 @@ function collectVatAmountsStated() {
 function updateTotals() {
   const auto = computeAutoLines();
   renderAutoLines(auto.rows);
+  var amtEl = document.getElementById('be-amount');
+  if (amtEl) amtEl.value = FB.util.fmtAmt(auto.gross);
   var whtEl = document.getElementById('be-tot-wht');
   var payEl = document.getElementById('be-tot-payable');
   if (whtEl) whtEl.textContent = FB.util.fmtAmt(auto.whtTotal);
@@ -949,14 +1053,27 @@ function quitEditor() {
 }
 
 
-// ── Attachments (staged until first save — or, once locked, uploaded
-// immediately since there's no "save" step left to stage them for) ────────
+// ── Attachments (2026-09-11: icon + modal, borrowing Inbox's source-document
+// badge concept — underlagBadge/showSourceDocs in inbox.js) instead of an
+// always-open bordered box. Staged until first save — or, once locked,
+// uploaded immediately since there's no "save" step left to stage them for.
+// Click routing (per magnus): zero attachments → skip the modal entirely and
+// go straight to the file picker; one or more → open the modal (list +
+// remove + an "add another" row), same split Inbox doesn't need (it never
+// uploads, only views) but the icon itself borrows its look. ────────────────
+function wireAttachIcon() {
+  document.getElementById('be-attach-icon-btn').onclick = function () {
+    const count = S.stagedFiles.length + S.existingAttachments.length;
+    if (count === 0) { document.getElementById('be-file').click(); return; }
+    openAttachmentsModal();
+  };
+}
 document.getElementById('be-file').addEventListener('change', (e) => {
   const files = Array.from(e.target.files);
   e.target.value = '';
   if (S.locked) { files.forEach(uploadAttachmentNow); return; }
   files.forEach(f => S.stagedFiles.push(f));
-  renderAttachments();
+  refreshAttachModal();
 });
 async function uploadAttachmentNow(file) {
   const fd = new FormData();
@@ -966,21 +1083,9 @@ async function uploadAttachmentNow(file) {
   fd.append('file', file);
   try {
     await fetch('/api/upload', { method: 'POST', body: fd });
-    loadAttachments();
+    await loadExistingAttachments();
+    refreshAttachModal();
   } catch (e) { msg('Upload failed: ' + (e && e.message || e), 'err'); }
-}
-function renderAttachments() {
-  const el = document.getElementById('be-attach-list');
-  el.innerHTML = S.stagedFiles.map((f, i) =>
-    '<div class="be-attach-row"><span class="name">📄 ' + FB.util.esc(f.name) + '</span>' +
-    '<span class="staged">staged — uploads on save</span>' +
-    '<button class="be-line-x" style="visibility:visible" data-i="' + i + '" type="button" aria-label="Remove attachment">×</button></div>'
-  ).join('') + (S.billId ? '<div id="be-attach-existing"></div>' : '')
-    // + Add attachment row (2026-09-06, retires A) — fb-list add-row parity.
-    // Pinned last; its button is the attachments zone's one real cell.
-    + '<div class="be-attach-row be-attach-add"><button type="button" class="be-attach-add-btn" onclick="document.getElementById(\\'be-file\\').click()">+ Add attachment</button></div>';
-  el.querySelectorAll('button[data-i]').forEach(b => b.onclick = () => { S.stagedFiles.splice(Number(b.dataset.i), 1); renderAttachments(); });
-  if (S.billId) loadAttachments();
 }
 async function uploadStaged() {
   if (!S.billId || !S.stagedFiles.length) return;
@@ -993,31 +1098,69 @@ async function uploadStaged() {
     await fetch('/api/upload', { method: 'POST', body: fd });
   }
   S.stagedFiles = [];
-  renderAttachments();
+  await loadExistingAttachments();
+  updateAttachIcon();
 }
-// Stage 4 (2026-09-06, ported from bill-detail.js's richer render): icon,
-// upload date, size, and — new here — an actual delete button. Bill-edit
-// previously had no way to remove an already-uploaded attachment at all,
-// only staged (not-yet-uploaded) ones; this closes that gap.
-async function loadAttachments() {
-  const host = document.getElementById('be-attach-existing');
-  if (!host || !S.billId) return;
-  try {
-    const rows = await apiAction('attachment.list', { entityType: 'bill', entityId: S.billId });
-    host.innerHTML = (rows || []).map(a => {
-      const kb = (a.file_size / 1024).toFixed(1);
-      const date = a.created_at ? new Date(a.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
-      return '<div class="be-attach-row" data-attachment-id="' + FB.util.esc(a.attachment_id) + '">'
-        + '<span class="name">📄 <a href="/api/attachments/' + a.attachment_id + '" target="_blank">' + FB.util.esc(a.filename || a.file_name || 'file') + '</a>'
-        + ' <span class="staged">(' + date + (date ? ' · ' : '') + kb + ' KB)</span></span>'
-        + '<button class="be-line-x" style="visibility:visible" data-attachment-id="' + FB.util.esc(a.attachment_id) + '" type="button" title="Delete" aria-label="Delete">×</button></div>';
-    }).join('');
-    host.querySelectorAll('button[data-attachment-id]').forEach(b => {
-      b.onclick = () => deleteExistingAttachment(b.dataset.attachmentId);
-    });
-  } catch (e) { /* non-fatal */ }
+async function loadExistingAttachments() {
+  if (!S.billId) { S.existingAttachments = []; return; }
+  try { S.existingAttachments = await apiAction('attachment.list', { entityType: 'bill', entityId: S.billId }) || []; }
+  catch (e) { S.existingAttachments = []; }
+}
+function updateAttachIcon() {
+  const count = S.stagedFiles.length + S.existingAttachments.length;
+  const countEl = document.getElementById('be-attach-count');
+  if (countEl) countEl.textContent = count ? String(count) : '';
+  const btn = document.getElementById('be-attach-icon-btn');
+  if (btn) btn.classList.toggle('has-files', count > 0);
+}
+// Staged (not-yet-uploaded) rows have no attachment_id yet, so they can't
+// use FB.attachments.rowHtml (which links to /api/attachments/<id>) — kept
+// bespoke, but built from the exact same .fb-attach-row/.fb-att-*  classes
+// (see the CSS block) so a staged row and an uploaded row read identically
+// apart from the "staged" tag and the disabled download link.
+function stagedRowHtml(f, i) {
+  return '<div class="fb-attach-row" data-staged-i="' + i + '">'
+    + '<span class="fb-att-icon">📄</span>'
+    + '<span class="fb-att-link" style="color:var(--text-muted)">' + FB.util.esc(f.name) + '</span>'
+    + ' <span class="fb-att-meta">staged — uploads on save</span>'
+    + '<button class="fb-att-del" data-staged-i="' + i + '" title="Remove" aria-label="Remove">×</button>'
+    + '</div>';
+}
+// Already-uploaded rows use the shared FB.attachments.rowHtml (fb-attachments.js)
+// — the exact same row Inbox's source-document modal renders (per magnus:
+// "open popup ... exactly like on inbox"), not a page-local reimplementation.
+function renderAttachModalBody() {
+  const rows = S.stagedFiles.map(stagedRowHtml).join('')
+    + S.existingAttachments.map(a => FB.attachments.rowHtml(a)).join('');
+  return (rows || FB.attachments.emptyHtml('No attachments yet'))
+    // + Add attachment row (2026-09-06, retires A) — fb-list add-row parity.
+    + '<div class="fb-attach-row be-attach-add"><button type="button" class="be-attach-add-btn" onclick="document.getElementById(\\'be-file\\').click()">+ Add attachment</button></div>';
+}
+function wireAttachModalButtons() {
+  const el = document.getElementById('be-attach-modal-body');
+  if (!el) return;
+  el.querySelectorAll('button.fb-att-del[data-staged-i]').forEach(b => b.onclick = () => { S.stagedFiles.splice(Number(b.dataset.stagedI), 1); refreshAttachModal(); });
+  el.querySelectorAll('button.fb-att-del[data-att-id]').forEach(b => b.onclick = () => deleteExistingAttachment(b.dataset.attId));
+}
+function refreshAttachModal() {
+  const el = document.getElementById('be-attach-modal-body');
+  if (el) { el.innerHTML = renderAttachModalBody(); wireAttachModalButtons(); }
+  updateAttachIcon();
+}
+function openAttachmentsModal() {
+  FB.modal.open({
+    title: 'Attachments',
+    body: '<div id="be-attach-modal-body">' + renderAttachModalBody() + '</div>',
+    buttons: [{ label: 'Close', onClick: function (api) { api.close(); } }]
+  });
+  wireAttachModalButtons();
 }
 
+// FB.modal is single, app-wide (see fb-core.js) — opening the confirm dialog
+// below closes the attachments modal that triggered it, same as any other
+// modal-from-modal call in this codebase (there's no nesting). Just refresh
+// the header icon's count; the attachments modal itself is gone by the time
+// this resolves.
 function deleteExistingAttachment(attachmentId) {
   FB.modal.open({
     title: 'Remove attachment?',
@@ -1025,7 +1168,9 @@ function deleteExistingAttachment(attachmentId) {
       { label: 'Cancel', onClick: function (api) { api.close(); } },
       { label: 'Remove', danger: true, onClick: function (api) {
           api.close();
-          apiAction('attachment.delete', { attachmentId }).then(loadAttachments).catch(e => msg(e.message, 'err'));
+          apiAction('attachment.delete', { attachmentId })
+            .then(async () => { await loadExistingAttachments(); updateAttachIcon(); })
+            .catch(e => msg(e.message, 'err'));
         } }
     ]
   });
@@ -1049,17 +1194,13 @@ var beForm = FB.form.create({
   formId: 'bill-edit',
   zones: [
     { id: 'header', rows: function () { return [document.querySelector('.be-grid-header')]; } },
-    // A retired (2026-09-06): cells() now exposes the "+ Add attachment"
-    // row's button as the zone's one real cell (i/Enter or a click opens
-    // the file picker); real attachment rows stay cell-less, deleted
-    // directly by 'x' (see the delete verb's z===1 branch below).
-    // Attachments moved into the header area (2026-09-06, per magnus) — this
-    // zone now sits right after 'header' to match the new visual order.
-    { id: 'attachments', rows: function () { return Array.from(document.querySelectorAll('#be-attach-list .be-attach-row')); },
-      cells: function (rowEl) {
-        var btn = rowEl.querySelector('.be-attach-add-btn');
-        return btn ? [btn] : [];
-      } },
+    // Attachments (2026-09-11): a single button cell — the 📎 icon itself —
+    // that opens the attachments modal (openAttachmentsModal, wired via
+    // wireAttachIcon). Managing what's inside (add/delete) is mouse-only in
+    // the modal now, same as Inbox's own source-document viewer this
+    // borrows from; there's no longer a list of keyboard-navigable rows here.
+    { id: 'attachments', rows: function () { var b = document.getElementById('be-attach-icon-btn'); return b ? [b] : []; },
+      cells: function (rowEl) { return [rowEl]; } },
     { id: 'lines',  rows: function () {
         return Array.from(document.querySelectorAll('#be-lines-body .bl-row'));
       },
@@ -1083,26 +1224,16 @@ var beForm = FB.form.create({
     delete: { key: 'x', hint: 'delete',
       // Auto-generated rows (bill-line-item-grid-spec.md) aren't deletable —
       // they're computed output, not a real line — so x is inert on them
-      // rather than removing-then-immediately-regenerating one.
+      // rather than removing-then-immediately-regenerating one. Lines-only
+      // now (2026-09-11) — the attachments zone is a single button cell
+      // (open the modal), nothing there for x to delete any more.
       when: function (api) {
-        var z = api.cur().z;
-        if (z === 2) {
-          var row = api.zoneRows(2)[api.cur().r];
-          return api.cur().r > 0 && row && !row.classList.contains('bl-auto');
-        }
-        return z === 1;
+        if (api.cur().z !== 2) return false;
+        var row = api.zoneRows(2)[api.cur().r];
+        return api.cur().r > 0 && row && !row.classList.contains('bl-auto');
       },
       run: function (api) {
-        if (api.cur().z === 2 && S.locked) return;   // 2026-09-06: lines are frozen once posted
-        if (api.cur().z === 1) {
-          // attachments zone — staged files have a data-i delete button,
-          // already-uploaded ones a data-attachment-id one (Stage 4,
-          // 2026-09-06); the add row has neither, so this safely no-ops on it.
-          var arow = api.zoneRows(1)[api.cur().r];
-          var abtn = arow && arow.querySelector('button[data-i], button[data-attachment-id]');
-          if (abtn) abtn.onclick();
-          return;
-        }
+        if (S.locked) return;   // 2026-09-06: lines are frozen once posted
         var row = api.zoneRows(2)[api.cur().r];
         if (!row) return;
         row.remove(); updateTotals(); refreshAddRow(); api.refresh();
@@ -1116,13 +1247,11 @@ var beForm = FB.form.create({
   },
   extraBindings: function (api) {
     return [
-      // A retired (2026-09-06) — the attachments zone's own
-      // "+ Add attachment" row does this job now (see the zone's cells()).
       // x on the header zone voids a posted bill (Stage 3, 2026-09-06) —
       // same "x means something bigger on the header" pattern as
       // journal-voucher's reversal entry. Never collides with the generic
-      // delete verb's x, which only ever matches z===1||2 (attachments/
-      // lines), never z===0 (header).
+      // delete verb's x, which only ever matches z===2 (lines), never z===0
+      // (header) or z===1 (attachments — a single button cell, not deletable).
       { key: 'x', mode: 'NORMAL', hint: 'void', hintBar: true,
         when: function () { return S.status === 'posted' && api.cur().z === 0; },
         run: doVoid },

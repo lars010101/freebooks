@@ -57,7 +57,7 @@ async function scanCompany(companyId) {
     `SELECT bill_id, partner_name, vendor_ref, due_date, amount, amount_paid, currency
      FROM bills
      WHERE company_id = @companyId
-       AND status IN ('posted', 'partial')
+       AND status = 'posted'
        AND amount_paid < amount
      ORDER BY due_date ASC`,
     { companyId }

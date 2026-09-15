@@ -124,26 +124,30 @@ ${commonStyle()}
      2026-07-22 — at 7% the corner-pinned filter icon overlapped the "CCY"
      label at ≤1400px viewports). Partner is information-dense; CCY only needs
      a 3-letter code + header affordances. */
-  #bills-table col.col-partner { width:18%; }
-  #bills-table col.col-date   { width:12.5%; }
-  #bills-table col.col-due    { width:12.5%; }
-  #bills-table col.col-ref    { width:15%; }
-  #bills-table col.col-amount { width:14%; }
-  #bills-table col.col-ccy    { width:9%; }
-  #bills-table col.col-status { width:15%; }
+  #bills-table col.col-partner { width:15%; }
+  #bills-table col.col-date   { width:11%; }
+  #bills-table col.col-due    { width:11%; }
+  #bills-table col.col-ref    { width:13%; }
+  #bills-table col.col-amount { width:13%; }
+  #bills-table col.col-outstanding { width:11%; }
+  #bills-table col.col-ccy    { width:8%; }
+  #bills-table col.col-status { width:14%; }
   /* ACTIONS: the framework's trailing row-actions <td> (fb-list.js rowHtml —
      every parent row, tree or not) — matches the .data-table th:last-child/
      td:last-child min-width:110px rule below. Carved out of Partner's share
      (was 22%; had no track reserved for this column at all before). */
   #bills-table col.col-actions { width:4%; }
-  /* CCY collapsed: redistribute its 9% (partner +6, ref +1, amount +0.5, status +0.5,
-     dates +0.5 each) so widths still sum to 100% (excl. Actions' fixed 4%). */
-  #bills-table.single-ccy col.col-partner { width:24%; }
-  #bills-table.single-ccy col.col-date   { width:13%; }
-  #bills-table.single-ccy col.col-due    { width:13%; }
-  #bills-table.single-ccy col.col-ref    { width:16%; }
-  #bills-table.single-ccy col.col-amount { width:14.5%; }
-  #bills-table.single-ccy col.col-status { width:15.5%; }
+  /* CCY collapsed: redistribute its 8% (partner +5, ref +1, amount +0.5,
+     outstanding +1, status +0.5) so widths still sum to 100% (excl.
+     Actions' fixed 4%) — same redistribution doctrine as before Outstanding
+     (2026-09-15) existed, just re-balanced around it. */
+  #bills-table.single-ccy col.col-partner { width:20%; }
+  #bills-table.single-ccy col.col-date   { width:11%; }
+  #bills-table.single-ccy col.col-due    { width:11%; }
+  #bills-table.single-ccy col.col-ref    { width:14%; }
+  #bills-table.single-ccy col.col-amount { width:13.5%; }
+  #bills-table.single-ccy col.col-outstanding { width:12%; }
+  #bills-table.single-ccy col.col-status { width:14.5%; }
   /* Conditional CCY: column hidden when all visible bills share one currency.
      visibility:collapse on the <col> is the spec'd mechanism — the column's
      space is reclaimed WITHOUT breaking column-track mapping (display:none on
@@ -345,6 +349,13 @@ ${commonStyle()}
   .rpt-embed table { width:100%; border-collapse:collapse; margin-top:8px; }
   .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 8px; }
   .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
+  /* .doc-link's own rule lives in the report's <style> (render.js htmlPage())
+     — stripped along with the rest of <head> by loadReportEmbed's DOMParser
+     extraction (only .page's markup survives). Without a mirror here the
+     class carries no CSS: browser-default blue underline, not the quiet
+     link (.ref-link above uses the same var(--accent)/no-underline pair). */
+  .rpt-embed .doc-link { color:var(--accent); text-decoration:none; font-weight:500; }
+  .rpt-embed .doc-link:hover { text-decoration:underline; }
   .rpt-embed .footer { margin-top:24px; padding-top:12px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--text-muted); }
   .rpt-embed-msg { padding:1rem 0; color:var(--text-muted); }
 </style>
@@ -406,6 +417,7 @@ ${commonStyle()}
         <col class="col-due">      <!-- DUE -->
         <col class="col-ref">      <!-- REFERENCE -->
         <col class="col-amount">   <!-- AMOUNT (incl. icon-width alignment gutter) -->
+        <col class="col-outstanding"> <!-- OUTSTANDING (amount - amount_paid; blank unless posted) -->
         <col class="col-ccy">      <!-- CCY -->
         <col class="col-status">   <!-- STATUS -->
         <col class="col-actions">  <!-- ACTIONS (framework row-actions cell) -->
@@ -417,13 +429,14 @@ ${commonStyle()}
           <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-label">Due</span><span class="th-sort"></span></div></th>
           <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span></div></th>
           <th class="sortable" data-col="amount" data-filter-type="amount"><div class="th-inner"><span class="th-label">Amount</span><span class="th-sort"></span></div></th>
+          <th class="sortable" data-col="outstanding" data-filter-type="amount"><div class="th-inner"><span class="th-label">Outstanding</span><span class="th-sort"></span></div></th>
           <th class="sortable" data-col="currency" data-filter-type="list"><div class="th-inner"><span class="th-label">CCY</span><span class="th-sort"></span></div></th>
           <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-label">Status</span><span class="th-sort"></span></div></th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody id="bills-tbody">
-        <tr><td colspan="8" class="table-empty">Loading&#8230;</td></tr>
+        <tr><td colspan="9" class="table-empty">Loading&#8230;</td></tr>
       </tbody>
     </table>
     <div class="pagination-row" id="pagination-row" style="display:none">

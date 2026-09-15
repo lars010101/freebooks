@@ -1249,11 +1249,14 @@ async function approveProposal(ctx) {
           const bookingRate = Number(bill.fx_rate) || 1;
           const settledForeign = round4(settledBooked / bookingRate);
           newAmountPaid = round4(Number(bill.amount_paid) + settledForeign);
-          newStatus = newAmountPaid >= Number(bill.amount) ? 'paid' : 'partial';
+          // 'partial' is no longer a stored status (2026-09-15) — a
+          // partly-settled bill stays 'posted'; amount_paid carries the
+          // outstanding amount.
+          newStatus = newAmountPaid >= Number(bill.amount) ? 'paid' : 'posted';
           amountForeign = settledForeign;
         } else {
           newAmountPaid = round4(Number(bill.amount_paid) + settledBooked);
-          newStatus = newAmountPaid >= Number(bill.amount_home) - 0.005 ? 'paid' : 'partial';
+          newStatus = newAmountPaid >= Number(bill.amount_home) - 0.005 ? 'paid' : 'posted';
           amountForeign = null;
         }
 

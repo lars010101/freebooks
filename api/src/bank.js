@@ -546,7 +546,7 @@ async function matchLine(ctx) {
       `SELECT bill_id, partner_name, vendor_ref, amount, amount_home, amount_paid,
               fx_rate, ap_account, currency, (amount_home - amount_paid) AS outstanding, due_date
        FROM bills
-       WHERE company_id = @companyId AND status IN ('posted', 'partial')
+       WHERE company_id = @companyId AND status = 'posted'
        ORDER BY due_date`,
       { companyId }
     );

@@ -40,7 +40,7 @@ const round4 = (n) => Math.round(n * 10000) / 10000;
  * @param {string} opts.companyId
  * @param {string} opts.billId
  * @param {number} opts.newAmountPaid
- * @param {string} opts.newStatus        - 'paid' | 'partial'
+ * @param {string} opts.newStatus        - 'paid' | 'posted'
  * @param {number} opts.bankAmount       - payments.amount (home/bank currency)
  * @param {number|null} [opts.amountForeign] - payments.amount_foreign (null for home-currency bills)
  * @param {string} opts.batchId
@@ -235,7 +235,9 @@ async function settleBillPayment(opts) {
     }
 
     const newAmountPaid = Number(bill.amount_paid) + settledForeign;
-    const newStatus = newAmountPaid >= Number(bill.amount) ? 'paid' : 'partial';
+    // 'partial' is no longer a stored status (2026-09-15) — a partly-settled
+    // bill stays 'posted'; amount_paid carries the outstanding amount.
+    const newStatus = newAmountPaid >= Number(bill.amount) ? 'paid' : 'posted';
     await applyBillSettlement({
       companyId, billId, newAmountPaid, newStatus, bankAmount,
       amountForeign: settledForeign, batchId, date, method, paymentReference, paymentId,
@@ -262,7 +264,9 @@ async function settleBillPayment(opts) {
   ]);
 
   const newAmountPaid = Number(bill.amount_paid) + bankAmount;
-  const newStatus = newAmountPaid >= Number(bill.amount_home) - 0.005 ? 'paid' : 'partial';
+  // 'partial' is no longer a stored status (2026-09-15) — a partly-settled
+  // bill stays 'posted'; amount_paid carries the outstanding amount.
+  const newStatus = newAmountPaid >= Number(bill.amount_home) - 0.005 ? 'paid' : 'posted';
   await applyBillSettlement({
     companyId, billId, newAmountPaid, newStatus, bankAmount,
     amountForeign: null, batchId, date, method, paymentReference, paymentId,
@@ -461,7 +465,9 @@ async function settleMultiBillPayment(opts) {
       // Update bill amount_paid + status, insert payments (scoped to
       // the transaction's own connection via tx.exec/tx.bulkInsert).
       const newAmountPaid = round4(Number(bill.amount_paid) + allocResult.settledForeign);
-      const newStatus = newAmountPaid >= Number(bill.amount) - 0.005 ? 'paid' : 'partial';
+      // 'partial' is no longer a stored status (2026-09-15) — a partly-settled
+      // bill stays 'posted'; amount_paid carries the outstanding amount.
+      const newStatus = newAmountPaid >= Number(bill.amount) - 0.005 ? 'paid' : 'posted';
       const settled = await applyBillSettlement({
         companyId, billId: bill.bill_id, newAmountPaid, newStatus,
         bankAmount: allocResult.bankShare, amountForeign: isForeign ? allocResult.settledForeign : null,

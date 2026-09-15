@@ -316,7 +316,7 @@ const S = {
   existingAttachments: [], // attachment.list rows for an already-saved bill (2026-09-11, attachments modal)
   saving: false,
   savedSnapshot: null,   // JSON of last-saved (or initial) form state
-  status: null,          // bill.status once loaded — 'draft' | 'posted' | 'partial' | 'paid' | 'void'
+  status: null,          // bill.status once loaded — 'draft' | 'posted' | 'paid' | 'void' | 'rejected'
   locked: false,         // Stage 2 (2026-09-06, bill-edit/bill-detail merge): true once status !== 'draft'
   vatAmountsStated: null, // per-VAT-code override map restored from bill.get, seeds the first renderAutoLines() pass
 };
@@ -501,8 +501,12 @@ function applyLockedMode() {
     if (dueEl) dueEl.addEventListener('change', function () { saveMetaField('due_date', dueEl.value); });
   }
   // Void (Stage 3, 2026-09-06) — same guard the server enforces: only a
-  // 'posted', unpaid bill can be voided (partial/paid/void all refused).
-  if (S.status === 'posted') {
+  // 'posted' bill with nothing paid toward it can be voided (any amount
+  // paid, 'paid', or 'void' are all refused). 'partial' is no longer a
+  // stored status (2026-09-15) — a partly-paid bill is still 'posted', so
+  // amountPaid is the check now, not status alone (same fix as
+  // payables-bills.js's voidBill()).
+  if (S.status === 'posted' && S.amountPaid <= 0.005) {
     var voidBtn = document.getElementById('be-void');
     if (voidBtn) { voidBtn.style.display = ''; voidBtn.onclick = doVoid; }
   }
@@ -530,10 +534,13 @@ function applyLockedMode() {
 // "Unposted" carries no lock since the bill is still fully editable.
 function statusBadge(status, dueDate) {
   var today = new Date().toISOString().slice(0, 10);
-  var isOverdue = (status === 'posted' || status === 'partial') && dueDate && String(dueDate).slice(0, 10) < today;
+  // 'partial' is no longer a stored status (2026-09-15) — payment progress
+  // shows via the Outstanding column on the Bills list; here Overdue is
+  // purely a due-date flag on an open bill, matching payables-bills.js's
+  // statusBadge().
+  var isOverdue = status === 'posted' && dueDate && String(dueDate).slice(0, 10) < today;
   if (isOverdue) return '<span class="badge badge-danger">🔒 Overdue</span>';
   if (status === 'posted')  return '<span class="badge badge-info">🔒 Open</span>';
-  if (status === 'partial') return '<span class="badge badge-warning">🔒 Partial</span>';
   if (status === 'paid')    return '<span class="badge badge-success">🔒 Paid</span>';
   if (status === 'void')    return '<span class="badge badge-neutral">🔒 Void</span>';
   if (!status || status === 'draft') return '<span class="badge badge-neutral">Unposted</span>';

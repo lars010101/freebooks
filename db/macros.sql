@@ -686,13 +686,13 @@ ap_control_check AS (
       -
       COALESCE((SELECT SUM(b.amount_home) FROM bills b
         WHERE b.company_id = cid
-        AND b.status IN ('posted', 'partial')
+        AND b.status = 'posted'
         AND b.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)), 0)
       +
       COALESCE((SELECT SUM(je.debit_home) FROM journal_entries je
         JOIN bills b ON b.bill_id = je.bill_id AND b.company_id = je.company_id
         WHERE b.company_id = cid
-        AND b.status IN ('posted', 'partial')
+        AND b.status = 'posted'
         AND b.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
         AND je.account_code = b.ap_account
         AND je.debit > 0
@@ -701,7 +701,7 @@ ap_control_check AS (
     WHEN EXISTS (
       SELECT 1 FROM bills b
       WHERE b.company_id = cid
-      AND b.status IN ('posted', 'partial')
+      AND b.status = 'posted'
       -- companies is append-versioned (api/src/index.js mergeCompanyRow: a
       -- settings edit INSERTs a fresh row, never UPDATEs in place) — any
       -- company whose settings have been edited even once has 2+ rows here,
@@ -724,13 +724,13 @@ ap_control_check AS (
     || ' | Subledger: ' || ROUND(
       COALESCE((SELECT SUM(b.amount_home) FROM bills b
         WHERE b.company_id = cid
-        AND b.status IN ('posted', 'partial')
+        AND b.status = 'posted'
         AND b.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)), 0)
       -
       COALESCE((SELECT SUM(je.debit_home) FROM journal_entries je
         JOIN bills b ON b.bill_id = je.bill_id AND b.company_id = je.company_id
         WHERE b.company_id = cid
-        AND b.status IN ('posted', 'partial')
+        AND b.status = 'posted'
         AND b.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
         AND je.account_code = b.ap_account
         AND je.debit > 0
@@ -803,7 +803,7 @@ subledger_side AS (
     COUNT(*) AS bill_count
   FROM bills b
   WHERE b.company_id = cid
-    AND b.status IN ('posted', 'partial')
+    AND b.status = 'posted'
     AND b.date <= CAST(as_of_date AS DATE)
   GROUP BY b.ap_account
 )
@@ -818,7 +818,7 @@ SELECT
     WHEN EXISTS (
       SELECT 1 FROM bills b
       WHERE b.company_id = cid
-        AND b.status IN ('posted', 'partial')
+        AND b.status = 'posted'
         -- companies is append-versioned (api/src/index.js mergeCompanyRow: a
       -- settings edit INSERTs a fresh row, never UPDATEs in place) — any
       -- company whose settings have been edited even once has 2+ rows here,

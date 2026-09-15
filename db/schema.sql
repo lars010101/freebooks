@@ -1119,3 +1119,18 @@ CREATE TABLE IF NOT EXISTS chat_aliases (
   PRIMARY KEY (company_id, entity_type, real_value)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_aliases_alias ON chat_aliases(company_id, alias);
+
+-- =============================================================================
+-- Backfill (2026-09-15): 'partial' is no longer a stored bill status.
+-- amount_paid was always the real source of truth for how much of a bill had
+-- been paid; 'partial' vs 'posted' just mirrored that fact in a second
+-- place, which is the same dual-source-of-truth shape as the append-
+-- versioned `companies` bug found earlier this session — a value that has
+-- to be kept in sync with another rather than derived from it. Every
+-- former reader of 'partial' now reads amount_paid directly (bills.js's
+-- void guard, the Bills list's status badge/Outstanding column, etc.);
+-- this collapses any bill still carrying the old value onto 'posted' so no
+-- code path needs to know 'partial' ever existed. Naturally idempotent
+-- (WHERE status = 'partial' matches nothing once applied) — safe to leave
+-- as a permanent boot-time statement like the settings backfills above.
+UPDATE bills SET status = 'posted' WHERE status = 'partial';

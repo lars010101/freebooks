@@ -27,23 +27,43 @@ function _assetV(file) {
 }
 
 // ── Number formatting ─────────────────────────────────────────────────────────
-function fmt(n) {
+// Jurisdiction-aware, mirroring api/public/fb-core.js's FB.util.fmtAmt exactly
+// (found 2026-09-15: this file's own fmt() was the fixed-en-US, parentheses-
+// for-negative convention fmtAmt's own 2026-09-06 comment names as the thing
+// it was deliberately changed AWAY from — parentheses reads as a distinctly
+// Anglo-American accounting convention in several locales this app serves.
+// fmt() itself was just never brought in line with that decision). A plain
+// minus sign (sv-SE's is Unicode U+2212, not the ASCII hyphen en-SG uses —
+// by design, from toLocaleString itself) replaces the old Math.abs+wrap-in-
+// parens logic entirely; toLocaleString already produces the correct sign,
+// thousands-separator, and decimal-separator together for a given locale.
+// _fmt/_fmtDC take an explicit locale — callers get a jurisdiction-bound
+// fmt/fmtDC shadowing these names, declared once near the top of whichever
+// build*() function has the company's jurisdiction on hand (see
+// localeFor()), so every existing bare fmt(x)/fmtDC(x) call site keeps
+// working unchanged while resolving to the right locale.
+function localeFor(jurisdiction) { return jurisdiction === 'SE' ? 'sv-SE' : 'en-SG'; }
+function _fmt(n, locale) {
   if (n === null || n === undefined) return '';
   const num = parseFloat(n);
   if (isNaN(num)) return '';
-  const abs = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return num < 0 ? `(${abs})` : abs;
+  return num.toLocaleString(locale || 'en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // Debit/Credit cells specifically (Trial Balance, General Ledger): a zero
 // value renders blank, not "0.00" — unlike fmt(), used everywhere else
 // (PL/BS/CF/Net/Balance columns included) where a genuine zero is still
 // shown as a number.
-function fmtDC(n) {
+function _fmtDC(n, locale) {
   const num = parseFloat(n);
   if (isNaN(num) || num === 0) return '';
-  return fmt(n);
+  return _fmt(n, locale);
 }
+// Module-level fallback for any caller that hasn't fetched a jurisdiction
+// (currently none — every build*() below declares its own locale-bound
+// shadow — kept only so a future caller fails safe to en-SG, not a crash).
+function fmt(n) { return _fmt(n, 'en-SG'); }
+function fmtDC(n) { return _fmtDC(n, 'en-SG'); }
 
 // ── HTML page wrapper ─────────────────────────────────────────────────────────
 function htmlPage(title, company, period, tableHtml, opts = {}) {
@@ -93,6 +113,13 @@ function htmlPage(title, company, period, tableHtml, opts = {}) {
      (indented) > subtotal (half-indented) > closing total (flush, bold). */
   tr.indent td:nth-child(2) { padding-left: 24px; }
   tr.indent-sub td:nth-child(2) { padding-left: 12px; }
+  /* Reference link (2026-09-15) — same quiet recipe as GL/Journal/Voucher
+     Register's own .doc-link (each carries its own copy, this being a
+     separate standalone-document style block): account-code links here
+     were previously unstyled, computing the browser's plain default blue.
+     One reference-link color/treatment everywhere a report shows one. */
+  .doc-link { color: #18293f; text-decoration: none; font-weight: 500; }
+  .doc-link:hover { text-decoration: underline; }
   .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd;
             font-size: 9pt; color: #888; }
   @media print {
@@ -131,6 +158,13 @@ function toCSV(rows) {
 // ── Report table generators ───────────────────────────────────────────────────
 
 async function buildPL(query, company, start, end) {
+  let jurisdiction = '';
+  try {
+    const [co] = await query(`SELECT jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) jurisdiction = co.jurisdiction || '';
+  } catch (_) {}
+  const locale = localeFor(jurisdiction);
+  const fmt = (n) => _fmt(n, locale);
   const rows = await query(`SELECT * FROM pl(?, ?, ?)`, [company, start, end]);
   let lastSection = null;
   let tableRows = '';
@@ -144,7 +178,7 @@ async function buildPL(query, company, start, end) {
     const code = r.account_code || '';
     const name = r.row_type === 'total' ? `<strong>${r.account_name}</strong>` : r.account_name;
     const codeCell = code
-      ? `<a href="/${company}/journal?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      ? `<a class="doc-link" href="/${company}/journal?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
       : code;
     tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
   }
@@ -156,6 +190,13 @@ async function buildPL(query, company, start, end) {
 }
 
 async function buildBS(query, company, start, end) {
+  let jurisdiction = '';
+  try {
+    const [co] = await query(`SELECT jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) jurisdiction = co.jurisdiction || '';
+  } catch (_) {}
+  const locale = localeFor(jurisdiction);
+  const fmt = (n) => _fmt(n, locale);
   // BS macro takes (company, end_date) — use end date
   const rows = await query(`SELECT * FROM bs(?, ?)`, [company, end]);
 
@@ -226,7 +267,7 @@ async function buildBS(query, company, start, end) {
     const code = r.account_code || '';
     const name = r.row_type === 'subtotal' ? `<em>${r.account_name}</em>` : r.account_name;
     const codeCell = code
-      ? `<a href="/${company}/journal?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      ? `<a class="doc-link" href="/${company}/journal?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
       : code;
     tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.balance)}</td></tr>`;
   }
@@ -246,9 +287,17 @@ async function buildBS(query, company, start, end) {
 }
 
 async function buildTB(query, company, start, end) {
+  let jurisdiction = '';
+  try {
+    const [co] = await query(`SELECT jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) jurisdiction = co.jurisdiction || '';
+  } catch (_) {}
+  const locale = localeFor(jurisdiction);
+  const fmt = (n) => _fmt(n, locale);
+  const fmtDC = (n) => _fmtDC(n, locale);
   const rows = await query(`SELECT * FROM tb(?, ?, ?)`, [company, start, end]);
   let tableRows = rows.map(r => `<tr class="account">
-      <td>${r.account_type}</td><td><a href="/${company}/journal?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a></td><td>${r.account_name}</td>
+      <td>${r.account_type}</td><td><a class="doc-link" href="/${company}/journal?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a></td><td>${r.account_name}</td>
     <td class="num">${fmtDC(r.total_debit)}</td>
     <td class="num">${fmtDC(r.total_credit)}</td>
     <td class="num">${fmt(r.net_balance)}</td>
@@ -290,9 +339,16 @@ async function buildTB(query, company, start, end) {
 // let it be.
 async function buildGL(query, company, start, end, account) {
   let companyName = company;
+  let jurisdiction = '';
   try {
-    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
-    if (co) companyName = co.company_name;
+    // v_companies_latest, not the raw table — companies is append-versioned
+    // (api/src/index.js mergeCompanyRow: a settings edit INSERTs a fresh
+    // row, never UPDATEs in place) — without it, a renamed company silently
+    // reads back whichever row the engine happens to return first, not
+    // necessarily the current name (found 2026-09-15 fixing the same
+    // bare-subquery shape in db/macros.sql's ap_control()).
+    const [co] = await query(`SELECT company_name, jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) { companyName = co.company_name; jurisdiction = co.jurisdiction || ''; }
   } catch (_) {}
 
   let rows = await query(`SELECT * FROM gl(?, ?, ?)`, [company, start, end]);
@@ -382,7 +438,12 @@ async function buildGL(query, company, start, end, account) {
   tr.gl-txn:hover td { background: #fafafa; }
   .no-results { text-align: center; color: #888; padding: 20px; }
   .footer { flex-shrink: 0; margin-top: 12px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
-  .doc-link { color: #18293f; text-decoration: underline; }
+  /* Quiet link (2026-09-15, per magnus — "underline looks ugly"): matches
+     the app's own established .ref-link recipe (payables.js) — no
+     underline at rest, font-weight carries the "this is interactive" cue
+     instead, underline appears only on hover. */
+  .doc-link { color: #18293f; text-decoration: none; font-weight: 500; }
+  .doc-link:hover { text-decoration: underline; }
   .pe-ro { color: #bbb; }
   /* FB.list keyboard-focus in the iframe */
   /* 2026-09-11: converged onto the same translucent tint the app's own
@@ -450,6 +511,14 @@ async function buildGL(query, company, start, end, account) {
 <script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
 <script>
   var COMPANY = ${JSON.stringify(company)};
+  // Jurisdiction-aware number formatting (docs/UI.md — negative numbers,
+  // decimals, thousands separators): FB.util.fmtAmt reads this. Found
+  // 2026-09-15: this page's own amtDisplay/balDisplay were hardcoded to
+  // 'en-US' regardless of the company's actual jurisdiction, and balDisplay
+  // specifically still wrapped negatives in parentheses — the same
+  // convention render.js's server-side fmt() was fixed away from the same
+  // day, just never applied to this page's own client-side formatter.
+  window.__fbFlags = { jurisdiction: ${JSON.stringify(jurisdiction)} };
   var GL_ROWS = ${JSON.stringify(rowsData)};
   var REPORT_START = ${JSON.stringify(start || '')};
   var REPORT_END = ${JSON.stringify(end || '')};
@@ -464,12 +533,11 @@ async function buildGL(query, company, start, end, account) {
   function amtDisplay(v) {
     var n = Number(v || 0);
     if (!n) return '';
-    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return FB.util.fmtAmt(n);
   }
   function balDisplay(v) {
     var n = Number(v || 0);
-    var abs = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return n < 0 ? '(' + abs + ')' : abs;
+    return FB.util.fmtAmt(n);
   }
 
   var glList = FB.list.create({
@@ -551,9 +619,16 @@ async function buildGL(query, company, start, end, account) {
 // FB.list's native column-header filter/sort replace that bar entirely.
 async function buildJournal(query, company, start, end) {
   let companyName = company;
+  let jurisdiction = '';
   try {
-    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
-    if (co) companyName = co.company_name;
+    // v_companies_latest, not the raw table — companies is append-versioned
+    // (api/src/index.js mergeCompanyRow: a settings edit INSERTs a fresh
+    // row, never UPDATEs in place) — without it, a renamed company silently
+    // reads back whichever row the engine happens to return first, not
+    // necessarily the current name (found 2026-09-15 fixing the same
+    // bare-subquery shape in db/macros.sql's ap_control()).
+    const [co] = await query(`SELECT company_name, jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) { companyName = co.company_name; jurisdiction = co.jurisdiction || ''; }
   } catch (_) {}
 
   const lines = await query(
@@ -613,7 +688,12 @@ async function buildJournal(query, company, start, end) {
   tr:hover td { background: #fafafa; }
   .no-results { text-align: center; color: #888; padding: 20px; }
   .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
-  .doc-link { color: #18293f; text-decoration: underline; }
+  /* Quiet link (2026-09-15, per magnus — "underline looks ugly"): matches
+     the app's own established .ref-link recipe (payables.js) — no
+     underline at rest, font-weight carries the "this is interactive" cue
+     instead, underline appears only on hover. */
+  .doc-link { color: #18293f; text-decoration: none; font-weight: 500; }
+  .doc-link:hover { text-decoration: underline; }
   .pe-ro { color: #bbb; }
   /* FB.list keyboard-focus in the iframe */
   /* 2026-09-11: converged onto the same translucent tint the app's own
@@ -676,6 +756,10 @@ async function buildJournal(query, company, start, end) {
 <script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
 <script>
   var COMPANY = ${JSON.stringify(company)};
+  // Jurisdiction-aware number formatting (docs/UI.md — negative numbers,
+  // decimals, thousands separators): FB.util.fmtAmt reads this — this
+  // page's own amtDisplay was hardcoded to 'en-US' until 2026-09-15.
+  window.__fbFlags = { jurisdiction: ${JSON.stringify(jurisdiction)} };
   var JL_ROWS = ${JSON.stringify(rowsData)};
   var REPORT_START = ${JSON.stringify(start || '')};
   var REPORT_END = ${JSON.stringify(end || '')};
@@ -690,7 +774,7 @@ async function buildJournal(query, company, start, end) {
   function amtDisplay(v) {
     var n = Number(v || 0);
     if (!n) return '';
-    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return FB.util.fmtAmt(n);
   }
 
   var jlList = FB.list.create({
@@ -780,9 +864,16 @@ async function buildJournal(query, company, start, end) {
 // (Reversed / Reversal) when applicable. Step 3 (2026-08-03).
 async function buildVoucherRegister(query, company, start, end) {
   let companyName = company;
+  let jurisdiction = '';
   try {
-    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
-    if (co) companyName = co.company_name;
+    // v_companies_latest, not the raw table — companies is append-versioned
+    // (api/src/index.js mergeCompanyRow: a settings edit INSERTs a fresh
+    // row, never UPDATEs in place) — without it, a renamed company silently
+    // reads back whichever row the engine happens to return first, not
+    // necessarily the current name (found 2026-09-15 fixing the same
+    // bare-subquery shape in db/macros.sql's ap_control()).
+    const [co] = await query(`SELECT company_name, jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) { companyName = co.company_name; jurisdiction = co.jurisdiction || ''; }
   } catch (_) {}
 
   // Group journal_entries by batch_id, server-side. One row per posted batch.
@@ -866,7 +957,8 @@ async function buildVoucherRegister(query, company, start, end) {
   .b-posted   { background: #e8f5e9; color: #2e7d32; }
   .b-reversed { background: #ffebee; color: #c62828; }
   .b-reversal { background: #fff3e0; color: #e65100; }
-  .rev-link { color: #e65100; text-decoration: underline; font-size: 9pt; }
+  .rev-link { color: #e65100; text-decoration: none; font-weight: 500; font-size: 9pt; }
+  .rev-link:hover { text-decoration: underline; }
   .pe-ro { color: #bbb; }
   /* FB.list keyboard-focus in the iframe */
   /* 2026-09-11: converged onto the same translucent tint the app's own
@@ -932,6 +1024,10 @@ async function buildVoucherRegister(query, company, start, end) {
 <script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
 <script>
   var COMPANY = ${JSON.stringify(company)};
+  // Jurisdiction-aware number formatting (docs/UI.md — negative numbers,
+  // decimals, thousands separators): FB.util.fmtAmt reads this — this
+  // page's own amtDisplay was hardcoded to 'en-US' until 2026-09-15.
+  window.__fbFlags = { jurisdiction: ${JSON.stringify(jurisdiction)} };
   var VR_ROWS = ${JSON.stringify(rowsData)};
   var REPORT_START = ${JSON.stringify(start || '')};
   var REPORT_END = ${JSON.stringify(end || '')};
@@ -961,7 +1057,7 @@ async function buildVoucherRegister(query, company, start, end) {
   function amtDisplay(v) {
     var n = Number(v || 0);
     if (!n) return '';
-    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return FB.util.fmtAmt(n);
   }
 
   var vrList = FB.list.create({
@@ -1027,6 +1123,13 @@ async function buildVoucherRegister(query, company, start, end) {
 }
 
 async function buildCF(query, company, start, end) {
+  let jurisdiction = '';
+  try {
+    const [co] = await query(`SELECT jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) jurisdiction = co.jurisdiction || '';
+  } catch (_) {}
+  const locale = localeFor(jurisdiction);
+  const fmt = (n) => _fmt(n, locale);
   const rows = await query(`SELECT * FROM cf(?, ?, ?)`, [company, start, end]);
   let lastSection = null;
   let tableRows = '';
@@ -1040,7 +1143,7 @@ async function buildCF(query, company, start, end) {
     const code = r.account_code || '';
     const name = r.row_type === 'total' ? `<strong>${r.account_name}</strong>` : r.account_name;
     const codeCell = code
-      ? `<a href="/${company}/journal?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
+      ? `<a class="doc-link" href="/${company}/journal?t=gl&account=${encodeURIComponent(code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${code}</a>`
       : code;
     tableRows += `<tr class="${cls}"><td>${codeCell}</td><td>${name}</td><td class="num">${fmt(r.amount)}</td></tr>`;
   }
@@ -1052,9 +1155,16 @@ async function buildCF(query, company, start, end) {
 }
 
 async function buildSCE(query, company, start, end) {
+  let jurisdiction = '';
+  try {
+    const [co] = await query(`SELECT jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) jurisdiction = co.jurisdiction || '';
+  } catch (_) {}
+  const locale = localeFor(jurisdiction);
+  const fmt = (n) => _fmt(n, locale);
   const rows = await query(`SELECT * FROM sce(?, ?, ?)`, [company, start, end]);
   let tableRows = rows.map(r => `<tr class="account">
-    <td>${r.account_code ? `<a href="/${company}/journal?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a>` : ''}</td><td>${r.account_name}</td>
+    <td>${r.account_code ? `<a class="doc-link" href="/${company}/journal?t=gl&account=${encodeURIComponent(r.account_code)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" target="_parent">${r.account_code}</a>` : ''}</td><td>${r.account_name}</td>
     <td class="num">${fmt(r.opening_balance)}</td>
     <td class="num">${fmt(r.movements)}</td>
     <td class="num">${fmt(r.closing_balance)}</td>
@@ -1079,17 +1189,20 @@ async function buildIntegrity(query, company, start, end) {
   // P2-1: Resolve closing + RE accounts from jurisdiction pack, fallback to COA.
   let closingAccount = null;
   let reAccount = null;
+  let jurisdiction = '';
   try {
     const coRows = await query(
       `SELECT jurisdiction FROM (SELECT *, ROW_NUMBER() OVER(PARTITION BY company_id ORDER BY created_at DESC) AS rn FROM companies WHERE company_id = ?) WHERE rn = 1`,
       [company]
     );
     if (coRows.length) {
+      jurisdiction = coRows[0].jurisdiction || '';
       const { closingConfigFor } = require('../api/src/jurisdiction-packs');
       const cfg = closingConfigFor(coRows[0].jurisdiction);
       if (cfg) { closingAccount = cfg.closingAccount; reAccount = cfg.retainedEarningsAccount; }
     }
   } catch (e) { /* require may not resolve in all contexts — fallback below */ }
+  const fmt = (n) => _fmt(n, localeFor(jurisdiction));
   // Fallback: discover closing account from COA
   if (!closingAccount) {
     const acctRows = await query(`SELECT account_code FROM accounts WHERE company_id = ? AND account_type = 'Closing' LIMIT 1`, [company]);
@@ -1196,9 +1309,16 @@ async function buildIntegrity(query, company, start, end) {
 
 async function buildAPAging(query, company, _start, end) {
   let companyName = company;
+  let jurisdiction = '';
   try {
-    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
-    if (co) companyName = co.company_name;
+    // v_companies_latest, not the raw table — companies is append-versioned
+    // (api/src/index.js mergeCompanyRow: a settings edit INSERTs a fresh
+    // row, never UPDATEs in place) — without it, a renamed company silently
+    // reads back whichever row the engine happens to return first, not
+    // necessarily the current name (found 2026-09-15 fixing the same
+    // bare-subquery shape in db/macros.sql's ap_control()).
+    const [co] = await query(`SELECT company_name, jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) { companyName = co.company_name; jurisdiction = co.jurisdiction || ''; }
   } catch (_) {}
 
   const asOf = end;
@@ -1279,11 +1399,15 @@ async function buildAPAging(query, company, _start, end) {
 <script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
 <script>
   var COMPANY = ${JSON.stringify(company)};
+  // Jurisdiction-aware number formatting (docs/UI.md — negative numbers,
+  // decimals, thousands separators): FB.util.fmtAmt reads this — this
+  // page's own fmt() was hardcoded to 'en-US' until 2026-09-15.
+  window.__fbFlags = { jurisdiction: ${JSON.stringify(jurisdiction)} };
   var AS_OF   = ${JSON.stringify(asOf)};
 
   function fmt(n) {
     if (!n || n === 0) return '';
-    return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return FB.util.fmtAmt(Number(n));
   }
 
   // Group rows into vendor parents with bills as children.
@@ -1470,10 +1594,18 @@ async function buildAPAging(query, company, _start, end) {
 // ── AP Control Reconciliation (P2-3) ────────────────────────────────────────
 async function buildApControl(query, company, _start, end) {
   let companyName = company;
+  let jurisdiction = '';
   try {
-    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
-    if (co) companyName = co.company_name;
+    // v_companies_latest, not the raw table — companies is append-versioned
+    // (api/src/index.js mergeCompanyRow: a settings edit INSERTs a fresh
+    // row, never UPDATEs in place) — without it, a renamed company silently
+    // reads back whichever row the engine happens to return first, not
+    // necessarily the current name (found 2026-09-15 fixing the same
+    // bare-subquery shape in db/macros.sql's ap_control()).
+    const [co] = await query(`SELECT company_name, jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) { companyName = co.company_name; jurisdiction = co.jurisdiction || ''; }
   } catch (_) {}
+  const fmt = (n) => _fmt(n, localeFor(jurisdiction));
 
   let rows = [];
   try {
@@ -1585,7 +1717,13 @@ async function renderReport(query, company, reportType, startDate, endDate, opts
   // Get company name
   let companyName = company;
   try {
-    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
+    // companies is append-versioned (api/src/index.js mergeCompanyRow: a
+    // settings edit INSERTs a fresh row, never UPDATEs in place) — without
+    // ORDER BY + LIMIT 1, a renamed company silently reads back whichever
+    // row the engine happens to return first, not necessarily the current
+    // name (found 2026-09-15 fixing the same bare-subquery shape in
+    // db/macros.sql's ap_control()).
+    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ? ORDER BY created_at DESC LIMIT 1`, [company]);
     if (co) companyName = co.company_name;
   } catch (_) {}
 
@@ -1683,10 +1821,18 @@ async function renderComparative(query, company, reportType, periods) {
 
   const title = REPORT_TITLES[reportType] || reportType;
   let companyName = company;
+  let jurisdiction = '';
   try {
-    const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [company]);
-    if (co) companyName = co.company_name;
+    // v_companies_latest, not the raw table — companies is append-versioned
+    // (api/src/index.js mergeCompanyRow: a settings edit INSERTs a fresh
+    // row, never UPDATEs in place) — without it, a renamed company silently
+    // reads back whichever row the engine happens to return first, not
+    // necessarily the current name (found 2026-09-15 fixing the same
+    // bare-subquery shape in db/macros.sql's ap_control()).
+    const [co] = await query(`SELECT company_name, jurisdiction FROM v_companies_latest WHERE company_id = ?`, [company]);
+    if (co) { companyName = co.company_name; jurisdiction = co.jurisdiction || ''; }
   } catch (_) {}
+  const fmt = (n) => _fmt(n, localeFor(jurisdiction));
 
   // Only PL, BS, TB support sensible comparative pivots; others fall back to single period
   const PIVOT_SUPPORTED = ['pl', 'bs', 'cf'];

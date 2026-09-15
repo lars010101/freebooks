@@ -56,8 +56,11 @@ async function main() {
   const con = db.connect();
   const query = makeQuery(con);
 
-  // Verify company
-  const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ?`, [COMPANY]);
+  // Verify company. companies is append-versioned (api/src/index.js
+  // mergeCompanyRow: a settings edit INSERTs a fresh row, never UPDATEs in
+  // place) — ORDER BY + LIMIT 1 picks the current row, same fix as
+  // render.js/db/macros.sql's ap_control() (found 2026-09-15).
+  const [co] = await query(`SELECT company_name FROM companies WHERE company_id = ? ORDER BY created_at DESC LIMIT 1`, [COMPANY]);
   if (!co) { console.error(`Company '${COMPANY}' not found.`); process.exit(1); }
 
   // Resolve period/date range

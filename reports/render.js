@@ -80,6 +80,19 @@ function htmlPage(title, company, period, tableHtml, opts = {}) {
                           letter-spacing: 0.05em; color: #444; padding-top: 16px; border-bottom: none;
                           background: none; }
   tr.zero td.num { color: #bbb; }
+  /* Account-hierarchy indentation (PL/BS, 2026-09-14) — individual line items
+     nest visually under their section/category header instead of sitting
+     flush with it (the industry-standard QBO/Xero convention this app's own
+     PL/BS previously lacked — see docs/UI.md). Two steps: a leaf account row
+     (tr.indent) sits one step in; a category-level subtotal that itself
+     rolls up several such rows (tr.indent-sub — BS's "Total <bs_category>"
+     line, one level above the accounts it sums but still below its own
+     account_type header) sits half a step in. A section header and the
+     total/type_total row that closes it out both stay flush at the base
+     margin — the visual "staircase" reads header (flush) > accounts
+     (indented) > subtotal (half-indented) > closing total (flush, bold). */
+  tr.indent td:nth-child(2) { padding-left: 24px; }
+  tr.indent-sub td:nth-child(2) { padding-left: 12px; }
   .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd;
             font-size: 9pt; color: #888; }
   @media print {
@@ -126,7 +139,8 @@ async function buildPL(query, company, start, end) {
       tableRows += `<tr class="section-header"><td colspan="3">${r.section}</td></tr>`;
       lastSection = r.section;
     }
-    const cls = r.row_type + (r.amount == 0 && r.row_type === 'account' ? ' zero' : '');
+    const cls = r.row_type + (r.amount == 0 && r.row_type === 'account' ? ' zero' : '')
+      + (r.row_type === 'account' ? ' indent' : '');
     const code = r.account_code || '';
     const name = r.row_type === 'total' ? `<strong>${r.account_name}</strong>` : r.account_name;
     const codeCell = code
@@ -192,7 +206,7 @@ async function buildBS(query, company, start, end) {
       if (/equity/i.test(r.account_name)) {
         // Insert unallocated net income row before TOTAL EQUITY (if non-zero)
         if (netIncome !== 0) {
-          tableRows += `<tr class="account"><td></td><td><em>Unallocated net income / (loss)</em></td><td class="num">${fmt(netIncome)}</td></tr>`;
+          tableRows += `<tr class="account indent"><td></td><td><em>Unallocated net income / (loss)</em></td><td class="num">${fmt(netIncome)}</td></tr>`;
         }
         // Adjust TOTAL EQUITY to include net income
         const adjustedTotal = parseFloat(r.balance || 0) + netIncome;
@@ -206,7 +220,9 @@ async function buildBS(query, company, start, end) {
       tableRows += `<tr class="section-header"><td colspan="3">${r.account_type}</td></tr>`;
       lastType = r.account_type;
     }
-    const cls = r.row_type + (r.balance == 0 && r.row_type === 'account' ? ' zero' : '');
+    const cls = r.row_type + (r.balance == 0 && r.row_type === 'account' ? ' zero' : '')
+      + (r.row_type === 'account' ? ' indent' : '')
+      + (r.row_type === 'subtotal' ? ' indent-sub' : '');
     const code = r.account_code || '';
     const name = r.row_type === 'subtotal' ? `<em>${r.account_name}</em>` : r.account_name;
     const codeCell = code

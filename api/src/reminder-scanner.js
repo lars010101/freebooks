@@ -26,7 +26,11 @@ const LEAD_DAYS = parseInt(process.env.FREEBOOKS_REMINDER_LEAD_DAYS || '7', 10);
  */
 async function runReminderScan() {
   try {
-    const companies = await query(`SELECT company_id FROM companies ORDER BY company_id`);
+    // v_companies_latest, not the raw table — companies is append-versioned
+    // (a settings edit inserts a fresh row rather than updating in place),
+    // so a company that's ever had its settings edited would otherwise be
+    // scanned once per historical row per cycle.
+    const companies = await query(`SELECT company_id FROM v_companies_latest ORDER BY company_id`);
     let notified = 0;
     for (const co of companies) {
       try {

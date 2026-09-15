@@ -62,7 +62,11 @@ async function getInstallSetting(key) {
  * Get all company IDs that exist in the companies table.
  */
 async function getAllCompanies() {
-  return query(`SELECT company_id FROM companies`);
+  // v_companies_latest, not the raw table — companies is append-versioned
+  // (a settings edit inserts a fresh row rather than updating in place), so
+  // a company that's ever had its settings edited would otherwise be
+  // returned once per historical row and get watched/scanned twice.
+  return query(`SELECT company_id FROM v_companies_latest`);
 }
 
 /**

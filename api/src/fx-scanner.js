@@ -30,10 +30,15 @@ const SCAN_MS = parseInt(process.env.FREEBOOKS_FX_SCAN_MS || (6 * 60 * 60 * 1000
  */
 async function runFxScan() {
   try {
-    // Get all companies with fx_tracking='true' and a real provider
+    // Get all companies with fx_tracking='true' and a real provider.
+    // v_companies_latest, not the raw table — companies is append-versioned
+    // (a settings edit inserts a fresh row rather than updating in place):
+    // joining the raw table would both double-scan a company that's ever
+    // had its settings edited AND risk reading a stale c.currency off
+    // whichever historical row the join happens to pick.
     const companies = await query(
       `SELECT c.company_id, c.currency
-         FROM companies c
+         FROM v_companies_latest c
          JOIN settings s ON c.company_id = s.company_id AND s.key = 'fx_tracking' AND s.value = 'true'
          JOIN settings p ON c.company_id = p.company_id AND p.key = 'fx_provider' AND p.value != 'manual'
          ORDER BY c.company_id`

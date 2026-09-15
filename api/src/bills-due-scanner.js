@@ -32,7 +32,11 @@ const SCAN_MS = parseInt(process.env.FREEBOOKS_BILLS_DUE_SCAN_MS || (24 * 60 * 6
  */
 async function runBillsDueScan() {
   try {
-    const companies = await query(`SELECT company_id FROM companies ORDER BY company_id`);
+    // v_companies_latest, not the raw table — companies is append-versioned
+    // (a settings edit inserts a fresh row rather than updating in place),
+    // so a company that's ever had its settings edited would otherwise be
+    // scanned once per historical row per cycle.
+    const companies = await query(`SELECT company_id FROM v_companies_latest ORDER BY company_id`);
     let notified = 0;
     for (const co of companies) {
       try {

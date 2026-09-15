@@ -4,8 +4,13 @@ const { makeQuery, commonStyle } = require('./common');
 async function handleIndex(req, res) {
   const query = makeQuery();
   try {
+    // v_companies_latest, not the raw table — companies is append-versioned
+    // (a settings edit inserts a fresh row rather than updating in place),
+    // so a plain SELECT DISTINCT company_id, company_name would list a
+    // renamed company once per name it's ever had (DISTINCT dedupes the
+    // pair, not the company), not once with its current name.
     const companies = await query(
-      `SELECT DISTINCT company_id, company_name FROM companies ORDER BY company_name`
+      `SELECT company_id, company_name FROM v_companies_latest ORDER BY company_name`
     );
     if (companies.length === 0) {
       return res.redirect(302, '/setup/new-company');

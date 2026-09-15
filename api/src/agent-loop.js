@@ -52,9 +52,14 @@ async function getCompanySettings(companyId) {
 }
 
 async function getEnabledCompanies() {
+  // v_companies_latest, not the raw table — companies is append-versioned
+  // (a settings edit inserts a fresh row rather than updating in place):
+  // joining the raw table would both run the agent loop twice for a
+  // company that's ever had its settings edited AND risk reading a stale
+  // c.company_name off whichever historical row the join happens to pick.
   return query(
     `SELECT c.company_id, c.company_name
-     FROM companies c
+     FROM v_companies_latest c
      JOIN settings s ON s.company_id = c.company_id
      WHERE s.key = 'agent_enabled' AND s.value = 'true'`
   );

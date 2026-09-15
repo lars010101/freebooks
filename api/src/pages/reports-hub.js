@@ -87,6 +87,13 @@ ${commonStyle()}
   .rpt-embed tr.total td { font-weight:700; font-size:0.875rem; border-top:2px solid var(--text); border-bottom:3px double var(--text); background:var(--bg); }
   .rpt-embed tr.section-header td { font-weight:700; font-size:0.8125rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); padding-top:16px; border-bottom:none; background:none; }
   .rpt-embed tr.zero td.num { color:var(--text-faint); }
+  /* .doc-link's own rule lives in the report's <style> (render.js htmlPage())
+     — stripped along with the rest of <head> by the DOMParser fragment
+     extraction above, same reason every other rpt-embed rule here exists.
+     Without this the class renders with no CSS at all: browser-default blue
+     underline, not the quiet link the rest of the app uses. */
+  .rpt-embed .doc-link { color:var(--accent); text-decoration:none; font-weight:500; }
+  .rpt-embed .doc-link:hover { text-decoration:underline; }
   .rpt-embed .footer { margin-top:32px; padding-top:12px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--text-muted); }
   .rpt-embed-msg { padding:2rem; color:var(--text-muted); }
 </style>

@@ -1629,21 +1629,58 @@ async function buildApControl(query, company, _start, end) {
     }];
   }
 
+  // Bills backing bill_count/posted_total/paid_total, per account — same
+  // WHERE clause as ap_control()'s subledger_side CTE (db/macros.sql), so
+  // "Bills (N)" / "Posted" / "Paid" can drill through to exactly the bills
+  // each number was built from, not just a same-shaped re-query that could
+  // drift from the macro over time.
+  const billIdsByAccount = {};
+  try {
+    const billRows = await query(
+      `SELECT ap_account, bill_id FROM bills WHERE company_id = ? AND status = 'posted' AND date <= ?`,
+      [company, end]
+    );
+    for (const b of billRows) {
+      (billIdsByAccount[b.ap_account] || (billIdsByAccount[b.ap_account] = [])).push(b.bill_id);
+    }
+  } catch (_) {}
+
+  // Capped defensively — an id-per-bill URL stops being a reasonable link
+  // long before any real account gets here; falls back to a plain number.
+  const MAX_DRILL_BILLS = 300;
+  function drillLink(basePathAndQuery, account, label) {
+    const ids = billIdsByAccount[account] || [];
+    if (!ids.length || ids.length > MAX_DRILL_BILLS) return label;
+    const href = `${basePathAndQuery}&billIds=${encodeURIComponent(ids.join(','))}`;
+    return `<a class="doc-link" href="${href}" target="_parent">${label}</a>`;
+  }
+  // Bills/Posted are the bill records themselves; Paid is a sum of payment
+  // amounts, so it drills to the Bank page's Payments tab (the record it was
+  // actually built from) rather than to Bills.
+  function billsLink(account, label) { return drillLink(`/${company}/payables?tab=bills`, account, label); }
+  function paidLink(account, label) { return drillLink(`/${company}/bank?tab=payments`, account, label); }
+
   const statusColor = { OK: '#2d8a2d', WARN: '#cc7700', FAIL: '#cc2222' };
 
   const tableRows = rows.map((r) => {
     const status = r.status || 'OK';
     const color = statusColor[status] || '#1a1a1a';
+    const code = r.ap_account || '';
+    const acctOpenTag = code
+      ? `<a class="doc-link" href="/${company}/journal?t=gl&account=${encodeURIComponent(code)}&end=${encodeURIComponent(end)}" target="_parent">`
+      : '';
+    const codeCell = code ? `${acctOpenTag}${code}</a>` : '';
+    const nameCell = (code && r.account_name) ? `${acctOpenTag}${r.account_name}</a>` : (r.account_name || '');
     return `<tr>
-      <td>${r.ap_account || ''}</td>
-      <td>${r.account_name || ''}</td>
+      <td>${codeCell}</td>
+      <td>${nameCell}</td>
       <td class="num">${fmt(Math.round(Number(r.gl_balance || 0)))}</td>
       <td class="num">${fmt(Math.round(Number(r.subledger_balance || 0)))}</td>
       <td class="num">${fmt(Math.round(Number(r.difference || 0)))}</td>
       <td style="color:${color};font-weight:600">${status}</td>
-      <td class="num">${Number(r.bill_count || 0)}</td>
-      <td class="num">${fmt(Math.round(Number(r.posted_total || 0)))}</td>
-      <td class="num">${fmt(Math.round(Number(r.paid_total || 0)))}</td>
+      <td class="num">${billsLink(code, Number(r.bill_count || 0))}</td>
+      <td class="num">${billsLink(code, fmt(Math.round(Number(r.posted_total || 0))))}</td>
+      <td class="num">${paidLink(code, fmt(Math.round(Number(r.paid_total || 0))))}</td>
     </tr>`;
   }).join('');
 

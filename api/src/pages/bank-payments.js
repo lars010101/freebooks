@@ -11,6 +11,18 @@ function paymentsTabJS() {
 // is exactly Inbox's Transactions-tab shape: editable:false + rowVerbs.
 var PAYMENTS_THRESHOLD = 1000;
 
+// AP Control drill-through ("Paid (126)" links here with ?billIds=id1,id2,...):
+// read once at load so the very first paymentsList.load() below already asks
+// for exactly the payments against that bill set — unconstrained by the
+// global Period Selector's current date range, matching payables-bills.js's
+// deepLinkBillIds for the same reason.
+var deepLinkBillIds = (function () {
+  try {
+    var raw = new URLSearchParams(window.location.search).get('billIds');
+    return raw ? raw.split(',').filter(Boolean) : null;
+  } catch (e) { return null; }
+})();
+
 var paymentsList = FB.list.create({
   keysId: 'bank-payments',
   tbody: 'payments-tbody',
@@ -39,7 +51,11 @@ var paymentsList = FB.list.create({
     { field: 'amount', sortable: true, align: 'right', filterType: 'amount', label: 'Amount',
       display: function (v, r) { return '<span class="amt"' + (r.voided ? ' style="color:var(--text-faint);text-decoration:line-through"' : '') + '>' + FB.util.fmtAmt(v) + '</span>'; } },
     { field: 'method', sortable: true, filterType: 'list', label: 'Method',
-      display: function (v) { return '<span class="badge ' + (v === 'bank_match' ? 'badge-info' : 'badge-neutral') + '">' + (v === 'bank_match' ? 'Bank Match' : 'Manual') + '</span>'; } },
+      display: function (v) {
+        var cls = v === 'bank_match' ? 'badge-info' : (v === 'write_off' ? 'badge-warning' : 'badge-neutral');
+        var label = v === 'bank_match' ? 'Bank Match' : (v === 'write_off' ? 'Write-off' : 'Manual');
+        return '<span class="badge ' + cls + '">' + label + '</span>';
+      } },
     { field: 'reference', sortable: true, filterType: 'text', label: 'Reference',
       display: function (v) { return v ? esc(v) : '<span class="pe-ro">—</span>'; } },
     { field: 'status', sortable: true, filterType: 'list', label: 'Status',
@@ -49,6 +65,10 @@ var paymentsList = FB.list.create({
   list: {
     action: 'payment.list',
     body: function () {
+      // AP Control drill-through: pin to the explicit bill id set, no date
+      // filter at all — the clicked "Paid" total's payments may fall outside
+      // whatever range the global Period Selector currently has active.
+      if (deepLinkBillIds) return { threshold: PAYMENTS_THRESHOLD, billIds: deepLinkBillIds, voided: true };
       var st = window.FB && FB.period ? FB.period.get() : {};
       // No page-specific Direction/Method/Voided toolbar — those columns are
       // already sortable/filterable (≡) via FB.list itself, so a bespoke

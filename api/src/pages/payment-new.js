@@ -161,7 +161,13 @@ if (savedAcct) document.getElementById('pn-acct').value = savedAcct;
 // per-pick round-trip.
 apiAction('partner.list', { partner_type: 'vendor' }).then(d => { S.partners = d || []; });
 let allBills = [];
-apiAction('bill.list', { threshold: 100000 }).then(result => {
+// Kept as its own promise (not just the allBills assignment) — the
+// pre-scope-from-a-bill-row path below must not call loadQualifying() before
+// this resolves, or it filters against the still-empty [] and reports "no
+// open bills" for a partner that plainly has one (the bill it was opened
+// from). bill.get (a single-row lookup) reliably beats this fetch of
+// potentially thousands of rows, so the race was real, not theoretical.
+const allBillsLoaded = apiAction('bill.list', { threshold: 100000 }).then(result => {
   // bill.list's own handler shape ({data, total}, or {data:[], total,
   // tooMany:true} over threshold) — apiAction only unwraps the outer
   // {ok, data} envelope, not this inner one too.
@@ -206,7 +212,7 @@ document.getElementById('pn-partner').addEventListener('blur', () => {
   }, 220);
 });
 
-// ── Load this partner's open (posted/partial, outstanding>0) bills —
+// ── Load this partner's open (posted, outstanding>0) bills —
 // mirrors payables-bills.js's retired openMultiPayPanel query, now a filter
 // over the up-front bill fetch instead of a DOM scan or a per-pick round
 // trip. preselectId (if given) starts checked; the rest start unchecked —
@@ -225,7 +231,7 @@ function loadQualifying(partnerName, preselectId) {
   const pn = (partnerName || '').toLowerCase();
   S.openForPartner = allBills.filter(b =>
     (b.partner_name || '').toLowerCase() === pn &&
-    (b.status === 'posted' || b.status === 'partial') &&
+    b.status === 'posted' &&
     (Number(b.amount) || 0) - (Number(b.amount_paid) || 0) > 0
   );
   S.lastFxCurrency = null; // forces a fresh fx.rates.get once a foreign bill is checked
@@ -359,7 +365,7 @@ document.addEventListener('keydown', function (e) {
 
 // ── Pre-scope from a bill row's y (§2) ──────────────────────────────────────
 if (presetBillId) {
-  apiAction('bill.get', { billId: presetBillId }).then(bill => {
+  Promise.all([apiAction('bill.get', { billId: presetBillId }), allBillsLoaded]).then(([bill]) => {
     loadQualifying(bill.partner_name, presetBillId);
   }).catch(e => msg('Could not load bill: ' + e.message, 'err'));
 }

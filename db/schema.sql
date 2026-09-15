@@ -611,6 +611,21 @@ SELECT c.company_id, 'vat_tolerance_pct', '0.01', NOW()
 FROM v_companies_latest c
 WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'vat_tolerance_pct');
 
+-- MIGRATION: write-off threshold settings (2026-09-15).
+-- Seeded at company creation in api/src/setup.js; backfill here for
+-- companies created before this migration. Same max(flat, pct * bill.amount)
+-- materiality shape as vat_tolerance above — see bill.write_off's own
+-- comment (api/src/bills.js) for the full rationale.
+INSERT INTO settings (company_id, key, value, updated_at)
+SELECT c.company_id, 'write_off_threshold', '1.00', NOW()
+FROM v_companies_latest c
+WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'write_off_threshold');
+
+INSERT INTO settings (company_id, key, value, updated_at)
+SELECT c.company_id, 'write_off_threshold_pct', '0.01', NOW()
+FROM v_companies_latest c
+WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'write_off_threshold_pct');
+
 -- MIGRATION: center derivation rollout gate (see spec §2/§3/§4/§6a/§7).
 -- Seeded false so deploying the derivation code (§4) is inert on its own —
 -- nothing in the posting paths runs differently until an owner explicitly

@@ -205,6 +205,14 @@ async function addCompany(ctx) {
     // Center derivation rollout gate (spec §2/§7). Seeded false — owner flips
     // to 'true' via settings.save when ready (after backfilling profit_center_id).
     { company_id: company.company_id, key: 'center_derivation_enabled', value: 'false', updated_at: now },
+    // Write-off materiality gate (2026-09-15): a bill's outstanding balance
+    // may only be written off (closed with no real payment) up to
+    // max(flat, pct * bill.amount) — same max(flat, %) shape as VAT
+    // Tolerance above, so a small rounding/FX residue can be closed in one
+    // click while a real, material amount still requires a proper journal
+    // entry (or a real payment) instead.
+    { company_id: company.company_id, key: 'write_off_threshold', value: '1.00', updated_at: now },
+    { company_id: company.company_id, key: 'write_off_threshold_pct', value: '0.01', updated_at: now },
   ]);
 
   // Seed default journals

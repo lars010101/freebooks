@@ -433,11 +433,11 @@ async function handleCoa(ctx, action) {
     // Single-holder is enforced here in the SAME write: setting a new holder
     // clears default_role from the company's other accounts that previously
     // held that role (settings-ux-spec §7 item 1, second bullet).
-    const ALLOWED_ROLES = new Set([null, '', 'AP', 'Expense', 'FX Gain/Loss', 'Cash']);
+    const ALLOWED_ROLES = new Set([null, '', 'AP', 'Expense', 'FX Gain/Loss', 'Cash', 'Write-off']);
     let role = (account.default_role === undefined ? null : account.default_role);
     if (role === '') role = null;
     if (!ALLOWED_ROLES.has(role)) {
-      throw Object.assign(new Error(`default_role must be null, 'AP', 'Expense', 'FX Gain/Loss', or 'Cash' (got: ${JSON.stringify(account.default_role)})`), { code: 'INVALID_INPUT' });
+      throw Object.assign(new Error(`default_role must be null, 'AP', 'Expense', 'FX Gain/Loss', 'Cash', or 'Write-off' (got: ${JSON.stringify(account.default_role)})`), { code: 'INVALID_INPUT' });
     }
     const roleValue = role; // null | 'AP' | 'Expense'
 
@@ -1410,6 +1410,9 @@ async function handleSettings(ctx, action) {
     const fxBandDisplay = isNaN(fxBandFraction) ? 15 : Math.round(fxBandFraction * 100 * 100) / 100;
     const billToleranceFraction = parseFloat(s.bill_match_tolerance_pct);
     const billToleranceDisplay = isNaN(billToleranceFraction) ? 2 : Math.round(billToleranceFraction * 100 * 100) / 100;
+    const writeOffPctFraction = parseFloat(s.write_off_threshold_pct);
+    const writeOffPctDisplay = isNaN(writeOffPctFraction) ? 1 : Math.round(writeOffPctFraction * 100 * 100) / 100;
+    const writeOffFlatNum = parseFloat(s.write_off_threshold);
     const dash = '—';
     const attrs = [
       { key: 'multi_currency', label: 'Multi-Currency', type: 'Boolean', value: s.fx_tracking === 'true', display: s.fx_tracking === 'true' ? 'Yes' : 'No', editor: { type: 'checkbox' } },
@@ -1424,6 +1427,10 @@ async function handleSettings(ctx, action) {
         note: 'How far a bank statement amount may drift from a foreign bill’s booked rate before bank-match still considers it (bank-matching-spec.md §4.4)' },
       { key: 'bill_match_tolerance_pct', label: 'Bill Match Tolerance (%)', type: 'Number', value: billToleranceDisplay, display: billToleranceDisplay.toFixed(2) + '%', editor: { type: 'number', step: '0.5' },
         note: 'Upper bound of the early-payment-discount band bank-match uses for home-currency bills — a bank amount this far below the invoice is still surfaced as a suggestion, not auto-matched (bank-matching-spec.md §4.1)' },
+      { key: 'write_off_threshold', label: 'Write-off Threshold (flat)', type: 'Number', value: isNaN(writeOffFlatNum) ? 1 : writeOffFlatNum, display: (isNaN(writeOffFlatNum) ? 1 : writeOffFlatNum).toFixed(2), editor: { type: 'number', step: '0.01' },
+        note: 'A bill’s remaining outstanding balance can be written off (closed with no real payment) only up to the larger of this flat amount or the % below — same max(flat, %) shape as VAT Tolerance. Keeps "Write off" usable for rounding/FX residue, not for skipping a real payment.' },
+      { key: 'write_off_threshold_pct', label: 'Write-off Threshold (%)', type: 'Number', value: writeOffPctDisplay, display: writeOffPctDisplay.toFixed(2) + '%', editor: { type: 'number', step: '0.1' },
+        note: 'Percentage of the bill’s own amount, not of the outstanding balance — a bigger bill can tolerate a bigger rounding residue.' },
     ];
     return attrs;
   }
@@ -1532,6 +1539,18 @@ async function handleSettings(ctx, action) {
         const n = Number(value);
         if (!isFinite(n) || n < 0) throw invalid('Bill match tolerance % must be a non-negative number');
         await putSetting(companyId, 'bill_match_tolerance_pct', String(n / 100));
+        break;
+      }
+      case 'write_off_threshold': {
+        const n = Number(value);
+        if (!isFinite(n) || n < 0) throw invalid('Write-off threshold must be a non-negative number');
+        await putSetting(companyId, 'write_off_threshold', String(n));
+        break;
+      }
+      case 'write_off_threshold_pct': {
+        const n = Number(value);
+        if (!isFinite(n) || n < 0) throw invalid('Write-off threshold % must be a non-negative number');
+        await putSetting(companyId, 'write_off_threshold_pct', String(n / 100));
         break;
       }
       default:

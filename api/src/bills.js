@@ -12,7 +12,7 @@ const { v4: uuid } = require('uuid');
 const { query, exec, bulkInsert } = require('./db');
 const { getNextReference } = require('./journal');
 const { validateBill } = require('./validation');
-const { settleBillPayment, settleMultiBillPayment } = require('./settlement');
+const { settleBillPayment, settleMultiBillPayment, applyBillSettlement } = require('./settlement');
 const { getRate } = require('./fx');
 const { emitEvent } = require('./events');
 const { deriveProfitCenter, isDerivationEnabled } = require('./centers');
@@ -82,6 +82,7 @@ async function handleBills(ctx, action) {
   switch (action) {
     case 'bill.create': return createBill(ctx);
     case 'bill.void':   return voidBill(ctx);
+    case 'bill.write_off': return writeOffBill(ctx);
     case 'bill.list':   return listBills(ctx);
     case 'bill.lines':  return getBillLines(ctx);
     case 'bill.aging':  return getAgingReport(ctx);
@@ -134,8 +135,14 @@ async function createBill(ctx) {
   }
 
   // Resolve company currency + FX rate BEFORE validation (validateBill checks bill.fx_rate)
+  // v_companies_latest, not the raw table — companies is append-versioned
+  // (api/src/index.js mergeCompanyRow: a settings edit INSERTs a fresh row,
+  // never UPDATEs in place), so a bare query here could non-deterministically
+  // return a stale currency for any company whose settings were ever edited
+  // (same root cause as the render.js/db/macros.sql staleness found
+  // 2026-09-15 — this one just went unaudited until now).
   const companies = await query(
-    `SELECT currency, vat_registered FROM companies WHERE company_id = @companyId LIMIT 1`,
+    `SELECT currency, vat_registered FROM v_companies_latest WHERE company_id = @companyId LIMIT 1`,
     { companyId }
   );
   const company = companies[0];
@@ -575,8 +582,13 @@ async function voidBill(ctx) {
 
   const bill = bills[0];
   if (bill.status === 'void') throw Object.assign(new Error('Bill is already void'), { code: 'INVALID_STATUS' });
-  if (bill.status === 'partial') throw Object.assign(new Error('Cannot void a partially paid bill. To cancel the outstanding balance, post a credit note (DR AP account / CR expense account) for the remaining amount. Payments already made cannot be reversed.'), { code: 'INVALID_STATUS' });
   if (bill.status === 'paid') throw Object.assign(new Error('Cannot void a paid bill — reverse the payment journal first'), { code: 'INVALID_STATUS' });
+  // 'partial' is no longer a stored status (2026-09-15) — a bill with any
+  // payment applied is still 'posted'; amount_paid is the source of truth
+  // for how much of it has been paid. Same guard as before, driven directly
+  // by the fact it protects instead of a status value that had to be kept
+  // in sync with it.
+  if (Number(bill.amount_paid) > 0.005) throw Object.assign(new Error('Cannot void a partially paid bill. To cancel the outstanding balance, post a credit note (DR AP account / CR expense account) for the remaining amount. Payments already made cannot be reversed.'), { code: 'INVALID_STATUS' });
 
   if (bill.status === 'posted') {
     const entries = await query(
@@ -604,6 +616,121 @@ async function voidBill(ctx) {
   );
 
   return { voided: true, billId };
+}
+
+/**
+ * writeOffBill — close a posted bill's small remaining outstanding balance
+ * with no real payment: DR the bill's AP account / CR a dedicated Write-off
+ * account (accounts.default_role = 'Write-off', resolved the same way
+ * settlement.js resolves 'FX Gain/Loss'), then marks the bill fully paid.
+ *
+ * Gated by a materiality threshold (settings write_off_threshold /
+ * write_off_threshold_pct, max(flat, pct * bill.amount) — same shape as
+ * getVatTolerance above) so this can only ever close out rounding/FX
+ * residue, never stand in for skipping a real payment: a write-off with no
+ * cap would be indistinguishable from "never pay this vendor," and a large
+ * write-off almost always means something real (a pricing dispute, a
+ * genuine vendor credit) that deserves a human decision, not a one-click
+ * journal entry. See docs discussion 2026-09-15.
+ */
+async function getWriteOffThreshold(companyId) {
+  const rows = await query(
+    `SELECT key, value FROM settings WHERE company_id = @companyId AND key IN ('write_off_threshold', 'write_off_threshold_pct')`,
+    { companyId }
+  );
+  let flat = 1.00;
+  let pct = 0.01;
+  for (const r of rows) {
+    const v = parseFloat(r.value);
+    if (isNaN(v)) continue;
+    if (r.key === 'write_off_threshold') flat = v;
+    else if (r.key === 'write_off_threshold_pct') pct = v;
+  }
+  return { flat, pct };
+}
+
+async function writeOffBill(ctx) {
+  const { companyId, body, userEmail } = ctx;
+  const { billId } = body;
+  if (!billId) throw Object.assign(new Error('billId required'), { code: 'INVALID_INPUT' });
+
+  const bills = await query(
+    `SELECT * FROM bills WHERE company_id = @companyId AND bill_id = @billId ORDER BY created_at DESC LIMIT 1`,
+    { companyId, billId }
+  );
+  if (bills.length === 0) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
+  const bill = bills[0];
+
+  if (bill.status !== 'posted') {
+    throw Object.assign(new Error(`Only a posted bill can be written off (current status: '${bill.status}')`), { code: 'INVALID_STATUS' });
+  }
+
+  const round4 = (n) => Math.round(n * 10000) / 10000;
+  const outstanding = round4(Number(bill.amount) - Number(bill.amount_paid));
+  if (outstanding <= 0.005) {
+    throw Object.assign(new Error('Bill has no outstanding balance to write off'), { code: 'INVALID_STATUS' });
+  }
+
+  const { flat, pct } = await getWriteOffThreshold(companyId);
+  const threshold = Math.max(flat, pct * Number(bill.amount));
+  if (outstanding > threshold + 0.005) {
+    throw Object.assign(new Error(
+      `Outstanding ${outstanding.toFixed(2)} ${bill.currency} exceeds the write-off threshold (${threshold.toFixed(2)} ${bill.currency}) for this bill — too large to write off automatically. Post a manual journal entry for a genuine adjustment, or raise the threshold in Settings → Company if this is routine.`
+    ), { code: 'VALIDATION' });
+  }
+
+  const writeOffRows = await query(
+    `SELECT account_code FROM accounts WHERE company_id = @companyId AND default_role = 'Write-off' AND is_active = true LIMIT 1`,
+    { companyId }
+  );
+  const writeOffAccount = writeOffRows[0]?.account_code;
+  if (!writeOffAccount) {
+    throw Object.assign(new Error("Write-off account not configured — add one in Settings → Company (mark an account's Default Role as 'Write-off') before writing off a bill."), { code: 'VALIDATION' });
+  }
+
+  // v_companies_latest — see the comment on createBill's homeCurrency lookup
+  // above for why the raw table is unsafe here.
+  const companies = await query(`SELECT currency FROM v_companies_latest WHERE company_id = @companyId LIMIT 1`, { companyId });
+  const homeCurrency = companies[0]?.currency || 'USD';
+  const isForeign = !!(bill.currency && bill.currency !== homeCurrency);
+  const fxRate = Number(bill.fx_rate) || 1;
+  // Booked at the bill's own booking rate — the AP account already carries
+  // this bill's position at that rate, so clearing it has to use the same
+  // rate (matches how the bill itself, and every settlement against it,
+  // books debit_home/credit_home).
+  const outstandingHome = round4(isForeign ? outstanding * fxRate : outstanding);
+
+  const date = (body.date && /^\d{4}-\d{2}-\d{2}/.test(body.date)) ? body.date : new Date().toISOString().slice(0, 10);
+  const batchId = uuid();
+  const now = new Date().toISOString();
+  const description = `Write-off: remaining balance on bill ${bill.vendor_ref || bill.bill_id}`;
+
+  const mkRow = (line) => ({
+    company_id: companyId, entry_id: uuid(), batch_id: batchId, date,
+    account_code: line.account_code, debit: line.debit || 0, credit: line.credit || 0,
+    currency: homeCurrency, fx_rate: 1.0, debit_home: line.debit || 0, credit_home: line.credit || 0,
+    vat_code: null, vat_amount: 0, vat_amount_home: 0, net_amount: 0, net_amount_home: 0,
+    description, reference: null, source: 'bill.write_off',
+    cost_center: null, profit_center: null, reverses: null, reversed_by: null,
+    bill_id: billId, created_by: userEmail, created_at: now,
+  });
+
+  await bulkInsert('journal_entries', [
+    mkRow({ account_code: bill.ap_account, debit: outstandingHome, credit: 0 }),
+    mkRow({ account_code: writeOffAccount, debit: 0, credit: outstandingHome }),
+  ]);
+
+  await applyBillSettlement({
+    companyId, billId, newAmountPaid: Number(bill.amount), newStatus: 'paid',
+    bankAmount: outstandingHome, amountForeign: isForeign ? outstanding : null,
+    batchId, date, method: 'write_off', paymentReference: null,
+  });
+
+  await emitEvent(ctx, 'bill.written_off', 'bill', billId, {
+    billId, amount: outstanding, currency: bill.currency, writeOffAccount, batchId,
+  });
+
+  return { writtenOff: true, billId, amount: outstanding, currency: bill.currency, batchId };
 }
 
 /**
@@ -651,7 +778,9 @@ async function validateBillForPayment(companyId, billId, allocAmount, queryFn, h
 
   let hc = homeCurrency;
   if (!hc) {
-    const co = await q(`SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`, { companyId });
+    // v_companies_latest — see the comment on the other homeCurrency lookup
+    // above (createBill) for why the raw table is unsafe here.
+    const co = await q(`SELECT currency FROM v_companies_latest WHERE company_id = @companyId LIMIT 1`, { companyId });
     hc = (co && co[0] && co[0].currency) || 'USD';
   }
   return { bill, outstanding, isForeign: !!(bill.currency && bill.currency !== hc) };
@@ -694,8 +823,10 @@ async function recordBillPayment(ctx) {
     throw Object.assign(new Error(`Payment date ${date} falls into a locked accounting period (${locked.map((p) => p.period_name).join(', ')})`), { code: 'PERIOD_LOCKED' });
   }
 
+  // v_companies_latest — see the comment on createBill's homeCurrency lookup
+  // above for why the raw table is unsafe here.
   const companies = await query(
-    `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,
+    `SELECT currency FROM v_companies_latest WHERE company_id = @companyId LIMIT 1`,
     { companyId }
   );
   const homeCurrency = companies[0]?.currency || 'USD';
@@ -774,8 +905,10 @@ async function recordMultiBillPayment(ctx) {
     }
   }
 
+  // v_companies_latest — see the comment on createBill's homeCurrency lookup
+  // above for why the raw table is unsafe here.
   const companies = await query(
-    `SELECT currency FROM companies WHERE company_id = @companyId LIMIT 1`,
+    `SELECT currency FROM v_companies_latest WHERE company_id = @companyId LIMIT 1`,
     { companyId }
   );
   const homeCurrency = companies[0]?.currency || 'USD';
@@ -850,7 +983,7 @@ async function listBillPayments(ctx) {
  */
 async function listCompanyPayments(ctx) {
   const { companyId, body } = ctx;
-  const { direction, method, dateFrom, dateTo, voided, threshold } = body;
+  const { direction, method, dateFrom, dateTo, voided, billIds, threshold } = body;
   if (threshold == null) {
     throw Object.assign(new Error('threshold required'), { code: 'INVALID_INPUT' });
   }
@@ -862,6 +995,15 @@ async function listCompanyPayments(ctx) {
   if (dateFrom)  { where += ` AND p.date >= @dateFrom`; params.dateFrom = dateFrom; }
   if (dateTo)    { where += ` AND p.date <= @dateTo`; params.dateTo = dateTo; }
   if (!voided)   { where += ` AND p.voided_at IS NULL`; }
+  // Explicit bill id set — the AP Control drill-through ("Paid (126)" links
+  // here instead of Bills: the number is a sum of payment amounts, so the
+  // record it's built from is the payment, not the bill). Same shape as
+  // listBills()'s billIds filter.
+  if (Array.isArray(billIds) && billIds.length) {
+    const placeholders = billIds.map((_, i) => `@bid${i}`).join(',');
+    billIds.forEach((id, i) => { params[`bid${i}`] = id; });
+    where += ` AND p.bill_id IN (${placeholders})`;
+  }
 
   const countRow = await query(`SELECT COUNT(*) AS _total FROM payments p` + where, params);
   const total = countRow[0]._total;
@@ -923,7 +1065,10 @@ async function voidBillPayment(ctx) {
       // amount_paid tracked in bill currency: unwind by the foreign amount when present
       const decrement = Number(sib.amount_foreign != null ? sib.amount_foreign : sib.amount);
       const newPaid = Math.max(0, Math.round((Number(sibBill.amount_paid) - decrement) * 10000) / 10000);
-      const newStatus = newPaid <= 0.005 ? 'posted' : 'partial';
+      // status stays 'posted' regardless of the resulting amount_paid — it's
+      // no longer a tracked distinction (2026-09-15); amount_paid alone
+      // carries how much of the bill is still outstanding.
+      const newStatus = 'posted';
       await exec(
         `UPDATE bills SET amount_paid = @newPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
         { companyId, billId: sib.bill_id, newPaid, newStatus }
@@ -956,7 +1101,10 @@ async function voidBillPayment(ctx) {
   // amount_paid is tracked in the bill's currency: unwind by the foreign amount when present
   const decrement = Number(payment.amount_foreign != null ? payment.amount_foreign : payment.amount);
   const newPaid = Math.max(0, Math.round((Number(bill.amount_paid) - decrement) * 10000) / 10000);
-  const newStatus = newPaid <= 0.005 ? 'posted' : 'partial';
+  // status stays 'posted' regardless of the resulting amount_paid — no
+  // longer a tracked distinction (2026-09-15); amount_paid alone carries
+  // how much of the bill is still outstanding.
+  const newStatus = 'posted';
   await exec(
     `UPDATE bills SET amount_paid = @newPaid, status = @newStatus WHERE company_id = @companyId AND bill_id = @billId`,
     { companyId, billId: payment.bill_id, newPaid, newStatus }
@@ -980,7 +1128,7 @@ async function voidBillPayment(ctx) {
 
 async function listBills(ctx) {
   const { companyId, body } = ctx;
-  const { status, partner_name, description, dateFrom, dateTo, threshold } = body;
+  const { status, partner_name, description, dateFrom, dateTo, billIds, threshold } = body;
 
   if (threshold == null) {
     throw Object.assign(new Error('threshold required'), { code: 'INVALID_INPUT' });
@@ -994,6 +1142,15 @@ async function listBills(ctx) {
   if (description) { where += ` AND UPPER(description) LIKE '%' || UPPER(@description) || '%'`; params.description = description; }
   if (dateFrom) { where += ` AND date >= @dateFrom`; params.dateFrom = dateFrom; }
   if (dateTo) { where += ` AND date <= @dateTo`; params.dateTo = dateTo; }
+  // Explicit id set — the AP Control drill-through (e.g. "Bills (10)" /
+  // "Posted (1,077)" / "Paid (126)") pins the list to exactly the bills the
+  // clicked number was computed from, independent of whatever date range the
+  // global Period Selector currently has active.
+  if (Array.isArray(billIds) && billIds.length) {
+    const placeholders = billIds.map((_, i) => `@bid${i}`).join(',');
+    billIds.forEach((id, i) => { params[`bid${i}`] = id; });
+    where += ` AND bill_id IN (${placeholders})`;
+  }
 
   // Step 1: cheap COUNT — avoids materializing the full row set on the over-threshold path
   const countRow = await query(`SELECT COUNT(*) AS _total FROM bills` + where, params);
@@ -1081,7 +1238,7 @@ async function getAgingReport(ctx) {
       CASE WHEN due_date IS NULL THEN 0 ELSE DATEDIFF('day', due_date::DATE, @asOf::DATE) END AS days_overdue
     FROM bills
     WHERE company_id = @companyId
-      AND status IN ('posted', 'partial')
+      AND status = 'posted'
   `;
   const params = { companyId, asOf };
   if (currency) { sql += ` AND currency = @currency`; params.currency = currency; }

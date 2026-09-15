@@ -44,6 +44,12 @@ ${commonStyle()}
   .rpt-embed table { width:100%; border-collapse:collapse; margin-top:8px; }
   .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 8px; }
   .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
+  /* .doc-link's own rule lives in the report's <style> (render.js htmlPage())
+     — stripped along with the rest of <head> by the DOMParser fragment
+     extraction below (only .page's markup survives). Without a mirror here
+     the class carries no CSS: browser-default blue underline. */
+  .rpt-embed .doc-link { color:var(--accent); text-decoration:none; font-weight:500; }
+  .rpt-embed .doc-link:hover { text-decoration:underline; }
   .rpt-embed .footer { margin-top:24px; padding-top:12px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--text-muted); }
   .rpt-embed-msg { padding:1rem 0; color:var(--text-muted); }
 </style>
@@ -283,7 +289,7 @@ var coaList = FB.list.create({
     { field: 'is_active', type: 'checkbox', align: 'center',
       display: function(v) { return v ? 'Yes' : 'No'; } },
     { field: 'default_role', type: 'select', width: 70, nullable: true, align: 'center',
-      options: ['', 'AP', 'Expense', 'FX Gain/Loss', 'Cash'],
+      options: ['', 'AP', 'Expense', 'FX Gain/Loss', 'Cash', 'Write-off'],
       display: function(v) { return v ? v : '—'; } },
     { field: 'effective_from', type: 'date', width: 100, filterType: 'date' }
   ],

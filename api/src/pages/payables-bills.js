@@ -52,6 +52,18 @@ var FX_ON = ${FX_ON};
 // filters. What remains here: KPI/period inputs, the CCY-visibility display
 // hook, and the dropdown sources/attachers reused by the cfg columns + child
 // renderer + inline pay row.
+// AP Control drill-through ("Bills (N)" / "Posted" / "Paid" cells link here
+// with ?billIds=id1,id2,...): read once at load so the very first
+// billsList.load() (fired by FB.period.onChange during init) already asks
+// for exactly that set — unconstrained by the global Period Selector's
+// current date range, since the promise is "exactly these bills", not
+// "these bills, if they happen to be in range".
+var deepLinkBillIds = (function () {
+  try {
+    var raw = new URLSearchParams(window.location.search).get('billIds');
+    return raw ? raw.split(',').filter(Boolean) : null;
+  } catch (e) { return null; }
+})();
 var allPeriods = []; // loaded on init for popup period check
 var today = new Date().toISOString().slice(0,10);
 var in7days = new Date(Date.now() + 7*24*3600*1000).toISOString().slice(0,10);
@@ -202,8 +214,8 @@ function _loadCompanyDefaults() {
 function renderBillsSetupState() {
   var tb = document.getElementById('bills-tbody');
   if (!tb) return;
-  tb.innerHTML = '<tr class="fb-toomany-row"><td colspan="8">No accounting periods configured yet.</td></tr>'
-    + '<tr class="fb-add-row"><td class="fb-add-cell" colspan="8">+ Add bill</td></tr>';
+  tb.innerHTML = '<tr class="fb-toomany-row"><td colspan="9">No accounting periods configured yet.</td></tr>'
+    + '<tr class="fb-add-row"><td class="fb-add-cell" colspan="9">+ Add bill</td></tr>';
 }
 
 function fbPageInitPayables() {
@@ -304,8 +316,7 @@ function computeKpis(bills, rateMap) {
   var overdueAmt = 0, overdueN = 0;
   var upcomingAmt = 0, upcomingN = 0;
   bills.forEach(function(b) {
-    var active = b.status === 'posted' || b.status === 'partial';
-    if (!active) return;
+    if (b.status !== 'posted') return;
     var amt = convertToBase(Number(b.amount || 0), b.currency, rateMap);
     var due = b.due_date ? String(b.due_date).slice(0,10) : null;
     var isOverdue = due && due < today;
@@ -382,12 +393,15 @@ var fmtDateShort = FB.util.fmtDateShort;
 // except 'draft' is locked once posted — the 🔒 is a second, non-color-
 // dependent signal of that, matching bill-edit.js's statusBadge().
 function statusBadge(status, dueDate) {
-  var isOverdue = (status === 'posted' || status === 'partial') && dueDate && String(dueDate).slice(0,10) < today;
+  // 'partial' is no longer a stored status (2026-09-15) — payment progress
+  // shows via the Outstanding column instead, so status stays a simple
+  // lifecycle (Draft/Rejected/Open/Paid/Void) and Overdue is purely a
+  // due-date flag on an open bill, whether or not it's been partly paid.
+  var isOverdue = status === 'posted' && dueDate && String(dueDate).slice(0,10) < today;
   if (isOverdue) return '<span class="badge badge-danger">🔒 Overdue</span>';
   if (status === 'draft')   return '<span class="badge badge-neutral" style="cursor:pointer">Draft</span>';
   if (status === 'rejected') return '<span class="badge badge-danger">Rejected</span>';
   if (status === 'posted')  return '<span class="badge badge-info">🔒 Open</span>';
-  if (status === 'partial') return '<span class="badge badge-warning">🔒 Partial</span>';
   if (status === 'paid')    return '<span class="badge badge-success">🔒 Paid</span>';
   if (status === 'void')    return '<span class="badge badge-neutral">🔒 Void</span>';
   return '<span class="badge badge-neutral">' + esc(status||'') + '</span>';
@@ -541,7 +555,7 @@ function billsFetchChildren(row) {
     if (!Array.isArray(lines)) lines = [];
     var entry = billChildCache[k] || (billChildCache[k] = { lines: [], payments: [], fetched: false });
     entry.lines = lines;
-    var needsPayments = row.status === 'posted' || row.status === 'partial' || row.status === 'paid';
+    var needsPayments = row.status === 'posted' || row.status === 'paid';
     if (!needsPayments) { entry.fetched = true; entry.fetching = false; billsList.render(); return; }
     fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'payment.list', companyId: COMPANY, billId: row.bill_id }) })
@@ -614,9 +628,11 @@ function billsMergeChildRows(cache, parent) {
 
 // billsChildRowHtml(parent, child, idx) — view-mode child <tr> INNER html (the
 // framework owns the <tr> shell: data-idx, data-child-of, row-dirty).
-// Grid: parent has 7 columns + row-actions = 8 column-widths.
+// Grid: parent has 8 columns + row-actions = 9 column-widths (Outstanding,
+// 2026-09-15, added between Amount and CCY).
 // Child layout: desc colspan=4 (cols 0-3), amount (col 4, aligns under AMOUNT),
-// spacer (col 5, CCY), tax/empty (col 6, Status), empty (col 7, actions).
+// outCell (col 5, Outstanding — always blank, a child line has none of its
+// own), spacer (col 6, CCY), tax/empty (col 7, Status), empty (col 8, actions).
 function billsChildRowHtml(parent, child, idx) {
   function amtCell(n, extra) {
     // text-align/tabular-nums come from the shared .amt component (common.css)
@@ -624,34 +640,36 @@ function billsChildRowHtml(parent, child, idx) {
   }
   var spacer = '<td class="child-spacer"></td>';
   var empty = '<td></td>';
+  var outCell = '<td></td>';
   if (child._kind === 'empty') {
-    return '<td colspan="8" class="child-desc" style="color:var(--text-faint);font-style:italic">No line items</td>';
+    return '<td colspan="9" class="child-desc" style="color:var(--text-faint);font-style:italic">No line items</td>';
   }
   if (child._kind === 'draft-line') {
     return '<td colspan="4" class="child-desc">' + esc(child.description || '') + '</td>'
-      + amtCell(child.amount) + spacer
+      + amtCell(child.amount) + outCell + spacer
       + (VAT_ON ? '<td style="font-size:0.75rem;cursor:pointer;width:50px" title="Edit tax code">' + esc(child.vat_code || '') + '</td>' : '<td></td>')
       + empty;
   }
   if (child._kind === 'expense') {
     return '<td colspan="4" class="child-desc">' + esc(child.description || '') + '</td>'
-      + amtCell(child.amount) + spacer
+      + amtCell(child.amount) + outCell + spacer
       + '<td></td>'
       + empty;
   }
   if (child._kind === 'gst') {
     return '<td colspan="4" class="child-desc" style="color:var(--text-muted);font-style:italic">' + esc(child.label || '') + '</td>'
-      + amtCell(child.amount, 'color:var(--text-muted)') + spacer + '<td></td>' + empty;
+      + amtCell(child.amount, 'color:var(--text-muted)') + outCell + spacer + '<td></td>' + empty;
   }
   if (child._kind === 'payment') {
     var v = child.voided;
-    var meth = child.method === 'manual' ? 'manual' : 'bank match';
-    var txt = 'Payment ' + fmtDateShort(child.date) + ' \u00b7 ' + esc(meth)
+    var isWriteOff = child.method === 'write_off';
+    var meth = isWriteOff ? '' : (child.method === 'manual' ? 'manual' : 'bank match');
+    var txt = (isWriteOff ? 'Write-off ' : 'Payment ') + fmtDateShort(child.date) + (meth ? ' \u00b7 ' + esc(meth) : '')
       + (child.reference ? ' \u00b7 ' + esc(child.reference) : '') + (v ? ' \u00b7 voided' : '');
     return '<td colspan="4" class="child-desc' + (v ? ' pay-voided' : '') + '">' + txt + '</td>'
-      + amtCell(child.amount, v ? 'color:var(--text-muted)' : '') + spacer + '<td></td>' + empty;
+      + amtCell(child.amount, v ? 'color:var(--text-muted)' : '') + outCell + spacer + '<td></td>' + empty;
   }
-  return '<td colspan="8" class="child-desc"></td>';
+  return '<td colspan="9" class="child-desc"></td>';
 }
 
 // Live totals refresh while child lines are edited: parent AMOUNT shows gross
@@ -737,10 +755,15 @@ function billCodeFooterRows(lines, stated) {
 // topbar-exclusive despite the name.
 var DRAFT_TOGGLE_CELL = '<td><button type="button" class="bill-draft-toggle tb-toggle-btn" aria-pressed="false" title="Draft — save without posting">Draft</button></td>';
 function billFooterHtml(parent) {
-  if (!VAT_ON) return '<td colspan="7"></td>' + DRAFT_TOGGLE_CELL; // vatRegistered=false: no stated-VAT surface
+  // 9 column-widths now (Outstanding, 2026-09-15) — VAT_OFF's single
+  // spanning cell grew from 7 to 8; VAT_ON's cell-by-cell layout gained one
+  // more blank <td> for the new Outstanding column, between the VAT-stated
+  // input (aligned under Amount) and the CCY spacer.
+  if (!VAT_ON) return '<td colspan="8"></td>' + DRAFT_TOGGLE_CELL; // vatRegistered=false: no stated-VAT surface
   return '<td colspan="3" style="color:var(--text-muted);font-size:0.8125rem">VAT (supplier-stated total — pre-filled computed; edit to match the invoice; clear to return to computed)</td>'
     + '<td></td>'
     + '<td class="amt"><input class="draft-input bill-vat-stated" type="number" step="0.01" title="Supplier-stated VAT total" style="text-align:right" /></td>'
+    + '<td></td>'
     + '<td class="child-spacer"></td>'
     + DRAFT_TOGGLE_CELL
     + '<td></td>';
@@ -761,7 +784,7 @@ function billRenderFooter(ftr, key, lines, stated, stdVat) {
     tr.dataset.footerOf = key;
     tr.innerHTML = '<td colspan="4" class="child-desc" style="color:var(--text-muted);font-style:italic">' + esc(r.label) + '</td>'
       + '<td class="amt" style="color:var(--text-muted)">' + FB.util.fmtAmt(r.amount) + '</td>'
-      + '<td class="child-spacer"></td><td></td><td></td>';
+      + '<td></td><td class="child-spacer"></td><td></td><td></td>';
     ftr.parentNode.insertBefore(tr, ftr);
   });
 }
@@ -905,8 +928,7 @@ var billsList = FB.list.create({
     { field: 'due_date', type: 'date', sortable: true, filterType: 'date',
       display: function (v, r) {
         var due = v ? String(v).slice(0, 10) : '';
-        var active = r.status === 'posted' || r.status === 'partial';
-        var overdue = active && due && due < today;
+        var overdue = r.status === 'posted' && due && due < today;
         return '<span style="white-space:nowrap" title="' + esc(due) + '"><span' + (overdue ? ' class="overdue-date"' : '') + '>' + fmtDateShort(due) + '</span></span>';
       } },
     { field: 'vendor_ref', type: 'text', sortable: true, filterType: 'text',
@@ -935,6 +957,16 @@ var billsList = FB.list.create({
         }
         return '<span class="amt">' + FB.util.fmtAmt(amt) + '</span>';
       } },
+    // Payment progress (2026-09-15): what used to be inferred from a
+    // separate 'partial' status. Shows the actual open balance for every
+    // 'posted' bill (whether nothing or something has been paid toward it)
+    // — blank for anything else (draft/rejected/void have none; 'paid' is
+    // redundant with the Paid badge, always 0 here).
+    { field: 'outstanding', type: 'number', ro: 'always', sortable: true, filterType: 'amount', align: 'right', label: 'Outstanding',
+      display: function (v, r) {
+        if (r.status !== 'posted') return '<span class="pe-ro">—</span>';
+        return '<span class="amt">' + FB.util.fmtAmt(Number(v) || 0) + '</span>';
+      } },
     { field: 'currency', type: 'text', ro: 'always', sortable: true, filterType: 'list',
       display: function (v, r) {
         var ccy = v || BASE_CURRENCY;
@@ -945,14 +977,18 @@ var billsList = FB.list.create({
     { field: 'status', type: 'text', ro: 'always', sortable: true, filterType: 'list',
       display: function (v, r) {
         var due = r.due_date ? String(r.due_date).slice(0, 10) : null;
-        return statusBadge(v, due) + ((v === 'posted' || v === 'partial') ? payAffordHtml(r) : '');
+        return statusBadge(v, due) + (v === 'posted' ? payAffordHtml(r) : '');
       } }
   ],
   label: '+ Add bill',
   list: { action: 'bill.list',
     // global-period-selector-chrome-spec §5: dateFrom/dateTo come from the
     // global Period Selector (FB.period.get()) + the shared threshold.
+    // AP Control drill-through: pin to the explicit id set instead, with no
+    // date filter at all — the clicked number's bills may fall outside
+    // whatever range the picker currently has active.
     body: function () {
+      if (deepLinkBillIds) return { billIds: deepLinkBillIds, threshold: FB.list.threshold };
       var st = FB.period.get();
       return {
         dateFrom: st.start || '',
@@ -967,7 +1003,13 @@ var billsList = FB.list.create({
       return {
         _key: b.bill_id, bill_id: b.bill_id, partner_name: b.partner_name || '', date: b.date || '',
         due_date: b.due_date || '', vendor_ref: b.vendor_ref || '', amount: b.amount || 0,
-        amount_paid: b.amount_paid || 0, currency: b.currency || BASE_CURRENCY, status: b.status || '',
+        amount_paid: b.amount_paid || 0,
+        // Payment progress lives here, not in status (2026-09-15) — a bill
+        // is 'posted' whether nothing or something has been paid toward it;
+        // outstanding = amount - amount_paid is what used to be implied by
+        // a separate 'partial' status value.
+        outstanding: (Number(b.amount) || 0) - (Number(b.amount_paid) || 0),
+        currency: b.currency || BASE_CURRENCY, status: b.status || '',
         ap_account: b.ap_account || '', expense_account: b.expense_account || '',
         partner_id: b.partner_id || '', _isBill: true,
         // Draft toggle default when re-opening a saved draft for editing: on
@@ -1059,11 +1101,13 @@ var billsList = FB.list.create({
   // VAT code — VAT amounts are always computed (redesign 2026-07-26: the
   // per-line GST input was removed; the stated VAT lives in the bill footer).
   // Grid matches view mode: desc colspan=3 (cols 0-2), expense-acct (col 3),
-  // amount (col 4), spacer (col 5), vat (col 6), empty (col 7, actions).
+  // amount (col 4), empty (col 5, Outstanding), spacer (col 6, CCY),
+  // vat (col 7), empty (col 8, actions).
   editChildRowHtml: function (parent, child, idx) {
     return '<td colspan="3"><input class="draft-input child-desc" placeholder="Line item description" value="' + esc(child.description || '') + '" /></td>'
       + '<td><input class="draft-input child-expense-acct" placeholder="Expense Acct" title="Expense account code" value="' + esc(child.expense_account || '') + '" /></td>'
       + '<td class="amt"><input class="draft-input child-amt" type="number" step="0.01" placeholder="0.00" value="' + (child.amount ? Number(child.amount).toFixed(2) : '') + '" style="text-align:right" /></td>'
+      + '<td></td>'
       + '<td class="child-spacer"></td>'
       + (VAT_ON ? '<td><input class="draft-input child-vat" placeholder="— None —" title="VAT code" value="' + esc(child.vat_code || '') + '" style="width:72px" /></td>' : '<td></td>')
       + '<td></td>';
@@ -1170,10 +1214,14 @@ var billsList = FB.list.create({
     function voidBill(p) {
       if (p.status === 'void') { FB.status.show('Bill is already void — cannot be modified.', true); return; }
       if (p.status === 'paid') { FB.status.show('Bill is fully paid — reversal must be done via a credit note or payment reversal.', true); return; }
+      // 'partial' is no longer a stored status (2026-09-15) — amount_paid is
+      // the direct check now, matching the server's own guard (bills.js
+      // voidBill) exactly instead of a status value kept in sync with it.
+      // Short-circuits here rather than opening a "Continue?" confirm that
+      // would just fail server-side — same treatment as paid/void above.
+      if (Number(p.amount_paid) > 0.005) { FB.status.show('Bill is partially paid — reversal must be done via a credit note or payment reversal.', true); return; }
       var partner = esc(p.partner_name || p.bill_id);
-      var msg = p.status === 'partial'
-        ? 'Bill from "' + partner + '" is partially paid. Reversing will void the bill but will not reverse the payment. Continue?'
-        : 'Reverse bill from "' + partner + '"? A reversal journal entry will be created. This cannot be undone.';
+      var msg = 'Reverse bill from "' + partner + '"? A reversal journal entry will be created. This cannot be undone.';
       FB.modal.open({
         title: 'Void this bill?',
         body: msg,
@@ -1186,10 +1234,47 @@ var billsList = FB.list.create({
                 .then(function (r) { return r.json(); })
                 .then(function (res) {
                   var d = res.data || res;
-                  if (res.error || (d && d.error)) { FB.status.show('Cannot void: ' + (res.error || d.error), true); return; }
+                  var err = res.error || (d && d.error);
+                  // err is {code, message} (server error shape), not a
+                  // string — string-concatenating it directly printed
+                  // "Cannot void: [object Object]" for every failure here.
+                  if (err) { FB.status.show('Cannot void: ' + (err.message || err), true); return; }
                   FB.status.show('Bill voided', false); reloadBills();
                 })
                 .catch(function (e) { FB.status.show('Error: ' + e.message, true); });
+            } }
+        ]
+      });
+    }
+    // Write off (2026-09-15) — closes a small remaining outstanding balance
+    // with no real payment (DR AP / CR the company's Write-off account).
+    // Client only checks the cheap, obvious preconditions (posted, some
+    // outstanding); the materiality threshold itself is enforced server-side
+    // (bills.js writeOffBill) and its rejection message is shown verbatim —
+    // it already names the exact amounts, no reason to re-derive them here.
+    function writeOffBill(p) {
+      if (p.status !== 'posted') { FB.status.show('Only a posted bill can be written off.', true); return; }
+      var outstanding = Number(p.amount || 0) - Number(p.amount_paid || 0);
+      if (outstanding <= 0.005) { FB.status.show('Bill has no outstanding balance to write off.', true); return; }
+      var partner = esc(p.partner_name || p.bill_id);
+      var amtStr = FB.util.fmtAmt(outstanding) + ' ' + esc(p.currency || '');
+      FB.modal.open({
+        title: 'Write off this bill?',
+        body: 'Close the remaining ' + amtStr + ' outstanding on the bill from "' + partner + '" with no real payment — posts a journal entry to the Write-off account. This cannot be undone (void the resulting entry from Bank → Payments to reverse it).',
+        buttons: [
+          { label: 'Cancel', onClick: function (api) { api.close(); } },
+          { label: 'Write off', danger: true, onClick: function (api) {
+              api.close();
+              fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'bill.write_off', companyId: COMPANY, billId: p.bill_id }) })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                  var d = res.data || res;
+                  var err = res.error || (d && d.error);
+                  if (err) { FB.status.show('Write-off failed: ' + (err.message || err), true); return; }
+                  FB.status.show('Bill written off', false); reloadBills();
+                })
+                .catch(function (e) { FB.status.show('Write-off failed: ' + e.message, true); });
             } }
         ]
       });
@@ -1211,7 +1296,8 @@ var billsList = FB.list.create({
                 .then(function (r) { return r.json(); })
                 .then(function (res) {
                   var d = res.data || res;
-                  if (res.error || (d && d.error)) { FB.status.show('Void failed: ' + (res.error || d.error), true); return; }
+                  var err = res.error || (d && d.error);
+                  if (err) { FB.status.show('Void failed: ' + (err.message || err), true); return; }
                   FB.status.show('Payment voided — bill ' + (d.newStatus || ''), false); reloadBills();
                 })
                 .catch(function (e) { FB.status.show('Void failed: ' + e.message, true); });
@@ -1232,7 +1318,8 @@ var billsList = FB.list.create({
           .then(function (r) { return r.json(); })
           .then(function (res) {
             var d = res.data || res;
-            if (res.error || (d && d.error)) { FB.status.show('Post failed: ' + (res.error || d.error), true); return; }
+            var postErr = res.error || (d && d.error);
+            if (postErr) { FB.status.show('Post failed: ' + (postErr.message || postErr), true); return; }
             var _w = (d && d.warnings) || [];
             if (_w.length) FB.status.show('Posted with warning: ' + _w.join(' · '), 'warn');
             else FB.status.show('Bill posted', false);
@@ -1249,7 +1336,8 @@ var billsList = FB.list.create({
           .then(function (r) { return r.json(); })
           .then(function (res) {
             var d = res.data || res;
-            if (res.error || (d && d.error)) { FB.status.show('Post failed: ' + (res.error || d.error), true); return; }
+            var postErr = res.error || (d && d.error);
+            if (postErr) { FB.status.show('Post failed: ' + (postErr.message || postErr), true); return; }
             var _w = (d && d.warnings) || [];
             if (_w.length) FB.status.show('Posted with warning: ' + _w.join(' · '), 'warn');
             else FB.status.show('Bill posted', false);
@@ -1289,10 +1377,10 @@ var billsList = FB.list.create({
           if (p._draft) { api.writeFocused(); return; }
           postDraft(p);
         } },
-      // y advances a saved bill (§2): draft → post; posted/partial → New
-      // Payment scoped to this bill. p/P are both retired.
+      // y advances a saved bill (§2): draft → post; posted (whether or not
+      // partly paid) → New Payment scoped to this bill. p/P are both retired.
       { key: 'y', mode: 'NORMAL', hint: 'post/pay', hintBar: true,
-        when: function () { var p = parentOf(api.focusedRow()); return !!(p && (p.status === 'draft' || p.status === 'posted' || p.status === 'partial')); },
+        when: function () { var p = parentOf(api.focusedRow()); return !!(p && (p.status === 'draft' || p.status === 'posted')); },
         run: function () {
           var p = parentOf(api.focusedRow()); if (!p) return;
           if (p.status === 'draft') { postDraft(p); return; }
@@ -1303,8 +1391,8 @@ var billsList = FB.list.create({
           var d = api.focusedRow(); if (!d) return false;
           if (d._kind === 'payment') return true; // payment-history child → void payment
           var p = parentOf(d);
-          // posted/partial/paid/void → void bill. Not draft (delete/reject
-          // it instead) and not rejected (never posted — same reasoning,
+          // posted/paid/void → void bill. Not draft (delete/reject it
+          // instead) and not rejected (never posted — same reasoning,
           // nothing to void; the new status Inbox's Transactions tab uses).
           return !!(p && !p._isNew && p.status && p.status !== 'draft' && p.status !== 'rejected');
         },
@@ -1312,6 +1400,19 @@ var billsList = FB.list.create({
           var d = api.focusedRow(); if (!d) return;
           if (d._kind === 'payment') { voidPayment(d); return; }
           var p = parentOf(d); if (p) voidBill(p);
+        } },
+      // W (capital — lowercase w is save) closes a small outstanding
+      // residual with no real payment. Only offered where it could possibly
+      // apply; the actual materiality gate is server-side (bills.js
+      // writeOffBill), same division of labor as every other guard here.
+      { key: 'W', mode: 'NORMAL', hint: 'write off', hintBar: true,
+        when: function () {
+          var p = parentOf(api.focusedRow()); if (!p) return false;
+          return p.status === 'posted' && (Number(p.amount || 0) - Number(p.amount_paid || 0)) > 0.005;
+        },
+        run: function () {
+          var p = parentOf(api.focusedRow()); if (!p) return;
+          writeOffBill(p);
         } }
     ];
   }

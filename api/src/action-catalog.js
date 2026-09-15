@@ -214,13 +214,18 @@ const ACTIONS = {
   },
   'bill.void': {
     role: 'data_entry', mutating: true, idempotent: true,
-    description: 'Void a posted bill (auto-reverses its journals). Paid/partial bills refuse.',
+    description: 'Void a posted bill (auto-reverses its journals). Refuses a paid bill, or one with any amount_paid > 0 (post a credit note or bill.write_off instead).',
     params: { billId: { type: 'string', required: true } },
+  },
+  'bill.write_off': {
+    role: 'data_entry', mutating: true,
+    description: 'Close a posted bill\'s small remaining outstanding balance with no real payment — DR the bill\'s AP account / CR the company\'s Write-off account, then marks the bill paid. Gated by the write_off_threshold/write_off_threshold_pct settings (max(flat, pct * bill.amount)) so it only ever closes rounding/FX residue, never a material amount.',
+    params: { billId: { type: 'string', required: true }, date: { type: 'date' } },
   },
   'bill.list': {
     role: 'viewer', mutating: false,
-    description: 'List bills with filters (status, partner_name, date range). Returns {data, total} or {data:[], total, tooMany:true} when over threshold.',
-    params: { status: { type: 'string' }, partner_name: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, threshold: { type: 'number', required: true } },
+    description: 'List bills with filters (status, partner_name, date range, or an explicit billIds set — e.g. an AP Control drill-through). Returns {data, total} or {data:[], total, tooMany:true} when over threshold.',
+    params: { status: { type: 'string' }, partner_name: { type: 'string' }, description: { type: 'string' }, dateFrom: { type: 'date' }, dateTo: { type: 'date' }, billIds: { type: 'array' }, threshold: { type: 'number', required: true } },
   },
   'bill.lines': {
     role: 'viewer', mutating: false,
@@ -291,7 +296,7 @@ const ACTIONS = {
   // pattern as bill.list).
   'payment.list': {
     role: 'viewer', mutating: false,
-    description: 'Payment history. With billId: history for that bill (amounts, method, reference, voided state). Without: company-wide payments list, filterable by direction/method/date/voided, capped by threshold like bill.list.',
+    description: 'Payment history. With billId: history for that bill (amounts, method, reference, voided state). Without: company-wide payments list, filterable by direction/method/date/voided/an explicit billIds set (e.g. an AP Control "Paid" drill-through), capped by threshold like bill.list.',
     params: {
       billId: { type: 'string' },
       direction: { type: 'string' },
@@ -299,6 +304,7 @@ const ACTIONS = {
       dateFrom: { type: 'date' },
       dateTo: { type: 'date' },
       voided: { type: 'boolean' },
+      billIds: { type: 'array' },
       threshold: { type: 'number' },
     },
   },
@@ -437,7 +443,7 @@ const ACTIONS = {
   'coa.list': { role: 'viewer', mutating: false, description: 'List accounts (latest revision per code).' },
   'coa.upsert': {
     role: 'owner', mutating: true,
-    description: 'Insert or update one account. account.default_role (optional, null|\'AP\'|\'Expense\'|\'FX Gain/Loss\') sets the company default AP/Expense/FX Gain/Loss account; single-holder enforced server-side in the same write (setting a new holder clears the previous one).',
+    description: 'Insert or update one account. account.default_role (optional, null|\'AP\'|\'Expense\'|\'FX Gain/Loss\'|\'Cash\'|\'Write-off\') sets the company default AP/Expense/FX Gain/Loss/Cash/Write-off account; single-holder enforced server-side in the same write (setting a new holder clears the previous one).',
     params: { account: { type: 'object', required: true } },
   },
   'coa.delete': {

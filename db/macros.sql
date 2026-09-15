@@ -670,12 +670,19 @@ pl_close AS (
 ap_control_check AS (
   SELECT
     'AP Subledger vs GL' AS check_name,
+    -- reversed_by IS NULL deliberately NOT applied to this net (credit-debit)
+    -- GL sum, unlike the one-sided debit_home "payments applied" sums below
+    -- (those genuinely need it — there's no natural offsetting within a
+    -- one-sided sum). Here it would exclude a reversed original entry while
+    -- still counting its reversal, so a fully-cancelled pair nets to the
+    -- REVERSAL's amount instead of zero — found 2026-09-15 on test23, where
+    -- 27 reversal pairs skewed this "OK" check's GL figure by over $1,000.
+    -- A plain SUM naturally nets a reversal pair to zero without any filter.
     CASE WHEN ABS(
       COALESCE((SELECT SUM(credit_home - debit_home) FROM journal_entries
         WHERE company_id = cid
         AND account_code IN (SELECT DISTINCT ap_account FROM bills WHERE company_id = cid)
-        AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
-        AND reversed_by IS NULL), 0)
+        AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)), 0)
       -
       COALESCE((SELECT SUM(b.amount_home) FROM bills b
         WHERE b.company_id = cid
@@ -695,15 +702,25 @@ ap_control_check AS (
       SELECT 1 FROM bills b
       WHERE b.company_id = cid
       AND b.status IN ('posted', 'partial')
-      AND b.currency != (SELECT currency FROM companies WHERE company_id = cid)
+      -- companies is append-versioned (api/src/index.js mergeCompanyRow: a
+      -- settings edit INSERTs a fresh row, never UPDATEs in place) — any
+      -- company whose settings have been edited even once has 2+ rows here,
+      -- and a scalar subquery with no LIMIT throws "more than one row
+      -- returned" the instant this branch is evaluated, which the caller's
+      -- try/catch (reports/render.js buildApControl) silently swallows into
+      -- a fake all-zero/OK report. Found 2026-09-15 chasing an AP Control
+      -- report that looked empty for a real company. ORDER BY + LIMIT 1
+      -- picks the current row, matching index.js's own latestCompanyRow().
+      AND b.currency != (SELECT currency FROM companies WHERE company_id = cid ORDER BY created_at DESC LIMIT 1)
       AND b.date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
     ) THEN 'WARN'
     ELSE 'FAIL' END AS status,
+    -- Same net-sum, same reversed_by fix as the status CASE above — this is
+    -- only the human-readable "detail" string, must report the same number.
     'GL: ' || ROUND(COALESCE((SELECT SUM(credit_home - debit_home) FROM journal_entries
       WHERE company_id = cid
       AND account_code IN (SELECT DISTINCT ap_account FROM bills WHERE company_id = cid)
-      AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)
-      AND reversed_by IS NULL), 0), 2)
+      AND date BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE)), 0), 2)
     || ' | Subledger: ' || ROUND(
       COALESCE((SELECT SUM(b.amount_home) FROM bills b
         WHERE b.company_id = cid
@@ -737,7 +754,17 @@ SELECT * FROM ap_control_check;
 -- =============================================================================
 CREATE OR REPLACE MACRO ap_control(cid, as_of_date) AS TABLE
 WITH
--- GL AP balance per AP account (all journal entries, including reversals)
+-- GL AP balance per AP account (all journal entries, including reversals —
+-- that comment was already the intent here; the code didn't match it until
+-- 2026-09-15. reversed_by IS NULL, deliberately absent: this is a net
+-- (credit-debit) SUM, which already nets a reversed entry against its
+-- reversal to zero on its own; filtering reversed_by here instead excluded
+-- the reversed ORIGINAL while still counting its reversal, so a fully-
+-- cancelled pair contributed the reversal's amount instead of nothing —
+-- found on test23, where 27 reversal pairs skewed this balance by over
+-- $1,000 (a difference large enough to flip the AP Control report to FAIL).
+-- subledger_side below keeps its own reversed_by filters — those are
+-- one-sided debit_home sums with no natural netting, so they still need it.
 gl_side AS (
   SELECT
     je.account_code AS ap_account,
@@ -748,7 +775,6 @@ gl_side AS (
   WHERE je.company_id = cid
     AND je.date <= CAST(as_of_date AS DATE)
     AND je.account_code IN (SELECT DISTINCT ap_account FROM bills WHERE company_id = cid)
-    AND je.reversed_by IS NULL
   GROUP BY je.account_code, a.account_name
 ),
 -- Subledger: open bills per AP account (outstanding in home currency)
@@ -793,7 +819,16 @@ SELECT
       SELECT 1 FROM bills b
       WHERE b.company_id = cid
         AND b.status IN ('posted', 'partial')
-        AND b.currency != (SELECT currency FROM companies WHERE company_id = cid)
+        -- companies is append-versioned (api/src/index.js mergeCompanyRow: a
+      -- settings edit INSERTs a fresh row, never UPDATEs in place) — any
+      -- company whose settings have been edited even once has 2+ rows here,
+      -- and a scalar subquery with no LIMIT throws "more than one row
+      -- returned" the instant this branch is evaluated, which the caller's
+      -- try/catch (reports/render.js buildApControl) silently swallows into
+      -- a fake all-zero/OK report. Found 2026-09-15 chasing an AP Control
+      -- report that looked empty for a real company. ORDER BY + LIMIT 1
+      -- picks the current row, matching index.js's own latestCompanyRow().
+      AND b.currency != (SELECT currency FROM companies WHERE company_id = cid ORDER BY created_at DESC LIMIT 1)
         AND b.date <= CAST(as_of_date AS DATE)
     ) AND ABS(COALESCE(s.subledger_balance, 0) - COALESCE(g.gl_balance, 0)) < 100 THEN 'WARN'
     ELSE 'FAIL'

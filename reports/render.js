@@ -369,10 +369,13 @@ async function buildGL(query, company, start, end, account) {
   .doc-link { color: #18293f; text-decoration: underline; }
   .pe-ro { color: #bbb; }
   /* FB.list keyboard-focus in the iframe */
+  /* 2026-09-11: converged onto the same translucent tint the app's own
+     nav-row-focus uses now (common.css) — was a solid navy fill forcing
+     td/link text to white just to stay legible on top of it; a tint this
+     light doesn't need that, so the forced-color override is gone too. */
   tr.nav-row-focus:not(.row-editing) > td {
-    background: #18293f !important; color: #fff !important; outline: none;
+    background: rgba(61, 100, 148, 0.18) !important; outline: none;
   }
-  tr.nav-row-focus:not(.row-editing) > td a { color: #fff !important; }
   /* FB.list column filter/sort UI. common.css (linked above) declares its own
      th.fb-th-filterable { position: relative } globally, at the SAME
      specificity as this selector — cascade order (this block comes later in
@@ -597,10 +600,13 @@ async function buildJournal(query, company, start, end) {
   .doc-link { color: #18293f; text-decoration: underline; }
   .pe-ro { color: #bbb; }
   /* FB.list keyboard-focus in the iframe */
+  /* 2026-09-11: converged onto the same translucent tint the app's own
+     nav-row-focus uses now (common.css) — was a solid navy fill forcing
+     td/link text to white just to stay legible on top of it; a tint this
+     light doesn't need that, so the forced-color override is gone too. */
   tr.nav-row-focus:not(.row-editing) > td {
-    background: #18293f !important; color: #fff !important; outline: none;
+    background: rgba(61, 100, 148, 0.18) !important; outline: none;
   }
-  tr.nav-row-focus:not(.row-editing) > td a { color: #fff !important; }
   /* FB.list column filter/sort UI */
   th.fb-th-filterable { position: relative; padding-right: 24px; }
   th .fb-filter-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
@@ -847,10 +853,13 @@ async function buildVoucherRegister(query, company, start, end) {
   .rev-link { color: #e65100; text-decoration: underline; font-size: 9pt; }
   .pe-ro { color: #bbb; }
   /* FB.list keyboard-focus in the iframe */
+  /* 2026-09-11: converged onto the same translucent tint the app's own
+     nav-row-focus uses now (common.css) — was a solid navy fill forcing
+     td/link text to white just to stay legible on top of it; a tint this
+     light doesn't need that, so the forced-color override is gone too. */
   tr.nav-row-focus:not(.row-editing) > td {
-    background: #18293f !important; color: #fff !important; outline: none;
+    background: rgba(61, 100, 148, 0.18) !important; outline: none;
   }
-  tr.nav-row-focus:not(.row-editing) > td a { color: #fff !important; }
   /* FB.list column filter/sort UI */
   th.fb-th-filterable { position: relative; padding-right: 24px; }
   /* Right-aligned filterable column (Amount): td must match the th padding-right
@@ -1210,11 +1219,14 @@ async function buildAPAging(query, company, _start, end) {
   tr[data-child-of][data-href] { cursor: pointer; }
   tr[data-child-of][data-href]:hover td { background: #f0f4ff; }
   tr[data-child-of] td.col-90plus { color: #cc2222; }
-  /* FB.list keyboard-focus in the iframe */
+  /* FB.list keyboard-focus in the iframe (2026-09-11: converged onto the
+     same translucent tint as the rest of the app, common.css — was a solid
+     navy fill forcing td text to white, plus a lightened pink variant of
+     .col-90plus's red just to stay legible on top of it; a tint this light
+     needs neither, .col-90plus's normal red already reads fine underneath). */
   tr.nav-row-focus:not(.row-editing) > td {
-    background: #18293f !important; color: #fff !important; outline: none;
+    background: rgba(61, 100, 148, 0.18) !important; outline: none;
   }
-  tr.nav-row-focus:not(.row-editing) > td.col-90plus { color: #ff9999 !important; }
   /* FB.list fold caret */
   .fb-fold { display: inline-block; width: 14px; cursor: pointer; opacity: 0.6; font-size: 11px; }
   .fb-fold:hover { opacity: 1; }

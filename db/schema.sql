@@ -379,6 +379,26 @@ CREATE TABLE IF NOT EXISTS periods (
 -- VIEWS
 -- =============================================================================
 
+-- Current company row. companies is append-versioned (api/src/index.js
+-- mergeCompanyRow: a settings edit INSERTs a fresh row, never UPDATEs in
+-- place), so any company whose settings have ever been edited has 2+ rows —
+-- reading the table directly returns whichever row the engine happens to
+-- pick, not necessarily the current one (found 2026-09-15 chasing an AP
+-- Control report that silently crashed on a bare, undeduplicated scalar
+-- subquery, then a batch of callers that showed a stale company name/
+-- currency, then callers that double-processed a company per scan cycle).
+-- Every caller that wants "this company's current settings" — not the full
+-- history — should read this view, not the companies table directly.
+-- Usage: SELECT * FROM v_companies_latest WHERE company_id = 'example_sg';
+CREATE OR REPLACE VIEW v_companies_latest AS
+SELECT company_id, company_name, jurisdiction, currency, reporting_standard,
+       accounting_method, vat_registered, tax_id, fy_start, fy_end, created_at
+FROM (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY company_id ORDER BY created_at DESC) AS rn
+  FROM companies
+) t
+WHERE rn = 1;
+
 -- Trial Balance
 -- Usage: SELECT * FROM v_trial_balance WHERE company_id = 'example_sg' AND date BETWEEN '2025-02-01' AND '2026-01-31';
 CREATE OR REPLACE VIEW v_trial_balance AS
@@ -574,14 +594,21 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS invoice_id VARCHAR;
 -- created before this migration. vat_tolerance = flat amount in home currency
 -- (default 0.50); vat_tolerance_pct = percentage of computed VAT (0.01 = 1%).
 -- Override is accepted when |stated - computed| <= max(flat, pct * computed).
+-- v_companies_latest, not the raw table (2026-09-15 — found a company with a
+-- duplicate settings row per key here): companies is append-versioned (a
+-- settings edit inserts a fresh row rather than updating in place), so a
+-- company renamed/edited before ever getting this backfill would otherwise
+-- produce one INSERT per historical companies row, all passing the same
+-- NOT EXISTS guard in the same statement (it's evaluated against `settings`
+-- as it stood before this statement ran, not row-by-row as rows land).
 INSERT INTO settings (company_id, key, value, updated_at)
 SELECT c.company_id, 'vat_tolerance', '0.50', NOW()
-FROM companies c
+FROM v_companies_latest c
 WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'vat_tolerance');
 
 INSERT INTO settings (company_id, key, value, updated_at)
 SELECT c.company_id, 'vat_tolerance_pct', '0.01', NOW()
-FROM companies c
+FROM v_companies_latest c
 WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'vat_tolerance_pct');
 
 -- MIGRATION: center derivation rollout gate (see spec §2/§3/§4/§6a/§7).
@@ -590,7 +617,7 @@ WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND
 -- flips this via settings.save. Same seed pattern as vat_tolerance above.
 INSERT INTO settings (company_id, key, value, updated_at)
 SELECT c.company_id, 'center_derivation_enabled', 'false', NOW()
-FROM companies c
+FROM v_companies_latest c
 WHERE NOT EXISTS (
   SELECT 1 FROM settings s
   WHERE s.company_id = c.company_id AND s.key = 'center_derivation_enabled'

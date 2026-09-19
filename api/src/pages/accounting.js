@@ -38,7 +38,11 @@ ${commonStyle()}
   .subhead:first-child { margin-top:0; }
   /* Integrity tab — fetched report fragment, not FB.list (nothing to edit).
      Mirrors reports/render.js htmlPage()'s embedded styling, theme-aware.
+     White card on this page's own gray background — the QBO/Xero
+     convention for rendered financial statements (magnus, 2026-09-17: "go
+     towards the industry standard, benchmark QBO/Xero").
      docs/ia-restructure-3-spec.md §3.3. */
+  .rpt-embed { background:var(--surface); border-radius:8px; padding:16px 20px; }
   .rpt-embed .page { padding:0; max-width:none; }
   .rpt-embed .header { display:none; } /* period/company header — redundant with this page's own H1 */
   .rpt-embed table { width:100%; border-collapse:collapse; margin-top:8px; }

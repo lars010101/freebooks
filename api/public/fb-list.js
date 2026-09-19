@@ -994,6 +994,13 @@
             return;
           }
           if (nav) nav.set(tr);
+          // Multi-region focus (2026-09-16): a click into this list should
+          // also redirect the NEXT keypress here, not just move this list's
+          // own cursor — otherwise clicking a row in a second simultaneously-
+          // active list (e.g. Settings/Access's API Tokens grid, stacked
+          // under the grants list) visibly focuses that row but j/k still
+          // moves the OTHER list, since dispatch order hadn't changed.
+          if (window.FB && FB.keys && FB.keys.setFocus) FB.keys.setFocus(cfg.keysId);
           var td = e.target.closest('td');
           if (!td || td.classList.contains('row-actions')) return;
           var d = merged()[+tr.dataset.idx];
@@ -1013,7 +1020,14 @@
         var effKey = focusKey != null ? focusKey : preserveKey;
         var target = (focusKey === ADD_ROW || preserveAdd) ? g
           : (effKey != null ? tb.querySelector('tr[data-key="' + effKey + '"]') : null);
-        nav.set(target || navRows()[0] || null); // vanished row → first row
+        // Multi-region focus (2026-09-16): every list auto-selects its own
+        // first row on render regardless of which list FB.keys is actually
+        // dispatching to — quiet (no visible highlight) unless this IS that
+        // list, so two simultaneously-active lists on one screen (Settings/
+        // Access's grants + API Tokens grids) don't both show a highlighted
+        // row before anything has actually moved focus between them.
+        var isFocused = !(window.FB && FB.keys && FB.keys.isFocused) || FB.keys.isFocused(cfg.keysId);
+        nav.set(target || navRows()[0] || null, !isFocused); // vanished row → first row
       }
       // onChrome also fires per-render (filter changes re-render): screens
       // with render-dependent chrome (Bills' single-ccy column) stay correct.
@@ -1630,8 +1644,30 @@
     }
     var ddOpen = function () { return !!(window.FB && FB.dropdown && FB.dropdown.isOpen()); };
     var bindings = [
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { nav.move(1); } },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { nav.move(-1); } },
+      // Auto-continue at the boundary (2026-09-16): nav.move() returns false
+      // when this list's cursor was already at the top/bottom row — that's
+      // the cue to hand off to whichever OTHER active list is next in that
+      // direction (FB.keys.advanceRegion), rather than the key silently
+      // doing nothing. A single-list screen never has anywhere to hand off
+      // to (advanceRegion no-ops), so this is a no-behavior-change there.
+      // When BOTH decline, this really is the top/bottom of every navigable
+      // region on the page — force the real scroll container the rest of
+      // the way (nav.scrollToTop/Bottom) so the page's own header/KPI-strip/
+      // tabs come back too, not just the column headers (already guaranteed
+      // separately by common.css's sticky-<thead> rule regardless of scroll
+      // position — the two fixes are complementary, not alternatives).
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false,
+        run: function () {
+          if (nav.move(1)) return;
+          if (window.FB && FB.keys && FB.keys.advanceRegion && FB.keys.advanceRegion(1)) return;
+          if (nav.scrollToBottom) nav.scrollToBottom();
+        } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false,
+        run: function () {
+          if (nav.move(-1)) return;
+          if (window.FB && FB.keys && FB.keys.advanceRegion && FB.keys.advanceRegion(-1)) return;
+          if (nav.scrollToTop) nav.scrollToTop();
+        } },
       { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: editFocused },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: openFocused },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) writeAt(i); } },
@@ -1780,7 +1816,24 @@
       FB.keys.register(cfg.keysId, {
         active: cfg.active,
         getMode: function () { return editIdx >= 0 ? 'INSERT' : 'NORMAL'; },
-        bindings: all
+        bindings: all,
+        // Multi-region focus (2026-09-16): called by FB.keys.advanceRegion
+        // when a neighboring active list hands off focus to this one after
+        // running out of rows in the direction the user was moving — dir>0
+        // (was moving down/forward) selects this list's FIRST row so the
+        // hand-off continues in the same direction instead of jumping to
+        // wherever this list's cursor was last left; dir<0 selects the LAST.
+        focusEdge: function (dir) {
+          var rs = navRows();
+          if (!rs.length || !nav) return;
+          nav.set(dir > 0 ? rs[0] : rs[rs.length - 1]);
+        },
+        // Multi-region focus (2026-09-16): called when this list LOSES
+        // focus to another active region (FB.keys.setFocus/advanceRegion) —
+        // undraws the highlight without moving the cursor, so a list that
+        // isn't the current keyboard target doesn't keep showing one
+        // alongside the region that actually is.
+        unfocus: function () { if (nav) nav.blur(); }
       });
     }
     wireLeaveGuard();

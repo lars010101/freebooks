@@ -71,7 +71,8 @@ ${commonStyle()}
      already the same var(--bg) on both, no banding to account for). */
   .table-card { overflow:visible; }
   .data-table { width:100%; border-collapse:collapse; font-size:0.8125rem; table-layout:fixed; }
-  .data-table thead { position:sticky; top:0; z-index:10; }
+  /* Sticky thead: now a shared common.css rule (.data-table/.edit-table/
+     .jrnl-table thead th) — this page's own copy retired 2026-09-16. */
   /* Dense by default (docs/UI.md Purpose: scanning volume beats looking
      nicer with fewer rows visible) — matches the .jrnl-table/.edit-table
      row height Inbox uses. Comfortable is the escape hatch for the avatar/
@@ -274,14 +275,18 @@ ${commonStyle()}
 
   .btn-save-draft { background:none; border:none; cursor:pointer; font-size:1rem; padding:2px 6px; color:var(--text-faint); line-height:1; border-radius:4px; }
   .btn-save-draft:hover { color:var(--accent); background:var(--bg); }
-  /* P1-9: hover-only Pay affordance on posted/partial parent rows — no chrome at rest.
-     Consolidated onto var(--accent) — was a dedicated #5b8def blue with no
-     dark-theme variant of its own. */
-  .pay-afford { display:none; margin-left:6px; font-size:0.6875rem; padding:1px 6px; border:1px solid var(--accent); background:var(--surface); color:var(--accent); border-radius:3px; cursor:pointer; line-height:1.4; }
-  .pay-afford:hover { background:var(--accent); color:var(--on-accent); }
-  .data-table tbody tr:hover .pay-afford { display:inline-block; }
-  .data-table tbody.kb-active tr:hover .pay-afford,
-  .data-table tbody.insert-mode tr:hover .pay-afford { display:none; }
+  /* Row-action chips, revealed on hover only (2026-09-16) — the Bills
+     register's own reveal style, distinct from Inbox's persistently-visible
+     chips: Bills is a dense, mixed-status grid where actions are occasional
+     against browsing as the primary task, so they shouldn't compete with
+     the data at rest. .chip/.chip-ok/.chip-cancel (common.css) still own
+     the actual look — same glyph+color anywhere in the app a row carries
+     that action, Inbox included; .row-afford only adds the hover-reveal
+     behavior on top, generic across whichever chips a register uses. */
+  .row-afford { display:none; margin-left:6px; }
+  .data-table tbody tr:hover .row-afford { display:inline-block; }
+  .data-table tbody.kb-active tr:hover .row-afford,
+  .data-table tbody.insert-mode tr:hover .row-afford { display:none; }
   /* P1-9: inline payment row. Consolidated onto var(--accent)/var(--dd-active) —
      was a dedicated #5b8def/#f6f9ff blue pair with no dark-theme variant. */
   .pay-row td.pay-cell { padding:6px 12px 6px 60px; background:var(--dd-active); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -341,14 +346,48 @@ ${commonStyle()}
 
   /* Aging/Control tabs — fetched report fragment, not an iframe (no nested
      document navigation, no duplicate <head>/CSS parse). Mirrors
-     reports/render.js htmlPage()'s embedded styling, theme-aware.
-     docs/ia-restructure-3-spec.md §1. */
+     reports/render.js htmlPage()'s embedded styling, theme-aware. White
+     card on this page's own gray background — the QBO/Xero convention for
+     rendered financial statements (magnus, 2026-09-17: "go towards the
+     industry standard, benchmark QBO/Xero"). docs/ia-restructure-3-spec.md
+     §1. */
   .rpt-embed { border:none; width:100%; min-height:500px; display:block; background:var(--surface); border-radius:8px; padding:16px 20px; }
   .rpt-embed .page { padding:0; max-width:none; }
   .rpt-embed .header { display:none; } /* period/company header — redundant with this page's own H1 */
-  .rpt-embed table { width:100%; border-collapse:collapse; margin-top:8px; }
+  /* Sticky-header scroll fix (magnus, 2026-09-17/18) — same root cause and
+     fix as reports-hub.js's identical, longer comment: position:sticky was
+     anchoring several plain-div layers up (this whole page's own #page-main
+     scroll), a distant/indirect relationship that produced a header sticking
+     to a different boundary than this card's true edge. Made .table-wrap
+     itself the one scrolling container instead. This page (unlike reports-
+     hub.js's flex-column layout) has no ambient flex chain to cascade a
+     height down through, so a fixed viewport-relative bound is used instead
+     of height:100% — self-contained regardless of the surrounding layout. */
+  .rpt-embed .table-wrap { max-height: 60vh; overflow: auto; }
+  /* AP Aging's fragment has a sticky <thead th> — same border-collapse/
+     position:sticky bug fix as reports-hub.js's identical comment
+     (magnus, 2026-09-17). */
+  .rpt-embed table { width:100%; border-collapse:separate; border-spacing:0; margin-top:8px; }
   .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 8px; }
+  /* AP Aging's fragment carries <table class="edit-table"> (FB.list-
+     editable) — common.css's shared sticky-header rule paints that th
+     gray (.edit-table thead th { background:var(--bg) }), which out-
+     specifies .rpt-embed th above regardless of source order, same issue
+     as reports-hub.js's identical fix (magnus, 2026-09-17). */
+  /* Same box-shadow fix as reports-hub.js's identical comment. */
+  .rpt-embed table.edit-table thead th { background:var(--surface); box-shadow:0 -200px 0 0 var(--surface); }
+  /* Same padding-right gap as reports-hub.js's identical comment — AP
+     Aging's ≡ filter icon was rendering overlapping its own header text,
+     with no space reserved for it (magnus, 2026-09-18). */
+  .rpt-embed th.fb-th-filterable { padding-right: 24px; }
   .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
+  /* AP Aging's own row classes (tr.total-row, tr[data-child-of]) had no
+     mirror here at all — the total row rendered with no weight/border,
+     same "not even a total rule" gap PL/BS's tr.total had before darker
+     borders were added (magnus, 2026-09-16). */
+  .rpt-embed tr.total-row td { font-weight:700; border-top:3px solid var(--text); background:var(--bg); }
+  .rpt-embed tr[data-child-of] td { font-size:0.75rem; color:var(--text-muted); background:var(--bg); padding:4px 8px; }
+  .rpt-embed tr[data-child-of] td:first-child { padding-left:24px; }
   /* .doc-link's own rule lives in the report's <style> (render.js htmlPage())
      — stripped along with the rest of <head> by loadReportEmbed's DOMParser
      extraction (only .page's markup survives). Without a mirror here the
@@ -540,42 +579,15 @@ function showTab(t) {
 // is resolved yet (fresh company, no transactions), the container shows a
 // prompt rather than firing a 400.
 //
-// ap-aging is excluded from this path — its <tbody> is empty, populated
-// entirely by an embedded FB.list.create().load() script written for an
-// isolated iframe's own independent FB instance (confirmed: executing it in
-// this host page's shared scope broke FB.period app-wide). It keeps the old
-// iframe mechanism, auto-resized to content height so the report just prints
-// downward instead of scrolling inside a height-clamped box. ap-control's
-// rows ARE server-rendered — safe on the fragment path.
-var IFRAME_REPORTS = ['ap-aging'];
-function loadReportIframe(containerId, url) {
-  var body = document.getElementById(containerId);
-  if (!body) return;
-  body.innerHTML = '<iframe id="rpt-iframe-' + containerId + '" src="' + url.replace(/"/g, '&quot;')
-    + '" style="border:none;width:100%;height:200px;display:block;background:var(--surface)"></iframe>';
-  var frame = document.getElementById('rpt-iframe-' + containerId);
-  // ResizeObserver, not a one-shot resize-on-load measurement: this report
-  // populates its table via its own async script (a bill.aging/journal.list-
-  // style call) that resolves after the load event fires — a single
-  // measurement would capture the still-empty shell's height. Matches
-  // reports-hub.js's fix.
-  frame.onload = function() {
-    try {
-      // Isolated iframe, own independent FB instance (see the comment above)
-      // — without this, every FB binding inside it appears dead to the human.
-      if (window.FB && FB.util && FB.util.forwardIframeKeys) FB.util.forwardIframeKeys(frame);
-      var doc = frame.contentWindow.document;
-      function resize() {
-        var h = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);
-        frame.style.height = h + 'px';
-      }
-      resize();
-      var ro = new ResizeObserver(resize);
-      ro.observe(doc.body);
-    } catch (e) {}
-  };
-}
-
+// De-iframe migration (2026-09-16): ap-aging used to be excluded from this
+// path — its <tbody> is empty, populated entirely by an embedded
+// FB.list.create().load() script, and running that script in this host
+// page's own shared scope used to corrupt it (verified root cause, fixed
+// the same day: window.__fbFlags was a bare replacement instead of a
+// merge, and its FB.list registered active():true unconditionally instead
+// of gating on its own visibility — reports/render.js). With that fixed at
+// the source, ap-aging runs through the exact same path as ap-control now;
+// no report type is special-cased in this function anymore.
 var _rptEmbedCache = {};
 function loadReportEmbed(containerId, reportType) {
   var body = document.getElementById(containerId);
@@ -584,8 +596,11 @@ function loadReportEmbed(containerId, reportType) {
   var end = st.end || '';
   if (!end) { body.innerHTML = '<p class="rpt-embed-msg">Select a period first.</p>'; return; }
   var url = '/api/' + COMPANY + '/report?type=' + reportType + '&end=' + encodeURIComponent(end);
-  if (IFRAME_REPORTS.indexOf(reportType) >= 0) { loadReportIframe(containerId, url); return; }
-  if (_rptEmbedCache[url]) { body.innerHTML = _rptEmbedCache[url]; return; }
+  if (_rptEmbedCache[url]) {
+    body.innerHTML = _rptEmbedCache[url];
+    if (window.FB && FB.util && FB.util.execInlineScripts) FB.util.execInlineScripts(body);
+    return;
+  }
   body.innerHTML = '<p class="rpt-embed-msg">Loading…</p>';
   fetch(url).then(function(r) {
     var ct = r.headers.get('content-type') || '';
@@ -600,15 +615,13 @@ function loadReportEmbed(containerId, reportType) {
     var doc = new DOMParser().parseFromString(r.text, 'text/html');
     var pageEl = doc.querySelector('.page');
     if (!pageEl) { body.innerHTML = '<p class="rpt-embed-msg">Report returned no content.</p>'; return; }
-    // Deliberately NOT re-executing pageEl's embedded <script> (some reports,
-    // e.g. AP Aging, ship one): it calls FB.list.create()/FB.keys, written
-    // for an isolated iframe with its own independent FB instance — running
-    // it in this host page's shared scope collided with the host's live
-    // FB.period state (confirmed while building this). The report's DATA is
-    // fully server-rendered regardless; only its filter/sort interactivity
-    // goes inert, same as before this fetch mechanism existed.
     _rptEmbedCache[url] = pageEl.outerHTML;
     body.innerHTML = pageEl.outerHTML;
+    // AP Aging's rows only exist once its embedded <script> runs
+    // (FB.list.create().load()) — innerHTML alone never executes a
+    // <script> it inserts, so this is required, not optional (harmless
+    // no-op for ap-control, whose rows are already server-rendered).
+    if (window.FB && FB.util && FB.util.execInlineScripts) FB.util.execInlineScripts(body);
   }).catch(function(err) {
     body.innerHTML = '<p class="rpt-embed-msg" style="color:var(--danger)">Load failed: ' + esc(err && err.message ? err.message : 'network error') + '</p>';
   });
@@ -618,7 +631,7 @@ function loadReportEmbed(containerId, reportType) {
 // Aging/Control had NO download affordance at all before this; Bills/Vendors
 // are editable registers, not reports, and stay without one. AP Aging's raw
 // fetched data never reaches window scope as a flat array the way GL/Line
-// items/Transactions do — its iframe script groups straight into a nested
+// items/Transactions do — its own script groups straight into a nested
 // vendorRows global (vendor summary rows, each carrying a _bills array) —
 // the generic row→CSV converter below already drops any key starting with
 // "_", so exporting vendorRows directly yields the vendor-level summary
@@ -658,9 +671,11 @@ function updateDownloadHooks(t) {
       return '/api/' + COMPANY + '/report?type=' + reportType + '&end=' + encodeURIComponent(s.end);
     };
     if (t === 'aging') {
+      // ap-aging's own var vendorRows (reports/render.js buildAPAging) —
+      // just window.vendorRows now that its script runs in this page's own
+      // scope (de-iframe migration, 2026-09-16), not frame.contentWindow.
       window.__fbDownloadCsv = function () {
-        var frame = document.getElementById('rpt-iframe-aging-body');
-        var csv = frame && frame.contentWindow ? _rowsToCsvPayables(frame.contentWindow.vendorRows) : null;
+        var csv = _rowsToCsvPayables(window.vendorRows);
         return csv ? { filename: suffix + '.csv', csv: csv } : null;
       };
     } else {

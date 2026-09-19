@@ -50,6 +50,14 @@ ${commonStyle()}
   .pn-bill-row input[type="checkbox"] { width:16px; height:16px; }
   .pn-bill-row input[type="number"] { width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:3px; text-align:right; box-sizing:border-box; }
   .pn-outstanding { color:var(--text-muted); font-variant-numeric:tabular-nums; text-align:right; }
+  /* Write-off (2026-09-16) — icon, not a text label: reuses the app's
+     shared .chip (common.css), plain/uncolored since it's a third, neutral
+     kind of action (neither the forward-action chip-ok nor a cancel/reject
+     chip-cancel) — same glyph payables-bills.js's row action uses. Hover-
+     only, like that page's row actions; .pn-bill-row isn't a .data-table
+     row, hence its own reveal rule instead of the shared .row-afford one. */
+  .pn-bill-row .chip.row-afford { display:none; margin-left:4px; vertical-align:1px; }
+  .pn-bill-row:hover .chip.row-afford { display:inline-block; }
   .pn-bill-ccy { display:inline-block; padding:1px 7px; border-radius:10px; background:var(--chip-bg); color:var(--chip-text); font-size:0.6875rem; font-weight:600; }
   .pn-total-row { display:flex; gap:12px; align-items:center; margin-bottom:16px; }
   .pn-total-row input { width:110px; padding:4px 6px; border:1px solid var(--border); border-radius:4px; text-align:right; }
@@ -254,7 +262,8 @@ function renderBills(preselectId) {
       + '<input type="checkbox" class="pn-check"' + (checked ? ' checked' : '') + '>'
       + '<span>' + FB.util.esc(due) + '</span>'
       + '<span>' + FB.util.esc(b.vendor_ref || '—') + '</span>'
-      + '<span class="pn-outstanding">' + FB.util.fmtAmt(out) + '</span>'
+      + '<span class="pn-outstanding">' + FB.util.fmtAmt(out)
+        + '<a class="chip row-afford" title="Write off remaining balance" onclick="event.stopPropagation();_writeOffFromPayment(\\'' + b.bill_id + '\\')">&#8776;</a></span>'
       + (FX_ON ? '<span class="pn-bill-ccy">' + FB.util.esc(ccy) + '</span>' : '<span></span>')
       + '<input type="number" class="pn-alloc" step="0.01" min="0" value="' + (checked ? out.toFixed(2) : '') + '"' + (checked ? '' : ' disabled') + '>'
       + '</div>';
@@ -271,6 +280,39 @@ function renderBills(preselectId) {
     alloc.addEventListener('input', () => { updateTotal(); updateHomeEquiv(); });
   });
   onSelectionChanged();
+}
+
+// Write off (2026-09-15) — the alternative to actually paying: closes a
+// small remaining balance with no real payment (DR AP / CR the company's
+// Write-off account). Client only checks the obvious precondition (some
+// outstanding, implicit in the row existing at all); the materiality
+// threshold is enforced server-side (bills.js writeOffBill) and its
+// rejection message — apiAction already unwraps it to a plain Error, no
+// {code,message}-object display bug to repeat here — is shown verbatim.
+function _writeOffFromPayment(billId) {
+  const bill = S.openForPartner.find(b => b.bill_id === billId);
+  if (!bill) return;
+  const out = Math.max(0, Math.round(((Number(bill.amount) || 0) - (Number(bill.amount_paid) || 0)) * 100) / 100);
+  FB.modal.open({
+    title: 'Write off this bill?',
+    body: 'Close the remaining ' + FB.util.fmtAmt(out) + ' ' + (bill.currency || '') + ' outstanding on bill "' + FB.util.esc(bill.vendor_ref || bill.bill_id) + '" with no real payment — posts a journal entry to the Write-off account. This cannot be undone.',
+    buttons: [
+      { label: 'Cancel', onClick: (api) => api.close() },
+      { label: 'Write off', danger: true, onClick: (api) => {
+          api.close();
+          apiAction('bill.write_off', { billId })
+            .then(() => {
+              msg('Bill written off', 'ok');
+              // Drop it from both the partner-filtered view and the
+              // up-front fetch it was derived from — it's no longer open.
+              S.openForPartner = S.openForPartner.filter((b) => b.bill_id !== billId);
+              allBills = allBills.filter((b) => b.bill_id !== billId);
+              renderBills();
+            })
+            .catch((e) => msg('Write-off failed: ' + e.message, 'err'));
+        } }
+    ]
+  });
 }
 
 // Selected bills decide the payment's currency — not an upfront picker.

@@ -146,6 +146,20 @@
   // K2: pushed modal scopes (LIFO). While non-empty the TOP scope owns
   // dispatch exclusively — see _dispatch. FB.modal is the consumer.
   var _scopeStack = [];
+  // Multi-region focus (2026-09-16): which registered set currently owns
+  // dispatch when MORE THAN ONE set reports active() at once — e.g.
+  // Settings/Access's grants list + API tokens list, both active on the
+  // same tab. Before this, dispatch tried _order in plain registration
+  // order and ran the first set with a matching binding; since every
+  // FB.list instance binds the same built-in j/k, the first-registered
+  // list silently owned j/k forever and the second was keyboard-dead for
+  // those keys specifically (a key unique to the second list still reached
+  // it fine — only keys BOTH sets bind were affected). null = no explicit
+  // focus yet, dispatch order falls back to _order as before. Set via
+  // keys.setFocus (row click) and keys.advanceRegion (boundary hand-off,
+  // called from FB.nav.create's move() by way of fb-list.js's j/k
+  // bindings when nav.move() reports it was already at the edge).
+  var _focusedName = null;
 
   // K3c: soft-nav key lifecycle. The core baseline is captured once at IIFE
   // end (before any page script registers). resetPage() removes everything
@@ -292,16 +306,41 @@
     return { toggle: toggle, isOpen: isOpen, key: key };
   })();
 
-  // The set that currently owns dispatch: first registered set whose active()
-  // passes (a set without active() is always live, mirroring _dispatch). The
-  // help overlay and the `?` trigger resolve their binding table through this
-  // — same source of truth as dispatch, so the overlay cannot go stale.
+  // The set that currently owns dispatch: the explicitly-focused set (see
+  // _focusedName above) if it's still registered and active, else the first
+  // registered set whose active() passes (a set without active() is always
+  // live, mirroring _dispatch) — the pre-2026-09-16 behavior, still exactly
+  // right when only one set is ever active at a time. The help overlay and
+  // the `?`/`g`/`p` triggers resolve their binding table through this — same
+  // source of truth as dispatch (_dispatchOrder), so the overlay cannot go
+  // stale relative to what a keypress would actually do.
   function _activeSet() {
+    if (_focusedName) {
+      var focused = _sets[_focusedName];
+      if (focused && (!focused.active || focused.active())) return { name: _focusedName, set: focused };
+    }
     for (var i = 0; i < _order.length; i++) {
       var set = _sets[_order[i]];
       if (set && (!set.active || set.active())) return { name: _order[i], set: set };
     }
     return null;
+  }
+
+  // Dispatch order for the main loop below: the focused set first (if still
+  // registered and active — a stale focus from a set that unregistered or
+  // went inactive is simply skipped), then every other _order entry in
+  // registration order same as before. Keeps the existing "first set with a
+  // matching binding wins" contract intact — this only changes which set
+  // gets first refusal when more than one is active at once.
+  function _dispatchOrder() {
+    if (!_focusedName) return _order;
+    var focused = _sets[_focusedName];
+    if (!focused || (focused.active && !focused.active())) return _order;
+    var out = [_focusedName];
+    for (var i = 0; i < _order.length; i++) {
+      if (_order[i] !== _focusedName) out.push(_order[i]);
+    }
+    return out;
   }
 
   function _dispatch(e) {
@@ -423,8 +462,9 @@
         return;
       }
     }
-    for (var i = 0; i < _order.length; i++) {
-      var set = _sets[_order[i]];
+    var _dorder = _dispatchOrder();
+    for (var i = 0; i < _dorder.length; i++) {
+      var set = _sets[_dorder[i]];
       if (!set) continue;
       if (set.active && !set.active()) continue;
       var m = set.getMode ? set.getMode() : 'NORMAL';
@@ -1136,6 +1176,78 @@
       delete _sets[name];
       var i = _order.indexOf(name);
       if (i >= 0) _order.splice(i, 1);
+      if (_focusedName === name) _focusedName = null;
+    },
+    // Multi-region focus (see _focusedName above). setFocus: explicitly make
+    // `name` the dispatch-priority set — FB.list's row click handler calls
+    // this so clicking into a normally-second-priority list (e.g. Settings/
+    // Access's API Tokens grid) also redirects the NEXT keypress there, not
+    // just the click itself. advanceRegion: called when a set's own
+    // boundary-aware binding (fb-list.js's j/k) finds it has nowhere left to
+    // move — hands focus to the next/previous ACTIVE set in registration
+    // order (dir>0 forward, dir<0 backward) and, if that set registered a
+    // focusEdge fn, asks it to select its own first/last row so the
+    // hand-off lands somewhere sensible instead of wherever that set's
+    // cursor happened to be left last time. Returns false (a no-op) when
+    // there's no active set to hand off to either way — callers should
+    // treat that the same as "reached the end, nothing more to do".
+    // Shared by setFocus/advanceRegion: undraws the OUTGOING set's own
+    // highlight (if it registered an unfocus fn) before handing off, so a
+    // set that's no longer the dispatch target doesn't keep looking
+    // focused alongside the one that now is.
+    setFocus: function (name) {
+      // Same implicit-first fallback as advanceRegion: _focusedName may
+      // still be null (nothing has moved focus explicitly yet, e.g. a
+      // click straight into a second list before ever pressing j/k) — the
+      // EFFECTIVE previous owner is then whichever active set _activeSet()
+      // would have picked, and that's the one whose highlight needs
+      // clearing, not "no one" just because nothing was explicit yet.
+      var prevName = _focusedName;
+      if (!prevName) {
+        for (var i = 0; i < _order.length; i++) {
+          var s = _sets[_order[i]];
+          if (s && (!s.active || s.active())) { prevName = _order[i]; break; }
+        }
+      }
+      if (prevName && prevName !== name) {
+        var prev = _sets[prevName];
+        if (prev && prev.unfocus) prev.unfocus();
+      }
+      _focusedName = name;
+    },
+    advanceRegion: function (dir) {
+      var actives = [];
+      for (var i = 0; i < _order.length; i++) {
+        var s = _sets[_order[i]];
+        if (s && (!s.active || s.active())) actives.push(_order[i]);
+      }
+      if (actives.length < 2) return false;
+      // cur is the EFFECTIVE current index even when _focusedName was never
+      // explicitly set (defaults to 0, same fallback _activeSet() uses) —
+      // unfocus below must undraw that implicit-first set's highlight too,
+      // not only a set that had been explicitly focused at some point.
+      var cur = (_focusedName && actives.indexOf(_focusedName) >= 0) ? actives.indexOf(_focusedName) : 0;
+      var next = cur + (dir > 0 ? 1 : -1);
+      if (next < 0 || next >= actives.length) return false;
+      var prevSet = _sets[actives[cur]];
+      if (prevSet && prevSet.unfocus) prevSet.unfocus();
+      _focusedName = actives[next];
+      var set = _sets[_focusedName];
+      if (set && set.focusEdge) set.focusEdge(dir);
+      return true;
+    },
+    // True when `name` is the set that would currently receive dispatch —
+    // same resolution _activeSet() uses (explicit focus, else first active).
+    // fb-list.js's render() calls this so a list that's active but NOT
+    // focused (e.g. Settings/Access's API Tokens grid, before anything has
+    // moved focus onto it) renders its row cursor WITHOUT the visual
+    // nav-row-focus highlight — every FB.list independently auto-selects
+    // its own first row on load, which used to mean two (or more)
+    // simultaneously-active lists on one screen all showed a highlighted
+    // row at once, even though only one genuinely owned the keyboard.
+    isFocused: function (name) {
+      var as = _activeSet();
+      return !!(as && as.name === name);
     },
     // K2: modal scope stack. push() registers a set AND makes it the
     // exclusive dispatch owner until pop() (see _dispatch). Consumer:
@@ -1210,6 +1322,7 @@
         }
       }
       _scopeStack = [];
+      _focusedName = null;
       _gPending = false;
       clearTimeout(_gTimer);
       _onGG = [];
@@ -1312,13 +1425,33 @@
         } catch (e) { return []; }
       });
 
-      function set(el) {
+      // quiet (2026-09-16): position the cursor on `el` without visually
+      // claiming focus (no highlight class, no scroll, no onFocus) — for a
+      // list that's active but not the one FB.keys is currently dispatching
+      // to (see FB.keys.isFocused), so its internal cursor still tracks
+      // where it logically is (correct once it DOES gain focus) without
+      // drawing a second highlighted row alongside the one that's real.
+      function set(el, quiet) {
         if (cur) cur.classList.remove(focusClass);
         cur = el || null;
         if (!cur) return;
+        if (quiet) return;
         cur.classList.add(focusClass);
         cur.scrollIntoView({ block: 'nearest' });
         if (opts.onFocus) opts.onFocus(cur);
+      }
+      // The nearest ancestor that actually scrolls (2026-09-16, for
+      // scrollToTop/scrollToBottom below) — walks up from `el` rather than
+      // assuming a fixed container id, since different pages scroll
+      // different elements (e.g. payables.js's #page-main).
+      function scrollableAncestor(el) {
+        var node = el ? el.parentElement : null;
+        while (node && node !== document.body && node !== document.documentElement) {
+          var cs = window.getComputedStyle(node);
+          if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && node.scrollHeight > node.clientHeight) return node;
+          node = node.parentElement;
+        }
+        return null;
       }
       function locate() {
         var gs = groups();
@@ -1332,26 +1465,59 @@
       return {
         set: set,
         clear: function () { set(null); },
+        // Un-draw the highlight without moving the cursor (2026-09-16) — for
+        // a list that's losing FB.keys focus to another active region: it
+        // should stop looking focused, but resume from the same row if
+        // focus ever comes back to it, so this leaves `cur` untouched.
+        blur: function () { if (cur) cur.classList.remove(focusClass); },
+        // scrollIntoView({block:'nearest'}) (in set(), above) only ever
+        // considers the TARGET ROW's own visibility — it has no idea a
+        // page header sits further up, outside the table entirely, in the
+        // same scroll container. Even with the sticky <thead> now common
+        // app-wide (common.css), reaching the true first/last row should
+        // still return the page to its start — its own header/KPI-strip/
+        // tabs coming back into view, not just the column headers (already
+        // guaranteed separately by the sticky rule). Call these when a
+        // caller has independently determined "this really is the top/
+        // bottom of ALL navigable content on the page" (e.g. fb-list.js's
+        // j/k bindings, once both nav.move() and FB.keys.advanceRegion()
+        // have declined) to force the real container the rest of the way.
+        scrollToTop: function () {
+          var sc = scrollableAncestor(cur);
+          if (sc) sc.scrollTop = 0; else window.scrollTo(0, 0);
+        },
+        scrollToBottom: function () {
+          var sc = scrollableAncestor(cur);
+          if (sc) sc.scrollTop = sc.scrollHeight; else window.scrollTo(0, document.body.scrollHeight);
+        },
         current: function () { return cur; },
+        // Returns true when the cursor actually moved, false when it was
+        // already at the boundary (a real no-op, not just "nothing to
+        // select yet") — 2026-09-16, so a caller (fb-list.js's j/k
+        // bindings) can tell "nowhere left to go here" from "moved fine"
+        // and hand off to an adjacent active region (FB.keys.advanceRegion)
+        // instead of the key just silently doing nothing.
         move: function (dir) {
           var gs = groups();
           if (gs) {
-            if (!gs.length) return;
+            if (!gs.length) return false;
             var pos = locate();
-            if (!pos) { set(dir > 0 ? gs[0][0] : gs[gs.length - 1][0]); return; }
+            if (!pos) { set(dir > 0 ? gs[0][0] : gs[gs.length - 1][0]); return true; }
             var ng = pos.g + dir;
             if (ng < 0) ng = 0;                       // sticky top
             if (ng > gs.length - 1) ng = gs.length - 1; // sticky bottom
+            if (ng === pos.g) return false;
             set(gs[ng][Math.min(pos.c, gs[ng].length - 1)]);
-            return;
+            return true;
           }
           var rows = opts.rows();
-          if (!rows.length) return;
+          if (!rows.length) return false;
           var i = rows.indexOf(cur);
-          if (i === -1) { set(dir > 0 ? rows[0] : rows[rows.length - 1]); return; }
+          if (i === -1) { set(dir > 0 ? rows[0] : rows[rows.length - 1]); return true; }
           var n = i + dir;
-          if (n < 0 || n >= rows.length) return; // sticky at boundaries
+          if (n < 0 || n >= rows.length) return false; // sticky at boundaries
           set(rows[n]);
+          return true;
         },
         // Horizontal step within the current grid group (no-op for rows()).
         moveH: function (dir) {
@@ -1816,6 +1982,44 @@
       document.dispatchEvent(synth);
       e.preventDefault();
     });
+  }
+
+  // De-iframe migration (2026-09-16): a fragment inserted via
+  // `el.innerHTML = ...` never runs any <script> it contains — that's a
+  // browser security behavior, not a choice a page can opt into. Callers
+  // that fetch a report page, extract its .page element via DOMParser, and
+  // splice it into a host page (reports-hub.js, payables.js) rely on this:
+  // it's exactly why the OTHER 7 report types (plain server-rendered
+  // tables) work via that path with no special handling, while GL/Journal/
+  // Voucher Register/AP Aging — whose actual row data only exists once
+  // their own embedded <script> runs (FB.list.create().load()) — could
+  // not, and were kept on a real <iframe> instead (a genuinely separate
+  // document, so its own <script> tags run normally on load).
+  //
+  // Once a report's inline script is safe to run in a shared scope (merges
+  // window.__fbFlags instead of replacing it, gates its FB.list active()
+  // on real visibility instead of always-true — both fixed 2026-09-16),
+  // the fragment path can execute it directly instead of needing iframe
+  // isolation at all: create a FRESH <script> element per inline <script>
+  // found in `container` (browsers do execute a script element that's
+  // newly created and appended, unlike one that arrived via innerHTML) and
+  // append it in document order. `<script src=...>` tags (fb-core.js,
+  // fb-list.js) are skipped — the host page has already loaded those, and
+  // re-fetching + re-running them would reinitialize window.FB from
+  // scratch, wiping every binding/state the host page had already
+  // registered. That specific mechanism is the verified root cause behind
+  // the old "confirmed: broke FB.period app-wide" finding that originally
+  // justified iframe-isolating these 4 reports.
+  function execInlineScripts(container) {
+    if (!container) return;
+    var scripts = container.querySelectorAll('script');
+    for (var i = 0; i < scripts.length; i++) {
+      var old = scripts[i];
+      if (old.src) continue; // shared framework files — already loaded by the host
+      var fresh = document.createElement('script');
+      fresh.textContent = old.textContent;
+      old.parentNode.replaceChild(fresh, old);
+    }
   }
 
   // K3c: capture the core baseline — every key set registered so far belongs
@@ -2432,7 +2636,7 @@
   });
 
   window.FB = {
-    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, fmtDateShort: fmtDateShort, fmtAmt: fmtAmt, today: today, forwardIframeKeys: forwardIframeKeys },
+    util: { esc: esc, escAttr: esc, fmtDate: fmtDate, fmtDateShort: fmtDateShort, fmtAmt: fmtAmt, today: today, forwardIframeKeys: forwardIframeKeys, execInlineScripts: execInlineScripts },
     mode: mode,
     keys: keys,
     coverage: coverage,

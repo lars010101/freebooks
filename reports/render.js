@@ -76,8 +76,15 @@ function htmlPage(title, company, period, tableHtml, opts = {}) {
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📒</text></svg>">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: 900px; margin: 0; padding: 32px 40px; }
+  /* White "paper" card on a gray page — the QBO/Xero convention for
+     rendered financial statements (magnus, 2026-09-17: "go towards the
+     industry standard, benchmark QBO/Xero"), not the flat-gray-everywhere
+     treatment tried first. Print/PDF export (window.open of this exact
+     URL, @media print below) drops the card chrome (shadow/radius/gray
+     margin) — none of which belongs on a printed page — but keeps the
+     same white/row-shading look, since screen and print now agree. */
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #1a1a1a; background: #f2f4f7; padding: 24px; }
+  .page { max-width: 900px; margin: 0; padding: 32px 40px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(16,24,40,.1); }
   .page.wide { max-width: none; margin: 0; padding: 24px 32px; }
   .page.wide .table-wrap { overflow-x: auto; }
   .page.wide th { white-space: nowrap; }
@@ -93,8 +100,8 @@ function htmlPage(title, company, period, tableHtml, opts = {}) {
   td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   tr.subtotal td { font-weight: 600; border-top: 1px solid #aaa; border-bottom: 2px solid #aaa; background: #f8f8f8; }
-  tr.type_total td { font-weight: 700; background: #efefef; }
-  tr.total td { font-weight: 700; font-size: 11pt; border-top: 2px solid #1a1a1a;
+  tr.type_total td { font-weight: 700; border-top: 1px solid #999; background: #efefef; }
+  tr.total td { font-weight: 700; font-size: 11pt; border-top: 3px solid #1a1a1a;
                 border-bottom: 3px double #1a1a1a; background: #f0f0f0; }
   tr.section-header td { font-weight: 700; font-size: 10pt; text-transform: uppercase;
                           letter-spacing: 0.05em; color: #444; padding-top: 16px; border-bottom: none;
@@ -120,11 +127,11 @@ function htmlPage(title, company, period, tableHtml, opts = {}) {
      One reference-link color/treatment everywhere a report shows one. */
   .doc-link { color: #18293f; text-decoration: none; font-weight: 500; }
   .doc-link:hover { text-decoration: underline; }
-  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd;
+  .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd;
             font-size: 9pt; color: #888; }
   @media print {
-    body { font-size: 10pt; }
-    .page { padding: 0; max-width: 100%; }
+    body { font-size: 10pt; background: #fff; padding: 0; }
+    .page { padding: 0; max-width: 100%; box-shadow: none; border-radius: 0; }
     @page { margin: 20mm; size: A4; }
   }
 </style>
@@ -405,39 +412,75 @@ async function buildGL(query, company, start, end, account) {
 <link rel="stylesheet" href="/public/common.css?v=${_assetV('common.css')}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; overflow: hidden; }
-  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  /* Flex column filling the iframe's fixed height exactly — .table-wrap is
-     the ONLY element that scrolls. A magic-number max-height (calc(100vh -
-     Npx), guessing how tall the header/footer are) left the body itself
-     free to overflow the iframe's own height whenever that guess was off,
-     giving a SECOND scrollbar (the iframe's own html/body, which scrolls by
-     default when its content overflows) on top of table-wrap's — this
-     flex layout makes that structurally impossible: header/footer take
-     their natural size, table-wrap gets exactly what's left. */
-  .page { height: 100%; display: flex; flex-direction: column; max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; }
-  .header { flex-shrink: 0; border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 18px; }
+  /* White card on gray page, same reasoning as htmlPage()'s own copy of
+     this comment above (QBO/Xero benchmark). */
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: var(--bg, #f2f4f7); padding: 24px; }
+  /* De-iframe migration (2026-09-16): this used to fill an isolated
+     iframe's own fixed-height viewport exactly (html/body height:100%,
+     .page as a flex column, .table-wrap: flex:1 as the ONLY scrolling
+     element) — correct for a report that WAS the entire document, wrong
+     once embedded as a fragment inside a host page (payables.js/reports-
+     hub.js) that has no defined height for this to be "100%" of, and that
+     already owns its own page-level scroll (#page-main) same as every
+     other report. Flows naturally now, same as GL's siblings (Journal,
+     Voucher Register, AP Aging) always did — sticky column headers still
+     work, now via the shared common.css rule (.edit-table thead th)
+     instead of the flex/vh trick this page no longer needs. */
+  .page { max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; background: var(--surface, #fff); border-radius: 8px; box-shadow: 0 1px 3px rgba(16,24,40,.1); }
+  .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 18px; }
   /* On-screen this repeats page/tab chrome the app already shows (company,
      period) — hidden here, restored for print/PDF, since PDF export opens
      this exact standalone document raw (ia-restructure-3-spec.md §6.2). */
   .header { display: none; }
-  @media print { .header { display: block; } }
+  @media print {
+    .header { display: block; }
+    body { background: #fff; padding: 0; }
+    .page { background: #fff; box-shadow: none; border-radius: 0; }
+  }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
   .period { font-size: 10pt; color: #666; margin-top: 2px; }
-  .table-wrap { flex: 1; min-height: 0; overflow-x: auto; overflow-y: auto; }
-  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-  /* Persistent/sticky column headers (magnus 2026-08-30) — the table-wrap
-     above is the scroll container the header stays pinned against. */
-  th { position: sticky; top: 0; z-index: 2; text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; background: #fff; border-bottom: 1px solid #ccc; padding: 6px 8px; }
+  .table-wrap { overflow-x: auto; }
+  /* border-collapse:collapse + position:sticky on <th> is a documented
+     cross-browser rendering bug: collapsed border geometry is computed
+     across the whole table, not per sticky cell, so the row scrolling
+     underneath can paint through/above the sticky header at the boundary
+     during scroll (magnus, 2026-09-17 — "data rows... scroll behind the
+     column headers and become visible on the other side (above)").
+     border-spacing:0 keeps cells touching exactly as collapse did; only
+     the shared-border compositing that caused the bleed-through is gone. */
+  table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 6px; }
+  /* Sticky column headers: common.css's shared .edit-table thead th rule
+     sets background:var(--bg) (gray, correct for an ordinary gray page) —
+     wrong here since this report is a white card, so the opaque backing a
+     sticky header needs is re-declared to match the card instead. */
+  th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; }
+  /* common.css's shared sticky-header rule (.edit-table thead th) sets
+     background:var(--bg) (gray — correct on an ordinary gray page) at
+     specificity (0,1,2), which beats a bare 'th' selector regardless of
+     source order — the background above was dead code, silently losing
+     that fight. Matching the same selector ties specificity; appearing
+     later in the document (this <style> follows the common.css <link>)
+     wins the tie (magnus, 2026-09-17 — verified via CSS specificity, not
+     asserted by eye: "don't act blindly, if it should, it should"). */
+  /* magnus, 2026-09-17: three targeted fixes for the sticky-header
+     scroll-ghosting bug (border-collapse, forced compositing layer, tr-
+     level sticky in common.css) didn't resolve it, so rather than keep
+     guessing at the render bug itself, physically extend the header's
+     opaque area upward past wherever the ghosting appears. A solid
+     (0-blur, 0-spread) box-shadow is pure paint, not layout — it can't
+     push other content around, and the scroll container's own overflow
+     clipping means it can never spill out above the actual visible
+     scroll area, so this can only ever cover the gap, not create a new
+     visual bug elsewhere. */
+  .edit-table thead th { background: var(--surface, #fff); box-shadow: 0 -200px 0 0 var(--surface, #fff); }
   th.num { text-align: right; }
   td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   tr.gl-opening td, tr.gl-closing td { font-weight: 600; background: #fafafa; }
   tr.gl-opening td.account-label { font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
-  tr.gl-txn:hover td { background: #fafafa; }
   .no-results { text-align: center; color: #888; padding: 20px; }
-  .footer { flex-shrink: 0; margin-top: 12px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+  .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
   /* Quiet link (2026-09-15, per magnus — "underline looks ugly"): matches
      the app's own established .ref-link recipe (payables.js) — no
      underline at rest, font-weight carries the "this is interactive" cue
@@ -453,14 +496,13 @@ async function buildGL(query, company, start, end, account) {
   tr.nav-row-focus:not(.row-editing) > td {
     background: rgba(61, 100, 148, 0.18) !important; outline: none;
   }
-  /* FB.list column filter/sort UI. common.css (linked above) declares its own
-     th.fb-th-filterable { position: relative } globally, at the SAME
-     specificity as this selector — cascade order (this block comes later in
-     the document) is what makes position:sticky win here instead, not
-     specificity. Re-declaring sticky explicitly rather than just dropping
-     position: relative, since dropping it only beat the (already-removed)
-     local duplicate of this rule, not common.css's copy. */
-  th.fb-th-filterable { position: sticky; top: 0; padding-right: 24px; }
+  /* FB.list column filter/sort UI. Used to re-declare position:sticky here
+     to beat common.css's own th.fb-th-filterable { position: relative }
+     (same specificity, cascade order was doing the work) — no longer
+     needed (2026-09-16): common.css's .edit-table thead th rule has higher
+     specificity than th.fb-th-filterable regardless of order, so it wins
+     on its own. */
+  th.fb-th-filterable { padding-right: 24px; }
   th .fb-filter-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
     cursor: pointer; opacity: 0.4; font-size: 14px; line-height: 1; }
   th:hover .fb-filter-btn { opacity: 1; color: #555; }
@@ -504,8 +546,7 @@ async function buildGL(query, company, start, end, account) {
     </table>
   </div>
 
-  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks · General Ledger</div>
-</div>
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks</div>
 
 <script src="/public/fb-core.js?v=${_assetV('fb-core.js')}"></script>
 <script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
@@ -518,7 +559,17 @@ async function buildGL(query, company, start, end, account) {
   // specifically still wrapped negatives in parentheses — the same
   // convention render.js's server-side fmt() was fixed away from the same
   // day, just never applied to this page's own client-side formatter.
-  window.__fbFlags = { jurisdiction: ${JSON.stringify(jurisdiction)} };
+  // De-iframe migration (2026-09-16): merge, never replace — when this
+  // script runs embedded in a host page (reports-hub.js/payables.js), the
+  // host has already set window.__fbFlags with vatRegistered/fxTracking/
+  // baseCurrency/etc; a bare replacement here wiped all of that out from
+  // the moment this report loaded onward, corrupting the HOST page's own
+  // VAT-column/FX-column visibility logic for the rest of the session.
+  // This was the actual mechanism behind the old "confirmed: broke
+  // FB.period app-wide" finding that kept these 4 reports iframe-isolated
+  // — verified by reading payables.js's own window.__fbFlags assignment
+  // and finding no merge anywhere in the 4 reports' scripts.
+  window.__fbFlags = Object.assign(window.__fbFlags || {}, { jurisdiction: ${JSON.stringify(jurisdiction)} });
   var GL_ROWS = ${JSON.stringify(rowsData)};
   var REPORT_START = ${JSON.stringify(start || '')};
   var REPORT_END = ${JSON.stringify(end || '')};
@@ -542,7 +593,15 @@ async function buildGL(query, company, start, end, account) {
 
   var glList = FB.list.create({
     keysId: 'gl',
-    active: function () { return true; },
+    // De-iframe migration (2026-09-16): was unconditionally true, written
+    // for an isolated iframe where nothing else on the page could compete
+    // for dispatch. Embedded in a host page's shared FB.keys, that would
+    // make this list eligible for j/k even while a completely different
+    // tab is showing. offsetParent is null exactly when an ancestor is
+    // display:none — true both for "my own tab isn't the active one" and,
+    // harmlessly, for the standalone-document case (never hidden, so
+    // always true there).
+    active: function () { var el = document.getElementById('gl-body'); return !el || el.offsetParent !== null; },
     tbody: 'gl-body',
     companyId: function () { return COMPANY; },
     canAdd: false,
@@ -600,6 +659,7 @@ async function buildGL(query, company, start, end, account) {
   GL_ROWS.forEach(function (r) { GL_ROWS_BY_KEY[r._key] = r; });
   glList.load();
 </script>
+</div>
 </body>
 </html>`;
   return { tableHtml, rows };
@@ -668,26 +728,61 @@ async function buildJournal(query, company, start, end) {
 <link rel="stylesheet" href="/public/common.css?v=${_assetV('common.css')}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; }
+  /* White card on gray page, same reasoning as htmlPage()'s own copy of
+     this comment above (QBO/Xero benchmark). */
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: var(--bg, #f2f4f7); padding: 24px; }
+  .page { max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; background: var(--surface, #fff); border-radius: 8px; box-shadow: 0 1px 3px rgba(16,24,40,.1); }
   .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 18px; }
   /* On-screen this repeats page/tab chrome the app already shows (company,
      period) — hidden here, restored for print/PDF, since PDF export opens
      this exact standalone document raw (ia-restructure-3-spec.md §6.2). */
   .header { display: none; }
-  @media print { .header { display: block; } }
+  @media print {
+    .header { display: block; }
+    body { background: #fff; padding: 0; }
+    .page { background: #fff; box-shadow: none; border-radius: 0; }
+  }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
   .period { font-size: 10pt; color: #666; margin-top: 2px; }
   .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  /* border-collapse:collapse + position:sticky on <th> is a documented
+     cross-browser rendering bug: collapsed border geometry is computed
+     across the whole table, not per sticky cell, so the row scrolling
+     underneath can paint through/above the sticky header at the boundary
+     during scroll (magnus, 2026-09-17 — "data rows... scroll behind the
+     column headers and become visible on the other side (above)").
+     border-spacing:0 keeps cells touching exactly as collapse did; only
+     the shared-border compositing that caused the bleed-through is gone. */
+  table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 6px; }
+  /* Sticky header backing: common.css's shared rule paints it gray
+     (var(--bg), correct on an ordinary gray page) — re-declared white to
+     match this report's own card, same reasoning as buildGL's th rule. */
   th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; }
+  /* common.css's shared sticky-header rule (.edit-table thead th) sets
+     background:var(--bg) (gray — correct on an ordinary gray page) at
+     specificity (0,1,2), which beats a bare 'th' selector regardless of
+     source order — the background above was dead code, silently losing
+     that fight. Matching the same selector ties specificity; appearing
+     later in the document (this <style> follows the common.css <link>)
+     wins the tie (magnus, 2026-09-17 — verified via CSS specificity, not
+     asserted by eye: "don't act blindly, if it should, it should"). */
+  /* magnus, 2026-09-17: three targeted fixes for the sticky-header
+     scroll-ghosting bug (border-collapse, forced compositing layer, tr-
+     level sticky in common.css) didn't resolve it, so rather than keep
+     guessing at the render bug itself, physically extend the header's
+     opaque area upward past wherever the ghosting appears. A solid
+     (0-blur, 0-spread) box-shadow is pure paint, not layout — it can't
+     push other content around, and the scroll container's own overflow
+     clipping means it can never spill out above the actual visible
+     scroll area, so this can only ever cover the gap, not create a new
+     visual bug elsewhere. */
+  .edit-table thead th { background: var(--surface, #fff); box-shadow: 0 -200px 0 0 var(--surface, #fff); }
   th.num { text-align: right; }
   td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  tr:hover td { background: #fafafa; }
   .no-results { text-align: center; color: #888; padding: 20px; }
-  .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+  .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
   /* Quiet link (2026-09-15, per magnus — "underline looks ugly"): matches
      the app's own established .ref-link recipe (payables.js) — no
      underline at rest, font-weight carries the "this is interactive" cue
@@ -749,8 +844,7 @@ async function buildJournal(query, company, start, end) {
     </table>
   </div>
 
-  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks · Journal Line Listing</div>
-</div>
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks</div>
 
 <script src="/public/fb-core.js?v=${_assetV('fb-core.js')}"></script>
 <script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
@@ -759,7 +853,17 @@ async function buildJournal(query, company, start, end) {
   // Jurisdiction-aware number formatting (docs/UI.md — negative numbers,
   // decimals, thousands separators): FB.util.fmtAmt reads this — this
   // page's own amtDisplay was hardcoded to 'en-US' until 2026-09-15.
-  window.__fbFlags = { jurisdiction: ${JSON.stringify(jurisdiction)} };
+  // De-iframe migration (2026-09-16): merge, never replace — when this
+  // script runs embedded in a host page (reports-hub.js/payables.js), the
+  // host has already set window.__fbFlags with vatRegistered/fxTracking/
+  // baseCurrency/etc; a bare replacement here wiped all of that out from
+  // the moment this report loaded onward, corrupting the HOST page's own
+  // VAT-column/FX-column visibility logic for the rest of the session.
+  // This was the actual mechanism behind the old "confirmed: broke
+  // FB.period app-wide" finding that kept these 4 reports iframe-isolated
+  // — verified by reading payables.js's own window.__fbFlags assignment
+  // and finding no merge anywhere in the 4 reports' scripts.
+  window.__fbFlags = Object.assign(window.__fbFlags || {}, { jurisdiction: ${JSON.stringify(jurisdiction)} });
   var JL_ROWS = ${JSON.stringify(rowsData)};
   var REPORT_START = ${JSON.stringify(start || '')};
   var REPORT_END = ${JSON.stringify(end || '')};
@@ -779,7 +883,8 @@ async function buildJournal(query, company, start, end) {
 
   var jlList = FB.list.create({
     keysId: 'journal-lines',
-    active: function () { return true; },
+    // De-iframe migration (2026-09-16) — see buildGL's identical comment.
+    active: function () { var el = document.getElementById('jl-body'); return !el || el.offsetParent !== null; },
     tbody: 'jl-body',
     companyId: function () { return COMPANY; },
     canAdd: false,
@@ -852,6 +957,7 @@ async function buildJournal(query, company, start, end) {
 
   jlList.load();
 </script>
+</div>
 </body>
 </html>`;
   return { tableHtml, rows: [] };
@@ -931,28 +1037,63 @@ async function buildVoucherRegister(query, company, start, end) {
 <link rel="stylesheet" href="/public/common.css?v=${_assetV('common.css')}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; }
+  /* White card on gray page, same reasoning as htmlPage()'s own copy of
+     this comment above (QBO/Xero benchmark). */
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: var(--bg, #f2f4f7); padding: 24px; }
+  .page { max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; background: var(--surface, #fff); border-radius: 8px; box-shadow: 0 1px 3px rgba(16,24,40,.1); }
   .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 18px; }
   /* On-screen this repeats page/tab chrome the app already shows (company,
      period) — hidden here, restored for print/PDF, since PDF export opens
      this exact standalone document raw (ia-restructure-3-spec.md §6.2). */
   .header { display: none; }
-  @media print { .header { display: block; } }
+  @media print {
+    .header { display: block; }
+    body { background: #fff; padding: 0; }
+    .page { background: #fff; box-shadow: none; border-radius: 0; }
+  }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
   .period { font-size: 10pt; color: #666; margin-top: 2px; }
   .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  /* border-collapse:collapse + position:sticky on <th> is a documented
+     cross-browser rendering bug: collapsed border geometry is computed
+     across the whole table, not per sticky cell, so the row scrolling
+     underneath can paint through/above the sticky header at the boundary
+     during scroll (magnus, 2026-09-17 — "data rows... scroll behind the
+     column headers and become visible on the other side (above)").
+     border-spacing:0 keeps cells touching exactly as collapse did; only
+     the shared-border compositing that caused the bleed-through is gone. */
+  table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 6px; }
+  /* Sticky header backing: common.css's shared rule paints it gray
+     (var(--bg), correct on an ordinary gray page) — re-declared white to
+     match this report's own card, same reasoning as buildGL's th rule. */
   th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #555; border-bottom: 1px solid #ccc; padding: 6px 8px; }
+  /* common.css's shared sticky-header rule (.edit-table thead th) sets
+     background:var(--bg) (gray — correct on an ordinary gray page) at
+     specificity (0,1,2), which beats a bare 'th' selector regardless of
+     source order — the background above was dead code, silently losing
+     that fight. Matching the same selector ties specificity; appearing
+     later in the document (this <style> follows the common.css <link>)
+     wins the tie (magnus, 2026-09-17 — verified via CSS specificity, not
+     asserted by eye: "don't act blindly, if it should, it should"). */
+  /* magnus, 2026-09-17: three targeted fixes for the sticky-header
+     scroll-ghosting bug (border-collapse, forced compositing layer, tr-
+     level sticky in common.css) didn't resolve it, so rather than keep
+     guessing at the render bug itself, physically extend the header's
+     opaque area upward past wherever the ghosting appears. A solid
+     (0-blur, 0-spread) box-shadow is pure paint, not layout — it can't
+     push other content around, and the scroll container's own overflow
+     clipping means it can never spill out above the actual visible
+     scroll area, so this can only ever cover the gap, not create a new
+     visual bug elsewhere. */
+  .edit-table thead th { background: var(--surface, #fff); box-shadow: 0 -200px 0 0 var(--surface, #fff); }
   th.num { text-align: right; }
   td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  tr:hover td { background: #fafafa; }
   tr[data-href] { cursor: pointer; }
   tr[data-href]:hover td { background: #f0f4ff; }
   .no-results { text-align: center; color: #888; padding: 20px; }
-  .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+  .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
   .badge { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 8.5pt; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
   .b-posted   { background: #e8f5e9; color: #2e7d32; }
   .b-reversed { background: #ffebee; color: #c62828; }
@@ -1017,8 +1158,7 @@ async function buildVoucherRegister(query, company, start, end) {
     </table>
   </div>
 
-  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks · Transaction Register</div>
-</div>
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks</div>
 
 <script src="/public/fb-core.js?v=${_assetV('fb-core.js')}"></script>
 <script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
@@ -1027,7 +1167,17 @@ async function buildVoucherRegister(query, company, start, end) {
   // Jurisdiction-aware number formatting (docs/UI.md — negative numbers,
   // decimals, thousands separators): FB.util.fmtAmt reads this — this
   // page's own amtDisplay was hardcoded to 'en-US' until 2026-09-15.
-  window.__fbFlags = { jurisdiction: ${JSON.stringify(jurisdiction)} };
+  // De-iframe migration (2026-09-16): merge, never replace — when this
+  // script runs embedded in a host page (reports-hub.js/payables.js), the
+  // host has already set window.__fbFlags with vatRegistered/fxTracking/
+  // baseCurrency/etc; a bare replacement here wiped all of that out from
+  // the moment this report loaded onward, corrupting the HOST page's own
+  // VAT-column/FX-column visibility logic for the rest of the session.
+  // This was the actual mechanism behind the old "confirmed: broke
+  // FB.period app-wide" finding that kept these 4 reports iframe-isolated
+  // — verified by reading payables.js's own window.__fbFlags assignment
+  // and finding no merge anywhere in the 4 reports' scripts.
+  window.__fbFlags = Object.assign(window.__fbFlags || {}, { jurisdiction: ${JSON.stringify(jurisdiction)} });
   var VR_ROWS = ${JSON.stringify(rowsData)};
   var REPORT_START = ${JSON.stringify(start || '')};
   var REPORT_END = ${JSON.stringify(end || '')};
@@ -1062,7 +1212,8 @@ async function buildVoucherRegister(query, company, start, end) {
 
   var vrList = FB.list.create({
     keysId: 'voucher-register',
-    active: function () { return true; },
+    // De-iframe migration (2026-09-16) — see buildGL's identical comment.
+    active: function () { var el = document.getElementById('vr-body'); return !el || el.offsetParent !== null; },
     tbody: 'vr-body',
     companyId: function () { return COMPANY; },
     canAdd: false,
@@ -1103,7 +1254,7 @@ async function buildVoucherRegister(query, company, start, end) {
     body.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') {
         var tr = e.target.closest('tr[data-href]');
-        if (tr) { e.preventDefault(); window.parent.location.href = tr.getAttribute('data-href'); }
+        if (tr) { e.preventDefault(); window.location.href = tr.getAttribute('data-href'); }
       }
     });
 
@@ -1113,10 +1264,11 @@ async function buildVoucherRegister(query, company, start, end) {
       if (!tr || e.target.closest('.fb-filter-btn') || e.target.closest('th')) return;
       if (e.target.tagName === 'A') return; // let rev-link anchors work
       e.preventDefault();
-      window.parent.location.href = tr.getAttribute('data-href');
+      window.location.href = tr.getAttribute('data-href');
     });
   });
 </script>
+</div>
 </body>
 </html>`;
   return { tableHtml, rows: batches };
@@ -1331,23 +1483,46 @@ async function buildAPAging(query, company, _start, end) {
 <link rel="stylesheet" href="/public/common.css?v=${_assetV('common.css')}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: #fff; }
-  .page { max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; }
+  /* White card on gray page, same reasoning as htmlPage()'s own copy of
+     this comment above (QBO/Xero benchmark). */
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10pt; color: #1a1a1a; background: var(--bg, #f2f4f7); padding: 24px; }
+  .page { max-width: min(94vw, 1600px); margin: 0; padding: 24px 32px; background: var(--surface, #fff); border-radius: 8px; box-shadow: 0 1px 3px rgba(16,24,40,.1); }
   .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 24px; }
   /* On-screen this repeats page/tab chrome the app already shows (company,
      period) — hidden here, restored for print/PDF, since PDF export opens
      this exact standalone document raw (ia-restructure-3-spec.md §6.2). */
   .header { display: none; }
-  @media print { .header { display: block; } }
+  @media print {
+    .header { display: block; }
+    body { background: #fff; padding: 0; }
+    .page { background: #fff; box-shadow: none; border-radius: 0; }
+  }
   .company { font-size: 16pt; font-weight: 700; }
   .report-title { font-size: 13pt; color: #444; margin-top: 4px; }
   .period { font-size: 10pt; color: #666; margin-top: 2px; }
-  table { width: 100%; border-collapse: collapse; font-size: 10pt; margin-top: 4px; }
+  /* Same sticky/border-collapse bug fix as buildGL's identical comment. */
+  table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 10pt; margin-top: 4px; }
+  /* Sticky header backing: common.css's shared rule paints it gray
+     (var(--bg), correct on an ordinary gray page) — re-declared white to
+     match this report's own card, same reasoning as buildGL's th rule. */
   th { text-align: right; font-size: 9pt; color: #555; text-transform: uppercase; border-bottom: 2px solid #ccc; padding: 6px 8px; }
+  /* Same specificity fix as buildGL's identical comment — a bare 'th'
+     selector can't beat common.css's .edit-table thead th (0,1,2). */
+  /* magnus, 2026-09-17: three targeted fixes for the sticky-header
+     scroll-ghosting bug (border-collapse, forced compositing layer, tr-
+     level sticky in common.css) didn't resolve it, so rather than keep
+     guessing at the render bug itself, physically extend the header's
+     opaque area upward past wherever the ghosting appears. A solid
+     (0-blur, 0-spread) box-shadow is pure paint, not layout — it can't
+     push other content around, and the scroll container's own overflow
+     clipping means it can never spill out above the actual visible
+     scroll area, so this can only ever cover the gap, not create a new
+     visual bug elsewhere. */
+  .edit-table thead th { background: var(--surface, #fff); box-shadow: 0 -200px 0 0 var(--surface, #fff); }
   th:first-child { text-align: left; }
   td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; text-align: right; }
   td:first-child { text-align: left; }
-  tr.total-row td { font-weight: 700; border-top: 2px solid #ccc; background: #f8f8f8; }
+  tr.total-row td { font-weight: 700; border-top: 3px solid #1a1a1a; background: #f8f8f8; }
   .col-90plus { color: #cc2222; font-weight: 600; }
   /* Child rows: bill detail under a vendor */
   tr[data-child-of] td { font-size: 9pt; color: #555; background: #fafafa; padding: 4px 8px; }
@@ -1366,7 +1541,7 @@ async function buildAPAging(query, company, _start, end) {
   /* FB.list fold caret */
   .fb-fold { display: inline-block; width: 14px; cursor: pointer; opacity: 0.6; font-size: 11px; }
   .fb-fold:hover { opacity: 1; }
-  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
+  .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9pt; color: #888; }
 </style>
 </head>
 <body>
@@ -1393,8 +1568,7 @@ async function buildAPAging(query, company, _start, end) {
       <tfoot id="ap-foot"></tfoot>
     </table>
   </div>
-  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} \u00b7 freeBooks</div>
-</div>
+  <div class="footer">Generated: ${new Date().toISOString().slice(0, 10)} · freeBooks</div>
 <script src="/public/fb-core.js?v=${_assetV('fb-core.js')}"></script>
 <script src="/public/fb-list.js?v=${_assetV('fb-list.js')}"></script>
 <script>
@@ -1402,7 +1576,17 @@ async function buildAPAging(query, company, _start, end) {
   // Jurisdiction-aware number formatting (docs/UI.md — negative numbers,
   // decimals, thousands separators): FB.util.fmtAmt reads this — this
   // page's own fmt() was hardcoded to 'en-US' until 2026-09-15.
-  window.__fbFlags = { jurisdiction: ${JSON.stringify(jurisdiction)} };
+  // De-iframe migration (2026-09-16): merge, never replace — when this
+  // script runs embedded in a host page (reports-hub.js/payables.js), the
+  // host has already set window.__fbFlags with vatRegistered/fxTracking/
+  // baseCurrency/etc; a bare replacement here wiped all of that out from
+  // the moment this report loaded onward, corrupting the HOST page's own
+  // VAT-column/FX-column visibility logic for the rest of the session.
+  // This was the actual mechanism behind the old "confirmed: broke
+  // FB.period app-wide" finding that kept these 4 reports iframe-isolated
+  // — verified by reading payables.js's own window.__fbFlags assignment
+  // and finding no merge anywhere in the 4 reports' scripts.
+  window.__fbFlags = Object.assign(window.__fbFlags || {}, { jurisdiction: ${JSON.stringify(jurisdiction)} });
   var AS_OF   = ${JSON.stringify(asOf)};
 
   function fmt(n) {
@@ -1454,7 +1638,8 @@ async function buildAPAging(query, company, _start, end) {
 
   var agingList = FB.list.create({
     keysId: 'ap-aging',
-    active: function () { return true; },
+    // De-iframe migration (2026-09-16) — see buildGL's identical comment.
+    active: function () { var el = document.getElementById('ap-body'); return !el || el.offsetParent !== null; },
     tbody: 'ap-body',
     companyId: function () { return COMPANY; },
     canAdd: false,
@@ -1513,7 +1698,7 @@ async function buildAPAging(query, company, _start, end) {
           run: function () {
             var d = api.focusedRow();
             if (!d || !d.bill_id) return;
-            window.parent.location.href = '/' + COMPANY + '/bill/'
+            window.location.href = '/' + COMPANY + '/bill/'
               + encodeURIComponent(d.bill_id)
               + '?from=ap-aging&asof=' + encodeURIComponent(AS_OF);
           }
@@ -1556,7 +1741,7 @@ async function buildAPAging(query, company, _start, end) {
       var billId = resolveChildBillId(idx);
       if (billId) {
         e.preventDefault();
-        window.parent.location.href = '/' + COMPANY + '/bill/'
+        window.location.href = '/' + COMPANY + '/bill/'
           + encodeURIComponent(billId)
           + '?from=ap-aging&asof=' + encodeURIComponent(AS_OF);
       }
@@ -1586,6 +1771,7 @@ async function buildAPAging(query, company, _start, end) {
     return null;
   }
 </script>
+</div>
 </body>
 </html>`;
   return { tableHtml, rows: [] };
@@ -1684,7 +1870,7 @@ async function buildApControl(query, company, _start, end) {
     </tr>`;
   }).join('');
 
-  const tableHtml = `<table>
+  let tableHtml = `<table id="ap-control-table">
     <thead><tr>
       <th>AP Account</th><th>Account Name</th>
       <th class="num">GL Balance</th><th class="num">Subledger</th>
@@ -1693,6 +1879,45 @@ async function buildApControl(query, company, _start, end) {
     </tr></thead>
     <tbody>${tableRows}</tbody>
   </table>`;
+
+  // Cellular keyboard nav (2026-09-16): j/k move between AP accounts, h/l
+  // move between a row's drill-through links (account code/name → GL,
+  // Bills/Posted → Bills, Paid → Bank Payments), Enter/i activates whichever
+  // link is under the cursor — mouse-click parity per cell, not just per
+  // row. FB.form (not FB.list) because the unit of navigation here is the
+  // individual <a>, not the row as a whole — a row can carry up to 5
+  // independent destinations. Appended into tableHtml (not htmlPage's own
+  // template) so these <script> tags land inside the '.page' div either way
+  // this renders — standalone (/report?type=ap-control) or embedded in
+  // Payables' Control tab (payables.js's loadReportEmbed keeps the '.page'
+  // wrapper via pageEl.outerHTML) — '.page' is what gets extracted/executed
+  // in both cases (reports/render.js's de-iframe migration, 2026-09-16).
+  tableHtml += `
+<script src="/public/fb-core.js?v=${_assetV('fb-core.js')}"></script>
+<script src="/public/fb-form.js?v=${_assetV('fb-form.js')}"></script>
+<script>
+  window.__fbFlags = Object.assign(window.__fbFlags || {}, { jurisdiction: ${JSON.stringify(jurisdiction)} });
+  var apControlForm = FB.form.create({
+    formId: 'ap-control',
+    active: function () {
+      var el = document.getElementById('ap-control-table');
+      return !!el && el.offsetParent !== null;
+    },
+    // Payables' own Bills/Vendors/Aging/Control tab strip would otherwise
+    // make fb-form.js's blanket "tabbed page → h/l belongs to the tabs"
+    // rule strip these bindings outright — but Control's whole point here
+    // is per-cell h/l between its drill-through links, so it opts out.
+    cellNavOwnsHL: true,
+    zones: [{
+      id: 'rows',
+      rows: function () {
+        var t = document.getElementById('ap-control-table');
+        return t ? Array.prototype.slice.call(t.querySelectorAll('tbody tr')) : [];
+      },
+      cells: function (rowEl) { return Array.prototype.slice.call(rowEl.querySelectorAll('a.doc-link')); }
+    }]
+  });
+</script>`;
 
   const html = htmlPage('AP Control Reconciliation', companyName, `As of ${end}`, tableHtml, { wide: true });
   return { tableHtml: html, rows };

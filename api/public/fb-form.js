@@ -103,10 +103,11 @@
       var cs = rowCells(cur.z, rowEl);
       var cell = cs[cur.c];
       if (cell) {
-        // Buttons get a RING cursor (CELL_BTN_CLS), not the fill — a toggle
-        // button's own active state carries a fill color and the two must
-        // stay distinguishable (magnus 2026-07-28; common.css).
-        cell.classList.add(cell.tagName === 'BUTTON' ? CELL_BTN_CLS : CELL_CLS);
+        // Buttons (and anchor "button cells" — 2026-09-16) get a RING
+        // cursor (CELL_BTN_CLS), not the fill — a toggle button's own
+        // active state carries a fill color and the two must stay
+        // distinguishable (magnus 2026-07-28; common.css).
+        cell.classList.add((cell.tagName === 'BUTTON' || cell.tagName === 'A') ? CELL_BTN_CLS : CELL_CLS);
         if (cell.scrollIntoView) cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       }
       // K3e enforcement (magnus 2026-07-28): in NORMAL, NO form element may
@@ -153,7 +154,10 @@
       // NO el.focus(): DOM focus on the button would linger in NORMAL as a
       // second visible "selector" next to the vim cursor, and native
       // Space/Enter-on-focused-button would double-fire (magnus 2026-07-28).
-      if (el.tagName === 'BUTTON') { el.click(); paint(); return; }
+      // Anchor cells (2026-09-16, AP Control drill-through links) get the
+      // same treatment — a page declaring <a href> cells wants Enter to
+      // navigate, not to open a nonexistent edit mode on a link.
+      if (el.tagName === 'BUTTON' || el.tagName === 'A') { el.click(); paint(); return; }
       // Native <select> (no FB.dropdown attached): ALWAYS enter INSERT and
       // step options with j/k / arrows — the OS popup (el.showPicker) is
       // never opened from the keyboard. Rationale (2026-07-28, discovered via
@@ -187,20 +191,36 @@
       paint();
     }
 
+    // Returns true when the cursor actually moved to a different row, false
+    // when it was already at the boundary (2026-09-16, mirrors FB.nav's
+    // move() in fb-core.js) — lets the j/k bindings below hand off to
+    // another active FB.keys set (FB.keys.advanceRegion) instead of a
+    // same-zone-forever no-op. Found via reports-hub.js's own rptForm
+    // (a single-row toolbar zone, registered ahead of a report's FB.list in
+    // dispatch order): without this, its own always-true moveRow() matched
+    // 'j'/'k' first and swallowed the keypress silently, every time —
+    // GL/Journal/Voucher Register's row navigation never got a chance to
+    // run at all once those reports stopped being isolated in an iframe
+    // (where rptForm's own FB.keys set never competed with them).
     function moveRow(d) {
       var flat = flatRows();
-      if (!flat.length) return;
+      if (!flat.length) return false;
       var idx = flat.findIndex(function (p) { return p.z === cur.z && p.r === cur.r; });
-      if (idx === -1) idx = 0;
+      if (idx === -1) {
+        var first = d > 0 ? flat[0] : flat[flat.length - 1];
+        cur.z = first.z; cur.r = first.r; clamp(); paint(); return true;
+      }
       var n = idx + d;
       if (n < 0) n = 0;                       // sticky top
       if (n > flat.length - 1) n = flat.length - 1; // sticky bottom
+      if (n === idx) return false;
       cur.z = flat[n].z; cur.r = flat[n].r;
       // Column is PRESERVED across vertical moves (vim j/k keep the goal
       // column; magnus 2026-07-28 — k from a credit cell must land on the
       // credit cell above, not snap back to debit). clamp() handles rows
       // with fewer cells.
       clamp(); paint();
+      return true;
     }
 
     // NORMAL Tab/Shift+Tab: move the cursor cell-by-cell through the whole
@@ -330,10 +350,40 @@
 
     var bindings = [
       // ── NORMAL ──
-      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { moveRow(1); } },
-      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false, run: function () { moveRow(-1); } },
-      { key: 'h', mode: 'NORMAL', hint: 'cell', hintBar: true, paletteEligible: false, run: function () { moveCol(-1); } },
-      { key: 'l', mode: 'NORMAL', hint: 'cell', hintBar: true, paletteEligible: false, run: function () { moveCol(1); } },
+      { key: 'j', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false,
+        run: function () { if (!moveRow(1) && window.FB && FB.keys && FB.keys.advanceRegion) FB.keys.advanceRegion(1); } },
+      { key: 'k', mode: 'NORMAL', hint: 'navigate', hintBar: true, paletteEligible: false,
+        run: function () { if (!moveRow(-1) && window.FB && FB.keys && FB.keys.advanceRegion) FB.keys.advanceRegion(-1); } },
+      // Boundary-aware, same doctrine as j/k's advanceRegion hand-off
+      // (2026-09-16, AP Control): when-guarded on the cursor NOT already
+      // being at the row's first/last cell — not just "row has 2+ cells".
+      // A form whose current row has 0-1 cells (e.g. reports-hub.js's
+      // rptForm zone on a report type with no MoM/YoY chrome — #rpt-mom/
+      // #rpt-yoy don't exist, so cells() returns []) always has cur.c === 0
+      // at both "first" and "last", so both bindings decline — same outcome
+      // as the original 0-1-cell guard. But on a form that DOES claim h/l
+      // despite a tab strip (cfg.cellNavOwnsHL, e.g. AP Control's own
+      // drill-through cells), a mid-row cell move needs h/l too, while the
+      // row's edges still need to hand off to the tab strip — otherwise
+      // cell nav and tab-cycling fight over the same two keys with neither
+      // able to reach the other tabs (found live: Control's own cells
+      // swallowed h/l outright, so you couldn't leave the Control tab by
+      // keyboard once cellNavOwnsHL was set). Declining outright at the
+      // edge — not running moveCol() with nowhere to go — lets the key
+      // fall through to common.js's bubble-phase h/l, the app-wide "cycle
+      // the visible .tabs .tab strip" convention every other h/l context on
+      // a tabbed page relies on. There's no FB.keys set to hand off to
+      // directly (FB.list has no h/l concept at all), so decline-and-bubble
+      // is the mechanism, not an advanceRegion call.
+      { key: 'h', mode: 'NORMAL', hint: 'cell', hintBar: true, paletteEligible: false,
+        when: function () { var r = zoneRows(cur.z)[cur.r]; return !!r && cur.c > 0; },
+        run: function () { moveCol(-1); } },
+      { key: 'l', mode: 'NORMAL', hint: 'cell', hintBar: true, paletteEligible: false,
+        when: function () {
+          var r = zoneRows(cur.z)[cur.r];
+          return !!r && cur.c < rowCells(cur.z, r).length - 1;
+        },
+        run: function () { moveCol(1); } },
       // ── NORMAL: dropdown overlay open (mouse-opened — magnus 2026-08-02:
       // dropdowns never alter NORMAL/INSERT, so the overlay can now be open
       // in NORMAL with DOM focus on the select). The overlay owns these keys
@@ -479,9 +529,20 @@
     // TABBED page (e.g. Settings) must not claim
     // h/l, or tab switching dies there (magnus 2026-08-02). Horizontal cell
     // movement on those pages stays on Tab/Shift+Tab. Forms on pages without
-    // a tab strip (journal-voucher, reports-hub, new-company) keep h/l cell nav.
+    // a tab strip (journal-voucher, new-company) keep h/l cell nav.
     // Excluded at create (not via when:) so the sidebar hints stay truthful.
-    if (document.querySelector('.tabs .tab')) {
+    // NOTE (2026-09-16): reports-hub.js gained its own report-type .tabs
+    // strip after this rule was written — its rptForm's h/l is excluded by
+    // this same check now too (verified: falls through to common.js's tab
+    // cycling on GL/Journal/Voucher Register, same as Settings always did).
+    // cfg.cellNavOwnsHL (2026-09-16, AP Control): an explicit, per-form
+    // opt-out for a form that genuinely wants h/l cell nav despite living
+    // on a tabbed page — e.g. Payables' Bills/Vendors/Aging/Control tab
+    // strip, where Control's own drill-through cells (account → GL,
+    // Bills/Posted → Bills, Paid → Bank Payments) are exactly what h/l is
+    // for. Scoped to the one form that declares it; every other tabbed
+    // page keeps the blanket exclusion above unchanged.
+    if (document.querySelector('.tabs .tab') && !cfg.cellNavOwnsHL) {
       bindings = bindings.filter(function (b) {
         return !(b.mode === 'NORMAL' && (b.key === 'h' || b.key === 'l'));
       });

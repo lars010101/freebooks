@@ -416,8 +416,16 @@ function statusBadge(status, dueDate) {
 // (extracted from the old renderPage cell). Opens New Payment scoped to this
 // bill (bill-post-payment-consolidation-spec.md §3) — same destination 'y'
 // reaches (§2); this is the mouse-only path onto it.
+//
+// Icon, not a text label (2026-09-16): reuses Inbox's existing .chip
+// vocabulary (common.css) instead of a bespoke button — checkmark/chip-ok
+// is the same "forward/confirm action on this row" glyph Inbox's Approve
+// already uses, so Pay costs the user nothing new to learn. .row-afford is
+// the hover-only-visibility half (kept generic — any row action on a dense
+// register, not payment-specific); the .chip/.chip-ok look is shared and
+// global, same icon anywhere the app has a forward-action chip.
 function payAffordHtml(r) {
-  return '<button class="pay-afford" title="Record payment" onclick="event.stopPropagation();_payAffordClick(this)">Pay</button>';
+  return '<a class="chip chip-ok row-afford" title="Record payment" onclick="event.stopPropagation();_payAffordClick(this)">&#10003;</a>';
 }
 function _payAffordClick(btn) {
   var tr = btn.closest('tr');
@@ -427,6 +435,65 @@ function _payAffordClick(btn) {
   if (key == null) return;
   var bill = billsList.rowByKey(String(key));
   if (bill) goToNewPayment(bill.bill_id);
+}
+
+// writeOffAffordHtml(r) — the hover "write off" affordance, same mouse-
+// parity role for 'W' that payAffordHtml is for 'y'/Pay. Only offered where
+// 'W' itself would fire (posted, some outstanding) — the materiality gate
+// is enforced server-side either way. Plain .chip (no color modifier) —
+// write-off is neither the forward action (chip-ok/✓, Pay) nor the
+// cancel/reject action (chip-cancel/✕, Void) — same "third, neutral kind
+// of action" role Inbox's ✎ Correct-&-Resubmit already plays.
+function writeOffAffordHtml(r) {
+  if (r.status !== 'posted') return '';
+  if ((Number(r.amount || 0) - Number(r.amount_paid || 0)) <= 0.005) return '';
+  return '<a class="chip row-afford" title="Write off remaining balance" onclick="event.stopPropagation();_writeOffAffordClick(this)">&#8776;</a>';
+}
+function _writeOffAffordClick(btn) {
+  var tr = btn.closest('tr');
+  while (tr && tr.dataset && tr.dataset.childOf) tr = tr.previousElementSibling;
+  if (!tr) return;
+  var key = tr.dataset && tr.dataset.key;
+  if (key == null) return;
+  var bill = billsList.rowByKey(String(key));
+  if (bill) writeOffBill(bill);
+}
+// Write off (2026-09-15) — closes a small remaining outstanding balance
+// with no real payment (DR AP / CR the company's Write-off account).
+// Client only checks the cheap, obvious preconditions (posted, some
+// outstanding); the materiality threshold itself is enforced server-side
+// (bills.js writeOffBill) and its rejection message is shown verbatim — it
+// already names the exact amounts, no reason to re-derive them here.
+// Top-level (not inside extraBindings' closure) so both the 'W' keybinding
+// and the hover button above can reach it; reloadBills()'s own body
+// (billChildCache={}; billsList.load()) is inlined since both are
+// already top-level vars — no need for the closure just for that.
+function writeOffBill(p) {
+  if (p.status !== 'posted') { FB.status.show('Only a posted bill can be written off.', true); return; }
+  var outstanding = Number(p.amount || 0) - Number(p.amount_paid || 0);
+  if (outstanding <= 0.005) { FB.status.show('Bill has no outstanding balance to write off.', true); return; }
+  var partner = esc(p.partner_name || p.bill_id);
+  var amtStr = FB.util.fmtAmt(outstanding) + ' ' + esc(p.currency || '');
+  FB.modal.open({
+    title: 'Write off this bill?',
+    body: 'Close the remaining ' + amtStr + ' outstanding on the bill from "' + partner + '" with no real payment — posts a journal entry to the Write-off account. This cannot be undone (void the resulting entry from Bank → Payments to reverse it).',
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: 'Write off', danger: true, onClick: function (api) {
+          api.close();
+          fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'bill.write_off', companyId: COMPANY, billId: p.bill_id }) })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+              var d = res.data || res;
+              var err = res.error || (d && d.error);
+              if (err) { FB.status.show('Write-off failed: ' + (err.message || err), true); return; }
+              FB.status.show('Bill written off', false); billChildCache = {}; billsList.load();
+            })
+            .catch(function (e) { FB.status.show('Write-off failed: ' + e.message, true); });
+        } }
+    ]
+  });
 }
 
 // billAttachPartner(input, tr) — column 'attach' hook for the partner field in
@@ -911,8 +978,12 @@ function billSaveBody(b) {
 var billsList = FB.list.create({
   keysId: 'bills',
   active: function () {
-    var p = document.getElementById('pay-panel-bills');
-    return !!p && p.style.display !== 'none';
+    // Payables' tab switcher (showTab() in payables.js) toggles visibility
+    // via the '.tab-panel.active' CSS class on #tab-bills, not via inline
+    // style on #pay-panel-bills — so gate on the tbody's real rendered
+    // visibility instead of a style property nothing ever sets.
+    var el = document.getElementById('bills-tbody');
+    return !!el && el.offsetParent !== null;
   },
   tbody: 'bills-tbody',
   companyId: function () { return COMPANY; },
@@ -977,7 +1048,7 @@ var billsList = FB.list.create({
     { field: 'status', type: 'text', ro: 'always', sortable: true, filterType: 'list',
       display: function (v, r) {
         var due = r.due_date ? String(r.due_date).slice(0, 10) : null;
-        return statusBadge(v, due) + (v === 'posted' ? payAffordHtml(r) : '');
+        return statusBadge(v, due) + (v === 'posted' ? payAffordHtml(r) + writeOffAffordHtml(r) : '');
       } }
   ],
   label: '+ Add bill',
@@ -1242,39 +1313,6 @@ var billsList = FB.list.create({
                   FB.status.show('Bill voided', false); reloadBills();
                 })
                 .catch(function (e) { FB.status.show('Error: ' + e.message, true); });
-            } }
-        ]
-      });
-    }
-    // Write off (2026-09-15) — closes a small remaining outstanding balance
-    // with no real payment (DR AP / CR the company's Write-off account).
-    // Client only checks the cheap, obvious preconditions (posted, some
-    // outstanding); the materiality threshold itself is enforced server-side
-    // (bills.js writeOffBill) and its rejection message is shown verbatim —
-    // it already names the exact amounts, no reason to re-derive them here.
-    function writeOffBill(p) {
-      if (p.status !== 'posted') { FB.status.show('Only a posted bill can be written off.', true); return; }
-      var outstanding = Number(p.amount || 0) - Number(p.amount_paid || 0);
-      if (outstanding <= 0.005) { FB.status.show('Bill has no outstanding balance to write off.', true); return; }
-      var partner = esc(p.partner_name || p.bill_id);
-      var amtStr = FB.util.fmtAmt(outstanding) + ' ' + esc(p.currency || '');
-      FB.modal.open({
-        title: 'Write off this bill?',
-        body: 'Close the remaining ' + amtStr + ' outstanding on the bill from "' + partner + '" with no real payment — posts a journal entry to the Write-off account. This cannot be undone (void the resulting entry from Bank → Payments to reverse it).',
-        buttons: [
-          { label: 'Cancel', onClick: function (api) { api.close(); } },
-          { label: 'Write off', danger: true, onClick: function (api) {
-              api.close();
-              fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'bill.write_off', companyId: COMPANY, billId: p.bill_id }) })
-                .then(function (r) { return r.json(); })
-                .then(function (res) {
-                  var d = res.data || res;
-                  var err = res.error || (d && d.error);
-                  if (err) { FB.status.show('Write-off failed: ' + (err.message || err), true); return; }
-                  FB.status.show('Bill written off', false); reloadBills();
-                })
-                .catch(function (e) { FB.status.show('Write-off failed: ' + e.message, true); });
             } }
         ]
       });

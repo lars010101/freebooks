@@ -45,7 +45,8 @@ ${commonStyle()}
      Payables (a colgroup/th count that drifts from cfg.columns.length + 1
      for the framework's own trailing row-actions cell). */
   .data-table { width:100%; border-collapse:collapse; font-size:0.8125rem; }
-  .data-table thead { position:sticky; top:0; z-index:10; }
+  /* Sticky thead: now a shared common.css rule (.data-table/.edit-table/
+     .jrnl-table thead th) — this page's own copy retired 2026-09-16. */
   .data-table th { text-align:left; font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; background:var(--bg); border-bottom:1px solid var(--border); padding:6px 6px; }
   .data-table td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:middle; color:var(--text); }
   .data-table tbody tr:last-child td { border-bottom:none; }

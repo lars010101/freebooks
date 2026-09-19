@@ -1117,6 +1117,38 @@ table td.table-empty { text-align:center; color:var(--text-faint); padding:32px;
 }
 .fb-list-action-btn:hover { background: var(--bg); }
 
+/* Sticky column headers (2026-09-16) — made common: this only ever existed
+   as a page-local copy in payables.js and bank.js's own `.data-table thead`
+   rule, so every OTHER table archetype (.edit-table — Settings, Accounting,
+   Exchange Rates, Documents, New Company, Calendar, Payables' own Vendors
+   tab; .jrnl-table — Inbox) never got it, not because headers scrolling
+   away was ever a deliberate choice for those screens, just because the
+   rule was never lifted out of the two pages that happened to need it
+   first. One shared rule now covers all three table classes — background
+   is required alongside position:sticky (not just cosmetic): without an
+   opaque background behind the sticky th, row content scrolling underneath
+   shows through it. None of the six .edit-table pages or .jrnl-table set
+   one today (only .data-table's own page-local th rule already did, now
+   redundant with this). */
+.data-table thead th, .edit-table thead th, .jrnl-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  /* magnus, 2026-09-17-18: a live screenshot showed a fully legible,
+     non-garbled data row sitting ABOVE the sticky header — not paint
+     ghosting, an actual sticky-offset miscalculation (the header stuck
+     roughly one row too late, leaving that row visible above it). A
+     same-day fix here that ALSO made the parent <tr> position:sticky
+     (targeting the exact same scroll ancestor as this th) is the most
+     likely self-inflicted cause: nested sticky elements referencing the
+     same scroll container is not well-specified/well-tested territory,
+     and reverting it is the most surgical next step before assuming a
+     browser bug that needs a bigger architectural fix. Back to sticky on
+     th alone, the standard/well-tested pattern. */
+  transform: translateZ(0);
+}
+
 /* ≡ header filter button — absolutely pinned to the right corner of the th */
 th.fb-th-filterable { position: relative; }
 /* Filterable headers reserve a 24px zone at the right edge for the pinned ≡

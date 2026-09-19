@@ -59,12 +59,30 @@ async function buildHubPage(req, res, opts) {
 <title>${esc(pageTitle)} — freeBooks</title>
 ${commonStyle()}
 <style>
-  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); flex-shrink:0; padding:0 3rem; }
+  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); padding:0 3rem; }
   .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:var(--text-muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
   .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
   /* Report fragment styling — mirrors reports/render.js htmlPage()'s embedded
      <style> block (that CSS never ships to the client here; only the .page
-     element's markup does), made theme-aware via the app's CSS vars. */
+     element's markup does), made theme-aware via the app's CSS vars. White
+     card on the gray wrapper below — the QBO/Xero convention for rendered
+     financial statements (magnus, 2026-09-17: "go towards the industry
+     standard, benchmark QBO/Xero"). */
+  /* Whole-page scroll (magnus, 2026-09-18: "I much prefer the scrolling
+     behavior illustrated in Payables/Bills: the entire page header scrolls
+     away and column header row sticks only just below the top bar") —
+     also fixes a real bug the previous approach had: a bounded scroll box
+     confined to just .table-wrap, which doesn't exist at all for non-wide
+     reports (PL/BS/CF render their table directly into .page, no wrapper —
+     see htmlPage() in reports/render.js), silently broke scrolling for
+     Statements entirely. Bills never had either problem because it never
+     tried to carve out a special scroll region in the first place — it
+     just drops content into #page-main (common.css/common.js's own single
+     shared scroll container) and lets it be the only overflow-establishing
+     ancestor in the whole chain, so there's never more than one candidate
+     for position:sticky to anchor against. Matching that here: no
+     height:100%/flex-cascade tricks, .table-wrap only needs overflow-x for
+     the wide reports (TB/Integrity), and #page-main does the rest. */
   .rpt-embed { background:var(--surface); border-radius:8px; }
   .rpt-embed .page { padding:24px; max-width:none; }
   .rpt-embed .page.wide .table-wrap { overflow-x:auto; }
@@ -77,14 +95,48 @@ ${commonStyle()}
   .rpt-embed .company { font-size:1rem; font-weight:700; color:var(--text); }
   .rpt-embed .report-title { font-size:0.875rem; color:var(--text-muted); margin-top:4px; }
   .rpt-embed .period { font-size:0.8125rem; color:var(--text-muted); margin-top:2px; }
-  .rpt-embed table { width:100%; border-collapse:collapse; margin-top:8px; }
+  /* GL/Journal/Voucher Register fragments have a sticky <thead th> (see the
+     .rpt-embed table.edit-table thead th rule below) — border-collapse:
+     collapse + position:sticky on th is a documented cross-browser bug
+     where the row scrolling underneath can paint through/above the sticky
+     header at the boundary (magnus, 2026-09-17). border-spacing:0 keeps
+     cells touching exactly as collapse did. */
+  .rpt-embed table { width:100%; border-collapse:separate; border-spacing:0; margin-top:8px; }
   .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 8px; }
+  /* GL/Journal/Voucher Register fragments carry <table class="edit-table">
+     (FB.list-editable) — common.css's shared sticky-header rule paints
+     that th gray (.edit-table thead th { background:var(--bg) }, magnus
+     2026-09-16), which is MORE specific than .rpt-embed th above and wins
+     regardless of source order, leaving the header row gray against this
+     card's white. Out-specified here rather than guessed at (magnus,
+     2026-09-17: "don't act blindly, if it should, it should"). */
+  /* A large upward box-shadow used to sit here (magnus, 2026-09-17) as a
+     band-aid over the sticky-header ghosting bug that came from the old
+     bounded-scroll-box architecture. Removed (2026-09-18): once this page
+     switched to whole-page scroll (a single #page-main, same model as
+     Bills — see the comment above .rpt-embed), the H1 title/tabs sit in
+     the SAME scrollable region as the report body, so that shadow started
+     painting a solid white bar over them once the sticky header engaged
+     ("a white bar has appeared high on the page... hiding partly
+     'Journal'"). The ghosting bug it covered for doesn't exist in this
+     architecture in the first place (nothing left to cover). */
+  .rpt-embed table.edit-table thead th { background:var(--surface); }
+  /* common.css's own th.fb-th-filterable padding-right reservation (for the
+     ≡ filter icon) is scoped to .data-table only — GL/Journal/Voucher
+     Register use .edit-table, so their OWN standalone pages carry a local
+     override for this (reports/render.js), which — like every other rule
+     in that <style> block — never survives the DOMParser fragment
+     extraction into this embedded view. Without it the icon renders
+     overlapping the header text itself, with no room reserved (magnus,
+     2026-09-18: "unable to search for a transaction or debit/credit of a
+     specific amount" — the filter existed, it just wasn't usably visible). */
+  .rpt-embed th.fb-th-filterable { padding-right: 24px; }
   .rpt-embed th.num { text-align:right; }
   .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
   .rpt-embed td.num { text-align:right; font-variant-numeric:tabular-nums; }
-  .rpt-embed tr.subtotal td { font-weight:600; border-top:1px solid var(--border); border-bottom:2px solid var(--border); background:var(--bg); }
-  .rpt-embed tr.type_total td { font-weight:700; background:var(--bg); }
-  .rpt-embed tr.total td { font-weight:700; font-size:0.875rem; border-top:2px solid var(--text); border-bottom:3px double var(--text); background:var(--bg); }
+  .rpt-embed tr.subtotal td { font-weight:600; border-top:1px solid var(--text-faint); border-bottom:2px solid var(--text-faint); background:var(--bg); }
+  .rpt-embed tr.type_total td { font-weight:700; border-top:1px solid var(--text-faint); background:var(--bg); }
+  .rpt-embed tr.total td { font-weight:700; font-size:0.875rem; border-top:3px solid var(--text); border-bottom:3px double var(--text); background:var(--bg); }
   .rpt-embed tr.section-header td { font-weight:700; font-size:0.8125rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); padding-top:16px; border-bottom:none; background:none; }
   .rpt-embed tr.zero td.num { color:var(--text-faint); }
   /* .doc-link's own rule lives in the report's <style> (render.js htmlPage())
@@ -94,13 +146,35 @@ ${commonStyle()}
      underline, not the quiet link the rest of the app uses. */
   .rpt-embed .doc-link { color:var(--accent); text-decoration:none; font-weight:500; }
   .rpt-embed .doc-link:hover { text-decoration:underline; }
-  .rpt-embed .footer { margin-top:32px; padding-top:12px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--text-muted); }
+  .rpt-embed .footer { margin-top:24px; padding-top:12px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--text-muted); }
   .rpt-embed-msg { padding:2rem; color:var(--text-muted); }
+  /* MoM/YoY moved from a persistent controls-row above the tabs to a single
+     cycling icon living directly in the Amount/Balance column header, only
+     for the 3 reports that actually support it (magnus, 2026-09-18: "They
+     only relevant for PL, CF and BS... attach some action to the
+     AMOUNT/(BALANCE) column header... a single icon, which cycles between
+     single period, MoM and YoY... not visible on a PDF export"). PDF export
+     opens this report's own standalone URL fresh in a new tab (fb-core.js's
+     _dlExportPdf, reports/render.js's own server-rendered HTML) — this icon
+     is a client-side DOM insertion into the embedded fragment only, so it
+     was never part of that server-rendered page to begin with; @media
+     print below is belt-and-suspenders in case this hub page itself is
+     ever printed directly. th's own uppercase/letter-spacing is reset back
+     to normal for the icon's own tooltip/rendering. */
+  .rpt-period-toggle {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:20px; height:20px; margin-left:8px; padding:0; vertical-align:middle;
+    border:1px solid var(--border); border-radius:4px; background:var(--surface);
+    color:var(--text-muted); cursor:pointer; text-transform:none; letter-spacing:normal;
+  }
+  .rpt-period-toggle:hover { background:var(--bg); color:var(--text); }
+  .rpt-period-toggle.rpt-period-active { background:var(--toggle-on); border-color:var(--toggle-on-border); color:var(--toggle-on-text); }
+  @media print { .rpt-period-toggle { display:none; } }
 </style>
 </head>
 <body>${navBar(company, activeKey)}
-<div class="page" style="display:flex; flex-direction:column; height:100%; padding:0; overflow:hidden; max-width:none;">
-  <div class="header" style="flex-shrink:0; padding:2.25rem 3rem 0;">
+<div class="page" style="padding:0; max-width:none;">
+  <div class="header" style="padding:2.25rem 3rem 0;">
     <h1>\u{1F4C8} ${esc(pageTitle)}</h1>
   </div>
 
@@ -108,12 +182,7 @@ ${commonStyle()}
     ${tabsHtml}
   </div>
 
-  <div class="tb-controls-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:0.75rem 3rem; border-bottom:1px solid var(--border); flex-shrink:0;">
-    ${showComparison ? `<button class="tb-toggle-btn" id="rpt-mom" onclick="fbToggleComparison('mom')" title="Month-over-month">MoM</button>
-    <button class="tb-toggle-btn" id="rpt-yoy" onclick="fbToggleComparison('yoy')" title="Year-over-year">YoY</button>` : ''}
-  </div>
-
-  <div style="flex:1; overflow:auto; min-height:0; background:var(--bg); padding:1rem;">
+  <div style="background:var(--bg); padding:1rem;">
     <div id="report-body" class="rpt-embed"><p class="rpt-embed-msg">Select a report…</p></div>
   </div>
 </div>
@@ -147,21 +216,53 @@ ${layoutEnd()}
   }
   paintTabs();
 
-  /* ── MoM/YoY buttons: enable only for multiperiod reports (registry) ── */
+  /* ── Period-comparison icon ───────────────────────────────────────────────
+     Lives in the Amount/Balance column header of the report itself, only
+     for the 3 reports that support it (PL/CF/BS), never rendered at all for
+     anything else. One icon, not two buttons (magnus, 2026-09-18) — clicking
+     it cycles single period → MoM → YoY → single period. The <button>
+     element is created ONCE and moved (not recreated) into whichever
+     report's header currently wants it, so its identity, its onclick
+     handler, and the FB.form 'filters' zone that reaches it via h/l + ~ are
+     all completely unaffected by where it currently lives. */
+  var CALENDAR_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+    + '<rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/>'
+    + '<path d="M3 9.5h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
+    + '</svg>';
+  var STEP_TITLES = { '': 'Single period — click for month-over-month', mom: 'Month-over-month — click for year-over-year', yoy: 'Year-over-year — click for single period' };
+  var _comparisonEl = null;
+  function ensureComparisonEl() {
+    if (_comparisonEl) return _comparisonEl;
+    var btn = document.createElement('button');
+    btn.className = 'rpt-period-toggle'; btn.id = 'rpt-period-toggle';
+    btn.innerHTML = CALENDAR_SVG;
+    btn.onclick = function () { fbCycleComparison(); };
+    _comparisonEl = btn;
+    return _comparisonEl;
+  }
+
   function updateStepButtons() {
-    var momBtn = document.getElementById('rpt-mom');
-    var yoyBtn = document.getElementById('rpt-yoy');
-    if (!momBtn && !yoyBtn) return; /* this page renders no comparison chrome at all */
     var supported = !!(RPT_META[currentType] && RPT_META[currentType].multiperiod);
     if (!supported) { currentStep = ''; localStorage.setItem('fb-rpt-step', ''); }
-    [momBtn, yoyBtn].forEach(function(btn) {
-      if (!btn) return;
-      btn.disabled = !supported;
-      btn.style.opacity = supported ? '' : '0.35';
-      btn.style.cursor  = supported ? '' : 'not-allowed';
-      btn.classList.toggle('tb-active', btn.id === 'rpt-mom'
-        ? currentStep === 'mom' : currentStep === 'yoy');
-    });
+    var btn = ensureComparisonEl();
+    btn.title = STEP_TITLES[currentStep] || STEP_TITLES[''];
+    btn.classList.toggle('rpt-period-active', currentStep === 'mom' || currentStep === 'yoy');
+  }
+
+  /* Moves (never clones) the icon into the current report's rightmost header
+     cell — Code/Description/Amount|Balance for a single period, or
+     Code/Description/<period1>/<period2>/... for a MoM/YoY comparative view
+     (renderComparative(), reports/render.js) — the last <th> is always the
+     one numeric value column in both shapes. Called after every fragment
+     render; a no-op (icon stays wherever it last was, detached/invisible)
+     for reports that don't support comparison at all. */
+  function attachComparisonControls() {
+    var supported = !!(RPT_META[currentType] && RPT_META[currentType].multiperiod);
+    if (!supported) return;
+    var th = document.querySelector('#report-body thead tr th:last-child');
+    if (!th) return;
+    th.appendChild(ensureComparisonEl());
+    updateStepButtons();
   }
   updateStepButtons();
 
@@ -204,9 +305,9 @@ ${layoutEnd()}
     fbLoadReport();
   };
 
-  window.fbToggleComparison = function(mode) {
+  window.fbCycleComparison = function() {
     if (!(RPT_META[currentType] && RPT_META[currentType].multiperiod)) return;
-    currentStep = (currentStep === mode) ? '' : mode;
+    currentStep = currentStep === '' ? 'mom' : currentStep === 'mom' ? 'yoy' : '';
     localStorage.setItem('fb-rpt-step', currentStep);
     updateStepButtons();
     fbLoadReport();
@@ -222,96 +323,23 @@ ${layoutEnd()}
   var _fragCache = {};
   var _reqSeq = 0;
 
-  // Reports whose embedded <script> is load-bearing for content (not just
-  // filter/sort interactivity) and/or calls FB.list.create()/FB.keys — those
-  // scripts were written for an isolated iframe with its OWN independent FB
-  // instance; executing them in this host page's shared scope collides with
-  // the host's live FB.period/FB.keys state (confirmed: broke period
-  // resolution app-wide). Confirmed by inspecting each report's actual server
-  // response for a real company: 'voucher-register' (Transactions), 'journal'
-  // (Line items), and (in payables.js) 'ap-aging' all ship an EMPTY
-  // <tbody></tbody> populated entirely by FB.list.create().load() — no
-  // server-rendered fallback, so the tab is silently empty (not just
-  // non-interactive) without that script running. 'gl' (General Ledger)
-  // joined this set 2026-08-30 when it was rewritten onto FB.list (native
-  // column-header account filtering, replacing its old bespoke search box) —
-  // it now needs FB.list.create() to run for the same reason. These four
-  // keep the old isolated <iframe> mechanism; every other report type uses
-  // the fetch+cache fragment loader.
-  var IFRAME_REPORTS = ['voucher-register', 'journal', 'gl'];
-
+  // De-iframe migration (2026-09-16): 'voucher-register'/'journal'/'gl' used
+  // to need a real isolated <iframe> — their embedded <script> is load-
+  // bearing for content (FB.list.create().load() populates an otherwise
+  // EMPTY <tbody>, no server-rendered fallback), and running that script in
+  // this host page's own shared FB.keys/window.__fbFlags used to corrupt
+  // both (verified root cause, fixed the same day: window.__fbFlags was a
+  // bare replacement instead of a merge, and each report's FB.list
+  // registered active():true unconditionally instead of gating on its own
+  // visibility). With those fixed at the source (reports/render.js), the
+  // fragment loader below can run their script directly — same path every
+  // other report type already used, no report type is special-cased here
+  // anymore.
   function renderFragment(pageOuterHtml) {
-    document.getElementById('report-body').innerHTML = pageOuterHtml;
-  }
-
-  // Reports with their OWN internal scrolling container (currently just 'gl',
-  // for its sticky column headers) get a FIXED-height iframe instead of the
-  // auto-grow treatment below — auto-growing that iframe while its own CSS
-  // sizes a child element off 100vh (which inside an iframe means THAT
-  // iframe's own height) is a resize feedback loop: resize the iframe →
-  // its internal 100vh changes → the child's max-height changes → body's
-  // scrollHeight changes → the ResizeObserver fires → resize the iframe
-  // again. Confirmed live as the cause of GL's slow, multi-scrollbar render.
-  var FIXED_HEIGHT_IFRAME_REPORTS = ['gl'];
-
-  function renderIframe(url) {
     var container = document.getElementById('report-body');
-    var fixed = FIXED_HEIGHT_IFRAME_REPORTS.indexOf(currentType) >= 0;
-    // Fixed-height reports: size to the ACTUAL available space (this
-    // container's own clientHeight, measured at render time), not a
-    // calc(100vh - Npx) guess. A viewport-relative guess is routinely taller
-    // than what's really left after the page's own chrome (topbar, tabs,
-    // controls row) — the iframe then overflows ITS OWN parent, forcing that
-    // parent's overflow:auto to scroll too. That was scrollbar #3: the outer
-    // page scrolling around an iframe that didn't actually fit, on top of
-    // the iframe's own internal table-wrap scroll.
-    var fixedHeightCss = 'height:200px;';
-    if (fixed) {
-      // container (#report-body) itself has no fixed height (auto — sized to
-      // its own content); the definite, flex-computed height is its PARENT
-      // (the scrolling wrapper div reports-hub.js's own template wraps this
-      // container in), so that's what must be measured, not container itself.
-      var scrollParent = container.parentElement;
-      // -32 for that wrapper's own 1rem top+bottom padding (its clientHeight
-      // includes the padding area, but #report-body sits inside it).
-      var avail = (scrollParent ? scrollParent.clientHeight - 32 : 0) || (window.innerHeight - container.getBoundingClientRect().top - 16);
-      fixedHeightCss = 'height:' + Math.max(avail, 200) + 'px;';
-    }
-    container.innerHTML = '<iframe id="rpt-iframe" src="' + url.replace(/"/g, '&quot;')
-      + '" style="border:none;width:100%;' + fixedHeightCss
-      + 'display:block;background:var(--surface)"></iframe>';
-    var frame = document.getElementById('rpt-iframe');
-    if (fixed) {
-      // Fixed height + the report's own internal scroll — no resize logic
-      // needed, but it's still an isolated iframe with its own independent
-      // FB instance (see the module comment above): without this, every FB
-      // binding inside it appears dead to the human.
-      frame.onload = function () {
-        if (window.FB && FB.util && FB.util.forwardIframeKeys) FB.util.forwardIframeKeys(frame);
-      };
-      return;
-    }
-    // Auto-grow to content height so the report just prints downward inside
-    // the host page's own scroll — no second, nested scrollbar inside a
-    // height-clamped iframe cutting content off. A ResizeObserver (not a
-    // one-shot resize on load) is required: these reports populate their
-    // table via their OWN async script (e.g. journal.list/bill.list calls)
-    // that resolves well after the load event fires — a single load-time
-    // measurement captures the still-empty shell's height, which is exactly
-    // what produced the "still cut off" report despite the earlier fix.
-    frame.onload = function() {
-      try {
-        if (window.FB && FB.util && FB.util.forwardIframeKeys) FB.util.forwardIframeKeys(frame);
-        var doc = frame.contentWindow.document;
-        function resize() {
-          var h = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);
-          frame.style.height = h + 'px';
-        }
-        resize();
-        var ro = new ResizeObserver(resize);
-        ro.observe(doc.body);
-      } catch (e) {}
-    };
+    container.innerHTML = pageOuterHtml;
+    if (window.FB && FB.util && FB.util.execInlineScripts) FB.util.execInlineScripts(container);
+    attachComparisonControls();
   }
 
   function renderMessage(msg, isErr) {
@@ -328,8 +356,6 @@ ${layoutEnd()}
     if (!end) { renderMessage('Select a period first.'); return; }
     var url = buildReportUrl();
     if (!url) { renderMessage('Select a report and date range first.'); return; }
-
-    if (IFRAME_REPORTS.indexOf(currentType) >= 0) { renderIframe(url); return; }
 
     if (_fragCache[url]) { renderFragment(_fragCache[url]); return; }
 
@@ -369,12 +395,14 @@ ${layoutEnd()}
      re-set here on every tab switch and initial load. SIE is not this
      page's concern any more — it's handled globally (fb-core.js), company+
      period scoped, not tied to a report type. */
-  // Iframe-based reports (§1 "Prerequisite") hold their full row data (never
-  // blanked for atomic-grouping display) in a predictably-named global
-  // inside the iframe's OWN window — read it directly (same-origin) rather
-  // than scraping the DOM, which can't cross the iframe boundary anyway and
-  // would re-export the display-blanked values even if it could.
-  var IFRAME_ROW_VARS = { 'voucher-register': 'VR_ROWS', 'journal': 'JL_ROWS', 'gl': 'GL_ROWS' };
+  // These 3 report types hold their full row data (never blanked for
+  // atomic-grouping display) in a predictably-named global — read it
+  // directly rather than scraping the DOM, which would re-export the
+  // display-blanked values even if it were reliable. Pre-de-iframe-
+  // migration (2026-09-16) this lived inside an isolated <iframe>'s own
+  // window and needed frame.contentWindow[varName]; now that these 3 run
+  // in this page's own shared scope, it's just window[varName].
+  var ROW_VARS = { 'voucher-register': 'VR_ROWS', 'journal': 'JL_ROWS', 'gl': 'GL_ROWS' };
 
   function _rowsToCsv(rows) {
     if (!rows || !rows.length) return null;
@@ -412,11 +440,10 @@ ${layoutEnd()}
     var st = FB.period.get();
     var suffix = currentType + (st.start ? '_' + st.start : '') + (st.end ? '_' + st.end : '');
     window.__fbDownloadPdfUrl = function () { return buildReportUrl(); };
-    if (IFRAME_ROW_VARS[currentType]) {
-      var varName = IFRAME_ROW_VARS[currentType];
+    if (ROW_VARS[currentType]) {
+      var varName = ROW_VARS[currentType];
       window.__fbDownloadCsv = function () {
-        var frame = document.getElementById('rpt-iframe');
-        var rows = frame && frame.contentWindow ? frame.contentWindow[varName] : null;
+        var rows = window[varName];
         var csv = _rowsToCsv(rows);
         return csv ? { filename: suffix + '.csv', csv: csv } : null;
       };
@@ -429,14 +456,17 @@ ${layoutEnd()}
   }
 
   /* ── FB.form (K3b, keyboard-ux-spec §8) — the filter bar is a header-only
-     form: j/k rows, h/l cells, i/Enter edit, Esc exit. MoM/YoY are h/l-
-     navigable toggle-button cells (only present when showComparison); ~ flips
-     the FOCUSED comparison button only (re-toggle returns to none —
-     fbToggleComparison's own semantics), never a group cycle (magnus
-     2026-07-28). Report-type tabs are mouse-only — no h/l tab-cycling
-     precedent exists elsewhere in the app (Payables/Accounting tabs are
-     click-only too), and the frozen-verb-surface doctrine (roadmap §0q)
-     means a new tab-cycling verb isn't added speculatively here.
+     form: j/k rows, h/l cells, i/Enter edit, Esc exit. The period-comparison
+     icon is a single h/l-navigable cell (only present at all when the
+     current report supports it — PL/CF/BS, never TB/GL/etc.); ~ clicks it,
+     which now cycles single period → MoM → YoY → single period
+     (fbCycleComparison — magnus, 2026-09-18, superseding the two-button
+     "~ flips the FOCUSED button only, never a group cycle" design from
+     2026-07-28, which no longer applies now that there's only one cell to
+     flip). Report-type tabs are mouse-only — no h/l tab-cycling precedent
+     exists elsewhere in the app (Payables/Accounting tabs are click-only
+     too), and the frozen-verb-surface doctrine (roadmap §0q) means a new
+     tab-cycling verb isn't added speculatively here.
      Download's own j/k/Enter/Esc mini-scope and its d binding are GONE —
      the download control moved to the global topbar icon (fb-core.js,
      ia-restructure-3-spec.md §6.3), which is mouse-only like every other
@@ -449,19 +479,25 @@ ${layoutEnd()}
     formId: 'reports',
     onCommit: function () { fbLoadReport(); },
     zones: [
-      { id: 'filters', rows: function () { return [document.querySelector('.tb-controls-row')]; },
+      { id: 'filters', rows: function () {
+          // No more persistent .tb-controls-row (magnus, 2026-09-18) — the
+          // icon lives in the report's own header now, only when attached
+          // (multiperiod-supporting report currently selected). getElementById
+          // only finds it while attached, so this naturally yields zero rows
+          // (nothing to h/l/~ into) exactly when it's not relevant, instead
+          // of the old shown-but-disabled state.
+          var btn = document.getElementById('rpt-period-toggle');
+          return btn ? [btn.closest('tr') || btn] : [];
+        },
         cells: function (row) {
-          return [
-            document.getElementById('rpt-mom'),
-            document.getElementById('rpt-yoy')
-          ].filter(Boolean);
+          return [document.getElementById('rpt-period-toggle')].filter(Boolean);
         } }
     ],
     extraBindings: function (api) {
       return [
         { key: '~', mode: 'NORMAL', hint: 'comparison', hintBar: true, run: function () {
             var el = api.cellEl();
-            if (el && (el.id === 'rpt-mom' || el.id === 'rpt-yoy')) el.click();
+            if (el && el.id === 'rpt-period-toggle') el.click();
           } }
       ];
     }

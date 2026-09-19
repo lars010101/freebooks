@@ -487,13 +487,28 @@ async function matchLine(ctx) {
       : (isInflow ? offsetAccount : bankAccount);
     const amount = Math.abs(Number(line.amount));
 
+    // Which physical side (debit or credit) carries the vat_code + gross→net
+    // conversion. Without an explicit credit_account override, that must
+    // always be the OFFSET (category) account — mapping.debit_account —
+    // never the bank account, regardless of which physical debit/credit slot
+    // isInflow put it in. Previously vat_code always landed on the first
+    // (debit-side) line: correct for outflow (offset IS the debit side), but
+    // for inflow the debit side is the BANK line — that posted VAT to the
+    // wrong account (input instead of output) on the wrong side (a debit
+    // reducing what's owed instead of a credit increasing it), and skewed
+    // both the bank and offset-account balances by the VAT amount (follow-up
+    // to issue #297). An explicit credit_account override is an expert-
+    // configured mapping controlling both sides directly — keep the
+    // pre-existing debit-side convention there rather than guess.
+    const vatOnDebit = hasExplicitCredit ? true : !isInflow;
+
     // The bank amount is gross (tax-inclusive — it's what actually moved).
     // journal.js's enrichAndValidate treats a line's debit/credit as the NET
-    // figure and computes VAT on top (P2-4a, tax-exclusive convention). The
-    // vat_code below always lands on this first (debit-side) line, so its
-    // amount must be converted gross → net here, or enrichAndValidate inflates
-    // it past what the fixed bank-side amount can balance against (issue #297).
-    let debitAmount = amount;
+    // figure and computes VAT on top (P2-4a, tax-exclusive convention), so
+    // whichever side carries vat_code must be converted gross → net here, or
+    // enrichAndValidate inflates it past what the fixed bank-side amount can
+    // balance against (issue #297).
+    let netAmount = amount;
     if (mapping.vat_code) {
       const vcRows = await query(
         `SELECT rate FROM vat_codes
@@ -502,9 +517,11 @@ async function matchLine(ctx) {
       );
       if (vcRows.length > 0) {
         const rate = Number(vcRows[0].rate);
-        if (rate > 0) debitAmount = Math.round((amount / (1 + rate)) * 100) / 100;
+        if (rate > 0) netAmount = Math.round((amount / (1 + rate)) * 100) / 100;
       }
     }
+    const debitAmount = vatOnDebit ? netAmount : amount;
+    const creditAmount = vatOnDebit ? amount : netAmount;
 
     return {
       matched: true,
@@ -528,8 +545,8 @@ async function matchLine(ctx) {
         profit_center: mapping.profit_center || null,
       },
       lines: [
-        { account_code: debitAccount,  debit: debitAmount,  credit: 0,        date: line.date, description: line.description, vat_code: mapping.vat_code || null },
-        { account_code: creditAccount, debit: 0,            credit: amount,   date: line.date, description: line.description },
+        { account_code: debitAccount,  debit: debitAmount,  credit: 0,             date: line.date, description: line.description, vat_code: vatOnDebit ? (mapping.vat_code || null) : null },
+        { account_code: creditAccount, debit: 0,             credit: creditAmount, date: line.date, description: line.description, vat_code: vatOnDebit ? null : (mapping.vat_code || null) },
       ],
     };
   }

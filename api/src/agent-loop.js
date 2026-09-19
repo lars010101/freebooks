@@ -285,6 +285,9 @@ function buildTier4Prompt(context) {
   const coa = (context.chartOfAccounts || [])
     .map((a) => `${a.account_code} ${a.account_name}`)
     .join('\n');
+  const vatLines = (context.vatCodes || [])
+    .map((v) => `${v.vat_code} ${(Number(v.rate) * 100).toFixed(0)}%${v.is_reverse_charge ? ' (reverse charge)' : ''}`)
+    .join('\n');
   return `You are a bookkeeping assistant for a Swedish company. Map each bank
 statement line to journal entry lines using the chart of accounts below.
 Return a JSON object with a "proposals" array — one object per input line.
@@ -292,12 +295,18 @@ Each proposal has: "lines" (array of {account_code, debit, credit, date,
 description, vat_code?}), "source_transaction_id", "confidence" (0-1),
 "evidence" (string), "reference" (optional).
 
-Rules: debits must equal credits per proposal; use VAT codes from the chart;
-if unsure, still propose with low confidence. Swedish: BANKGIRO, AUTOGIRO,
-SHOPIFY are common descriptions.
+Rules: debits must equal credits per proposal, using the amount exactly as it
+appears on the bank statement (tax-inclusive) — the engine converts to net
+and adds the VAT line itself, so do NOT subtract VAT yourself. Only assign a
+vat_code from the list below when you are confident the line carries that
+rate; leave it null otherwise. Swedish: BANKGIRO, AUTOGIRO, SHOPIFY are
+common descriptions.
 
 Chart of accounts:
-${coa}`;
+${coa}
+
+VAT/GST codes:
+${vatLines}`;
 }
 
 async function tier4LLMReason(residualLines, context, companySettings) {
@@ -543,6 +552,8 @@ async function processBankStatement(ev, companyId, agentEmail, companySettings) 
     }
 
     const context = await buildTier4Context(companyId, agentEmail);
+    const tier4VatRateMap = {};
+    for (const v of (context.vatCodes || [])) tier4VatRateMap[v.vat_code] = Number(v.rate);
 
     for (const batch of batches) {
       let proposals;
@@ -555,6 +566,20 @@ async function processBankStatement(ev, companyId, agentEmail, companySettings) 
       if (!Array.isArray(proposals)) { warn(`statement ${attachmentId}: tier4 non-array`); continue; }
       for (const p of proposals) {
         if (!p || !Array.isArray(p.lines) || p.lines.length === 0) continue;
+
+        // Issue #297: the LLM reports each line's amount as printed on the
+        // bank statement (gross), but journal.js's enrichAndValidate treats
+        // debit/credit as the NET figure and computes VAT on top (P2-4a).
+        // Convert gross → net on whichever line carries a vat_code before
+        // proposing, mirroring the bill-extraction gross→net conversion above.
+        for (const l of p.lines) {
+          const rate = l.vat_code && tier4VatRateMap[l.vat_code];
+          if (rate) {
+            if (l.debit) l.debit = Math.round((l.debit / (1 + rate)) * 100) / 100;
+            if (l.credit) l.credit = Math.round((l.credit / (1 + rate)) * 100) / 100;
+          }
+        }
+
         let journalProposalId = null;
         try {
           const jpRes = await _dispatchAction('journal.propose', {
@@ -607,7 +632,7 @@ async function processBankStatement(ev, companyId, agentEmail, companySettings) 
 }
 
 async function buildTier4Context(companyId, agentEmail) {
-  const ctx = { chartOfAccounts: [], businessProfile: null, matchingHistory: [] };
+  const ctx = { chartOfAccounts: [], businessProfile: null, matchingHistory: [], vatCodes: [] };
   try {
     ctx.chartOfAccounts = await _dispatchAction('coa.list', {}, companyId, agentEmail) || [];
   } catch (e) { warn(`tier4 context: coa.list failed: ${e.message}`); }
@@ -616,6 +641,9 @@ async function buildTier4Context(companyId, agentEmail) {
       limit: 50,
     }, companyId, agentEmail) || [];
   } catch (e) { /* non-fatal */ }
+  try {
+    ctx.vatCodes = await _dispatchAction('vat.codes.list', {}, companyId, agentEmail) || [];
+  } catch (e) { warn(`tier4 context: vat.codes.list failed: ${e.message}`); }
   return ctx;
 }
 

@@ -2120,6 +2120,9 @@ async function shutdown(signal) {
     process.exit(1);
   }, 5000);
   try {
+    const bootState = require('./boot-state');
+    if (bootState.agentLoop) bootState.agentLoop.stopAgentLoop();
+    if (bootState.feedWatcher) bootState.feedWatcher.stopFeedWatcher();
     await exec('CHECKPOINT;');
     console.log('Database checkpointed.');
   } catch (err) {

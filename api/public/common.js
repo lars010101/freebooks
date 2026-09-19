@@ -291,19 +291,15 @@
 (function() {
   // ── Vim-modal keyboard navigation ──
   // Modes: normal (default) | insert (typing in a field)
-  // Escape        → Normal mode (blur); or page fbKeyActions.escape if already in normal mode
+  // Escape        → Normal mode (blur)
   // i             → Insert mode (focus first input in page-main)
   // h / l         → horizontal submenu tab prev/next
   // j / k         → table row prev/next (with visual focus)
   // Enter         → activate focused row (follow link or click)
-  // a             → page-registered "new" action (e.g. New Bill)
-  // d             → page-registered "delete" action on focused row
-  // e             → page-registered "edit" action
+  // e             → reserved (was edit; use i instead)
   // /             → focus global search
   // gg            → scroll to top
   // G             → scroll to bottom
-  //
-  // Pages register handlers via: window.fbKeyActions = { new, delete, edit }
 
   // P1-3: the mode indicator reads FB.mode (the single mode store, fb-core.js).
   // fbSetVimMode is kept as the legacy entry point for unmigrated pages.
@@ -363,7 +359,7 @@
     var tag = (ae.tagName || '').toUpperCase();
     var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || ae.isContentEditable;
 
-    // ── Escape: exit to Normal mode; or page escape action if already in normal mode ──
+    // ── Escape: exit to Normal mode ──
     if (e.key === 'Escape') {
       // On FB.keys-migrated pages the active binding set owns Escape semantics
       // and the FB.nav cursor — do NOT strip row highlights behind its back
@@ -374,8 +370,6 @@
       if (inInput) {
         ae.blur();
         fbSetVimMode('normal');
-      } else if (window.fbKeyActions && typeof window.fbKeyActions['escape'] === 'function') {
-        window.fbKeyActions['escape']();
       }
       return;
     }
@@ -418,15 +412,10 @@
       return;
     }
 
-    // ── i → Insert mode: edit focused nav row, or focus first input in page-main ──
+    // ── i → Insert mode: focus first input in page-main ──
     if (e.key === 'i') {
       e.preventDefault();
-      // If a nav row is focused and page registered 'edit', delegate to it
-      if (window.fbKeyActions && typeof window.fbKeyActions['edit'] === 'function') {
-        var focusedNavRow = document.querySelector('tr.nav-row-focus, .attach-row.nav-attach-focus, .nav-meta-item.nav-meta-focus');
-        if (focusedNavRow) { window.fbKeyActions['edit'](); return; }
-      }
-      // Generic: focus first input in page (vim insert mode)
+      // Focus first input in page (vim insert mode)
       var first = document.querySelector('#page-main input:not([type=hidden]):not([disabled]), #page-main textarea:not([disabled])');
       if (first) { first.focus(); fbSetVimMode('insert'); }
       return;
@@ -437,14 +426,6 @@
       // Hidden tabs (display:none — e.g. relevance-flag-gated Settings tabs)
       // are skipped: invisible means not navigable.
       var tabs = Array.from(document.querySelectorAll('.tabs .tab')).filter(function(t){ return t.offsetParent !== null || getComputedStyle(t).display !== 'none'; });
-      if (!tabs.length) {
-        var hlKey = e.key; // 'h' or 'l'
-        if (window.fbKeyActions && typeof window.fbKeyActions[hlKey] === 'function') {
-          e.preventDefault();
-          window.fbKeyActions[hlKey]();
-        }
-        return;
-      }
       var tabActiveIdx = -1;
       tabs.forEach(function(t, i) { if (t.classList.contains('active')) tabActiveIdx = i; });
       var tabNewIdx = e.key === 'l' ? tabActiveIdx + 1 : tabActiveIdx - 1;
@@ -457,12 +438,6 @@
       // Partner cell nav owns j/k when active
       var partnerPanelJK = document.getElementById('pay-panel-partners');
       if (partnerPanelJK && partnerPanelJK.style.display !== 'none' && typeof window.fbPartnerSelRow !== 'undefined' && window.fbPartnerSelRow >= 0) {
-        return;
-      }
-      // Allow page to intercept j/k (e.g. for mixed table+div navigation)
-      if (window.fbKeyActions && typeof window.fbKeyActions[e.key] === 'function') {
-        e.preventDefault();
-        window.fbKeyActions[e.key]();
         return;
       }
       var rows = Array.from(document.querySelectorAll('table tbody tr'));
@@ -494,33 +469,6 @@
         var link = focusedRow.querySelector('a[href]');
         if (link) { fbNavigate(link.getAttribute('href')); }
         else { focusedRow.click(); }
-      }
-      return;
-    }
-
-    // ── a → partner cell nav owns this when active ──
-    var partnerPanelAD = document.getElementById('pay-panel-partners');
-    var partnerActive = partnerPanelAD && partnerPanelAD.style.display !== 'none';
-
-    // ── a → page-registered "new" action ──
-    if (e.key === 'a') {
-      if (partnerActive) return;
-      if (window.fbKeyActions && typeof window.fbKeyActions['new'] === 'function') {
-        e.preventDefault();
-        window.fbKeyActions['new']();
-      }
-      return;
-    }
-
-    // ── A (shift-a) → page-registered "attach" action (K4: A = attach
-    // everywhere, keyboard-ux-spec §8). Only pages with attachments register
-    // fbKeyActions.attach; elsewhere A is inert. FB.keys pages swallow the
-    // key at capture before this legacy bubble path runs.
-    if (e.key === 'A') {
-      if (partnerActive) return;
-      if (window.fbKeyActions && typeof window.fbKeyActions['attach'] === 'function') {
-        e.preventDefault();
-        window.fbKeyActions['attach']();
       }
       return;
     }

@@ -487,6 +487,25 @@ async function matchLine(ctx) {
       : (isInflow ? offsetAccount : bankAccount);
     const amount = Math.abs(Number(line.amount));
 
+    // The bank amount is gross (tax-inclusive — it's what actually moved).
+    // journal.js's enrichAndValidate treats a line's debit/credit as the NET
+    // figure and computes VAT on top (P2-4a, tax-exclusive convention). The
+    // vat_code below always lands on this first (debit-side) line, so its
+    // amount must be converted gross → net here, or enrichAndValidate inflates
+    // it past what the fixed bank-side amount can balance against (issue #297).
+    let debitAmount = amount;
+    if (mapping.vat_code) {
+      const vcRows = await query(
+        `SELECT rate FROM vat_codes
+         WHERE company_id = @companyId AND vat_code = @vatCode AND is_active = true LIMIT 1`,
+        { companyId, vatCode: mapping.vat_code }
+      );
+      if (vcRows.length > 0) {
+        const rate = Number(vcRows[0].rate);
+        if (rate > 0) debitAmount = Math.round((amount / (1 + rate)) * 100) / 100;
+      }
+    }
+
     return {
       matched: true,
       tier: 1,
@@ -509,8 +528,8 @@ async function matchLine(ctx) {
         profit_center: mapping.profit_center || null,
       },
       lines: [
-        { account_code: debitAccount,  debit: amount,  credit: 0,        date: line.date, description: line.description, vat_code: mapping.vat_code || null },
-        { account_code: creditAccount, debit: 0,       credit: amount,   date: line.date, description: line.description },
+        { account_code: debitAccount,  debit: debitAmount,  credit: 0,        date: line.date, description: line.description, vat_code: mapping.vat_code || null },
+        { account_code: creditAccount, debit: 0,            credit: amount,   date: line.date, description: line.description },
       ],
     };
   }

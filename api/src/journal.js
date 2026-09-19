@@ -857,16 +857,50 @@ async function importEntries(ctx) {
   // sequential one minted (entry.journalId, else the company's default MISC
   // journal) — entries that DO carry references keep them (source-system
   // voucher identity preserved on migration imports).
-  for (const { entry, lines, source, batchId } of validated) {
+  //
+  // References are batch-minted per (journalId, year) group — one
+  // getNextReferenceBatch call per group instead of one getNextReference
+  // round-trip per entry — since a bulk import can need many references in
+  // the same journal/year.
+  let defaultJournalId;
+  const plans = [];
+  const groupCounts = new Map();
+  for (const validatedEntry of validated) {
+    const { entry, lines } = validatedEntry;
     let entryRef = null;
     for (const line of lines) { if (line.reference) { entryRef = line.reference; break; } }
+    let groupKey = null;
     if (!entryRef) {
-      const jId = entry.journalId || (await resolveDefaultJournalId(companyId));
+      let jId = entry.journalId;
+      if (!jId) {
+        if (defaultJournalId === undefined) defaultJournalId = await resolveDefaultJournalId(companyId);
+        jId = defaultJournalId;
+      }
       if (jId) {
         const year = parseInt(String(lines[0].date).substring(0, 4), 10);
-        entryRef = await getNextReference(companyId, jId, year);
-        referencesMinted++;
+        groupKey = `${jId}|${year}`;
+        groupCounts.set(groupKey, (groupCounts.get(groupKey) || 0) + 1);
       }
+    }
+    plans.push({ ...validatedEntry, entryRef, groupKey });
+  }
+
+  const groupRefs = new Map();
+  const groupCursors = new Map();
+  for (const [groupKey, count] of groupCounts) {
+    const [jId, yearStr] = groupKey.split('|');
+    const refs = await getNextReferenceBatch(companyId, jId, parseInt(yearStr, 10), count);
+    groupRefs.set(groupKey, refs);
+    groupCursors.set(groupKey, 0);
+  }
+
+  for (const { entry, lines, source, batchId, groupKey, entryRef: explicitRef } of plans) {
+    let entryRef = explicitRef;
+    if (!entryRef && groupKey) {
+      const cursor = groupCursors.get(groupKey);
+      entryRef = groupRefs.get(groupKey)[cursor];
+      groupCursors.set(groupKey, cursor + 1);
+      referencesMinted++;
     }
 
     for (const line of lines) {

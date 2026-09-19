@@ -3,6 +3,8 @@
 **Status:** PROPOSED 2026-08-05
 **Context:** Phase B (B1–B8) shipped the agent-first bank-matching pipeline. The Bank page's three tabs (Import, Mappings, Transactions) are now superseded. This spec dissolves the Bank sidebar item and relocates the one surviving feature (reconciliation).
 
+**Correction (2026-09-19):** This spec's page-deletion outcome did not stick. `bank.js`/`bank-import.js` were deleted as designed (issue #137, 2026-08-09), and the sidebar/palette entries were dropped as designed. But the Bank page was later **revived** (nav-registry.js: "Bank page revived (two-way-payments-prep)") as a new `api/src/pages/bank.js` with Payments + Reconciliation tabs, reclaiming the sidebar slot and `gKey: 'b'` — it is live again today (`sidebar: true` in `nav-registry.js`). `bank-import.js` stayed deleted; only the plain Bank page returned. The standalone `reconciliation` report type proposed in §2 below was **never built** — no `reconciliation` entry exists in `api/src/report-registry.js`. Reconciliation instead shipped as a tab on the revived Bank page, not as a report. Everything below this note describes the original 2026-08-05 proposal and its 2026-08-24 "completed" status, both since overtaken by the revival — kept as historical record, not current state.
+
 ## What shipped in Phase B that replaces the Bank page
 
 | Bank page tab | Old manual path | Phase B replacement |
@@ -128,6 +130,8 @@ g c = Company switcher (reserved)
 
 Four free letters: `d`, `b`, `v`, `j`. No speculative reassignment.
 
+**Correction (2026-09-19):** `g b` did not stay free — it was reclaimed by the revived Bank page (see top-of-file correction), and multiple IA restructures since have moved several of these other letters too. This slate reflects the state right after this spec's original 2026-08-05 proposal only; see `api/src/nav-registry.js`'s header comment for the current, actively-maintained g-key slate.
+
 ## 5. Sequencing
 
 1. Add `reconciliation` report to the report registry + report builder (the relocation)
@@ -148,7 +152,7 @@ This is a page-level text change in `api/src/pages/inbox.js`, not a structural c
 
 ## 7. What this spec does NOT do
 
-- ~~Does not delete `api/src/pages/bank.js` or `api/src/pages/bank-import.js` — they're orphaned, not removed.~~ **Update (2026-08-24, issue #260):** The page deletions tracked above have been completed. See issue #260.
+- ~~Does not delete `api/src/pages/bank.js` or `api/src/pages/bank-import.js` — they're orphaned, not removed.~~ **Update (2026-08-24, issue #260):** The page deletions tracked above have been completed. See issue #260. **Update (2026-09-19):** `bank.js` was subsequently revived (see top-of-file correction) — it exists again today with a different scope (Payments + Reconciliation tabs). `bank-import.js` remains deleted.
 - ~~Does not change `bank.process` or `bank.approve` — they stay in the catalog.~~ **Update (2026-08-24, issue #260):** The `bank.process`/`bank.approve` removal tracked above has been completed. See issue #260.
 - Does not remove the Mappings tab from the Bank page — the page is orphaned; whatever it renders is irrelevant. The active mapping path is the inbox suggest/approve flow (B2).
 - Does not spec a reconciliation **alert** (e.g. "you have N uncleared entries older than 30 days" as an inbox item). That's a future enhancement — the report is sufficient for v1. ✅ Tracked — GitHub issue.

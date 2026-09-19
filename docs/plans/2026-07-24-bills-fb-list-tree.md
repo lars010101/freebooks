@@ -2,7 +2,7 @@
 
 **Branch:** `feat/bills-fb-list` (checked out, based on current `origin/main`)
 **Ratified:** 2026-07-24 (contract in this plan's preamble — do not redesign)
-**Status:** PLAN ONLY — no implementation in this commit.
+**Status:** Completed 2026-07-24 — kept as historical implementation record; line-number references below no longer match current `payables-bills.js`. Confirmed carried out via `payables-ux-spec.md`'s own dated note ("2026-07-24 rev. 4 — Bills migrated onto FB.list") and `review-roadmap.md` §0c ("Bills → FB.list tree:true done 2026-07-24").
 
 ## Goal
 

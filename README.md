@@ -141,9 +141,11 @@ freebooks/
 │   ├── package.json            # dependencies + start/dev scripts
 │   ├── public/                 # static assets served at /public
 │   │   ├── common.js           # shared page nav/helpers
+│   │   ├── common.css          # shared page styles
 │   │   ├── fb-core.js          # FB.keys core: scope stack, teardown, resetPage
 │   │   ├── fb-list.js          # FB.list shared list/table framework (vim-modal)
 │   │   ├── fb-form.js          # FB.form shared form framework (zones, cursor)
+│   │   ├── fb-command.js       # `/` search-scope parsing; survives as a smaller utility after the `:` command-bar retirement (docs/global-search-spec.md)
 │   │   └── fb-attachments.js    # shared attachment helper module
 │   └── src/
 │       ├── index.js            # Express entry point, action routing, auth gate, action catalog

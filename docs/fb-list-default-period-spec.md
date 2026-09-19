@@ -1,6 +1,6 @@
 # FB.list Default-Period Seeding Spec
 
-Status: **DRAFT — proposal, not yet ratified.** Companion: `fb-list-row-threshold-spec.md` (item 1, simplified — **that spec depends on this one**; see §1 below for the exact integration contract), `/api/:company/reports/default-period` (`api/src/reports.js` ~L206–L245, the endpoint this extends), `ap-aging-drilldown-spec.md` (precedent for the return-context/round-trip pattern, already built and live for one path).
+Status: **Shipped (verified against code 2026-09-19).** `api/src/reports.js:217-238`'s `/reports/default-period` endpoint already returns `start_date`/`end_date` (not just `period_id`), matching this spec's §4 diff, and `bill.list`/`fx.rates.list` already accept `dateFrom`/`dateTo`. Companion `fb-list-row-threshold-spec.md` (item 1, simplified — **that spec depends on this one**; see §1 below for the exact integration contract) is also now shipped — both companion specs ship together per the contract described here. Other refs: `/api/:company/reports/default-period` (`api/src/reports.js` ~L206–L245, the endpoint this extends), `ap-aging-drilldown-spec.md` (precedent for the return-context/round-trip pattern, already built and live for one path).
 
 ---
 

@@ -1,6 +1,6 @@
 # Bills: Withholding Tax (WHT), Booked at Posting — Spec
 
-**Status:** Draft v1
+**Status:** Shipped (verified 2026-09-19 against code). `api/src/wht.js` exists, `bills.js` posts a WHT Payable credit line as designed, and `README.md` documents WHT as a current feature citing this file as its spec.
 **Scope:** `db/schema.sql`, a new `api/src/wht.js`, `api/src/bills.js`, `api/src/setup.js`, `api/src/pages/common.js`, `api/src/pages/bill-edit.js`, `api/src/pages/master-data.js`, `api/src/action-catalog.js`, `api/src/index.js`, `db/jurisdictions/SG/`.
 **Depends on:** `bill-line-items-layout-prep-spec.md` (fills the `wht`/`WHT_ON` slot it reserved) and, loosely, `bill-line-items-qty-rate-spec.md` (no functional dependency — both just add columns to the same row). **Same assumption as the #3 spec:** written against the layout-prep spec's shape as designed, not a fresh inspection of your implementation.
 **Chosen design:** liability booked when the bill posts (your choice) — the AP credit is reduced by the withheld amount, and a new credit line books it to a WHT payable account instead. This is materially bigger than #3: it's a genuinely new tax engine, not a reserved slot being filled in, so this spec is longer and has more real design decisions in it.

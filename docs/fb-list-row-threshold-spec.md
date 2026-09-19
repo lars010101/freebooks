@@ -1,6 +1,6 @@
 # FB.list Row-Count Threshold Spec
 
-Status: **DRAFT — proposal, not yet ratified.** Chosen over the full general-filter-engine alternative (`fb-list-server-filter-spec.md`, considered and set aside — bigger diff than this problem needs). Companion: `fb-list-ux-spec.md` (the machine this extends), and `fb-list-default-period-spec.md` (item 2 — **this spec depends on it**, not the reverse; see §1). **Must ship together with, not ahead of, the default-period spec** — see that spec's §1 for the integration contract.
+Status: **Shipped (verified against code 2026-09-19).** The two-query COUNT-then-fetch pattern is fully implemented in `api/src/bills.js` (`listBills`, `listPayments`) and `api/src/fx.js` (`listRates`), and `api/public/fb-list.js`'s frontend code has comments literally citing "threshold spec §4" (~lines 117, 871-878, 1445-1451). Chosen over the full general-filter-engine alternative (`fb-list-server-filter-spec.md`, considered and set aside — bigger diff than this problem needs). Companion: `fb-list-ux-spec.md` (the machine this extends), and `fb-list-default-period-spec.md` (item 2 — **this spec depends on it**, not the reverse; see §1). Both companion specs are now shipped together, per the integration contract in that spec's §1.
 
 ---
 

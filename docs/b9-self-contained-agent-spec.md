@@ -206,7 +206,7 @@ The following functions ported directly from `scripts/freebooks-agent-loop.js` t
 ### Boot lifecycle
 
 ```js
-// In server.js, after schema and routes are ready:
+// In api/src/index.js, after schema and routes are ready (confirmed 2026-09-19 — there is no server.js; boot wiring lives in index.js):
 // Feed watcher + agent loop both start when any company has agent_enabled = 'true'.
 if (anyAgentEnabled) {
   startFeedWatcher();
@@ -318,8 +318,7 @@ The in-process modules (`api/src/feed-watcher.js`, `api/src/agent-loop.js`) are 
 | `api/src/feed-watcher.js` | **New.** In-process folder watcher module. |
 | `api/src/agent-loop.js` | **New.** In-process agent loop module. Ported from `scripts/freebooks-agent-loop.js`. |
 | `api/src/pages/settings.js` | **Modified.** Add `ai` tab with agent pipeline + LLM provider fields. |
-| `api/src/index.js` | **Modified.** Add `settings.ai.test` action handler. Add boot calls to start feed watcher + agent loop. |
-| `api/src/server.js` | **Modified.** Wire feed-watcher + agent-loop start on boot. |
+| `api/src/index.js` | **Modified.** Add `settings.ai.test` action handler. Add boot calls to start feed watcher + agent loop. (Confirmed 2026-09-19: this is the only boot-wiring file — there is no separate `server.js`; an earlier draft of this table listed one in error.) |
 | `scripts/freebooks-feed-watch.sh` | **Fixed.** Line 44 `local` bug. Otherwise unchanged. |
 | `scripts/freebooks-agent-loop.js` | **Deleted (issue #108).** Placeholder bill extraction and tier-4 LLM never implemented; in-process loop is sole path. |
 | `db/schema.sql` | **No changes.** No new tables — all config goes in existing `settings` table. |
@@ -331,7 +330,7 @@ One PR, four commits:
 
 1. `feed-watcher.js` + `agent-loop.js` (new modules)
 2. Settings/AI tab (settings page + `settings.ai.test` action)
-3. Boot wiring (server.js + index.js)
+3. Boot wiring (index.js)
 4. External script bug fix (feed-watch.sh line 44)
 
 No dependencies on other PRs. Can merge independently of PR #87/#88 (Phase B specs/code).

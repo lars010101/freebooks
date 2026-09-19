@@ -1,6 +1,6 @@
 # Cost/Profit Center Derivation — Spec
 
-**Status:** proposed (rev 4 — incorporates review feedback rounds 1–3)
+**Status:** Shipped (verified against code 2026-09-19) — `api/src/centers.js` exists and `api/src/validation.js` already implements the cost/profit-center existence + pairing checks described here (~lines 108-109, 249-262). Rev 4 design below matches what's live.
 **Repo:** lars010101/freebooks
 **Touches:** `db/schema.sql`, `api/src/centers.js` (new or existing — confirm), `api/src/validation.js`, `api/src/journal.js`, `api/src/bills.js`, `api/src/bank.js`, `api/public/*` (Settings → Master Data → Cost/Profit Centers page)
 

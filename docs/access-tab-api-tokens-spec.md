@@ -1,6 +1,6 @@
 # API Tokens in Settings → Access — Spec
 
-**Status:** PROPOSED
+**Status:** Shipped (2026-09-19 — verified against code; §0 below already noted "Built and shipped" but the header was never updated to match). `tokensList` register confirmed live in `api/src/pages/settings.js` alongside `accessList` on the Access tab, exactly as designed.
 **Scope:** Give `auth.token.create` / `auth.token.list` / `auth.token.revoke` a UI surface on the existing Settings → Access tab. Closes the one hard gap found while retiring the `:` command bar (`:token create`/`:token revoke` had no other path at the time — confirmed by grep across every page file and `nav-registry.js`).
 **Companion:** `global-search-spec.md` §0.
 **Depends on:** `tokens.js` (actions unchanged), `auth.js` (unchanged), `settings.js` (`accessList` FB.list config, existing — extended by adding a second, sibling register on the same tab).

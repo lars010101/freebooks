@@ -1,6 +1,6 @@
 # Bill Post/Payment Consolidation — Spec
 
-**Status:** Draft — design agreed in principle (session with magnus, 2026-09-02), not yet built.
+**Status:** Shipped (commit `85f5d6c`, "feat: bill-post-payment-consolidation — Draft flag, y verb, New Payment page"; verified 2026-09-19 against code). The Draft flag, `~`/`w`/`y` bindings, and the New Payment page are all live in `api/src/pages/payables-bills.js` and `api/src/pages/payment-new.js`.
 **Scope:** `api/src/pages/bill-edit.js` (full-page bill editor), `api/src/pages/payables-bills.js` (Bills list, FB.list-driven), a new "New Payment" form (new file/route), plus the downstream doc edits listed in §7.
 **Supersedes:** the inline single-bill pay-row (`openPayRowData`/`submitPayRow`/`closePayRow`) and the P1-9b multi-bill pay panel (`openMultiPayPanel`/`submitMultiPayPanel`/`closeMultiPayPanel`/`_multiPay*`) in `payables-bills.js` — both deleted outright, replaced by New Payment (§3). Also supersedes the unmerged local branch `fix/keyboard-shortcuts-consolidation-pass` (2026-08-28), which partially attempted the "kill human draft-save" idea without the Draft flag or New Payment redesign — see §6.
 **Depends on:** `docs/keyboard-ux-spec.md` §5 (the `~` toggle-verb doctrine — this spec's `~` usage complies with it as written; no doctrine amendment needed, see §1). `agent-readiness-spec.md` / `bank-matching-spec.md` §10.4a (agent-created `bill_draft` path — explicitly unaffected, §4).

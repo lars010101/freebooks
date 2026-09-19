@@ -1,6 +1,6 @@
 # Partner Vendor/Customer Flag — Front-End Completion Spec
 
-**Status:** Draft v2 (for ratification) — revised after review: §3.2 server-side guard removed as unimplementable without a `partners` FK (see §3.2); §1.3 loading-row `colspan` added.
+**Status:** IMPLEMENTED — confirmed shipped on a 2026-09-19 validation pass against live code. §1/§2's fixes (row-mapping, `<thead>`/colspan counts, save-body flags, `~` handler) and §3.1's `partner_type: 'vendor'` filter and §4's `queryPartnerProposals`/`partnerProposalSummary` fix are all present as specified. **File-path note (2026-09-19):** every `master-data.js` reference below is corrected to `payables-partners.js` — the IA restructure that landed after this spec was written dissolved `master-data.js` and moved the Partners grid to `api/src/pages/payables-partners.js` (per `partner-proposal-spec.md`'s own migration table); the fixes themselves were applied to, and are confirmed live in, that file. §3.2's server-side guard remains correctly deferred, unchanged (see §3.2).
 **Depends on:** `partner-proposal-spec.md` (§1 Partners model, §1.4 UI, §5 Inbox integration).
 **Amends:** `partner-proposal-spec.md` §1.4, which specified this UI but was left partially implemented.
 **Closes:** [gap identified in code review — `is_vendor`/`is_customer` are stored and CRUD-able server-side but not functionally surfaced or safely editable client-side].
@@ -15,7 +15,7 @@
 
 §1.4 of that spec also specified the UI consequences: two checkbox columns on the Partners grid, and a `partner_type='vendor'` filter on the Bills partner dropdown. **Neither was finished.** A code review of the current `main` branch found four places where the flags are either invisible, inert, or silently destroyed by normal use:
 
-1. **Master Data → Partners grid** (`api/src/pages/master-data.js`) declares `is_vendor`/`is_customer` as display columns, but the row-mapping function that turns server data into UI rows drops both fields before they ever reach the column renderer. Every row therefore displays the same constant placeholder ("V", never "C") regardless of the partner's actual database values. The static `<thead>` also has two fewer `<th>` cells than the column config has `<td>` cells per row, so even a correct value would render unlabeled and misaligned.
+1. **Master Data → Partners grid** (`api/src/pages/payables-partners.js`) declares `is_vendor`/`is_customer` as display columns, but the row-mapping function that turns server data into UI rows drops both fields before they ever reach the column renderer. Every row therefore displays the same constant placeholder ("V", never "C") regardless of the partner's actual database values. The static `<thead>` also has two fewer `<th>` cells than the column config has `<td>` cells per row, so even a correct value would render unlabeled and misaligned.
 2. **The same grid's save path** (both the normal row-save and the `~` "toggle active" quick action) omits `is_vendor`/`is_customer` from the `partner.upsert` request body. The backend's `upsertPartner` defaults a missing `is_vendor` to `true` and a missing `is_customer` to `false` — so editing *any* field on a partner row silently resets it to vendor-only, overwriting a customer flag set through any other path (e.g. the agent's `partner.propose` → approve flow).
 3. **Payables → Bills partner picker** (`api/src/pages/payables-bills.js`) loads partners via `partner.list` with no `partner_type` filter (contrary to spec §1.4) and shows no vendor/customer indicator in the dropdown. Nothing — client or server — stops a bill from being posted against a customer-only partner.
 4. **Inbox partner-proposal review card** (`api/src/inbox.js`, `queryPartnerProposals`) does not select `is_vendor`/`is_customer` from `partner_proposals` and its summary text ("New partner suggested: `<name>`") gives the human reviewer no way to tell what type of partner they're approving before they approve it.
@@ -32,7 +32,7 @@ Same as `partner-proposal-spec.md` §0.5 — single-digit new partners per year,
 
 ## 1. Fix: Master Data → Partners grid (display)
 
-**File:** `api/src/pages/master-data.js`
+**File:** `api/src/pages/payables-partners.js`
 
 ### 1.1 Row mapping must carry the flags
 
@@ -87,7 +87,7 @@ Two separate V/— and C/— badge columns are functionally fine but visually th
 
 ## 2. Fix: Master Data → Partners grid (edit/save)
 
-**File:** `api/src/pages/master-data.js`
+**File:** `api/src/pages/payables-partners.js`
 
 ### 2.1 Normal row save
 
@@ -252,7 +252,7 @@ Note: a server-side guard against creating a bill for a non-vendor partner (orig
 
 | File | Change |
 |---|---|
-| `api/src/pages/master-data.js` | Fix `list.map()`, `save.body()`, `~` handler body, `<thead>` cell count, loading-row `colspan` (§1, §2) |
+| `api/src/pages/payables-partners.js` | Fix `list.map()`, `save.body()`, `~` handler body, `<thead>` cell count, loading-row `colspan` (§1, §2) — **done**, confirmed live 2026-09-19 |
 | `api/src/pages/payables-bills.js` | Add `partner_type: 'vendor'` to `loadPartners()` (§3.1) |
 | `api/src/inbox.js` | Select `is_vendor`/`is_customer` in `queryPartnerProposals`; update summary text (§4) |
 

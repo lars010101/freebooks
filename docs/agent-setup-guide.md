@@ -53,8 +53,16 @@ pip install mcp            # Hermes MCP client SDK — silently disabled without
 ## 2. Step 0 for every scenario: create the agent account
 
 The agent needs a dedicated email with the **`agent` role** on your company.
-Grant it once, on the API host, via the admin SQL endpoint (requires
-`FREEBOOKS_ADMIN_TOKEN` set on the API process — see README):
+
+**Easiest path (2026-09-19): Settings → Access**, as an owner — grant the
+`agent` role to `agent@example.com` there. This calls the same
+`permissions.upsert` action (owner role) the raw-SQL route below reaches
+directly, with no admin token required.
+
+**Scriptable/headless alternative:** grant it once, on the API host, via the
+admin SQL endpoint (requires `FREEBOOKS_ADMIN_TOKEN` set on the API process —
+see README) — useful for provisioning scripts where clicking through the UI
+isn't practical:
 
 ```bash
 curl -X POST http://127.0.0.1:3000/api/admin/query \

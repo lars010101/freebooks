@@ -1,6 +1,6 @@
 # Bill Line-Items Layout: Config Extraction + Responsive Row Prep — Spec
 
-**Status:** Draft v1
+**Status:** Shipped (2026-09-06 — verified 2026-09-19 against code). `LINE_COLUMNS`, `activeColumns()`, the `page-wide` class, and the `.bl-header`/`--bl-cols` grid are all live in `bill-edit.js`/`common.css`, matching this design almost verbatim. Confirmed by `bill-line-item-grid-spec.md` ("Shipped 2026-09-06"), which extends this spec's architecture and therefore necessarily shipped after it.
 **Scope:** `api/src/pages/bill-edit.js` (the line-items table + its container), plus one shared, opt-in rule added to `api/public/common.css`.
 **Depends on:** nothing outstanding. Touches a different DOM region than `bill-edit-header-cleanup-spec.md` (line-items table vs. header grid) — the two can land in either order, or together, without conflict.
 **Precedes:** the future specs for #3 (quantity × unit price) and #4 (withholding tax) — this spec's whole purpose is to make those additive, not another round of hand-rebalanced percentages.

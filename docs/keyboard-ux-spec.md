@@ -66,10 +66,17 @@ built as a route; Fiscal was renamed Calendar and took the freed `c`; the
 company switcher — originally on `c` — moved to `w`; Accounting and
 Exchange Rates were promoted to standalone routes with new keys.
 
+**Correction (2026-09-19):** `b` did not stay free — the Bank page was
+revived (`nav-registry.js`: "Bank page revived, two-way-payments-prep",
+new `api/src/pages/bank.js` with Payments + Reconciliation tabs, distinct
+scope from the old deleted page) and reclaimed `gKey: 'b'`. `g b` is live
+again; it's added back into the table below.
+
 | Sequence | Action |
 |---|---|
 | `g i` | Inbox |
 | `g p` | Payables |
+| `g b` | Bank (revived — see 2026-09-19 correction above) |
 | `g t` | Statements |
 | `g j` | Journal |
 | `g c` | Calendar |

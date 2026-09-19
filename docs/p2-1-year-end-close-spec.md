@@ -1,6 +1,6 @@
 # P2-1 — Year-End Close & Period Close Support
 
-**Date:** 2026-08-07 · **Status:** PROPOSED (awaiting magnus ratification)
+**Date:** 2026-08-07 · **Status:** Shipped (verified against code 2026-09-19) — `period.close` is a live action (`action-catalog.js:141`, routed in `index.js:1238` to `api/src/period-close.js`, which exists); README.md documents it as shipped ("Year-end close via `period.close` action (P2-1)").
 
 ## 1. Problem
 

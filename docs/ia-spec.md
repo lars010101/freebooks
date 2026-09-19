@@ -30,7 +30,9 @@ Every app route lives once in `api/src/nav-registry.js`. Four consumers share th
 
 Entry shape: `{ key, route, label, icon, sidebar, gKey, palette, absolute }`. `route` uses the `:company` placeholder; `absolute: true` for company-less routes (`/setup/new-company`).
 
-### Current routes (as of 2026-08-18)
+### Current routes (as of 2026-08-18, historical)
+
+**Correction (2026-09-19): superseded.** This table describes the pre-restructure route set. The 2026-08-27 IA restructure 2 (commit `9303d05`) replaced `bills`/`reports`/`periods`/`master-data`/`admin` with `payables`/`statements`+`journal`/`calendar`/`accounting`+`exchange-rates`, and dissolved `master-data` and `admin` entirely (no redirects — clean cutover). See the current table below; this one is kept only as a historical snapshot.
 
 || Key | Route | Label | Icon | Sidebar | gKey | Palette | Notes |
 |-----|-------|-------|------|---------|------|---------|-------|
@@ -43,6 +45,28 @@ Entry shape: `{ key, route, label, icon, sidebar, gKey, palette, absolute }`. `r
 | `admin` | `/:company/admin` | Admin | 🛠 | ✓ | `a` | ✓ | Companies · Operations (new 2026-08-11) |
 | `journal-voucher` | `/:company/journal/voucher` | Journal Entry | — | ✗ | — | ✗ | Covered by action-catalog navigate entry |
 | `new-company` | `/setup/new-company` | New Company | — | ✗ | — | ✗ | Absolute route, company-less |
+
+### Current routes (as of 2026-09-19)
+
+Read directly from `api/src/nav-registry.js`'s `ROUTES` array (the file's own header comment carries the full chronological g-key history — treat that comment as the live source, this table as a point-in-time mirror of it):
+
+|| Key | Route | Label | Icon | Sidebar | gKey | Palette | Notes |
+|-----|-------|-------|------|---------|------|---------|-------|
+| `inbox` | `/:company` | Inbox | 📥 | ✓ | `i` | ✓ | Root route |
+| `payables` | `/:company/payables` | Payables | 📋 | ✓ | `p` | ✓ | Renamed from Bills 2026-08-27 (IA restructure 2); Bills · Vendors · Aging · Control tabs |
+| `bank` | `/:company/bank` | Bank | 🏦 | ✓ | `b` | ✓ | Revived (two-way-payments-prep); Payments + Reconciliation tabs — see `bank-dissolution-spec.md`'s 2026-09-19 correction |
+| `statements` | `/:company/statements` | Statements | 📊 | ✓ | `t` | ✓ | Split from Reports 2026-08-27; P&L · Balance Sheet · Cash Flow · Statement of Equity |
+| `journal` | `/:company/journal` | Journal | 📈 | ✓ | `j` | ✓ | Renamed from Books 2026-08-30 (IA restructure 3); Transactions · Line items · Trial Balance · General Ledger |
+| `calendar` | `/:company/calendar` | Calendar | 📅 | ✓ | `c` | ✓ | Renamed from Fiscal; Periods · Reminders · Close Checklist |
+| `documents` | `/:company/documents` | Documents | 📄 | ✓ | `d` | ✓ | New (calendar-reminders-documents-spec.md §5) |
+| `settings` | `/:company/settings` | Settings | ⚙ | ✓ | `s` | ✓ | Slimmed: Company · Access · Extensions |
+| `accounting` | `/:company/accounting` | Accounting | 🗂 | ✓ | `a` | ✓ | New 2026-08-27, reuses Admin's freed `a`; COA · Tax Codes · Journals · Cost/Profit Centers · Integrity |
+| `exchange-rates` | `/:company/exchange-rates` | Exchange Rates | 💱 | ✓ | `x` | ✓ | Promoted standalone 2026-08-27 |
+| `journal-voucher` | `/:company/journal/voucher` | Journal Entry | — | ✗ | — | ✗ | Covered by action-catalog navigate entry |
+| `new-company` | `/setup/new-company` | New Company | — | ✗ | — | ✗ | Absolute route, company-less |
+| `chat` | `/:company/chat` | Chat with AI | 💬 | ✗ | — | ✓ | Palette-only, not in sidebar |
+
+`master-data` and `admin` no longer exist (dissolved 2026-08-27: Companies → company switcher, Access → Settings, Operations dropped). `g m`, `g v`, `g f`, `g r` are free.
 
 ---
 
@@ -138,7 +162,7 @@ For non-table surfaces (dashboard cards, report links). `FB.nav.create({ grid })
 | `g` + letter | Go-to map (see §1) | Global, NORMAL only, never in editable targets, never with Ctrl/Alt/Meta |
 | `g g` | List cursor to first row, then **absolute page top** (both scroll containers, next frame) | Global |
 | `G` | Last row + **absolute page bottom** | Global |
-| `{` / `}` | Sidebar prev/next page | Global, NORMAL only |
+| `{` / `}` | ~~Sidebar prev/next page~~ — see 2026-09-19 correction below | Global, NORMAL only |
 | `h` / `l` | Horizontal tab prev/next (on `.tabs` pages) | Global, NORMAL only |
 | `j` / `k` | Table row prev/next (with visual focus) | Global, NORMAL only |
 | `Enter` | Activate focused row (follow link or click) | Global, NORMAL only |
@@ -150,11 +174,15 @@ For non-table surfaces (dashboard cards, report links). `FB.nav.create({ grid })
 
 **2026-09-01 update:** the `:`/Ctrl+K "Command palette" row above is removed — `:` command mode was fully retired (`global-search-spec.md`), leaving `/` as the sole summon key. Ctrl+K has no binding.
 
+**Correction (2026-09-19):** the `{`/`}` "Sidebar prev/next page" row above does not exist in the shipped app. `ia-restructure-spec.md` §0.1 (2026-08-11) already proved this by a full grep of every shipped public JS file for a `{`/`}` handler and found none, flagging it as stale — that correction was never carried into this file until now. `{`/`}` today only does anything on pages with a `.tabs` strip, where it switches tabs *within* that page (§3.2's tab-strip precedence, same behavior as `h`/`l` on tabbed pages); it does not cycle between top-level sidebar sections.
+
 **`g`-prefix dispatch semantics (fb-core `_dispatch`, capture phase):**
 - One pending-`g` state (500 ms window). Arming: bare `g` in NORMAL mode, never in editable targets, never with Ctrl/Alt/Meta, and only when no active page set claims `g`.
-- Second key resolves: `g` → gg, `c` → switcher, a registry `gKey` → navigate (`fbNavigate`, dirty-buffer leave-veto applies). Anything else cancels and falls through to normal dispatch.
+- Second key resolves: `g` → gg, `w` → switcher, a registry `gKey` → navigate (`fbNavigate`, dirty-buffer leave-veto applies). Anything else cancels and falls through to normal dispatch.
 
-**Company switcher (`g c`):** While open, owns EVERY key. `j`/`k`/`↓`/`↑` highlight (sticky at boundaries), `Enter` follows the highlighted anchor, `Esc` closes, `g c` toggles closed.
+**Company switcher (`g w`):** While open, owns EVERY key. `j`/`k`/`↓`/`↑` highlight (sticky at boundaries), `Enter` follows the highlighted anchor, `Esc` closes, `g w` toggles closed.
+
+> **2026-09-19 correction:** this section originally said `g c`. `docs/keyboard-ux-spec.md` §3 recorded a 2026-09-01 fix: `c` was taken by Calendar when Fiscal was renamed, so the switcher moved to `w`. Updated here to match.
 
 **Modal (`FB.modal`):** One modal app-wide. `Esc`/backdrop = cancel (NEVER confirms). Button letters per-modal, shown in the button (`Save w`). Type-to-confirm for destructive actions: `requiresConfirm` buttons stay disabled until the input matches exactly; `Enter` in the input fires it; the danger button carries NO letter key.
 
@@ -330,6 +358,8 @@ The Bank page and its page modules (`pages/bank.js`, `pages/bank-import.js`) wer
 
 `draft` → `posted` → `partial` → `paid` · `voided` (terminal, reversal journal posted)
 
+**Correction (2026-09-19):** `partial` is no longer a *stored* status value — commit `7a7b5e6` ("refactor: remove 'partial' as a stored bill status; derive it from amount_paid") removed it from the `bills.status` column; `db/schema.sql` carries a backfill comment confirming existing `'partial'` rows were migrated off it. `partial` is now a derived/computed display state (posted bill where `0 < amount_paid < amount`), not a value the `status` column ever holds. The lifecycle arrow above still describes the conceptual states correctly; only the storage mechanism changed.
+
 ### 7.3 Attachments
 
 Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `entity_type='journal'`/`batchId` → on reject/expire GC'd after 30-day grace (hard invariant: never touch `'journal'`-bound rows).
@@ -368,7 +398,7 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 | `gg`/`G` | First row / last row | Framework-level |
 | `?` | Which-key overlay | Global |
 | `/` | Focus topbar search | Global |
-| `:` | Command palette | Global |
+| ~~`:`~~ | ~~Command palette~~ — **removed (2026-09-19 correction):** `:` command mode was fully retired 2026-09-01 (`global-search-spec.md`); `/` is the sole summon key. This row is kept struck through rather than deleted since §9 is "ratified, frozen" — see §4's matching 2026-09-01 update. | Global |
 
 **Frozen surface:** No new keyboard verbs without explicit magnus ratification. The K-series keyboard program is complete.
 

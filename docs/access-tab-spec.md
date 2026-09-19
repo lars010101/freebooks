@@ -1,6 +1,6 @@
 # Admin → Access Tab — Spec (Option B, full scope)
 
-**Status:** PROPOSED
+**Status:** Shipped (2026-09-19 — verified against code). The API/UI mechanics below (`permissions.upsert`/`permissions.delete`, the FB.list config, the last-owner guard, `agent_pipeline_email`) all match `api/src/action-catalog.js` and `api/src/pages/settings.js` as built — but see §0's dated note: the tab landed in **Settings**, not Admin, because Admin was dissolved (2026-08-27 IA restructure 2) after this spec was written.
 **Scope:** New Admin tab (Companies · Operations · **Access**) for full CRUD over `user_permissions`; two new per-row server actions (`permissions.upsert`, `permissions.delete`); guardrails against lockout; small AI-tab tie-in.
 **Companions:** `fb-list-ux-spec.md` (the machine this tab runs on), `settings-ux-spec.md` §7 item 1 (origin of the "no admin page yet" note), `ia-restructure-spec.md` §3.4/§5.2 (Admin section shape; Centers precedent for retiring bulk-save actions), `settings-ai-flattened-spec.md` (open question #2, partially closed here), `agent-setup-guide.md` (the SQL workaround this tab replaces)
 **Consumers:** `api/src/index.js` (`handlePermissions`), `api/src/action-catalog.js`, `api/src/pages/admin-page.js`, `api/src/pages/settings.js` (AI tab, minor)
@@ -12,6 +12,8 @@
 The ticket frames this as "a new Settings tab," but the codebase has already ruled on where this lands. `settings-ux-spec.md` §7 item 1 explicitly deferred *"user/permission management"* to a future admin surface, and `ia-restructure-spec.md` (RATIFIED 2026-08-11) built that surface — **Admin** (`/:company/admin`) — and named user/role permission management as one of its parked, not-yet-built occupants (§3.4). Settings was deliberately slimmed to Company · Posting Rules · AI in the same restructure.
 
 So this spec adds **Access** as a third Admin tab: `Companies · Operations · Access`. Everything below is written against that placement. The tab itself (columns, FB.list config, guardrails) is portable to Settings if that's overruled — only the tab-strip wiring in `admin-page.js` vs `settings.js` changes.
+
+> **Overridden (2026-09-19 note, as built):** this placement call was overruled before ship. The 2026-08-27 IA restructure 2 dissolved Admin entirely (`admin-page.js` no longer exists), so Access landed as a Settings tab instead — `api/src/pages/settings.js` now reads `Company · Access · Extensions`, with a header comment "Access moved from dissolved Admin." Every mechanic below (FB.list config, `permissions.upsert`/`delete`, guardrails, `agent_pipeline_email`) shipped essentially as written — only the tab-strip host changed, exactly as the paragraph above anticipated could happen.
 
 ---
 

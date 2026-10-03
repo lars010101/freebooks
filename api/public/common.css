@@ -205,10 +205,24 @@ body {
   padding-bottom: 4px;
   margin-bottom: 6px;
 }
+/* Hint lists (? overlay NAVIGATION/actions columns, #sb-hints): a two-column
+   grid — key badge | description — so every badge in a list shares ONE column
+   width (the widest label) and descriptions always line up, however long a
+   key label gets. Each row is a subgrid spanning the container's two
+   columns; the old flex row with a per-badge min-width let a long label widen
+   only its own row and shove its description out of line. */
+.fb-keys-nav, .fb-keys-actions, #sb-hints {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 8px;
+  align-content: start;
+}
+.fb-keys-mode { grid-column: 1 / -1; }
 .fb-hint-row {
-  display: flex;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 8px;
   padding: 2.5px 0;
   font-size: 0.6875rem;
   color: var(--text-muted);
@@ -224,7 +238,7 @@ body {
   padding: 1px 5px;
   min-width: 34px;
   text-align: center;
-  flex-shrink: 0;
+  justify-self: start;   /* keep each badge its natural width; only the text column is shared */
 }
 .fb-keys-panel .fb-hint-row {
   color: var(--text-muted);

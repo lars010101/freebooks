@@ -4,7 +4,7 @@ Trimmed 2026-10-03. This doc began as hand-off notes for PR #293
 (`fix/keyboard-shortcuts-consolidation-pass`), which was never merged and
 whose branch no longer exists; `bill-post-payment-consolidation-spec.md`
 superseded its approach. Items below were re-checked against the code on
-that date. Only the two still-live ones are kept; each is tracked as a GitHub
+that date. Only the still-live items are kept; each is tracked as a GitHub
 issue (see headings).
 
 ## 1. Payables `I` key — still an open question (#299)
@@ -12,13 +12,6 @@ issue (see headings).
 `payables-bills.js` still binds `I` (NORMAL mode, "open in full editor",
 `paletteEligible: false`). Whether it is still needed now that `i`/`Enter`
 are consolidated was deferred and never investigated.
-
-## 2. Hint-bar `kbd` column can re-break alignment (#300)
-
-`.fb-hint-row kbd` in `common.css` uses `min-width: 34px` inside a flex
-row, so any future key label wider than that box breaks alignment the way
-"Enter"/"Space" once did (those now render as ↵/␣). A grid with a
-fixed-width first column would close this independent of label length.
 
 ## Resolved since the original notes (kept for the record)
 
@@ -34,3 +27,7 @@ fixed-width first column would close this independent of label length.
   mismatch: `api/src/inbox.js` merges `bill_draft` items into the queue
   (`queryBillDrafts`) and `api/src/pages/inbox.js` renders them as
   `_kind: 'transaction'` with `kind: 'bill'`.
+- **Hint-bar `kbd` column alignment (#300)** — fixed 2026-10-03: hint lists
+  are now a two-column grid (`.fb-keys-nav`/`.fb-keys-actions`/`#sb-hints`,
+  rows as subgrids in `common.css`), so descriptions align however long a key
+  label gets.
